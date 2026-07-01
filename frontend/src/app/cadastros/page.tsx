@@ -288,6 +288,42 @@ export default function CadastrosPage() {
       </header>
 
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-4 pb-24">
+        <Card className="border-primary/30 bg-primary/5 p-4">
+          <h2 className="mb-1 font-semibold">Template por ramo</h2>
+          <p className="mb-3 text-sm text-muted-foreground">
+            Cria setores, funções, etiquetas, tipos de ocorrência e itens de
+            estoque de uma vez — sem cadastrar tudo à mão.
+          </p>
+          {optU.length > 0 ? (
+            <EntityForm
+              key={`tpl-${ver}`}
+              submitLabel="Aplicar Food Service"
+              fields={
+                [
+                  {
+                    name: 'unidadeId',
+                    label: 'Unidade',
+                    type: 'select',
+                    required: true,
+                    options: optU,
+                    defaultValue: optU[0]?.value,
+                  },
+                ] as FieldDef[]
+              }
+              onSubmit={async (v) => {
+                await api.post('/onboarding/template', {
+                  unidadeId: v.unidadeId,
+                  ramo: 'food_service',
+                });
+                await reload();
+              }}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Crie uma unidade primeiro (seção abaixo).
+            </p>
+          )}
+        </Card>
         {secoes.map((sec) => (
           <Card key={sec.key} className="p-4">
             <h2 className="mb-3 font-semibold">{sec.titulo}</h2>

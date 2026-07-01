@@ -18,6 +18,7 @@ import { VistoriaModule } from './modules/vistoria/vistoria.module';
 import { EstoqueModule } from './modules/estoque/estoque.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OcorrenciaModule } from './modules/ocorrencia/ocorrencia.module';
+import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -41,6 +42,7 @@ import { AuthModule } from './auth/auth.module';
     EstoqueModule,
     DashboardModule,
     OcorrenciaModule,
+    OnboardingModule,
   ],
   controllers: [AppController],
 })
