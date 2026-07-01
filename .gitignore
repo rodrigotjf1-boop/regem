@@ -1,0 +1,17 @@
+# Dependências
+node_modules/
+
+# Ambiente / segredos
+.env
+.env.*
+
+# Build
+dist/
+build/
+
+# Logs
+*.log
+
+# SO / editor
+.DS_Store
+Thumbs.db
