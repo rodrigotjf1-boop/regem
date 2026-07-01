@@ -1,0 +1,17 @@
+# Render Blueprint — backend do Regen (API NestJS via Docker).
+# Frontend fica na Vercel; DB no Supabase.
+services:
+  - type: web
+    name: regen-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: DATABASE_URL   # connection string do Supabase (defina no dashboard)
+        sync: false
+      - key: JWT_SECRET     # segredo forte (defina no dashboard)
+        sync: false
+      - key: CORS_ORIGIN    # URL do frontend na Vercel (ex.: https://regen.vercel.app)
+        sync: false

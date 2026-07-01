@@ -5,8 +5,12 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  // CORS liberado para o front-end (dev). Em produção, restringir a origem.
-  app.enableCors();
+  // CORS: em produção, defina CORS_ORIGIN (uma ou mais origens separadas por vírgula).
+  // Sem a variável (dev), libera todas as origens.
+  const corsOrigin = process.env.CORS_ORIGIN;
+  app.enableCors(
+    corsOrigin ? { origin: corsOrigin.split(',').map((o) => o.trim()) } : {},
+  );
 
   // Prefixo versionado da API: /api/v1/*
   app.setGlobalPrefix('api/v1');
