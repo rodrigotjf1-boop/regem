@@ -1,7 +1,14 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { tarefaDef, tarefaInstancia, escalaAlocacao } from '../../db/schema';
+import {
+  tarefaDef,
+  tarefaInstancia,
+  escalaAlocacao,
+  etiqueta,
+  setor,
+  colaborador,
+} from '../../db/schema';
 import { InstanciarTarefaDto } from './dto/instanciar-tarefa.dto';
 import { ConcluirTarefaDto } from './dto/concluir-tarefa.dto';
 
@@ -55,6 +62,7 @@ export class TarefaInstanciaService {
     return row;
   }
 
+  // Lista enriquecida (título, setor, responsável) para a tela "Meu Dia".
   findAll(tenantId: string, data?: string) {
     const conds = [
       eq(tarefaInstancia.tenantId, tenantId),
@@ -62,8 +70,26 @@ export class TarefaInstanciaService {
     ];
     if (data) conds.push(eq(tarefaInstancia.data, data));
     return this.db
-      .select()
+      .select({
+        id: tarefaInstancia.id,
+        data: tarefaInstancia.data,
+        estado: tarefaInstancia.estado,
+        motivo: tarefaInstancia.motivo,
+        titulo: tarefaDef.titulo,
+        etiquetaSigla: etiqueta.sigla,
+        etiquetaContador: etiqueta.contador,
+        setorNome: setor.nome,
+        setorIcone: setor.icone,
+        colaboradorNome: colaborador.nome,
+      })
       .from(tarefaInstancia)
+      .leftJoin(tarefaDef, eq(tarefaInstancia.tarefaDefId, tarefaDef.id))
+      .leftJoin(etiqueta, eq(tarefaInstancia.etiquetaId, etiqueta.id))
+      .leftJoin(setor, eq(etiqueta.setorId, setor.id))
+      .leftJoin(
+        colaborador,
+        eq(tarefaInstancia.colaboradorResolvidoId, colaborador.id),
+      )
       .where(and(...conds));
   }
 
