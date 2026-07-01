@@ -39,6 +39,11 @@ export const api = {
     }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
+  etiquetas: () => req('/etiquetas'),
+  turnos: () => req('/turnos'),
+  colaboradores: () => req('/colaboradores'),
+  criarAlocacao: (body: Record<string, unknown>) =>
+    req('/escala', { method: 'POST', body: JSON.stringify(body) }),
   concluirTarefa: (id: string, estado: string, motivo?: string) =>
     req(`/tarefas-instancias/${id}/estado`, {
       method: 'PATCH',

@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
+import { LogOut, Plus, X } from 'lucide-react';
 import { api, clearToken, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
+import { NovaAlocacaoForm } from '@/components/escala/nova-alocacao-form';
 
 type Aloc = {
   id: string;
@@ -35,6 +36,7 @@ export default function EscalaPage() {
   const [itens, setItens] = useState<Aloc[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
+  const [show, setShow] = useState(false);
   const data = hoje();
 
   const carregar = useCallback(async () => {
@@ -87,13 +89,33 @@ export default function EscalaPage() {
               </p>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={sair} aria-label="Sair">
-            <LogOut className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShow((v) => !v)}
+              aria-label="Nova alocação"
+            >
+              {show ? <X className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={sair} aria-label="Sair">
+              <LogOut className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-2xl space-y-6 px-4 py-4 pb-24">
+        {show && (
+          <NovaAlocacaoForm
+            data={data}
+            onCancel={() => setShow(false)}
+            onCreated={() => {
+              setShow(false);
+              carregar();
+            }}
+          />
+        )}
         {loading && <p className="text-muted-foreground">Carregando…</p>}
         {erro && (
           <p role="alert" className="text-destructive">
