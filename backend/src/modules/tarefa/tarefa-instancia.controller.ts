@@ -34,7 +34,7 @@ export class TarefaInstanciaController {
   }
 
   @Patch(':id/estado')
-  @Roles('presidente', 'gerente', 'supervisao')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   concluir(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

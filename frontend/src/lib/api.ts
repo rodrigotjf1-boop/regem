@@ -40,6 +40,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, senha }),
     }),
+  pinLogin: (unidadeId: string, pin: string) =>
+    req('/auth/pin', {
+      method: 'POST',
+      body: JSON.stringify({ unidadeId, pin }),
+    }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
   etiquetas: () => req('/etiquetas'),

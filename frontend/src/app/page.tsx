@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api, setToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -84,6 +85,14 @@ export default function LoginPage() {
               {loading ? 'Entrando...' : 'Entrar'}
             </Button>
           </form>
+          <p className="mt-4 text-center text-sm">
+            <Link
+              href="/pin"
+              className="font-medium text-primary hover:underline"
+            >
+              Entrar com PIN (terminal)
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </main>

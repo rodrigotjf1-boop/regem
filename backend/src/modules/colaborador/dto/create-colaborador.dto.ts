@@ -1,4 +1,11 @@
-import { IsIn, IsOptional, IsString, IsUUID, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MinLength,
+} from 'class-validator';
 
 export class CreateColaboradorDto {
   @IsString()
@@ -12,4 +19,8 @@ export class CreateColaboradorDto {
   @IsOptional()
   @IsIn(['clt', 'horista', 'diarista', 'pj', 'autonomo'])
   vinculo?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4,6}$/, { message: 'PIN deve ter de 4 a 6 dígitos' })
+  pin?: string;
 }

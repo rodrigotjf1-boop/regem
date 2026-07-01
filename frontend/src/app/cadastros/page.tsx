@@ -173,12 +173,19 @@ export default function CadastrosPage() {
           options: VINCULOS,
           defaultValue: 'clt',
         },
+        {
+          name: 'pin',
+          label: 'PIN (opcional, 4-6 díg.)',
+          type: 'text',
+          placeholder: 'ex.: 1234',
+        },
       ] as FieldDef[],
       submit: (v: any) =>
         api.post('/colaboradores', {
           nome: v.nome,
           funcaoId: v.funcaoId || undefined,
           vinculo: v.vinculo,
+          pin: v.pin || undefined,
         }),
     },
     {

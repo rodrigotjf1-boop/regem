@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
+import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { colaborador } from '../../db/schema';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
@@ -23,6 +24,7 @@ export class ColaboradorService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   async create(tenantId: string, dto: CreateColaboradorDto) {
+    const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 10) : undefined;
     const [row] = await this.db
       .insert(colaborador)
       .values({
@@ -30,6 +32,7 @@ export class ColaboradorService {
         nome: dto.nome,
         funcaoId: dto.funcaoId,
         vinculo: dto.vinculo ?? 'clt',
+        pinHash,
       })
       .returning(publicCols);
     return row;
