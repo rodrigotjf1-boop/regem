@@ -16,6 +16,7 @@ import { DocumentoModule } from './modules/documento/documento.module';
 import { DesperdicioModule } from './modules/desperdicio/desperdicio.module';
 import { VistoriaModule } from './modules/vistoria/vistoria.module';
 import { EstoqueModule } from './modules/estoque/estoque.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -37,6 +38,7 @@ import { AuthModule } from './auth/auth.module';
     DesperdicioModule,
     VistoriaModule,
     EstoqueModule,
+    DashboardModule,
   ],
   controllers: [AppController],
 })

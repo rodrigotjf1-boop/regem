@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, CircleSlash, LogOut, MinusCircle, Plus, X } from 'lucide-react';
+import {
+  BarChart3,
+  Check,
+  CircleSlash,
+  LogOut,
+  MinusCircle,
+  Plus,
+  X,
+} from 'lucide-react';
 import { api, clearToken, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -104,6 +112,14 @@ export default function MeuDiaPage() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => router.push('/painel')}
+              aria-label="Painel"
+            >
+              <BarChart3 className="h-5 w-5" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"

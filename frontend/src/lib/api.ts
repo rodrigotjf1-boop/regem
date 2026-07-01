@@ -47,6 +47,7 @@ export const api = {
     }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
+  dashboard: (data: string) => req(`/dashboard?data=${data}`),
   etiquetas: () => req('/etiquetas'),
   turnos: () => req('/turnos'),
   colaboradores: () => req('/colaboradores'),
