@@ -32,6 +32,9 @@ async function req(path: string, options: RequestInit = {}) {
 }
 
 export const api = {
+  get: (path: string) => req(path),
+  post: (path: string, body: Record<string, unknown>) =>
+    req(path, { method: 'POST', body: JSON.stringify(body) }),
   login: (email: string, senha: string) =>
     req('/auth/login', {
       method: 'POST',

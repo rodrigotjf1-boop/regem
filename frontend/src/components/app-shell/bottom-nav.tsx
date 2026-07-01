@@ -2,12 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, ListChecks } from 'lucide-react';
+import { CalendarDays, ListChecks, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const items = [
   { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
   { href: '/escala', label: 'Escala', icon: CalendarDays },
+  { href: '/cadastros', label: 'Cadastros', icon: Settings },
 ];
 
 export function BottomNav() {
