@@ -38,6 +38,7 @@ export const api = {
       body: JSON.stringify({ email, senha }),
     }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
+  escalaDoDia: (data: string) => req(`/escala?data=${data}`),
   concluirTarefa: (id: string, estado: string, motivo?: string) =>
     req(`/tarefas-instancias/${id}/estado`, {
       method: 'PATCH',

@@ -7,6 +7,7 @@ import { api, clearToken, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
+import { BottomNav } from '@/components/app-shell/bottom-nav';
 
 type Tarefa = {
   id: string;
@@ -106,7 +107,7 @@ export default function MeuDiaPage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-2xl space-y-6 px-4 py-4">
+      <main className="mx-auto max-w-2xl space-y-6 px-4 py-4 pb-24">
         {loading && <p className="text-muted-foreground">Carregando…</p>}
         {erro && (
           <p role="alert" className="text-destructive">
@@ -175,6 +176,7 @@ export default function MeuDiaPage() {
           </section>
         ))}
       </main>
+      <BottomNav />
     </div>
   );
 }

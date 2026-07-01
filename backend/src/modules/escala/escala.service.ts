@@ -6,7 +6,13 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { escalaAlocacao, etiqueta, turno } from '../../db/schema';
+import {
+  escalaAlocacao,
+  etiqueta,
+  turno,
+  setor,
+  colaborador,
+} from '../../db/schema';
 import { CreateAlocacaoDto } from './dto/create-alocacao.dto';
 
 @Injectable()
@@ -82,6 +88,7 @@ export class EscalaService {
     }
   }
 
+  // Lista enriquecida (vaga, setor, turno, responsável) para a tela de Escala.
   findAll(tenantId: string, data?: string) {
     const conds = [
       eq(escalaAlocacao.tenantId, tenantId),
@@ -89,8 +96,22 @@ export class EscalaService {
     ];
     if (data) conds.push(eq(escalaAlocacao.data, data));
     return this.db
-      .select()
+      .select({
+        id: escalaAlocacao.id,
+        data: escalaAlocacao.data,
+        tipo: escalaAlocacao.tipo,
+        etiquetaSigla: etiqueta.sigla,
+        etiquetaContador: etiqueta.contador,
+        setorNome: setor.nome,
+        setorIcone: setor.icone,
+        turnoNome: turno.nome,
+        colaboradorNome: colaborador.nome,
+      })
       .from(escalaAlocacao)
+      .leftJoin(etiqueta, eq(escalaAlocacao.etiquetaId, etiqueta.id))
+      .leftJoin(setor, eq(etiqueta.setorId, setor.id))
+      .leftJoin(turno, eq(escalaAlocacao.turnoId, turno.id))
+      .leftJoin(colaborador, eq(escalaAlocacao.colaboradorId, colaborador.id))
       .where(and(...conds));
   }
 }
