@@ -42,8 +42,16 @@ export const api = {
   etiquetas: () => req('/etiquetas'),
   turnos: () => req('/turnos'),
   colaboradores: () => req('/colaboradores'),
+  unidades: () => req('/unidades'),
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
+  criarTarefaDef: (body: Record<string, unknown>) =>
+    req('/tarefas', { method: 'POST', body: JSON.stringify(body) }),
+  instanciarTarefa: (body: Record<string, unknown>) =>
+    req('/tarefas-instancias/instanciar', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   concluirTarefa: (id: string, estado: string, motivo?: string) =>
     req(`/tarefas-instancias/${id}/estado`, {
       method: 'PATCH',
