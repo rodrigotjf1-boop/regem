@@ -14,6 +14,18 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+// Lê a categoria da hierarquia do payload do JWT (para gates de UI).
+export function getCategoria(): string | null {
+  const t = getToken();
+  if (!t) return null;
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1] ?? ''));
+    return payload.cat ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function req(path: string, options: RequestInit = {}) {
   const token = getToken();
   const res = await fetch(`${BASE}${path}`, {

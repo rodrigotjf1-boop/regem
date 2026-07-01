@@ -366,6 +366,42 @@ export const itemEstoque = pgTable('item_estoque', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+export const tipoOcorrencia = pgTable('tipo_ocorrencia', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  sinal: text('sinal').notNull(),
+  pontos: integer('pontos').notNull().default(0),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const ocorrencia = pgTable('ocorrencia', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  colaboradorId: uuid('colaborador_id')
+    .notNull()
+    .references(() => colaborador.id, { onDelete: 'cascade' }),
+  tipoId: uuid('tipo_id'),
+  autorId: uuid('autor_id'),
+  sinal: text('sinal').notNull(),
+  pontos: integer('pontos').notNull().default(0),
+  gravidade: text('gravidade').notNull().default('leve'),
+  descricao: text('descricao'),
+  fotoRef: text('foto_ref'),
+  setorId: uuid('setor_id'),
+  status: text('status').notNull().default('vigente'),
+  data: date('data').notNull().default(sql`current_date`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const movimentoEstoque = pgTable('movimento_estoque', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
