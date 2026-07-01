@@ -11,6 +11,8 @@ import { TurnoModule } from './modules/turno/turno.module';
 import { EtiquetaModule } from './modules/etiqueta/etiqueta.module';
 import { EscalaModule } from './modules/escala/escala.module';
 import { TarefaModule } from './modules/tarefa/tarefa.module';
+import { ChecklistModule } from './modules/checklist/checklist.module';
+import { DocumentoModule } from './modules/documento/documento.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -27,6 +29,8 @@ import { AuthModule } from './auth/auth.module';
     EtiquetaModule,
     EscalaModule,
     TarefaModule,
+    ChecklistModule,
+    DocumentoModule,
   ],
   controllers: [AppController],
 })

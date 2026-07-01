@@ -223,3 +223,91 @@ export const tarefaInstancia = pgTable('tarefa_instancia', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
+
+export const checklist = pgTable('checklist', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id')
+    .notNull()
+    .references(() => unidade.id, { onDelete: 'cascade' }),
+  setorId: uuid('setor_id'),
+  nome: text('nome').notNull(),
+  versao: integer('versao').notNull().default(1),
+  estado: text('estado').notNull().default('rascunho'),
+  autorId: uuid('autor_id').references(() => colaborador.id),
+  aprovadorId: uuid('aprovador_id').references(() => colaborador.id),
+  aprovadoEm: timestamp('aprovado_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const checklistItem = pgTable('checklist_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  checklistId: uuid('checklist_id')
+    .notNull()
+    .references(() => checklist.id, { onDelete: 'cascade' }),
+  ordem: integer('ordem').notNull().default(0),
+  descricao: text('descricao').notNull(),
+  procedimento: text('procedimento'),
+  fotoRef: text('foto_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pop = pgTable('pop', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  checklistId: uuid('checklist_id')
+    .notNull()
+    .references(() => checklist.id, { onDelete: 'cascade' }),
+  versao: integer('versao').notNull(),
+  conteudoSnapshot: jsonb('conteudo_snapshot'),
+  publicadoEm: timestamp('publicado_em', { withTimezone: true }).notNull().defaultNow(),
+  pdfRef: text('pdf_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const documentoControlado = pgTable('documento_controlado', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id').references(() => unidade.id, {
+    onDelete: 'cascade',
+  }),
+  tipo: text('tipo').notNull(),
+  titulo: text('titulo').notNull(),
+  escopo: text('escopo'),
+  versao: integer('versao').notNull().default(1),
+  estado: text('estado').notNull().default('rascunho'),
+  conteudo: jsonb('conteudo'),
+  publicadoEm: timestamp('publicado_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const ciencia = pgTable('ciencia', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  colaboradorId: uuid('colaborador_id')
+    .notNull()
+    .references(() => colaborador.id, { onDelete: 'cascade' }),
+  documentoId: uuid('documento_id')
+    .notNull()
+    .references(() => documentoControlado.id, { onDelete: 'cascade' }),
+  versao: integer('versao').notNull(),
+  data: timestamp('data', { withTimezone: true }).notNull().defaultNow(),
+  assinaturaRef: text('assinatura_ref'),
+});
