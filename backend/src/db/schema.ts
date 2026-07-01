@@ -51,3 +51,34 @@ export const entitlement = pgTable(
     uqTenantModulo: unique().on(t.tenantId, t.modulo),
   }),
 );
+
+export const funcao = pgTable('funcao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  categoria: text('categoria').notNull().default('execucao'),
+  setorId: uuid('setor_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const colaborador = pgTable('colaborador', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  fotoRef: text('foto_ref'),
+  funcaoId: uuid('funcao_id').references(() => funcao.id),
+  vinculo: text('vinculo').notNull().default('clt'),
+  pinHash: text('pin_hash'),
+  email: text('email'),
+  senhaHash: text('senha_hash'),
+  status: text('status').notNull().default('ativo'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
