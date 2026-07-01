@@ -2,12 +2,19 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, FileText, ListChecks, Settings } from 'lucide-react';
+import {
+  Boxes,
+  CalendarDays,
+  FileText,
+  ListChecks,
+  Settings,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const items = [
   { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
   { href: '/escala', label: 'Escala', icon: CalendarDays },
+  { href: '/operacao', label: 'Operação', icon: Boxes },
   { href: '/docs', label: 'Docs', icon: FileText },
   { href: '/cadastros', label: 'Cadastros', icon: Settings },
 ];

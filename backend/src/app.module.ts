@@ -13,6 +13,9 @@ import { EscalaModule } from './modules/escala/escala.module';
 import { TarefaModule } from './modules/tarefa/tarefa.module';
 import { ChecklistModule } from './modules/checklist/checklist.module';
 import { DocumentoModule } from './modules/documento/documento.module';
+import { DesperdicioModule } from './modules/desperdicio/desperdicio.module';
+import { VistoriaModule } from './modules/vistoria/vistoria.module';
+import { EstoqueModule } from './modules/estoque/estoque.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -31,6 +34,9 @@ import { AuthModule } from './auth/auth.module';
     TarefaModule,
     ChecklistModule,
     DocumentoModule,
+    DesperdicioModule,
+    VistoriaModule,
+    EstoqueModule,
   ],
   controllers: [AppController],
 })

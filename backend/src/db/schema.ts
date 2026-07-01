@@ -1,9 +1,11 @@
+import { sql } from 'drizzle-orm';
 import {
   pgTable,
   uuid,
   text,
   boolean,
   integer,
+  numeric,
   timestamp,
   date,
   time,
@@ -310,4 +312,71 @@ export const ciencia = pgTable('ciencia', {
   versao: integer('versao').notNull(),
   data: timestamp('data', { withTimezone: true }).notNull().defaultNow(),
   assinaturaRef: text('assinatura_ref'),
+});
+
+export const desperdicio = pgTable('desperdicio', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  setorId: uuid('setor_id'),
+  colaboradorId: uuid('colaborador_id'),
+  descricao: text('descricao').notNull(),
+  quantidade: numeric('quantidade'),
+  unidadeMedida: text('unidade_medida'),
+  motivo: text('motivo'),
+  fotoRef: text('foto_ref'),
+  data: date('data').notNull().default(sql`current_date`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const vistoria = pgTable('vistoria', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  setorId: uuid('setor_id'),
+  colaboradorId: uuid('colaborador_id'),
+  tipo: text('tipo').notNull().default('padrao'),
+  data: date('data').notNull().default(sql`current_date`),
+  observacao: text('observacao'),
+  fotoRef: text('foto_ref'),
+  status: text('status').notNull().default('concluida'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const itemEstoque = pgTable('item_estoque', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  nome: text('nome').notNull(),
+  unidadeMedida: text('unidade_medida').notNull().default('un'),
+  estoqueMinimo: numeric('estoque_minimo').notNull().default('0'),
+  categoria: text('categoria'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const movimentoEstoque = pgTable('movimento_estoque', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  tipo: text('tipo').notNull(),
+  quantidade: numeric('quantidade').notNull(),
+  motivo: text('motivo'),
+  data: date('data').notNull().default(sql`current_date`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
