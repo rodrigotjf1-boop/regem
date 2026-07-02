@@ -152,8 +152,25 @@ export default function MeuDiaPage() {
           </p>
         )}
         {!loading && !erro && tarefas.length === 0 && (
-          <Card className="p-8 text-center text-muted-foreground">
-            Nenhuma tarefa para hoje.
+          <Card className="p-8 text-center">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/15">
+              <RegemMark className="h-7 w-7 text-foreground" />
+            </div>
+            <p className="font-display text-lg font-semibold">
+              Nada por aqui ainda
+            </p>
+            <p className="mx-auto mt-1 max-w-xs text-sm text-muted-foreground">
+              Configure sua operação (unidade, equipe, turnos) para montar a
+              escala e as tarefas do dia.
+            </p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
+              <Button onClick={() => router.push('/inicio')}>
+                Configurar operação
+              </Button>
+              <Button variant="outline" onClick={() => setShow(true)}>
+                <Plus className="h-4 w-4" /> Nova tarefa
+              </Button>
+            </div>
           </Card>
         )}
 

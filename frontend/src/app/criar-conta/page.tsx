@@ -28,7 +28,7 @@ export default function CriarContaPage() {
     try {
       const r = await api.register(form);
       setToken(r.access_token);
-      router.push('/meu-dia');
+      router.push('/inicio');
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao criar conta');
     } finally {
