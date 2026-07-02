@@ -93,6 +93,15 @@ export default function LoginPage() {
               Entrar com PIN (terminal)
             </Link>
           </p>
+          <p className="mt-2 text-center text-sm text-muted-foreground">
+            Não tem conta?{' '}
+            <Link
+              href="/criar-conta"
+              className="font-medium text-primary hover:underline"
+            >
+              Criar conta
+            </Link>
+          </p>
         </CardContent>
       </Card>
     </main>

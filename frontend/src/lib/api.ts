@@ -57,6 +57,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ unidadeId, pin }),
     }),
+  register: (body: {
+    empresaNome: string;
+    nome: string;
+    email: string;
+    senha: string;
+  }) => req('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
   dashboard: (data: string) => req(`/dashboard?data=${data}`),
