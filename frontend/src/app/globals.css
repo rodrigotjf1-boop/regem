@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -27,6 +28,27 @@
   --input: 220 38% 23%;
   --ring: 37 74% 57%;
   --radius: 0.75rem;
+  --ok: 165 78% 27%;   /* verdigris — status "saudável" */
+  --warn: 34 79% 57%;  /* âmbar — atenção */
+  --info: 205 56% 39%; /* azul — informativo */
+}
+
+/* Tema claro do app (layout Fable5 + acento dourado Regem) — escopado no Shell */
+.app-light {
+  --background: 210 27% 94%; /* #EDF0F4 canvas */
+  --foreground: 202 52% 12%; /* #0F2230 petróleo */
+  --card: 0 0% 100%;
+  --card-foreground: 202 52% 12%;
+  --secondary: 210 25% 97%;
+  --secondary-foreground: 202 30% 25%;
+  --muted: 210 25% 96%;
+  --muted-foreground: 205 16% 45%;
+  --border: 205 22% 89%;
+  --input: 205 22% 85%;
+  --radius: 0.625rem;
+  --font-sans: 'Figtree', system-ui, sans-serif;
+  --font-display: 'Archivo', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 @layer base {
@@ -41,5 +63,10 @@
   input[type='time']::-webkit-calendar-picker-indicator {
     filter: invert(0.85);
     cursor: pointer;
+  }
+  /* No tema claro o ícone volta ao normal */
+  .app-light input[type='date']::-webkit-calendar-picker-indicator,
+  .app-light input[type='time']::-webkit-calendar-picker-indicator {
+    filter: none;
   }
 }

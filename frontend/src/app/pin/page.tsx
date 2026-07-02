@@ -60,7 +60,7 @@ export default function PinPage() {
     try {
       const r = await api.pinLogin(unidadeId, pin);
       setToken(r.access_token);
-      router.push('/meu-dia');
+      router.push('/painel');
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha no PIN');
       setPin('');

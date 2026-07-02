@@ -124,7 +124,7 @@ export default function InicioPage() {
           </div>
           <button
             type="button"
-            onClick={() => router.push('/meu-dia')}
+            onClick={() => router.push('/painel')}
             className="text-sm text-muted-foreground hover:text-foreground"
           >
             Ir para o app
@@ -330,7 +330,7 @@ export default function InicioPage() {
                   turno(s)
                 </li>
               </ul>
-              <Button className="w-full" size="lg" onClick={() => router.push('/meu-dia')}>
+              <Button className="w-full" size="lg" onClick={() => router.push('/painel')}>
                 Ir para o app <ArrowRight className="h-4 w-4" />
               </Button>
             </div>

@@ -31,6 +31,9 @@ const config: Config = {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
         },
+        ok: 'hsl(var(--ok))',
+        warn: 'hsl(var(--warn))',
+        info: 'hsl(var(--info))',
       },
       borderRadius: {
         lg: 'var(--radius)',
