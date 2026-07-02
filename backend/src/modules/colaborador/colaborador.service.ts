@@ -30,6 +30,7 @@ export class ColaboradorService {
       .values({
         tenantId,
         nome: dto.nome,
+        fotoRef: dto.fotoRef,
         funcaoId: dto.funcaoId,
         vinculo: dto.vinculo ?? 'clt',
         pinHash,

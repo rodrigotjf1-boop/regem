@@ -171,6 +171,7 @@ export default function CadastrosPage() {
           required: true,
           placeholder: 'Ex.: Maria',
         },
+        { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
         {
           name: 'funcaoId',
           label: 'Função',
@@ -195,6 +196,7 @@ export default function CadastrosPage() {
       submit: (v: any) =>
         api.post('/colaboradores', {
           nome: v.nome,
+          fotoRef: v.fotoRef || undefined,
           funcaoId: v.funcaoId || undefined,
           vinculo: v.vinculo,
           pin: v.pin || undefined,

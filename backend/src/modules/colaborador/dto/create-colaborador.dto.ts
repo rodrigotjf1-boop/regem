@@ -13,6 +13,10 @@ export class CreateColaboradorDto {
   nome!: string;
 
   @IsOptional()
+  @IsString()
+  fotoRef?: string;
+
+  @IsOptional()
   @IsUUID()
   funcaoId?: string;
 
