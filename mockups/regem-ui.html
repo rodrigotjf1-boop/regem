@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regem — Administrador de Processos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============ TOKENS REGEM ============ */
+:root{
+  --canvas:#EDF0F4; --surface:#FFFFFF; --surface-2:#F6F8FA;
+  --ink:#0F2230; --ink-2:#3D5566; --ink-3:#7A8FA0;
+  --line:#DCE3E9; --line-2:#C6D0D9;
+  --primary:#E2A340;                 /* AÇÃO PRIMÁRIA / MARCA (dourado Regem) */
+  --primary-ink:#0F2230;
+  --ok:#0E7C66; --ok-soft:#E0F1EC;   /* status sucesso */
+  --warn:#E8A13C; --warn-soft:#FBEFDC;
+  --danger:#C2453A; --danger-soft:#F8E4E1;
+  --info:#2C6E9B; --info-soft:#E1EEF6;
+  --radius:10px; --radius-lg:14px;
+  --shadow:0 1px 2px rgba(15,34,48,.06),0 4px 16px rgba(15,34,48,.05);
+  --font-display:'Archivo',sans-serif; --font-body:'Figtree',sans-serif; --font-mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:15px}
+body{font-family:var(--font-body);background:var(--canvas);color:var(--ink);min-height:100vh}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+.app{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+.sidebar{background:var(--ink);color:#DCE7EE;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,.08)}
+.brand-mark{display:flex;align-items:center;gap:10px}
+.brand-logo{width:34px;height:34px;border-radius:9px;background:#12233b;display:grid;place-items:center;font-family:var(--font-display);font-weight:800;font-size:17px;color:var(--primary);border:1px solid var(--primary)}
+.brand-name{font-family:var(--font-display);font-weight:800;font-size:17px;letter-spacing:.04em;color:#fff}
+.brand-sub{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#7A99AC;margin-top:3px}
+.nav{padding:14px 10px;flex:1;overflow-y:auto}
+.nav-group-label{font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#5E7B8E;padding:14px 12px 6px}
+.nav-item{display:flex;align-items:center;gap:11px;width:100%;padding:9px 12px;border-radius:8px;color:#B9CBD7;font-size:13.5px;font-weight:500;text-align:left;transition:background .15s,color .15s;margin-bottom:2px}
+.nav-item svg{width:17px;height:17px;flex:none;opacity:.85}
+.nav-item:hover{background:rgba(255,255,255,.06);color:#fff}
+.nav-item.active{background:rgba(226,163,64,.22);color:#fff;box-shadow:inset 2px 0 0 var(--primary)}
+.nav-badge{margin-left:auto;font-family:var(--font-mono);font-size:10.5px;background:var(--primary);color:var(--primary-ink);font-weight:700;padding:1px 7px;border-radius:20px}
+.user-card{margin:10px;padding:12px;background:rgba(255,255,255,.05);border-radius:var(--radius);display:flex;gap:10px;align-items:center;cursor:pointer;transition:background .15s;text-align:left;width:calc(100% - 20px)}
+.user-card:hover{background:rgba(255,255,255,.1)}
+.avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#2C6E9B,#4A93C4);display:grid;place-items:center;font-weight:700;font-size:13px;color:#fff;flex:none}
+.user-name{font-size:13px;font-weight:600;color:#fff}
+.user-role{font-size:11px;color:#7A99AC;letter-spacing:.06em;text-transform:uppercase}
+.user-switch{margin-left:auto;font-size:15px;color:#7A99AC}
+
+.main{padding:0 28px 40px;min-width:0}
+.topbar{display:flex;align-items:center;gap:16px;padding:18px 0 16px;border-bottom:1px solid var(--line);margin-bottom:22px;flex-wrap:wrap}
+.page-eyebrow{font-family:var(--font-display);font-size:10.5px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--primary)}
+.page-title{font-family:var(--font-display);font-size:24px;font-weight:800;letter-spacing:-.01em}
+.topbar-right{margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.store-select{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;color:var(--ink-2)}
+.store-select .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.clock{font-family:var(--font-mono);font-size:13px;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 12px}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;transition:filter .15s}
+.btn:hover{filter:brightness(1.06)}
+.btn-primary{background:var(--primary);color:var(--primary-ink)}
+.btn-ghost{background:var(--surface);border:1px solid var(--line);color:var(--ink-2)}
+.btn-warn{background:var(--warn);color:#3A2A0C}
+
+.grid{display:grid;gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow)}
+.card-head{display:flex;align-items:center;gap:10px;padding:15px 18px 0}
+.card-title{font-family:var(--font-display);font-size:13px;font-weight:700;letter-spacing:.02em}
+.card-sub{font-size:12px;color:var(--ink-3)}
+.card-head .spacer{margin-left:auto}
+.card-body{padding:14px 18px 18px}
+.link{font-size:12.5px;font-weight:600;color:var(--info)}
+
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:18px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kpi-color,var(--ok))}
+.kpi-label{font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+.kpi-value{font-family:var(--font-mono);font-size:26px;font-weight:700;margin:5px 0 2px;letter-spacing:-.02em}
+.kpi-delta{font-size:12px;font-weight:600}
+.kpi-delta.up{color:var(--ok)} .kpi-delta.down{color:var(--danger)} .kpi-delta.flat{color:var(--ink-3)}
+
+.timeline-wrap{position:relative;padding:10px 0 4px}
+.tl-hours{display:grid;grid-template-columns:repeat(17,1fr);font-family:var(--font-mono);font-size:10px;color:var(--ink-3);margin-bottom:6px;padding-left:120px}
+.tl-row{display:grid;grid-template-columns:120px 1fr;align-items:center;margin-bottom:8px}
+.tl-sector{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);padding-right:12px}
+.tl-track{position:relative;height:34px;background:var(--surface-2);border-radius:7px;border:1px solid var(--line)}
+.tl-block{position:absolute;top:4px;bottom:4px;border-radius:5px;display:flex;align-items:center;gap:6px;padding:0 9px;font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;color:#fff;box-shadow:0 1px 3px rgba(15,34,48,.15)}
+.tl-block small{font-family:var(--font-mono);font-weight:500;opacity:.85;font-size:10px}
+.tl-block.b-ok{background:var(--ok)} .tl-block.b-info{background:var(--info)} .tl-block.b-warn{background:var(--warn);color:#3A2A0C} .tl-block.b-muted{background:#8DA3B2}
+.tl-now{position:absolute;top:-24px;bottom:-4px;width:2px;background:var(--danger);left:var(--now-pos,52%);z-index:2}
+.tl-now::before{content:"AGORA";position:absolute;top:0;left:50%;transform:translate(-50%,-2px);font-family:var(--font-mono);font-size:9px;font-weight:700;background:var(--danger);color:#fff;padding:1px 6px;border-radius:4px;letter-spacing:.08em}
+.tl-legend{display:flex;gap:16px;margin-top:12px;font-size:11.5px;color:var(--ink-2);flex-wrap:wrap}
+.tl-legend span{display:inline-flex;align-items:center;gap:6px}
+.leg-dot{width:10px;height:10px;border-radius:3px}
+
+.list{display:flex;flex-direction:column}
+.list-item{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.list-item:last-child{border-bottom:none}
+.li-icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;flex:none;font-size:14px}
+.li-title{font-size:13.5px;font-weight:600}
+.li-sub{font-size:12px;color:var(--ink-3)}
+.li-right{margin-left:auto;text-align:right}
+.tag{display:inline-block;font-family:var(--font-mono);font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:5px}
+.tag-ok{background:var(--ok-soft);color:var(--ok)}
+.tag-warn{background:var(--warn-soft);color:#8A5A10}
+.tag-danger{background:var(--danger-soft);color:var(--danger)}
+.tag-info{background:var(--info-soft);color:var(--info)}
+.tag-muted{background:var(--surface-2);color:var(--ink-3)}
+
+.rank-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.rank-item:last-child{border-bottom:none}
+.rank-pos{font-family:var(--font-mono);font-size:13px;font-weight:700;width:24px;color:var(--ink-3)}
+.rank-pos.gold{color:#B8860B}
+.rank-pts{margin-left:auto;font-family:var(--font-mono);font-weight:700;font-size:14px}
+.rank-pts.neg{color:var(--danger)}
+.rank-bar{height:5px;border-radius:3px;background:var(--surface-2);margin-top:5px;overflow:hidden}
+.rank-bar i{display:block;height:100%;background:var(--ok);border-radius:3px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-family:var(--font-display);font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--surface-2)}
+td .mono{font-family:var(--font-mono);font-size:12.5px}
+
+.week-grid{overflow-x:auto}.week-grid table{min-width:860px}
+.shift-chip{display:inline-flex;flex-direction:column;gap:1px;padding:6px 10px;border-radius:7px;font-size:11.5px;font-weight:600;line-height:1.25;min-width:88px}
+.shift-chip small{font-family:var(--font-mono);font-weight:500;font-size:10px;opacity:.8}
+.sc-morning{background:var(--info-soft);color:var(--info)} .sc-evening{background:#EFE6F7;color:#6B3FA0}
+.sc-full{background:var(--ok-soft);color:var(--ok)} .sc-off{background:var(--surface-2);color:var(--ink-3);font-weight:500}
+.emp-cell{display:flex;align-items:center;gap:10px}
+.emp-av{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
+.scale-pill{font-family:var(--font-mono);font-size:10px;background:var(--ink);color:#fff;padding:2px 7px;border-radius:4px;letter-spacing:.05em}
+
+.check-item{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.check-item:last-child{border-bottom:none}
+.checkbox{width:20px;height:20px;border-radius:6px;border:2px solid var(--line-2);flex:none;margin-top:2px;display:grid;place-items:center;transition:background .15s,border-color .15s}
+.checkbox.done{background:var(--ok);border-color:var(--ok)} .checkbox.done::after{content:"✓";color:#fff;font-size:12px;font-weight:700}
+.check-item.is-done .li-title{text-decoration:line-through;color:var(--ink-3)}
+.progress{height:7px;background:var(--surface-2);border-radius:4px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--ok);border-radius:4px;transition:width .3s}
+.sector-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.sector-tab{padding:8px 14px;border-radius:8px;font-size:12.5px;font-weight:600;background:var(--surface);border:1px solid var(--line);color:var(--ink-2)}
+.sector-tab.active{background:var(--ink);border-color:var(--ink);color:#fff}
+.resp-card{display:flex;align-items:center;gap:12px;background:var(--surface-2);border:1px dashed var(--line-2);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
+.resp-edit{margin-left:auto}
+
+.days-left{font-family:var(--font-mono);font-weight:700;font-size:12.5px}
+.dl-danger{color:var(--danger)} .dl-warn{color:#8A5A10} .dl-ok{color:var(--ok)}
+.mini-bar{width:90px;height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;display:inline-block;vertical-align:middle}
+.mini-bar i{display:block;height:100%;border-radius:3px}
+
+.price-chart{display:flex;align-items:flex-end;gap:10px;height:130px;padding:8px 4px 0}
+.price-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%;justify-content:flex-end}
+.price-col .bar{width:100%;max-width:44px;border-radius:6px 6px 0 0;background:var(--info)}
+.price-col .bar.best{background:var(--ok)} .price-col .bar.worst{background:var(--warn)}
+.price-col .val{font-family:var(--font-mono);font-size:11px;font-weight:700}
+.price-col .lbl{font-size:10.5px;color:var(--ink-3)}
+
+.switch{width:40px;height:22px;border-radius:12px;background:var(--line-2);position:relative;transition:background .2s;flex:none;border:none;cursor:pointer}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.switch.on{background:var(--ok)} .switch.on::after{left:21px}
+
+.ft-in{padding:6px 8px;border:1px solid var(--line-2);border-radius:6px;font-family:var(--font-mono);font-size:12.5px;color:var(--ink)}
+.ft-qty{width:74px}.ft-fc{width:64px}.ft-price{width:78px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.empty-state{text-align:center;padding:26px 18px;color:var(--ink-3);font-size:13px;background:var(--surface-2);border:1.5px dashed var(--line-2);border-radius:12px}
+.empty-state .es-icon{font-size:32px;display:block;margin-bottom:8px} .empty-state strong{color:var(--ink-2)}
+
+.login-overlay{position:fixed;inset:0;background:linear-gradient(150deg,#0F2230,#123240 60%,#0E2A3E);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-box{width:100%;max-width:760px;text-align:center}
+.login-brand{display:inline-flex;align-items:center;gap:12px;margin-bottom:8px}
+.login-logo{width:52px;height:52px;border-radius:14px;background:#12233b;display:grid;place-items:center;font-family:var(--font-display);font-weight:800;font-size:26px;color:var(--primary);border:1px solid var(--primary)}
+.login-title{font-family:var(--font-display);font-weight:800;font-size:28px;color:#fff;letter-spacing:.03em}
+.login-sub{color:#8FAABB;font-size:13.5px;margin-bottom:28px}
+.profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+.profile-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:22px 14px;color:#EAF2F7;text-align:center;transition:background .15s,transform .12s,border-color .15s}
+.profile-card:hover{background:rgba(226,163,64,.14);border-color:rgba(226,163,64,.5);transform:translateY(-3px)}
+.profile-card .pc-icon{font-size:30px;display:block;margin-bottom:10px}
+.profile-card .pc-name{font-family:var(--font-display);font-weight:800;font-size:14px}
+.profile-card .pc-desc{font-size:11px;color:#8FAABB;margin-top:5px;line-height:1.45}
+.login-note{margin-top:24px;font-size:11.5px;color:#5E7B8E}
+
+.toast-wrap{position:fixed;bottom:22px;right:22px;z-index:200;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+.toast{background:var(--ink);color:#fff;border-radius:10px;padding:11px 16px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(15,34,48,.35);display:flex;gap:9px;align-items:center;animation:toastIn .25s ease}
+.toast.t-ok{border-left:4px solid var(--ok)} .toast.t-warn{border-left:4px solid var(--warn)}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.toast.out{opacity:0;transform:translateY(8px);transition:all .3s}
+
+.icon-bell{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:15px}
+.bell-badge{position:absolute;top:-6px;right:-6px;background:var(--danger);color:#fff;font-family:var(--font-mono);font-size:9.5px;font-weight:700;padding:1px 6px;border-radius:10px}
+.notif-panel{position:absolute;top:calc(100% + 8px);right:0;width:340px;max-width:calc(100vw - 32px);background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 12px 40px rgba(15,34,48,.18);z-index:60;display:none;overflow:hidden}
+.notif-panel.open{display:block;animation:fadeIn .18s ease}
+.notif-head{display:flex;align-items:center;padding:13px 16px;border-bottom:1px solid var(--line);font-family:var(--font-display);font-size:12px;font-weight:700}
+.notif-head button{margin-left:auto;font-size:11.5px;color:var(--info);font-weight:600}
+.notif-body{max-height:320px;overflow-y:auto;padding:4px 16px}
+.store-wrap{position:relative}
+.store-menu{position:absolute;top:calc(100% + 8px);left:0;min-width:220px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 40px rgba(15,34,48,.18);z-index:60;display:none;padding:6px}
+.store-menu.open{display:block;animation:fadeIn .18s ease}
+.store-opt{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink-2);text-align:left}
+.store-opt:hover{background:var(--surface-2)} .store-opt.sel{color:var(--ok)} .store-opt .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.offline-chip{position:fixed;bottom:22px;left:22px;z-index:200;background:var(--warn);color:#3A2A0C;font-size:12.5px;font-weight:700;border-radius:10px;padding:10px 15px;box-shadow:0 8px 24px rgba(15,34,48,.3);display:none;align-items:center;gap:8px}
+.offline-chip.show{display:flex}
+
+.wz-steps{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:24px}
+.wz-dot{width:34px;height:34px;border-radius:50%;background:var(--surface-2);border:2px solid var(--line-2);display:grid;place-items:center;font-family:var(--font-mono);font-weight:700;font-size:13px;color:var(--ink-3)}
+.wz-dot.active{background:var(--primary);border-color:var(--primary);color:var(--primary-ink)}
+.wz-dot.done{background:var(--ok-soft);border-color:var(--ok);color:var(--ok)}
+.wz-steps i{flex:0 1 60px;height:2px;background:var(--line-2)}
+.wz-title{font-family:var(--font-display);font-size:17px;font-weight:800;text-align:center;margin-bottom:4px}
+.wz-sub{font-size:12.5px;color:var(--ink-3);text-align:center;margin-bottom:20px}
+.wz-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.ramo-card{border:2px solid var(--line);border-radius:14px;padding:20px 12px;text-align:center;transition:border-color .15s,background .15s;background:var(--surface)}
+.ramo-card:hover{border-color:var(--line-2)} .ramo-card.sel{border-color:var(--primary);background:rgba(226,163,64,.1)}
+.ramo-card .rc-icon{font-size:28px;display:block;margin-bottom:8px} .ramo-card .rc-name{font-family:var(--font-display);font-weight:700;font-size:13px}
+.chip-select{display:flex;flex-wrap:wrap;gap:9px;justify-content:center}
+.sel-chip{padding:9px 15px;border-radius:20px;border:1.5px solid var(--line-2);font-size:13px;font-weight:600;color:var(--ink-2);background:var(--surface);transition:all .15s}
+.sel-chip.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.wz-footer{display:flex;justify-content:space-between;margin-top:26px;padding-top:18px;border-top:1px solid var(--line)}
+
+.photo-slot{width:64px;height:64px;border-radius:8px;background:var(--surface-2);border:1.5px dashed var(--line-2);display:grid;place-items:center;color:var(--ink-3);font-size:20px}
+.sig-line{border-bottom:1.5px solid var(--line-2);height:44px;display:flex;align-items:flex-end;padding-bottom:4px;color:var(--ink-3);font-size:12px;font-style:italic}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.field label{display:block;font-family:var(--font-display);font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.field input,.field select,.field textarea{width:100%;padding:9px 12px;border:1px solid var(--line-2);border-radius:8px;font-family:var(--font-body);font-size:13.5px;color:var(--ink);background:var(--surface)}
+.field input:focus,.field select:focus,.field textarea:focus{outline:2px solid var(--info);border-color:var(--info)}
+
+.alert-strip{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;margin-bottom:18px}
+.alert-chip{flex:none;display:flex;align-items:center;gap:9px;background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.alert-chip.a-danger{border-left-color:var(--danger)} .alert-chip.a-info{border-left-color:var(--info)}
+.alert-chip .mono{font-family:var(--font-mono);font-size:11px;color:var(--ink-3)}
+
+.view{display:none;animation:fadeIn .25s ease} .view.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media(max-width:1100px){.kpi-row{grid-template-columns:repeat(2,1fr)}.grid-2,.grid-3,.grid-23{grid-template-columns:1fr!important}}
+@media(max-width:860px){.app{grid-template-columns:1fr}.sidebar{position:fixed;left:-260px;width:236px;z-index:50;transition:left .25s}.sidebar.open{left:0}.menu-btn{display:inline-flex!important}.main{padding:0 16px 32px}}
+.menu-btn{display:none;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.grid-2{grid-template-columns:1fr 1fr}.grid-3{grid-template-columns:1fr 1fr 1fr}.grid-23{grid-template-columns:2fr 1fr}
+</style>
+</head>
+<body>
+<!-- LOGIN / SELETOR DE PERFIL (RBAC — demonstração; no app real vem do login) -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div class="login-brand"><div class="login-logo">R</div><div class="login-title">REGEM</div></div>
+    <div class="login-sub">No comando de todo o negócio · escolha seu perfil para entrar</div>
+    <div class="profile-grid">
+      <button class="profile-card" data-role="presidente"><span class="pc-icon">👑</span><div class="pc-name">Presidente / C&amp;O</div><div class="pc-desc">Relatórios da rede, comparativo entre lojas, módulos e auditoria</div></button>
+      <button class="profile-card" data-role="gerente"><span class="pc-icon">🧭</span><div class="pc-name">Gerente</div><div class="pc-desc">Operação completa da loja — sem os relatórios da diretoria</div></button>
+      <button class="profile-card" data-role="supervisor"><span class="pc-icon">🎯</span><div class="pc-name">Supervisão</div><div class="pc-desc">Dados e cadastros do setor que supervisiona</div></button>
+      <button class="profile-card" data-role="colaborador"><span class="pc-icon">👤</span><div class="pc-name">Execução</div><div class="pc-desc">Escalas, tarefas e informações do processo · sem cadastros</div></button>
+    </div>
+    <div class="login-note">🔒 Demonstração de RBAC — na versão real o perfil vem do login e a API não retorna views não permitidas.</div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+<div class="offline-chip" id="offlineChip">📡 Offline — cadastros salvos localmente · sincroniza ao reconectar</div>
+
+<div class="app">
+<aside class="sidebar" id="sidebar">
+  <div class="brand"><div class="brand-mark"><div class="brand-logo">R</div><div><div class="brand-name">REGEM</div><div class="brand-sub">Controle total</div></div></div></div>
+  <nav class="nav">
+    <div class="nav-group-label">Operação</div>
+    <button class="nav-item active" data-view="dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg> Dashboard</button>
+    <button class="nav-item" data-view="escalas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4M16 2v4M3 10h18"/></svg> Escalas</button>
+    <button class="nav-item" data-view="tarefas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg> Tarefas &amp; Checklists <span class="nav-badge">4</span></button>
+    <button class="nav-item" data-view="estoque"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5v8l9 5 9-5V8z"/><path d="M3.5 8.5L12 13l8.5-4.5M12 13v8"/></svg> Estoque &amp; Produção</button>
+    <button class="nav-item" data-view="fichas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3c-1.5 0-2.7 1-3 2.4A3.5 3.5 0 006 12h12a3.5 3.5 0 00-3-6.6C14.7 4 13.5 3 12 3z"/><path d="M6 12v7a2 2 0 002 2h8a2 2 0 002-2v-7"/></svg> Fichas Técnicas</button>
+    <button class="nav-item" data-view="vistorias"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-5"/><path d="M12 2l8 3v7c0 5-3.5 8-8 10-4.5-2-8-5-8-10V5l8-3z"/></svg> Vistorias &amp; Qualidade</button>
+    <button class="nav-item" data-view="pop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h9l5 5v13a2 2 0 01-2 2H6a2 2 0 01-2-2V4a2 2 0 012-2z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg> POP &amp; Guias</button>
+    <div class="nav-group-label">Gestão</div>
+    <button class="nav-item" data-view="desempenho"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 01-10 0V4z"/></svg> Desempenho</button>
+    <button class="nav-item" data-view="ponto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> Pessoas &amp; Ponto</button>
+    <button class="nav-item" data-view="fornecedores"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 8h14v9H1zM15 11h4l4 4v2h-8z"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/></svg> Fornecedores</button>
+    <button class="nav-item" data-view="mural"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-7-7 18-2.5-7.5L3 11z"/></svg> Mural &amp; Clima</button>
+    <div class="nav-group-label" id="labelDiretoria">Diretoria</div>
+    <button class="nav-item" data-view="ceo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V10l7-6 7 6v11"/><path d="M9 21v-6h6v6"/></svg> Visão C&amp;O <span class="nav-badge" style="background:var(--info);color:#fff">C&amp;O</span></button>
+    <button class="nav-item" data-view="bot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="8" width="16" height="12" rx="3"/><path d="M12 8V4M8 4h8"/><circle cx="9" cy="13" r="1"/><circle cx="15" cy="13" r="1"/></svg> Bot de Suporte</button>
+    <button class="nav-item" data-view="wizard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2 5 5 .7-3.7 3.5.9 5.3L12 14l-4.2 2.5.9-5.3L5 7.7 10 7l2-5z"/></svg> Configuração Inicial</button>
+    <button class="nav-item" data-view="auditoria"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg> Log de Auditoria</button>
+  </nav>
+  <button class="user-card" id="userCard" title="Trocar perfil (RBAC)"><div class="avatar" id="userAvatar">RM</div><div><div class="user-name" id="userName">Renata Moura</div><div class="user-role" id="userRole">Gerente · Loja 01</div></div><span class="user-switch">⇄</span></button>
+</aside>
+
+<main class="main">
+  <div class="topbar">
+    <button class="menu-btn" id="menuBtn" aria-label="Abrir menu">☰</button>
+    <div><div class="page-eyebrow" id="pageEyebrow">Visão geral</div><div class="page-title" id="pageTitle">Dashboard Executivo</div></div>
+    <div class="topbar-right">
+      <div class="store-wrap">
+        <button class="store-select" id="storeBtn" aria-haspopup="listbox" aria-expanded="false"><span class="dot"></span> <span id="storeName">Loja 01 — Centro</span> <span style="color:var(--ink-3)">⌄</span></button>
+        <div class="store-menu" id="storeMenu" role="listbox">
+          <button class="store-opt sel" role="option"><span class="dot"></span> Loja 01 — Centro</button>
+          <button class="store-opt" role="option"><span class="dot"></span> Loja 02 — Barra</button>
+          <button class="store-opt" role="option"><span class="dot"></span> Loja 03 — Niterói</button>
+        </div>
+      </div>
+      <div class="clock" id="clock">--:--</div>
+      <div style="position:relative">
+        <button class="icon-bell" id="bellBtn" aria-label="Notificações" aria-haspopup="true" aria-expanded="false">🔔<span class="bell-badge" id="bellBadge">4</span></button>
+        <div class="notif-panel" id="notifPanel">
+          <div class="notif-head">Notificações <button id="notifClear">Marcar todas como lidas</button></div>
+          <div class="notif-body list" id="notifBody">
+            <div class="list-item"><div class="li-icon" style="background:var(--danger-soft)">🌡️</div><div><div class="li-title">Temperatura da Câmara 02 em atraso</div><div class="li-sub">Cozinha · há 2h · alerta no KDS</div></div></div>
+            <div class="list-item"><div class="li-icon" style="background:var(--warn-soft)">📦</div><div><div class="li-title">3 itens vencem em ≤ 2 dias (PVPS)</div><div class="li-sub">Estoque · hoje 08:00</div></div></div>
+            <div class="list-item"><div class="li-icon" style="background:var(--info-soft)">📈</div><div><div class="li-title">Hora extra de Júlia aguarda aprovação</div><div class="li-sub">Ponto · +1h 10 · ontem</div></div></div>
+          </div>
+          <div style="padding:14px 16px;display:none" id="notifEmpty"><div class="empty-state"><span class="es-icon">🎉</span><strong>Tudo em dia por aqui.</strong></div></div>
+        </div>
+      </div>
+      <button class="btn btn-primary">+ Nova tarefa</button>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <section class="view active" id="view-dashboard">
+    <div class="alert-strip">
+      <div class="alert-chip a-danger">⚠ Câmara fria 02 sem registro de temperatura <span class="mono">há 2h</span></div>
+      <div class="alert-chip">📦 3 itens vencem em ≤ 2 dias (PVPS) <span class="mono">estoque</span></div>
+      <div class="alert-chip a-info">🔥 Pico previsto às 12:00 — alerta KDS programado</div>
+      <div class="alert-chip">🧾 Recebimento pendente: Hortifruti Silva <span class="mono">2 itens "não veio"</span></div>
+    </div>
+    <div class="kpi-row">
+      <div class="kpi" style="--kpi-color:var(--ok)"><div class="kpi-label">Checklists do dia</div><div class="kpi-value">87<span style="font-size:15px;color:var(--ink-3)">%</span></div><div class="kpi-delta up">▲ 5% vs. ontem</div></div>
+      <div class="kpi" style="--kpi-color:var(--info)"><div class="kpi-label">Escalados hoje</div><div class="kpi-value">14<span style="font-size:15px;color:var(--ink-3)">/16</span></div><div class="kpi-delta flat">2 folgas (6x1)</div></div>
+      <div class="kpi" style="--kpi-color:var(--danger)"><div class="kpi-label">Desperdício (dia)</div><div class="kpi-value">R$ 142</div><div class="kpi-delta down">▲ 12% vs. média</div></div>
+      <div class="kpi" style="--kpi-color:var(--warn)"><div class="kpi-label">Pendências fornecedor</div><div class="kpi-value">5</div><div class="kpi-delta flat">2 fornecedores</div></div>
+      <div class="kpi" style="--kpi-color:var(--ok)"><div class="kpi-label">CMV parcial (mês)</div><div class="kpi-value">31,4<span style="font-size:15px;color:var(--ink-3)">%</span></div><div class="kpi-delta up">▼ 0,8 pp vs. meta</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-head"><div><div class="card-title">Linha do Tempo Operacional — Hoje</div><div class="card-sub">Quem está escalado e o que deveria estar em execução agora, por setor</div></div><div class="spacer"></div><button class="btn btn-ghost" style="padding:6px 12px">Exportar</button></div>
+      <div class="card-body">
+        <div class="timeline-wrap">
+          <div class="tl-hours"><span>06</span><span>07</span><span>08</span><span>09</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span></div>
+          <div style="position:relative"><div class="tl-now" id="tlNow"></div><div id="tlRows"></div></div>
+        </div>
+        <div class="tl-legend"><span><i class="leg-dot" style="background:var(--ok)"></i> Em dia</span><span><i class="leg-dot" style="background:var(--info)"></i> Em execução</span><span><i class="leg-dot" style="background:var(--warn)"></i> Atenção</span><span><i class="leg-dot" style="background:#8DA3B2"></i> Concluído</span></div>
+      </div>
+    </div>
+    <div class="grid grid-23">
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Tarefas em atraso ou atenção</div><div class="card-sub">Puxadas da escala do dia</div></div><div class="spacer"></div><a class="link" href="#" data-goto="tarefas">Ver todas →</a></div>
+        <div class="card-body list">
+          <div class="list-item"><div class="li-icon" style="background:var(--danger-soft)">🌡️</div><div><div class="li-title">Registro de temperatura — Câmara fria 02</div><div class="li-sub">Cozinha · resp. Aux. F. Nunes (12x36)</div></div><div class="li-right"><span class="tag tag-danger">2h atraso</span></div></div>
+          <div class="list-item"><div class="li-icon" style="background:var(--warn-soft)">🧽</div><div><div class="li-title">Limpeza de filtros de ar — Salão</div><div class="li-sub">Escala de limpeza · janela 14:30</div></div><div class="li-right"><span class="tag tag-warn">Aguardando</span></div></div>
+          <div class="list-item"><div class="li-icon" style="background:var(--info-soft)">🔍</div><div><div class="li-title">Vistoria de abertura — Bar</div><div class="li-sub">Concluída com 1 apontamento (foto)</div></div><div class="li-right"><span class="tag tag-info">Revisar</span></div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Ranking da equipe</div><div class="card-sub">Pontuação do mês · gamificação</div></div><div class="spacer"></div><a class="link" href="#" data-goto="desempenho">Detalhes →</a></div>
+        <div class="card-body">
+          <div class="rank-item"><div class="rank-pos gold">1º</div><div class="emp-av" style="background:#0E7C66">PL</div><div style="flex:1"><div class="li-title">Paulo Lima</div><div class="rank-bar"><i style="width:92%"></i></div></div><div class="rank-pts">+184</div></div>
+          <div class="rank-item"><div class="rank-pos">2º</div><div class="emp-av" style="background:#2C6E9B">JS</div><div style="flex:1"><div class="li-title">Júlia Souza</div><div class="rank-bar"><i style="width:78%"></i></div></div><div class="rank-pts">+156</div></div>
+          <div class="rank-item"><div class="rank-pos">12º</div><div class="emp-av" style="background:#C2453A">FN</div><div style="flex:1"><div class="li-title">Felipe Nunes</div><div class="rank-bar"><i style="width:8%;background:var(--danger)"></i></div></div><div class="rank-pts neg">−22</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ESCALAS -->
+  <section class="view" id="view-escalas">
+    <div class="grid grid-2" style="margin-bottom:16px">
+      <div class="card"><div class="card-head"><div><div class="card-title">Resumo da semana</div><div class="card-sub">29 jun — 05 jul · 16 colaboradores ativos</div></div></div>
+        <div class="card-body" style="display:flex;gap:22px;flex-wrap:wrap">
+          <div><div class="kpi-label">Escalas em uso</div><div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><span class="scale-pill">6x1</span><span class="scale-pill">5x2</span><span class="scale-pill">12x36</span><span class="scale-pill">DIARISTA</span></div></div>
+          <div><div class="kpi-label">Turnos cobertos</div><div class="kpi-value" style="font-size:22px">98<span style="font-size:13px;color:var(--ink-3)">%</span></div></div>
+          <div><div class="kpi-label">Buracos de escala</div><div class="kpi-value" style="font-size:22px;color:var(--danger)">1</div><div class="li-sub">Bar · sábado noite</div></div>
+        </div>
+      </div>
+      <div class="card"><div class="card-head"><div><div class="card-title">Ações rápidas</div></div></div>
+        <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary">+ Montar escala</button><button class="btn btn-ghost">Copiar semana anterior</button><button class="btn btn-ghost">Exportar PDF (POP)</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><div><div class="card-title">Grade semanal — todos os setores</div><div class="card-sub">Clique num turno para editar · a escala alimenta a delegação de tarefas</div></div></div>
+      <div class="card-body week-grid"><table>
+        <thead><tr><th style="min-width:190px">Colaborador</th><th>Seg 29</th><th>Ter 30</th><th>Qua 01</th><th>Qui 02</th><th>Sex 03</th><th>Sáb 04</th><th>Dom 05</th></tr></thead>
+        <tbody>
+          <tr><td><div class="emp-cell"><div class="emp-av" style="background:#0E7C66">PL</div><div><div class="li-title">Paulo Lima</div><div class="li-sub">Sous-chef · <span class="scale-pill">6x1</span></div></div></div></td>
+            <td><span class="shift-chip sc-full">Integral<small>08–17</small></span></td><td><span class="shift-chip sc-full">Integral<small>08–17</small></span></td><td><span class="shift-chip sc-full">Integral<small>08–17</small></span></td><td><span class="shift-chip sc-full">Integral<small>08–17</small></span></td><td><span class="shift-chip sc-full">Integral<small>08–17</small></span></td><td><span class="shift-chip sc-full">Integral<small>10–19</small></span></td><td><span class="shift-chip sc-off">Folga</span></td></tr>
+          <tr><td><div class="emp-cell"><div class="emp-av" style="background:#2C6E9B">JS</div><div><div class="li-title">Júlia Souza</div><div class="li-sub">Maître · <span class="scale-pill">5x2</span></div></div></div></td>
+            <td><span class="shift-chip sc-evening">Noite<small>16–00</small></span></td><td><span class="shift-chip sc-evening">Noite<small>16–00</small></span></td><td><span class="shift-chip sc-evening">Noite<small>16–00</small></span></td><td><span class="shift-chip sc-evening">Noite<small>16–00</small></span></td><td><span class="shift-chip sc-evening">Noite<small>16–00</small></span></td><td><span class="shift-chip sc-off">Folga</span></td><td><span class="shift-chip sc-off">Folga</span></td></tr>
+          <tr><td><div class="emp-cell"><div class="emp-av" style="background:#6B3FA0">MC</div><div><div class="li-title">Marcos Costa</div><div class="li-sub">Barman · <span class="scale-pill">6x1</span></div></div></div></td>
+            <td><span class="shift-chip sc-evening">Noite<small>15–23</small></span></td><td><span class="shift-chip sc-evening">Noite<small>15–23</small></span></td><td><span class="shift-chip sc-off">Folga</span></td><td><span class="shift-chip sc-evening">Noite<small>15–23</small></span></td><td><span class="shift-chip sc-evening">Noite<small>15–23</small></span></td><td><span class="shift-chip sc-evening" style="outline:2px solid var(--danger)">Descoberto<small>vaga aberta</small></span></td><td><span class="shift-chip sc-evening">Noite<small>15–23</small></span></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- TAREFAS -->
+  <section class="view" id="view-tarefas">
+    <div class="sector-tabs" id="sectorTabs"><button class="sector-tab active">Cozinha</button><button class="sector-tab">Salão &amp; Atendimento</button><button class="sector-tab">Bar</button><button class="sector-tab">Estoque</button></div>
+    <div class="grid grid-23">
+      <div class="card">
+        <div class="card-head"><div><div class="card-title">Checklist — Cozinha · Turno da manhã</div><div class="card-sub">Quinta, 02 jul · acompanhamento do gerente</div></div><div class="spacer"></div><span class="tag tag-ok" id="checkPct">5/8 concluídas</span></div>
+        <div class="card-body">
+          <div class="resp-card"><div class="emp-av" style="background:#0E7C66;width:38px;height:38px;font-size:13px">PL</div><div><div class="li-title">Paulo Lima — Sous-chef</div><div class="li-sub">Puxado da escala 6x1 · Integral 08–17 · Cozinha</div></div><button class="btn btn-ghost resp-edit" style="padding:6px 12px">↺ Editar responsável</button></div>
+          <div class="progress" style="margin-bottom:14px"><i id="checkBar" style="width:62%"></i></div>
+          <div class="empty-state" id="checkEmpty" hidden style="margin-bottom:14px"><span class="es-icon">🎉</span><strong>Checklist do turno completo!</strong></div>
+          <div id="checklist">
+            <div class="check-item is-done"><button class="checkbox done" aria-label="Concluir"></button><div style="flex:1"><div class="li-title">Vistoria inicial de abertura</div><div class="li-sub">06:55 · assinada · 2 fotos</div></div><span class="tag tag-muted">Tutorial</span></div>
+            <div class="check-item is-done"><button class="checkbox done" aria-label="Concluir"></button><div style="flex:1"><div class="li-title">Temperatura — Câmara fria 01</div><div class="li-sub">07:10 · 2,4 °C · padrão APPCC</div></div><span class="tag tag-muted">Tutorial</span></div>
+            <div class="check-item"><button class="checkbox" aria-label="Concluir"></button><div style="flex:1"><div class="li-title">Temperatura — Câmara fria 02</div><div class="li-sub" style="color:var(--danger)">Em atraso há 2h · alerta no KDS</div></div><span class="tag tag-danger">Atrasada</span></div>
+            <div class="check-item is-done"><button class="checkbox done" aria-label="Concluir"></button><div style="flex:1"><div class="li-title">Mise en place — linha do almoço</div><div class="li-sub">Ficha técnica v3 · etiquetas PVPS</div></div><span class="tag tag-muted">Tutorial</span></div>
+            <div class="check-item"><button class="checkbox" aria-label="Concluir"></button><div style="flex:1"><div class="li-title">Higienização de bancadas pós-almoço</div><div class="li-sub">Janela 14:30 (pós-pico)</div></div><span class="tag tag-muted">Tutorial</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card"><div class="card-head"><div><div class="card-title">Agora neste setor</div><div class="card-sub">O que deveria estar em execução</div></div></div>
+          <div class="card-body"><div class="li-title" style="font-size:15px">Linha do almoço</div><div class="li-sub" style="margin:4px 0 10px">11:30 — 14:30 · Cozinha</div><div class="resp-card" style="margin-bottom:0"><div class="emp-av" style="background:#0E7C66">PL</div><div><div class="li-title">Paulo Lima</div><div class="li-sub">Sous-chef · 6x1</div></div></div></div>
+        </div>
+        <div class="card"><div class="card-head"><div><div class="card-title">Tarefas de ociosidade</div><div class="card-sub">Baixa demanda? Adiante tarefas já escaladas</div></div></div>
+          <div class="card-body list"><div class="list-item"><div class="li-icon" style="background:var(--info-soft)">🧴</div><div><div class="li-title">Organizar praça de sobremesas</div><div class="li-sub">Escalada p/ 16:00 · pode adiantar</div></div><button class="btn btn-ghost li-right" style="padding:5px 11px">Puxar</button></div><div class="list-item"><div class="li-icon" style="background:var(--info-soft)">🏷️</div><div><div class="li-title">Imprimir etiquetas de amanhã</div><div class="li-sub">Escalada p/ 17:00 · pode adiantar</div></div><button class="btn btn-ghost li-right" style="padding:5px 11px">Puxar</button></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ESTOQUE -->
+  <section class="view" id="view-estoque">
+    <div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi" style="--kpi-color:var(--danger)"><div class="kpi-label">Vencem em ≤ 2 dias</div><div class="kpi-value">3</div><div class="kpi-delta down">Ação PVPS necessária</div></div>
+      <div class="kpi" style="--kpi-color:var(--warn)"><div class="kpi-label">Pedido antecipado</div><div class="kpi-value">7 <span style="font-size:14px;color:var(--ink-3)">itens</span></div><div class="kpi-delta flat">Sugestão p/ sexta</div></div>
+      <div class="kpi" style="--kpi-color:var(--info)"><div class="kpi-label">Contagem programada</div><div class="kpi-value" style="font-size:20px">Hoje 15:00</div><div class="kpi-delta flat">Seco + câmaras</div></div>
+      <div class="kpi" style="--kpi-color:var(--ok)"><div class="kpi-label">Acuracidade</div><div class="kpi-value">96,8<span style="font-size:15px;color:var(--ink-3)">%</span></div><div class="kpi-delta up">▲ 1,2 pp</div></div>
+    </div>
+    <div class="grid grid-23" style="margin-bottom:16px">
+      <div class="card"><div class="card-head"><div><div class="card-title">Verificador PVPS — Primeiro que Vence, Primeiro que Sai</div><div class="card-sub">Itens por proximidade de vencimento</div></div><div class="spacer"></div><button class="btn btn-ghost" style="padding:6px 12px">Exportar</button></div>
+        <div class="card-body" style="overflow-x:auto"><table>
+          <thead><tr><th>Item</th><th>Lote</th><th>Qtd.</th><th>Vence</th><th>Dias</th><th>Posição</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight:600">Creme de leite fresco</td><td class="mono">L-2481</td><td class="mono">6 un</td><td class="mono">04/07</td><td><span class="days-left dl-danger">2 d</span></td><td><span class="tag tag-danger">Fundo</span></td></tr>
+            <tr><td style="font-weight:600">Peito de frango</td><td class="mono">L-2477</td><td class="mono">8 kg</td><td class="mono">04/07</td><td><span class="days-left dl-danger">2 d</span></td><td><span class="tag tag-ok">Frente OK</span></td></tr>
+            <tr><td style="font-weight:600">Queijo mussarela</td><td class="mono">L-2465</td><td class="mono">4 kg</td><td class="mono">05/07</td><td><span class="days-left dl-warn">3 d</span></td><td><span class="tag tag-ok">Frente OK</span></td></tr>
+          </tbody>
+        </table></div>
+      </div>
+      <div class="card"><div class="card-head"><div><div class="card-title">Produção → Estoque</div><div class="card-sub">Demanda de amanhã × disponível</div></div></div>
+        <div class="card-body"><table><thead><tr><th>Ficha</th><th>Meta</th><th>Cobertura</th></tr></thead><tbody>
+          <tr><td>Molho base</td><td class="mono">20 un</td><td><span class="mini-bar"><i style="width:100%;background:var(--ok)"></i></span></td></tr>
+          <tr><td>Massa fresca</td><td class="mono">14 kg</td><td><span class="mini-bar"><i style="width:70%;background:var(--warn)"></i></span></td></tr>
+          <tr><td>Caldo de legumes</td><td class="mono">12 L</td><td><span class="mini-bar"><i style="width:35%;background:var(--danger)"></i></span></td></tr>
+        </tbody></table><button class="btn btn-primary" style="margin-top:14px;width:100%;justify-content:center">Emitir pedido antecipado</button></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-head"><div><div class="card-title">Recebimento de mercadorias</div><div class="card-sub">Foto da nota → dados extraídos → financeiro</div></div><div class="spacer"></div><button class="btn btn-primary">📷 Enviar foto da nota</button></div>
+      <div class="card-body" style="overflow-x:auto"><table><thead><tr><th>Fornecedor</th><th>Nota</th><th>Itens</th><th>Status</th><th>Faltas</th></tr></thead><tbody>
+        <tr><td><strong>Hortifruti Silva</strong></td><td class="mono">NF 48.211</td><td class="mono">18</td><td><span class="tag tag-warn">2 "não veio"</span></td><td class="mono">7,1%</td></tr>
+        <tr><td><strong>Frigorífico Boa Carne</strong></td><td class="mono">NF 10.937</td><td class="mono">6</td><td><span class="tag tag-warn">1 pendente</span></td><td class="mono">2,3%</td></tr>
+        <tr><td><strong>Distribuidora Laticínios RJ</strong></td><td class="mono">NF 77.402</td><td class="mono">11</td><td><span class="tag tag-ok">Conferido</span></td><td class="mono">0,0%</td></tr>
+      </tbody></table></div>
+    </div>
+  </section>
+
+  <!-- VISTORIAS -->
+  <section class="view" id="view-vistorias">
+    <div class="grid grid-2">
+      <div class="card"><div class="card-head"><div><div class="card-title">Nova vistoria / ocorrência</div><div class="card-sub">Abertura, fechamento ou desperdício</div></div></div>
+        <div class="card-body"><div class="form-grid">
+          <div class="field"><label>Nome da tarefa</label><input type="text" value="Vistoria final — Salão"></div>
+          <div class="field"><label>Tipo</label><select><option>Vistoria de fechamento</option><option>Vistoria de abertura</option><option>Desperdício</option></select></div>
+          <div class="field"><label>Data</label><input type="date" value="2026-07-02"></div>
+          <div class="field"><label>Hora</label><input type="time" value="16:45"></div>
+          <div class="field" style="grid-column:1/-1"><label>Observações</label><textarea rows="3" placeholder="Descreva o apontamento…"></textarea></div>
+          <div class="field"><label>Foto (obrigatória)</label><div style="display:flex;gap:10px"><button class="photo-slot" aria-label="Adicionar foto">＋</button><button class="photo-slot" aria-label="Adicionar foto">＋</button></div></div>
+          <div class="field"><label>Assinatura do responsável</label><div class="sig-line">Assine aqui</div></div>
+        </div><div style="display:flex;gap:10px;margin-top:18px"><button class="btn btn-primary">Salvar vistoria</button><button class="btn btn-ghost">Salvar offline</button></div></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card"><div class="card-head"><div><div class="card-title">Vistorias de hoje</div></div></div><div class="card-body list">
+          <div class="list-item"><div class="li-icon" style="background:var(--ok-soft)">✅</div><div><div class="li-title">Abertura — Cozinha</div><div class="li-sub">06:55 · Paulo Lima · assinada</div></div><span class="tag tag-ok li-right">OK</span></div>
+          <div class="list-item"><div class="li-icon" style="background:var(--warn-soft)">⏳</div><div><div class="li-title">Fechamento — Salão</div><div class="li-sub">Prevista 23:30 · Júlia Souza</div></div><span class="tag tag-warn li-right">Pendente</span></div>
+        </div></div>
+        <div class="card"><div class="card-head"><div><div class="card-title">Desperdícios recentes</div></div><div class="spacer"></div><span class="tag tag-danger">R$ 142 hoje</span></div><div class="card-body list">
+          <div class="list-item"><div class="li-icon" style="background:var(--danger-soft)">🥩</div><div><div class="li-title">Aparas de proteína fora do padrão</div><div class="li-sub">Cozinha · 13:10 · foto</div></div><span class="rank-pts neg li-right" style="font-size:13px">R$ 63,50</span></div>
+          <div class="list-item"><div class="li-icon" style="background:var(--danger-soft)">🍞</div><div><div class="li-title">Pães do serviço não utilizados</div><div class="li-sub">Salão · 15:02 · foto</div></div><span class="rank-pts neg li-right" style="font-size:13px">R$ 40,30</span></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DESEMPENHO -->
+  <section class="view" id="view-desempenho">
+    <div class="grid grid-23">
+      <div class="card"><div class="card-head"><div><div class="card-title">Ranking geral — Julho</div><div class="card-sub">Boas ações somam · erros descontam (pode ficar negativo)</div></div><div class="spacer"></div><button class="btn btn-primary" style="padding:6px 12px">+ Registrar ocorrência</button></div>
+        <div class="card-body" style="overflow-x:auto"><table><thead><tr><th>#</th><th>Colaborador</th><th>Setor</th><th>Boas</th><th>Erros</th><th>Pontos</th></tr></thead><tbody>
+          <tr><td class="mono" style="color:#B8860B;font-weight:700">1º</td><td><div class="emp-cell"><div class="emp-av" style="background:#0E7C66">PL</div><strong>Paulo Lima</strong></div></td><td>Cozinha</td><td class="mono" style="color:var(--ok)">+23</td><td class="mono" style="color:var(--danger)">−2</td><td class="mono" style="font-weight:700">+184</td></tr>
+          <tr><td class="mono">2º</td><td><div class="emp-cell"><div class="emp-av" style="background:#2C6E9B">JS</div><strong>Júlia Souza</strong></div></td><td>Salão</td><td class="mono" style="color:var(--ok)">+19</td><td class="mono" style="color:var(--danger)">−1</td><td class="mono" style="font-weight:700">+156</td></tr>
+          <tr><td class="mono">12º</td><td><div class="emp-cell"><div class="emp-av" style="background:#C2453A">FN</div><strong>Felipe Nunes</strong></div></td><td>Cozinha</td><td class="mono" style="color:var(--ok)">+4</td><td class="mono" style="color:var(--danger)">−9</td><td class="mono" style="font-weight:700;color:var(--danger)">−22</td></tr>
+        </tbody></table></div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card"><div class="card-head"><div><div class="card-title">Ocorrências recentes</div></div></div><div class="card-body list">
+          <div class="list-item"><div class="li-icon" style="background:var(--ok-soft)">⭐</div><div><div class="li-title">Elogio de cliente registrado</div><div class="li-sub">Júlia Souza · 12:40</div></div><span class="rank-pts li-right" style="color:var(--ok);font-size:13px">+10</span></div>
+          <div class="list-item"><div class="li-icon" style="background:var(--danger-soft)">🌡️</div><div><div class="li-title">Temperatura em atraso</div><div class="li-sub">Felipe Nunes · 10:30</div></div><span class="rank-pts neg li-right" style="font-size:13px">−6</span></div>
+        </div></div>
+        <div class="card"><div class="card-head"><div><div class="card-title">Regras de premiação</div></div></div><div class="card-body list">
+          <div class="list-item"><div class="li-icon" style="background:var(--ok-soft)">🏆</div><div><div class="li-title">1º lugar do mês</div><div class="li-sub">Bônus em folha</div></div><span class="tag tag-ok li-right">≥ 150 pts</span></div>
+          <div class="list-item"><div class="li-icon" style="background:var(--warn-soft)">📉</div><div><div class="li-title">Pontuação negativa</div><div class="li-sub">Guia POP + treinamento</div></div><span class="tag tag-warn li-right">&lt; 0 pts</span></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- POP & GUIAS -->
+  <section class="view" id="view-pop">
+    <div class="grid grid-23" style="margin-bottom:16px">
+      <div class="card"><div class="card-head"><div><div class="card-title">Cadastro de Guia Operacional — POP</div><div class="card-sub">Por setor/função · exportável em PDF</div></div><div class="spacer"></div><button class="btn btn-primary" style="padding:6px 12px">Salvar POP</button></div>
+        <div class="card-body"><div class="form-grid">
+          <div class="field"><label>Ramo</label><select><option>Restaurante / Food Service</option><option>Varejo</option></select></div>
+          <div class="field"><label>Setor</label><select><option>Brigada de Cozinha</option><option>Salão</option></select></div>
+          <div class="field"><label>Função vinculada</label><select><option>Cozinheiro de Linha</option><option>Sous-chef</option></select></div>
+          <div class="field"><label>Frequência</label><select><option>Diária</option><option>Por turno</option><option>Semanal</option></select></div>
+          <div class="field" style="grid-column:1/-1"><label>Título</label><input type="text" value="POP-COZ-004 — Higienização de bancadas"></div>
+        </div>
+        <div style="margin-top:18px"><div class="card-title" style="margin-bottom:4px">Passos do procedimento</div><div class="card-sub" style="margin-bottom:12px">Cada passo pode receber foto ou vídeo tutorial</div>
+          <div class="check-item"><span class="tag tag-muted" style="margin-top:2px">1</span><div style="flex:1"><div class="li-title">Remover resíduos sólidos com espátula</div><div class="li-sub">📷 Foto anexada</div></div></div>
+          <div class="check-item"><span class="tag tag-muted" style="margin-top:2px">2</span><div style="flex:1"><div class="li-title">Lavar com detergente neutro e enxaguar</div><div class="li-sub">🎬 Vídeo (0:42)</div></div></div>
+          <div class="check-item"><span class="tag tag-muted" style="margin-top:2px">3</span><div style="flex:1"><div class="li-title">Aplicar sanitizante (200 ppm), aguardar 10 min</div><div class="li-sub">Sem anexo</div></div></div>
+          <button class="btn btn-ghost" style="margin-top:10px">+ Adicionar passo</button></div>
+        </div>
+      </div>
+      <div class="card"><div class="card-head"><div><div class="card-title">Guias cadastrados — Cozinha</div></div></div><div class="card-body list">
+        <div class="list-item"><div class="li-icon" style="background:var(--ok-soft)">📄</div><div><div class="li-title">POP-COZ-001 — Abertura</div><div class="li-sub">v2 · 12/06</div></div><span class="tag tag-ok li-right">Ativo</span></div>
+        <div class="list-item"><div class="li-icon" style="background:var(--ok-soft)">📄</div><div><div class="li-title">POP-COZ-002 — Mise en place</div><div class="li-sub">v3 · 20/06</div></div><span class="tag tag-ok li-right">Ativo</span></div>
+        <div class="list-item"><div class="li-icon" style="background:var(--warn-soft)">📄</div><div><div class="li-title">POP-COZ-004 — Higienização</div><div class="li-sub">Em edição</div></div><span class="tag tag-warn li-right">Rascunho</span></div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- FICHAS TÉCNICAS -->
+  <section class="view" id="view-fichas">
+    <div class="grid grid-23" style="margin-bottom:16px">
+      <div class="card"><div class="card-head"><div><div class="card-title">Nova ficha técnica — FT-021</div><div class="card-sub">Padroniza a produção · alimenta o CMV e as compras</div></div><div class="spacer"></div><button class="btn btn-primary" style="padding:6px 12px">Salvar ficha</button></div>
+        <div class="card-body"><div class="form-grid">
+          <div class="field" style="grid-column:1/-1"><label>Nome</label><input type="text" value="Molho base de tomate"></div>
+          <div class="field"><label>Rendimento</label><input type="number" id="ftRend" value="10" min="1"></div>
+          <div class="field"><label>Unidade</label><select><option>porções</option><option>kg</option><option>litros</option></select></div>
+        </div>
+        <div style="margin-top:20px"><div class="card-title" style="margin-bottom:4px">Ingredientes e custo</div><div class="card-sub" style="margin-bottom:12px">FC = fator de correção · edite e veja o custo recalcular</div>
+          <div style="overflow-x:auto"><table id="ftTable"><thead><tr><th>Insumo</th><th>Qtd.</th><th>Un.</th><th>FC</th><th>Custo/un</th><th>Total</th><th></th></tr></thead><tbody>
+            <tr><td><strong>Tomate italiano</strong></td><td><input class="ft-in ft-qty" type="number" value="4.5" step="0.1"></td><td>kg</td><td><input class="ft-in ft-fc" type="number" value="1.15" step="0.01"></td><td><input class="ft-in ft-price" type="number" value="6.90" step="0.01"></td><td class="mono ft-total" style="font-weight:700">—</td><td><button class="btn btn-ghost ft-del" style="padding:4px 9px">✕</button></td></tr>
+            <tr><td><strong>Cebola</strong></td><td><input class="ft-in ft-qty" type="number" value="0.8" step="0.1"></td><td>kg</td><td><input class="ft-in ft-fc" type="number" value="1.20" step="0.01"></td><td><input class="ft-in ft-price" type="number" value="4.50" step="0.01"></td><td class="mono ft-total" style="font-weight:700">—</td><td><button class="btn btn-ghost ft-del" style="padding:4px 9px">✕</button></td></tr>
+            <tr><td><strong>Azeite extravirgem</strong></td><td><input class="ft-in ft-qty" type="number" value="0.2" step="0.05"></td><td>L</td><td><input class="ft-in ft-fc" type="number" value="1.00" step="0.01"></td><td><input class="ft-in ft-price" type="number" value="38.00" step="0.01"></td><td class="mono ft-total" style="font-weight:700">—</td><td><button class="btn btn-ghost ft-del" style="padding:4px 9px">✕</button></td></tr>
+          </tbody></table></div><button class="btn btn-ghost" style="margin-top:10px">+ Adicionar insumo</button></div>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--ok);height:fit-content"><div class="card-head"><div><div class="card-title">Custo calculado</div><div class="card-sub">Atualiza em tempo real</div></div></div>
+        <div class="card-body">
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px"><span style="color:var(--ink-3)">Custo total dos insumos</span><span class="mono" id="ftCustoTotal" style="font-weight:700">—</span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px"><span style="color:var(--ink-3)">Custo por porção</span><span class="mono" id="ftCustoPorcao" style="font-weight:700;color:var(--ok);font-size:16px">—</span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 0 4px"><div class="field" style="flex:1"><label>Preço de venda</label><input type="number" id="ftVenda" value="14.90" step="0.10"></div><div style="text-align:center;flex:1"><div class="kpi-label">CMV do item</div><div class="kpi-value" id="ftCmv" style="font-size:26px;margin:2px 0">—</div><span class="tag" id="ftCmvTag">—</span></div></div>
+          <div class="li-sub" style="margin-top:8px">Meta de CMV: até <strong>31,5%</strong>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- PESSOAS & PONTO -->
+  <section class="view" id="view-ponto">
+    <div class="kpi-row" style="grid-template-columns:repeat(4,1fr)">
+      <div class="kpi" style="--kpi-color:var(--ok)"><div class="kpi-label">Presentes agora</div><div class="kpi-value">11<span style="font-size:15px;color:var(--ink-3)">/14</span></div><div class="kpi-delta flat">3 aguardando turno</div></div>
+      <div class="kpi" style="--kpi-color:var(--warn)"><div class="kpi-label">Atrasos hoje</div><div class="kpi-value">1</div><div class="kpi-delta flat">12 min · justificado</div></div>
+      <div class="kpi" style="--kpi-color:var(--info)"><div class="kpi-label">Horas extras (semana)</div><div class="kpi-value">6h 40</div><div class="kpi-delta flat">3 colaboradores</div></div>
+      <div class="kpi" style="--kpi-color:var(--danger)"><div class="kpi-label">Pendências de ajuste</div><div class="kpi-value">2</div><div class="kpi-delta flat">Aguardando</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px"><div class="card-head"><div><div class="card-title">Espelho de ponto — Hoje, quinta 02 jul</div><div class="card-sub">Jornada real × escala prevista</div></div></div>
+      <div class="card-body" style="overflow-x:auto"><table><thead><tr><th>Colaborador</th><th>Escala</th><th>Entrada</th><th>Interv.</th><th>Retorno</th><th>Saída</th><th>Extras</th><th>Status</th></tr></thead><tbody>
+        <tr><td><div class="emp-cell"><div class="emp-av" style="background:#0E7C66">PL</div>Paulo Lima</div></td><td class="mono">08–17</td><td class="mono" style="color:var(--ok)">07:54</td><td class="mono">12:02</td><td class="mono">13:00</td><td class="mono" style="color:var(--ink-3)">—</td><td class="mono">—</td><td><span class="tag tag-ok">Em jornada</span></td></tr>
+        <tr><td><div class="emp-cell"><div class="emp-av" style="background:#C2453A">FN</div>Felipe Nunes</div></td><td class="mono">07–19</td><td class="mono" style="color:#8A5A10">07:12</td><td class="mono">11:30</td><td class="mono">12:30</td><td class="mono" style="color:var(--ink-3)">—</td><td class="mono">—</td><td><span class="tag tag-warn">Atraso 12 min</span></td></tr>
+        <tr><td><div class="emp-cell"><div class="emp-av" style="background:#2C6E9B">JS</div>Júlia Souza (ontem)</div></td><td class="mono">16–00</td><td class="mono" style="color:var(--ok)">15:55</td><td class="mono">19:30</td><td class="mono">20:15</td><td class="mono">01:10</td><td class="mono" style="color:var(--info);font-weight:700">+1h10</td><td><span class="tag tag-info">Extra p/ aprovar</span></td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="grid grid-2">
+      <div class="card"><div class="card-head"><div><div class="card-title">Pendências de ajuste</div><div class="card-sub">Trilha de auditoria registrada</div></div></div><div class="card-body list">
+        <div class="list-item"><div class="li-icon" style="background:var(--info-soft)">📈</div><div><div class="li-title">Júlia Souza — hora extra 01/07 (+1h10)</div><div class="li-sub">Fechamento estendido · aprovação do gerente</div></div><div class="li-right" style="display:flex;gap:8px"><button class="btn btn-primary" style="padding:5px 12px">Aprovar</button><button class="btn btn-ghost" style="padding:5px 12px">Recusar</button></div></div>
+      </div></div>
+      <div class="card"><div class="card-head"><div><div class="card-title">Terminais de ponto</div></div><div class="spacer"></div><button class="btn btn-ghost" style="padding:6px 12px">+ Parear</button></div><div class="card-body list">
+        <div class="list-item"><div class="li-icon" style="background:var(--ok-soft)">🖥️</div><div><div class="li-title">PONTO-ENTRADA-01</div><div class="li-sub">Tablet · MAC A4:6E:2C:91:0B:7D · online</div></div><span class="tag tag-ok li-right">Ativo</span></div>
+        <div class="list-item"><div class="li-icon" style="background:var(--warn-soft)">🖥️</div><div><div class="li-title">PONTO-COZINHA-02</div><div class="li-sub">Sem sinal há 3h · fila offline</div></div><span class="tag tag-warn li-right">Offline</span></div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- FORNECEDORES -->
+  <section class="view" id="view-fornecedores">
+    <div class="card" style="margin-bottom:16px"><div class="card-head"><div><div class="card-title">Fornecedores cadastrados</div><div class="card-sub">Índice de faltas alimentado pelos "não veio" do recebimento</div></div><div class="spacer"></div><button class="btn btn-primary" style="padding:6px 12px">+ Cadastrar</button></div>
+      <div class="card-body" style="overflow-x:auto"><table><thead><tr><th>Fornecedor</th><th>Categoria</th><th>Prazo</th><th>Faltas</th><th>Status</th></tr></thead><tbody>
+        <tr><td><strong>Hortifruti Silva</strong></td><td>Hortifruti</td><td class="mono">1 dia</td><td><span class="mini-bar"><i style="width:71%;background:var(--warn)"></i></span> <span class="mono">7,1%</span></td><td><span class="tag tag-warn">Atenção</span></td></tr>
+        <tr><td><strong>Verdes do Vale</strong></td><td>Hortifruti</td><td class="mono">2 dias</td><td><span class="mini-bar"><i style="width:12%;background:var(--ok)"></i></span> <span class="mono">1,2%</span></td><td><span class="tag tag-ok">Confiável</span></td></tr>
+        <tr><td><strong>Frigorífico Boa Carne</strong></td><td>Proteínas</td><td class="mono">1 dia</td><td><span class="mini-bar"><i style="width:23%;background:var(--ok)"></i></span> <span class="mono">2,3%</span></td><td><span class="tag tag-ok">Confiável</span></td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="grid grid-2">
+      <div class="card"><div class="card-head"><div><div class="card-title">Histórico de preços — Tomate italiano (kg)</div><div class="card-sub">Últimos 6 meses · pelas notas de recebimento</div></div></div>
+        <div class="card-body"><div class="price-chart">
+          <div class="price-col"><span class="val">5,80</span><div class="bar" style="height:58%"></div><span class="lbl">FEV</span></div>
+          <div class="price-col"><span class="val">5,40</span><div class="bar best" style="height:52%"></div><span class="lbl">ABR</span></div>
+          <div class="price-col"><span class="val">6,10</span><div class="bar" style="height:62%"></div><span class="lbl">MAI</span></div>
+          <div class="price-col"><span class="val">7,30</span><div class="bar worst" style="height:80%"></div><span class="lbl">JUN</span></div>
+          <div class="price-col"><span class="val">6,90</span><div class="bar" style="height:73%"></div><span class="lbl">JUL</span></div>
+        </div><div class="li-sub" style="margin-top:12px">📈 Alta de <strong>19%</strong> vs. abril · variações acima de 15% alertam gerente e diretoria.</div></div>
+      </div>
+      <div class="card"><div class="card-head"><div><div class="card-title">Comparação entre fornecedores</div></div></div><div class="card-body">
+        <div style="display:flex;gap:10px;align-items:center;background:var(--ok-soft);border-radius:9px;padding:11px 14px"><span style="font-size:18px">💡</span><div style="font-size:12.5px;color:var(--ink-2)">Trocar o tomate para <strong>Verdes do Vale</strong> economiza <strong class="mono">≈ R$ 218/mês</strong>, com faltas 6× menor.</div><button class="btn btn-primary" style="margin-left:auto;padding:6px 12px;flex:none">Cotar</button></div>
+      </div></div>
+    </div>
+  </section>
+
+  <!-- MURAL & CLIMA -->
+  <section class="view" id="view-mural">
+    <div class="grid grid-23">
+      <div class="card"><div class="card-head"><div><div class="card-title">Feed do mural</div><div class="card-sub">Confirmação de leitura rastreável</div></div><div class="spacer"></div><button class="btn btn-primary" style="padding:6px 12px">Publicar</button></div>
+        <div class="card-body list">
+          <div class="list-item" style="align-items:flex-start"><div class="li-icon" style="background:var(--warn-soft)">📌</div><div style="flex:1"><div class="li-title">Inventário geral neste sábado — chegar 1h antes <span class="tag tag-warn">Fixado</span></div><div class="li-sub">Renata Moura (Gerente) · hoje 09:12 · Toda a loja</div></div><span class="tag tag-ok li-right">✓ 11/14 leram</span></div>
+          <div class="list-item" style="align-items:flex-start"><div class="li-icon" style="background:var(--ok-soft)">🎉</div><div style="flex:1"><div class="li-title">Parabéns ao Paulo Lima — 1º lugar de junho!</div><div class="li-sub">Renata Moura · ontem 18:40 · Toda a loja</div></div><span class="tag tag-ok li-right">✓ 14/14 leram</span></div>
+        </div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--info);height:fit-content"><div class="card-head"><div><div class="card-title">Pesquisa de clima — Julho</div><div class="card-sub">Anônima · 9/14 responderam</div></div></div>
+        <div class="card-body"><div style="display:flex;flex-direction:column;gap:9px">
+          <div><div style="display:flex;justify-content:space-between;font-size:12.5px"><span>😄 Muito bom</span><span class="mono" style="font-weight:700">5</span></div><div class="progress" style="margin-top:3px"><i style="width:56%"></i></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:12.5px"><span>🙂 Bom</span><span class="mono" style="font-weight:700">3</span></div><div class="progress" style="margin-top:3px"><i style="width:33%"></i></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:12.5px"><span>😐 Regular</span><span class="mono" style="font-weight:700">1</span></div><div class="progress" style="margin-top:3px"><i style="width:11%;background:var(--warn)"></i></div></div>
+        </div><div class="li-sub" style="margin-top:10px">🔒 Anônima (LGPD) · diretoria vê só o consolidado.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VISÃO C&O (restrito) -->
+  <section class="view" id="view-ceo">
+    <div class="alert-strip"><div class="alert-chip a-info">🔒 Área restrita — Presidente / C&amp;O · gerentes não visualizam</div><div class="alert-chip a-danger">📄 Licença sanitária Loja 03 vence em 18 dias</div></div>
+    <div class="kpi-row">
+      <div class="kpi" style="--kpi-color:var(--ok)"><div class="kpi-label">Faturamento rede (mês)</div><div class="kpi-value">R$ 612k</div><div class="kpi-delta up">▲ 8,2% vs. jun</div></div>
+      <div class="kpi" style="--kpi-color:var(--info)"><div class="kpi-label">CMV consolidado</div><div class="kpi-value">32,1<span style="font-size:15px;color:var(--ink-3)">%</span></div><div class="kpi-delta down">▲ 0,4 pp vs. meta</div></div>
+      <div class="kpi" style="--kpi-color:var(--danger)"><div class="kpi-label">Desperdício rede</div><div class="kpi-value">R$ 4,3k</div><div class="kpi-delta down">▲ 6% vs. jun</div></div>
+      <div class="kpi" style="--kpi-color:var(--warn)"><div class="kpi-label">Faltas fornecedores</div><div class="kpi-value">3,8<span style="font-size:15px;color:var(--ink-3)">%</span></div><div class="kpi-delta up">▼ 1,1 pp</div></div>
+      <div class="kpi" style="--kpi-color:var(--ok)"><div class="kpi-label">Aderência checklists</div><div class="kpi-value">89<span style="font-size:15px;color:var(--ink-3)">%</span></div><div class="kpi-delta up">▲ 3 pp</div></div>
+    </div>
+    <div class="card" style="margin-bottom:16px"><div class="card-head"><div><div class="card-title">Comparativo entre lojas — Julho</div></div><div class="spacer"></div><button class="btn btn-ghost" style="padding:6px 12px">Exportar Excel</button></div>
+      <div class="card-body" style="overflow-x:auto"><table><thead><tr><th>Loja</th><th>Gerente</th><th>Faturamento</th><th>CMV</th><th>Checklists</th><th>Status</th></tr></thead><tbody>
+        <tr><td><strong>Loja 01 — Centro</strong></td><td><div class="emp-cell"><div class="emp-av" style="background:#2C6E9B">RM</div>Renata Moura</div></td><td class="mono">R$ 248k</td><td class="mono">31,4%</td><td><span class="mini-bar"><i style="width:87%;background:var(--ok)"></i></span> 87%</td><td><span class="tag tag-ok">Acima da meta</span></td></tr>
+        <tr><td><strong>Loja 02 — Barra</strong></td><td><div class="emp-cell"><div class="emp-av" style="background:#0E7C66">CA</div>Carlos Assis</div></td><td class="mono">R$ 214k</td><td class="mono">32,0%</td><td><span class="mini-bar"><i style="width:92%;background:var(--ok)"></i></span> 92%</td><td><span class="tag tag-ok">Acima da meta</span></td></tr>
+        <tr><td><strong>Loja 03 — Niterói</strong></td><td><div class="emp-cell"><div class="emp-av" style="background:#8A5A10">DP</div>Denise Prado</div></td><td class="mono">R$ 150k</td><td class="mono">33,9%</td><td><span class="mini-bar"><i style="width:78%;background:var(--warn)"></i></span> 78%</td><td><span class="tag tag-warn">Plano de ação</span></td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="card"><div class="card-head"><div><div class="card-title">Módulos do produto</div><div class="card-sub">Ligar/desligar por rede ou loja · só Presidente</div></div></div>
+      <div class="card-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+        <div style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:13px 15px"><div class="li-icon" style="background:var(--ok-soft);width:38px;height:38px;font-size:17px">📱</div><div style="flex:1"><div class="li-title">App do Colaborador</div></div><button class="switch on" role="switch" aria-checked="true" aria-label="App"></button></div>
+        <div style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:13px 15px"><div class="li-icon" style="background:var(--ok-soft);width:38px;height:38px;font-size:17px">🖥️</div><div style="flex:1"><div class="li-title">KDS de Alertas</div></div><button class="switch on" role="switch" aria-checked="true" aria-label="KDS"></button></div>
+        <div style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:13px 15px"><div class="li-icon" style="background:var(--ok-soft);width:38px;height:38px;font-size:17px">🕐</div><div style="flex:1"><div class="li-title">Terminal de Ponto</div></div><button class="switch on" role="switch" aria-checked="true" aria-label="Ponto"></button></div>
+        <div style="display:flex;gap:12px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:13px 15px;opacity:.75"><div class="li-icon" style="background:var(--surface-2);width:38px;height:38px;font-size:17px">🤖</div><div style="flex:1"><div class="li-title">Bot / IA</div></div><button class="switch" role="switch" aria-checked="false" aria-label="Bot"></button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BOT -->
+  <section class="view" id="view-bot">
+    <div class="alert-strip"><div class="alert-chip a-info">🔒 Respostas predefinidas editáveis só pelo Proprietário / C&amp;O</div><div class="alert-chip">🤖 38 atendimentos hoje · 5 escalados</div></div>
+    <div class="grid grid-23">
+      <div class="card"><div class="card-head"><div><div class="card-title">Respostas predefinidas por tipo</div><div class="card-sub">O bot identifica palavras-chave e responde</div></div><div class="spacer"></div><button class="btn btn-primary" style="padding:6px 12px">+ Nova regra</button></div>
+        <div class="card-body" style="overflow-x:auto"><table><thead><tr><th>Tipo</th><th>Gatilhos</th><th>Escala p/ gerente</th><th>Ativa</th></tr></thead><tbody>
+          <tr><td><strong>Pedido atrasado</strong></td><td><span class="tag tag-muted">atraso</span> <span class="tag tag-muted">demorando</span></td><td><span class="tag tag-warn">Se &gt; 15 min</span></td><td><button class="switch on" role="switch" aria-checked="true" aria-label="r1"></button></td></tr>
+          <tr><td><strong>Alergias / ingredientes</strong></td><td><span class="tag tag-muted">alergia</span> <span class="tag tag-muted">glúten</span></td><td><span class="tag tag-danger">Sempre</span></td><td><button class="switch on" role="switch" aria-checked="true" aria-label="r2"></button></td></tr>
+          <tr><td><strong>Reservas</strong></td><td><span class="tag tag-muted">reserva</span> <span class="tag tag-muted">mesa</span></td><td><span class="tag tag-muted">Grupos 8+</span></td><td><button class="switch on" role="switch" aria-checked="true" aria-label="r3"></button></td></tr>
+        </tbody></table></div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column"><div class="card-head"><div><div class="card-title">Testar o bot</div></div></div>
+        <div class="card-body" style="flex:1;display:flex;flex-direction:column">
+          <div id="botChat" style="flex:1;min-height:200px;max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px"><div style="align-self:flex-start;background:var(--ink);color:#fff;border-radius:12px 12px 12px 3px;padding:9px 13px;font-size:12.5px;max-width:85%">Olá! 👋 Sou o assistente da Regem. Como posso ajudar?</div></div>
+          <div style="display:flex;gap:8px"><input id="botInput" type="text" placeholder='Tente: "meu pedido está atrasado"' style="flex:1;padding:9px 12px;border:1px solid var(--line-2);border-radius:8px;font-family:var(--font-body);font-size:13px"><button class="btn btn-primary" id="botSend">Enviar</button></div>
+          <div class="li-sub" style="margin-top:8px">Gatilhos: atraso · alergia · cancelar · reserva · obrigado</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- WIZARD -->
+  <section class="view" id="view-wizard">
+    <div class="card" style="max-width:840px;margin:0 auto"><div class="card-body" style="padding:28px 30px">
+      <div class="wz-steps"><span class="wz-dot active" id="wzd1">1</span><i></i><span class="wz-dot" id="wzd2">2</span><i></i><span class="wz-dot" id="wzd3">3</span><i></i><span class="wz-dot" id="wzd4">4</span></div>
+      <div class="wz-panel" id="wz1"><div class="wz-title">Qual o ramo da empresa?</div><div class="wz-sub">O Regem sugere setores, funções e tarefas padrão — tudo editável depois</div><div class="wz-grid" id="wzRamos"></div></div>
+      <div class="wz-panel" id="wz2" hidden><div class="wz-title">Setores sugeridos</div><div class="wz-sub">Toque para incluir ou remover</div><div class="chip-select" id="wzSetores"></div></div>
+      <div class="wz-panel" id="wz3" hidden><div class="wz-title">Funções que mais se qualificam</div><div class="wz-sub">Cada função poderá receber POPs e escalas próprias</div><div class="chip-select" id="wzFuncoes"></div></div>
+      <div class="wz-panel" id="wz4" hidden><div class="wz-title">Modelos de escala</div><div class="wz-sub">Selecione os que sua operação utiliza</div><div class="chip-select" id="wzEscalas"></div><div class="empty-state" id="wzResumo" style="margin-top:22px;text-align:left"></div></div>
+      <div class="wz-footer"><button class="btn btn-ghost" id="wzBack" disabled>← Voltar</button><button class="btn btn-primary" id="wzNext">Avançar ▸</button></div>
+    </div></div>
+  </section>
+
+  <!-- AUDITORIA -->
+  <section class="view" id="view-auditoria">
+    <div class="card"><div class="card-head" style="flex-wrap:wrap;gap:12px"><div><div class="card-title">Log de auditoria</div><div class="card-sub">Quem fez o quê e quando · registro imutável</div></div><div class="spacer"></div>
+      <select id="audType" style="padding:8px 11px;border:1px solid var(--line-2);border-radius:8px;font-family:var(--font-body);font-size:12.5px;color:var(--ink)"><option value="">Todas as ações</option><option>Escala</option><option>Ponto</option><option>Recebimento</option><option>Checklist</option><option>Módulos</option></select>
+      <input id="audSearch" type="search" placeholder="Buscar usuário ou detalhe…" style="padding:8px 12px;border:1px solid var(--line-2);border-radius:8px;font-family:var(--font-body);font-size:12.5px;min-width:210px"></div>
+      <div class="card-body" style="overflow-x:auto"><table id="audTable"><thead><tr><th>Data / Hora</th><th>Usuário</th><th>Tipo</th><th>Ação</th><th>Origem</th></tr></thead><tbody>
+        <tr data-type="Módulos"><td class="mono">02/07 14:02</td><td><strong>Antônio Vieira</strong> <span class="tag tag-info">C&amp;O</span></td><td>Módulos</td><td>Desativou o módulo <strong>Bot / IA</strong> na rede</td><td class="mono">Web · Visão C&amp;O</td></tr>
+        <tr data-type="Ponto"><td class="mono">02/07 13:40</td><td><strong>Renata Moura</strong> <span class="tag tag-ok">Gerente</span></td><td>Ponto</td><td>Aprovou hora extra de <strong>Júlia Souza</strong> (+1h10)</td><td class="mono">Web · Ponto</td></tr>
+        <tr data-type="Escala"><td class="mono">02/07 11:15</td><td><strong>Renata Moura</strong> <span class="tag tag-ok">Gerente</span></td><td>Escala</td><td>Alterou turno de <strong>Tainá Reis</strong> — sáb 04/07</td><td class="mono">Web · Escalas</td></tr>
+        <tr data-type="Recebimento"><td class="mono">02/07 08:20</td><td><strong>Paulo Lima</strong> <span class="tag tag-warn">Supervisão</span></td><td>Recebimento</td><td>Marcou 2 itens <strong>"não veio"</strong> — NF 48.211</td><td class="mono">Mobile</td></tr>
+      </tbody></table><div style="padding:14px 0 0;display:none" id="audEmpty"><div class="empty-state"><span class="es-icon">🔎</span><strong>Nenhum registro encontrado.</strong></div></div>
+      <div class="li-sub" style="margin-top:12px">🔒 Registros não podem ser editados ou apagados · retenção conforme LGPD.</div></div>
+    </div>
+  </section>
+
+</main>
+</div>
+
+<script>
+const meta={dashboard:['Visão geral','Dashboard Executivo'],escalas:['Gestão de pessoas','Escalas da Semana'],tarefas:['Operação diária','Tarefas & Checklists'],estoque:['Produção','Estoque & Recebimento'],fichas:['Produção','Fichas Técnicas'],vistorias:['Qualidade','Vistorias & Desperdícios'],pop:['Capacitação','POP & Guias'],ceo:['Diretoria · restrito','Visão Presidente / C&O'],ponto:['Gestão de pessoas','Jornada & Ponto'],fornecedores:['Compras','Fornecedores & Preços'],mural:['Comunicação','Mural & Clima'],bot:['Diretoria','Bot de Suporte'],wizard:['Onboarding','Configuração por Ramo'],auditoria:['Segurança','Log de Auditoria'],desempenho:['Gamificação','Desempenho da Equipe']};
+let activeView='dashboard';
+function goTo(view){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  const el=document.getElementById('view-'+view); if(!el)return;
+  el.classList.add('active'); activeView=view;
+  document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.view===view));
+  document.getElementById('pageEyebrow').textContent=meta[view][0];
+  document.getElementById('pageTitle').textContent=meta[view][1];
+  document.getElementById('sidebar').classList.remove('open'); window.scrollTo({top:0});
+}
+document.querySelectorAll('.nav-item').forEach(b=>b.addEventListener('click',()=>goTo(b.dataset.view)));
+document.querySelectorAll('[data-goto]').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();goTo(a.dataset.goto)}));
+document.getElementById('menuBtn').addEventListener('click',()=>document.getElementById('sidebar').classList.toggle('open'));
+
+/* Relógio + linha AGORA */
+function tick(){const d=new Date();document.getElementById('clock').textContent=d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});const h=d.getHours()+d.getMinutes()/60;const pct=Math.min(98,Math.max(1,((h-6)/16)*100));const now=document.getElementById('tlNow');if(now)now.style.setProperty('--now-pos',pct+'%');}
+tick(); setInterval(tick,30000);
+
+/* Timeline por dados (contrato da API) */
+const TIMELINE_DATA=[
+ {setor:'Cozinha',blocos:[{ini:6.3,fim:10.5,rot:'Mise en place',quem:'C. Andrade',st:'ok'},{ini:10.8,fim:16.2,rot:'Linha do almoço',quem:'P. Lima',st:'exec'},{ini:16.6,fim:21.4,rot:'Produção jantar',quem:'C. Andrade',st:'ok'}]},
+ {setor:'Salão',blocos:[{ini:7.3,fim:9.9,rot:'Abertura / vistoria',quem:'J. Souza',st:'feito'},{ini:10.2,fim:16.2,rot:'Atendimento almoço',quem:'4 garçons',st:'exec'},{ini:16.6,fim:18.5,rot:'Limpeza pós-pico',quem:'',st:'atencao'}]},
+ {setor:'Bar',blocos:[{ini:9.2,fim:12.7,rot:'Prep guarnições',quem:'T. Reis',st:'ok'},{ini:13.0,fim:21.3,rot:'Serviço',quem:'M. Costa',st:'exec'}]},
+ {setor:'Estoque',blocos:[{ini:6.6,fim:8.9,rot:'Recebimento',quem:'2 pendências',st:'atencao'},{ini:14.3,fim:16.9,rot:'Contagem',quem:'',st:'ok'}]}
+];
+const TL_START=6,TL_SPAN=16,TL_CLASS={ok:'b-ok',exec:'b-info',atencao:'b-warn',feito:'b-muted'};
+function renderTimeline(){const wrap=document.getElementById('tlRows');if(!wrap)return;
+  wrap.innerHTML=TIMELINE_DATA.map(s=>`<div class="tl-row"><div class="tl-sector">${s.setor}</div><div class="tl-track">${s.blocos.map(b=>{const l=((b.ini-TL_START)/TL_SPAN*100).toFixed(1);const w=((b.fim-b.ini)/TL_SPAN*100).toFixed(1);return `<div class="tl-block ${TL_CLASS[b.st]}" style="left:${l}%;width:${w}%">${b.rot}${b.quem?` <small>${b.quem}</small>`:''}</div>`}).join('')}</div></div>`).join('');}
+renderTimeline();
+
+/* Checklist */
+const checklist=document.getElementById('checklist');
+function refreshChecklist(){const items=[...checklist.querySelectorAll('.check-item')];const done=items.filter(i=>i.classList.contains('is-done')).length;document.getElementById('checkPct').textContent=`${done}/${items.length} concluídas`;document.getElementById('checkBar').style.width=(done/items.length*100)+'%';const ce=document.getElementById('checkEmpty');if(ce)ce.hidden=done!==items.length;}
+checklist.addEventListener('click',e=>{const box=e.target.closest('.checkbox');if(!box)return;box.classList.toggle('done');box.closest('.check-item').classList.toggle('is-done');box.setAttribute('aria-pressed',box.classList.contains('done'));refreshChecklist();});
+refreshChecklist();
+document.getElementById('sectorTabs').addEventListener('click',e=>{const t=e.target.closest('.sector-tab');if(!t)return;document.querySelectorAll('.sector-tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');});
+
+/* Ficha técnica: custo e CMV em tempo real */
+const brl=v=>v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+function calcFicha(){const table=document.getElementById('ftTable');if(!table)return;let total=0;
+  table.querySelectorAll('tbody tr').forEach(tr=>{const qty=parseFloat(tr.querySelector('.ft-qty')?.value)||0;const fc=parseFloat(tr.querySelector('.ft-fc')?.value)||1;const price=parseFloat(tr.querySelector('.ft-price')?.value)||0;const t=qty*fc*price;total+=t;const cell=tr.querySelector('.ft-total');if(cell)cell.textContent=brl(t);});
+  const rend=Math.max(1,parseFloat(document.getElementById('ftRend').value)||1);const porcao=total/rend;const venda=parseFloat(document.getElementById('ftVenda').value)||0;
+  document.getElementById('ftCustoTotal').textContent=brl(total);document.getElementById('ftCustoPorcao').textContent=brl(porcao);
+  const cmvEl=document.getElementById('ftCmv'),tagEl=document.getElementById('ftCmvTag');
+  if(venda>0){const cmv=porcao/venda*100;cmvEl.textContent=cmv.toFixed(1).replace('.',',')+'%';const ok=cmv<=31.5;cmvEl.style.color=ok?'var(--ok)':'var(--danger)';tagEl.className='tag '+(ok?'tag-ok':'tag-danger');tagEl.textContent=ok?'Dentro da meta':'Acima da meta';}
+  else{cmvEl.textContent='—';tagEl.className='tag tag-muted';tagEl.textContent='Informe o preço';}
+}
+document.getElementById('view-fichas').addEventListener('input',e=>{if(e.target.matches('.ft-in,#ftRend,#ftVenda'))calcFicha();});
+document.getElementById('view-fichas').addEventListener('click',e=>{const del=e.target.closest('.ft-del');if(!del)return;del.closest('tr').remove();calcFicha();});
+calcFicha();
+
+document.querySelectorAll('.switch').forEach(s=>s.addEventListener('click',()=>{s.classList.toggle('on');s.setAttribute('aria-checked',s.classList.contains('on'));}));
+
+/* Bot */
+const botRules=[
+ {k:['atras','demor','cadê','cade'],r:'Sentimos pela espera! Seu pedido está em preparo prioritário. Como passou de 15 min, acionei o gerente.',esc:true},
+ {k:['alergia','alérgic','glúten','gluten','lactose','amendoim'],r:'Segurança em primeiro lugar! Consultamos alérgenos pela ficha técnica. Já avisei o gerente.',esc:true},
+ {k:['cancel','desist','reembols'],r:'Posso ajudar com o cancelamento. Se já saiu para entrega, aciono um atendente.',esc:false},
+ {k:['reserva','mesa','aniversário','aniversario'],r:'Reservas de terça a domingo, 12h–22h. Grupos de 8+ o maître confirma por telefone.',esc:false},
+ {k:['obrigad','parabéns','parabens','excelente','ótimo','otimo'],r:'Que alegria! Vou repassar à equipe — vira ponto no ranking do colaborador.',esc:false}
+];
+const botChat=document.getElementById('botChat'),botInput=document.getElementById('botInput');
+function botMsg(text,who,esc){const b=document.createElement('div');b.style.cssText=who==='user'?'align-self:flex-end;background:var(--ok);color:#fff;border-radius:12px 12px 3px 12px;padding:9px 13px;font-size:12.5px;max-width:85%':'align-self:flex-start;background:var(--ink);color:#fff;border-radius:12px 12px 12px 3px;padding:9px 13px;font-size:12.5px;max-width:85%';b.textContent=text;botChat.appendChild(b);if(esc){const e=document.createElement('div');e.style.cssText='align-self:center;font-size:10.5px;font-weight:700;color:#8A5A10;background:var(--warn-soft);padding:4px 12px;border-radius:12px';e.textContent='⚡ CASO ESCALADO PARA A GERÊNCIA · registrado no log';botChat.appendChild(e);}botChat.scrollTop=botChat.scrollHeight;}
+function botReply(){const txt=botInput.value.trim();if(!txt)return;botMsg(txt,'user');botInput.value='';setTimeout(()=>{const low=txt.toLowerCase();const rule=botRules.find(r=>r.k.some(k=>low.includes(k)));if(rule)botMsg(rule.r,'bot',rule.esc);else botMsg('Não encontrei resposta predefinida. Vou encaminhar para um atendente!','bot',true);},400);}
+document.getElementById('botSend').addEventListener('click',botReply);
+botInput.addEventListener('keydown',e=>{if(e.key==='Enter')botReply()});
+
+/* Toasts */
+function toast(msg,type='ok'){const w=document.getElementById('toastWrap');const t=document.createElement('div');t.className='toast t-'+type;t.setAttribute('role','status');t.textContent=msg;w.appendChild(t);setTimeout(()=>{t.classList.add('out');setTimeout(()=>t.remove(),320)},3000);}
+const toastActions={'Salvar ficha':'Ficha FT-021 salva','Salvar POP':'POP salvo como rascunho','Salvar vistoria':'Vistoria registrada','Publicar':'Comunicado publicado','Aprovar':'Aprovado · registrado no log','Recusar':'Recusado · registrado no log','Cotar':'Cotação enviada ao Verdes do Vale','+ Nova tarefa':'Criação de tarefa (demo)','Emitir pedido antecipado':'Pedido antecipado emitido','+ Montar escala':'Montagem de escala (demo)','+ Registrar ocorrência':'Registro de ocorrência (demo)','+ Cadastrar':'Cadastro de fornecedor (demo)','📷 Enviar foto da nota':'Foto recebida · extraindo dados (demo)'};
+document.body.addEventListener('click',e=>{const b=e.target.closest('.btn');if(!b)return;const k=b.textContent.trim();if(toastActions[k])toast('✓ '+toastActions[k]);});
+
+/* Notificações + seletor de loja */
+const bellBtn=document.getElementById('bellBtn'),notifPanel=document.getElementById('notifPanel');
+bellBtn.addEventListener('click',e=>{e.stopPropagation();const open=notifPanel.classList.toggle('open');bellBtn.setAttribute('aria-expanded',open);});
+document.getElementById('notifClear').addEventListener('click',()=>{document.getElementById('notifBody').style.display='none';document.getElementById('notifEmpty').style.display='block';const bg=document.getElementById('bellBadge');if(bg)bg.remove();toast('✓ Notificações marcadas como lidas');});
+const storeBtn=document.getElementById('storeBtn');
+storeBtn.addEventListener('click',e=>{e.stopPropagation();const open=document.getElementById('storeMenu').classList.toggle('open');storeBtn.setAttribute('aria-expanded',open);});
+document.querySelectorAll('.store-opt').forEach(o=>o.addEventListener('click',()=>{const name=o.textContent.trim();document.getElementById('storeName').textContent=name;document.querySelectorAll('.store-opt').forEach(x=>x.classList.remove('sel'));o.classList.add('sel');document.getElementById('storeMenu').classList.remove('open');toast('✓ Contexto: '+name);}));
+document.addEventListener('click',e=>{if(!e.target.closest('.notif-panel')&&!e.target.closest('#bellBtn'))notifPanel.classList.remove('open');if(!e.target.closest('.store-wrap'))document.getElementById('storeMenu').classList.remove('open');});
+
+/* RBAC — objeto ROLES é a referência de acesso (aplicar no servidor) */
+const ROLES={
+  presidente:{nome:'Antônio Vieira',ini:'AV',rotulo:'Presidente / C&O · Rede',cor:'linear-gradient(135deg,#8A5A10,#C9922E)',views:['dashboard','escalas','tarefas','estoque','fichas','vistorias','pop','desempenho','ponto','fornecedores','mural','ceo','bot','wizard','auditoria']},
+  gerente:{nome:'Renata Moura',ini:'RM',rotulo:'Gerente · Loja 01',cor:'linear-gradient(135deg,#2C6E9B,#4A93C4)',views:['dashboard','escalas','tarefas','estoque','fichas','vistorias','pop','desempenho','ponto','fornecedores','mural','wizard','auditoria']},
+  supervisor:{nome:'Paulo Lima',ini:'PL',rotulo:'Supervisão · Cozinha',cor:'linear-gradient(135deg,#0E7C66,#12A085)',views:['dashboard','escalas','tarefas','estoque','fichas','vistorias','pop']},
+  colaborador:{nome:'Tainá Reis',ini:'TR',rotulo:'Execução · Bar',cor:'linear-gradient(135deg,#6B3FA0,#9668CF)',views:['tarefas']}
+};
+function applyRole(role){const cfg=ROLES[role];document.getElementById('userName').textContent=cfg.nome;document.getElementById('userRole').textContent=cfg.rotulo;const av=document.getElementById('userAvatar');av.textContent=cfg.ini;av.style.background=cfg.cor;
+  document.querySelectorAll('.nav-item').forEach(b=>{b.style.display=cfg.views.includes(b.dataset.view)?'':'none';});
+  document.getElementById('labelDiretoria').style.display=cfg.views.includes('ceo')?'':'none';
+  if(!cfg.views.includes(activeView))goTo(cfg.views[0]);}
+document.querySelectorAll('.profile-card').forEach(c=>c.addEventListener('click',()=>{const role=c.dataset.role;applyRole(role);document.getElementById('loginOverlay').style.display='none';toast(`✓ Sessão como ${ROLES[role].rotulo}`);}));
+document.getElementById('userCard').addEventListener('click',()=>{document.getElementById('loginOverlay').style.display='flex';});
+
+/* Offline */
+function syncState(){document.getElementById('offlineChip').classList.toggle('show',!navigator.onLine);}
+window.addEventListener('online',()=>{syncState();toast('✓ Reconectado — pendências sincronizadas')});
+window.addEventListener('offline',()=>{syncState();toast('📡 Offline — modo local ativo','warn')});
+if(!navigator.onLine)syncState();
+
+/* Wizard por ramo */
+const RAMOS={
+ 'Restaurante / Food Service':{icon:'🍽️',setores:['Brigada de Cozinha','Salão e Atendimento','Equipe de Bar','Estoque / Retaguarda'],funcoes:['Chef Executivo','Sous-chef','Cozinheiro de Linha','Auxiliar de Cozinha','Maître','Garçom','Bartender']},
+ 'Varejo':{icon:'🛍️',setores:['Vendas','Caixa','Estoque','Reposição'],funcoes:['Vendedor','Operador de Caixa','Estoquista','Repositor','Fiscal de Loja']},
+ 'Indústria leve':{icon:'🏭',setores:['Produção','Qualidade','Expedição','Almoxarifado'],funcoes:['Operador de Produção','Inspetor de Qualidade','Almoxarife','Líder de Linha']},
+ 'Serviços':{icon:'🧰',setores:['Atendimento','Operação em Campo','Administrativo'],funcoes:['Atendente','Técnico de Campo','Auxiliar Administrativo','Coordenador']}
+};
+const ESCALAS=['6x1','5x2','12x36','4x3','Horistas','Diaristas','PJ','Autônomos'];
+let wzStep=1,wzRamo='Restaurante / Food Service';
+function chipHTML(list,on=true){return list.map(x=>`<button class="sel-chip${on?' on':''}" aria-pressed="${on}">${x}</button>`).join('')}
+function wzRender(){document.getElementById('wzRamos').innerHTML=Object.entries(RAMOS).map(([k,v])=>`<button class="ramo-card${k===wzRamo?' sel':''}" data-ramo="${k}"><span class="rc-icon">${v.icon}</span><div class="rc-name">${k}</div></button>`).join('');document.getElementById('wzSetores').innerHTML=chipHTML(RAMOS[wzRamo].setores);document.getElementById('wzFuncoes').innerHTML=chipHTML(RAMOS[wzRamo].funcoes);document.getElementById('wzEscalas').innerHTML=chipHTML(ESCALAS,false);}
+function wzShow(){for(let i=1;i<=4;i++){document.getElementById('wz'+i).hidden=i!==wzStep;const d=document.getElementById('wzd'+i);d.className='wz-dot'+(i===wzStep?' active':i<wzStep?' done':'');}document.getElementById('wzBack').disabled=wzStep===1;document.getElementById('wzNext').textContent=wzStep===4?'✓ Concluir':'Avançar ▸';if(wzStep===4){const nS=document.querySelectorAll('#wzSetores .sel-chip.on').length,nF=document.querySelectorAll('#wzFuncoes .sel-chip.on').length;document.getElementById('wzResumo').innerHTML=`<span class="es-icon">🚀</span><strong>Resumo</strong><br>Ramo: <strong>${wzRamo}</strong> · ${nS} setores · ${nF} funções. Ao concluir, o Regem cria os setores com POPs sugeridos.`;}}
+document.getElementById('view-wizard').addEventListener('click',e=>{const rc=e.target.closest('.ramo-card');if(rc){wzRamo=rc.dataset.ramo;wzRender();return}const ch=e.target.closest('.sel-chip');if(ch){ch.classList.toggle('on');ch.setAttribute('aria-pressed',ch.classList.contains('on'));if(wzStep===4)wzShow();}});
+document.getElementById('wzNext').addEventListener('click',()=>{if(wzStep<4){wzStep++;wzShow()}else{toast('✓ Configuração concluída! Monte a primeira escala.');wzStep=1;wzShow();goTo('escalas')}});
+document.getElementById('wzBack').addEventListener('click',()=>{if(wzStep>1){wzStep--;wzShow()}});
+wzRender();wzShow();
+
+/* Auditoria: filtros */
+function audFilter(){const type=document.getElementById('audType').value;const q=document.getElementById('audSearch').value.toLowerCase();let shown=0;document.querySelectorAll('#audTable tbody tr').forEach(tr=>{const okT=!type||tr.dataset.type===type;const okQ=!q||tr.textContent.toLowerCase().includes(q);const show=okT&&okQ;tr.style.display=show?'':'none';if(show)shown++;});document.getElementById('audEmpty').style.display=shown?'none':'block';}
+document.getElementById('audType').addEventListener('change',audFilter);
+document.getElementById('audSearch').addEventListener('input',audFilter);
+
+/* Tabelas: caption sr-only (a11y) */
+document.querySelectorAll('table').forEach(t=>{if(t.querySelector('caption'))return;const title=t.closest('.card')?.querySelector('.card-title')?.textContent||'Tabela de dados';const cap=document.createElement('caption');cap.className='sr-only';cap.textContent=title;t.prepend(cap);});
+
+applyRole('gerente');
+</script>
+</body>
+</html>
