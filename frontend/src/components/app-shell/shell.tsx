@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Boxes,
+  Building2,
   CalendarDays,
   ChefHat,
   Clock,
@@ -22,6 +23,7 @@ import { cn } from '@/lib/utils';
 const NAV = [
   {
     group: 'Operação',
+    presidenteOnly: false,
     items: [
       { href: '/painel', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
@@ -33,7 +35,13 @@ const NAV = [
   },
   {
     group: 'Gestão',
+    presidenteOnly: false,
     items: [{ href: '/cadastros', label: 'Cadastros', icon: Settings }],
+  },
+  {
+    group: 'Diretoria',
+    presidenteOnly: true,
+    items: [{ href: '/diretoria', label: 'Visão C&O', icon: Building2 }],
   },
 ];
 
@@ -98,7 +106,7 @@ export function Shell({
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2.5">
-          {NAV.map((g) => (
+          {NAV.filter((g) => !g.presidenteOnly || cat === 'presidente').map((g) => (
             <div key={g.group}>
               <p className="px-3 pb-1.5 pt-3.5 font-display text-[10px] font-bold uppercase tracking-[.16em] text-[#5E7B8E]">
                 {g.group}

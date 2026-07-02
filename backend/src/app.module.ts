@@ -20,6 +20,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OcorrenciaModule } from './modules/ocorrencia/ocorrencia.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { FichasModule } from './modules/fichas/fichas.module';
+import { DiretoriaModule } from './modules/diretoria/diretoria.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -45,6 +46,7 @@ import { AuthModule } from './auth/auth.module';
     OcorrenciaModule,
     OnboardingModule,
     FichasModule,
+    DiretoriaModule,
   ],
   controllers: [AppController],
 })
