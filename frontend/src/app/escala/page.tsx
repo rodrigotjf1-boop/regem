@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { NovaAlocacaoForm } from '@/components/escala/nova-alocacao-form';
-import { RegemMark } from '@/components/brand/regem-mark';
+import { Shell } from '@/components/app-shell/shell';
 
 type Aloc = {
   id: string;
@@ -76,35 +76,25 @@ export default function EscalaPage() {
   });
 
   return (
-    <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b border-border bg-card/80 backdrop-blur">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <RegemMark className="h-8 w-8 text-foreground" />
-            <div>
-              <p className="text-sm font-semibold leading-none">Escala</p>
-              <p className="text-xs capitalize text-muted-foreground tabular-nums">
-                {dataLabel}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setShow((v) => !v)}
-              aria-label="Nova alocação"
-            >
-              {show ? <X className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
-            </Button>
-            <Button variant="ghost" size="icon" onClick={sair} aria-label="Sair">
-              <LogOut className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-2xl space-y-6 px-4 py-4 pb-24">
+    <Shell
+      eyebrow="Gestão de pessoas"
+      title="Escala"
+      actions={
+        <Button size="sm" onClick={() => setShow((v) => !v)}>
+          {show ? (
+            <>
+              <X className="h-4 w-4" /> Fechar
+            </>
+          ) : (
+            <>
+              <Plus className="h-4 w-4" /> Nova alocação
+            </>
+          )}
+        </Button>
+      }
+    >
+      <div className="max-w-3xl space-y-6">
+        <p className="text-sm capitalize text-muted-foreground">{dataLabel}</p>
         {show && (
           <NovaAlocacaoForm
             data={data}
@@ -160,8 +150,7 @@ export default function EscalaPage() {
             </div>
           </section>
         ))}
-      </main>
-      <BottomNav />
-    </div>
+      </div>
+    </Shell>
   );
 }
