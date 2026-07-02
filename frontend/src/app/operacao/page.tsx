@@ -64,6 +64,7 @@ export default function OperacaoPage() {
     value: i.id,
     label: `${i.nome} (${i.saldo} ${i.unidadeMedida})`,
   }));
+  const hoje = new Date().toISOString().slice(0, 10);
   const TIPO_MOV = [
     { value: 'entrada', label: 'Entrada' },
     { value: 'saida', label: 'Saída' },
@@ -128,6 +129,7 @@ export default function OperacaoPage() {
                       { name: 'itemId', label: 'Item', type: 'select', required: true, options: optItens, defaultValue: optItens[0]?.value },
                       { name: 'tipo', label: 'Tipo', type: 'select', options: TIPO_MOV, defaultValue: 'entrada' },
                       { name: 'quantidade', label: 'Quantidade', type: 'text', required: true, placeholder: '0' },
+                      { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
                     ] as FieldDef[]
                   }
                   onSubmit={async (v) => {
@@ -135,6 +137,7 @@ export default function OperacaoPage() {
                       itemId: v.itemId,
                       tipo: v.tipo,
                       quantidade: Number(v.quantidade),
+                      data: v.data || undefined,
                     });
                     await reload();
                   }}
@@ -177,6 +180,7 @@ export default function OperacaoPage() {
                   { name: 'descricao', label: 'Descrição', type: 'text', required: true, placeholder: 'Ex.: Pão queimado' },
                   { name: 'quantidade', label: 'Quantidade', type: 'text', placeholder: '0' },
                   { name: 'motivo', label: 'Motivo', type: 'text', placeholder: 'Ex.: forno' },
+                  { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
                 ] as FieldDef[]
               }
               onSubmit={async (v) => {
@@ -184,6 +188,7 @@ export default function OperacaoPage() {
                   descricao: v.descricao,
                   quantidade: v.quantidade ? Number(v.quantidade) : undefined,
                   motivo: v.motivo || undefined,
+                  data: v.data || undefined,
                 });
                 await reload();
               }}
@@ -210,12 +215,14 @@ export default function OperacaoPage() {
                 [
                   { name: 'tipo', label: 'Tipo', type: 'select', options: TIPO_VIST, defaultValue: 'abertura' },
                   { name: 'observacao', label: 'Observação', type: 'text', placeholder: 'Ex.: Tudo ok' },
+                  { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
                 ] as FieldDef[]
               }
               onSubmit={async (v) => {
                 await api.post('/vistorias', {
                   tipo: v.tipo,
                   observacao: v.observacao || undefined,
+                  data: v.data || undefined,
                 });
                 await reload();
               }}

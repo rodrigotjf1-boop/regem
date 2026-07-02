@@ -21,6 +21,7 @@ export class DesperdicioService {
         unidadeMedida: dto.unidadeMedida,
         motivo: dto.motivo,
         fotoRef: dto.fotoRef,
+        data: dto.data,
       })
       .returning();
     return row;

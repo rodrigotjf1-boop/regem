@@ -1,4 +1,5 @@
 import {
+  IsDateString,
   IsNumber,
   IsOptional,
   IsString,
@@ -38,4 +39,8 @@ export class CreateDesperdicioDto {
   @IsOptional()
   @IsString()
   fotoRef?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data?: string;
 }

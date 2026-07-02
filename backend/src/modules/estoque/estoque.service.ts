@@ -64,6 +64,7 @@ export class EstoqueService {
         tipo: dto.tipo,
         quantidade: String(dto.quantidade),
         motivo: dto.motivo,
+        data: dto.data,
       })
       .returning();
     return row;

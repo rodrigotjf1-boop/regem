@@ -1,4 +1,11 @@
-import { IsIn, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsDateString,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 export class CreateMovimentoDto {
   @IsUUID()
@@ -13,4 +20,8 @@ export class CreateMovimentoDto {
   @IsOptional()
   @IsString()
   motivo?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data?: string;
 }

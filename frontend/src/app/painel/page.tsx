@@ -183,6 +183,7 @@ export default function PainelPage() {
                     { name: 'colaboradorId', label: 'Colaborador', type: 'select', required: true, options: optColab, defaultValue: optColab[0]?.value },
                     { name: 'tipoId', label: 'Tipo', type: 'select', required: true, options: optTipo, defaultValue: optTipo[0]?.value },
                     { name: 'gravidade', label: 'Gravidade', type: 'select', options: [{ value: 'leve', label: 'Leve' }, { value: 'grave', label: 'Grave' }], defaultValue: 'leve' },
+                    { name: 'data', label: 'Data', type: 'date', defaultValue: data },
                   ] as FieldDef[]
                 }
                 onSubmit={async (v) => {
@@ -190,6 +191,7 @@ export default function PainelPage() {
                     colaboradorId: v.colaboradorId,
                     tipoId: v.tipoId,
                     gravidade: v.gravidade,
+                    data: v.data || undefined,
                   });
                   await carregar();
                 }}

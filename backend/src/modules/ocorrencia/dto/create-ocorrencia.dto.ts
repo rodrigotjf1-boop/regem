@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateOcorrenciaDto {
   @IsUUID()
@@ -18,4 +18,8 @@ export class CreateOcorrenciaDto {
   @IsOptional()
   @IsUUID()
   setorId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data?: string;
 }

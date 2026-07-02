@@ -18,6 +18,7 @@ export class VistoriaService {
         tipo: dto.tipo,
         observacao: dto.observacao,
         fotoRef: dto.fotoRef,
+        data: dto.data,
       })
       .returning();
     return row;

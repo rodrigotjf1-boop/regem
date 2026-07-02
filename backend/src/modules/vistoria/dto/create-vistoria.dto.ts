@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsDateString, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateVistoriaDto {
   @IsIn(['abertura', 'fechamento', 'padrao'])
@@ -19,4 +19,8 @@ export class CreateVistoriaDto {
   @IsOptional()
   @IsString()
   fotoRef?: string;
+
+  @IsOptional()
+  @IsDateString()
+  data?: string;
 }

@@ -70,6 +70,7 @@ export class OcorrenciaService {
         gravidade: dto.gravidade ?? 'leve',
         descricao: dto.descricao,
         setorId: dto.setorId,
+        data: dto.data,
       })
       .returning();
     return row;
