@@ -18,6 +18,7 @@ type Lists = {
   colaboradores: any[];
   turnos: any[];
   etiquetas: any[];
+  janelasPico: any[];
 };
 
 const CATEGORIAS = [
@@ -30,6 +31,25 @@ const VINCULOS = ['clt', 'horista', 'diarista', 'pj', 'autonomo'].map((v) => ({
   value: v,
   label: v.toUpperCase(),
 }));
+const DIAS_SEMANA = [
+  { value: '', label: 'Todos os dias' },
+  { value: '0', label: 'Domingo' },
+  { value: '1', label: 'Segunda' },
+  { value: '2', label: 'Terça' },
+  { value: '3', label: 'Quarta' },
+  { value: '4', label: 'Quinta' },
+  { value: '5', label: 'Sexta' },
+  { value: '6', label: 'Sábado' },
+];
+const DIA_ABREV: Record<string, string> = {
+  '0': 'dom',
+  '1': 'seg',
+  '2': 'ter',
+  '3': 'qua',
+  '4': 'qui',
+  '5': 'sex',
+  '6': 'sáb',
+};
 
 export default function CadastrosPage() {
   const router = useRouter();
@@ -40,16 +60,32 @@ export default function CadastrosPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [unidades, setores, funcoes, colaboradores, turnos, etiquetas] =
-        await Promise.all([
-          api.get('/unidades'),
-          api.get('/setores'),
-          api.get('/funcoes'),
-          api.get('/colaboradores'),
-          api.get('/turnos'),
-          api.get('/etiquetas'),
-        ]);
-      setL({ unidades, setores, funcoes, colaboradores, turnos, etiquetas });
+      const [
+        unidades,
+        setores,
+        funcoes,
+        colaboradores,
+        turnos,
+        etiquetas,
+        janelasPico,
+      ] = await Promise.all([
+        api.get('/unidades'),
+        api.get('/setores'),
+        api.get('/funcoes'),
+        api.get('/colaboradores'),
+        api.get('/turnos'),
+        api.get('/etiquetas'),
+        api.janelasPico(),
+      ]);
+      setL({
+        unidades,
+        setores,
+        funcoes,
+        colaboradores,
+        turnos,
+        etiquetas,
+        janelasPico,
+      });
       setVer((v) => v + 1);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
@@ -229,6 +265,50 @@ export default function CadastrosPage() {
         api.post('/turnos', {
           unidadeId: v.unidadeId,
           nome: v.nome,
+          horaInicio: v.horaInicio,
+          horaFim: v.horaFim,
+        }),
+    },
+    {
+      key: 'pico',
+      titulo: 'Janelas de pico',
+      itens: L.janelasPico.map(
+        (p: any) =>
+          `${p.nome} · ${
+            p.diaSemana == null ? 'todos' : DIA_ABREV[String(p.diaSemana)]
+          } ${String(p.horaInicio).slice(0, 5)}–${String(p.horaFim).slice(0, 5)}`,
+      ),
+      fields: [
+        {
+          name: 'unidadeId',
+          label: 'Unidade',
+          type: 'select',
+          required: true,
+          options: optU,
+          defaultValue: optU[0]?.value,
+        },
+        {
+          name: 'nome',
+          label: 'Nome',
+          type: 'text',
+          required: true,
+          placeholder: 'Ex.: Almoço',
+        },
+        {
+          name: 'diaSemana',
+          label: 'Dia da semana',
+          type: 'select',
+          options: DIAS_SEMANA,
+          defaultValue: '',
+        },
+        { name: 'horaInicio', label: 'Início', type: 'time', required: true },
+        { name: 'horaFim', label: 'Fim', type: 'time', required: true },
+      ] as FieldDef[],
+      submit: (v: any) =>
+        api.post('/janelas-pico', {
+          unidadeId: v.unidadeId,
+          nome: v.nome,
+          diaSemana: v.diaSemana === '' ? undefined : Number(v.diaSemana),
           horaInicio: v.horaInicio,
           horaFim: v.horaFim,
         }),

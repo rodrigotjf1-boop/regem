@@ -17,4 +17,11 @@ export class DashboardController {
     const d = data ?? new Date().toISOString().slice(0, 10);
     return this.service.resumo(user.tenantId, d);
   }
+
+  @Get('timeline')
+  @Roles('presidente', 'gerente')
+  timeline(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
+    const d = data ?? new Date().toISOString().slice(0, 10);
+    return this.service.timeline(user.tenantId, d);
+  }
 }

@@ -16,15 +16,17 @@ export function NovaAlocacaoForm({
   data,
   onCreated,
   onCancel,
+  defaultEtiquetaId,
 }: {
   data: string;
   onCreated: () => void;
   onCancel: () => void;
+  defaultEtiquetaId?: string;
 }) {
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [colabs, setColabs] = useState<Colaborador[]>([]);
-  const [etiquetaId, setEtiquetaId] = useState('');
+  const [etiquetaId, setEtiquetaId] = useState(defaultEtiquetaId ?? '');
   const [turnoId, setTurnoId] = useState('');
   const [colaboradorId, setColaboradorId] = useState('');
   const [tipo, setTipo] = useState('titular');
@@ -43,13 +45,13 @@ export function NovaAlocacaoForm({
         setEtiquetas(e);
         setTurnos(t);
         setColabs(c);
-        if (e[0]) setEtiquetaId(e[0].id);
+        if (e[0] && !defaultEtiquetaId) setEtiquetaId(e[0].id);
         if (t[0]) setTurnoId(t[0].id);
       } catch (err) {
         setErro(err instanceof Error ? err.message : 'Erro ao carregar opções');
       }
     })();
-  }, []);
+  }, [defaultEtiquetaId]);
 
   async function salvar(ev: React.FormEvent) {
     ev.preventDefault();

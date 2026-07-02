@@ -86,7 +86,12 @@ export const api = {
   }) => req('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
+  escalaSemana: (inicio: string) => req(`/escala/semana?inicio=${inicio}`),
   dashboard: (data: string) => req(`/dashboard?data=${data}`),
+  dashboardTimeline: (data: string) => req(`/dashboard/timeline?data=${data}`),
+  setores: () => req('/setores'),
+  janelasPico: (unidadeId?: string) =>
+    req(`/janelas-pico${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   etiquetas: () => req('/etiquetas'),
   turnos: () => req('/turnos'),
   colaboradores: () => req('/colaboradores'),

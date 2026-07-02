@@ -43,4 +43,11 @@ export class EscalaController {
   findAll(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
     return this.service.findAll(user.tenantId, data);
   }
+
+  // Grade semanal a partir de `inicio` (YYYY-MM-DD, segunda-feira). Default: hoje.
+  @Get('semana')
+  semana(@CurrentUser() user: AuthUser, @Query('inicio') inicio?: string) {
+    const ini = inicio ?? new Date().toISOString().slice(0, 10);
+    return this.service.semana(user.tenantId, ini);
+  }
 }

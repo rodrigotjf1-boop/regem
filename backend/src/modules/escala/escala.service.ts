@@ -4,7 +4,7 @@ import {
   Inject,
   Injectable,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lte } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   escalaAlocacao,
@@ -88,6 +88,34 @@ export class EscalaService {
     }
   }
 
+  // Colunas enriquecidas (vaga, setor, turno, responsável) compartilhadas.
+  private readonly enriched = {
+    id: escalaAlocacao.id,
+    data: escalaAlocacao.data,
+    tipo: escalaAlocacao.tipo,
+    status: escalaAlocacao.status,
+    etiquetaId: escalaAlocacao.etiquetaId,
+    etiquetaSigla: etiqueta.sigla,
+    etiquetaContador: etiqueta.contador,
+    etiquetaCor: etiqueta.cor,
+    setorNome: setor.nome,
+    setorIcone: setor.icone,
+    turnoId: escalaAlocacao.turnoId,
+    turnoNome: turno.nome,
+    colaboradorId: escalaAlocacao.colaboradorId,
+    colaboradorNome: colaborador.nome,
+  };
+
+  private joined() {
+    return this.db
+      .select(this.enriched)
+      .from(escalaAlocacao)
+      .leftJoin(etiqueta, eq(escalaAlocacao.etiquetaId, etiqueta.id))
+      .leftJoin(setor, eq(etiqueta.setorId, setor.id))
+      .leftJoin(turno, eq(escalaAlocacao.turnoId, turno.id))
+      .leftJoin(colaborador, eq(escalaAlocacao.colaboradorId, colaborador.id));
+  }
+
   // Lista enriquecida (vaga, setor, turno, responsável) para a tela de Escala.
   findAll(tenantId: string, data?: string) {
     const conds = [
@@ -95,23 +123,28 @@ export class EscalaService {
       isNull(escalaAlocacao.deletedAt),
     ];
     if (data) conds.push(eq(escalaAlocacao.data, data));
-    return this.db
-      .select({
-        id: escalaAlocacao.id,
-        data: escalaAlocacao.data,
-        tipo: escalaAlocacao.tipo,
-        etiquetaSigla: etiqueta.sigla,
-        etiquetaContador: etiqueta.contador,
-        setorNome: setor.nome,
-        setorIcone: setor.icone,
-        turnoNome: turno.nome,
-        colaboradorNome: colaborador.nome,
-      })
-      .from(escalaAlocacao)
-      .leftJoin(etiqueta, eq(escalaAlocacao.etiquetaId, etiqueta.id))
-      .leftJoin(setor, eq(etiqueta.setorId, setor.id))
-      .leftJoin(turno, eq(escalaAlocacao.turnoId, turno.id))
-      .leftJoin(colaborador, eq(escalaAlocacao.colaboradorId, colaborador.id))
-      .where(and(...conds));
+    return this.joined().where(and(...conds));
   }
+
+  // Grade semanal: alocações de [inicio, inicio+6], para montar a matriz vaga × dia.
+  semana(tenantId: string, inicio: string) {
+    const fim = addDays(inicio, 6);
+    return this.joined()
+      .where(
+        and(
+          eq(escalaAlocacao.tenantId, tenantId),
+          isNull(escalaAlocacao.deletedAt),
+          gte(escalaAlocacao.data, inicio),
+          lte(escalaAlocacao.data, fim),
+        ),
+      )
+      .orderBy(asc(escalaAlocacao.data));
+  }
+}
+
+// Soma dias a uma data ISO (YYYY-MM-DD) sem fuso — devolve outra ISO.
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
 }

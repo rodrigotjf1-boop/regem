@@ -121,6 +121,23 @@ export const turno = pgTable('turno', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+export const janelaPico = pgTable('janela_pico', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id')
+    .notNull()
+    .references(() => unidade.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  diaSemana: integer('dia_semana'), // 0=domingo .. 6=sábado; null = todos
+  horaInicio: time('hora_inicio').notNull(),
+  horaFim: time('hora_fim').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
 export const etiqueta = pgTable('etiqueta', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

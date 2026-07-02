@@ -5,6 +5,7 @@ import { AlertTriangle } from 'lucide-react';
 import { api, getCategoria, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { Timeline } from '@/components/dashboard/timeline';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function hoje() {
@@ -14,18 +15,21 @@ function hoje() {
 export default function DashboardPage() {
   const [d, setD] = useState<any>(null);
   const [tarefas, setTarefas] = useState<any[]>([]);
+  const [timeline, setTimeline] = useState<any>(null);
   const [ranking, setRanking] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const data = hoje();
 
   const carregar = useCallback(async () => {
     try {
-      const [dash, tar] = await Promise.all([
+      const [dash, tar, tl] = await Promise.all([
         api.dashboard(data),
         api.tarefasDoDia(data),
+        api.dashboardTimeline(data),
       ]);
       setD(dash);
       setTarefas(tar);
+      setTimeline(tl);
       if (getCategoria() === 'presidente') {
         try {
           setRanking(await api.get('/ocorrencias/ranking'));
@@ -114,6 +118,26 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      <Card className="mb-4 p-0">
+        <div className="border-b border-border px-5 py-3.5">
+          <p className="font-display text-sm font-bold">
+            Linha do tempo operacional
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Turnos, janelas de pico e tarefas com horário — hoje
+          </p>
+        </div>
+        {timeline ? (
+          <Timeline
+            turnos={timeline.turnos ?? []}
+            picos={timeline.picos ?? []}
+            tarefas={timeline.tarefas ?? []}
+          />
+        ) : (
+          <p className="px-5 py-6 text-sm text-muted-foreground">Carregando…</p>
+        )}
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Card className="p-0">
