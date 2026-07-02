@@ -94,6 +94,8 @@ export class AuthService {
         tenantId: colaborador.tenantId,
         pinHash: colaborador.pinHash,
         categoria: funcao.categoria,
+        nome: colaborador.nome,
+        matricula: colaborador.matricula,
       })
       .from(colaborador)
       .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
@@ -106,11 +108,12 @@ export class AuthService {
 
     for (const c of candidatos) {
       if (c.pinHash && (await bcrypt.compare(dto.pin, c.pinHash))) {
-        return this.assinar({
+        const base = this.assinar({
           colaboradorId: c.id,
           tenantId: c.tenantId,
           categoria: c.categoria ?? 'execucao',
         });
+        return { ...base, nome: c.nome, matricula: c.matricula ?? null };
       }
     }
     throw new UnauthorizedException('PIN inválido');

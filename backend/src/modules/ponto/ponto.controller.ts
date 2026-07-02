@@ -39,7 +39,7 @@ export class PontoController {
       user.colaboradorId,
       user.categoria,
       dto,
-      'web',
+      dto.origem ?? 'web',
     );
   }
 
