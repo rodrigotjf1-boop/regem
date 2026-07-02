@@ -25,6 +25,7 @@ export function NovaTarefaForm({
   const [titulo, setTitulo] = useState('');
   const [unidadeId, setUnidadeId] = useState('');
   const [etiquetaId, setEtiquetaId] = useState('');
+  const [horario, setHorario] = useState('');
   const [erro, setErro] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -51,6 +52,7 @@ export function NovaTarefaForm({
         unidadeId,
         titulo,
         etiquetaId: etiquetaId || undefined,
+        horario: horario || undefined,
         origem: 'avulsa',
       });
       await api.instanciarTarefa({ tarefaDefId: def.id, data });
@@ -108,6 +110,18 @@ export function NovaTarefaForm({
               </option>
             ))}
           </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="hr">Horário (opcional)</Label>
+          <Input
+            id="hr"
+            type="time"
+            value={horario}
+            onChange={(e) => setHorario(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Posiciona a tarefa na linha do tempo do dia (Dashboard).
+          </p>
         </div>
         {erro && (
           <p role="alert" className="text-sm text-destructive">

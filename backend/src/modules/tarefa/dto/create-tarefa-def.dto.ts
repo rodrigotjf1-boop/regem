@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MinLength,
 } from 'class-validator';
 
@@ -22,6 +23,11 @@ export class CreateTarefaDefDto {
   @IsString()
   @MinLength(2)
   titulo!: string;
+
+  // Horário previsto (HH:MM) — posiciona a tarefa na linha do tempo do dia.
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'horário inválido (HH:MM)' })
+  horario?: string;
 
   @IsOptional()
   @IsString()

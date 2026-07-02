@@ -43,6 +43,7 @@ export class TarefaDefService {
         setorId: dto.setorId,
         origem: dto.origem ?? 'avulsa',
         titulo: dto.titulo,
+        horario: dto.horario,
         descricao: dto.descricao,
         etiquetaId: dto.etiquetaId,
         colaboradorOverrideId: dto.colaboradorOverrideId,
