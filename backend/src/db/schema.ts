@@ -121,6 +121,7 @@ export const turno = pgTable('turno', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// Espelha a tabela pré-existente (fundação) + coluna `nome` da migration 011.
 export const janelaPico = pgTable('janela_pico', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
@@ -129,10 +130,12 @@ export const janelaPico = pgTable('janela_pico', {
   unidadeId: uuid('unidade_id')
     .notNull()
     .references(() => unidade.id, { onDelete: 'cascade' }),
-  nome: text('nome').notNull(),
+  setorId: uuid('setor_id'), // override por setor (pós-MVP); null = unidade toda
+  nome: text('nome'),
   diaSemana: integer('dia_semana'), // 0=domingo .. 6=sábado; null = todos
   horaInicio: time('hora_inicio').notNull(),
   horaFim: time('hora_fim').notNull(),
+  intensidade: text('intensidade'), // baixa|media|alta (uso futuro)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
