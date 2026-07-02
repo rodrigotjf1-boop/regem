@@ -10,7 +10,7 @@ import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { ChecklistCard } from '@/components/docs/checklist-card';
 import { DocumentoCard } from '@/components/docs/documento-card';
-import { RegemMark } from '@/components/brand/regem-mark';
+import { Shell } from '@/components/app-shell/shell';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const TIPOS_DOC = [
@@ -55,11 +55,6 @@ export default function DocsPage() {
     reload();
   }, [reload, router]);
 
-  function sair() {
-    clearToken();
-    router.replace('/');
-  }
-
   if (!pronto) {
     return (
       <div className="grid min-h-dvh place-items-center text-muted-foreground">
@@ -71,20 +66,8 @@ export default function DocsPage() {
   const optU = unidades.map((u: any) => ({ value: u.id, label: u.nome }));
 
   return (
-    <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b border-border bg-card/80 backdrop-blur">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <RegemMark className="h-8 w-8 text-foreground" />
-            <p className="text-sm font-semibold">Documentos</p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={sair} aria-label="Sair">
-            <LogOut className="h-5 w-5" />
-          </Button>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-2xl space-y-6 px-4 py-4 pb-24">
+    <Shell eyebrow="Qualidade" title="Documentos">
+      <div className="max-w-3xl space-y-6">
         {erro && (
           <p role="alert" className="text-destructive">
             {erro}
@@ -164,8 +147,7 @@ export default function DocsPage() {
             <DocumentoCard key={d.id} doc={d} onChanged={reload} />
           ))}
         </section>
-      </main>
-      <BottomNav />
-    </div>
+      </div>
+    </Shell>
   );
 }

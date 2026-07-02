@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
-import { RegemMark } from '@/components/brand/regem-mark';
+import { Shell } from '@/components/app-shell/shell';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Lists = {
@@ -273,20 +273,8 @@ export default function CadastrosPage() {
   ];
 
   return (
-    <div className="min-h-dvh">
-      <header className="sticky top-0 z-10 border-b border-border bg-card/80 backdrop-blur">
-        <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <RegemMark className="h-8 w-8 text-foreground" />
-            <p className="text-sm font-semibold">Cadastros</p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={sair} aria-label="Sair">
-            <LogOut className="h-5 w-5" />
-          </Button>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-2xl space-y-4 px-4 py-4 pb-24">
+    <Shell eyebrow="Gestão" title="Cadastros">
+      <div className="max-w-3xl space-y-4">
         {sel === null ? (
           <>
             <Card className="border-primary/30 bg-primary/5 p-4">
@@ -392,8 +380,7 @@ export default function CadastrosPage() {
             );
           })()
         )}
-      </main>
-      <BottomNav />
-    </div>
+      </div>
+    </Shell>
   );
 }
