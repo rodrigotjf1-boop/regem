@@ -94,6 +94,21 @@ export const api = {
     req(`/janelas-pico${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   fornecedores: () => req('/fornecedores'),
   fornecedorPendencias: () => req('/fornecedores/pendencias'),
+  marcarPonto: (body: Record<string, unknown>) =>
+    req('/ponto/marcar', { method: 'POST', body: JSON.stringify(body) }),
+  pontoDia: (data?: string, colaboradorId?: string) => {
+    const p = new URLSearchParams();
+    if (data) p.set('data', data);
+    if (colaboradorId) p.set('colaboradorId', colaboradorId);
+    const q = p.toString();
+    return req(`/ponto/dia${q ? `?${q}` : ''}`);
+  },
+  pontoEspelho: (colaboradorId: string, inicio: string, fim: string) =>
+    req(
+      `/ponto/espelho?colaboradorId=${colaboradorId}&inicio=${inicio}&fim=${fim}`,
+    ),
+  pontoPessoas: (data?: string) =>
+    req(`/ponto/pessoas${data ? `?data=${data}` : ''}`),
   recebimentos: () => req('/recebimentos'),
   recebimento: (id: string) => req(`/recebimentos/${id}`),
   criarRecebimento: (body: Record<string, unknown>) =>

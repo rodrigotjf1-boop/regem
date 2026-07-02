@@ -27,6 +27,7 @@ import { MidiaModule } from './modules/midia/midia.module';
 import { PicoModule } from './modules/pico/pico.module';
 import { FornecedorModule } from './modules/fornecedor/fornecedor.module';
 import { RecebimentoModule } from './modules/recebimento/recebimento.module';
+import { PontoModule } from './modules/ponto/ponto.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -59,6 +60,7 @@ import { AuthModule } from './auth/auth.module';
     PicoModule,
     FornecedorModule,
     RecebimentoModule,
+    PontoModule,
   ],
   controllers: [AppController],
 })

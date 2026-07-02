@@ -18,6 +18,7 @@ import {
   Menu,
   ScrollText,
   Settings,
+  Users,
 } from 'lucide-react';
 import { clearToken, getCategoria, getToken } from '@/lib/api';
 import { RegemMark } from '@/components/brand/regem-mark';
@@ -50,6 +51,12 @@ const NAV: NavGroup[] = [
     presidenteOnly: false,
     items: [
       { href: '/cadastros', label: 'Cadastros', icon: Settings },
+      {
+        href: '/pessoas',
+        label: 'Pessoas & Ponto',
+        icon: Users,
+        roles: ['presidente', 'gerente', 'supervisao'],
+      },
       {
         href: '/auditoria',
         label: 'Auditoria',

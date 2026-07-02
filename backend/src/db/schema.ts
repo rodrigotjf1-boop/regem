@@ -5,6 +5,7 @@ import {
   text,
   boolean,
   integer,
+  bigint,
   numeric,
   timestamp,
   date,
@@ -434,6 +435,25 @@ export const movimentoEstoque = pgTable('movimento_estoque', {
   quantidade: numeric('quantidade').notNull(),
   motivo: text('motivo'),
   data: date('data').notNull().default(sql`current_date`),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pontoMarcacao = pgTable('ponto_marcacao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  colaboradorId: uuid('colaborador_id')
+    .notNull()
+    .references(() => colaborador.id, { onDelete: 'cascade' }),
+  nsr: bigint('nsr', { mode: 'number' }).notNull(),
+  tipo: text('tipo').notNull(),
+  marcadoEm: timestamp('marcado_em', { withTimezone: true }).notNull().defaultNow(),
+  origem: text('origem').notNull().default('web'),
+  registradoPorId: uuid('registrado_por_id'),
+  hash: text('hash'),
+  obs: text('obs'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

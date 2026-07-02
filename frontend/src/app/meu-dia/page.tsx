@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Shell } from '@/components/app-shell/shell';
 import { NovaTarefaForm } from '@/components/tarefa/nova-tarefa-form';
+import { PontoCard } from '@/components/ponto/ponto-card';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Tarefa = {
@@ -100,6 +101,10 @@ export default function MeuDiaPage() {
           {erro}
         </p>
       )}
+
+      <div className="mb-5 max-w-2xl">
+        <PontoCard />
+      </div>
 
       {show && (
         <div className="mb-5 max-w-xl">
