@@ -19,6 +19,7 @@ type Lists = {
   turnos: any[];
   etiquetas: any[];
   janelasPico: any[];
+  fornecedores: any[];
 };
 
 const CATEGORIAS = [
@@ -68,6 +69,7 @@ export default function CadastrosPage() {
         turnos,
         etiquetas,
         janelasPico,
+        fornecedores,
       ] = await Promise.all([
         api.get('/unidades'),
         api.get('/setores'),
@@ -76,6 +78,7 @@ export default function CadastrosPage() {
         api.get('/turnos'),
         api.get('/etiquetas'),
         api.janelasPico(),
+        api.fornecedores(),
       ]);
       setL({
         unidades,
@@ -85,6 +88,7 @@ export default function CadastrosPage() {
         turnos,
         etiquetas,
         janelasPico,
+        fornecedores,
       });
       setVer((v) => v + 1);
     } catch (e) {
@@ -311,6 +315,49 @@ export default function CadastrosPage() {
           diaSemana: v.diaSemana === '' ? undefined : Number(v.diaSemana),
           horaInicio: v.horaInicio,
           horaFim: v.horaFim,
+        }),
+    },
+    {
+      key: 'fornecedor',
+      titulo: 'Fornecedores',
+      itens: L.fornecedores.map((f: any) => f.nome),
+      fields: [
+        {
+          name: 'nome',
+          label: 'Nome',
+          type: 'text',
+          required: true,
+          placeholder: 'Ex.: Distribuidora X',
+        },
+        { name: 'cnpj', label: 'CNPJ', type: 'text', placeholder: '00.000.000/0000-00' },
+        {
+          name: 'contato',
+          label: 'Contato',
+          type: 'text',
+          placeholder: 'Nome do responsável',
+        },
+        {
+          name: 'telefone',
+          label: 'Telefone',
+          type: 'text',
+          placeholder: '(00) 00000-0000',
+        },
+        {
+          name: 'email',
+          label: 'E-mail',
+          type: 'text',
+          placeholder: 'contato@fornecedor.com',
+        },
+        { name: 'obs', label: 'Observações', type: 'text' },
+      ] as FieldDef[],
+      submit: (v: any) =>
+        api.post('/fornecedores', {
+          nome: v.nome,
+          cnpj: v.cnpj || undefined,
+          contato: v.contato || undefined,
+          telefone: v.telefone || undefined,
+          email: v.email || undefined,
+          obs: v.obs || undefined,
         }),
     },
     {

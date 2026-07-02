@@ -437,6 +437,79 @@ export const movimentoEstoque = pgTable('movimento_estoque', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const fornecedor = pgTable('fornecedor', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  cnpj: text('cnpj'),
+  contato: text('contato'),
+  telefone: text('telefone'),
+  email: text('email'),
+  obs: text('obs'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const recebimento = pgTable('recebimento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  fornecedorId: uuid('fornecedor_id'),
+  data: date('data').notNull().default(sql`current_date`),
+  notaRef: text('nota_ref'),
+  notaFotoRef: text('nota_foto_ref'),
+  status: text('status').notNull().default('aberto'),
+  obs: text('obs'),
+  conferidoEm: timestamp('conferido_em', { withTimezone: true }),
+  conferidoPorId: uuid('conferido_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const recebimentoItem = pgTable('recebimento_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  recebimentoId: uuid('recebimento_id')
+    .notNull()
+    .references(() => recebimento.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id),
+  qtdEsperada: numeric('qtd_esperada').notNull().default('0'),
+  qtdRecebida: numeric('qtd_recebida').notNull().default('0'),
+  divergencia: text('divergencia').notNull().default('ok'),
+  validade: date('validade'),
+  fotoRef: text('foto_ref'),
+  obs: text('obs'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const lote = pgTable('lote', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  recebimentoId: uuid('recebimento_id'),
+  validade: date('validade'),
+  quantidade: numeric('quantidade').notNull().default('0'),
+  entrada: date('entrada').notNull().default(sql`current_date`),
+  esgotado: boolean('esgotado').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
 export const fichaTecnica = pgTable('ficha_tecnica', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

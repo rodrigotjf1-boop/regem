@@ -25,6 +25,8 @@ import { GuiasModule } from './modules/guias/guias.module';
 import { AuditoriaModule } from './modules/auditoria/auditoria.module';
 import { MidiaModule } from './modules/midia/midia.module';
 import { PicoModule } from './modules/pico/pico.module';
+import { FornecedorModule } from './modules/fornecedor/fornecedor.module';
+import { RecebimentoModule } from './modules/recebimento/recebimento.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -55,6 +57,8 @@ import { AuthModule } from './auth/auth.module';
     AuditoriaModule,
     MidiaModule,
     PicoModule,
+    FornecedorModule,
+    RecebimentoModule,
   ],
   controllers: [AppController],
 })

@@ -2,35 +2,60 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
-import { api, clearToken, getToken } from '@/lib/api';
+import { Plus } from 'lucide-react';
+import { api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
+import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
 import { Shell } from '@/components/app-shell/shell';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+function validadeStatus(validade: string | null) {
+  if (!validade) return { label: 'sem validade', cls: 'bg-slate-100 text-slate-600' };
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const v = new Date(`${validade}T00:00:00`);
+  const dias = Math.round((v.getTime() - hoje.getTime()) / 86400000);
+  const dm = v.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  if (dias < 0)
+    return { label: `vencido há ${Math.abs(dias)}d`, cls: 'bg-red-100 text-red-700' };
+  if (dias === 0) return { label: 'vence hoje', cls: 'bg-red-100 text-red-700' };
+  if (dias <= 7)
+    return { label: `vence em ${dias}d (${dm})`, cls: 'bg-amber-100 text-amber-800' };
+  return { label: dm, cls: 'bg-emerald-100 text-emerald-700' };
+}
+
 export default function OperacaoPage() {
   const router = useRouter();
   const [itens, setItens] = useState<any[]>([]);
   const [desperdicios, setDesperdicios] = useState<any[]>([]);
   const [vistorias, setVistorias] = useState<any[]>([]);
+  const [fornecedores, setFornecedores] = useState<any[]>([]);
+  const [recebimentos, setRecebimentos] = useState<any[]>([]);
+  const [lotes, setLotes] = useState<any[]>([]);
+  const [showReceb, setShowReceb] = useState(false);
   const [pronto, setPronto] = useState(false);
   const [erro, setErro] = useState('');
   const [ver, setVer] = useState(0);
 
   const reload = useCallback(async () => {
     try {
-      const [it, de, vi] = await Promise.all([
+      const [it, de, vi, fo, re, lo] = await Promise.all([
         api.get('/estoque/itens'),
         api.get('/desperdicios'),
         api.get('/vistorias'),
+        api.fornecedores(),
+        api.recebimentos(),
+        api.lotes(),
       ]);
       setItens(it);
       setDesperdicios(de);
       setVistorias(vi);
+      setFornecedores(fo);
+      setRecebimentos(re);
+      setLotes(lo);
       setVer((v) => v + 1);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
@@ -39,6 +64,16 @@ export default function OperacaoPage() {
     }
   }, []);
 
+  async function confirmarRecebimento(id: string) {
+    setErro('');
+    try {
+      await api.confirmarRecebimento(id);
+      await reload();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao confirmar');
+    }
+  }
+
   useEffect(() => {
     if (!getToken()) {
       router.replace('/');
@@ -46,11 +81,6 @@ export default function OperacaoPage() {
     }
     reload();
   }, [reload, router]);
-
-  function sair() {
-    clearToken();
-    router.replace('/');
-  }
 
   if (!pronto) {
     return (
@@ -155,6 +185,99 @@ export default function OperacaoPage() {
               </Card>
             );
           })}
+        </section>
+
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Recebimento</h2>
+            <Button size="sm" onClick={() => setShowReceb((v) => !v)}>
+              {showReceb ? (
+                'Fechar'
+              ) : (
+                <>
+                  <Plus className="h-4 w-4" /> Novo recebimento
+                </>
+              )}
+            </Button>
+          </div>
+          {showReceb && (
+            <RecebimentoForm
+              fornecedores={fornecedores}
+              itens={itens}
+              onCancel={() => setShowReceb(false)}
+              onCreated={() => {
+                setShowReceb(false);
+                reload();
+              }}
+            />
+          )}
+          {recebimentos.length === 0 && !showReceb && (
+            <Card className="p-6 text-center text-sm text-muted-foreground">
+              Nenhum recebimento registrado.
+            </Card>
+          )}
+          {recebimentos.map((r: any) => (
+            <Card
+              key={r.id}
+              className="flex items-center justify-between gap-3 p-4"
+            >
+              <div className="min-w-0">
+                <p className="font-medium">
+                  {r.fornecedorNome ?? 'Sem fornecedor'}{' '}
+                  <span className="text-xs font-normal text-muted-foreground">
+                    · {r.data}
+                  </span>
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {r.itens} item(ns)
+                  {r.divergencias > 0
+                    ? ` · ${r.divergencias} divergência(s)`
+                    : ''}
+                </p>
+              </div>
+              {r.status === 'conferido' ? (
+                <Badge className="bg-emerald-100 text-emerald-700">
+                  conferido
+                </Badge>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => confirmarRecebimento(r.id)}
+                >
+                  Confirmar
+                </Button>
+              )}
+            </Card>
+          ))}
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="font-semibold">Validades (FEFO)</h2>
+          {lotes.length === 0 ? (
+            <Card className="p-6 text-center text-sm text-muted-foreground">
+              Nenhum lote com validade. Lotes nascem ao confirmar recebimentos
+              com data de validade.
+            </Card>
+          ) : (
+            lotes.map((l: any) => {
+              const st = validadeStatus(l.validade);
+              return (
+                <Card
+                  key={l.id}
+                  className="flex items-center justify-between gap-3 p-4"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium">{l.itemNome}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {l.quantidade} {l.unidade} · entrada {l.entrada}
+                    </p>
+                  </div>
+                  <Badge className={st.cls}>{st.label}</Badge>
+                </Card>
+              );
+            })
+          )}
         </section>
 
         <section className="space-y-3">

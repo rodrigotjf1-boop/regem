@@ -92,6 +92,15 @@ export const api = {
   setores: () => req('/setores'),
   janelasPico: (unidadeId?: string) =>
     req(`/janelas-pico${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  fornecedores: () => req('/fornecedores'),
+  fornecedorPendencias: () => req('/fornecedores/pendencias'),
+  recebimentos: () => req('/recebimentos'),
+  recebimento: (id: string) => req(`/recebimentos/${id}`),
+  criarRecebimento: (body: Record<string, unknown>) =>
+    req('/recebimentos', { method: 'POST', body: JSON.stringify(body) }),
+  confirmarRecebimento: (id: string) =>
+    req(`/recebimentos/${id}/confirmar`, { method: 'POST' }),
+  lotes: () => req('/lotes'),
   etiquetas: () => req('/etiquetas'),
   turnos: () => req('/turnos'),
   colaboradores: () => req('/colaboradores'),
