@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regem KDS — Alertas Operacionais</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* ===== TOKENS KDS (alto contraste, leitura à distância) ===== */
+:root{
+  --bg:#0B141B;
+  --panel:#12202A;
+  --panel-2:#182B37;
+  --line:#24394699;
+  --text:#EAF2F7;
+  --text-2:#8FA9BA;
+  --ok:#19C08F;
+  --warn:#FFB13D;
+  --danger:#FF5A4E;
+  --info:#4AA8E0;
+  --gold:#E2A340;                 /* acento de marca Regem */
+  --font-display:'Archivo',sans-serif;
+  --font-body:'Figtree',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ===== Header ===== */
+.kds-header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10}
+.kds-logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,#0F2230,#1D3B4D);display:grid;place-items:center;font-family:var(--font-display);font-weight:800;font-size:18px;color:var(--gold);border:1px solid var(--gold)}
+.kds-title{font-family:var(--font-display);font-weight:800;font-size:17px;letter-spacing:.03em}
+.kds-sub{font-size:11px;color:var(--text-2);letter-spacing:.12em;text-transform:uppercase}
+.conn{display:flex;align-items:center;gap:8px;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:8px 13px;font-size:12.5px;font-weight:600;color:var(--text-2)}
+.conn .pulse{width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 rgba(25,192,143,.6);animation:pulse 2s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 9px rgba(25,192,143,0)}100%{box-shadow:0 0 0 0 rgba(25,192,143,0)}}
+.kds-clock{margin-left:auto;font-family:var(--font-mono);font-size:26px;font-weight:700;letter-spacing:.02em}
+.icon-btn{width:42px;height:42px;border-radius:10px;background:var(--panel-2);border:1px solid var(--line);display:grid;place-items:center;font-size:17px;transition:background .15s}
+.icon-btn:hover{background:#1F3441}
+.icon-btn.muted{color:var(--text-2)}
+
+/* ===== Layout ===== */
+.kds-main{display:grid;grid-template-columns:1fr 320px;gap:18px;padding:18px 22px;max-width:1400px;margin:0 auto}
+@media(max-width:980px){.kds-main{grid-template-columns:1fr}}
+
+/* ===== Fila de alertas ===== */
+.queue-head{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+.queue-title{font-family:var(--font-display);font-size:13px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--text-2)}
+.queue-count{font-family:var(--font-mono);font-size:13px;color:var(--warn);font-weight:700}
+.alert-card{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--warn);border-radius:14px;padding:18px 20px;margin-bottom:14px;display:flex;gap:16px;align-items:flex-start;animation:slideIn .3s ease}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+.alert-card.p-danger{border-left-color:var(--danger);background:linear-gradient(90deg,rgba(255,90,78,.08),var(--panel) 40%)}
+.alert-card.p-info{border-left-color:var(--info)}
+.alert-card.p-ok{border-left-color:var(--ok);opacity:.55}
+.alert-emoji{font-size:30px;flex:none;margin-top:2px}
+.alert-title{font-family:var(--font-display);font-size:19px;font-weight:700;line-height:1.25}
+.alert-meta{display:flex;gap:14px;flex-wrap:wrap;margin-top:7px;font-size:13px;color:var(--text-2)}
+.alert-meta .mono{font-family:var(--font-mono);font-size:12px}
+.alert-origin{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-2);margin-top:2px}
+.ack-btn{margin-left:auto;flex:none;background:var(--ok);color:#04241A;font-family:var(--font-display);font-weight:800;font-size:14px;letter-spacing:.1em;padding:14px 22px;border-radius:11px;transition:filter .15s}
+.ack-btn:hover{filter:brightness(1.1)}
+.ack-btn.done{background:var(--panel-2);color:var(--text-2);letter-spacing:.05em}
+.elapsed{font-family:var(--font-mono);font-size:12px;font-weight:700;padding:3px 9px;border-radius:6px;background:var(--panel-2)}
+.elapsed.hot{background:rgba(255,90,78,.18);color:var(--danger)}
+
+/* ===== Pico banner ===== */
+.peak-banner{background:linear-gradient(90deg,rgba(255,177,61,.16),rgba(255,177,61,.04));border:1px solid rgba(255,177,61,.4);border-radius:14px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;gap:14px}
+.peak-banner .big{font-family:var(--font-display);font-size:16px;font-weight:800;color:var(--warn)}
+.peak-timer{margin-left:auto;font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--warn)}
+
+/* ===== Painel lateral ===== */
+.side-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;margin-bottom:16px}
+.side-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--text-2);margin-bottom:12px}
+.pair-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:13px}
+.pair-row:last-child{border-bottom:none}
+.pair-row .k{color:var(--text-2)}
+.pair-row .v{font-family:var(--font-mono);font-size:12px;font-weight:700}
+.v.ok{color:var(--ok)}
+.toggle-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;font-weight:600}
+.toggle-row:last-child{border-bottom:none}
+.switch{margin-left:auto;width:40px;height:22px;border-radius:12px;background:#2A4150;position:relative;transition:background .2s;flex:none}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#8FA9BA;transition:left .2s,background .2s}
+.switch.on{background:var(--ok)}
+.switch.on::after{left:21px;background:#04241A}
+.side-note{font-size:11.5px;color:var(--text-2);line-height:1.5;margin-top:10px}
+.qr-box{width:110px;height:110px;margin:6px auto 10px;border-radius:10px;background:
+  repeating-linear-gradient(0deg,#EAF2F7 0 8px,transparent 8px 16px),
+  repeating-linear-gradient(90deg,#EAF2F7 0 8px,#0B141B 8px 16px);
+  border:6px solid #EAF2F7}
+.empty{padding:60px 20px;text-align:center;color:var(--text-2);display:none}
+.empty .big-ok{font-size:52px;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<header class="kds-header">
+  <div class="kds-logo">R</div>
+  <div>
+    <div class="kds-title">REGEM <span style="color:var(--gold)">KDS</span></div>
+    <div class="kds-sub">Alertas · Loja 01 — Centro</div>
+  </div>
+  <div class="conn"><span class="pulse"></span> Conectado ao Regem · rede local</div>
+  <div class="kds-clock" id="kdsClock">--:--:--</div>
+  <button class="icon-btn" id="soundBtn" title="Som dos alertas" aria-label="Alternar som">🔊</button>
+  <button class="icon-btn muted" title="Configurações" aria-label="Configurações">⚙</button>
+</header>
+
+<main class="kds-main">
+
+  <!-- ===== COLUNA PRINCIPAL: FILA DE ALERTAS ===== -->
+  <section>
+    <div class="peak-banner">
+      <span style="font-size:26px">🔥</span>
+      <div>
+        <div class="big">MOMENTO DE PICO ATIVO — Almoço</div>
+        <div style="font-size:12.5px;color:var(--text-2)">Configurado pelo gerente · 11:30 às 14:30 · alertas priorizados nesta tela</div>
+      </div>
+      <div class="peak-timer" id="peakTimer">01:42:10</div>
+    </div>
+
+    <div class="queue-head">
+      <div class="queue-title">Fila de alertas</div>
+      <div class="queue-count" id="queueCount">3 pendentes</div>
+    </div>
+
+    <div id="alertQueue">
+      <div class="alert-card p-danger" data-min="128">
+        <div class="alert-emoji">🌡️</div>
+        <div style="flex:1">
+          <div class="alert-title">Registro de temperatura em atraso — Câmara fria 02</div>
+          <div class="alert-meta">
+            <span>Resp.: <strong>Felipe Nunes</strong> (Aux. Cozinha · 12x36)</span>
+            <span class="elapsed hot">há 2h 08min</span>
+          </div>
+          <div class="alert-origin">Enviado por: Regem · Checklists — Cozinha</div>
+        </div>
+        <button class="ack-btn">CIENTE</button>
+      </div>
+
+      <div class="alert-card" data-min="14">
+        <div class="alert-emoji">📦</div>
+        <div style="flex:1">
+          <div class="alert-title">Recebimento com pendência — Hortifruti Silva</div>
+          <div class="alert-meta">
+            <span>2 itens marcados "não veio" · NF 48.211</span>
+            <span class="elapsed">há 14min</span>
+          </div>
+          <div class="alert-origin">Enviado por: Regem · Estoque — Recebimento</div>
+        </div>
+        <button class="ack-btn">CIENTE</button>
+      </div>
+
+      <div class="alert-card p-info" data-min="4">
+        <div class="alert-emoji">🧽</div>
+        <div style="flex:1">
+          <div class="alert-title">Janela de limpeza pós-pico abre às 14:30</div>
+          <div class="alert-meta">
+            <span>Escala de limpeza: filtros de ar + bancadas do salão</span>
+            <span class="elapsed">há 4min</span>
+          </div>
+          <div class="alert-origin">Enviado por: Regem · Escala de limpeza</div>
+        </div>
+        <button class="ack-btn">CIENTE</button>
+      </div>
+
+      <div class="alert-card p-ok" data-min="52">
+        <div class="alert-emoji">✅</div>
+        <div style="flex:1">
+          <div class="alert-title">Vistoria de abertura do Bar concluída</div>
+          <div class="alert-meta">
+            <span>Tainá Reis · 1 apontamento com foto</span>
+            <span class="elapsed">há 52min</span>
+          </div>
+          <div class="alert-origin">Enviado por: Regem · Vistorias</div>
+        </div>
+        <button class="ack-btn done">RECEBIDO ✓</button>
+      </div>
+    </div>
+
+    <div class="empty" id="emptyState">
+      <div class="big-ok">✅</div>
+      <div style="font-family:var(--font-display);font-size:18px;font-weight:700;color:var(--text)">Nenhum alerta pendente</div>
+      <div style="margin-top:6px">Novos alertas do Regem aparecem aqui automaticamente pela rede local.</div>
+    </div>
+  </section>
+
+  <!-- ===== PAINEL LATERAL: PAREAMENTO + FILTROS ===== -->
+  <aside>
+    <div class="side-card">
+      <div class="side-title">Dispositivo pareado</div>
+      <div class="pair-row"><span class="k">Nome do dispositivo</span><span class="v">KDS-COZINHA-01</span></div>
+      <div class="pair-row"><span class="k">Endereço MAC</span><span class="v">3C:7A:8B:F2:11:9E</span></div>
+      <div class="pair-row"><span class="k">Rede local</span><span class="v ok">REGEM_LOJA01 · 192.168.0.44</span></div>
+      <div class="pair-row"><span class="k">Detecção</span><span class="v ok">Automática (mDNS)</span></div>
+      <div class="pair-row"><span class="k">Plataforma</span><span class="v">Windows · v1.0.3</span></div>
+      <div class="pair-row"><span class="k">Última sincronização</span><span class="v" id="lastSync">agora</span></div>
+      <div class="side-note">O MAC fica cadastrado no aplicativo principal para reconexão automática nesta rede.</div>
+    </div>
+
+    <div class="side-card">
+      <div class="side-title">Parear novo dispositivo</div>
+      <div class="qr-box" role="img" aria-label="QR code de pareamento"></div>
+      <div class="side-note" style="text-align:center;margin-top:0">Escaneie no Regem para vincular um novo KDS ou celular desta rede.</div>
+    </div>
+
+    <div class="side-card">
+      <div class="side-title">Alertas que este KDS recebe</div>
+      <div class="toggle-row">🌡️ Tarefas críticas em atraso <button class="switch on" role="switch" aria-checked="true" aria-label="Tarefas críticas"></button></div>
+      <div class="toggle-row">🔥 Momentos de pico <button class="switch on" role="switch" aria-checked="true" aria-label="Momentos de pico"></button></div>
+      <div class="toggle-row">📦 Pendências de recebimento <button class="switch on" role="switch" aria-checked="true" aria-label="Recebimento"></button></div>
+      <div class="toggle-row">🧽 Escala de limpeza <button class="switch on" role="switch" aria-checked="true" aria-label="Limpeza"></button></div>
+      <div class="toggle-row">✅ Confirmações de vistoria <button class="switch" role="switch" aria-checked="false" aria-label="Vistorias"></button></div>
+      <div class="toggle-row">⭐ Ocorrências de equipe <button class="switch" role="switch" aria-checked="false" aria-label="Ocorrências"></button></div>
+      <div class="side-note">O gerente escolhe no Regem quais avisos considera mais importantes para cada tela.</div>
+    </div>
+  </aside>
+</main>
+
+<script>
+/* ===== Relógio e cronômetro de pico ===== */
+function pad(n){return String(n).padStart(2,'0')}
+function tick(){
+  const d=new Date();
+  document.getElementById('kdsClock').textContent=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  const end=new Date(d); end.setHours(14,30,0,0);
+  let diff=Math.max(0,(end-d)/1000);
+  const h=Math.floor(diff/3600), m=Math.floor(diff%3600/60), s=Math.floor(diff%60);
+  document.getElementById('peakTimer').textContent=`${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+tick(); setInterval(tick,1000);
+
+/* ===== Som de alerta (Web Audio — sem arquivos externos) ===== */
+let soundOn=true, audioCtx=null;
+function beep(){
+  if(!soundOn) return;
+  audioCtx=audioCtx||new (window.AudioContext||window.webkitAudioContext)();
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type='square'; o.frequency.value=880;
+  g.gain.setValueAtTime(.0001,audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(.15,audioCtx.currentTime+.02);
+  g.gain.exponentialRampToValueAtTime(.0001,audioCtx.currentTime+.35);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(); o.stop(audioCtx.currentTime+.4);
+}
+document.getElementById('soundBtn').addEventListener('click',e=>{
+  soundOn=!soundOn;
+  e.currentTarget.textContent=soundOn?'🔊':'🔇';
+  e.currentTarget.classList.toggle('muted',!soundOn);
+});
+
+/* ===== Fila: confirmar alerta (CIENTE) ===== */
+const queue=document.getElementById('alertQueue');
+function refreshCount(){
+  const pend=[...queue.querySelectorAll('.ack-btn')].filter(b=>!b.classList.contains('done')).length;
+  document.getElementById('queueCount').textContent=`${pend} pendente${pend===1?'':'s'}`;
+  document.getElementById('emptyState').style.display=queue.children.length?'none':'block';
+}
+queue.addEventListener('click',e=>{
+  const btn=e.target.closest('.ack-btn'); if(!btn||btn.classList.contains('done'))return;
+  btn.classList.add('done'); btn.textContent='RECEBIDO ✓';
+  const card=btn.closest('.alert-card');
+  card.classList.remove('p-danger','p-info'); card.classList.add('p-ok');
+  refreshCount();
+  setTimeout(()=>{card.style.transition='opacity .4s';card.style.opacity='0';
+    setTimeout(()=>{card.remove();refreshCount()},420)},4000);
+});
+refreshCount();
+
+/* ===== Simulação: alerta chegando pela rede local (no app real, via WebSocket) ===== */
+const demoAlerts=[
+  {p:'',e:'🏷️',t:'Etiquetas de produção prontas para impressão — Molhos base',m:'12 etiquetas · validade PVPS aplicada',o:'Regem · Produção'},
+  {p:'p-danger',e:'📉',t:'Desperdício acima da média registrado agora',m:'Cozinha · R$ 63,50 · foto anexada',o:'Regem · Vistorias — Desperdício'},
+  {p:'p-info',e:'📋',t:'Contagem programada de estoque inicia às 15:00',m:'Estoque seco + câmaras · exportação p/ planilha',o:'Regem · Estoque'}
+];
+let di=0;
+setInterval(()=>{
+  if(di>=demoAlerts.length) return;
+  const a=demoAlerts[di++];
+  const el=document.createElement('div');
+  el.className=`alert-card ${a.p}`;
+  el.innerHTML=`<div class="alert-emoji">${a.e}</div>
+    <div style="flex:1">
+      <div class="alert-title">${a.t}</div>
+      <div class="alert-meta"><span>${a.m}</span><span class="elapsed">agora</span></div>
+      <div class="alert-origin">Enviado por: ${a.o}</div>
+    </div>
+    <button class="ack-btn">CIENTE</button>`;
+  queue.prepend(el); beep(); refreshCount();
+  document.getElementById('lastSync').textContent='agora';
+},25000);
+
+/* ===== Toggles de tipos de alerta ===== */
+document.querySelectorAll('.switch').forEach(s=>s.addEventListener('click',()=>{
+  s.classList.toggle('on');
+  s.setAttribute('aria-checked',s.classList.contains('on'));
+}));
+</script>
+</body>
+</html>

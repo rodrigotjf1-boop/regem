@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regem Ponto — Terminal de Marcação</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0F2230;
+  --panel:#16303F;
+  --panel-2:#1D3B4D;
+  --line:#2A495C;
+  --text:#EAF2F7;
+  --text-2:#8FAABB;
+  --ok:#19C08F;
+  --warn:#FFB13D;
+  --danger:#FF5A4E;
+  --info:#4AA8E0;
+  --gold:#E2A340;
+  --font-display:'Archivo',sans-serif;
+  --font-body:'Figtree',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.hdr{display:flex;align-items:center;gap:12px;padding:14px 22px;border-bottom:1px solid var(--line)}
+.logo{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#0F2230,#1D3B4D);display:grid;place-items:center;font-family:var(--font-display);font-weight:800;font-size:18px;color:var(--gold);border:1px solid var(--gold)}
+.hdr-title{font-family:var(--font-display);font-weight:800;font-size:16px}
+.hdr-sub{font-size:10.5px;color:var(--text-2);letter-spacing:.12em;text-transform:uppercase}
+.status{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 12px;font-size:12px;font-weight:600;color:var(--text-2)}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.chip.off .dot{background:var(--warn)}
+
+.wrap{flex:1;display:grid;grid-template-columns:1fr 380px;gap:0;max-width:1100px;width:100%;margin:0 auto}
+@media(max-width:900px){.wrap{grid-template-columns:1fr}}
+.stage{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:34px 24px;text-align:center}
+.big-clock{font-family:var(--font-mono);font-size:clamp(56px,10vw,96px);font-weight:700;letter-spacing:-.02em;line-height:1}
+.big-date{font-size:16px;color:var(--text-2);margin:8px 0 26px;text-transform:capitalize}
+
+.pin-display{display:flex;gap:12px;justify-content:center;margin-bottom:20px;min-height:18px}
+.pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--text-2)}
+.pin-dot.filled{background:var(--ok);border-color:var(--ok)}
+.pad{display:grid;grid-template-columns:repeat(3,86px);gap:12px;justify-content:center}
+.key{height:66px;border-radius:14px;background:var(--panel);border:1px solid var(--line);font-family:var(--font-mono);font-size:24px;font-weight:700;transition:background .12s,transform .08s}
+.key:hover{background:var(--panel-2)}
+.key:active{transform:scale(.96)}
+.key.fn{font-size:14px;font-family:var(--font-display);letter-spacing:.08em;color:var(--text-2)}
+.hint{font-size:12.5px;color:var(--text-2);margin-top:18px}
+
+.emp-panel{display:none;flex-direction:column;align-items:center;gap:6px}
+.emp-photo{width:96px;height:96px;border-radius:50%;background:linear-gradient(135deg,#2C6E9B,#4AA8E0);display:grid;place-items:center;font-family:var(--font-display);font-weight:800;font-size:32px;color:#fff;margin-bottom:6px;border:3px solid var(--ok)}
+.emp-name{font-family:var(--font-display);font-size:24px;font-weight:800}
+.emp-info{font-size:13.5px;color:var(--text-2)}
+.shift-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 18px;margin:14px 0 20px;font-size:13.5px}
+.shift-box .mono{font-family:var(--font-mono);font-weight:700;color:var(--ok)}
+.punch-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;max-width:420px}
+.punch-btn{padding:20px 10px;border-radius:14px;font-family:var(--font-display);font-weight:800;font-size:16px;letter-spacing:.06em;border:1px solid var(--line);background:var(--panel);transition:filter .15s,transform .08s}
+.punch-btn:active{transform:scale(.97)}
+.punch-btn small{display:block;font-family:var(--font-body);font-weight:500;font-size:11.5px;color:var(--text-2);letter-spacing:0;margin-top:4px}
+.punch-btn.primary{background:var(--ok);color:#04241A}
+.punch-btn.primary small{color:#04553D}
+.cancel{margin-top:18px;color:var(--text-2);font-size:13px;text-decoration:underline}
+
+.receipt{display:none;flex-direction:column;align-items:center}
+.check-anim{width:92px;height:92px;border-radius:50%;background:var(--ok);display:grid;place-items:center;font-size:44px;color:#04241A;margin-bottom:16px;animation:pop .4s ease}
+@keyframes pop{0%{transform:scale(.4);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1)}}
+.rc-card{background:#F7F9FA;color:#0F2230;border-radius:14px;padding:20px 26px;width:100%;max-width:360px;text-align:left;font-size:13px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.rc-title{font-family:var(--font-display);font-weight:800;font-size:14px;letter-spacing:.08em;text-align:center;border-bottom:1.5px dashed #B9C6CE;padding-bottom:10px;margin-bottom:10px}
+.rc-row{display:flex;justify-content:space-between;padding:4px 0}
+.rc-row .k{color:#5E7482}
+.rc-row .v{font-family:var(--font-mono);font-weight:700;font-size:12px}
+.rc-foot{border-top:1.5px dashed #B9C6CE;margin-top:10px;padding-top:10px;text-align:center;font-size:11px;color:#5E7482}
+
+.side{border-left:1px solid var(--line);padding:24px 22px}
+@media(max-width:900px){.side{border-left:none;border-top:1px solid var(--line)}}
+.side-title{font-family:var(--font-display);font-size:11px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--text-2);margin-bottom:14px}
+.mark{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.mark:last-child{border-bottom:none}
+.mark-av{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;flex:none}
+.mark-name{font-size:13.5px;font-weight:600}
+.mark-sub{font-size:11.5px;color:var(--text-2)}
+.mark-time{margin-left:auto;font-family:var(--font-mono);font-size:13px;font-weight:700}
+.mark-type{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ok);text-align:right}
+.mark-type.saida{color:var(--info)} .mark-type.intervalo{color:var(--warn)}
+.offline-note{margin-top:16px;background:rgba(255,177,61,.1);border:1px solid rgba(255,177,61,.35);border-radius:10px;padding:11px 13px;font-size:12px;color:var(--warn);display:none}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="logo">R</div>
+  <div>
+    <div class="hdr-title">REGEM <span style="color:var(--gold)">PONTO</span></div>
+    <div class="hdr-sub">Terminal PONTO-ENTRADA-01 · Loja 01</div>
+  </div>
+  <div class="status">
+    <div class="chip"><span class="dot"></span> Online · sincronizado</div>
+    <div class="chip"><span style="font-family:var(--font-mono);font-size:11px">MAC A4:6E:2C:91:0B:7D</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+  <main class="stage">
+    <div class="big-clock" id="bigClock">--:--:--</div>
+    <div class="big-date" id="bigDate">—</div>
+
+    <!-- ETAPA 1: PIN -->
+    <div id="stepPin">
+      <div class="pin-display" id="pinDots">
+        <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+      </div>
+      <div class="pad" id="pad">
+        <button class="key">1</button><button class="key">2</button><button class="key">3</button>
+        <button class="key">4</button><button class="key">5</button><button class="key">6</button>
+        <button class="key">7</button><button class="key">8</button><button class="key">9</button>
+        <button class="key fn" data-k="clear">LIMPAR</button><button class="key">0</button><button class="key fn" data-k="back">⌫</button>
+      </div>
+      <div class="hint">Digite seu PIN de 4 dígitos · ou aproxime o crachá / use reconhecimento facial 📷</div>
+    </div>
+
+    <!-- ETAPA 2: COLABORADOR IDENTIFICADO -->
+    <div class="emp-panel" id="stepEmp">
+      <div class="emp-photo">PL</div>
+      <div class="emp-name">Paulo Lima</div>
+      <div class="emp-info">Sous-chef · Brigada de Cozinha · Matrícula 00042</div>
+      <div class="shift-box">Escala de hoje (6x1): <span class="mono">08:00 — 17:00</span> · intervalo previsto <span class="mono">12:00</span></div>
+      <div class="punch-grid">
+        <button class="punch-btn primary" data-type="ENTRADA">ENTRADA<small>Início da jornada</small></button>
+        <button class="punch-btn" data-type="INÍCIO DE INTERVALO">INTERVALO<small>Pausa para refeição</small></button>
+        <button class="punch-btn" data-type="FIM DE INTERVALO">RETORNO<small>Fim do intervalo</small></button>
+        <button class="punch-btn" data-type="SAÍDA">SAÍDA<small>Fim da jornada</small></button>
+      </div>
+      <button class="cancel" id="cancelBtn">Não sou eu · voltar</button>
+    </div>
+
+    <!-- ETAPA 3: COMPROVANTE -->
+    <div class="receipt" id="stepReceipt">
+      <div class="check-anim">✓</div>
+      <div class="rc-card">
+        <div class="rc-title">COMPROVANTE DE MARCAÇÃO</div>
+        <div class="rc-row"><span class="k">Colaborador</span><span class="v">PAULO LIMA</span></div>
+        <div class="rc-row"><span class="k">Matrícula</span><span class="v">00042</span></div>
+        <div class="rc-row"><span class="k">Tipo</span><span class="v" id="rcType">ENTRADA</span></div>
+        <div class="rc-row"><span class="k">Data / Hora</span><span class="v" id="rcTime">—</span></div>
+        <div class="rc-row"><span class="k">NSR</span><span class="v" id="rcNsr">—</span></div>
+        <div class="rc-row"><span class="k">Terminal</span><span class="v">PONTO-ENTRADA-01</span></div>
+        <div class="rc-row"><span class="k">Foto</span><span class="v">📷 registrada</span></div>
+        <div class="rc-foot">Regem · Loja 01 — Centro · CNPJ 00.000.000/0001-00<br>Marcação vinculada à escala · hash de integridade gerado</div>
+      </div>
+      <div class="hint" id="rcCountdown">Voltando ao início em 6…</div>
+    </div>
+  </main>
+
+  <aside class="side">
+    <div class="side-title">Últimas marcações neste terminal</div>
+    <div id="markList">
+      <div class="mark"><div class="mark-av" style="background:#8A5A10">TR</div><div><div class="mark-name">Tainá Reis</div><div class="mark-sub">Aux. Bar · Diarista</div></div><div><div class="mark-time">09:58</div><div class="mark-type">Entrada</div></div></div>
+      <div class="mark"><div class="mark-av" style="background:#C2453A">FN</div><div><div class="mark-name">Felipe Nunes</div><div class="mark-sub">Aux. Cozinha · 12x36</div></div><div><div class="mark-time">07:12</div><div class="mark-type">Entrada</div></div></div>
+      <div class="mark"><div class="mark-av" style="background:#0E7C66">PL</div><div><div class="mark-name">Paulo Lima</div><div class="mark-sub">Sous-chef · 6x1</div></div><div><div class="mark-time">07:54</div><div class="mark-type">Entrada</div></div></div>
+      <div class="mark"><div class="mark-av" style="background:#2C6E9B">JS</div><div><div class="mark-name">Júlia Souza</div><div class="mark-sub">Maître · 5x2 (ontem)</div></div><div><div class="mark-time">01:10</div><div class="mark-type saida">Saída</div></div></div>
+    </div>
+    <div class="offline-note" id="offlineNote">⚠️ Sem conexão — marcações salvas localmente e sincronizadas ao primeiro sinal de internet.</div>
+  </aside>
+</div>
+
+<script>
+/* ===== Relógio ===== */
+function pad(n){return String(n).padStart(2,'0')}
+function tick(){
+  const d=new Date();
+  document.getElementById('bigClock').textContent=`${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  document.getElementById('bigDate').textContent=d.toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
+}
+tick(); setInterval(tick,1000);
+
+/* ===== Fluxo: PIN → colaborador → comprovante ===== */
+const stepPin=document.getElementById('stepPin'),
+      stepEmp=document.getElementById('stepEmp'),
+      stepRc=document.getElementById('stepReceipt');
+let pin='';
+function renderDots(){
+  document.querySelectorAll('#pinDots .pin-dot').forEach((d,i)=>d.classList.toggle('filled',i<pin.length));
+}
+document.getElementById('pad').addEventListener('click',e=>{
+  const k=e.target.closest('.key'); if(!k)return;
+  if(k.dataset.k==='clear'){pin='';renderDots();return}
+  if(k.dataset.k==='back'){pin=pin.slice(0,-1);renderDots();return}
+  if(pin.length>=4)return;
+  pin+=k.textContent.trim(); renderDots();
+  if(pin.length===4){ // demo: qualquer PIN identifica Paulo Lima
+    setTimeout(()=>{stepPin.style.display='none';stepEmp.style.display='flex';},250);
+  }
+});
+document.getElementById('cancelBtn').addEventListener('click',()=>{
+  pin='';renderDots();
+  stepEmp.style.display='none';stepPin.style.display='block';
+});
+
+/* ===== Marcação + comprovante NSR ===== */
+let nsr=48291;
+document.querySelectorAll('.punch-btn').forEach(b=>b.addEventListener('click',()=>{
+  const d=new Date();
+  document.getElementById('rcType').textContent=b.dataset.type;
+  document.getElementById('rcTime').textContent=
+    `${pad(d.getDate())}/${pad(d.getMonth()+1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  document.getElementById('rcNsr').textContent=String(++nsr).padStart(9,'0');
+  stepEmp.style.display='none'; stepRc.style.display='flex';
+
+  const list=document.getElementById('markList');
+  const el=document.createElement('div');
+  el.className='mark';
+  const isOut=b.dataset.type==='SAÍDA', isBreak=b.dataset.type.includes('INTERVALO');
+  el.innerHTML=`<div class="mark-av" style="background:#0E7C66">PL</div>
+    <div><div class="mark-name">Paulo Lima</div><div class="mark-sub">Sous-chef · 6x1</div></div>
+    <div><div class="mark-time">${pad(d.getHours())}:${pad(d.getMinutes())}</div>
+    <div class="mark-type ${isOut?'saida':isBreak?'intervalo':''}">${b.dataset.type.toLowerCase()}</div></div>`;
+  list.prepend(el);
+
+  let s=6;
+  const cd=document.getElementById('rcCountdown');
+  cd.textContent=`Voltando ao início em ${s}…`;
+  const int=setInterval(()=>{
+    s--; cd.textContent=`Voltando ao início em ${s}…`;
+    if(s<=0){clearInterval(int);
+      stepRc.style.display='none'; stepPin.style.display='block';
+      pin=''; renderDots();
+    }
+  },1000);
+}));
+
+/* ===== Indicador de modo offline (fila local) ===== */
+function connState(){
+  const on=navigator.onLine;
+  const chip=document.querySelector('.chip');
+  chip.classList.toggle('off',!on);
+  chip.innerHTML=on
+    ?'<span class="dot"></span> Online · sincronizado'
+    :'<span class="dot"></span> Offline · fila local ativa';
+  document.getElementById('offlineNote').style.display=on?'none':'block';
+}
+window.addEventListener('online',connState);
+window.addEventListener('offline',connState);
+connState();
+</script>
+</body>
+</html>
