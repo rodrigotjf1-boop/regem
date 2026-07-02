@@ -1,5 +1,5 @@
 const BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000/api/v1';
+  process.env.NEXT_PUBLIC_API_URL ?? 'https://api.dmsregem.com/api/v1';
 
 const TOKEN_KEY = 'regen_token';
 
