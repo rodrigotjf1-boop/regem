@@ -21,6 +21,7 @@ import { OcorrenciaModule } from './modules/ocorrencia/ocorrencia.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
 import { FichasModule } from './modules/fichas/fichas.module';
 import { DiretoriaModule } from './modules/diretoria/diretoria.module';
+import { GuiasModule } from './modules/guias/guias.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -47,6 +48,7 @@ import { AuthModule } from './auth/auth.module';
     OnboardingModule,
     FichasModule,
     DiretoriaModule,
+    GuiasModule,
   ],
   controllers: [AppController],
 })

@@ -14,6 +14,7 @@ import {
   ListChecks,
   LogOut,
   Menu,
+  ScrollText,
   Settings,
 } from 'lucide-react';
 import { clearToken, getCategoria, getToken } from '@/lib/api';
@@ -30,6 +31,7 @@ const NAV = [
       { href: '/escala', label: 'Escalas', icon: CalendarDays },
       { href: '/operacao', label: 'Operação', icon: Boxes },
       { href: '/fichas', label: 'Fichas Técnicas', icon: ChefHat },
+      { href: '/guias', label: 'POP & Guias', icon: ScrollText },
       { href: '/docs', label: 'Documentos', icon: FileText },
     ],
   },

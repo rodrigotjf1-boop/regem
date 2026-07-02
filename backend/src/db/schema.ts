@@ -455,3 +455,36 @@ export const fichaIngrediente = pgTable('ficha_ingrediente', {
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const guia = pgTable('guia', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  setorId: uuid('setor_id'),
+  funcaoId: uuid('funcao_id'),
+  codigo: text('codigo'),
+  titulo: text('titulo').notNull(),
+  descricao: text('descricao'),
+  ramo: text('ramo'),
+  frequencia: text('frequencia').notNull().default('diaria'),
+  estado: text('estado').notNull().default('rascunho'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const guiaPasso = pgTable('guia_passo', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  guiaId: uuid('guia_id')
+    .notNull()
+    .references(() => guia.id, { onDelete: 'cascade' }),
+  ordem: integer('ordem').notNull().default(0),
+  descricao: text('descricao').notNull(),
+  mediaRef: text('media_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
