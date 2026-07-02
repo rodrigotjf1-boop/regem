@@ -488,3 +488,22 @@ export const guiaPasso = pgTable('guia_passo', {
   mediaRef: text('media_ref'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// audit_log: criada na 002 e estendida na 010 (actor_perfil, tipo, origem). Append-only.
+export const auditLog = pgTable('audit_log', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  actorTipo: text('actor_tipo').notNull().default('usuario'),
+  actorId: uuid('actor_id'),
+  actorPerfil: text('actor_perfil'),
+  tipo: text('tipo'),
+  acao: text('acao').notNull(),
+  entidadeTipo: text('entidade_tipo'),
+  entidadeId: uuid('entidade_id'),
+  detalhe: jsonb('detalhe'),
+  origem: text('origem').notNull().default('web'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
