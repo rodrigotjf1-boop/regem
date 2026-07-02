@@ -13,6 +13,9 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
+# Necessário para o server standalone aceitar conexões do proxy do EasyPanel.
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
