@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regem Colaborador — Meu Turno</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --canvas:#EDF0F4;
+  --surface:#FFFFFF;
+  --surface-2:#F6F8FA;
+  --ink:#0F2230;
+  --ink-2:#3D5566;
+  --ink-3:#7A8FA0;
+  --line:#DCE3E9;
+  --ok:#0E7C66;
+  --ok-soft:#E0F1EC;
+  --warn:#E8A13C;
+  --warn-soft:#FBEFDC;
+  --danger:#C2453A;
+  --danger-soft:#F8E4E1;
+  --info:#2C6E9B;
+  --info-soft:#E1EEF6;
+  --gold:#E2A340;
+  --font-display:'Archivo',sans-serif;
+  --font-body:'Figtree',sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font-body);background:#0F2230;color:var(--ink);min-height:100vh;display:flex;justify-content:center;padding:14px 0}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+:focus-visible{outline:2px solid var(--info);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.phone{width:100%;max-width:420px;background:var(--canvas);min-height:calc(100vh - 28px);border-radius:26px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+@media(max-width:460px){body{padding:0}.phone{border-radius:0;min-height:100vh;box-shadow:none}}
+
+.app-hdr{background:var(--ink);color:#fff;padding:18px 18px 46px;position:relative}
+.hdr-top{display:flex;align-items:center;gap:10px}
+.mini-logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#0F2230,#1D3B4D);display:grid;place-items:center;font-family:var(--font-display);font-weight:800;font-size:15px;color:var(--gold);border:1px solid var(--gold)}
+.hdr-brand{font-family:var(--font-display);font-weight:800;font-size:14px;letter-spacing:.04em}
+.hdr-brand span{color:#7A99AC;font-weight:600}
+.bell{margin-left:auto;position:relative;font-size:19px}
+.bell::after{content:"2";position:absolute;top:-5px;right:-7px;background:var(--warn);color:#3A2A0C;font-family:var(--font-mono);font-size:9px;font-weight:700;padding:1px 5px;border-radius:10px}
+.hdr-greet{margin-top:16px;display:flex;align-items:center;gap:12px}
+.my-av{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,#0E7C66,#19C08F);display:grid;place-items:center;font-family:var(--font-display);font-weight:800;font-size:16px;border:2px solid rgba(255,255,255,.3)}
+.greet-name{font-family:var(--font-display);font-size:17px;font-weight:800}
+.greet-sub{font-size:12px;color:#8FAABB}
+.pts-chip{margin-left:auto;background:rgba(226,163,64,.18);border:1px solid rgba(226,163,64,.4);border-radius:20px;padding:5px 12px;font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--gold)}
+
+.content{flex:1;overflow-y:auto;padding:0 14px 90px;margin-top:-30px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 1px 2px rgba(15,34,48,.06),0 4px 16px rgba(15,34,48,.05);margin-bottom:12px}
+.card-pad{padding:15px 16px}
+.card-title{font-family:var(--font-display);font-size:12px;font-weight:700;letter-spacing:.04em}
+.card-sub{font-size:11.5px;color:var(--ink-3)}
+.shift-hero{display:flex;align-items:center;gap:12px}
+.shift-time{font-family:var(--font-mono);font-size:22px;font-weight:700;color:var(--ok)}
+.tag{display:inline-block;font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:5px}
+.tag-ok{background:var(--ok-soft);color:var(--ok)}
+.tag-warn{background:var(--warn-soft);color:#8A5A10}
+.tag-danger{background:var(--danger-soft);color:var(--danger)}
+.tag-info{background:var(--info-soft);color:var(--info)}
+.tag-muted{background:var(--surface-2);color:var(--ink-3)}
+
+.now-task{background:linear-gradient(135deg,#0F2230,#1D3B4D);color:#fff;border:none}
+.now-task .card-sub{color:rgba(255,255,255,.75)}
+.now-task .big{font-family:var(--font-display);font-size:17px;font-weight:800;margin:5px 0 3px}
+.now-task .btn-tut{margin-top:11px;background:rgba(226,163,64,.18);border:1px solid rgba(226,163,64,.45);color:var(--gold);border-radius:9px;padding:9px 14px;font-size:12.5px;font-weight:600;width:100%}
+
+.item{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:none}
+.it-icon{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;flex:none;font-size:15px}
+.it-title{font-size:13.5px;font-weight:600}
+.it-sub{font-size:11.5px;color:var(--ink-3)}
+.it-right{margin-left:auto;flex:none}
+.checkbox{width:22px;height:22px;border-radius:7px;border:2px solid var(--line);flex:none;margin-top:2px;display:grid;place-items:center;transition:background .15s,border-color .15s}
+.checkbox.done{background:var(--ok);border-color:var(--ok)}
+.checkbox.done::after{content:"✓";color:#fff;font-size:12px;font-weight:700}
+.item.is-done .it-title{text-decoration:line-through;color:var(--ink-3)}
+.progress{height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;margin-top:8px}
+.progress i{display:block;height:100%;background:var(--ok);border-radius:3px;transition:width .3s}
+
+.week{display:flex;gap:7px;overflow-x:auto;padding-bottom:4px}
+.day{flex:none;width:76px;border:1px solid var(--line);border-radius:11px;padding:9px 8px;text-align:center;background:var(--surface)}
+.day.today{border-color:var(--ok);background:var(--ok-soft)}
+.day .dow{font-family:var(--font-display);font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--ink-3)}
+.day.today .dow{color:var(--ok)}
+.day .dnum{font-family:var(--font-mono);font-size:17px;font-weight:700;margin:2px 0}
+.day .dsh{font-family:var(--font-mono);font-size:9.5px;color:var(--ink-2);line-height:1.35}
+.day .off{font-size:10px;color:var(--ink-3);font-style:italic}
+
+.rank-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.rank-row:last-child{border-bottom:none}
+.rank-row.me{background:var(--ok-soft);margin:0 -16px;padding:10px 16px;border-radius:10px;border-bottom:none}
+.rk-pos{font-family:var(--font-mono);font-size:13px;font-weight:700;width:26px;color:var(--ink-3)}
+.rk-av{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
+.rk-pts{margin-left:auto;font-family:var(--font-mono);font-weight:700;font-size:13.5px}
+
+.punch-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}
+.punch-mini{text-align:center;border:1px solid var(--line);border-radius:10px;padding:9px 4px}
+.punch-mini .k{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+.punch-mini .v{font-family:var(--font-mono);font-size:13px;font-weight:700;margin-top:2px}
+.punch-mini .v.pend{color:var(--ink-3)}
+
+.tabbar{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(4,1fr);padding:8px 6px calc(10px + env(safe-area-inset-bottom))}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;font-weight:600;color:var(--ink-3);padding:5px 2px;border-radius:9px}
+.tab .ic{font-size:19px}
+.tab.active{color:var(--ok);background:var(--ok-soft)}
+
+.view{display:none;animation:fadeIn .22s ease}
+.view.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.section-label{font-family:var(--font-display);font-size:10.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:16px 4px 8px}
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <header class="app-hdr">
+    <div class="hdr-top">
+      <div class="mini-logo">R</div>
+      <div class="hdr-brand">REGEM <span>COLABORADOR</span></div>
+      <button class="bell" aria-label="Notificações">🔔</button>
+    </div>
+    <div class="hdr-greet">
+      <div class="my-av">PL</div>
+      <div>
+        <div class="greet-name">Olá, Paulo 👋</div>
+        <div class="greet-sub">Sous-chef · Cozinha · Loja 01</div>
+      </div>
+      <div class="pts-chip">🔥 +184 pts</div>
+    </div>
+  </header>
+
+  <div class="content">
+
+    <!-- ===== ABA: HOJE ===== -->
+    <section class="view active" id="tab-hoje">
+      <div class="card card-pad">
+        <div class="card-title">Meu turno de hoje</div>
+        <div class="shift-hero" style="margin-top:8px">
+          <div>
+            <div class="shift-time">08:00 — 17:00</div>
+            <div class="card-sub">Escala 6x1 · intervalo previsto 12:00 · quinta, 02 jul</div>
+          </div>
+          <span class="tag tag-ok it-right">Em jornada</span>
+        </div>
+        <div class="punch-row">
+          <div class="punch-mini"><div class="k">Entrada</div><div class="v">07:54</div></div>
+          <div class="punch-mini"><div class="k">Intervalo</div><div class="v">12:02</div></div>
+          <div class="punch-mini"><div class="k">Retorno</div><div class="v">13:00</div></div>
+          <div class="punch-mini"><div class="k">Saída</div><div class="v pend">—</div></div>
+        </div>
+      </div>
+
+      <div class="card card-pad now-task">
+        <div class="card-sub">AGORA · 11:30 — 14:30</div>
+        <div class="big">Linha do almoço</div>
+        <div class="card-sub">Sua tarefa escalada neste horário · Cozinha</div>
+        <button class="btn-tut">📖 Ver tutorial da tarefa (POP-COZ-002)</button>
+      </div>
+
+      <div class="section-label">Avisos para você</div>
+      <div class="card card-pad">
+        <div class="item"><div class="it-icon" style="background:var(--warn-soft)">🧽</div><div><div class="it-title">Janela de limpeza pós-pico às 14:30</div><div class="it-sub">Bancadas da linha · escala de limpeza</div></div></div>
+        <div class="item"><div class="it-icon" style="background:var(--info-soft)">🏷️</div><div><div class="it-title">Imprimir etiquetas da produção de amanhã</div><div class="it-sub">Tarefa de ociosidade disponível · pode adiantar</div></div><button class="tag tag-info it-right" style="border:none">Puxar</button></div>
+      </div>
+    </section>
+
+    <!-- ===== ABA: TAREFAS ===== -->
+    <section class="view" id="tab-tarefas">
+      <div class="card card-pad">
+        <div style="display:flex;align-items:baseline;gap:8px">
+          <div class="card-title">Meu checklist — hoje</div>
+          <span class="tag tag-ok" id="mChkPct" style="margin-left:auto">3/5</span>
+        </div>
+        <div class="progress"><i id="mChkBar" style="width:60%"></i></div>
+        <div id="mChecklist" style="margin-top:6px">
+          <div class="item is-done"><button class="checkbox done" aria-label="Concluir"></button><div style="flex:1"><div class="it-title">Vistoria inicial de abertura</div><div class="it-sub">06:55 · assinada · 2 fotos</div></div></div>
+          <div class="item is-done"><button class="checkbox done" aria-label="Concluir"></button><div style="flex:1"><div class="it-title">Temperatura — Câmara fria 01</div><div class="it-sub">07:10 · 2,4 °C</div></div></div>
+          <div class="item is-done"><button class="checkbox done" aria-label="Concluir"></button><div style="flex:1"><div class="it-title">Mise en place — linha do almoço</div><div class="it-sub">Ficha técnica v3 · etiquetas PVPS</div></div></div>
+          <div class="item"><button class="checkbox" aria-label="Concluir"></button><div style="flex:1"><div class="it-title">Higienização de bancadas pós-almoço</div><div class="it-sub">Janela 14:30 · 📖 tutorial disponível</div></div></div>
+          <div class="item"><button class="checkbox" aria-label="Concluir"></button><div style="flex:1"><div class="it-title">Vistoria final de fechamento</div><div class="it-sub">A partir das 16:30</div></div></div>
+        </div>
+      </div>
+      <div class="card card-pad">
+        <div class="card-title">Guias do meu setor</div>
+        <div class="item" style="margin-top:4px"><div class="it-icon" style="background:var(--ok-soft)">📖</div><div><div class="it-title">POP-COZ-002 — Mise en place</div><div class="it-sub">v3 · com vídeo</div></div><span class="tag tag-muted it-right">Abrir</span></div>
+        <div class="item"><div class="it-icon" style="background:var(--ok-soft)">📖</div><div><div class="it-title">POP-COZ-004 — Higienização</div><div class="it-sub">v1 · com fotos</div></div><span class="tag tag-muted it-right">Abrir</span></div>
+      </div>
+    </section>
+
+    <!-- ===== ABA: ESCALA ===== -->
+    <section class="view" id="tab-escala">
+      <div class="card card-pad">
+        <div class="card-title">Minha semana</div>
+        <div class="card-sub" style="margin-bottom:10px">29 jun — 05 jul · escala 6x1</div>
+        <div class="week">
+          <div class="day"><div class="dow">SEG</div><div class="dnum">29</div><div class="dsh">08:00<br>17:00</div></div>
+          <div class="day"><div class="dow">TER</div><div class="dnum">30</div><div class="dsh">08:00<br>17:00</div></div>
+          <div class="day"><div class="dow">QUA</div><div class="dnum">01</div><div class="dsh">08:00<br>17:00</div></div>
+          <div class="day today"><div class="dow">QUI</div><div class="dnum">02</div><div class="dsh">08:00<br>17:00</div></div>
+          <div class="day"><div class="dow">SEX</div><div class="dnum">03</div><div class="dsh">08:00<br>17:00</div></div>
+          <div class="day"><div class="dow">SÁB</div><div class="dnum">04</div><div class="dsh">10:00<br>19:00</div></div>
+          <div class="day"><div class="dow">DOM</div><div class="dnum">05</div><div class="off">Folga</div></div>
+        </div>
+      </div>
+      <div class="card card-pad">
+        <div class="card-title">Meu espelho de ponto — semana</div>
+        <div class="item" style="margin-top:4px"><div class="it-icon" style="background:var(--ok-soft)">✅</div><div><div class="it-title">Qua 01 jul</div><div class="it-sub">07:56 — 17:03 · intervalo 58 min</div></div><span class="tag tag-ok it-right">OK</span></div>
+        <div class="item"><div class="it-icon" style="background:var(--ok-soft)">✅</div><div><div class="it-title">Ter 30 jun</div><div class="it-sub">07:51 — 17:00 · intervalo 1h 02</div></div><span class="tag tag-ok it-right">OK</span></div>
+        <div class="item"><div class="it-icon" style="background:var(--info-soft)">📈</div><div><div class="it-title">Seg 29 jun</div><div class="it-sub">07:58 — 18:10 · extra +1h 10</div></div><span class="tag tag-info it-right">Aprovada</span></div>
+      </div>
+      <div class="card card-pad" style="border-left:3px solid var(--info)">
+        <div class="it-title">Precisa trocar um turno?</div>
+        <div class="it-sub" style="margin-top:3px">Solicite ao gerente pelo app — a troca só vale após aprovação e fica no log de auditoria.</div>
+        <button class="tag tag-info" style="border:none;margin-top:10px;padding:8px 14px;font-size:12px">Solicitar troca de turno</button>
+      </div>
+    </section>
+
+    <!-- ===== ABA: PONTOS ===== -->
+    <section class="view" id="tab-pontos">
+      <div class="card card-pad" style="text-align:center;background:linear-gradient(135deg,#0F2230,#1D3B4D);color:#fff;border:none">
+        <div class="card-sub" style="color:#8FAABB">MINHA PONTUAÇÃO — JULHO</div>
+        <div style="font-family:var(--font-mono);font-size:42px;font-weight:700;color:var(--gold);margin:6px 0 2px">+184</div>
+        <div style="font-size:12.5px;color:#8FAABB">🥇 1º lugar da loja · faltam <strong style="color:#fff">0 pts</strong> para o bônus mensal (≥150)</div>
+      </div>
+
+      <div class="card card-pad">
+        <div class="card-title">Ranking da loja</div>
+        <div style="margin-top:6px">
+          <div class="rank-row me"><div class="rk-pos" style="color:#B8860B">1º</div><div class="rk-av" style="background:#0E7C66">PL</div><div class="it-title">Você</div><div class="rk-pts" style="color:var(--ok)">+184</div></div>
+          <div class="rank-row"><div class="rk-pos">2º</div><div class="rk-av" style="background:#2C6E9B">JS</div><div class="it-title">Júlia S.</div><div class="rk-pts">+156</div></div>
+          <div class="rank-row"><div class="rk-pos">3º</div><div class="rk-av" style="background:#6B3FA0">MC</div><div class="it-title">Marcos C.</div><div class="rk-pts">+128</div></div>
+          <div class="rank-row"><div class="rk-pos">4º</div><div class="rk-av" style="background:#8A5A10">TR</div><div class="it-title">Tainá R.</div><div class="rk-pts">+94</div></div>
+        </div>
+      </div>
+
+      <div class="card card-pad">
+        <div class="card-title">Minhas ocorrências recentes</div>
+        <div class="item" style="margin-top:4px"><div class="it-icon" style="background:var(--ok-soft)">🤝</div><div><div class="it-title">Cobriu turno de colega</div><div class="it-sub">02/07 · registrado pelo gerente</div></div><span class="rk-pts it-right" style="color:var(--ok);font-size:13px">+8</span></div>
+        <div class="item"><div class="it-icon" style="background:var(--ok-soft)">⭐</div><div><div class="it-title">Checklist 100% na semana</div><div class="it-sub">28/06 · automático</div></div><span class="rk-pts it-right" style="color:var(--ok);font-size:13px">+15</span></div>
+        <div class="item"><div class="it-icon" style="background:var(--danger-soft)">🏷️</div><div><div class="it-title">Etiqueta sem data de validade</div><div class="it-sub">21/06 · com foto</div></div><span class="rk-pts it-right" style="color:var(--danger);font-size:13px">−4</span></div>
+      </div>
+
+      <div class="card card-pad">
+        <div class="card-title">Premiações do mês</div>
+        <div class="item" style="margin-top:4px"><div class="it-icon" style="background:var(--ok-soft)">🏆</div><div><div class="it-title">1º lugar — Bônus em folha</div><div class="it-sub">≥ 150 pts · você já garantiu!</div></div><span class="tag tag-ok it-right">Atingido</span></div>
+        <div class="item"><div class="it-icon" style="background:var(--info-soft)">🎟️</div><div><div class="it-title">2º e 3º — Vale-folga</div><div class="it-sub">≥ 100 pts</div></div><span class="tag tag-muted it-right">—</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===== TAB BAR ===== -->
+  <nav class="tabbar">
+    <button class="tab active" data-tab="hoje"><span class="ic">🏠</span>Hoje</button>
+    <button class="tab" data-tab="tarefas"><span class="ic">✓</span>Tarefas</button>
+    <button class="tab" data-tab="escala"><span class="ic">📅</span>Escala</button>
+    <button class="tab" data-tab="pontos"><span class="ic">🏆</span>Pontos</button>
+  </nav>
+</div>
+
+<script>
+/* ===== Navegação por abas ===== */
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  t.classList.add('active');
+  document.getElementById('tab-'+t.dataset.tab).classList.add('active');
+  document.querySelector('.content').scrollTop=0;
+}));
+
+/* ===== Checklist do colaborador ===== */
+const mList=document.getElementById('mChecklist');
+function mRefresh(){
+  const items=[...mList.querySelectorAll('.item')];
+  const done=items.filter(i=>i.classList.contains('is-done')).length;
+  document.getElementById('mChkPct').textContent=`${done}/${items.length}`;
+  document.getElementById('mChkBar').style.width=(done/items.length*100)+'%';
+}
+mList.addEventListener('click',e=>{
+  const box=e.target.closest('.checkbox'); if(!box)return;
+  box.classList.toggle('done');
+  box.closest('.item').classList.toggle('is-done');
+  mRefresh();
+});
+mRefresh();
+</script>
+</body>
+</html>
