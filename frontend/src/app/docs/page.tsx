@@ -49,7 +49,7 @@ export default function DocsPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/');
+      router.replace('/entrar');
       return;
     }
     reload();

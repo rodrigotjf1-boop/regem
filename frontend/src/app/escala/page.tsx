@@ -93,7 +93,7 @@ export default function EscalaPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/');
+      router.replace('/entrar');
       return;
     }
     carregar();

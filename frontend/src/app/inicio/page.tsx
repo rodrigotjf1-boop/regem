@@ -45,7 +45,7 @@ export default function InicioPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/');
+      router.replace('/entrar');
       return;
     }
     carregar().catch((e) =>

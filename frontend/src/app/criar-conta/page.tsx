@@ -176,7 +176,7 @@ export default function CriarContaPage() {
 
           <p className="mt-6 text-sm text-[#909CB4]">
             Já tem conta?{' '}
-            <Link href="/" className="font-medium text-[#F2C277] hover:underline">
+            <Link href="/entrar" className="font-medium text-[#F2C277] hover:underline">
               Entrar
             </Link>
           </p>

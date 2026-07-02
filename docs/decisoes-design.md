@@ -211,4 +211,5 @@ Pode ficar negativa. Ranking é **opaco**: só o `presidente` vê (nem o gerente
 | 2026-07-02 | KDS/Ponto como apps independentes com WebSocket local | Limitações do navegador |
 | 2026-07-02 | **Marca Regem: ação primária = DOURADO `#E2A340`; verde `#0E7C66` vira status "ok"** (mockup Omera usava verde como primária) | Decisão de marca do usuário ("Dourado Regem") |
 | 2026-07-02 | Nomenclatura: `loja`=`unidade`, `tenant`=`empresa` no schema | Alinhar contratos ao schema Drizzle existente |
+| 2026-07-02 | **Landing pública em `/`; login movido para `/entrar`** (redirects de auth/logout atualizados) | Ter tela de marketing antes do login (ref. brand-kit "Topo de landing page") |
 | _adicionar novas linhas aqui_ | | |

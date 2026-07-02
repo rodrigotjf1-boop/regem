@@ -91,7 +91,7 @@ export function Shell({
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/');
+      router.replace('/entrar');
       return;
     }
     setCat(getCategoria() ?? '');
@@ -109,7 +109,7 @@ export function Shell({
 
   function sair() {
     clearToken();
-    router.replace('/');
+    router.replace('/entrar');
   }
 
   return (

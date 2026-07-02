@@ -98,7 +98,7 @@ export default function PinPage() {
                 Salvar unidade
               </Button>
               <p className="text-center text-sm">
-                <Link href="/" className="text-primary hover:underline">
+                <Link href="/entrar" className="text-primary hover:underline">
                   Entrar com e-mail
                 </Link>
               </p>
@@ -173,7 +173,7 @@ export default function PinPage() {
                 Trocar unidade
               </button>
               <p className="text-center text-sm">
-                <Link href="/" className="text-primary hover:underline">
+                <Link href="/entrar" className="text-primary hover:underline">
                   Entrar com e-mail
                 </Link>
               </p>

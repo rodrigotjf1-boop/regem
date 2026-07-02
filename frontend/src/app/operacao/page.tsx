@@ -76,7 +76,7 @@ export default function OperacaoPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/');
+      router.replace('/entrar');
       return;
     }
     reload();

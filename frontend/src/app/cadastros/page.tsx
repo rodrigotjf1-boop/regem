@@ -98,7 +98,7 @@ export default function CadastrosPage() {
 
   useEffect(() => {
     if (!getToken()) {
-      router.replace('/');
+      router.replace('/entrar');
       return;
     }
     reload();
@@ -106,7 +106,7 @@ export default function CadastrosPage() {
 
   function sair() {
     clearToken();
-    router.replace('/');
+    router.replace('/entrar');
   }
 
   if (!L) {
