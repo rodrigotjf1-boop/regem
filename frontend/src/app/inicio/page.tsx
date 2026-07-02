@@ -64,6 +64,10 @@ export default function InicioPage() {
   const optF = s.funcoes.map((f: any) => ({ value: f.id, label: f.nome }));
   const withNone = (arr: any[]) => [{ value: '', label: '— sem função —' }, ...arr];
   const unidadeId = s.unidades[0]?.id;
+  const criarFuncao = async (nome: string) => {
+    const f: any = await api.post('/funcoes', { nome, categoria: 'execucao' });
+    return { value: f.id, label: f.nome };
+  };
 
   async function aplicarTemplate() {
     setBusy(true);
@@ -119,6 +123,7 @@ export default function InicioPage() {
             <span className="font-display text-lg font-semibold">Regem</span>
           </div>
           <button
+            type="button"
             onClick={() => router.push('/meu-dia')}
             className="text-sm text-muted-foreground hover:text-foreground"
           >
@@ -239,7 +244,7 @@ export default function InicioPage() {
                 fields={
                   [
                     { name: 'nome', label: 'Nome', type: 'text', required: true, placeholder: 'Ex.: Maria' },
-                    { name: 'funcaoId', label: 'Função', type: 'select', options: withNone(optF) },
+                    { name: 'funcaoId', label: 'Função', type: 'select', options: withNone(optF), onCreate: criarFuncao },
                     { name: 'pin', label: 'PIN de acesso (opcional)', type: 'text', placeholder: 'ex.: 1234' },
                   ] as FieldDef[]
                 }
@@ -278,8 +283,8 @@ export default function InicioPage() {
                 fields={
                   [
                     { name: 'nome', label: 'Nome', type: 'text', required: true, placeholder: 'Ex.: Almoço' },
-                    { name: 'horaInicio', label: 'Início (HH:MM)', type: 'text', required: true, placeholder: '11:00' },
-                    { name: 'horaFim', label: 'Fim (HH:MM)', type: 'text', required: true, placeholder: '15:00' },
+                    { name: 'horaInicio', label: 'Início', type: 'time', required: true },
+                    { name: 'horaFim', label: 'Fim', type: 'time', required: true },
                   ] as FieldDef[]
                 }
                 onSubmit={async (v) => {

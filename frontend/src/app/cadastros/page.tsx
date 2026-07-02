@@ -80,6 +80,10 @@ export default function CadastrosPage() {
   const optS = L.setores.map((s: any) => ({ value: s.id, label: s.nome }));
   const optF = L.funcoes.map((f: any) => ({ value: f.id, label: f.nome }));
   const withNone = (arr: any[]) => [{ value: '', label: '— nenhum —' }, ...arr];
+  const criarFuncao = async (nome: string) => {
+    const f: any = await api.post('/funcoes', { nome, categoria: 'execucao' });
+    return { value: f.id, label: f.nome };
+  };
 
   const secoes = [
     {
@@ -166,7 +170,13 @@ export default function CadastrosPage() {
           required: true,
           placeholder: 'Ex.: Maria',
         },
-        { name: 'funcaoId', label: 'Função', type: 'select', options: withNone(optF) },
+        {
+          name: 'funcaoId',
+          label: 'Função',
+          type: 'select',
+          options: withNone(optF),
+          onCreate: criarFuncao,
+        },
         {
           name: 'vinculo',
           label: 'Vínculo',
@@ -209,20 +219,8 @@ export default function CadastrosPage() {
           required: true,
           placeholder: 'Ex.: Almoço',
         },
-        {
-          name: 'horaInicio',
-          label: 'Início (HH:MM)',
-          type: 'text',
-          required: true,
-          placeholder: '11:00',
-        },
-        {
-          name: 'horaFim',
-          label: 'Fim (HH:MM)',
-          type: 'text',
-          required: true,
-          placeholder: '15:00',
-        },
+        { name: 'horaInicio', label: 'Início', type: 'time', required: true },
+        { name: 'horaFim', label: 'Fim', type: 'time', required: true },
       ] as FieldDef[],
       submit: (v: any) =>
         api.post('/turnos', {
@@ -252,6 +250,7 @@ export default function CadastrosPage() {
           required: true,
           options: optF,
           defaultValue: optF[0]?.value,
+          onCreate: criarFuncao,
         },
         {
           name: 'sigla',

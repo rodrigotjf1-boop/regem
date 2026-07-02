@@ -36,4 +36,10 @@
   body {
     @apply bg-background text-foreground;
   }
+  /* Ícone do seletor de data/hora visível sobre o tema escuro */
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator {
+    filter: invert(0.85);
+    cursor: pointer;
+  }
 }

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
@@ -27,6 +28,7 @@ export function NovaAlocacaoForm({
   const [turnoId, setTurnoId] = useState('');
   const [colaboradorId, setColaboradorId] = useState('');
   const [tipo, setTipo] = useState('titular');
+  const [dataSel, setDataSel] = useState(data);
   const [erro, setErro] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -55,7 +57,7 @@ export function NovaAlocacaoForm({
     setSaving(true);
     try {
       await api.criarAlocacao({
-        data,
+        data: dataSel,
         turnoId,
         etiquetaId,
         colaboradorId: colaboradorId || undefined,
@@ -72,6 +74,17 @@ export function NovaAlocacaoForm({
   return (
     <Card className="p-4">
       <form onSubmit={salvar} className="space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="dt">Dia</Label>
+          <Input
+            id="dt"
+            type="date"
+            value={dataSel}
+            onChange={(e) => setDataSel(e.target.value)}
+            required
+          />
+        </div>
+
         <div className="space-y-1.5">
           <Label htmlFor="et">Vaga (etiqueta)</Label>
           <Select
