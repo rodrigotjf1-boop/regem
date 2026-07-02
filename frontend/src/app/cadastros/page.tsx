@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut } from 'lucide-react';
+import { ArrowLeft, LogOut } from 'lucide-react';
 import { api, clearToken, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -36,6 +36,7 @@ export default function CadastrosPage() {
   const [L, setL] = useState<Lists | null>(null);
   const [erro, setErro] = useState('');
   const [ver, setVer] = useState(0);
+  const [sel, setSel] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -286,68 +287,111 @@ export default function CadastrosPage() {
       </header>
 
       <main className="mx-auto max-w-2xl space-y-4 px-4 py-4 pb-24">
-        <Card className="border-primary/30 bg-primary/5 p-4">
-          <h2 className="mb-1 font-semibold">Template por ramo</h2>
-          <p className="mb-3 text-sm text-muted-foreground">
-            Cria setores, funções, etiquetas, tipos de ocorrência e itens de
-            estoque de uma vez — sem cadastrar tudo à mão.
-          </p>
-          {optU.length > 0 ? (
-            <EntityForm
-              key={`tpl-${ver}`}
-              submitLabel="Aplicar Food Service"
-              fields={
-                [
-                  {
-                    name: 'unidadeId',
-                    label: 'Unidade',
-                    type: 'select',
-                    required: true,
-                    options: optU,
-                    defaultValue: optU[0]?.value,
-                  },
-                ] as FieldDef[]
-              }
-              onSubmit={async (v) => {
-                await api.post('/onboarding/template', {
-                  unidadeId: v.unidadeId,
-                  ramo: 'food_service',
-                });
-                await reload();
-              }}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Crie uma unidade primeiro (seção abaixo).
-            </p>
-          )}
-        </Card>
-        {secoes.map((sec) => (
-          <Card key={sec.key} className="p-4">
-            <h2 className="mb-3 font-semibold">{sec.titulo}</h2>
-            {sec.itens.length > 0 && (
-              <div className="mb-3 flex flex-wrap gap-1.5">
-                {sec.itens.map((n: string, i: number) => (
-                  <span
-                    key={i}
-                    className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground"
-                  >
-                    {n}
+        {sel === null ? (
+          <>
+            <Card className="border-primary/30 bg-primary/5 p-4">
+              <h2 className="mb-1 font-semibold">Template por ramo</h2>
+              <p className="mb-3 text-sm text-muted-foreground">
+                Cria setores, funções, etiquetas, tipos de ocorrência e itens de
+                estoque de uma vez — sem cadastrar tudo à mão.
+              </p>
+              {optU.length > 0 ? (
+                <EntityForm
+                  key={`tpl-${ver}`}
+                  submitLabel="Aplicar Food Service"
+                  fields={
+                    [
+                      {
+                        name: 'unidadeId',
+                        label: 'Unidade',
+                        type: 'select',
+                        required: true,
+                        options: optU,
+                        defaultValue: optU[0]?.value,
+                      },
+                    ] as FieldDef[]
+                  }
+                  onSubmit={async (v) => {
+                    await api.post('/onboarding/template', {
+                      unidadeId: v.unidadeId,
+                      ramo: 'food_service',
+                    });
+                    await reload();
+                  }}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Crie uma unidade primeiro (em Unidades).
+                </p>
+              )}
+            </Card>
+
+            <div className="grid grid-cols-2 gap-3">
+              {secoes.map((sec) => (
+                <button
+                  key={sec.key}
+                  type="button"
+                  onClick={() => setSel(sec.key)}
+                  className="flex flex-col items-start gap-0.5 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/50"
+                >
+                  <span className="font-display font-semibold">{sec.titulo}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {sec.itens.length} cadastrado(s)
                   </span>
-                ))}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          (() => {
+            const sec = secoes.find((x) => x.key === sel);
+            if (!sec) return null;
+            return (
+              <div className="space-y-4">
+                <button
+                  type="button"
+                  onClick={() => setSel(null)}
+                  className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                >
+                  <ArrowLeft className="h-4 w-4" /> Cadastros
+                </button>
+
+                <Card className="p-4">
+                  <h2 className="mb-3 font-display text-lg font-semibold">
+                    {sec.titulo}
+                  </h2>
+                  <EntityForm
+                    key={`${sec.key}-${ver}`}
+                    fields={sec.fields}
+                    submitLabel="Adicionar"
+                    onSubmit={async (v) => {
+                      await sec.submit(v);
+                      await reload();
+                    }}
+                  />
+                </Card>
+
+                {sec.itens.length > 0 && (
+                  <Card className="p-4">
+                    <p className="mb-2 text-sm font-medium text-muted-foreground">
+                      Cadastrados ({sec.itens.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {sec.itens.map((n: string, i: number) => (
+                        <span
+                          key={i}
+                          className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground"
+                        >
+                          {n}
+                        </span>
+                      ))}
+                    </div>
+                  </Card>
+                )}
               </div>
-            )}
-            <EntityForm
-              key={`${sec.key}-${ver}`}
-              fields={sec.fields}
-              submitLabel="Adicionar"
-              onSubmit={async (v) => {
-                await sec.submit(v);
-                await reload();
-              }}
-            />
-          </Card>
-        ))}
+            );
+          })()
+        )}
       </main>
       <BottomNav />
     </div>
