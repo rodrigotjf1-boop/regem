@@ -1,12 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Printer, SlidersHorizontal } from 'lucide-react';
 import { api, getCategoria, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { TIPO_LABEL } from '@/components/ponto/ponto-card';
+import { PontoGestao } from '@/components/ponto/ponto-gestao';
+
+const AJUSTE_LABEL: Record<string, string> = {
+  abono: 'Abono',
+  atestado: 'Atestado',
+  justificativa: 'Justificativa',
+  desconsideracao: 'Desconsideração',
+};
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function iso(d: Date) {
@@ -37,9 +47,19 @@ export default function PessoasPage() {
   const [inicio, setInicio] = useState(() => addDays(iso(new Date()), -6));
   const [fim, setFim] = useState(() => iso(new Date()));
   const [espelho, setEspelho] = useState<any | null>(null);
+  const [gestaoOpen, setGestaoOpen] = useState(false);
 
   const autorizado =
     cat === 'presidente' || cat === 'gerente' || cat === 'supervisao';
+  const podeGerir = cat === 'presidente' || cat === 'gerente';
+
+  function gerarPdf() {
+    if (!sel) return;
+    window.open(
+      `/espelho-ponto?colaboradorId=${sel.id}&inicio=${inicio}&fim=${fim}`,
+      '_blank',
+    );
+  }
 
   const carregar = useCallback(async () => {
     setErro('');
@@ -154,6 +174,23 @@ export default function PessoasPage() {
                   <p className="text-xs text-muted-foreground">
                     Trabalhado × esperado (escala) = saldo
                   </p>
+                  {sel && espelho && (
+                    <div className="mt-2 flex gap-2">
+                      <Button size="sm" variant="outline" onClick={gerarPdf}>
+                        <Printer className="h-4 w-4" /> Gerar PDF
+                      </Button>
+                      {podeGerir && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setGestaoOpen((v) => !v)}
+                        >
+                          <SlidersHorizontal className="h-4 w-4" />
+                          {gestaoOpen ? 'Fechar gestão' : 'Gestão'}
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-end gap-2">
                   <div className="space-y-1">
@@ -217,6 +254,14 @@ export default function PessoasPage() {
                     ))}
                   </div>
 
+                  {gestaoOpen && sel && (
+                    <PontoGestao
+                      colaboradorId={sel.id}
+                      dias={espelho.dias}
+                      onDone={() => abrirEspelho(sel.id, sel.nome)}
+                    />
+                  )}
+
                   <div className="divide-y divide-border">
                     {espelho.dias.length === 0 && (
                       <p className="px-5 py-6 text-sm text-muted-foreground">
@@ -233,7 +278,7 @@ export default function PessoasPage() {
                             )}
                           </p>
                           <p className="font-mono text-xs">
-                            <span className="font-bold">{fmtMin(d.trabalhadoMin)}</span>
+                            <span className="font-bold">{fmtMin(d.efetivoMin)}</span>
                             <span className="text-muted-foreground">
                               {' '}
                               / {fmtMin(d.esperadoMin)}
@@ -256,12 +301,46 @@ export default function PessoasPage() {
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {d.marcacoes.map((m: any) => (
                               <span
-                                key={m.nsr}
-                                className="rounded bg-secondary px-1.5 py-0.5 font-mono text-[10px]"
-                                title={`NSR ${m.nsr} · ${TIPO_LABEL[m.tipo] ?? m.tipo}`}
+                                key={m.id}
+                                className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                                  m.desconsiderada
+                                    ? 'bg-destructive/10 text-destructive line-through'
+                                    : 'bg-secondary'
+                                }`}
+                                title={`NSR ${m.nsr} · ${TIPO_LABEL[m.tipo] ?? m.tipo}${
+                                  m.origem === 'ajuste' ? ' · incluída (ajuste)' : ''
+                                }`}
                               >
                                 {hora(m.hora)}
+                                {m.origem === 'ajuste' && !m.desconsiderada && ' ✎'}
                               </span>
+                            ))}
+                          </div>
+                        )}
+                        {d.ajustes.length > 0 && (
+                          <div className="mt-1.5 space-y-0.5">
+                            {d.ajustes.map((a: any) => (
+                              <p
+                                key={a.id}
+                                className="text-[11px] text-muted-foreground"
+                              >
+                                <span className="font-semibold text-foreground">
+                                  {AJUSTE_LABEL[a.tipo] ?? a.tipo}
+                                </span>
+                                {a.minutos != null ? ` ${fmtMin(a.minutos)}` : ''}
+                                {' · '}
+                                {a.justificativa}
+                                {a.atestadoRef && (
+                                  <a
+                                    href={a.atestadoRef}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="ml-1 text-primary underline"
+                                  >
+                                    ver anexo
+                                  </a>
+                                )}
+                              </p>
                             ))}
                           </div>
                         )}

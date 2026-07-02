@@ -109,6 +109,10 @@ export const api = {
     ),
   pontoPessoas: (data?: string) =>
     req(`/ponto/pessoas${data ? `?data=${data}` : ''}`),
+  incluirMarcacaoPonto: (body: Record<string, unknown>) =>
+    req('/ponto/marcacao-manual', { method: 'POST', body: JSON.stringify(body) }),
+  criarAjustePonto: (body: Record<string, unknown>) =>
+    req('/ponto/ajuste', { method: 'POST', body: JSON.stringify(body) }),
   recebimentos: () => req('/recebimentos'),
   recebimento: (id: string) => req(`/recebimentos/${id}`),
   criarRecebimento: (body: Record<string, unknown>) =>

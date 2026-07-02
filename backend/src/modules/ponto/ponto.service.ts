@@ -2,15 +2,16 @@ import { Inject, Injectable } from '@nestjs/common';
 import { eq, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { pontoMarcacao, colaborador } from '../../db/schema';
+import { pontoMarcacao, pontoAjuste, colaborador } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
+import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
+import { CriarAjusteDto } from './dto/criar-ajuste.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const ENTRA = new Set(['entrada', 'intervalo_fim']);
 const SAI = new Set(['saida', 'intervalo_inicio']);
 
-// Minutos trabalhados a partir das marcações (pareia in→out; intervalo desconta).
 function minutosTrabalhados(ms: { tipo: string; marcadoEm: any }[]): number {
   const ord = [...ms].sort(
     (a, b) => new Date(a.marcadoEm).getTime() - new Date(b.marcadoEm).getTime(),
@@ -31,7 +32,6 @@ function minutosTrabalhados(ms: { tipo: string; marcadoEm: any }[]): number {
   return Math.round(total / 60000);
 }
 
-// Duração de um turno "HH:MM[:SS]" em minutos (trata virada de meia-noite).
 function turnoMin(inicio: string, fim: string): number {
   const [h1, m1] = inicio.split(':').map(Number);
   const [h2, m2] = fim.split(':').map(Number);
@@ -47,29 +47,31 @@ export class PontoService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  // Registro imutável: NSR sequencial por tenant (com retry no choque de índice único).
-  async marcar(
+  // Grava uma marcação com NSR sequencial por tenant (retry no choque de índice único).
+  private async gravarMarcacao(
     tenantId: string,
-    atorId: string,
-    atorPerfil: string,
-    dto: MarcarPontoDto,
-    origem = 'web',
+    dados: {
+      colaboradorId: string;
+      tipo: string;
+      marcadoEm: Date;
+      origem: string;
+      registradoPorId: string;
+      obs?: string;
+      unidadeId?: string;
+    },
   ) {
-    const colaboradorId = dto.colaboradorId ?? atorId;
     let tentativa = 0;
-    let row: any;
     // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
-        row = await this.db.transaction(async (tx) => {
+        return await this.db.transaction(async (tx) => {
           const r: any = await tx.execute(
             sql`select coalesce(max(nsr),0)+1 as nsr from ponto_marcacao where tenant_id=${tenantId}`,
           );
           const nsr = Number((r.rows ?? r)[0].nsr);
-          const marcadoEm = new Date();
           const hash = createHash('sha256')
             .update(
-              `${tenantId}|${nsr}|${colaboradorId}|${dto.tipo}|${marcadoEm.toISOString()}`,
+              `${tenantId}|${nsr}|${dados.colaboradorId}|${dados.tipo}|${dados.marcadoEm.toISOString()}`,
             )
             .digest('hex')
             .slice(0, 32);
@@ -77,20 +79,19 @@ export class PontoService {
             .insert(pontoMarcacao)
             .values({
               tenantId,
-              unidadeId: dto.unidadeId,
-              colaboradorId,
+              unidadeId: dados.unidadeId,
+              colaboradorId: dados.colaboradorId,
               nsr,
-              tipo: dto.tipo,
-              marcadoEm,
-              origem,
-              registradoPorId: atorId,
+              tipo: dados.tipo,
+              marcadoEm: dados.marcadoEm,
+              origem: dados.origem,
+              registradoPorId: dados.registradoPorId,
               hash,
-              obs: dto.obs,
+              obs: dados.obs,
             })
             .returning();
           return inserted;
         });
-        break;
       } catch (e: any) {
         if (e?.code === '23505' && tentativa < 4) {
           tentativa++;
@@ -99,12 +100,40 @@ export class PontoService {
         throw e;
       }
     }
+  }
 
+  private async comprovante(row: any, colaboradorId: string) {
     const [c] = await this.db
       .select({ nome: colaborador.nome })
       .from(colaborador)
       .where(eq(colaborador.id, colaboradorId));
+    return {
+      nsr: Number(row.nsr),
+      tipo: row.tipo,
+      colaboradorId,
+      colaboradorNome: c?.nome ?? null,
+      marcadoEm: row.marcadoEm,
+      hash: row.hash,
+    };
+  }
 
+  async marcar(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    dto: MarcarPontoDto,
+    origem = 'web',
+  ) {
+    const colaboradorId = dto.colaboradorId ?? atorId;
+    const row = await this.gravarMarcacao(tenantId, {
+      colaboradorId,
+      tipo: dto.tipo,
+      marcadoEm: new Date(),
+      origem,
+      registradoPorId: atorId,
+      obs: dto.obs,
+      unidadeId: dto.unidadeId,
+    });
     await this.auditoria.registrar({
       tenantId,
       atorId,
@@ -115,16 +144,79 @@ export class PontoService {
       entidadeId: row.id,
       detalhe: { tipo: row.tipo, nsr: Number(row.nsr), colaboradorId },
     });
+    return this.comprovante(row, colaboradorId);
+  }
 
-    // Comprovante (lógica 671: NSR + identificação + horário + assinatura).
-    return {
-      nsr: Number(row.nsr),
-      tipo: row.tipo,
-      colaboradorId,
-      colaboradorNome: c?.nome ?? null,
-      marcadoEm: row.marcadoEm,
-      hash: row.hash,
-    };
+  // Inclusão manual de marcação esquecida (gestor) — append com origem 'ajuste'.
+  async incluirMarcacao(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    dto: IncluirMarcacaoDto,
+  ) {
+    const row = await this.gravarMarcacao(tenantId, {
+      colaboradorId: dto.colaboradorId,
+      tipo: dto.tipo,
+      marcadoEm: new Date(dto.marcadoEm),
+      origem: 'ajuste',
+      registradoPorId: atorId,
+      obs: dto.justificativa,
+      unidadeId: dto.unidadeId,
+    });
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'ponto',
+      acao: 'incluiu_marcacao',
+      entidadeTipo: 'ponto_marcacao',
+      entidadeId: row.id,
+      detalhe: {
+        colaboradorId: dto.colaboradorId,
+        tipo: dto.tipo,
+        marcadoEm: dto.marcadoEm,
+        justificativa: dto.justificativa,
+      },
+    });
+    return this.comprovante(row, dto.colaboradorId);
+  }
+
+  async criarAjuste(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    dto: CriarAjusteDto,
+  ) {
+    const [row] = await this.db
+      .insert(pontoAjuste)
+      .values({
+        tenantId,
+        colaboradorId: dto.colaboradorId,
+        data: dto.data,
+        tipo: dto.tipo,
+        marcacaoId: dto.marcacaoId,
+        minutos: dto.minutos,
+        justificativa: dto.justificativa,
+        atestadoRef: dto.atestadoRef,
+        autorId: atorId,
+      })
+      .returning();
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'ponto',
+      acao: 'criou_ajuste_ponto',
+      entidadeTipo: 'ponto_ajuste',
+      entidadeId: row.id,
+      detalhe: {
+        colaboradorId: dto.colaboradorId,
+        data: dto.data,
+        tipo: dto.tipo,
+        minutos: dto.minutos,
+      },
+    });
+    return row;
   }
 
   async listarDia(tenantId: string, data: string, colaboradorId?: string) {
@@ -147,54 +239,93 @@ export class PontoService {
     fim: string,
   ) {
     const ms: any = await this.db.execute(sql`
-      select tipo, nsr, marcado_em as "marcadoEm"
+      select id, tipo, nsr, origem, marcado_em as "marcadoEm"
       from ponto_marcacao
       where tenant_id = ${tenantId} and colaborador_id = ${colaboradorId}
         and marcado_em::date between ${inicio} and ${fim}
       order by marcado_em asc
     `);
     const es: any = await this.db.execute(sql`
-      select ea.data, t.hora_inicio as "inicio", t.hora_fim as "fim"
+      select ea.data::text as "data", t.hora_inicio as "inicio", t.hora_fim as "fim"
       from escala_alocacao ea
       join turno t on t.id = ea.turno_id
       where ea.tenant_id = ${tenantId} and ea.colaborador_id = ${colaboradorId}
         and ea.deleted_at is null and ea.data between ${inicio} and ${fim}
     `);
+    const aj: any = await this.db.execute(sql`
+      select id, data::text as "data", tipo, marcacao_id as "marcacaoId",
+        minutos, justificativa, atestado_ref as "atestadoRef"
+      from ponto_ajuste
+      where tenant_id = ${tenantId} and colaborador_id = ${colaboradorId}
+        and data between ${inicio} and ${fim}
+      order by created_at asc
+    `);
+    const ajustes = aj.rows ?? aj;
+    const desconsid = new Set(
+      ajustes
+        .filter((a: any) => a.tipo === 'desconsideracao' && a.marcacaoId)
+        .map((a: any) => a.marcacaoId),
+    );
 
-    const dias: Record<string, { marcacoes: any[]; esperadoMin: number }> = {};
+    const dias: Record<
+      string,
+      { marcacoes: any[]; esperadoMin: number; ajustes: any[] }
+    > = {};
     for (const m of ms.rows ?? ms) {
       const d = new Date(m.marcadoEm).toISOString().slice(0, 10);
-      (dias[d] ??= { marcacoes: [], esperadoMin: 0 }).marcacoes.push(m);
+      (dias[d] ??= { marcacoes: [], esperadoMin: 0, ajustes: [] }).marcacoes.push({
+        ...m,
+        desconsiderada: desconsid.has(m.id),
+      });
     }
     for (const e of es.rows ?? es) {
-      const d =
-        typeof e.data === 'string'
-          ? e.data
-          : new Date(e.data).toISOString().slice(0, 10);
-      (dias[d] ??= { marcacoes: [], esperadoMin: 0 }).esperadoMin += turnoMin(
-        String(e.inicio),
-        String(e.fim),
+      (dias[e.data] ??= { marcacoes: [], esperadoMin: 0, ajustes: [] }).esperadoMin +=
+        turnoMin(String(e.inicio), String(e.fim));
+    }
+    for (const a of ajustes) {
+      (dias[a.data] ??= { marcacoes: [], esperadoMin: 0, ajustes: [] }).ajustes.push(
+        a,
       );
     }
 
     const out = Object.entries(dias)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([data, v]) => {
-        const trabalhadoMin = minutosTrabalhados(v.marcacoes);
+        const validas = v.marcacoes.filter((m: any) => !m.desconsiderada);
+        const trabalhadoMin = minutosTrabalhados(validas);
+        const abonoMin = v.ajustes
+          .filter((a: any) => a.tipo === 'abono' || a.tipo === 'atestado')
+          .reduce(
+            (s: number, a: any) => s + (a.minutos ?? v.esperadoMin),
+            0,
+          );
+        const efetivoMin = trabalhadoMin + abonoMin;
         return {
           data,
           esperadoMin: v.esperadoMin,
           trabalhadoMin,
-          saldoMin: trabalhadoMin - v.esperadoMin,
+          abonoMin,
+          efetivoMin,
+          saldoMin: efetivoMin - v.esperadoMin,
           marcacoes: v.marcacoes.map((m: any) => ({
+            id: m.id,
             tipo: m.tipo,
             nsr: Number(m.nsr),
+            origem: m.origem,
+            desconsiderada: m.desconsiderada,
             hora: new Date(m.marcadoEm).toISOString(),
+          })),
+          ajustes: v.ajustes.map((a: any) => ({
+            id: a.id,
+            tipo: a.tipo,
+            minutos: a.minutos,
+            justificativa: a.justificativa,
+            atestadoRef: a.atestadoRef,
           })),
         };
       });
 
-    const totalTrabalhadoMin = out.reduce((s, d) => s + d.trabalhadoMin, 0);
+    const totalTrabalhadoMin = out.reduce((s, d) => s + d.efetivoMin, 0);
     const totalEsperadoMin = out.reduce((s, d) => s + d.esperadoMin, 0);
     return {
       colaboradorId,

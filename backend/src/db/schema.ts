@@ -457,6 +457,24 @@ export const pontoMarcacao = pgTable('ponto_marcacao', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const pontoAjuste = pgTable('ponto_ajuste', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  colaboradorId: uuid('colaborador_id')
+    .notNull()
+    .references(() => colaborador.id, { onDelete: 'cascade' }),
+  data: date('data').notNull(),
+  tipo: text('tipo').notNull(), // desconsideracao|abono|atestado|justificativa
+  marcacaoId: uuid('marcacao_id'),
+  minutos: integer('minutos'),
+  justificativa: text('justificativa').notNull(),
+  atestadoRef: text('atestado_ref'),
+  autorId: uuid('autor_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const fornecedor = pgTable('fornecedor', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

@@ -14,6 +14,8 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { PontoService } from './ponto.service';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
+import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
+import { CriarAjusteDto } from './dto/criar-ajuste.dto';
 
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
 function hojeISO() {
@@ -73,5 +75,32 @@ export class PontoController {
   @Roles('presidente', 'gerente', 'supervisao')
   pessoas(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
     return this.service.pessoas(user.tenantId, data ?? hojeISO());
+  }
+
+  // Gestão (presidente/gerente): incluir marcação esquecida.
+  @Post('marcacao-manual')
+  @Roles('presidente', 'gerente')
+  incluirMarcacao(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: IncluirMarcacaoDto,
+  ) {
+    return this.service.incluirMarcacao(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      dto,
+    );
+  }
+
+  // Gestão: ajuste (desconsideração / abono / atestado / justificativa).
+  @Post('ajuste')
+  @Roles('presidente', 'gerente')
+  criarAjuste(@CurrentUser() user: AuthUser, @Body() dto: CriarAjusteDto) {
+    return this.service.criarAjuste(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      dto,
+    );
   }
 }
