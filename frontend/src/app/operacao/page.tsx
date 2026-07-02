@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
+import { RegemMark } from '@/components/brand/regem-mark';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export default function OperacaoPage() {
@@ -79,9 +80,7 @@ export default function OperacaoPage() {
       <header className="sticky top-0 z-10 border-b border-border bg-card/80 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary font-bold text-primary-foreground">
-              R
-            </div>
+            <RegemMark className="h-8 w-8 text-foreground" />
             <p className="text-sm font-semibold">Operação</p>
           </div>
           <Button variant="ghost" size="icon" onClick={sair} aria-label="Sair">

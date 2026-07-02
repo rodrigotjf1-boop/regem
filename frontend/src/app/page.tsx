@@ -14,6 +14,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { RegemMark } from '@/components/brand/regem-mark';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -41,10 +42,8 @@ export default function LoginPage() {
     <main className="min-h-dvh grid place-items-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
-            R
-          </div>
-          <CardTitle className="text-2xl">Regen</CardTitle>
+          <RegemMark className="mb-2 h-14 w-14 text-foreground" />
+          <CardTitle className="text-2xl">Regem</CardTitle>
           <CardDescription>Entre para gerenciar o seu dia</CardDescription>
         </CardHeader>
         <CardContent>

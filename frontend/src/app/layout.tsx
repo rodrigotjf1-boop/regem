@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Regen',
-  description: 'Gestão operacional',
+  title: 'Regem',
+  description: 'No comando de todo o negócio — do balcão ao balanço.',
 };
 
 export default function RootLayout({

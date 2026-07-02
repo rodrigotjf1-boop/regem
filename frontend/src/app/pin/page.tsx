@@ -15,6 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { RegemMark } from '@/components/brand/regem-mark';
 
 const UNIT_KEY = 'regen_unidade';
 
@@ -74,9 +75,7 @@ export default function PinPage() {
     <main className="grid min-h-dvh place-items-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-xl font-bold text-primary-foreground">
-            R
-          </div>
+          <RegemMark className="mb-2 h-14 w-14 text-foreground" />
           <CardTitle className="text-2xl">Terminal</CardTitle>
           <CardDescription>
             {saved ? 'Digite seu PIN' : 'Configure a unidade do terminal'}

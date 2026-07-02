@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { NovaTarefaForm } from '@/components/tarefa/nova-tarefa-form';
+import { RegemMark } from '@/components/brand/regem-mark';
 
 type Tarefa = {
   id: string;
@@ -101,9 +102,7 @@ export default function MeuDiaPage() {
       <header className="sticky top-0 z-10 border-b border-border bg-card/80 backdrop-blur">
         <div className="mx-auto flex max-w-2xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary font-bold text-primary-foreground">
-              R
-            </div>
+            <RegemMark className="h-8 w-8 text-foreground" />
             <div>
               <p className="text-sm font-semibold leading-none">Meu Dia</p>
               <p className="text-xs capitalize text-muted-foreground tabular-nums">

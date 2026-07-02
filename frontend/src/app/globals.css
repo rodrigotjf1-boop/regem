@@ -10,21 +10,22 @@
   --font-display: 'Sora', 'Inter', system-ui, sans-serif;
   --font-mono: 'Space Mono', ui-monospace, monospace;
 
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --primary: 162 90% 24%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 210 40% 96%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 96%;
-  --muted-foreground: 215 16% 47%;
+  /* Paleta Regem — navy-ink base, dourado como assinatura */
+  --background: 218 49% 8%;          /* #0B1220 Ink */
+  --foreground: 218 41% 95%;         /* #EDF1F8 texto */
+  --card: 218 51% 12%;               /* #0F1A2E Painel */
+  --card-foreground: 218 41% 95%;
+  --primary: 37 74% 57%;             /* #E2A340 Âmbar */
+  --primary-foreground: 218 49% 8%;  /* ink sobre o dourado */
+  --secondary: 219 44% 17%;          /* #18233D elevado */
+  --secondary-foreground: 218 41% 95%;
+  --muted: 218 40% 16%;
+  --muted-foreground: 219 20% 64%;   /* #909CB4 */
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 162 90% 24%;
+  --border: 220 38% 23%;             /* #243150 */
+  --input: 220 38% 23%;
+  --ring: 37 74% 57%;
   --radius: 0.75rem;
 }
 
