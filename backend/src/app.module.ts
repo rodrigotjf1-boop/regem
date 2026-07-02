@@ -23,6 +23,7 @@ import { FichasModule } from './modules/fichas/fichas.module';
 import { DiretoriaModule } from './modules/diretoria/diretoria.module';
 import { GuiasModule } from './modules/guias/guias.module';
 import { AuditoriaModule } from './modules/auditoria/auditoria.module';
+import { MidiaModule } from './modules/midia/midia.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -51,6 +52,7 @@ import { AuthModule } from './auth/auth.module';
     DiretoriaModule,
     GuiasModule,
     AuditoriaModule,
+    MidiaModule,
   ],
   controllers: [AppController],
 })

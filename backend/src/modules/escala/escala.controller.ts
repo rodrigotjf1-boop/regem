@@ -5,17 +5,38 @@ import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { EscalaService } from './escala.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateAlocacaoDto } from './dto/create-alocacao.dto';
 
 @Controller('escala')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class EscalaController {
-  constructor(private readonly service: EscalaService) {}
+  constructor(
+    private readonly service: EscalaService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   @Post()
   @Roles('presidente', 'gerente')
-  create(@CurrentUser() user: AuthUser, @Body() dto: CreateAlocacaoDto) {
-    return this.service.create(user.tenantId, dto);
+  async create(@CurrentUser() user: AuthUser, @Body() dto: CreateAlocacaoDto) {
+    const res = await this.service.create(user.tenantId, dto);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'escala',
+      acao: 'criou_alocacao',
+      entidadeTipo: 'alocacao',
+      entidadeId: (res as { id?: string })?.id,
+      detalhe: {
+        data: dto.data,
+        turnoId: dto.turnoId,
+        etiquetaId: dto.etiquetaId,
+        colaboradorId: dto.colaboradorId,
+        tipo: dto.tipo,
+      },
+    });
+    return res;
   }
 
   @Get()

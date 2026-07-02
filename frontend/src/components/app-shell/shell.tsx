@@ -10,9 +10,11 @@ import {
   ChefHat,
   Clock,
   FileText,
+  History,
   LayoutDashboard,
   ListChecks,
   LogOut,
+  type LucideIcon,
   Menu,
   ScrollText,
   Settings,
@@ -21,7 +23,15 @@ import { clearToken, getCategoria, getToken } from '@/lib/api';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { cn } from '@/lib/utils';
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  roles?: string[];
+};
+type NavGroup = { group: string; presidenteOnly: boolean; items: NavItem[] };
+
+const NAV: NavGroup[] = [
   {
     group: 'Operação',
     presidenteOnly: false,
@@ -38,7 +48,15 @@ const NAV = [
   {
     group: 'Gestão',
     presidenteOnly: false,
-    items: [{ href: '/cadastros', label: 'Cadastros', icon: Settings }],
+    items: [
+      { href: '/cadastros', label: 'Cadastros', icon: Settings },
+      {
+        href: '/auditoria',
+        label: 'Auditoria',
+        icon: History,
+        roles: ['presidente', 'gerente'],
+      },
+    ],
   },
   {
     group: 'Diretoria',
@@ -113,7 +131,9 @@ export function Shell({
               <p className="px-3 pb-1.5 pt-3.5 font-display text-[10px] font-bold uppercase tracking-[.16em] text-[#5E7B8E]">
                 {g.group}
               </p>
-              {g.items.map((it) => {
+              {g.items
+                .filter((it) => !it.roles || it.roles.includes(cat))
+                .map((it) => {
                 const active = path === it.href;
                 return (
                   <Link

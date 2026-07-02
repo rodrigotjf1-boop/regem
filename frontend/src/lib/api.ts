@@ -43,8 +43,26 @@ async function req(path: string, options: RequestInit = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
+async function uploadFile(path: string, file: File) {
+  const token = getToken();
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as any);
+    throw new Error(body.message || `Erro ${res.status}`);
+  }
+  return res.json() as Promise<{ url: string; path: string }>;
+}
+
 export const api = {
   get: (path: string) => req(path),
+  upload: (file: File) => uploadFile('/midia/upload', file),
   post: (path: string, body: Record<string, unknown>) =>
     req(path, { method: 'POST', body: JSON.stringify(body) }),
   patch: (path: string, body: Record<string, unknown>) =>

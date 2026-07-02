@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { ImageUpload } from '@/components/ui/image-upload';
 
 type Opt = { value: string; label: string };
 
 export type FieldDef = {
   name: string;
   label: string;
-  type: 'text' | 'select' | 'time' | 'date';
+  type: 'text' | 'select' | 'time' | 'date' | 'image';
   options?: Opt[];
   required?: boolean;
   placeholder?: string;
@@ -88,7 +89,13 @@ export function EntityForm({
         <div key={f.name} className="space-y-1.5">
           <Label htmlFor={f.name}>{f.label}</Label>
 
-          {f.type === 'select' ? (
+          {f.type === 'image' ? (
+            <ImageUpload
+              id={f.name}
+              value={values[f.name] ?? ''}
+              onChange={(url) => set(f.name, url)}
+            />
+          ) : f.type === 'select' ? (
             <>
               <Select
                 id={f.name}

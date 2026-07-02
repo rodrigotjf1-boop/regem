@@ -13,13 +13,17 @@ import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { OcorrenciaService } from './ocorrencia.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateTipoOcorrenciaDto } from './dto/create-tipo.dto';
 import { CreateOcorrenciaDto } from './dto/create-ocorrencia.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OcorrenciaController {
-  constructor(private readonly service: OcorrenciaService) {}
+  constructor(
+    private readonly service: OcorrenciaService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   @Post('tipos-ocorrencia')
   @Roles('presidente', 'gerente')
@@ -35,17 +39,46 @@ export class OcorrenciaController {
 
   @Post('ocorrencias')
   @Roles('presidente', 'gerente', 'supervisao')
-  createOcorrencia(
+  async createOcorrencia(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateOcorrenciaDto,
   ) {
-    return this.service.createOcorrencia(user.tenantId, user.colaboradorId, dto);
+    const res = await this.service.createOcorrencia(
+      user.tenantId,
+      user.colaboradorId,
+      dto,
+    );
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'gamificacao',
+      acao: 'registrou_ocorrencia',
+      entidadeTipo: 'ocorrencia',
+      entidadeId: (res as { id?: string })?.id,
+      detalhe: {
+        colaboradorId: dto.colaboradorId,
+        tipoId: dto.tipoId,
+        gravidade: dto.gravidade,
+      },
+    });
+    return res;
   }
 
   @Patch('ocorrencias/:id/anular')
   @Roles('presidente', 'gerente')
-  anular(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.anular(user.tenantId, id);
+  async anular(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const res = await this.service.anular(user.tenantId, id);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'gamificacao',
+      acao: 'anulou_ocorrencia',
+      entidadeTipo: 'ocorrencia',
+      entidadeId: id,
+    });
+    return res;
   }
 
   // Ranking/pontuação: exclusivo do Presidente/C&O (opacidade).
