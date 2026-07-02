@@ -416,3 +416,42 @@ export const movimentoEstoque = pgTable('movimento_estoque', {
   data: date('data').notNull().default(sql`current_date`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const fichaTecnica = pgTable('ficha_tecnica', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  setorId: uuid('setor_id'),
+  popId: uuid('pop_id'),
+  nome: text('nome').notNull(),
+  categoria: text('categoria').notNull().default('base'),
+  rendimento: numeric('rendimento').notNull().default('1'),
+  rendimentoUnidade: text('rendimento_unidade'),
+  validade: text('validade'),
+  precoVenda: numeric('preco_venda'),
+  metaCmv: numeric('meta_cmv').notNull().default('31.5'),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const fichaIngrediente = pgTable('ficha_ingrediente', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  fichaId: uuid('ficha_id')
+    .notNull()
+    .references(() => fichaTecnica.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id'),
+  insumoNome: text('insumo_nome').notNull(),
+  quantidade: numeric('quantidade').notNull().default('0'),
+  unidade: text('unidade'),
+  fatorCorrecao: numeric('fator_correcao').notNull().default('1'),
+  custoUnitario: numeric('custo_unitario').notNull().default('0'),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});

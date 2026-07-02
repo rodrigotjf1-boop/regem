@@ -19,6 +19,7 @@ import { EstoqueModule } from './modules/estoque/estoque.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { OcorrenciaModule } from './modules/ocorrencia/ocorrencia.module';
 import { OnboardingModule } from './modules/onboarding/onboarding.module';
+import { FichasModule } from './modules/fichas/fichas.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -43,6 +44,7 @@ import { AuthModule } from './auth/auth.module';
     DashboardModule,
     OcorrenciaModule,
     OnboardingModule,
+    FichasModule,
   ],
   controllers: [AppController],
 })

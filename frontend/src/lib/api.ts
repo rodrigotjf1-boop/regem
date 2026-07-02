@@ -47,6 +47,9 @@ export const api = {
   get: (path: string) => req(path),
   post: (path: string, body: Record<string, unknown>) =>
     req(path, { method: 'POST', body: JSON.stringify(body) }),
+  patch: (path: string, body: Record<string, unknown>) =>
+    req(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  del: (path: string) => req(path, { method: 'DELETE' }),
   login: (email: string, senha: string) =>
     req('/auth/login', {
       method: 'POST',

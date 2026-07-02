@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   Boxes,
   CalendarDays,
+  ChefHat,
   Clock,
   FileText,
   LayoutDashboard,
@@ -26,6 +27,7 @@ const NAV = [
       { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
       { href: '/escala', label: 'Escalas', icon: CalendarDays },
       { href: '/operacao', label: 'Operação', icon: Boxes },
+      { href: '/fichas', label: 'Fichas Técnicas', icon: ChefHat },
       { href: '/docs', label: 'Documentos', icon: FileText },
     ],
   },
