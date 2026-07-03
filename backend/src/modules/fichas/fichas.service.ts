@@ -19,10 +19,24 @@ function computar(f: any, ings: any[]) {
   const precoVenda = f.precoVenda != null ? Number(f.precoVenda) : null;
   const cmv =
     precoVenda && precoVenda > 0 ? (custoPorcao / precoVenda) * 100 : null;
+  const metaCmv = f.metaCmv != null ? Number(f.metaCmv) : null;
+  // G5: preço sugerido = custo da porção ÷ CMV-alvo (ex.: custo ÷ 0,315 p/ CMV 31,5%).
+  const precoSugerido =
+    metaCmv && metaCmv > 0 && custoPorcao > 0
+      ? custoPorcao / (metaCmv / 100)
+      : null;
+  // Markup = preço/custo; margem = (preço−custo)/preço. Confusão clássica — mostramos os dois.
+  const markup =
+    precoVenda && custoPorcao > 0 ? precoVenda / custoPorcao : null;
+  const margem =
+    precoVenda && precoVenda > 0 ? ((precoVenda - custoPorcao) / precoVenda) * 100 : null;
   return {
     custoTotal: Number(custoTotal.toFixed(2)),
     custoPorcao: Number(custoPorcao.toFixed(2)),
     cmv: cmv != null ? Number(cmv.toFixed(1)) : null,
+    precoSugerido: precoSugerido != null ? Number(precoSugerido.toFixed(2)) : null,
+    markup: markup != null ? Number(markup.toFixed(2)) : null,
+    margem: margem != null ? Number(margem.toFixed(1)) : null,
   };
 }
 

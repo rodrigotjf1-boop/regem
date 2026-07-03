@@ -76,6 +76,10 @@ export default function FichasPage() {
   const pv = Number(precoVenda) || 0;
   const cmv = pv > 0 ? (custoPorcao / pv) * 100 : null;
   const cmvOk = cmv != null && cmv <= META_CMV;
+  // G5: preço sugerido pela meta de CMV + markup vs margem.
+  const precoSugerido = custoPorcao > 0 ? custoPorcao / (META_CMV / 100) : null;
+  const markup = pv > 0 && custoPorcao > 0 ? pv / custoPorcao : null;
+  const margem = pv > 0 ? ((pv - custoPorcao) / pv) * 100 : null;
 
   async function salvar() {
     if (nome.trim().length < 2) {
@@ -220,6 +224,30 @@ export default function FichasPage() {
           <p className="mt-3 text-xs text-muted-foreground">
             Meta de CMV: <strong>{META_CMV.toFixed(1).replace('.', ',')}%</strong>
           </p>
+
+          {precoSugerido != null && (
+            <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 p-3 text-center">
+              <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                Preço sugerido (p/ meta {META_CMV.toFixed(1).replace('.', ',')}%)
+              </p>
+              <p className="font-mono text-2xl font-bold text-primary">
+                {brl(precoSugerido)}
+              </p>
+            </div>
+          )}
+
+          {(markup != null || margem != null) && (
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <Row
+                label="Markup (preço÷custo)"
+                value={markup != null ? `${markup.toFixed(2).replace('.', ',')}×` : '—'}
+              />
+              <Row
+                label="Margem (lucro÷preço)"
+                value={margem != null ? `${margem.toFixed(1).replace('.', ',')}%` : '—'}
+              />
+            </div>
+          )}
         </Card>
       </div>
 
