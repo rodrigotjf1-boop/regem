@@ -21,15 +21,23 @@ type Registro = {
 
 const TIPOS: { valor: string; label: string }[] = [
   { valor: '', label: 'Tudo' },
-  { valor: 'cadastro', label: 'Cadastros' },
+  { valor: 'ponto', label: 'Ponto' },
   { valor: 'escala', label: 'Escala' },
+  { valor: 'modulos', label: 'Módulos & apps' },
+  { valor: 'recebimento', label: 'Recebimento' },
+  { valor: 'cadastro', label: 'Cadastros' },
+  { valor: 'vistoria', label: 'Vistoria' },
   { valor: 'gamificacao', label: 'Gamificação' },
 ];
 
 const TIPO_COR: Record<string, string> = {
-  cadastro: 'var(--ok)',
+  ponto: 'var(--info)',
   escala: 'var(--primary)',
-  gamificacao: 'var(--info)',
+  modulos: 'var(--warn)',
+  recebimento: 'var(--ok)',
+  cadastro: 'var(--ok)',
+  vistoria: 'var(--info)',
+  gamificacao: 'var(--primary)',
 };
 
 const ACAO_LABEL: Record<string, string> = {
@@ -37,6 +45,11 @@ const ACAO_LABEL: Record<string, string> = {
   anulou_ocorrencia: 'Anulou ocorrência',
   criou_alocacao: 'Criou alocação na escala',
   aplicou_template: 'Aplicou template de ramo',
+  marcou_ponto: 'Marcou ponto',
+  incluiu_marcacao: 'Incluiu marcação (ajuste)',
+  aprovou_hora_extra: 'Aprovou hora extra',
+  cadastrou_equipamento: 'Cadastrou equipamento',
+  revogou_equipamento: 'Revogou equipamento',
 };
 
 function acaoLabel(a: string) {
