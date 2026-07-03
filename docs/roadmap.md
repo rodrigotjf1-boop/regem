@@ -26,13 +26,13 @@ Produção: `app.dmsregem.com` / `api.dmsregem.com` (EasyPanel + Supabase, auto-
 
 > Ordem escolhida para **entregar valor antes do PDV**: metade do "motor" sai de dados que já temos.
 
-### Fase G — Motor de custo & analytics · **PONTO DE PARTIDA**
-Sem depender de PDV nem de integrações. Módulos:
-- **G1 · Custo no ledger**: adicionar custo ao `movimento_estoque` + **custo médio ponderado móvel** por item (recalcula a cada recebimento). *Migration.*
-- **G2 · CMV real do período**: `EI + Compras − EF`; comparar com o CMV **teórico** da ficha → **desperdício + desvio** (o "KPI de ouro").
-- **G3 · Ponto de pedido (ROP)**: `consumo médio diário × lead time + estoque de segurança` (lead time o fornecedor já registra).
-- **G4 · Curva ABC** de insumos (valor consumido).
-- **G5 · Preço sugerido / markup vs margem** na ficha técnica (inverso do CMV-alvo).
+### Fase G — Motor de custo & analytics · **EM ANDAMENTO**
+- **G1 · Custo no ledger** ✅ (migration 017, no ar): custo no `movimento_estoque`/`lote` + **custo médio ponderado móvel** por item + valor em estoque derivado.
+- **G5 · Preço sugerido / markup vs margem** ✅ (no ar): inverso do CMV-alvo na ficha.
+- **G2 · CMV real do período** (`EI + Compras − EF`) — parte **valorativa** (valor em estoque + compras) é buildável já; a comparação **teórico × real** (o "KPI de ouro") só acende com **dado de consumo/venda** (PDV, Fase J).
+- **G3 · Ponto de pedido (ROP)** e **G4 · Curva ABC** — dependem de **consumo** (movimentos de saída). Buildáveis com o pouco que houver de saída manual; valor pleno com o PDV.
+
+> **Insight de sequência (02/07):** metade "analytics" da Fase G é gated por consumo. O que dá pra entregar 100% agora: **painel de valorização** (valor em estoque + compras do período + abaixo do mínimo). O CMV real vs teórico, ROP e ABC ganham força quando houver baixa de estoque (saída manual agora; automática no PDV).
 
 ### Fase H — Financeiro base (partidas dobradas)
 - **Ledger financeiro** (fundação) + **Contas a pagar** nascendo do recebimento (gancho já existe) + **Fluxo de caixa projetado** + **DRE gerencial por loja** → alimenta a Visão C&O.
