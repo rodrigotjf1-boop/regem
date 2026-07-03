@@ -26,13 +26,14 @@
   --ink:#0F2230;         /* texto principal / sidebar (petróleo) */
   --ink-2:#3D5566;       /* secundário */
   --ink-3:#7A8FA0;       /* terciário, rótulos */
-  /* AÇÃO PRIMÁRIA / MARCA = DOURADO (Regem) */
-  --primary:#E2A340;     --primary-ink:#0F2230;
-  /* semânticas de status */
-  --ok:#0E7C66;  --ok-soft:#E0F1EC;    /* verde: sucesso/operação saudável (NÃO é a primária) */
-  --warn:#E8A13C; --warn-soft:#FBEFDC; /* âmbar: atenção/pendência */
-  --danger:#C2453A; --danger-soft:#F8E4E1;
-  --info:#2C6E9B; --info-soft:#E1EEF6;
+  /* AÇÃO PRIMÁRIA / MARCA = ÂMBAR (Regem). ⚠️ Âmbar é SEMPRE ação/marca —
+     nunca cor de estado. (mockups Fable 2026-07-02) */
+  --primary:#E8A845;     --primary-ink:#2A1D06;
+  /* semânticas de status — dessincronizadas do âmbar de propósito */
+  --ok:#1FA875;  --ok-soft:#E1F3EC;    /* verde: sucesso/operação saudável */
+  --warn:#E06A3C; --warn-soft:#FCEAE1; /* laranja-avermelhado: atenção/pendência (NÃO é âmbar) */
+  --danger:#D64545; --danger-soft:#FAE4E4; /* vermelho: crítico (dark: #E05252) */
+  --info:#3A7FB8; --info-soft:#E4EFF7;
   /* forma e tipografia */
   --radius:10px; --radius-lg:14px;
   --font-display:'Archivo',sans-serif;    /* títulos, rótulos caps, marca */
@@ -213,4 +214,5 @@ Pode ficar negativa. Ranking é **opaco**: só o `presidente` vê (nem o gerente
 | 2026-07-02 | Nomenclatura: `loja`=`unidade`, `tenant`=`empresa` no schema | Alinhar contratos ao schema Drizzle existente |
 | 2026-07-02 | **Landing pública em `/`; login movido para `/entrar`** (redirects de auth/logout atualizados) | Ter tela de marketing antes do login (ref. brand-kit "Topo de landing page") |
 | 2026-07-02 | **Fase F-A: tempo real via socket.io.** Gateway NestJS com rooms por tenant/unidade; handshake por JWT (gestor) ou token de equipamento (device). Eventos `ponto:marcado`, `kds:alerta`, `device:status`. Tabela `equipamento` (migration 015) + **NSR agora por equipamento** (Portaria 671). Superfície de teste: `/kds` web (tema escuro). | Base dos apps satélites. Escolha do usuário (socket.io + NSR por equipamento já). Packaging nativo/mDNS = Fase F-B |
+| 2026-07-02 | **Conflito de cor resolvido (mockups Fable):** âmbar `#E8A845` é SÓ marca/ação; atenção passa a laranja-avermelhado `#E06A3C`, crítico vermelho `#E05252`/`#D64545`, verde segue "ok". Fontes do tema escuro unificadas em Archivo/Figtree/JetBrains (era Sora/Inter). Tokens em `globals.css`. | Se alertas ficassem âmbar, o usuário não distinguiria "ação" de "algo errado" |
 | _adicionar novas linhas aqui_ | | |

@@ -1,54 +1,63 @@
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Tokens Regem (mockups Fable) — âmbar = MARCA/AÇÃO primária.
+   Semânticas corrigidas: atenção = laranja-avermelhado (#E06A3C),
+   crítico = vermelho (#E05252), "ok" = verde. Nunca usar o âmbar
+   como cor de estado — ele é a ação. Ver decisoes-design §2/§6.
+   ============================================================ */
 :root {
-  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica,
-    Arial, sans-serif;
-  --font-display: 'Sora', 'Inter', system-ui, sans-serif;
-  --font-mono: 'Space Mono', ui-monospace, monospace;
-
-  /* Paleta Regem — navy-ink base, dourado como assinatura */
-  --background: 218 49% 8%;          /* #0B1220 Ink */
-  --foreground: 218 41% 95%;         /* #EDF1F8 texto */
-  --card: 218 51% 12%;               /* #0F1A2E Painel */
-  --card-foreground: 218 41% 95%;
-  --primary: 37 74% 57%;             /* #E2A340 Âmbar */
-  --primary-foreground: 218 49% 8%;  /* ink sobre o dourado */
-  --secondary: 219 44% 17%;          /* #18233D elevado */
-  --secondary-foreground: 218 41% 95%;
-  --muted: 218 40% 16%;
-  --muted-foreground: 219 20% 64%;   /* #909CB4 */
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 220 38% 23%;             /* #243150 */
-  --input: 220 38% 23%;
-  --ring: 37 74% 57%;
-  --radius: 0.75rem;
-  --ok: 165 78% 27%;   /* verdigris — status "saudável" */
-  --warn: 34 79% 57%;  /* âmbar — atenção */
-  --info: 205 56% 39%; /* azul — informativo */
-}
-
-/* Tema claro do app (layout Fable5 + acento dourado Regem) — escopado no Shell */
-.app-light {
-  --background: 210 27% 94%; /* #EDF0F4 canvas */
-  --foreground: 202 52% 12%; /* #0F2230 petróleo */
-  --card: 0 0% 100%;
-  --card-foreground: 202 52% 12%;
-  --secondary: 210 25% 97%;
-  --secondary-foreground: 202 30% 25%;
-  --muted: 210 25% 96%;
-  --muted-foreground: 205 16% 45%;
-  --border: 205 22% 89%;
-  --input: 205 22% 85%;
-  --radius: 0.625rem;
-  --font-sans: 'Figtree', system-ui, sans-serif;
+  --font-sans: 'Figtree', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Archivo', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Tema escuro (landing, login, KDS, terminal) — navy profundo + âmbar */
+  --background: 214 54% 11%;         /* #0D1A2B navy */
+  --foreground: 213 30% 96%;         /* #F2F5F9 texto */
+  --card: 214 52% 15%;               /* #12233A navy-2 painéis */
+  --card-foreground: 213 30% 96%;
+  --primary: 36 78% 59%;             /* #E8A845 âmbar — marca/ação */
+  --primary-foreground: 36 74% 9%;   /* #2A1D06 tinta sobre o âmbar */
+  --secondary: 214 51% 21%;          /* #1A3050 navy-3 elevado/bordas */
+  --secondary-foreground: 213 30% 96%;
+  --muted: 214 51% 21%;
+  --muted-foreground: 213 27% 70%;   /* #9FB2C8 texto-2 */
+  --destructive: 0 70% 60%;          /* #E05252 crítico */
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 51% 21%;             /* #1A3050 */
+  --input: 214 51% 21%;
+  --ring: 202 71% 58%;               /* #4AA8E0 info — foco */
+  --radius: 0.75rem;
+  --ok: 157 61% 46%;   /* #2EBD85 operação saudável */
+  --warn: 17 73% 56%;  /* #E06A3C atenção (NÃO é mais o âmbar) */
+  --info: 202 71% 58%; /* #4AA8E0 informativo */
+}
+
+/* Tema claro do app (modelo: tela de Cadastros) — escopado no Shell */
+.app-light {
+  --background: 214 33% 96%;         /* #F1F4F8 canvas */
+  --foreground: 209 48% 14%;         /* #132536 tinta */
+  --card: 0 0% 100%;                 /* #FFFFFF surface */
+  --card-foreground: 209 48% 14%;
+  --primary: 36 78% 59%;             /* #E8A845 âmbar — marca/ação */
+  --primary-foreground: 36 74% 9%;
+  --secondary: 210 33% 98%;          /* #F7F9FB surface-2 */
+  --secondary-foreground: 211 23% 34%; /* #43586C ink-2 */
+  --muted: 210 33% 98%;
+  --muted-foreground: 210 16% 56%;   /* #7E90A2 ink-3 */
+  --destructive: 0 64% 55%;          /* #D64545 crítico (claro) */
+  --destructive-foreground: 0 0% 100%;
+  --border: 211 26% 90%;             /* #DEE5EC line */
+  --input: 210 25% 82%;              /* #C8D2DC line-2 */
+  --ring: 207 52% 47%;               /* #3A7FB8 info (claro) */
+  --radius: 0.75rem;
+  --ok: 157 69% 39%;   /* #1FA875 */
+  --warn: 17 73% 56%;  /* #E06A3C */
+  --info: 207 52% 47%; /* #3A7FB8 */
 }
 
 @layer base {
