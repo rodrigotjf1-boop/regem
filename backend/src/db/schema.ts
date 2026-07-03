@@ -869,3 +869,83 @@ export const auditLog = pgTable('audit_log', {
   origem: text('origem').notNull().default('web'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ── Mural & Clima (migration 026) ────────────────────────────────────────────
+export const comunicado = pgTable('comunicado', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  setorId: uuid('setor_id'),
+  autorColaboradorId: uuid('autor_colaborador_id').references(() => colaborador.id),
+  titulo: text('titulo').notNull(),
+  corpo: text('corpo'),
+  audiencia: text('audiencia').notNull().default('loja'), // 'loja' | 'setor'
+  fixado: boolean('fixado').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const comunicadoLeitura = pgTable(
+  'comunicado_leitura',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => empresa.id, { onDelete: 'cascade' }),
+    comunicadoId: uuid('comunicado_id')
+      .notNull()
+      .references(() => comunicado.id, { onDelete: 'cascade' }),
+    colaboradorId: uuid('colaborador_id')
+      .notNull()
+      .references(() => colaborador.id, { onDelete: 'cascade' }),
+    lidoEm: timestamp('lido_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ uqLeitura: unique().on(t.comunicadoId, t.colaboradorId) }),
+);
+
+export const climaPesquisa = pgTable('clima_pesquisa', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  titulo: text('titulo').notNull(),
+  aberta: boolean('aberta').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Resposta ANÔNIMA: sem colaborador_id de propósito (LGPD).
+export const climaResposta = pgTable('clima_resposta', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  pesquisaId: uuid('pesquisa_id')
+    .notNull()
+    .references(() => climaPesquisa.id, { onDelete: 'cascade' }),
+  humor: integer('humor').notNull(), // 1..5
+  comentario: text('comentario'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Participação: só marca QUE respondeu (contagem + trava voto duplo), sem tocar no conteúdo.
+export const climaParticipacao = pgTable(
+  'clima_participacao',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => empresa.id, { onDelete: 'cascade' }),
+    pesquisaId: uuid('pesquisa_id')
+      .notNull()
+      .references(() => climaPesquisa.id, { onDelete: 'cascade' }),
+    colaboradorId: uuid('colaborador_id')
+      .notNull()
+      .references(() => colaborador.id, { onDelete: 'cascade' }),
+    respondeuEm: timestamp('respondeu_em', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ uqParticipacao: unique().on(t.pesquisaId, t.colaboradorId) }),
+);
