@@ -476,6 +476,9 @@ export const pontoMarcacao = pgTable('ponto_marcacao', {
   registradoPorId: uuid('registrado_por_id'),
   hash: text('hash'),
   obs: text('obs'),
+  fotoRef: text('foto_ref'),
+  consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
+  dataExpurgo: date('data_expurgo'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

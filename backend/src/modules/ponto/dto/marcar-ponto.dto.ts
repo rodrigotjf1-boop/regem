@@ -1,8 +1,17 @@
-import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class MarcarPontoDto {
   @IsIn(['entrada', 'saida', 'intervalo_inicio', 'intervalo_fim'])
   tipo!: string;
+
+  // Foto opcional (terminal). Só é gravada com consentimento LGPD explícito.
+  @IsOptional()
+  @IsString()
+  fotoRef?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  consentimentoLgpd?: boolean;
 
   @IsOptional()
   @IsIn(['web', 'terminal', 'app'])

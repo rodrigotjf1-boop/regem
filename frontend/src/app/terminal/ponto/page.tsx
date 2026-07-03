@@ -59,6 +59,12 @@ export default function TerminalPontoPage() {
   const [countdown, setCountdown] = useState(6);
   const cdRef = useRef<any>(null);
 
+  // Foto no ponto (LGPD): opt-in por marcação.
+  const [comFoto, setComFoto] = useState(false);
+  const [camErro, setCamErro] = useState('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   // pareamento
   const [pEmail, setPEmail] = useState('');
   const [pSenha, setPSenha] = useState('');
@@ -101,7 +107,41 @@ export default function TerminalPontoPage() {
     setColab(null);
     setComp(null);
     setErro('');
+    setComFoto(false); // consentimento é por sessão de marcação
   }, []);
+
+  // Liga/desliga a câmera conforme o consentimento, na tela de marcação.
+  useEffect(() => {
+    let cancelado = false;
+    const parar = () => {
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+    async function ligar() {
+      setCamErro('');
+      try {
+        const s = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user' },
+          audio: false,
+        });
+        if (cancelado) {
+          s.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = s;
+        if (videoRef.current) videoRef.current.srcObject = s;
+      } catch {
+        setCamErro('Câmera indisponível — você pode marcar sem foto.');
+        setComFoto(false);
+      }
+    }
+    if (comFoto && step === 'emp') ligar();
+    else parar();
+    return () => {
+      cancelado = true;
+      parar();
+    };
+  }, [comFoto, step]);
 
   // ---- pareamento ----
   async function parearLogin(e: React.FormEvent) {
@@ -164,11 +204,41 @@ export default function TerminalPontoPage() {
     }
   }
 
+  // Captura um frame do vídeo, envia ao storage e devolve a URL pública.
+  async function capturarFoto(): Promise<string | undefined> {
+    const v = videoRef.current;
+    if (!v || !streamRef.current) return undefined;
+    const canvas = document.createElement('canvas');
+    canvas.width = v.videoWidth || 320;
+    canvas.height = v.videoHeight || 320;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+    const blob: Blob | null = await new Promise((res) =>
+      canvas.toBlob((b) => res(b), 'image/jpeg', 0.8),
+    );
+    if (!blob) return undefined;
+    const file = new File([blob], 'ponto.jpg', { type: 'image/jpeg' });
+    const r = await api.upload(file);
+    return r.url;
+  }
+
   // ---- marcação ----
   async function marcar(tipo: string) {
     setErro('');
     try {
-      const c: any = await api.marcarPonto({ tipo, origem: 'terminal' });
+      let fotoRef: string | undefined;
+      let consentimentoLgpd = false;
+      if (comFoto) {
+        fotoRef = await capturarFoto();
+        consentimentoLgpd = !!fotoRef;
+      }
+      const c: any = await api.marcarPonto({
+        tipo,
+        origem: 'terminal',
+        fotoRef,
+        consentimentoLgpd,
+      });
       setComp(c);
       setRecentes((r) =>
         [
@@ -393,6 +463,34 @@ export default function TerminalPontoPage() {
                   Matrícula {colab.matricula}
                 </p>
               )}
+              <label className="mt-3 flex items-center gap-2 text-sm text-[#8FAABB]">
+                <input
+                  type="checkbox"
+                  checked={comFoto}
+                  onChange={(e) => setComFoto(e.target.checked)}
+                  className="h-4 w-4 accent-[#19C08F]"
+                />
+                Registrar com foto (LGPD)
+              </label>
+              {comFoto && (
+                <div className="flex flex-col items-center gap-1">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="h-32 w-32 rounded-xl border border-[#2A495C] object-cover"
+                  />
+                  <p className="max-w-xs text-center text-[11px] text-[#5E7B8E]">
+                    Ao marcar, sua foto é registrada e retida por 90 dias (LGPD).
+                    Desmarque para marcar sem foto.
+                  </p>
+                </div>
+              )}
+              {camErro && (
+                <p className="text-[11px] text-[#FF5A4E]">{camErro}</p>
+              )}
+
               <div className="mt-4 grid w-full max-w-md grid-cols-2 gap-3">
                 {PUNCH.map((b) => (
                   <button

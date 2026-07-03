@@ -11,6 +11,7 @@ import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
 import { CriarAjusteDto } from './dto/criar-ajuste.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+const RETENCAO_FOTO_DIAS = 90; // LGPD: retenção da foto do ponto até o expurgo.
 const ENTRA = new Set(['entrada', 'intervalo_fim']);
 const SAI = new Set(['saida', 'intervalo_inicio']);
 
@@ -65,11 +66,21 @@ export class PontoService {
       obs?: string;
       unidadeId?: string;
       equipamentoId?: string;
+      fotoRef?: string;
+      consentimentoLgpd?: boolean;
     },
   ) {
     const equipamentoId =
       dados.equipamentoId ??
       (await this.equipamentos.resolverPadrao(tenantId, dados.unidadeId)).id;
+    // LGPD: só guarda a foto com consentimento explícito; define a data de expurgo (retenção).
+    const comFoto = !!(dados.fotoRef && dados.consentimentoLgpd);
+    const fotoRef = comFoto ? dados.fotoRef : null;
+    const dataExpurgo = comFoto
+      ? new Date(dados.marcadoEm.getTime() + RETENCAO_FOTO_DIAS * 86400000)
+          .toISOString()
+          .slice(0, 10)
+      : null;
     let tentativa = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -99,6 +110,9 @@ export class PontoService {
               registradoPorId: dados.registradoPorId,
               hash,
               obs: dados.obs,
+              fotoRef,
+              consentimentoLgpd: !!dados.consentimentoLgpd,
+              dataExpurgo,
             })
             .returning();
           return inserted;
@@ -158,6 +172,8 @@ export class PontoService {
       obs: dto.obs,
       unidadeId: dto.unidadeId,
       equipamentoId,
+      fotoRef: dto.fotoRef,
+      consentimentoLgpd: dto.consentimentoLgpd,
     });
     await this.auditoria.registrar({
       tenantId,
