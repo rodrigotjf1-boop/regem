@@ -26,16 +26,34 @@ export function getCategoria(): string | null {
   }
 }
 
+// Sessão expirada/inválida: limpa o token e manda pro login com aviso amigável.
+function sessaoExpirou() {
+  clearToken();
+  if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/entrar')) {
+    window.location.href = '/entrar?expirada=1';
+  }
+}
+
 async function req(path: string, options: RequestInit = {}) {
   const token = getToken();
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    // Erro de REDE (offline, DNS, CORS) — distinto de erro de API.
+    throw new Error('Sem conexão com o servidor. Verifique a internet.');
+  }
+  if (res.status === 401) {
+    sessaoExpirou();
+    throw new Error('Sessão expirada. Entre novamente.');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as any);
     throw new Error(body.message || `Erro ${res.status}`);
@@ -48,11 +66,20 @@ async function uploadFile(path: string, file: File) {
   const token = getToken();
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: form,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: form,
+    });
+  } catch {
+    throw new Error('Sem conexão com o servidor. Verifique a internet.');
+  }
+  if (res.status === 401) {
+    sessaoExpirou();
+    throw new Error('Sessão expirada. Entre novamente.');
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as any);
     throw new Error(body.message || `Erro ${res.status}`);

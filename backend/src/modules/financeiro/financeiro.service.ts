@@ -13,22 +13,13 @@ import {
   caixaSessao,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { proximaData } from '../../common/regras-negocio';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function hojeISO() {
   return new Date().toISOString().slice(0, 10);
-}
-// Próximo vencimento de um título recorrente.
-function proximaData(base: string | null, recorrencia: string): string | null {
-  if (!base) return null;
-  const d = new Date(base);
-  if (recorrencia === 'semanal') d.setDate(d.getDate() + 7);
-  else if (recorrencia === 'quinzenal') d.setDate(d.getDate() + 15);
-  else if (recorrencia === 'mensal') d.setMonth(d.getMonth() + 1);
-  else return null;
-  return d.toISOString().slice(0, 10);
 }
 
 @Injectable()

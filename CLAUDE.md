@@ -8,11 +8,12 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 
 ## Stack e estrutura (monorepo — pasta `C:\Regen`, repo `github.com/rodrigotjf1-boop/regem`)
 
-- **backend/** — NestJS 10 + TypeScript + Drizzle ORM + `pg` (Postgres/Supabase). Prefixo de API `/api/v1`. Auth JWT (senha + PIN), multi-tenant + RBAC. Módulos em `src/modules/*` (um módulo por domínio: controller + service + dto). Schema Drizzle em `src/db/schema.ts`.
+- **backend/** — NestJS 10 + TypeScript + Drizzle ORM + `pg` (Postgres/Supabase). Prefixo de API `/api/v1`. Auth JWT (senha + PIN), multi-tenant + RBAC. Módulos em `src/modules/*` (um módulo por domínio: controller + service + dto). Schema Drizzle em `src/db/schema.ts`. **Contrato da API:** Swagger em `/api/v1/docs` (em produção só com `SWAGGER_ENABLED=true`); `docs/openapi.json` gerado por `npm run build && npm run openapi` é o contrato para integrações externas.
 - **frontend/** — Next.js 14 (App Router) + Tailwind + componentes shadcn-style à mão. Design system em `src/app/globals.css` (classe `.app-light`) + `tailwind.config.ts`. Shell (sidebar+topbar) em `src/components/app-shell/shell.tsx`. Cliente de API em `src/lib/api.ts`.
 - **database/migrations/** — SQL escrito à mão `NNN_nome.sql`, aplicado por `backend/scripts/apply-sql.mjs` (usa `backend/.env` → `DATABASE_URL`). **Sempre criar o `.sql` ao entregar uma migration.**
 - **docs/** — fonte da verdade (abaixo). **mockups/** — referência visual/comportamental.
 - **Deploy:** EasyPanel na VPS (serviços `regem-api` e `regem-web`) + Supabase. **Auto-deploy ligado**: todo push em `main` sobe sozinho — nunca dar push com build quebrado (rodar `npm run build` nos dois antes).
+- **CI (`.github/workflows/ci.yml`)**: roda `npm ci` + `npm run build` (e `npm test`) em `backend/` e `frontend/` a cada push/PR. **Fluxo obrigatório: branch → PR → conferir CI verde (aba Actions) → merge.** ⚠️ *Branch protection* foi criada em `main`, mas o GitHub **não a aplica em repo privado no plano grátis** (precisa Team/Enterprise) — então o portão é **por disciplina** (opção B): não fazer merge com CI vermelho. O EasyPanel deploya a `main` após o merge. Nunca commitar segredos; `.env` fica no `.gitignore`.
 
 ## Fontes da verdade (ordem de prioridade)
 

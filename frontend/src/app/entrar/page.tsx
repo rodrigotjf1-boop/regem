@@ -117,6 +117,11 @@ export default function LoginPage() {
   const [pin, setPin] = useState('');
   const [pi, setPi] = useState(0);
   const [fade, setFade] = useState(false);
+  const [expirada, setExpirada] = useState(false);
+
+  useEffect(() => {
+    setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -222,6 +227,24 @@ export default function LoginPage() {
             </div>
             <h2 className="form-title">Entre para gerenciar o seu dia</h2>
             <p className="form-sub">Bem-vindo de volta 👋</p>
+
+            {expirada && (
+              <div
+                role="status"
+                style={{
+                  background: 'rgba(224,106,60,.12)',
+                  border: '1px solid rgba(224,106,60,.4)',
+                  color: '#E06A3C',
+                  borderRadius: 11,
+                  padding: '10px 14px',
+                  fontSize: 13,
+                  marginBottom: 18,
+                  textAlign: 'center',
+                }}
+              >
+                Sua sessão expirou. Entre novamente para continuar.
+              </div>
+            )}
 
             <div className="seg" role="tablist">
               <button
