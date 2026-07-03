@@ -4,6 +4,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { itemEstoque, movimentoEstoque } from '../../db/schema';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
+import { furoCmv } from '../../common/regras-negocio';
 
 @Injectable()
 export class EstoqueService {
@@ -287,9 +288,16 @@ export class EstoqueService {
     const cmvTeorico = await somaMov(
       sql`m.tipo='saida' and m.motivo in ('venda','producao')`,
     );
+    // Desperdício valorizado no período (saídas com motivo 'desperdicio').
+    const desperdicioValor = await somaMov(
+      sql`m.tipo='saida' and m.motivo='desperdicio'`,
+    );
 
     const cmvReal = estoqueInicial + compras - estoqueFinal;
     const desvio = cmvReal - cmvTeorico;
+    // Furo = parte do desvio não explicada pelo desperdício registrado
+    // (porção fora do padrão + perda/erro de contagem). §1.3.
+    const furo = furoCmv(desvio, desperdicioValor);
     return {
       periodo: { inicio, fim },
       estoqueInicial: Number(estoqueInicial.toFixed(2)),
@@ -300,6 +308,8 @@ export class EstoqueService {
       cmvReal: Number(cmvReal.toFixed(2)),
       cmvTeorico: Number(cmvTeorico.toFixed(2)),
       desvio: Number(desvio.toFixed(2)),
+      desperdicioValor: Number(desperdicioValor.toFixed(2)),
+      furo: Number(furo.toFixed(2)),
     };
   }
 }

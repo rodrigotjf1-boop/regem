@@ -8,6 +8,7 @@ import {
   qtdBaixaExplosao,
   minutosNaFaixaNoturna,
   fatorHoraExtra,
+  furoCmv,
 } from './regras-negocio';
 
 // helper: monta um timestamp UTC a partir da hora LOCAL do Brasil (UTC−3).
@@ -79,6 +80,18 @@ describe('minutosNaFaixaNoturna (jornada §3, hora local BR 22h–5h)', () => {
 describe('fatorHoraExtra (50% dia útil, 100% domingo/feriado)', () => {
   it('dia útil → 0.5', () => expect(fatorHoraExtra(false)).toBe(0.5));
   it('domingo/feriado → 1.0', () => expect(fatorHoraExtra(true)).toBe(1.0));
+});
+
+describe('furoCmv (desvio − desperdício registrado)', () => {
+  it('desvio 300, desperdício 120 → furo 180', () => {
+    expect(furoCmv(300, 120)).toBe(180);
+  });
+  it('desperdício explica todo o desvio → furo 0', () => {
+    expect(furoCmv(150, 150)).toBe(0);
+  });
+  it('desperdício maior que o desvio → furo negativo', () => {
+    expect(furoCmv(100, 130)).toBe(-30);
+  });
 });
 
 describe('estorno neutraliza o efeito líquido', () => {

@@ -13,6 +13,10 @@ export class CreateDesperdicioDto {
   descricao!: string;
 
   @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
+  @IsOptional()
   @IsNumber()
   quantidade?: number;
 

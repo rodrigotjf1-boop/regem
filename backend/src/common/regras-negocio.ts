@@ -53,6 +53,15 @@ export function fatorHoraExtra(ehDomingoOuFeriado: boolean): number {
   return ehDomingoOuFeriado ? 1.0 : 0.5;
 }
 
+/**
+ * Furo de CMV (§1.3): parte do desvio não explicada pelo desperdício registrado.
+ *   furo = desvio − desperdício_valorizado
+ * Pode ser negativo (desperdício registrado maior que o desvio apurado).
+ */
+export function furoCmv(desvio: number, desperdicioValor: number): number {
+  return desvio - desperdicioValor;
+}
+
 export type MovLedger = { tipo: string; quantidade: number | string };
 
 /**

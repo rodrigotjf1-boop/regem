@@ -347,6 +347,8 @@ export const desperdicio = pgTable('desperdicio', {
   setorId: uuid('setor_id'),
   colaboradorId: uuid('colaborador_id'),
   descricao: text('descricao').notNull(),
+  itemId: uuid('item_id'),
+  custoUnitario: numeric('custo_unitario'),
   quantidade: numeric('quantidade'),
   unidadeMedida: text('unidade_medida'),
   motivo: text('motivo'),

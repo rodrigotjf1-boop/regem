@@ -1,7 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, eq, isNull, desc } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { desperdicio } from '../../db/schema';
+import { desperdicio, itemEstoque, movimentoEstoque } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
 
@@ -10,22 +15,82 @@ export class DesperdicioService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   async create(tenantId: string, dto: CreateDesperdicioDto) {
-    const [row] = await this.db
-      .insert(desperdicio)
-      .values({
-        tenantId,
-        unidadeId: dto.unidadeId,
-        setorId: dto.setorId,
-        colaboradorId: dto.colaboradorId,
-        descricao: dto.descricao,
-        quantidade: dto.quantidade != null ? String(dto.quantidade) : undefined,
-        unidadeMedida: dto.unidadeMedida,
-        motivo: dto.motivo,
-        fotoRef: dto.fotoRef,
-        data: dto.data,
+    // Desperdício vinculado a item baixa o estoque de verdade (movimento saída
+    // motivo 'desperdicio') ao custo médio, e é valorizado por custo_unitario.
+    // Sem item, permanece apenas um log textual (comportamento antigo).
+    if (!dto.itemId) {
+      const [row] = await this.db
+        .insert(desperdicio)
+        .values({
+          tenantId,
+          unidadeId: dto.unidadeId,
+          setorId: dto.setorId,
+          colaboradorId: dto.colaboradorId,
+          descricao: dto.descricao,
+          quantidade:
+            dto.quantidade != null ? String(dto.quantidade) : undefined,
+          unidadeMedida: dto.unidadeMedida,
+          motivo: dto.motivo,
+          fotoRef: dto.fotoRef,
+          data: dto.data,
+        })
+        .returning();
+      return row;
+    }
+
+    if (!dto.quantidade || dto.quantidade <= 0) {
+      throw new BadRequestException(
+        'Informe a quantidade para desperdício vinculado a item.',
+      );
+    }
+    const [item] = await this.db
+      .select({
+        id: itemEstoque.id,
+        custoMedio: itemEstoque.custoMedio,
+        unidadeMedida: itemEstoque.unidadeMedida,
       })
-      .returning();
-    return row;
+      .from(itemEstoque)
+      .where(
+        and(
+          eq(itemEstoque.id, dto.itemId),
+          eq(itemEstoque.tenantId, tenantId),
+          isNull(itemEstoque.deletedAt),
+        ),
+      );
+    if (!item) throw new NotFoundException('Item de estoque não encontrado.');
+
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(desperdicio)
+        .values({
+          tenantId,
+          unidadeId: dto.unidadeId,
+          setorId: dto.setorId,
+          colaboradorId: dto.colaboradorId,
+          descricao: dto.descricao,
+          itemId: dto.itemId,
+          custoUnitario: item.custoMedio,
+          quantidade: String(dto.quantidade),
+          unidadeMedida: dto.unidadeMedida ?? item.unidadeMedida,
+          motivo: dto.motivo,
+          fotoRef: dto.fotoRef,
+          data: dto.data,
+        })
+        .returning();
+
+      await tx.insert(movimentoEstoque).values({
+        tenantId,
+        itemId: dto.itemId!,
+        tipo: 'saida',
+        quantidade: String(dto.quantidade),
+        custoUnitario: item.custoMedio,
+        motivo: 'desperdicio',
+        refTipo: 'desperdicio',
+        refId: row.id,
+        data: dto.data ?? undefined,
+      });
+      return row;
+    });
   }
 
   // Escopo RBAC: supervisor vê só o próprio setor; demais perfis veem tudo do tenant.
