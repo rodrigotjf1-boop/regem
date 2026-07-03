@@ -38,12 +38,16 @@ export class VendasService {
 
   // Baixa por explosão de UMA ficha: cada insumo (com item de estoque) sai valorado
   // ao custo médio. multiplicador = qtd vendida × fator da variação × qtd do combo.
+  // Sub-fichas (sub-receitas) explodem recursivamente; `visitados` barra ciclo
+  // (silencioso — ciclos já são impedidos ao montar a ficha).
   private async baixaFicha(
     tx: any,
     tenantId: string,
     fichaId: string,
     multiplicador: number,
+    visitados: Set<string> = new Set(),
   ) {
+    if (visitados.has(fichaId)) return; // guarda anti-ciclo
     const [ficha] = await tx
       .select({ rendimento: fichaTecnica.rendimento })
       .from(fichaTecnica)
@@ -53,12 +57,19 @@ export class VendasService {
       .select()
       .from(fichaIngrediente)
       .where(eq(fichaIngrediente.fichaId, fichaId));
+    const proximos = new Set(visitados);
+    proximos.add(fichaId);
     for (const ing of ings) {
-      if (!ing.itemId) continue; // insumo não ligado ao estoque → não baixa
       const consumo =
         ((Number(ing.quantidade) * Number(ing.fatorCorrecao)) / rendimento) *
         multiplicador;
       if (consumo <= 0) continue;
+      if (ing.subFichaId) {
+        // Sub-receita: baixa `consumo` porções dela nos itens-raiz.
+        await this.baixaFicha(tx, tenantId, ing.subFichaId, consumo, proximos);
+        continue;
+      }
+      if (!ing.itemId) continue; // insumo avulso → não baixa
       const [item] = await tx
         .select({ custoMedio: itemEstoque.custoMedio })
         .from(itemEstoque)
