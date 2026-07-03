@@ -291,6 +291,7 @@ export default function OperacaoPage() {
                   { name: 'descricao', label: 'Descrição', type: 'text', required: true, placeholder: 'Ex.: Pão queimado' },
                   { name: 'quantidade', label: 'Quantidade', type: 'text', placeholder: '0' },
                   { name: 'motivo', label: 'Motivo', type: 'text', placeholder: 'Ex.: forno' },
+                  { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
                   { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
                 ] as FieldDef[]
               }
@@ -299,6 +300,7 @@ export default function OperacaoPage() {
                   descricao: v.descricao,
                   quantidade: v.quantidade ? Number(v.quantidade) : undefined,
                   motivo: v.motivo || undefined,
+                  fotoRef: v.fotoRef || undefined,
                   data: v.data || undefined,
                 });
                 await reload();
@@ -306,12 +308,22 @@ export default function OperacaoPage() {
             />
           </Card>
           {desperdicios.map((d: any) => (
-            <Card key={d.id} className="p-4">
-              <p className="font-medium">{d.descricao}</p>
-              <p className="text-sm text-muted-foreground">
-                {d.quantidade ?? '—'} {d.unidadeMedida ?? ''}
-                {d.motivo ? ` · ${d.motivo}` : ''} · {d.data}
-              </p>
+            <Card key={d.id} className="flex items-center gap-3 p-4">
+              {d.fotoRef && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={d.fotoRef}
+                  alt="Foto do desperdício"
+                  className="h-14 w-14 flex-none rounded-md object-cover"
+                />
+              )}
+              <div>
+                <p className="font-medium">{d.descricao}</p>
+                <p className="text-sm text-muted-foreground">
+                  {d.quantidade ?? '—'} {d.unidadeMedida ?? ''}
+                  {d.motivo ? ` · ${d.motivo}` : ''} · {d.data}
+                </p>
+              </div>
             </Card>
           ))}
         </section>
@@ -326,6 +338,7 @@ export default function OperacaoPage() {
                 [
                   { name: 'tipo', label: 'Tipo', type: 'select', options: TIPO_VIST, defaultValue: 'abertura' },
                   { name: 'observacao', label: 'Observação', type: 'text', placeholder: 'Ex.: Tudo ok' },
+                  { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
                   { name: 'data', label: 'Data', type: 'date', defaultValue: hoje },
                 ] as FieldDef[]
               }
@@ -333,6 +346,7 @@ export default function OperacaoPage() {
                 await api.post('/vistorias', {
                   tipo: v.tipo,
                   observacao: v.observacao || undefined,
+                  fotoRef: v.fotoRef || undefined,
                   data: v.data || undefined,
                 });
                 await reload();
@@ -340,8 +354,16 @@ export default function OperacaoPage() {
             />
           </Card>
           {vistorias.map((vi: any) => (
-            <Card key={vi.id} className="flex items-center justify-between gap-3 p-4">
-              <div>
+            <Card key={vi.id} className="flex items-center gap-3 p-4">
+              {vi.fotoRef && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={vi.fotoRef}
+                  alt="Foto da vistoria"
+                  className="h-14 w-14 flex-none rounded-md object-cover"
+                />
+              )}
+              <div className="min-w-0 flex-1">
                 <p className="font-medium capitalize">{vi.tipo}</p>
                 <p className="text-sm text-muted-foreground">
                   {vi.observacao ?? ''} · {vi.data}
