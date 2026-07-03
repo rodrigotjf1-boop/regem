@@ -228,4 +228,5 @@ Regras transversais de integração:
 | Data | Decisão | Motivo |
 |---|---|---|
 | 2026-07-03 | Documento criado; custo médio do recebimento declarado canônico | Base da fase ERP |
+| 2026-07-03 | **Passo 1+2 implementados** (branch `feature/producao-explosao`): migration 024 (§6 — `ref_*` no ledger + campos ERP + `estoque_snapshot`/`feriado`); `POST /producao` com explosão de ficha (§1.2), idempotência por `refId` (índice único), entrada do produto ao custo teórico; funções puras `qtdBaixaExplosao`/`custoMedioPonderado`; testes §7 casos 1, 2, 8 verdes. | Ordem da §8 (destrava o motor sem PDV) |
 | _adicionar aqui_ | | |
