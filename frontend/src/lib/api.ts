@@ -243,6 +243,11 @@ export const api = {
     req(`/bot/regras/${id}`, { method: 'DELETE' }),
   botPerguntar: (pergunta: string) =>
     req('/bot/perguntar', { method: 'POST', body: JSON.stringify({ pergunta }) }),
+  onboardingRamosDetalhes: () => req('/onboarding/ramos-detalhes'),
+  onboardingBlueprint: (ramo: string) =>
+    req(`/onboarding/blueprint?ramo=${encodeURIComponent(ramo)}`),
+  aplicarWizard: (body: Record<string, unknown>) =>
+    req('/onboarding/wizard', { method: 'POST', body: JSON.stringify(body) }),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),
