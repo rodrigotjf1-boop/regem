@@ -42,6 +42,17 @@ export class FinanceiroController {
     return this.service.fluxoCaixa(user.tenantId, dias ? Number(dias) : 30);
   }
 
+  @Get('dre')
+  dre(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    const hoje = new Date();
+    const ini = inicio || new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
+    return this.service.dreCaixa(user.tenantId, ini, fim || hoje.toISOString().slice(0, 10));
+  }
+
   @Post('titulos')
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateTituloDto) {
     return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto);

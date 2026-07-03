@@ -30,6 +30,7 @@ export default function FinanceiroPage() {
   const router = useRouter();
   const [resumo, setResumo] = useState<any>(null);
   const [fluxo, setFluxo] = useState<any>(null);
+  const [dre, setDre] = useState<any>(null);
   const [titulos, setTitulos] = useState<any[] | null>(null);
   const [fornecedores, setFornecedores] = useState<any[]>([]);
   const [filtro, setFiltro] = useState('pagar');
@@ -39,14 +40,16 @@ export default function FinanceiroPage() {
   const carregar = useCallback(async (f: string) => {
     setErro('');
     try {
-      const [res, forn, flx] = await Promise.all([
+      const [res, forn, flx, dr] = await Promise.all([
         api.financeiroResumo(),
         api.fornecedores(),
         api.financeiroFluxo(30),
+        api.financeiroDre(),
       ]);
       setResumo(res);
       setFornecedores(forn);
       setFluxo(flx);
+      setDre(dr);
       const t =
         f === 'pago'
           ? await api.financeiroTitulos(undefined, 'pago')
@@ -181,6 +184,40 @@ export default function FinanceiroPage() {
                 </tbody>
               </table>
             </div>
+          </Card>
+        )}
+
+        {/* DRE gerencial — regime de caixa (H3) */}
+        {dre && (
+          <Card className="p-5">
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
+              <h2 className="font-display text-lg font-semibold">Resultado do mês</h2>
+              <span className="text-xs text-muted-foreground">regime de caixa · {dre.periodo?.inicio} a {dre.periodo?.fim}</span>
+            </div>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Receitas (entradas)</span>
+                <span className="font-mono" style={{ color: 'hsl(var(--ok))' }}>{brl(dre.receitas)}</span>
+              </div>
+              {dre.despesas?.map((d: any) => (
+                <div key={d.categoria} className="flex justify-between">
+                  <span className="text-muted-foreground capitalize">− {d.categoria}</span>
+                  <span className="font-mono text-muted-foreground">{brl(d.valor)}</span>
+                </div>
+              ))}
+              <div className="mt-2 flex justify-between border-t border-border pt-2 font-semibold">
+                <span>Resultado</span>
+                <span
+                  className="font-mono"
+                  style={{ color: dre.resultado < 0 ? 'hsl(var(--destructive))' : 'hsl(var(--ok))' }}
+                >
+                  {brl(dre.resultado)}
+                </span>
+              </div>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Valor pleno (receita de vendas, CMV, folha) chega com o PDV e a folha de pessoal.
+            </p>
           </Card>
         )}
 

@@ -291,4 +291,35 @@ export class FinanceiroService {
       projecao,
     };
   }
+
+  // DRE gerencial (regime de caixa) — receitas − despesas por categoria, do ledger. H3.
+  // Valor pleno (receita de vendas, CMV, folha) chega com o PDV (Fase J) e a folha.
+  async dreCaixa(tenantId: string, inicio: string, fim: string) {
+    const rec: any = await this.db.execute(sql`
+      select coalesce(sum(valor),0) as v from lancamento_caixa
+      where tenant_id=${tenantId} and tipo='entrada' and estorno_de is null
+        and data between ${inicio} and ${fim}
+    `);
+    const desp: any = await this.db.execute(sql`
+      select coalesce(categoria,'outros') as categoria, coalesce(sum(valor),0) as v
+      from lancamento_caixa
+      where tenant_id=${tenantId} and tipo='saida' and estorno_de is null
+        and data between ${inicio} and ${fim}
+      group by coalesce(categoria,'outros')
+      order by v desc
+    `);
+    const receitas = Number((rec.rows ?? rec)[0].v);
+    const despesas = (desp.rows ?? desp).map((d: any) => ({
+      categoria: d.categoria,
+      valor: Number(d.v),
+    }));
+    const totalDespesas = despesas.reduce((s: number, d: any) => s + d.valor, 0);
+    return {
+      periodo: { inicio, fim },
+      receitas,
+      despesas,
+      totalDespesas,
+      resultado: Number((receitas - totalDespesas).toFixed(2)),
+    };
+  }
 }

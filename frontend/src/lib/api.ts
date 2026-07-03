@@ -123,6 +123,13 @@ export const api = {
   financeiroResumo: () => req('/financeiro/resumo'),
   financeiroFluxo: (dias?: number) =>
     req(`/financeiro/fluxo${dias ? `?dias=${dias}` : ''}`),
+  financeiroDre: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/financeiro/dre${q ? `?${q}` : ''}`);
+  },
   criarTitulo: (body: Record<string, unknown>) =>
     req('/financeiro/titulos', { method: 'POST', body: JSON.stringify(body) }),
   pagarTitulo: (id: string, body: Record<string, unknown>) =>

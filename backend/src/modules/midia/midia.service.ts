@@ -79,4 +79,19 @@ export class MidiaService {
     const publicUrl = `${url}/storage/v1/object/public/${bucket}/${path}`;
     return { url: publicUrl, path, mime: file.mimetype, tamanho: file.size };
   }
+
+  // Apaga um objeto do storage a partir da sua URL pública (rotina de expurgo LGPD).
+  async remover(publicUrl: string): Promise<boolean> {
+    const { url, key, bucket } = this.cfg();
+    if (!url || !key || !publicUrl) return false;
+    const marcador = `/storage/v1/object/public/${bucket}/`;
+    const idx = publicUrl.indexOf(marcador);
+    if (idx < 0) return false;
+    const path = publicUrl.slice(idx + marcador.length);
+    const res = await fetch(`${url}/storage/v1/object/${bucket}/${path}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${key}`, apikey: key },
+    });
+    return res.ok;
+  }
 }
