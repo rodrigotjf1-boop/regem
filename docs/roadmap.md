@@ -26,13 +26,12 @@ Produção: `app.dmsregem.com` / `api.dmsregem.com` (EasyPanel + Supabase, auto-
 
 > Ordem escolhida para **entregar valor antes do PDV**: metade do "motor" sai de dados que já temos.
 
-### Fase G — Motor de custo & analytics · **EM ANDAMENTO**
-- **G1 · Custo no ledger** ✅ (migration 017, no ar): custo no `movimento_estoque`/`lote` + **custo médio ponderado móvel** por item + valor em estoque derivado.
-- **G5 · Preço sugerido / markup vs margem** ✅ (no ar): inverso do CMV-alvo na ficha.
-- **G2 · CMV real do período** (`EI + Compras − EF`) — parte **valorativa** (valor em estoque + compras) é buildável já; a comparação **teórico × real** (o "KPI de ouro") só acende com **dado de consumo/venda** (PDV, Fase J).
-- **G3 · Ponto de pedido (ROP)** e **G4 · Curva ABC** — dependem de **consumo** (movimentos de saída). Buildáveis com o pouco que houver de saída manual; valor pleno com o PDV.
+### Fase G — Motor de custo & analytics · ✅ **CONCLUÍDA (no ar)**
+- **G1 · Custo no ledger** ✅ (migration 017): custo no `movimento_estoque`/`lote` + **custo médio ponderado móvel** + valor em estoque derivado.
+- **G5 · Preço sugerido / markup vs margem** ✅: inverso do CMV-alvo na ficha.
+- **G2/G3/G4 · Inteligência de estoque** ✅ (`/estoque` + `/estoque/inteligencia`): valorização (valor em estoque + compras), **ROP** (lead time padrão 7d), **curva ABC** (por valor consumido), dias de cobertura.
 
-> **Insight de sequência (02/07):** metade "analytics" da Fase G é gated por consumo. O que dá pra entregar 100% agora: **painel de valorização** (valor em estoque + compras do período + abaixo do mínimo). O CMV real vs teórico, ROP e ABC ganham força quando houver baixa de estoque (saída manual agora; automática no PDV).
+> **Nota:** a comparação **CMV teórico × real** (o "KPI de ouro") e o valor pleno de ROP/ABC dependem de **consumo/venda**, que só existe sistematicamente no **PDV (Fase J)** — hoje só há saída manual. Pendência: **lead time por fornecedor** (ROP usa 7d fixo).
 
 ### Fase H — Financeiro base (partidas dobradas)
 - **Ledger financeiro** (fundação) + **Contas a pagar** nascendo do recebimento (gancho já existe) + **Fluxo de caixa projetado** + **DRE gerencial por loja** → alimenta a Visão C&O.
