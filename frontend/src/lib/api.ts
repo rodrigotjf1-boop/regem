@@ -220,6 +220,19 @@ export const api = {
   },
   gerarSnapshotEstoque: () =>
     req('/estoque/snapshot', { method: 'POST', body: '{}' }),
+  muralFeed: () => req('/mural'),
+  publicarComunicado: (body: Record<string, unknown>) =>
+    req('/mural', { method: 'POST', body: JSON.stringify(body) }),
+  confirmarLeituraMural: (id: string) =>
+    req(`/mural/${id}/leitura`, { method: 'POST', body: '{}' }),
+  climaAtual: () => req('/mural/clima'),
+  criarPesquisaClima: (body: Record<string, unknown>) =>
+    req('/mural/clima', { method: 'POST', body: JSON.stringify(body) }),
+  responderClima: (id: string, body: Record<string, unknown>) =>
+    req(`/mural/clima/${id}/responder`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),

@@ -17,6 +17,7 @@ import {
   ListChecks,
   LogOut,
   type LucideIcon,
+  Megaphone,
   Menu,
   ScrollText,
   Settings,
@@ -51,6 +52,7 @@ const NAV: NavGroup[] = [
       { href: '/fichas', label: 'Fichas Técnicas', icon: ChefHat },
       { href: '/guias', label: 'POP & Guias', icon: ScrollText },
       { href: '/docs', label: 'Documentos', icon: FileText },
+      { href: '/mural', label: 'Mural & Clima', icon: Megaphone },
     ],
   },
   {
