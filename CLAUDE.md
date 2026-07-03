@@ -13,6 +13,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 - **database/migrations/** — SQL escrito à mão `NNN_nome.sql`, aplicado por `backend/scripts/apply-sql.mjs` (usa `backend/.env` → `DATABASE_URL`). **Sempre criar o `.sql` ao entregar uma migration.**
 - **docs/** — fonte da verdade (abaixo). **mockups/** — referência visual/comportamental.
 - **Deploy:** EasyPanel na VPS (serviços `regem-api` e `regem-web`) + Supabase. **Auto-deploy ligado**: todo push em `main` sobe sozinho — nunca dar push com build quebrado (rodar `npm run build` nos dois antes).
+- **CI obrigatório (`.github/workflows/ci.yml`)**: roda `npm ci` + `npm run build` (e `npm test`) em `backend/` e `frontend/` a cada push/PR. **Push em `main` exige CI verde.** Trabalhar em branch → PR → merge só com CI passando (configurar *branch protection* em `main` no GitHub; o EasyPanel deploya a `main` após o merge). Nunca commitar segredos; `.env` fica no `.gitignore`.
 
 ## Fontes da verdade (ordem de prioridade)
 

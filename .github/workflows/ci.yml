@@ -1,0 +1,39 @@
+name: CI
+
+# Portão de qualidade: roda em todo push e PR. O merge em main só deve ocorrer
+# com este workflow verde (configurar branch protection em main — ver CLAUDE.md).
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    name: build & test (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+
+      - name: Install
+        working-directory: ${{ matrix.dir }}
+        run: npm ci
+
+      - name: Build
+        working-directory: ${{ matrix.dir }}
+        run: npm run build
+        env:
+          # Necessário para o build do Next embutir a URL (valor placeholder no CI).
+          NEXT_PUBLIC_API_URL: https://api.example.com/api/v1
+
+      - name: Test (se existir)
+        working-directory: ${{ matrix.dir }}
+        run: npm test --if-present
