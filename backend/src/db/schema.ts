@@ -502,6 +502,47 @@ export const pontoAjuste = pgTable('ponto_ajuste', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Título financeiro (a pagar/receber) — obrigação/direito com vencimento.
+export const tituloFinanceiro = pgTable('titulo_financeiro', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tipo: text('tipo').notNull(), // pagar | receber
+  descricao: text('descricao').notNull(),
+  categoria: text('categoria'),
+  fornecedorId: uuid('fornecedor_id'),
+  valor: numeric('valor').notNull().default('0'),
+  vencimento: date('vencimento'),
+  recorrencia: text('recorrencia').notNull().default('nenhuma'), // nenhuma|semanal|quinzenal|mensal
+  status: text('status').notNull().default('aberto'), // aberto|pago|cancelado
+  origem: text('origem').notNull().default('manual'), // recebimento|manual|venda
+  origemId: uuid('origem_id'),
+  fotoRef: text('foto_ref'),
+  criadoPorId: uuid('criado_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Lançamento de caixa — ledger append-only do dinheiro. Estorno = lançamento inverso.
+export const lancamentoCaixa = pgTable('lancamento_caixa', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tituloId: uuid('titulo_id'),
+  tipo: text('tipo').notNull(), // entrada | saida
+  valor: numeric('valor').notNull(),
+  data: date('data').notNull().default(sql`current_date`),
+  categoria: text('categoria'),
+  forma: text('forma'), // dinheiro|pix|cartao|transferencia
+  descricao: text('descricao'),
+  estornoDe: uuid('estorno_de'),
+  criadoPorId: uuid('criado_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const fornecedor = pgTable('fornecedor', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
@@ -526,6 +567,7 @@ export const recebimento = pgTable('recebimento', {
   unidadeId: uuid('unidade_id'),
   fornecedorId: uuid('fornecedor_id'),
   data: date('data').notNull().default(sql`current_date`),
+  vencimento: date('vencimento'),
   notaRef: text('nota_ref'),
   notaFotoRef: text('nota_foto_ref'),
   status: text('status').notNull().default('aberto'),

@@ -12,6 +12,7 @@ import {
   movimentoEstoque,
   lote,
   itemEstoque,
+  tituloFinanceiro,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
@@ -34,6 +35,7 @@ export class RecebimentoService {
           unidadeId: dto.unidadeId,
           fornecedorId: dto.fornecedorId,
           data: dto.data ?? undefined,
+          vencimento: dto.vencimento ?? undefined,
           notaRef: dto.notaRef,
           notaFotoRef: dto.notaFotoRef,
           obs: dto.obs,
@@ -128,11 +130,13 @@ export class RecebimentoService {
         .where(eq(recebimentoItem.recebimentoId, id));
 
       let entradas = 0;
+      let valorTotal = 0;
       for (const it of itens) {
         const qtd = Number(it.qtdRecebida);
         if (qtd > 0) {
           const custo =
             it.custoUnitario != null ? Number(it.custoUnitario) : null;
+          if (custo != null) valorTotal += qtd * custo;
 
           // Saldo do item ANTES desta entrada (para o custo médio ponderado).
           let saldoAntes = 0;
@@ -189,6 +193,23 @@ export class RecebimentoService {
               );
           }
         }
+      }
+
+      // Contas a pagar nascem do recebimento (fornecedor + valor).
+      if (rec.fornecedorId && valorTotal > 0) {
+        await tx.insert(tituloFinanceiro).values({
+          tenantId,
+          unidadeId: rec.unidadeId,
+          tipo: 'pagar',
+          descricao: `Recebimento ${rec.notaRef ? `NF ${rec.notaRef}` : rec.data}`,
+          categoria: 'fornecedor',
+          fornecedorId: rec.fornecedorId,
+          valor: String(valorTotal.toFixed(2)),
+          vencimento: rec.vencimento ?? undefined,
+          origem: 'recebimento',
+          origemId: id,
+          criadoPorId: atorId,
+        });
       }
 
       await tx

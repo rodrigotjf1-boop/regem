@@ -66,6 +66,7 @@ export function RecebimentoForm({
   const hoje = new Date().toISOString().slice(0, 10);
   const [fornecedorId, setFornecedorId] = useState('');
   const [data, setData] = useState(hoje);
+  const [vencimento, setVencimento] = useState('');
   const [notaRef, setNotaRef] = useState('');
   const [notaFotoRef, setNotaFotoRef] = useState('');
   const [obs, setObs] = useState('');
@@ -87,6 +88,7 @@ export function RecebimentoForm({
       await api.criarRecebimento({
         fornecedorId: fornecedorId || undefined,
         data,
+        vencimento: vencimento || undefined,
         notaRef: notaRef || undefined,
         notaFotoRef: notaFotoRef || undefined,
         obs: obs || undefined,
@@ -134,6 +136,15 @@ export function RecebimentoForm({
               type="date"
               value={data}
               onChange={(e) => setData(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="venc">Vencimento (conta a pagar)</Label>
+            <Input
+              id="venc"
+              type="date"
+              value={vencimento}
+              onChange={(e) => setVencimento(e.target.value)}
             />
           </div>
           <div className="space-y-1.5">

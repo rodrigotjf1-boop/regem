@@ -31,6 +31,7 @@ import { RecebimentoModule } from './modules/recebimento/recebimento.module';
 import { PontoModule } from './modules/ponto/ponto.module';
 import { EquipamentoModule } from './modules/equipamento/equipamento.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
+import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -67,6 +68,7 @@ import { AuthModule } from './auth/auth.module';
     PontoModule,
     EquipamentoModule,
     RealtimeModule,
+    FinanceiroModule,
   ],
   controllers: [AppController],
 })

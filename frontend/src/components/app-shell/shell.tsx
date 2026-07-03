@@ -19,6 +19,7 @@ import {
   ScrollText,
   Settings,
   Users,
+  Wallet,
 } from 'lucide-react';
 import { clearToken, getCategoria, getToken } from '@/lib/api';
 import { RegemMark } from '@/components/brand/regem-mark';
@@ -56,6 +57,12 @@ const NAV: NavGroup[] = [
         label: 'Pessoas & Ponto',
         icon: Users,
         roles: ['presidente', 'gerente', 'supervisao'],
+      },
+      {
+        href: '/financeiro',
+        label: 'Financeiro',
+        icon: Wallet,
+        roles: ['presidente', 'gerente'],
       },
       {
         href: '/auditoria',

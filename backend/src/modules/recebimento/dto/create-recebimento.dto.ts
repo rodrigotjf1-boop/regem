@@ -57,6 +57,10 @@ export class CreateRecebimentoDto {
   data?: string;
 
   @IsOptional()
+  @IsDateString()
+  vencimento?: string;
+
+  @IsOptional()
   @IsString()
   notaRef?: string;
 

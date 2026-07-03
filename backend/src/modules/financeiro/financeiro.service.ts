@@ -1,0 +1,236 @@
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import {
+  tituloFinanceiro,
+  lancamentoCaixa,
+  fornecedor,
+} from '../../db/schema';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { CreateTituloDto } from './dto/create-titulo.dto';
+import { PagarTituloDto } from './dto/pagar-titulo.dto';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function hojeISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+// Próximo vencimento de um título recorrente.
+function proximaData(base: string | null, recorrencia: string): string | null {
+  if (!base) return null;
+  const d = new Date(base);
+  if (recorrencia === 'semanal') d.setDate(d.getDate() + 7);
+  else if (recorrencia === 'quinzenal') d.setDate(d.getDate() + 15);
+  else if (recorrencia === 'mensal') d.setMonth(d.getMonth() + 1);
+  else return null;
+  return d.toISOString().slice(0, 10);
+}
+
+@Injectable()
+export class FinanceiroService {
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly auditoria: AuditoriaService,
+  ) {}
+
+  async listar(tenantId: string, tipo?: string, status?: string) {
+    const res: any = await this.db.execute(sql`
+      select t.id, t.tipo, t.descricao, t.categoria, t.valor, t.vencimento,
+             t.recorrencia, t.status, t.origem, t.foto_ref as "fotoRef",
+             t.created_at as "createdAt", f.nome as "fornecedorNome"
+      from titulo_financeiro t
+      left join fornecedor f on f.id = t.fornecedor_id
+      where t.tenant_id = ${tenantId}
+      ${tipo ? sql`and t.tipo = ${tipo}` : sql``}
+      ${status ? sql`and t.status = ${status}` : sql``}
+      order by (t.status = 'aberto') desc, t.vencimento asc nulls last, t.created_at desc
+      limit 300
+    `);
+    return res.rows ?? res;
+  }
+
+  async criar(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    dto: CreateTituloDto,
+  ) {
+    const [row] = await this.db
+      .insert(tituloFinanceiro)
+      .values({
+        tenantId,
+        unidadeId: dto.unidadeId,
+        tipo: dto.tipo ?? 'pagar',
+        descricao: dto.descricao,
+        categoria: dto.categoria,
+        fornecedorId: dto.fornecedorId,
+        valor: String(dto.valor),
+        vencimento: dto.vencimento,
+        recorrencia: dto.recorrencia ?? 'nenhuma',
+        origem: 'manual',
+        fotoRef: dto.fotoRef,
+        criadoPorId: atorId,
+      })
+      .returning();
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'financeiro',
+      acao: 'criou_titulo',
+      entidadeTipo: 'titulo_financeiro',
+      entidadeId: row.id,
+      detalhe: { descricao: row.descricao, valor: Number(row.valor), tipo: row.tipo },
+    });
+    return row;
+  }
+
+  // Baixa: gera lançamento de caixa e fecha o título. Recorrente → cria o próximo.
+  async pagar(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    id: string,
+    dto: PagarTituloDto,
+  ) {
+    return this.db.transaction(async (tx) => {
+      const [t] = await tx
+        .select()
+        .from(tituloFinanceiro)
+        .where(
+          and(
+            eq(tituloFinanceiro.id, id),
+            eq(tituloFinanceiro.tenantId, tenantId),
+          ),
+        );
+      if (!t) throw new NotFoundException('Título não encontrado');
+      if (t.status !== 'aberto')
+        throw new BadRequestException('Título não está aberto');
+
+      const valor = dto.valor != null ? dto.valor : Number(t.valor);
+      await tx.insert(lancamentoCaixa).values({
+        tenantId,
+        unidadeId: t.unidadeId,
+        tituloId: t.id,
+        tipo: t.tipo === 'pagar' ? 'saida' : 'entrada',
+        valor: String(valor),
+        data: dto.data ?? hojeISO(),
+        categoria: t.categoria,
+        forma: dto.forma,
+        descricao: t.descricao,
+        criadoPorId: atorId,
+      });
+      await tx
+        .update(tituloFinanceiro)
+        .set({ status: 'pago' })
+        .where(eq(tituloFinanceiro.id, t.id));
+
+      // Recorrência: gera o próximo título em aberto.
+      const prox = proximaData(t.vencimento, t.recorrencia);
+      if (prox) {
+        await tx.insert(tituloFinanceiro).values({
+          tenantId,
+          unidadeId: t.unidadeId,
+          tipo: t.tipo,
+          descricao: t.descricao,
+          categoria: t.categoria,
+          fornecedorId: t.fornecedorId,
+          valor: t.valor,
+          vencimento: prox,
+          recorrencia: t.recorrencia,
+          origem: 'manual',
+          criadoPorId: atorId,
+        });
+      }
+
+      await this.auditoria.registrar({
+        tenantId,
+        atorId,
+        atorPerfil,
+        tipo: 'financeiro',
+        acao: 'pagou_titulo',
+        entidadeTipo: 'titulo_financeiro',
+        entidadeId: t.id,
+        detalhe: { valor, forma: dto.forma ?? null, recorrenteProx: prox },
+      });
+      return { ok: true, proximoVencimento: prox };
+    });
+  }
+
+  // Estorno = lançamento inverso + reabre o título (nunca apaga).
+  async estornar(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    id: string,
+  ) {
+    return this.db.transaction(async (tx) => {
+      const [lanc] = await tx
+        .select()
+        .from(lancamentoCaixa)
+        .where(
+          and(
+            eq(lancamentoCaixa.tituloId, id),
+            eq(lancamentoCaixa.tenantId, tenantId),
+            isNull(lancamentoCaixa.estornoDe),
+          ),
+        )
+        .orderBy(desc(lancamentoCaixa.createdAt));
+      if (!lanc) throw new NotFoundException('Pagamento não encontrado');
+
+      await tx.insert(lancamentoCaixa).values({
+        tenantId,
+        unidadeId: lanc.unidadeId,
+        tituloId: id,
+        tipo: lanc.tipo === 'saida' ? 'entrada' : 'saida',
+        valor: lanc.valor,
+        data: hojeISO(),
+        categoria: lanc.categoria,
+        descricao: `Estorno · ${lanc.descricao ?? ''}`,
+        estornoDe: lanc.id,
+        criadoPorId: atorId,
+      });
+      await tx
+        .update(tituloFinanceiro)
+        .set({ status: 'aberto' })
+        .where(eq(tituloFinanceiro.id, id));
+
+      await this.auditoria.registrar({
+        tenantId,
+        atorId,
+        atorPerfil,
+        tipo: 'financeiro',
+        acao: 'estornou_titulo',
+        entidadeTipo: 'titulo_financeiro',
+        entidadeId: id,
+        detalhe: { valor: Number(lanc.valor) },
+      });
+      return { ok: true };
+    });
+  }
+
+  // Resumo p/ o topo da tela (base do fluxo de caixa — H2).
+  async resumo(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select
+        coalesce(sum(case when tipo='pagar' and status='aberto' then valor else 0 end),0) as "aPagar",
+        coalesce(sum(case when tipo='receber' and status='aberto' then valor else 0 end),0) as "aReceber"
+      from titulo_financeiro where tenant_id=${tenantId}
+    `);
+    const c: any = await this.db.execute(sql`
+      select coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as "saldoCaixa"
+      from lancamento_caixa where tenant_id=${tenantId}
+    `);
+    const t = (r.rows ?? r)[0];
+    const cx = (c.rows ?? c)[0];
+    return {
+      aPagar: Number(t.aPagar),
+      aReceber: Number(t.aReceber),
+      saldoCaixa: Number(cx.saldoCaixa),
+    };
+  }
+}

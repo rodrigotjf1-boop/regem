@@ -113,6 +113,23 @@ export const api = {
     req('/ponto/marcacao-manual', { method: 'POST', body: JSON.stringify(body) }),
   criarAjustePonto: (body: Record<string, unknown>) =>
     req('/ponto/ajuste', { method: 'POST', body: JSON.stringify(body) }),
+  financeiroTitulos: (tipo?: string, status?: string) => {
+    const p = new URLSearchParams();
+    if (tipo) p.set('tipo', tipo);
+    if (status) p.set('status', status);
+    const q = p.toString();
+    return req(`/financeiro/titulos${q ? `?${q}` : ''}`);
+  },
+  financeiroResumo: () => req('/financeiro/resumo'),
+  criarTitulo: (body: Record<string, unknown>) =>
+    req('/financeiro/titulos', { method: 'POST', body: JSON.stringify(body) }),
+  pagarTitulo: (id: string, body: Record<string, unknown>) =>
+    req(`/financeiro/titulos/${id}/pagar`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  estornarTitulo: (id: string) =>
+    req(`/financeiro/titulos/${id}/estornar`, { method: 'POST' }),
   estoqueInteligencia: (inicio?: string, fim?: string) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
