@@ -658,6 +658,75 @@ export const fichaIngrediente = pgTable('ficha_ingrediente', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ===== Catálogo de produtos (Fase J) — o que se vende no PDV =====
+export const categoriaProduto = pgTable('categoria_produto', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  parentId: uuid('parent_id'), // null = categoria; preenchido = subcategoria
+  ordem: integer('ordem').notNull().default(0),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const produto = pgTable('produto', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  codigo: text('codigo'), // SKU / índice p/ integrações
+  nome: text('nome').notNull(),
+  descricao: text('descricao'),
+  categoriaId: uuid('categoria_id'),
+  fichaId: uuid('ficha_id'), // baixa por explosão (null = sem baixa)
+  tipo: text('tipo').notNull().default('simples'), // simples | variavel | combo
+  unidadeMedida: text('unidade_medida').notNull().default('un'),
+  precoVenda: numeric('preco_venda').notNull().default('0'),
+  precoCusto: numeric('preco_custo'), // null = usa custo da ficha / custo médio
+  controlaEstoque: boolean('controla_estoque').notNull().default(true),
+  validadeDias: integer('validade_dias'),
+  vaiParaProducao: boolean('vai_para_producao').notNull().default(true),
+  setorProducaoId: uuid('setor_producao_id'), // roteamento KDS
+  imagemRef: text('imagem_ref'),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const produtoVariacao = pgTable('produto_variacao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  codigo: text('codigo'),
+  precoVenda: numeric('preco_venda').notNull().default('0'),
+  fatorFicha: numeric('fator_ficha').notNull().default('1'),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const produtoComboItem = pgTable('produto_combo_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  comboProdutoId: uuid('combo_produto_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  componenteProdutoId: uuid('componente_produto_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  quantidade: numeric('quantidade').notNull().default('1'),
+});
+
 export const guia = pgTable('guia', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

@@ -90,6 +90,18 @@ export const api = {
   dashboard: (data: string) => req(`/dashboard?data=${data}`),
   dashboardTimeline: (data: string) => req(`/dashboard/timeline?data=${data}`),
   setores: () => req('/setores'),
+  produtos: () => req('/produtos'),
+  produto: (id: string) => req(`/produtos/${id}`),
+  criarProduto: (body: Record<string, unknown>) =>
+    req('/produtos', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarProduto: (id: string, body: Record<string, unknown>) =>
+    req(`/produtos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removerProduto: (id: string) =>
+    req(`/produtos/${id}`, { method: 'DELETE' }),
+  produtoCategorias: () => req('/produtos/categorias'),
+  criarCategoriaProduto: (body: Record<string, unknown>) =>
+    req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
+  fichasLista: () => req('/fichas'),
   janelasPico: (unidadeId?: string) =>
     req(`/janelas-pico${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   fornecedores: () => req('/fornecedores'),

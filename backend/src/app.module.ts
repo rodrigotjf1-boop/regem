@@ -34,6 +34,7 @@ import { EquipamentoModule } from './modules/equipamento/equipamento.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { JobsModule } from './modules/jobs/jobs.module';
+import { ProdutoModule } from './modules/produto/produto.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -73,6 +74,7 @@ import { AuthModule } from './auth/auth.module';
     RealtimeModule,
     FinanceiroModule,
     JobsModule,
+    ProdutoModule,
   ],
   controllers: [AppController],
 })

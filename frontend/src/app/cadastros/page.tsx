@@ -582,7 +582,25 @@ export default function CadastrosPage() {
                   )}
                 </div>
 
-                {/* Equipamentos & Apps (fora da cadeia de dependência) */}
+                {/* Produtos & Equipamentos (fora da cadeia de dependência) */}
+                <button
+                  type="button"
+                  onClick={() => router.push('/produtos')}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40"
+                >
+                  <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-ok/10 text-lg">
+                    🍔
+                  </div>
+                  <div>
+                    <h3 className="font-display text-[15px] font-bold">
+                      Produtos & Catálogo
+                    </h3>
+                    <span className="text-sm text-muted-foreground">
+                      O que se vende no PDV — categorias, fichas, variações, combos
+                    </span>
+                  </div>
+                </button>
+
                 <button
                   type="button"
                   onClick={() => router.push('/equipamentos')}
