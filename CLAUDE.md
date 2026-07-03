@@ -67,7 +67,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 
 **No ar** (app.dmsregem.com / api.dmsregem.com): auth (senha+PIN), onboarding guiado (`/inicio`), **Dashboard** (`/painel`), **Meu Dia**, **Escala**, **Operação** (estoque/desperdício/vistoria), **Documentos** (checklist→POP + docs/ciência), **Cadastros** (hub), **Fichas Técnicas** (`/fichas`, CMV), **Visão C&O** (`/diretoria`, presidente), **POP & Guias** (`/guias`). Migrations 001–008 aplicadas.
 
-**Pendente** (tem mockup, falta implementar): grade **semanal** de escala, **linha do tempo operacional**, **PVPS/lotes/validade** + **recebimento de nota**, **Pessoas & Ponto** (gerencial), **Fornecedores**, **Wizard por ramo** (versão rica), **Log de Auditoria**, **upload de mídia**, e as frentes **Vendas & Comandas + Financeiro**. Apps satélites **KDS** e **Ponto** (independentes, WebSocket). *(Mural & Clima entregue — `/mural`, migration 026. Bot de Suporte entregue — `/bot`, migration 027.)*
+**Pendente** (tem mockup, falta implementar): grade **semanal** de escala, **linha do tempo operacional**, **PVPS/lotes/validade** + **recebimento de nota**, **Pessoas & Ponto** (gerencial), **Fornecedores**, **Log de Auditoria**, **upload de mídia**, e as frentes **Vendas & Comandas + Financeiro**. Apps satélites **KDS** e **Ponto** (independentes, WebSocket). *(Mural & Clima entregue — `/mural`, migration 026. Bot de Suporte entregue — `/bot`, migration 027. Wizard por ramo rico entregue — `/wizard`, sem migration.)*
 
 ## Fluxo de trabalho
 
