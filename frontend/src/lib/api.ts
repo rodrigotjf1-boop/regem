@@ -102,6 +102,8 @@ export const api = {
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
   fichasLista: () => req('/fichas'),
+  vendaBalcao: (body: Record<string, unknown>) =>
+    req('/vendas/balcao', { method: 'POST', body: JSON.stringify(body) }),
   janelasPico: (unidadeId?: string) =>
     req(`/janelas-pico${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   fornecedores: () => req('/fornecedores'),

@@ -117,6 +117,22 @@ export class RealtimeGateway
     this.server.to(`tenant:${p.tenantId}`).emit('ponto:marcado', p);
   }
 
+  // Pedido de produção (venda balcão/comanda) → KDS. Roteado por tenant/unidade.
+  @OnEvent('kds.pedido')
+  onKdsPedido(p: {
+    tenantId: string;
+    unidadeId?: string | null;
+    comandaId: string;
+    mesa?: string | null;
+    itens: any[];
+  }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('kds:pedido', {
+      ...p,
+      em: new Date().toISOString(),
+    });
+  }
+
   // Alerta para o KDS (entra no topo da fila, com som). Emitido por gestor autenticado.
   @SubscribeMessage('kds:alerta')
   onAlerta(@ConnectedSocket() socket: Socket, @MessageBody() body: any) {

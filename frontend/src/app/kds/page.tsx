@@ -45,6 +45,7 @@ export default function KdsPage() {
   const [temSessao, setTemSessao] = useState<boolean | null>(null);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [marcacoes, setMarcacoes] = useState<Marcacao[]>([]);
+  const [pedidos, setPedidos] = useState<any[]>([]);
   const [mudo, setMudo] = useState(false);
   const [now, setNow] = useState(new Date());
   const socketRef = useRef<Socket | null>(null);
@@ -106,6 +107,13 @@ export default function KdsPage() {
         ...prev,
       ]);
       if (a.som !== false) bip();
+    });
+
+    socket.on('kds:pedido', (p: any) => {
+      setPedidos((prev) =>
+        [{ ...p, id: p.comandaId + ':' + p.em }, ...prev].slice(0, 20),
+      );
+      bip();
     });
 
     socket.on('ponto:marcado', (p: any) => {
@@ -305,6 +313,45 @@ export default function KdsPage() {
           >
             Disparar alerta de teste
           </button>
+
+          {/* Pedidos de produção (venda balcão/comanda) */}
+          <div
+            className="mb-4 rounded-[14px] border p-4"
+            style={{ background: '#12202A', borderColor: '#22333F' }}
+          >
+            <div
+              className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em]"
+              style={{ color: '#7C93A1', fontFamily: 'Archivo, sans-serif' }}
+            >
+              Pedidos de produção
+            </div>
+            {pedidos.length === 0 && (
+              <div className="py-4 text-center text-[13px]" style={{ color: '#7C93A1' }}>
+                Aguardando pedidos…
+              </div>
+            )}
+            {pedidos.map((p) => (
+              <div
+                key={p.id}
+                className="mb-2 rounded-lg border-l-4 p-2.5 last:mb-0"
+                style={{ background: '#182B37', borderColor: '#19C08F' }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[12px] font-bold">
+                    {p.mesa ? `Mesa ${p.mesa}` : 'Balcão'}
+                  </span>
+                  <span className="text-[10px]" style={{ color: '#7C93A1', fontFamily: 'JetBrains Mono, monospace' }}>
+                    {new Date(p.em).toLocaleTimeString('pt-BR')}
+                  </span>
+                </div>
+                {(p.itens ?? []).map((it: any, k: number) => (
+                  <div key={k} className="text-[13px]">
+                    {it.quantidade}× {it.descricao}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
 
           <div
             className="rounded-[14px] border p-4"

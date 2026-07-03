@@ -727,6 +727,42 @@ export const produtoComboItem = pgTable('produto_combo_item', {
   quantidade: numeric('quantidade').notNull().default('1'),
 });
 
+// ===== Vendas & comandas (Fase J) =====
+export const comanda = pgTable('comanda', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  mesa: text('mesa'),
+  cliente: text('cliente'),
+  status: text('status').notNull().default('aberta'), // aberta|fechada|cancelada
+  taxaServicoPct: numeric('taxa_servico_pct').notNull().default('0'),
+  abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
+  fechadaEm: timestamp('fechada_em', { withTimezone: true }),
+  abertaPorId: uuid('aberta_por_id'),
+  obs: text('obs'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const comandaItem = pgTable('comanda_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  comandaId: uuid('comanda_id')
+    .notNull()
+    .references(() => comanda.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id'),
+  variacaoId: uuid('variacao_id'),
+  fichaId: uuid('ficha_id'),
+  descricao: text('descricao').notNull(),
+  quantidade: numeric('quantidade').notNull().default('1'),
+  precoUnitario: numeric('preco_unitario').notNull().default('0'),
+  criadoPorId: uuid('criado_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const guia = pgTable('guia', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

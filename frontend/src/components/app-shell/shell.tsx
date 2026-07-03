@@ -18,6 +18,7 @@ import {
   Menu,
   ScrollText,
   Settings,
+  ShoppingCart,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -39,6 +40,7 @@ const NAV: NavGroup[] = [
     presidenteOnly: false,
     items: [
       { href: '/painel', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart },
       { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
       { href: '/escala', label: 'Escalas', icon: CalendarDays },
       { href: '/operacao', label: 'Operação', icon: Boxes },
