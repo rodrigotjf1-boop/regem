@@ -89,6 +89,7 @@ export const colaborador = pgTable('colaborador', {
   matricula: text('matricula'),
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
   dataConsentimento: date('data_consentimento'),
+  uiPrefs: jsonb('ui_prefs').notNull().default({}), // prefs de UI (shell)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
