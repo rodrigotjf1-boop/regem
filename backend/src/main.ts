@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
@@ -35,6 +36,18 @@ async function bootstrap() {
 
   // Validação/whitelist automática dos DTOs.
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+
+  // Swagger em /api/v1/docs — em produção só com SWAGGER_ENABLED=true.
+  if (!isProd || process.env.SWAGGER_ENABLED === 'true') {
+    const cfg = new DocumentBuilder()
+      .setTitle('Regem API')
+      .setDescription('Contrato da API do Regem (v1).')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const doc = SwaggerModule.createDocument(app, cfg);
+    SwaggerModule.setup('api/v1/docs', app, doc);
+  }
 
   await app.listen(process.env.PORT ?? 3000);
 }

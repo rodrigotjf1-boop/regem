@@ -9,7 +9,7 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "test": "jest",
-    "openapi": "ts-node scripts/gen-openapi.ts"
+    "openapi": "node scripts/gen-openapi.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
@@ -20,6 +20,7 @@
     "@nestjs/platform-express": "^10.4.0",
     "@nestjs/platform-socket.io": "^10.4.22",
     "@nestjs/schedule": "^4.1.2",
+    "@nestjs/swagger": "^7.4.2",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^10.4.22",
     "bcryptjs": "^2.4.3",
@@ -40,6 +41,7 @@
     "@types/pg": "^8.11.6",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
+    "ts-node": "^10.9.2",
     "typescript": "^5.5.0"
   }
 }
