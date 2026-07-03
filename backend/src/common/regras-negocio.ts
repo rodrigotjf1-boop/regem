@@ -62,6 +62,40 @@ export function furoCmv(desvio: number, desperdicioValor: number): number {
   return desvio - desperdicioValor;
 }
 
+function normalizar(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '') // remove acentos
+    .trim();
+}
+
+export type RegraBot = {
+  id: string;
+  gatilhos: string; // palavras-chave separadas por vírgula
+  ativa: boolean;
+};
+
+/**
+ * Casa a pergunta contra as regras do bot: 1ª regra ATIVA cujo algum gatilho
+ * (normalizado, sem acento/caixa) apareça na pergunta. Sem match → null.
+ */
+export function casarRegraBot<T extends RegraBot>(
+  pergunta: string,
+  regras: T[],
+): T | null {
+  const p = normalizar(pergunta);
+  for (const r of regras) {
+    if (!r.ativa) continue;
+    const gatilhos = r.gatilhos
+      .split(',')
+      .map((g) => normalizar(g))
+      .filter(Boolean);
+    if (gatilhos.some((g) => p.includes(g))) return r;
+  }
+  return null;
+}
+
 export type MovLedger = { tipo: string; quantidade: number | string };
 
 /**

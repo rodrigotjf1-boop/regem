@@ -949,3 +949,33 @@ export const climaParticipacao = pgTable(
   },
   (t) => ({ uqParticipacao: unique().on(t.pesquisaId, t.colaboradorId) }),
 );
+
+// ── Bot de Suporte (migration 027) ───────────────────────────────────────────
+export const botRegra = pgTable('bot_regra', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tipo: text('tipo').notNull(),
+  gatilhos: text('gatilhos').notNull(), // palavras-chave separadas por vírgula
+  resposta: text('resposta').notNull(),
+  escala: text('escala').notNull().default('nunca'), // nunca|sempre|condicional
+  escalaCondicao: text('escala_condicao'),
+  ativa: boolean('ativa').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const botAtendimento = pgTable('bot_atendimento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  colaboradorId: uuid('colaborador_id').references(() => colaborador.id),
+  pergunta: text('pergunta').notNull(),
+  regraId: uuid('regra_id').references(() => botRegra.id, { onDelete: 'set null' }),
+  escalado: boolean('escalado').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
