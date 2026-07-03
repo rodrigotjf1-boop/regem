@@ -1,23 +1,19 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { AuthUser } from '../../auth/auth-user';
 import { EmpresaService } from './empresa.service';
-import { CreateEmpresaDto } from './dto/create-empresa.dto';
 
+// Empresa é criada só via /auth/register. Aqui apenas leitura da PRÓPRIA empresa.
 @Controller('empresas')
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class EmpresaController {
   constructor(private readonly service: EmpresaService) {}
 
-  @Post()
-  create(@Body() dto: CreateEmpresaDto) {
-    return this.service.create(dto);
-  }
-
+  // Retorna somente a empresa do token (nunca lista todas).
   @Get()
-  findAll() {
-    return this.service.findAll();
-  }
-
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.service.findOne(id);
+  minha(@CurrentUser() user: AuthUser) {
+    return this.service.findOne(user.tenantId);
   }
 }

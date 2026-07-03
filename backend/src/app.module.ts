@@ -1,7 +1,9 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { DrizzleModule } from './db/drizzle.module';
 import { AppController } from './app.controller';
 import { EmpresaModule } from './modules/empresa/empresa.module';
@@ -43,6 +45,8 @@ import { AuthModule } from './auth/auth.module';
     ConfigModule.forRoot({ isGlobal: true }),
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
+    // Rate limit global (120 req/min por IP). Rotas sensíveis apertam com @Throttle.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 120 }]),
     DrizzleModule,
     AuthModule,
     EmpresaModule,
@@ -79,5 +83,6 @@ import { AuthModule } from './auth/auth.module';
     VendasModule,
   ],
   controllers: [AppController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
