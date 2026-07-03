@@ -31,6 +31,27 @@ export class MuralService {
     return Number((r.rows ?? r)[0]?.n ?? 0);
   }
 
+  // Contagem de colaboradores ativos por unidade (null = sem unidade definida).
+  private async contagemPorUnidade(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select unidade_id as "unidadeId", count(*)::int as n
+      from colaborador
+      where tenant_id = ${tenantId} and status = 'ativo' and deleted_at is null
+      group by unidade_id
+    `);
+    const rows = r.rows ?? r;
+    let total = 0;
+    let semUnidade = 0;
+    const porUnidade = new Map<string, number>();
+    for (const row of rows) {
+      const n = Number(row.n);
+      total += n;
+      if (row.unidadeId) porUnidade.set(row.unidadeId, n);
+      else semUnidade = n;
+    }
+    return { total, semUnidade, porUnidade };
+  }
+
   // ── Mural ──────────────────────────────────────────────────────────────────
   async publicar(user: AuthUser, dto: CreateComunicadoDto) {
     const [row] = await this.db
@@ -50,10 +71,17 @@ export class MuralService {
   }
 
   async feed(user: AuthUser) {
-    const total = await this.totalColaboradores(user.tenantId);
+    const { total, semUnidade, porUnidade } = await this.contagemPorUnidade(
+      user.tenantId,
+    );
+    // Escopo multi-loja: usuário com unidade vê comunicados da rede (unidade nula)
+    // + da própria loja; usuário sem unidade definida vê tudo do tenant.
+    const filtroUnidade = user.unidadeId
+      ? sql`and (c.unidade_id is null or c.unidade_id = ${user.unidadeId})`
+      : sql``;
     const r: any = await this.db.execute(sql`
       select c.id, c.titulo, c.corpo, c.audiencia, c.fixado,
-        c.created_at as "createdAt", c.setor_id as "setorId",
+        c.created_at as "createdAt", c.setor_id as "setorId", c.unidade_id as "unidadeId",
         col.nome as "autorNome",
         (select count(*)::int from comunicado_leitura l where l.comunicado_id = c.id) as "leram",
         exists(
@@ -62,10 +90,18 @@ export class MuralService {
         ) as "euLi"
       from comunicado c
       left join colaborador col on col.id = c.autor_colaborador_id
-      where c.tenant_id = ${user.tenantId} and c.deleted_at is null
+      where c.tenant_id = ${user.tenantId} and c.deleted_at is null ${filtroUnidade}
       order by c.fixado desc, c.created_at desc
     `);
-    return { total, comunicados: r.rows ?? r };
+    const comunicados = (r.rows ?? r).map((c: any) => ({
+      ...c,
+      // Alvo (denominador) = quem aquele comunicado atinge. Rede = todos; loja =
+      // colaboradores da loja + os sem unidade definida (que enxergam tudo).
+      alvo: c.unidadeId
+        ? semUnidade + (porUnidade.get(c.unidadeId) ?? 0)
+        : total,
+    }));
+    return { total, comunicados };
   }
 
   async confirmarLeitura(user: AuthUser, comunicadoId: string) {
@@ -125,12 +161,20 @@ export class MuralService {
     `);
     const { responderam, euRespondi } = (part.rows ?? part)[0];
 
+    // Anonimato reforçado: só revela o consolidado com massa crítica de respostas
+    // (com N pequeno daria para inferir o humor de quem respondeu).
+    const MIN_RESPOSTAS = 3;
+    const nResp = Number(responderam);
+    const revelar = nResp >= MIN_RESPOSTAS;
+
     return {
       pesquisa,
       total,
-      responderam: Number(responderam),
+      responderam: nResp,
       euRespondi: Boolean(euRespondi),
-      distribuicao,
+      minRespostas: MIN_RESPOSTAS,
+      distribuicaoOculta: !revelar,
+      distribuicao: revelar ? distribuicao : null,
     };
   }
 

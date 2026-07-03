@@ -187,7 +187,7 @@ export default function MuralPage() {
                     className="whitespace-nowrap rounded px-2 py-0.5 font-mono text-[11px] font-bold"
                     style={{ background: 'hsl(var(--ok)/.15)', color: 'hsl(var(--ok))' }}
                   >
-                    ✓ {c.leram}/{total} leram
+                    ✓ {c.leram}/{c.alvo ?? total} leram
                   </span>
                   {!c.euLi && (
                     <Button
@@ -224,7 +224,12 @@ export default function MuralPage() {
                   Anônima · {clima.responderam}/{clima.total} responderam
                 </p>
 
-                {clima.euRespondi ? (
+                {clima.euRespondi && clima.distribuicaoOculta ? (
+                  <div className="mt-3 rounded-lg bg-muted p-3 text-center text-xs text-muted-foreground">
+                    ✓ Resposta registrada. O consolidado aparece a partir de{' '}
+                    {clima.minRespostas} respostas (para preservar o anonimato).
+                  </div>
+                ) : clima.euRespondi ? (
                   <div className="mt-3 space-y-2">
                     {HUMORES.map((h) => {
                       const n = clima.distribuicao?.[h.v] ?? 0;
