@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { MidiaService } from '../midia/midia.service';
+import { EstoqueService } from '../estoque/estoque.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Agendador de jobs do backend. (Instância única no EasyPanel — sem lock distribuído.)
@@ -13,7 +15,16 @@ export class JobsService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly midia: MidiaService,
+    private readonly estoque: EstoqueService,
+    private readonly events: EventEmitter2,
   ) {}
+
+  private async tenantsAtivos(): Promise<string[]> {
+    const r: any = await this.db.execute(
+      sql`select id from empresa where deleted_at is null`,
+    );
+    return (r.rows ?? r).map((x: any) => x.id);
+  }
 
   // Expurgo LGPD: apaga do storage as fotos de ponto vencidas (data_expurgo < hoje).
   @Cron('0 3 * * *') // 03:00 todos os dias
@@ -38,5 +49,44 @@ export class JobsService {
     this.log.log(
       `Expurgo LGPD: ${apagadas}/${rows.length} fotos de ponto removidas do storage`,
     );
+  }
+
+  // §1.4 — Ponto de pedido: alerta os itens no/abaixo do ROP (por tenant, em tempo real).
+  @Cron('0 6 * * *') // 06:00
+  async pontoDePedido() {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const ini = new Date(Date.now() - 27 * 86400000).toISOString().slice(0, 10); // janela 28d
+    for (const tenantId of await this.tenantsAtivos()) {
+      const { itens } = await this.estoque.inteligencia(tenantId, ini, hoje);
+      const repor = itens.filter((i: any) => i.repor);
+      if (!repor.length) continue;
+      this.events.emit('kds.alerta.sistema', {
+        tenantId,
+        titulo: `${repor.length} item(ns) no ponto de pedido`,
+        detalhe: repor.slice(0, 6).map((i: any) => i.nome).join(', '),
+        prioridade: 'alta',
+      });
+      this.log.log(`ROP tenant ${tenantId}: ${repor.length} item(ns) a repor`);
+    }
+  }
+
+  // §1.6 — Validades FEFO: alerta lotes vencidos/vencendo (≤2d crítico) por tenant.
+  @Cron('10 6 * * *') // 06:10
+  async validadesFefo() {
+    for (const tenantId of await this.tenantsAtivos()) {
+      const lotes = await this.estoque.validades(tenantId);
+      const criticos = lotes.filter(
+        (l: any) => l.status === 'vencido' || l.status === 'critico',
+      );
+      if (!criticos.length) continue;
+      const vencidos = criticos.filter((l: any) => l.status === 'vencido').length;
+      this.events.emit('kds.alerta.sistema', {
+        tenantId,
+        titulo: `${criticos.length} lote(s) vencendo${vencidos ? ` · ${vencidos} vencido(s)` : ''}`,
+        detalhe: criticos.slice(0, 6).map((l: any) => l.itemNome).join(', '),
+        prioridade: vencidos ? 'danger' : 'alta',
+      });
+      this.log.log(`FEFO tenant ${tenantId}: ${criticos.length} lote(s) crítico(s)`);
+    }
   }
 }

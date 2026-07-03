@@ -94,9 +94,11 @@ export class EstoqueService {
   // Lead time padrão de 7 dias (prazo por fornecedor = pendência, exige migration).
   async inteligencia(tenantId: string, inicio: string, fim: string) {
     const LEAD_TIME_DIAS = 7;
+    const COBERTURA_ALVO_DIAS = 7;
     const res: any = await this.db.execute(sql`
       select i.id, i.nome, i.unidade_medida as "unidadeMedida",
              i.estoque_minimo as "estoqueMinimo", i.custo_medio as "custoMedio",
+             i.dias_seguranca as "diasSeguranca",
              coalesce(sum(case m.tipo when 'entrada' then m.quantidade
                when 'saida' then -m.quantidade else m.quantidade end),0) as saldo,
              coalesce(sum(case when m.tipo='saida' and m.data between ${inicio} and ${fim}
@@ -125,7 +127,14 @@ export class EstoqueService {
       const saidaPeriodo = Number(r.saidaPeriodo);
       const consumoDiario = saidaPeriodo / dias;
       const diasCobertura = consumoDiario > 0 ? saldo / consumoDiario : null;
-      const rop = consumoDiario * LEAD_TIME_DIAS + Number(r.estoqueMinimo ?? 0);
+      // §1.4: ES = CMD × dias_seguranca; ROP = CMD × lead_time + ES.
+      const diasSeguranca = Number(r.diasSeguranca ?? 2);
+      const es = consumoDiario * diasSeguranca;
+      const rop = consumoDiario * LEAD_TIME_DIAS + es;
+      const qtdSugerida = Math.max(
+        0,
+        consumoDiario * COBERTURA_ALVO_DIAS + es - saldo,
+      );
       return {
         id: r.id,
         nome: r.nome,
@@ -137,7 +146,9 @@ export class EstoqueService {
         consumoDiario: Number(consumoDiario.toFixed(3)),
         diasCobertura: diasCobertura != null ? Number(diasCobertura.toFixed(1)) : null,
         valorConsumido: saidaPeriodo * custoMedio,
+        estoqueSeguranca: Number(es.toFixed(2)),
         rop: Number(rop.toFixed(2)),
+        qtdSugerida: Number(qtdSugerida.toFixed(2)),
         repor: saldo <= rop && rop > 0,
         abaixoMinimo: saldo < Number(r.estoqueMinimo ?? 0),
         comprasValor: Number(r.comprasValor),
@@ -166,5 +177,38 @@ export class EstoqueService {
       dias,
     };
     return { resumo, itens };
+  }
+
+  // §1.6 — Validades FEFO: lotes por vencimento com status (crítico/atenção/vencido).
+  // (Obs.: saídas ainda não decrementam lotes; usa lote.quantidade como saldo aproximado.)
+  async validades(tenantId: string) {
+    const res: any = await this.db.execute(sql`
+      select l.id, l.item_id as "itemId", i.nome as "itemNome",
+             i.unidade_medida as "unidadeMedida", l.validade,
+             l.quantidade, l.custo_unitario as "custoUnitario",
+             (l.validade - current_date) as "diasParaVencer"
+      from lote l
+      join item_estoque i on i.id = l.item_id
+      where l.tenant_id = ${tenantId} and l.esgotado = false
+        and l.validade is not null and l.deleted_at is null
+      order by l.validade asc
+    `);
+    const rows = res.rows ?? res;
+    return rows.map((r: any) => {
+      const d = Number(r.diasParaVencer);
+      const status = d < 0 ? 'vencido' : d <= 2 ? 'critico' : d <= 5 ? 'atencao' : 'ok';
+      return {
+        id: r.id,
+        itemId: r.itemId,
+        itemNome: r.itemNome,
+        unidadeMedida: r.unidadeMedida,
+        validade: r.validade,
+        quantidade: Number(r.quantidade),
+        custoUnitario: r.custoUnitario != null ? Number(r.custoUnitario) : null,
+        diasParaVencer: d,
+        status,
+        valor: Number(r.quantidade) * Number(r.custoUnitario ?? 0),
+      };
+    });
   }
 }
