@@ -1,9 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pontoMarcacao, pontoAjuste, colaborador } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { EquipamentoService } from '../equipamento/equipamento.service';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
 import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
 import { CriarAjusteDto } from './dto/criar-ajuste.dto';
@@ -45,9 +47,13 @@ export class PontoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    private readonly equipamentos: EquipamentoService,
+    private readonly events: EventEmitter2,
   ) {}
 
-  // Grava uma marcação com NSR sequencial por tenant (retry no choque de índice único).
+  // Grava uma marcação com NSR sequencial POR EQUIPAMENTO (Portaria 671).
+  // Sem equipamentoId (marcação web/gestor) resolve o REP-Software padrão da unidade.
+  // Retry no choque de índice único (concorrência no NSR).
   private async gravarMarcacao(
     tenantId: string,
     dados: {
@@ -58,20 +64,24 @@ export class PontoService {
       registradoPorId: string;
       obs?: string;
       unidadeId?: string;
+      equipamentoId?: string;
     },
   ) {
+    const equipamentoId =
+      dados.equipamentoId ??
+      (await this.equipamentos.resolverPadrao(tenantId, dados.unidadeId)).id;
     let tentativa = 0;
     // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
         return await this.db.transaction(async (tx) => {
           const r: any = await tx.execute(
-            sql`select coalesce(max(nsr),0)+1 as nsr from ponto_marcacao where tenant_id=${tenantId}`,
+            sql`select coalesce(max(nsr),0)+1 as nsr from ponto_marcacao where tenant_id=${tenantId} and equipamento_id=${equipamentoId}`,
           );
           const nsr = Number((r.rows ?? r)[0].nsr);
           const hash = createHash('sha256')
             .update(
-              `${tenantId}|${nsr}|${dados.colaboradorId}|${dados.tipo}|${dados.marcadoEm.toISOString()}`,
+              `${tenantId}|${equipamentoId}|${nsr}|${dados.colaboradorId}|${dados.tipo}|${dados.marcadoEm.toISOString()}`,
             )
             .digest('hex')
             .slice(0, 32);
@@ -80,6 +90,7 @@ export class PontoService {
             .values({
               tenantId,
               unidadeId: dados.unidadeId,
+              equipamentoId,
               colaboradorId: dados.colaboradorId,
               nsr,
               tipo: dados.tipo,
@@ -114,7 +125,19 @@ export class PontoService {
       colaboradorNome: c?.nome ?? null,
       marcadoEm: row.marcadoEm,
       hash: row.hash,
+      equipamentoId: row.equipamentoId ?? null,
+      unidadeId: row.unidadeId ?? null,
     };
+  }
+
+  // Notifica o tempo real (gateway WebSocket ouve 'ponto.marcado' e faz o broadcast).
+  private emitirMarcado(tenantId: string, comp: any, origem: string) {
+    this.events.emit('ponto.marcado', {
+      tenantId,
+      unidadeId: comp.unidadeId,
+      origem,
+      comprovante: comp,
+    });
   }
 
   async marcar(
@@ -123,6 +146,7 @@ export class PontoService {
     atorPerfil: string,
     dto: MarcarPontoDto,
     origem = 'web',
+    equipamentoId?: string,
   ) {
     const colaboradorId = dto.colaboradorId ?? atorId;
     const row = await this.gravarMarcacao(tenantId, {
@@ -133,6 +157,7 @@ export class PontoService {
       registradoPorId: atorId,
       obs: dto.obs,
       unidadeId: dto.unidadeId,
+      equipamentoId,
     });
     await this.auditoria.registrar({
       tenantId,
@@ -144,7 +169,9 @@ export class PontoService {
       entidadeId: row.id,
       detalhe: { tipo: row.tipo, nsr: Number(row.nsr), colaboradorId },
     });
-    return this.comprovante(row, colaboradorId);
+    const comp = await this.comprovante(row, colaboradorId);
+    this.emitirMarcado(tenantId, comp, origem);
+    return comp;
   }
 
   // Inclusão manual de marcação esquecida (gestor) — append com origem 'ajuste'.
@@ -178,7 +205,9 @@ export class PontoService {
         justificativa: dto.justificativa,
       },
     });
-    return this.comprovante(row, dto.colaboradorId);
+    const comp = await this.comprovante(row, dto.colaboradorId);
+    this.emitirMarcado(tenantId, comp, 'ajuste');
+    return comp;
   }
 
   async criarAjuste(

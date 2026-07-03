@@ -212,4 +212,5 @@ Pode ficar negativa. Ranking é **opaco**: só o `presidente` vê (nem o gerente
 | 2026-07-02 | **Marca Regem: ação primária = DOURADO `#E2A340`; verde `#0E7C66` vira status "ok"** (mockup Omera usava verde como primária) | Decisão de marca do usuário ("Dourado Regem") |
 | 2026-07-02 | Nomenclatura: `loja`=`unidade`, `tenant`=`empresa` no schema | Alinhar contratos ao schema Drizzle existente |
 | 2026-07-02 | **Landing pública em `/`; login movido para `/entrar`** (redirects de auth/logout atualizados) | Ter tela de marketing antes do login (ref. brand-kit "Topo de landing page") |
+| 2026-07-02 | **Fase F-A: tempo real via socket.io.** Gateway NestJS com rooms por tenant/unidade; handshake por JWT (gestor) ou token de equipamento (device). Eventos `ponto:marcado`, `kds:alerta`, `device:status`. Tabela `equipamento` (migration 015) + **NSR agora por equipamento** (Portaria 671). Superfície de teste: `/kds` web (tema escuro). | Base dos apps satélites. Escolha do usuário (socket.io + NSR por equipamento já). Packaging nativo/mDNS = Fase F-B |
 | _adicionar novas linhas aqui_ | | |

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { DrizzleModule } from './db/drizzle.module';
 import { AppController } from './app.controller';
 import { EmpresaModule } from './modules/empresa/empresa.module';
@@ -28,11 +29,14 @@ import { PicoModule } from './modules/pico/pico.module';
 import { FornecedorModule } from './modules/fornecedor/fornecedor.module';
 import { RecebimentoModule } from './modules/recebimento/recebimento.module';
 import { PontoModule } from './modules/ponto/ponto.module';
+import { EquipamentoModule } from './modules/equipamento/equipamento.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    EventEmitterModule.forRoot(),
     DrizzleModule,
     AuthModule,
     EmpresaModule,
@@ -61,6 +65,8 @@ import { AuthModule } from './auth/auth.module';
     FornecedorModule,
     RecebimentoModule,
     PontoModule,
+    EquipamentoModule,
+    RealtimeModule,
   ],
   controllers: [AppController],
 })

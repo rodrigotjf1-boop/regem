@@ -441,12 +441,31 @@ export const movimentoEstoque = pgTable('movimento_estoque', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Equipamento (device): KDS ou Terminal de Ponto. Base de device-auth (WebSocket),
+// do NSR por equipamento (Portaria 671) e dos módulos ativáveis por unidade.
+export const equipamento = pgTable('equipamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tipo: text('tipo').notNull(), // kds | terminal_ponto
+  nome: text('nome').notNull(),
+  token: text('token').notNull().unique(),
+  mac: text('mac'),
+  padrao: boolean('padrao').notNull().default(false),
+  ativo: boolean('ativo').notNull().default(true),
+  ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const pontoMarcacao = pgTable('ponto_marcacao', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
+  equipamentoId: uuid('equipamento_id'),
   colaboradorId: uuid('colaborador_id')
     .notNull()
     .references(() => colaborador.id, { onDelete: 'cascade' }),
