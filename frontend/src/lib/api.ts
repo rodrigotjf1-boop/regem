@@ -113,6 +113,11 @@ export const api = {
     req('/ponto/marcacao-manual', { method: 'POST', body: JSON.stringify(body) }),
   criarAjustePonto: (body: Record<string, unknown>) =>
     req('/ponto/ajuste', { method: 'POST', body: JSON.stringify(body) }),
+  equipamentos: () => req('/equipamento'),
+  criarEquipamento: (body: Record<string, unknown>) =>
+    req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),
+  revogarEquipamento: (id: string) =>
+    req(`/equipamento/${id}/revogar`, { method: 'PATCH' }),
   recebimentos: () => req('/recebimentos'),
   recebimento: (id: string) => req(`/recebimentos/${id}`),
   criarRecebimento: (body: Record<string, unknown>) =>

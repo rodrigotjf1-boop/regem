@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { getToken } from '@/lib/api';
-import { connectAsGestor, type Socket } from '@/lib/rt';
+import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -78,12 +78,17 @@ export default function KdsPage() {
   }, []);
 
   useEffect(() => {
-    if (!getToken()) {
+    // Device real: ?token=… (um KDS físico abre app.dmsregem.com/kds?token=…).
+    // Sem token, cai para sessão de gestor (JWT) — modo de teste/monitoramento.
+    const deviceToken = new URLSearchParams(window.location.search).get('token');
+    if (!deviceToken && !getToken()) {
       setTemSessao(false);
       return;
     }
     setTemSessao(true);
-    const socket = connectAsGestor();
+    const socket = deviceToken
+      ? connectAsDevice(deviceToken)
+      : connectAsGestor();
     socketRef.current = socket;
 
     socket.on('connect', () => setConectado(true));
@@ -204,6 +209,7 @@ export default function KdsPage() {
         </div>
 
         <button
+          type="button"
           onClick={() => setMudo((m) => !m)}
           aria-pressed={mudo}
           className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
@@ -272,6 +278,7 @@ export default function KdsPage() {
                 </div>
               </div>
               <button
+                type="button"
                 onClick={() => ack(a.id)}
                 disabled={a.ack}
                 className="rounded-[11px] px-5 py-3.5 text-[14px] font-extrabold uppercase tracking-[0.1em]"
@@ -290,6 +297,7 @@ export default function KdsPage() {
         {/* Lateral: marcações ao vivo + teste */}
         <aside>
           <button
+            type="button"
             onClick={dispararTeste}
             disabled={!conectado}
             className="mb-4 w-full rounded-[12px] px-4 py-3 text-sm font-bold disabled:opacity-40"

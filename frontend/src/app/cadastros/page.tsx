@@ -443,6 +443,17 @@ export default function CadastrosPage() {
               )}
             </Card>
 
+            <button
+              type="button"
+              onClick={() => router.push('/equipamentos')}
+              className="flex w-full flex-col items-start gap-0.5 rounded-lg border border-border bg-card p-4 text-left transition-colors hover:border-primary/50"
+            >
+              <span className="font-display font-semibold">Equipamentos & Apps</span>
+              <span className="text-sm text-muted-foreground">
+                Cadastrar KDS e Terminais de Ponto (device token)
+              </span>
+            </button>
+
             <div className="grid grid-cols-2 gap-3">
               {secoes.map((sec) => (
                 <button
