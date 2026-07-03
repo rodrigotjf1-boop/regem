@@ -9,6 +9,7 @@ import {
   setor,
   colaborador,
 } from '../../db/schema';
+import { resolverColaboradorTarefa } from '../../common/regras-negocio';
 import { InstanciarTarefaDto } from './dto/instanciar-tarefa.dto';
 import { ConcluirTarefaDto } from './dto/concluir-tarefa.dto';
 
@@ -31,8 +32,8 @@ export class TarefaInstanciaService {
     if (!def) throw new NotFoundException('Tarefa não encontrada');
 
     // 1) override explícito vence; 2) senão, quem está na etiqueta naquela data.
-    let colaboradorResolvidoId: string | null = def.colaboradorOverrideId ?? null;
-    if (!colaboradorResolvidoId && def.etiquetaId) {
+    let alocacaoColaboradorId: string | null = null;
+    if (!def.colaboradorOverrideId && def.etiquetaId) {
       const [aloc] = await this.db
         .select({ colaboradorId: escalaAlocacao.colaboradorId })
         .from(escalaAlocacao)
@@ -45,8 +46,12 @@ export class TarefaInstanciaService {
           ),
         )
         .limit(1);
-      colaboradorResolvidoId = aloc?.colaboradorId ?? null;
+      alocacaoColaboradorId = aloc?.colaboradorId ?? null;
     }
+    const colaboradorResolvidoId = resolverColaboradorTarefa(
+      def.colaboradorOverrideId,
+      alocacaoColaboradorId,
+    );
 
     const [row] = await this.db
       .insert(tarefaInstancia)

@@ -6,6 +6,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pontoMarcacao, pontoAjuste, colaborador } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
+import { comRetryUnico } from '../../common/regras-negocio';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
 import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
 import { CriarAjusteDto } from './dto/criar-ajuste.dto';
@@ -81,50 +82,40 @@ export class PontoService {
           .toISOString()
           .slice(0, 10)
       : null;
-    let tentativa = 0;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      try {
-        return await this.db.transaction(async (tx) => {
-          const r: any = await tx.execute(
-            sql`select coalesce(max(nsr),0)+1 as nsr from ponto_marcacao where tenant_id=${tenantId} and equipamento_id=${equipamentoId}`,
-          );
-          const nsr = Number((r.rows ?? r)[0].nsr);
-          const hash = createHash('sha256')
-            .update(
-              `${tenantId}|${equipamentoId}|${nsr}|${dados.colaboradorId}|${dados.tipo}|${dados.marcadoEm.toISOString()}`,
-            )
-            .digest('hex')
-            .slice(0, 32);
-          const [inserted] = await tx
-            .insert(pontoMarcacao)
-            .values({
-              tenantId,
-              unidadeId: dados.unidadeId,
-              equipamentoId,
-              colaboradorId: dados.colaboradorId,
-              nsr,
-              tipo: dados.tipo,
-              marcadoEm: dados.marcadoEm,
-              origem: dados.origem,
-              registradoPorId: dados.registradoPorId,
-              hash,
-              obs: dados.obs,
-              fotoRef,
-              consentimentoLgpd: !!dados.consentimentoLgpd,
-              dataExpurgo,
-            })
-            .returning();
-          return inserted;
-        });
-      } catch (e: any) {
-        if (e?.code === '23505' && tentativa < 4) {
-          tentativa++;
-          continue;
-        }
-        throw e;
-      }
-    }
+    return comRetryUnico(() =>
+      this.db.transaction(async (tx) => {
+        const r: any = await tx.execute(
+          sql`select coalesce(max(nsr),0)+1 as nsr from ponto_marcacao where tenant_id=${tenantId} and equipamento_id=${equipamentoId}`,
+        );
+        const nsr = Number((r.rows ?? r)[0].nsr);
+        const hash = createHash('sha256')
+          .update(
+            `${tenantId}|${equipamentoId}|${nsr}|${dados.colaboradorId}|${dados.tipo}|${dados.marcadoEm.toISOString()}`,
+          )
+          .digest('hex')
+          .slice(0, 32);
+        const [inserted] = await tx
+          .insert(pontoMarcacao)
+          .values({
+            tenantId,
+            unidadeId: dados.unidadeId,
+            equipamentoId,
+            colaboradorId: dados.colaboradorId,
+            nsr,
+            tipo: dados.tipo,
+            marcadoEm: dados.marcadoEm,
+            origem: dados.origem,
+            registradoPorId: dados.registradoPorId,
+            hash,
+            obs: dados.obs,
+            fotoRef,
+            consentimentoLgpd: !!dados.consentimentoLgpd,
+            dataExpurgo,
+          })
+          .returning();
+        return inserted;
+      }),
+    );
   }
 
   private async comprovante(row: any, colaboradorId: string) {

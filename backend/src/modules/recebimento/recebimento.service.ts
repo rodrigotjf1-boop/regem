@@ -15,6 +15,7 @@ import {
   tituloFinanceiro,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { custoMedioPonderado } from '../../common/regras-negocio';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -178,10 +179,8 @@ export class RecebimentoService {
               .select({ custoMedio: itemEstoque.custoMedio })
               .from(itemEstoque)
               .where(eq(itemEstoque.id, it.itemId));
-            const base = Math.max(saldoAntes, 0);
             const cmAtual = Number(item?.custoMedio ?? 0);
-            const novo =
-              base + qtd > 0 ? (base * cmAtual + qtd * custo) / (base + qtd) : custo;
+            const novo = custoMedioPonderado(saldoAntes, cmAtual, qtd, custo);
             await tx
               .update(itemEstoque)
               .set({ custoMedio: String(novo), updatedAt: new Date() })
