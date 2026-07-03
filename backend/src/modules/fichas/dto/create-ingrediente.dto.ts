@@ -32,6 +32,10 @@ export class CreateIngredienteDto {
   itemId?: string;
 
   @IsOptional()
+  @IsUUID()
+  subFichaId?: string;
+
+  @IsOptional()
   @IsNumber()
   ordem?: number;
 }

@@ -704,6 +704,7 @@ export const fichaIngrediente = pgTable('ficha_ingrediente', {
     .notNull()
     .references(() => fichaTecnica.id, { onDelete: 'cascade' }),
   itemId: uuid('item_id'),
+  subFichaId: uuid('sub_ficha_id'), // ingrediente = outra ficha (sub-receita)
   insumoNome: text('insumo_nome').notNull(),
   quantidade: numeric('quantidade').notNull().default('0'),
   unidade: text('unidade'),

@@ -10,6 +10,8 @@ import {
   fatorHoraExtra,
   furoCmv,
   casarRegraBot,
+  custoTotalFicha,
+  fichaAlcancavel,
 } from './regras-negocio';
 
 // helper: monta um timestamp UTC a partir da hora LOCAL do Brasil (UTC−3).
@@ -100,6 +102,51 @@ describe('casarRegraBot (match por palavra-chave)', () => {
   });
   it('sem gatilho → null', () => {
     expect(casarRegraBot('bom dia, tudo bem?', regras)).toBeNull();
+  });
+});
+
+describe('custoTotalFicha (ficha aninhada, custo recursivo)', () => {
+  // molho (rend 10) = 20 de tomate a 2 = 40 → custo/porção 4
+  // lasanha (rend 1) = 3 porções de molho (sub) + 5 de massa a 1
+  const mapa = {
+    molho: {
+      rendimento: 10,
+      ingredientes: [{ quantidade: 20, fatorCorrecao: 1, custoUnitario: 2 }],
+    },
+    lasanha: {
+      rendimento: 1,
+      ingredientes: [
+        { quantidade: 3, fatorCorrecao: 1, custoUnitario: 0, subFichaId: 'molho' },
+        { quantidade: 5, fatorCorrecao: 1, custoUnitario: 1 },
+      ],
+    },
+  };
+  it('sub-ficha entra pelo custo/porção', () => {
+    // 3 × (40/10) + 5 × 1 = 12 + 5 = 17
+    expect(custoTotalFicha('lasanha', mapa)).toBe(17);
+  });
+  it('ficha simples soma direto', () => {
+    expect(custoTotalFicha('molho', mapa)).toBe(40);
+  });
+  it('ciclo não trava (ramo repetido conta 0)', () => {
+    const ciclico = {
+      a: { rendimento: 1, ingredientes: [{ quantidade: 1, fatorCorrecao: 1, custoUnitario: 0, subFichaId: 'b' }] },
+      b: { rendimento: 1, ingredientes: [{ quantidade: 1, fatorCorrecao: 1, custoUnitario: 0, subFichaId: 'a' }] },
+    };
+    expect(custoTotalFicha('a', ciclico)).toBe(0);
+  });
+});
+
+describe('fichaAlcancavel (detecção de ciclo em sub-fichas)', () => {
+  const arestas: Record<string, string[]> = { lasanha: ['molho'], molho: ['fundo'], fundo: [] };
+  it('alcança transitivamente (lasanha → fundo)', () => {
+    expect(fichaAlcancavel('lasanha', 'fundo', arestas)).toBe(true);
+  });
+  it('não alcança quando não há caminho (fundo → lasanha)', () => {
+    expect(fichaAlcancavel('fundo', 'lasanha', arestas)).toBe(false);
+  });
+  it('origem = destino é alcançável (auto-referência)', () => {
+    expect(fichaAlcancavel('molho', 'molho', arestas)).toBe(true);
   });
 });
 

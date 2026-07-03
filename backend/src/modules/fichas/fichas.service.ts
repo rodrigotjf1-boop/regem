@@ -1,19 +1,24 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { fichaIngrediente, fichaTecnica } from '../../db/schema';
+import {
+  custoTotalFicha,
+  fichaAlcancavel,
+  type FichaCusto,
+} from '../../common/regras-negocio';
 import { CreateFichaDto } from './dto/create-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 import { UpdateFichaDto } from './dto/update-ficha.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function computar(f: any, ings: any[]) {
-  const custoTotal = ings.reduce(
-    (s, i) =>
-      s +
-      Number(i.quantidade) * Number(i.fatorCorrecao) * Number(i.custoUnitario),
-    0,
-  );
+// custoTotal já resolvido (recursivo, com sub-fichas) → deriva porção, CMV, preço.
+function computar(f: any, custoTotal: number) {
   const rendimento = Number(f.rendimento) || 1;
   const custoPorcao = custoTotal / rendimento;
   const precoVenda = f.precoVenda != null ? Number(f.precoVenda) : null;
@@ -40,6 +45,19 @@ function computar(f: any, ings: any[]) {
   };
 }
 
+// Insumo de custo (pro cálculo recursivo) a partir da ficha + suas linhas.
+function fichaCustoDe(f: any, ings: any[]): FichaCusto {
+  return {
+    rendimento: Number(f.rendimento) || 1,
+    ingredientes: ings.map((i) => ({
+      quantidade: Number(i.quantidade),
+      fatorCorrecao: Number(i.fatorCorrecao),
+      custoUnitario: Number(i.custoUnitario),
+      subFichaId: i.subFichaId ?? null,
+    })),
+  };
+}
+
 @Injectable()
 export class FichasService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
@@ -63,11 +81,25 @@ export class FichasService {
       .returning();
 
     if (dto.ingredientes?.length) {
+      // Sub-fichas devem existir no tenant (ficha nova não pode fechar ciclo).
+      const subs = dto.ingredientes
+        .map((i) => i.subFichaId)
+        .filter((x): x is string => !!x);
+      if (subs.length) {
+        const { fichas } = await this.carregarTudo(tenantId);
+        const validos = new Set(fichas.map((x) => x.id));
+        for (const s of subs) {
+          if (!validos.has(s)) {
+            throw new BadRequestException('Sub-ficha inválida para este tenant.');
+          }
+        }
+      }
       await this.db.insert(fichaIngrediente).values(
         dto.ingredientes.map((i, idx) => ({
           tenantId,
           fichaId: f.id,
-          itemId: i.itemId,
+          itemId: i.subFichaId ? undefined : i.itemId,
+          subFichaId: i.subFichaId,
           insumoNome: i.insumoNome,
           quantidade: i.quantidade != null ? String(i.quantidade) : '0',
           unidade: i.unidade,
@@ -82,7 +114,8 @@ export class FichasService {
     return this.getOne(tenantId, f.id);
   }
 
-  async list(tenantId: string) {
+  // Carrega todas as fichas do tenant + ingredientes → mapa p/ custo recursivo.
+  private async carregarTudo(tenantId: string) {
     const fichas = await this.db
       .select()
       .from(fichaTecnica)
@@ -90,36 +123,57 @@ export class FichasService {
         and(eq(fichaTecnica.tenantId, tenantId), isNull(fichaTecnica.deletedAt)),
       )
       .orderBy(asc(fichaTecnica.nome));
-    if (fichas.length === 0) return [];
-    const ids = fichas.map((f) => f.id);
-    const ings = await this.db
-      .select()
-      .from(fichaIngrediente)
-      .where(inArray(fichaIngrediente.fichaId, ids));
+    const ings = fichas.length
+      ? await this.db
+          .select()
+          .from(fichaIngrediente)
+          .where(inArray(fichaIngrediente.fichaId, fichas.map((f) => f.id)))
+      : [];
+    const mapa: Record<string, FichaCusto> = {};
+    const nome: Record<string, string> = {};
+    for (const f of fichas) {
+      nome[f.id] = f.nome;
+      mapa[f.id] = fichaCustoDe(f, ings.filter((i) => i.fichaId === f.id));
+    }
+    return { fichas, ings, mapa, nome };
+  }
+
+  // Anexa o nome da sub-ficha a cada ingrediente que a referencia (p/ exibição).
+  private enriquecer(ings: any[], nome: Record<string, string>) {
+    return ings.map((i) => ({
+      ...i,
+      subFichaNome: i.subFichaId ? nome[i.subFichaId] ?? null : null,
+    }));
+  }
+
+  async list(tenantId: string) {
+    const { fichas, ings, mapa, nome } = await this.carregarTudo(tenantId);
     return fichas.map((f) => {
-      const fi = ings.filter((i) => i.fichaId === f.id);
-      return { ...f, ingredientes: fi, ...computar(f, fi) };
+      const fi = ings
+        .filter((i) => i.fichaId === f.id)
+        .sort((a, b) => Number(a.ordem) - Number(b.ordem));
+      const custoTotal = custoTotalFicha(f.id, mapa);
+      return {
+        ...f,
+        ingredientes: this.enriquecer(fi, nome),
+        ...computar(f, custoTotal),
+      };
     });
   }
 
   async getOne(tenantId: string, id: string) {
-    const [f] = await this.db
-      .select()
-      .from(fichaTecnica)
-      .where(
-        and(
-          eq(fichaTecnica.id, id),
-          eq(fichaTecnica.tenantId, tenantId),
-          isNull(fichaTecnica.deletedAt),
-        ),
-      );
+    const { fichas, ings, mapa, nome } = await this.carregarTudo(tenantId);
+    const f = fichas.find((x) => x.id === id);
     if (!f) throw new NotFoundException('Ficha não encontrada');
-    const ings = await this.db
-      .select()
-      .from(fichaIngrediente)
-      .where(eq(fichaIngrediente.fichaId, id))
-      .orderBy(asc(fichaIngrediente.ordem));
-    return { ...f, ingredientes: ings, ...computar(f, ings) };
+    const fi = ings
+      .filter((i) => i.fichaId === id)
+      .sort((a, b) => Number(a.ordem) - Number(b.ordem));
+    const custoTotal = custoTotalFicha(id, mapa);
+    return {
+      ...f,
+      ingredientes: this.enriquecer(fi, nome),
+      ...computar(f, custoTotal),
+    };
   }
 
   async update(tenantId: string, id: string, dto: UpdateFichaDto) {
@@ -157,16 +211,43 @@ export class FichasService {
     return { ok: true };
   }
 
+  // Garante que a sub-ficha existe no tenant e que a ligação não cria ciclo.
+  private async validarSubFicha(
+    tenantId: string,
+    fichaId: string,
+    subFichaId: string,
+  ) {
+    if (subFichaId === fichaId) {
+      throw new BadRequestException('Uma ficha não pode ser sub-receita dela mesma.');
+    }
+    const { fichas, ings } = await this.carregarTudo(tenantId);
+    if (!fichas.some((f) => f.id === subFichaId)) {
+      throw new BadRequestException('Sub-ficha inválida para este tenant.');
+    }
+    const arestas: Record<string, string[]> = {};
+    for (const i of ings) {
+      if (i.subFichaId) (arestas[i.fichaId] ??= []).push(i.subFichaId);
+    }
+    // Adicionar pai→sub cria ciclo se a sub-ficha já alcança o pai.
+    if (fichaAlcancavel(subFichaId, fichaId, arestas)) {
+      throw new BadRequestException(
+        'Isso criaria um ciclo de fichas (A usa B que usa A).',
+      );
+    }
+  }
+
   async addIngrediente(
     tenantId: string,
     fichaId: string,
     dto: CreateIngredienteDto,
   ) {
     await this.getOne(tenantId, fichaId);
+    if (dto.subFichaId) await this.validarSubFicha(tenantId, fichaId, dto.subFichaId);
     await this.db.insert(fichaIngrediente).values({
       tenantId,
       fichaId,
-      itemId: dto.itemId,
+      itemId: dto.subFichaId ? undefined : dto.itemId,
+      subFichaId: dto.subFichaId,
       insumoNome: dto.insumoNome,
       quantidade: dto.quantidade != null ? String(dto.quantidade) : '0',
       unidade: dto.unidade,

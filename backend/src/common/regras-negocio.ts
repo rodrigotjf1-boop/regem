@@ -96,6 +96,68 @@ export function casarRegraBot<T extends RegraBot>(
   return null;
 }
 
+// ── Fichas técnicas aninhadas ────────────────────────────────────────────────
+export type IngredienteCusto = {
+  quantidade: number;
+  fatorCorrecao: number;
+  custoUnitario: number;
+  subFichaId?: string | null;
+};
+export type FichaCusto = {
+  rendimento: number;
+  ingredientes: IngredienteCusto[];
+};
+
+/**
+ * Custo total (do lote inteiro = rendimento) de uma ficha, resolvendo sub-fichas
+ * recursivamente: uma sub-ficha entra pelo seu custo/porção (custoTotal ÷ rendimento).
+ * Guarda de ciclo: uma ficha já visitada na cadeia contribui 0 (safety net —
+ * ciclos são barrados na escrita). Ficha ausente do mapa contribui 0.
+ */
+export function custoTotalFicha(
+  fichaId: string,
+  mapa: Record<string, FichaCusto>,
+  visitados: Set<string> = new Set(),
+): number {
+  if (visitados.has(fichaId)) return 0;
+  const ficha = mapa[fichaId];
+  if (!ficha) return 0;
+  const proximos = new Set(visitados);
+  proximos.add(fichaId);
+
+  let total = 0;
+  for (const ing of ficha.ingredientes) {
+    let custoUnit = Number(ing.custoUnitario) || 0;
+    if (ing.subFichaId) {
+      const sub = mapa[ing.subFichaId];
+      const rendSub = sub && Number(sub.rendimento) > 0 ? Number(sub.rendimento) : 1;
+      custoUnit = custoTotalFicha(ing.subFichaId, mapa, proximos) / rendSub;
+    }
+    total += Number(ing.quantidade) * Number(ing.fatorCorrecao) * custoUnit;
+  }
+  return total;
+}
+
+/**
+ * Existe caminho de `origem` até `destino` no grafo de sub-fichas
+ * (arestas: ficha → lista de sub-fichas)? Usado para barrar ciclos ao inserir
+ * uma sub-ficha: adicionar a aresta pai→sub cria ciclo se `sub` alcança `pai`.
+ */
+export function fichaAlcancavel(
+  origem: string,
+  destino: string,
+  arestas: Record<string, string[]>,
+  visitados: Set<string> = new Set(),
+): boolean {
+  if (origem === destino) return true;
+  if (visitados.has(origem)) return false;
+  visitados.add(origem);
+  for (const prox of arestas[origem] ?? []) {
+    if (fichaAlcancavel(prox, destino, arestas, visitados)) return true;
+  }
+  return false;
+}
+
 export type MovLedger = { tipo: string; quantidade: number | string };
 
 /**
