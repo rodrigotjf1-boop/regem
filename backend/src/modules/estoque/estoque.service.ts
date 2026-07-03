@@ -211,4 +211,95 @@ export class EstoqueService {
       };
     });
   }
+
+  // §1.3 — Grava o snapshot de estoque de UMA data (saldo até a data × custo médio atual).
+  // Upsert: reexecutar no mesmo dia atualiza. (custo_medio é o cache atual — snapshot é "ao vivo".)
+  async gerarSnapshot(tenantId: string, data?: string) {
+    const d = data ?? new Date().toISOString().slice(0, 10);
+    await this.db.execute(sql`
+      insert into estoque_snapshot (tenant_id, unidade_id, item_id, data, saldo, custo_medio)
+      select i.tenant_id, i.unidade_id, i.id, ${d}::date,
+        coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+          when 'saida' then -m.quantidade else m.quantidade end),0),
+        i.custo_medio
+      from item_estoque i
+      left join movimento_estoque m on m.item_id = i.id and m.data <= ${d}
+      where i.tenant_id = ${tenantId} and i.deleted_at is null
+      group by i.id
+      on conflict (tenant_id, item_id, data)
+        do update set saldo = excluded.saldo, custo_medio = excluded.custo_medio
+    `);
+    return { ok: true, data: d };
+  }
+
+  // §1.3 — CMV real (EI + Compras − EF) × CMV teórico consumido → desvio.
+  async cmvReal(tenantId: string, inicio: string, fim: string) {
+    // Valor do snapshot mais recente com data <= alvo (EI/EF).
+    const valorSnapshot = async (alvo: string): Promise<number> => {
+      const r: any = await this.db.execute(sql`
+        with ult as (
+          select item_id, max(data) as data from estoque_snapshot
+          where tenant_id=${tenantId} and data <= ${alvo} group by item_id
+        )
+        select coalesce(sum(s.saldo * s.custo_medio),0) as v
+        from estoque_snapshot s
+        join ult on ult.item_id = s.item_id and ult.data = s.data
+        where s.tenant_id = ${tenantId}
+      `);
+      return Number((r.rows ?? r)[0].v);
+    };
+    const valorAtual = async (): Promise<number> => {
+      const r: any = await this.db.execute(sql`
+        select coalesce(sum(saldo * custo_medio),0) as v from (
+          select i.custo_medio,
+            coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+              when 'saida' then -m.quantidade else m.quantidade end),0) as saldo
+          from item_estoque i
+          left join movimento_estoque m on m.item_id = i.id
+          where i.tenant_id=${tenantId} and i.deleted_at is null
+          group by i.id
+        ) t
+      `);
+      return Number((r.rows ?? r)[0].v);
+    };
+
+    const estoqueInicial = await valorSnapshot(inicio);
+    const semSnapshotInicial = estoqueInicial === 0;
+
+    let estoqueFinal = await valorSnapshot(fim);
+    let efFonte = 'snapshot';
+    if (estoqueFinal === 0) {
+      estoqueFinal = await valorAtual(); // sem snapshot final → valorização atual
+      efFonte = 'atual';
+    }
+
+    const somaMov = async (
+      cond: any,
+    ): Promise<number> => {
+      const r: any = await this.db.execute(sql`
+        select coalesce(sum(m.quantidade * coalesce(m.custo_unitario, i.custo_medio)),0) as v
+        from movimento_estoque m join item_estoque i on i.id = m.item_id
+        where m.tenant_id=${tenantId} and m.data between ${inicio} and ${fim} and ${cond}
+      `);
+      return Number((r.rows ?? r)[0].v);
+    };
+    const compras = await somaMov(sql`m.tipo='entrada' and m.motivo='recebimento'`);
+    const cmvTeorico = await somaMov(
+      sql`m.tipo='saida' and m.motivo in ('venda','producao')`,
+    );
+
+    const cmvReal = estoqueInicial + compras - estoqueFinal;
+    const desvio = cmvReal - cmvTeorico;
+    return {
+      periodo: { inicio, fim },
+      estoqueInicial: Number(estoqueInicial.toFixed(2)),
+      compras: Number(compras.toFixed(2)),
+      estoqueFinal: Number(estoqueFinal.toFixed(2)),
+      efFonte,
+      semSnapshotInicial,
+      cmvReal: Number(cmvReal.toFixed(2)),
+      cmvTeorico: Number(cmvTeorico.toFixed(2)),
+      desvio: Number(desvio.toFixed(2)),
+    };
+  }
 }

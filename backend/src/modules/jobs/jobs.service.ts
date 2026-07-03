@@ -70,6 +70,17 @@ export class JobsService {
     }
   }
 
+  // §1.3 — Snapshot mensal de estoque (fecha o mês → CMV real O(1)).
+  @Cron('0 2 1 * *') // dia 1, 02:00
+  async snapshotMensal() {
+    let n = 0;
+    for (const tenantId of await this.tenantsAtivos()) {
+      await this.estoque.gerarSnapshot(tenantId);
+      n++;
+    }
+    this.log.log(`Snapshot mensal de estoque gerado para ${n} tenant(s)`);
+  }
+
   // §1.6 — Validades FEFO: alerta lotes vencidos/vencendo (≤2d crítico) por tenant.
   @Cron('10 6 * * *') // 06:10
   async validadesFefo() {
