@@ -6,7 +6,11 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pontoMarcacao, pontoAjuste, colaborador } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
-import { comRetryUnico } from '../../common/regras-negocio';
+import {
+  comRetryUnico,
+  minutosNaFaixaNoturna,
+  fatorHoraExtra,
+} from '../../common/regras-negocio';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
 import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
 import { CriarAjusteDto } from './dto/criar-ajuste.dto';
@@ -34,6 +38,28 @@ function minutosTrabalhados(ms: { tipo: string; marcadoEm: any }[]): number {
     }
   }
   return Math.round(total / 60000);
+}
+
+// Minutos em horário noturno (22h–5h) das jornadas do dia: pareia entrada→saída
+// como minutosTrabalhados e soma a faixa noturna de cada par.
+function minutosNoturnos(ms: { tipo: string; marcadoEm: any }[]): number {
+  const ord = [...ms].sort(
+    (a, b) => new Date(a.marcadoEm).getTime() - new Date(b.marcadoEm).getTime(),
+  );
+  let total = 0;
+  let lastIn: number | null = null;
+  for (const m of ord) {
+    const t = new Date(m.marcadoEm).getTime();
+    if (ENTRA.has(m.tipo)) {
+      if (lastIn === null) lastIn = t;
+    } else if (SAI.has(m.tipo)) {
+      if (lastIn !== null) {
+        total += minutosNaFaixaNoturna(lastIn, t);
+        lastIn = null;
+      }
+    }
+  }
+  return total;
 }
 
 function turnoMin(inicio: string, fim: string): number {
@@ -296,6 +322,11 @@ export class PontoService {
         and data between ${inicio} and ${fim}
       order by created_at asc
     `);
+    const fe: any = await this.db.execute(sql`
+      select data::text as "data" from feriado
+      where tenant_id = ${tenantId} and data between ${inicio} and ${fim}
+    `);
+    const feriados = new Set<string>((fe.rows ?? fe).map((f: any) => f.data));
     const ajustes = aj.rows ?? aj;
     const desconsid = new Set(
       ajustes
@@ -336,12 +367,22 @@ export class PontoService {
             0,
           );
         const efetivoMin = trabalhadoMin + abonoMin;
+        // Prévia gerencial (§3): extra só quando há jornada prevista; fator
+        // 100% em domingo/feriado, 50% em dia útil; noturno = faixa 22h–5h.
+        const domFer = new Date(data + 'T12:00:00Z').getUTCDay() === 0 || feriados.has(data);
+        const fatorExtra = fatorHoraExtra(domFer);
+        const extraMin =
+          v.esperadoMin > 0 ? Math.max(0, trabalhadoMin - v.esperadoMin) : 0;
+        const noturnoMin = minutosNoturnos(validas);
         return {
           data,
           esperadoMin: v.esperadoMin,
           trabalhadoMin,
           abonoMin,
           efetivoMin,
+          extraMin,
+          fatorExtraPct: Math.round(fatorExtra * 100),
+          noturnoMin,
           saldoMin: efetivoMin - v.esperadoMin,
           marcacoes: v.marcacoes.map((m: any) => ({
             id: m.id,
@@ -363,6 +404,18 @@ export class PontoService {
 
     const totalTrabalhadoMin = out.reduce((s, d) => s + d.efetivoMin, 0);
     const totalEsperadoMin = out.reduce((s, d) => s + d.esperadoMin, 0);
+    const totalExtraMin = out.reduce((s, d) => s + d.extraMin, 0);
+    const totalNoturnoMin = out.reduce((s, d) => s + d.noturnoMin, 0);
+    // DSR sobre extras (estimativa §3): média diária de extra em dias úteis
+    // trabalhados × nº de domingos/feriados do período. Confira na contabilidade.
+    const diasUteisTrab = out.filter(
+      (d) => d.fatorExtraPct === 50 && d.esperadoMin > 0,
+    ).length;
+    const domFerCount = out.filter((d) => d.fatorExtraPct === 100).length;
+    const dsrEstimadoMin =
+      diasUteisTrab > 0
+        ? Math.round((totalExtraMin / diasUteisTrab) * domFerCount)
+        : 0;
     return {
       colaboradorId,
       inicio,
@@ -370,6 +423,9 @@ export class PontoService {
       dias: out,
       totalTrabalhadoMin,
       totalEsperadoMin,
+      totalExtraMin,
+      totalNoturnoMin,
+      dsrEstimadoMin,
       saldoMin: totalTrabalhadoMin - totalEsperadoMin,
     };
   }
