@@ -9,6 +9,7 @@ import {
   minutosNaFaixaNoturna,
   fatorHoraExtra,
   furoCmv,
+  casarRegraBot,
 } from './regras-negocio';
 
 // helper: monta um timestamp UTC a partir da hora LOCAL do Brasil (UTC−3).
@@ -80,6 +81,26 @@ describe('minutosNaFaixaNoturna (jornada §3, hora local BR 22h–5h)', () => {
 describe('fatorHoraExtra (50% dia útil, 100% domingo/feriado)', () => {
   it('dia útil → 0.5', () => expect(fatorHoraExtra(false)).toBe(0.5));
   it('domingo/feriado → 1.0', () => expect(fatorHoraExtra(true)).toBe(1.0));
+});
+
+describe('casarRegraBot (match por palavra-chave)', () => {
+  const regras = [
+    { id: 'r1', gatilhos: 'atraso, demorando', ativa: true },
+    { id: 'r2', gatilhos: 'alergia, glúten', ativa: true },
+    { id: 'r3', gatilhos: 'reserva, mesa', ativa: false },
+  ];
+  it('casa por palavra contida, ignorando caixa', () => {
+    expect(casarRegraBot('Meu pedido está ATRASO', regras)?.id).toBe('r1');
+  });
+  it('casa ignorando acento (glúten ~ gluten)', () => {
+    expect(casarRegraBot('tenho intolerancia a gluten', regras)?.id).toBe('r2');
+  });
+  it('ignora regra inativa', () => {
+    expect(casarRegraBot('quero uma reserva de mesa', regras)).toBeNull();
+  });
+  it('sem gatilho → null', () => {
+    expect(casarRegraBot('bom dia, tudo bem?', regras)).toBeNull();
+  });
 });
 
 describe('furoCmv (desvio − desperdício registrado)', () => {

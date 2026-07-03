@@ -233,6 +233,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  botRegras: () => req('/bot/regras'),
+  botMetricas: () => req('/bot/metricas'),
+  criarBotRegra: (body: Record<string, unknown>) =>
+    req('/bot/regras', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarBotRegra: (id: string, body: Record<string, unknown>) =>
+    req(`/bot/regras/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removerBotRegra: (id: string) =>
+    req(`/bot/regras/${id}`, { method: 'DELETE' }),
+  botPerguntar: (pergunta: string) =>
+    req('/bot/perguntar', { method: 'POST', body: JSON.stringify({ pergunta }) }),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),

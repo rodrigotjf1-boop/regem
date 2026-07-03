@@ -40,6 +40,7 @@ import { ProdutoModule } from './modules/produto/produto.module';
 import { VendasModule } from './modules/vendas/vendas.module';
 import { ProducaoModule } from './modules/producao/producao.module';
 import { MuralModule } from './modules/mural/mural.module';
+import { BotModule } from './modules/bot/bot.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -85,6 +86,7 @@ import { AuthModule } from './auth/auth.module';
     VendasModule,
     ProducaoModule,
     MuralModule,
+    BotModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
