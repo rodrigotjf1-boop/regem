@@ -153,6 +153,13 @@ export const api = {
   financeiroResumo: () => req('/financeiro/resumo'),
   financeiroFluxo: (dias?: number) =>
     req(`/financeiro/fluxo${dias ? `?dias=${dias}` : ''}`),
+  caixaAberta: () => req('/financeiro/caixa'),
+  abrirCaixa: (body: Record<string, unknown>) =>
+    req('/financeiro/caixa/abrir', { method: 'POST', body: JSON.stringify(body) }),
+  movimentarCaixa: (body: Record<string, unknown>) =>
+    req('/financeiro/caixa/movimentar', { method: 'POST', body: JSON.stringify(body) }),
+  fecharCaixa: (body: Record<string, unknown>) =>
+    req('/financeiro/caixa/fechar', { method: 'POST', body: JSON.stringify(body) }),
   financeiroDre: (inicio?: string, fim?: string) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);

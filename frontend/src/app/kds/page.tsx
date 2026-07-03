@@ -349,6 +349,14 @@ export default function KdsPage() {
                     {it.quantidade}× {it.descricao}
                   </div>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => setPedidos((prev) => prev.filter((x) => x.id !== p.id))}
+                  className="mt-2 w-full rounded-md py-1.5 text-[12px] font-bold"
+                  style={{ background: '#19C08F', color: '#04241A' }}
+                >
+                  Pronto
+                </button>
               </div>
             ))}
           </div>

@@ -18,6 +18,7 @@ import {
   itemEstoque,
   movimentoEstoque,
   lancamentoCaixa,
+  caixaSessao,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
@@ -72,6 +73,17 @@ export class VendasService {
         data: hojeISO(),
       });
     }
+  }
+
+  // Sessão de caixa aberta (para amarrar a venda ao turno) — null se caixa fechado.
+  private async sessaoAbertaId(tx: any, tenantId: string): Promise<string | null> {
+    const [s] = await tx
+      .select({ id: caixaSessao.id })
+      .from(caixaSessao)
+      .where(
+        and(eq(caixaSessao.tenantId, tenantId), eq(caixaSessao.status, 'aberta')),
+      );
+    return s?.id ?? null;
   }
 
   // Baixa de um produto vendido (simples/variável/combo), respeitando controla_estoque.
@@ -182,9 +194,11 @@ export class VendasService {
       }
 
       const totalComTaxa = total * (1 + taxa / 100);
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
       await tx.insert(lancamentoCaixa).values({
         tenantId,
         unidadeId: dto.unidadeId,
+        sessaoId: sessaoId ?? undefined,
         tipo: 'entrada',
         valor: String(totalComTaxa.toFixed(2)),
         data: hojeISO(),
@@ -397,9 +411,11 @@ export class VendasService {
           ? dto.taxaServicoPct
           : Number(c.taxaServicoPct) || 0;
       const totalComTaxa = total * (1 + taxa / 100);
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
       await tx.insert(lancamentoCaixa).values({
         tenantId,
         unidadeId: c.unidadeId,
+        sessaoId: sessaoId ?? undefined,
         tipo: 'entrada',
         valor: String(totalComTaxa.toFixed(2)),
         data: hojeISO(),

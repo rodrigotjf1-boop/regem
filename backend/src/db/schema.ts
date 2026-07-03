@@ -539,7 +539,28 @@ export const lancamentoCaixa = pgTable('lancamento_caixa', {
   forma: text('forma'), // dinheiro|pix|cartao|transferencia
   descricao: text('descricao'),
   estornoDe: uuid('estorno_de'),
+  sessaoId: uuid('sessao_id'),
   criadoPorId: uuid('criado_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Sessão de caixa (abertura → fechamento cego). Fase J/J5.
+export const caixaSessao = pgTable('caixa_sessao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  status: text('status').notNull().default('aberta'), // aberta | fechada
+  valorAbertura: numeric('valor_abertura').notNull().default('0'),
+  abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
+  abertaPorId: uuid('aberta_por_id'),
+  valorInformado: numeric('valor_informado'),
+  valorEsperado: numeric('valor_esperado'),
+  diferenca: numeric('diferenca'),
+  fechadaEm: timestamp('fechada_em', { withTimezone: true }),
+  fechadaPorId: uuid('fechada_por_id'),
+  obs: text('obs'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

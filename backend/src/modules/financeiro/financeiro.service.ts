@@ -10,6 +10,7 @@ import {
   tituloFinanceiro,
   lancamentoCaixa,
   fornecedor,
+  caixaSessao,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateTituloDto } from './dto/create-titulo.dto';
@@ -321,5 +322,105 @@ export class FinanceiroService {
       totalDespesas,
       resultado: Number((receitas - totalDespesas).toFixed(2)),
     };
+  }
+
+  // ===== Caixa (J5) =====
+  async sessaoAberta(tenantId: string) {
+    const [s] = await this.db
+      .select()
+      .from(caixaSessao)
+      .where(
+        and(
+          eq(caixaSessao.tenantId, tenantId),
+          eq(caixaSessao.status, 'aberta'),
+        ),
+      );
+    return s ?? null;
+  }
+
+  async abrirSessao(
+    tenantId: string,
+    atorId: string,
+    dto: { valorAbertura?: number; unidadeId?: string },
+  ) {
+    const aberta = await this.sessaoAberta(tenantId);
+    if (aberta) throw new BadRequestException('Já existe um caixa aberto.');
+    const [s] = await this.db
+      .insert(caixaSessao)
+      .values({
+        tenantId,
+        unidadeId: dto.unidadeId,
+        valorAbertura: String(dto.valorAbertura ?? 0),
+        abertaPorId: atorId,
+      })
+      .returning();
+    return s;
+  }
+
+  // Sangria (retira dinheiro) / suprimento (coloca dinheiro) — sempre em dinheiro.
+  async movimentarCaixa(
+    tenantId: string,
+    atorId: string,
+    dto: { tipo: 'sangria' | 'suprimento'; valor: number; descricao?: string },
+  ) {
+    const s = await this.sessaoAberta(tenantId);
+    if (!s) throw new BadRequestException('Nenhum caixa aberto.');
+    await this.db.insert(lancamentoCaixa).values({
+      tenantId,
+      unidadeId: s.unidadeId,
+      sessaoId: s.id,
+      tipo: dto.tipo === 'suprimento' ? 'entrada' : 'saida',
+      valor: String(dto.valor),
+      data: hojeISO(),
+      categoria: dto.tipo,
+      forma: 'dinheiro',
+      descricao: dto.descricao,
+      criadoPorId: atorId,
+    });
+    return { ok: true };
+  }
+
+  // Fechamento CEGO: recebe a contagem; calcula o esperado (só dinheiro) e a diferença.
+  async fecharSessao(
+    tenantId: string,
+    atorId: string,
+    dto: { valorInformado: number; obs?: string },
+  ) {
+    const s = await this.sessaoAberta(tenantId);
+    if (!s) throw new BadRequestException('Nenhum caixa aberto.');
+    // Esperado em gaveta = abertura + entradas − saídas (apenas dinheiro) da sessão.
+    const r: any = await this.db.execute(sql`
+      select coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
+      from lancamento_caixa
+      where sessao_id=${s.id} and (forma='dinheiro' or forma is null)
+    `);
+    const mov = Number((r.rows ?? r)[0].mov);
+    const esperado = Number(s.valorAbertura) + mov;
+    const informado = Number(dto.valorInformado);
+    const diferenca = Number((informado - esperado).toFixed(2));
+    const [row] = await this.db
+      .update(caixaSessao)
+      .set({
+        status: 'fechada',
+        valorInformado: String(informado),
+        valorEsperado: String(esperado.toFixed(2)),
+        diferenca: String(diferenca),
+        fechadaEm: new Date(),
+        fechadaPorId: atorId,
+        obs: dto.obs,
+      })
+      .where(eq(caixaSessao.id, s.id))
+      .returning();
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil: '',
+      tipo: 'financeiro',
+      acao: 'fechou_caixa',
+      entidadeTipo: 'caixa_sessao',
+      entidadeId: s.id,
+      detalhe: { esperado, informado, diferenca },
+    });
+    return { esperado, informado, diferenca, sessao: row };
   }
 }

@@ -71,4 +71,25 @@ export class FinanceiroController {
   estornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.estornar(user.tenantId, user.colaboradorId, user.categoria, id);
   }
+
+  // ----- Caixa (sessão) -----
+  @Get('caixa')
+  caixa(@CurrentUser() user: AuthUser) {
+    return this.service.sessaoAberta(user.tenantId);
+  }
+
+  @Post('caixa/abrir')
+  abrirCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.abrirSessao(user.tenantId, user.colaboradorId, dto);
+  }
+
+  @Post('caixa/movimentar')
+  movimentarCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.movimentarCaixa(user.tenantId, user.colaboradorId, dto);
+  }
+
+  @Post('caixa/fechar')
+  fecharCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.fecharSessao(user.tenantId, user.colaboradorId, dto);
+  }
 }
