@@ -19,7 +19,8 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 
 1. `docs/especificacao.md` — requisitos e conceito do produto.
 2. `docs/decisoes-design.md` — design tokens, matriz RBAC, contratos JSON, decisões técnicas + changelog.
-3. `mockups/*.html` — referência **visual e comportamental**. Ao implementar/ajustar uma tela, abra o mockup correspondente e replique layout, textos, estados vazios e interações.
+3. `docs/logica-negocio.md` — fórmulas e regras de cálculo do ERP (estoque, financeiro, jornada, integrações).
+4. `mockups/*.html` — referência **visual e comportamental**. Ao implementar/ajustar uma tela, abra o mockup correspondente e replique layout, textos, estados vazios e interações.
 
 | Mockup | Conteúdo |
 |---|---|
