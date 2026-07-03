@@ -211,6 +211,15 @@ export const api = {
     return req(`/estoque/inteligencia${q ? `?${q}` : ''}`);
   },
   estoqueValidades: () => req('/estoque/validades'),
+  estoqueCmv: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/estoque/cmv${q ? `?${q}` : ''}`);
+  },
+  gerarSnapshotEstoque: () =>
+    req('/estoque/snapshot', { method: 'POST', body: '{}' }),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),

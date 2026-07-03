@@ -32,21 +32,33 @@ export default function EstoqueInteligenciaPage() {
   const [fim, setFim] = useState(hojeISO());
   const [data, setData] = useState<any>(null);
   const [validades, setValidades] = useState<any[]>([]);
+  const [cmv, setCmv] = useState<any>(null);
   const [erro, setErro] = useState('');
 
   const carregar = useCallback(async (ini: string, f: string) => {
     setErro('');
     try {
-      const [intel, vals] = await Promise.all([
+      const [intel, vals, cmvData] = await Promise.all([
         api.estoqueInteligencia(ini, f),
         api.estoqueValidades(),
+        api.estoqueCmv(ini, f),
       ]);
       setData(intel);
       setValidades(vals);
+      setCmv(cmvData);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
   }, []);
+
+  async function bootstrapSnapshot() {
+    try {
+      await api.gerarSnapshotEstoque();
+      await carregar(inicio, fim);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao gerar snapshot');
+    }
+  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -96,6 +108,43 @@ export default function EstoqueInteligenciaPage() {
             tone={r?.itensAbaixoMinimo ? 'danger' : undefined}
           />
         </div>
+
+        {/* CMV real × teórico · desvio (§1.3) */}
+        {cmv && (
+          <Card className="p-5">
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-3">
+              <h2 className="font-display text-lg font-semibold">CMV do período</h2>
+              <span className="text-xs text-muted-foreground">
+                EI + compras − EF · vs. consumo teórico
+              </span>
+              <button
+                type="button"
+                onClick={bootstrapSnapshot}
+                className="ml-auto text-xs font-medium text-primary hover:underline"
+              >
+                Gerar snapshot de hoje
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Kpi label="CMV real" value={brl(cmv.cmvReal)} />
+              <Kpi label="CMV teórico (consumo)" value={brl(cmv.cmvTeorico)} />
+              <Kpi
+                label="Desvio"
+                value={brl(cmv.desvio)}
+                tone={cmv.desvio > 0 ? 'danger' : undefined}
+              />
+              <Kpi label="Compras no período" value={brl(cmv.compras)} />
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              EI {brl(cmv.estoqueInicial)} · EF {brl(cmv.estoqueFinal)}
+              {cmv.efFonte === 'atual' ? ' (valorização atual)' : ''}.
+              {cmv.semSnapshotInicial
+                ? ' ⚠️ Sem snapshot inicial — gere um snapshot e o CMV real fica preciso no próximo período.'
+                : ''}{' '}
+              Desvio ≈ desperdício + porção fora do padrão + furo de contagem.
+            </p>
+          </Card>
+        )}
 
         {/* Validades FEFO */}
         {validades.length > 0 && (

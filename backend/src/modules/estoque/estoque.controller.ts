@@ -69,4 +69,28 @@ export class EstoqueController {
   validades(@CurrentUser() user: AuthUser) {
     return this.service.validades(user.tenantId);
   }
+
+  // CMV real (EI + Compras − EF) × teórico → desvio. Período padrão: mês corrente.
+  @Get('cmv')
+  @Roles('presidente', 'gerente')
+  cmv(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    const hoje = new Date();
+    const ini =
+      inicio ||
+      new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+        .toISOString()
+        .slice(0, 10);
+    return this.service.cmvReal(user.tenantId, ini, fim || hoje.toISOString().slice(0, 10));
+  }
+
+  // Gera o snapshot de estoque de hoje (bootstrap/teste; o job mensal faz automático).
+  @Post('snapshot')
+  @Roles('presidente', 'gerente')
+  snapshot(@CurrentUser() user: AuthUser) {
+    return this.service.gerarSnapshot(user.tenantId);
+  }
 }
