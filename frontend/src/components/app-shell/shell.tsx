@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarDays,
   ChefHat,
+  ClipboardList,
   Clock,
   FileText,
   History,
@@ -41,6 +42,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/painel', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart },
+      { href: '/comandas', label: 'Comandas · Mesas', icon: ClipboardList },
       { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
       { href: '/escala', label: 'Escalas', icon: CalendarDays },
       { href: '/operacao', label: 'Operação', icon: Boxes },

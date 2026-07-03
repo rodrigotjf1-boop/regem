@@ -104,6 +104,22 @@ export const api = {
   fichasLista: () => req('/fichas'),
   vendaBalcao: (body: Record<string, unknown>) =>
     req('/vendas/balcao', { method: 'POST', body: JSON.stringify(body) }),
+  comandas: () => req('/vendas/comandas'),
+  comanda: (id: string) => req(`/vendas/comandas/${id}`),
+  abrirComanda: (body: Record<string, unknown>) =>
+    req('/vendas/comandas', { method: 'POST', body: JSON.stringify(body) }),
+  addComandaItem: (id: string, body: Record<string, unknown>) =>
+    req(`/vendas/comandas/${id}/itens`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  removerComandaItem: (itemId: string) =>
+    req(`/vendas/comandas/itens/${itemId}`, { method: 'DELETE' }),
+  fecharComanda: (id: string, body: Record<string, unknown>) =>
+    req(`/vendas/comandas/${id}/fechar`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   janelasPico: (unidadeId?: string) =>
     req(`/janelas-pico${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   fornecedores: () => req('/fornecedores'),
