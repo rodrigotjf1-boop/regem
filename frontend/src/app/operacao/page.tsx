@@ -317,6 +317,16 @@ export default function OperacaoPage() {
               fields={
                 [
                   { name: 'descricao', label: 'Descrição', type: 'text', required: true, placeholder: 'Ex.: Pão queimado' },
+                  {
+                    name: 'itemId',
+                    label: 'Item de estoque (opcional — baixa o estoque e entra no CMV)',
+                    type: 'select',
+                    defaultValue: '',
+                    options: [
+                      { value: '', label: '— sem vínculo (só registro) —' },
+                      ...itens.map((i: any) => ({ value: i.id, label: i.nome })),
+                    ],
+                  },
                   { name: 'quantidade', label: 'Quantidade', type: 'text', placeholder: '0' },
                   { name: 'motivo', label: 'Motivo', type: 'text', placeholder: 'Ex.: forno' },
                   { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
@@ -326,6 +336,7 @@ export default function OperacaoPage() {
               onSubmit={async (v) => {
                 await api.post('/desperdicios', {
                   descricao: v.descricao,
+                  itemId: v.itemId || undefined,
                   quantidade: v.quantidade ? Number(v.quantidade) : undefined,
                   motivo: v.motivo || undefined,
                   fotoRef: v.fotoRef || undefined,
@@ -350,6 +361,14 @@ export default function OperacaoPage() {
                 <p className="text-sm text-muted-foreground">
                   {d.quantidade ?? '—'} {d.unidadeMedida ?? ''}
                   {d.motivo ? ` · ${d.motivo}` : ''} · {d.data}
+                  {d.custoUnitario && d.quantidade
+                    ? ` · perda ${(
+                        Number(d.custoUnitario) * Number(d.quantidade)
+                      ).toLocaleString('pt-BR', {
+                        style: 'currency',
+                        currency: 'BRL',
+                      })}`
+                    : ''}
                 </p>
               </div>
             </Card>

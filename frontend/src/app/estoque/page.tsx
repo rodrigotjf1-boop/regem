@@ -125,13 +125,19 @@ export default function EstoqueInteligenciaPage() {
                 Gerar snapshot de hoje
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Kpi label="CMV real" value={brl(cmv.cmvReal)} />
               <Kpi label="CMV teórico (consumo)" value={brl(cmv.cmvTeorico)} />
               <Kpi
                 label="Desvio"
                 value={brl(cmv.desvio)}
                 tone={cmv.desvio > 0 ? 'danger' : undefined}
+              />
+              <Kpi label="Desperdício registrado" value={brl(cmv.desperdicioValor ?? 0)} />
+              <Kpi
+                label="Furo (não explicado)"
+                value={brl(cmv.furo ?? 0)}
+                tone={(cmv.furo ?? 0) > 0 ? 'danger' : undefined}
               />
               <Kpi label="Compras no período" value={brl(cmv.compras)} />
             </div>
@@ -141,7 +147,8 @@ export default function EstoqueInteligenciaPage() {
               {cmv.semSnapshotInicial
                 ? ' ⚠️ Sem snapshot inicial — gere um snapshot e o CMV real fica preciso no próximo período.'
                 : ''}{' '}
-              Desvio ≈ desperdício + porção fora do padrão + furo de contagem.
+              Furo = desvio − desperdício registrado (porção fora do padrão + perda/contagem).
+              Vincule item ao registrar o desperdício para ele entrar aqui.
             </p>
           </Card>
         )}
