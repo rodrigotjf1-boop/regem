@@ -20,6 +20,6 @@ export class DesperdicioController {
 
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
-    return this.service.findAll(user.tenantId);
+    return this.service.findAll(user);
   }
 }

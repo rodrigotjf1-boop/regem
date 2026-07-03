@@ -23,6 +23,8 @@ export class JwtAuthGuard implements CanActivate {
         colaboradorId: payload.sub,
         tenantId: payload.tenant,
         categoria: payload.cat,
+        setorId: payload.setor ?? null,
+        unidadeId: payload.uni ?? null,
       };
       return true;
     } catch {

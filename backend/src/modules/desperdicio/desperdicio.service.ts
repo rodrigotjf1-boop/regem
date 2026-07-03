@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, desc } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { desperdicio } from '../../db/schema';
+import { AuthUser } from '../../auth/auth-user';
 import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
 
 @Injectable()
@@ -27,11 +28,19 @@ export class DesperdicioService {
     return row;
   }
 
-  findAll(tenantId: string) {
+  // Escopo RBAC: supervisor vê só o próprio setor; demais perfis veem tudo do tenant.
+  findAll(user: AuthUser) {
+    const conds = [
+      eq(desperdicio.tenantId, user.tenantId),
+      isNull(desperdicio.deletedAt),
+    ];
+    if (user.categoria === 'supervisao' && user.setorId) {
+      conds.push(eq(desperdicio.setorId, user.setorId));
+    }
     return this.db
       .select()
       .from(desperdicio)
-      .where(and(eq(desperdicio.tenantId, tenantId), isNull(desperdicio.deletedAt)))
+      .where(and(...conds))
       .orderBy(desc(desperdicio.createdAt));
   }
 }

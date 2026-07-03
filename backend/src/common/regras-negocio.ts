@@ -64,6 +64,21 @@ export function resolverColaboradorTarefa(
 }
 
 /**
+ * Escopo de setor (RBAC): supervisor só enxerga/opera o próprio setor;
+ * presidente/gerente/execução não têm restrição de setor aqui.
+ * Supervisor sem setor definido não acessa recurso de setor algum.
+ */
+export function escopoPermiteSetor(
+  categoria: string,
+  userSetorId: string | null | undefined,
+  recursoSetorId: string | null | undefined,
+): boolean {
+  if (categoria !== 'supervisao') return true;
+  if (!userSetorId) return false;
+  return recursoSetorId === userSetorId;
+}
+
+/**
  * Executa `fn` com retry APENAS em violação de unique do Postgres (código 23505),
  * usado no NSR sequencial por equipamento (colisão concorrente → tenta o próximo).
  * Outros erros propagam; estouro de tentativas propaga o último erro.

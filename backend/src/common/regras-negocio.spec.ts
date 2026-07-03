@@ -4,6 +4,7 @@ import {
   proximaData,
   resolverColaboradorTarefa,
   comRetryUnico,
+  escopoPermiteSetor,
 } from './regras-negocio';
 
 describe('custoMedioPonderado (CMP no recebimento)', () => {
@@ -66,6 +67,22 @@ describe('resolverColaboradorTarefa (late-binding tarefa→escala)', () => {
   it('sem override e sem alocação resolve para ninguém', () => {
     expect(resolverColaboradorTarefa(null, null)).toBeNull();
     expect(resolverColaboradorTarefa(undefined, undefined)).toBeNull();
+  });
+});
+
+describe('escopoPermiteSetor (RBAC por setor)', () => {
+  it('supervisor NÃO lê dados de outro setor', () => {
+    expect(escopoPermiteSetor('supervisao', 'setor_A', 'setor_B')).toBe(false);
+  });
+  it('supervisor lê dados do próprio setor', () => {
+    expect(escopoPermiteSetor('supervisao', 'setor_A', 'setor_A')).toBe(true);
+  });
+  it('supervisor sem setor definido não acessa recurso de setor', () => {
+    expect(escopoPermiteSetor('supervisao', null, 'setor_A')).toBe(false);
+  });
+  it('gerente e presidente não têm restrição de setor', () => {
+    expect(escopoPermiteSetor('gerente', null, 'setor_B')).toBe(true);
+    expect(escopoPermiteSetor('presidente', 'setor_A', 'setor_B')).toBe(true);
   });
 });
 
