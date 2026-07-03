@@ -117,6 +117,25 @@ export class RealtimeGateway
     this.server.to(`tenant:${p.tenantId}`).emit('ponto:marcado', p);
   }
 
+  // Alerta gerado por job do sistema (ROP, validades FEFO) → fila do KDS/gestor.
+  @OnEvent('kds.alerta.sistema')
+  onAlertaSistema(p: {
+    tenantId: string;
+    titulo: string;
+    detalhe?: string;
+    prioridade?: string;
+  }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('kds:alerta', {
+      id: randomUUID(),
+      titulo: p.titulo,
+      detalhe: p.detalhe ?? '',
+      prioridade: p.prioridade ?? 'alta',
+      som: true,
+      em: new Date().toISOString(),
+    });
+  }
+
   // Pedido de produção (venda balcão/comanda) → KDS. Roteado por tenant/unidade.
   @OnEvent('kds.pedido')
   onKdsPedido(p: {

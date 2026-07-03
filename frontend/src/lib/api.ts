@@ -210,6 +210,7 @@ export const api = {
     const q = p.toString();
     return req(`/estoque/inteligencia${q ? `?${q}` : ''}`);
   },
+  estoqueValidades: () => req('/estoque/validades'),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),

@@ -31,12 +31,18 @@ export default function EstoqueInteligenciaPage() {
   const [inicio, setInicio] = useState(diasAtras(29));
   const [fim, setFim] = useState(hojeISO());
   const [data, setData] = useState<any>(null);
+  const [validades, setValidades] = useState<any[]>([]);
   const [erro, setErro] = useState('');
 
   const carregar = useCallback(async (ini: string, f: string) => {
     setErro('');
     try {
-      setData(await api.estoqueInteligencia(ini, f));
+      const [intel, vals] = await Promise.all([
+        api.estoqueInteligencia(ini, f),
+        api.estoqueValidades(),
+      ]);
+      setData(intel);
+      setValidades(vals);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -91,6 +97,46 @@ export default function EstoqueInteligenciaPage() {
           />
         </div>
 
+        {/* Validades FEFO */}
+        {validades.length > 0 && (
+          <Card className="p-0">
+            <div className="border-b border-border px-5 py-3.5">
+              <p className="font-display text-sm font-bold">Validades (FEFO)</p>
+              <p className="text-xs text-muted-foreground">
+                Lotes por vencimento · crítico ≤ 2 dias · atenção ≤ 5 dias
+              </p>
+            </div>
+            <div className="divide-y divide-border">
+              {validades.slice(0, 12).map((l) => {
+                const cor =
+                  l.status === 'vencido' || l.status === 'critico'
+                    ? 'hsl(var(--destructive))'
+                    : l.status === 'atencao'
+                      ? 'hsl(var(--warn))'
+                      : 'hsl(var(--muted-foreground))';
+                return (
+                  <div key={l.id} className="flex items-center gap-3 px-5 py-2.5 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium">{l.itemNome}</span>
+                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+                        {l.quantidade} {l.unidadeMedida}
+                      </span>
+                    </div>
+                    <span className="font-mono text-xs" style={{ color: cor }}>
+                      {l.status === 'vencido'
+                        ? `vencido há ${Math.abs(l.diasParaVencer)}d`
+                        : `vence em ${l.diasParaVencer}d`}
+                    </span>
+                    <span className="w-24 text-right font-mono text-xs text-muted-foreground">
+                      {l.validade}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
         {/* Tabela */}
         <Card className="p-0">
           <div className="border-b border-border px-5 py-3.5">
@@ -141,13 +187,13 @@ export default function EstoqueInteligenciaPage() {
                         {i.classeAbc}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="whitespace-nowrap px-4 py-3">
                       {i.repor && (
                         <span
                           className="rounded-md px-2 py-0.5 text-[11px] font-bold"
                           style={{ background: 'hsl(var(--warn)/.15)', color: 'hsl(var(--warn))' }}
                         >
-                          Repor
+                          Repor{i.qtdSugerida > 0 ? ` ${i.qtdSugerida} ${i.unidadeMedida}` : ''}
                         </span>
                       )}
                     </td>

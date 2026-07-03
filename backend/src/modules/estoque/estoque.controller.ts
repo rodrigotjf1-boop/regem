@@ -62,4 +62,11 @@ export class EstoqueController {
       new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
     return this.service.inteligencia(user.tenantId, ini, fim || hoje);
   }
+
+  // Validades FEFO: lotes por vencimento com status.
+  @Get('validades')
+  @Roles('presidente', 'gerente', 'supervisao')
+  validades(@CurrentUser() user: AuthUser) {
+    return this.service.validades(user.tenantId);
+  }
 }
