@@ -89,10 +89,13 @@ export class BotService {
   }
 
   async metricas(tenantId: string) {
+    // "Hoje" no fuso do Brasil (não no fuso do servidor, que é UTC em produção).
     const r: any = await this.db.execute(sql`
       select
-        count(*) filter (where created_at::date = current_date)::int as "hoje",
-        count(*) filter (where created_at::date = current_date and escalado)::int as "escaladosHoje"
+        count(*) filter (where (created_at at time zone 'America/Sao_Paulo')::date
+          = (now() at time zone 'America/Sao_Paulo')::date)::int as "hoje",
+        count(*) filter (where (created_at at time zone 'America/Sao_Paulo')::date
+          = (now() at time zone 'America/Sao_Paulo')::date and escalado)::int as "escaladosHoje"
       from bot_atendimento
       where tenant_id = ${tenantId}
     `);

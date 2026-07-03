@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
@@ -32,6 +32,7 @@ export default function PdvPage() {
   const [comprovante, setComprovante] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const chaveRef = useRef<string | null>(null); // chave idempotente da venda atual
 
   const reload = useCallback(async () => {
     try {
@@ -88,6 +89,8 @@ export default function PdvPage() {
     if (carrinho.length === 0) return;
     setErro('');
     setEnviando(true);
+    // Chave idempotente estável: reusada em retry (rede), renovada só após sucesso.
+    if (!chaveRef.current) chaveRef.current = crypto.randomUUID();
     try {
       const r: any = await api.vendaBalcao({
         itens: carrinho.map((i) => ({
@@ -97,10 +100,12 @@ export default function PdvPage() {
         })),
         forma,
         taxaServicoPct: taxa ? 10 : 0,
+        idempotencyKey: chaveRef.current,
       });
       setComprovante(r);
       setCarrinho([]);
       setTaxa(false);
+      chaveRef.current = null; // sucesso → próxima venda usa chave nova
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao finalizar');
     } finally {

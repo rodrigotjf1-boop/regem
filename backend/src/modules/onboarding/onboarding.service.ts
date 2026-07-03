@@ -141,29 +141,57 @@ export class OnboardingService {
 
     const setoresSel = new Set(dto.setores ?? []);
     const funcoesSel = new Set(dto.funcoes ?? []);
-    const criados = { setores: 0, funcoes: 0, etiquetas: 0 };
+    const criados = { setores: 0, funcoes: 0, etiquetas: 0, reaproveitados: 0 };
+
+    // Idempotência: reusa setores/funções que já existem (rodar o wizard 2× não
+    // duplica). Setor casa por nome na unidade; função por nome dentro do setor.
+    const setoresExist = await this.db
+      .select({ id: setor.id, nome: setor.nome })
+      .from(setor)
+      .where(
+        and(
+          eq(setor.tenantId, tenantId),
+          eq(setor.unidadeId, dto.unidadeId),
+          isNull(setor.deletedAt),
+        ),
+      );
+    const setorPorNome = new Map(setoresExist.map((s) => [s.nome, s.id]));
+    const funcoesExist = await this.db
+      .select({ nome: funcao.nome, setorId: funcao.setorId })
+      .from(funcao)
+      .where(and(eq(funcao.tenantId, tenantId), isNull(funcao.deletedAt)));
+    const funcaoExiste = new Set(
+      funcoesExist.map((f) => `${f.setorId}::${f.nome}`),
+    );
 
     await this.db.transaction(async (tx) => {
       for (const s of tpl.setores) {
         if (!setoresSel.has(s.nome)) continue;
-        const [setorRow] = await tx
-          .insert(setor)
-          .values({ tenantId, unidadeId: dto.unidadeId, nome: s.nome, icone: s.icone })
-          .returning();
-        criados.setores++;
+        let setorId = setorPorNome.get(s.nome);
+        if (setorId) {
+          criados.reaproveitados++;
+        } else {
+          const [setorRow] = await tx
+            .insert(setor)
+            .values({ tenantId, unidadeId: dto.unidadeId, nome: s.nome, icone: s.icone })
+            .returning();
+          setorId = setorRow.id;
+          criados.setores++;
+        }
 
         for (const f of s.funcoes) {
           if (!funcoesSel.has(f.nome)) continue;
+          if (funcaoExiste.has(`${setorId}::${f.nome}`)) continue; // já existe → pula
           const [funcaoRow] = await tx
             .insert(funcao)
-            .values({ tenantId, nome: f.nome, categoria: f.categoria, setorId: setorRow.id })
+            .values({ tenantId, nome: f.nome, categoria: f.categoria, setorId })
             .returning();
           criados.funcoes++;
 
           await tx.insert(etiqueta).values({
             tenantId,
             unidadeId: dto.unidadeId,
-            setorId: setorRow.id,
+            setorId,
             funcaoId: funcaoRow.id,
             sigla: f.sigla,
             contador: 1,

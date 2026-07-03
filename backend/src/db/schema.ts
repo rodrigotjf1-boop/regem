@@ -79,6 +79,7 @@ export const colaborador = pgTable('colaborador', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   nome: text('nome').notNull(),
   fotoRef: text('foto_ref'),
+  unidadeId: uuid('unidade_id'), // loja do colaborador (escopo do mural, etc.)
   funcaoId: uuid('funcao_id').references(() => funcao.id),
   vinculo: text('vinculo').notNull().default('clt'),
   pinHash: text('pin_hash'),
@@ -793,6 +794,7 @@ export const comanda = pgTable('comanda', {
   mesa: text('mesa'),
   cliente: text('cliente'),
   status: text('status').notNull().default('aberta'), // aberta|fechada|cancelada
+  idempotencyKey: text('idempotency_key'), // dedup de venda balcão (offline-first)
   taxaServicoPct: numeric('taxa_servico_pct').notNull().default('0'),
   abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
   fechadaEm: timestamp('fechada_em', { withTimezone: true }),

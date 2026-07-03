@@ -140,7 +140,23 @@ export class VendasService {
     if (!dto.itens?.length)
       throw new BadRequestException('Adicione ao menos um item.');
 
-    const res = await this.db.transaction(async (tx) => {
+    // Idempotência (offline-first): mesma chave → não reprocessa (não duplica baixa/caixa).
+    if (dto.idempotencyKey) {
+      const [existente] = await this.db
+        .select({ id: comanda.id })
+        .from(comanda)
+        .where(
+          and(
+            eq(comanda.tenantId, tenantId),
+            eq(comanda.idempotencyKey, dto.idempotencyKey),
+          ),
+        );
+      if (existente) return { comandaId: existente.id, idempotente: true };
+    }
+
+    let res: any;
+    try {
+      res = await this.db.transaction(async (tx) => {
       const taxa = Number(dto.taxaServicoPct) || 0;
       const [cmd] = await tx
         .insert(comanda)
@@ -149,6 +165,7 @@ export class VendasService {
           unidadeId: dto.unidadeId,
           mesa: dto.mesa,
           status: 'fechada',
+          idempotencyKey: dto.idempotencyKey,
           taxaServicoPct: String(taxa),
           fechadaEm: new Date(),
           abertaPorId: atorId,
@@ -227,7 +244,23 @@ export class VendasService {
         pedidoKds,
         unidadeId: dto.unidadeId ?? null,
       };
-    });
+      });
+    } catch (e: any) {
+      // Corrida: outra requisição com a mesma chave inseriu primeiro (unique).
+      if (e?.code === '23505' && dto.idempotencyKey) {
+        const [existente] = await this.db
+          .select({ id: comanda.id })
+          .from(comanda)
+          .where(
+            and(
+              eq(comanda.tenantId, tenantId),
+              eq(comanda.idempotencyKey, dto.idempotencyKey),
+            ),
+          );
+        if (existente) return { comandaId: existente.id, idempotente: true };
+      }
+      throw e;
+    }
 
     await this.auditoria.registrar({
       tenantId,

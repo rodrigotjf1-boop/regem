@@ -42,4 +42,9 @@ export class VendaBalcaoDto {
   @IsOptional()
   @IsUUID()
   unidadeId?: string;
+
+  // Chave idempotente do cliente (offline-first): reenvio da mesma venda não duplica.
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
 }
