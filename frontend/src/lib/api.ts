@@ -121,6 +121,8 @@ export const api = {
     return req(`/financeiro/titulos${q ? `?${q}` : ''}`);
   },
   financeiroResumo: () => req('/financeiro/resumo'),
+  financeiroFluxo: (dias?: number) =>
+    req(`/financeiro/fluxo${dias ? `?dias=${dias}` : ''}`),
   criarTitulo: (body: Record<string, unknown>) =>
     req('/financeiro/titulos', { method: 'POST', body: JSON.stringify(body) }),
   pagarTitulo: (id: string, body: Record<string, unknown>) =>

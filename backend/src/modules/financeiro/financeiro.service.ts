@@ -233,4 +233,62 @@ export class FinanceiroService {
       saldoCaixa: Number(cx.saldoCaixa),
     };
   }
+
+  // Fluxo de caixa projetado: saldo atual + títulos abertos por vencimento,
+  // com saldo acumulado dia a dia (vencidos entram no "hoje"). H2.
+  async fluxoCaixa(tenantId: string, dias = 30) {
+    const c: any = await this.db.execute(sql`
+      select coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as saldo
+      from lancamento_caixa where tenant_id=${tenantId}
+    `);
+    const saldoAtual = Number((c.rows ?? c)[0].saldo);
+
+    const hoje = hojeISO();
+    const limite = new Date(Date.now() + dias * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    const t: any = await this.db.execute(sql`
+      select vencimento::text as data, tipo, coalesce(sum(valor),0) as valor
+      from titulo_financeiro
+      where tenant_id=${tenantId} and status='aberto' and vencimento is not null
+        and vencimento <= ${limite}
+      group by vencimento, tipo
+      order by vencimento asc
+    `);
+    const linhas = t.rows ?? t;
+
+    // Agrega por data (vencidos → hoje).
+    const mapa = new Map<string, { aPagar: number; aReceber: number }>();
+    for (const l of linhas) {
+      const data = l.data < hoje ? hoje : l.data;
+      const cur = mapa.get(data) ?? { aPagar: 0, aReceber: 0 };
+      if (l.tipo === 'pagar') cur.aPagar += Number(l.valor);
+      else cur.aReceber += Number(l.valor);
+      mapa.set(data, cur);
+    }
+
+    let saldo = saldoAtual;
+    const datas = [...mapa.keys()].sort();
+    const projecao = datas.map((data) => {
+      const m = mapa.get(data)!;
+      saldo += m.aReceber - m.aPagar;
+      return {
+        data,
+        aPagar: m.aPagar,
+        aReceber: m.aReceber,
+        saldoProjetado: Number(saldo.toFixed(2)),
+        atraso: data === hoje && datas.includes(hoje),
+        negativo: saldo < 0,
+      };
+    });
+
+    return {
+      saldoAtual,
+      horizonteDias: dias,
+      totalAPagar: projecao.reduce((s, p) => s + p.aPagar, 0),
+      totalAReceber: projecao.reduce((s, p) => s + p.aReceber, 0),
+      saldoFinal: Number(saldo.toFixed(2)),
+      projecao,
+    };
+  }
 }

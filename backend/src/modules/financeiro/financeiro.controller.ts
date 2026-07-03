@@ -37,6 +37,11 @@ export class FinanceiroController {
     return this.service.resumo(user.tenantId);
   }
 
+  @Get('fluxo')
+  fluxo(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
+    return this.service.fluxoCaixa(user.tenantId, dias ? Number(dias) : 30);
+  }
+
   @Post('titulos')
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateTituloDto) {
     return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto);

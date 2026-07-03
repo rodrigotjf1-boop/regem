@@ -29,6 +29,7 @@ const FILTROS = [
 export default function FinanceiroPage() {
   const router = useRouter();
   const [resumo, setResumo] = useState<any>(null);
+  const [fluxo, setFluxo] = useState<any>(null);
   const [titulos, setTitulos] = useState<any[] | null>(null);
   const [fornecedores, setFornecedores] = useState<any[]>([]);
   const [filtro, setFiltro] = useState('pagar');
@@ -38,12 +39,14 @@ export default function FinanceiroPage() {
   const carregar = useCallback(async (f: string) => {
     setErro('');
     try {
-      const [res, forn] = await Promise.all([
+      const [res, forn, flx] = await Promise.all([
         api.financeiroResumo(),
         api.fornecedores(),
+        api.financeiroFluxo(30),
       ]);
       setResumo(res);
       setFornecedores(forn);
+      setFluxo(flx);
       const t =
         f === 'pago'
           ? await api.financeiroTitulos(undefined, 'pago')
@@ -128,6 +131,58 @@ export default function FinanceiroPage() {
         </div>
 
         {erro && <p className="text-destructive">{erro}</p>}
+
+        {/* Fluxo de caixa projetado (H2) */}
+        {fluxo && fluxo.projecao?.length > 0 && (
+          <Card className="p-0">
+            <div className="flex flex-wrap items-baseline gap-x-3 border-b border-border px-5 py-3.5">
+              <p className="font-display text-sm font-bold">Fluxo de caixa projetado</p>
+              <p className="text-xs text-muted-foreground">próximos {fluxo.horizonteDias} dias</p>
+              <p className="ml-auto text-xs text-muted-foreground">
+                saldo final:{' '}
+                <span
+                  className="font-mono font-bold"
+                  style={{ color: fluxo.saldoFinal < 0 ? 'hsl(var(--destructive))' : 'hsl(var(--ok))' }}
+                >
+                  {brl(fluxo.saldoFinal)}
+                </span>
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <caption className="sr-only">Projeção de caixa por vencimento</caption>
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    {['Data', 'A receber', 'A pagar', 'Saldo projetado'].map((h) => (
+                      <th key={h} className="whitespace-nowrap px-4 py-2.5 font-display text-[10px] font-bold uppercase tracking-[.1em] text-muted-foreground">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {fluxo.projecao.map((p: any, i: number) => (
+                    <tr key={i} className="border-b border-border last:border-0">
+                      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs">{p.data}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                        {p.aReceber > 0 ? brl(p.aReceber) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-muted-foreground">
+                        {p.aPagar > 0 ? brl(p.aPagar) : '—'}
+                      </td>
+                      <td
+                        className="px-4 py-2.5 font-mono text-xs font-bold"
+                        style={{ color: p.negativo ? 'hsl(var(--destructive))' : undefined }}
+                      >
+                        {brl(p.saldoProjetado)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
 
         {/* Novo título */}
         <Card className="p-4">
