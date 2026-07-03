@@ -43,10 +43,13 @@ Produção: `app.dmsregem.com` / `api.dmsregem.com` (EasyPanel + Supabase, auto-
 ### Fase I — Fiscal de entrada (DF-e)
 - Consulta automática à SEFAZ puxa o **XML** das notas contra o CNPJ → recebimento vira **conferência** (foto = fallback). Alimenta custo (G1) e contas a pagar (H) sozinho. Via hub fiscal.
 
-### Fase J — Vendas & PDV (comandas) — frente grande, sub-fases
-- Comanda por mesa · divisão de conta · taxa de serviço 10% · sangria/suprimento · **fechamento de caixa cego**.
-- Dispara **baixa por explosão de ficha** (venda → decrementa insumos × FC, consumindo lote FEFO), o **CMV real** e o **caixa**.
-- **Fiscal de saída**: NFC-e / SAT via hub. **Pagamentos**: TEF/POS + Pix + conciliação.
+### Fase J — Vendas & PDV — **EM ANDAMENTO** (loop fechado ✅)
+- **J1** ✅ (migrations 020/021): **catálogo de produtos** (categorias/subcategorias, produto completo, variações, combos, SKU, link à ficha, roteamento KDS). Tela `/produtos`.
+- **J2** ✅: **venda balcão rápida** (`/pdv`) — paga na hora e dispara de uma vez: **baixa por explosão de ficha** (estoque saída ao custo médio, com variação/combo) + **lançamento de caixa** (financeiro/DRE) + **pedido ao KDS** (`kds:pedido` em tempo real, painel no `/kds`). **O loop venda→estoque/CMV→caixa→produção está fechado.**
+- **J3** (próxima, sem migration): **mesas & comandas** — abrir comanda, adicionar itens ao longo do tempo, fechar com pagamento (reusa `comanda` da 020).
+- **J4**: KDS de produção — roteamento por setor + status (pendente/pronto) + configs.
+- **J5** (migration): **fechamento de caixa** — sessão (abertura → sangria/suprimento → **cego**).
+- **Fiscal de saída** (NFC-e via hub) e **pagamentos** (TEF/Pix) → junto da Fase I (pendência externa).
 
 ### Fase K — Integrações externas
 - **iFood** (+ Bot) · **WhatsApp Business** (bot + relatórios no zap) · **pagamentos/conciliação** · **Open Finance** (Pluggy/Belvo) · **exportação contábil** (layout Domínio + XMLs).
