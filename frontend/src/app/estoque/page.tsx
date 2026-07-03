@@ -86,7 +86,7 @@ export default function EstoqueInteligenciaPage() {
           </div>
           {r && (
             <p className="ml-auto text-xs text-muted-foreground">
-              {r.dias} dia(s) · lead time {r.leadTimeDias}d
+              {r.dias} dia(s) · lead time {r.leadTimePadrao}d (padrão; por fornecedor quando houver)
             </p>
           )}
         </Card>
@@ -222,7 +222,14 @@ export default function EstoqueInteligenciaPage() {
                 )}
                 {itens.map((i) => (
                   <tr key={i.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-medium">{i.nome}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {i.nome}
+                      {i.fornecedorNome && (
+                        <span className="block text-[11px] font-normal text-muted-foreground">
+                          {i.fornecedorNome} · lead {i.leadTime}d
+                        </span>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
                       {i.saldo} {i.unidadeMedida}
                     </td>
@@ -261,7 +268,7 @@ export default function EstoqueInteligenciaPage() {
         </Card>
         <p className="text-xs text-muted-foreground">
           Curva ABC pelo valor consumido no período (A ≤ 80% acumulado · B ≤ 95% · C resto).
-          Ponto de pedido usa lead time padrão — prazo por fornecedor virá depois.
+          Ponto de pedido usa o lead time do fornecedor do item (padrão quando o item não tem fornecedor).
         </p>
       </div>
     </Shell>

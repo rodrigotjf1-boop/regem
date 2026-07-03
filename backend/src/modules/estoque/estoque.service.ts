@@ -92,14 +92,16 @@ export class EstoqueService {
 
   // G2/G3/G4 — Inteligência de estoque (tudo derivado do ledger + custo médio).
   // Valorização (valor em estoque + compras), reposição (ROP) e curva ABC no período.
-  // Lead time padrão de 7 dias (prazo por fornecedor = pendência, exige migration).
+  // Lead time é POR FORNECEDOR (item.fornecedor_id → fornecedor.lead_time_dias);
+  // item sem fornecedor cai no padrão.
   async inteligencia(tenantId: string, inicio: string, fim: string) {
-    const LEAD_TIME_DIAS = 7;
+    const LEAD_TIME_PADRAO = 7;
     const COBERTURA_ALVO_DIAS = 7;
     const res: any = await this.db.execute(sql`
       select i.id, i.nome, i.unidade_medida as "unidadeMedida",
              i.estoque_minimo as "estoqueMinimo", i.custo_medio as "custoMedio",
              i.dias_seguranca as "diasSeguranca",
+             f.lead_time_dias as "leadTimeDias", f.nome as "fornecedorNome",
              coalesce(sum(case m.tipo when 'entrada' then m.quantidade
                when 'saida' then -m.quantidade else m.quantidade end),0) as saldo,
              coalesce(sum(case when m.tipo='saida' and m.data between ${inicio} and ${fim}
@@ -108,9 +110,10 @@ export class EstoqueService {
                and m.data between ${inicio} and ${fim}
                then m.quantidade * coalesce(m.custo_unitario, i.custo_medio) else 0 end),0) as "comprasValor"
       from item_estoque i
+      left join fornecedor f on f.id = i.fornecedor_id and f.deleted_at is null
       left join movimento_estoque m on m.item_id = i.id
       where i.tenant_id = ${tenantId} and i.deleted_at is null
-      group by i.id
+      group by i.id, f.lead_time_dias, f.nome
       order by i.nome
     `);
     const rows = res.rows ?? res;
@@ -129,9 +132,11 @@ export class EstoqueService {
       const consumoDiario = saidaPeriodo / dias;
       const diasCobertura = consumoDiario > 0 ? saldo / consumoDiario : null;
       // §1.4: ES = CMD × dias_seguranca; ROP = CMD × lead_time + ES.
+      // Lead time do fornecedor do item (fallback = padrão).
       const diasSeguranca = Number(r.diasSeguranca ?? 2);
+      const leadTime = Number(r.leadTimeDias ?? LEAD_TIME_PADRAO);
       const es = consumoDiario * diasSeguranca;
-      const rop = consumoDiario * LEAD_TIME_DIAS + es;
+      const rop = consumoDiario * leadTime + es;
       const qtdSugerida = Math.max(
         0,
         consumoDiario * COBERTURA_ALVO_DIAS + es - saldo,
@@ -148,6 +153,8 @@ export class EstoqueService {
         diasCobertura: diasCobertura != null ? Number(diasCobertura.toFixed(1)) : null,
         valorConsumido: saidaPeriodo * custoMedio,
         estoqueSeguranca: Number(es.toFixed(2)),
+        leadTime,
+        fornecedorNome: r.fornecedorNome ?? null,
         rop: Number(rop.toFixed(2)),
         qtdSugerida: Number(qtdSugerida.toFixed(2)),
         repor: saldo <= rop && rop > 0,
@@ -174,7 +181,7 @@ export class EstoqueService {
       valorConsumido: totalConsumo,
       itensAbaixoMinimo: itens.filter((i: any) => i.abaixoMinimo).length,
       itensRepor: itens.filter((i: any) => i.repor).length,
-      leadTimeDias: LEAD_TIME_DIAS,
+      leadTimePadrao: LEAD_TIME_PADRAO,
       dias,
     };
     return { resumo, itens };
