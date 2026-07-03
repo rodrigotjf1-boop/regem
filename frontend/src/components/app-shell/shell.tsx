@@ -23,6 +23,7 @@ import {
   ScrollText,
   Settings,
   ShoppingCart,
+  Wand2,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -83,6 +84,12 @@ const NAV: NavGroup[] = [
         href: '/bot',
         label: 'Bot de Suporte',
         icon: Bot,
+        roles: ['presidente', 'gerente'],
+      },
+      {
+        href: '/wizard',
+        label: 'Config. por ramo',
+        icon: Wand2,
         roles: ['presidente', 'gerente'],
       },
     ],
