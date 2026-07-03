@@ -6,7 +6,15 @@ import {
   comRetryUnico,
   escopoPermiteSetor,
   qtdBaixaExplosao,
+  minutosNaFaixaNoturna,
+  fatorHoraExtra,
 } from './regras-negocio';
+
+// helper: monta um timestamp UTC a partir da hora LOCAL do Brasil (UTC−3).
+function brLocal(dataISO: string, hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return Date.parse(`${dataISO}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00-03:00`);
+}
 
 describe('custoMedioPonderado (CMP no recebimento)', () => {
   it('estoque zerado assume o custo da entrada', () => {
@@ -50,6 +58,29 @@ describe('qtdBaixaExplosao (explosão de ficha)', () => {
 });
 
 // §7 caso 8 — estorno neutraliza saldo (e, por consequência, o CMV do período).
+describe('minutosNaFaixaNoturna (jornada §3, hora local BR 22h–5h)', () => {
+  it('turno 18h→23h tem 60 min noturnos (22h–23h)', () => {
+    expect(
+      minutosNaFaixaNoturna(brLocal('2026-07-01', '18:00'), brLocal('2026-07-01', '23:00')),
+    ).toBe(60);
+  });
+  it('turno diurno 08h→17h não tem noturno', () => {
+    expect(
+      minutosNaFaixaNoturna(brLocal('2026-07-01', '08:00'), brLocal('2026-07-01', '17:00')),
+    ).toBe(0);
+  });
+  it('vira a madrugada 21h→06h = 7h noturnas (22h→05h)', () => {
+    expect(
+      minutosNaFaixaNoturna(brLocal('2026-07-01', '21:00'), brLocal('2026-07-02', '06:00')),
+    ).toBe(7 * 60);
+  });
+});
+
+describe('fatorHoraExtra (50% dia útil, 100% domingo/feriado)', () => {
+  it('dia útil → 0.5', () => expect(fatorHoraExtra(false)).toBe(0.5));
+  it('domingo/feriado → 1.0', () => expect(fatorHoraExtra(true)).toBe(1.0));
+});
+
 describe('estorno neutraliza o efeito líquido', () => {
   it('saída + entrada inversa de mesma qtd → saldo zero', () => {
     expect(

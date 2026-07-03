@@ -35,6 +35,24 @@ export function qtdBaixaExplosao(
   return (qtdLiquida * fc * qtdProduzida) / rend;
 }
 
+/**
+ * Minutos de um intervalo [iniMs, fimMs] que caem na faixa noturna (22:00–05:00).
+ * Hora local do Brasil = UTC−3 (sem horário de verão desde 2019). Prévia gerencial.
+ */
+export function minutosNaFaixaNoturna(iniMs: number, fimMs: number): number {
+  let n = 0;
+  for (let t = iniMs; t < fimMs; t += 60000) {
+    const h = new Date(t - 3 * 3600000).getUTCHours(); // hora local BR
+    if (h >= 22 || h < 5) n++;
+  }
+  return n;
+}
+
+/** Fator de hora extra: 100% (1.0) em domingo/feriado; 50% (0.5) em dia útil. */
+export function fatorHoraExtra(ehDomingoOuFeriado: boolean): number {
+  return ehDomingoOuFeriado ? 1.0 : 0.5;
+}
+
 export type MovLedger = { tipo: string; quantidade: number | string };
 
 /**

@@ -154,6 +154,40 @@ export default function EspelhoPontoPrint() {
             </div>
           </div>
 
+          {/* Prévia gerencial de jornada (§3) — não substitui a folha contábil */}
+          <div className="mt-3 grid grid-cols-3 border border-dashed border-amber-400 bg-amber-50/50 text-center text-sm">
+            <div className="border-r border-amber-200 py-2">
+              <p className="text-[10px] font-bold uppercase text-amber-700">
+                Extra (50/100%)
+              </p>
+              <p className="font-mono text-base font-bold text-amber-800">
+                {fmtMin(dados.totalExtraMin ?? 0)}
+              </p>
+            </div>
+            <div className="border-r border-amber-200 py-2">
+              <p className="text-[10px] font-bold uppercase text-amber-700">
+                Noturno (22h–5h)
+              </p>
+              <p className="font-mono text-base font-bold text-amber-800">
+                {fmtMin(dados.totalNoturnoMin ?? 0)}
+              </p>
+            </div>
+            <div className="py-2">
+              <p className="text-[10px] font-bold uppercase text-amber-700">
+                DSR s/ extra (est.)
+              </p>
+              <p className="font-mono text-base font-bold text-amber-800">
+                {fmtMin(dados.dsrEstimadoMin ?? 0)}
+              </p>
+            </div>
+          </div>
+          <p className="mt-1 text-[10px] text-amber-700">
+            Prévia gerencial: extra a 50% em dia útil e 100% em domingo/feriado,
+            adicional noturno pela faixa 22h–5h, DSR estimado. Confira com a
+            contabilidade — convenção coletiva pode alterar percentuais e a hora
+            noturna reduzida.
+          </p>
+
           <table className="mt-4 w-full border-collapse text-xs">
             <thead>
               <tr className="border-y border-slate-300 text-left">
@@ -161,13 +195,15 @@ export default function EspelhoPontoPrint() {
                 <th className="py-1.5 pr-2 font-bold">Marcações</th>
                 <th className="py-1.5 pr-2 text-right font-bold">Trab.</th>
                 <th className="py-1.5 pr-2 text-right font-bold">Esp.</th>
+                <th className="py-1.5 pr-2 text-right font-bold">Extra</th>
+                <th className="py-1.5 pr-2 text-right font-bold">Not.</th>
                 <th className="py-1.5 text-right font-bold">Saldo</th>
               </tr>
             </thead>
             <tbody>
               {dados.dias.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-slate-500">
+                  <td colSpan={7} className="py-4 text-center text-slate-500">
                     Sem marcações no período.
                   </td>
                 </tr>
@@ -204,6 +240,22 @@ export default function EspelhoPontoPrint() {
                   </td>
                   <td className="py-1.5 pr-2 text-right font-mono text-slate-500">
                     {fmtMin(d.esperadoMin)}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right font-mono text-amber-700">
+                    {d.extraMin > 0 ? (
+                      <>
+                        {fmtMin(d.extraMin)}
+                        <span className="text-[9px] text-amber-500">
+                          {' '}
+                          {d.fatorExtraPct}%
+                        </span>
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right font-mono text-amber-700">
+                    {d.noturnoMin > 0 ? fmtMin(d.noturnoMin) : '—'}
                   </td>
                   <td
                     className={`py-1.5 text-right font-mono font-bold ${
