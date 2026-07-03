@@ -12,13 +12,17 @@ import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ChecklistService } from './checklist.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateChecklistDto } from './dto/create-checklist.dto';
 import { CreateChecklistItemDto } from './dto/create-item.dto';
 
 @Controller('checklists')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ChecklistController {
-  constructor(private readonly service: ChecklistService) {}
+  constructor(
+    private readonly service: ChecklistService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   @Post()
   @Roles('presidente', 'gerente', 'supervisao')
@@ -48,14 +52,34 @@ export class ChecklistController {
 
   @Post(':id/submeter')
   @Roles('supervisao')
-  submeter(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.submeter(user.tenantId, id);
+  async submeter(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const res = await this.service.submeter(user.tenantId, id);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'checklist',
+      acao: 'submeteu_checklist',
+      entidadeTipo: 'checklist',
+      entidadeId: id,
+    });
+    return res;
   }
 
   @Post(':id/publicar')
   @Roles('presidente', 'gerente')
-  publicar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.publicar(user.tenantId, id, user.colaboradorId);
+  async publicar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const res = await this.service.publicar(user.tenantId, id, user.colaboradorId);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'checklist',
+      acao: 'publicou_pop',
+      entidadeTipo: 'checklist',
+      entidadeId: id,
+    });
+    return res;
   }
 
   @Get(':id/pops')
