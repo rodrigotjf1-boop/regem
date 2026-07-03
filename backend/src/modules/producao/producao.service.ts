@@ -32,6 +32,74 @@ export class ProducaoService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
+  // Explode `qtdProduzir` unidades da ficha nos ITENS-RAIZ (acumula em consumoPorItem)
+  // e devolve o custo teórico total. Sub-fichas explodem recursivamente; `visitados`
+  // barra ciclo (A usa B usa A). Um item que aparece por vários caminhos é agregado.
+  private async explodir(
+    tx: any,
+    tenantId: string,
+    fichaId: string,
+    qtdProduzir: number,
+    consumoPorItem: Map<string, number>,
+    visitados: Set<string>,
+  ): Promise<number> {
+    if (visitados.has(fichaId)) {
+      throw new BadRequestException('Ciclo de fichas detectado na explosão.');
+    }
+    const [ficha] = await tx
+      .select()
+      .from(fichaTecnica)
+      .where(and(eq(fichaTecnica.id, fichaId), eq(fichaTecnica.tenantId, tenantId)));
+    if (!ficha) throw new NotFoundException('Ficha não encontrada');
+    const rendimento = Number(ficha.rendimento) || 1;
+
+    const ings = await tx
+      .select()
+      .from(fichaIngrediente)
+      .where(eq(fichaIngrediente.fichaId, fichaId));
+
+    const proximos = new Set(visitados);
+    proximos.add(fichaId);
+    let custoTotal = 0;
+
+    for (const ing of ings) {
+      const baixa = qtdBaixaExplosao(
+        Number(ing.quantidade),
+        Number(ing.fatorCorrecao),
+        qtdProduzir,
+        rendimento,
+      );
+      if (baixa <= 0) continue;
+
+      if (ing.subFichaId) {
+        // Sub-receita: explode `baixa` unidades dela nos itens-raiz.
+        custoTotal += await this.explodir(
+          tx,
+          tenantId,
+          ing.subFichaId,
+          baixa,
+          consumoPorItem,
+          proximos,
+        );
+      } else if (ing.itemId) {
+        const [item] = await tx
+          .select({ custoMedio: itemEstoque.custoMedio })
+          .from(itemEstoque)
+          .where(eq(itemEstoque.id, ing.itemId));
+        const custoUnit = Number(item?.custoMedio ?? ing.custoUnitario) || 0;
+        consumoPorItem.set(
+          ing.itemId,
+          (consumoPorItem.get(ing.itemId) ?? 0) + baixa,
+        );
+        custoTotal += baixa * custoUnit;
+      } else {
+        // Insumo avulso (sem estoque): entra só no custo teórico.
+        custoTotal += baixa * (Number(ing.custoUnitario) || 0);
+      }
+    }
+    return custoTotal;
+  }
+
   // Explosão de ficha (§1.2): baixa insumos (saída ao custo médio) e, se houver
   // item de saída, dá entrada do produto ao custo teórico. Idempotente por refId.
   async produzir(
@@ -45,52 +113,16 @@ export class ProducaoService {
 
     try {
       const res = await this.db.transaction(async (tx) => {
-        const [ficha] = await tx
-          .select()
-          .from(fichaTecnica)
-          .where(
-            and(
-              eq(fichaTecnica.id, dto.fichaId),
-              eq(fichaTecnica.tenantId, tenantId),
-            ),
-          );
-        if (!ficha) throw new NotFoundException('Ficha não encontrada');
-        const rendimento = Number(ficha.rendimento) || 1;
-
-        const ings = await tx
-          .select()
-          .from(fichaIngrediente)
-          .where(eq(fichaIngrediente.fichaId, dto.fichaId));
-
-        // Agrega consumo por item de estoque (um insumo pode repetir na ficha).
+        // Explosão recursiva (fichas aninhadas): agrega consumo nos itens-raiz.
         const consumoPorItem = new Map<string, number>();
-        let custoTotal = 0;
-
-        for (const ing of ings) {
-          const baixa = qtdBaixaExplosao(
-            Number(ing.quantidade),
-            Number(ing.fatorCorrecao),
-            qtd,
-            rendimento,
-          );
-          if (baixa <= 0) continue;
-
-          // Custo unitário do insumo = custo médio do item (se ligado ao estoque),
-          // senão o custo snapshot do ingrediente. Alimenta o custo teórico.
-          let custoUnit = Number(ing.custoUnitario) || 0;
-          if (ing.itemId) {
-            const [item] = await tx
-              .select({ custoMedio: itemEstoque.custoMedio })
-              .from(itemEstoque)
-              .where(eq(itemEstoque.id, ing.itemId));
-            custoUnit = Number(item?.custoMedio ?? ing.custoUnitario) || 0;
-            consumoPorItem.set(
-              ing.itemId,
-              (consumoPorItem.get(ing.itemId) ?? 0) + baixa,
-            );
-          }
-          custoTotal += baixa * custoUnit;
-        }
+        const custoTotal = await this.explodir(
+          tx,
+          tenantId,
+          dto.fichaId,
+          qtd,
+          consumoPorItem,
+          new Set(),
+        );
 
         // Lança a saída (uma por item agregado).
         let baixados = 0;

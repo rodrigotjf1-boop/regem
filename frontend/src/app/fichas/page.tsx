@@ -17,6 +17,7 @@ type Ing = {
   unidade: string;
   fatorCorrecao: string;
   custoUnitario: string;
+  subFichaId?: string; // ingrediente = sub-receita (outra ficha)
 };
 
 const CATEGORIAS = [
@@ -63,6 +64,24 @@ export default function FichasPage() {
     setIngs((arr) => arr.map((i, n) => (n === idx ? { ...i, [campo]: valor } : i)));
   }
 
+  // Escolhe uma sub-receita para o ingrediente: puxa nome + custo/porção da ficha.
+  function escolherSub(idx: number, fichaId: string) {
+    setIngs((arr) =>
+      arr.map((i, n) => {
+        if (n !== idx) return i;
+        if (!fichaId)
+          return { ...i, subFichaId: undefined, insumoNome: '', custoUnitario: '' };
+        const f = fichas.find((x) => x.id === fichaId);
+        return {
+          ...i,
+          subFichaId: fichaId,
+          insumoNome: f?.nome ?? 'Sub-receita',
+          custoUnitario: String(f?.custoPorcao ?? 0),
+        };
+      }),
+    );
+  }
+
   const custoTotal = ings.reduce(
     (s, i) =>
       s +
@@ -96,13 +115,14 @@ export default function FichasPage() {
         rendimentoUnidade: rendUnidade || undefined,
         precoVenda: pv || undefined,
         ingredientes: ings
-          .filter((i) => i.insumoNome.trim())
+          .filter((i) => i.insumoNome.trim() || i.subFichaId)
           .map((i) => ({
             insumoNome: i.insumoNome,
             quantidade: Number(i.quantidade) || 0,
             unidade: i.unidade || undefined,
             fatorCorrecao: Number(i.fatorCorrecao) || 1,
             custoUnitario: Number(i.custoUnitario) || 0,
+            subFichaId: i.subFichaId || undefined,
           })),
       });
       setNome('');
@@ -161,21 +181,43 @@ export default function FichasPage() {
             </div>
             <div className="space-y-2">
               {ings.map((ing, idx) => (
-                <div key={idx} className="grid grid-cols-2 gap-2 rounded-lg border border-border p-2 sm:grid-cols-[1.6fr_.8fr_.7fr_.7fr_1fr_auto]">
-                  <Input placeholder="Insumo" value={ing.insumoNome} onChange={(e) => setIng(idx, 'insumoNome', e.target.value)} />
-                  <Input type="number" placeholder="Qtd" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} />
-                  <Input placeholder="un" value={ing.unidade} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
-                  <Input type="number" placeholder="FC" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
-                  <Input type="number" placeholder="R$/un" value={ing.custoUnitario} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Remover"
-                    onClick={() => setIngs((a) => (a.length > 1 ? a.filter((_, n) => n !== idx) : a))}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                <div key={idx} className="space-y-2 rounded-lg border border-border p-2">
+                  <div className="flex items-center gap-2">
+                    <Select
+                      aria-label="Tipo de insumo"
+                      value={ing.subFichaId ?? ''}
+                      onChange={(e) => escolherSub(idx, e.target.value)}
+                      className="flex-1"
+                    >
+                      <option value="">Insumo avulso</option>
+                      {fichas.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          Sub-receita: {f.nome}
+                        </option>
+                      ))}
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Remover"
+                      onClick={() => setIngs((a) => (a.length > 1 ? a.filter((_, n) => n !== idx) : a))}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1.6fr_.8fr_.7fr_.7fr_1fr]">
+                    <Input placeholder="Insumo" value={ing.insumoNome} disabled={!!ing.subFichaId} onChange={(e) => setIng(idx, 'insumoNome', e.target.value)} />
+                    <Input type="number" placeholder="Qtd" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} />
+                    <Input placeholder="un" value={ing.unidade} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
+                    <Input type="number" placeholder="FC" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
+                    <Input type="number" placeholder="R$/un" value={ing.custoUnitario} disabled={!!ing.subFichaId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
+                  </div>
+                  {ing.subFichaId && (
+                    <p className="text-xs text-muted-foreground">
+                      🧩 Custo da sub-receita entra automático (por porção) e é recalculado ao produzir.
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
@@ -266,7 +308,14 @@ export default function FichasPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate font-semibold">{f.nome}</p>
-                  <p className="text-xs capitalize text-muted-foreground">{f.categoria}</p>
+                  <p className="text-xs capitalize text-muted-foreground">
+                    {f.categoria}
+                    {f.ingredientes?.some((i: any) => i.subFichaId) && (
+                      <span className="ml-1.5 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case text-muted-foreground">
+                        🧩 usa sub-receita
+                      </span>
+                    )}
+                  </p>
                 </div>
                 <Button variant="ghost" size="icon" aria-label="Excluir" onClick={() => excluir(f.id)}>
                   <Trash2 className="h-4 w-4" />
