@@ -5,6 +5,7 @@ import {
   resolverColaboradorTarefa,
   comRetryUnico,
   escopoPermiteSetor,
+  qtdBaixaExplosao,
 } from './regras-negocio';
 
 describe('custoMedioPonderado (CMP no recebimento)', () => {
@@ -22,6 +23,41 @@ describe('custoMedioPonderado (CMP no recebimento)', () => {
   });
   it('saldo negativo é tratado como base 0', () => {
     expect(custoMedioPonderado(-5, 9, 10, 7)).toBe(7);
+  });
+  // logica-negocio §7 caso 1: sequência de 3 entradas bate com o cálculo manual.
+  it('sequência de 3 entradas confere', () => {
+    let cm = 0;
+    let saldo = 0;
+    cm = custoMedioPonderado(saldo, cm, 10, 2); saldo += 10; // → 2
+    cm = custoMedioPonderado(saldo, cm, 10, 4); saldo += 10; // → 3
+    cm = custoMedioPonderado(saldo, cm, 20, 6); saldo += 20; // → 4,5
+    expect(cm).toBeCloseTo(4.5, 6);
+  });
+});
+
+// §7 caso 2 — explosão de ficha (a não-duplicação por refId é garantida pelo
+// índice único no banco; ficha cíclica é N/A sem fichas aninhadas no schema).
+describe('qtdBaixaExplosao (explosão de ficha)', () => {
+  it('baixa qtd_liquida × fc × qtdProduzida ÷ rendimento', () => {
+    expect(qtdBaixaExplosao(4.5, 1.15, 2, 10)).toBeCloseTo((4.5 * 1.15 * 2) / 10, 9);
+  });
+  it('produzir a ficha inteira (qtd=rendimento) consome a receita cheia', () => {
+    expect(qtdBaixaExplosao(3, 1, 10, 10)).toBe(3);
+  });
+  it('rendimento inválido não divide por zero', () => {
+    expect(qtdBaixaExplosao(2, 1, 1, 0)).toBe(2);
+  });
+});
+
+// §7 caso 8 — estorno neutraliza saldo (e, por consequência, o CMV do período).
+describe('estorno neutraliza o efeito líquido', () => {
+  it('saída + entrada inversa de mesma qtd → saldo zero', () => {
+    expect(
+      saldoLedger([
+        { tipo: 'saida', quantidade: 7 },
+        { tipo: 'entrada', quantidade: 7 },
+      ]),
+    ).toBe(0);
   });
 });
 

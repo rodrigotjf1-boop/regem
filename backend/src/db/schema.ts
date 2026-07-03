@@ -385,6 +385,8 @@ export const itemEstoque = pgTable('item_estoque', {
   unidadeMedida: text('unidade_medida').notNull().default('un'),
   estoqueMinimo: numeric('estoque_minimo').notNull().default('0'),
   custoMedio: numeric('custo_medio').notNull().default('0'),
+  diasSeguranca: integer('dias_seguranca').notNull().default(2),
+  classeAbc: text('classe_abc'),
   categoria: text('categoria'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -439,6 +441,8 @@ export const movimentoEstoque = pgTable('movimento_estoque', {
   quantidade: numeric('quantidade').notNull(),
   custoUnitario: numeric('custo_unitario'),
   motivo: text('motivo'),
+  refTipo: text('ref_tipo'), // venda|producao|recebimento|desperdicio|ajuste|estorno
+  refId: uuid('ref_id'),
   data: date('data').notNull().default(sql`current_date`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -575,9 +579,37 @@ export const fornecedor = pgTable('fornecedor', {
   telefone: text('telefone'),
   email: text('email'),
   obs: text('obs'),
+  leadTimeDias: integer('lead_time_dias').notNull().default(2),
+  prazoPagamentoDias: integer('prazo_pagamento_dias').notNull().default(28),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Snapshot de estoque (fechamento) — CMV real O(1). Ver logica-negocio §1.3.
+export const estoqueSnapshot = pgTable('estoque_snapshot', {
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  data: date('data').notNull(),
+  saldo: numeric('saldo').notNull().default('0'),
+  custoMedio: numeric('custo_medio').notNull().default('0'),
+});
+
+// Feriados por tenant/unidade (jornada §3).
+export const feriado = pgTable('feriado', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  data: date('data').notNull(),
+  nome: text('nome').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const recebimento = pgTable('recebimento', {

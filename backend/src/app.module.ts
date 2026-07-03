@@ -38,6 +38,7 @@ import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { ProdutoModule } from './modules/produto/produto.module';
 import { VendasModule } from './modules/vendas/vendas.module';
+import { ProducaoModule } from './modules/producao/producao.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -81,6 +82,7 @@ import { AuthModule } from './auth/auth.module';
     JobsModule,
     ProdutoModule,
     VendasModule,
+    ProducaoModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

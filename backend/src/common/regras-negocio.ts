@@ -20,6 +20,21 @@ export function custoMedioPonderado(
   return (base * custoMedioAtual + qtdEntrada * custoEntrada) / denom;
 }
 
+/**
+ * Explosão de ficha técnica (baixa por venda/produção):
+ * quanto de UM ingrediente sai ao produzir/vender `qtdProduzida` unidades da ficha.
+ *   qtd_baixa = qtd_liquida × fc × qtdProduzida ÷ rendimento
+ */
+export function qtdBaixaExplosao(
+  qtdLiquida: number,
+  fc: number,
+  qtdProduzida: number,
+  rendimento: number,
+): number {
+  const rend = rendimento > 0 ? rendimento : 1;
+  return (qtdLiquida * fc * qtdProduzida) / rend;
+}
+
 export type MovLedger = { tipo: string; quantidade: number | string };
 
 /**
