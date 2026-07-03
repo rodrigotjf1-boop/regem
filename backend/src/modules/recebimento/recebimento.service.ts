@@ -11,6 +11,7 @@ import {
   recebimentoItem,
   movimentoEstoque,
   lote,
+  itemEstoque,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
@@ -48,6 +49,8 @@ export class RecebimentoService {
             itemId: it.itemId,
             qtdEsperada: String(it.qtdEsperada ?? 0),
             qtdRecebida: String(it.qtdRecebida ?? 0),
+            custoUnitario:
+              it.custoUnitario != null ? String(it.custoUnitario) : undefined,
             divergencia: it.divergencia ?? 'ok',
             validade: it.validade,
             fotoRef: it.fotoRef,
@@ -128,15 +131,30 @@ export class RecebimentoService {
       for (const it of itens) {
         const qtd = Number(it.qtdRecebida);
         if (qtd > 0) {
+          const custo =
+            it.custoUnitario != null ? Number(it.custoUnitario) : null;
+
+          // Saldo do item ANTES desta entrada (para o custo médio ponderado).
+          let saldoAntes = 0;
+          if (custo != null) {
+            const s: any = await tx.execute(
+              sql`select coalesce(sum(case tipo when 'entrada' then quantidade when 'saida' then -quantidade else quantidade end),0) as saldo
+                  from movimento_estoque where tenant_id=${tenantId} and item_id=${it.itemId}`,
+            );
+            saldoAntes = Number((s.rows ?? s)[0].saldo);
+          }
+
           await tx.insert(movimentoEstoque).values({
             tenantId,
             itemId: it.itemId,
             tipo: 'entrada',
             quantidade: String(qtd),
+            custoUnitario: custo != null ? String(custo) : undefined,
             motivo: 'recebimento',
             data: rec.data,
           });
           entradas++;
+
           if (it.validade) {
             await tx.insert(lote).values({
               tenantId,
@@ -144,8 +162,31 @@ export class RecebimentoService {
               recebimentoId: id,
               validade: it.validade,
               quantidade: String(qtd),
+              custoUnitario: custo != null ? String(custo) : undefined,
               entrada: rec.data,
             });
+          }
+
+          // Custo médio ponderado móvel:
+          // novo = (saldoAntes×custoMédioAtual + qtd×custoEntrada) / (saldoAntes + qtd)
+          if (custo != null) {
+            const [item] = await tx
+              .select({ custoMedio: itemEstoque.custoMedio })
+              .from(itemEstoque)
+              .where(eq(itemEstoque.id, it.itemId));
+            const base = Math.max(saldoAntes, 0);
+            const cmAtual = Number(item?.custoMedio ?? 0);
+            const novo =
+              base + qtd > 0 ? (base * cmAtual + qtd * custo) / (base + qtd) : custo;
+            await tx
+              .update(itemEstoque)
+              .set({ custoMedio: String(novo), updatedAt: new Date() })
+              .where(
+                and(
+                  eq(itemEstoque.id, it.itemId),
+                  eq(itemEstoque.tenantId, tenantId),
+                ),
+              );
           }
         }
       }

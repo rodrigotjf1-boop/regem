@@ -23,6 +23,10 @@ export class RecebimentoItemDto {
   qtdRecebida?: number;
 
   @IsOptional()
+  @IsNumber()
+  custoUnitario?: number;
+
+  @IsOptional()
   @IsIn(['ok', 'parcial', 'nao_veio', 'danificado', 'excedente'])
   divergencia?: string;
 

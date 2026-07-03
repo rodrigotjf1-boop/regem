@@ -17,6 +17,7 @@ type Linha = {
   itemId: string;
   qtdEsperada: string;
   qtdRecebida: string;
+  custoUnitario: string;
   divergencia: string;
   validade: string;
   obs: string;
@@ -44,6 +45,7 @@ function linhaVazia(itens: Item[]): Linha {
     itemId: itens[0]?.id ?? '',
     qtdEsperada: '',
     qtdRecebida: '',
+    custoUnitario: '',
     divergencia: 'ok',
     validade: '',
     obs: '',
@@ -92,6 +94,7 @@ export function RecebimentoForm({
           itemId: l.itemId,
           qtdEsperada: l.qtdEsperada ? Number(l.qtdEsperada) : 0,
           qtdRecebida: l.qtdRecebida ? Number(l.qtdRecebida) : 0,
+          custoUnitario: l.custoUnitario ? Number(l.custoUnitario) : undefined,
           divergencia: l.divergencia,
           validade: l.validade || undefined,
           obs: l.obs || undefined,
@@ -228,6 +231,18 @@ export function RecebimentoForm({
                       })
                     }
                     placeholder="0"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Custo unit. (R$)</Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    value={l.custoUnitario}
+                    onChange={(e) =>
+                      setLinha(i, { custoUnitario: e.target.value })
+                    }
+                    placeholder="0,00"
                   />
                 </div>
                 <div className="space-y-1">

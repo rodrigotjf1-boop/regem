@@ -171,17 +171,36 @@ export default function OperacaoPage() {
                   <p className="font-medium">{i.nome}</p>
                   <p className="text-xs text-muted-foreground">
                     mín. {i.estoqueMinimo} {i.unidadeMedida}
+                    {Number(i.custoMedio) > 0 && (
+                      <>
+                        {' · '}custo méd.{' '}
+                        {Number(i.custoMedio).toLocaleString('pt-BR', {
+                          style: 'currency',
+                          currency: 'BRL',
+                        })}
+                      </>
+                    )}
                   </p>
                 </div>
-                <Badge
-                  className={
-                    abaixo
-                      ? 'bg-red-100 text-red-700'
-                      : 'bg-emerald-100 text-emerald-700'
-                  }
-                >
-                  {i.saldo} {i.unidadeMedida}
-                </Badge>
+                <div className="text-right">
+                  <Badge
+                    className={
+                      abaixo
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-emerald-100 text-emerald-700'
+                    }
+                  >
+                    {i.saldo} {i.unidadeMedida}
+                  </Badge>
+                  {Number(i.valorEstoque) > 0 && (
+                    <p className="mt-1 font-mono text-xs text-muted-foreground">
+                      {Number(i.valorEstoque).toLocaleString('pt-BR', {
+                        style: 'currency',
+                        currency: 'BRL',
+                      })}
+                    </p>
+                  )}
+                </div>
               </Card>
             );
           })}

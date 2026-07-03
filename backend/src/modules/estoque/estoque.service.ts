@@ -30,6 +30,7 @@ export class EstoqueService {
     const res: any = await this.db.execute(sql`
       select i.id, i.nome, i.unidade_medida as "unidadeMedida",
              i.estoque_minimo as "estoqueMinimo",
+             i.custo_medio as "custoMedio",
              coalesce(sum(case m.tipo
                when 'entrada' then m.quantidade
                when 'saida'   then -m.quantidade
@@ -40,7 +41,12 @@ export class EstoqueService {
       group by i.id
       order by i.nome
     `);
-    return res.rows ?? res;
+    const rows = res.rows ?? res;
+    // Valor em estoque = saldo × custo médio (derivado, nunca armazenado).
+    return rows.map((r: any) => ({
+      ...r,
+      valorEstoque: Number(r.saldo) * Number(r.custoMedio ?? 0),
+    }));
   }
 
   async createMovimento(tenantId: string, dto: CreateMovimentoDto) {
