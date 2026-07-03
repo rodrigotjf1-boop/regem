@@ -116,7 +116,16 @@ export default function OperacaoPage() {
         )}
 
         <section className="space-y-3">
-          <h2 className="font-semibold">Estoque</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Estoque</h2>
+            <button
+              type="button"
+              onClick={() => router.push('/estoque')}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Inteligência de estoque →
+            </button>
+          </div>
           <Card className="space-y-4 p-4">
             <EntityForm
               key={`item-${ver}`}

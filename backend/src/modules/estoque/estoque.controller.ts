@@ -47,4 +47,19 @@ export class EstoqueController {
   ) {
     return this.service.listMovimentos(user.tenantId, itemId);
   }
+
+  // Inteligência de estoque: valorização + reposição (ROP) + curva ABC no período.
+  @Get('inteligencia')
+  @Roles('presidente', 'gerente', 'supervisao')
+  inteligencia(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio: string,
+    @Query('fim') fim: string,
+  ) {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const ini =
+      inicio ||
+      new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
+    return this.service.inteligencia(user.tenantId, ini, fim || hoje);
+  }
 }
