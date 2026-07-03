@@ -33,9 +33,12 @@ Produção: `app.dmsregem.com` / `api.dmsregem.com` (EasyPanel + Supabase, auto-
 
 > **Nota:** a comparação **CMV teórico × real** (o "KPI de ouro") e o valor pleno de ROP/ABC dependem de **consumo/venda**, que só existe sistematicamente no **PDV (Fase J)** — hoje só há saída manual. Pendência: **lead time por fornecedor** (ROP usa 7d fixo).
 
-### Fase H — Financeiro base (partidas dobradas)
-- **Ledger financeiro** (fundação) + **Contas a pagar** nascendo do recebimento (gancho já existe) + **Fluxo de caixa projetado** + **DRE gerencial por loja** → alimenta a Visão C&O.
-- **Transversal aqui**: **agendador de jobs** (habilita expurgo de fotos, DF-e periódico, relatórios agendados) + idempotência.
+### Fase H — Financeiro base · ✅ **CONCLUÍDA (no ar)** — ledger pragmático (sem dupla entrada)
+- **H1** ✅ (migrations 018/019): `titulo_financeiro` + `lancamento_caixa` (append-only, estorno = inverso). Contas a pagar/receber, recorrência (semanal/quinzenal/mensal), categoria, foto. **Contas a pagar nascem do recebimento** (total Σ qtd×custo + vencimento). Tela `/financeiro`.
+- **H2** ✅: **fluxo de caixa projetado** (saldo atual + títulos por vencimento, acumulado dia a dia).
+- **H3** ✅: **agendador de jobs** (`@nestjs/schedule`) → **expurgo LGPD** das fotos de ponto vencidas; **DRE gerencial (regime de caixa)** — receitas − despesas por categoria.
+
+> **Nota:** DRE em regime de caixa; valor pleno (receita de vendas, CMV consumido, folha) chega com **PDV (Fase J)** + folha. Escolha do usuário: ledger pragmático, sem partidas dobradas contábeis.
 
 ### Fase I — Fiscal de entrada (DF-e)
 - Consulta automática à SEFAZ puxa o **XML** das notas contra o CNPJ → recebimento vira **conferência** (foto = fallback). Alimenta custo (G1) e contas a pagar (H) sozinho. Via hub fiscal.
