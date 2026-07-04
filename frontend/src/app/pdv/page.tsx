@@ -17,7 +17,9 @@ type ItemCarrinho = {
   key: string;
   produtoId: string;
   variacaoId?: string;
+  complementos?: string[]; // ids das opções escolhidas
   nome: string;
+  sub?: string; // "sem alface · + bacon"
   preco: number;
   qtd: number;
 };
@@ -30,7 +32,9 @@ export default function PdvPage() {
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [taxa, setTaxa] = useState(false);
   const [forma, setForma] = useState('dinheiro');
-  const [picker, setPicker] = useState<any>(null); // produto variável escolhendo variação
+  const [picker, setPicker] = useState<any>(null); // produto com variação/complementos
+  const [pickVar, setPickVar] = useState<string | undefined>(undefined);
+  const [pickOpc, setPickOpc] = useState<string[]>([]);
   const [comprovante, setComprovante] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -54,26 +58,35 @@ export default function PdvPage() {
     reload();
   }, [reload, router]);
 
-  function addItem(produtoId: string, variacaoId: string | undefined, nome: string, preco: number) {
-    const key = `${produtoId}:${variacaoId ?? ''}`;
+  function addItem(item: Omit<ItemCarrinho, 'key' | 'qtd'>) {
+    const key = `${item.produtoId}:${item.variacaoId ?? ''}:${(item.complementos ?? [])
+      .slice()
+      .sort()
+      .join(',')}`;
     setCarrinho((c) => {
       const ex = c.find((i) => i.key === key);
       if (ex) return c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + 1 } : i));
-      return [...c, { key, produtoId, variacaoId, nome, preco, qtd: 1 }];
+      return [...c, { ...item, key, qtd: 1 }];
     });
   }
 
   async function tap(p: any) {
-    if (p.tipo === 'variavel') {
-      try {
-        const full: any = await api.produto(p.id);
-        setPicker({ produto: p, variacoes: full.variacoes ?? [] });
-      } catch {
-        addItem(p.id, undefined, p.nome, Number(p.precoVenda));
-      }
+    // Busca variações + complementos; abre o seletor se houver algo a escolher.
+    let full: any = p;
+    try {
+      full = await api.produto(p.id);
+    } catch {
+      /* usa o resumo */
+    }
+    const variacoes = full.variacoes ?? [];
+    const complementos = full.complementos ?? [];
+    if (variacoes.length || complementos.length) {
+      setPickVar(undefined);
+      setPickOpc([]);
+      setPicker({ produto: p, variacoes, complementos });
       return;
     }
-    addItem(p.id, undefined, p.nome, Number(p.precoVenda));
+    addItem({ produtoId: p.id, nome: p.nome, preco: Number(p.precoVenda) });
   }
 
   function mudarQtd(key: string, d: number) {
@@ -82,6 +95,37 @@ export default function PdvPage() {
         .map((i) => (i.key === key ? { ...i, qtd: i.qtd + d } : i))
         .filter((i) => i.qtd > 0),
     );
+  }
+
+  // Confirma a escolha do seletor (variação + opcionais/adicionais) → carrinho.
+  function confirmarPicker() {
+    const { produto, variacoes, complementos } = picker;
+    const v = variacoes.find((x: any) => x.id === pickVar);
+    let preco = v ? Number(v.precoVenda) : Number(produto.precoVenda);
+    let nome = v ? `${produto.nome} · ${v.nome}` : produto.nome;
+    const partes: string[] = [];
+    const todasOpcoes = (complementos as any[]).flatMap((g) =>
+      (g.opcoes ?? []).map((o: any) => ({ ...o, tipo: g.tipo })),
+    );
+    for (const id of pickOpc) {
+      const o = todasOpcoes.find((x) => x.id === id);
+      if (!o) continue;
+      preco += Number(o.precoDelta) || 0;
+      partes.push(o.tipo === 'remover' ? `sem ${o.nome}` : `+ ${o.nome}`);
+    }
+    addItem({
+      produtoId: produto.id,
+      variacaoId: pickVar,
+      complementos: pickOpc,
+      nome,
+      sub: partes.join(' · ') || undefined,
+      preco,
+    });
+    setPicker(null);
+  }
+
+  function toggleOpc(id: string) {
+    setPickOpc((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   }
 
   const subtotal = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
@@ -98,6 +142,7 @@ export default function PdvPage() {
         itens: carrinho.map((i) => ({
           produtoId: i.produtoId,
           variacaoId: i.variacaoId,
+          complementos: i.complementos,
           quantidade: i.qtd,
         })),
         forma,
@@ -182,6 +227,9 @@ export default function PdvPage() {
               <div key={i.key} className="flex items-center gap-2 text-sm">
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{i.nome}</p>
+                  {i.sub && (
+                    <p className="truncate text-[11px] text-muted-foreground">{i.sub}</p>
+                  )}
                   <p className="font-mono text-xs text-muted-foreground">{brl(i.preco)}</p>
                 </div>
                 <button type="button" onClick={() => mudarQtd(i.key, -1)} className="grid h-7 w-7 place-items-center rounded border border-border">−</button>
@@ -224,33 +272,90 @@ export default function PdvPage() {
         </Card>
       </div>
 
-      {/* Picker de variação */}
-      {picker && (
-        <div className="fixed inset-0 z-30 grid place-items-center bg-black/50 p-4" onClick={() => setPicker(null)}>
-          <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-3 font-display font-semibold">{picker.produto.nome} — escolha</h3>
-            <div className="space-y-2">
-              {picker.variacoes.length === 0 && (
-                <p className="text-sm text-muted-foreground">Sem variações cadastradas.</p>
+      {/* Seletor: variação + opcionais (remover) + adicionais (extra) */}
+      {picker && (() => {
+        const v = picker.variacoes.find((x: any) => x.id === pickVar);
+        const base = v ? Number(v.precoVenda) : Number(picker.produto.precoVenda);
+        const todas = (picker.complementos as any[]).flatMap((g) =>
+          (g.opcoes ?? []).map((o: any) => ({ ...o, tipo: g.tipo })),
+        );
+        const extra = pickOpc.reduce(
+          (s, id) => s + (Number(todas.find((o) => o.id === id)?.precoDelta) || 0),
+          0,
+        );
+        const variacaoObrig = picker.variacoes.length > 0 && !pickVar;
+        return (
+          <div className="fixed inset-0 z-30 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={() => setPicker(null)}>
+            <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+              <h3 className="mb-3 font-display font-semibold">{picker.produto.nome}</h3>
+
+              {picker.variacoes.length > 0 && (
+                <div className="mb-3">
+                  <p className="mb-1.5 text-xs font-semibold text-muted-foreground">Escolha</p>
+                  <div className="space-y-1.5">
+                    {picker.variacoes.map((vr: any) => (
+                      <button
+                        key={vr.id}
+                        type="button"
+                        onClick={() => setPickVar(vr.id)}
+                        className={`flex w-full items-center justify-between rounded-lg border p-2.5 text-left ${pickVar === vr.id ? 'border-primary bg-primary/10' : 'border-border'}`}
+                      >
+                        <span className="font-medium">{vr.nome}</span>
+                        <span className="font-mono text-primary">{brl(Number(vr.precoVenda))}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               )}
-              {picker.variacoes.map((v: any) => (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => {
-                    addItem(picker.produto.id, v.id, `${picker.produto.nome} · ${v.nome}`, Number(v.precoVenda));
-                    setPicker(null);
-                  }}
-                  className="flex w-full items-center justify-between rounded-lg border border-border p-3 text-left hover:border-primary/50"
-                >
-                  <span className="font-medium">{v.nome}</span>
-                  <span className="font-mono text-primary">{brl(Number(v.precoVenda))}</span>
-                </button>
+
+              {(picker.complementos as any[]).map((g) => (
+                <div key={g.id} className="mb-3">
+                  <p className="mb-1.5 text-xs font-semibold text-muted-foreground">
+                    {g.nome}{' '}
+                    <span className="font-normal">
+                      ({g.tipo === 'remover' ? 'retirar' : 'adicionar'})
+                    </span>
+                  </p>
+                  <div className="space-y-1">
+                    {(g.opcoes ?? []).map((o: any) => (
+                      <label
+                        key={o.id}
+                        className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 ${pickOpc.includes(o.id) ? 'border-primary bg-primary/10' : 'border-border'}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={pickOpc.includes(o.id)}
+                          onChange={() => toggleOpc(o.id)}
+                          className="h-4 w-4 accent-primary"
+                        />
+                        <span className="flex-1 text-sm">{o.nome}</span>
+                        {Number(o.precoDelta) > 0 && (
+                          <span className="font-mono text-xs text-primary">
+                            + {brl(Number(o.precoDelta))}
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </div>
               ))}
-            </div>
-          </Card>
-        </div>
-      )}
+
+              <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
+                <span className="text-sm text-muted-foreground">Total do item</span>
+                <span className="font-mono text-lg font-bold">{brl(base + extra)}</span>
+              </div>
+              <Button
+                type="button"
+                className="mt-3 w-full"
+                disabled={variacaoObrig}
+                onClick={confirmarPicker}
+              >
+                {variacaoObrig ? 'Escolha uma opção' : 'Adicionar'}
+              </Button>
+            </Card>
+          </div>
+        );
+      })()}
 
       {/* Comprovante */}
       {comprovante && (

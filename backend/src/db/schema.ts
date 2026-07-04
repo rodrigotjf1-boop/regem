@@ -548,6 +548,7 @@ export const lancamentoCaixa = pgTable('lancamento_caixa', {
   descricao: text('descricao'),
   estornoDe: uuid('estorno_de'),
   sessaoId: uuid('sessao_id'),
+  comandaId: uuid('comanda_id'), // venda que originou (p/ estorno no cancelamento)
   criadoPorId: uuid('criado_por_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -801,6 +802,11 @@ export const comanda = pgTable('comanda', {
   fechadaEm: timestamp('fechada_em', { withTimezone: true }),
   abertaPorId: uuid('aberta_por_id'),
   obs: text('obs'),
+  total: numeric('total'), // snapshot do total (cupom)
+  forma: text('forma'), // forma de pagamento (cupom)
+  canceladaEm: timestamp('cancelada_em', { withTimezone: true }),
+  canceladaPorId: uuid('cancelada_por_id'),
+  motivoCancelamento: text('motivo_cancelamento'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -996,5 +1002,52 @@ export const botAtendimento = pgTable('bot_atendimento', {
   pergunta: text('pergunta').notNull(),
   regraId: uuid('regra_id').references(() => botRegra.id, { onDelete: 'set null' }),
   escalado: boolean('escalado').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Complementos de produto (opcionais/adicionais) — migration 032 ────────────
+export const complementoGrupo = pgTable('complemento_grupo', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id').notNull(),
+  nome: text('nome').notNull(),
+  tipo: text('tipo').notNull(), // remover | adicionar
+  min: integer('min').notNull().default(0),
+  max: integer('max'),
+  obrigatorio: boolean('obrigatorio').notNull().default(false),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const complementoOpcao = pgTable('complemento_opcao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  grupoId: uuid('grupo_id').notNull(),
+  nome: text('nome').notNull(),
+  precoDelta: numeric('preco_delta').notNull().default('0'),
+  fichaIngredienteId: uuid('ficha_ingrediente_id'), // 'remover': ingrediente a NÃO baixar
+  itemId: uuid('item_id'), // 'adicionar': item de estoque a baixar
+  quantidade: numeric('quantidade').notNull().default('1'),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const comandaItemComplemento = pgTable('comanda_item_complemento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  comandaItemId: uuid('comanda_item_id').notNull(),
+  opcaoId: uuid('opcao_id'),
+  tipo: text('tipo').notNull(),
+  nome: text('nome').notNull(),
+  precoDelta: numeric('preco_delta').notNull().default('0'),
+  fichaIngredienteId: uuid('ficha_ingrediente_id'),
+  itemId: uuid('item_id'),
+  quantidade: numeric('quantidade').notNull().default('1'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

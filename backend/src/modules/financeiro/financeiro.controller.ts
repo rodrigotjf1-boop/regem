@@ -72,23 +72,27 @@ export class FinanceiroController {
     return this.service.estornar(user.tenantId, user.colaboradorId, user.categoria, id);
   }
 
-  // ----- Caixa (sessão) -----
+  // ----- Caixa (sessão) — atendente também opera o caixa (Fase A). -----
   @Get('caixa')
+  @Roles('presidente', 'gerente', 'atendente')
   caixa(@CurrentUser() user: AuthUser) {
     return this.service.sessaoAberta(user.tenantId);
   }
 
   @Post('caixa/abrir')
+  @Roles('presidente', 'gerente', 'atendente')
   abrirCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.abrirSessao(user.tenantId, user.colaboradorId, dto);
   }
 
   @Post('caixa/movimentar')
+  @Roles('presidente', 'gerente', 'atendente')
   movimentarCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.movimentarCaixa(user.tenantId, user.colaboradorId, dto);
   }
 
   @Post('caixa/fechar')
+  @Roles('presidente', 'gerente', 'atendente')
   fecharCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.fecharSessao(user.tenantId, user.colaboradorId, dto);
   }

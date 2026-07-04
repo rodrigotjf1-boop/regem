@@ -19,6 +19,12 @@ export class VendaItemDto {
 
   @IsNumber()
   quantidade!: number;
+
+  // Ids das opções de complemento escolhidas (opcionais/adicionais).
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  complementos?: string[];
 }
 
 export class VendaBalcaoDto {

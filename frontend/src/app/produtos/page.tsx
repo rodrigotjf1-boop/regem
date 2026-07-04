@@ -52,6 +52,12 @@ export default function ProdutosPage() {
   const [catNome, setCatNome] = useState('');
   const [catParent, setCatParent] = useState('');
 
+  // complementos (opcionais/adicionais) — só ao editar um produto salvo
+  const [comps, setComps] = useState<any[]>([]);
+  const [fichaIngs, setFichaIngs] = useState<any[]>([]);
+  const [insumos, setInsumos] = useState<any[]>([]);
+  const [novoGrupo, setNovoGrupo] = useState({ nome: '', tipo: 'remover' });
+
   const reload = useCallback(async () => {
     setErro('');
     try {
@@ -88,11 +94,34 @@ export default function ProdutosPage() {
   function novo() {
     setEditId(null);
     setF(vazio());
+    setComps([]);
+    setFichaIngs([]);
   }
+
+  async function carregarComplementos(produtoId: string, fichaId?: string) {
+    try {
+      const [cs, its] = await Promise.all([
+        api.produtoComplementos(produtoId),
+        api.estoqueItens().catch(() => []),
+      ]);
+      setComps(cs as any[]);
+      setInsumos(its as any[]);
+      if (fichaId) {
+        const fi: any = await api.ficha(fichaId).catch(() => null);
+        setFichaIngs(fi?.ingredientes ?? []);
+      } else {
+        setFichaIngs([]);
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar opcionais');
+    }
+  }
+
   async function editar(id: string) {
     try {
       const p: any = await api.produto(id);
       setEditId(id);
+      await carregarComplementos(id, p.fichaId || undefined);
       setF({
         codigo: p.codigo ?? '',
         nome: p.nome ?? '',
@@ -194,6 +223,47 @@ export default function ProdutosPage() {
       await reload();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao criar categoria');
+    }
+  }
+
+  async function addGrupo() {
+    if (!editId || !novoGrupo.nome.trim()) return;
+    try {
+      await api.criarGrupoComplemento(editId, {
+        nome: novoGrupo.nome.trim(),
+        tipo: novoGrupo.tipo,
+      });
+      setNovoGrupo({ nome: '', tipo: novoGrupo.tipo });
+      await carregarComplementos(editId, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao criar grupo');
+    }
+  }
+
+  async function addOpcao(grupo: any, dados: any) {
+    try {
+      await api.criarOpcaoComplemento(grupo.id, dados);
+      await carregarComplementos(editId!, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao criar opção');
+    }
+  }
+
+  async function delGrupo(id: string) {
+    try {
+      await api.removerGrupoComplemento(id);
+      await carregarComplementos(editId!, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao remover grupo');
+    }
+  }
+
+  async function delOpcao(id: string) {
+    try {
+      await api.removerOpcaoComplemento(id);
+      await carregarComplementos(editId!, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao remover opção');
     }
   }
 
@@ -371,6 +441,55 @@ export default function ProdutosPage() {
           </form>
         </Card>
 
+        {/* Opcionais & adicionais (só ao editar um produto salvo) */}
+        {editId && (
+          <Card className="p-4">
+            <h2 className="font-display text-lg font-semibold">Opcionais & adicionais</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              <b>Opcional (retirar):</b> cliente pede “sem cebola” — não dá baixa naquele ingrediente da ficha.{' '}
+              <b>Adicional (extra):</b> “+ bacon” — soma preço e dá baixa no insumo.
+            </p>
+
+            <div className="space-y-3">
+              {comps.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nenhum grupo. Crie um abaixo.</p>
+              )}
+              {comps.map((g) => (
+                <GrupoComplemento
+                  key={g.id}
+                  grupo={g}
+                  fichaIngs={fichaIngs}
+                  insumos={insumos}
+                  onAddOpcao={addOpcao}
+                  onDelGrupo={delGrupo}
+                  onDelOpcao={delOpcao}
+                />
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+              <div className="flex-1 space-y-1">
+                <Label className="text-xs">Novo grupo</Label>
+                <Input
+                  value={novoGrupo.nome}
+                  onChange={(e) => setNovoGrupo((s) => ({ ...s, nome: e.target.value }))}
+                  placeholder="Ex.: Remover ingredientes / Adicionais"
+                />
+              </div>
+              <select
+                aria-label="Tipo do grupo de complementos"
+                className={`${selectCls} w-44`}
+                value={novoGrupo.tipo}
+                onChange={(e) => setNovoGrupo((s) => ({ ...s, tipo: e.target.value }))}
+              >
+                <option value="remover">Opcional (retirar)</option>
+                <option value="adicionar">Adicional (extra)</option>
+              </select>
+              <Button type="button" onClick={addGrupo}>Adicionar grupo</Button>
+            </div>
+          </Card>
+        )}
+
         {/* Lista */}
         <Card className="p-4">
           <p className="mb-3 text-sm font-medium text-muted-foreground">
@@ -399,5 +518,114 @@ export default function ProdutosPage() {
         </Card>
       </div>
     </Shell>
+  );
+}
+
+// Um grupo de complementos + suas opções + formulário de nova opção.
+function GrupoComplemento({
+  grupo,
+  fichaIngs,
+  insumos,
+  onAddOpcao,
+  onDelGrupo,
+  onDelOpcao,
+}: {
+  grupo: any;
+  fichaIngs: any[];
+  insumos: any[];
+  onAddOpcao: (grupo: any, dados: any) => void;
+  onDelGrupo: (id: string) => void;
+  onDelOpcao: (id: string) => void;
+}) {
+  const remover = grupo.tipo === 'remover';
+  const [nome, setNome] = useState('');
+  const [precoDelta, setPrecoDelta] = useState('');
+  const [ref, setRef] = useState(''); // fichaIngredienteId (remover) ou itemId (adicionar)
+  const [quantidade, setQuantidade] = useState('1');
+
+  function submit() {
+    if (!nome.trim() && !ref) return;
+    const dados: any = { nome: nome.trim() };
+    if (remover) {
+      dados.fichaIngredienteId = ref || undefined;
+      if (!dados.nome && ref) {
+        const ing = fichaIngs.find((i) => i.id === ref);
+        dados.nome = ing?.insumoNome ?? ing?.subFichaNome ?? 'ingrediente';
+      }
+    } else {
+      dados.precoDelta = precoDelta !== '' ? Number(String(precoDelta).replace(',', '.')) : 0;
+      dados.itemId = ref || undefined;
+      dados.quantidade = Number(String(quantidade).replace(',', '.')) || 1;
+    }
+    onAddOpcao(grupo, dados);
+    setNome('');
+    setPrecoDelta('');
+    setRef('');
+    setQuantidade('1');
+  }
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-medium">
+          {grupo.nome}{' '}
+          <span className={`ml-1 rounded px-1.5 py-0.5 text-xs ${remover ? 'bg-warn/10 text-warn' : 'bg-info/10 text-info'}`}>
+            {remover ? 'retirar' : 'adicionar'}
+          </span>
+        </span>
+        <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => onDelGrupo(grupo.id)}>
+          remover grupo
+        </Button>
+      </div>
+
+      {(grupo.opcoes ?? []).length === 0 && (
+        <p className="mb-2 text-xs text-muted-foreground">Sem opções ainda.</p>
+      )}
+      <div className="mb-2 space-y-1">
+        {(grupo.opcoes ?? []).map((o: any) => (
+          <div key={o.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-sm">
+            <span className="flex-1">{o.nome}</span>
+            {Number(o.precoDelta) > 0 && (
+              <span className="font-mono text-xs text-primary">+ {brl(Number(o.precoDelta))}</span>
+            )}
+            <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => onDelOpcao(o.id)}>×</Button>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Input placeholder="Nome da opção" value={nome} onChange={(e) => setNome(e.target.value)} />
+        {remover ? (
+          <select
+            aria-label="Ingrediente da ficha a retirar"
+            className={`${selectCls} sm:col-span-2`}
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+          >
+            <option value="">— ingrediente da ficha —</option>
+            {fichaIngs.map((i) => (
+              <option key={i.id} value={i.id}>{i.insumoNome ?? i.subFichaNome ?? 'ingrediente'}</option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <Input type="number" placeholder="+ R$" value={precoDelta} onChange={(e) => setPrecoDelta(e.target.value)} />
+            <select
+              aria-label="Insumo a dar baixa"
+              className={selectCls}
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+            >
+              <option value="">— insumo (baixa) —</option>
+              {insumos.map((i) => (
+                <option key={i.id} value={i.id}>{i.nome}</option>
+              ))}
+            </select>
+            <Input type="number" placeholder="Qtd baixa" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+          </>
+        )}
+        <Button type="button" variant="outline" size="sm" onClick={submit}>＋ opção</Button>
+      </div>
+    </div>
   );
 }

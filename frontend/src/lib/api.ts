@@ -129,8 +129,39 @@ export const api = {
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
   fichasLista: () => req('/fichas'),
+  ficha: (id: string) => req(`/fichas/${id}`),
+  estoqueItens: () => req('/estoque/itens'),
   vendaBalcao: (body: Record<string, unknown>) =>
     req('/vendas/balcao', { method: 'POST', body: JSON.stringify(body) }),
+  produtoComplementos: (produtoId: string) =>
+    req(`/produtos/${produtoId}/complementos`),
+  criarGrupoComplemento: (produtoId: string, body: Record<string, unknown>) =>
+    req(`/produtos/${produtoId}/complementos/grupos`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  criarOpcaoComplemento: (grupoId: string, body: Record<string, unknown>) =>
+    req(`/produtos/complementos/grupos/${grupoId}/opcoes`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  removerGrupoComplemento: (grupoId: string) =>
+    req(`/produtos/complementos/grupos/${grupoId}`, { method: 'DELETE' }),
+  removerOpcaoComplemento: (opcaoId: string) =>
+    req(`/produtos/complementos/opcoes/${opcaoId}`, { method: 'DELETE' }),
+  vendasConfig: () => req('/vendas/config'),
+  setCancelamentoLivre: (ativo: boolean) =>
+    req('/vendas/config/cancelamento-livre', {
+      method: 'POST',
+      body: JSON.stringify({ ativo }),
+    }),
+  vendasCupons: () => req('/vendas/cupons'),
+  vendasCupom: (id: string) => req(`/vendas/cupons/${id}`),
+  cancelarVenda: (id: string, body: Record<string, unknown>) =>
+    req(`/vendas/comandas/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>
