@@ -18,20 +18,6 @@ type Alerta = {
   em: string;
   ack?: boolean;
 };
-type Marcacao = {
-  nsr: number;
-  tipo: string;
-  colaboradorNome: string | null;
-  origem: string;
-  em: string;
-};
-
-const TIPO_LABEL: Record<string, string> = {
-  entrada: 'Entrada',
-  saida: 'Saída',
-  intervalo_inicio: 'Início de intervalo',
-  intervalo_fim: 'Fim de intervalo',
-};
 
 function borderFor(p: Alerta['prioridade']) {
   if (p === 'danger') return '#FF5A4E';
@@ -44,10 +30,10 @@ export default function KdsPage() {
   const [conectado, setConectado] = useState(false);
   const [temSessao, setTemSessao] = useState<boolean | null>(null);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
-  const [marcacoes, setMarcacoes] = useState<Marcacao[]>([]);
   const [pedidos, setPedidos] = useState<any[]>([]);
   const [mudo, setMudo] = useState(false);
-  const [now, setNow] = useState(new Date());
+  // null no SSR/1ª render → evita hydration mismatch do relógio (server ≠ client).
+  const [now, setNow] = useState<Date | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const mudoRef = useRef(mudo);
   mudoRef.current = mudo;
@@ -74,6 +60,7 @@ export default function KdsPage() {
   }, []);
 
   useEffect(() => {
+    setNow(new Date()); // só no cliente
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -116,21 +103,7 @@ export default function KdsPage() {
       bip();
     });
 
-    socket.on('ponto:marcado', (p: any) => {
-      const c = p.comprovante ?? {};
-      setMarcacoes((prev) =>
-        [
-          {
-            nsr: c.nsr,
-            tipo: c.tipo,
-            colaboradorNome: c.colaboradorNome ?? null,
-            origem: p.origem,
-            em: c.marcadoEm ?? new Date().toISOString(),
-          },
-          ...prev,
-        ].slice(0, 12),
-      );
-    });
+    // Ponto NÃO é do KDS (vai para o painel do gerente). KDS = alertas + produção.
 
     return () => {
       socket.close();
@@ -209,11 +182,13 @@ export default function KdsPage() {
           className="ml-auto text-[26px] font-bold tabular-nums"
           style={{ fontFamily: 'JetBrains Mono, monospace' }}
         >
-          {now.toLocaleTimeString('pt-BR', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-          })}
+          {now
+            ? now.toLocaleTimeString('pt-BR', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })
+            : '--:--:--'}
         </div>
 
         <button
@@ -357,46 +332,6 @@ export default function KdsPage() {
                 >
                   Pronto
                 </button>
-              </div>
-            ))}
-          </div>
-
-          <div
-            className="rounded-[14px] border p-4"
-            style={{ background: '#12202A', borderColor: '#22333F' }}
-          >
-            <div
-              className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em]"
-              style={{ color: '#7C93A1', fontFamily: 'Archivo, sans-serif' }}
-            >
-              Marcações de ponto ao vivo
-            </div>
-            {marcacoes.length === 0 && (
-              <div className="py-6 text-center text-[13px]" style={{ color: '#7C93A1' }}>
-                Aguardando marcações…
-              </div>
-            )}
-            {marcacoes.map((m, i) => (
-              <div
-                key={`${m.nsr}-${i}`}
-                className="flex items-center justify-between border-b py-2 last:border-0"
-                style={{ borderColor: '#1B2A34' }}
-              >
-                <div>
-                  <div className="text-[13.5px] font-semibold">
-                    {m.colaboradorNome ?? '—'}
-                  </div>
-                  <div className="text-[11.5px]" style={{ color: '#7C93A1' }}>
-                    {TIPO_LABEL[m.tipo] ?? m.tipo} · {m.origem}
-                  </div>
-                </div>
-                <div
-                  className="text-right text-[11px]"
-                  style={{ color: '#9FB3BF', fontFamily: 'JetBrains Mono, monospace' }}
-                >
-                  <div>NSR {m.nsr}</div>
-                  <div>{new Date(m.em).toLocaleTimeString('pt-BR')}</div>
-                </div>
               </div>
             ))}
           </div>
