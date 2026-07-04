@@ -1,0 +1,16 @@
+{
+  "name": "Regem KDS",
+  "short_name": "KDS",
+  "description": "Tela de produção — Regem",
+  "start_url": "/kds",
+  "scope": "/kds",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0B141B",
+  "theme_color": "#0B141B",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
