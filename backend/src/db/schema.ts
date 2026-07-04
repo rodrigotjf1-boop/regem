@@ -972,6 +972,21 @@ export const botRegra = pgTable('bot_regra', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+export const alertaEstoque = pgTable('alerta_estoque', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tipo: text('tipo').notNull(), // ponto_pedido | validade
+  titulo: text('titulo').notNull(),
+  detalhe: text('detalhe'),
+  prioridade: text('prioridade').notNull().default('alta'), // alta | danger
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  resolvidoEm: timestamp('resolvido_em', { withTimezone: true }),
+  resolvidoPor: uuid('resolvido_por'),
+});
+
 export const botAtendimento = pgTable('bot_atendimento', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

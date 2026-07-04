@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -106,8 +107,11 @@ export default function PdvPage() {
       setCarrinho([]);
       setTaxa(false);
       chaveRef.current = null; // sucesso → próxima venda usa chave nova
+      toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao finalizar');
+      const m = e instanceof Error ? e.message : 'Erro ao finalizar';
+      setErro(m);
+      toast.error(m);
     } finally {
       setEnviando(false);
     }

@@ -8,6 +8,8 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
+import { Button } from '@/components/ui/button';
+import { toast } from '@/lib/toast';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,19 +36,22 @@ export default function EstoqueInteligenciaPage() {
   const [data, setData] = useState<any>(null);
   const [validades, setValidades] = useState<any[]>([]);
   const [cmv, setCmv] = useState<any>(null);
+  const [alertas, setAlertas] = useState<any[]>([]);
   const [erro, setErro] = useState('');
 
   const carregar = useCallback(async (ini: string, f: string) => {
     setErro('');
     try {
-      const [intel, vals, cmvData] = await Promise.all([
+      const [intel, vals, cmvData, alrt] = await Promise.all([
         api.estoqueInteligencia(ini, f),
         api.estoqueValidades(),
         api.estoqueCmv(ini, f),
+        api.estoqueAlertas(),
       ]);
       setData(intel);
       setValidades(vals);
       setCmv(cmvData);
+      setAlertas(alrt);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -55,9 +60,22 @@ export default function EstoqueInteligenciaPage() {
   async function bootstrapSnapshot() {
     try {
       await api.gerarSnapshotEstoque();
+      toast.success('Snapshot de estoque gerado.');
       await carregar(inicio, fim);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao gerar snapshot');
+      const m = e instanceof Error ? e.message : 'Erro ao gerar snapshot';
+      setErro(m);
+      toast.error(m);
+    }
+  }
+
+  async function resolverAlerta(id: string) {
+    try {
+      await api.resolverAlertaEstoque(id);
+      setAlertas((a) => a.filter((x) => x.id !== id));
+      toast.success('Alerta resolvido.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao resolver alerta');
     }
   }
 
@@ -93,6 +111,37 @@ export default function EstoqueInteligenciaPage() {
         </Card>
 
         {erro && <p className="text-destructive">{erro}</p>}
+
+        {/* Alertas persistidos (ROP/FEFO) */}
+        {alertas.length > 0 && (
+          <div className="space-y-2">
+            {alertas.map((a) => {
+              const danger = a.prioridade === 'danger';
+              return (
+                <Card
+                  key={a.id}
+                  className="flex items-start gap-3 p-3.5"
+                  style={{
+                    borderLeft: `3px solid hsl(var(--${danger ? 'destructive' : 'warn'}))`,
+                  }}
+                >
+                  <span className="text-lg leading-none">
+                    {a.tipo === 'validade' ? '⏰' : '📦'}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">{a.titulo}</p>
+                    {a.detalhe && (
+                      <p className="truncate text-xs text-muted-foreground">{a.detalhe}</p>
+                    )}
+                  </div>
+                  <Button variant="outline" size="sm" onClick={() => resolverAlerta(a.id)}>
+                    Resolver
+                  </Button>
+                </Card>
+              );
+            })}
+          </div>
+        )}
 
         {/* KPIs de valorização */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { itemEstoque, movimentoEstoque } from '../../db/schema';
+import { itemEstoque, movimentoEstoque, alertaEstoque } from '../../db/schema';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
@@ -318,5 +318,80 @@ export class EstoqueService {
       desperdicioValor: Number(desperdicioValor.toFixed(2)),
       furo: Number(furo.toFixed(2)),
     };
+  }
+
+  // ── Alertas de estoque (ROP/FEFO) persistidos ────────────────────────────────
+  // Mantém UM alerta aberto por (tenant, tipo): atualiza o existente ou cria.
+  async registrarAlerta(
+    tenantId: string,
+    tipo: 'ponto_pedido' | 'validade',
+    dados: { titulo: string; detalhe?: string; prioridade?: string; unidadeId?: string },
+  ) {
+    const atualizado = await this.db
+      .update(alertaEstoque)
+      .set({
+        titulo: dados.titulo,
+        detalhe: dados.detalhe,
+        prioridade: dados.prioridade ?? 'alta',
+        criadoEm: new Date(),
+      })
+      .where(
+        and(
+          eq(alertaEstoque.tenantId, tenantId),
+          eq(alertaEstoque.tipo, tipo),
+          isNull(alertaEstoque.resolvidoEm),
+        ),
+      )
+      .returning();
+    if (atualizado.length) return atualizado[0];
+    const [novo] = await this.db
+      .insert(alertaEstoque)
+      .values({
+        tenantId,
+        unidadeId: dados.unidadeId,
+        tipo,
+        titulo: dados.titulo,
+        detalhe: dados.detalhe,
+        prioridade: dados.prioridade ?? 'alta',
+      })
+      .returning();
+    return novo;
+  }
+
+  listarAlertas(tenantId: string) {
+    return this.db
+      .select()
+      .from(alertaEstoque)
+      .where(
+        and(
+          eq(alertaEstoque.tenantId, tenantId),
+          isNull(alertaEstoque.resolvidoEm),
+        ),
+      )
+      .orderBy(desc(alertaEstoque.criadoEm));
+  }
+
+  // Auto-resolve (pelo sistema) quando a condição some — mantém a lista limpa.
+  async resolverAlertasSistema(tenantId: string, tipo: string) {
+    await this.db
+      .update(alertaEstoque)
+      .set({ resolvidoEm: new Date() })
+      .where(
+        and(
+          eq(alertaEstoque.tenantId, tenantId),
+          eq(alertaEstoque.tipo, tipo),
+          isNull(alertaEstoque.resolvidoEm),
+        ),
+      );
+  }
+
+  async resolverAlerta(tenantId: string, id: string, colaboradorId: string) {
+    await this.db
+      .update(alertaEstoque)
+      .set({ resolvidoEm: new Date(), resolvidoPor: colaboradorId })
+      .where(
+        and(eq(alertaEstoque.id, id), eq(alertaEstoque.tenantId, tenantId)),
+      );
+    return { ok: true };
   }
 }
