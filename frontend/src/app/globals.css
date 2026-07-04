@@ -168,3 +168,20 @@
     display: none;
   }
 }
+
+/* Safe-areas (notch) — conteúdo do shell não fica sob recortes/gestos */
+.shell-content {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+.shell-content > main {
+  padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+}
+@media (max-width: 859px) {
+  .shell[data-side='left'] .shell-aside {
+    padding-left: env(safe-area-inset-left);
+  }
+  .shell[data-side='right'] .shell-aside {
+    padding-right: env(safe-area-inset-right);
+  }
+}

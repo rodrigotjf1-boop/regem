@@ -297,7 +297,7 @@ export function Shell({
       )}
 
       <div className="shell-content min-w-0">
-        <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-5 py-3.5">
           {prefs.side === 'left' && burger}
           <div>
             {eyebrow && (

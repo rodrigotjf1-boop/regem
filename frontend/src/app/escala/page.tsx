@@ -69,6 +69,27 @@ export default function EscalaPage() {
   const [alocar, setAlocar] = useState<{ etiquetaId?: string; data: string } | null>(
     null,
   );
+  // Visão por dia (mobile): índice 0–6 dentro da semana.
+  const [diaIdx, setDiaIdx] = useState(() => {
+    const h = hoje();
+    const base = mondayOf(h);
+    const i = Array.from({ length: 7 }, (_, n) => addDays(base, n)).indexOf(h);
+    return i >= 0 ? i : 0;
+  });
+  function irDia(delta: number) {
+    setDiaIdx((cur) => {
+      const n = cur + delta;
+      if (n < 0) {
+        setInicio((s) => addDays(s, -7));
+        return 6;
+      }
+      if (n > 6) {
+        setInicio((s) => addDays(s, 7));
+        return 0;
+      }
+      return n;
+    });
+  }
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -182,8 +203,9 @@ export default function EscalaPage() {
         </Card>
       )}
 
+      {/* Grade semanal (desktop ≥700px) */}
       {!loading && etiquetas.length > 0 && (
-        <Card className="overflow-x-auto p-0">
+        <Card className="hidden overflow-x-auto p-0 min-[700px]:block">
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="border-b border-border">
@@ -229,6 +251,80 @@ export default function EscalaPage() {
             </tbody>
           </table>
         </Card>
+      )}
+
+      {/* Visão por dia (mobile <700px) */}
+      {!loading && etiquetas.length > 0 && (
+        <div className="min-[700px]:hidden">
+          <div className="mb-3 flex items-center gap-2">
+            <Button variant="outline" size="icon" aria-label="Dia anterior" onClick={() => irDia(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex-1 text-center">
+              <p className="font-display text-sm font-bold capitalize">
+                {fmtDia(dias[diaIdx]).semana} · {fmtDia(dias[diaIdx]).dm}
+              </p>
+              {dias[diaIdx] === hoje() && (
+                <span className="text-[11px] font-medium text-primary">hoje</span>
+              )}
+            </div>
+            <Button variant="outline" size="icon" aria-label="Próximo dia" onClick={() => irDia(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+
+          <div className="space-y-3">
+            {grupos.map(([setorNome, vagas]) => (
+              <div key={setorNome}>
+                <p className="mb-1.5 px-1 font-display text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                  {setorNome}
+                </p>
+                <div className="space-y-1.5">
+                  {vagas.map((v) => {
+                    const allocs = cell[`${v.id}|${dias[diaIdx]}`] ?? [];
+                    return (
+                      <Card
+                        key={v.id}
+                        onClick={() => setAlocar({ etiquetaId: v.id, data: dias[diaIdx] })}
+                        className="flex min-h-[44px] cursor-pointer items-center gap-3 p-3 active:bg-primary/5"
+                      >
+                        <span
+                          className="h-2.5 w-2.5 flex-none rounded-full"
+                          style={{ background: v.cor || 'hsl(var(--muted-foreground))' }}
+                        />
+                        <span className="w-12 flex-none font-mono text-xs font-bold">
+                          {v.sigla}
+                          {v.contador}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          {allocs.length === 0 ? (
+                            <span className="text-sm text-muted-foreground">
+                              Vaga aberta · toque para alocar
+                            </span>
+                          ) : (
+                            allocs.map((a) => (
+                              <div key={a.id} className="leading-tight">
+                                <span className="text-sm font-semibold">
+                                  {a.colaboradorNome ?? 'Vaga aberta'}
+                                </span>
+                                {a.turnoNome && (
+                                  <span className="ml-1.5 text-xs text-muted-foreground">
+                                    {a.turnoNome}
+                                  </span>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                        <Plus className="h-4 w-4 flex-none text-muted-foreground/50" />
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       <p className="mt-3 text-xs text-muted-foreground">
