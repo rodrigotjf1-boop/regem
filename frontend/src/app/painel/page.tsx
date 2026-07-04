@@ -101,7 +101,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="mb-5 grid grid-cols-2 gap-3.5 md:grid-cols-5">
+      <div className="mb-5 grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-5">
         {kpis.map((k) => (
           <Card key={k.label} className="relative overflow-hidden p-4">
             <span
