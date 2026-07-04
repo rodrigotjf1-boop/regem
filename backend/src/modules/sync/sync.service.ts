@@ -28,11 +28,21 @@ export class SyncService {
     const desdeTs = desde || '1970-01-01T00:00:00Z';
     const tabelas: Record<string, any[]> = {};
     let maxCursor = desdeTs;
+    const avancar = (v: any) => {
+      if (v && new Date(v) > new Date(maxCursor)) maxCursor = v;
+    };
 
     for (const t of TABELAS_PULL) {
+      // Soft-delete também é "mudança": inclui deleted_at no delta (onde a coluna existe),
+      // para exclusões propagarem mesmo que o updated_at não tenha sido bumpado.
+      const colunas = await this.colunasDe(t.tabela);
+      const temDel = colunas.has('deleted_at');
+      const cond = temDel
+        ? sql`(${sql.identifier(t.cursor)} > ${desdeTs} or deleted_at > ${desdeTs})`
+        : sql`${sql.identifier(t.cursor)} > ${desdeTs}`;
       const r: any = await this.db.execute(sql`
         select * from ${sql.identifier(t.tabela)}
-        where tenant_id = ${tenantId} and ${sql.identifier(t.cursor)} > ${desdeTs}
+        where tenant_id = ${tenantId} and ${cond}
         order by ${sql.identifier(t.cursor)} asc
         limit 1000
       `);
@@ -47,8 +57,8 @@ export class SyncService {
         : rows;
       tabelas[t.tabela] = limpas;
       for (const row of rows) {
-        const c = row[t.cursor];
-        if (c && new Date(c) > new Date(maxCursor)) maxCursor = c;
+        avancar(row[t.cursor]);
+        if (temDel) avancar(row['deleted_at']);
       }
     }
 
