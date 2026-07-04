@@ -69,3 +69,5 @@ linhas novas desde um **cursor** — sem duplicar (upsert idempotente por PK).
 | Data | Decisão |
 |---|---|
 | 2026-07-04 | Arquitetura edge definida; substitui "satélites nativos/mDNS". Início pelo núcleo do sync (config + `venceLWW` + `GET /sync/pull`), sem migration. |
+| 2026-07-04 | Slice 2: `POST /sync/push` seguro (token de dispositivo `servidor_local`, tenant forçado, whitelist tabela+coluna, idempotente) + redação de segredos no pull. Slice 3: LWW-update para tabelas `ambos`. |
+| 2026-07-04 | Slice 4: **soft-deletes propagam no pull** (delta considera `deleted_at` por introspecção — sem trigger). **DECISÃO DE SEGURANÇA:** sequência monotônica + tombstones de **hard-delete** exigem **triggers nas tabelas centrais** — NÃO deployar sem ambiente de teste (uma trigger com erro derruba todos os writes). **Adiado para a Fase 2**, que terá Postgres local para validar o CDC antes. |
