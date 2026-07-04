@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { TABELAS_PULL, TABELAS_PUSH, REDIGIR } from './sync-config';
+import { TABELAS_PULL, modoPush, REDIGIR } from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
 
 @Injectable()
@@ -60,20 +60,22 @@ export class SyncService {
     };
   }
 
-  // Ingestão do operacional (local → nuvem). Seguro:
-  // - tabela na whitelist TABELAS_PUSH (append-only);
+  // Ingestão (local → nuvem). Seguro:
+  // - tabela na whitelist (append 'sobe' | lww 'ambos'); senão rejeita;
   // - tenant_id FORÇADO ao do token (ignora o que vier na linha);
   // - só colunas reais (introspecção); jsonb serializado;
-  // - idempotente: on conflict (id) do nothing + trata unique (23505).
+  // - append: on conflict (id) do nothing (idempotente);
+  // - lww: on conflict (id) do update SÓ se a recebida for mais nova, e SÓ do mesmo tenant.
   async push(tenantId: string, lotes: LoteSyncDto[]) {
-    const resultado: Record<string, { inseridas: number; ignoradas: number }> = {};
+    const resultado: Record<string, { aplicadas: number; ignoradas: number }> = {};
 
     for (const lote of lotes) {
-      if (!TABELAS_PUSH.has(lote.tabela)) {
+      const modo = modoPush(lote.tabela);
+      if (!modo) {
         throw new BadRequestException(`Tabela não permitida no push: ${lote.tabela}`);
       }
       const colunas = await this.colunasDe(lote.tabela);
-      let inseridas = 0;
+      let aplicadas = 0;
       let ignoradas = 0;
 
       for (const linha of lote.linhas ?? []) {
@@ -86,16 +88,27 @@ export class SyncService {
         );
         const nomes = ['tenant_id', ...cols];
         const valores = [tenantId, ...cols.map((c) => coagir((linha as any)[c]))];
+        const insercao = sql`insert into ${sql.identifier(lote.tabela)} (
+            ${sql.join(nomes.map((n) => sql.identifier(n)), sql`, `)}
+          ) values (
+            ${sql.join(valores.map((v) => sql`${v}`), sql`, `)}
+          )`;
+
+        // Colunas atualizáveis (LWW): tudo que veio, menos id (chave) e tenant_id (forçado).
+        const setCols = cols.filter((c) => c !== 'id');
+        const conflito =
+          modo === 'lww' && setCols.length && colunas.has('updated_at')
+            ? sql`on conflict (id) do update set ${sql.join(
+                setCols.map((c) => sql`${sql.identifier(c)} = excluded.${sql.identifier(c)}`),
+                sql`, `,
+              )}
+              where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
+                and ${sql.identifier(lote.tabela)}.updated_at < excluded.updated_at`
+            : sql`on conflict (id) do nothing`;
 
         try {
-          const r: any = await this.db.execute(sql`
-            insert into ${sql.identifier(lote.tabela)} (
-              ${sql.join(nomes.map((n) => sql.identifier(n)), sql`, `)}
-            ) values (
-              ${sql.join(valores.map((v) => sql`${v}`), sql`, `)}
-            ) on conflict (id) do nothing
-          `);
-          if ((r?.rowCount ?? 0) > 0) inseridas++;
+          const r: any = await this.db.execute(sql`${insercao} ${conflito}`);
+          if ((r?.rowCount ?? 0) > 0) aplicadas++;
           else ignoradas++;
         } catch (e: any) {
           if (e?.code === '23505') {
@@ -105,7 +118,7 @@ export class SyncService {
           throw e;
         }
       }
-      resultado[lote.tabela] = { inseridas, ignoradas };
+      resultado[lote.tabela] = { aplicadas, ignoradas };
     }
 
     return { serverTime: new Date().toISOString(), resultado };
