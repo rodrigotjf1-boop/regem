@@ -248,6 +248,9 @@ export const api = {
     req(`/onboarding/blueprint?ramo=${encodeURIComponent(ramo)}`),
   aplicarWizard: (body: Record<string, unknown>) =>
     req('/onboarding/wizard', { method: 'POST', body: JSON.stringify(body) }),
+  getPrefs: () => req('/colaborador/me/prefs'),
+  patchPrefs: (body: Record<string, unknown>) =>
+    req('/colaborador/me/prefs', { method: 'PATCH', body: JSON.stringify(body) }),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),

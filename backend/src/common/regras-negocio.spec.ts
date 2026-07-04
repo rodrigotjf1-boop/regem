@@ -12,6 +12,8 @@ import {
   casarRegraBot,
   custoTotalFicha,
   fichaAlcancavel,
+  sanitizeUiPrefs,
+  mergeUiPrefs,
 } from './regras-negocio';
 
 // helper: monta um timestamp UTC a partir da hora LOCAL do Brasil (UTC−3).
@@ -147,6 +149,28 @@ describe('fichaAlcancavel (detecção de ciclo em sub-fichas)', () => {
   });
   it('origem = destino é alcançável (auto-referência)', () => {
     expect(fichaAlcancavel('molho', 'molho', arestas)).toBe(true);
+  });
+});
+
+describe('ui prefs (sanitize + merge parcial)', () => {
+  it('sanitize mantém só chaves válidas', () => {
+    expect(sanitizeUiPrefs({ sidebar: 'collapsed', side: 'right', foo: 1 })).toEqual({
+      sidebar: 'collapsed',
+      side: 'right',
+    });
+  });
+  it('sanitize ignora valores inválidos', () => {
+    expect(sanitizeUiPrefs({ sidebar: 'xpto', side: 'up' })).toEqual({});
+  });
+  it('default vazio', () => expect(mergeUiPrefs(undefined, undefined)).toEqual({}));
+  it('patch parcial preserva o resto', () => {
+    expect(mergeUiPrefs({ sidebar: 'expanded', side: 'left' }, { side: 'right' })).toEqual({
+      sidebar: 'expanded',
+      side: 'right',
+    });
+  });
+  it('patch inválido não altera o atual', () => {
+    expect(mergeUiPrefs({ side: 'left' }, { side: 'diagonal' })).toEqual({ side: 'left' });
   });
 });
 

@@ -79,3 +79,92 @@
     filter: none;
   }
 }
+
+/* ── Shell responsivo (P-UI1): recolher · lado · drawer — markup único ── */
+.shell {
+  --sb-w: 240px;
+  --drawer-w: 240px;
+  display: grid;
+  grid-template-columns: var(--sb-w) 1fr;
+  min-height: 100dvh;
+}
+.shell[data-collapsed='true'] {
+  --sb-w: 72px;
+}
+.shell[data-side='right'] {
+  grid-template-columns: 1fr var(--sb-w);
+}
+.shell[data-side='right'] .shell-aside {
+  order: 2;
+}
+.shell-aside {
+  width: var(--sb-w);
+  min-width: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .shell-aside {
+    transition: width 0.2s ease, transform 0.2s ease;
+  }
+}
+
+/* Recolhido (só ≥860px): esconde textos, centraliza ícones, rótulo de grupo vira divisor */
+@media (min-width: 860px) {
+  .shell[data-collapsed='true'] .shell-label,
+  .shell[data-collapsed='true'] .shell-brand-text,
+  .shell[data-collapsed='true'] .shell-account-text {
+    display: none;
+  }
+  .shell[data-collapsed='true'] .shell-navlink,
+  .shell[data-collapsed='true'] .shell-brand,
+  .shell[data-collapsed='true'] .shell-account {
+    justify-content: center;
+  }
+  .shell[data-collapsed='true'] .shell-group-label {
+    height: 0;
+    padding: 0;
+    margin: 10px 12px;
+    overflow: hidden;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Drawer off-canvas < 860px (do lado escolhido) */
+@media (max-width: 859px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+  .shell-aside {
+    position: fixed;
+    inset-block: 0;
+    z-index: 50;
+    width: var(--drawer-w);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.4);
+  }
+  .shell[data-side='left'] .shell-aside {
+    left: 0;
+    transform: translateX(-100%);
+  }
+  .shell[data-side='right'] .shell-aside {
+    right: 0;
+    transform: translateX(100%);
+  }
+  .shell[data-open='true'] .shell-aside {
+    transform: translateX(0);
+  }
+}
+
+/* Botão "recolher" só no desktop; hambúrguer só no drawer (<860px) */
+.shell-collapse-btn {
+  display: none;
+}
+.shell-burger {
+  display: inline-flex;
+}
+@media (min-width: 860px) {
+  .shell-collapse-btn {
+    display: inline-flex;
+  }
+  .shell-burger {
+    display: none;
+  }
+}

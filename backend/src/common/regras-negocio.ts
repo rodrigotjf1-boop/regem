@@ -158,6 +158,25 @@ export function fichaAlcancavel(
   return false;
 }
 
+// ── Preferências de UI (shell) ───────────────────────────────────────────────
+export type UiPrefs = {
+  sidebar?: 'expanded' | 'collapsed';
+  side?: 'left' | 'right';
+};
+
+/** Mantém apenas chaves conhecidas com valores válidos (ignora o resto). */
+export function sanitizeUiPrefs(p: any): UiPrefs {
+  const out: UiPrefs = {};
+  if (p?.sidebar === 'expanded' || p?.sidebar === 'collapsed') out.sidebar = p.sidebar;
+  if (p?.side === 'left' || p?.side === 'right') out.side = p.side;
+  return out;
+}
+
+/** Merge parcial: patch sobrescreve, chaves ausentes/ inválidas preservam o atual. */
+export function mergeUiPrefs(atual: any, patch: any): UiPrefs {
+  return { ...sanitizeUiPrefs(atual), ...sanitizeUiPrefs(patch) };
+}
+
 export type MovLedger = { tipo: string; quantidade: number | string };
 
 /**

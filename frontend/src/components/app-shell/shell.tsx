@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -15,21 +15,24 @@ import {
   History,
   LayoutDashboard,
   ListChecks,
-  LogOut,
   type LucideIcon,
   Bot,
   Megaphone,
   Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
   ScrollText,
   Settings,
   ShoppingCart,
-  Wand2,
   Users,
   Wallet,
+  Wand2,
 } from 'lucide-react';
 import { clearToken, getCategoria, getToken } from '@/lib/api';
-import { RegemMark } from '@/components/brand/regem-mark';
 import { cn } from '@/lib/utils';
+import { RegemMark } from '@/components/brand/regem-mark';
+import { useUiPrefs } from '@/hooks/use-ui-prefs';
+import { AccountMenu } from './account-menu';
 
 type NavItem = {
   href: string;
@@ -114,9 +117,11 @@ export function Shell({
 }) {
   const path = usePathname();
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const { prefs, set, toggleColapso } = useUiPrefs();
+  const [open, setOpen] = useState(false); // drawer (mobile)
   const [rel, setRel] = useState('');
   const [cat, setCat] = useState('');
+  const asideRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!getToken()) {
@@ -136,22 +141,90 @@ export function Shell({
     return () => clearInterval(t);
   }, [router]);
 
+  // Atalho [ alterna o recolhimento (fora de campos de texto).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== '[' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable)
+        return;
+      e.preventDefault();
+      toggleColapso();
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toggleColapso]);
+
+  // Drawer (mobile): Esc fecha + foco preso enquanto aberto.
+  useEffect(() => {
+    if (!open) return;
+    const aside = asideRef.current;
+    const foco = () =>
+      aside?.querySelector<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+    foco()?.focus();
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        return;
+      }
+      if (e.key !== 'Tab' || !aside) return;
+      const foca = Array.from(
+        aside.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((n) => n.offsetParent !== null);
+      if (foca.length === 0) return;
+      const primeiro = foca[0];
+      const ultimo = foca[foca.length - 1];
+      if (e.shiftKey && document.activeElement === primeiro) {
+        e.preventDefault();
+        ultimo.focus();
+      } else if (!e.shiftKey && document.activeElement === ultimo) {
+        e.preventDefault();
+        primeiro.focus();
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
   function sair() {
     clearToken();
     router.replace('/entrar');
   }
 
+  const colapsado = prefs.sidebar === 'collapsed';
+
+  const burger = (
+    <button
+      type="button"
+      onClick={() => setOpen(true)}
+      className="shell-burger rounded-md border border-border bg-card p-2"
+      aria-label="Abrir menu"
+      aria-expanded={open ? 'true' : 'false'}
+    >
+      <Menu className="h-5 w-5" />
+    </button>
+  );
+
   return (
-    <div className="app-light min-h-dvh bg-background font-sans text-foreground md:grid md:grid-cols-[236px_1fr]">
+    <div
+      className="shell app-light bg-background font-sans text-foreground"
+      data-side={prefs.side}
+      data-collapsed={colapsado}
+      data-open={open}
+    >
       <aside
-        className={cn(
-          'fixed inset-y-0 left-0 z-50 flex w-[236px] flex-col bg-[#0F2230] text-[#DCE7EE] transition-transform md:static md:translate-x-0',
-          open ? 'translate-x-0' : '-translate-x-full',
-        )}
+        ref={asideRef}
+        className="shell-aside flex flex-col bg-[#0F2230] text-[#DCE7EE]"
+        aria-label="Navegação principal"
       >
-        <div className="flex items-center gap-2.5 border-b border-white/10 px-5 py-4">
-          <RegemMark className="h-8 w-8 text-white" />
-          <div>
+        <div className="shell-brand flex items-center gap-2.5 border-b border-white/10 px-5 py-4">
+          <RegemMark className="h-8 w-8 flex-none text-white" />
+          <div className="shell-brand-text">
             <p className="font-display text-base font-extrabold tracking-wide text-white">
               Regem
             </p>
@@ -164,55 +237,54 @@ export function Shell({
         <nav className="flex-1 overflow-y-auto p-2.5">
           {NAV.filter((g) => !g.presidenteOnly || cat === 'presidente').map((g) => (
             <div key={g.group}>
-              <p className="px-3 pb-1.5 pt-3.5 font-display text-[10px] font-bold uppercase tracking-[.16em] text-[#5E7B8E]">
+              <p className="shell-group-label px-3 pb-1.5 pt-3.5 font-display text-[10px] font-bold uppercase tracking-[.16em] text-[#5E7B8E]">
                 {g.group}
               </p>
               {g.items
                 .filter((it) => !it.roles || it.roles.includes(cat))
                 .map((it) => {
-                const active = path === it.href;
-                return (
-                  <Link
-                    key={it.href}
-                    href={it.href}
-                    onClick={() => setOpen(false)}
-                    className={cn(
-                      'mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                      active
-                        ? 'bg-primary/25 text-white shadow-[inset_2px_0_0_hsl(var(--primary))]'
-                        : 'text-[#B9CBD7] hover:bg-white/5 hover:text-white',
-                    )}
-                  >
-                    <it.icon className="h-4 w-4" />
-                    {it.label}
-                  </Link>
-                );
-              })}
+                  const active = path === it.href;
+                  return (
+                    <Link
+                      key={it.href}
+                      href={it.href}
+                      onClick={() => setOpen(false)}
+                      title={it.label}
+                      aria-label={it.label}
+                      aria-current={active ? 'page' : undefined}
+                      className={cn(
+                        'shell-navlink mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                        active
+                          ? 'bg-primary/25 text-white shadow-[inset_2px_0_0_hsl(var(--primary))]'
+                          : 'text-[#B9CBD7] hover:bg-white/5 hover:text-white',
+                      )}
+                    >
+                      <it.icon className="h-4 w-4 flex-none" />
+                      <span className="shell-label truncate">{it.label}</span>
+                    </Link>
+                  );
+                })}
             </div>
           ))}
         </nav>
 
-        <div className="m-2.5 flex items-center gap-2.5 rounded-lg bg-white/5 p-3">
-          <div className="grid h-9 w-9 place-items-center rounded-full bg-primary">
-            <RegemMark className="h-5 w-5 text-[#0F2230]" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] font-semibold text-white">
-              Minha conta
-            </p>
-            <p className="text-[11px] uppercase tracking-wide text-[#7A99AC]">
-              {cat || '—'}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={sair}
-            aria-label="Sair"
-            className="text-[#7A99AC] hover:text-white"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={toggleColapso}
+          aria-expanded={colapsado ? 'false' : 'true'}
+          aria-label={colapsado ? 'Expandir menu' : 'Recolher menu'}
+          title={colapsado ? 'Expandir menu ([)' : 'Recolher menu ([)'}
+          className="shell-collapse-btn mx-2.5 items-center gap-2 rounded-lg px-3 py-2 text-[13px] text-[#7A99AC] hover:bg-white/5 hover:text-white"
+        >
+          {colapsado ? (
+            <PanelLeftOpen className="h-4 w-4 flex-none" />
+          ) : (
+            <PanelLeftClose className="h-4 w-4 flex-none" />
+          )}
+          <span className="shell-label">Recolher</span>
+        </button>
+
+        <AccountMenu cat={cat} prefs={prefs} onSet={set} onSair={sair} />
       </aside>
 
       {open && (
@@ -220,20 +292,13 @@ export function Shell({
           type="button"
           aria-label="Fechar menu"
           onClick={() => setOpen(false)}
-          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          className="fixed inset-0 z-40 bg-black/40"
         />
       )}
 
-      <div className="min-w-0">
+      <div className="shell-content min-w-0">
         <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            className="rounded-md border border-border bg-card p-2 md:hidden"
-            aria-label="Abrir menu"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
+          {prefs.side === 'left' && burger}
           <div>
             {eyebrow && (
               <p className="font-display text-[10px] font-bold uppercase tracking-[.18em] text-primary">
@@ -249,6 +314,7 @@ export function Shell({
               <Clock className="h-3.5 w-3.5" /> {rel}
             </span>
             {actions}
+            {prefs.side === 'right' && burger}
           </div>
         </div>
         <main className="px-5 py-5 pb-16">{children}</main>
