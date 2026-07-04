@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -91,7 +92,7 @@ export default function PdvPage() {
     setErro('');
     setEnviando(true);
     // Chave idempotente estável: reusada em retry (rede), renovada só após sucesso.
-    if (!chaveRef.current) chaveRef.current = crypto.randomUUID();
+    if (!chaveRef.current) chaveRef.current = uuid();
     try {
       const r: any = await api.vendaBalcao({
         itens: carrinho.map((i) => ({
