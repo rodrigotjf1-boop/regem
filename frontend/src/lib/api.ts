@@ -220,6 +220,9 @@ export const api = {
   },
   gerarSnapshotEstoque: () =>
     req('/estoque/snapshot', { method: 'POST', body: '{}' }),
+  estoqueAlertas: () => req('/estoque/alertas'),
+  resolverAlertaEstoque: (id: string) =>
+    req(`/estoque/alertas/${id}/resolver`, { method: 'POST', body: '{}' }),
   muralFeed: () => req('/mural'),
   publicarComunicado: (body: Record<string, unknown>) =>
     req('/mural', { method: 'POST', body: JSON.stringify(body) }),

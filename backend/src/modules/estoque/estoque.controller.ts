@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   UseGuards,
@@ -92,5 +93,18 @@ export class EstoqueController {
   @Roles('presidente', 'gerente')
   snapshot(@CurrentUser() user: AuthUser) {
     return this.service.gerarSnapshot(user.tenantId);
+  }
+
+  // Alertas persistidos (ROP/FEFO) — gerados pelos jobs, resolvidos pelo gestor.
+  @Get('alertas')
+  @Roles('presidente', 'gerente', 'supervisao')
+  alertas(@CurrentUser() user: AuthUser) {
+    return this.service.listarAlertas(user.tenantId);
+  }
+
+  @Post('alertas/:id/resolver')
+  @Roles('presidente', 'gerente', 'supervisao')
+  resolverAlerta(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.resolverAlerta(user.tenantId, id, user.colaboradorId);
   }
 }

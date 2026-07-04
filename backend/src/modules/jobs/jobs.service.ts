@@ -59,13 +59,18 @@ export class JobsService {
     for (const tenantId of await this.tenantsAtivos()) {
       const { itens } = await this.estoque.inteligencia(tenantId, ini, hoje);
       const repor = itens.filter((i: any) => i.repor);
-      if (!repor.length) continue;
-      this.events.emit('kds.alerta.sistema', {
-        tenantId,
-        titulo: `${repor.length} item(ns) no ponto de pedido`,
-        detalhe: repor.slice(0, 6).map((i: any) => i.nome).join(', '),
+      if (!repor.length) {
+        await this.estoque.resolverAlertasSistema(tenantId, 'ponto_pedido');
+        continue;
+      }
+      const titulo = `${repor.length} item(ns) no ponto de pedido`;
+      const detalhe = repor.slice(0, 6).map((i: any) => i.nome).join(', ');
+      await this.estoque.registrarAlerta(tenantId, 'ponto_pedido', {
+        titulo,
+        detalhe,
         prioridade: 'alta',
       });
+      this.events.emit('kds.alerta.sistema', { tenantId, titulo, detalhe, prioridade: 'alta' });
       this.log.log(`ROP tenant ${tenantId}: ${repor.length} item(ns) a repor`);
     }
   }
@@ -89,14 +94,16 @@ export class JobsService {
       const criticos = lotes.filter(
         (l: any) => l.status === 'vencido' || l.status === 'critico',
       );
-      if (!criticos.length) continue;
+      if (!criticos.length) {
+        await this.estoque.resolverAlertasSistema(tenantId, 'validade');
+        continue;
+      }
       const vencidos = criticos.filter((l: any) => l.status === 'vencido').length;
-      this.events.emit('kds.alerta.sistema', {
-        tenantId,
-        titulo: `${criticos.length} lote(s) vencendo${vencidos ? ` · ${vencidos} vencido(s)` : ''}`,
-        detalhe: criticos.slice(0, 6).map((l: any) => l.itemNome).join(', '),
-        prioridade: vencidos ? 'danger' : 'alta',
-      });
+      const titulo = `${criticos.length} lote(s) vencendo${vencidos ? ` · ${vencidos} vencido(s)` : ''}`;
+      const detalhe = criticos.slice(0, 6).map((l: any) => l.itemNome).join(', ');
+      const prioridade = vencidos ? 'danger' : 'alta';
+      await this.estoque.registrarAlerta(tenantId, 'validade', { titulo, detalhe, prioridade });
+      this.events.emit('kds.alerta.sistema', { tenantId, titulo, detalhe, prioridade });
       this.log.log(`FEFO tenant ${tenantId}: ${criticos.length} lote(s) crítico(s)`);
     }
   }
