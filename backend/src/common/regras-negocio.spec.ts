@@ -14,6 +14,8 @@ import {
   fichaAlcancavel,
   sanitizeUiPrefs,
   mergeUiPrefs,
+  venceLWW,
+  deveAplicarRemoto,
 } from './regras-negocio';
 
 // helper: monta um timestamp UTC a partir da hora LOCAL do Brasil (UTC−3).
@@ -171,6 +173,25 @@ describe('ui prefs (sanitize + merge parcial)', () => {
   });
   it('patch inválido não altera o atual', () => {
     expect(mergeUiPrefs({ side: 'left' }, { side: 'diagonal' })).toEqual({ side: 'left' });
+  });
+});
+
+describe('venceLWW (conflito de sync last-write-wins)', () => {
+  const t1 = '2026-07-04T10:00:00Z';
+  const t2 = '2026-07-04T10:05:00Z';
+  it('remoto mais novo vence', () => {
+    expect(venceLWW(t1, t2, 'a', 'b')).toBe('remoto');
+  });
+  it('local mais novo vence', () => {
+    expect(venceLWW(t2, t1, 'a', 'b')).toBe('local');
+  });
+  it('empate no timestamp desempata por id (determinístico)', () => {
+    expect(venceLWW(t1, t1, 'a', 'b')).toBe('remoto'); // 'b' > 'a'
+    expect(venceLWW(t1, t1, 'b', 'a')).toBe('local');
+  });
+  it('deveAplicarRemoto reflete o vencedor', () => {
+    expect(deveAplicarRemoto(t1, t2, 'a', 'b')).toBe(true);
+    expect(deveAplicarRemoto(t2, t1, 'a', 'b')).toBe(false);
   });
 });
 

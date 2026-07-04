@@ -177,6 +177,35 @@ export function mergeUiPrefs(atual: any, patch: any): UiPrefs {
   return { ...sanitizeUiPrefs(atual), ...sanitizeUiPrefs(patch) };
 }
 
+// ── Sync (edge ↔ nuvem) ──────────────────────────────────────────────────────
+/**
+ * Resolução de conflito last-write-wins entre duas versões da mesma linha.
+ * Vence o `updated_at` mais recente; empate no timestamp desempata por id
+ * (determinístico, para os dois lados convergirem igual). Ver arquitetura-edge §3.
+ */
+export function venceLWW(
+  tsLocal: string | Date | null | undefined,
+  tsRemoto: string | Date | null | undefined,
+  idLocal: string,
+  idRemoto: string,
+): 'local' | 'remoto' {
+  const l = tsLocal ? new Date(tsLocal).getTime() : 0;
+  const r = tsRemoto ? new Date(tsRemoto).getTime() : 0;
+  if (r > l) return 'remoto';
+  if (l > r) return 'local';
+  return idRemoto > idLocal ? 'remoto' : 'local';
+}
+
+/** Deve sobrescrever a versão local pela remota (LWW)? */
+export function deveAplicarRemoto(
+  tsLocal: string | Date | null | undefined,
+  tsRemoto: string | Date | null | undefined,
+  idLocal: string,
+  idRemoto: string,
+): boolean {
+  return venceLWW(tsLocal, tsRemoto, idLocal, idRemoto) === 'remoto';
+}
+
 export type MovLedger = { tipo: string; quantidade: number | string };
 
 /**
