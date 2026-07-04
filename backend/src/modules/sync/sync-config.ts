@@ -38,11 +38,19 @@ export const TABELAS_PULL = TABELAS_SYNC.filter(
   (t) => t.direcao === 'desce' || t.direcao === 'ambos',
 );
 
-// Slice 2: push só do OPERACIONAL append-only ('sobe') — idempotente por id, sem update.
-// ('ambos' precisa de LWW-update → slice 3.)
-export const TABELAS_PUSH = new Set(
+// Push: append-only ('sobe', on conflict do nothing) e LWW ('ambos', on conflict
+// do update se a linha recebida for mais nova — ver venceLWW / arquitetura-edge §3).
+export const TABELAS_PUSH_APPEND = new Set(
   TABELAS_SYNC.filter((t) => t.direcao === 'sobe').map((t) => t.tabela),
 );
+export const TABELAS_PUSH_LWW = new Set(
+  TABELAS_SYNC.filter((t) => t.direcao === 'ambos').map((t) => t.tabela),
+);
+export function modoPush(tabela: string): 'append' | 'lww' | null {
+  if (TABELAS_PUSH_APPEND.has(tabela)) return 'append';
+  if (TABELAS_PUSH_LWW.has(tabela)) return 'lww';
+  return null;
+}
 
 // Segurança: colunas NUNCA enviadas no pull (segredos). PIN de 4 dígitos + bcrypt é
 // brute-forçável offline → não sai daqui. Auth offline de credencial fica p/ design futuro.
