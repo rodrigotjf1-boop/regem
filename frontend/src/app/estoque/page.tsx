@@ -7,6 +7,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -193,79 +194,28 @@ export default function EstoqueInteligenciaPage() {
           </Card>
         )}
 
-        {/* Tabela */}
-        <Card className="p-0">
-          <div className="border-b border-border px-5 py-3.5">
-            <p className="font-display text-sm font-bold">Itens</p>
-            <p className="text-xs text-muted-foreground">
-              Valor, cobertura, curva ABC (por valor consumido) e ponto de pedido
-            </p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <caption className="sr-only">Inteligência de estoque por item</caption>
-              <thead>
-                <tr className="border-b border-border text-left">
-                  {['Item', 'Saldo', 'Custo méd.', 'Valor', 'Cobertura', 'ABC', ''].map((h) => (
-                    <th key={h} className="whitespace-nowrap px-4 py-2.5 font-display text-[10px] font-bold uppercase tracking-[.1em] text-muted-foreground">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data === null && (
-                  <tr><td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">Carregando…</td></tr>
-                )}
-                {itens.length === 0 && data !== null && (
-                  <tr><td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">Nenhum item de estoque.</td></tr>
-                )}
-                {itens.map((i) => (
-                  <tr key={i.id} className="border-b border-border last:border-0">
-                    <td className="px-4 py-3 font-medium">
-                      {i.nome}
-                      {i.fornecedorNome && (
-                        <span className="block text-[11px] font-normal text-muted-foreground">
-                          {i.fornecedorNome} · lead {i.leadTime}d
-                        </span>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
-                      {i.saldo} {i.unidadeMedida}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {Number(i.custoMedio) > 0 ? brl(i.custoMedio) : '—'}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs">
-                      {Number(i.valorEstoque) > 0 ? brl(i.valorEstoque) : '—'}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {i.diasCobertura != null ? `${i.diasCobertura} d` : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className="rounded px-1.5 py-0.5 font-mono text-[11px] font-bold"
-                        style={{ background: `${ABC_COR[i.classeAbc]}20`, color: ABC_COR[i.classeAbc] }}
-                      >
-                        {i.classeAbc}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      {i.repor && (
-                        <span
-                          className="rounded-md px-2 py-0.5 text-[11px] font-bold"
-                          style={{ background: 'hsl(var(--warn)/.15)', color: 'hsl(var(--warn))' }}
-                        >
-                          Repor{i.qtdSugerida > 0 ? ` ${i.qtdSugerida} ${i.unidadeMedida}` : ''}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        {/* Itens */}
+        <ResponsiveTable<any>
+          caption="Inteligência de estoque por item"
+          title="Itens"
+          subtitle="Valor, cobertura, curva ABC (por valor consumido) e ponto de pedido"
+          variant="scroll-sticky"
+          loading={data === null}
+          rows={itens}
+          rowKey={(i) => i.id}
+          empty="Nenhum item de estoque."
+          columns={COLUNAS_ITENS}
+          actions={(i) =>
+            i.repor ? (
+              <span
+                className="rounded-md px-2 py-0.5 text-[11px] font-bold"
+                style={{ background: 'hsl(var(--warn)/.15)', color: 'hsl(var(--warn))' }}
+              >
+                Repor{i.qtdSugerida > 0 ? ` ${i.qtdSugerida} ${i.unidadeMedida}` : ''}
+              </span>
+            ) : null
+          }
+        />
         <p className="text-xs text-muted-foreground">
           Curva ABC pelo valor consumido no período (A ≤ 80% acumulado · B ≤ 95% · C resto).
           Ponto de pedido usa o lead time do fornecedor do item (padrão quando o item não tem fornecedor).
@@ -274,6 +224,58 @@ export default function EstoqueInteligenciaPage() {
     </Shell>
   );
 }
+
+const COLUNAS_ITENS: Column<any>[] = [
+  {
+    key: 'nome',
+    header: 'Item',
+    sticky: true,
+    render: (i) => (
+      <span className="font-medium">
+        {i.nome}
+        {i.fornecedorNome && (
+          <span className="block text-[11px] font-normal text-muted-foreground">
+            {i.fornecedorNome} · lead {i.leadTime}d
+          </span>
+        )}
+      </span>
+    ),
+  },
+  { key: 'saldo', header: 'Saldo', mono: true, render: (i) => `${i.saldo} ${i.unidadeMedida}` },
+  {
+    key: 'custoMedio',
+    header: 'Custo méd.',
+    mono: true,
+    align: 'right',
+    render: (i) => (Number(i.custoMedio) > 0 ? brl(i.custoMedio) : '—'),
+  },
+  {
+    key: 'valorEstoque',
+    header: 'Valor',
+    mono: true,
+    align: 'right',
+    render: (i) => (Number(i.valorEstoque) > 0 ? brl(i.valorEstoque) : '—'),
+  },
+  {
+    key: 'diasCobertura',
+    header: 'Cobertura',
+    mono: true,
+    align: 'right',
+    render: (i) => (i.diasCobertura != null ? `${i.diasCobertura} d` : '—'),
+  },
+  {
+    key: 'classeAbc',
+    header: 'ABC',
+    render: (i) => (
+      <span
+        className="rounded px-1.5 py-0.5 font-mono text-[11px] font-bold"
+        style={{ background: `${ABC_COR[i.classeAbc]}20`, color: ABC_COR[i.classeAbc] }}
+      >
+        {i.classeAbc}
+      </span>
+    ),
+  },
+];
 
 function Kpi({
   label,
