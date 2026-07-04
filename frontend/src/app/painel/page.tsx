@@ -6,6 +6,7 @@ import { api, getCategoria, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Timeline } from '@/components/dashboard/timeline';
+import { CardPontoHoje } from '@/components/dashboard/card-ponto-hoje';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function hoje() {
@@ -138,6 +139,11 @@ export default function DashboardPage() {
           <p className="px-5 py-6 text-sm text-muted-foreground">Carregando…</p>
         )}
       </Card>
+
+      {/* Ponto de hoje — resumo para o gerente (gestão completa em Pessoas & Ponto) */}
+      <div className="mb-4">
+        <CardPontoHoje />
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <Card className="p-0">
