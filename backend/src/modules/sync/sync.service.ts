@@ -33,17 +33,26 @@ export class SyncService {
     };
 
     for (const t of TABELAS_PULL) {
+      // Defensivo: se o cursor configurado não existir na tabela real (drift de
+      // schema), cai para created_at; sem nenhum → pula (não derruba o pull).
+      const colunas = await this.colunasDe(t.tabela);
+      const cursor = colunas.has(t.cursor)
+        ? t.cursor
+        : colunas.has('created_at')
+          ? 'created_at'
+          : null;
+      if (!cursor) continue;
       // Soft-delete também é "mudança": inclui deleted_at no delta (onde a coluna existe),
       // para exclusões propagarem mesmo que o updated_at não tenha sido bumpado.
-      const colunas = await this.colunasDe(t.tabela);
       const temDel = colunas.has('deleted_at');
       const cond = temDel
-        ? sql`(${sql.identifier(t.cursor)} > ${desdeTs} or deleted_at > ${desdeTs})`
-        : sql`${sql.identifier(t.cursor)} > ${desdeTs}`;
+        ? sql`(${sql.identifier(cursor)} > ${desdeTs} or deleted_at > ${desdeTs})`
+        : sql`${sql.identifier(cursor)} > ${desdeTs}`;
+      const escopo = t.escopo ?? 'tenant_id';
       const r: any = await this.db.execute(sql`
         select * from ${sql.identifier(t.tabela)}
-        where tenant_id = ${tenantId} and ${cond}
-        order by ${sql.identifier(t.cursor)} asc
+        where ${sql.identifier(escopo)} = ${tenantId} and ${cond}
+        order by ${sql.identifier(cursor)} asc
         limit 1000
       `);
       const rows = r.rows ?? r;
@@ -57,7 +66,7 @@ export class SyncService {
         : rows;
       tabelas[t.tabela] = limpas;
       for (const row of rows) {
-        avancar(row[t.cursor]);
+        avancar(row[cursor]);
         if (temDel) avancar(row['deleted_at']);
       }
     }

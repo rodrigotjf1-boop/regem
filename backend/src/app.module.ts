@@ -46,7 +46,8 @@ import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // .env.local (servidor edge/dev, gitignored) tem prioridade; cai no .env (nuvem).
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env.local', '.env'] }),
     EventEmitterModule.forRoot(),
     ScheduleModule.forRoot(),
     // Rate limit global (120 req/min por IP). Rotas sensíveis apertam com @Throttle.

@@ -5,19 +5,21 @@ export type TabelaSync = {
   tabela: string;
   direcao: Direcao;
   cursor: 'created_at' | 'updated_at';
+  escopo?: 'tenant_id' | 'id'; // coluna que amarra ao tenant (empresa usa 'id')
 };
 
 // v1: apenas tabelas com `tenant_id` direto + cursor confiável.
 // (append-only / hard-deletes / produto_variacao etc. entram no endurecimento v2.)
 export const TABELAS_SYNC: TabelaSync[] = [
-  // Controle (nuvem → local)
+  // Controle (nuvem → local) — empresa 1º (pais antes dos filhos p/ FK); escopo por id.
+  { tabela: 'empresa', direcao: 'desce', cursor: 'updated_at', escopo: 'id' },
   { tabela: 'unidade', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'setor', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'funcao', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'colaborador', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'turno', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'etiqueta', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'categoria_produto', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'categoria_produto', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'produto', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'ficha_tecnica', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'bot_regra', direcao: 'desce', cursor: 'updated_at' },
