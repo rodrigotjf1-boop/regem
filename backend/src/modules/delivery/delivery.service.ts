@@ -135,7 +135,7 @@ export class DeliveryService {
       forma: ped.formaPagamento ?? 'online',
       origem: 'delivery',
       itens: itens.map((it) => ({
-        produtoId: it.codigo ? porCodigo.get(it.codigo) ?? null : null,
+        produtoId: it.produtoId ?? (it.codigo ? porCodigo.get(it.codigo) ?? null : null),
         descricao: it.descricao,
         quantidade: Number(it.quantidade) || 1,
         precoUnitario: Number(it.precoUnitario) || 0,

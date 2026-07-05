@@ -61,6 +61,19 @@ async function req(path: string, options: RequestInit = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// Chamada PÚBLICA (sem login, sem redirecionar em 401) — cardápio por QR.
+async function pub(path: string, options: RequestInit = {}) {
+  const res = await fetch(`${BASE}${path}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as any);
+    throw new Error(body.message || `Erro ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
 async function uploadFile(path: string, file: File) {
   const token = getToken();
@@ -272,6 +285,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ status: status ?? 'aprovado' }),
     }),
+  // Cardápio digital (Fase J)
+  cardapioConfig: () => req('/cardapio/config'),
+  setCardapioConfig: (body: Record<string, unknown>) =>
+    req('/cardapio/config', { method: 'PUT', body: JSON.stringify(body) }),
+  cardapioMenu: (token: string) => pub(`/publico/cardapio/${token}`),
+  cardapioPedido: (token: string, body: Record<string, unknown>) =>
+    pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>

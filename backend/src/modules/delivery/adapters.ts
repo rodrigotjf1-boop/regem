@@ -11,6 +11,7 @@ export interface PedidoNormalizado {
   tipo: 'entrega' | 'retirada';
   endereco?: string;
   itens: {
+    produtoId?: string; // quando a origem já conhece o produto (ex.: cardápio)
     codigo?: string;
     descricao: string;
     quantidade: number;
@@ -61,6 +62,7 @@ export function adaptarGenerico(raw: any): PedidoNormalizado {
     tipo: raw?.tipo === 'retirada' ? 'retirada' : 'entrega',
     endereco: raw?.endereco,
     itens: (raw?.itens ?? []).map((it: any) => ({
+      produtoId: it.produtoId,
       codigo: it.codigo,
       descricao: it.descricao ?? it.nome ?? 'Item',
       quantidade: Number(it.quantidade) || 1,

@@ -26,6 +26,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  QrCode,
   ScrollText,
   Settings,
   ShoppingCart,
@@ -93,6 +94,12 @@ const NAV: NavGroup[] = [
         label: 'Fiscal (NFC-e)',
         icon: ReceiptText,
         roles: ['presidente'],
+      },
+      {
+        href: '/cardapio-config',
+        label: 'Cardápio · QR',
+        icon: QrCode,
+        roles: ['presidente', 'gerente'],
       },
       {
         href: '/financeiro',
