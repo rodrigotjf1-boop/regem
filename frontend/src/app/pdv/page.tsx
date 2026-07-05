@@ -40,13 +40,20 @@ export default function PdvPage() {
   const [comprovante, setComprovante] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [tefAtivo, setTefAtivo] = useState(false);
+  const [tefStatus, setTefStatus] = useState<string | null>(null); // aguardando maquininha
   const chaveRef = useRef<string | null>(null); // chave idempotente da venda atual
 
   const reload = useCallback(async () => {
     try {
-      const [ps, cs] = await Promise.all([api.produtos(), api.produtoCategorias()]);
+      const [ps, cs, tc] = await Promise.all([
+        api.produtos(),
+        api.produtoCategorias(),
+        api.tefConfig().catch(() => ({ ativo: false })),
+      ]);
       setProdutos(ps.filter((p: any) => p.ativo !== false));
       setCategorias(cs);
+      setTefAtivo(!!(tc as any).ativo);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -135,36 +142,73 @@ export default function PdvPage() {
   const subtotal = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
   const total = subtotal * (taxa ? 1.1 : 1);
 
+  // Cobrança TEF na maquininha (pré-venda): cria a cobrança e aguarda o agente do
+  // edge/pinpad. Devolve o pagamento aprovado, ou null se negado/cancelado.
+  async function cobrarTef(): Promise<any | null> {
+    const pag: any = await api.tefCriar({
+      valor: total,
+      forma: forma === 'pix' ? 'pix' : 'credito',
+    });
+    setTefStatus('aguardando');
+    for (let i = 0; i < 120; i++) {
+      // ~4min: aguarda o cliente inserir/aproximar o cartão
+      await new Promise((r) => setTimeout(r, 2000));
+      const at: any = await api.tefGet(pag.id).catch(() => null);
+      if (at && at.status !== 'pendente') {
+        setTefStatus(null);
+        if (at.status === 'aprovado') return at;
+        toast.error(`Pagamento ${at.status}${at.mensagem ? ` · ${at.mensagem}` : ''}`);
+        return null;
+      }
+    }
+    setTefStatus(null);
+    await api.tefCancelar(pag.id).catch(() => {});
+    toast.error('Tempo esgotado na maquininha.');
+    return null;
+  }
+
+  async function enviarVenda(tefPagId?: string) {
+    if (!chaveRef.current) chaveRef.current = uuid();
+    const r: any = await api.vendaBalcao({
+      itens: carrinho.map((i) => ({
+        produtoId: i.produtoId,
+        variacaoId: i.variacaoId,
+        complementos: i.complementos,
+        observacao: i.observacao,
+        quantidade: i.qtd,
+      })),
+      forma,
+      taxaServicoPct: taxa ? 10 : 0,
+      idempotencyKey: chaveRef.current,
+    });
+    if (tefPagId && r?.comandaId) await api.tefVincular(tefPagId, r.comandaId).catch(() => {});
+    setComprovante(r);
+    setCarrinho([]);
+    setTaxa(false);
+    chaveRef.current = null;
+    toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
+  }
+
   async function finalizar() {
     if (carrinho.length === 0) return;
     setErro('');
     setEnviando(true);
-    // Chave idempotente estável: reusada em retry (rede), renovada só após sucesso.
-    if (!chaveRef.current) chaveRef.current = uuid();
     try {
-      const r: any = await api.vendaBalcao({
-        itens: carrinho.map((i) => ({
-          produtoId: i.produtoId,
-          variacaoId: i.variacaoId,
-          complementos: i.complementos,
-          observacao: i.observacao,
-          quantidade: i.qtd,
-        })),
-        forma,
-        taxaServicoPct: taxa ? 10 : 0,
-        idempotencyKey: chaveRef.current,
-      });
-      setComprovante(r);
-      setCarrinho([]);
-      setTaxa(false);
-      chaveRef.current = null; // sucesso → próxima venda usa chave nova
-      toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
+      // Com TEF ativo e pagamento por cartão/pix: cobra na maquininha antes.
+      if (tefAtivo && (forma === 'cartao' || forma === 'pix')) {
+        const pago = await cobrarTef();
+        if (!pago) return; // negado/cancelado → não finaliza a venda
+        await enviarVenda(pago.id);
+      } else {
+        await enviarVenda();
+      }
     } catch (e) {
       const m = e instanceof Error ? e.message : 'Erro ao finalizar';
       setErro(m);
       toast.error(m);
     } finally {
       setEnviando(false);
+      setTefStatus(null);
     }
   }
 
@@ -372,6 +416,22 @@ export default function PdvPage() {
           </div>
         );
       })()}
+
+      {/* Aguardando maquininha (TEF) */}
+      {tefStatus && (
+        <div className="fixed inset-0 z-40 grid place-items-center bg-black/60 p-4">
+          <Card className="w-full max-w-sm p-6 text-center">
+            <p className="font-display text-lg font-bold">Aguardando pagamento</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Peça ao cliente para inserir ou aproximar o cartão na maquininha.
+            </p>
+            <p className="mt-4 font-mono text-2xl font-bold">{brl(total)}</p>
+            <p className="mt-3 animate-pulse text-xs uppercase tracking-wide text-primary">
+              processando…
+            </p>
+          </Card>
+        </div>
+      )}
 
       {/* Comprovante */}
       {comprovante && (

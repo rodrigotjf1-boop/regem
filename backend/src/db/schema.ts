@@ -1305,3 +1305,39 @@ export const pedidoExterno = pgTable('pedido_externo', {
   canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
   motivoCancelamento: text('motivo_cancelamento'),
 });
+
+// ===== TEF — pagamento integrado (Fase I) =====
+export const tefConfig = pgTable('tef_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  ativo: boolean('ativo').notNull().default(false),
+  provedor: text('provedor').notNull().default('mock'), // mock | sitef | paygo | stone
+  terminalId: text('terminal_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pagamentoTef = pgTable('pagamento_tef', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  comandaId: uuid('comanda_id'),
+  valor: numeric('valor').notNull().default('0'),
+  forma: text('forma').notNull().default('credito'), // credito | debito | pix
+  parcelas: integer('parcelas').notNull().default(1),
+  status: text('status').notNull().default('pendente'), // pendente | aprovado | negado | cancelado
+  nsu: text('nsu'),
+  autorizacao: text('autorizacao'),
+  bandeira: text('bandeira'),
+  provedor: text('provedor'),
+  mensagem: text('mensagem'),
+  criadoPorId: uuid('criado_por_id'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  processadoEm: timestamp('processado_em', { withTimezone: true }),
+  canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
+});
