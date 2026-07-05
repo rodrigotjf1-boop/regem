@@ -38,6 +38,7 @@ import {
 import { clearToken, getCategoria, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RegemMark } from '@/components/brand/regem-mark';
+import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 
@@ -356,6 +357,10 @@ export function Shell({
         </div>
         <main className="px-5 py-5 pb-16">{children}</main>
       </div>
+
+      {/* Navegação-topo no rodapé (Material 3) — só no mobile (<860px);
+          no desktop a sidebar/drawer cobre a navegação. */}
+      <BottomNav />
     </div>
   );
 }

@@ -49,7 +49,7 @@ export default function CardapioPublicoPage() {
   const [enviando, setEnviando] = useState(false);
   const [checkout, setCheckout] = useState(false);
   const [ped, setPed] = useState<any>(null); // pedido enviado (status/timeline)
-  const [chk, setChk] = useState<any>({ tipo: 'entrega', endereco: '', bairroId: '', forma: '', troco: '', cupom: '', telefone: '' });
+  const [chk, setChk] = useState<any>({ tipo: 'entrega', endereco: '', bairroId: '', forma: '', troco: '', cupom: '', telefone: '', agendamento: '', profissional: '', cnpj: '' });
   const [cupomOk, setCupomOk] = useState<any>(null);
   const [sel, setSel] = useState<any>(null); // produto no modal
   const [pickVar, setPickVar] = useState<string | undefined>();
@@ -69,6 +69,8 @@ export default function CardapioPublicoPage() {
 
   const loja = menu?.loja;
   const accent = TEMA[loja?.ramo] ?? '#E2A340';
+  const isServico = loja?.ramo === 'servicos';
+  const isIndustria = loja?.ramo === 'industria'; // pedido = orçamento (sem pagamento)
   const produtos = menu?.produtos ?? [];
   const visiveis = cat ? produtos.filter((p: any) => p.categoriaId === cat) : produtos;
   const total = useMemo(() => cart.reduce((s, i) => s + i.preco * i.qtd, 0), [cart]);
@@ -163,6 +165,9 @@ export default function CardapioPublicoPage() {
         formaPagamento: chk.forma || undefined,
         trocoPara: chk.forma === 'entrega' && chk.troco ? Number(String(chk.troco).replace(',', '.')) : undefined,
         cupom: cupomOk?.valido ? chk.cupom.trim() : undefined,
+        agendamento: chk.agendamento || undefined,
+        profissional: chk.profissional || undefined,
+        cnpj: chk.cnpj || undefined,
         itens: cart.map((i) => ({
           produtoId: i.produtoId, variacaoId: i.variacaoId, complementos: i.complementos,
           quantidade: i.qtd, observacao: i.obs || undefined,
@@ -175,7 +180,7 @@ export default function CardapioPublicoPage() {
       setCart([]);
       setCheckout(false);
       if (r.modo === 'mesa') { setPed({ mesa: r.mesa, modo: 'mesa' }); }
-      else { setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo' }); }
+      else { setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total }); }
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -205,7 +210,7 @@ export default function CardapioPublicoPage() {
       <main className="min-h-dvh bg-neutral-50 p-6">
         <div className="mx-auto max-w-md text-center">
           <p className="text-3xl">🎉</p>
-          <h1 className="mt-1 text-xl font-bold" style={{ color: accent }}>Pedido enviado!</h1>
+          <h1 className="mt-1 text-xl font-bold" style={{ color: accent }}>{ped.orcamento ? 'Orçamento solicitado!' : ped.agendamento ? 'Agendamento confirmado!' : 'Pedido enviado!'}</h1>
           {ped.modo === 'mesa'
             ? <p className="mt-1 text-neutral-600">Foi para a cozinha (mesa {ped.mesa}).</p>
             : <p className="mt-1 text-neutral-600">Senha {ped.displayId} · total {brl(ped.total ?? totalFinal)}</p>}
@@ -220,6 +225,9 @@ export default function CardapioPublicoPage() {
             </div>
           )}
           {ped.status === 'cancelado' && <p className="mt-4 text-red-600">Pedido cancelado.</p>}
+          {ped.orcamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Orçamento solicitado — em breve retornamos com a proposta.</p>}
+          {ped.agendamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Agendado para {new Date(ped.agendamento).toLocaleString('pt-BR')}.</p>}
+          {ped.pontos != null && <p className="mt-3 text-sm font-semibold" style={{ color: accent }}>⭐ Você tem {ped.pontos} pontos de fidelidade.</p>}
           {loja.whatsapp && (
             <a href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}`} className="mt-4 inline-block rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-white">💬 Falar no WhatsApp</a>
           )}
@@ -268,10 +276,11 @@ export default function CardapioPublicoPage() {
       {/* itens */}
       <div className="space-y-2 px-4 pt-2">
         {visiveis.map((p: any) => (
-          <button key={p.id} type="button" onClick={() => abrir(p)} className="flex w-full gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left">
+          <button key={p.id} type="button" disabled={p.esgotado} onClick={() => abrir(p)} className="flex w-full gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left disabled:opacity-60">
             <div className="min-w-0 flex-1">
               <p className="font-semibold text-neutral-900">{p.nome}</p>
               <div className="mt-0.5 flex flex-wrap gap-1">
+                {p.esgotado && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-600">ESGOTADO</span>}
                 {(p.selos ?? []).map((s: string) => <span key={s} className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600">{SELO[s] ?? s}</span>)}
                 {p.duracaoMin && <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600">🕐 {p.duracaoMin} min</span>}
               </div>
@@ -279,6 +288,7 @@ export default function CardapioPublicoPage() {
               <div className="mt-1 flex items-baseline gap-2">
                 {p.precoDe != null && <span className="text-xs text-neutral-400 line-through">{brl(p.precoDe)}</span>}
                 <span className="font-bold" style={{ color: accent }}>{brl(p.precoVenda)}</span>
+                {loja.parcelasMax > 1 && <span className="text-[11px] text-neutral-500">em até {loja.parcelasMax}x</span>}
               </div>
             </div>
             {p.imagemRef && <img src={p.imagemRef} alt={p.nome} className="h-20 w-20 flex-none rounded-xl object-cover" />}
@@ -330,7 +340,15 @@ export default function CardapioPublicoPage() {
                   <p className="mb-1 text-sm font-semibold">Escolha <span className="text-xs text-red-500">obrigatório</span></p>
                   {sel.variacoes.map((v: any) => (
                     <button key={v.id} type="button" onClick={() => setPickVar(v.id)} className="mb-1.5 flex w-full items-center justify-between rounded-xl border p-3" style={pickVar === v.id ? { borderColor: accent } : { borderColor: '#e5e5e5' }}>
-                      <span className="text-sm">{v.nome}</span><span className="font-mono text-sm">{brl(v.precoVenda)}</span>
+                      <span className="text-sm">
+                        {v.nome}
+                        {(v.atributos?.tamanho || v.atributos?.cor) && (
+                          <span className="ml-1 text-xs text-neutral-500">
+                            {[v.atributos?.tamanho, v.atributos?.cor].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </span>
+                      <span className="font-mono text-sm">{brl(v.precoVenda)}</span>
                     </button>
                   ))}
                 </div>
@@ -397,6 +415,22 @@ export default function CardapioPublicoPage() {
               <input value={chk.telefone} onChange={(e) => setChk((s: any) => ({ ...s, telefone: e.target.value }))} placeholder="WhatsApp" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
             </div>
 
+            {/* serviços: agendamento */}
+            {isServico && (
+              <div className="mt-3 space-y-2">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-neutral-600">Data e hora</label>
+                  <input type="datetime-local" value={chk.agendamento} onChange={(e) => setChk((s: any) => ({ ...s, agendamento: e.target.value }))} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
+                </div>
+                <input value={chk.profissional} onChange={(e) => setChk((s: any) => ({ ...s, profissional: e.target.value }))} placeholder="Profissional (opcional)" className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
+              </div>
+            )}
+
+            {/* indústria: faturamento por CNPJ */}
+            {isIndustria && (
+              <input value={chk.cnpj} onChange={(e) => setChk((s: any) => ({ ...s, cnpj: e.target.value }))} placeholder="CNPJ para faturamento" className="mt-3 w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
+            )}
+
             {/* cupom */}
             <div className="mt-3 flex gap-2">
               <input value={chk.cupom} onChange={(e) => setChk((s: any) => ({ ...s, cupom: e.target.value.toUpperCase() }))} placeholder="Cupom" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm uppercase" />
@@ -404,8 +438,8 @@ export default function CardapioPublicoPage() {
             </div>
             {cupomOk && <p className={`mt-1 text-xs ${cupomOk.valido ? 'text-emerald-600' : 'text-red-600'}`}>{cupomOk.valido ? `Cupom aplicado: −${brl(cupomOk.desconto)}` : cupomOk.motivo ?? 'Cupom inválido'}</p>}
 
-            {/* pagamento */}
-            {(loja.pagamentos ?? []).length > 0 && (
+            {/* pagamento (indústria não paga: gera orçamento) */}
+            {!isIndustria && (loja.pagamentos ?? []).length > 0 && (
               <div className="mt-3">
                 <p className="mb-1 text-sm font-semibold">Pagamento</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -416,6 +450,9 @@ export default function CardapioPublicoPage() {
                     );
                   })}
                 </div>
+                {chk.forma === 'cartao' && loja.parcelasMax > 1 && (
+                  <p className="mt-1 text-xs text-neutral-500">Em até {loja.parcelasMax}x no cartão.</p>
+                )}
                 {chk.forma === 'entrega' && (
                   <input value={chk.troco} onChange={(e) => setChk((s: any) => ({ ...s, troco: e.target.value }))} placeholder="Troco para quanto?" className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
                 )}
@@ -430,8 +467,8 @@ export default function CardapioPublicoPage() {
               <div className="flex justify-between text-base font-bold"><span>Total</span><span className="font-mono">{brl(totalFinal)}</span></div>
             </div>
 
-            <button type="button" onClick={submitPedido} disabled={enviando || ((loja.pagamentos ?? []).length > 0 && !chk.forma)} className="mt-4 w-full rounded-xl px-5 py-3 font-semibold text-white disabled:opacity-50" style={{ background: accent }}>
-              {enviando ? 'Enviando…' : 'Confirmar pedido'}
+            <button type="button" onClick={submitPedido} disabled={enviando || (!isIndustria && (loja.pagamentos ?? []).length > 0 && !chk.forma) || (isServico && !chk.agendamento)} className="mt-4 w-full rounded-xl px-5 py-3 font-semibold text-white disabled:opacity-50" style={{ background: accent }}>
+              {enviando ? 'Enviando…' : isIndustria ? 'Solicitar orçamento' : isServico ? 'Agendar' : 'Confirmar pedido'}
             </button>
           </div>
         </div>

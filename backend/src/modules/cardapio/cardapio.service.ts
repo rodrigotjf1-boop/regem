@@ -16,6 +16,7 @@ import {
   complementoOpcao,
   cardapioBairro,
   cupom,
+  fidelidadeCliente,
   pedidoExterno,
   comandaItem,
   mesa,
@@ -78,6 +79,8 @@ export class CardapioService {
       pagamentos: dto.pagamentos ?? row?.pagamentos ?? [],
       fidelidadeAtiva: dto.fidelidadeAtiva != null ? !!dto.fidelidadeAtiva : row?.fidelidadeAtiva ?? false,
       whatsapp: dto.whatsapp ?? row?.whatsapp ?? null,
+      parcelasMax:
+        dto.parcelasMax != null ? Number(dto.parcelasMax) || null : row?.parcelasMax ?? null,
     };
     if (row) {
       await this.db
@@ -201,6 +204,80 @@ export class CardapioService {
     return cfg;
   }
 
+  // Esgotado automático: para cada produto que controla estoque, resolve os
+  // itens de insumo (via ficha, recursiva) e marca esgotado se algum tem saldo
+  // <= 0. Combos consideram os insumos dos componentes. Saldo = ledger.
+  private async computeEsgotados(
+    tenantId: string,
+    produtos: any[],
+  ): Promise<Set<string>> {
+    const alvo = produtos.filter((p) => p.controlaEstoque);
+    if (!alvo.length) return new Set();
+
+    // Saldo por item (mesmo sinal do módulo de estoque).
+    const saldoRows: any = await this.db.execute(sql`
+      select item_id as "itemId",
+             coalesce(sum(case when tipo = 'saida' then -quantidade else quantidade end), 0) as saldo
+      from movimento_estoque
+      where tenant_id = ${tenantId}
+      group by item_id
+    `);
+    const saldo = new Map<string, number>();
+    for (const r of saldoRows.rows ?? saldoRows)
+      saldo.set(r.itemId, Number(r.saldo) || 0);
+
+    // Mapa de ingredientes por ficha (carregado uma vez para o tenant).
+    const ingRows: any = await this.db.execute(sql`
+      select fi.ficha_id as "fichaId", fi.item_id as "itemId",
+             fi.sub_ficha_id as "subFichaId"
+      from ficha_ingrediente fi
+      join ficha_tecnica ft on ft.id = fi.ficha_id
+      where ft.tenant_id = ${tenantId}
+    `);
+    const ingMap = new Map<string, any[]>();
+    for (const r of ingRows.rows ?? ingRows) {
+      const arr = ingMap.get(r.fichaId) ?? [];
+      arr.push(r);
+      ingMap.set(r.fichaId, arr);
+    }
+
+    // Itens de combo → componentes.
+    const comboRows: any = await this.db.execute(sql`
+      select pci.combo_produto_id as "comboId", p.ficha_id as "fichaId"
+      from produto_combo_item pci
+      join produto p on p.id = pci.componente_produto_id
+      where p.tenant_id = ${tenantId}
+    `);
+    const comboMap = new Map<string, string[]>();
+    for (const r of comboRows.rows ?? comboRows) {
+      if (!r.fichaId) continue;
+      const arr = comboMap.get(r.comboId) ?? [];
+      arr.push(r.fichaId);
+      comboMap.set(r.comboId, arr);
+    }
+
+    const itensDaFicha = (fichaId: string, vis: Set<string>): string[] => {
+      if (!fichaId || vis.has(fichaId)) return [];
+      vis.add(fichaId);
+      const out: string[] = [];
+      for (const ing of ingMap.get(fichaId) ?? []) {
+        if (ing.subFichaId) out.push(...itensDaFicha(ing.subFichaId, vis));
+        else if (ing.itemId) out.push(ing.itemId);
+      }
+      return out;
+    };
+
+    const esgotados = new Set<string>();
+    for (const p of alvo) {
+      const fichas =
+        p.tipo === 'combo' ? comboMap.get(p.id) ?? [] : p.fichaId ? [p.fichaId] : [];
+      const itens = fichas.flatMap((f) => itensDaFicha(f, new Set()));
+      if (itens.length && itens.some((it) => (saldo.get(it) ?? 0) <= 0))
+        esgotados.add(p.id);
+    }
+    return esgotados;
+  }
+
   // Menu público rico: loja (tema/hero/frete/pagamento) + produtos com
   // complementos (grupos min/max) + variações. Preço sempre do banco.
   async menu(token: string) {
@@ -213,7 +290,8 @@ export class CardapioService {
     const prods: any = await this.db.execute(sql`
       select id, nome, descricao, preco_venda as "precoVenda",
              preco_promocional as "precoPromocional", categoria_id as "categoriaId",
-             imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin"
+             imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin",
+             tipo, ficha_id as "fichaId", controla_estoque as "controlaEstoque"
       from produto
       where tenant_id = ${cfg.tenantId} and deleted_at is null
         and ativo = true and disponivel_cardapio = true
@@ -221,6 +299,10 @@ export class CardapioService {
     `);
     const lista = (prods.rows ?? prods) as any[];
     const ids = lista.map((p) => p.id);
+
+    // Esgotado automático pelo ledger: produto que controla estoque e cujo
+    // insumo (item) tem saldo <= 0 fica marcado como esgotado no cardápio.
+    const esgotados = await this.computeEsgotados(cfg.tenantId, lista);
 
     // Complementos (grupos + opções) e variações em lote.
     const grupos = ids.length
@@ -264,6 +346,7 @@ export class CardapioService {
         pagamentos: cfg.pagamentos ?? [],
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,
+        parcelasMax: cfg.parcelasMax ?? null,
       },
       modo: cfg.modo,
       bairros: (await this.listarBairros(cfg.tenantId, cfg.unidadeId)).map((b) => ({
@@ -284,9 +367,15 @@ export class CardapioService {
           imagemRef: p.imagemRef,
           selos: p.selos ?? [],
           duracaoMin: p.duracaoMin,
+          esgotado: esgotados.has(p.id),
           variacoes: variacoes
             .filter((v) => v.produtoId === p.id && v.ativo !== false)
-            .map((v) => ({ id: v.id, nome: v.nome, precoVenda: Number(v.precoVenda) })),
+            .map((v) => ({
+              id: v.id,
+              nome: v.nome,
+              precoVenda: Number(v.precoVenda),
+              atributos: v.atributos ?? {},
+            })),
           grupos: grupos
             .filter((g) => g.produtoId === p.id)
             .map((g) => ({
@@ -394,6 +483,9 @@ export class CardapioService {
       formaPagamento?: string;
       trocoPara?: number;
       cupom?: string;
+      agendamento?: string; // serviços: data/hora
+      profissional?: string; // serviços
+      cnpj?: string; // indústria: faturamento
       itens: {
         produtoId: string;
         variacaoId?: string;
@@ -490,8 +582,10 @@ export class CardapioService {
     }
     const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total);
     const desconto = cup.valido ? cup.desconto : 0;
-    const forma = dto.formaPagamento ?? 'entrega';
-    const online = forma === 'pix' || forma === 'cartao';
+    // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
+    const orcamento = cfg.ramo === 'industria';
+    const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
+    const online = !orcamento && (forma === 'pix' || forma === 'cartao');
     const grande = Math.max(0, total - desconto + taxa);
 
     const ped = await this.delivery.ingest(
@@ -512,9 +606,28 @@ export class CardapioService {
         cupom: cup.valido ? cup.codigo : undefined,
         desconto,
         trocoPara: dto.trocoPara,
-        statusPagamento: online ? 'aguardando' : 'na_entrega',
+        statusPagamento: orcamento
+          ? 'orcamento'
+          : online
+            ? 'aguardando'
+            : 'na_entrega',
+        agendamento: dto.agendamento,
+        profissional: dto.profissional,
+        cnpj: dto.cnpj,
       },
     );
+
+    // Fidelidade (L5): acumula pontos por telefone (1 ponto por real, arred.).
+    let pontos: number | undefined;
+    if (cfg.fidelidadeAtiva && dto.telefone) {
+      pontos = await this.acumularPontos(
+        cfg.tenantId,
+        dto.telefone,
+        dto.cliente,
+        grande,
+      );
+    }
+
     return {
       ok: true,
       modo: tipo,
@@ -524,7 +637,61 @@ export class CardapioService {
       taxaEntrega: taxa,
       desconto,
       pagamentoOnline: online,
+      orcamento,
+      agendamento: dto.agendamento ?? null,
+      pontos,
     };
+  }
+
+  // Fidelidade: soma pontos (1/real) ao saldo do telefone; devolve saldo novo.
+  private async acumularPontos(
+    tenantId: string,
+    telefone: string,
+    nome: string | undefined,
+    valor: number,
+  ): Promise<number> {
+    const ganho = Math.round(Number(valor) || 0);
+    const tel = telefone.replace(/\D/g, '');
+    if (!tel) return 0;
+    const [ja] = await this.db
+      .select()
+      .from(fidelidadeCliente)
+      .where(
+        and(
+          eq(fidelidadeCliente.tenantId, tenantId),
+          eq(fidelidadeCliente.telefone, tel),
+        ),
+      );
+    if (ja) {
+      const novo = (ja.pontos ?? 0) + ganho;
+      await this.db
+        .update(fidelidadeCliente)
+        .set({ pontos: novo, nome: nome ?? ja.nome, atualizadoEm: new Date() })
+        .where(eq(fidelidadeCliente.id, ja.id));
+      return novo;
+    }
+    await this.db
+      .insert(fidelidadeCliente)
+      .values({ tenantId, telefone: tel, nome: nome ?? null, pontos: ganho });
+    return ganho;
+  }
+
+  // Público: consulta o saldo de pontos por telefone.
+  async pontosPublico(token: string, telefone: string) {
+    const cfg = await this.resolver(token);
+    if (!cfg.fidelidadeAtiva) return { ativo: false, pontos: 0 };
+    const tel = (telefone ?? '').replace(/\D/g, '');
+    if (!tel) return { ativo: true, pontos: 0 };
+    const [row] = await this.db
+      .select()
+      .from(fidelidadeCliente)
+      .where(
+        and(
+          eq(fidelidadeCliente.tenantId, cfg.tenantId),
+          eq(fidelidadeCliente.telefone, tel),
+        ),
+      );
+    return { ativo: true, pontos: row?.pontos ?? 0, nome: row?.nome ?? null };
   }
 
   // Acha (ou abre) a mesa pelo número e devolve a comanda ativa dela.

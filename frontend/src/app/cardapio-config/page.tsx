@@ -96,6 +96,7 @@ export default function CardapioConfigPage() {
         pagamentos: cfg.pagamentos ?? [],
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,
+        parcelasMax: cfg.parcelasMax ? Number(cfg.parcelasMax) : undefined,
       }));
       toast.success('Cardápio salvo.');
     } catch (e) {
@@ -170,6 +171,10 @@ export default function CardapioConfigPage() {
             <div className="space-y-1">
               <Label className="text-xs">WhatsApp</Label>
               <Input value={cfg.whatsapp ?? ''} onChange={(e) => set({ whatsapp: e.target.value })} placeholder="(21) 9…" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Parcelas máx. (cartão · varejo)</Label>
+              <Input type="number" value={cfg.parcelasMax ?? ''} onChange={(e) => set({ parcelasMax: e.target.value })} placeholder="ex.: 12" />
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-4">

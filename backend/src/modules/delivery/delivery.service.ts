@@ -39,6 +39,9 @@ export class DeliveryService {
       desconto?: number;
       trocoPara?: number;
       statusPagamento?: string;
+      agendamento?: string | Date;
+      profissional?: string;
+      cnpj?: string;
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
@@ -76,6 +79,9 @@ export class DeliveryService {
         desconto: String(Number(extra?.desconto ?? 0).toFixed(2)),
         trocoPara: extra?.trocoPara != null ? String(extra.trocoPara) : null,
         statusPagamento: extra?.statusPagamento ?? 'na_entrega',
+        agendamento: extra?.agendamento ? new Date(extra.agendamento) : null,
+        profissional: extra?.profissional ?? null,
+        cnpj: extra?.cnpj ?? null,
         raw: raw as any,
       })
       .returning();

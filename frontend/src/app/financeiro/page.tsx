@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { SkeletonList } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
@@ -265,7 +266,7 @@ export default function FinanceiroPage() {
 
         {/* Lista */}
         <div className="space-y-2">
-          {titulos === null && <p className="text-sm text-muted-foreground">Carregando…</p>}
+          {titulos === null && <SkeletonList rows={4} />}
           {titulos?.length === 0 && (
             <Card className="p-8 text-center text-sm text-muted-foreground">
               Nenhuma conta {filtro === 'pago' ? 'paga' : 'em aberto'} aqui.

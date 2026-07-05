@@ -794,6 +794,7 @@ export const produtoVariacao = pgTable('produto_variacao', {
   codigo: text('codigo'),
   precoVenda: numeric('preco_venda').notNull().default('0'),
   fatorFicha: numeric('fator_ficha').notNull().default('1'),
+  atributos: jsonb('atributos').notNull().default('{}'), // grade: {tamanho, cor} (L4)
   ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1098,6 +1099,7 @@ export const comandaItemComplemento = pgTable('comanda_item_complemento', {
   precoDelta: numeric('preco_delta').notNull().default('0'),
   fichaIngredienteId: uuid('ficha_ingrediente_id'),
   itemId: uuid('item_id'),
+  produtoRefId: uuid('produto_ref_id'), // combo por etapa (L5): produto a explodir
   quantidade: numeric('quantidade').notNull().default('1'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1322,7 +1324,10 @@ export const pedidoExterno = pgTable('pedido_externo', {
   desconto: numeric('desconto').notNull().default('0'),
   trocoPara: numeric('troco_para'),
   pago: boolean('pago').notNull().default(false),
-  statusPagamento: text('status_pagamento').notNull().default('na_entrega'), // na_entrega|aguardando|aprovado
+  statusPagamento: text('status_pagamento').notNull().default('na_entrega'), // na_entrega|aguardando|aprovado|orcamento
+  agendamento: timestamp('agendamento', { withTimezone: true }), // serviços (L4)
+  profissional: text('profissional'),
+  cnpj: text('cnpj'), // indústria (faturamento)
 });
 
 // ===== TEF — pagamento integrado (Fase I) =====
@@ -1384,6 +1389,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   pagamentos: jsonb('pagamentos').notNull().default('[]'),
   fidelidadeAtiva: boolean('fidelidade_ativa').notNull().default(false),
   whatsapp: text('whatsapp'),
+  parcelasMax: integer('parcelas_max'), // varejo (L4)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1427,4 +1433,16 @@ export const cupom = pgTable('cupom', {
   ativo: boolean('ativo').notNull().default(true),
   validade: date('validade'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Fidelidade (L5) =====
+export const fidelidadeCliente = pgTable('fidelidade_cliente', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  nome: text('nome'),
+  pontos: integer('pontos').notNull().default(0),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });

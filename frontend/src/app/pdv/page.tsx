@@ -7,6 +7,7 @@ import { toast } from '@/lib/toast';
 import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -28,6 +29,7 @@ type ItemCarrinho = {
 export default function PdvPage() {
   const router = useRouter();
   const [produtos, setProdutos] = useState<any[]>([]);
+  const [carregado, setCarregado] = useState(false);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [catAtiva, setCatAtiva] = useState('');
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
@@ -56,6 +58,8 @@ export default function PdvPage() {
       setTefAtivo(!!(tc as any).ativo);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    } finally {
+      setCarregado(true);
     }
   }, []);
 
@@ -242,7 +246,17 @@ export default function PdvPage() {
             ))}
           </div>
 
-          {produtos.length === 0 && (
+          {!carregado && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-border bg-card p-3">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="mt-2 h-4 w-1/3" />
+                </div>
+              ))}
+            </div>
+          )}
+          {carregado && produtos.length === 0 && (
             <Card className="p-8 text-center text-sm text-muted-foreground">
               Nenhum produto. Cadastre em Cadastros → Produtos & Catálogo.
             </Card>
