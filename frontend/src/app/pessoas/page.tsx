@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { TIPO_LABEL } from '@/components/ponto/ponto-card';
 import { PontoGestao } from '@/components/ponto/ponto-gestao';
 
@@ -123,11 +124,17 @@ export default function PessoasPage() {
                 </p>
               </div>
               <div className="divide-y divide-border">
-                {pessoas === null && (
-                  <p className="px-5 py-6 text-sm text-muted-foreground">
-                    Carregando…
-                  </p>
-                )}
+                {pessoas === null &&
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+                      <Skeleton className="h-9 w-9 flex-none rounded-full" />
+                      <div className="min-w-0 flex-1">
+                        <Skeleton className="h-4 w-1/3" />
+                        <Skeleton className="mt-2 h-3 w-1/4" />
+                      </div>
+                      <Skeleton className="h-4 w-12" />
+                    </div>
+                  ))}
                 {pessoas?.length === 0 && (
                   <p className="px-5 py-6 text-sm text-muted-foreground">
                     Ninguém bateu ponto hoje ainda.
@@ -225,9 +232,19 @@ export default function PessoasPage() {
                   Selecione um colaborador à esquerda.
                 </p>
               ) : espelho === null ? (
-                <p className="px-5 py-10 text-center text-sm text-muted-foreground">
-                  Carregando espelho…
-                </p>
+                <div className="p-5">
+                  <div className="grid grid-cols-3 gap-3">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-14" />
+                    ))}
+                  </div>
+                  <Skeleton className="mt-4 h-4 w-1/3" />
+                  <div className="mt-3 space-y-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10" />
+                    ))}
+                  </div>
+                </div>
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-px bg-border">

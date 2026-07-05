@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { Skeleton } from '@/components/ui/skeleton';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -776,7 +777,19 @@ export default function ProdutosPage() {
           <p className="mb-3 text-sm font-medium text-muted-foreground">
             Produtos {produtos ? `(${produtos.length})` : ''}
           </p>
-          {!produtos && <p className="text-sm text-muted-foreground">Carregando…</p>}
+          {!produtos && (
+            <div className="space-y-2">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                  <div className="min-w-0 flex-1">
+                    <Skeleton className="h-4 w-2/5" />
+                    <Skeleton className="mt-2 h-3 w-1/4" />
+                  </div>
+                  <Skeleton className="h-4 w-16" />
+                </div>
+              ))}
+            </div>
+          )}
           {produtos?.length === 0 && <p className="text-sm text-muted-foreground">Nenhum produto cadastrado.</p>}
           <div className="space-y-2">
             {produtos?.map((p) => (

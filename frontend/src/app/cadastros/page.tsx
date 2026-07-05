@@ -7,6 +7,8 @@ import { api, getToken } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { Shell } from '@/components/app-shell/shell';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Lists = {
@@ -130,9 +132,28 @@ export default function CadastrosPage() {
 
   if (!L) {
     return (
-      <div className="grid min-h-dvh place-items-center text-muted-foreground">
-        {erro || 'Carregando…'}
-      </div>
+      <Shell eyebrow="Gestão" title="Cadastros">
+        {erro ? (
+          <EmptyState
+            icon="⚠️"
+            title="Não foi possível carregar"
+            description={erro}
+          />
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i} className="flex items-center gap-3 p-4">
+                <Skeleton className="h-10 w-10 flex-none rounded-xl" />
+                <div className="min-w-0 flex-1">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="mt-2 h-3 w-1/2" />
+                </div>
+                <Skeleton className="h-8 w-8 flex-none rounded-lg" />
+              </Card>
+            ))}
+          </div>
+        )}
+      </Shell>
     );
   }
 

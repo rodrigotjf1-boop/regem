@@ -6,6 +6,7 @@ import { Check, CircleSlash, MinusCircle, Plus, X } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { SkeletonList } from '@/components/ui/skeleton';
 import { Shell } from '@/components/app-shell/shell';
 import { NovaTarefaForm } from '@/components/tarefa/nova-tarefa-form';
 import { PontoCard } from '@/components/ponto/ponto-card';
@@ -119,7 +120,7 @@ export default function MeuDiaPage() {
         </div>
       )}
 
-      {loading && <p className="text-muted-foreground">Carregando…</p>}
+      {loading && <SkeletonList rows={4} className="max-w-xl" />}
 
       {!loading && tarefas.length === 0 && (
         <Card className="max-w-xl p-8 text-center">

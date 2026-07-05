@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { SkeletonList } from '@/components/ui/skeleton';
 import { NovaAlocacaoForm } from '@/components/escala/nova-alocacao-form';
 import { Shell } from '@/components/app-shell/shell';
 import { cn } from '@/lib/utils';
@@ -187,7 +188,7 @@ export default function EscalaPage() {
       </div>
 
       {erro && <p className="mb-4 text-destructive">{erro}</p>}
-      {loading && <p className="text-muted-foreground">Carregando…</p>}
+      {loading && <SkeletonList rows={5} />}
 
       {!loading && etiquetas.length === 0 && (
         <Card className="p-8 text-center text-muted-foreground">

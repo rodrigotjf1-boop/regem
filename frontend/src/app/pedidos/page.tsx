@@ -6,6 +6,7 @@ import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { SkeletonList } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -82,7 +83,7 @@ export default function PedidosPage() {
           <p className="mb-3 text-sm font-medium text-muted-foreground">
             Em produção {pedidos ? `(${ativos.length})` : ''}
           </p>
-          {!pedidos && <p className="text-sm text-muted-foreground">Carregando…</p>}
+          {!pedidos && <SkeletonList rows={3} />}
           {pedidos && ativos.length === 0 && (
             <p className="text-sm text-muted-foreground">Nenhum pedido em produção.</p>
           )}

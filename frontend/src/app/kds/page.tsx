@@ -303,7 +303,23 @@ export default function KdsPage() {
             </span>
           </div>
 
-          {pedidos.length === 0 && (
+          {temSessao === null && (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="animate-pulse rounded-2xl border p-4"
+                  style={{ borderColor: '#22333F', background: '#12202A' }}
+                >
+                  <div className="h-4 w-1/2 rounded" style={{ background: '#22333F' }} />
+                  <div className="mt-3 h-3 w-2/3 rounded" style={{ background: '#1A2A34' }} />
+                  <div className="mt-2 h-3 w-1/3 rounded" style={{ background: '#1A2A34' }} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {temSessao !== null && pedidos.length === 0 && (
             <div
               className="rounded-2xl border border-dashed px-6 py-14 text-center text-sm"
               style={{ borderColor: '#22333F', color: '#7C93A1' }}

@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Card } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -108,13 +109,21 @@ export function ResponsiveTable<T>({
               </tr>
             </thead>
             <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={nCols} className="px-4 py-6 text-center text-muted-foreground">
-                    Carregando…
-                  </td>
-                </tr>
-              )}
+              {loading &&
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`sk-${i}`} className="border-b border-border last:border-0">
+                    {columns.map((c) => (
+                      <td key={c.key} className={cn('px-4 py-3', c.align && alinhamento[c.align])}>
+                        <Skeleton className={cn('h-4', c.align === 'right' ? 'ml-auto w-16' : 'w-24')} />
+                      </td>
+                    ))}
+                    {actions && (
+                      <td className="px-4 py-3 text-right">
+                        <Skeleton className="ml-auto h-4 w-12" />
+                      </td>
+                    )}
+                  </tr>
+                ))}
               {vazio && (
                 <tr>
                   <td colSpan={nCols} className="px-4 py-8 text-center text-muted-foreground">
@@ -170,9 +179,15 @@ export function ResponsiveTable<T>({
           </div>
         )}
         {loading && (
-          <Card className="p-6 text-center text-sm text-muted-foreground">
-            Carregando…
-          </Card>
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Card key={`skc-${i}`} className="p-3.5">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="mt-3 h-3 w-2/3" />
+                <Skeleton className="mt-2 h-3 w-1/2" />
+              </Card>
+            ))}
+          </div>
         )}
         {vazio && (
           <Card className="p-8 text-center text-sm text-muted-foreground">
