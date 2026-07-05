@@ -32,6 +32,7 @@ import {
   ProducaoPedidoService,
   ItemProducao,
 } from '../producao-pedido/producao-pedido.service';
+import { FiscalService } from '../fiscal/fiscal.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -46,6 +47,7 @@ export class VendasService {
     private readonly auditoria: AuditoriaService,
     private readonly events: EventEmitter2,
     private readonly producao: ProducaoPedidoService,
+    private readonly fiscal: FiscalService,
   ) {}
 
   // ACUMULA (não insere) o consumo por item da explosão de UMA ficha no mapa
@@ -463,7 +465,14 @@ export class VendasService {
       forma: dto.forma ?? null,
     });
 
-    return res;
+    // NFC-e automática (se o fiscal estiver ativo na unidade). Não bloqueia a venda.
+    const nota = await this.fiscal.emitirSeAtivo(
+      tenantId,
+      atorId,
+      res.comandaId,
+      res.unidadeId,
+    );
+    return { ...res, nfce: nota ? { status: nota.status, chave: nota.chave, numero: nota.numero } : null };
   }
 
   // Renderiza + enfileira a via do cliente (cupom). Silencioso se não há impressora 'cupom'.
@@ -1006,6 +1015,8 @@ export class VendasService {
       total: res.total,
       forma: dto.forma ?? null,
     });
+    // NFC-e automática ao fechar a conta (se ativo na unidade).
+    await this.fiscal.emitirSeAtivo(tenantId, atorId, comandaId, res.unidadeId);
     return res;
   }
 

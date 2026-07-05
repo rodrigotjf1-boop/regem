@@ -755,6 +755,15 @@ export const produto = pgTable('produto', {
   vaiParaProducao: boolean('vai_para_producao').notNull().default(true),
   setorProducaoId: uuid('setor_producao_id'), // roteamento KDS (fallback do setor)
   tempoPreparoMin: integer('tempo_preparo_min'), // p/ cores do KDS
+  // Fiscais (Fase G) — Simples usa csosn; Normal usa cstIcms.
+  ncm: text('ncm'),
+  cfop: text('cfop'),
+  cest: text('cest'),
+  origem: text('origem').default('0'),
+  csosn: text('csosn').default('102'),
+  cstIcms: text('cst_icms'),
+  unidadeTrib: text('unidade_trib'),
+  aliqIcms: numeric('aliq_icms'),
   imagemRef: text('imagem_ref'),
   ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1199,4 +1208,58 @@ export const senhaContador = pgTable('senha_contador', {
   periodo: text('periodo').notNull().default('diario'), // diario | semanal | nunca
   ultimoReset: date('ultimo_reset').notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Fiscal (Fase G) — NFC-e modelo 65 =====
+export const fiscalConfig = pgTable('fiscal_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  ativo: boolean('ativo').notNull().default(false),
+  ambiente: text('ambiente').notNull().default('2'), // 1 produção | 2 homologação
+  regime: text('regime').notNull().default('simples'), // simples | normal
+  crt: integer('crt').notNull().default(1),
+  serie: integer('serie').notNull().default(1),
+  proximoNumero: integer('proximo_numero').notNull().default(1),
+  cnpj: text('cnpj'),
+  razaoSocial: text('razao_social'),
+  nomeFantasia: text('nome_fantasia'),
+  ie: text('ie'),
+  uf: text('uf'),
+  codigoUf: integer('codigo_uf'),
+  codigoMunicipio: integer('codigo_municipio'),
+  endereco: text('endereco'),
+  cscId: text('csc_id'),
+  cscToken: text('csc_token'),
+  certRef: text('cert_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const notaFiscal = pgTable('nota_fiscal', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  comandaId: uuid('comanda_id'),
+  modelo: text('modelo').notNull().default('65'),
+  serie: integer('serie').notNull(),
+  numero: integer('numero').notNull(),
+  chave: text('chave'),
+  ambiente: text('ambiente').notNull().default('2'),
+  status: text('status').notNull().default('pendente'), // pendente|autorizada|rejeitada|cancelada|contingencia
+  protocolo: text('protocolo'),
+  motivo: text('motivo'),
+  qrcode: text('qrcode'),
+  xml: text('xml'),
+  valorTotal: numeric('valor_total').notNull().default('0'),
+  emitidaPorId: uuid('emitida_por_id'),
+  emitidaEm: timestamp('emitida_em', { withTimezone: true }),
+  canceladaEm: timestamp('cancelada_em', { withTimezone: true }),
+  canceladaPorId: uuid('cancelada_por_id'),
+  justificativaCancelamento: text('justificativa_cancelamento'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

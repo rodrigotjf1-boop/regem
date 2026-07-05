@@ -94,6 +94,16 @@ export class CreateProdutoDto {
   @IsInt()
   tempoPreparoMin?: number;
 
+  // Fiscais (Fase G)
+  @IsOptional() @IsString() ncm?: string;
+  @IsOptional() @IsString() cfop?: string;
+  @IsOptional() @IsString() cest?: string;
+  @IsOptional() @IsString() origem?: string;
+  @IsOptional() @IsString() csosn?: string;
+  @IsOptional() @IsString() cstIcms?: string;
+  @IsOptional() @IsString() unidadeTrib?: string;
+  @IsOptional() @IsNumber() aliqIcms?: number;
+
   @IsOptional()
   @IsString()
   imagemRef?: string;

@@ -130,6 +130,20 @@ export const api = {
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
   fichasLista: () => req('/fichas'),
   ficha: (id: string) => req(`/fichas/${id}`),
+  // Fiscal (Fase G)
+  fiscalConfig: (unidadeId?: string) =>
+    req(`/fiscal/config${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  setFiscalConfig: (body: Record<string, unknown>) =>
+    req('/fiscal/config', { method: 'PUT', body: JSON.stringify(body) }),
+  emitirNfce: (comandaId: string) =>
+    req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
+  notasFiscais: () => req('/fiscal/notas'),
+  notaFiscal: (id: string) => req(`/fiscal/notas/${id}`),
+  cancelarNota: (id: string, justificativa: string) =>
+    req(`/fiscal/notas/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify({ justificativa }),
+    }),
   estoqueItens: () => req('/estoque/itens'),
   // Produção (Fase F1)
   producaoFila: (setorId?: string, unidadeId?: string, escopo?: string) => {

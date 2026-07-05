@@ -205,6 +205,14 @@ export class ProdutoService {
           vaiParaProducao: dto.vaiParaProducao ?? true,
           setorProducaoId: dto.setorProducaoId,
           tempoPreparoMin: dto.tempoPreparoMin,
+          ncm: dto.ncm,
+          cfop: dto.cfop,
+          cest: dto.cest,
+          origem: dto.origem,
+          csosn: dto.csosn,
+          cstIcms: dto.cstIcms,
+          unidadeTrib: dto.unidadeTrib,
+          aliqIcms: dto.aliqIcms != null ? String(dto.aliqIcms) : undefined,
           imagemRef: dto.imagemRef,
         })
         .returning();
@@ -267,6 +275,15 @@ export class ProdutoService {
     set('vaiParaProducao', dto.vaiParaProducao);
     set('setorProducaoId', dto.setorProducaoId);
     set('tempoPreparoMin', dto.tempoPreparoMin);
+    set('ncm', dto.ncm);
+    set('cfop', dto.cfop);
+    set('cest', dto.cest);
+    set('origem', dto.origem);
+    set('csosn', dto.csosn);
+    set('cstIcms', dto.cstIcms);
+    set('unidadeTrib', dto.unidadeTrib);
+    if (dto.aliqIcms !== undefined)
+      patch.aliqIcms = dto.aliqIcms != null ? String(dto.aliqIcms) : null;
     set('imagemRef', dto.imagemRef);
 
     const [row] = await this.db
