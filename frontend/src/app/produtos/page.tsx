@@ -34,6 +34,11 @@ const vazio = () => ({
   vaiParaProducao: true,
   setorProducaoId: '',
   tempoPreparoMin: '',
+  ncm: '',
+  cfop: '',
+  origem: '0',
+  csosn: '102',
+  cstIcms: '',
   variacoes: [] as Variacao[],
   combo: [] as Combo[],
 });
@@ -168,6 +173,11 @@ export default function ProdutosPage() {
         vaiParaProducao: p.vaiParaProducao ?? true,
         setorProducaoId: p.setorProducaoId ?? '',
         tempoPreparoMin: p.tempoPreparoMin ?? '',
+        ncm: p.ncm ?? '',
+        cfop: p.cfop ?? '',
+        origem: p.origem ?? '0',
+        csosn: p.csosn ?? '102',
+        cstIcms: p.cstIcms ?? '',
         variacoes: (p.variacoes ?? []).map((v: any) => ({
           nome: v.nome,
           codigo: v.codigo ?? '',
@@ -206,6 +216,11 @@ export default function ProdutosPage() {
         vaiParaProducao: f.vaiParaProducao,
         setorProducaoId: f.setorProducaoId || undefined,
         tempoPreparoMin: f.tempoPreparoMin !== '' ? Number(f.tempoPreparoMin) : undefined,
+        ncm: f.ncm || undefined,
+        cfop: f.cfop || undefined,
+        origem: f.origem || undefined,
+        csosn: f.csosn || undefined,
+        cstIcms: f.cstIcms || undefined,
         variacoes: f.variacoes.map((v: Variacao) => ({
           nome: v.nome,
           codigo: v.codigo || undefined,
@@ -471,6 +486,35 @@ export default function ProdutosPage() {
                 ))}
               </div>
             )}
+
+            {/* Fiscal (NFC-e) */}
+            <details className="rounded-lg border border-border p-3">
+              <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
+                Fiscal (NFC-e) — NCM, CFOP, tributação
+              </summary>
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">NCM</Label>
+                  <Input value={f.ncm} onChange={(e) => set({ ncm: e.target.value })} placeholder="21069090" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">CFOP</Label>
+                  <Input value={f.cfop} onChange={(e) => set({ cfop: e.target.value })} placeholder="5102" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Origem</Label>
+                  <Input value={f.origem} onChange={(e) => set({ origem: e.target.value })} placeholder="0" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">CSOSN (Simples)</Label>
+                  <Input value={f.csosn} onChange={(e) => set({ csosn: e.target.value })} placeholder="102" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">CST ICMS (Normal)</Label>
+                  <Input value={f.cstIcms} onChange={(e) => set({ cstIcms: e.target.value })} placeholder="—" />
+                </div>
+              </div>
+            </details>
 
             <Button type="submit" disabled={salvando}>
               {salvando ? 'Salvando…' : editId ? 'Salvar alterações' : 'Cadastrar produto'}

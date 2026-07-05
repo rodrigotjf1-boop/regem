@@ -56,6 +56,7 @@ const NAV: NavGroup[] = [
       { href: '/garcom', label: 'Garçom', icon: ConciergeBell },
       { href: '/pedidos', label: 'Pedidos · Produção', icon: Flame },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText },
+      { href: '/notas', label: 'Notas fiscais', icon: FileText },
       { href: '/caixa', label: 'Caixa', icon: Coins },
       { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
       { href: '/escala', label: 'Escalas', icon: CalendarDays },
@@ -82,6 +83,12 @@ const NAV: NavGroup[] = [
         label: 'Produção & KDS',
         icon: Flame,
         roles: ['presidente', 'gerente', 'supervisao'],
+      },
+      {
+        href: '/fiscal-config',
+        label: 'Fiscal (NFC-e)',
+        icon: ReceiptText,
+        roles: ['presidente'],
       },
       {
         href: '/financeiro',

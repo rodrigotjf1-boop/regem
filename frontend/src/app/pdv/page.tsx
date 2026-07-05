@@ -388,6 +388,14 @@ export default function PdvPage() {
             {comprovante.taxaServicoPct > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">inclui {comprovante.taxaServicoPct}% de serviço</p>
             )}
+            {comprovante.nfce && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                NFC-e {comprovante.nfce.numero} · {comprovante.nfce.status}
+                {comprovante.nfce.chave && (
+                  <span className="mt-0.5 block break-all font-mono text-[10px]">{comprovante.nfce.chave}</span>
+                )}
+              </p>
+            )}
             <Button type="button" className="mt-4 w-full" onClick={() => setComprovante(null)}>
               Nova venda
             </Button>
