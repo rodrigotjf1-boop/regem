@@ -150,7 +150,7 @@ export class FiscalService {
   }
 
   // Emite a NFC-e de uma comanda fechada (idempotente por comanda).
-  async emitir(tenantId: string, atorId: string, comandaId: string) {
+  async emitir(tenantId: string, atorId: string | null, comandaId: string) {
     const [c] = await this.db
       .select()
       .from(comanda)
@@ -299,7 +299,7 @@ export class FiscalService {
 
   // Emite só se o fiscal estiver ativo na unidade (chamado automaticamente pela
   // venda). Nunca derruba a venda: erros viram nota rejeitada + log.
-  async emitirSeAtivo(tenantId: string, atorId: string, comandaId: string, unidadeId?: string | null) {
+  async emitirSeAtivo(tenantId: string, atorId: string | null, comandaId: string, unidadeId?: string | null) {
     const cfg = await this.configRaw(tenantId, unidadeId ?? null);
     if (!cfg?.ativo) return null;
     try {

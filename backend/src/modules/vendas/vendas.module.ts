@@ -8,5 +8,6 @@ import { FiscalModule } from '../fiscal/fiscal.module';
   imports: [ProducaoPedidoModule, FiscalModule],
   controllers: [VendasController],
   providers: [VendasService],
+  exports: [VendasService],
 })
 export class VendasModule {}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  Bike,
   Boxes,
   Building2,
   CalendarDays,
@@ -55,6 +56,7 @@ const NAV: NavGroup[] = [
       { href: '/mesas', label: 'Mesas', icon: ClipboardList },
       { href: '/garcom', label: 'Garçom', icon: ConciergeBell },
       { href: '/pedidos', label: 'Pedidos · Produção', icon: Flame },
+      { href: '/delivery', label: 'Delivery', icon: Bike },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText },
       { href: '/notas', label: 'Notas fiscais', icon: FileText },
       { href: '/caixa', label: 'Caixa', icon: Coins },

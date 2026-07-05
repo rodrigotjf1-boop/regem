@@ -1263,3 +1263,45 @@ export const notaFiscal = pgTable('nota_fiscal', {
   justificativaCancelamento: text('justificativa_cancelamento'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ===== Delivery / canais externos (Fase H) =====
+export const deliveryConfig = pgTable('delivery_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  ativo: boolean('ativo').notNull().default(false),
+  autoAceitar: boolean('auto_aceitar').notNull().default(false),
+  merchantId: text('merchant_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const pedidoExterno = pgTable('pedido_externo', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  canal: text('canal').notNull().default('ifood'),
+  externalId: text('external_id'),
+  displayId: text('display_id'),
+  clienteNome: text('cliente_nome'),
+  clienteTelefone: text('cliente_telefone'),
+  tipo: text('tipo').notNull().default('entrega'),
+  endereco: text('endereco'),
+  itens: jsonb('itens').notNull().default('[]'),
+  total: numeric('total').notNull().default('0'),
+  formaPagamento: text('forma_pagamento'),
+  status: text('status').notNull().default('novo'),
+  comandaId: uuid('comanda_id'),
+  raw: jsonb('raw'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  confirmadoEm: timestamp('confirmado_em', { withTimezone: true }),
+  prontoEm: timestamp('pronto_em', { withTimezone: true }),
+  despachadoEm: timestamp('despachado_em', { withTimezone: true }),
+  concluidoEm: timestamp('concluido_em', { withTimezone: true }),
+  canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
+  motivoCancelamento: text('motivo_cancelamento'),
+});
