@@ -6,7 +6,6 @@ import { LogOut } from 'lucide-react';
 import { api, clearToken, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { ChecklistCard } from '@/components/docs/checklist-card';
 import { DocumentoCard } from '@/components/docs/documento-card';
