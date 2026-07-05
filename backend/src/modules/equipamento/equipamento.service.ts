@@ -37,6 +37,8 @@ export class EquipamentoService {
         mac: dto.mac,
         escopo: dto.escopo ?? 'producao',
         setorId: dto.setorId,
+        host: dto.host,
+        porta: dto.porta,
       })
       .returning();
     await this.auditoria.registrar({

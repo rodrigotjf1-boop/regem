@@ -88,7 +88,25 @@ export class FinanceiroController {
   @Post('caixa/movimentar')
   @Roles('presidente', 'gerente', 'atendente')
   movimentarCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.movimentarCaixa(user.tenantId, user.colaboradorId, dto);
+    return this.service.movimentarCaixa(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      dto,
+    );
+  }
+
+  // Config do caixa: liberar sangria/suprimento pelo atendente (presidente).
+  @Get('caixa/config')
+  @Roles('presidente', 'gerente', 'atendente')
+  configCaixa(@CurrentUser() user: AuthUser) {
+    return this.service.getConfigCaixa(user.tenantId);
+  }
+
+  @Post('caixa/config/livre')
+  @Roles('presidente')
+  setCaixaLivre(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setCaixaLivre(user.tenantId, !!dto.ativo);
   }
 
   @Post('caixa/fechar')

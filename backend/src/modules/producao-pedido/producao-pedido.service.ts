@@ -14,6 +14,7 @@ import {
   setorDestinoProducao,
   producaoPedido,
   producaoPedidoItem,
+  impressaoJob,
   kdsCorConfig,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -171,6 +172,17 @@ export class ProducaoPedidoService {
           complementosTexto: it.complementosTexto ?? null,
         });
       }
+      // Destino impressora → enfileira o ticket (worker do edge imprime).
+      if (destino.tipo === 'impressora') {
+        await tx.insert(impressaoJob).values({
+          tenantId: ctx.tenantId,
+          unidadeId: ctx.unidadeId ?? null,
+          equipamentoId: destino.equipamentoId,
+          pedidoId: ped.id,
+          via: 'producao',
+          conteudo: this.renderTicket(ctx, its, numero),
+        });
+      }
       payloads.push({
         tenantId: ctx.tenantId,
         unidadeId: ctx.unidadeId ?? null,
@@ -182,6 +194,82 @@ export class ProducaoPedidoService {
       });
     }
     return payloads;
+  }
+
+  // Renderiza o ticket em texto (o worker do edge converte para ESC/POS).
+  private renderTicket(ctx: any, its: any[], numero?: number | null): string {
+    const linha = '--------------------------------';
+    const cab = ctx.mesa ? `Mesa ${ctx.mesa}` : 'Balcão';
+    const l: string[] = ['*** PRODUCAO ***', `${cab}${numero ? ` · #${numero}` : ''}`, linha];
+    for (const it of its) {
+      l.push(`${Number(it.quantidade)}x ${it.descricao}`);
+      if (it.complementosTexto) l.push(`   ${it.complementosTexto}`);
+    }
+    l.push(linha);
+    l.push(new Date().toLocaleString('pt-BR'));
+    return l.join('\n');
+  }
+
+  // ===== Fila de impressão (worker do edge; auth por token servidor_local) =====
+  // Devolve host/porta da impressora junto (o worker não precisa de outra chamada).
+  jobsPendentes(tenantId: string, limite = 20) {
+    return this.db
+      .select({
+        id: impressaoJob.id,
+        equipamentoId: impressaoJob.equipamentoId,
+        pedidoId: impressaoJob.pedidoId,
+        conteudo: impressaoJob.conteudo,
+        tentativas: impressaoJob.tentativas,
+        criadoEm: impressaoJob.criadoEm,
+        host: equipamento.host,
+        porta: equipamento.porta,
+        impressora: equipamento.nome,
+      })
+      .from(impressaoJob)
+      .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
+      .where(
+        and(
+          eq(impressaoJob.tenantId, tenantId),
+          eq(impressaoJob.status, 'pendente'),
+        ),
+      )
+      .orderBy(impressaoJob.criadoEm)
+      .limit(limite);
+  }
+
+  async marcarImpresso(tenantId: string, jobId: string) {
+    await this.db
+      .update(impressaoJob)
+      .set({ status: 'impresso', impressoEm: new Date() })
+      .where(
+        and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
+      );
+    return { ok: true };
+  }
+
+  async marcarErro(tenantId: string, jobId: string, erro?: string) {
+    await this.db
+      .update(impressaoJob)
+      .set({
+        status: 'erro',
+        erro: (erro ?? 'falha').slice(0, 400),
+        tentativas: sql`${impressaoJob.tentativas} + 1`,
+      })
+      .where(
+        and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
+      );
+    return { ok: true };
+  }
+
+  // Reenfileira um job com erro (gestor).
+  async reimprimir(tenantId: string, jobId: string) {
+    await this.db
+      .update(impressaoJob)
+      .set({ status: 'pendente', erro: null })
+      .where(
+        and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
+      );
+    return { ok: true };
   }
 
   // Nº sequencial de exibição por unidade/dia (reinicia a cada dia).
@@ -361,6 +449,57 @@ export class ProducaoPedidoService {
       tipo: 'cancelado',
     });
     return { ok: true };
+  }
+
+  // Item removido de uma comanda aberta (PDV): marca o item nos pedidos de
+  // produção como 'removido' e cancela o pedido se ficar sem itens. Avisa o KDS.
+  async removerItemComanda(tenantId: string, comandaItemId: string) {
+    const itens = await this.db
+      .select({ id: producaoPedidoItem.id, pedidoId: producaoPedidoItem.pedidoId })
+      .from(producaoPedidoItem)
+      .where(
+        and(
+          eq(producaoPedidoItem.tenantId, tenantId),
+          eq(producaoPedidoItem.comandaItemId, comandaItemId),
+        ),
+      );
+    if (!itens.length) return;
+    await this.db
+      .update(producaoPedidoItem)
+      .set({ status: 'removido' })
+      .where(
+        and(
+          eq(producaoPedidoItem.tenantId, tenantId),
+          eq(producaoPedidoItem.comandaItemId, comandaItemId),
+        ),
+      );
+    const pedidoIds = [...new Set(itens.map((i) => i.pedidoId))];
+    for (const pedidoId of pedidoIds) {
+      const restam: any = await this.db.execute(sql`
+        select count(*)::int as n from producao_pedido_item
+        where pedido_id = ${pedidoId} and status <> 'removido'
+      `);
+      const n = Number((restam.rows ?? restam)[0].n);
+      const [ped] = await this.db
+        .select()
+        .from(producaoPedido)
+        .where(eq(producaoPedido.id, pedidoId));
+      if (!ped) continue;
+      if (n === 0 && ped.status !== 'cancelado') {
+        await this.db
+          .update(producaoPedido)
+          .set({ status: 'cancelado', canceladoEm: new Date() })
+          .where(eq(producaoPedido.id, pedidoId));
+      }
+      this.events?.emit('producao.evento', {
+        tenantId,
+        unidadeId: ped.unidadeId,
+        setorId: ped.setorId,
+        destinoEquipamentoId: ped.destinoEquipamentoId,
+        pedidoId,
+        tipo: n === 0 ? 'cancelado' : 'status',
+      });
+    }
   }
 
   // ===== Config (gerência/presidente) =====

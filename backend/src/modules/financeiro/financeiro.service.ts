@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -11,6 +12,7 @@ import {
   lancamentoCaixa,
   fornecedor,
   caixaSessao,
+  entitlement,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { proximaData } from '../../common/regras-negocio';
@@ -348,12 +350,50 @@ export class FinanceiroService {
     return s;
   }
 
+  // Config do caixa (presidente/C&O): atendente pode sangrar/suprir sem autorização?
+  private async caixaLivre(tenantId: string): Promise<boolean> {
+    const [e] = await this.db
+      .select({ ativo: entitlement.ativo })
+      .from(entitlement)
+      .where(
+        and(
+          eq(entitlement.tenantId, tenantId),
+          eq(entitlement.modulo, 'pdv_caixa_livre'),
+        ),
+      );
+    return !!e?.ativo;
+  }
+
+  async getConfigCaixa(tenantId: string) {
+    return { caixaLivre: await this.caixaLivre(tenantId) };
+  }
+
+  async setCaixaLivre(tenantId: string, ativo: boolean) {
+    await this.db
+      .insert(entitlement)
+      .values({ tenantId, modulo: 'pdv_caixa_livre', ativo })
+      .onConflictDoUpdate({
+        target: [entitlement.tenantId, entitlement.modulo],
+        set: { ativo, updatedAt: new Date() },
+      });
+    return { caixaLivre: ativo };
+  }
+
   // Sangria (retira dinheiro) / suprimento (coloca dinheiro) — sempre em dinheiro.
   async movimentarCaixa(
     tenantId: string,
     atorId: string,
+    atorPerfil: string,
     dto: { tipo: 'sangria' | 'suprimento'; valor: number; descricao?: string },
   ) {
+    // Autorização: atendente só sangra/supre se o presidente liberou.
+    if (atorPerfil === 'atendente' && !(await this.caixaLivre(tenantId))) {
+      throw new ForbiddenException(
+        'Sangria/suprimento requer autorização de um gerente.',
+      );
+    }
+    if (!(Number(dto.valor) > 0))
+      throw new BadRequestException('Informe um valor válido.');
     const s = await this.sessaoAberta(tenantId);
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     await this.db.insert(lancamentoCaixa).values({
@@ -389,6 +429,20 @@ export class FinanceiroService {
     const esperado = Number(s.valorAbertura) + mov;
     const informado = Number(dto.valorInformado);
     const diferenca = Number((informado - esperado).toFixed(2));
+
+    // Resumo por forma de pagamento (vendas registradas na sessão) — útil sem TEF.
+    const rf: any = await this.db.execute(sql`
+      select coalesce(forma,'dinheiro') as forma,
+             coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as total
+      from lancamento_caixa
+      where sessao_id=${s.id} and categoria='venda'
+      group by coalesce(forma,'dinheiro')
+      order by 1
+    `);
+    const porForma = (rf.rows ?? rf).map((x: any) => ({
+      forma: x.forma,
+      total: Number(Number(x.total).toFixed(2)),
+    }));
     const [row] = await this.db
       .update(caixaSessao)
       .set({
@@ -410,8 +464,8 @@ export class FinanceiroService {
       acao: 'fechou_caixa',
       entidadeTipo: 'caixa_sessao',
       entidadeId: s.id,
-      detalhe: { esperado, informado, diferenca },
+      detalhe: { esperado, informado, diferenca, porForma },
     });
-    return { esperado, informado, diferenca, sessao: row };
+    return { esperado, informado, diferenca, porForma, sessao: row };
   }
 }

@@ -118,6 +118,17 @@ export default function MesasPage() {
     }
   }
 
+  async function removerItem(itemId: string) {
+    if (!confirm('Remover este item? A cozinha é avisada.')) return;
+    try {
+      await api.removerComandaItem(itemId);
+      toast.success('Item removido.');
+      await abrirDetalhe(sel.id);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao remover');
+    }
+  }
+
   async function fecharComanda(id: string) {
     if (!confirm('Fechar esta comanda para pagamento?')) return;
     try {
@@ -192,9 +203,18 @@ export default function MesasPage() {
                 </button>
                 <div className="space-y-0.5">
                   {(c.itens ?? []).map((it: any) => (
-                    <div key={it.id} className="flex justify-between text-xs text-muted-foreground">
-                      <span>{Number(it.quantidade)}× {it.descricao}</span>
+                    <div key={it.id} className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="flex-1">{Number(it.quantidade)}× {it.descricao}</span>
                       <span className="font-mono">{brl(Number(it.precoUnitario) * Number(it.quantidade))}</span>
+                      <button
+                        type="button"
+                        onClick={() => removerItem(it.id)}
+                        className="text-destructive hover:opacity-70"
+                        aria-label="Remover item"
+                        title="Remover item"
+                      >
+                        ×
+                      </button>
                     </div>
                   ))}
                 </div>

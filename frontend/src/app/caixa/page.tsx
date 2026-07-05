@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, getCategoria } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,17 +27,34 @@ export default function CaixaPage() {
   const [informado, setInformado] = useState('');
   const [obs, setObs] = useState('');
   const [resultado, setResultado] = useState<any>(null);
+  const [caixaLivre, setCaixaLivre] = useState<boolean | null>(null);
+  const isPresidente = getCategoria() === 'presidente';
 
   const carregar = useCallback(async () => {
     setErro('');
     try {
-      setSessao(await api.caixaAberta());
+      const [s, cfg] = await Promise.all([
+        api.caixaAberta(),
+        api.caixaConfig().catch(() => ({ caixaLivre: false })),
+      ]);
+      setSessao(s);
+      setCaixaLivre(!!(cfg as any).caixaLivre);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
       setCarregou(true);
     }
   }, []);
+
+  async function toggleLivre(ativo: boolean) {
+    try {
+      await api.setCaixaLivre(ativo);
+      setCaixaLivre(ativo);
+      toast.success(ativo ? 'Atendente pode sangrar/suprir.' : 'Sangria/suprimento exige gerente.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -123,6 +141,36 @@ export default function CaixaPage() {
                 </p>
               </div>
             </div>
+            {(resultado.porForma ?? []).length > 0 && (
+              <div className="mt-4 border-t border-border pt-3 text-left">
+                <p className="mb-1 text-xs font-semibold text-muted-foreground">Vendas por forma</p>
+                <div className="space-y-0.5">
+                  {resultado.porForma.map((f: any) => (
+                    <div key={f.forma} className="flex justify-between text-sm">
+                      <span className="capitalize">{f.forma}</span>
+                      <span className="font-mono">{brl(f.total)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Config (presidente): liberar sangria/suprimento pelo atendente */}
+        {isPresidente && (
+          <Card className="p-4">
+            <h2 className="mb-1 font-display text-sm font-bold">Autorização de caixa</h2>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={!!caixaLivre}
+                onChange={(e) => toggleLivre(e.target.checked)}
+                className="h-4 w-4 accent-primary"
+                aria-label="Permitir sangria/suprimento pelo atendente"
+              />
+              Atendente pode fazer sangria/suprimento sem autorização
+            </label>
           </Card>
         )}
 

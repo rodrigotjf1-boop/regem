@@ -1,4 +1,4 @@
-import { IsIn, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
 
 export class CreateEquipamentoDto {
   @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora'])
@@ -23,4 +23,12 @@ export class CreateEquipamentoDto {
   @IsOptional()
   @IsUUID()
   setorId?: string;
+
+  @IsOptional()
+  @IsString()
+  host?: string;
+
+  @IsOptional()
+  @IsInt()
+  porta?: number;
 }
