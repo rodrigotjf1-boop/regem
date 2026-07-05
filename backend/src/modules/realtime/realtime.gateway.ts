@@ -23,6 +23,7 @@ interface SockCtx {
   role: 'gestor' | 'device';
   tipo?: string; // kds | terminal_ponto (quando device)
   equipamentoId?: string;
+  colaboradorId?: string; // PDV logado (dono de mesa) — para roteio garçom → PDV
 }
 
 const corsOrigin = process.env.CORS_ORIGIN;
@@ -70,7 +71,11 @@ export class RealtimeGateway
         this.log.log(`device conectado: ${eq.tipo} · ${eq.nome}`);
       } else if (auth.jwt) {
         const p: any = this.jwt.verify(auth.jwt);
-        const ctx: SockCtx = { tenantId: p.tenant, role: 'gestor' };
+        const ctx: SockCtx = {
+          tenantId: p.tenant,
+          role: 'gestor',
+          colaboradorId: p.sub,
+        };
         socket.data.ctx = ctx;
         this.entrarSalas(socket, ctx);
       } else {
@@ -97,6 +102,10 @@ export class RealtimeGateway
     if (ctx.unidadeId) socket.join(`unidade:${ctx.unidadeId}`);
     if (ctx.role === 'device' && ctx.tipo) {
       socket.join(`${ctx.tipo}:${ctx.tenantId}`);
+    }
+    // PDV logado entra na própria sala → recebe avisos das mesas que abriu.
+    if (ctx.role === 'gestor' && ctx.colaboradorId) {
+      socket.join(`pdv:${ctx.colaboradorId}`);
     }
   }
 
@@ -153,6 +162,24 @@ export class RealtimeGateway
       ...p,
       em: new Date().toISOString(),
     });
+  }
+
+  // Garçom lançou item numa mesa → avisa o PDV dono (e o tenant como fallback).
+  @OnEvent('mesa.evento')
+  onMesaEvento(p: {
+    tenantId: string;
+    donoId?: string | null;
+    mesaId: string;
+    comandaId?: string;
+    tipo: string;
+    descricao?: string;
+    quantidade?: number;
+  }) {
+    if (!this.server) return;
+    const payload = { ...p, em: new Date().toISOString() };
+    if (p.donoId) this.server.to(`pdv:${p.donoId}`).emit('mesa:atualizada', payload);
+    // fallback: quem estiver na tela de mesas do tenant também atualiza
+    this.server.to(`tenant:${p.tenantId}`).emit('mesa:atualizada', payload);
   }
 
   // Alerta para o KDS (entra no topo da fila, com som). Emitido por gestor autenticado.

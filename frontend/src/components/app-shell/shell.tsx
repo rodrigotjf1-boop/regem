@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Clock,
   Coins,
+  ConciergeBell,
   ReceiptText,
   FileText,
   Flame,
@@ -51,7 +52,8 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/painel', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart },
-      { href: '/comandas', label: 'Comandas · Mesas', icon: ClipboardList },
+      { href: '/mesas', label: 'Mesas', icon: ClipboardList },
+      { href: '/garcom', label: 'Garçom', icon: ConciergeBell },
       { href: '/pedidos', label: 'Pedidos · Produção', icon: Flame },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText },
       { href: '/caixa', label: 'Caixa', icon: Coins },

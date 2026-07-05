@@ -9,6 +9,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
+  mesa,
   comanda,
   comandaItem,
   comandaItemComplemento,
@@ -462,11 +463,167 @@ export class VendasService {
              count(ci.id) as itens
       from comanda c
       left join comanda_item ci on ci.comanda_id = c.id
-      where c.tenant_id = ${tenantId} and c.status = 'aberta'
+      where c.tenant_id = ${tenantId} and c.status = 'aberta' and c.mesa_id is null
       group by c.id
       order by c.aberta_em desc
     `);
     return res.rows ?? res;
+  }
+
+  // ===== Mesas (Fase F2) =====
+  // Abre a mesa (dono = quem abriu). Modo 'mesa' já cria 1 comanda; 'comandas' fica vazia.
+  async abrirMesa(
+    tenantId: string,
+    atorId: string,
+    dto: { numero: string; nome?: string; modo?: string; unidadeId?: string },
+  ) {
+    if (!dto.numero?.trim())
+      throw new BadRequestException('Informe o número/nome da mesa.');
+    const modo = dto.modo === 'comandas' ? 'comandas' : 'mesa';
+    const [m] = await this.db
+      .insert(mesa)
+      .values({
+        tenantId,
+        unidadeId: dto.unidadeId,
+        numero: dto.numero.trim(),
+        nome: dto.nome,
+        modo,
+        donoId: atorId,
+        abertaPorId: atorId,
+      })
+      .returning();
+    if (modo === 'mesa') {
+      await this.db.insert(comanda).values({
+        tenantId,
+        unidadeId: dto.unidadeId,
+        mesaId: m.id,
+        mesa: m.numero,
+        status: 'aberta',
+        abertaPorId: atorId,
+      });
+    }
+    return m;
+  }
+
+  async listarMesas(tenantId: string, unidadeId?: string) {
+    const res: any = await this.db.execute(sql`
+      select m.id, m.numero, m.nome, m.modo, m.dono_id as "donoId",
+             m.aberta_em as "abertaEm",
+             count(distinct c.id) as comandas,
+             coalesce(sum(ci.quantidade * ci.preco_unitario),0) as total
+      from mesa m
+      left join comanda c on c.mesa_id = m.id and c.status = 'aberta'
+      left join comanda_item ci on ci.comanda_id = c.id
+      where m.tenant_id = ${tenantId} and m.status = 'aberta'
+        ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}
+      group by m.id
+      order by m.aberta_em desc
+    `);
+    return res.rows ?? res;
+  }
+
+  // Mesa + suas comandas abertas (cada uma com itens e total).
+  async getMesa(tenantId: string, mesaId: string) {
+    const [m] = await this.db
+      .select()
+      .from(mesa)
+      .where(and(eq(mesa.id, mesaId), eq(mesa.tenantId, tenantId)));
+    if (!m) throw new NotFoundException('Mesa não encontrada');
+    const comandas = await this.db
+      .select()
+      .from(comanda)
+      .where(and(eq(comanda.mesaId, mesaId), eq(comanda.status, 'aberta')));
+    const comComItens = await Promise.all(
+      comandas.map(async (c) => {
+        const itens = await this.db
+          .select()
+          .from(comandaItem)
+          .where(eq(comandaItem.comandaId, c.id));
+        const total = itens.reduce(
+          (s, it) => s + Number(it.precoUnitario) * Number(it.quantidade),
+          0,
+        );
+        return { ...c, itens, total: Number(total.toFixed(2)) };
+      }),
+    );
+    return { ...m, comandas: comComItens };
+  }
+
+  // Abre uma comanda dentro da mesa (modo 'comandas' = por cliente/pulseira).
+  async abrirComandaNaMesa(
+    tenantId: string,
+    atorId: string,
+    mesaId: string,
+    dto: { identificador?: string; cliente?: string },
+  ) {
+    const [m] = await this.db
+      .select()
+      .from(mesa)
+      .where(and(eq(mesa.id, mesaId), eq(mesa.tenantId, tenantId)));
+    if (!m) throw new NotFoundException('Mesa não encontrada');
+    if (m.status !== 'aberta')
+      throw new BadRequestException('Mesa não está aberta.');
+    const [c] = await this.db
+      .insert(comanda)
+      .values({
+        tenantId,
+        unidadeId: m.unidadeId,
+        mesaId: m.id,
+        mesa: m.numero,
+        identificador: dto.identificador,
+        cliente: dto.cliente,
+        status: 'aberta',
+        abertaPorId: atorId,
+      })
+      .returning();
+    return c;
+  }
+
+  // Fecha a mesa inteira: fecha cada comanda aberta (baixa + caixa) e marca a mesa.
+  async fecharMesa(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    mesaId: string,
+    dto: { forma?: string; taxaServicoPct?: number },
+  ) {
+    const [m] = await this.db
+      .select()
+      .from(mesa)
+      .where(and(eq(mesa.id, mesaId), eq(mesa.tenantId, tenantId)));
+    if (!m) throw new NotFoundException('Mesa não encontrada');
+    if (m.status !== 'aberta')
+      throw new BadRequestException('Mesa já fechada.');
+    const comandas = await this.db
+      .select({ id: comanda.id })
+      .from(comanda)
+      .where(and(eq(comanda.mesaId, mesaId), eq(comanda.status, 'aberta')));
+
+    const cupons: any[] = [];
+    for (const c of comandas) {
+      const cnt: any = await this.db.execute(sql`
+        select count(*)::int as n from comanda_item where comanda_id = ${c.id}
+      `);
+      const n = Number((cnt.rows ?? cnt)[0].n);
+      if (n > 0) {
+        // reaproveita o fechamento por comanda (baixa + lançamento + auditoria).
+        const r = await this.fecharComanda(tenantId, atorId, atorPerfil, c.id, dto);
+        cupons.push(r);
+      } else {
+        // Comanda vazia: fecha sem cupom (não gera lançamento).
+        await this.db
+          .update(comanda)
+          .set({ status: 'fechada', fechadaEm: new Date() })
+          .where(eq(comanda.id, c.id));
+      }
+    }
+    await this.db
+      .update(mesa)
+      .set({ status: 'fechada', fechadaEm: new Date(), fechadaPorId: atorId })
+      .where(eq(mesa.id, mesaId));
+
+    const total = cupons.reduce((s, x) => s + Number(x.total || 0), 0);
+    return { mesaId, comandas: cupons.length, total: Number(total.toFixed(2)), cupons };
   }
 
   async getComanda(tenantId: string, id: string) {
@@ -595,6 +752,23 @@ export class VendasService {
         ],
       );
       this.producao.emitirNovos(payloads);
+    }
+
+    // Se a comanda pertence a uma mesa, avisa em tempo real o PDV dono (garçom → PDV).
+    if (c.mesaId) {
+      const [m] = await this.db
+        .select({ donoId: mesa.donoId })
+        .from(mesa)
+        .where(eq(mesa.id, c.mesaId));
+      this.events.emit('mesa.evento', {
+        tenantId,
+        donoId: m?.donoId ?? null,
+        mesaId: c.mesaId,
+        comandaId,
+        tipo: 'item',
+        descricao,
+        quantidade: qtd,
+      });
     }
     return item;
   }
