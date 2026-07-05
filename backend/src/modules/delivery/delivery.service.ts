@@ -33,6 +33,13 @@ export class DeliveryService {
     unidadeId: string | null,
     canal: string,
     raw: any,
+    extra?: {
+      taxaEntrega?: number;
+      cupom?: string;
+      desconto?: number;
+      trocoPara?: number;
+      statusPagamento?: string;
+    },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
     if (norm.externalId) {
@@ -64,6 +71,11 @@ export class DeliveryService {
         total: String(norm.total.toFixed(2)),
         formaPagamento: norm.formaPagamento,
         status: 'novo',
+        taxaEntrega: String(Number(extra?.taxaEntrega ?? 0).toFixed(2)),
+        cupom: extra?.cupom ?? null,
+        desconto: String(Number(extra?.desconto ?? 0).toFixed(2)),
+        trocoPara: extra?.trocoPara != null ? String(extra.trocoPara) : null,
+        statusPagamento: extra?.statusPagamento ?? 'na_entrega',
         raw: raw as any,
       })
       .returning();

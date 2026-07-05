@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
+const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export default function CardapioConfigPage() {
   const router = useRouter();
@@ -21,14 +22,42 @@ export default function CardapioConfigPage() {
   const [mesaNum, setMesaNum] = useState('');
   const [qr, setQr] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [bairros, setBairros] = useState<{ nome: string; taxa: string }[]>([]);
+  const [cupons, setCupons] = useState<any[]>([]);
+  const [novoCupom, setNovoCupom] = useState({ codigo: '', tipo: 'percentual', valor: '', minimo: '' });
 
   const reload = useCallback(async () => {
     try {
-      setCfg(await api.cardapioConfig());
+      const [c, bs, cs] = await Promise.all([
+        api.cardapioConfig(),
+        api.cardapioBairros().catch(() => []),
+        api.cardapioCupons().catch(() => []),
+      ]);
+      setCfg(c);
+      setBairros((bs as any[]).map((b) => ({ nome: b.nome, taxa: String(b.taxa) })));
+      setCupons(cs as any[]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao carregar');
     }
   }, []);
+
+  async function salvarBairros() {
+    try {
+      await api.setCardapioBairros(bairros.filter((b) => b.nome.trim()).map((b) => ({ nome: b.nome.trim(), taxa: Number(String(b.taxa).replace(',', '.')) || 0 })));
+      toast.success('Bairros salvos.');
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+  }
+  async function addCupom() {
+    if (!novoCupom.codigo.trim()) return;
+    try {
+      await api.criarCupom({ codigo: novoCupom.codigo.trim(), tipo: novoCupom.tipo, valor: Number(String(novoCupom.valor).replace(',', '.')) || 0, minimo: novoCupom.minimo ? Number(String(novoCupom.minimo).replace(',', '.')) : undefined });
+      setNovoCupom({ codigo: '', tipo: novoCupom.tipo, valor: '', minimo: '' });
+      setCupons(await api.cardapioCupons());
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+  }
+  async function delCupom(id: string) {
+    try { await api.removerCupom(id); setCupons(await api.cardapioCupons()); } catch { /* */ }
+  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -216,6 +245,47 @@ export default function CardapioConfigPage() {
             </div>
           </Card>
         )}
+
+        {/* Frete por bairro */}
+        <Card className="p-4">
+          <h2 className="mb-2 font-display text-sm font-bold">Frete por bairro</h2>
+          <div className="space-y-2">
+            {bairros.map((b, i) => (
+              <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <Input placeholder="Bairro" value={b.nome} onChange={(e) => { const a = [...bairros]; a[i] = { ...b, nome: e.target.value }; setBairros(a); }} />
+                <Input type="number" placeholder="Taxa R$" value={b.taxa} onChange={(e) => { const a = [...bairros]; a[i] = { ...b, taxa: e.target.value }; setBairros(a); }} />
+                <Button type="button" variant="ghost" size="sm" onClick={() => setBairros(bairros.filter((_, x) => x !== i))}>remover</Button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 flex gap-2">
+            <Button type="button" variant="outline" size="sm" onClick={() => setBairros([...bairros, { nome: '', taxa: '' }])}>＋ bairro</Button>
+            <Button type="button" size="sm" onClick={salvarBairros}>Salvar bairros</Button>
+          </div>
+        </Card>
+
+        {/* Cupons */}
+        <Card className="p-4">
+          <h2 className="mb-2 font-display text-sm font-bold">Cupons</h2>
+          <div className="flex flex-wrap items-end gap-2">
+            <Input className="w-32" placeholder="CÓDIGO" value={novoCupom.codigo} onChange={(e) => setNovoCupom((s) => ({ ...s, codigo: e.target.value.toUpperCase() }))} />
+            <select aria-label="Tipo do cupom" className="flex h-11 w-28 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.tipo} onChange={(e) => setNovoCupom((s) => ({ ...s, tipo: e.target.value }))}>
+              <option value="percentual">%</option>
+              <option value="valor">R$</option>
+            </select>
+            <Input className="w-24" type="number" placeholder="Valor" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
+            <Input className="w-28" type="number" placeholder="Mín. (opc)" value={novoCupom.minimo} onChange={(e) => setNovoCupom((s) => ({ ...s, minimo: e.target.value }))} />
+            <Button type="button" onClick={addCupom}>Adicionar</Button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {cupons.map((c) => (
+              <span key={c.id} className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs">
+                {c.codigo} · {c.tipo === 'percentual' ? `${Number(c.valor)}%` : brl(Number(c.valor))}
+                <button type="button" onClick={() => delCupom(c.id)} className="text-destructive">×</button>
+              </span>
+            ))}
+          </div>
+        </Card>
       </div>
     </Shell>
   );

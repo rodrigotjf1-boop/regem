@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -33,6 +34,23 @@ export class CardapioPublicoController {
   pedido(@Param('token') token: string, @Body() dto: any) {
     return this.service.receberPedido(token, dto);
   }
+
+  @Post(':token/cupom')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  cupom(@Param('token') token: string, @Body() dto: any) {
+    return this.service.validarCupomPublico(token, dto?.codigo ?? '', dto?.subtotal ?? 0);
+  }
+
+  @Get(':token/pedido/:id')
+  status(@Param('token') token: string, @Param('id') id: string) {
+    return this.service.statusPedido(token, id);
+  }
+
+  @Post(':token/pedido/:id/pagar')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  pagar(@Param('token') token: string, @Param('id') id: string) {
+    return this.service.pagarPedidoPublico(token, id);
+  }
 }
 
 // Gestão (JWT).
@@ -50,5 +68,33 @@ export class CardapioController {
   @Roles('presidente', 'gerente')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto);
+  }
+
+  @Get('bairros')
+  bairros(@CurrentUser() user: AuthUser) {
+    return this.service.listarBairros(user.tenantId, null);
+  }
+
+  @Put('bairros')
+  @Roles('presidente', 'gerente')
+  setBairros(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setBairros(user.tenantId, dto?.unidadeId ?? null, dto?.bairros ?? []);
+  }
+
+  @Get('cupons')
+  cupons(@CurrentUser() user: AuthUser) {
+    return this.service.listarCupons(user.tenantId);
+  }
+
+  @Post('cupons')
+  @Roles('presidente', 'gerente')
+  criarCupom(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.criarCupom(user.tenantId, dto?.unidadeId ?? null, dto);
+  }
+
+  @Delete('cupons/:id')
+  @Roles('presidente', 'gerente')
+  removerCupom(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.removerCupom(user.tenantId, id);
   }
 }

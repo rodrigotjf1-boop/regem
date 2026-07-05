@@ -14,6 +14,10 @@ import {
   categoriaProduto,
   complementoGrupo,
   complementoOpcao,
+  cardapioBairro,
+  cupom,
+  pedidoExterno,
+  comandaItem,
   mesa,
   comanda,
 } from '../../db/schema';
@@ -85,6 +89,105 @@ export class CardapioService {
       await this.db.insert(cardapioConfig).values({ tenantId, unidadeId, ...vals });
     }
     return this.getConfig(tenantId, unidadeId);
+  }
+
+  // ===== Bairros (frete) — gestor =====
+  listarBairros(tenantId: string, unidadeId?: string | null) {
+    return this.db
+      .select()
+      .from(cardapioBairro)
+      .where(eq(cardapioBairro.tenantId, tenantId))
+      .orderBy(cardapioBairro.ordem);
+  }
+
+  async setBairros(
+    tenantId: string,
+    unidadeId: string | null,
+    bairros: { nome: string; taxa: number }[],
+  ) {
+    await this.db
+      .delete(cardapioBairro)
+      .where(eq(cardapioBairro.tenantId, tenantId));
+    if (bairros?.length) {
+      await this.db.insert(cardapioBairro).values(
+        bairros
+          .filter((b) => b.nome?.trim())
+          .map((b, i) => ({
+            tenantId,
+            unidadeId,
+            nome: b.nome.trim(),
+            taxa: String(Number(b.taxa) || 0),
+            ordem: i,
+          })),
+      );
+    }
+    return this.listarBairros(tenantId, unidadeId);
+  }
+
+  // ===== Cupons — gestor =====
+  listarCupons(tenantId: string) {
+    return this.db.select().from(cupom).where(eq(cupom.tenantId, tenantId));
+  }
+
+  async criarCupom(tenantId: string, unidadeId: string | null, dto: any) {
+    if (!dto?.codigo?.trim()) throw new BadRequestException('Informe o código.');
+    const codigo = dto.codigo.trim().toUpperCase();
+    const vals = {
+      tipo: dto.tipo === 'valor' ? 'valor' : 'percentual',
+      valor: String(Number(dto.valor) || 0),
+      minimo: dto.minimo != null ? String(dto.minimo) : null,
+      ativo: dto.ativo != null ? !!dto.ativo : true,
+      validade: dto.validade || null,
+    };
+    const [ja] = await this.db
+      .select({ id: cupom.id })
+      .from(cupom)
+      .where(and(eq(cupom.tenantId, tenantId), sql`upper(codigo) = ${codigo}`));
+    if (ja) {
+      const [row] = await this.db
+        .update(cupom)
+        .set(vals)
+        .where(eq(cupom.id, ja.id))
+        .returning();
+      return row;
+    }
+    const [row] = await this.db
+      .insert(cupom)
+      .values({ tenantId, unidadeId, codigo, ...vals })
+      .returning();
+    return row;
+  }
+
+  async removerCupom(tenantId: string, id: string) {
+    await this.db
+      .delete(cupom)
+      .where(and(eq(cupom.id, id), eq(cupom.tenantId, tenantId)));
+    return { ok: true };
+  }
+
+  // Valida o cupom e devolve o desconto para um subtotal.
+  private async avaliarCupom(tenantId: string, codigo: string, subtotal: number) {
+    if (!codigo) return { valido: false, desconto: 0 };
+    const [c] = await this.db
+      .select()
+      .from(cupom)
+      .where(
+        and(
+          eq(cupom.tenantId, tenantId),
+          sql`upper(codigo) = upper(${codigo})`,
+          eq(cupom.ativo, true),
+        ),
+      );
+    if (!c) return { valido: false, desconto: 0, motivo: 'Cupom inválido.' };
+    if (c.validade && new Date(c.validade) < new Date())
+      return { valido: false, desconto: 0, motivo: 'Cupom expirado.' };
+    if (c.minimo && subtotal < Number(c.minimo))
+      return { valido: false, desconto: 0, motivo: `Mínimo de ${Number(c.minimo)}.` };
+    const desconto =
+      c.tipo === 'valor'
+        ? Math.min(subtotal, Number(c.valor))
+        : Number((subtotal * (Number(c.valor) / 100)).toFixed(2));
+    return { valido: true, desconto, codigo: c.codigo, tipo: c.tipo, valor: Number(c.valor) };
   }
 
   // ===== Público (por token) =====
@@ -163,6 +266,11 @@ export class CardapioService {
         whatsapp: cfg.whatsapp,
       },
       modo: cfg.modo,
+      bairros: (await this.listarBairros(cfg.tenantId, cfg.unidadeId)).map((b) => ({
+        id: b.id,
+        nome: b.nome,
+        taxa: Number(b.taxa),
+      })),
       categorias: cats.map((c) => ({ id: c.id, nome: c.nome })),
       produtos: lista.map((p: any) => {
         const promo = p.precoPromocional != null ? Number(p.precoPromocional) : null;
@@ -201,6 +309,60 @@ export class CardapioService {
     };
   }
 
+  // Público: valida um cupom para um subtotal.
+  async validarCupomPublico(token: string, codigo: string, subtotal: number) {
+    const cfg = await this.resolver(token);
+    return this.avaliarCupom(cfg.tenantId, codigo, Number(subtotal) || 0);
+  }
+
+  // Público: status do pedido (timeline) por id.
+  async statusPedido(token: string, pedidoId: string) {
+    const cfg = await this.resolver(token);
+    const [p] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.id, pedidoId),
+          eq(pedidoExterno.tenantId, cfg.tenantId),
+        ),
+      );
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    return {
+      id: p.id,
+      displayId: p.displayId,
+      status: p.status,
+      statusPagamento: p.statusPagamento,
+      tipo: p.tipo,
+      total: Number(p.total),
+      taxaEntrega: Number(p.taxaEntrega),
+      desconto: Number(p.desconto),
+      itens: p.itens,
+      criadoEm: p.criadoEm,
+    };
+  }
+
+  // Público: pagamento online (MOCK — o gateway real é o "plug"). Aprova.
+  async pagarPedidoPublico(token: string, pedidoId: string) {
+    const cfg = await this.resolver(token);
+    const [p] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.id, pedidoId),
+          eq(pedidoExterno.tenantId, cfg.tenantId),
+        ),
+      );
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    if (p.pago) return { ok: true, jaPago: true };
+    await this.db
+      .update(pedidoExterno)
+      .set({ pago: true, statusPagamento: 'aprovado' })
+      .where(eq(pedidoExterno.id, pedidoId));
+    return { ok: true, statusPagamento: 'aprovado' };
+  }
+
   // Resolve as opções escolhidas (por id) validando o tenant. Preço do banco.
   private async resolverOpcoes(tenantId: string, opcaoIds: string[]) {
     if (!opcaoIds?.length) return { precoDelta: 0, labels: [] as string[] };
@@ -225,6 +387,13 @@ export class CardapioService {
     dto: {
       mesa?: string;
       cliente?: string;
+      telefone?: string;
+      tipo?: string; // entrega | retirada
+      endereco?: string;
+      bairroId?: string;
+      formaPagamento?: string;
+      trocoPara?: number;
+      cupom?: string;
       itens: {
         produtoId: string;
         variacaoId?: string;
@@ -300,13 +469,62 @@ export class CardapioService {
         observacao: it.observacao,
       });
     }
-    const ped = await this.delivery.ingest(cfg.tenantId, cfg.unidadeId, 'cardapio', {
-      cliente: dto.cliente ?? 'Cardápio',
-      tipo: 'retirada',
-      total,
-      itens: itensOut,
-    });
-    return { ok: true, modo: 'retirada', pedidoId: ped.id, displayId: ped.displayId };
+    // Checkout: tipo, frete (bairro), cupom, pagamento.
+    const tipo = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
+    let taxa = 0;
+    if (tipo === 'entrega') {
+      if (dto.bairroId) {
+        const [b] = await this.db
+          .select()
+          .from(cardapioBairro)
+          .where(
+            and(
+              eq(cardapioBairro.id, dto.bairroId),
+              eq(cardapioBairro.tenantId, cfg.tenantId),
+            ),
+          );
+        taxa = b ? Number(b.taxa) : 0;
+      }
+      // frete grátis acima de X
+      if (cfg.freteGratisAcima != null && total >= Number(cfg.freteGratisAcima)) taxa = 0;
+    }
+    const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total);
+    const desconto = cup.valido ? cup.desconto : 0;
+    const forma = dto.formaPagamento ?? 'entrega';
+    const online = forma === 'pix' || forma === 'cartao';
+    const grande = Math.max(0, total - desconto + taxa);
+
+    const ped = await this.delivery.ingest(
+      cfg.tenantId,
+      cfg.unidadeId,
+      'cardapio',
+      {
+        cliente: dto.cliente ?? 'Cardápio',
+        clienteTelefone: dto.telefone,
+        tipo,
+        endereco: dto.endereco,
+        formaPagamento: forma,
+        total: grande,
+        itens: itensOut,
+      },
+      {
+        taxaEntrega: taxa,
+        cupom: cup.valido ? cup.codigo : undefined,
+        desconto,
+        trocoPara: dto.trocoPara,
+        statusPagamento: online ? 'aguardando' : 'na_entrega',
+      },
+    );
+    return {
+      ok: true,
+      modo: tipo,
+      pedidoId: ped.id,
+      displayId: ped.displayId,
+      total: grande,
+      taxaEntrega: taxa,
+      desconto,
+      pagamentoOnline: online,
+    };
   }
 
   // Acha (ou abre) a mesa pelo número e devolve a comanda ativa dela.
