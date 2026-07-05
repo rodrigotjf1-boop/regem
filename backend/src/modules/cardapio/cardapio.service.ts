@@ -291,7 +291,8 @@ export class CardapioService {
       select id, nome, descricao, preco_venda as "precoVenda",
              preco_promocional as "precoPromocional", categoria_id as "categoriaId",
              imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin",
-             tipo, ficha_id as "fichaId", controla_estoque as "controlaEstoque"
+             tipo, ficha_id as "fichaId", controla_estoque as "controlaEstoque",
+             destaque
       from produto
       where tenant_id = ${cfg.tenantId} and deleted_at is null
         and ativo = true and disponivel_cardapio = true
@@ -367,6 +368,7 @@ export class CardapioService {
           imagemRef: p.imagemRef,
           selos: p.selos ?? [],
           duracaoMin: p.duracaoMin,
+          destaque: p.destaque === true,
           esgotado: esgotados.has(p.id),
           variacoes: variacoes
             .filter((v) => v.produtoId === p.id && v.ativo !== false)
@@ -478,7 +480,11 @@ export class CardapioService {
       cliente?: string;
       telefone?: string;
       tipo?: string; // entrega | retirada
-      endereco?: string;
+      endereco?: string; // texto livre (compat/legado)
+      rua?: string;
+      numero?: string;
+      referencia?: string;
+      telefone2?: string;
       bairroId?: string;
       formaPagamento?: string;
       trocoPara?: number;
@@ -564,6 +570,7 @@ export class CardapioService {
     // Checkout: tipo, frete (bairro), cupom, pagamento.
     const tipo = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
     let taxa = 0;
+    let bairroNome: string | undefined;
     if (tipo === 'entrega') {
       if (dto.bairroId) {
         const [b] = await this.db
@@ -576,10 +583,22 @@ export class CardapioService {
             ),
           );
         taxa = b ? Number(b.taxa) : 0;
+        bairroNome = b?.nome;
       }
       // frete grátis acima de X
       if (cfg.freteGratisAcima != null && total >= Number(cfg.freteGratisAcima)) taxa = 0;
     }
+    // Endereço estruturado → compõe o texto p/ impressão/compatibilidade.
+    const enderecoTexto =
+      tipo === 'entrega'
+        ? [
+            [dto.rua, dto.numero].filter(Boolean).join(', '),
+            bairroNome,
+            dto.referencia ? `ref: ${dto.referencia}` : '',
+          ]
+            .filter((s) => s && s.trim())
+            .join(' · ') || dto.endereco
+        : undefined;
     const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total);
     const desconto = cup.valido ? cup.desconto : 0;
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
@@ -596,7 +615,7 @@ export class CardapioService {
         cliente: dto.cliente ?? 'Cardápio',
         clienteTelefone: dto.telefone,
         tipo,
-        endereco: dto.endereco,
+        endereco: enderecoTexto ?? dto.endereco,
         formaPagamento: forma,
         total: grande,
         itens: itensOut,
@@ -614,6 +633,11 @@ export class CardapioService {
         agendamento: dto.agendamento,
         profissional: dto.profissional,
         cnpj: dto.cnpj,
+        clienteTelefone2: tipo === 'entrega' ? dto.telefone2 : undefined,
+        enderecoRua: tipo === 'entrega' ? dto.rua : undefined,
+        enderecoNumero: tipo === 'entrega' ? dto.numero : undefined,
+        enderecoReferencia: tipo === 'entrega' ? dto.referencia : undefined,
+        enderecoBairro: tipo === 'entrega' ? bairroNome : undefined,
       },
     );
 

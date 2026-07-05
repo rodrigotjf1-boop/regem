@@ -42,6 +42,11 @@ export class DeliveryService {
       agendamento?: string | Date;
       profissional?: string;
       cnpj?: string;
+      clienteTelefone2?: string;
+      enderecoRua?: string;
+      enderecoNumero?: string;
+      enderecoReferencia?: string;
+      enderecoBairro?: string;
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
@@ -82,6 +87,11 @@ export class DeliveryService {
         agendamento: extra?.agendamento ? new Date(extra.agendamento) : null,
         profissional: extra?.profissional ?? null,
         cnpj: extra?.cnpj ?? null,
+        clienteTelefone2: extra?.clienteTelefone2 ?? null,
+        enderecoRua: extra?.enderecoRua ?? null,
+        enderecoNumero: extra?.enderecoNumero ?? null,
+        enderecoReferencia: extra?.enderecoReferencia ?? null,
+        enderecoBairro: extra?.enderecoBairro ?? null,
         raw: raw as any,
       })
       .returning();

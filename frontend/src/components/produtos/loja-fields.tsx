@@ -54,6 +54,10 @@ export function LojaFields({
         <input type="checkbox" checked={f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
         Disponível no cardápio (desmarque para bloquear a venda online)
       </label>
+      <label className="mt-2 flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={f.destaque} onChange={(e) => set({ destaque: e.target.checked })} className="h-4 w-4 accent-primary" />
+        Produto em destaque (sugerido no carrinho — “peça também”)
+      </label>
     </div>
   );
 }
