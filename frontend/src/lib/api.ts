@@ -252,6 +252,26 @@ export const api = {
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),
   simularDelivery: (body: Record<string, unknown>) =>
     req('/delivery/simular', { method: 'POST', body: JSON.stringify(body) }),
+  // TEF (Fase I)
+  tefConfig: () => req('/tef/config'),
+  setTefConfig: (body: Record<string, unknown>) =>
+    req('/tef/config', { method: 'PUT', body: JSON.stringify(body) }),
+  tefCriar: (body: Record<string, unknown>) =>
+    req('/tef/pagamentos', { method: 'POST', body: JSON.stringify(body) }),
+  tefGet: (id: string) => req(`/tef/pagamentos/${id}`),
+  tefListar: () => req('/tef/pagamentos'),
+  tefCancelar: (id: string) =>
+    req(`/tef/pagamentos/${id}/cancelar`, { method: 'POST', body: '{}' }),
+  tefVincular: (id: string, comandaId: string) =>
+    req(`/tef/pagamentos/${id}/vincular`, {
+      method: 'POST',
+      body: JSON.stringify({ comandaId }),
+    }),
+  tefSimular: (id: string, status?: string) =>
+    req(`/tef/pagamentos/${id}/simular`, {
+      method: 'POST',
+      body: JSON.stringify({ status: status ?? 'aprovado' }),
+    }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>
