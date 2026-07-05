@@ -44,6 +44,7 @@ import { ImpressaoModule } from './modules/impressao/impressao.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { TefModule } from './modules/tef/tef.module';
+import { CardapioModule } from './modules/cardapio/cardapio.module';
 import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
@@ -97,6 +98,7 @@ import { AuthModule } from './auth/auth.module';
     FiscalModule,
     DeliveryModule,
     TefModule,
+    CardapioModule,
     MuralModule,
     BotModule,
     SyncModule,

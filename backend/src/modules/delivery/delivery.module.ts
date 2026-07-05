@@ -9,5 +9,6 @@ import { VendasModule } from '../vendas/vendas.module';
   imports: [EquipamentoModule, VendasModule],
   controllers: [DeliveryController],
   providers: [DeliveryService, SyncTokenGuard],
+  exports: [DeliveryService],
 })
 export class DeliveryModule {}

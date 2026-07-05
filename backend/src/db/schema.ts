@@ -1341,3 +1341,18 @@ export const pagamentoTef = pgTable('pagamento_tef', {
   processadoEm: timestamp('processado_em', { withTimezone: true }),
   canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
 });
+
+// ===== Cardápio digital / QR (Fase J) =====
+export const cardapioConfig = pgTable('cardapio_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  token: text('token').notNull().unique(),
+  ativo: boolean('ativo').notNull().default(false),
+  modo: text('modo').notNull().default('mesa'), // mesa | retirada | totem
+  nomePublico: text('nome_publico'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
