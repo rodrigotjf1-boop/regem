@@ -261,6 +261,14 @@ export const api = {
   financeiroFluxo: (dias?: number) =>
     req(`/financeiro/fluxo${dias ? `?dias=${dias}` : ''}`),
   caixaAberta: () => req('/financeiro/caixa'),
+  caixaConfig: () => req('/financeiro/caixa/config'),
+  setCaixaLivre: (ativo: boolean) =>
+    req('/financeiro/caixa/config/livre', {
+      method: 'POST',
+      body: JSON.stringify({ ativo }),
+    }),
+  reimprimir: (id: string) =>
+    req(`/impressao/${id}/reimprimir`, { method: 'POST', body: '{}' }),
   abrirCaixa: (body: Record<string, unknown>) =>
     req('/financeiro/caixa/abrir', { method: 'POST', body: JSON.stringify(body) }),
   movimentarCaixa: (body: Record<string, unknown>) =>

@@ -14,21 +14,31 @@ import { Label } from '@/components/ui/label';
 const TIPOS = [
   { value: 'terminal_ponto', label: 'Terminal de Ponto' },
   { value: 'kds', label: 'KDS (cozinha)' },
+  { value: 'impressora', label: 'Impressora térmica' },
+  { value: 'servidor_local', label: 'Servidor local (edge)' },
 ];
 const TIPO_LABEL: Record<string, string> = {
   terminal_ponto: 'Terminal de Ponto',
   kds: 'KDS',
+  impressora: 'Impressora',
+  servidor_local: 'Servidor local',
 };
+const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
 
 export default function EquipamentosPage() {
   const router = useRouter();
   const [lista, setLista] = useState<any[] | null>(null);
   const [unidades, setUnidades] = useState<any[]>([]);
+  const [setores, setSetores] = useState<any[]>([]);
   const [erro, setErro] = useState('');
 
   const [tipo, setTipo] = useState('terminal_ponto');
   const [nome, setNome] = useState('');
   const [unidadeId, setUnidadeId] = useState('');
+  const [setorId, setSetorId] = useState('');
+  const [escopo, setEscopo] = useState('producao');
+  const [host, setHost] = useState('');
+  const [porta, setPorta] = useState('9100');
   const [salvando, setSalvando] = useState(false);
   const [tokenNovo, setTokenNovo] = useState<{ nome: string; token: string } | null>(
     null,
@@ -37,9 +47,14 @@ export default function EquipamentosPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [eqs, unis] = await Promise.all([api.equipamentos(), api.unidades()]);
+      const [eqs, unis, sets] = await Promise.all([
+        api.equipamentos(),
+        api.unidades(),
+        api.setores().catch(() => []),
+      ]);
       setLista(eqs);
       setUnidades(unis);
+      setSetores(sets as any[]);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -62,6 +77,10 @@ export default function EquipamentosPage() {
         tipo,
         nome,
         unidadeId: unidadeId || undefined,
+        setorId: (tipo === 'kds' || tipo === 'impressora') && setorId ? setorId : undefined,
+        escopo: tipo === 'kds' ? escopo : undefined,
+        host: tipo === 'impressora' && host ? host : undefined,
+        porta: tipo === 'impressora' && porta ? Number(porta) : undefined,
       });
       setTokenNovo({ nome: novo.nome, token: novo.token });
       setCopiado(false);
@@ -173,6 +192,44 @@ export default function EquipamentosPage() {
                 ))}
               </select>
             </div>
+
+            {/* KDS/impressora: setor de produção */}
+            {(tipo === 'kds' || tipo === 'impressora') && (
+              <div className="space-y-1.5">
+                <Label htmlFor="setor">Setor de produção</Label>
+                <select id="setor" value={setorId} onChange={(e) => setSetorId(e.target.value)} className={selectCls}>
+                  <option value="">— sem setor —</option>
+                  {setores.map((s) => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* KDS: escopo (produção vs. só avisos) */}
+            {tipo === 'kds' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="escopo">Escopo do KDS</Label>
+                <select id="escopo" value={escopo} onChange={(e) => setEscopo(e.target.value)} className={selectCls}>
+                  <option value="producao">Produção (pedidos)</option>
+                  <option value="avisos">Só avisos (tarefas/picos)</option>
+                </select>
+              </div>
+            )}
+
+            {/* Impressora: host + porta */}
+            {tipo === 'impressora' && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="host">IP da impressora</Label>
+                  <Input id="host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="porta">Porta</Label>
+                  <Input id="porta" type="number" value={porta} onChange={(e) => setPorta(e.target.value)} placeholder="9100" />
+                </div>
+              </div>
+            )}
             {erro && (
               <p role="alert" className="text-sm text-destructive">
                 {erro}
@@ -220,6 +277,8 @@ export default function EquipamentosPage() {
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {nomeUnidade(eq.unidadeId)}
+                    {eq.tipo === 'impressora' && eq.host ? ` · ${eq.host}:${eq.porta ?? 9100}` : ''}
+                    {eq.tipo === 'kds' && eq.escopo === 'avisos' ? ' · só avisos' : ''}
                     {eq.ultimoPing
                       ? ` · último acesso ${new Date(eq.ultimoPing).toLocaleString('pt-BR')}`
                       : ' · nunca conectou'}

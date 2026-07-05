@@ -99,7 +99,12 @@ export class VendasController {
 
   @Delete('comandas/itens/:itemId')
   removerItem(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
-    return this.service.removerItem(user.tenantId, itemId);
+    return this.service.removerItem(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      itemId,
+    );
   }
 
   @Post('comandas/:id/fechar')

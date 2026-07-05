@@ -773,12 +773,49 @@ export class VendasService {
     return item;
   }
 
-  async removerItem(tenantId: string, itemId: string) {
+  // Remove um item de uma comanda ABERTA (correção de pedido). Como a baixa só
+  // ocorre no fechamento, não há estorno; avisa a produção (KDS) da alteração.
+  async removerItem(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    itemId: string,
+  ) {
+    const [it] = await this.db
+      .select()
+      .from(comandaItem)
+      .where(and(eq(comandaItem.id, itemId), eq(comandaItem.tenantId, tenantId)));
+    if (!it) throw new NotFoundException('Item não encontrado');
+    const [c] = await this.db
+      .select({ status: comanda.status })
+      .from(comanda)
+      .where(eq(comanda.id, it.comandaId));
+    if (!c) throw new NotFoundException('Comanda não encontrada');
+    if (c.status !== 'aberta')
+      throw new BadRequestException(
+        'Só é possível alterar itens de comanda aberta. Para venda fechada, use o cancelamento.',
+      );
+
+    await this.db
+      .delete(comandaItemComplemento)
+      .where(eq(comandaItemComplemento.comandaItemId, itemId));
     await this.db
       .delete(comandaItem)
-      .where(
-        and(eq(comandaItem.id, itemId), eq(comandaItem.tenantId, tenantId)),
-      );
+      .where(and(eq(comandaItem.id, itemId), eq(comandaItem.tenantId, tenantId)));
+
+    // Marca o item nos pedidos de produção como removido (cancela o pedido se vazio).
+    await this.producao.removerItemComanda(tenantId, itemId);
+
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'venda',
+      acao: 'removeu_item_comanda',
+      entidadeTipo: 'comanda_item',
+      entidadeId: itemId,
+      detalhe: { descricao: it.descricao, comandaId: it.comandaId },
+    });
     return { ok: true };
   }
 

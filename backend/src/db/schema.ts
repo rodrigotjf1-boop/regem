@@ -467,6 +467,8 @@ export const equipamento = pgTable('equipamento', {
   ativo: boolean('ativo').notNull().default(true),
   escopo: text('escopo').notNull().default('producao'), // producao | avisos (só KDS)
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
+  host: text('host'), // IP da impressora de rede (tipo impressora)
+  porta: integer('porta'), // porta ESC/POS (padrão 9100)
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1146,6 +1148,24 @@ export const producaoPedidoItem = pgTable('producao_pedido_item', {
   quantidade: numeric('quantidade').notNull().default('1'),
   complementosTexto: text('complementos_texto'),
   status: text('status').notNull().default('ok'), // ok | alterado | removido
+});
+
+// Job de impressão térmica (Fase F3) — puxado pelo worker do edge (servidor_local).
+export const impressaoJob = pgTable('impressao_job', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  equipamentoId: uuid('equipamento_id'),
+  pedidoId: uuid('pedido_id'),
+  via: text('via').notNull().default('producao'), // producao | conferencia
+  conteudo: text('conteudo').notNull(),
+  status: text('status').notNull().default('pendente'), // pendente | impresso | erro
+  tentativas: integer('tentativas').notNull().default(0),
+  erro: text('erro'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  impressoEm: timestamp('impresso_em', { withTimezone: true }),
 });
 
 // Limiares de cor do KDS por unidade (minutos): <=verde, <=amarelo, acima=vermelho.
