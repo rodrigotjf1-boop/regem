@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  BarChart3,
   Bike,
   Boxes,
   Building2,
@@ -106,6 +107,12 @@ const NAV: NavGroup[] = [
         label: 'Financeiro',
         icon: Wallet,
         roles: ['presidente', 'gerente'],
+      },
+      {
+        href: '/relatorios',
+        label: 'Relatórios de venda',
+        icon: BarChart3,
+        roles: ['presidente', 'gerente', 'supervisao'],
       },
       {
         href: '/auditoria',

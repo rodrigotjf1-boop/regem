@@ -45,6 +45,7 @@ import { FiscalModule } from './modules/fiscal/fiscal.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { TefModule } from './modules/tef/tef.module';
 import { CardapioModule } from './modules/cardapio/cardapio.module';
+import { RelatoriosModule } from './modules/relatorios/relatorios.module';
 import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
@@ -99,6 +100,7 @@ import { AuthModule } from './auth/auth.module';
     DeliveryModule,
     TefModule,
     CardapioModule,
+    RelatoriosModule,
     MuralModule,
     BotModule,
     SyncModule,
