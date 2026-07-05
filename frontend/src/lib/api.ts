@@ -132,15 +132,26 @@ export const api = {
   ficha: (id: string) => req(`/fichas/${id}`),
   estoqueItens: () => req('/estoque/itens'),
   // Produção (Fase F1)
-  producaoFila: (setorId?: string, unidadeId?: string) => {
+  producaoFila: (setorId?: string, unidadeId?: string, escopo?: string) => {
     const p = new URLSearchParams();
     if (setorId) p.set('setorId', setorId);
     if (unidadeId) p.set('unidadeId', unidadeId);
+    if (escopo) p.set('escopo', escopo);
     const q = p.toString();
     return req(`/producao/fila${q ? `?${q}` : ''}`);
   },
-  producaoAvancar: (id: string) =>
-    req(`/producao/pedidos/${id}/avancar`, { method: 'POST', body: '{}' }),
+  producaoAvancar: (id: string, escopo?: string) =>
+    req(`/producao/pedidos/${id}/avancar`, {
+      method: 'POST',
+      body: JSON.stringify({ escopo }),
+    }),
+  senhaConfig: (unidadeId?: string) =>
+    req(`/producao/senha/config${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  setSenhaPeriodo: (periodo: string, unidadeId?: string) =>
+    req('/producao/senha/config', {
+      method: 'PUT',
+      body: JSON.stringify({ periodo, unidadeId }),
+    }),
   producaoPedidos: (unidadeId?: string) =>
     req(`/producao/pedidos${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   cancelarPedidoProducao: (id: string, motivo?: string) =>

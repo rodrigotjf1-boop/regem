@@ -25,6 +25,7 @@ import {
   lancamentoCaixa,
   caixaSessao,
   entitlement,
+  colaborador,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
@@ -264,12 +265,17 @@ export class VendasService {
         throw new BadRequestException('Abra o caixa para registrar vendas.');
 
       const taxa = Number(dto.taxaServicoPct) || 0;
+      // Senha central (F4): só no balcão (mesa usa o número da mesa).
+      const senha = dto.mesa
+        ? null
+        : await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null);
       const [cmd] = await tx
         .insert(comanda)
         .values({
           tenantId,
           unidadeId: dto.unidadeId,
           mesa: dto.mesa,
+          senha,
           status: 'fechada',
           idempotencyKey: dto.idempotencyKey,
           taxaServicoPct: String(taxa),
@@ -281,6 +287,7 @@ export class VendasService {
 
       let total = 0;
       const itensProducao: ItemProducao[] = [];
+      const viaClienteItens: any[] = []; // p/ cupom do cliente
       const consumo = new Map<string, number>(); // baixa agregada por item
 
       for (const it of dto.itens) {
@@ -316,6 +323,7 @@ export class VendasService {
         preco += precoDelta;
         total += preco * qtd;
 
+        const obs = (it as any).observacao || null;
         const [ci] = await tx
           .insert(comandaItem)
           .values({
@@ -327,6 +335,7 @@ export class VendasService {
             descricao,
             quantidade: String(qtd),
             precoUnitario: String(preco),
+            observacao: obs,
             criadoPorId: atorId,
           })
           .returning();
@@ -347,14 +356,23 @@ export class VendasService {
 
         await this.acumularProduto(tx, tenantId, p, fatorFicha, qtd, snapshots, consumo);
 
+        const compTexto =
+          snapshots
+            .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
+            .join(' · ') || null;
+        viaClienteItens.push({
+          quantidade: qtd,
+          descricao,
+          precoUnitario: preco,
+          complementosTexto: compTexto,
+        });
         if (p.vaiParaProducao)
           itensProducao.push({
             produto: p,
             descricao,
             quantidade: qtd,
-            complementosTexto: snapshots
-              .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
-              .join(' · ') || null,
+            complementosTexto: compTexto,
+            observacao: obs,
             comandaItemId: ci.id,
           });
       }
@@ -368,6 +386,7 @@ export class VendasService {
           tenantId,
           unidadeId: dto.unidadeId ?? null,
           comandaId: cmd.id,
+          senha,
           origem: dto.mesa ? 'mesa' : 'balcao',
           mesa: dto.mesa ?? null,
         },
@@ -395,10 +414,12 @@ export class VendasService {
 
       return {
         comandaId: cmd.id,
+        senha,
         subtotal: Number(total.toFixed(2)),
         taxaServicoPct: taxa,
         total: Number(totalComTaxa.toFixed(2)),
         producaoPayloads,
+        viaClienteItens,
         unidadeId: dto.unidadeId ?? null,
       };
       });
@@ -433,7 +454,35 @@ export class VendasService {
     // Notifica destinos (KDS/impressora) dos novos pedidos duráveis (tempo real).
     this.producao.emitirNovos(res.producaoPayloads);
 
+    // Via do cliente (balcão): imprime o cupom nas impressoras de papel 'cupom'.
+    await this.imprimirViaCliente(tenantId, res.comandaId, res.unidadeId, atorId, {
+      senha: res.senha,
+      mesa: dto.mesa ?? null,
+      itens: res.viaClienteItens,
+      total: res.total,
+      forma: dto.forma ?? null,
+    });
+
     return res;
+  }
+
+  // Renderiza + enfileira a via do cliente (cupom). Silencioso se não há impressora 'cupom'.
+  private async imprimirViaCliente(
+    tenantId: string,
+    comandaId: string,
+    unidadeId: string | null,
+    atorId: string,
+    dados: { senha?: number | null; mesa?: string | null; itens: any[]; total: number; forma?: string | null },
+  ) {
+    const [ator] = await this.db
+      .select({ nome: colaborador.nome })
+      .from(colaborador)
+      .where(eq(colaborador.id, atorId));
+    const conteudo = this.producao.renderViaCliente({
+      ...dados,
+      atendente: ator?.nome ?? null,
+    });
+    await this.producao.enfileirarViaCliente(tenantId, unidadeId, comandaId, conteudo);
   }
 
   // ===== Mesas & comandas (J3) =====
@@ -442,18 +491,25 @@ export class VendasService {
     atorId: string,
     dto: { mesa?: string; cliente?: string; unidadeId?: string },
   ) {
-    const [c] = await this.db
-      .insert(comanda)
-      .values({
-        tenantId,
-        unidadeId: dto.unidadeId,
-        mesa: dto.mesa,
-        cliente: dto.cliente,
-        status: 'aberta',
-        abertaPorId: atorId,
-      })
-      .returning();
-    return c;
+    return this.db.transaction(async (tx) => {
+      // Comanda avulsa (sem mesa) recebe senha central; comanda de mesa não.
+      const senha = dto.mesa
+        ? null
+        : await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null);
+      const [c] = await tx
+        .insert(comanda)
+        .values({
+          tenantId,
+          unidadeId: dto.unidadeId,
+          mesa: dto.mesa,
+          senha,
+          cliente: dto.cliente,
+          status: 'aberta',
+          abertaPorId: atorId,
+        })
+        .returning();
+      return c;
+    });
   }
 
   async listarComandas(tenantId: string) {
@@ -663,6 +719,7 @@ export class VendasService {
       variacaoId?: string;
       quantidade: number;
       complementos?: string[];
+      observacao?: string;
     },
   ) {
     const [c] = await this.db
@@ -699,6 +756,7 @@ export class VendasService {
     );
     preco += precoDelta;
     const qtd = Number(dto.quantidade) || 1;
+    const obs = dto.observacao || null;
     const [item] = await this.db
       .insert(comandaItem)
       .values({
@@ -710,6 +768,7 @@ export class VendasService {
         descricao,
         quantidade: String(qtd),
         precoUnitario: String(preco),
+        observacao: obs,
         criadoPorId: atorId,
       })
       .returning();
@@ -735,6 +794,7 @@ export class VendasService {
           tenantId,
           unidadeId: c.unidadeId,
           comandaId,
+          senha: c.senha,
           origem: c.mesa ? 'mesa' : 'comanda',
           mesa: c.mesa,
         },
@@ -747,6 +807,7 @@ export class VendasService {
               snapshots
                 .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
                 .join(' · ') || null,
+            observacao: obs,
             comandaItemId: item.id,
           },
         ],
@@ -915,6 +976,14 @@ export class VendasService {
         subtotal: Number(total.toFixed(2)),
         taxaServicoPct: taxa,
         total: Number(totalComTaxa.toFixed(2)),
+        senha: c.senha,
+        mesa: c.mesa,
+        unidadeId: c.unidadeId,
+        viaClienteItens: itens.map((it) => ({
+          quantidade: Number(it.quantidade),
+          descricao: it.descricao,
+          precoUnitario: Number(it.precoUnitario),
+        })),
       };
     });
 
@@ -927,6 +996,15 @@ export class VendasService {
       entidadeTipo: 'comanda',
       entidadeId: comandaId,
       detalhe: { total: res.total },
+    });
+
+    // Via do cliente sai ao fechar a conta (mesa/comanda).
+    await this.imprimirViaCliente(tenantId, comandaId, res.unidadeId, atorId, {
+      senha: res.senha,
+      mesa: res.mesa,
+      itens: res.viaClienteItens,
+      total: res.total,
+      forma: dto.forma ?? null,
     });
     return res;
   }

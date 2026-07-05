@@ -25,6 +25,11 @@ export class VendaItemDto {
   @IsArray()
   @IsUUID('all', { each: true })
   complementos?: string[];
+
+  // Observação livre do item ("sem sal", "bem passado").
+  @IsOptional()
+  @IsString()
+  observacao?: string;
 }
 
 export class VendaBalcaoDto {

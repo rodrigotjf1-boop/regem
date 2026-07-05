@@ -37,6 +37,7 @@ export default function EquipamentosPage() {
   const [unidadeId, setUnidadeId] = useState('');
   const [setorId, setSetorId] = useState('');
   const [escopo, setEscopo] = useState('producao');
+  const [papel, setPapel] = useState('producao');
   const [host, setHost] = useState('');
   const [porta, setPorta] = useState('9100');
   const [salvando, setSalvando] = useState(false);
@@ -79,6 +80,7 @@ export default function EquipamentosPage() {
         unidadeId: unidadeId || undefined,
         setorId: (tipo === 'kds' || tipo === 'impressora') && setorId ? setorId : undefined,
         escopo: tipo === 'kds' ? escopo : undefined,
+        papel: tipo === 'impressora' ? papel : undefined,
         host: tipo === 'impressora' && host ? host : undefined,
         porta: tipo === 'impressora' && porta ? Number(porta) : undefined,
       });
@@ -206,29 +208,39 @@ export default function EquipamentosPage() {
               </div>
             )}
 
-            {/* KDS: escopo (produção vs. só avisos) */}
+            {/* KDS: escopo (produção / entrega / só avisos) */}
             {tipo === 'kds' && (
               <div className="space-y-1.5">
                 <Label htmlFor="escopo">Escopo do KDS</Label>
                 <select id="escopo" value={escopo} onChange={(e) => setEscopo(e.target.value)} className={selectCls}>
                   <option value="producao">Produção (pedidos)</option>
+                  <option value="entrega">Entrega (retirada por senha)</option>
                   <option value="avisos">Só avisos (tarefas/picos)</option>
                 </select>
               </div>
             )}
 
-            {/* Impressora: host + porta */}
+            {/* Impressora: papel + host + porta */}
             {tipo === 'impressora' && (
-              <div className="grid grid-cols-2 gap-3">
+              <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="host">IP da impressora</Label>
-                  <Input id="host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
+                  <Label htmlFor="papel">Papel da impressora</Label>
+                  <select id="papel" value={papel} onChange={(e) => setPapel(e.target.value)} className={selectCls}>
+                    <option value="producao">Produção (cozinha/bar — sem valores)</option>
+                    <option value="cupom">Cupom (via do cliente — com valores)</option>
+                  </select>
                 </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="porta">Porta</Label>
-                  <Input id="porta" type="number" value={porta} onChange={(e) => setPorta(e.target.value)} placeholder="9100" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="host">IP da impressora</Label>
+                    <Input id="host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="porta">Porta</Label>
+                    <Input id="porta" type="number" value={porta} onChange={(e) => setPorta(e.target.value)} placeholder="9100" />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
             {erro && (
               <p role="alert" className="text-sm text-destructive">

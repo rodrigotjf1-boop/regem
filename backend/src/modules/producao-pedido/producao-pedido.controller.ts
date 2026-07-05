@@ -30,16 +30,22 @@ export class ProducaoPedidoController {
     @CurrentUser() user: AuthUser,
     @Query('setorId') setorId?: string,
     @Query('unidadeId') unidadeId?: string,
+    @Query('escopo') escopo?: string,
   ) {
     return this.service.filaKds(user.tenantId, {
       setorId: setorId || undefined,
       unidadeId: unidadeId || undefined,
+      escopo: escopo || undefined,
     });
   }
 
   @Post('pedidos/:id/avancar')
-  avancar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.avancar(user.tenantId, user.colaboradorId, id);
+  avancar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.avancar(user.tenantId, user.colaboradorId, id, dto?.escopo);
   }
 
   // ----- PDV (atendente é dono): consultar + cancelar em produção -----
@@ -115,6 +121,24 @@ export class ProducaoPedidoController {
     return this.service.setCores(user.tenantId, dto?.unidadeId || null, {
       verdeAteMin: dto?.verdeAteMin,
       amareloAteMin: dto?.amareloAteMin,
+      usaPreparo: dto?.usaPreparo,
+      usaEntregue: dto?.usaEntregue,
     });
+  }
+
+  // Config da senha (período de reset) — gerente/presidente.
+  @Get('senha/config')
+  senhaConfig(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
+    return this.service.getSenhaConfig(user.tenantId, unidadeId || null);
+  }
+
+  @Put('senha/config')
+  @Roles('presidente', 'gerente')
+  setSenhaPeriodo(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setSenhaPeriodo(
+      user.tenantId,
+      dto?.unidadeId || null,
+      dto?.periodo,
+    );
   }
 }

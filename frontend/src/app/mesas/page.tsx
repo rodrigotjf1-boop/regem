@@ -96,6 +96,7 @@ export default function MesasPage() {
         produtoId: s.produtoId,
         variacaoId: s.variacaoId,
         complementos: s.complementos,
+        observacao: s.observacao,
         quantidade: 1,
       });
       toast.success(`Adicionado: ${s.label}`);
