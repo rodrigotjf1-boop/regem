@@ -47,6 +47,7 @@ export class DeliveryService {
       enderecoNumero?: string;
       enderecoReferencia?: string;
       enderecoBairro?: string;
+      bandeira?: string;
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
@@ -92,6 +93,7 @@ export class DeliveryService {
         enderecoNumero: extra?.enderecoNumero ?? null,
         enderecoReferencia: extra?.enderecoReferencia ?? null,
         enderecoBairro: extra?.enderecoBairro ?? null,
+        bandeira: extra?.bandeira ?? null,
         raw: raw as any,
       })
       .returning();
@@ -157,11 +159,14 @@ export class DeliveryService {
       : [];
     const porCodigo = new Map(prods.map((p) => [p.codigo, p.id]));
 
+    const PLAT: Record<string, string> = { cardapio: 'Cardápio', ifood: 'iFood', totem: 'Totem' };
     const venda = await this.vendas.venderExterno(tenantId, atorId, {
       unidadeId: ped.unidadeId,
       cliente: ped.clienteNome,
       forma: ped.formaPagamento ?? 'online',
       origem: 'delivery',
+      plataforma: PLAT[ped.canal] ?? ped.canal,
+      senhaPlataforma: ped.displayId ?? null,
       itens: itens.map((it) => ({
         produtoId: it.produtoId ?? (it.codigo ? porCodigo.get(it.codigo) ?? null : null),
         descricao: it.descricao,

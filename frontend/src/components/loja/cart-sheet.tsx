@@ -68,6 +68,7 @@ export function CartSheet({
     enviando ||
     cart.length === 0 ||
     (!isIndustria && (loja.pagamentos ?? []).length > 0 && !chk.forma) ||
+    (chk.forma === 'cartao' && (loja.formasCartao ?? []).length > 0 && !chk.bandeira) ||
     (agendar && !chk.agendamento) ||
     (chk.tipo === 'entrega' && (!chk.rua || !chk.bairroId)) ||
     !((chk.nome ?? '').trim()) ||
@@ -202,9 +203,20 @@ export function CartSheet({
               <p className="mb-1 text-sm font-semibold">Pagamento</p>
               <div className="grid grid-cols-2 gap-2">
                 {(loja.pagamentos ?? []).map((pg: string) => (
-                  <button key={pg} type="button" onClick={() => set({ forma: pg })} className="rounded-xl border py-2.5 text-xs font-semibold" style={chk.forma === pg ? { borderColor: accent, color: accent } : { borderColor: '#e5e5e5', color: '#666' }}>{PG_LBL[pg] ?? pg}</button>
+                  <button key={pg} type="button" onClick={() => set({ forma: pg, bandeira: '' })} className="rounded-xl border py-2.5 text-xs font-semibold" style={chk.forma === pg ? { borderColor: accent, color: accent } : { borderColor: '#e5e5e5', color: '#666' }}>{PG_LBL[pg] ?? pg}</button>
                 ))}
               </div>
+              {/* Sub-opções de cartão (formas cadastradas na config do cardápio) */}
+              {chk.forma === 'cartao' && (loja.formasCartao ?? []).length > 0 && (
+                <div className="mt-2">
+                  <p className="mb-1 text-xs font-semibold text-neutral-600">Qual cartão?</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(loja.formasCartao ?? []).map((f: string) => (
+                      <button key={f} type="button" onClick={() => set({ bandeira: f })} className="rounded-full border px-3 py-1.5 text-xs font-semibold" style={chk.bandeira === f ? { borderColor: accent, color: accent, background: `${accent}12` } : { borderColor: '#e5e5e5', color: '#666' }}>{f}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {chk.forma === 'cartao' && loja.parcelasMax > 1 && <p className="mt-1 text-xs text-neutral-500">Em até {loja.parcelasMax}x no cartão.</p>}
               {chk.forma === 'entrega' && (
                 <input value={chk.troco} onChange={(e) => set({ troco: e.target.value })} inputMode="decimal" placeholder="Troco para quanto?" className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />

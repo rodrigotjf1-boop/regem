@@ -1149,7 +1149,9 @@ export const producaoPedido = pgTable('producao_pedido', {
   setorId: uuid('setor_id'),
   numero: integer('numero'),
   senha: integer('senha'), // senha da comanda/venda (Fase F4) — exibida no KDS/entrega
-  origem: text('origem').notNull().default('balcao'), // balcao|mesa|comanda|garcom
+  origem: text('origem').notNull().default('balcao'), // balcao|mesa|comanda|garcom|delivery
+  plataforma: text('plataforma'), // origem externa (ex.: "Cardápio", "iFood")
+  senhaPlataforma: text('senha_plataforma'), // senha/nº do pedido na plataforma
   mesa: text('mesa'),
   status: text('status').notNull().default('recebido'), // recebido|preparo|pronto|entregue|cancelado
   tempoPreparoMin: integer('tempo_preparo_min'),
@@ -1334,6 +1336,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   agendamento: timestamp('agendamento', { withTimezone: true }), // serviços (L4)
   profissional: text('profissional'),
   cnpj: text('cnpj'), // indústria (faturamento)
+  bandeira: text('bandeira'), // forma de cartão escolhida (rótulo livre)
 });
 
 // ===== TEF — pagamento integrado (Fase I) =====
@@ -1396,6 +1399,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   fidelidadeAtiva: boolean('fidelidade_ativa').notNull().default(false),
   whatsapp: text('whatsapp'),
   parcelasMax: integer('parcelas_max'), // varejo (L4)
+  autoKds: boolean('auto_kds').notNull().default(true), // envia pedido direto ao KDS
+  formasCartao: jsonb('formas_cartao').notNull().default('[]'), // rótulos de cartão aceitos
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -81,6 +81,10 @@ export class CardapioService {
       whatsapp: dto.whatsapp ?? row?.whatsapp ?? null,
       parcelasMax:
         dto.parcelasMax != null ? Number(dto.parcelasMax) || null : row?.parcelasMax ?? null,
+      autoKds: dto.autoKds != null ? !!dto.autoKds : row?.autoKds ?? true,
+      formasCartao: Array.isArray(dto.formasCartao)
+        ? dto.formasCartao.filter((x: any) => typeof x === 'string' && x.trim()).map((x: string) => x.trim())
+        : row?.formasCartao ?? [],
     };
     if (row) {
       await this.db
@@ -345,6 +349,7 @@ export class CardapioService {
         freteGratisAcima:
           cfg.freteGratisAcima != null ? Number(cfg.freteGratisAcima) : null,
         pagamentos: cfg.pagamentos ?? [],
+        formasCartao: cfg.formasCartao ?? [],
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,
         parcelasMax: cfg.parcelasMax ?? null,
@@ -487,6 +492,7 @@ export class CardapioService {
       telefone2?: string;
       bairroId?: string;
       formaPagamento?: string;
+      bandeira?: string; // forma de cartão escolhida (rótulo)
       trocoPara?: number;
       cupom?: string;
       agendamento?: string; // serviços: data/hora
@@ -607,6 +613,12 @@ export class CardapioService {
     const online = !orcamento && (forma === 'pix' || forma === 'cartao');
     const grande = Math.max(0, total - desconto + taxa);
 
+    // Senha PRÓPRIA do cardápio (contador sequencial por tenant do canal).
+    const cnt: any = await this.db.execute(
+      sql`select count(*)::int as c from pedido_externo where tenant_id = ${cfg.tenantId} and canal = 'cardapio'`,
+    );
+    const senhaCardapio = String((((cnt.rows ?? cnt)[0]?.c ?? 0) as number) + 1);
+
     const ped = await this.delivery.ingest(
       cfg.tenantId,
       cfg.unidadeId,
@@ -618,6 +630,7 @@ export class CardapioService {
         endereco: enderecoTexto ?? dto.endereco,
         formaPagamento: forma,
         total: grande,
+        displayId: senhaCardapio,
         itens: itensOut,
       },
       {
@@ -638,8 +651,19 @@ export class CardapioService {
         enderecoNumero: tipo === 'entrega' ? dto.numero : undefined,
         enderecoReferencia: tipo === 'entrega' ? dto.referencia : undefined,
         enderecoBairro: tipo === 'entrega' ? bairroNome : undefined,
+        bandeira: dto.bandeira,
       },
     );
+
+    // Envio automático ao KDS: aceita o pedido na hora (cria comanda + produção
+    // com senha local + selo da plataforma). Orçamento (indústria) não produz.
+    if (cfg.autoKds !== false && !orcamento && (ped as any)?.status === 'novo') {
+      try {
+        await this.delivery.aceitar(cfg.tenantId, null, ped.id);
+      } catch {
+        /* mantém o pedido em 'novo' se a produção falhar */
+      }
+    }
 
     // Fidelidade (L5): acumula pontos por telefone (1 ponto por real, arred.).
     let pontos: number | undefined;

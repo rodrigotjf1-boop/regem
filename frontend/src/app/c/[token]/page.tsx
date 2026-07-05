@@ -170,6 +170,7 @@ export default function CardapioPublicoPage() {
         referencia: entrega ? chk.referencia || undefined : undefined,
         bairroId: entrega ? chk.bairroId || undefined : undefined,
         formaPagamento: chk.forma || undefined,
+        bandeira: chk.forma === 'cartao' ? chk.bandeira || undefined : undefined,
         trocoPara: chk.forma === 'entrega' && chk.troco ? Number(String(chk.troco).replace(',', '.')) : undefined,
         cupom: cupomOk?.valido ? chk.cupom.trim() : undefined,
         agendamento: chk.agendamento || undefined,
