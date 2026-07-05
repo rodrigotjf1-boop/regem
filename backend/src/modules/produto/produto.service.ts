@@ -204,6 +204,7 @@ export class ProdutoService {
           validadeDias: dto.validadeDias,
           vaiParaProducao: dto.vaiParaProducao ?? true,
           setorProducaoId: dto.setorProducaoId,
+          tempoPreparoMin: dto.tempoPreparoMin,
           imagemRef: dto.imagemRef,
         })
         .returning();
@@ -265,6 +266,7 @@ export class ProdutoService {
     set('validadeDias', dto.validadeDias);
     set('vaiParaProducao', dto.vaiParaProducao);
     set('setorProducaoId', dto.setorProducaoId);
+    set('tempoPreparoMin', dto.tempoPreparoMin);
     set('imagemRef', dto.imagemRef);
 
     const [row] = await this.db

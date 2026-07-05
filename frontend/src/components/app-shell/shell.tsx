@@ -13,6 +13,7 @@ import {
   Coins,
   ReceiptText,
   FileText,
+  Flame,
   History,
   LayoutDashboard,
   ListChecks,
@@ -51,6 +52,7 @@ const NAV: NavGroup[] = [
       { href: '/painel', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart },
       { href: '/comandas', label: 'Comandas · Mesas', icon: ClipboardList },
+      { href: '/pedidos', label: 'Pedidos · Produção', icon: Flame },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText },
       { href: '/caixa', label: 'Caixa', icon: Coins },
       { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
@@ -71,6 +73,12 @@ const NAV: NavGroup[] = [
         href: '/pessoas',
         label: 'Pessoas & Ponto',
         icon: Users,
+        roles: ['presidente', 'gerente', 'supervisao'],
+      },
+      {
+        href: '/producao-config',
+        label: 'Produção & KDS',
+        icon: Flame,
         roles: ['presidente', 'gerente', 'supervisao'],
       },
       {

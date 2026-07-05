@@ -131,6 +131,39 @@ export const api = {
   fichasLista: () => req('/fichas'),
   ficha: (id: string) => req(`/fichas/${id}`),
   estoqueItens: () => req('/estoque/itens'),
+  // Produção (Fase F1)
+  producaoFila: (setorId?: string, unidadeId?: string) => {
+    const p = new URLSearchParams();
+    if (setorId) p.set('setorId', setorId);
+    if (unidadeId) p.set('unidadeId', unidadeId);
+    const q = p.toString();
+    return req(`/producao/fila${q ? `?${q}` : ''}`);
+  },
+  producaoAvancar: (id: string) =>
+    req(`/producao/pedidos/${id}/avancar`, { method: 'POST', body: '{}' }),
+  producaoPedidos: (unidadeId?: string) =>
+    req(`/producao/pedidos${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  cancelarPedidoProducao: (id: string, motivo?: string) =>
+    req(`/producao/pedidos/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
+    }),
+  destinosProduto: (id: string) => req(`/producao/produtos/${id}/destinos`),
+  setDestinosProduto: (id: string, equipamentoIds: string[]) =>
+    req(`/producao/produtos/${id}/destinos`, {
+      method: 'PUT',
+      body: JSON.stringify({ equipamentoIds }),
+    }),
+  destinosSetor: (id: string) => req(`/producao/setores/${id}/destinos`),
+  setDestinosSetor: (id: string, equipamentoIds: string[]) =>
+    req(`/producao/setores/${id}/destinos`, {
+      method: 'PUT',
+      body: JSON.stringify({ equipamentoIds }),
+    }),
+  kdsCores: (unidadeId?: string) =>
+    req(`/producao/cores${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  setKdsCores: (body: Record<string, unknown>) =>
+    req('/producao/cores', { method: 'PUT', body: JSON.stringify(body) }),
   vendaBalcao: (body: Record<string, unknown>) =>
     req('/vendas/balcao', { method: 'POST', body: JSON.stringify(body) }),
   produtoComplementos: (produtoId: string) =>

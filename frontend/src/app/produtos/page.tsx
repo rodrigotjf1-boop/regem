@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ const vazio = () => ({
   validadeDias: '',
   vaiParaProducao: true,
   setorProducaoId: '',
+  tempoPreparoMin: '',
   variacoes: [] as Variacao[],
   combo: [] as Combo[],
 });
@@ -58,19 +60,28 @@ export default function ProdutosPage() {
   const [insumos, setInsumos] = useState<any[]>([]);
   const [novoGrupo, setNovoGrupo] = useState({ nome: '', tipo: 'remover' });
 
+  // destinos de produção (KDS/impressora) — só ao editar
+  const [equipamentos, setEquipamentos] = useState<any[]>([]);
+  const [destinosSel, setDestinosSel] = useState<string[]>([]);
+  const [salvandoDest, setSalvandoDest] = useState(false);
+
   const reload = useCallback(async () => {
     setErro('');
     try {
-      const [ps, cs, fs, ss] = await Promise.all([
+      const [ps, cs, fs, ss, eq] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.fichasLista(),
         api.setores(),
+        api.equipamentos().catch(() => []),
       ]);
       setProdutos(ps);
       setCategorias(cs);
       setFichas(fs);
       setSetores(ss);
+      setEquipamentos(
+        (eq as any[]).filter((e) => e.tipo === 'kds' || e.tipo === 'impressora'),
+      );
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -96,16 +107,36 @@ export default function ProdutosPage() {
     setF(vazio());
     setComps([]);
     setFichaIngs([]);
+    setDestinosSel([]);
+  }
+
+  function toggleDestino(id: string) {
+    setDestinosSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  }
+
+  async function salvarDestinos() {
+    if (!editId) return;
+    setSalvandoDest(true);
+    try {
+      await api.setDestinosProduto(editId, destinosSel);
+      toast.success('Destinos de produção salvos.');
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar destinos');
+    } finally {
+      setSalvandoDest(false);
+    }
   }
 
   async function carregarComplementos(produtoId: string, fichaId?: string) {
     try {
-      const [cs, its] = await Promise.all([
+      const [cs, its, dest] = await Promise.all([
         api.produtoComplementos(produtoId),
         api.estoqueItens().catch(() => []),
+        api.destinosProduto(produtoId).catch(() => []),
       ]);
       setComps(cs as any[]);
       setInsumos(its as any[]);
+      setDestinosSel((dest as any[]).map((d) => d.equipamentoId));
       if (fichaId) {
         const fi: any = await api.ficha(fichaId).catch(() => null);
         setFichaIngs(fi?.ingredientes ?? []);
@@ -136,6 +167,7 @@ export default function ProdutosPage() {
         validadeDias: p.validadeDias ?? '',
         vaiParaProducao: p.vaiParaProducao ?? true,
         setorProducaoId: p.setorProducaoId ?? '',
+        tempoPreparoMin: p.tempoPreparoMin ?? '',
         variacoes: (p.variacoes ?? []).map((v: any) => ({
           nome: v.nome,
           codigo: v.codigo ?? '',
@@ -173,6 +205,7 @@ export default function ProdutosPage() {
         validadeDias: f.validadeDias !== '' ? Number(f.validadeDias) : undefined,
         vaiParaProducao: f.vaiParaProducao,
         setorProducaoId: f.setorProducaoId || undefined,
+        tempoPreparoMin: f.tempoPreparoMin !== '' ? Number(f.tempoPreparoMin) : undefined,
         variacoes: f.variacoes.map((v: Variacao) => ({
           nome: v.nome,
           codigo: v.codigo || undefined,
@@ -369,12 +402,16 @@ export default function ProdutosPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Setor de produção (KDS)</Label>
-                <select className={selectCls} value={f.setorProducaoId} onChange={(e) => set({ setorProducaoId: e.target.value })}>
+                <select aria-label="Setor de produção" className={selectCls} value={f.setorProducaoId} onChange={(e) => set({ setorProducaoId: e.target.value })}>
                   <option value="">— nenhum —</option>
                   {setores.map((s) => (
                     <option key={s.id} value={s.id}>{s.nome}</option>
                   ))}
                 </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Tempo de preparo (min)</Label>
+                <Input type="number" value={f.tempoPreparoMin} onChange={(e) => set({ tempoPreparoMin: e.target.value })} placeholder="p/ cores do KDS" />
               </div>
             </div>
 
@@ -440,6 +477,46 @@ export default function ProdutosPage() {
             </Button>
           </form>
         </Card>
+
+        {/* Destinos de produção (KDS/impressora) — só ao editar */}
+        {editId && (
+          <Card className="p-4">
+            <h2 className="font-display text-lg font-semibold">Destinos de produção</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Para onde este produto vai ao ser vendido: um ou mais KDS e/ou impressoras. Sem seleção, herda o padrão do setor de produção.
+            </p>
+            {equipamentos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nenhum KDS/impressora cadastrado. Cadastre em Cadastros → Equipamentos.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {equipamentos.map((e) => (
+                    <label
+                      key={e.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm ${destinosSel.includes(e.id) ? 'border-primary bg-primary/10' : 'border-border'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={destinosSel.includes(e.id)}
+                        onChange={() => toggleDestino(e.id)}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <span className="flex-1">{e.nome}</span>
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                        {e.tipo === 'impressora' ? 'impressora' : 'KDS'}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <Button type="button" className="mt-3" onClick={salvarDestinos} disabled={salvandoDest}>
+                  {salvandoDest ? 'Salvando…' : 'Salvar destinos'}
+                </Button>
+              </>
+            )}
+          </Card>
+        )}
 
         {/* Opcionais & adicionais (só ao editar um produto salvo) */}
         {editId && (

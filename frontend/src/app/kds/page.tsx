@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { getToken } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // KDS web (superfície de teste do tempo real). Base do futuro app nativo empacotado.
-// Tema escuro de alto contraste — ref. mockups/regem-kds.html.
+// KDS = informativo + avanço de produção. Consultar/alterar/cancelar é no PDV.
 
 type Alerta = {
   id: string;
@@ -26,17 +26,31 @@ function borderFor(p: Alerta['prioridade']) {
   return '#FFB13D';
 }
 
+// Cor pelo tempo decorrido vs. limiares configurados pelo gerente.
+function corTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: number }) {
+  if (min <= cores.verdeAteMin) return '#19C08F';
+  if (min <= cores.amareloAteMin) return '#FFB13D';
+  return '#FF5A4E';
+}
+const proximaLabel = (status: string) =>
+  status === 'recebido' ? 'Iniciar' : status === 'preparo' ? 'Pronto' : 'Entregar';
+
 export default function KdsPage() {
   const [conectado, setConectado] = useState(false);
   const [temSessao, setTemSessao] = useState<boolean | null>(null);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [pedidos, setPedidos] = useState<any[]>([]);
+  const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10 });
+  const [setores, setSetores] = useState<any[]>([]);
+  const [setorSel, setSetorSel] = useState('');
   const [mudo, setMudo] = useState(false);
   // null no SSR/1ª render → evita hydration mismatch do relógio (server ≠ client).
   const [now, setNow] = useState<Date | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const mudoRef = useRef(mudo);
   mudoRef.current = mudo;
+  const setorRef = useRef(setorSel);
+  setorRef.current = setorSel;
 
   const bip = useCallback(() => {
     if (mudoRef.current) return;
@@ -59,11 +73,33 @@ export default function KdsPage() {
     }
   }, []);
 
+  const carregarFila = useCallback(async () => {
+    if (!getToken()) return; // fila durável requer operador logado (JWT)
+    try {
+      const r: any = await api.producaoFila(setorRef.current || undefined);
+      setPedidos(r.pedidos ?? []);
+      if (r.cores) setCores(r.cores);
+    } catch {
+      /* mantém a fila atual em caso de falha momentânea */
+    }
+  }, []);
+
   useEffect(() => {
     setNow(new Date()); // só no cliente
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    if (getToken()) {
+      api.setores().then(setSetores).catch(() => {});
+    }
+  }, []);
+
+  // Recarrega quando muda o setor selecionado.
+  useEffect(() => {
+    carregarFila();
+  }, [setorSel, carregarFila]);
 
   useEffect(() => {
     // Device real: ?token=… (um KDS físico abre app.dmsregem.com/kds?token=…).
@@ -74,6 +110,7 @@ export default function KdsPage() {
       return;
     }
     setTemSessao(true);
+    void carregarFila();
     const socket = deviceToken
       ? connectAsDevice(deviceToken)
       : connectAsGestor();
@@ -96,20 +133,17 @@ export default function KdsPage() {
       if (a.som !== false) bip();
     });
 
-    socket.on('kds:pedido', (p: any) => {
-      setPedidos((prev) =>
-        [{ ...p, id: p.comandaId + ':' + p.em }, ...prev].slice(0, 20),
-      );
-      bip();
+    // Nudge de produção → refaz o GET (fonte da verdade). Novo pedido = som.
+    socket.on('producao:atualizado', (p: any) => {
+      void carregarFila();
+      if (p?.tipo === 'novo') bip();
     });
-
-    // Ponto NÃO é do KDS (vai para o painel do gerente). KDS = alertas + produção.
 
     return () => {
       socket.close();
       socketRef.current = null;
     };
-  }, [bip]);
+  }, [bip, carregarFila]);
 
   function dispararTeste() {
     socketRef.current?.emit('kds:alerta', {
@@ -120,6 +154,16 @@ export default function KdsPage() {
     });
   }
 
+  async function avancar(id: string) {
+    try {
+      await api.producaoAvancar(id);
+      await carregarFila();
+    } catch {
+      /* concorrência: outra tela avançou — o refetch corrige */
+      void carregarFila();
+    }
+  }
+
   function ack(id: string) {
     setAlertas((prev) =>
       prev.map((a) => (a.id === id ? { ...a, ack: true } : a)),
@@ -127,6 +171,7 @@ export default function KdsPage() {
   }
 
   const pendentes = alertas.filter((a) => !a.ack).length;
+  const nowMs = now ? now.getTime() : Date.now();
 
   return (
     <main
@@ -160,20 +205,32 @@ export default function KdsPage() {
             className="text-[11px] uppercase tracking-[0.12em]"
             style={{ color: '#7C93A1' }}
           >
-            Alertas operacionais
+            Produção & alertas
           </div>
         </div>
 
+        {setores.length > 0 && (
+          <select
+            aria-label="Filtrar por setor"
+            value={setorSel}
+            onChange={(e) => setSetorSel(e.target.value)}
+            className="ml-2 rounded-lg border px-3 py-2 text-[13px] font-semibold"
+            style={{ background: '#182B37', borderColor: '#22333F', color: '#EAF1F5' }}
+          >
+            <option value="">Todos os setores</option>
+            {setores.map((s) => (
+              <option key={s.id} value={s.id}>{s.nome}</option>
+            ))}
+          </select>
+        )}
+
         <div
-          className="ml-4 flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px] font-semibold"
+          className="ml-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px] font-semibold"
           style={{ background: '#182B37', borderColor: '#22333F', color: '#9FB3BF' }}
         >
           <span
             className="inline-block h-2.5 w-2.5 rounded-full"
-            style={{
-              background: conectado ? '#19C08F' : '#FF5A4E',
-              boxShadow: conectado ? '0 0 0 0 rgba(25,192,143,.6)' : 'none',
-            }}
+            style={{ background: conectado ? '#19C08F' : '#FF5A4E' }}
           />
           {conectado ? 'Conectado' : 'Offline'}
         </div>
@@ -203,81 +260,101 @@ export default function KdsPage() {
         </button>
       </header>
 
-      <div className="mx-auto grid max-w-6xl gap-5 px-6 py-6 lg:grid-cols-[1fr_320px]">
-        {/* Fila de alertas */}
+      <div className="mx-auto grid max-w-7xl gap-5 px-6 py-6 lg:grid-cols-[1fr_320px]">
+        {/* Pedidos de produção — cards coloridos por tempo */}
         <section>
           <div className="mb-3 flex items-center justify-between">
             <span
               className="text-[13px] font-bold uppercase tracking-[0.16em]"
               style={{ color: '#7C93A1', fontFamily: 'Archivo, sans-serif' }}
             >
-              Fila de alertas
+              Pedidos em produção
             </span>
             <span
               className="text-[13px] font-bold"
-              style={{ color: '#FFB13D', fontFamily: 'JetBrains Mono, monospace' }}
+              style={{ color: '#7C93A1', fontFamily: 'JetBrains Mono, monospace' }}
             >
-              {pendentes} pendente{pendentes === 1 ? '' : 's'}
+              {pedidos.length} na fila
             </span>
           </div>
 
-          {alertas.length === 0 && (
+          {pedidos.length === 0 && (
             <div
               className="rounded-2xl border border-dashed px-6 py-14 text-center text-sm"
               style={{ borderColor: '#22333F', color: '#7C93A1' }}
             >
-              Nenhum alerta. A fila aparece aqui em tempo real.
+              Nenhum pedido em produção. Novos pedidos aparecem aqui em tempo real.
             </div>
           )}
 
-          {alertas.map((a) => (
-            <div
-              key={a.id}
-              className="mb-3.5 flex items-start gap-4 rounded-[14px] border p-5"
-              style={{
-                background: '#12202A',
-                borderColor: '#22333F',
-                borderLeft: `6px solid ${borderFor(a.prioridade)}`,
-                opacity: a.ack ? 0.5 : 1,
-              }}
-            >
-              <div className="min-w-0 flex-1">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {pedidos.map((p) => {
+              const min = Math.max(
+                0,
+                Math.floor((nowMs - new Date(p.criadoEm).getTime()) / 60000),
+              );
+              const cor = corTempo(min, cores);
+              const atrasado = p.tempoPreparoMin && min > p.tempoPreparoMin;
+              return (
                 <div
-                  className="text-[19px] font-bold leading-tight"
-                  style={{ fontFamily: 'Archivo, sans-serif' }}
+                  key={p.id}
+                  className="flex flex-col rounded-[14px] border p-4"
+                  style={{
+                    background: '#12202A',
+                    borderColor: '#22333F',
+                    borderTop: `6px solid ${cor}`,
+                  }}
                 >
-                  {a.titulo}
-                </div>
-                {a.detalhe && (
-                  <div className="mt-1.5 text-sm" style={{ color: '#9FB3BF' }}>
-                    {a.detalhe}
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[16px] font-bold" style={{ fontFamily: 'Archivo, sans-serif' }}>
+                      {p.numero ? `#${p.numero} · ` : ''}
+                      {p.mesa ? `Mesa ${p.mesa}` : 'Balcão'}
+                    </span>
+                    <span
+                      className="rounded px-2 py-0.5 text-[12px] font-bold tabular-nums"
+                      style={{ background: cor, color: '#04241A', fontFamily: 'JetBrains Mono, monospace' }}
+                    >
+                      {min} min
+                    </span>
                   </div>
-                )}
-                <div
-                  className="mt-2 text-[12px]"
-                  style={{ color: '#7C93A1', fontFamily: 'JetBrains Mono, monospace' }}
-                >
-                  {new Date(a.em).toLocaleTimeString('pt-BR')}
+                  <div className="mb-3 flex-1 space-y-1">
+                    {(p.itens ?? []).map((it: any) => (
+                      <div key={it.id} className="text-[14px]">
+                        <span className="font-semibold">
+                          {Number(it.quantidade)}× {it.descricao}
+                        </span>
+                        {it.complementosTexto && (
+                          <div className="text-[12px]" style={{ color: '#9FB3BF' }}>
+                            {it.complementosTexto}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span
+                      className="text-[11px] uppercase tracking-wide"
+                      style={{ color: atrasado ? '#FF5A4E' : '#7C93A1' }}
+                    >
+                      {p.status}
+                      {atrasado ? ' · atrasado' : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => avancar(p.id)}
+                      className="rounded-[10px] px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.08em]"
+                      style={{ background: '#19C08F', color: '#04241A' }}
+                    >
+                      {proximaLabel(p.status)}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => ack(a.id)}
-                disabled={a.ack}
-                className="rounded-[11px] px-5 py-3.5 text-[14px] font-extrabold uppercase tracking-[0.1em]"
-                style={
-                  a.ack
-                    ? { background: '#182B37', color: '#7C93A1' }
-                    : { background: '#19C08F', color: '#04241A' }
-                }
-              >
-                {a.ack ? 'Feito' : 'OK'}
-              </button>
-            </div>
-          ))}
+              );
+            })}
+          </div>
         </section>
 
-        {/* Lateral: marcações ao vivo + teste */}
+        {/* Lateral: alertas + teste */}
         <aside>
           <button
             type="button"
@@ -289,52 +366,63 @@ export default function KdsPage() {
             Disparar alerta de teste
           </button>
 
-          {/* Pedidos de produção (venda balcão/comanda) */}
-          <div
-            className="mb-4 rounded-[14px] border p-4"
-            style={{ background: '#12202A', borderColor: '#22333F' }}
-          >
-            <div
-              className="mb-3 text-[11px] font-bold uppercase tracking-[0.16em]"
+          <div className="mb-3 flex items-center justify-between">
+            <span
+              className="text-[12px] font-bold uppercase tracking-[0.16em]"
               style={{ color: '#7C93A1', fontFamily: 'Archivo, sans-serif' }}
             >
-              Pedidos de produção
-            </div>
-            {pedidos.length === 0 && (
-              <div className="py-4 text-center text-[13px]" style={{ color: '#7C93A1' }}>
-                Aguardando pedidos…
-              </div>
-            )}
-            {pedidos.map((p) => (
-              <div
-                key={p.id}
-                className="mb-2 rounded-lg border-l-4 p-2.5 last:mb-0"
-                style={{ background: '#182B37', borderColor: '#19C08F' }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[12px] font-bold">
-                    {p.mesa ? `Mesa ${p.mesa}` : 'Balcão'}
-                  </span>
-                  <span className="text-[10px]" style={{ color: '#7C93A1', fontFamily: 'JetBrains Mono, monospace' }}>
-                    {new Date(p.em).toLocaleTimeString('pt-BR')}
-                  </span>
-                </div>
-                {(p.itens ?? []).map((it: any, k: number) => (
-                  <div key={k} className="text-[13px]">
-                    {it.quantidade}× {it.descricao}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setPedidos((prev) => prev.filter((x) => x.id !== p.id))}
-                  className="mt-2 w-full rounded-md py-1.5 text-[12px] font-bold"
-                  style={{ background: '#19C08F', color: '#04241A' }}
-                >
-                  Pronto
-                </button>
-              </div>
-            ))}
+              Alertas
+            </span>
+            <span className="text-[12px] font-bold" style={{ color: '#FFB13D' }}>
+              {pendentes} pend.
+            </span>
           </div>
+
+          {alertas.length === 0 && (
+            <div
+              className="rounded-[14px] border border-dashed px-4 py-8 text-center text-[13px]"
+              style={{ borderColor: '#22333F', color: '#7C93A1' }}
+            >
+              Tarefas, picos e avisos aparecem aqui.
+            </div>
+          )}
+
+          {alertas.map((a) => (
+            <div
+              key={a.id}
+              className="mb-3 flex items-start gap-3 rounded-[12px] border p-3.5"
+              style={{
+                background: '#12202A',
+                borderColor: '#22333F',
+                borderLeft: `6px solid ${borderFor(a.prioridade)}`,
+                opacity: a.ack ? 0.5 : 1,
+              }}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-bold leading-tight" style={{ fontFamily: 'Archivo, sans-serif' }}>
+                  {a.titulo}
+                </div>
+                {a.detalhe && (
+                  <div className="mt-1 text-[12.5px]" style={{ color: '#9FB3BF' }}>
+                    {a.detalhe}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => ack(a.id)}
+                disabled={a.ack}
+                className="rounded-[10px] px-3 py-2 text-[12px] font-extrabold uppercase"
+                style={
+                  a.ack
+                    ? { background: '#182B37', color: '#7C93A1' }
+                    : { background: '#19C08F', color: '#04241A' }
+                }
+              >
+                {a.ack ? 'Feito' : 'OK'}
+              </button>
+            </div>
+          ))}
         </aside>
       </div>
 

@@ -35,6 +35,8 @@ export class EquipamentoService {
         nome: dto.nome,
         token,
         mac: dto.mac,
+        escopo: dto.escopo ?? 'producao',
+        setorId: dto.setorId,
       })
       .returning();
     await this.auditoria.registrar({
@@ -132,6 +134,8 @@ export class EquipamentoService {
       tipo: r.tipo,
       nome: r.nome,
       mac: r.mac,
+      escopo: r.escopo,
+      setorId: r.setorId,
       padrao: r.padrao,
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,

@@ -26,6 +26,10 @@ import {
   entitlement,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import {
+  ProducaoPedidoService,
+  ItemProducao,
+} from '../producao-pedido/producao-pedido.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -39,6 +43,7 @@ export class VendasService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
     private readonly events: EventEmitter2,
+    private readonly producao: ProducaoPedidoService,
   ) {}
 
   // ACUMULA (não insere) o consumo por item da explosão de UMA ficha no mapa
@@ -274,7 +279,7 @@ export class VendasService {
         .returning();
 
       let total = 0;
-      const pedidoKds: any[] = [];
+      const itensProducao: ItemProducao[] = [];
       const consumo = new Map<string, number>(); // baixa agregada por item
 
       for (const it of dto.itens) {
@@ -342,17 +347,31 @@ export class VendasService {
         await this.acumularProduto(tx, tenantId, p, fatorFicha, qtd, snapshots, consumo);
 
         if (p.vaiParaProducao)
-          pedidoKds.push({
+          itensProducao.push({
+            produto: p,
             descricao,
             quantidade: qtd,
-            complementos: snapshots.map(
-              (s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`,
-            ),
-            setorProducaoId: p.setorProducaoId ?? null,
+            complementosTexto: snapshots
+              .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
+              .join(' · ') || null,
+            comandaItemId: ci.id,
           });
       }
 
       await this.lancarSaidas(tx, tenantId, consumo, cmd.id);
+
+      // Pedidos de produção duráveis (um por destino) — roteados por produto.
+      const producaoPayloads = await this.producao.criarPedidos(
+        tx,
+        {
+          tenantId,
+          unidadeId: dto.unidadeId ?? null,
+          comandaId: cmd.id,
+          origem: dto.mesa ? 'mesa' : 'balcao',
+          mesa: dto.mesa ?? null,
+        },
+        itensProducao,
+      );
 
       const totalComTaxa = total * (1 + taxa / 100);
       await tx
@@ -378,7 +397,7 @@ export class VendasService {
         subtotal: Number(total.toFixed(2)),
         taxaServicoPct: taxa,
         total: Number(totalComTaxa.toFixed(2)),
-        pedidoKds,
+        producaoPayloads,
         unidadeId: dto.unidadeId ?? null,
       };
       });
@@ -410,16 +429,8 @@ export class VendasService {
       detalhe: { total: res.total, itens: dto.itens.length },
     });
 
-    // Pedido para o KDS de produção (tempo real).
-    if (res.pedidoKds.length) {
-      this.events.emit('kds.pedido', {
-        tenantId,
-        unidadeId: res.unidadeId,
-        comandaId: res.comandaId,
-        mesa: dto.mesa ?? null,
-        itens: res.pedidoKds,
-      });
-    }
+    // Notifica destinos (KDS/impressora) dos novos pedidos duráveis (tempo real).
+    this.producao.emitirNovos(res.producaoPayloads);
 
     return res;
   }
@@ -559,17 +570,31 @@ export class VendasService {
       });
     }
 
-    // Cozinha começa já (o pedido vai pro KDS ao lançar, não ao fechar).
+    // Cozinha começa já (o pedido de produção vai ao destino ao lançar, não ao fechar).
     if (p.vaiParaProducao) {
-      this.events.emit('kds.pedido', {
-        tenantId,
-        unidadeId: c.unidadeId,
-        comandaId,
-        mesa: c.mesa,
-        itens: [
-          { descricao, quantidade: qtd, setorProducaoId: p.setorProducaoId ?? null },
+      const payloads = await this.producao.criarPedidos(
+        this.db,
+        {
+          tenantId,
+          unidadeId: c.unidadeId,
+          comandaId,
+          origem: c.mesa ? 'mesa' : 'comanda',
+          mesa: c.mesa,
+        },
+        [
+          {
+            produto: p,
+            descricao,
+            quantidade: qtd,
+            complementosTexto:
+              snapshots
+                .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
+                .join(' · ') || null,
+            comandaItemId: item.id,
+          },
         ],
-      });
+      );
+      this.producao.emitirNovos(payloads);
     }
     return item;
   }

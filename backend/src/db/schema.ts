@@ -459,12 +459,14 @@ export const equipamento = pgTable('equipamento', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
-  tipo: text('tipo').notNull(), // kds | terminal_ponto
+  tipo: text('tipo').notNull(), // kds | terminal_ponto | servidor_local | impressora
   nome: text('nome').notNull(),
   token: text('token').notNull().unique(),
   mac: text('mac'),
   padrao: boolean('padrao').notNull().default(false),
   ativo: boolean('ativo').notNull().default(true),
+  escopo: text('escopo').notNull().default('producao'), // producao | avisos (só KDS)
+  setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -748,7 +750,8 @@ export const produto = pgTable('produto', {
   controlaEstoque: boolean('controla_estoque').notNull().default(true),
   validadeDias: integer('validade_dias'),
   vaiParaProducao: boolean('vai_para_producao').notNull().default(true),
-  setorProducaoId: uuid('setor_producao_id'), // roteamento KDS
+  setorProducaoId: uuid('setor_producao_id'), // roteamento KDS (fallback do setor)
+  tempoPreparoMin: integer('tempo_preparo_min'), // p/ cores do KDS
   imagemRef: text('imagem_ref'),
   ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1050,4 +1053,89 @@ export const comandaItemComplemento = pgTable('comanda_item_complemento', {
   itemId: uuid('item_id'),
   quantidade: numeric('quantidade').notNull().default('1'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Produção (Fase F1) — roteamento + pedidos duráveis =====
+// Destinos de produção por produto (N:N) — cada destino é um equipamento (KDS/impressora).
+export const produtoDestinoProducao = pgTable('produto_destino_producao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  equipamentoId: uuid('equipamento_id')
+    .notNull()
+    .references(() => equipamento.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Padrão do setor — herdado quando o produto não define destino próprio.
+export const setorDestinoProducao = pgTable('setor_destino_producao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  setorId: uuid('setor_id')
+    .notNull()
+    .references(() => setor.id, { onDelete: 'cascade' }),
+  equipamentoId: uuid('equipamento_id')
+    .notNull()
+    .references(() => equipamento.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Pedido de produção durável — um por (comanda, destino). PDV é dono do ciclo.
+export const producaoPedido = pgTable('producao_pedido', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  comandaId: uuid('comanda_id'),
+  destinoEquipamentoId: uuid('destino_equipamento_id'),
+  destinoTipo: text('destino_tipo').notNull().default('kds'), // kds | impressora
+  setorId: uuid('setor_id'),
+  numero: integer('numero'),
+  origem: text('origem').notNull().default('balcao'), // balcao|mesa|comanda|garcom
+  mesa: text('mesa'),
+  status: text('status').notNull().default('recebido'), // recebido|preparo|pronto|entregue|cancelado
+  tempoPreparoMin: integer('tempo_preparo_min'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  iniciadoEm: timestamp('iniciado_em', { withTimezone: true }),
+  prontoEm: timestamp('pronto_em', { withTimezone: true }),
+  entregueEm: timestamp('entregue_em', { withTimezone: true }),
+  canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
+  canceladoPorId: uuid('cancelado_por_id'),
+  obs: text('obs'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const producaoPedidoItem = pgTable('producao_pedido_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  pedidoId: uuid('pedido_id')
+    .notNull()
+    .references(() => producaoPedido.id, { onDelete: 'cascade' }),
+  comandaItemId: uuid('comanda_item_id'),
+  descricao: text('descricao').notNull(),
+  quantidade: numeric('quantidade').notNull().default('1'),
+  complementosTexto: text('complementos_texto'),
+  status: text('status').notNull().default('ok'), // ok | alterado | removido
+});
+
+// Limiares de cor do KDS por unidade (minutos): <=verde, <=amarelo, acima=vermelho.
+export const kdsCorConfig = pgTable('kds_cor_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  verdeAteMin: integer('verde_ate_min').notNull().default(5),
+  amareloAteMin: integer('amarelo_ate_min').notNull().default(10),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

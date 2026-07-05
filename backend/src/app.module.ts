@@ -39,6 +39,7 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { ProdutoModule } from './modules/produto/produto.module';
 import { VendasModule } from './modules/vendas/vendas.module';
 import { ProducaoModule } from './modules/producao/producao.module';
+import { ProducaoPedidoModule } from './modules/producao-pedido/producao-pedido.module';
 import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
@@ -87,6 +88,7 @@ import { AuthModule } from './auth/auth.module';
     ProdutoModule,
     VendasModule,
     ProducaoModule,
+    ProducaoPedidoModule,
     MuralModule,
     BotModule,
     SyncModule,
