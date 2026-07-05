@@ -195,6 +195,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  // Mesas (Fase F2)
+  mesas: (unidadeId?: string) =>
+    req(`/vendas/mesas${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  abrirMesa: (body: Record<string, unknown>) =>
+    req('/vendas/mesas', { method: 'POST', body: JSON.stringify(body) }),
+  mesa: (id: string) => req(`/vendas/mesas/${id}`),
+  abrirComandaNaMesa: (id: string, body: Record<string, unknown>) =>
+    req(`/vendas/mesas/${id}/comandas`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  fecharMesa: (id: string, body: Record<string, unknown>) =>
+    req(`/vendas/mesas/${id}/fechar`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>

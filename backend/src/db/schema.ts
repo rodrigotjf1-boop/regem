@@ -790,6 +790,25 @@ export const produtoComboItem = pgTable('produto_combo_item', {
 });
 
 // ===== Vendas & comandas (Fase J) =====
+// Mesa (Fase F2) — agrupa comandas; dono = colaborador/PDV que abriu.
+export const mesa = pgTable('mesa', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  numero: text('numero').notNull(),
+  nome: text('nome'),
+  status: text('status').notNull().default('aberta'), // aberta | fechada
+  modo: text('modo').notNull().default('mesa'), // mesa (1 comanda) | comandas (por cliente)
+  donoId: uuid('dono_id'), // PDV/colaborador que abriu (roteia o garçom)
+  abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
+  abertaPorId: uuid('aberta_por_id'),
+  fechadaEm: timestamp('fechada_em', { withTimezone: true }),
+  fechadaPorId: uuid('fechada_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const comanda = pgTable('comanda', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
@@ -797,6 +816,8 @@ export const comanda = pgTable('comanda', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
   mesa: text('mesa'),
+  mesaId: uuid('mesa_id'), // agrupador (Fase F2) — comanda pertence a uma mesa
+  identificador: text('identificador'), // cliente/pulseira/nº da comanda na mesa
   cliente: text('cliente'),
   status: text('status').notNull().default('aberta'), // aberta|fechada|cancelada
   idempotencyKey: text('idempotency_key'), // dedup de venda balcão (offline-first)

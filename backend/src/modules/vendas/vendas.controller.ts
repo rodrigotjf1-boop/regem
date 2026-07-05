@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -27,6 +28,46 @@ export class VendasController {
       user.tenantId,
       user.colaboradorId,
       user.categoria,
+      dto,
+    );
+  }
+
+  // ----- Mesas (Fase F2) -----
+  @Get('mesas')
+  listarMesas(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
+    return this.service.listarMesas(user.tenantId, unidadeId || undefined);
+  }
+
+  @Post('mesas')
+  abrirMesa(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.abrirMesa(user.tenantId, user.colaboradorId, dto);
+  }
+
+  @Get('mesas/:id')
+  getMesa(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.getMesa(user.tenantId, id);
+  }
+
+  @Post('mesas/:id/comandas')
+  abrirComandaNaMesa(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.abrirComandaNaMesa(user.tenantId, user.colaboradorId, id, dto);
+  }
+
+  @Post('mesas/:id/fechar')
+  fecharMesa(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.fecharMesa(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      id,
       dto,
     );
   }
