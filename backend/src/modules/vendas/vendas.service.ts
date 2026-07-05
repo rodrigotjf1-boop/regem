@@ -156,6 +156,22 @@ export class VendasService {
       const q = (Number(c.quantidade) || 1) * quantidade;
       if (q > 0) consumo.set(c.itemId, (consumo.get(c.itemId) ?? 0) + q);
     }
+    // Combo por etapa (L5): opção 'escolha' vinculada a um produto real (ex.: a
+    // bebida escolhida) → explode a ficha/estoque do produto referenciado.
+    for (const c of complementos.filter((x) => x.produtoRefId)) {
+      const [ref] = await tx
+        .select({
+          id: produto.id,
+          tipo: produto.tipo,
+          fichaId: produto.fichaId,
+          controlaEstoque: produto.controlaEstoque,
+        })
+        .from(produto)
+        .where(and(eq(produto.tenantId, tenantId), eq(produto.id, c.produtoRefId)));
+      if (!ref) continue;
+      const q = (Number(c.quantidade) || 1) * quantidade;
+      await this.acumularProduto(tx, tenantId, ref, 1, q, [], consumo);
+    }
   }
 
   // Insere um movimento de saída por item agregado (ref = venda/comanda → reversível).
@@ -201,6 +217,7 @@ export class VendasService {
         precoDelta: complementoOpcao.precoDelta,
         fichaIngredienteId: complementoOpcao.fichaIngredienteId,
         itemId: complementoOpcao.itemId,
+        produtoRefId: complementoOpcao.produtoRefId,
         quantidade: complementoOpcao.quantidade,
         tipo: complementoGrupo.tipo,
         gProduto: complementoGrupo.produtoId,
@@ -228,6 +245,7 @@ export class VendasService {
         precoDelta: o.precoDelta,
         fichaIngredienteId: o.fichaIngredienteId,
         itemId: o.itemId,
+        produtoRefId: o.produtoRefId,
         quantidade: o.quantidade,
       });
     }
@@ -352,6 +370,7 @@ export class VendasService {
             precoDelta: String(s.precoDelta),
             fichaIngredienteId: s.fichaIngredienteId,
             itemId: s.itemId,
+            produtoRefId: s.produtoRefId,
             quantidade: String(s.quantidade),
           });
         }
@@ -991,6 +1010,7 @@ export class VendasService {
         precoDelta: String(s.precoDelta),
         fichaIngredienteId: s.fichaIngredienteId,
         itemId: s.itemId,
+        produtoRefId: s.produtoRefId,
         quantidade: String(s.quantidade),
       });
     }

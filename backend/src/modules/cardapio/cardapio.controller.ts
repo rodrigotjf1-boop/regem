@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -50,6 +51,11 @@ export class CardapioPublicoController {
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   pagar(@Param('token') token: string, @Param('id') id: string) {
     return this.service.pagarPedidoPublico(token, id);
+  }
+
+  @Get(':token/pontos')
+  pontos(@Param('token') token: string, @Query('telefone') telefone: string) {
+    return this.service.pontosPublico(token, telefone ?? '');
   }
 }
 

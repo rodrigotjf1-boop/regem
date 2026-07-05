@@ -17,7 +17,7 @@ const brl = (n: number) =>
 const selectCls =
   'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
 
-type Variacao = { nome: string; codigo: string; precoVenda: string; fatorFicha: string };
+type Variacao = { nome: string; codigo: string; precoVenda: string; fatorFicha: string; tamanho: string; cor: string };
 type Combo = { componenteProdutoId: string; quantidade: string };
 
 const vazio = () => ({
@@ -234,6 +234,8 @@ export default function ProdutosPage() {
           codigo: v.codigo ?? '',
           precoVenda: v.precoVenda,
           fatorFicha: v.fatorFicha ?? '1',
+          tamanho: v.atributos?.tamanho ?? '',
+          cor: v.atributos?.cor ?? '',
         })),
         combo: (p.combo ?? []).map((c: any) => ({
           componenteProdutoId: c.componenteProdutoId,
@@ -283,12 +285,18 @@ export default function ProdutosPage() {
         aliqPis: f.aliqPis !== '' ? Number(String(f.aliqPis).replace(',', '.')) : undefined,
         cstCofins: f.cstCofins || undefined,
         aliqCofins: f.aliqCofins !== '' ? Number(String(f.aliqCofins).replace(',', '.')) : undefined,
-        variacoes: f.variacoes.map((v: Variacao) => ({
-          nome: v.nome,
-          codigo: v.codigo || undefined,
-          precoVenda: Number(String(v.precoVenda).replace(',', '.')) || 0,
-          fatorFicha: Number(String(v.fatorFicha).replace(',', '.')) || 1,
-        })),
+        variacoes: f.variacoes.map((v: Variacao) => {
+          const atributos: Record<string, string> = {};
+          if (v.tamanho?.trim()) atributos.tamanho = v.tamanho.trim();
+          if (v.cor?.trim()) atributos.cor = v.cor.trim();
+          return {
+            nome: v.nome,
+            codigo: v.codigo || undefined,
+            precoVenda: Number(String(v.precoVenda).replace(',', '.')) || 0,
+            fatorFicha: Number(String(v.fatorFicha).replace(',', '.')) || 1,
+            atributos,
+          };
+        }),
         combo:
           f.tipo === 'combo'
             ? f.combo
@@ -548,15 +556,17 @@ export default function ProdutosPage() {
             {/* Variações */}
             <div className="rounded-lg border border-border p-3">
               <div className="mb-2 flex items-center justify-between">
-                <Label className="text-xs">Variações (tamanho/unidade)</Label>
-                <Button type="button" variant="ghost" size="sm" onClick={() => set({ variacoes: [...f.variacoes, { nome: '', codigo: '', precoVenda: '', fatorFicha: '1' }] })}>
+                <Label className="text-xs">Variações (tamanho/unidade · grade)</Label>
+                <Button type="button" variant="ghost" size="sm" onClick={() => set({ variacoes: [...f.variacoes, { nome: '', codigo: '', precoVenda: '', fatorFicha: '1', tamanho: '', cor: '' }] })}>
                   ＋ variação
                 </Button>
               </div>
-              {f.variacoes.length === 0 && <p className="text-xs text-muted-foreground">Ex.: 300ml, 500ml — cada uma com preço e SKU.</p>}
+              {f.variacoes.length === 0 && <p className="text-xs text-muted-foreground">Ex.: 300ml, 500ml — ou grade tamanho×cor (varejo). Cada uma com preço e SKU.</p>}
               {f.variacoes.map((v: Variacao, i: number) => (
-                <div key={i} className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <div key={i} className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-7">
                   <Input placeholder="Nome" value={v.nome} onChange={(e) => { const a = [...f.variacoes]; a[i] = { ...v, nome: e.target.value }; set({ variacoes: a }); }} />
+                  <Input placeholder="Tamanho" value={v.tamanho} onChange={(e) => { const a = [...f.variacoes]; a[i] = { ...v, tamanho: e.target.value }; set({ variacoes: a }); }} />
+                  <Input placeholder="Cor" value={v.cor} onChange={(e) => { const a = [...f.variacoes]; a[i] = { ...v, cor: e.target.value }; set({ variacoes: a }); }} />
                   <Input placeholder="SKU" value={v.codigo} onChange={(e) => { const a = [...f.variacoes]; a[i] = { ...v, codigo: e.target.value }; set({ variacoes: a }); }} />
                   <Input type="number" placeholder="Preço" value={v.precoVenda} onChange={(e) => { const a = [...f.variacoes]; a[i] = { ...v, precoVenda: e.target.value }; set({ variacoes: a }); }} />
                   <Input type="number" placeholder="Fator ficha" value={v.fatorFicha} onChange={(e) => { const a = [...f.variacoes]; a[i] = { ...v, fatorFicha: e.target.value }; set({ variacoes: a }); }} />

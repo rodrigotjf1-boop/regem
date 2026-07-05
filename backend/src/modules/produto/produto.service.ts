@@ -291,6 +291,7 @@ export class ProdutoService {
             codigo: v.codigo,
             precoVenda: String(v.precoVenda),
             fatorFicha: v.fatorFicha != null ? String(v.fatorFicha) : '1',
+            atributos: v.atributos ?? {},
           })),
         );
       }
@@ -385,6 +386,7 @@ export class ProdutoService {
             codigo: v.codigo,
             precoVenda: String(v.precoVenda),
             fatorFicha: v.fatorFicha != null ? String(v.fatorFicha) : '1',
+            atributos: v.atributos ?? {},
           })),
         );
     }

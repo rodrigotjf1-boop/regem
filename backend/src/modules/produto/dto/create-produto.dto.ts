@@ -27,6 +27,9 @@ export class VariacaoDto {
   @IsOptional()
   @IsNumber()
   fatorFicha?: number;
+
+  @IsOptional()
+  atributos?: Record<string, string>; // grade: {tamanho, cor}
 }
 
 export class ComboItemDto {
