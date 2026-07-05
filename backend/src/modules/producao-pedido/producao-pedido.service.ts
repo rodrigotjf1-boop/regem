@@ -16,6 +16,7 @@ import {
   producaoPedidoItem,
   impressaoJob,
   kdsCorConfig,
+  senhaContador,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -27,6 +28,7 @@ export interface ItemProducao {
   descricao: string;
   quantidade: number;
   complementosTexto?: string | null;
+  observacao?: string | null;
   comandaItemId?: string | null;
 }
 
@@ -38,7 +40,6 @@ interface Destino {
 }
 
 // Status válidos, em ordem de avanço.
-const FLUXO = ['recebido', 'preparo', 'pronto', 'entregue'];
 const JANELA_ACAO_MIN = 30; // atendente pode agir até 30min após "pronto"
 
 @Injectable()
@@ -122,6 +123,7 @@ export class ProducaoPedidoService {
       comandaId: string;
       origem: string;
       mesa?: string | null;
+      senha?: number | null;
     },
     itens: ItemProducao[],
   ): Promise<any[]> {
@@ -156,6 +158,7 @@ export class ProducaoPedidoService {
           destinoTipo: destino.tipo,
           setorId: destino.setorId,
           numero,
+          senha: ctx.senha ?? null,
           origem: ctx.origem,
           mesa: ctx.mesa ?? null,
           status: 'recebido',
@@ -170,9 +173,10 @@ export class ProducaoPedidoService {
           descricao: it.descricao,
           quantidade: String(it.quantidade),
           complementosTexto: it.complementosTexto ?? null,
+          observacao: it.observacao ?? null,
         });
       }
-      // Destino impressora → enfileira o ticket (worker do edge imprime).
+      // Destino impressora → enfileira a VIA DE PRODUÇÃO (sem valores; worker imprime).
       if (destino.tipo === 'impressora') {
         await tx.insert(impressaoJob).values({
           tenantId: ctx.tenantId,
@@ -196,18 +200,82 @@ export class ProducaoPedidoService {
     return payloads;
   }
 
-  // Renderiza o ticket em texto (o worker do edge converte para ESC/POS).
+  // VIA DE PRODUÇÃO (cozinha) — sem valores; senha e observações/adicionais em
+  // destaque. O worker do edge converte para ESC/POS.
   private renderTicket(ctx: any, its: any[], numero?: number | null): string {
     const linha = '--------------------------------';
-    const cab = ctx.mesa ? `Mesa ${ctx.mesa}` : 'Balcão';
-    const l: string[] = ['*** PRODUCAO ***', `${cab}${numero ? ` · #${numero}` : ''}`, linha];
+    const cab = ctx.mesa ? `MESA ${ctx.mesa}` : 'BALCAO';
+    const l: string[] = ['*** PRODUCAO ***'];
+    if (ctx.senha) l.push(`>>> SENHA ${ctx.senha} <<<`);
+    l.push(`${cab}${numero ? ` · #${numero}` : ''}`, linha);
     for (const it of its) {
       l.push(`${Number(it.quantidade)}x ${it.descricao}`);
-      if (it.complementosTexto) l.push(`   ${it.complementosTexto}`);
+      if (it.complementosTexto) l.push(`  >> ${it.complementosTexto}`);
+      if (it.observacao) l.push(`  ** OBS: ${it.observacao}`);
     }
     l.push(linha);
     l.push(new Date().toLocaleString('pt-BR'));
     return l.join('\n');
+  }
+
+  // VIA DO CLIENTE (cupom) — com valores, atendente, hora e senha em destaque.
+  renderViaCliente(dados: {
+    senha?: number | null;
+    mesa?: string | null;
+    itens: { quantidade: number; descricao: string; precoUnitario: number; complementosTexto?: string | null }[];
+    total: number;
+    forma?: string | null;
+    atendente?: string | null;
+  }): string {
+    const linha = '--------------------------------';
+    const money = (n: number) =>
+      Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const l: string[] = ['REGEM', 'Cupom - via do cliente'];
+    if (dados.senha) l.push(`>>> SENHA ${dados.senha} <<<`);
+    l.push(linha);
+    for (const it of dados.itens) {
+      const sub = Number(it.precoUnitario) * Number(it.quantidade);
+      l.push(`${Number(it.quantidade)}x ${it.descricao}`);
+      if (it.complementosTexto) l.push(`   ${it.complementosTexto}`);
+      l.push(`   ${money(sub)}`);
+    }
+    l.push(linha);
+    l.push(`TOTAL: ${money(dados.total)}`);
+    if (dados.forma) l.push(`Pagamento: ${dados.forma}`);
+    if (dados.atendente) l.push(`Atendente: ${dados.atendente}`);
+    l.push(new Date().toLocaleString('pt-BR'));
+    return l.join('\n');
+  }
+
+  // Enfileira a via do cliente nas impressoras de papel 'cupom' da unidade.
+  async enfileirarViaCliente(
+    tenantId: string,
+    unidadeId: string | null,
+    comandaId: string,
+    conteudo: string,
+  ) {
+    const cupomPrinters = await this.db
+      .select({ id: equipamento.id })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'impressora'),
+          eq(equipamento.papel, 'cupom'),
+          eq(equipamento.ativo, true),
+        ),
+      );
+    for (const p of cupomPrinters) {
+      await this.db.insert(impressaoJob).values({
+        tenantId,
+        unidadeId,
+        equipamentoId: p.id,
+        pedidoId: null,
+        via: 'cliente',
+        conteudo,
+      });
+    }
+    return cupomPrinters.length;
   }
 
   // ===== Fila de impressão (worker do edge; auth por token servidor_local) =====
@@ -288,6 +356,150 @@ export class ProducaoPedidoService {
     return Number((r.rows ?? r)[0].n) || 1;
   }
 
+  // ===== Senha central (atômica, com reset diário/semanal) =====
+  // Puxa a próxima senha da unidade travando a linha (dois PDVs não duplicam).
+  async proximaSenha(
+    tx: any,
+    tenantId: string,
+    unidadeId?: string | null,
+  ): Promise<number> {
+    await tx.execute(sql`
+      insert into senha_contador (tenant_id, unidade_id)
+      values (${tenantId}, ${unidadeId ?? null})
+      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid))
+      do nothing
+    `);
+    const cur: any = await tx.execute(sql`
+      select id, valor, periodo, ultimo_reset as "ultimoReset"
+      from senha_contador
+      where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+      for update
+    `);
+    const row = (cur.rows ?? cur)[0];
+    const reset = this.precisaReset(row.periodo, row.ultimoReset);
+    const valor = (reset ? 0 : Number(row.valor)) + 1;
+    await tx.execute(sql`
+      update senha_contador
+      set valor = ${valor},
+          ultimo_reset = ${reset ? sql`current_date` : sql`ultimo_reset`},
+          updated_at = now()
+      where id = ${row.id}
+    `);
+    return valor;
+  }
+
+  private toDate(d: any): Date {
+    return d instanceof Date ? d : new Date(String(d) + 'T00:00:00');
+  }
+  private diaStr(d: Date) {
+    return d.toISOString().slice(0, 10);
+  }
+  private inicioSemana(d: Date) {
+    const x = new Date(d);
+    const dow = (x.getDay() + 6) % 7; // segunda = 0
+    x.setDate(x.getDate() - dow);
+    return this.diaStr(x);
+  }
+  private precisaReset(periodo: string, ultimoReset: any): boolean {
+    if (periodo === 'nunca') return false;
+    const ur = this.toDate(ultimoReset);
+    const hoje = new Date();
+    if (periodo === 'semanal') return this.inicioSemana(ur) < this.inicioSemana(hoje);
+    return this.diaStr(ur) < this.diaStr(hoje); // diario (padrão)
+  }
+
+  async getSenhaConfig(tenantId: string, unidadeId?: string | null) {
+    const [row] = await this.db
+      .select({ periodo: senhaContador.periodo, valor: senhaContador.valor })
+      .from(senhaContador)
+      .where(
+        and(
+          eq(senhaContador.tenantId, tenantId),
+          unidadeId
+            ? eq(senhaContador.unidadeId, unidadeId)
+            : sql`unidade_id is null`,
+        ),
+      );
+    return { periodo: row?.periodo ?? 'diario', atual: row?.valor ?? 0 };
+  }
+
+  async setSenhaPeriodo(
+    tenantId: string,
+    unidadeId: string | null,
+    periodo: string,
+  ) {
+    const p = ['diario', 'semanal', 'nunca'].includes(periodo) ? periodo : 'diario';
+    const [row] = await this.db
+      .select({ id: senhaContador.id })
+      .from(senhaContador)
+      .where(
+        and(
+          eq(senhaContador.tenantId, tenantId),
+          unidadeId
+            ? eq(senhaContador.unidadeId, unidadeId)
+            : sql`unidade_id is null`,
+        ),
+      );
+    if (row) {
+      await this.db
+        .update(senhaContador)
+        .set({ periodo: p, updatedAt: new Date() })
+        .where(eq(senhaContador.id, row.id));
+    } else {
+      await this.db
+        .insert(senhaContador)
+        .values({ tenantId, unidadeId, periodo: p });
+    }
+    return { periodo: p };
+  }
+
+  // ===== Etapas do KDS por unidade (recebido e pronto sempre; preparo/entregue opcionais) =====
+  private async etapasDe(tenantId: string, unidadeId?: string | null) {
+    const [row] = await this.db
+      .select({
+        usaPreparo: kdsCorConfig.usaPreparo,
+        usaEntregue: kdsCorConfig.usaEntregue,
+      })
+      .from(kdsCorConfig)
+      .where(
+        and(
+          eq(kdsCorConfig.tenantId, tenantId),
+          unidadeId
+            ? eq(kdsCorConfig.unidadeId, unidadeId)
+            : sql`unidade_id is null`,
+        ),
+      );
+    const usaPreparo = row?.usaPreparo ?? true;
+    const usaEntregue = row?.usaEntregue ?? true;
+    const fluxo = [
+      'recebido',
+      ...(usaPreparo ? ['preparo'] : []),
+      'pronto',
+      ...(usaEntregue ? ['entregue'] : []),
+    ];
+    return { usaPreparo, usaEntregue, fluxo };
+  }
+
+  // Existe um KDS de entrega ativo (para rota pronto → entrega)?
+  private async temKdsEntrega(
+    tenantId: string,
+    unidadeId?: string | null,
+  ): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: equipamento.id })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'kds'),
+          eq(equipamento.escopo, 'entrega'),
+          eq(equipamento.ativo, true),
+          unidadeId ? eq(equipamento.unidadeId, unidadeId) : sql`true`,
+        ),
+      );
+    return rows.length > 0;
+  }
+
   // Emite os eventos de novos pedidos (chamado após o commit da venda).
   emitirNovos(payloads: any[]) {
     for (const p of payloads) this.events?.emit('producao.evento', p);
@@ -314,24 +526,37 @@ export class ProducaoPedidoService {
     }));
   }
 
-  // Fila do KDS (por setor). Ativos = recebido/preparo/pronto; entregues/cancelados fora.
+  // Fila do KDS. escopo 'entrega' mostra os PRONTOS (retirada); 'producao' mostra
+  // recebido/preparo (+pronto só se não houver KDS de entrega assumindo a entrega).
   async filaKds(
     tenantId: string,
-    opts: { setorId?: string; unidadeId?: string } = {},
+    opts: { setorId?: string; unidadeId?: string; escopo?: string } = {},
   ) {
+    const entrega = opts.escopo === 'entrega';
+    const cores = await this.getCores(tenantId, opts.unidadeId);
     const conds = [
       eq(producaoPedido.tenantId, tenantId),
       eq(producaoPedido.destinoTipo, 'kds'),
-      inArray(producaoPedido.status, ['recebido', 'preparo', 'pronto']),
     ];
-    if (opts.setorId) conds.push(eq(producaoPedido.setorId, opts.setorId));
     if (opts.unidadeId) conds.push(eq(producaoPedido.unidadeId, opts.unidadeId));
+
+    if (entrega) {
+      conds.push(eq(producaoPedido.status, 'pronto'));
+    } else {
+      // Produção: sempre recebido/preparo. 'pronto' fica aqui só se ninguém de
+      // entrega vai assumir (sem KDS de entrega e sem etapa 'entregue').
+      const temEntrega = await this.temKdsEntrega(tenantId, opts.unidadeId);
+      const statusProd = ['recebido', 'preparo'];
+      if (!temEntrega && !cores.usaEntregue) statusProd.push('pronto');
+      else if (!temEntrega && cores.usaEntregue) statusProd.push('pronto'); // avança até entregue no próprio KDS
+      conds.push(inArray(producaoPedido.status, statusProd));
+      if (opts.setorId) conds.push(eq(producaoPedido.setorId, opts.setorId));
+    }
     const pedidos = await this.db
       .select()
       .from(producaoPedido)
       .where(and(...conds))
       .orderBy(producaoPedido.criadoEm);
-    const cores = await this.getCores(tenantId, opts.unidadeId);
     return { cores, pedidos: await this.comItens(tenantId, pedidos) };
   }
 
@@ -372,15 +597,29 @@ export class ProducaoPedidoService {
   }
 
   // ===== Transições =====
-  // KDS avança o pedido para frente (recebido→preparo→pronto→entregue). Só avança.
-  async avancar(tenantId: string, atorId: string, pedidoId: string) {
+  // Avança o pedido para a próxima etapa HABILITADA da unidade. Só avança.
+  // 'entregue' só pelo KDS de entrega quando existe um (escopo='entrega').
+  async avancar(
+    tenantId: string,
+    atorId: string,
+    pedidoId: string,
+    escopo?: string,
+  ) {
     const p = await this.carregar(tenantId, pedidoId);
     if (p.status === 'cancelado')
       throw new BadRequestException('Pedido cancelado não avança.');
-    const idx = FLUXO.indexOf(p.status);
-    if (idx < 0 || idx >= FLUXO.length - 1)
+    const { fluxo } = await this.etapasDe(tenantId, p.unidadeId);
+    const idx = fluxo.indexOf(p.status);
+    if (idx < 0 || idx >= fluxo.length - 1)
       throw new BadRequestException('Pedido já concluído.');
-    const novo = FLUXO[idx + 1];
+    const novo = fluxo[idx + 1];
+    if (
+      novo === 'entregue' &&
+      escopo !== 'entrega' &&
+      (await this.temKdsEntrega(tenantId, p.unidadeId))
+    ) {
+      throw new BadRequestException('A entrega é concluída no KDS de entrega.');
+    }
     const patch: any = { status: novo };
     if (novo === 'preparo') patch.iniciadoEm = new Date();
     if (novo === 'pronto') patch.prontoEm = new Date();
@@ -606,14 +845,22 @@ export class ProducaoPedidoService {
     return {
       verdeAteMin: row?.verdeAteMin ?? 5,
       amareloAteMin: row?.amareloAteMin ?? 10,
+      usaPreparo: row?.usaPreparo ?? true,
+      usaEntregue: row?.usaEntregue ?? true,
     };
   }
 
   async setCores(
     tenantId: string,
     unidadeId: string | null,
-    dto: { verdeAteMin: number; amareloAteMin: number },
+    dto: {
+      verdeAteMin?: number;
+      amareloAteMin?: number;
+      usaPreparo?: boolean;
+      usaEntregue?: boolean;
+    },
   ) {
+    const atual = await this.getCores(tenantId, unidadeId);
     const [row] = await this.db
       .select({ id: kdsCorConfig.id })
       .from(kdsCorConfig)
@@ -626,8 +873,11 @@ export class ProducaoPedidoService {
         ),
       );
     const vals = {
-      verdeAteMin: Number(dto.verdeAteMin) || 5,
-      amareloAteMin: Number(dto.amareloAteMin) || 10,
+      verdeAteMin: dto.verdeAteMin != null ? Number(dto.verdeAteMin) : atual.verdeAteMin,
+      amareloAteMin:
+        dto.amareloAteMin != null ? Number(dto.amareloAteMin) : atual.amareloAteMin,
+      usaPreparo: dto.usaPreparo != null ? !!dto.usaPreparo : atual.usaPreparo,
+      usaEntregue: dto.usaEntregue != null ? !!dto.usaEntregue : atual.usaEntregue,
     };
     if (row) {
       await this.db

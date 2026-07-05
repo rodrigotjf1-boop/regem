@@ -465,7 +465,8 @@ export const equipamento = pgTable('equipamento', {
   mac: text('mac'),
   padrao: boolean('padrao').notNull().default(false),
   ativo: boolean('ativo').notNull().default(true),
-  escopo: text('escopo').notNull().default('producao'), // producao | avisos (só KDS)
+  escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
+  papel: text('papel'), // impressora: producao | cupom (via do cliente)
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
   host: text('host'), // IP da impressora de rede (tipo impressora)
   porta: integer('porta'), // porta ESC/POS (padrão 9100)
@@ -818,6 +819,7 @@ export const comanda = pgTable('comanda', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
   mesa: text('mesa'),
+  senha: integer('senha'), // senha sequencial central (Fase F4) — via do cliente
   mesaId: uuid('mesa_id'), // agrupador (Fase F2) — comanda pertence a uma mesa
   identificador: text('identificador'), // cliente/pulseira/nº da comanda na mesa
   cliente: text('cliente'),
@@ -850,6 +852,7 @@ export const comandaItem = pgTable('comanda_item', {
   descricao: text('descricao').notNull(),
   quantidade: numeric('quantidade').notNull().default('1'),
   precoUnitario: numeric('preco_unitario').notNull().default('0'),
+  observacao: text('observacao'), // obs por item (Fase F4): "sem sal", "bem passado"
   criadoPorId: uuid('criado_por_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1121,6 +1124,7 @@ export const producaoPedido = pgTable('producao_pedido', {
   destinoTipo: text('destino_tipo').notNull().default('kds'), // kds | impressora
   setorId: uuid('setor_id'),
   numero: integer('numero'),
+  senha: integer('senha'), // senha da comanda/venda (Fase F4) — exibida no KDS/entrega
   origem: text('origem').notNull().default('balcao'), // balcao|mesa|comanda|garcom
   mesa: text('mesa'),
   status: text('status').notNull().default('recebido'), // recebido|preparo|pronto|entregue|cancelado
@@ -1147,6 +1151,7 @@ export const producaoPedidoItem = pgTable('producao_pedido_item', {
   descricao: text('descricao').notNull(),
   quantidade: numeric('quantidade').notNull().default('1'),
   complementosTexto: text('complementos_texto'),
+  observacao: text('observacao'), // obs do item (Fase F4)
   status: text('status').notNull().default('ok'), // ok | alterado | removido
 });
 
@@ -1177,6 +1182,21 @@ export const kdsCorConfig = pgTable('kds_cor_config', {
   unidadeId: uuid('unidade_id'),
   verdeAteMin: integer('verde_ate_min').notNull().default(5),
   amareloAteMin: integer('amarelo_ate_min').notNull().default(10),
+  usaPreparo: boolean('usa_preparo').notNull().default(true), // etapa "preparo" opcional
+  usaEntregue: boolean('usa_entregue').notNull().default(true), // etapa "entregue" opcional
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Contador central de senha por unidade (Fase F4) — atômico, com reset.
+export const senhaContador = pgTable('senha_contador', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  valor: integer('valor').notNull().default(0),
+  periodo: text('periodo').notNull().default('diario'), // diario | semanal | nunca
+  ultimoReset: date('ultimo_reset').notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

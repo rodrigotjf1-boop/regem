@@ -18,6 +18,7 @@ type ItemCarrinho = {
   produtoId: string;
   variacaoId?: string;
   complementos?: string[]; // ids das opções escolhidas
+  observacao?: string;
   nome: string;
   sub?: string; // "sem alface · + bacon"
   preco: number;
@@ -35,6 +36,7 @@ export default function PdvPage() {
   const [picker, setPicker] = useState<any>(null); // produto com variação/complementos
   const [pickVar, setPickVar] = useState<string | undefined>(undefined);
   const [pickOpc, setPickOpc] = useState<string[]>([]);
+  const [pickObs, setPickObs] = useState('');
   const [comprovante, setComprovante] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -62,7 +64,7 @@ export default function PdvPage() {
     const key = `${item.produtoId}:${item.variacaoId ?? ''}:${(item.complementos ?? [])
       .slice()
       .sort()
-      .join(',')}`;
+      .join(',')}:${item.observacao ?? ''}`;
     setCarrinho((c) => {
       const ex = c.find((i) => i.key === key);
       if (ex) return c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + 1 } : i));
@@ -80,13 +82,11 @@ export default function PdvPage() {
     }
     const variacoes = full.variacoes ?? [];
     const complementos = full.complementos ?? [];
-    if (variacoes.length || complementos.length) {
-      setPickVar(undefined);
-      setPickOpc([]);
-      setPicker({ produto: p, variacoes, complementos });
-      return;
-    }
-    addItem({ produtoId: p.id, nome: p.nome, preco: Number(p.precoVenda) });
+    // Sempre abre o seletor (variação/opcionais quando houver + observação do item).
+    setPickVar(undefined);
+    setPickOpc([]);
+    setPickObs('');
+    setPicker({ produto: p, variacoes, complementos });
   }
 
   function mudarQtd(key: string, d: number) {
@@ -113,12 +113,16 @@ export default function PdvPage() {
       preco += Number(o.precoDelta) || 0;
       partes.push(o.tipo === 'remover' ? `sem ${o.nome}` : `+ ${o.nome}`);
     }
+    const obs = pickObs.trim() || undefined;
+    const subPartes = [...partes];
+    if (obs) subPartes.push(`obs: ${obs}`);
     addItem({
       produtoId: produto.id,
       variacaoId: pickVar,
       complementos: pickOpc,
+      observacao: obs,
       nome,
-      sub: partes.join(' · ') || undefined,
+      sub: subPartes.join(' · ') || undefined,
       preco,
     });
     setPicker(null);
@@ -143,6 +147,7 @@ export default function PdvPage() {
           produtoId: i.produtoId,
           variacaoId: i.variacaoId,
           complementos: i.complementos,
+          observacao: i.observacao,
           quantidade: i.qtd,
         })),
         forma,
@@ -340,6 +345,17 @@ export default function PdvPage() {
                 </div>
               ))}
 
+              <div className="mt-1">
+                <p className="mb-1 text-xs font-semibold text-muted-foreground">Observação (opcional)</p>
+                <input
+                  type="text"
+                  value={pickObs}
+                  onChange={(e) => setPickObs(e.target.value)}
+                  placeholder="Ex.: sem sal, bem passado"
+                  className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
+                />
+              </div>
+
               <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                 <span className="text-sm text-muted-foreground">Total do item</span>
                 <span className="font-mono text-lg font-bold">{brl(base + extra)}</span>
@@ -362,12 +378,15 @@ export default function PdvPage() {
         <div className="fixed inset-0 z-30 grid place-items-center bg-black/50 p-4" onClick={() => setComprovante(null)}>
           <Card className="w-full max-w-sm p-6 text-center" onClick={(e) => e.stopPropagation()}>
             <p className="font-display text-lg font-bold text-ok">Venda concluída ✓</p>
-            <p className="mt-2 font-mono text-3xl font-bold">{brl(comprovante.total)}</p>
+            {comprovante.senha != null && (
+              <div className="mt-3 rounded-xl border border-primary/40 bg-primary/10 py-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Senha</p>
+                <p className="font-mono text-4xl font-bold text-primary">{comprovante.senha}</p>
+              </div>
+            )}
+            <p className="mt-3 font-mono text-3xl font-bold">{brl(comprovante.total)}</p>
             {comprovante.taxaServicoPct > 0 && (
               <p className="mt-1 text-xs text-muted-foreground">inclui {comprovante.taxaServicoPct}% de serviço</p>
-            )}
-            {comprovante.pedidoKds?.length > 0 && (
-              <p className="mt-2 text-sm text-muted-foreground">{comprovante.pedidoKds.length} item(ns) enviado(s) à produção (KDS).</p>
             )}
             <Button type="button" className="mt-4 w-full" onClick={() => setComprovante(null)}>
               Nova venda

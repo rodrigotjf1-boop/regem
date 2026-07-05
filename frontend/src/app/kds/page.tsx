@@ -43,6 +43,7 @@ export default function KdsPage() {
   const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10 });
   const [setores, setSetores] = useState<any[]>([]);
   const [setorSel, setSetorSel] = useState('');
+  const [escopo, setEscopo] = useState<'producao' | 'entrega'>('producao');
   const [mudo, setMudo] = useState(false);
   // null no SSR/1ª render → evita hydration mismatch do relógio (server ≠ client).
   const [now, setNow] = useState<Date | null>(null);
@@ -51,6 +52,8 @@ export default function KdsPage() {
   mudoRef.current = mudo;
   const setorRef = useRef(setorSel);
   setorRef.current = setorSel;
+  const escopoRef = useRef(escopo);
+  escopoRef.current = escopo;
 
   const bip = useCallback(() => {
     if (mudoRef.current) return;
@@ -76,7 +79,11 @@ export default function KdsPage() {
   const carregarFila = useCallback(async () => {
     if (!getToken()) return; // fila durável requer operador logado (JWT)
     try {
-      const r: any = await api.producaoFila(setorRef.current || undefined);
+      const r: any = await api.producaoFila(
+        escopoRef.current === 'entrega' ? undefined : setorRef.current || undefined,
+        undefined,
+        escopoRef.current,
+      );
       setPedidos(r.pedidos ?? []);
       if (r.cores) setCores(r.cores);
     } catch {
@@ -96,10 +103,10 @@ export default function KdsPage() {
     }
   }, []);
 
-  // Recarrega quando muda o setor selecionado.
+  // Recarrega quando muda o setor ou o escopo (produção/entrega).
   useEffect(() => {
     carregarFila();
-  }, [setorSel, carregarFila]);
+  }, [setorSel, escopo, carregarFila]);
 
   useEffect(() => {
     // Device real: ?token=… (um KDS físico abre app.dmsregem.com/kds?token=…).
@@ -156,7 +163,7 @@ export default function KdsPage() {
 
   async function avancar(id: string) {
     try {
-      await api.producaoAvancar(id);
+      await api.producaoAvancar(id, escopoRef.current);
       await carregarFila();
     } catch {
       /* concorrência: outra tela avançou — o refetch corrige */
@@ -209,12 +216,30 @@ export default function KdsPage() {
           </div>
         </div>
 
-        {setores.length > 0 && (
+        {/* Escopo: produção (cozinha) x entrega (retirada por senha) */}
+        <div className="ml-2 flex overflow-hidden rounded-lg border" style={{ borderColor: '#22333F' }}>
+          {(['producao', 'entrega'] as const).map((es) => (
+            <button
+              key={es}
+              type="button"
+              onClick={() => setEscopo(es)}
+              className="px-3 py-2 text-[13px] font-semibold"
+              style={{
+                background: escopo === es ? '#E2A340' : '#182B37',
+                color: escopo === es ? '#0B141B' : '#9FB3BF',
+              }}
+            >
+              {es === 'producao' ? 'Produção' : 'Entrega'}
+            </button>
+          ))}
+        </div>
+
+        {escopo === 'producao' && setores.length > 0 && (
           <select
             aria-label="Filtrar por setor"
             value={setorSel}
             onChange={(e) => setSetorSel(e.target.value)}
-            className="ml-2 rounded-lg border px-3 py-2 text-[13px] font-semibold"
+            className="ml-1 rounded-lg border px-3 py-2 text-[13px] font-semibold"
             style={{ background: '#182B37', borderColor: '#22333F', color: '#EAF1F5' }}
           >
             <option value="">Todos os setores</option>
@@ -307,8 +332,13 @@ export default function KdsPage() {
                 >
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-[16px] font-bold" style={{ fontFamily: 'Archivo, sans-serif' }}>
-                      {p.numero ? `#${p.numero} · ` : ''}
-                      {p.mesa ? `Mesa ${p.mesa}` : 'Balcão'}
+                      {p.senha
+                        ? `Senha ${p.senha}`
+                        : p.mesa
+                          ? `Mesa ${p.mesa}`
+                          : p.numero
+                            ? `#${p.numero}`
+                            : 'Balcão'}
                     </span>
                     <span
                       className="rounded px-2 py-0.5 text-[12px] font-bold tabular-nums"
@@ -324,8 +354,19 @@ export default function KdsPage() {
                           {Number(it.quantidade)}× {it.descricao}
                         </span>
                         {it.complementosTexto && (
-                          <div className="text-[12px]" style={{ color: '#9FB3BF' }}>
+                          <div
+                            className="mt-0.5 rounded px-1.5 py-0.5 text-[12px] font-semibold"
+                            style={{ background: 'rgba(226,163,64,.18)', color: '#F4C578' }}
+                          >
                             {it.complementosTexto}
+                          </div>
+                        )}
+                        {it.observacao && (
+                          <div
+                            className="mt-0.5 rounded px-1.5 py-0.5 text-[12px] font-bold"
+                            style={{ background: 'rgba(255,90,78,.18)', color: '#FF8A80' }}
+                          >
+                            OBS: {it.observacao}
                           </div>
                         )}
                       </div>

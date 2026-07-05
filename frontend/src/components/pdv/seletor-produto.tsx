@@ -13,6 +13,7 @@ export type SelecaoProduto = {
   produtoId: string;
   variacaoId?: string;
   complementos?: string[];
+  observacao?: string;
   label: string; // "X-Burger · sem alface + bacon" (para feedback)
 };
 
@@ -31,6 +32,7 @@ export function SeletorProduto({
   const [picker, setPicker] = useState<any>(null);
   const [pickVar, setPickVar] = useState<string | undefined>(undefined);
   const [pickOpc, setPickOpc] = useState<string[]>([]);
+  const [pickObs, setPickObs] = useState('');
   const [erro, setErro] = useState('');
 
   const reload = useCallback(async () => {
@@ -56,13 +58,10 @@ export function SeletorProduto({
     }
     const variacoes = full.variacoes ?? [];
     const complementos = full.complementos ?? [];
-    if (variacoes.length || complementos.length) {
-      setPickVar(undefined);
-      setPickOpc([]);
-      setPicker({ produto: p, variacoes, complementos });
-      return;
-    }
-    onAdd({ produtoId: p.id, label: p.nome });
+    setPickVar(undefined);
+    setPickOpc([]);
+    setPickObs('');
+    setPicker({ produto: p, variacoes, complementos });
   }
 
   function toggleOpc(id: string) {
@@ -80,11 +79,14 @@ export function SeletorProduto({
       .map((id) => todas.find((o) => o.id === id))
       .filter(Boolean)
       .map((o: any) => (o.tipo === 'remover' ? `sem ${o.nome}` : `+ ${o.nome}`));
+    const obs = pickObs.trim() || undefined;
     if (partes.length) label += ` (${partes.join(' · ')})`;
+    if (obs) label += ` · obs: ${obs}`;
     onAdd({
       produtoId: produto.id,
       variacaoId: pickVar,
       complementos: pickOpc,
+      observacao: obs,
       label,
     });
     setPicker(null);
@@ -192,6 +194,17 @@ export function SeletorProduto({
                   </div>
                 </div>
               ))}
+              <div className="mt-1">
+                <p className="mb-1 text-xs font-semibold text-muted-foreground">Observação (opcional)</p>
+                <input
+                  type="text"
+                  value={pickObs}
+                  onChange={(e) => setPickObs(e.target.value)}
+                  placeholder="Ex.: sem sal, bem passado"
+                  className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
+                />
+              </div>
+
               <div className="mt-3 flex items-center justify-between border-t border-border pt-3">
                 <span className="text-sm text-muted-foreground">Item</span>
                 <span className="font-mono text-lg font-bold">{brl(base + extra)}</span>

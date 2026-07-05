@@ -17,8 +17,12 @@ export class CreateEquipamentoDto {
   mac?: string;
 
   @IsOptional()
-  @IsIn(['producao', 'avisos'])
+  @IsIn(['producao', 'avisos', 'entrega'])
   escopo?: string;
+
+  @IsOptional()
+  @IsIn(['producao', 'cupom'])
+  papel?: string;
 
   @IsOptional()
   @IsUUID()

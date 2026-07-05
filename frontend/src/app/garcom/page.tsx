@@ -82,6 +82,7 @@ export default function GarcomPage() {
         produtoId: s.produtoId,
         variacaoId: s.variacaoId,
         complementos: s.complementos,
+        observacao: s.observacao,
         quantidade: 1,
       });
       toast.success(`Enviado à produção: ${s.label}`);
