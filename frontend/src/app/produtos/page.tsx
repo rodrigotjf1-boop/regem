@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ImageUpload } from '@/components/ui/image-upload';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -34,14 +35,34 @@ const vazio = () => ({
   vaiParaProducao: true,
   setorProducaoId: '',
   tempoPreparoMin: '',
+  imagemRef: '',
+  precoPromocional: '',
+  disponivelCardapio: true,
+  selos: [] as string[],
+  duracaoMin: '',
+  vendaMultiplo: '',
   ncm: '',
   cfop: '',
   origem: '0',
   csosn: '102',
   cstIcms: '',
+  gtin: '',
+  cstPis: '',
+  aliqPis: '',
+  cstCofins: '',
+  aliqCofins: '',
   variacoes: [] as Variacao[],
   combo: [] as Combo[],
 });
+
+const SELOS = [
+  { v: 'mais_pedido', l: '🔥 Mais pedido' },
+  { v: 'novo', l: '✨ Novo' },
+  { v: 'veg', l: '🌱 Veg' },
+  { v: 'sem_gluten', l: '🌾 S/ glúten' },
+  { v: 'sem_lactose', l: '🥛 S/ lactose' },
+  { v: 'picante', l: '🌶️ Picante' },
+];
 
 export default function ProdutosPage() {
   const router = useRouter();
@@ -69,6 +90,7 @@ export default function ProdutosPage() {
   const [equipamentos, setEquipamentos] = useState<any[]>([]);
   const [destinosSel, setDestinosSel] = useState<string[]>([]);
   const [salvandoDest, setSalvandoDest] = useState(false);
+  const [faixas, setFaixas] = useState<{ qtdMin: string; preco: string }[]>([]);
 
   const reload = useCallback(async () => {
     setErro('');
@@ -113,6 +135,7 @@ export default function ProdutosPage() {
     setComps([]);
     setFichaIngs([]);
     setDestinosSel([]);
+    setFaixas([]);
   }
 
   function toggleDestino(id: string) {
@@ -132,16 +155,33 @@ export default function ProdutosPage() {
     }
   }
 
+  async function salvarFaixas() {
+    if (!editId) return;
+    try {
+      await api.setProdutoFaixas(
+        editId,
+        faixas
+          .filter((f) => f.qtdMin !== '')
+          .map((f) => ({ qtdMin: Number(f.qtdMin), preco: Number(String(f.preco).replace(',', '.')) || 0 })),
+      );
+      toast.success('Faixas de preço salvas.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar faixas');
+    }
+  }
+
   async function carregarComplementos(produtoId: string, fichaId?: string) {
     try {
-      const [cs, its, dest] = await Promise.all([
+      const [cs, its, dest, fx] = await Promise.all([
         api.produtoComplementos(produtoId),
         api.estoqueItens().catch(() => []),
         api.destinosProduto(produtoId).catch(() => []),
+        api.produtoFaixas(produtoId).catch(() => []),
       ]);
       setComps(cs as any[]);
       setInsumos(its as any[]);
       setDestinosSel((dest as any[]).map((d) => d.equipamentoId));
+      setFaixas((fx as any[]).map((f) => ({ qtdMin: String(f.qtdMin), preco: String(f.preco) })));
       if (fichaId) {
         const fi: any = await api.ficha(fichaId).catch(() => null);
         setFichaIngs(fi?.ingredientes ?? []);
@@ -173,11 +213,22 @@ export default function ProdutosPage() {
         vaiParaProducao: p.vaiParaProducao ?? true,
         setorProducaoId: p.setorProducaoId ?? '',
         tempoPreparoMin: p.tempoPreparoMin ?? '',
+        imagemRef: p.imagemRef ?? '',
+        precoPromocional: p.precoPromocional ?? '',
+        disponivelCardapio: p.disponivelCardapio ?? true,
+        selos: p.selos ?? [],
+        duracaoMin: p.duracaoMin ?? '',
+        vendaMultiplo: p.vendaMultiplo ?? '',
         ncm: p.ncm ?? '',
         cfop: p.cfop ?? '',
         origem: p.origem ?? '0',
         csosn: p.csosn ?? '102',
         cstIcms: p.cstIcms ?? '',
+        gtin: p.gtin ?? '',
+        cstPis: p.cstPis ?? '',
+        aliqPis: p.aliqPis ?? '',
+        cstCofins: p.cstCofins ?? '',
+        aliqCofins: p.aliqCofins ?? '',
         variacoes: (p.variacoes ?? []).map((v: any) => ({
           nome: v.nome,
           codigo: v.codigo ?? '',
@@ -216,11 +267,22 @@ export default function ProdutosPage() {
         vaiParaProducao: f.vaiParaProducao,
         setorProducaoId: f.setorProducaoId || undefined,
         tempoPreparoMin: f.tempoPreparoMin !== '' ? Number(f.tempoPreparoMin) : undefined,
+        imagemRef: f.imagemRef || undefined,
+        precoPromocional: f.precoPromocional !== '' ? Number(String(f.precoPromocional).replace(',', '.')) : undefined,
+        disponivelCardapio: f.disponivelCardapio,
+        selos: f.selos,
+        duracaoMin: f.duracaoMin !== '' ? Number(f.duracaoMin) : undefined,
+        vendaMultiplo: f.vendaMultiplo !== '' ? Number(f.vendaMultiplo) : undefined,
         ncm: f.ncm || undefined,
         cfop: f.cfop || undefined,
         origem: f.origem || undefined,
         csosn: f.csosn || undefined,
         cstIcms: f.cstIcms || undefined,
+        gtin: f.gtin || undefined,
+        cstPis: f.cstPis || undefined,
+        aliqPis: f.aliqPis !== '' ? Number(String(f.aliqPis).replace(',', '.')) : undefined,
+        cstCofins: f.cstCofins || undefined,
+        aliqCofins: f.aliqCofins !== '' ? Number(String(f.aliqCofins).replace(',', '.')) : undefined,
         variacoes: f.variacoes.map((v: Variacao) => ({
           nome: v.nome,
           codigo: v.codigo || undefined,
@@ -441,6 +503,48 @@ export default function ProdutosPage() {
               </label>
             </div>
 
+            {/* Loja / cardápio */}
+            <div className="rounded-lg border border-border p-3">
+              <Label className="text-xs">Loja / cardápio digital</Label>
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="space-y-1 sm:col-span-3">
+                  <Label className="text-xs text-muted-foreground">Foto do produto</Label>
+                  <ImageUpload value={f.imagemRef || undefined} onChange={(url) => set({ imagemRef: url })} alt={f.nome || 'produto'} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Preço promocional (de/por)</Label>
+                  <Input type="number" value={f.precoPromocional} onChange={(e) => set({ precoPromocional: e.target.value })} placeholder="opcional" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Duração (min) — serviços</Label>
+                  <Input type="number" value={f.duracaoMin} onChange={(e) => set({ duracaoMin: e.target.value })} placeholder="—" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Vende em múltiplos de (B2B)</Label>
+                  <Input type="number" value={f.vendaMultiplo} onChange={(e) => set({ vendaMultiplo: e.target.value })} placeholder="1" />
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {SELOS.map((s) => {
+                  const on = f.selos.includes(s.v);
+                  return (
+                    <button
+                      key={s.v}
+                      type="button"
+                      onClick={() => set({ selos: on ? f.selos.filter((x: string) => x !== s.v) : [...f.selos, s.v] })}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium ${on ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
+                    >
+                      {s.l}
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="mt-3 flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
+                Disponível no cardápio (desmarque para bloquear a venda online)
+              </label>
+            </div>
+
             {/* Variações */}
             <div className="rounded-lg border border-border p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -513,7 +617,28 @@ export default function ProdutosPage() {
                   <Label className="text-xs">CST ICMS (Normal)</Label>
                   <Input value={f.cstIcms} onChange={(e) => set({ cstIcms: e.target.value })} placeholder="—" />
                 </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">GTIN / EAN</Label>
+                  <Input value={f.gtin} onChange={(e) => set({ gtin: e.target.value })} placeholder="cód. de barras" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">CST PIS</Label>
+                  <Input value={f.cstPis} onChange={(e) => set({ cstPis: e.target.value })} placeholder="07" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Alíq. PIS %</Label>
+                  <Input type="number" value={f.aliqPis} onChange={(e) => set({ aliqPis: e.target.value })} placeholder="0" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">CST COFINS</Label>
+                  <Input value={f.cstCofins} onChange={(e) => set({ cstCofins: e.target.value })} placeholder="07" />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Alíq. COFINS %</Label>
+                  <Input type="number" value={f.aliqCofins} onChange={(e) => set({ aliqCofins: e.target.value })} placeholder="0" />
+                </div>
               </div>
+              <p className="mt-2 text-[11px] text-muted-foreground">NCM é obrigatório para emitir NFC-e.</p>
             </details>
 
             <Button type="submit" disabled={salvando}>
@@ -562,6 +687,29 @@ export default function ProdutosPage() {
           </Card>
         )}
 
+        {/* Faixas de preço por volume (B2B) — só ao editar */}
+        {editId && (
+          <Card className="p-4">
+            <h2 className="font-display text-lg font-semibold">Preço por volume (B2B)</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Preço unitário por faixa de quantidade (atacado/indústria). O maior <b>qtd. mínima</b> ≤ quantidade vendida é aplicado.
+            </p>
+            <div className="space-y-2">
+              {faixas.map((fx, i) => (
+                <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <Input type="number" placeholder="Qtd. mínima" value={fx.qtdMin} onChange={(e) => { const a = [...faixas]; a[i] = { ...fx, qtdMin: e.target.value }; setFaixas(a); }} />
+                  <Input type="number" placeholder="Preço/un" value={fx.preco} onChange={(e) => { const a = [...faixas]; a[i] = { ...fx, preco: e.target.value }; setFaixas(a); }} />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setFaixas(faixas.filter((_, x) => x !== i))}>remover</Button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setFaixas([...faixas, { qtdMin: '', preco: '' }])}>＋ faixa</Button>
+              <Button type="button" size="sm" onClick={salvarFaixas}>Salvar faixas</Button>
+            </div>
+          </Card>
+        )}
+
         {/* Opcionais & adicionais (só ao editar um produto salvo) */}
         {editId && (
           <Card className="p-4">
@@ -581,6 +729,7 @@ export default function ProdutosPage() {
                   grupo={g}
                   fichaIngs={fichaIngs}
                   insumos={insumos}
+                  produtos={produtos ?? []}
                   onAddOpcao={addOpcao}
                   onDelGrupo={delGrupo}
                   onDelOpcao={delOpcao}
@@ -605,6 +754,7 @@ export default function ProdutosPage() {
               >
                 <option value="remover">Opcional (retirar)</option>
                 <option value="adicionar">Adicional (extra)</option>
+                <option value="escolha">Escolha (etapa — escolher 1/N)</option>
               </select>
               <Button type="button" onClick={addGrupo}>Adicionar grupo</Button>
             </div>
@@ -647,6 +797,7 @@ function GrupoComplemento({
   grupo,
   fichaIngs,
   insumos,
+  produtos,
   onAddOpcao,
   onDelGrupo,
   onDelOpcao,
@@ -654,14 +805,17 @@ function GrupoComplemento({
   grupo: any;
   fichaIngs: any[];
   insumos: any[];
+  produtos: any[];
   onAddOpcao: (grupo: any, dados: any) => void;
   onDelGrupo: (id: string) => void;
   onDelOpcao: (id: string) => void;
 }) {
   const remover = grupo.tipo === 'remover';
+  const escolha = grupo.tipo === 'escolha';
+  const badge = remover ? 'retirar' : escolha ? 'escolher' : 'adicionar';
   const [nome, setNome] = useState('');
   const [precoDelta, setPrecoDelta] = useState('');
-  const [ref, setRef] = useState(''); // fichaIngredienteId (remover) ou itemId (adicionar)
+  const [ref, setRef] = useState(''); // fichaIngredienteId (remover) / itemId (adicionar) / produtoRefId (escolha)
   const [quantidade, setQuantidade] = useState('1');
 
   function submit() {
@@ -673,6 +827,10 @@ function GrupoComplemento({
         const ing = fichaIngs.find((i) => i.id === ref);
         dados.nome = ing?.insumoNome ?? ing?.subFichaNome ?? 'ingrediente';
       }
+    } else if (escolha) {
+      dados.precoDelta = precoDelta !== '' ? Number(String(precoDelta).replace(',', '.')) : 0;
+      dados.produtoRefId = ref || undefined;
+      if (!dados.nome && ref) dados.nome = produtos.find((p) => p.id === ref)?.nome ?? 'opção';
     } else {
       dados.precoDelta = precoDelta !== '' ? Number(String(precoDelta).replace(',', '.')) : 0;
       dados.itemId = ref || undefined;
@@ -690,9 +848,14 @@ function GrupoComplemento({
       <div className="mb-2 flex items-center justify-between">
         <span className="font-medium">
           {grupo.nome}{' '}
-          <span className={`ml-1 rounded px-1.5 py-0.5 text-xs ${remover ? 'bg-warn/10 text-warn' : 'bg-info/10 text-info'}`}>
-            {remover ? 'retirar' : 'adicionar'}
+          <span className={`ml-1 rounded px-1.5 py-0.5 text-xs ${remover ? 'bg-warn/10 text-warn' : escolha ? 'bg-primary/10 text-primary' : 'bg-info/10 text-info'}`}>
+            {badge}
           </span>
+          {(grupo.min > 0 || grupo.max) && (
+            <span className="ml-1 text-[11px] text-muted-foreground">
+              {grupo.min > 0 ? 'obrigatório · ' : ''}{grupo.max ? `até ${grupo.max}` : ''}
+            </span>
+          )}
         </span>
         <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => onDelGrupo(grupo.id)}>
           remover grupo
@@ -728,6 +891,21 @@ function GrupoComplemento({
               <option key={i.id} value={i.id}>{i.insumoNome ?? i.subFichaNome ?? 'ingrediente'}</option>
             ))}
           </select>
+        ) : escolha ? (
+          <>
+            <Input type="number" placeholder="+ R$ (opcional)" value={precoDelta} onChange={(e) => setPrecoDelta(e.target.value)} />
+            <select
+              aria-label="Produto vinculado (opcional)"
+              className={selectCls}
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+            >
+              <option value="">— sem produto (só rótulo) —</option>
+              {produtos.map((p) => (
+                <option key={p.id} value={p.id}>{p.nome}</option>
+              ))}
+            </select>
+          </>
         ) : (
           <>
             <Input type="number" placeholder="+ R$" value={precoDelta} onChange={(e) => setPrecoDelta(e.target.value)} />

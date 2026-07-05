@@ -755,6 +755,17 @@ export const produto = pgTable('produto', {
   vaiParaProducao: boolean('vai_para_producao').notNull().default(true),
   setorProducaoId: uuid('setor_producao_id'), // roteamento KDS (fallback do setor)
   tempoPreparoMin: integer('tempo_preparo_min'), // p/ cores do KDS
+  // Loja / cardápio (Fase L1)
+  precoPromocional: numeric('preco_promocional'),
+  selos: jsonb('selos').notNull().default('[]'),
+  disponivelCardapio: boolean('disponivel_cardapio').notNull().default(true),
+  vendaMultiplo: integer('venda_multiplo'),
+  duracaoMin: integer('duracao_min'),
+  gtin: text('gtin'),
+  cstPis: text('cst_pis'),
+  aliqPis: numeric('aliq_pis'),
+  cstCofins: text('cst_cofins'),
+  aliqCofins: numeric('aliq_cofins'),
   // Fiscais (Fase G) — Simples usa csosn; Normal usa cstIcms.
   ncm: text('ncm'),
   cfop: text('cfop'),
@@ -1067,6 +1078,7 @@ export const complementoOpcao = pgTable('complemento_opcao', {
   grupoId: uuid('grupo_id').notNull(),
   nome: text('nome').notNull(),
   precoDelta: numeric('preco_delta').notNull().default('0'),
+  produtoRefId: uuid('produto_ref_id'), // 'escolha': opção que é um produto (ex.: bebida)
   fichaIngredienteId: uuid('ficha_ingrediente_id'), // 'remover': ingrediente a NÃO baixar
   itemId: uuid('item_id'), // 'adicionar': item de estoque a baixar
   quantidade: numeric('quantidade').notNull().default('1'),
@@ -1355,4 +1367,18 @@ export const cardapioConfig = pgTable('cardapio_config', {
   nomePublico: text('nome_publico'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Faixa de preço por volume (B2B, Fase L1) =====
+export const produtoFaixaPreco = pgTable('produto_faixa_preco', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  qtdMin: integer('qtd_min').notNull().default(1),
+  preco: numeric('preco').notNull().default('0'),
+  ordem: integer('ordem').notNull().default(0),
 });

@@ -91,22 +91,32 @@ export class CardapioService {
       .where(eq(categoriaProduto.tenantId, cfg.tenantId))
       .orderBy(categoriaProduto.ordem);
     const prods: any = await this.db.execute(sql`
-      select id, nome, descricao, preco_venda as "precoVenda", categoria_id as "categoriaId"
+      select id, nome, descricao, preco_venda as "precoVenda",
+             preco_promocional as "precoPromocional", categoria_id as "categoriaId",
+             imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin"
       from produto
-      where tenant_id = ${cfg.tenantId} and deleted_at is null and ativo = true
+      where tenant_id = ${cfg.tenantId} and deleted_at is null
+        and ativo = true and disponivel_cardapio = true
       order by nome
     `);
     return {
       nome: cfg.nomePublico ?? 'Cardápio',
       modo: cfg.modo,
       categorias: cats.map((c) => ({ id: c.id, nome: c.nome })),
-      produtos: (prods.rows ?? prods).map((p: any) => ({
-        id: p.id,
-        nome: p.nome,
-        descricao: p.descricao,
-        precoVenda: Number(p.precoVenda),
-        categoriaId: p.categoriaId,
-      })),
+      produtos: (prods.rows ?? prods).map((p: any) => {
+        const promo = p.precoPromocional != null ? Number(p.precoPromocional) : null;
+        return {
+          id: p.id,
+          nome: p.nome,
+          descricao: p.descricao,
+          precoVenda: promo ?? Number(p.precoVenda), // preço efetivo
+          precoDe: promo != null ? Number(p.precoVenda) : null, // "de" quando há promoção
+          categoriaId: p.categoriaId,
+          imagemRef: p.imagemRef,
+          selos: p.selos ?? [],
+          duracaoMin: p.duracaoMin,
+        };
+      }),
     };
   }
 

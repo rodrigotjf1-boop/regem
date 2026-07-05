@@ -94,6 +94,18 @@ export class CreateProdutoDto {
   @IsInt()
   tempoPreparoMin?: number;
 
+  // Loja / cardápio (Fase L1)
+  @IsOptional() @IsNumber() precoPromocional?: number;
+  @IsOptional() @IsArray() @IsString({ each: true }) selos?: string[];
+  @IsOptional() @IsBoolean() disponivelCardapio?: boolean;
+  @IsOptional() @IsInt() vendaMultiplo?: number;
+  @IsOptional() @IsInt() duracaoMin?: number;
+  @IsOptional() @IsString() gtin?: string;
+  @IsOptional() @IsString() cstPis?: string;
+  @IsOptional() @IsNumber() aliqPis?: number;
+  @IsOptional() @IsString() cstCofins?: string;
+  @IsOptional() @IsNumber() aliqCofins?: number;
+
   // Fiscais (Fase G)
   @IsOptional() @IsString() ncm?: string;
   @IsOptional() @IsString() cfop?: string;

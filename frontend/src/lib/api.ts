@@ -218,6 +218,9 @@ export const api = {
     }),
   removerGrupoComplemento: (grupoId: string) =>
     req(`/produtos/complementos/grupos/${grupoId}`, { method: 'DELETE' }),
+  produtoFaixas: (id: string) => req(`/produtos/${id}/faixas`),
+  setProdutoFaixas: (id: string, faixas: unknown[]) =>
+    req(`/produtos/${id}/faixas`, { method: 'PUT', body: JSON.stringify({ faixas }) }),
   removerOpcaoComplemento: (opcaoId: string) =>
     req(`/produtos/complementos/opcoes/${opcaoId}`, { method: 'DELETE' }),
   vendasConfig: () => req('/vendas/config'),

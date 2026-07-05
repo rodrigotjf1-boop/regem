@@ -5,6 +5,7 @@ import {
   produto,
   produtoVariacao,
   produtoComboItem,
+  produtoFaixaPreco,
   complementoGrupo,
   complementoOpcao,
   categoriaProduto,
@@ -76,7 +77,55 @@ export class ProdutoService {
       .from(produtoComboItem)
       .where(eq(produtoComboItem.comboProdutoId, id));
     const complementos = await this.complementosDe(tenantId, id);
-    return { ...p, variacoes, combo, complementos };
+    const faixas = await this.db
+      .select()
+      .from(produtoFaixaPreco)
+      .where(eq(produtoFaixaPreco.produtoId, id))
+      .orderBy(produtoFaixaPreco.ordem);
+    return { ...p, variacoes, combo, complementos, faixas };
+  }
+
+  // ===== Faixas de preço por volume (B2B) =====
+  faixasDe(tenantId: string, produtoId: string) {
+    return this.db
+      .select()
+      .from(produtoFaixaPreco)
+      .where(
+        and(
+          eq(produtoFaixaPreco.tenantId, tenantId),
+          eq(produtoFaixaPreco.produtoId, produtoId),
+        ),
+      )
+      .orderBy(produtoFaixaPreco.ordem);
+  }
+
+  async setFaixas(
+    tenantId: string,
+    produtoId: string,
+    faixas: { qtdMin: number; preco: number }[],
+  ) {
+    await this.db
+      .delete(produtoFaixaPreco)
+      .where(
+        and(
+          eq(produtoFaixaPreco.tenantId, tenantId),
+          eq(produtoFaixaPreco.produtoId, produtoId),
+        ),
+      );
+    if (faixas?.length) {
+      await this.db.insert(produtoFaixaPreco).values(
+        faixas
+          .filter((f) => Number(f.qtdMin) > 0)
+          .map((f, i) => ({
+            tenantId,
+            produtoId,
+            qtdMin: Number(f.qtdMin),
+            preco: String(Number(f.preco) || 0),
+            ordem: i,
+          })),
+      );
+    }
+    return this.faixasDe(tenantId, produtoId);
   }
 
   // ===== Complementos (opcionais/adicionais) =====
@@ -108,19 +157,22 @@ export class ProdutoService {
     produtoId: string,
     dto: {
       nome: string;
-      tipo: 'remover' | 'adicionar';
+      tipo: 'remover' | 'adicionar' | 'escolha';
       min?: number;
       max?: number;
       obrigatorio?: boolean;
     },
   ) {
+    const tipo = ['remover', 'adicionar', 'escolha'].includes(dto.tipo)
+      ? dto.tipo
+      : 'adicionar';
     const [g] = await this.db
       .insert(complementoGrupo)
       .values({
         tenantId,
         produtoId,
         nome: dto.nome,
-        tipo: dto.tipo,
+        tipo,
         min: dto.min ?? 0,
         max: dto.max,
         obrigatorio: dto.obrigatorio ?? false,
@@ -137,6 +189,7 @@ export class ProdutoService {
       precoDelta?: number;
       fichaIngredienteId?: string;
       itemId?: string;
+      produtoRefId?: string;
       quantidade?: number;
     },
   ) {
@@ -149,6 +202,7 @@ export class ProdutoService {
         precoDelta: dto.precoDelta != null ? String(dto.precoDelta) : '0',
         fichaIngredienteId: dto.fichaIngredienteId,
         itemId: dto.itemId,
+        produtoRefId: dto.produtoRefId,
         quantidade: dto.quantidade != null ? String(dto.quantidade) : '1',
       })
       .returning();
@@ -213,6 +267,17 @@ export class ProdutoService {
           cstIcms: dto.cstIcms,
           unidadeTrib: dto.unidadeTrib,
           aliqIcms: dto.aliqIcms != null ? String(dto.aliqIcms) : undefined,
+          precoPromocional:
+            dto.precoPromocional != null ? String(dto.precoPromocional) : undefined,
+          selos: dto.selos ?? [],
+          disponivelCardapio: dto.disponivelCardapio ?? true,
+          vendaMultiplo: dto.vendaMultiplo,
+          duracaoMin: dto.duracaoMin,
+          gtin: dto.gtin,
+          cstPis: dto.cstPis,
+          aliqPis: dto.aliqPis != null ? String(dto.aliqPis) : undefined,
+          cstCofins: dto.cstCofins,
+          aliqCofins: dto.aliqCofins != null ? String(dto.aliqCofins) : undefined,
           imagemRef: dto.imagemRef,
         })
         .returning();
@@ -284,6 +349,19 @@ export class ProdutoService {
     set('unidadeTrib', dto.unidadeTrib);
     if (dto.aliqIcms !== undefined)
       patch.aliqIcms = dto.aliqIcms != null ? String(dto.aliqIcms) : null;
+    if (dto.precoPromocional !== undefined)
+      patch.precoPromocional = dto.precoPromocional != null ? String(dto.precoPromocional) : null;
+    set('selos', dto.selos);
+    set('disponivelCardapio', dto.disponivelCardapio);
+    set('vendaMultiplo', dto.vendaMultiplo);
+    set('duracaoMin', dto.duracaoMin);
+    set('gtin', dto.gtin);
+    set('cstPis', dto.cstPis);
+    if (dto.aliqPis !== undefined)
+      patch.aliqPis = dto.aliqPis != null ? String(dto.aliqPis) : null;
+    set('cstCofins', dto.cstCofins);
+    if (dto.aliqCofins !== undefined)
+      patch.aliqCofins = dto.aliqCofins != null ? String(dto.aliqCofins) : null;
     set('imagemRef', dto.imagemRef);
 
     const [row] = await this.db
