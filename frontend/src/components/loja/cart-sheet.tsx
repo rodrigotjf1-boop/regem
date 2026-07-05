@@ -75,7 +75,7 @@ export function CartSheet({
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50" onClick={onClose}>
-      <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white text-neutral-900" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 flex items-center justify-between border-b border-neutral-100 bg-white px-4 py-3">
           <h2 className="text-lg font-bold">Seu pedido</h2>
           <button type="button" onClick={onClose} className="text-neutral-400">✕</button>
@@ -183,7 +183,7 @@ export function CartSheet({
                 </select>
               )}
               {agendar && (
-                <input type="datetime-local" value={chk.agendamento} onChange={(e) => set({ agendamento: e.target.value })} className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                <input type="datetime-local" aria-label="Data e hora do agendamento" value={chk.agendamento} onChange={(e) => set({ agendamento: e.target.value })} className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
               )}
               {isServico && (
                 <input value={chk.profissional} onChange={(e) => set({ profissional: e.target.value })} placeholder="Profissional (opcional)" className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />

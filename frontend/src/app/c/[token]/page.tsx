@@ -228,7 +228,7 @@ export default function CardapioPublicoPage() {
     const rot: Record<string, string> = { novo: 'Pedido recebido', confirmado: 'Em preparo', pronto: 'Pronto', despachado: chk.tipo === 'entrega' ? 'Saiu para entrega' : 'Aguardando retirada', concluido: 'Concluído' };
     const idx = ped.modo === 'mesa' ? 0 : Math.max(0, passos.indexOf(ped.status ?? 'novo'));
     return (
-      <main className="min-h-dvh bg-neutral-50 p-6">
+      <main className="min-h-dvh bg-neutral-50 p-6 text-neutral-900">
         <div className="mx-auto max-w-md text-center">
           <p className="text-4xl">{ped.orcamento ? '🧾' : ped.agendamento ? '📅' : '🎉'}</p>
           <h1 className="mt-1 text-xl font-bold" style={{ color: accent }}>{ped.orcamento ? 'Orçamento solicitado!' : ped.agendamento ? 'Agendamento confirmado!' : 'Pedido enviado!'}</h1>
@@ -259,7 +259,7 @@ export default function CardapioPublicoPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-neutral-50 pb-28">
+    <main className="min-h-dvh bg-neutral-50 pb-28 text-neutral-900">
       {/* Hero */}
       <header className="px-4 py-4 text-white" style={{ backgroundColor: '#1f1a14', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}33)` }}>
         <div className="flex items-center gap-3">
