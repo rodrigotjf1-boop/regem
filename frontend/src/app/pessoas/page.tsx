@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TIPO_LABEL } from '@/components/ponto/ponto-card';
 import { PontoGestao } from '@/components/ponto/ponto-gestao';
+import { AcessoSenhaCard } from '@/components/pessoas/acesso-senha-card';
 
 const AJUSTE_LABEL: Record<string, string> = {
   abono: 'Abono',
@@ -107,6 +108,11 @@ export default function PessoasPage() {
         </Card>
       ) : (
         <>
+          {podeGerir && (
+            <div className="mb-4">
+              <AcessoSenhaCard />
+            </div>
+          )}
           <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
             ⚠️ Ponto de <strong>gestão de jornada</strong> (lógica da Portaria
             671, registro imutável com NSR). Não substitui um REP-P homologado

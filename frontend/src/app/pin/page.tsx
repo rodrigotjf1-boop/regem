@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Delete } from 'lucide-react';
-import { api, setToken } from '@/lib/api';
+import { api, setToken, getCategoria, rotaInicial } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,14 @@ export default function PinPage() {
     setUnidadeId(u);
     setSaved(!!u);
     setReady(true);
+    // PIN vindo da tela de login (handoff): prefill só se a unidade já existe.
+    try {
+      const h = sessionStorage.getItem('regen_pin_handoff');
+      if (u && h) setPin(h.slice(0, 6));
+      if (h) sessionStorage.removeItem('regen_pin_handoff');
+    } catch {
+      /* */
+    }
   }, []);
 
   function salvarUnidade(e: React.FormEvent) {
@@ -60,7 +68,7 @@ export default function PinPage() {
     try {
       const r = await api.pinLogin(unidadeId, pin);
       setToken(r.access_token);
-      router.push('/painel');
+      router.replace(rotaInicial(getCategoria()));
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha no PIN');
       setPin('');

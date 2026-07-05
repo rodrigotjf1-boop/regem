@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
 import { api, getCategoria, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
@@ -43,9 +44,20 @@ export default function DashboardPage() {
     }
   }, [data]);
 
+  const router = useRouter();
   useEffect(() => {
-    if (getToken()) carregar();
-  }, [carregar]);
+    if (!getToken()) {
+      router.replace('/entrar');
+      return;
+    }
+    // Dashboard é só de gestor (RBAC do backend); demais perfis vão ao Meu Dia.
+    const cat = getCategoria();
+    if (cat !== 'presidente' && cat !== 'gerente') {
+      router.replace('/meu-dia');
+      return;
+    }
+    carregar();
+  }, [carregar, router]);
 
   const dataLabel = new Date(data + 'T00:00').toLocaleDateString('pt-BR', {
     weekday: 'long',

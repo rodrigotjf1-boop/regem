@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, setToken } from '@/lib/api';
+import { api, setToken, getToken, getCategoria, rotaInicial } from '@/lib/api';
 
 // Login (split-screen). Porte fiel do mockup Fable "regem-login" — CSS escopado em .lg.
 const CSS = `
@@ -118,10 +118,16 @@ export default function LoginPage() {
   const [pi, setPi] = useState(0);
   const [fade, setFade] = useState(false);
   const [expirada, setExpirada] = useState(false);
+  const [lembrar, setLembrar] = useState(true);
 
   useEffect(() => {
+    // Já autenticado? Vai direto pro app (não mostra o login de novo).
+    if (getToken()) {
+      router.replace(rotaInicial(getCategoria()));
+      return;
+    }
     setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -146,8 +152,9 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const r = await api.login(email, senha);
-      setToken(r.access_token);
-      router.push('/painel');
+      setToken(r.access_token, lembrar);
+      // Landing por perfil (só gestor tem dashboard). replace: não volta ao login.
+      router.replace(rotaInicial(getCategoria()));
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'E-mail ou senha incorretos.');
     } finally {
@@ -163,6 +170,8 @@ export default function LoginPage() {
       const np = p + k;
       if (np.length === 4) {
         // Fluxo real de terminal (escolhe unidade + valida PIN) vive em /pin.
+        // Passa o PIN digitado adiante (sem descartar) via sessionStorage.
+        try { sessionStorage.setItem('regen_pin_handoff', np); } catch { /* */ }
         setTimeout(() => router.push('/pin'), 200);
       }
       return np;
@@ -315,17 +324,17 @@ export default function LoginPage() {
                   <div className={`field-msg msg-warn${caps ? ' show' : ''}`}>
                     ⬆ Caps Lock está ativado.
                   </div>
-                  <div className={`field-msg msg-err${erro ? ' show' : ''}`}>
+                  <div className={`field-msg msg-err${erro ? ' show' : ''}`} role="alert" aria-live="assertive">
                     {erro || 'E-mail ou senha incorretos. Tente novamente.'}
                   </div>
                 </div>
                 <div className="row-between">
                   <label className="remember">
-                    <input type="checkbox" defaultChecked /> Manter conectado
+                    <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} /> Manter conectado
                   </label>
-                  <a className="forgot" href="#">
+                  <Link className="forgot" href="/recuperar-senha">
                     Esqueci minha senha
-                  </a>
+                  </Link>
                 </div>
                 <button
                   type="submit"
