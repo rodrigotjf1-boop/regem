@@ -289,6 +289,28 @@ export const api = {
   cardapioConfig: () => req('/cardapio/config'),
   setCardapioConfig: (body: Record<string, unknown>) =>
     req('/cardapio/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Relatórios de venda (Fase K)
+  relatorioVendas: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/vendas${q ? `?${q}` : ''}`);
+  },
+  relatorioProdutos: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/produtos${q ? `?${q}` : ''}`);
+  },
+  relatorioAtendentes: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/atendentes${q ? `?${q}` : ''}`);
+  },
   cardapioMenu: (token: string) => pub(`/publico/cardapio/${token}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
