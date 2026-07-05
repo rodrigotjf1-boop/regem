@@ -236,6 +236,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  // Delivery (Fase H)
+  deliveryPedidos: () => req('/delivery/pedidos'),
+  aceitarDelivery: (id: string) =>
+    req(`/delivery/pedidos/${id}/aceitar`, { method: 'POST', body: '{}' }),
+  avancarDelivery: (id: string) =>
+    req(`/delivery/pedidos/${id}/avancar`, { method: 'POST', body: '{}' }),
+  cancelarDelivery: (id: string, motivo?: string) =>
+    req(`/delivery/pedidos/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
+    }),
+  deliveryConfig: () => req('/delivery/config'),
+  setDeliveryConfig: (body: Record<string, unknown>) =>
+    req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),
+  simularDelivery: (body: Record<string, unknown>) =>
+    req('/delivery/simular', { method: 'POST', body: JSON.stringify(body) }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>

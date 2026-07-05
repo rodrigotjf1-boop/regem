@@ -494,6 +494,206 @@ export class VendasService {
     await this.producao.enfileirarViaCliente(tenantId, unidadeId, comandaId, conteudo);
   }
 
+  // Venda por canal externo (delivery). Sem caixa: baixa estoque, cria produção
+  // (F1), lança no financeiro como 'online' e emite NFC-e se ativo. Reaproveita
+  // a mesma lógica da venda de balcão.
+  async venderExterno(
+    tenantId: string,
+    atorId: string | null,
+    dto: {
+      unidadeId?: string | null;
+      cliente?: string | null;
+      forma?: string | null;
+      origem?: string;
+      itens: {
+        produtoId?: string | null;
+        descricao: string;
+        quantidade: number;
+        precoUnitario: number;
+        observacao?: string | null;
+      }[];
+    },
+  ) {
+    if (!dto.itens?.length)
+      throw new BadRequestException('Pedido sem itens.');
+    const res = await this.db.transaction(async (tx) => {
+      const [cmd] = await tx
+        .insert(comanda)
+        .values({
+          tenantId,
+          unidadeId: dto.unidadeId,
+          cliente: dto.cliente,
+          status: 'fechada',
+          forma: dto.forma ?? 'online',
+          fechadaEm: new Date(),
+          abertaPorId: atorId,
+        })
+        .returning();
+
+      let total = 0;
+      const itensProducao: ItemProducao[] = [];
+      const consumo = new Map<string, number>();
+      for (const it of dto.itens) {
+        const qtd = Number(it.quantidade) || 1;
+        const preco = Number(it.precoUnitario) || 0;
+        total += preco * qtd;
+        let p: any = null;
+        if (it.produtoId) {
+          [p] = await tx
+            .select()
+            .from(produto)
+            .where(and(eq(produto.id, it.produtoId), eq(produto.tenantId, tenantId)));
+        }
+        const [ci] = await tx
+          .insert(comandaItem)
+          .values({
+            tenantId,
+            comandaId: cmd.id,
+            produtoId: p?.id ?? null,
+            fichaId: p?.fichaId ?? null,
+            descricao: it.descricao,
+            quantidade: String(qtd),
+            precoUnitario: String(preco),
+            observacao: it.observacao ?? null,
+            criadoPorId: atorId,
+          })
+          .returning();
+        if (p) {
+          await this.acumularProduto(tx, tenantId, p, 1, qtd, [], consumo);
+          if (p.vaiParaProducao)
+            itensProducao.push({
+              produto: p,
+              descricao: it.descricao,
+              quantidade: qtd,
+              observacao: it.observacao ?? null,
+              comandaItemId: ci.id,
+            });
+        }
+      }
+      await this.lancarSaidas(tx, tenantId, consumo, cmd.id);
+      const producaoPayloads = await this.producao.criarPedidos(
+        tx,
+        {
+          tenantId,
+          unidadeId: dto.unidadeId ?? null,
+          comandaId: cmd.id,
+          origem: dto.origem ?? 'delivery',
+          mesa: null,
+        },
+        itensProducao,
+      );
+      await tx
+        .update(comanda)
+        .set({ total: String(total.toFixed(2)) })
+        .where(eq(comanda.id, cmd.id));
+      // Financeiro: lançamento 'online' sem sessão de caixa (delivery é pré-pago).
+      await tx.insert(lancamentoCaixa).values({
+        tenantId,
+        unidadeId: dto.unidadeId,
+        comandaId: cmd.id,
+        tipo: 'entrada',
+        valor: String(total.toFixed(2)),
+        data: hojeISO(),
+        categoria: 'venda',
+        forma: dto.forma ?? 'online',
+        descricao: `Venda ${dto.origem ?? 'delivery'}`,
+        criadoPorId: atorId,
+      });
+      return { comandaId: cmd.id, total: Number(total.toFixed(2)), producaoPayloads };
+    });
+
+    this.producao.emitirNovos(res.producaoPayloads);
+    await this.fiscal.emitirSeAtivo(tenantId, atorId, res.comandaId, dto.unidadeId ?? null);
+    return res;
+  }
+
+  // Estorna uma venda externa (delivery cancelado). Como não passa por caixa,
+  // reverte estoque (entrada inversa) e o lançamento 'online', sem exigir sessão.
+  async estornarVendaExterna(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    comandaId: string,
+    motivo?: string,
+  ) {
+    await this.db.transaction(async (tx) => {
+      const [c] = await tx
+        .select()
+        .from(comanda)
+        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+      if (!c) throw new NotFoundException('Comanda não encontrada');
+      if (c.status === 'cancelada') return;
+
+      const saidas = await tx
+        .select()
+        .from(movimentoEstoque)
+        .where(
+          and(
+            eq(movimentoEstoque.tenantId, tenantId),
+            eq(movimentoEstoque.refTipo, 'venda'),
+            eq(movimentoEstoque.refId, comandaId),
+          ),
+        );
+      for (const m of saidas) {
+        await tx.insert(movimentoEstoque).values({
+          tenantId,
+          itemId: m.itemId,
+          tipo: 'entrada',
+          quantidade: m.quantidade,
+          custoUnitario: m.custoUnitario ?? undefined,
+          motivo: 'estorno',
+          refTipo: 'estorno',
+          refId: comandaId,
+          data: hojeISO(),
+        });
+      }
+      const [lanc] = await tx
+        .select()
+        .from(lancamentoCaixa)
+        .where(
+          and(
+            eq(lancamentoCaixa.tenantId, tenantId),
+            eq(lancamentoCaixa.comandaId, comandaId),
+            eq(lancamentoCaixa.tipo, 'entrada'),
+          ),
+        );
+      if (lanc) {
+        await tx.insert(lancamentoCaixa).values({
+          tenantId,
+          unidadeId: lanc.unidadeId,
+          comandaId,
+          tipo: 'saida',
+          valor: lanc.valor,
+          data: hojeISO(),
+          categoria: 'estorno',
+          estornoDe: lanc.id,
+          descricao: 'Estorno · delivery cancelado',
+          criadoPorId: atorId,
+        });
+      }
+      await tx
+        .update(comanda)
+        .set({
+          status: 'cancelada',
+          canceladaEm: new Date(),
+          canceladaPorId: atorId,
+          motivoCancelamento: motivo,
+        })
+        .where(eq(comanda.id, comandaId));
+    });
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'venda',
+      acao: 'cancelou_delivery',
+      entidadeTipo: 'comanda',
+      entidadeId: comandaId,
+      detalhe: { motivo },
+    });
+    return { ok: true };
+  }
+
   // ===== Mesas & comandas (J3) =====
   async abrirComanda(
     tenantId: string,

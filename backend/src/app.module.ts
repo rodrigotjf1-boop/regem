@@ -42,6 +42,7 @@ import { ProducaoModule } from './modules/producao/producao.module';
 import { ProducaoPedidoModule } from './modules/producao-pedido/producao-pedido.module';
 import { ImpressaoModule } from './modules/impressao/impressao.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
+import { DeliveryModule } from './modules/delivery/delivery.module';
 import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
@@ -93,6 +94,7 @@ import { AuthModule } from './auth/auth.module';
     ProducaoPedidoModule,
     ImpressaoModule,
     FiscalModule,
+    DeliveryModule,
     MuralModule,
     BotModule,
     SyncModule,
