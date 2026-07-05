@@ -1316,6 +1316,13 @@ export const pedidoExterno = pgTable('pedido_externo', {
   concluidoEm: timestamp('concluido_em', { withTimezone: true }),
   canceladoEm: timestamp('cancelado_em', { withTimezone: true }),
   motivoCancelamento: text('motivo_cancelamento'),
+  // Checkout da Loja (Fase L3)
+  taxaEntrega: numeric('taxa_entrega').notNull().default('0'),
+  cupom: text('cupom'),
+  desconto: numeric('desconto').notNull().default('0'),
+  trocoPara: numeric('troco_para'),
+  pago: boolean('pago').notNull().default(false),
+  statusPagamento: text('status_pagamento').notNull().default('na_entrega'), // na_entrega|aguardando|aprovado
 });
 
 // ===== TEF — pagamento integrado (Fase I) =====
@@ -1393,4 +1400,31 @@ export const produtoFaixaPreco = pgTable('produto_faixa_preco', {
   qtdMin: integer('qtd_min').notNull().default(1),
   preco: numeric('preco').notNull().default('0'),
   ordem: integer('ordem').notNull().default(0),
+});
+
+// ===== Loja checkout (Fase L3) =====
+export const cardapioBairro = pgTable('cardapio_bairro', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  nome: text('nome').notNull(),
+  taxa: numeric('taxa').notNull().default('0'),
+  ordem: integer('ordem').notNull().default(0),
+});
+
+export const cupom = pgTable('cupom', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  codigo: text('codigo').notNull(),
+  tipo: text('tipo').notNull().default('percentual'), // percentual | valor
+  valor: numeric('valor').notNull().default('0'),
+  minimo: numeric('minimo'),
+  ativo: boolean('ativo').notNull().default(true),
+  validade: date('validade'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -317,6 +317,18 @@ export const api = {
   cardapioMenu: (token: string) => pub(`/publico/cardapio/${token}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
+  cardapioCupomValidar: (token: string, codigo: string, subtotal: number) =>
+    pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal }) }),
+  cardapioStatus: (token: string, id: string) => pub(`/publico/cardapio/${token}/pedido/${id}`),
+  cardapioPagar: (token: string, id: string) =>
+    pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
+  cardapioBairros: () => req('/cardapio/bairros'),
+  setCardapioBairros: (bairros: unknown[]) =>
+    req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),
+  cardapioCupons: () => req('/cardapio/cupons'),
+  criarCupom: (body: Record<string, unknown>) =>
+    req('/cardapio/cupons', { method: 'POST', body: JSON.stringify(body) }),
+  removerCupom: (id: string) => req(`/cardapio/cupons/${id}`, { method: 'DELETE' }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>
