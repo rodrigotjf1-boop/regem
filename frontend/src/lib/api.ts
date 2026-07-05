@@ -322,6 +322,8 @@ export const api = {
   cardapioStatus: (token: string, id: string) => pub(`/publico/cardapio/${token}/pedido/${id}`),
   cardapioPagar: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
+  cardapioPontos: (token: string, telefone: string) =>
+    pub(`/publico/cardapio/${token}/pontos?telefone=${encodeURIComponent(telefone)}`),
   cardapioBairros: () => req('/cardapio/bairros'),
   setCardapioBairros: (bairros: unknown[]) =>
     req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),
