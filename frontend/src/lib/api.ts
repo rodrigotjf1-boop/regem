@@ -129,8 +129,72 @@ export const api = {
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
   fichasLista: () => req('/fichas'),
+  ficha: (id: string) => req(`/fichas/${id}`),
+  estoqueItens: () => req('/estoque/itens'),
+  // Produção (Fase F1)
+  producaoFila: (setorId?: string, unidadeId?: string) => {
+    const p = new URLSearchParams();
+    if (setorId) p.set('setorId', setorId);
+    if (unidadeId) p.set('unidadeId', unidadeId);
+    const q = p.toString();
+    return req(`/producao/fila${q ? `?${q}` : ''}`);
+  },
+  producaoAvancar: (id: string) =>
+    req(`/producao/pedidos/${id}/avancar`, { method: 'POST', body: '{}' }),
+  producaoPedidos: (unidadeId?: string) =>
+    req(`/producao/pedidos${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  cancelarPedidoProducao: (id: string, motivo?: string) =>
+    req(`/producao/pedidos/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify({ motivo }),
+    }),
+  destinosProduto: (id: string) => req(`/producao/produtos/${id}/destinos`),
+  setDestinosProduto: (id: string, equipamentoIds: string[]) =>
+    req(`/producao/produtos/${id}/destinos`, {
+      method: 'PUT',
+      body: JSON.stringify({ equipamentoIds }),
+    }),
+  destinosSetor: (id: string) => req(`/producao/setores/${id}/destinos`),
+  setDestinosSetor: (id: string, equipamentoIds: string[]) =>
+    req(`/producao/setores/${id}/destinos`, {
+      method: 'PUT',
+      body: JSON.stringify({ equipamentoIds }),
+    }),
+  kdsCores: (unidadeId?: string) =>
+    req(`/producao/cores${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  setKdsCores: (body: Record<string, unknown>) =>
+    req('/producao/cores', { method: 'PUT', body: JSON.stringify(body) }),
   vendaBalcao: (body: Record<string, unknown>) =>
     req('/vendas/balcao', { method: 'POST', body: JSON.stringify(body) }),
+  produtoComplementos: (produtoId: string) =>
+    req(`/produtos/${produtoId}/complementos`),
+  criarGrupoComplemento: (produtoId: string, body: Record<string, unknown>) =>
+    req(`/produtos/${produtoId}/complementos/grupos`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  criarOpcaoComplemento: (grupoId: string, body: Record<string, unknown>) =>
+    req(`/produtos/complementos/grupos/${grupoId}/opcoes`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  removerGrupoComplemento: (grupoId: string) =>
+    req(`/produtos/complementos/grupos/${grupoId}`, { method: 'DELETE' }),
+  removerOpcaoComplemento: (opcaoId: string) =>
+    req(`/produtos/complementos/opcoes/${opcaoId}`, { method: 'DELETE' }),
+  vendasConfig: () => req('/vendas/config'),
+  setCancelamentoLivre: (ativo: boolean) =>
+    req('/vendas/config/cancelamento-livre', {
+      method: 'POST',
+      body: JSON.stringify({ ativo }),
+    }),
+  vendasCupons: () => req('/vendas/cupons'),
+  vendasCupom: (id: string) => req(`/vendas/cupons/${id}`),
+  cancelarVenda: (id: string, body: Record<string, unknown>) =>
+    req(`/vendas/comandas/${id}/cancelar`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>

@@ -1,15 +1,19 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   comanda,
   comandaItem,
+  comandaItemComplemento,
+  complementoGrupo,
+  complementoOpcao,
   produto,
   produtoVariacao,
   produtoComboItem,
@@ -19,8 +23,13 @@ import {
   movimentoEstoque,
   lancamentoCaixa,
   caixaSessao,
+  entitlement,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import {
+  ProducaoPedidoService,
+  ItemProducao,
+} from '../producao-pedido/producao-pedido.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -34,20 +43,22 @@ export class VendasService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
     private readonly events: EventEmitter2,
+    private readonly producao: ProducaoPedidoService,
   ) {}
 
-  // Baixa por explosão de UMA ficha: cada insumo (com item de estoque) sai valorado
-  // ao custo médio. multiplicador = qtd vendida × fator da variação × qtd do combo.
-  // Sub-fichas (sub-receitas) explodem recursivamente; `visitados` barra ciclo
-  // (silencioso — ciclos já são impedidos ao montar a ficha).
-  private async baixaFicha(
+  // ACUMULA (não insere) o consumo por item da explosão de UMA ficha no mapa
+  // `consumo`. `remover` = ids de ficha_ingrediente que NÃO devem baixar (opcionais
+  // "sem X"). Sub-fichas explodem recursivamente; `visitados` barra ciclo.
+  private async acumularFicha(
     tx: any,
     tenantId: string,
     fichaId: string,
     multiplicador: number,
+    consumo: Map<string, number>,
+    remover: Set<string>,
     visitados: Set<string> = new Set(),
   ) {
-    if (visitados.has(fichaId)) return; // guarda anti-ciclo
+    if (visitados.has(fichaId)) return;
     const [ficha] = await tx
       .select({ rendimento: fichaTecnica.rendimento })
       .from(fichaTecnica)
@@ -60,29 +71,18 @@ export class VendasService {
     const proximos = new Set(visitados);
     proximos.add(fichaId);
     for (const ing of ings) {
-      const consumo =
+      if (remover.has(ing.id)) continue; // opcional removido ("sem alface")
+      const c =
         ((Number(ing.quantidade) * Number(ing.fatorCorrecao)) / rendimento) *
         multiplicador;
-      if (consumo <= 0) continue;
+      if (c <= 0) continue;
       if (ing.subFichaId) {
-        // Sub-receita: baixa `consumo` porções dela nos itens-raiz.
-        await this.baixaFicha(tx, tenantId, ing.subFichaId, consumo, proximos);
+        // Sub-receita: remoção só vale no nível do produto → set vazio na recursão.
+        await this.acumularFicha(tx, tenantId, ing.subFichaId, c, consumo, new Set(), proximos);
         continue;
       }
-      if (!ing.itemId) continue; // insumo avulso → não baixa
-      const [item] = await tx
-        .select({ custoMedio: itemEstoque.custoMedio })
-        .from(itemEstoque)
-        .where(eq(itemEstoque.id, ing.itemId));
-      await tx.insert(movimentoEstoque).values({
-        tenantId,
-        itemId: ing.itemId,
-        tipo: 'saida',
-        quantidade: String(consumo),
-        custoUnitario: item?.custoMedio != null ? String(item.custoMedio) : undefined,
-        motivo: 'venda',
-        data: hojeISO(),
-      });
+      if (!ing.itemId) continue;
+      consumo.set(ing.itemId, (consumo.get(ing.itemId) ?? 0) + c);
     }
   }
 
@@ -97,37 +97,137 @@ export class VendasService {
     return s?.id ?? null;
   }
 
-  // Baixa de um produto vendido (simples/variável/combo), respeitando controla_estoque.
-  private async baixaProduto(
+  // ACUMULA o consumo por item de um produto vendido (simples/variável/combo)
+  // + complementos: opcionais 'remover' suprimem ingredientes; 'adicionar' baixam
+  // itens extras. Respeita controla_estoque para a ficha; adicionais sempre baixam.
+  private async acumularProduto(
     tx: any,
     tenantId: string,
     p: any,
     fatorFicha: number,
     quantidade: number,
+    complementos: any[],
+    consumo: Map<string, number>,
   ) {
-    if (!p.controlaEstoque) return;
-    if (p.tipo === 'combo') {
-      const comps = await tx
-        .select({
-          fichaId: produto.fichaId,
-          controla: produto.controlaEstoque,
-          q: produtoComboItem.quantidade,
-        })
-        .from(produtoComboItem)
-        .innerJoin(produto, eq(produto.id, produtoComboItem.componenteProdutoId))
-        .where(eq(produtoComboItem.comboProdutoId, p.id));
-      for (const c of comps) {
-        if (c.fichaId && c.controla)
-          await this.baixaFicha(
-            tx,
-            tenantId,
-            c.fichaId,
-            quantidade * fatorFicha * (Number(c.q) || 1),
-          );
+    const remover = new Set<string>(
+      complementos
+        .filter((c) => c.tipo === 'remover' && c.fichaIngredienteId)
+        .map((c) => c.fichaIngredienteId),
+    );
+    if (p.controlaEstoque) {
+      if (p.tipo === 'combo') {
+        const comps = await tx
+          .select({
+            fichaId: produto.fichaId,
+            controla: produto.controlaEstoque,
+            q: produtoComboItem.quantidade,
+          })
+          .from(produtoComboItem)
+          .innerJoin(produto, eq(produto.id, produtoComboItem.componenteProdutoId))
+          .where(eq(produtoComboItem.comboProdutoId, p.id));
+        for (const c of comps) {
+          if (c.fichaId && c.controla)
+            await this.acumularFicha(
+              tx,
+              tenantId,
+              c.fichaId,
+              quantidade * fatorFicha * (Number(c.q) || 1),
+              consumo,
+              new Set(), // remoção não se aplica a itens de combo
+            );
+        }
+      } else if (p.fichaId) {
+        await this.acumularFicha(
+          tx,
+          tenantId,
+          p.fichaId,
+          quantidade * fatorFicha,
+          consumo,
+          remover,
+        );
       }
-    } else if (p.fichaId) {
-      await this.baixaFicha(tx, tenantId, p.fichaId, quantidade * fatorFicha);
     }
+    // Adicionais (extra bacon): item de estoque próprio → baixa sempre.
+    for (const c of complementos.filter((x) => x.tipo === 'adicionar' && x.itemId)) {
+      const q = (Number(c.quantidade) || 1) * quantidade;
+      if (q > 0) consumo.set(c.itemId, (consumo.get(c.itemId) ?? 0) + q);
+    }
+  }
+
+  // Insere um movimento de saída por item agregado (ref = venda/comanda → reversível).
+  private async lancarSaidas(
+    tx: any,
+    tenantId: string,
+    consumo: Map<string, number>,
+    comandaId: string,
+  ) {
+    for (const [itemId, qtd] of consumo) {
+      if (qtd <= 0) continue;
+      const [item] = await tx
+        .select({ custoMedio: itemEstoque.custoMedio })
+        .from(itemEstoque)
+        .where(eq(itemEstoque.id, itemId));
+      await tx.insert(movimentoEstoque).values({
+        tenantId,
+        itemId,
+        tipo: 'saida',
+        quantidade: String(qtd),
+        custoUnitario: item?.custoMedio != null ? String(item.custoMedio) : undefined,
+        motivo: 'venda',
+        refTipo: 'venda',
+        refId: comandaId,
+        data: hojeISO(),
+      });
+    }
+  }
+
+  // Resolve os complementos escolhidos (por opcaoId) validando que pertencem ao
+  // produto; devolve snapshots + delta de preço. (Segurança: preço vem do banco.)
+  private async resolverComplementos(
+    tx: any,
+    tenantId: string,
+    produtoId: string,
+    opcaoIds: string[],
+  ): Promise<{ snapshots: any[]; precoDelta: number }> {
+    if (!opcaoIds?.length) return { snapshots: [], precoDelta: 0 };
+    const opcoes = await tx
+      .select({
+        id: complementoOpcao.id,
+        nome: complementoOpcao.nome,
+        precoDelta: complementoOpcao.precoDelta,
+        fichaIngredienteId: complementoOpcao.fichaIngredienteId,
+        itemId: complementoOpcao.itemId,
+        quantidade: complementoOpcao.quantidade,
+        tipo: complementoGrupo.tipo,
+        gProduto: complementoGrupo.produtoId,
+      })
+      .from(complementoOpcao)
+      .innerJoin(
+        complementoGrupo,
+        eq(complementoGrupo.id, complementoOpcao.grupoId),
+      )
+      .where(
+        and(
+          eq(complementoOpcao.tenantId, tenantId),
+          inArray(complementoOpcao.id, opcaoIds),
+        ),
+      );
+    const snapshots: any[] = [];
+    let precoDelta = 0;
+    for (const o of opcoes) {
+      if (o.gProduto !== produtoId) continue; // não é deste produto → ignora
+      precoDelta += Number(o.precoDelta) || 0;
+      snapshots.push({
+        opcaoId: o.id,
+        tipo: o.tipo,
+        nome: o.nome,
+        precoDelta: o.precoDelta,
+        fichaIngredienteId: o.fichaIngredienteId,
+        itemId: o.itemId,
+        quantidade: o.quantidade,
+      });
+    }
+    return { snapshots, precoDelta };
   }
 
   // Venda balcão rápida: paga na hora → comanda fechada + baixa + caixa + pedido KDS.
@@ -157,6 +257,11 @@ export class VendasService {
     let res: any;
     try {
       res = await this.db.transaction(async (tx) => {
+      // Fase A: venda exige caixa aberto.
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
+      if (!sessaoId)
+        throw new BadRequestException('Abra o caixa para registrar vendas.');
+
       const taxa = Number(dto.taxaServicoPct) || 0;
       const [cmd] = await tx
         .insert(comanda)
@@ -167,13 +272,15 @@ export class VendasService {
           status: 'fechada',
           idempotencyKey: dto.idempotencyKey,
           taxaServicoPct: String(taxa),
+          forma: dto.forma,
           fechadaEm: new Date(),
           abertaPorId: atorId,
         })
         .returning();
 
       let total = 0;
-      const pedidoKds: any[] = [];
+      const itensProducao: ItemProducao[] = [];
+      const consumo = new Map<string, number>(); // baixa agregada por item
 
       for (const it of dto.itens) {
         const [p] = await tx
@@ -197,36 +304,85 @@ export class VendasService {
             fatorFicha = Number(v.fatorFicha) || 1;
           }
         }
+
+        // Complementos escolhidos (opcionais/adicionais) — preço vem do banco.
+        const { snapshots, precoDelta } = await this.resolverComplementos(
+          tx,
+          tenantId,
+          p.id,
+          (it as any).complementos ?? [],
+        );
+        preco += precoDelta;
         total += preco * qtd;
 
-        await tx.insert(comandaItem).values({
-          tenantId,
-          comandaId: cmd.id,
-          produtoId: p.id,
-          variacaoId: it.variacaoId,
-          fichaId: p.fichaId,
-          descricao,
-          quantidade: String(qtd),
-          precoUnitario: String(preco),
-          criadoPorId: atorId,
-        });
+        const [ci] = await tx
+          .insert(comandaItem)
+          .values({
+            tenantId,
+            comandaId: cmd.id,
+            produtoId: p.id,
+            variacaoId: it.variacaoId,
+            fichaId: p.fichaId,
+            descricao,
+            quantidade: String(qtd),
+            precoUnitario: String(preco),
+            criadoPorId: atorId,
+          })
+          .returning();
 
-        await this.baixaProduto(tx, tenantId, p, fatorFicha, qtd);
+        for (const s of snapshots) {
+          await tx.insert(comandaItemComplemento).values({
+            tenantId,
+            comandaItemId: ci.id,
+            opcaoId: s.opcaoId,
+            tipo: s.tipo,
+            nome: s.nome,
+            precoDelta: String(s.precoDelta),
+            fichaIngredienteId: s.fichaIngredienteId,
+            itemId: s.itemId,
+            quantidade: String(s.quantidade),
+          });
+        }
+
+        await this.acumularProduto(tx, tenantId, p, fatorFicha, qtd, snapshots, consumo);
 
         if (p.vaiParaProducao)
-          pedidoKds.push({
+          itensProducao.push({
+            produto: p,
             descricao,
             quantidade: qtd,
-            setorProducaoId: p.setorProducaoId ?? null,
+            complementosTexto: snapshots
+              .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
+              .join(' · ') || null,
+            comandaItemId: ci.id,
           });
       }
 
+      await this.lancarSaidas(tx, tenantId, consumo, cmd.id);
+
+      // Pedidos de produção duráveis (um por destino) — roteados por produto.
+      const producaoPayloads = await this.producao.criarPedidos(
+        tx,
+        {
+          tenantId,
+          unidadeId: dto.unidadeId ?? null,
+          comandaId: cmd.id,
+          origem: dto.mesa ? 'mesa' : 'balcao',
+          mesa: dto.mesa ?? null,
+        },
+        itensProducao,
+      );
+
       const totalComTaxa = total * (1 + taxa / 100);
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
+      await tx
+        .update(comanda)
+        .set({ total: String(totalComTaxa.toFixed(2)) })
+        .where(eq(comanda.id, cmd.id));
       await tx.insert(lancamentoCaixa).values({
         tenantId,
         unidadeId: dto.unidadeId,
-        sessaoId: sessaoId ?? undefined,
+        sessaoId,
+        comandaId: cmd.id,
         tipo: 'entrada',
         valor: String(totalComTaxa.toFixed(2)),
         data: hojeISO(),
@@ -241,7 +397,7 @@ export class VendasService {
         subtotal: Number(total.toFixed(2)),
         taxaServicoPct: taxa,
         total: Number(totalComTaxa.toFixed(2)),
-        pedidoKds,
+        producaoPayloads,
         unidadeId: dto.unidadeId ?? null,
       };
       });
@@ -273,16 +429,8 @@ export class VendasService {
       detalhe: { total: res.total, itens: dto.itens.length },
     });
 
-    // Pedido para o KDS de produção (tempo real).
-    if (res.pedidoKds.length) {
-      this.events.emit('kds.pedido', {
-        tenantId,
-        unidadeId: res.unidadeId,
-        comandaId: res.comandaId,
-        mesa: dto.mesa ?? null,
-        itens: res.pedidoKds,
-      });
-    }
+    // Notifica destinos (KDS/impressora) dos novos pedidos duráveis (tempo real).
+    this.producao.emitirNovos(res.producaoPayloads);
 
     return res;
   }
@@ -331,14 +479,34 @@ export class VendasService {
       .select()
       .from(comandaItem)
       .where(eq(comandaItem.comandaId, id));
-    return { ...c, itens };
+    const comps = itens.length
+      ? await this.db
+          .select()
+          .from(comandaItemComplemento)
+          .where(
+            inArray(
+              comandaItemComplemento.comandaItemId,
+              itens.map((i) => i.id),
+            ),
+          )
+      : [];
+    const itensCom = itens.map((i) => ({
+      ...i,
+      complementos: comps.filter((x) => x.comandaItemId === i.id),
+    }));
+    return { ...c, itens: itensCom };
   }
 
   async adicionarItem(
     tenantId: string,
     atorId: string,
     comandaId: string,
-    dto: { produtoId: string; variacaoId?: string; quantidade: number },
+    dto: {
+      produtoId: string;
+      variacaoId?: string;
+      quantidade: number;
+      complementos?: string[];
+    },
   ) {
     const [c] = await this.db
       .select()
@@ -366,6 +534,13 @@ export class VendasService {
         descricao = `${p.nome} · ${v.nome}`;
       }
     }
+    const { snapshots, precoDelta } = await this.resolverComplementos(
+      this.db,
+      tenantId,
+      p.id,
+      dto.complementos ?? [],
+    );
+    preco += precoDelta;
     const qtd = Number(dto.quantidade) || 1;
     const [item] = await this.db
       .insert(comandaItem)
@@ -381,18 +556,45 @@ export class VendasService {
         criadoPorId: atorId,
       })
       .returning();
-
-    // Cozinha começa já (o pedido vai pro KDS ao lançar, não ao fechar).
-    if (p.vaiParaProducao) {
-      this.events.emit('kds.pedido', {
+    for (const s of snapshots) {
+      await this.db.insert(comandaItemComplemento).values({
         tenantId,
-        unidadeId: c.unidadeId,
-        comandaId,
-        mesa: c.mesa,
-        itens: [
-          { descricao, quantidade: qtd, setorProducaoId: p.setorProducaoId ?? null },
-        ],
+        comandaItemId: item.id,
+        opcaoId: s.opcaoId,
+        tipo: s.tipo,
+        nome: s.nome,
+        precoDelta: String(s.precoDelta),
+        fichaIngredienteId: s.fichaIngredienteId,
+        itemId: s.itemId,
+        quantidade: String(s.quantidade),
       });
+    }
+
+    // Cozinha começa já (o pedido de produção vai ao destino ao lançar, não ao fechar).
+    if (p.vaiParaProducao) {
+      const payloads = await this.producao.criarPedidos(
+        this.db,
+        {
+          tenantId,
+          unidadeId: c.unidadeId,
+          comandaId,
+          origem: c.mesa ? 'mesa' : 'comanda',
+          mesa: c.mesa,
+        },
+        [
+          {
+            produto: p,
+            descricao,
+            quantidade: qtd,
+            complementosTexto:
+              snapshots
+                .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
+                .join(' · ') || null,
+            comandaItemId: item.id,
+          },
+        ],
+      );
+      this.producao.emitirNovos(payloads);
     }
     return item;
   }
@@ -423,6 +625,10 @@ export class VendasService {
       if (c.status !== 'aberta')
         throw new BadRequestException('Comanda não está aberta');
 
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
+      if (!sessaoId)
+        throw new BadRequestException('Abra o caixa para fechar a comanda.');
+
       const itens = await tx
         .select()
         .from(comandaItem)
@@ -431,6 +637,7 @@ export class VendasService {
         throw new BadRequestException('Comanda sem itens');
 
       let total = 0;
+      const consumo = new Map<string, number>();
       for (const it of itens) {
         total += Number(it.precoUnitario) * Number(it.quantidade);
         const [p] = await tx
@@ -446,20 +653,33 @@ export class VendasService {
               .where(eq(produtoVariacao.id, it.variacaoId));
             if (v) fator = Number(v.fatorFicha) || 1;
           }
-          await this.baixaProduto(tx, tenantId, p, fator, Number(it.quantidade));
+          const comps = await tx
+            .select()
+            .from(comandaItemComplemento)
+            .where(eq(comandaItemComplemento.comandaItemId, it.id));
+          await this.acumularProduto(
+            tx,
+            tenantId,
+            p,
+            fator,
+            Number(it.quantidade),
+            comps,
+            consumo,
+          );
         }
       }
+      await this.lancarSaidas(tx, tenantId, consumo, comandaId);
 
       const taxa =
         dto.taxaServicoPct != null
           ? dto.taxaServicoPct
           : Number(c.taxaServicoPct) || 0;
       const totalComTaxa = total * (1 + taxa / 100);
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
       await tx.insert(lancamentoCaixa).values({
         tenantId,
         unidadeId: c.unidadeId,
-        sessaoId: sessaoId ?? undefined,
+        sessaoId,
+        comandaId,
         tipo: 'entrada',
         valor: String(totalComTaxa.toFixed(2)),
         data: hojeISO(),
@@ -474,6 +694,8 @@ export class VendasService {
           status: 'fechada',
           fechadaEm: new Date(),
           taxaServicoPct: String(taxa),
+          total: String(totalComTaxa.toFixed(2)),
+          forma: dto.forma,
         })
         .where(eq(comanda.id, comandaId));
 
@@ -496,5 +718,162 @@ export class VendasService {
       detalhe: { total: res.total },
     });
     return res;
+  }
+
+  // ===== Cupons & cancelamento (Fase C) =====
+  // Cupons = vendas fechadas/canceladas (as comandas). Consulta pelo atendente/gerente.
+  listarCupons(tenantId: string, limite = 50) {
+    return this.db.execute(sql`
+      select c.id, c.mesa, c.status, c.total, c.forma,
+             c.fechada_em as "fechadaEm", c.cancelada_em as "canceladaEm",
+             c.motivo_cancelamento as "motivoCancelamento"
+      from comanda c
+      where c.tenant_id = ${tenantId} and c.status in ('fechada','cancelada')
+      order by coalesce(c.fechada_em, c.aberta_em) desc
+      limit ${limite}
+    `).then((r: any) => r.rows ?? r);
+  }
+
+  getCupom(tenantId: string, id: string) {
+    return this.getComanda(tenantId, id);
+  }
+
+  // Configuração do presidente/C&O: se o cancelamento é livre para o atendente.
+  private async cancelamentoLivre(tenantId: string): Promise<boolean> {
+    const [e] = await this.db
+      .select({ ativo: entitlement.ativo })
+      .from(entitlement)
+      .where(
+        and(
+          eq(entitlement.tenantId, tenantId),
+          eq(entitlement.modulo, 'pdv_cancelamento_livre'),
+        ),
+      );
+    return !!e?.ativo;
+  }
+
+  // Config do PDV (presidente/C&O): estado dos flags configuráveis.
+  async getConfig(tenantId: string) {
+    return { cancelamentoLivre: await this.cancelamentoLivre(tenantId) };
+  }
+
+  // Liga/desliga o cancelamento livre pelo atendente (upsert do entitlement).
+  async setCancelamentoLivre(tenantId: string, ativo: boolean) {
+    await this.db
+      .insert(entitlement)
+      .values({ tenantId, modulo: 'pdv_cancelamento_livre', ativo })
+      .onConflictDoUpdate({
+        target: [entitlement.tenantId, entitlement.modulo],
+        set: { ativo, updatedAt: new Date() },
+      });
+    return { cancelamentoLivre: ativo };
+  }
+
+  // Cancela uma venda fechada: estorna estoque (entrada inversa) + caixa (lançamento
+  // de estorno) e marca a comanda como cancelada. Reversível pois a baixa carrega
+  // ref_tipo='venda'/ref_id=comanda.
+  async cancelar(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    comandaId: string,
+    dto: { motivo?: string },
+  ) {
+    // Autorização: atendente só cancela se o presidente liberou; gerente+ sempre.
+    if (atorPerfil === 'atendente' && !(await this.cancelamentoLivre(tenantId))) {
+      throw new ForbiddenException(
+        'Cancelamento requer autorização de um gerente.',
+      );
+    }
+
+    await this.db.transaction(async (tx) => {
+      const [c] = await tx
+        .select()
+        .from(comanda)
+        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+      if (!c) throw new NotFoundException('Cupom não encontrado');
+      if (c.status !== 'fechada')
+        throw new BadRequestException(
+          c.status === 'cancelada' ? 'Já cancelado.' : 'Só cancela venda fechada.',
+        );
+
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
+      if (!sessaoId)
+        throw new BadRequestException('Abra o caixa para cancelar a venda.');
+
+      // Estorna estoque: entrada inversa de cada saída da venda.
+      const saidas = await tx
+        .select()
+        .from(movimentoEstoque)
+        .where(
+          and(
+            eq(movimentoEstoque.tenantId, tenantId),
+            eq(movimentoEstoque.refTipo, 'venda'),
+            eq(movimentoEstoque.refId, comandaId),
+          ),
+        );
+      for (const m of saidas) {
+        await tx.insert(movimentoEstoque).values({
+          tenantId,
+          itemId: m.itemId,
+          tipo: 'entrada',
+          quantidade: m.quantidade,
+          custoUnitario: m.custoUnitario ?? undefined,
+          motivo: 'estorno',
+          refTipo: 'estorno',
+          refId: comandaId,
+          data: hojeISO(),
+        });
+      }
+
+      // Estorna caixa: saída de estorno referente ao lançamento da venda.
+      const [lanc] = await tx
+        .select()
+        .from(lancamentoCaixa)
+        .where(
+          and(
+            eq(lancamentoCaixa.tenantId, tenantId),
+            eq(lancamentoCaixa.comandaId, comandaId),
+            eq(lancamentoCaixa.tipo, 'entrada'),
+          ),
+        );
+      if (lanc) {
+        await tx.insert(lancamentoCaixa).values({
+          tenantId,
+          unidadeId: lanc.unidadeId,
+          sessaoId,
+          comandaId,
+          tipo: 'saida',
+          valor: lanc.valor,
+          data: hojeISO(),
+          categoria: 'estorno',
+          estornoDe: lanc.id,
+          descricao: `Estorno · cancelamento venda`,
+          criadoPorId: atorId,
+        });
+      }
+
+      await tx
+        .update(comanda)
+        .set({
+          status: 'cancelada',
+          canceladaEm: new Date(),
+          canceladaPorId: atorId,
+          motivoCancelamento: dto.motivo,
+        })
+        .where(eq(comanda.id, comandaId));
+    });
+
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'venda',
+      acao: 'cancelou_venda',
+      entidadeTipo: 'comanda',
+      entidadeId: comandaId,
+      detalhe: { motivo: dto.motivo },
+    });
+    return { ok: true };
   }
 }

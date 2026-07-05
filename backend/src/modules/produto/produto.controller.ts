@@ -66,4 +66,42 @@ export class ProdutoController {
   remover(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.remover(user.tenantId, id);
   }
+
+  // ----- Complementos (opcionais/adicionais) -----
+  @Get(':id/complementos')
+  complementos(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.complementosDe(user.tenantId, id);
+  }
+
+  @Post(':id/complementos/grupos')
+  @Roles(...GESTOR)
+  criarGrupo(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.criarGrupo(user.tenantId, id, dto);
+  }
+
+  @Post('complementos/grupos/:gid/opcoes')
+  @Roles(...GESTOR)
+  criarOpcao(
+    @CurrentUser() user: AuthUser,
+    @Param('gid') gid: string,
+    @Body() dto: any,
+  ) {
+    return this.service.criarOpcao(user.tenantId, gid, dto);
+  }
+
+  @Delete('complementos/grupos/:gid')
+  @Roles(...GESTOR)
+  removerGrupo(@CurrentUser() user: AuthUser, @Param('gid') gid: string) {
+    return this.service.removerGrupo(user.tenantId, gid);
+  }
+
+  @Delete('complementos/opcoes/:oid')
+  @Roles(...GESTOR)
+  removerOpcao(@CurrentUser() user: AuthUser, @Param('oid') oid: string) {
+    return this.service.removerOpcao(user.tenantId, oid);
+  }
 }

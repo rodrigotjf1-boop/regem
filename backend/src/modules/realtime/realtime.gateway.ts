@@ -136,17 +136,20 @@ export class RealtimeGateway
     });
   }
 
-  // Pedido de produção (venda balcão/comanda) → KDS. Roteado por tenant/unidade.
-  @OnEvent('kds.pedido')
-  onKdsPedido(p: {
+  // Produção durável (Fase F1): novo pedido / mudança de status / cancelamento.
+  // Nudge para tenant → KDS e PDV refazem o GET (fonte da verdade no servidor).
+  @OnEvent('producao.evento')
+  onProducaoEvento(p: {
     tenantId: string;
     unidadeId?: string | null;
-    comandaId: string;
-    mesa?: string | null;
-    itens: any[];
+    setorId?: string | null;
+    destinoEquipamentoId?: string | null;
+    pedidoId?: string;
+    tipo: 'novo' | 'status' | 'cancelado';
+    status?: string;
   }) {
     if (!this.server) return;
-    this.server.to(`tenant:${p.tenantId}`).emit('kds:pedido', {
+    this.server.to(`tenant:${p.tenantId}`).emit('producao:atualizado', {
       ...p,
       em: new Date().toISOString(),
     });

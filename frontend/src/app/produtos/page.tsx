@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +33,7 @@ const vazio = () => ({
   validadeDias: '',
   vaiParaProducao: true,
   setorProducaoId: '',
+  tempoPreparoMin: '',
   variacoes: [] as Variacao[],
   combo: [] as Combo[],
 });
@@ -52,19 +54,34 @@ export default function ProdutosPage() {
   const [catNome, setCatNome] = useState('');
   const [catParent, setCatParent] = useState('');
 
+  // complementos (opcionais/adicionais) — só ao editar um produto salvo
+  const [comps, setComps] = useState<any[]>([]);
+  const [fichaIngs, setFichaIngs] = useState<any[]>([]);
+  const [insumos, setInsumos] = useState<any[]>([]);
+  const [novoGrupo, setNovoGrupo] = useState({ nome: '', tipo: 'remover' });
+
+  // destinos de produção (KDS/impressora) — só ao editar
+  const [equipamentos, setEquipamentos] = useState<any[]>([]);
+  const [destinosSel, setDestinosSel] = useState<string[]>([]);
+  const [salvandoDest, setSalvandoDest] = useState(false);
+
   const reload = useCallback(async () => {
     setErro('');
     try {
-      const [ps, cs, fs, ss] = await Promise.all([
+      const [ps, cs, fs, ss, eq] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.fichasLista(),
         api.setores(),
+        api.equipamentos().catch(() => []),
       ]);
       setProdutos(ps);
       setCategorias(cs);
       setFichas(fs);
       setSetores(ss);
+      setEquipamentos(
+        (eq as any[]).filter((e) => e.tipo === 'kds' || e.tipo === 'impressora'),
+      );
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -88,11 +105,54 @@ export default function ProdutosPage() {
   function novo() {
     setEditId(null);
     setF(vazio());
+    setComps([]);
+    setFichaIngs([]);
+    setDestinosSel([]);
   }
+
+  function toggleDestino(id: string) {
+    setDestinosSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  }
+
+  async function salvarDestinos() {
+    if (!editId) return;
+    setSalvandoDest(true);
+    try {
+      await api.setDestinosProduto(editId, destinosSel);
+      toast.success('Destinos de produção salvos.');
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar destinos');
+    } finally {
+      setSalvandoDest(false);
+    }
+  }
+
+  async function carregarComplementos(produtoId: string, fichaId?: string) {
+    try {
+      const [cs, its, dest] = await Promise.all([
+        api.produtoComplementos(produtoId),
+        api.estoqueItens().catch(() => []),
+        api.destinosProduto(produtoId).catch(() => []),
+      ]);
+      setComps(cs as any[]);
+      setInsumos(its as any[]);
+      setDestinosSel((dest as any[]).map((d) => d.equipamentoId));
+      if (fichaId) {
+        const fi: any = await api.ficha(fichaId).catch(() => null);
+        setFichaIngs(fi?.ingredientes ?? []);
+      } else {
+        setFichaIngs([]);
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar opcionais');
+    }
+  }
+
   async function editar(id: string) {
     try {
       const p: any = await api.produto(id);
       setEditId(id);
+      await carregarComplementos(id, p.fichaId || undefined);
       setF({
         codigo: p.codigo ?? '',
         nome: p.nome ?? '',
@@ -107,6 +167,7 @@ export default function ProdutosPage() {
         validadeDias: p.validadeDias ?? '',
         vaiParaProducao: p.vaiParaProducao ?? true,
         setorProducaoId: p.setorProducaoId ?? '',
+        tempoPreparoMin: p.tempoPreparoMin ?? '',
         variacoes: (p.variacoes ?? []).map((v: any) => ({
           nome: v.nome,
           codigo: v.codigo ?? '',
@@ -144,6 +205,7 @@ export default function ProdutosPage() {
         validadeDias: f.validadeDias !== '' ? Number(f.validadeDias) : undefined,
         vaiParaProducao: f.vaiParaProducao,
         setorProducaoId: f.setorProducaoId || undefined,
+        tempoPreparoMin: f.tempoPreparoMin !== '' ? Number(f.tempoPreparoMin) : undefined,
         variacoes: f.variacoes.map((v: Variacao) => ({
           nome: v.nome,
           codigo: v.codigo || undefined,
@@ -194,6 +256,47 @@ export default function ProdutosPage() {
       await reload();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao criar categoria');
+    }
+  }
+
+  async function addGrupo() {
+    if (!editId || !novoGrupo.nome.trim()) return;
+    try {
+      await api.criarGrupoComplemento(editId, {
+        nome: novoGrupo.nome.trim(),
+        tipo: novoGrupo.tipo,
+      });
+      setNovoGrupo({ nome: '', tipo: novoGrupo.tipo });
+      await carregarComplementos(editId, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao criar grupo');
+    }
+  }
+
+  async function addOpcao(grupo: any, dados: any) {
+    try {
+      await api.criarOpcaoComplemento(grupo.id, dados);
+      await carregarComplementos(editId!, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao criar opção');
+    }
+  }
+
+  async function delGrupo(id: string) {
+    try {
+      await api.removerGrupoComplemento(id);
+      await carregarComplementos(editId!, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao remover grupo');
+    }
+  }
+
+  async function delOpcao(id: string) {
+    try {
+      await api.removerOpcaoComplemento(id);
+      await carregarComplementos(editId!, f.fichaId || undefined);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao remover opção');
     }
   }
 
@@ -299,12 +402,16 @@ export default function ProdutosPage() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Setor de produção (KDS)</Label>
-                <select className={selectCls} value={f.setorProducaoId} onChange={(e) => set({ setorProducaoId: e.target.value })}>
+                <select aria-label="Setor de produção" className={selectCls} value={f.setorProducaoId} onChange={(e) => set({ setorProducaoId: e.target.value })}>
                   <option value="">— nenhum —</option>
                   {setores.map((s) => (
                     <option key={s.id} value={s.id}>{s.nome}</option>
                   ))}
                 </select>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Tempo de preparo (min)</Label>
+                <Input type="number" value={f.tempoPreparoMin} onChange={(e) => set({ tempoPreparoMin: e.target.value })} placeholder="p/ cores do KDS" />
               </div>
             </div>
 
@@ -371,6 +478,95 @@ export default function ProdutosPage() {
           </form>
         </Card>
 
+        {/* Destinos de produção (KDS/impressora) — só ao editar */}
+        {editId && (
+          <Card className="p-4">
+            <h2 className="font-display text-lg font-semibold">Destinos de produção</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Para onde este produto vai ao ser vendido: um ou mais KDS e/ou impressoras. Sem seleção, herda o padrão do setor de produção.
+            </p>
+            {equipamentos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Nenhum KDS/impressora cadastrado. Cadastre em Cadastros → Equipamentos.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {equipamentos.map((e) => (
+                    <label
+                      key={e.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm ${destinosSel.includes(e.id) ? 'border-primary bg-primary/10' : 'border-border'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={destinosSel.includes(e.id)}
+                        onChange={() => toggleDestino(e.id)}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <span className="flex-1">{e.nome}</span>
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                        {e.tipo === 'impressora' ? 'impressora' : 'KDS'}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <Button type="button" className="mt-3" onClick={salvarDestinos} disabled={salvandoDest}>
+                  {salvandoDest ? 'Salvando…' : 'Salvar destinos'}
+                </Button>
+              </>
+            )}
+          </Card>
+        )}
+
+        {/* Opcionais & adicionais (só ao editar um produto salvo) */}
+        {editId && (
+          <Card className="p-4">
+            <h2 className="font-display text-lg font-semibold">Opcionais & adicionais</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              <b>Opcional (retirar):</b> cliente pede “sem cebola” — não dá baixa naquele ingrediente da ficha.{' '}
+              <b>Adicional (extra):</b> “+ bacon” — soma preço e dá baixa no insumo.
+            </p>
+
+            <div className="space-y-3">
+              {comps.length === 0 && (
+                <p className="text-sm text-muted-foreground">Nenhum grupo. Crie um abaixo.</p>
+              )}
+              {comps.map((g) => (
+                <GrupoComplemento
+                  key={g.id}
+                  grupo={g}
+                  fichaIngs={fichaIngs}
+                  insumos={insumos}
+                  onAddOpcao={addOpcao}
+                  onDelGrupo={delGrupo}
+                  onDelOpcao={delOpcao}
+                />
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+              <div className="flex-1 space-y-1">
+                <Label className="text-xs">Novo grupo</Label>
+                <Input
+                  value={novoGrupo.nome}
+                  onChange={(e) => setNovoGrupo((s) => ({ ...s, nome: e.target.value }))}
+                  placeholder="Ex.: Remover ingredientes / Adicionais"
+                />
+              </div>
+              <select
+                aria-label="Tipo do grupo de complementos"
+                className={`${selectCls} w-44`}
+                value={novoGrupo.tipo}
+                onChange={(e) => setNovoGrupo((s) => ({ ...s, tipo: e.target.value }))}
+              >
+                <option value="remover">Opcional (retirar)</option>
+                <option value="adicionar">Adicional (extra)</option>
+              </select>
+              <Button type="button" onClick={addGrupo}>Adicionar grupo</Button>
+            </div>
+          </Card>
+        )}
+
         {/* Lista */}
         <Card className="p-4">
           <p className="mb-3 text-sm font-medium text-muted-foreground">
@@ -399,5 +595,114 @@ export default function ProdutosPage() {
         </Card>
       </div>
     </Shell>
+  );
+}
+
+// Um grupo de complementos + suas opções + formulário de nova opção.
+function GrupoComplemento({
+  grupo,
+  fichaIngs,
+  insumos,
+  onAddOpcao,
+  onDelGrupo,
+  onDelOpcao,
+}: {
+  grupo: any;
+  fichaIngs: any[];
+  insumos: any[];
+  onAddOpcao: (grupo: any, dados: any) => void;
+  onDelGrupo: (id: string) => void;
+  onDelOpcao: (id: string) => void;
+}) {
+  const remover = grupo.tipo === 'remover';
+  const [nome, setNome] = useState('');
+  const [precoDelta, setPrecoDelta] = useState('');
+  const [ref, setRef] = useState(''); // fichaIngredienteId (remover) ou itemId (adicionar)
+  const [quantidade, setQuantidade] = useState('1');
+
+  function submit() {
+    if (!nome.trim() && !ref) return;
+    const dados: any = { nome: nome.trim() };
+    if (remover) {
+      dados.fichaIngredienteId = ref || undefined;
+      if (!dados.nome && ref) {
+        const ing = fichaIngs.find((i) => i.id === ref);
+        dados.nome = ing?.insumoNome ?? ing?.subFichaNome ?? 'ingrediente';
+      }
+    } else {
+      dados.precoDelta = precoDelta !== '' ? Number(String(precoDelta).replace(',', '.')) : 0;
+      dados.itemId = ref || undefined;
+      dados.quantidade = Number(String(quantidade).replace(',', '.')) || 1;
+    }
+    onAddOpcao(grupo, dados);
+    setNome('');
+    setPrecoDelta('');
+    setRef('');
+    setQuantidade('1');
+  }
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-medium">
+          {grupo.nome}{' '}
+          <span className={`ml-1 rounded px-1.5 py-0.5 text-xs ${remover ? 'bg-warn/10 text-warn' : 'bg-info/10 text-info'}`}>
+            {remover ? 'retirar' : 'adicionar'}
+          </span>
+        </span>
+        <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => onDelGrupo(grupo.id)}>
+          remover grupo
+        </Button>
+      </div>
+
+      {(grupo.opcoes ?? []).length === 0 && (
+        <p className="mb-2 text-xs text-muted-foreground">Sem opções ainda.</p>
+      )}
+      <div className="mb-2 space-y-1">
+        {(grupo.opcoes ?? []).map((o: any) => (
+          <div key={o.id} className="flex items-center gap-2 rounded border border-border px-2 py-1 text-sm">
+            <span className="flex-1">{o.nome}</span>
+            {Number(o.precoDelta) > 0 && (
+              <span className="font-mono text-xs text-primary">+ {brl(Number(o.precoDelta))}</span>
+            )}
+            <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => onDelOpcao(o.id)}>×</Button>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Input placeholder="Nome da opção" value={nome} onChange={(e) => setNome(e.target.value)} />
+        {remover ? (
+          <select
+            aria-label="Ingrediente da ficha a retirar"
+            className={`${selectCls} sm:col-span-2`}
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+          >
+            <option value="">— ingrediente da ficha —</option>
+            {fichaIngs.map((i) => (
+              <option key={i.id} value={i.id}>{i.insumoNome ?? i.subFichaNome ?? 'ingrediente'}</option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <Input type="number" placeholder="+ R$" value={precoDelta} onChange={(e) => setPrecoDelta(e.target.value)} />
+            <select
+              aria-label="Insumo a dar baixa"
+              className={selectCls}
+              value={ref}
+              onChange={(e) => setRef(e.target.value)}
+            >
+              <option value="">— insumo (baixa) —</option>
+              {insumos.map((i) => (
+                <option key={i.id} value={i.id}>{i.nome}</option>
+              ))}
+            </select>
+            <Input type="number" placeholder="Qtd baixa" value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
+          </>
+        )}
+        <Button type="button" variant="outline" size="sm" onClick={submit}>＋ opção</Button>
+      </div>
+    </div>
   );
 }

@@ -91,6 +91,10 @@ export class CreateProdutoDto {
   setorProducaoId?: string;
 
   @IsOptional()
+  @IsInt()
+  tempoPreparoMin?: number;
+
+  @IsOptional()
   @IsString()
   imagemRef?: string;
 

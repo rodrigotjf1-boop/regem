@@ -8,6 +8,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { VendasService } from './vendas.service';
@@ -66,6 +68,45 @@ export class VendasController {
     @Body() dto: any,
   ) {
     return this.service.fecharComanda(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      id,
+      dto,
+    );
+  }
+
+  // ----- Config do PDV (cancelamento configurável) -----
+  @Get('config')
+  config(@CurrentUser() user: AuthUser) {
+    return this.service.getConfig(user.tenantId);
+  }
+
+  @Post('config/cancelamento-livre')
+  @UseGuards(RolesGuard)
+  @Roles('presidente')
+  setCancelamentoLivre(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setCancelamentoLivre(user.tenantId, !!dto.ativo);
+  }
+
+  // ----- Cupons & cancelamento -----
+  @Get('cupons')
+  cupons(@CurrentUser() user: AuthUser) {
+    return this.service.listarCupons(user.tenantId);
+  }
+
+  @Get('cupons/:id')
+  cupom(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.getCupom(user.tenantId, id);
+  }
+
+  @Post('comandas/:id/cancelar')
+  cancelar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.cancelar(
       user.tenantId,
       user.colaboradorId,
       user.categoria,

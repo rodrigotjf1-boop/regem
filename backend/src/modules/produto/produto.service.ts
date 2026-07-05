@@ -5,6 +5,8 @@ import {
   produto,
   produtoVariacao,
   produtoComboItem,
+  complementoGrupo,
+  complementoOpcao,
   categoriaProduto,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -73,7 +75,108 @@ export class ProdutoService {
       .select()
       .from(produtoComboItem)
       .where(eq(produtoComboItem.comboProdutoId, id));
-    return { ...p, variacoes, combo };
+    const complementos = await this.complementosDe(tenantId, id);
+    return { ...p, variacoes, combo, complementos };
+  }
+
+  // ===== Complementos (opcionais/adicionais) =====
+  async complementosDe(tenantId: string, produtoId: string) {
+    const grupos = await this.db
+      .select()
+      .from(complementoGrupo)
+      .where(
+        and(
+          eq(complementoGrupo.tenantId, tenantId),
+          eq(complementoGrupo.produtoId, produtoId),
+        ),
+      )
+      .orderBy(complementoGrupo.ordem);
+    if (!grupos.length) return [];
+    const opcoes = await this.db
+      .select()
+      .from(complementoOpcao)
+      .where(eq(complementoOpcao.tenantId, tenantId))
+      .orderBy(complementoOpcao.ordem);
+    return grupos.map((g) => ({
+      ...g,
+      opcoes: opcoes.filter((o) => o.grupoId === g.id),
+    }));
+  }
+
+  async criarGrupo(
+    tenantId: string,
+    produtoId: string,
+    dto: {
+      nome: string;
+      tipo: 'remover' | 'adicionar';
+      min?: number;
+      max?: number;
+      obrigatorio?: boolean;
+    },
+  ) {
+    const [g] = await this.db
+      .insert(complementoGrupo)
+      .values({
+        tenantId,
+        produtoId,
+        nome: dto.nome,
+        tipo: dto.tipo,
+        min: dto.min ?? 0,
+        max: dto.max,
+        obrigatorio: dto.obrigatorio ?? false,
+      })
+      .returning();
+    return g;
+  }
+
+  async criarOpcao(
+    tenantId: string,
+    grupoId: string,
+    dto: {
+      nome: string;
+      precoDelta?: number;
+      fichaIngredienteId?: string;
+      itemId?: string;
+      quantidade?: number;
+    },
+  ) {
+    const [o] = await this.db
+      .insert(complementoOpcao)
+      .values({
+        tenantId,
+        grupoId,
+        nome: dto.nome,
+        precoDelta: dto.precoDelta != null ? String(dto.precoDelta) : '0',
+        fichaIngredienteId: dto.fichaIngredienteId,
+        itemId: dto.itemId,
+        quantidade: dto.quantidade != null ? String(dto.quantidade) : '1',
+      })
+      .returning();
+    return o;
+  }
+
+  async removerGrupo(tenantId: string, grupoId: string) {
+    await this.db
+      .delete(complementoGrupo)
+      .where(
+        and(
+          eq(complementoGrupo.id, grupoId),
+          eq(complementoGrupo.tenantId, tenantId),
+        ),
+      );
+    return { ok: true };
+  }
+
+  async removerOpcao(tenantId: string, opcaoId: string) {
+    await this.db
+      .delete(complementoOpcao)
+      .where(
+        and(
+          eq(complementoOpcao.id, opcaoId),
+          eq(complementoOpcao.tenantId, tenantId),
+        ),
+      );
+    return { ok: true };
   }
 
   async criar(
@@ -101,6 +204,7 @@ export class ProdutoService {
           validadeDias: dto.validadeDias,
           vaiParaProducao: dto.vaiParaProducao ?? true,
           setorProducaoId: dto.setorProducaoId,
+          tempoPreparoMin: dto.tempoPreparoMin,
           imagemRef: dto.imagemRef,
         })
         .returning();
@@ -162,6 +266,7 @@ export class ProdutoService {
     set('validadeDias', dto.validadeDias);
     set('vaiParaProducao', dto.vaiParaProducao);
     set('setorProducaoId', dto.setorProducaoId);
+    set('tempoPreparoMin', dto.tempoPreparoMin);
     set('imagemRef', dto.imagemRef);
 
     const [row] = await this.db
