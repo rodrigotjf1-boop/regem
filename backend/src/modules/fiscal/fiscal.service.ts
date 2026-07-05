@@ -182,11 +182,22 @@ export class FiscalService {
         cstIcms: produto.cstIcms,
         unidadeTrib: produto.unidadeTrib,
         aliqIcms: produto.aliqIcms,
+        gtin: produto.gtin,
+        cstPis: produto.cstPis,
+        aliqPis: produto.aliqPis,
+        cstCofins: produto.cstCofins,
+        aliqCofins: produto.aliqCofins,
       })
       .from(comandaItem)
       .leftJoin(produto, eq(produto.id, comandaItem.produtoId))
       .where(eq(comandaItem.comandaId, comandaId));
     if (!itensDb.length) throw new BadRequestException('Comanda sem itens.');
+    // NCM é obrigatório para emitir. Barra a emissão com mensagem clara.
+    const semNcm = itensDb.filter((it) => !it.ncm).map((it) => it.descricao);
+    if (semNcm.length)
+      throw new BadRequestException(
+        `Produto(s) sem NCM (obrigatório p/ NFC-e): ${semNcm.slice(0, 3).join(', ')}`,
+      );
 
     const itens: NfceItem[] = itensDb.map((it, i) => ({
       codigo: it.codigo || String(i + 1),
@@ -201,6 +212,11 @@ export class FiscalService {
       quantidade: Number(it.quantidade),
       precoUnitario: Number(it.precoUnitario),
       aliqIcms: it.aliqIcms != null ? Number(it.aliqIcms) : undefined,
+      gtin: it.gtin ?? undefined,
+      cstPis: it.cstPis ?? undefined,
+      aliqPis: it.aliqPis != null ? Number(it.aliqPis) : undefined,
+      cstCofins: it.cstCofins ?? undefined,
+      aliqCofins: it.aliqCofins != null ? Number(it.aliqCofins) : undefined,
     }));
 
     // Reserva número + monta chave/XML/QR dentro de uma transação.

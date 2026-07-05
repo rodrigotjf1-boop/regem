@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -103,5 +104,21 @@ export class ProdutoController {
   @Roles(...GESTOR)
   removerOpcao(@CurrentUser() user: AuthUser, @Param('oid') oid: string) {
     return this.service.removerOpcao(user.tenantId, oid);
+  }
+
+  // ----- Faixas de preço por volume (B2B) -----
+  @Get(':id/faixas')
+  faixas(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.faixasDe(user.tenantId, id);
+  }
+
+  @Put(':id/faixas')
+  @Roles(...GESTOR)
+  setFaixas(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.setFaixas(user.tenantId, id, dto?.faixas ?? []);
   }
 }

@@ -36,6 +36,11 @@ export interface NfceItem {
   quantidade: number;
   precoUnitario: number;
   aliqIcms?: number;
+  gtin?: string;
+  cstPis?: string;
+  aliqPis?: number;
+  cstCofins?: string;
+  aliqCofins?: number;
 }
 
 export interface NfceInput {
@@ -49,9 +54,23 @@ export interface NfceInput {
   qrCode: string;
 }
 
+// PIS/COFINS: CST tributável (01/02) com alíquota → grupo Aliq; senão não-tributado.
+function grupoPisCofins(tag: string, cst?: string, aliq?: number, vBC?: number): string {
+  const tributavel = ['01', '02'].includes(cst || '') && Number(aliq) > 0;
+  if (tributavel) {
+    const p = Number(aliq);
+    const v = Number(((Number(vBC) * p) / 100).toFixed(2));
+    const grp = tag === 'PIS' ? 'PISAliq' : 'COFINSAliq';
+    return `<${tag}><${grp}><CST>${cst}</CST><vBC>${n2(vBC)}</vBC><p${tag}>${n2(p)}</p${tag}><v${tag}>${n2(v)}</v${tag}></${grp}></${tag}>`;
+  }
+  const grp = tag === 'PIS' ? 'PISNT' : 'COFINSNT';
+  return `<${tag}><${grp}><CST>${cst || '07'}</CST></${grp}></${tag}>`;
+}
+
 function detItem(it: NfceItem, i: number, crt: number): string {
   const vProd = Number(it.quantidade) * Number(it.precoUnitario);
   const origem = it.origem ?? '0';
+  const gtin = soDig(it.gtin) || 'SEM GTIN';
   // ICMS: Simples (CRT=1) → CSOSN; Normal → CST básico.
   const icms =
     crt === 1
@@ -61,7 +80,7 @@ function detItem(it: NfceItem, i: number, crt: number): string {
     `<det nItem="${i + 1}">` +
     `<prod>` +
     `<cProd>${esc(it.codigo || i + 1)}</cProd>` +
-    `<cEAN>SEM GTIN</cEAN>` +
+    `<cEAN>${gtin}</cEAN>` +
     `<xProd>${esc(it.descricao)}</xProd>` +
     `<NCM>${soDig(it.ncm) || '00000000'}</NCM>` +
     (it.cest ? `<CEST>${soDig(it.cest)}</CEST>` : '') +
@@ -70,7 +89,7 @@ function detItem(it: NfceItem, i: number, crt: number): string {
     `<qCom>${n4(it.quantidade)}</qCom>` +
     `<vUnCom>${n4(it.precoUnitario)}</vUnCom>` +
     `<vProd>${n2(vProd)}</vProd>` +
-    `<cEANTrib>SEM GTIN</cEANTrib>` +
+    `<cEANTrib>${gtin}</cEANTrib>` +
     `<uTrib>${esc(it.unidadeTrib || 'UN')}</uTrib>` +
     `<qTrib>${n4(it.quantidade)}</qTrib>` +
     `<vUnTrib>${n4(it.precoUnitario)}</vUnTrib>` +
@@ -78,8 +97,8 @@ function detItem(it: NfceItem, i: number, crt: number): string {
     `</prod>` +
     `<imposto>` +
     icms +
-    `<PIS><PISNT><CST>07</CST></PISNT></PIS>` +
-    `<COFINS><COFINSNT><CST>07</CST></COFINSNT></COFINS>` +
+    grupoPisCofins('PIS', it.cstPis, it.aliqPis, vProd) +
+    grupoPisCofins('COFINS', it.cstCofins, it.aliqCofins, vProd) +
     `</imposto>` +
     `</det>`
   );
