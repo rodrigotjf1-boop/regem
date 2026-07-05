@@ -1365,6 +1365,18 @@ export const cardapioConfig = pgTable('cardapio_config', {
   ativo: boolean('ativo').notNull().default(false),
   modo: text('modo').notNull().default('mesa'), // mesa | retirada | totem
   nomePublico: text('nome_publico'),
+  // Loja / tema (Fase L2)
+  ramo: text('ramo').notNull().default('food'), // food|varejo|industria|servicos
+  logoEmoji: text('logo_emoji'),
+  subtitulo: text('subtitulo'),
+  aberto: boolean('aberto').notNull().default(true),
+  tempoEntregaMin: integer('tempo_entrega_min'),
+  pedidoMinimo: numeric('pedido_minimo'),
+  avaliacao: numeric('avaliacao'),
+  freteGratisAcima: numeric('frete_gratis_acima'),
+  pagamentos: jsonb('pagamentos').notNull().default('[]'),
+  fidelidadeAtiva: boolean('fidelidade_ativa').notNull().default(false),
+  whatsapp: text('whatsapp'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -57,7 +57,17 @@ export default function CardapioConfigPage() {
   async function salvar() {
     setSalvando(true);
     try {
-      setCfg(await api.setCardapioConfig({ ativo: cfg.ativo, modo: cfg.modo, nomePublico: cfg.nomePublico }));
+      setCfg(await api.setCardapioConfig({
+        ativo: cfg.ativo, modo: cfg.modo, nomePublico: cfg.nomePublico,
+        ramo: cfg.ramo, logoEmoji: cfg.logoEmoji, subtitulo: cfg.subtitulo, aberto: cfg.aberto,
+        tempoEntregaMin: cfg.tempoEntregaMin ? Number(cfg.tempoEntregaMin) : undefined,
+        pedidoMinimo: cfg.pedidoMinimo ? Number(String(cfg.pedidoMinimo).replace(',', '.')) : undefined,
+        avaliacao: cfg.avaliacao ? Number(String(cfg.avaliacao).replace(',', '.')) : undefined,
+        freteGratisAcima: cfg.freteGratisAcima ? Number(String(cfg.freteGratisAcima).replace(',', '.')) : undefined,
+        pagamentos: cfg.pagamentos ?? [],
+        fidelidadeAtiva: cfg.fidelidadeAtiva,
+        whatsapp: cfg.whatsapp,
+      }));
       toast.success('Cardápio salvo.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
@@ -94,6 +104,73 @@ export default function CardapioConfigPage() {
             <div className="space-y-1">
               <Label className="text-xs">Nome público</Label>
               <Input value={cfg.nomePublico ?? ''} onChange={(e) => set({ nomePublico: e.target.value })} placeholder="Ex.: Cardápio do Bar" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Ramo (tema)</Label>
+              <select aria-label="Ramo" className={selectCls} value={cfg.ramo ?? 'food'} onChange={(e) => set({ ramo: e.target.value })}>
+                <option value="food">🍔 Food service</option>
+                <option value="varejo">🛍 Varejo</option>
+                <option value="industria">🏭 Indústria</option>
+                <option value="servicos">📅 Serviços</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Logo (emoji)</Label>
+              <Input value={cfg.logoEmoji ?? ''} onChange={(e) => set({ logoEmoji: e.target.value })} placeholder="🍔" />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Subtítulo</Label>
+              <Input value={cfg.subtitulo ?? ''} onChange={(e) => set({ subtitulo: e.target.value })} placeholder="Ex.: Hamburgueria artesanal · 1,2 km" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Tempo de entrega (min)</Label>
+              <Input type="number" value={cfg.tempoEntregaMin ?? ''} onChange={(e) => set({ tempoEntregaMin: e.target.value })} placeholder="40" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Pedido mínimo (R$)</Label>
+              <Input type="number" value={cfg.pedidoMinimo ?? ''} onChange={(e) => set({ pedidoMinimo: e.target.value })} placeholder="opcional" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Frete grátis acima de (R$)</Label>
+              <Input type="number" value={cfg.freteGratisAcima ?? ''} onChange={(e) => set({ freteGratisAcima: e.target.value })} placeholder="opcional" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Avaliação (0–5)</Label>
+              <Input type="number" value={cfg.avaliacao ?? ''} onChange={(e) => set({ avaliacao: e.target.value })} placeholder="4.8" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">WhatsApp</Label>
+              <Input value={cfg.whatsapp ?? ''} onChange={(e) => set({ whatsapp: e.target.value })} placeholder="(21) 9…" />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={cfg.aberto ?? true} onChange={(e) => set({ aberto: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Loja aberta (aceitando pedidos)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!cfg.fidelidadeAtiva} onChange={(e) => set({ fidelidadeAtiva: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Fidelidade ativa
+            </label>
+          </div>
+          <div>
+            <Label className="text-xs">Pagamentos aceitos</Label>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {[
+                { v: 'pix', l: '⚡ Pix online' },
+                { v: 'cartao', l: '💳 Cartão online' },
+                { v: 'entrega', l: '💵 Na entrega' },
+                { v: 'vr', l: '🍽 Vale-refeição' },
+              ].map((pg) => {
+                const on = (cfg.pagamentos ?? []).includes(pg.v);
+                return (
+                  <button key={pg.v} type="button"
+                    onClick={() => set({ pagamentos: on ? (cfg.pagamentos ?? []).filter((x: string) => x !== pg.v) : [...(cfg.pagamentos ?? []), pg.v] })}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium ${on ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>
+                    {pg.l}
+                  </button>
+                );
+              })}
             </div>
           </div>
           <Button type="button" onClick={salvar} disabled={salvando}>
