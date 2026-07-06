@@ -9,6 +9,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
+import { CaixaPanel } from '@/components/pdv/caixa-panel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -44,9 +45,13 @@ export default function PdvPage() {
   const [enviando, setEnviando] = useState(false);
   const [tefAtivo, setTefAtivo] = useState(false);
   const [tefStatus, setTefStatus] = useState<string | null>(null); // aguardando maquininha
-  const [caixa, setCaixa] = useState<any>(null); // caixa aberto (ou null se fechado)
-  const [abrindo, setAbrindo] = useState(false);
+  const [caixa, setCaixa] = useState<any>(null); // caixa/turno aberto (ou null)
   const [recebido, setRecebido] = useState(''); // valor recebido (troco em dinheiro)
+
+  const reloadCaixa = useCallback(async () => {
+    const cx: any = await api.caixaAberta().catch(() => null);
+    setCaixa(cx?.id ? cx : null);
+  }, []);
   const chaveRef = useRef<string | null>(null); // chave idempotente da venda atual
 
   const reload = useCallback(async () => {
@@ -86,22 +91,6 @@ export default function PdvPage() {
       if (ex) return c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + 1 } : i));
       return [...c, { ...item, key, qtd: 1 }];
     });
-  }
-
-  async function abrirCaixa() {
-    const v = prompt('Valor de abertura (troco inicial) do caixa:', '0');
-    if (v === null) return;
-    setAbrindo(true);
-    try {
-      await api.abrirCaixa({ valorAbertura: Number(String(v).replace(',', '.')) || 0 });
-      const cx: any = await api.caixaAberta().catch(() => null);
-      setCaixa(cx?.id ? cx : null);
-      toast.success('Caixa aberto.');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao abrir o caixa');
-    } finally {
-      setAbrindo(false);
-    }
   }
 
   async function tap(p: any) {
@@ -257,21 +246,7 @@ export default function PdvPage() {
 
   return (
     <Shell eyebrow="PDV · balcão" title="Venda rápida">
-      {/* Status do caixa: sem caixa aberto não há venda no balcão. */}
-      {carregado && !caixa && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3">
-          <span className="text-sm font-semibold text-warn">⚠️ Caixa fechado — abra o caixa para vender.</span>
-          <Button type="button" size="sm" onClick={abrirCaixa} disabled={abrindo} className="ml-auto">
-            {abrindo ? 'Abrindo…' : 'Abrir caixa'}
-          </Button>
-        </div>
-      )}
-      {caixa && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg border border-ok/40 bg-ok/10 px-4 py-2 text-xs font-semibold text-ok">
-          🟢 Caixa aberto
-          {caixa.abertaEm && <span className="font-normal text-muted-foreground">· desde {new Date(caixa.abertaEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
-        </div>
-      )}
+      {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} />}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
         {/* Produtos */}
         <div className="space-y-3">

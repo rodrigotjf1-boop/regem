@@ -76,7 +76,7 @@ export class FinanceiroController {
   @Get('caixa')
   @Roles('presidente', 'gerente', 'atendente')
   caixa(@CurrentUser() user: AuthUser) {
-    return this.service.sessaoAberta(user.tenantId);
+    return this.service.caixaAtual(user.tenantId);
   }
 
   @Post('caixa/abrir')
@@ -112,6 +112,11 @@ export class FinanceiroController {
   @Post('caixa/fechar')
   @Roles('presidente', 'gerente', 'atendente')
   fecharCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.fecharSessao(user.tenantId, user.colaboradorId, dto);
+    return this.service.fecharSessao(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      dto,
+    );
   }
 }

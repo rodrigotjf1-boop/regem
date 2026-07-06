@@ -566,6 +566,7 @@ export const caixaSessao = pgTable('caixa_sessao', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
   status: text('status').notNull().default('aberta'), // aberta | fechada
+  turnoNumero: integer('turno_numero'), // nº do turno (sequencial por dia)
   valorAbertura: numeric('valor_abertura').notNull().default('0'),
   abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
   abertaPorId: uuid('aberta_por_id'),
