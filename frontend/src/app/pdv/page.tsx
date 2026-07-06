@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
+import { BuscarCupom } from '@/components/pdv/buscar-cupom';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -35,7 +36,10 @@ export default function PdvPage() {
   const [catAtiva, setCatAtiva] = useState('');
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [taxa, setTaxa] = useState(false);
-  const [forma, setForma] = useState('dinheiro');
+  const [formas, setFormas] = useState<any[]>([]); // formas de pagamento (cadastro)
+  const [formaId, setFormaId] = useState(''); // forma selecionada (pgto único)
+  const [dividir, setDividir] = useState(false); // dividir conta / multi-pagamento
+  const [pagamentos, setPagamentos] = useState<{ forma: string; valor: string }[]>([]);
   const [picker, setPicker] = useState<any>(null); // produto com variação/complementos
   const [pickVar, setPickVar] = useState<string | undefined>(undefined);
   const [pickOpc, setPickOpc] = useState<string[]>([]);
@@ -56,16 +60,20 @@ export default function PdvPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [ps, cs, tc, cx] = await Promise.all([
+      const [ps, cs, tc, cx, fp] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.tefConfig().catch(() => ({ ativo: false })),
         api.caixaAberta().catch(() => null),
+        api.formasPagamento().catch(() => []),
       ]);
       setProdutos(ps.filter((p: any) => p.ativo !== false));
       setCategorias(cs);
       setTefAtivo(!!(tc as any).ativo);
       setCaixa((cx as any)?.id ? cx : null);
+      const ativas = (fp as any[]).filter((f) => f.ativo);
+      setFormas(ativas);
+      setFormaId((id) => id || ativas[0]?.id || '');
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
@@ -168,13 +176,27 @@ export default function PdvPage() {
   const subtotal = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
   const total = subtotal * (taxa ? 1.1 : 1);
   const troco = (Number(String(recebido).replace(',', '.')) || 0) - total;
+  const formaSel = formas.find((f) => f.id === formaId);
+  const ehDinheiro = formaSel?.tipo === 'dinheiro';
+  const somaPag = pagamentos.reduce((s, p) => s + (Number(String(p.valor).replace(',', '.')) || 0), 0);
+  const restante = Number((total - somaPag).toFixed(2));
+  const pagamentoOk = !dividir || Math.abs(restante) < 0.05;
+
+  // Monta o payload de pagamentos (sempre via `pagamentos`, uni ou multi).
+  function montarPagamentos() {
+    if (dividir)
+      return pagamentos
+        .filter((p) => Number(String(p.valor).replace(',', '.')) > 0)
+        .map((p) => ({ forma: p.forma, valor: Number(String(p.valor).replace(',', '.')) }));
+    return [{ forma: formaSel?.nome ?? 'Dinheiro', valor: Number(total.toFixed(2)), formaPagamentoId: formaSel?.id }];
+  }
 
   // Cobrança TEF na maquininha (pré-venda): cria a cobrança e aguarda o agente do
   // edge/pinpad. Devolve o pagamento aprovado, ou null se negado/cancelado.
   async function cobrarTef(): Promise<any | null> {
     const pag: any = await api.tefCriar({
       valor: total,
-      forma: forma === 'pix' ? 'pix' : 'credito',
+      forma: formaSel?.tipo === 'pix' ? 'pix' : 'credito',
     });
     setTefStatus('aguardando');
     for (let i = 0; i < 120; i++) {
@@ -204,7 +226,7 @@ export default function PdvPage() {
         observacao: i.observacao,
         quantidade: i.qtd,
       })),
-      forma,
+      pagamentos: montarPagamentos(),
       taxaServicoPct: taxa ? 10 : 0,
       idempotencyKey: chaveRef.current,
     });
@@ -213,6 +235,8 @@ export default function PdvPage() {
     setCarrinho([]);
     setTaxa(false);
     setRecebido('');
+    setDividir(false);
+    setPagamentos([]);
     chaveRef.current = null;
     toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
   }
@@ -222,8 +246,9 @@ export default function PdvPage() {
     setErro('');
     setEnviando(true);
     try {
-      // Com TEF ativo e pagamento por cartão/pix: cobra na maquininha antes.
-      if (tefAtivo && (forma === 'cartao' || forma === 'pix')) {
+      // TEF (só pagamento único por cartão/pix): cobra na maquininha antes.
+      const tipoTef = formaSel?.tipo;
+      if (!dividir && tefAtivo && (tipoTef === 'credito' || tipoTef === 'debito' || tipoTef === 'pix')) {
         const pago = await cobrarTef();
         if (!pago) return; // negado/cancelado → não finaliza a venda
         await enviarVenda(pago.id);
@@ -267,6 +292,9 @@ export default function PdvPage() {
         {/* Produtos */}
         <div className="space-y-3">
           {erro && <p className="text-destructive">{erro}</p>}
+          <div className="flex justify-end">
+            <BuscarCupom />
+          </div>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -366,46 +394,93 @@ export default function PdvPage() {
                 <input type="checkbox" checked={taxa} onChange={(e) => setTaxa(e.target.checked)} className="h-4 w-4 accent-primary" />
                 Taxa de serviço 10%
               </label>
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground">Pagamento</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {['dinheiro', 'pix', 'cartao'].map((fmt) => (
-                    <button
-                      key={fmt}
-                      type="button"
-                      onClick={() => setForma(fmt)}
-                      className={`rounded-md border px-2.5 py-1 text-xs font-medium capitalize ${forma === fmt ? 'border-primary bg-primary/15 text-primary' : 'border-border'}`}
-                    >
-                      {fmt}
-                    </button>
-                  ))}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Pagamento</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nd = !dividir;
+                      setDividir(nd);
+                      setPagamentos(nd ? [{ forma: formaSel?.nome ?? formas[0]?.nome ?? 'Dinheiro', valor: total.toFixed(2) }] : []);
+                    }}
+                    className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${dividir ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
+                  >
+                    Dividir conta
+                  </button>
                 </div>
+
+                {!dividir ? (
+                  <>
+                    <div className="flex flex-wrap gap-1.5">
+                      {formas.map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setFormaId(f.id)}
+                          className={`rounded-md border px-2.5 py-1 text-xs font-medium ${formaId === f.id ? 'border-primary bg-primary/15 text-primary' : 'border-border'}`}
+                        >
+                          {f.nome}
+                        </button>
+                      ))}
+                      {formas.length === 0 && <span className="text-xs text-muted-foreground">Cadastre formas em Financeiro.</span>}
+                    </div>
+                    {ehDinheiro && (
+                      <div className="space-y-1 pt-1">
+                        <span className="text-xs text-muted-foreground">Valor recebido</span>
+                        <input type="number" inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} placeholder={brl(total)} className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm" />
+                        {recebido !== '' && (
+                          <p className={`text-xs font-semibold ${troco < 0 ? 'text-destructive' : 'text-ok'}`}>
+                            {troco < 0 ? `Faltam ${brl(-troco)}` : `Troco ${brl(troco)}`}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    {pagamentos.map((p, i) => (
+                      <div key={i} className="flex gap-1.5">
+                        <select
+                          aria-label="Forma"
+                          value={p.forma}
+                          onChange={(e) => setPagamentos((s) => s.map((x, j) => (j === i ? { ...x, forma: e.target.value } : x)))}
+                          className="min-w-0 flex-1 rounded-md border border-input bg-card px-2 text-xs"
+                        >
+                          {formas.map((f) => <option key={f.id} value={f.nome}>{f.nome}</option>)}
+                        </select>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          value={p.valor}
+                          onChange={(e) => setPagamentos((s) => s.map((x, j) => (j === i ? { ...x, valor: e.target.value } : x)))}
+                          placeholder="0,00"
+                          className="w-24 rounded-md border border-input bg-card px-2 py-1.5 text-xs"
+                        />
+                        <button type="button" onClick={() => setPagamentos((s) => s.filter((_, j) => j !== i))} className="grid h-8 w-8 place-items-center rounded border border-border text-destructive">×</button>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => setPagamentos((s) => [...s, { forma: formas[0]?.nome ?? 'Dinheiro', valor: (restante > 0 ? restante : 0).toFixed(2) }])}
+                        className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold"
+                      >
+                        ＋ pagamento
+                      </button>
+                      <span className={`text-xs font-semibold ${Math.abs(restante) < 0.05 ? 'text-ok' : 'text-destructive'}`}>
+                        {Math.abs(restante) < 0.05 ? '✓ fecha o total' : restante > 0 ? `Falta ${brl(restante)}` : `Excede ${brl(-restante)}`}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
-              {/* Troco (dinheiro): valor recebido → devolução */}
-              {forma === 'dinheiro' && (
-                <div className="space-y-1">
-                  <span className="text-xs text-muted-foreground">Valor recebido</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    value={recebido}
-                    onChange={(e) => setRecebido(e.target.value)}
-                    placeholder={brl(total)}
-                    className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
-                  />
-                  {recebido !== '' && (
-                    <p className={`text-xs font-semibold ${troco < 0 ? 'text-destructive' : 'text-ok'}`}>
-                      {troco < 0 ? `Faltam ${brl(-troco)}` : `Troco ${brl(troco)}`}
-                    </p>
-                  )}
-                </div>
-              )}
               <div className="flex items-baseline justify-between border-t border-border pt-2">
                 <span className="font-semibold">Total</span>
                 <span className="font-mono text-xl font-bold">{brl(total)}</span>
               </div>
-              <Button type="button" size="lg" onClick={finalizar} disabled={enviando || !caixa}>
-                {enviando ? 'Finalizando…' : !caixa ? 'Abra o caixa para vender' : 'Receber e enviar à produção'}
+              <Button type="button" size="lg" onClick={finalizar} disabled={enviando || !caixa || !pagamentoOk}>
+                {enviando ? 'Finalizando…' : !caixa ? 'Abra o caixa para vender' : !pagamentoOk ? 'Pagamentos não fecham o total' : 'Receber e enviar à produção'}
               </Button>
             </>
           )}

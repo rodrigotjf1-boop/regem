@@ -13,6 +13,7 @@ import {
   fornecedor,
   caixaSessao,
   colaborador,
+  formaPagamento,
   entitlement,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -401,6 +402,65 @@ export class FinanceiroService {
         set: { ativo, updatedAt: new Date() },
       });
     return { caixaLivre: ativo };
+  }
+
+  // ===== Formas de pagamento (cadastro) =====
+  private static readonly FORMAS_PADRAO = [
+    { nome: 'Dinheiro', tipo: 'dinheiro' },
+    { nome: 'Pix', tipo: 'pix' },
+    { nome: 'Cartão de crédito', tipo: 'credito' },
+    { nome: 'Cartão de débito', tipo: 'debito' },
+  ];
+
+  async listarFormasPagamento(tenantId: string, apenasAtivas = false) {
+    const rows = await this.db
+      .select()
+      .from(formaPagamento)
+      .where(eq(formaPagamento.tenantId, tenantId))
+      .orderBy(formaPagamento.ordem, formaPagamento.nome);
+    // Semeia os padrões na primeira vez (sem quebrar a leitura).
+    if (rows.length === 0) {
+      await this.db.insert(formaPagamento).values(
+        FinanceiroService.FORMAS_PADRAO.map((f, i) => ({ tenantId, nome: f.nome, tipo: f.tipo, ordem: i })),
+      );
+      return this.db
+        .select()
+        .from(formaPagamento)
+        .where(
+          apenasAtivas
+            ? and(eq(formaPagamento.tenantId, tenantId), eq(formaPagamento.ativo, true))
+            : eq(formaPagamento.tenantId, tenantId),
+        )
+        .orderBy(formaPagamento.ordem, formaPagamento.nome);
+    }
+    return apenasAtivas ? rows.filter((r) => r.ativo) : rows;
+  }
+
+  async criarFormaPagamento(
+    tenantId: string,
+    dto: { nome: string; tipo?: string },
+  ) {
+    if (!dto.nome?.trim()) throw new BadRequestException('Informe o nome.');
+    const tipos = ['dinheiro', 'pix', 'credito', 'debito', 'vr', 'outro'];
+    const [row] = await this.db
+      .insert(formaPagamento)
+      .values({
+        tenantId,
+        nome: dto.nome.trim(),
+        tipo: tipos.includes(dto.tipo ?? '') ? dto.tipo : 'outro',
+      })
+      .returning();
+    return row;
+  }
+
+  async setFormaPagamentoAtiva(tenantId: string, id: string, ativo: boolean) {
+    const [row] = await this.db
+      .update(formaPagamento)
+      .set({ ativo })
+      .where(and(eq(formaPagamento.id, id), eq(formaPagamento.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new BadRequestException('Forma não encontrada.');
+    return row;
   }
 
   // Sangria (retira dinheiro) / suprimento (coloca dinheiro) — sempre em dinheiro.

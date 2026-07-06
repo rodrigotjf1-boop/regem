@@ -579,6 +579,32 @@ export const caixaSessao = pgTable('caixa_sessao', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const formaPagamento = pgTable('forma_pagamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  tipo: text('tipo').notNull().default('outro'), // dinheiro|pix|credito|debito|vr|outro
+  ativo: boolean('ativo').notNull().default(true),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const comandaPagamento = pgTable('comanda_pagamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  comandaId: uuid('comanda_id')
+    .notNull()
+    .references(() => comanda.id, { onDelete: 'cascade' }),
+  forma: text('forma').notNull(),
+  formaPagamentoId: uuid('forma_pagamento_id'),
+  valor: numeric('valor').notNull().default('0'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const fornecedor = pgTable('fornecedor', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

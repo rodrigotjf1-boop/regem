@@ -32,6 +32,16 @@ export class VendaItemDto {
   observacao?: string;
 }
 
+export class PagamentoDto {
+  @IsString()
+  forma!: string; // rótulo/tipo da forma (livre — vem do cadastro)
+  @IsNumber()
+  valor!: number;
+  @IsOptional()
+  @IsUUID()
+  formaPagamentoId?: string;
+}
+
 export class VendaBalcaoDto {
   @IsArray()
   @ValidateNested({ each: true })
@@ -41,6 +51,13 @@ export class VendaBalcaoDto {
   @IsOptional()
   @IsIn(['dinheiro', 'pix', 'cartao', 'transferencia'])
   forma?: string;
+
+  // Multi-pagamento / dividir conta: várias formas somando o total.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PagamentoDto)
+  pagamentos?: PagamentoDto[];
 
   @IsOptional()
   @IsNumber()
