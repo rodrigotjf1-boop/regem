@@ -749,6 +749,10 @@ export class VendasService {
         })
         .where(eq(comanda.id, comandaId));
     });
+    // Avisa a produção/KDS: os pedidos dessa comanda saem da fila (cancelados).
+    await this.producao
+      .cancelarPorComanda(tenantId, atorId, comandaId, motivo)
+      .catch(() => {});
     await this.auditoria.registrar({
       tenantId,
       atorId,

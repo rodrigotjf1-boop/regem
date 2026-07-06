@@ -4,10 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
+  caixaSessao,
   deliveryConfig,
+  lancamentoCaixa,
   pedidoExterno,
   produto,
 } from '../../db/schema';
@@ -103,30 +105,45 @@ export class DeliveryService {
       try {
         return await this.aceitar(tenantId, null, row.id);
       } catch {
-        /* mantém como 'novo' se falhar o aceite automático */
+        // Aceite automático falhou (ex.: produto sem cadastro): mantém 'novo',
+        // mas sinaliza para aparecer em destaque na coluna Chegada.
+        const [flag] = await this.db
+          .update(pedidoExterno)
+          .set({ autoAceiteFalhou: true })
+          .where(eq(pedidoExterno.id, row.id))
+          .returning();
+        return flag ?? row;
       }
     }
     return row;
   }
 
   // ===== Gestão (PDV) =====
+  // Ativos (qualquer idade) + finalizados das últimas 24h (coluna Finalizado).
   async listar(tenantId: string) {
+    const desde = new Date(Date.now() - 24 * 60 * 60 * 1000);
     return this.db
       .select()
       .from(pedidoExterno)
       .where(
         and(
           eq(pedidoExterno.tenantId, tenantId),
-          inArray(pedidoExterno.status, [
-            'novo',
-            'confirmado',
-            'pronto',
-            'despachado',
-          ]),
+          or(
+            inArray(pedidoExterno.status, [
+              'novo',
+              'confirmado',
+              'pronto',
+              'despachado',
+            ]),
+            and(
+              inArray(pedidoExterno.status, ['concluido', 'cancelado']),
+              gte(pedidoExterno.criadoEm, desde),
+            ),
+          ),
         ),
       )
       .orderBy(desc(pedidoExterno.criadoEm))
-      .limit(100);
+      .limit(200);
   }
 
   private async carregar(tenantId: string, id: string) {
@@ -178,13 +195,22 @@ export class DeliveryService {
 
     const [row] = await this.db
       .update(pedidoExterno)
-      .set({ status: 'confirmado', comandaId: venda.comandaId, confirmadoEm: new Date() })
+      .set({
+        status: 'confirmado',
+        comandaId: venda.comandaId,
+        confirmadoEm: new Date(),
+        autoAceiteFalhou: false,
+      })
       .where(eq(pedidoExterno.id, id))
       .returning();
     return row;
   }
 
-  async avancar(tenantId: string, id: string) {
+  async avancar(
+    tenantId: string,
+    id: string,
+    dados?: { entregadorId?: string | null; entregadorNome?: string | null },
+  ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado' || ped.status === 'novo')
       throw new BadRequestException('Aceite o pedido antes de avançar.');
@@ -194,14 +220,54 @@ export class DeliveryService {
     const novo = FLUXO[idx + 1];
     const patch: any = { status: novo };
     if (novo === 'pronto') patch.prontoEm = new Date();
-    if (novo === 'despachado') patch.despachadoEm = new Date();
+    if (novo === 'despachado') {
+      patch.despachadoEm = new Date();
+      // Entrega recebe o entregador; retirada não precisa.
+      if (dados?.entregadorNome != null)
+        patch.entregadorNome = dados.entregadorNome || null;
+      if (dados?.entregadorId != null)
+        patch.entregadorId = dados.entregadorId || null;
+    }
     if (novo === 'concluido') patch.concluidoEm = new Date();
     const [row] = await this.db
       .update(pedidoExterno)
       .set(patch)
       .where(eq(pedidoExterno.id, id))
       .returning();
+    // Dinheiro entra na gaveta do delivery quando o pedido é entregue.
+    if (novo === 'concluido') await this.reconciliarDinheiro(tenantId, row);
     return row;
+  }
+
+  // Se o pedido foi pago em dinheiro na entrega, amarra o lançamento da venda à
+  // sessão de caixa do delivery aberta — assim o fechamento confere a gaveta.
+  private async reconciliarDinheiro(tenantId: string, ped: any) {
+    if (!ped?.comandaId || ped.pago) return;
+    const forma = String(ped.formaPagamento ?? '');
+    const ehDinheiro = /dinheiro|cash|money/i.test(forma) || ped.trocoPara != null;
+    if (!ehDinheiro) return;
+    const [sessao] = await this.db
+      .select({ id: caixaSessao.id })
+      .from(caixaSessao)
+      .where(
+        and(
+          eq(caixaSessao.tenantId, tenantId),
+          eq(caixaSessao.status, 'aberta'),
+          eq(caixaSessao.origem, 'delivery'),
+        ),
+      );
+    if (!sessao) return; // sem caixa do delivery aberto: fica só como receita
+    await this.db
+      .update(lancamentoCaixa)
+      .set({ sessaoId: sessao.id, forma: 'dinheiro' })
+      .where(
+        and(
+          eq(lancamentoCaixa.tenantId, tenantId),
+          eq(lancamentoCaixa.comandaId, ped.comandaId),
+          eq(lancamentoCaixa.tipo, 'entrada'),
+          eq(lancamentoCaixa.categoria, 'venda'),
+        ),
+      );
   }
 
   async cancelar(
@@ -252,15 +318,38 @@ export class DeliveryService {
 
   async getConfig(tenantId: string, unidadeId?: string | null) {
     const row = await this.configRaw(tenantId, unidadeId);
-    return row ?? { ativo: false, autoAceitar: false };
+    return (
+      row ?? {
+        ativo: false,
+        autoAceitar: false,
+        colunas: DeliveryService.COLUNAS_PADRAO,
+      }
+    );
   }
+
+  private static readonly COLUNAS_PADRAO = {
+    chegada: true,
+    producao: true,
+    rota: true,
+    finalizado: true,
+  };
 
   async setConfig(tenantId: string, unidadeId: string | null, dto: any) {
     const row = await this.configRaw(tenantId, unidadeId);
+    // Colunas: mescla o que veio com o atual (ou o padrão), só chaves conhecidas.
+    const colunasAtuais: any =
+      (row?.colunas as any) ?? DeliveryService.COLUNAS_PADRAO;
+    const colunas = { ...colunasAtuais };
+    if (dto.colunas && typeof dto.colunas === 'object') {
+      for (const k of Object.keys(DeliveryService.COLUNAS_PADRAO)) {
+        if (dto.colunas[k] != null) colunas[k] = !!dto.colunas[k];
+      }
+    }
     const vals = {
       ativo: dto.ativo != null ? !!dto.ativo : row?.ativo ?? false,
       autoAceitar: dto.autoAceitar != null ? !!dto.autoAceitar : row?.autoAceitar ?? false,
       merchantId: dto.merchantId ?? row?.merchantId ?? null,
+      colunas,
     };
     if (row) {
       await this.db
