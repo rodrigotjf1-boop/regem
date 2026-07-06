@@ -76,7 +76,7 @@ export class FinanceiroController {
   @Get('caixa')
   @Roles('presidente', 'gerente', 'atendente')
   caixa(@CurrentUser() user: AuthUser) {
-    return this.service.sessaoAberta(user.tenantId);
+    return this.service.caixaAtual(user.tenantId);
   }
 
   @Post('caixa/abrir')
@@ -96,6 +96,25 @@ export class FinanceiroController {
     );
   }
 
+  // ----- Formas de pagamento (cadastro) — leitura liberada ao operador. -----
+  @Get('formas-pagamento')
+  @Roles('presidente', 'gerente', 'atendente')
+  formasPagamento(@CurrentUser() user: AuthUser) {
+    return this.service.listarFormasPagamento(user.tenantId);
+  }
+
+  @Post('formas-pagamento')
+  @Roles('presidente', 'gerente')
+  criarFormaPagamento(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.criarFormaPagamento(user.tenantId, dto);
+  }
+
+  @Post('formas-pagamento/:id/ativa')
+  @Roles('presidente', 'gerente')
+  ativarFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setFormaPagamentoAtiva(user.tenantId, id, !!dto.ativo);
+  }
+
   // Config do caixa: liberar sangria/suprimento pelo atendente (presidente).
   @Get('caixa/config')
   @Roles('presidente', 'gerente', 'atendente')
@@ -112,6 +131,11 @@ export class FinanceiroController {
   @Post('caixa/fechar')
   @Roles('presidente', 'gerente', 'atendente')
   fecharCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.fecharSessao(user.tenantId, user.colaboradorId, dto);
+    return this.service.fecharSessao(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      dto,
+    );
   }
 }

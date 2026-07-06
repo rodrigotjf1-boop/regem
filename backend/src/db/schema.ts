@@ -566,6 +566,7 @@ export const caixaSessao = pgTable('caixa_sessao', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
   status: text('status').notNull().default('aberta'), // aberta | fechada
+  turnoNumero: integer('turno_numero'), // nº do turno (sequencial por dia)
   valorAbertura: numeric('valor_abertura').notNull().default('0'),
   abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
   abertaPorId: uuid('aberta_por_id'),
@@ -575,6 +576,32 @@ export const caixaSessao = pgTable('caixa_sessao', {
   fechadaEm: timestamp('fechada_em', { withTimezone: true }),
   fechadaPorId: uuid('fechada_por_id'),
   obs: text('obs'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const formaPagamento = pgTable('forma_pagamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  tipo: text('tipo').notNull().default('outro'), // dinheiro|pix|credito|debito|vr|outro
+  ativo: boolean('ativo').notNull().default(true),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const comandaPagamento = pgTable('comanda_pagamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  comandaId: uuid('comanda_id')
+    .notNull()
+    .references(() => comanda.id, { onDelete: 'cascade' }),
+  forma: text('forma').notNull(),
+  formaPagamentoId: uuid('forma_pagamento_id'),
+  valor: numeric('valor').notNull().default('0'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

@@ -14,14 +14,16 @@ export class DashboardController {
   @Get()
   @Roles('presidente', 'gerente')
   resumo(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
-    const d = data ?? new Date().toISOString().slice(0, 10);
+    const d =
+      data ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
     return this.service.resumo(user.tenantId, d);
   }
 
   @Get('timeline')
   @Roles('presidente', 'gerente')
   timeline(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
-    const d = data ?? new Date().toISOString().slice(0, 10);
+    const d =
+      data ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
     return this.service.timeline(user.tenantId, d);
   }
 }

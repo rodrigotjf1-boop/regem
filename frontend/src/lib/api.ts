@@ -246,6 +246,8 @@ export const api = {
     }),
   vendasCupons: () => req('/vendas/cupons'),
   vendasCupom: (id: string) => req(`/vendas/cupons/${id}`),
+  buscarCupomSenha: (senha: string | number) =>
+    req(`/vendas/cupons/busca?senha=${encodeURIComponent(String(senha))}`),
   cancelarVenda: (id: string, body: Record<string, unknown>) =>
     req(`/vendas/comandas/${id}/cancelar`, {
       method: 'POST',
@@ -396,6 +398,11 @@ export const api = {
   financeiroFluxo: (dias?: number) =>
     req(`/financeiro/fluxo${dias ? `?dias=${dias}` : ''}`),
   caixaAberta: () => req('/financeiro/caixa'),
+  formasPagamento: () => req('/financeiro/formas-pagamento'),
+  criarFormaPagamento: (body: { nome: string; tipo?: string }) =>
+    req('/financeiro/formas-pagamento', { method: 'POST', body: JSON.stringify(body) }),
+  ativarFormaPagamento: (id: string, ativo: boolean) =>
+    req(`/financeiro/formas-pagamento/${id}/ativa`, { method: 'POST', body: JSON.stringify({ ativo }) }),
   caixaConfig: () => req('/financeiro/caixa/config'),
   setCaixaLivre: (ativo: boolean) =>
     req('/financeiro/caixa/config/livre', {

@@ -141,6 +141,12 @@ export class VendasController {
     return this.service.listarCupons(user.tenantId);
   }
 
+  // Busca por senha — precisa vir ANTES de :id p/ não ser capturada pela rota.
+  @Get('cupons/busca')
+  buscarCupom(@CurrentUser() user: AuthUser, @Query('senha') senha: string) {
+    return this.service.buscarCupomPorSenha(user.tenantId, Number(senha));
+  }
+
   @Get('cupons/:id')
   cupom(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.getCupom(user.tenantId, id);

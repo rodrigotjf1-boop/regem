@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { FormasPagamentoCard } from '@/components/financeiro/formas-pagamento-card';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
@@ -128,6 +129,7 @@ export default function FinanceiroPage() {
   return (
     <Shell eyebrow="Gestão · financeiro" title="Financeiro">
       <div className="max-w-4xl space-y-5">
+        <FormasPagamentoCard />
         {/* Resumo */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Kpi label="A pagar (aberto)" value={resumo ? brl(resumo.aPagar) : '—'} tone="warn" />

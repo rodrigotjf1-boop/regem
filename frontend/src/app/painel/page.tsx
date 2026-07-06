@@ -10,9 +10,13 @@ import { Timeline } from '@/components/dashboard/timeline';
 import { CardPontoHoje } from '@/components/dashboard/card-ponto-hoje';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Data de hoje no fuso da operação (America/Sao_Paulo) — alinha KPIs e o
+// marcador "agora" da timeline, evitando divergência perto da meia-noite.
 function hoje() {
-  return new Date().toISOString().slice(0, 10);
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 }
+const brl = (n: number) =>
+  Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export default function DashboardPage() {
   const [d, setD] = useState<any>(null);
@@ -72,6 +76,14 @@ export default function DashboardPage() {
       t.estado === 'parcial',
   );
 
+  const kpisVendas = d
+    ? [
+        { label: 'Vendas hoje', value: brl(d.vendas?.faturado ?? 0), sub: `${d.vendas?.total ?? 0} venda(s)`, color: 'var(--ok)' },
+        { label: 'Ticket médio', value: brl(d.vendas?.ticketMedio ?? 0), sub: 'por venda', color: 'var(--info)' },
+        { label: 'Delivery pendente', value: d.deliveryPendentes ?? 0, sub: 'pedidos em aberto', color: 'var(--warn)' },
+      ]
+    : [];
+
   const kpis = d
     ? [
         { label: 'Conclusão', value: `${d.tarefas.pctConclusao}%`, sub: `${d.tarefas.feitas}/${d.tarefas.total} tarefas`, color: 'var(--ok)' },
@@ -110,6 +122,21 @@ export default function DashboardPage() {
               <AlertTriangle className="h-3.5 w-3.5" style={{ color: a.cor }} />
               {a.txt}
             </div>
+          ))}
+        </div>
+      )}
+
+      {kpisVendas.length > 0 && (
+        <div className="mb-3.5 grid grid-cols-2 gap-3.5 md:grid-cols-3">
+          {kpisVendas.map((k) => (
+            <Card key={k.label} className="relative overflow-hidden p-4">
+              <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: `hsl(${k.color})` }} />
+              <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                {k.label}
+              </p>
+              <p className="mt-1 font-mono text-2xl font-bold tabular-nums">{k.value}</p>
+              <p className="text-xs text-muted-foreground">{k.sub}</p>
+            </Card>
           ))}
         </div>
       )}

@@ -6,12 +6,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   mesa,
   comanda,
   comandaItem,
+  comandaPagamento,
   comandaItemComplemento,
   complementoGrupo,
   complementoOpcao,
@@ -299,7 +300,9 @@ export class VendasService {
           status: 'fechada',
           idempotencyKey: dto.idempotencyKey,
           taxaServicoPct: String(taxa),
-          forma: dto.forma,
+          forma: (dto as any).pagamentos?.length
+            ? (dto as any).pagamentos.length > 1 ? 'multiplo' : (dto as any).pagamentos[0].forma
+            : dto.forma,
           fechadaEm: new Date(),
           abertaPorId: atorId,
         })
@@ -419,19 +422,56 @@ export class VendasService {
         .update(comanda)
         .set({ total: String(totalComTaxa.toFixed(2)) })
         .where(eq(comanda.id, cmd.id));
-      await tx.insert(lancamentoCaixa).values({
-        tenantId,
-        unidadeId: dto.unidadeId,
-        sessaoId,
-        comandaId: cmd.id,
-        tipo: 'entrada',
-        valor: String(totalComTaxa.toFixed(2)),
-        data: hojeISO(),
-        categoria: 'venda',
-        forma: dto.forma,
-        descricao: dto.mesa ? `Venda balcão · mesa ${dto.mesa}` : 'Venda balcão',
-        criadoPorId: atorId,
-      });
+
+      const pagamentos = (dto as any).pagamentos as
+        | { forma: string; valor: number; formaPagamentoId?: string }[]
+        | undefined;
+      const descBase = dto.mesa ? `Venda balcão · mesa ${dto.mesa}` : 'Venda balcão';
+      if (pagamentos?.length) {
+        // Dividir conta / multi-pagamento: soma tem de bater com o total.
+        const somaPag = pagamentos.reduce((s, p) => s + (Number(p.valor) || 0), 0);
+        if (Math.abs(somaPag - totalComTaxa) > 0.05)
+          throw new BadRequestException(
+            `A soma dos pagamentos (${somaPag.toFixed(2)}) não bate com o total (${totalComTaxa.toFixed(2)}).`,
+          );
+        for (const p of pagamentos) {
+          await tx.insert(comandaPagamento).values({
+            tenantId,
+            comandaId: cmd.id,
+            forma: p.forma,
+            formaPagamentoId: p.formaPagamentoId ?? null,
+            valor: String(Number(p.valor).toFixed(2)),
+          });
+          // Um lançamento de caixa por forma → fechamento "por forma" correto.
+          await tx.insert(lancamentoCaixa).values({
+            tenantId,
+            unidadeId: dto.unidadeId,
+            sessaoId,
+            comandaId: cmd.id,
+            tipo: 'entrada',
+            valor: String(Number(p.valor).toFixed(2)),
+            data: hojeISO(),
+            categoria: 'venda',
+            forma: p.forma,
+            descricao: descBase,
+            criadoPorId: atorId,
+          });
+        }
+      } else {
+        await tx.insert(lancamentoCaixa).values({
+          tenantId,
+          unidadeId: dto.unidadeId,
+          sessaoId,
+          comandaId: cmd.id,
+          tipo: 'entrada',
+          valor: String(totalComTaxa.toFixed(2)),
+          data: hojeISO(),
+          categoria: 'venda',
+          forma: dto.forma,
+          descricao: descBase,
+          criadoPorId: atorId,
+        });
+      }
 
       return {
         comandaId: cmd.id,
@@ -1253,7 +1293,7 @@ export class VendasService {
   // Cupons = vendas fechadas/canceladas (as comandas). Consulta pelo atendente/gerente.
   listarCupons(tenantId: string, limite = 50) {
     return this.db.execute(sql`
-      select c.id, c.mesa, c.status, c.total, c.forma,
+      select c.id, c.senha, c.mesa, c.status, c.total, c.forma,
              c.fechada_em as "fechadaEm", c.cancelada_em as "canceladaEm",
              c.motivo_cancelamento as "motivoCancelamento"
       from comanda c
@@ -1265,6 +1305,20 @@ export class VendasService {
 
   getCupom(tenantId: string, id: string) {
     return this.getComanda(tenantId, id);
+  }
+
+  // Busca um cupom pela SENHA (nº que o operador enxerga) — pega o mais recente.
+  async buscarCupomPorSenha(tenantId: string, senha: number) {
+    const n = Number(senha);
+    if (!Number.isFinite(n)) throw new BadRequestException('Senha inválida.');
+    const [c] = await this.db
+      .select({ id: comanda.id })
+      .from(comanda)
+      .where(and(eq(comanda.tenantId, tenantId), eq(comanda.senha, n)))
+      .orderBy(desc(comanda.abertaEm))
+      .limit(1);
+    if (!c) throw new NotFoundException('Nenhum cupom com essa senha.');
+    return this.getComanda(tenantId, c.id);
   }
 
   // Configuração do presidente/C&O: se o cancelamento é livre para o atendente.

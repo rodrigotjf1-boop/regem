@@ -12,6 +12,8 @@ import {
   lancamentoCaixa,
   fornecedor,
   caixaSessao,
+  colaborador,
+  formaPagamento,
   entitlement,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -338,16 +340,39 @@ export class FinanceiroService {
   ) {
     const aberta = await this.sessaoAberta(tenantId);
     if (aberta) throw new BadRequestException('Já existe um caixa aberto.');
+    // Nº do turno = sequencial por dia (fuso SP): 1º caixa do dia = Turno 1.
+    const tn: any = await this.db.execute(sql`
+      select coalesce(max(turno_numero), 0) + 1 as n from caixa_sessao
+      where tenant_id = ${tenantId}
+        and (aberta_em at time zone 'America/Sao_Paulo')::date
+            = (now() at time zone 'America/Sao_Paulo')::date`);
+    const turnoNumero = Number((tn.rows ?? tn)[0].n) || 1;
     const [s] = await this.db
       .insert(caixaSessao)
       .values({
         tenantId,
         unidadeId: dto.unidadeId,
+        turnoNumero,
         valorAbertura: String(dto.valorAbertura ?? 0),
         abertaPorId: atorId,
       })
       .returning();
     return s;
+  }
+
+  // Caixa aberto + nome do operador (p/ o PDV mostrar "Turno N · Operador X").
+  async caixaAtual(tenantId: string) {
+    const s = await this.sessaoAberta(tenantId);
+    if (!s) return null;
+    let operadorNome: string | null = null;
+    if (s.abertaPorId) {
+      const [c] = await this.db
+        .select({ nome: colaborador.nome })
+        .from(colaborador)
+        .where(eq(colaborador.id, s.abertaPorId));
+      operadorNome = c?.nome ?? null;
+    }
+    return { ...s, operadorNome };
   }
 
   // Config do caixa (presidente/C&O): atendente pode sangrar/suprir sem autorização?
@@ -379,6 +404,65 @@ export class FinanceiroService {
     return { caixaLivre: ativo };
   }
 
+  // ===== Formas de pagamento (cadastro) =====
+  private static readonly FORMAS_PADRAO = [
+    { nome: 'Dinheiro', tipo: 'dinheiro' },
+    { nome: 'Pix', tipo: 'pix' },
+    { nome: 'Cartão de crédito', tipo: 'credito' },
+    { nome: 'Cartão de débito', tipo: 'debito' },
+  ];
+
+  async listarFormasPagamento(tenantId: string, apenasAtivas = false) {
+    const rows = await this.db
+      .select()
+      .from(formaPagamento)
+      .where(eq(formaPagamento.tenantId, tenantId))
+      .orderBy(formaPagamento.ordem, formaPagamento.nome);
+    // Semeia os padrões na primeira vez (sem quebrar a leitura).
+    if (rows.length === 0) {
+      await this.db.insert(formaPagamento).values(
+        FinanceiroService.FORMAS_PADRAO.map((f, i) => ({ tenantId, nome: f.nome, tipo: f.tipo, ordem: i })),
+      );
+      return this.db
+        .select()
+        .from(formaPagamento)
+        .where(
+          apenasAtivas
+            ? and(eq(formaPagamento.tenantId, tenantId), eq(formaPagamento.ativo, true))
+            : eq(formaPagamento.tenantId, tenantId),
+        )
+        .orderBy(formaPagamento.ordem, formaPagamento.nome);
+    }
+    return apenasAtivas ? rows.filter((r) => r.ativo) : rows;
+  }
+
+  async criarFormaPagamento(
+    tenantId: string,
+    dto: { nome: string; tipo?: string },
+  ) {
+    if (!dto.nome?.trim()) throw new BadRequestException('Informe o nome.');
+    const tipos = ['dinheiro', 'pix', 'credito', 'debito', 'vr', 'outro'];
+    const [row] = await this.db
+      .insert(formaPagamento)
+      .values({
+        tenantId,
+        nome: dto.nome.trim(),
+        tipo: tipos.includes(dto.tipo ?? '') ? dto.tipo : 'outro',
+      })
+      .returning();
+    return row;
+  }
+
+  async setFormaPagamentoAtiva(tenantId: string, id: string, ativo: boolean) {
+    const [row] = await this.db
+      .update(formaPagamento)
+      .set({ ativo })
+      .where(and(eq(formaPagamento.id, id), eq(formaPagamento.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new BadRequestException('Forma não encontrada.');
+    return row;
+  }
+
   // Sangria (retira dinheiro) / suprimento (coloca dinheiro) — sempre em dinheiro.
   async movimentarCaixa(
     tenantId: string,
@@ -396,6 +480,7 @@ export class FinanceiroService {
       throw new BadRequestException('Informe um valor válido.');
     const s = await this.sessaoAberta(tenantId);
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
+    this.exigeDonoDoTurno(s, atorId, atorPerfil);
     await this.db.insert(lancamentoCaixa).values({
       tenantId,
       unidadeId: s.unidadeId,
@@ -411,14 +496,26 @@ export class FinanceiroService {
     return { ok: true };
   }
 
+  // Turno é do operador que abriu: só ele fecha/movimenta (gerente+ faz override).
+  private exigeDonoDoTurno(s: any, atorId: string, atorPerfil: string) {
+    const gestor = atorPerfil === 'gerente' || atorPerfil === 'presidente';
+    if (s.abertaPorId && s.abertaPorId !== atorId && !gestor) {
+      throw new ForbiddenException(
+        'Este turno é de outro operador. Só quem abriu (ou um gerente) pode movimentar/fechar.',
+      );
+    }
+  }
+
   // Fechamento CEGO: recebe a contagem; calcula o esperado (só dinheiro) e a diferença.
   async fecharSessao(
     tenantId: string,
     atorId: string,
+    atorPerfil: string,
     dto: { valorInformado: number; obs?: string },
   ) {
     const s = await this.sessaoAberta(tenantId);
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
+    this.exigeDonoDoTurno(s, atorId, atorPerfil);
     // Esperado em gaveta = abertura + entradas − saídas (apenas dinheiro) da sessão.
     const r: any = await this.db.execute(sql`
       select coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
