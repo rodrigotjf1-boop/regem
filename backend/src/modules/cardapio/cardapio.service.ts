@@ -81,6 +81,10 @@ export class CardapioService {
       whatsapp: dto.whatsapp ?? row?.whatsapp ?? null,
       parcelasMax:
         dto.parcelasMax != null ? Number(dto.parcelasMax) || null : row?.parcelasMax ?? null,
+      autoKds: dto.autoKds != null ? !!dto.autoKds : row?.autoKds ?? true,
+      formasCartao: Array.isArray(dto.formasCartao)
+        ? dto.formasCartao.filter((x: any) => typeof x === 'string' && x.trim()).map((x: string) => x.trim())
+        : row?.formasCartao ?? [],
     };
     if (row) {
       await this.db
@@ -291,7 +295,8 @@ export class CardapioService {
       select id, nome, descricao, preco_venda as "precoVenda",
              preco_promocional as "precoPromocional", categoria_id as "categoriaId",
              imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin",
-             tipo, ficha_id as "fichaId", controla_estoque as "controlaEstoque"
+             tipo, ficha_id as "fichaId", controla_estoque as "controlaEstoque",
+             destaque
       from produto
       where tenant_id = ${cfg.tenantId} and deleted_at is null
         and ativo = true and disponivel_cardapio = true
@@ -344,6 +349,7 @@ export class CardapioService {
         freteGratisAcima:
           cfg.freteGratisAcima != null ? Number(cfg.freteGratisAcima) : null,
         pagamentos: cfg.pagamentos ?? [],
+        formasCartao: cfg.formasCartao ?? [],
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,
         parcelasMax: cfg.parcelasMax ?? null,
@@ -367,6 +373,7 @@ export class CardapioService {
           imagemRef: p.imagemRef,
           selos: p.selos ?? [],
           duracaoMin: p.duracaoMin,
+          destaque: p.destaque === true,
           esgotado: esgotados.has(p.id),
           variacoes: variacoes
             .filter((v) => v.produtoId === p.id && v.ativo !== false)
@@ -478,9 +485,14 @@ export class CardapioService {
       cliente?: string;
       telefone?: string;
       tipo?: string; // entrega | retirada
-      endereco?: string;
+      endereco?: string; // texto livre (compat/legado)
+      rua?: string;
+      numero?: string;
+      referencia?: string;
+      telefone2?: string;
       bairroId?: string;
       formaPagamento?: string;
+      bandeira?: string; // forma de cartão escolhida (rótulo)
       trocoPara?: number;
       cupom?: string;
       agendamento?: string; // serviços: data/hora
@@ -564,6 +576,7 @@ export class CardapioService {
     // Checkout: tipo, frete (bairro), cupom, pagamento.
     const tipo = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
     let taxa = 0;
+    let bairroNome: string | undefined;
     if (tipo === 'entrega') {
       if (dto.bairroId) {
         const [b] = await this.db
@@ -576,10 +589,22 @@ export class CardapioService {
             ),
           );
         taxa = b ? Number(b.taxa) : 0;
+        bairroNome = b?.nome;
       }
       // frete grátis acima de X
       if (cfg.freteGratisAcima != null && total >= Number(cfg.freteGratisAcima)) taxa = 0;
     }
+    // Endereço estruturado → compõe o texto p/ impressão/compatibilidade.
+    const enderecoTexto =
+      tipo === 'entrega'
+        ? [
+            [dto.rua, dto.numero].filter(Boolean).join(', '),
+            bairroNome,
+            dto.referencia ? `ref: ${dto.referencia}` : '',
+          ]
+            .filter((s) => s && s.trim())
+            .join(' · ') || dto.endereco
+        : undefined;
     const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total);
     const desconto = cup.valido ? cup.desconto : 0;
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
@@ -587,6 +612,12 @@ export class CardapioService {
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
     const online = !orcamento && (forma === 'pix' || forma === 'cartao');
     const grande = Math.max(0, total - desconto + taxa);
+
+    // Senha PRÓPRIA do cardápio (contador sequencial por tenant do canal).
+    const cnt: any = await this.db.execute(
+      sql`select count(*)::int as c from pedido_externo where tenant_id = ${cfg.tenantId} and canal = 'cardapio'`,
+    );
+    const senhaCardapio = String((((cnt.rows ?? cnt)[0]?.c ?? 0) as number) + 1);
 
     const ped = await this.delivery.ingest(
       cfg.tenantId,
@@ -596,9 +627,10 @@ export class CardapioService {
         cliente: dto.cliente ?? 'Cardápio',
         clienteTelefone: dto.telefone,
         tipo,
-        endereco: dto.endereco,
+        endereco: enderecoTexto ?? dto.endereco,
         formaPagamento: forma,
         total: grande,
+        displayId: senhaCardapio,
         itens: itensOut,
       },
       {
@@ -614,8 +646,24 @@ export class CardapioService {
         agendamento: dto.agendamento,
         profissional: dto.profissional,
         cnpj: dto.cnpj,
+        clienteTelefone2: tipo === 'entrega' ? dto.telefone2 : undefined,
+        enderecoRua: tipo === 'entrega' ? dto.rua : undefined,
+        enderecoNumero: tipo === 'entrega' ? dto.numero : undefined,
+        enderecoReferencia: tipo === 'entrega' ? dto.referencia : undefined,
+        enderecoBairro: tipo === 'entrega' ? bairroNome : undefined,
+        bandeira: dto.bandeira,
       },
     );
+
+    // Envio automático ao KDS: aceita o pedido na hora (cria comanda + produção
+    // com senha local + selo da plataforma). Orçamento (indústria) não produz.
+    if (cfg.autoKds !== false && !orcamento && (ped as any)?.status === 'novo') {
+      try {
+        await this.delivery.aceitar(cfg.tenantId, null, ped.id);
+      } catch {
+        /* mantém o pedido em 'novo' se a produção falhar */
+      }
+    }
 
     // Fidelidade (L5): acumula pontos por telefone (1 ponto por real, arred.).
     let pontos: number | undefined;

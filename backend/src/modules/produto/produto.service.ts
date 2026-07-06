@@ -271,6 +271,7 @@ export class ProdutoService {
             dto.precoPromocional != null ? String(dto.precoPromocional) : undefined,
           selos: dto.selos ?? [],
           disponivelCardapio: dto.disponivelCardapio ?? true,
+          destaque: dto.destaque ?? false,
           vendaMultiplo: dto.vendaMultiplo,
           duracaoMin: dto.duracaoMin,
           gtin: dto.gtin,
@@ -354,6 +355,7 @@ export class ProdutoService {
       patch.precoPromocional = dto.precoPromocional != null ? String(dto.precoPromocional) : null;
     set('selos', dto.selos);
     set('disponivelCardapio', dto.disponivelCardapio);
+    set('destaque', dto.destaque);
     set('vendaMultiplo', dto.vendaMultiplo);
     set('duracaoMin', dto.duracaoMin);
     set('gtin', dto.gtin);

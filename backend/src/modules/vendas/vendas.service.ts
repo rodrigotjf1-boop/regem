@@ -524,6 +524,8 @@ export class VendasService {
       cliente?: string | null;
       forma?: string | null;
       origem?: string;
+      plataforma?: string | null; // ex.: "Cardápio", "iFood"
+      senhaPlataforma?: string | null; // senha/nº do pedido na plataforma
       itens: {
         produtoId?: string | null;
         descricao: string;
@@ -536,6 +538,9 @@ export class VendasService {
     if (!dto.itens?.length)
       throw new BadRequestException('Pedido sem itens.');
     const res = await this.db.transaction(async (tx) => {
+      // Senha LOCAL do PDV (sequência central) — o KDS exibe esta; a senha da
+      // plataforma vai como metadado ao lado.
+      const senha = await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null);
       const [cmd] = await tx
         .insert(comanda)
         .values({
@@ -543,6 +548,7 @@ export class VendasService {
           unidadeId: dto.unidadeId,
           cliente: dto.cliente,
           status: 'fechada',
+          senha,
           forma: dto.forma ?? 'online',
           fechadaEm: new Date(),
           abertaPorId: atorId,
@@ -598,6 +604,9 @@ export class VendasService {
           comandaId: cmd.id,
           origem: dto.origem ?? 'delivery',
           mesa: null,
+          senha,
+          plataforma: dto.plataforma ?? null,
+          senhaPlataforma: dto.senhaPlataforma ?? null,
         },
         itensProducao,
       );

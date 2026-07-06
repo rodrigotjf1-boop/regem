@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -21,5 +21,16 @@ export class ColaboradorController {
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
     return this.service.findAll(user.tenantId);
+  }
+
+  // Reset de senha pelo gestor (recuperação sem e-mail).
+  @Post(':id/senha')
+  @Roles('presidente', 'gerente')
+  definirSenha(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { email?: string; senha: string },
+  ) {
+    return this.service.definirSenha(user, id, dto);
   }
 }

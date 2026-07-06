@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, setToken } from '@/lib/api';
+import { api, setToken, getToken, getCategoria, rotaInicial } from '@/lib/api';
 
 // Login (split-screen). Porte fiel do mockup Fable "regem-login" — CSS escopado em .lg.
 const CSS = `
@@ -106,7 +106,6 @@ const PHRASES = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const [modePin, setModePin] = useState(false);
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [showPass, setShowPass] = useState(false);
@@ -114,14 +113,19 @@ export default function LoginPage() {
   const [emailErr, setEmailErr] = useState(false);
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
-  const [pin, setPin] = useState('');
   const [pi, setPi] = useState(0);
   const [fade, setFade] = useState(false);
   const [expirada, setExpirada] = useState(false);
+  const [lembrar, setLembrar] = useState(true);
 
   useEffect(() => {
+    // Já autenticado? Vai direto pro app (não mostra o login de novo).
+    if (getToken()) {
+      router.replace(rotaInicial(getCategoria()));
+      return;
+    }
     setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
-  }, []);
+  }, [router]);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -134,9 +138,6 @@ export default function LoginPage() {
     return () => clearInterval(t);
   }, []);
 
-  const pinRef = useRef(pin);
-  pinRef.current = pin;
-
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const okEmail = /.+@.+\..+/.test(email);
@@ -146,27 +147,14 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const r = await api.login(email, senha);
-      setToken(r.access_token);
-      router.push('/painel');
+      setToken(r.access_token, lembrar);
+      // Landing por perfil (só gestor tem dashboard). replace: não volta ao login.
+      router.replace(rotaInicial(getCategoria()));
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'E-mail ou senha incorretos.');
     } finally {
       setLoading(false);
     }
-  }
-
-  function tecla(k: string) {
-    if (k === 'clear') return setPin('');
-    if (k === 'back') return setPin((p) => p.slice(0, -1));
-    setPin((p) => {
-      if (p.length >= 4) return p;
-      const np = p + k;
-      if (np.length === 4) {
-        // Fluxo real de terminal (escolhe unidade + valida PIN) vive em /pin.
-        setTimeout(() => router.push('/pin'), 200);
-      }
-      return np;
-    });
   }
 
   return (
@@ -246,29 +234,7 @@ export default function LoginPage() {
               </div>
             )}
 
-            <div className="seg" role="tablist">
-              <button
-                type="button"
-                className={modePin ? '' : 'on'}
-                role="tab"
-                aria-selected={!modePin}
-                onClick={() => setModePin(false)}
-              >
-                E-mail e senha
-              </button>
-              <button
-                type="button"
-                className={modePin ? 'on' : ''}
-                role="tab"
-                aria-selected={modePin}
-                onClick={() => setModePin(true)}
-              >
-                PIN de terminal
-              </button>
-            </div>
-
-            {!modePin ? (
-              <form onSubmit={onSubmit} noValidate>
+            <form onSubmit={onSubmit} noValidate>
                 <div className={`field${emailErr ? ' err' : ''}`}>
                   <label htmlFor="email">E-mail</label>
                   <div className="in-wrap">
@@ -315,17 +281,17 @@ export default function LoginPage() {
                   <div className={`field-msg msg-warn${caps ? ' show' : ''}`}>
                     ⬆ Caps Lock está ativado.
                   </div>
-                  <div className={`field-msg msg-err${erro ? ' show' : ''}`}>
+                  <div className={`field-msg msg-err${erro ? ' show' : ''}`} role="alert" aria-live="assertive">
                     {erro || 'E-mail ou senha incorretos. Tente novamente.'}
                   </div>
                 </div>
                 <div className="row-between">
                   <label className="remember">
-                    <input type="checkbox" defaultChecked /> Manter conectado
+                    <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} /> Manter conectado
                   </label>
-                  <a className="forgot" href="#">
+                  <Link className="forgot" href="/recuperar-senha">
                     Esqueci minha senha
-                  </a>
+                  </Link>
                 </div>
                 <button
                   type="submit"
@@ -342,41 +308,6 @@ export default function LoginPage() {
                   Não tem conta? <Link href="/criar-conta">Criar conta</Link>
                 </div>
               </form>
-            ) : (
-              <div>
-                <p className="pin-hint">
-                  Digite seu PIN de 4 dígitos para bater ponto ou entrar no modo
-                  terminal.
-                </p>
-                <div className="pin-dots">
-                  {[0, 1, 2, 3].map((i) => (
-                    <span key={i} className={`pd${i < pin.length ? ' f' : ''}`} />
-                  ))}
-                </div>
-                <div className="pad">
-                  {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((n) => (
-                    <button key={n} type="button" className="key" onClick={() => tecla(n)}>
-                      {n}
-                    </button>
-                  ))}
-                  <button type="button" className="key fn" onClick={() => tecla('clear')}>
-                    LIMPAR
-                  </button>
-                  <button type="button" className="key" onClick={() => tecla('0')}>
-                    0
-                  </button>
-                  <button type="button" className="key fn" onClick={() => tecla('back')}>
-                    ⌫
-                  </button>
-                </div>
-                <div className="pin-terminal">
-                  TERMINAL: PONTO-ENTRADA-01 · <b>ONLINE</b>
-                </div>
-                <div className="audit-note">
-                  🔒 Marcações geram NSR e comprovante — conforme Portaria 671/2021.
-                </div>
-              </div>
-            )}
           </div>
         </main>
       </div>

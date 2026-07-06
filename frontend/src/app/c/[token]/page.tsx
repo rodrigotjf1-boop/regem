@@ -3,36 +3,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import {
+  brl,
+  TEMA,
+  SELO,
+  carregarCliente,
+  salvarCliente,
+  type CartItem,
+} from '@/components/loja/tipos';
+import { ItemSheet } from '@/components/loja/item-sheet';
+import { CartSheet } from '@/components/loja/cart-sheet';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
-const brl = (n: number) =>
-  Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-const TEMA: Record<string, string> = {
-  food: '#E2A340',
-  varejo: '#2563EB',
-  industria: '#E05A2B',
-  servicos: '#0E8E7E',
-};
-const SELO: Record<string, string> = {
-  mais_pedido: '🔥 Mais pedido',
-  novo: '✨ Novo',
-  veg: '🌱 Veg',
-  sem_gluten: '🌾 S/ glúten',
-  sem_lactose: '🥛 S/ lactose',
-  picante: '🌶️ Picante',
-};
-
-type CartItem = {
-  key: string;
-  produtoId: string;
-  variacaoId?: string;
-  complementos: string[];
-  nome: string;
-  sub: string;
-  preco: number;
-  obs: string;
-  qtd: number;
+const CHK_INICIAL = {
+  tipo: 'entrega',
+  quando: 'agora',
+  agendamento: '',
+  rua: '',
+  numero: '',
+  referencia: '',
+  bairroId: '',
+  nome: '',
+  telefone: '',
+  telefone2: '',
+  forma: '',
+  troco: '',
+  cupom: '',
+  profissional: '',
+  cnpj: '',
 };
 
 export default function CardapioPublicoPage() {
@@ -44,17 +43,14 @@ export default function CardapioPublicoPage() {
   const [menu, setMenu] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [cat, setCat] = useState('');
+  const [busca, setBusca] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [cliente, setCliente] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [checkout, setCheckout] = useState(false);
-  const [ped, setPed] = useState<any>(null); // pedido enviado (status/timeline)
-  const [chk, setChk] = useState<any>({ tipo: 'entrega', endereco: '', bairroId: '', forma: '', troco: '', cupom: '', telefone: '', agendamento: '', profissional: '', cnpj: '' });
+  const [ped, setPed] = useState<any>(null);
+  const [chk, setChk] = useState<any>(CHK_INICIAL);
   const [cupomOk, setCupomOk] = useState<any>(null);
-  const [sel, setSel] = useState<any>(null); // produto no modal
-  const [pickVar, setPickVar] = useState<string | undefined>();
-  const [pickOpc, setPickOpc] = useState<string[]>([]);
-  const [pickObs, setPickObs] = useState('');
+  const [sel, setSel] = useState<any>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -67,87 +63,94 @@ export default function CardapioPublicoPage() {
     carregar();
   }, [carregar]);
 
+  // Prefill: dados do cliente lembrados neste aparelho.
+  useEffect(() => {
+    if (!menu) return;
+    const c = carregarCliente(token);
+    if (Object.keys(c).length) setChk((s: any) => ({ ...s, ...c }));
+  }, [menu, token]);
+
+  // Prefill do nome pelo telefone (se a fidelidade estiver ativa).
+  useEffect(() => {
+    const tel = (chk.telefone ?? '').replace(/\D/g, '');
+    if (!menu?.loja?.fidelidadeAtiva || tel.length < 8 || (chk.nome ?? '').trim()) return;
+    const t = setTimeout(async () => {
+      try {
+        const r: any = await api.cardapioPontos(token, tel);
+        if (r?.nome) setChk((s: any) => (s.nome ? s : { ...s, nome: r.nome }));
+      } catch {
+        /* ignora */
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [chk.telefone, chk.nome, menu, token]);
+
   const loja = menu?.loja;
   const accent = TEMA[loja?.ramo] ?? '#E2A340';
   const isServico = loja?.ramo === 'servicos';
-  const isIndustria = loja?.ramo === 'industria'; // pedido = orçamento (sem pagamento)
-  const produtos = menu?.produtos ?? [];
-  const visiveis = cat ? produtos.filter((p: any) => p.categoriaId === cat) : produtos;
+  const isIndustria = loja?.ramo === 'industria';
+  const produtos: any[] = menu?.produtos ?? [];
+  const bairros: any[] = menu?.bairros ?? [];
+
+  const visiveis = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return produtos.filter(
+      (p) =>
+        (!cat || p.categoriaId === cat) &&
+        (!q || `${p.nome} ${p.descricao ?? ''}`.toLowerCase().includes(q)),
+    );
+  }, [produtos, cat, busca]);
+
   const total = useMemo(() => cart.reduce((s, i) => s + i.preco * i.qtd, 0), [cart]);
   const qtdItens = cart.reduce((s, i) => s + i.qtd, 0);
+  const upsell = useMemo(
+    () => produtos.filter((p) => p.destaque && !p.esgotado && !cart.some((c) => c.produtoId === p.id)).slice(0, 6),
+    [produtos, cart],
+  );
 
-  // ---- modal ----
-  function abrir(p: any) {
-    setSel(p);
-    setPickVar(undefined);
-    setPickOpc([]);
-    setPickObs('');
-  }
-  function toggleOpc(g: any, id: string) {
-    setPickOpc((s) => {
-      if (s.includes(id)) return s.filter((x) => x !== id);
-      if (g.max === 1) {
-        const outros = (g.opcoes ?? []).map((o: any) => o.id);
-        return [...s.filter((x) => !outros.includes(x)), id];
-      }
-      const noGrupo = s.filter((x) => (g.opcoes ?? []).some((o: any) => o.id === x));
-      if (g.max && noGrupo.length >= g.max) return s;
-      return [...s, id];
-    });
-  }
-  const modalOpcoes = (sel?.grupos ?? []).flatMap((g: any) => (g.opcoes ?? []).map((o: any) => ({ ...o })));
-  const modalVar = (sel?.variacoes ?? []).find((v: any) => v.id === pickVar);
-  const modalBase = modalVar ? modalVar.precoVenda : sel?.precoVenda ?? 0;
-  const modalExtra = pickOpc.reduce((s, id) => s + (modalOpcoes.find((o: any) => o.id === id)?.precoDelta ?? 0), 0);
-  const modalPreco = modalBase + modalExtra;
-  const modalValido =
-    sel &&
-    (sel.variacoes?.length ? !!pickVar : true) &&
-    (sel.grupos ?? []).every((g: any) => {
-      if (!g.obrigatorio && !g.min) return true;
-      const n = pickOpc.filter((id) => (g.opcoes ?? []).some((o: any) => o.id === id)).length;
-      return n >= (g.min || 1);
-    });
+  const taxa = useMemo(() => {
+    if (isServico || chk.tipo !== 'entrega') return 0;
+    if (loja?.freteGratisAcima != null && total >= loja.freteGratisAcima) return 0;
+    return Number(bairros.find((b) => b.id === chk.bairroId)?.taxa ?? 0);
+  }, [chk.tipo, chk.bairroId, total, bairros, loja, isServico]);
+  const desc = cupomOk?.valido ? cupomOk.desconto : 0;
+  const totalFinal = Math.max(0, total - desc + taxa);
 
-  function addAoCarrinho() {
-    if (!sel || !modalValido) return;
-    const partes: string[] = [];
-    if (modalVar) partes.push(modalVar.nome);
-    pickOpc.forEach((id) => { const o = modalOpcoes.find((x: any) => x.id === id); if (o) partes.push(o.nome); });
-    const key = `${sel.id}:${pickVar ?? ''}:${[...pickOpc].sort().join(',')}:${pickObs}`;
+  function onAdd(item: CartItem) {
     setCart((c) => {
-      const ex = c.find((i) => i.key === key);
-      if (ex) return c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + 1 } : i));
-      return [...c, {
-        key, produtoId: sel.id, variacaoId: pickVar, complementos: pickOpc,
-        nome: sel.nome, sub: partes.join(' · '), preco: modalPreco, obs: pickObs.trim(), qtd: 1,
-      }];
+      const ex = c.find((i) => i.key === item.key);
+      if (ex) return c.map((i) => (i.key === item.key ? { ...i, qtd: i.qtd + item.qtd } : i));
+      return [...c, item];
     });
     setSel(null);
   }
   function mudarQtd(key: string, d: number) {
     setCart((c) => c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + d } : i)).filter((i) => i.qtd > 0));
   }
-
-  const taxa = useMemo(() => {
-    if (chk.tipo !== 'entrega' || !menu) return 0;
-    if (loja?.freteGratisAcima != null && total >= loja.freteGratisAcima) return 0;
-    return Number((menu.bairros ?? []).find((b: any) => b.id === chk.bairroId)?.taxa ?? 0);
-  }, [chk.tipo, chk.bairroId, total, menu, loja]);
-  const desc = cupomOk?.valido ? cupomOk.desconto : 0;
-  const totalFinal = Math.max(0, total - desc + taxa);
+  function removeItem(key: string) {
+    setCart((c) => c.filter((i) => i.key !== key));
+  }
+  function addUpsell(p: any) {
+    // Upsell simples: produto sem variação/grupos obrigatórios → 1 unidade.
+    const key = `${p.id}::`;
+    setCart((c) => {
+      const ex = c.find((i) => i.key === key);
+      if (ex) return c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + 1 } : i));
+      return [...c, { key, produtoId: p.id, complementos: [], nome: p.nome, sub: '', preco: p.precoVenda, obs: '', qtd: 1 }];
+    });
+  }
 
   async function aplicarCupom() {
     if (!chk.cupom.trim()) return;
     try {
-      const r: any = await api.cardapioCupomValidar(token, chk.cupom.trim(), total);
-      setCupomOk(r);
-    } catch { setCupomOk({ valido: false }); }
+      setCupomOk(await api.cardapioCupomValidar(token, chk.cupom.trim(), total));
+    } catch {
+      setCupomOk({ valido: false });
+    }
   }
 
-  async function enviar() {
+  function enviar() {
     if (!cart.length) return;
-    // Mesa: envia direto. Retirada/totem: passa pelo checkout.
     if (menu.modo === 'mesa') return void submitPedido();
     setCheckout(true);
   }
@@ -155,32 +158,47 @@ export default function CardapioPublicoPage() {
   async function submitPedido() {
     setEnviando(true);
     try {
+      const entrega = !isServico && chk.tipo === 'entrega';
       const r: any = await api.cardapioPedido(token, {
         mesa: mesa || undefined,
-        cliente: cliente || chk.nome || 'Cliente',
+        cliente: chk.nome || 'Cliente',
         telefone: chk.telefone || undefined,
-        tipo: chk.tipo,
-        endereco: chk.tipo === 'entrega' ? chk.endereco : undefined,
-        bairroId: chk.tipo === 'entrega' ? chk.bairroId || undefined : undefined,
+        telefone2: entrega ? chk.telefone2 || undefined : undefined,
+        tipo: isServico ? 'retirada' : chk.tipo,
+        rua: entrega ? chk.rua || undefined : undefined,
+        numero: entrega ? chk.numero || undefined : undefined,
+        referencia: entrega ? chk.referencia || undefined : undefined,
+        bairroId: entrega ? chk.bairroId || undefined : undefined,
         formaPagamento: chk.forma || undefined,
+        bandeira: chk.forma === 'cartao' ? chk.bandeira || undefined : undefined,
         trocoPara: chk.forma === 'entrega' && chk.troco ? Number(String(chk.troco).replace(',', '.')) : undefined,
         cupom: cupomOk?.valido ? chk.cupom.trim() : undefined,
         agendamento: chk.agendamento || undefined,
         profissional: chk.profissional || undefined,
         cnpj: chk.cnpj || undefined,
         itens: cart.map((i) => ({
-          produtoId: i.produtoId, variacaoId: i.variacaoId, complementos: i.complementos,
-          quantidade: i.qtd, observacao: i.obs || undefined,
+          produtoId: i.produtoId,
+          variacaoId: i.variacaoId,
+          complementos: i.complementos,
+          quantidade: i.qtd,
+          observacao: i.obs || undefined,
         })),
       });
-      if (r.pagamentoOnline && r.pedidoId) {
-        // gateway (mock): confirma o pagamento online
-        await api.cardapioPagar(token, r.pedidoId).catch(() => {});
-      }
+      if (r.pagamentoOnline && r.pedidoId) await api.cardapioPagar(token, r.pedidoId).catch(() => {});
+      // Lembra o cliente neste aparelho para o próximo pedido.
+      salvarCliente(token, {
+        nome: chk.nome,
+        telefone: chk.telefone,
+        telefone2: chk.telefone2,
+        rua: chk.rua,
+        numero: chk.numero,
+        referencia: chk.referencia,
+        bairroId: chk.bairroId,
+      });
       setCart([]);
       setCheckout(false);
-      if (r.modo === 'mesa') { setPed({ mesa: r.mesa, modo: 'mesa' }); }
-      else { setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total }); }
+      if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
+      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -188,18 +206,22 @@ export default function CardapioPublicoPage() {
     }
   }
 
-  // Polling da timeline (pedido de retirada/entrega).
   useEffect(() => {
     if (!ped?.pedidoId) return;
     const t = setInterval(async () => {
-      try { const s: any = await api.cardapioStatus(token, ped.pedidoId); setPed((p: any) => ({ ...p, ...s })); } catch { /* */ }
+      try {
+        const s: any = await api.cardapioStatus(token, ped.pedidoId);
+        setPed((p: any) => ({ ...p, ...s }));
+      } catch {
+        /* */
+      }
     }, 5000);
     return () => clearInterval(t);
   }, [ped?.pedidoId, token]);
 
   if (erro && !menu)
     return <main className="grid min-h-dvh place-items-center bg-neutral-50 p-6 text-center text-neutral-600">{erro}</main>;
-  if (!menu) return <main className="grid min-h-dvh place-items-center bg-neutral-50">Carregando…</main>;
+  if (!menu) return <main className="grid min-h-dvh place-items-center bg-neutral-50 text-neutral-400">Carregando…</main>;
 
   // ---- pedido enviado: timeline ----
   if (ped) {
@@ -207,9 +229,9 @@ export default function CardapioPublicoPage() {
     const rot: Record<string, string> = { novo: 'Pedido recebido', confirmado: 'Em preparo', pronto: 'Pronto', despachado: chk.tipo === 'entrega' ? 'Saiu para entrega' : 'Aguardando retirada', concluido: 'Concluído' };
     const idx = ped.modo === 'mesa' ? 0 : Math.max(0, passos.indexOf(ped.status ?? 'novo'));
     return (
-      <main className="min-h-dvh bg-neutral-50 p-6">
+      <main className="min-h-dvh bg-neutral-50 p-6 text-neutral-900">
         <div className="mx-auto max-w-md text-center">
-          <p className="text-3xl">🎉</p>
+          <p className="text-4xl">{ped.orcamento ? '🧾' : ped.agendamento ? '📅' : '🎉'}</p>
           <h1 className="mt-1 text-xl font-bold" style={{ color: accent }}>{ped.orcamento ? 'Orçamento solicitado!' : ped.agendamento ? 'Agendamento confirmado!' : 'Pedido enviado!'}</h1>
           {ped.modo === 'mesa'
             ? <p className="mt-1 text-neutral-600">Foi para a cozinha (mesa {ped.mesa}).</p>
@@ -238,20 +260,16 @@ export default function CardapioPublicoPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-neutral-50 pb-28">
+    <main className="min-h-dvh bg-neutral-50 pb-28 text-neutral-900">
       {/* Hero */}
-      <header className="px-4 py-4 text-white" style={{ background: `linear-gradient(150deg, #1a1a1a, ${accent}22)` , backgroundColor: '#1f1a14' }}>
+      <header className="px-4 py-4 text-white" style={{ backgroundColor: '#1f1a14', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}33)` }}>
         <div className="flex items-center gap-3">
-          <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl text-3xl" style={{ background: accent }}>
-            {loja.logoEmoji ?? '🍔'}
-          </div>
+          <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl text-3xl" style={{ background: accent }}>{loja.logoEmoji ?? '🍔'}</div>
           <div className="min-w-0">
             <h1 className="truncate text-lg font-bold">{loja.nome}</h1>
             {loja.subtitulo && <p className="truncate text-xs text-white/60">{loja.subtitulo}</p>}
           </div>
-          <span className={`ml-auto flex-none rounded-full border px-3 py-1 text-[10px] font-bold ${loja.aberto ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-red-400/50 bg-red-400/15 text-red-300'}`}>
-            {loja.aberto ? '● ABERTO' : '● FECHADO'}
-          </span>
+          <span className={`ml-auto flex-none rounded-full border px-3 py-1 text-[10px] font-bold ${loja.aberto ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-red-400/50 bg-red-400/15 text-red-300'}`}>{loja.aberto ? '● ABERTO' : '● FECHADO'}</span>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {loja.tempoEntregaMin && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">⏱ {loja.tempoEntregaMin} min</span>}
@@ -261,217 +279,94 @@ export default function CardapioPublicoPage() {
         </div>
       </header>
 
-      {mesa && <div className="bg-white px-4 py-2 text-center text-xs text-neutral-500">Mesa {mesa}</div>}
-
-      {/* categorias */}
-      {menu.categorias.length > 0 && (
-        <div className="sticky top-0 z-10 flex gap-2 overflow-x-auto bg-neutral-50 px-4 py-3">
-          <button type="button" onClick={() => setCat('')} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm" style={cat === '' ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>Todos</button>
-          {menu.categorias.map((c: any) => (
-            <button key={c.id} type="button" onClick={() => setCat(c.id)} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
-          ))}
+      {/* Fidelidade */}
+      {loja.fidelidadeAtiva && (
+        <div className="mx-4 mt-3 flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3">
+          <span className="text-xl">🎁</span>
+          <div className="min-w-0"><p className="text-sm font-bold">Fidelidade Regem</p><p className="text-xs text-neutral-500">A cada R$ 1 = 1 ponto · junte e troque por produtos</p></div>
         </div>
       )}
 
-      {/* itens */}
-      <div className="space-y-2 px-4 pt-2">
+      {mesa && <div className="bg-white px-4 py-2 text-center text-xs text-neutral-500">Mesa {mesa}</div>}
+
+      {/* Busca + categorias */}
+      <div className="sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} type="search" placeholder="Buscar no cardápio…" className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm" />
+        {menu.categorias.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto py-3">
+            <button type="button" onClick={() => setCat('')} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === '' ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>Todos</button>
+            {menu.categorias.map((c: any) => (
+              <button key={c.id} type="button" onClick={() => setCat(c.id)} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Cards de item */}
+      <div className="space-y-2.5 px-4 pt-3">
+        {visiveis.length === 0 && <p className="py-10 text-center text-sm text-neutral-400">Nada encontrado.</p>}
         {visiveis.map((p: any) => (
-          <button key={p.id} type="button" disabled={p.esgotado} onClick={() => abrir(p)} className="flex w-full gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left disabled:opacity-60">
+          <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="flex w-full items-stretch gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left transition active:scale-[.99] disabled:opacity-50">
             <div className="min-w-0 flex-1">
-              <p className="font-semibold text-neutral-900">{p.nome}</p>
-              <div className="mt-0.5 flex flex-wrap gap-1">
-                {p.esgotado && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-bold text-red-600">ESGOTADO</span>}
-                {(p.selos ?? []).map((s: string) => <span key={s} className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600">{SELO[s] ?? s}</span>)}
-                {p.duracaoMin && <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold text-neutral-600">🕐 {p.duracaoMin} min</span>}
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-bold text-neutral-900">{p.nome}</span>
+                {p.esgotado && <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[9px] font-bold text-neutral-500">ESGOTADO</span>}
+                {(p.selos ?? []).map((s: string) => <span key={s} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600">{SELO[s] ?? s}</span>)}
+                {p.destaque && <span className="rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${accent}18`, color: accent }}>SUGERIDO</span>}
+                {p.duracaoMin && <span className="text-[10px] font-semibold text-neutral-500">🕐 {p.duracaoMin} min</span>}
               </div>
-              {p.descricao && <p className="mt-1 line-clamp-2 text-sm text-neutral-500">{p.descricao}</p>}
-              <div className="mt-1 flex items-baseline gap-2">
-                {p.precoDe != null && <span className="text-xs text-neutral-400 line-through">{brl(p.precoDe)}</span>}
-                <span className="font-bold" style={{ color: accent }}>{brl(p.precoVenda)}</span>
-                {loja.parcelasMax > 1 && <span className="text-[11px] text-neutral-500">em até {loja.parcelasMax}x</span>}
+              {p.descricao && <p className="mt-1 line-clamp-2 text-xs text-neutral-500">{p.descricao}</p>}
+              <div className="mt-2 flex items-baseline gap-2">
+                {p.precoDe != null && <span className="font-mono text-[11px] text-neutral-400 line-through">{brl(p.precoDe)}</span>}
+                <span className="font-mono font-bold" style={{ color: accent }}>{brl(p.precoVenda)}</span>
+                {loja.parcelasMax > 1 && <span className="text-[10px] font-semibold text-emerald-600">em até {loja.parcelasMax}x</span>}
               </div>
             </div>
-            {p.imagemRef && <img src={p.imagemRef} alt={p.nome} className="h-20 w-20 flex-none rounded-xl object-cover" />}
+            <div className="relative grid w-20 flex-none place-items-center overflow-hidden rounded-xl bg-neutral-100 text-3xl">
+              {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover" /> : '🍽'}
+              {!p.esgotado && <span className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-lg text-base font-bold text-white shadow" style={{ background: accent }}>＋</span>}
+            </div>
           </button>
         ))}
       </div>
 
       {/* barra do carrinho */}
       {qtdItens > 0 && (
-        <div className="fixed inset-x-0 bottom-0 mx-auto max-w-lg p-3">
-          <div className="rounded-xl bg-white p-3 shadow-lg">
-            {menu.modo !== 'mesa' && <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Seu nome" className="mb-2 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />}
-            <div className="mb-2 max-h-28 space-y-1 overflow-y-auto">
-              {cart.map((i) => (
-                <div key={i.key} className="flex items-center gap-2 text-sm">
-                  <div className="flex items-center gap-1">
-                    <button type="button" onClick={() => mudarQtd(i.key, -1)} className="grid h-6 w-6 place-items-center rounded-full border">−</button>
-                    <span className="w-4 text-center">{i.qtd}</span>
-                    <button type="button" onClick={() => mudarQtd(i.key, 1)} className="grid h-6 w-6 place-items-center rounded-full border">＋</button>
-                  </div>
-                  <span className="min-w-0 flex-1 truncate">{i.nome}{i.sub ? ` · ${i.sub}` : ''}</span>
-                  <span className="font-mono text-xs">{brl(i.preco * i.qtd)}</span>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={enviar} disabled={enviando} className="flex w-full items-center justify-between rounded-xl px-5 py-3 font-semibold text-white disabled:opacity-60" style={{ background: accent }}>
-              <span>{enviando ? 'Enviando…' : `Enviar pedido (${qtdItens})`}</span>
-              <span>{brl(total)}</span>
-            </button>
-            {erro && <p className="mt-2 text-center text-sm text-red-600">{erro}</p>}
-          </div>
+        <div className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-lg p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+          <button type="button" onClick={enviar} disabled={enviando} className="flex w-full items-center gap-3 rounded-2xl px-5 py-3.5 font-bold text-white shadow-lg disabled:opacity-60" style={{ background: accent }}>
+            <span className="rounded-lg bg-black/20 px-2 py-0.5 font-mono text-xs">{qtdItens}</span>
+            <span>{enviando ? 'Enviando…' : menu.modo === 'mesa' ? 'Enviar pedido' : 'Ver pedido'}</span>
+            <span className="ml-auto font-mono">{brl(total)}</span>
+          </button>
         </div>
       )}
 
-      {/* modal item */}
-      {sel && (
-        <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/50" onClick={() => setSel(null)}>
-          <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white" onClick={(e) => e.stopPropagation()}>
-            {sel.imagemRef && <img src={sel.imagemRef} alt={sel.nome} className="h-44 w-full object-cover" />}
-            <div className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="text-lg font-bold">{sel.nome}</h2>
-                <button type="button" onClick={() => setSel(null)} className="text-neutral-400">✕</button>
-              </div>
-              {sel.descricao && <p className="mt-1 text-sm text-neutral-500">{sel.descricao}</p>}
+      {sel && <ItemSheet sel={sel} accent={accent} onClose={() => setSel(null)} onAdd={onAdd} />}
 
-              {sel.variacoes?.length > 0 && (
-                <div className="mt-4">
-                  <p className="mb-1 text-sm font-semibold">Escolha <span className="text-xs text-red-500">obrigatório</span></p>
-                  {sel.variacoes.map((v: any) => (
-                    <button key={v.id} type="button" onClick={() => setPickVar(v.id)} className="mb-1.5 flex w-full items-center justify-between rounded-xl border p-3" style={pickVar === v.id ? { borderColor: accent } : { borderColor: '#e5e5e5' }}>
-                      <span className="text-sm">
-                        {v.nome}
-                        {(v.atributos?.tamanho || v.atributos?.cor) && (
-                          <span className="ml-1 text-xs text-neutral-500">
-                            {[v.atributos?.tamanho, v.atributos?.cor].filter(Boolean).join(' · ')}
-                          </span>
-                        )}
-                      </span>
-                      <span className="font-mono text-sm">{brl(v.precoVenda)}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {(sel.grupos ?? []).map((g: any) => (
-                <div key={g.id} className="mt-4">
-                  <p className="mb-1 text-sm font-semibold">{g.nome}{' '}
-                    <span className="text-xs text-neutral-400">{g.obrigatorio || g.min ? 'obrigatório · ' : ''}{g.max === 1 ? 'escolha 1' : g.max ? `até ${g.max}` : 'opcional'}</span>
-                  </p>
-                  {(g.opcoes ?? []).map((o: any) => (
-                    <label key={o.id} className="mb-1.5 flex cursor-pointer items-center gap-2 rounded-xl border p-3" style={pickOpc.includes(o.id) ? { borderColor: accent } : { borderColor: '#e5e5e5' }}>
-                      <input type="checkbox" checked={pickOpc.includes(o.id)} onChange={() => toggleOpc(g, o.id)} className="h-4 w-4" style={{ accentColor: accent }} />
-                      <span className="flex-1 text-sm">{o.nome}</span>
-                      {o.precoDelta > 0 && <span className="font-mono text-xs text-neutral-500">+ {brl(o.precoDelta)}</span>}
-                    </label>
-                  ))}
-                </div>
-              ))}
-
-              <div className="mt-4">
-                <p className="mb-1 text-sm font-semibold">Observação</p>
-                <input value={pickObs} onChange={(e) => setPickObs(e.target.value)} placeholder="Ex.: sem cebola" className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-              </div>
-
-              <button type="button" onClick={addAoCarrinho} disabled={!modalValido} className="mt-5 flex w-full items-center justify-between rounded-xl px-5 py-3 font-semibold text-white disabled:opacity-50" style={{ background: accent }}>
-                <span>{modalValido ? 'Adicionar' : 'Escolha as opções'}</span>
-                <span>{brl(modalPreco)}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* checkout */}
       {checkout && (
-        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50" onClick={() => setCheckout(false)}>
-          <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold">Finalizar pedido</h2>
-              <button type="button" onClick={() => setCheckout(false)} className="text-neutral-400">✕</button>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {['entrega', 'retirada'].map((t) => (
-                <button key={t} type="button" onClick={() => setChk((s: any) => ({ ...s, tipo: t }))} className="rounded-xl border py-2.5 text-sm font-semibold capitalize" style={chk.tipo === t ? { borderColor: accent, color: accent } : { borderColor: '#e5e5e5', color: '#666' }}>{t}</button>
-              ))}
-            </div>
-
-            {chk.tipo === 'entrega' && (
-              <div className="mt-3 space-y-2">
-                <input value={chk.endereco} onChange={(e) => setChk((s: any) => ({ ...s, endereco: e.target.value }))} placeholder="Endereço de entrega" className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-                {(menu.bairros ?? []).length > 0 && (
-                  <select aria-label="Bairro" value={chk.bairroId} onChange={(e) => setChk((s: any) => ({ ...s, bairroId: e.target.value }))} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm">
-                    <option value="">Bairro (taxa)</option>
-                    {menu.bairros.map((b: any) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
-                  </select>
-                )}
-              </div>
-            )}
-
-            <div className="mt-3 flex gap-2">
-              <input value={chk.nome ?? cliente} onChange={(e) => setChk((s: any) => ({ ...s, nome: e.target.value }))} placeholder="Seu nome" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-              <input value={chk.telefone} onChange={(e) => setChk((s: any) => ({ ...s, telefone: e.target.value }))} placeholder="WhatsApp" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-            </div>
-
-            {/* serviços: agendamento */}
-            {isServico && (
-              <div className="mt-3 space-y-2">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-neutral-600">Data e hora</label>
-                  <input type="datetime-local" value={chk.agendamento} onChange={(e) => setChk((s: any) => ({ ...s, agendamento: e.target.value }))} className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-                </div>
-                <input value={chk.profissional} onChange={(e) => setChk((s: any) => ({ ...s, profissional: e.target.value }))} placeholder="Profissional (opcional)" className="w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-              </div>
-            )}
-
-            {/* indústria: faturamento por CNPJ */}
-            {isIndustria && (
-              <input value={chk.cnpj} onChange={(e) => setChk((s: any) => ({ ...s, cnpj: e.target.value }))} placeholder="CNPJ para faturamento" className="mt-3 w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-            )}
-
-            {/* cupom */}
-            <div className="mt-3 flex gap-2">
-              <input value={chk.cupom} onChange={(e) => setChk((s: any) => ({ ...s, cupom: e.target.value.toUpperCase() }))} placeholder="Cupom" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm uppercase" />
-              <button type="button" onClick={aplicarCupom} className="rounded-xl bg-neutral-900 px-4 text-sm font-semibold text-white">Aplicar</button>
-            </div>
-            {cupomOk && <p className={`mt-1 text-xs ${cupomOk.valido ? 'text-emerald-600' : 'text-red-600'}`}>{cupomOk.valido ? `Cupom aplicado: −${brl(cupomOk.desconto)}` : cupomOk.motivo ?? 'Cupom inválido'}</p>}
-
-            {/* pagamento (indústria não paga: gera orçamento) */}
-            {!isIndustria && (loja.pagamentos ?? []).length > 0 && (
-              <div className="mt-3">
-                <p className="mb-1 text-sm font-semibold">Pagamento</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(loja.pagamentos ?? []).map((pg: string) => {
-                    const lbl: Record<string, string> = { pix: '⚡ Pix online', cartao: '💳 Cartão online', entrega: '💵 Na entrega', vr: '🍽 Vale-refeição' };
-                    return (
-                      <button key={pg} type="button" onClick={() => setChk((s: any) => ({ ...s, forma: pg }))} className="rounded-xl border py-2.5 text-xs font-semibold" style={chk.forma === pg ? { borderColor: accent, color: accent } : { borderColor: '#e5e5e5', color: '#666' }}>{lbl[pg] ?? pg}</button>
-                    );
-                  })}
-                </div>
-                {chk.forma === 'cartao' && loja.parcelasMax > 1 && (
-                  <p className="mt-1 text-xs text-neutral-500">Em até {loja.parcelasMax}x no cartão.</p>
-                )}
-                {chk.forma === 'entrega' && (
-                  <input value={chk.troco} onChange={(e) => setChk((s: any) => ({ ...s, troco: e.target.value }))} placeholder="Troco para quanto?" className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm" />
-                )}
-              </div>
-            )}
-
-            {/* totais */}
-            <div className="mt-4 space-y-1 border-t border-neutral-200 pt-3 text-sm">
-              <div className="flex justify-between text-neutral-500"><span>Subtotal</span><span className="font-mono">{brl(total)}</span></div>
-              {desc > 0 && <div className="flex justify-between text-emerald-600"><span>Cupom</span><span className="font-mono">− {brl(desc)}</span></div>}
-              {chk.tipo === 'entrega' && <div className="flex justify-between text-neutral-500"><span>Frete</span><span className="font-mono">{taxa === 0 ? 'Grátis' : brl(taxa)}</span></div>}
-              <div className="flex justify-between text-base font-bold"><span>Total</span><span className="font-mono">{brl(totalFinal)}</span></div>
-            </div>
-
-            <button type="button" onClick={submitPedido} disabled={enviando || (!isIndustria && (loja.pagamentos ?? []).length > 0 && !chk.forma) || (isServico && !chk.agendamento)} className="mt-4 w-full rounded-xl px-5 py-3 font-semibold text-white disabled:opacity-50" style={{ background: accent }}>
-              {enviando ? 'Enviando…' : isIndustria ? 'Solicitar orçamento' : isServico ? 'Agendar' : 'Confirmar pedido'}
-            </button>
-          </div>
-        </div>
+        <CartSheet
+          accent={accent}
+          loja={loja}
+          bairros={bairros}
+          cart={cart}
+          upsell={upsell}
+          isServico={isServico}
+          isIndustria={isIndustria}
+          total={total}
+          taxa={taxa}
+          desc={desc}
+          totalFinal={totalFinal}
+          chk={chk}
+          setChk={setChk}
+          cupomOk={cupomOk}
+          onAplicarCupom={aplicarCupom}
+          onQtd={mudarQtd}
+          onRemove={removeItem}
+          onAddUpsell={addUpsell}
+          onClose={() => setCheckout(false)}
+          onSubmit={submitPedido}
+          enviando={enviando}
+        />
       )}
     </main>
   );

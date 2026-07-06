@@ -363,6 +363,14 @@ export default function KdsPage() {
                       {min} min
                     </span>
                   </div>
+                  {p.plataforma && (
+                    <div
+                      className="mb-2 inline-flex w-max items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold"
+                      style={{ background: 'rgba(226,163,64,.16)', color: '#E2A340' }}
+                    >
+                      🛵 {p.plataforma}{p.senhaPlataforma ? ` · #${p.senhaPlataforma}` : ''}
+                    </div>
+                  )}
                   <div className="mb-3 flex-1 space-y-1">
                     {(p.itens ?? []).map((it: any) => (
                       <div key={it.id} className="text-[14px]">

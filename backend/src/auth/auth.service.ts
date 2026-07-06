@@ -82,10 +82,33 @@ export class AuthService {
       !row.senhaHash ||
       !(await bcrypt.compare(dto.senha, row.senhaHash))
     ) {
+      // Falha auditável só quando o e-mail existe (temos o tenant p/ atribuir).
+      if (row) {
+        await this.auditoria.registrar({
+          tenantId: row.tenantId,
+          atorId: row.id,
+          atorPerfil: row.categoria ?? undefined,
+          tipo: 'auth',
+          acao: 'login_falhou',
+          entidadeTipo: 'colaborador',
+          entidadeId: row.id,
+          origem: 'web',
+        });
+      }
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
     const esc = await this.escopo(row.funcaoId);
+    await this.auditoria.registrar({
+      tenantId: row.tenantId,
+      atorId: row.id,
+      atorPerfil: row.categoria ?? 'execucao',
+      tipo: 'auth',
+      acao: 'login',
+      entidadeTipo: 'colaborador',
+      entidadeId: row.id,
+      origem: 'web',
+    });
     return this.assinar({
       colaboradorId: row.id,
       tenantId: row.tenantId,

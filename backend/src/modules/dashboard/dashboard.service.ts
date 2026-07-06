@@ -70,23 +70,36 @@ export class DashboardService {
 
   // Linha do tempo operacional do dia: faixas de turno, tarefas com horário e
   // janelas de pico — tudo em horas decimais (ex.: 13.5 = 13h30) p/ o front posicionar.
+  // Linha do tempo operacional — por SETOR, a partir da escala do dia (fonte da
+  // verdade): quem está escalado (turno) + tarefas com horário + janelas de pico
+  // + marcador "agora" (só se `data` = hoje no fuso America/Sao_Paulo).
   async timeline(tenantId: string, data: string) {
-    const turnos: any = await this.db.execute(sql`
-      select nome,
-        extract(hour from hora_inicio) + extract(minute from hora_inicio) / 60.0 as inicio,
-        extract(hour from hora_fim)   + extract(minute from hora_fim)   / 60.0 as fim
-      from turno
-      where tenant_id = ${tenantId} and deleted_at is null
-      order by hora_inicio`);
+    const rows = (r: any) => (r.rows ?? r) as any[];
 
-    const tarefas: any = await this.db.execute(sql`
+    // Alocações da escala do dia (colaborador × turno × etiqueta → setor).
+    const aloc: any = await this.db.execute(sql`
+      select s.id as setor_id, s.nome as setor,
+        c.nome as colaborador, f.nome as funcao, et.sigla as etiqueta, t.nome as turno,
+        extract(hour from t.hora_inicio) + extract(minute from t.hora_inicio) / 60.0 as inicio,
+        extract(hour from t.hora_fim)   + extract(minute from t.hora_fim)   / 60.0 as fim
+      from escala_alocacao a
+      join turno t on t.id = a.turno_id
+      join etiqueta et on et.id = a.etiqueta_id
+      join setor s on s.id = et.setor_id
+      left join funcao f on f.id = et.funcao_id
+      left join colaborador c on c.id = a.colaborador_id
+      where a.tenant_id = ${tenantId} and a.data = ${data}
+        and a.deleted_at is null and a.status = 'ativa'
+      order by s.nome, inicio`);
+
+    // Tarefas com horário do dia (por setor).
+    const tar: any = await this.db.execute(sql`
       select d.titulo,
         extract(hour from d.horario) + extract(minute from d.horario) / 60.0 as horario,
-        i.estado, s.nome as setor, e.sigla as etiqueta
+        i.estado, s.id as setor_id, s.nome as setor
       from tarefa_instancia i
       join tarefa_def d on d.id = i.tarefa_def_id
       left join setor s on s.id = d.setor_id
-      left join etiqueta e on e.id = i.etiqueta_id
       where i.tenant_id = ${tenantId} and i.data = ${data}
         and i.deleted_at is null and d.horario is not null
       order by d.horario`);
@@ -100,6 +113,40 @@ export class DashboardService {
         and (dia_semana is null or dia_semana = extract(dow from ${data}::date))
       order by hora_inicio`);
 
+    const nowRow: any = await this.db.execute(sql`
+      select case when (now() at time zone 'America/Sao_Paulo')::date = ${data}::date
+        then extract(hour from now() at time zone 'America/Sao_Paulo')
+           + extract(minute from now() at time zone 'America/Sao_Paulo') / 60.0
+        else null end as agora`);
+    const agoraVal = rows(nowRow)[0]?.agora;
+    const agora = agoraVal == null ? null : Number(agoraVal);
+
+    // Agrupa por setor (preservando setores que só têm tarefas).
+    const mapa = new Map<string, any>();
+    const getSetor = (id: string | null, nome: string | null) => {
+      const key = id ?? nome ?? '—';
+      if (!mapa.has(key))
+        mapa.set(key, { setor: nome ?? 'Sem setor', alocacoes: [], tarefas: [] });
+      return mapa.get(key);
+    };
+    for (const r of rows(aloc)) {
+      getSetor(r.setor_id, r.setor).alocacoes.push({
+        colaborador: r.colaborador ?? 'A definir',
+        funcao: r.funcao ?? null,
+        etiqueta: r.etiqueta ?? null,
+        turno: r.turno ?? null,
+        inicio: Number(r.inicio),
+        fim: Number(r.fim),
+      });
+    }
+    for (const r of rows(tar)) {
+      getSetor(r.setor_id, r.setor).tarefas.push({
+        titulo: r.titulo,
+        horario: Number(r.horario),
+        estado: r.estado,
+      });
+    }
+
     const faixa = (r: any) => ({
       nome: r.nome,
       inicio: Number(r.inicio),
@@ -108,15 +155,9 @@ export class DashboardService {
 
     return {
       data,
-      turnos: (turnos.rows ?? turnos).map(faixa),
-      picos: (picos.rows ?? picos).map(faixa),
-      tarefas: (tarefas.rows ?? tarefas).map((r: any) => ({
-        titulo: r.titulo,
-        horario: Number(r.horario),
-        estado: r.estado,
-        setor: r.setor,
-        etiqueta: r.etiqueta,
-      })),
+      agora,
+      setores: [...mapa.values()],
+      picos: rows(picos).map(faixa),
     };
   }
 }

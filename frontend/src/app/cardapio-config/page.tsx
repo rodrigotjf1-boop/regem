@@ -25,6 +25,7 @@ export default function CardapioConfigPage() {
   const [bairros, setBairros] = useState<{ nome: string; taxa: string }[]>([]);
   const [cupons, setCupons] = useState<any[]>([]);
   const [novoCupom, setNovoCupom] = useState({ codigo: '', tipo: 'percentual', valor: '', minimo: '' });
+  const [novoCartao, setNovoCartao] = useState('');
 
   const reload = useCallback(async () => {
     try {
@@ -82,6 +83,13 @@ export default function CardapioConfigPage() {
   }, [link]);
 
   const set = (patch: any) => setCfg((s: any) => ({ ...s, ...patch }));
+  function addCartao() {
+    const v = novoCartao.trim();
+    if (!v) return;
+    const atuais: string[] = cfg.formasCartao ?? [];
+    if (!atuais.includes(v)) set({ formasCartao: [...atuais, v] });
+    setNovoCartao('');
+  }
 
   async function salvar() {
     setSalvando(true);
@@ -94,6 +102,8 @@ export default function CardapioConfigPage() {
         avaliacao: cfg.avaliacao ? Number(String(cfg.avaliacao).replace(',', '.')) : undefined,
         freteGratisAcima: cfg.freteGratisAcima ? Number(String(cfg.freteGratisAcima).replace(',', '.')) : undefined,
         pagamentos: cfg.pagamentos ?? [],
+        formasCartao: cfg.formasCartao ?? [],
+        autoKds: cfg.autoKds !== false,
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,
         parcelasMax: cfg.parcelasMax ? Number(cfg.parcelasMax) : undefined,
@@ -186,6 +196,10 @@ export default function CardapioConfigPage() {
               <input type="checkbox" checked={!!cfg.fidelidadeAtiva} onChange={(e) => set({ fidelidadeAtiva: e.target.checked })} className="h-4 w-4 accent-primary" />
               Fidelidade ativa
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={cfg.autoKds !== false} onChange={(e) => set({ autoKds: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Enviar pedidos automaticamente para o KDS
+            </label>
           </div>
           <div>
             <Label className="text-xs">Pagamentos aceitos</Label>
@@ -207,6 +221,24 @@ export default function CardapioConfigPage() {
               })}
             </div>
           </div>
+          {(cfg.pagamentos ?? []).includes('cartao') && (
+            <div>
+              <Label className="text-xs">Formas de cartão (aparecem ao escolher “Cartão” no cardápio)</Label>
+              <div className="mt-1.5 flex flex-wrap gap-2">
+                {(cfg.formasCartao ?? []).map((f: string) => (
+                  <span key={f} className="inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
+                    {f}
+                    <button type="button" aria-label={`Remover ${f}`} onClick={() => set({ formasCartao: (cfg.formasCartao ?? []).filter((x: string) => x !== f) })} className="text-primary/70 hover:text-primary">✕</button>
+                  </span>
+                ))}
+                {(cfg.formasCartao ?? []).length === 0 && <span className="text-xs text-muted-foreground">Ex.: Crédito, Débito, Visa, Elo, VR Alelo…</span>}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Input value={novoCartao} onChange={(e) => setNovoCartao(e.target.value)} placeholder="Ex.: Crédito Visa" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCartao(); } }} className="max-w-xs" />
+                <Button type="button" variant="outline" size="sm" onClick={addCartao}>＋ adicionar</Button>
+              </div>
+            </div>
+          )}
           <Button type="button" onClick={salvar} disabled={salvando}>
             {salvando ? 'Salvando…' : cfg.token ? 'Salvar' : 'Gerar cardápio'}
           </Button>

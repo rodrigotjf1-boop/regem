@@ -5,13 +5,22 @@ const TOKEN_KEY = 'regen_token';
 
 export function getToken() {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
 }
-export function setToken(t: string) {
-  localStorage.setItem(TOKEN_KEY, t);
+// persist=true (padrão): localStorage (sobrevive a fechar o navegador).
+// persist=false: sessionStorage (cai ao fechar a aba) — "Manter conectado" off.
+export function setToken(t: string, persist = true) {
+  if (persist) {
+    localStorage.setItem(TOKEN_KEY, t);
+    sessionStorage.removeItem(TOKEN_KEY);
+  } else {
+    sessionStorage.setItem(TOKEN_KEY, t);
+    localStorage.removeItem(TOKEN_KEY);
+  }
 }
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
 }
 
 // Lê a categoria da hierarquia do payload do JWT (para gates de UI).
@@ -24,6 +33,12 @@ export function getCategoria(): string | null {
   } catch {
     return null;
   }
+}
+
+// Rota inicial por perfil: só presidente/gerente têm dashboard (RBAC do
+// backend); os demais caem no Meu Dia (acessível a todos os autenticados).
+export function rotaInicial(cat?: string | null): string {
+  return cat === 'presidente' || cat === 'gerente' ? '/painel' : '/meu-dia';
 }
 
 // Sessão expirada/inválida: limpa o token e manda pro login com aviso amigável.
@@ -322,6 +337,8 @@ export const api = {
   cardapioStatus: (token: string, id: string) => pub(`/publico/cardapio/${token}/pedido/${id}`),
   cardapioPagar: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
+  cardapioPontos: (token: string, telefone: string) =>
+    pub(`/publico/cardapio/${token}/pontos?telefone=${encodeURIComponent(telefone)}`),
   cardapioBairros: () => req('/cardapio/bairros'),
   setCardapioBairros: (bairros: unknown[]) =>
     req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),
@@ -475,6 +492,8 @@ export const api = {
   etiquetas: () => req('/etiquetas'),
   turnos: () => req('/turnos'),
   colaboradores: () => req('/colaboradores'),
+  definirSenhaColaborador: (id: string, body: { email?: string; senha: string }) =>
+    req(`/colaboradores/${id}/senha`, { method: 'POST', body: JSON.stringify(body) }),
   unidades: () => req('/unidades'),
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),

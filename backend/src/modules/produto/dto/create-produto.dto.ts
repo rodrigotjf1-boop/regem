@@ -101,6 +101,7 @@ export class CreateProdutoDto {
   @IsOptional() @IsNumber() precoPromocional?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) selos?: string[];
   @IsOptional() @IsBoolean() disponivelCardapio?: boolean;
+  @IsOptional() @IsBoolean() destaque?: boolean;
   @IsOptional() @IsInt() vendaMultiplo?: number;
   @IsOptional() @IsInt() duracaoMin?: number;
   @IsOptional() @IsString() gtin?: string;

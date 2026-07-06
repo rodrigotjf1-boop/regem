@@ -124,6 +124,8 @@ export class ProducaoPedidoService {
       origem: string;
       mesa?: string | null;
       senha?: number | null;
+      plataforma?: string | null;
+      senhaPlataforma?: string | null;
     },
     itens: ItemProducao[],
   ): Promise<any[]> {
@@ -160,6 +162,8 @@ export class ProducaoPedidoService {
           numero,
           senha: ctx.senha ?? null,
           origem: ctx.origem,
+          plataforma: ctx.plataforma ?? null,
+          senhaPlataforma: ctx.senhaPlataforma ?? null,
           mesa: ctx.mesa ?? null,
           status: 'recebido',
           tempoPreparoMin: tempo || null,
