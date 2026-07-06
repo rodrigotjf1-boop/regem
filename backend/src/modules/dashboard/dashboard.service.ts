@@ -48,6 +48,20 @@ export class DashboardService {
         group by i.id
       ) s where s.saldo < s.estoque_minimo`);
 
+    // Comercial: vendas do dia (comandas fechadas, no fuso SP) + delivery ativo.
+    const vend = await this.row(sql`
+      select count(*)::int as vendas,
+             coalesce(sum(total), 0) as faturado,
+             coalesce(avg(total), 0) as ticket
+      from comanda
+      where tenant_id = ${tenantId} and status = 'fechada'
+        and (fechada_em at time zone 'America/Sao_Paulo')::date = ${data}::date`);
+
+    const deliv = await this.row(sql`
+      select count(*)::int as pendentes from pedido_externo
+      where tenant_id = ${tenantId}
+        and status in ('novo', 'confirmado', 'pronto', 'despachado')`);
+
     const total = Number(t.total);
     const feitas = Number(t.feitas);
 
@@ -65,6 +79,12 @@ export class DashboardService {
       desperdicio: { total: Number(d.total), quantidade: Number(d.qtd) },
       vistorias: Number(v.total),
       estoqueAbaixoMinimo: Number(est.total),
+      vendas: {
+        total: Number(vend.vendas),
+        faturado: Number(Number(vend.faturado).toFixed(2)),
+        ticketMedio: Number(Number(vend.ticket).toFixed(2)),
+      },
+      deliveryPendentes: Number(deliv.pendentes),
     };
   }
 
