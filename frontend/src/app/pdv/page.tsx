@@ -244,6 +244,22 @@ export default function PdvPage() {
     ? produtos.filter((p) => p.categoriaId === catAtiva)
     : produtos;
 
+  // Agrupa por categoria (com cabeçalho), preservando a ordem dos produtos.
+  const grupos = (() => {
+    const nomePorId = new Map(categorias.map((c: any) => [c.id, c.nome]));
+    const m = new Map<string, { nome: string; itens: any[] }>();
+    for (const p of visiveis) {
+      const key = p.categoriaId ?? '_sem';
+      if (!m.has(key))
+        m.set(key, {
+          nome: p.categoriaId ? nomePorId.get(p.categoriaId) ?? p.categoriaNome ?? 'Categoria' : 'Sem categoria',
+          itens: [],
+        });
+      m.get(key)!.itens.push(p);
+    }
+    return [...m.values()];
+  })();
+
   return (
     <Shell eyebrow="PDV · balcão" title="Venda rápida">
       {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} />}
@@ -286,22 +302,39 @@ export default function PdvPage() {
               Nenhum produto. Cadastre em Cadastros → Produtos & Catálogo.
             </Card>
           )}
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {visiveis.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => tap(p)}
-                className="flex flex-col items-start gap-1 rounded-xl border border-border bg-card p-3 text-left transition hover:border-primary/50 active:scale-95"
-              >
-                <span className="font-medium leading-tight">{p.nome}</span>
-                <span className="font-mono text-sm text-primary">{brl(Number(p.precoVenda))}</span>
-                {p.tipo === 'variavel' && (
-                  <span className="text-[10px] text-muted-foreground">escolher tamanho</span>
-                )}
-              </button>
-            ))}
-          </div>
+          {carregado && grupos.map((g) => (
+            <section key={g.nome} className="space-y-2">
+              <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
+                {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
+              </h3>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {g.itens.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => tap(p)}
+                    className="flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition hover:border-primary/50 active:scale-95"
+                  >
+                    <div className="grid aspect-square w-full place-items-center overflow-hidden bg-muted/40 text-3xl">
+                      {p.imagemRef ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover" />
+                      ) : (
+                        <span aria-hidden>🍽️</span>
+                      )}
+                    </div>
+                    <div className="flex flex-1 flex-col gap-0.5 p-2.5">
+                      <span className="line-clamp-2 text-sm font-medium leading-tight">{p.nome}</span>
+                      <span className="mt-auto font-mono text-sm font-bold text-primary">{brl(Number(p.precoVenda))}</span>
+                      {p.tipo === 'variavel' && (
+                        <span className="text-[10px] text-muted-foreground">escolher tamanho</span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
         </div>
 
         {/* Carrinho */}

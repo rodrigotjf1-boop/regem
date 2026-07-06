@@ -51,7 +51,7 @@ export class ProdutoService {
              p.preco_custo as "precoCusto", p.controla_estoque as "controlaEstoque",
              p.validade_dias as "validadeDias", p.vai_para_producao as "vaiParaProducao",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
-             p.setor_producao_id as "setorProducaoId",
+             p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
              c.nome as "categoriaNome", f.nome as "fichaNome"
       from produto p
       left join categoria_produto c on c.id = p.categoria_id
