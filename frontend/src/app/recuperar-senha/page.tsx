@@ -34,7 +34,7 @@ export default function RecuperarSenhaPage() {
             <b>Você é da equipe?</b>
             <small>
               Peça ao responsável pela conta (presidente ou gerente) para redefinir
-              a sua senha. Também é possível entrar pelo <Link href="/pin">PIN do terminal</Link>.
+              a sua senha de acesso.
             </small>
           </div>
         </div>

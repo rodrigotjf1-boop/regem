@@ -138,14 +138,14 @@ export default function DashboardPage() {
             Linha do tempo operacional
           </p>
           <p className="text-xs text-muted-foreground">
-            Turnos, janelas de pico e tarefas com horário — hoje
+            Quem está escalado e o que deveria estar em execução agora, por setor
           </p>
         </div>
         {timeline ? (
           <Timeline
-            turnos={timeline.turnos ?? []}
+            setores={timeline.setores ?? []}
             picos={timeline.picos ?? []}
-            tarefas={timeline.tarefas ?? []}
+            agora={timeline.agora ?? null}
           />
         ) : (
           <p className="px-5 py-6 text-sm text-muted-foreground">Carregando…</p>

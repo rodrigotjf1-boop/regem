@@ -349,18 +349,58 @@ export default function LandingPage() {
         </div>
         <div className="mods">
           <div className="mod">
+            <span className="mi">🧾</span>
+            <div><h3>PDV & Comandas</h3><p>Venda no balcão, mesas e garçom, caixa com sangria/reforço e senha central.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">🛍️</span>
+            <div><h3>Cardápio digital</h3><p>Loja online por ramo (food, varejo, indústria, serviços) — entrega, retirada e agendamento.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
             <span className="mi">🖥️</span>
-            <div><h3>KDS de Alertas</h3><p>Telas na cozinha avisam picos, atrasos e pendências pela rede local.</p></div>
+            <div><h3>KDS de Alertas</h3><p>Telas na cozinha com a fila de produção, senha e alertas de pico e atraso.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">📄</span>
+            <div><h3>Nota fiscal (NFC-e)</h3><p>Emissão fiscal ao vender, com NCM, tributação e QR Code — pronto pra SEFAZ.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">💳</span>
+            <div><h3>TEF / Maquininha</h3><p>Pagamento integrado ao PDV — Pix, crédito e débito sem digitar valor de novo.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">🛵</span>
+            <div><h3>Delivery & iFood</h3><p>Pedidos dos canais entram na fila com aceite, status e baixa de estoque.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">📊</span>
+            <div><h3>Fichas Técnicas & CMV</h3><p>Custo real × teórico, desvio e “furo” — o KPI que separa lucro de prejuízo.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">📦</span>
+            <div><h3>Estoque, Validade & Compras</h3><p>Lotes com PVPS/FEFO, ponto de pedido automático e alertas de vencimento.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">🚚</span>
+            <div><h3>Fornecedores & Recebimento</h3><p>Recebe a nota, aponta divergências e monta o histórico de preços por fornecedor.</p></div>
             <span className="sw" aria-hidden="true" />
           </div>
           <div className="mod">
             <span className="mi">⏱️</span>
-            <div><h3>Terminal de Ponto</h3><p>Marcação com NSR, foto e comprovante — funciona até sem internet.</p></div>
+            <div><h3>Terminal de Ponto</h3><p>Marcação com NSR, foto e comprovante — lógica da Portaria 671, mesmo offline.</p></div>
             <span className="sw" aria-hidden="true" />
           </div>
           <div className="mod">
-            <span className="mi">📱</span>
-            <div><h3>App do Colaborador</h3><p>Escala, tarefas e ranking no bolso de cada pessoa da equipe.</p></div>
+            <span className="mi">📣</span>
+            <div><h3>Mural & Clima</h3><p>Comunicados com leitura rastreável e pesquisa de clima anônima da equipe.</p></div>
             <span className="sw" aria-hidden="true" />
           </div>
           <div className="mod">
