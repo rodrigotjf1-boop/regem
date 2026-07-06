@@ -694,6 +694,46 @@ export class ProducaoPedidoService {
     return { ok: true };
   }
 
+  // Cancela TODOS os pedidos de produção de uma comanda (ao cancelar o cupom):
+  // marca 'cancelado' e avisa o KDS por cada destino.
+  async cancelarPorComanda(
+    tenantId: string,
+    atorId: string,
+    comandaId: string,
+    motivo?: string,
+  ) {
+    const pedidos = await this.db
+      .select()
+      .from(producaoPedido)
+      .where(
+        and(
+          eq(producaoPedido.tenantId, tenantId),
+          eq(producaoPedido.comandaId, comandaId),
+        ),
+      );
+    for (const p of pedidos) {
+      if (p.status === 'cancelado') continue;
+      await this.db
+        .update(producaoPedido)
+        .set({
+          status: 'cancelado',
+          canceladoEm: new Date(),
+          canceladoPorId: atorId,
+          obs: motivo ?? p.obs,
+        })
+        .where(eq(producaoPedido.id, p.id));
+      this.events?.emit('producao.evento', {
+        tenantId,
+        unidadeId: p.unidadeId,
+        setorId: p.setorId,
+        destinoEquipamentoId: p.destinoEquipamentoId,
+        pedidoId: p.id,
+        tipo: 'cancelado',
+      });
+    }
+    return { cancelados: pedidos.filter((p) => p.status !== 'cancelado').length };
+  }
+
   // Item removido de uma comanda aberta (PDV): marca o item nos pedidos de
   // produção como 'removido' e cancela o pedido se ficar sem itens. Avisa o KDS.
   async removerItemComanda(tenantId: string, comandaItemId: string) {
