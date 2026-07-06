@@ -17,6 +17,8 @@ import {
   impressaoJob,
   kdsCorConfig,
   senhaContador,
+  setor,
+  comanda,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -583,7 +585,26 @@ export class ProducaoPedidoService {
       )
       .orderBy(desc(producaoPedido.criadoEm))
       .limit(100);
-    return this.comItens(tenantId, pedidos);
+    const comItens = await this.comItens(tenantId, pedidos);
+    // Enriquece p/ o painel do gestor: nome do setor + vínculo com a comanda.
+    const setorIds = [...new Set(pedidos.map((p) => p.setorId).filter(Boolean))];
+    const comandaIds = [...new Set(pedidos.map((p) => p.comandaId).filter(Boolean))];
+    const setores = setorIds.length
+      ? await this.db.select({ id: setor.id, nome: setor.nome }).from(setor).where(inArray(setor.id, setorIds as string[]))
+      : [];
+    const comandas = comandaIds.length
+      ? await this.db
+          .select({ id: comanda.id, cliente: comanda.cliente, total: comanda.total, mesa: comanda.mesa, status: comanda.status })
+          .from(comanda)
+          .where(inArray(comanda.id, comandaIds as string[]))
+      : [];
+    const sMap = new Map(setores.map((s) => [s.id, s.nome]));
+    const cMap = new Map(comandas.map((c) => [c.id, c]));
+    return comItens.map((p: any) => ({
+      ...p,
+      setorNome: p.setorId ? sMap.get(p.setorId) ?? null : null,
+      comanda: p.comandaId ? cMap.get(p.comandaId) ?? null : null,
+    }));
   }
 
   private async carregar(tenantId: string, pedidoId: string) {
@@ -692,6 +713,46 @@ export class ProducaoPedidoService {
       tipo: 'cancelado',
     });
     return { ok: true };
+  }
+
+  // Cancela TODOS os pedidos de produção de uma comanda (ao cancelar o cupom):
+  // marca 'cancelado' e avisa o KDS por cada destino.
+  async cancelarPorComanda(
+    tenantId: string,
+    atorId: string,
+    comandaId: string,
+    motivo?: string,
+  ) {
+    const pedidos = await this.db
+      .select()
+      .from(producaoPedido)
+      .where(
+        and(
+          eq(producaoPedido.tenantId, tenantId),
+          eq(producaoPedido.comandaId, comandaId),
+        ),
+      );
+    for (const p of pedidos) {
+      if (p.status === 'cancelado') continue;
+      await this.db
+        .update(producaoPedido)
+        .set({
+          status: 'cancelado',
+          canceladoEm: new Date(),
+          canceladoPorId: atorId,
+          obs: motivo ?? p.obs,
+        })
+        .where(eq(producaoPedido.id, p.id));
+      this.events?.emit('producao.evento', {
+        tenantId,
+        unidadeId: p.unidadeId,
+        setorId: p.setorId,
+        destinoEquipamentoId: p.destinoEquipamentoId,
+        pedidoId: p.id,
+        tipo: 'cancelado',
+      });
+    }
+    return { cancelados: pedidos.filter((p) => p.status !== 'cancelado').length };
   }
 
   // Item removido de uma comanda aberta (PDV): marca o item nos pedidos de

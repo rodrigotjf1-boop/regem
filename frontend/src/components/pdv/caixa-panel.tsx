@@ -12,9 +12,20 @@ import { Label } from '@/components/ui/label';
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-// Painel de caixa/turno do PDV: abrir · sangria · suprimento · fechar (cego).
+// Painel de caixa/turno: abrir · sangria · suprimento · fechar (cego).
 // O turno pertence ao operador que abriu (o backend trava sangria/fecho).
-export function CaixaPanel({ caixa, onChange }: { caixa: any; onChange: () => void }) {
+// `origem` separa a gaveta do PDV ('pdv') da gaveta do delivery ('delivery').
+export function CaixaPanel({
+  caixa,
+  onChange,
+  origem = 'pdv',
+  avisoVazio = 'Nenhum turno aberto — abra o caixa para vender.',
+}: {
+  caixa: any;
+  onChange: () => void;
+  origem?: string;
+  avisoVazio?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [mov, setMov] = useState<null | 'sangria' | 'suprimento'>(null);
   const [movValor, setMovValor] = useState('');
@@ -29,7 +40,7 @@ export function CaixaPanel({ caixa, onChange }: { caixa: any; onChange: () => vo
     if (v === null) return;
     setBusy(true);
     try {
-      await api.abrirCaixa({ valorAbertura: Number(String(v).replace(',', '.')) || 0 });
+      await api.abrirCaixa({ valorAbertura: Number(String(v).replace(',', '.')) || 0, origem });
       toast.success('Turno aberto.');
       onChange();
     } catch (e) {
@@ -44,7 +55,7 @@ export function CaixaPanel({ caixa, onChange }: { caixa: any; onChange: () => vo
     if (valor <= 0) return toast.error('Informe um valor válido.');
     setBusy(true);
     try {
-      await api.movimentarCaixa({ tipo: mov, valor, descricao: movDesc.trim() || undefined });
+      await api.movimentarCaixa({ tipo: mov, valor, descricao: movDesc.trim() || undefined, origem });
       toast.success(mov === 'sangria' ? 'Sangria registrada.' : 'Suprimento registrado.');
       setMov(null);
       setMovValor('');
@@ -62,6 +73,7 @@ export function CaixaPanel({ caixa, onChange }: { caixa: any; onChange: () => vo
       const r: any = await api.fecharCaixa({
         valorInformado: Number(String(informado).replace(',', '.')) || 0,
         obs: obs.trim() || undefined,
+        origem,
       });
       setResultado(r);
     } catch (e) {
@@ -83,7 +95,7 @@ export function CaixaPanel({ caixa, onChange }: { caixa: any; onChange: () => vo
   if (!caixa) {
     return (
       <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3">
-        <span className="text-sm font-semibold text-warn">⚠️ Nenhum turno aberto — abra o caixa para vender.</span>
+        <span className="text-sm font-semibold text-warn">⚠️ {avisoVazio}</span>
         <Button type="button" size="sm" onClick={abrir} disabled={busy} className="ml-auto">
           {busy ? 'Abrindo…' : 'Abrir turno'}
         </Button>

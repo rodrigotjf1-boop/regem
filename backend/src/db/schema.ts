@@ -565,6 +565,7 @@ export const caixaSessao = pgTable('caixa_sessao', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
+  origem: text('origem').notNull().default('pdv'), // pdv | delivery (gaveta separada)
   status: text('status').notNull().default('aberta'), // aberta | fechada
   turnoNumero: integer('turno_numero'), // nº do turno (sequencial por dia)
   valorAbertura: numeric('valor_abertura').notNull().default('0'),
@@ -1318,6 +1319,10 @@ export const deliveryConfig = pgTable('delivery_config', {
   ativo: boolean('ativo').notNull().default(false),
   autoAceitar: boolean('auto_aceitar').notNull().default(false),
   merchantId: text('merchant_id'),
+  // Visibilidade das colunas do kanban: { chegada, producao, rota, finalizado }.
+  colunas: jsonb('colunas')
+    .notNull()
+    .default('{"chegada":true,"producao":true,"rota":true,"finalizado":true}'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1364,6 +1369,9 @@ export const pedidoExterno = pgTable('pedido_externo', {
   profissional: text('profissional'),
   cnpj: text('cnpj'), // indústria (faturamento)
   bandeira: text('bandeira'), // forma de cartão escolhida (rótulo livre)
+  entregadorId: uuid('entregador_id'), // atribuído no despacho
+  entregadorNome: text('entregador_nome'),
+  autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
 });
 
 // ===== TEF — pagamento integrado (Fase I) =====

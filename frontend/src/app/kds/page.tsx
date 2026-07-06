@@ -50,6 +50,8 @@ export default function KdsPage() {
   const socketRef = useRef<Socket | null>(null);
   const mudoRef = useRef(mudo);
   mudoRef.current = mudo;
+  const pedidosRef = useRef<any[]>([]);
+  pedidosRef.current = pedidos;
   const setorRef = useRef(setorSel);
   setorRef.current = setorSel;
   const escopoRef = useRef(escopo);
@@ -142,6 +144,28 @@ export default function KdsPage() {
 
     // Nudge de produção → refaz o GET (fonte da verdade). Novo pedido = som.
     socket.on('producao:atualizado', (p: any) => {
+      // Cancelamento: avisa a cozinha ANTES de sumir da fila (som + alerta).
+      if (p?.tipo === 'cancelado') {
+        const alvo = pedidosRef.current.find((x) => x.id === p.pedidoId);
+        const ref = alvo?.senha
+          ? `Senha ${alvo.senha}`
+          : alvo?.mesa
+            ? `Mesa ${alvo.mesa}`
+            : alvo?.plataforma
+              ? `${alvo.plataforma}${alvo.senhaPlataforma ? ` #${alvo.senhaPlataforma}` : ''}`
+              : 'Pedido';
+        setAlertas((prev) => [
+          {
+            id: `canc-${p.pedidoId}`,
+            titulo: `❌ CANCELADO — ${ref}`,
+            detalhe: 'Não preparar / descartar o que já saiu.',
+            prioridade: 'danger',
+            em: p.em,
+          },
+          ...prev,
+        ]);
+        bip();
+      }
       void carregarFila();
       if (p?.tipo === 'novo') bip();
     });

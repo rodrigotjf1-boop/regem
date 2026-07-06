@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-produto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,7 +24,8 @@ export default function MesasPage() {
   const [comandaAtiva, setComandaAtiva] = useState<string>('');
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [forma, setForma] = useState('dinheiro');
+  const [formas, setFormas] = useState<any[]>([]); // formas de pagamento (cadastro)
+  const [forma, setForma] = useState('');
 
   // abrir mesa
   const [novoNum, setNovoNum] = useState('');
@@ -61,6 +63,11 @@ export default function MesasPage() {
       return;
     }
     reload();
+    api.formasPagamento().then((fp: any) => {
+      const ativas = (fp as any[]).filter((f) => f.ativo);
+      setFormas(ativas);
+      setForma((f) => f || ativas[0]?.nome || '');
+    }).catch(() => {});
     const socket = connectAsGestor();
     socketRef.current = socket;
     socket.on('mesa:atualizada', (p: any) => {
@@ -230,16 +237,17 @@ export default function MesasPage() {
             <div className="space-y-1 border-t border-border pt-2">
               <span className="text-xs text-muted-foreground">Pagamento</span>
               <div className="flex flex-wrap gap-1.5">
-                {['dinheiro', 'pix', 'cartao'].map((fmt) => (
+                {formas.map((f) => (
                   <button
-                    key={fmt}
+                    key={f.id}
                     type="button"
-                    onClick={() => setForma(fmt)}
-                    className={`rounded-md border px-2.5 py-1 text-xs font-medium capitalize ${forma === fmt ? 'border-primary bg-primary/15 text-primary' : 'border-border'}`}
+                    onClick={() => setForma(f.nome)}
+                    className={`rounded-md border px-2.5 py-1 text-xs font-medium ${forma === f.nome ? 'border-primary bg-primary/15 text-primary' : 'border-border'}`}
                   >
-                    {fmt}
+                    {f.nome}
                   </button>
                 ))}
+                {formas.length === 0 && <span className="text-xs text-muted-foreground">Cadastre formas em Financeiro.</span>}
               </div>
             </div>
 
@@ -289,7 +297,17 @@ export default function MesasPage() {
           <p className="mb-3 text-sm font-medium text-muted-foreground">
             Mesas abertas {mesas ? `(${mesas.length})` : ''}
           </p>
-          {!mesas && <p className="text-sm text-muted-foreground">Carregando…</p>}
+          {!mesas && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-border bg-card p-3">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="mt-2 h-3 w-1/2" />
+                  <Skeleton className="mt-2 h-4 w-1/3" />
+                </div>
+              ))}
+            </div>
+          )}
           {mesas?.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma mesa aberta.</p>}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {mesas?.map((m) => (

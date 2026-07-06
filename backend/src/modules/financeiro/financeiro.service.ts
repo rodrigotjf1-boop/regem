@@ -320,7 +320,8 @@ export class FinanceiroService {
   }
 
   // ===== Caixa (J5) =====
-  async sessaoAberta(tenantId: string) {
+  // origem separa a gaveta do balcão (pdv) da gaveta do delivery.
+  async sessaoAberta(tenantId: string, origem = 'pdv') {
     const [s] = await this.db
       .select()
       .from(caixaSessao)
@@ -328,6 +329,7 @@ export class FinanceiroService {
         and(
           eq(caixaSessao.tenantId, tenantId),
           eq(caixaSessao.status, 'aberta'),
+          eq(caixaSessao.origem, origem),
         ),
       );
     return s ?? null;
@@ -336,14 +338,15 @@ export class FinanceiroService {
   async abrirSessao(
     tenantId: string,
     atorId: string,
-    dto: { valorAbertura?: number; unidadeId?: string },
+    dto: { valorAbertura?: number; unidadeId?: string; origem?: string },
   ) {
-    const aberta = await this.sessaoAberta(tenantId);
+    const origem = dto.origem === 'delivery' ? 'delivery' : 'pdv';
+    const aberta = await this.sessaoAberta(tenantId, origem);
     if (aberta) throw new BadRequestException('Já existe um caixa aberto.');
-    // Nº do turno = sequencial por dia (fuso SP): 1º caixa do dia = Turno 1.
+    // Nº do turno = sequencial por dia (fuso SP), por origem: 1º caixa do dia = Turno 1.
     const tn: any = await this.db.execute(sql`
       select coalesce(max(turno_numero), 0) + 1 as n from caixa_sessao
-      where tenant_id = ${tenantId}
+      where tenant_id = ${tenantId} and origem = ${origem}
         and (aberta_em at time zone 'America/Sao_Paulo')::date
             = (now() at time zone 'America/Sao_Paulo')::date`);
     const turnoNumero = Number((tn.rows ?? tn)[0].n) || 1;
@@ -352,6 +355,7 @@ export class FinanceiroService {
       .values({
         tenantId,
         unidadeId: dto.unidadeId,
+        origem,
         turnoNumero,
         valorAbertura: String(dto.valorAbertura ?? 0),
         abertaPorId: atorId,
@@ -361,8 +365,8 @@ export class FinanceiroService {
   }
 
   // Caixa aberto + nome do operador (p/ o PDV mostrar "Turno N · Operador X").
-  async caixaAtual(tenantId: string) {
-    const s = await this.sessaoAberta(tenantId);
+  async caixaAtual(tenantId: string, origem = 'pdv') {
+    const s = await this.sessaoAberta(tenantId, origem);
     if (!s) return null;
     let operadorNome: string | null = null;
     if (s.abertaPorId) {
@@ -468,7 +472,12 @@ export class FinanceiroService {
     tenantId: string,
     atorId: string,
     atorPerfil: string,
-    dto: { tipo: 'sangria' | 'suprimento'; valor: number; descricao?: string },
+    dto: {
+      tipo: 'sangria' | 'suprimento';
+      valor: number;
+      descricao?: string;
+      origem?: string;
+    },
   ) {
     // Autorização: atendente só sangra/supre se o presidente liberou.
     if (atorPerfil === 'atendente' && !(await this.caixaLivre(tenantId))) {
@@ -478,7 +487,10 @@ export class FinanceiroService {
     }
     if (!(Number(dto.valor) > 0))
       throw new BadRequestException('Informe um valor válido.');
-    const s = await this.sessaoAberta(tenantId);
+    const s = await this.sessaoAberta(
+      tenantId,
+      dto.origem === 'delivery' ? 'delivery' : 'pdv',
+    );
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
     await this.db.insert(lancamentoCaixa).values({
@@ -511,9 +523,12 @@ export class FinanceiroService {
     tenantId: string,
     atorId: string,
     atorPerfil: string,
-    dto: { valorInformado: number; obs?: string },
+    dto: { valorInformado: number; obs?: string; origem?: string },
   ) {
-    const s = await this.sessaoAberta(tenantId);
+    const s = await this.sessaoAberta(
+      tenantId,
+      dto.origem === 'delivery' ? 'delivery' : 'pdv',
+    );
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
     // Esperado em gaveta = abertura + entradas − saídas (apenas dinheiro) da sessão.

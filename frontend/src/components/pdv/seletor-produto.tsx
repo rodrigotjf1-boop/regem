@@ -58,6 +58,11 @@ export function SeletorProduto({
     }
     const variacoes = full.variacoes ?? [];
     const complementos = full.complementos ?? [];
+    // Produto simples entra em 1 toque (sem abrir o modal) — mais rápido no salão.
+    if (variacoes.length === 0 && complementos.length === 0) {
+      onAdd({ produtoId: p.id, complementos: [], label: p.nome });
+      return;
+    }
     setPickVar(undefined);
     setPickOpc([]);
     setPickObs('');
@@ -96,6 +101,22 @@ export function SeletorProduto({
     ? produtos.filter((p) => p.categoriaId === catAtiva)
     : produtos;
 
+  // Agrupa por categoria (com cabeçalho).
+  const nomePorId = new Map(categorias.map((c: any) => [c.id, c.nome]));
+  const grupos = (() => {
+    const m = new Map<string, { nome: string; itens: any[] }>();
+    for (const p of visiveis) {
+      const key = p.categoriaId ?? '_sem';
+      if (!m.has(key))
+        m.set(key, {
+          nome: p.categoriaId ? nomePorId.get(p.categoriaId) ?? p.categoriaNome ?? 'Categoria' : 'Sem categoria',
+          itens: [],
+        });
+      m.get(key)!.itens.push(p);
+    }
+    return [...m.values()];
+  })();
+
   return (
     <div className="space-y-3">
       {erro && <p className="text-destructive">{erro}</p>}
@@ -124,20 +145,38 @@ export function SeletorProduto({
           Nenhum produto. Cadastre em Cadastros → Produtos & Catálogo.
         </Card>
       )}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-        {visiveis.map((p) => (
-          <button
-            key={p.id}
-            type="button"
-            disabled={enviando}
-            onClick={() => tap(p)}
-            className="flex flex-col items-start gap-1 rounded-xl border border-border bg-card p-3 text-left transition hover:border-primary/50 active:scale-95 disabled:opacity-50"
-          >
-            <span className="font-medium leading-tight">{p.nome}</span>
-            <span className="font-mono text-sm text-primary">{brl(Number(p.precoVenda))}</span>
-          </button>
-        ))}
-      </div>
+      {grupos.map((g) => (
+        <section key={g.nome} className="space-y-2">
+          <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
+            {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
+          </h3>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {g.itens.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                disabled={enviando}
+                onClick={() => tap(p)}
+                className="flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition hover:border-primary/50 active:scale-95 disabled:opacity-50"
+              >
+                <div className="grid aspect-square w-full place-items-center overflow-hidden bg-muted/40 text-3xl">
+                  {p.imagemRef ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover" />
+                  ) : (
+                    <span aria-hidden>🍽️</span>
+                  )}
+                </div>
+                <div className="flex flex-1 flex-col gap-0.5 p-2.5">
+                  <span className="line-clamp-2 text-sm font-medium leading-tight">{p.nome}</span>
+                  <span className="mt-auto font-mono text-sm font-bold text-primary">{brl(Number(p.precoVenda))}</span>
+                  {p.tipo === 'variavel' && <span className="text-[10px] text-muted-foreground">escolher tamanho</span>}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
 
       {/* Seletor de variação + opcionais/adicionais */}
       {picker && (() => {

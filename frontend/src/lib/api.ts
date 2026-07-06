@@ -273,8 +273,11 @@ export const api = {
   deliveryPedidos: () => req('/delivery/pedidos'),
   aceitarDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/aceitar`, { method: 'POST', body: '{}' }),
-  avancarDelivery: (id: string) =>
-    req(`/delivery/pedidos/${id}/avancar`, { method: 'POST', body: '{}' }),
+  avancarDelivery: (id: string, body?: Record<string, unknown>) =>
+    req(`/delivery/pedidos/${id}/avancar`, {
+      method: 'POST',
+      body: JSON.stringify(body ?? {}),
+    }),
   cancelarDelivery: (id: string, motivo?: string) =>
     req(`/delivery/pedidos/${id}/cancelar`, {
       method: 'POST',
@@ -397,7 +400,8 @@ export const api = {
   financeiroResumo: () => req('/financeiro/resumo'),
   financeiroFluxo: (dias?: number) =>
     req(`/financeiro/fluxo${dias ? `?dias=${dias}` : ''}`),
-  caixaAberta: () => req('/financeiro/caixa'),
+  caixaAberta: (origem?: string) =>
+    req(`/financeiro/caixa${origem ? `?origem=${origem}` : ''}`),
   formasPagamento: () => req('/financeiro/formas-pagamento'),
   criarFormaPagamento: (body: { nome: string; tipo?: string }) =>
     req('/financeiro/formas-pagamento', { method: 'POST', body: JSON.stringify(body) }),

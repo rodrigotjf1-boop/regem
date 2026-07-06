@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/components/ui/skeleton';
 import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-produto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -159,7 +160,16 @@ export default function GarcomPage() {
           <p className="mb-3 text-sm font-medium text-muted-foreground">
             Mesas abertas {mesas ? `(${mesas.length})` : ''}
           </p>
-          {!mesas && <p className="text-sm text-muted-foreground">Carregando…</p>}
+          {!mesas && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-border bg-card p-3">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="mt-2 h-3 w-1/2" />
+                </div>
+              ))}
+            </div>
+          )}
           {mesas?.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma mesa aberta.</p>}
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {mesas?.map((m) => (

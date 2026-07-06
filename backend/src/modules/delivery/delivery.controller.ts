@@ -49,8 +49,15 @@ export class DeliveryController {
 
   @Post('pedidos/:id/avancar')
   @UseGuards(JwtAuthGuard)
-  avancar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.avancar(user.tenantId, id);
+  avancar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.avancar(user.tenantId, id, {
+      entregadorId: dto?.entregadorId ?? null,
+      entregadorNome: dto?.entregadorNome ?? null,
+    });
   }
 
   @Post('pedidos/:id/cancelar')
@@ -92,15 +99,17 @@ export class DeliveryController {
     const exemplo = {
       id: 'SIM-' + Date.now(),
       displayId: '#' + Math.floor(Math.random() * 9000 + 1000),
-      orderType: 'DELIVERY',
+      orderType: dto?.tipo === 'retirada' ? 'TAKEOUT' : 'DELIVERY',
       customer: { name: dto?.cliente ?? 'Cliente Simulado' },
       delivery: { deliveryAddress: { formattedAddress: 'Rua Exemplo, 100' } },
       items: dto?.items ?? [
         { externalCode: dto?.codigo, name: dto?.produto ?? 'Item delivery', quantity: 1, unitPrice: dto?.preco ?? 25 },
       ],
       total: { orderAmount: dto?.preco ?? 25 },
-      payments: { methods: [{ method: 'online' }] },
+      payments: { methods: [{ method: dto?.forma ?? 'online' }] },
     };
-    return this.service.ingest(user.tenantId, null, 'ifood', exemplo);
+    return this.service.ingest(user.tenantId, null, 'ifood', exemplo, {
+      trocoPara: dto?.trocoPara,
+    });
   }
 }

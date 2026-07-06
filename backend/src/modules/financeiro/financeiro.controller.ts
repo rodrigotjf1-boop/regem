@@ -75,8 +75,11 @@ export class FinanceiroController {
   // ----- Caixa (sessão) — atendente também opera o caixa (Fase A). -----
   @Get('caixa')
   @Roles('presidente', 'gerente', 'atendente')
-  caixa(@CurrentUser() user: AuthUser) {
-    return this.service.caixaAtual(user.tenantId);
+  caixa(@CurrentUser() user: AuthUser, @Query('origem') origem?: string) {
+    return this.service.caixaAtual(
+      user.tenantId,
+      origem === 'delivery' ? 'delivery' : 'pdv',
+    );
   }
 
   @Post('caixa/abrir')
