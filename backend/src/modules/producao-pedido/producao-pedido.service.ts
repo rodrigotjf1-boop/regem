@@ -17,6 +17,8 @@ import {
   impressaoJob,
   kdsCorConfig,
   senhaContador,
+  setor,
+  comanda,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -583,7 +585,26 @@ export class ProducaoPedidoService {
       )
       .orderBy(desc(producaoPedido.criadoEm))
       .limit(100);
-    return this.comItens(tenantId, pedidos);
+    const comItens = await this.comItens(tenantId, pedidos);
+    // Enriquece p/ o painel do gestor: nome do setor + vínculo com a comanda.
+    const setorIds = [...new Set(pedidos.map((p) => p.setorId).filter(Boolean))];
+    const comandaIds = [...new Set(pedidos.map((p) => p.comandaId).filter(Boolean))];
+    const setores = setorIds.length
+      ? await this.db.select({ id: setor.id, nome: setor.nome }).from(setor).where(inArray(setor.id, setorIds as string[]))
+      : [];
+    const comandas = comandaIds.length
+      ? await this.db
+          .select({ id: comanda.id, cliente: comanda.cliente, total: comanda.total, mesa: comanda.mesa, status: comanda.status })
+          .from(comanda)
+          .where(inArray(comanda.id, comandaIds as string[]))
+      : [];
+    const sMap = new Map(setores.map((s) => [s.id, s.nome]));
+    const cMap = new Map(comandas.map((c) => [c.id, c]));
+    return comItens.map((p: any) => ({
+      ...p,
+      setorNome: p.setorId ? sMap.get(p.setorId) ?? null : null,
+      comanda: p.comandaId ? cMap.get(p.comandaId) ?? null : null,
+    }));
   }
 
   private async carregar(tenantId: string, pedidoId: string) {
