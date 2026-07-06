@@ -44,18 +44,23 @@ export default function PdvPage() {
   const [enviando, setEnviando] = useState(false);
   const [tefAtivo, setTefAtivo] = useState(false);
   const [tefStatus, setTefStatus] = useState<string | null>(null); // aguardando maquininha
+  const [caixa, setCaixa] = useState<any>(null); // caixa aberto (ou null se fechado)
+  const [abrindo, setAbrindo] = useState(false);
+  const [recebido, setRecebido] = useState(''); // valor recebido (troco em dinheiro)
   const chaveRef = useRef<string | null>(null); // chave idempotente da venda atual
 
   const reload = useCallback(async () => {
     try {
-      const [ps, cs, tc] = await Promise.all([
+      const [ps, cs, tc, cx] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.tefConfig().catch(() => ({ ativo: false })),
+        api.caixaAberta().catch(() => null),
       ]);
       setProdutos(ps.filter((p: any) => p.ativo !== false));
       setCategorias(cs);
       setTefAtivo(!!(tc as any).ativo);
+      setCaixa((cx as any)?.id ? cx : null);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
@@ -83,8 +88,24 @@ export default function PdvPage() {
     });
   }
 
+  async function abrirCaixa() {
+    const v = prompt('Valor de abertura (troco inicial) do caixa:', '0');
+    if (v === null) return;
+    setAbrindo(true);
+    try {
+      await api.abrirCaixa({ valorAbertura: Number(String(v).replace(',', '.')) || 0 });
+      const cx: any = await api.caixaAberta().catch(() => null);
+      setCaixa(cx?.id ? cx : null);
+      toast.success('Caixa aberto.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao abrir o caixa');
+    } finally {
+      setAbrindo(false);
+    }
+  }
+
   async function tap(p: any) {
-    // Busca variações + complementos; abre o seletor se houver algo a escolher.
+    // Busca variações + complementos; abre o seletor só se houver o que escolher.
     let full: any = p;
     try {
       full = await api.produto(p.id);
@@ -93,7 +114,19 @@ export default function PdvPage() {
     }
     const variacoes = full.variacoes ?? [];
     const complementos = full.complementos ?? [];
-    // Sempre abre o seletor (variação/opcionais quando houver + observação do item).
+    // Produto simples (sem variação/complemento) entra em 1 toque — balcão rápido.
+    if (variacoes.length === 0 && complementos.length === 0) {
+      addItem({
+        produtoId: p.id,
+        variacaoId: undefined,
+        complementos: [],
+        observacao: undefined,
+        nome: p.nome,
+        sub: undefined,
+        preco: Number(p.precoVenda),
+      });
+      return;
+    }
     setPickVar(undefined);
     setPickOpc([]);
     setPickObs('');
@@ -145,6 +178,7 @@ export default function PdvPage() {
 
   const subtotal = carrinho.reduce((s, i) => s + i.preco * i.qtd, 0);
   const total = subtotal * (taxa ? 1.1 : 1);
+  const troco = (Number(String(recebido).replace(',', '.')) || 0) - total;
 
   // Cobrança TEF na maquininha (pré-venda): cria a cobrança e aguarda o agente do
   // edge/pinpad. Devolve o pagamento aprovado, ou null se negado/cancelado.
@@ -189,6 +223,7 @@ export default function PdvPage() {
     setComprovante(r);
     setCarrinho([]);
     setTaxa(false);
+    setRecebido('');
     chaveRef.current = null;
     toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
   }
@@ -222,6 +257,21 @@ export default function PdvPage() {
 
   return (
     <Shell eyebrow="PDV · balcão" title="Venda rápida">
+      {/* Status do caixa: sem caixa aberto não há venda no balcão. */}
+      {carregado && !caixa && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3">
+          <span className="text-sm font-semibold text-warn">⚠️ Caixa fechado — abra o caixa para vender.</span>
+          <Button type="button" size="sm" onClick={abrirCaixa} disabled={abrindo} className="ml-auto">
+            {abrindo ? 'Abrindo…' : 'Abrir caixa'}
+          </Button>
+        </div>
+      )}
+      {caixa && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-ok/40 bg-ok/10 px-4 py-2 text-xs font-semibold text-ok">
+          🟢 Caixa aberto
+          {caixa.abertaEm && <span className="font-normal text-muted-foreground">· desde {new Date(caixa.abertaEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
         {/* Produtos */}
         <div className="space-y-3">
@@ -323,12 +373,31 @@ export default function PdvPage() {
                   ))}
                 </div>
               </div>
+              {/* Troco (dinheiro): valor recebido → devolução */}
+              {forma === 'dinheiro' && (
+                <div className="space-y-1">
+                  <span className="text-xs text-muted-foreground">Valor recebido</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={recebido}
+                    onChange={(e) => setRecebido(e.target.value)}
+                    placeholder={brl(total)}
+                    className="w-full rounded-md border border-input bg-card px-3 py-2 text-sm"
+                  />
+                  {recebido !== '' && (
+                    <p className={`text-xs font-semibold ${troco < 0 ? 'text-destructive' : 'text-ok'}`}>
+                      {troco < 0 ? `Faltam ${brl(-troco)}` : `Troco ${brl(troco)}`}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex items-baseline justify-between border-t border-border pt-2">
                 <span className="font-semibold">Total</span>
                 <span className="font-mono text-xl font-bold">{brl(total)}</span>
               </div>
-              <Button type="button" size="lg" onClick={finalizar} disabled={enviando}>
-                {enviando ? 'Finalizando…' : 'Receber e enviar à produção'}
+              <Button type="button" size="lg" onClick={finalizar} disabled={enviando || !caixa}>
+                {enviando ? 'Finalizando…' : !caixa ? 'Abra o caixa para vender' : 'Receber e enviar à produção'}
               </Button>
             </>
           )}
