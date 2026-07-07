@@ -77,7 +77,9 @@ type Filtro = { campo: string; valor: string };
 
 export default function DeliveryPage() {
   const router = useRouter();
-  const cat = getCategoria();
+  // Categoria vem do localStorage (cliente). Só depois de montar para não
+  // divergir do HTML do servidor (evita erro de hidratação).
+  const [cat, setCat] = useState<string | null>(null);
   const isGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
   const [pedidos, setPedidos] = useState<any[] | null>(null);
   const [cfg, setCfg] = useState<any>({ ativo: false, autoAceitar: false, colunas: { chegada: true, producao: true, rota: true, finalizado: true } });
@@ -116,6 +118,7 @@ export default function DeliveryPage() {
   }, []);
 
   useEffect(() => {
+    setCat(getCategoria());
     if (!getToken()) {
       router.replace('/entrar');
       return;
@@ -251,10 +254,10 @@ export default function DeliveryPage() {
             </label>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <Button type="button" size="sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
+            <Button type="button" size="sm" className="h-8 text-sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
             {isGestor && (
               <div className="relative">
-                <Button type="button" variant="outline" size="sm" onClick={() => setPausarOpen((v) => !v)}>
+                <Button type="button" variant="outline" size="sm" className="h-8 text-sm" onClick={() => setPausarOpen((v) => !v)}>
                   {cfg.pausado ? '⏸ Pausada' : '⏸ Pausar'}
                 </Button>
                 {pausarOpen && (
@@ -265,9 +268,9 @@ export default function DeliveryPage() {
                 )}
               </div>
             )}
-            <Button type="button" variant="outline" size="sm" onClick={() => setConfigQuadro(true)}>⚙️</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => setConfigQuadro(true)}>⚙️</Button>
             {isGestor && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => acao(api.simularDelivery({ produto: 'Combo delivery', preco: 39.9 }), 'Pedido simulado recebido.')}>
+              <Button type="button" variant="ghost" size="sm" className="h-8 text-sm" onClick={() => acao(api.simularDelivery({ produto: 'Combo delivery', preco: 39.9 }), 'Pedido simulado recebido.')}>
                 Simular
               </Button>
             )}
