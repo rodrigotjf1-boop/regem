@@ -1478,6 +1478,12 @@ export const cardapioConfig = pgTable('cardapio_config', {
   tipoLocal: boolean('tipo_local').notNull().default(false),
   // Horários de funcionamento (jsonb)
   horarios: jsonb('horarios').notNull().default('[]'),
+  // Robô de auto atendimento (mensagens; IA depois)
+  roboAtivo: boolean('robo_ativo').notNull().default(false),
+  roboSaudacao: text('robo_saudacao'),
+  roboAusencia: text('robo_ausencia'),
+  roboPrompt: text('robo_prompt'), // base de conhecimento (futuro LLM)
+  roboMensagens: jsonb('robo_mensagens').notNull().default('[]'), // [{gatilho, resposta}]
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

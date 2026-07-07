@@ -119,6 +119,16 @@ export class CardapioService {
       tipoLocal: dto.tipoLocal != null ? !!dto.tipoLocal : row?.tipoLocal ?? false,
       // Horários
       horarios: Array.isArray(dto.horarios) ? dto.horarios : row?.horarios ?? [],
+      // Robô de auto atendimento
+      roboAtivo: dto.roboAtivo != null ? !!dto.roboAtivo : row?.roboAtivo ?? false,
+      roboSaudacao: dto.roboSaudacao ?? row?.roboSaudacao ?? null,
+      roboAusencia: dto.roboAusencia ?? row?.roboAusencia ?? null,
+      roboPrompt: dto.roboPrompt ?? row?.roboPrompt ?? null,
+      roboMensagens: Array.isArray(dto.roboMensagens)
+        ? dto.roboMensagens
+            .map((m: any) => ({ gatilho: String(m.gatilho ?? '').trim(), resposta: String(m.resposta ?? '').trim() }))
+            .filter((m: any) => m.gatilho || m.resposta)
+        : row?.roboMensagens ?? [],
     };
     if (row) {
       await this.db

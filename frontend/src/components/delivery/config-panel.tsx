@@ -36,7 +36,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
       { k: 'banners', label: 'Banners' },
       { k: 'impressoras', label: 'Impressoras' },
       { k: 'integracoes', label: 'Integrações' },
-      { k: 'robo', label: 'Robô de atendimento', breve: true },
+      { k: 'robo', label: 'Robô de atendimento' },
     ],
   },
 ];
@@ -292,12 +292,9 @@ export function ConfigPanel({
                   <Integracoes lista={integracoes} onSalvar={salvarIntegracao} pode={isGestor} />
                 )}
 
-                {/* EM BREVE */}
-                {['robo'].includes(sec) && (
-                  <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                    <p className="font-semibold">{secLabel(sec)}</p>
-                    <p className="mt-1">{breveTexto(sec)}</p>
-                  </div>
+                {/* ROBÔ DE ATENDIMENTO */}
+                {sec === 'robo' && (
+                  <Robo loja={loja} up={up} onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                 )}
               </>
             )}
@@ -311,12 +308,6 @@ export function ConfigPanel({
 function secLabel(k: string) {
   const all = MENU.flatMap((g) => g.itens);
   return all.find((i) => i.k === k)?.label ?? 'Configurações';
-}
-function breveTexto(k: string) {
-  return k === 'banners' ? 'Banners rotativos do cardápio digital — em breve.'
-    : k === 'impressoras' ? 'Direcionamento de impressão (caixa/cozinha) + vias — em breve (detecção de impressoras via servidor local).'
-    : k === 'integracoes' ? 'Credenciais dos apps de delivery externos — em breve.'
-    : 'Mensagens do robô de auto atendimento — em breve.';
 }
 
 function Secao({ dica, children }: { dica: string; children: React.ReactNode }) {
@@ -476,6 +467,47 @@ function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]
           <Button type="button" onClick={onSalvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
         </div>
       )}
+    </div>
+  );
+}
+
+const areaTxt = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm';
+
+function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
+  const msgs: any[] = loja.roboMensagens ?? [];
+  const setMsgs = (m: any[]) => up({ roboMensagens: m });
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Robô de auto atendimento do cardápio/WhatsApp. Aqui você configura as <strong>mensagens</strong>. O “cérebro” com IA (respostas livres) entra numa etapa dedicada.</p>
+      <ToggleLinha label="Robô ativo" desc="Responde os clientes automaticamente." checked={!!loja.roboAtivo} onChange={(v) => up({ roboAtivo: v })} pode={pode} />
+
+      <Campo label="Saudação (primeira mensagem)">
+        <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboSaudacao ?? ''} onChange={(e) => up({ roboSaudacao: e.target.value })} placeholder="Olá! 👋 Bem-vindo. Como posso ajudar?" />
+      </Campo>
+      <Campo label="Mensagem de ausência (loja fechada/pausada)">
+        <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboAusencia ?? ''} onChange={(e) => up({ roboAusencia: e.target.value })} placeholder="No momento estamos fechados. Nosso horário é…" />
+      </Campo>
+
+      {/* Mensagens pré-definidas */}
+      <div className="space-y-2">
+        <Label className="text-xs">Respostas prontas (gatilho → resposta)</Label>
+        {msgs.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma. Ex.: “horário” → “Funcionamos das 18h às 23h”.</p>}
+        {msgs.map((m, i) => (
+          <div key={i} className="flex items-start gap-2 rounded-lg border border-border p-2">
+            <Input value={m.gatilho} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, gatilho: e.target.value } : x)))} placeholder="gatilho (ex.: horário)" className="h-8 w-40" disabled={!pode} />
+            <textarea rows={2} className={`${areaTxt} flex-1`} disabled={!pode} value={m.resposta} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, resposta: e.target.value } : x)))} placeholder="resposta" />
+            {pode && <button type="button" className="mt-1 text-xs text-destructive" onClick={() => setMsgs(msgs.filter((_, j) => j !== i))}>x</button>}
+          </div>
+        ))}
+        {pode && <Button type="button" size="sm" variant="outline" onClick={() => setMsgs([...msgs, { gatilho: '', resposta: '' }])}>＋ Resposta</Button>}
+      </div>
+
+      <Campo label="Base de conhecimento (para a IA — futuro)">
+        <textarea rows={4} className={areaTxt} disabled={!pode} value={loja.roboPrompt ?? ''} onChange={(e) => up({ roboPrompt: e.target.value })} placeholder="Descreva o negócio, produtos, políticas de entrega, troca, etc. Será usado pelo robô com IA quando ativarmos o cérebro." />
+      </Campo>
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">As respostas livres por IA (usando a base de conhecimento) entram numa etapa dedicada — precisa de um provedor de IA (custo por uso). As mensagens acima já funcionam sem IA.</p>
+
+      <SalvarBar onSalvar={onSalvar} salvando={salvando} pode={pode} />
     </div>
   );
 }
