@@ -85,6 +85,29 @@ export class CardapioService {
       formasCartao: Array.isArray(dto.formasCartao)
         ? dto.formasCartao.filter((x: any) => typeof x === 'string' && x.trim()).map((x: string) => x.trim())
         : row?.formasCartao ?? [],
+      // Loja / contatos
+      logoRef: dto.logoRef ?? row?.logoRef ?? null,
+      documento: dto.documento ?? row?.documento ?? null,
+      responsavelNome: dto.responsavelNome ?? row?.responsavelNome ?? null,
+      responsavelContato: dto.responsavelContato ?? row?.responsavelContato ?? null,
+      contatoLoja: dto.contatoLoja ?? row?.contatoLoja ?? null,
+      instagram: dto.instagram ?? row?.instagram ?? null,
+      site: dto.site ?? row?.site ?? null,
+      // Endereço
+      endCep: dto.endCep ?? row?.endCep ?? null,
+      endRua: dto.endRua ?? row?.endRua ?? null,
+      endNumero: dto.endNumero ?? row?.endNumero ?? null,
+      endBairro: dto.endBairro ?? row?.endBairro ?? null,
+      endCidade: dto.endCidade ?? row?.endCidade ?? null,
+      endEstado: dto.endEstado ?? row?.endEstado ?? null,
+      endReferencia: dto.endReferencia ?? row?.endReferencia ?? null,
+      endComplemento: dto.endComplemento ?? row?.endComplemento ?? null,
+      // Tipos de pedido
+      tipoDelivery: dto.tipoDelivery != null ? !!dto.tipoDelivery : row?.tipoDelivery ?? true,
+      tipoRetirada: dto.tipoRetirada != null ? !!dto.tipoRetirada : row?.tipoRetirada ?? false,
+      tipoLocal: dto.tipoLocal != null ? !!dto.tipoLocal : row?.tipoLocal ?? false,
+      // Horários
+      horarios: Array.isArray(dto.horarios) ? dto.horarios : row?.horarios ?? [],
     };
     if (row) {
       await this.db
@@ -110,7 +133,7 @@ export class CardapioService {
   async setBairros(
     tenantId: string,
     unidadeId: string | null,
-    bairros: { nome: string; taxa: number }[],
+    bairros: { nome: string; taxa: number; ativo?: boolean }[],
   ) {
     await this.db
       .delete(cardapioBairro)
@@ -124,6 +147,7 @@ export class CardapioService {
             unidadeId,
             nome: b.nome.trim(),
             taxa: String(Number(b.taxa) || 0),
+            ativo: b.ativo !== false,
             ordem: i,
           })),
       );

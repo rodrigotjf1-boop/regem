@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
 import { NovoPedido } from '@/components/delivery/novo-pedido';
+import { ConfigPanel } from '@/components/delivery/config-panel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -358,33 +359,14 @@ export default function DeliveryPage() {
         )}
       </div>
 
-      {/* Modal: configurar visibilidade das colunas */}
+      {/* Painel de configurações (menu lateral) */}
       {configQuadro && (
-        <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 p-4" onClick={() => setConfigQuadro(false)}>
-          <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="font-display font-semibold">Configurar quadro</h3>
-            <p className="mb-3 mt-0.5 text-xs text-muted-foreground">
-              Escolha quais colunas ficam visíveis. {isGestor ? '' : 'Só um gestor pode salvar.'}
-            </p>
-            <div className="space-y-2">
-              {COLUNAS.map((c) => (
-                <label key={c.key} className={`flex items-center gap-2 rounded-lg border border-border p-2.5 text-sm ${isGestor ? '' : 'opacity-60'}`}>
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-primary"
-                    disabled={!isGestor}
-                    checked={cfg.colunas ? cfg.colunas[c.key] !== false : true}
-                    onChange={(e) => toggleCfg({ colunas: { ...(cfg.colunas ?? {}), [c.key]: e.target.checked } })}
-                  />
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: `hsl(${c.cor})` }} />
-                  <span className="font-medium">{c.titulo}</span>
-                  <span className="text-xs text-muted-foreground">· {c.dica}</span>
-                </label>
-              ))}
-            </div>
-            <Button type="button" className="mt-4 w-full" onClick={() => setConfigQuadro(false)}>Concluir</Button>
-          </Card>
-        </div>
+        <ConfigPanel
+          deliveryCfg={cfg}
+          onDeliveryToggle={toggleCfg}
+          isGestor={isGestor}
+          onClose={() => setConfigQuadro(false)}
+        />
       )}
 
       {/* Modal: despachar (escolher entregador) */}

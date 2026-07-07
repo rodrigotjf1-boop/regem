@@ -1449,6 +1449,29 @@ export const cardapioConfig = pgTable('cardapio_config', {
   parcelasMax: integer('parcelas_max'), // varejo (L4)
   autoKds: boolean('auto_kds').notNull().default(true), // envia pedido direto ao KDS
   formasCartao: jsonb('formas_cartao').notNull().default('[]'), // rótulos de cartão aceitos
+  // Loja / contatos (Fase config)
+  logoRef: text('logo_ref'),
+  documento: text('documento'), // cpf/cnpj
+  responsavelNome: text('responsavel_nome'),
+  responsavelContato: text('responsavel_contato'),
+  contatoLoja: text('contato_loja'),
+  instagram: text('instagram'),
+  site: text('site'),
+  // Endereço da loja
+  endCep: text('end_cep'),
+  endRua: text('end_rua'),
+  endNumero: text('end_numero'),
+  endBairro: text('end_bairro'),
+  endCidade: text('end_cidade'),
+  endEstado: text('end_estado'),
+  endReferencia: text('end_referencia'),
+  endComplemento: text('end_complemento'),
+  // Tipos de pedido (independentes)
+  tipoDelivery: boolean('tipo_delivery').notNull().default(true),
+  tipoRetirada: boolean('tipo_retirada').notNull().default(false),
+  tipoLocal: boolean('tipo_local').notNull().default(false),
+  // Horários de funcionamento (jsonb)
+  horarios: jsonb('horarios').notNull().default('[]'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1476,6 +1499,7 @@ export const cardapioBairro = pgTable('cardapio_bairro', {
   unidadeId: uuid('unidade_id'),
   nome: text('nome').notNull(),
   taxa: numeric('taxa').notNull().default('0'),
+  ativo: boolean('ativo').notNull().default(true),
   ordem: integer('ordem').notNull().default(0),
 });
 

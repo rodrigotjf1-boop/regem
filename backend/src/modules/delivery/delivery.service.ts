@@ -380,7 +380,7 @@ export class DeliveryService {
     return this.db
       .select({ id: cardapioBairro.id, nome: cardapioBairro.nome, taxa: cardapioBairro.taxa })
       .from(cardapioBairro)
-      .where(eq(cardapioBairro.tenantId, tenantId))
+      .where(and(eq(cardapioBairro.tenantId, tenantId), eq(cardapioBairro.ativo, true)))
       .orderBy(cardapioBairro.ordem, cardapioBairro.nome);
   }
 
