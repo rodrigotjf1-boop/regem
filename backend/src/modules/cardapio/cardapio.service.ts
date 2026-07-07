@@ -361,6 +361,26 @@ export class CardapioService {
 
   // Menu público rico: loja (tema/hero/frete/pagamento) + produtos com
   // complementos (grupos min/max) + variações. Preço sempre do banco.
+  // A loja está aberta AGORA? Respeita o toggle manual (aberto) e os horários
+  // por dia da semana (fuso SP). Sem horários cadastrados = sempre aberta.
+  private estaAberta(cfg: any): boolean {
+    if (cfg.aberto === false) return false;
+    const hs = (cfg.horarios ?? []) as any[];
+    if (!Array.isArray(hs) || hs.length === 0) return true;
+    const agora = new Date(
+      new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }),
+    );
+    const dia = agora.getDay(); // 0=Dom … 6=Sáb
+    const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+    const doDia = hs.filter((h) => Number(h.dia) === dia && h.ativo && h.abre && h.fecha);
+    if (!doDia.length) return false;
+    return doDia.some((h) =>
+      h.fecha > h.abre
+        ? hhmm >= h.abre && hhmm <= h.fecha // mesmo dia
+        : hhmm >= h.abre || hhmm <= h.fecha, // vira a meia-noite (ex.: 18:00–02:00)
+    );
+  }
+
   async menu(token: string) {
     const cfg = await this.resolver(token);
     const cats = await this.db
@@ -433,8 +453,28 @@ export class CardapioService {
         logoRef: cfg.logoRef ?? null,
         instagram: cfg.instagram ?? null,
         site: cfg.site ?? null,
-        pedidoMinimoTexto: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
+        documento: cfg.documento ?? null,
+        responsavelNome: cfg.responsavelNome ?? null,
+        contatoLoja: cfg.contatoLoja ?? null,
+        // Endereço da loja (o robô responde "onde fica")
+        endereco: {
+          cep: cfg.endCep ?? null,
+          rua: cfg.endRua ?? null,
+          numero: cfg.endNumero ?? null,
+          bairro: cfg.endBairro ?? null,
+          cidade: cfg.endCidade ?? null,
+          estado: cfg.endEstado ?? null,
+          referencia: cfg.endReferencia ?? null,
+          complemento: cfg.endComplemento ?? null,
+          texto: [
+            [cfg.endRua, cfg.endNumero].filter(Boolean).join(', '),
+            cfg.endBairro,
+            [cfg.endCidade, cfg.endEstado].filter(Boolean).join(' - '),
+          ].filter((s) => s && s.trim()).join(', ') || null,
+        },
       },
+      // Aberta agora (respeita horários) — o storefront e o robô usam isto.
+      abertaAgora: this.estaAberta(cfg),
       // Contexto para o robô/atendimento (o n8n lê tudo com o token):
       horarios: cfg.horarios ?? [],
       tipos: {
@@ -507,7 +547,7 @@ export class CardapioService {
     const digits = String(telefone ?? '').replace(/\D/g, '');
     if (digits.length < 8) return [];
     const tail = digits.slice(-8);
-    return this.db
+    const rows = await this.db
       .select({
         id: pedidoExterno.id,
         numero: pedidoExterno.numero,
@@ -530,6 +570,17 @@ export class CardapioService {
       )
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(10);
+    // Texto amigável do status + estimativa de entrega (min) para o robô.
+    const LABEL: Record<string, string> = {
+      novo: 'recebido', confirmado: 'em preparo', pronto: 'pronto',
+      despachado: 'saiu para entrega', concluido: 'entregue', cancelado: 'cancelado',
+    };
+    const estimativaMin = cfg.tempoEntregaMin != null ? Number(cfg.tempoEntregaMin) : null;
+    return rows.map((r) => ({
+      ...r,
+      statusTexto: LABEL[r.status] ?? r.status,
+      estimativaMin: ['novo', 'confirmado', 'pronto', 'despachado'].includes(r.status) ? estimativaMin : null,
+    }));
   }
 
   // Público: valida um cupom para um subtotal.
@@ -636,6 +687,9 @@ export class CardapioService {
   ) {
     const cfg = await this.resolver(token);
     if (!dto.itens?.length) throw new BadRequestException('Pedido vazio.');
+    // Loja fechada: bloqueia (pedidos agendados passam).
+    if (!dto.agendamento && !this.estaAberta(cfg))
+      throw new BadRequestException('A loja está fechada no momento. Volte no horário de funcionamento.');
     const ids = [...new Set(dto.itens.map((i) => i.produtoId))];
     const prods = await this.db
       .select({

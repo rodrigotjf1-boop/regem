@@ -33,9 +33,13 @@ export function CartSheet({
   onClose,
   onSubmit,
   enviando,
+  tipos,
+  abertaAgora,
 }: {
   accent: string;
   loja: any;
+  tipos?: { delivery?: boolean; retirada?: boolean; local?: boolean };
+  abertaAgora?: boolean;
   bairros: any[];
   cart: CartItem[];
   upsell: any[];
@@ -63,9 +67,17 @@ export function CartSheet({
   const bairroSel = bairros.find((b) => b.id === chk.bairroId);
   const agendar = isServico || chk.quando === 'agendar';
 
-  const cta = isIndustria ? 'Solicitar orçamento' : isServico ? 'Confirmar agendamento' : chk.tipo === 'entrega' ? 'Fazer pedido' : 'Confirmar pedido';
+  // Tipos habilitados na config (default: só entrega). "local" cai em retirada aqui.
+  const tp = tipos ?? { delivery: true };
+  const opcoesTipo: [string, string][] = [];
+  if (tp.delivery) opcoesTipo.push(['entrega', '🛵 Entrega']);
+  if (tp.retirada || tp.local) opcoesTipo.push(['retirada', '🏃 Retirada']);
+  const fechada = abertaAgora === false;
+
+  const cta = fechada ? 'Loja fechada' : isIndustria ? 'Solicitar orçamento' : isServico ? 'Confirmar agendamento' : chk.tipo === 'entrega' ? 'Fazer pedido' : 'Confirmar pedido';
   const submitDesabilitado =
     enviando ||
+    fechada ||
     cart.length === 0 ||
     (!isIndustria && (loja.pagamentos ?? []).length > 0 && !chk.forma) ||
     (chk.forma === 'cartao' && (loja.formasCartao ?? []).length > 0 && !chk.bandeira) ||
@@ -140,13 +152,16 @@ export function CartSheet({
           </div>
           {cupomOk && <p className={`mt-1 text-xs ${cupomOk.valido ? 'text-emerald-600' : 'text-red-600'}`}>{cupomOk.valido ? `Cupom aplicado: −${brl(cupomOk.desconto)}` : cupomOk.motivo ?? 'Cupom inválido'}</p>}
 
-          {/* entrega / retirada */}
-          {!isServico && (
+          {/* entrega / retirada (respeita os tipos habilitados na config) */}
+          {!isServico && opcoesTipo.length > 1 && (
             <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-neutral-200 p-1">
-              {[['entrega', '🛵 Entrega'], ['retirada', '🏃 Retirada']].map(([t, l]) => (
+              {opcoesTipo.map(([t, l]) => (
                 <button key={t} type="button" onClick={() => set({ tipo: t })} className="rounded-lg py-2 text-sm font-bold" style={chk.tipo === t ? { background: accent, color: '#fff' } : { color: '#666' }}>{l}</button>
               ))}
             </div>
+          )}
+          {!isServico && opcoesTipo.length === 1 && (
+            <p className="mt-4 rounded-xl border border-neutral-200 px-3 py-2 text-sm font-semibold text-neutral-700">{opcoesTipo[0][1]}</p>
           )}
 
           {/* endereço estruturado (entrega) */}
