@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { createHmac } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -218,6 +219,7 @@ export class DeliveryService {
       })
       .where(eq(pedidoExterno.id, id))
       .returning();
+    void this.dispararWebhook(tenantId, row);
     return row;
   }
 
@@ -260,6 +262,7 @@ export class DeliveryService {
       await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
       await this.reconciliarDinheiro(tenantId, row);
     }
+    void this.dispararWebhook(tenantId, row);
     return row;
   }
 
@@ -279,6 +282,7 @@ export class DeliveryService {
       })
       .where(eq(pedidoExterno.id, id))
       .returning();
+    void this.dispararWebhook(tenantId, row);
     return row;
   }
 
@@ -372,6 +376,7 @@ export class DeliveryService {
       })
       .where(eq(pedidoExterno.id, id))
       .returning();
+    void this.dispararWebhook(tenantId, row);
     return row;
   }
 
@@ -506,7 +511,41 @@ export class DeliveryService {
   }
 
   // ===== Integrações (credenciais de apps externos) =====
-  private static readonly CANAIS_INTEGRACAO = ['ifood', 'ubereats', 'rappi', '99food'];
+  private static readonly CANAIS_INTEGRACAO = ['ifood', 'ubereats', 'rappi', '99food', 'n8n'];
+
+  // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
+  // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
+  private async dispararWebhook(tenantId: string, ped: any, evento = 'status') {
+    try {
+      const [row] = await this.db
+        .select()
+        .from(integracao)
+        .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'n8n')));
+      const url = row?.merchantId; // guardamos a URL do webhook no merchantId
+      if (!row?.ativo || !url) return;
+      const payload = {
+        evento,
+        pedidoId: ped.id,
+        numero: ped.numero,
+        displayId: ped.displayId,
+        status: ped.status,
+        tipo: ped.tipo,
+        cliente: ped.clienteNome,
+        telefone: ped.clienteTelefone,
+        total: Number(ped.total),
+        canal: ped.canal,
+        entregadorNome: ped.entregadorNome ?? null,
+        em: new Date().toISOString(),
+      };
+      const body = JSON.stringify(payload);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (row.clientSecret)
+        headers['X-Regem-Signature'] = createHmac('sha256', row.clientSecret).update(body).digest('hex');
+      void fetch(url, { method: 'POST', headers, body }).catch(() => {});
+    } catch {
+      /* nunca quebra o pedido por causa do webhook */
+    }
+  }
 
   // Lista as integrações — SECRETS MASCARADOS (nunca voltam em texto).
   async listarIntegracoes(tenantId: string) {

@@ -512,7 +512,7 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   );
 }
 
-const CANAL_NOME: Record<string, string> = { ifood: 'iFood', ubereats: 'Uber Eats', rappi: 'Rappi', '99food': '99Food' };
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', ubereats: 'Uber Eats', rappi: 'Rappi', '99food': '99Food', n8n: 'WhatsApp / n8n' };
 
 function Integracoes({ lista, onSalvar, pode }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean }) {
   return (
@@ -533,6 +533,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const [clientSecret, setClientSecret] = useState('');
   const [tokenV, setTokenV] = useState('');
   useEffect(() => { setAtivo(!!it.ativo); setMerchantId(it.merchantId ?? ''); setClientId(it.clientId ?? ''); }, [it]);
+  const ehN8n = it.canal === 'n8n';
   return (
     <div className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
@@ -541,6 +542,17 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> ativo
         </label>
       </div>
+      {ehN8n ? (
+        <>
+          <p className="text-[11px] text-muted-foreground">O Regem avisa esta URL quando o pedido muda de status (para o robô notificar o cliente no WhatsApp). O segredo assina a chamada (cabeçalho <code>X-Regem-Signature</code>).</p>
+          <div className="grid gap-2">
+            <Campo label="URL do webhook (do seu n8n)"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="https://seu-n8n/webhook/regem-status" className="h-8" disabled={!pode} /></Campo>
+            <Campo label={`Segredo${it.temSecret ? ' (salvo)' : ''}`}>
+              <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : 'uma frase secreta qualquer'} className="h-8" disabled={!pode} />
+            </Campo>
+          </div>
+        </>
+      ) : (
       <div className="grid grid-cols-2 gap-2">
         <Campo label="Merchant ID"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
         <Campo label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
@@ -551,6 +563,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ''} className="h-8" disabled={!pode} />
         </Campo>
       </div>
+      )}
       {pode && (
         <div className="flex justify-end">
           <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV })}>Salvar</Button>

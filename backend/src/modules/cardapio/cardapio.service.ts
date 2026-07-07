@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -430,6 +430,24 @@ export class CardapioService {
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,
         parcelasMax: cfg.parcelasMax ?? null,
+        logoRef: cfg.logoRef ?? null,
+        instagram: cfg.instagram ?? null,
+        site: cfg.site ?? null,
+        pedidoMinimoTexto: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
+      },
+      // Contexto para o robô/atendimento (o n8n lê tudo com o token):
+      horarios: cfg.horarios ?? [],
+      tipos: {
+        delivery: cfg.tipoDelivery !== false,
+        retirada: !!cfg.tipoRetirada,
+        local: !!cfg.tipoLocal,
+      },
+      robo: {
+        ativo: !!cfg.roboAtivo,
+        saudacao: cfg.roboSaudacao ?? null,
+        ausencia: cfg.roboAusencia ?? null,
+        prompt: cfg.roboPrompt ?? null,
+        mensagens: cfg.roboMensagens ?? [],
       },
       modo: cfg.modo,
       bairros: (await this.listarBairros(cfg.tenantId, cfg.unidadeId)).map((b) => ({
@@ -480,6 +498,38 @@ export class CardapioService {
         };
       }),
     };
+  }
+
+  // Público (robô): pedidos recentes de um telefone — pra responder "cadê meu pedido?".
+  // Casa pelos últimos 8 dígitos (ignora formatação/DDI).
+  async pedidosPorTelefone(token: string, telefone: string) {
+    const cfg = await this.resolver(token);
+    const digits = String(telefone ?? '').replace(/\D/g, '');
+    if (digits.length < 8) return [];
+    const tail = digits.slice(-8);
+    return this.db
+      .select({
+        id: pedidoExterno.id,
+        numero: pedidoExterno.numero,
+        displayId: pedidoExterno.displayId,
+        status: pedidoExterno.status,
+        tipo: pedidoExterno.tipo,
+        total: pedidoExterno.total,
+        entregadorNome: pedidoExterno.entregadorNome,
+        criadoEm: pedidoExterno.criadoEm,
+      })
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, cfg.tenantId),
+          or(
+            ilike(pedidoExterno.clienteTelefone, `%${tail}%`),
+            ilike(pedidoExterno.clienteTelefone2, `%${tail}%`),
+          ),
+        ),
+      )
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(10);
   }
 
   // Público: valida um cupom para um subtotal.
