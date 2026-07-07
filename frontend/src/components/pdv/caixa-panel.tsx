@@ -100,7 +100,7 @@ export function CaixaPanel({
         ? 'flex flex-wrap items-center gap-2'
         : 'mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3'}>
         <span className="text-sm font-semibold text-warn">⚠️ {avisoVazio}</span>
-        <Button type="button" size="sm" onClick={abrir} disabled={busy} className="ml-auto">
+        <Button type="button" size="sm" onClick={abrir} disabled={busy} className={`ml-auto ${embedded ? 'h-8 text-sm' : ''}`}>
           {busy ? 'Abrindo…' : 'Abrir turno'}
         </Button>
       </div>
@@ -121,9 +121,9 @@ export function CaixaPanel({
           <span className="text-xs text-muted-foreground">desde {new Date(caixa.abertaEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
         )}
         <div className="ml-auto flex flex-wrap gap-1.5">
-          <Button type="button" size="sm" variant="outline" onClick={() => setMov('suprimento')}>Suprimento</Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setMov('sangria')}>Sangria</Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setFechar(true)}>Fechar turno</Button>
+          <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setMov('suprimento')}>Suprimento</Button>
+          <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setMov('sangria')}>Sangria</Button>
+          <Button type="button" size="sm" variant="outline" className={embedded ? 'h-8 text-sm' : ''} onClick={() => setFechar(true)}>Fechar turno</Button>
         </div>
       </div>
 
