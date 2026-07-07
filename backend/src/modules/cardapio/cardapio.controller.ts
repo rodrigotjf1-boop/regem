@@ -64,6 +64,13 @@ export class CardapioPublicoController {
   pedidosTelefone(@Param('token') token: string, @Query('telefone') telefone: string) {
     return this.service.pedidosPorTelefone(token, telefone ?? '');
   }
+
+  // Handoff: o robô abre um chamado de atendimento para a loja.
+  @Post(':token/atendimento')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  atendimento(@Param('token') token: string, @Body() dto: any) {
+    return this.service.abrirAtendimento(token, dto);
+  }
 }
 
 // Gestão (JWT).

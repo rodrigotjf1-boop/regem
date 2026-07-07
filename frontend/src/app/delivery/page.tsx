@@ -96,21 +96,25 @@ export default function DeliveryPage() {
   const [novoPedido, setNovoPedido] = useState(false);
   const [pausarOpen, setPausarOpen] = useState(false);
   const [agora, setAgora] = useState(() => Date.now());
+  const [atendimentos, setAtendimentos] = useState<any[]>([]);
+  const [atendAberto, setAtendAberto] = useState(false);
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
 
   const reload = useCallback(async () => {
     try {
-      const [ps, c, cx, ent] = await Promise.all([
+      const [ps, c, cx, ent, at] = await Promise.all([
         api.deliveryPedidos(),
         api.deliveryConfig().catch(() => cfgRef.current),
         api.caixaAberta('delivery').catch(() => null),
         api.entregadoresDelivery().catch(() => []),
+        api.atendimentos().catch(() => []),
       ]);
       setPedidos(ps as any[]);
       setCfg(c);
       setCaixa(cx);
       setEntregadores(ent as any[]);
+      setAtendimentos(at as any[]);
       // Mantém o painel de detalhe sincronizado com os dados novos.
       setDetalhe((d: any) => (d ? (ps as any[]).find((x) => x.id === d.id) ?? null : null));
     } catch (e) {
@@ -255,6 +259,17 @@ export default function DeliveryPage() {
             </label>
           )}
           <div className="ml-auto flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setAtendAberto(true)}
+              title="Chamados de atendimento"
+              className={`relative flex h-8 items-center rounded-md border px-2 text-sm ${atendimentos.length ? 'border-destructive/50 bg-destructive/10 text-destructive' : 'border-border text-muted-foreground hover:border-primary/50'}`}
+            >
+              🔔
+              {atendimentos.length > 0 && (
+                <span className="ml-1 grid h-5 min-w-5 place-items-center rounded-full bg-destructive px-1 text-[11px] font-bold text-white">{atendimentos.length}</span>
+              )}
+            </button>
             <Button type="button" size="sm" className="h-8 text-sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
             {isGestor && (
               <div className="relative">
@@ -389,7 +404,63 @@ export default function DeliveryPage() {
 
       {/* Novo pedido manual */}
       {novoPedido && <NovoPedido onFechar={() => setNovoPedido(false)} onCriado={reload} />}
+
+      {/* Painel de chamados de atendimento (handoff do robô) */}
+      {atendAberto && (
+        <AtendimentoPanel
+          lista={atendimentos}
+          onFechar={() => setAtendAberto(false)}
+          onResolver={(id) => acao(api.resolverAtendimento(id), 'Chamado resolvido.')}
+        />
+      )}
     </Shell>
+  );
+}
+
+// ---- Painel de chamados de atendimento ----
+const TIPO_ATEND: Record<string, string> = {
+  mudanca: '✏️ Mudança no pedido',
+  erro: '⚠️ Erro no recebimento',
+  humano: '🙋 Falar com atendente',
+  outro: '💬 Atendimento',
+};
+function AtendimentoPanel({ lista, onFechar, onResolver }: { lista: any[]; onFechar: () => void; onResolver: (id: string) => void }) {
+  const wpp = (tel?: string) => {
+    const d = String(tel ?? '').replace(/\D/g, '');
+    const num = d.length === 10 || d.length === 11 ? `55${d}` : d;
+    return num ? `https://wa.me/${num}` : '#';
+  };
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onFechar}>
+      <Card className="max-h-[85vh] w-full max-w-md overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center gap-2">
+          <h3 className="font-display text-base font-bold">🔔 Atendimento</h3>
+          <span className="font-mono text-xs text-muted-foreground">{lista.length} aberto(s)</span>
+          <button type="button" onClick={onFechar} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+        </div>
+        {lista.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">Nenhum chamado no momento. 🎉</p>}
+        <div className="space-y-2">
+          {lista.map((c) => (
+            <div key={c.id} className="rounded-lg border border-border p-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold">{TIPO_ATEND[c.tipo] ?? c.tipo}</span>
+                <span className="ml-auto font-mono text-[10px] text-muted-foreground">{hora(c.criadoEm)}</span>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {c.cliente ?? 'Cliente'}{c.telefone ? ` · ${c.telefone}` : ''}{c.pedidoNumero ? ` · pedido #${c.pedidoNumero}` : ''}
+              </p>
+              {c.mensagem && <p className="mt-1.5 rounded bg-secondary px-2 py-1.5 text-sm">{c.mensagem}</p>}
+              <div className="mt-2 flex gap-2">
+                {c.telefone && (
+                  <a href={wpp(c.telefone)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="rounded-md bg-ok/10 px-2.5 py-1 text-xs font-semibold text-ok hover:bg-ok/20">💬 Responder no WhatsApp</a>
+                )}
+                <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onResolver(c.id)}>Resolver</Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
   );
 }
 
