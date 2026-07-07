@@ -292,6 +292,9 @@ export const api = {
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
   bairrosDelivery: () => req('/delivery/bairros'),
+  integracoesDelivery: () => req('/delivery/integracoes'),
+  salvarIntegracao: (body: Record<string, unknown>) =>
+    req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
   criarPedidoDelivery: (body: Record<string, unknown>) =>
     req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
   nfDelivery: (id: string) =>
@@ -364,6 +367,9 @@ export const api = {
   cardapioBairros: () => req('/cardapio/bairros'),
   setCardapioBairros: (bairros: unknown[]) =>
     req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),
+  cardapioBanners: () => req('/cardapio/banners'),
+  setCardapioBanners: (banners: unknown[]) =>
+    req('/cardapio/banners', { method: 'PUT', body: JSON.stringify({ banners }) }),
   cardapioCupons: () => req('/cardapio/cupons'),
   criarCupom: (body: Record<string, unknown>) =>
     req('/cardapio/cupons', { method: 'POST', body: JSON.stringify(body) }),
@@ -505,6 +511,11 @@ export const api = {
   getPrefs: () => req('/colaborador/me/prefs'),
   patchPrefs: (body: Record<string, unknown>) =>
     req('/colaborador/me/prefs', { method: 'PATCH', body: JSON.stringify(body) }),
+  impressoras: () => req('/equipamento/impressoras'),
+  salvarImpressora: (body: Record<string, unknown>) =>
+    req('/equipamento/impressoras', { method: 'PUT', body: JSON.stringify(body) }),
+  removerImpressora: (id: string) =>
+    req(`/equipamento/impressoras/${id}`, { method: 'DELETE' }),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),

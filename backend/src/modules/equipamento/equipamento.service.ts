@@ -142,10 +142,57 @@ export class EquipamentoService {
       host: r.host,
       porta: r.porta,
       setorId: r.setorId,
+      vias: r.vias,
       padrao: r.padrao,
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,
       createdAt: r.createdAt,
     };
+  }
+
+  // ===== Impressoras (cadastro manual: direcionamento + vias) =====
+  async listarImpressoras(tenantId: string) {
+    const rows = await this.db
+      .select()
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'impressora')))
+      .orderBy(desc(equipamento.createdAt));
+    return rows.map((r) => this.publico(r));
+  }
+
+  // Cria ou edita uma impressora. papel: 'cupom' (caixa) | 'producao' (cozinha).
+  async salvarImpressora(tenantId: string, dto: any) {
+    const vals = {
+      nome: (dto.nome ?? '').trim() || 'Impressora',
+      papel: dto.papel === 'producao' ? 'producao' : 'cupom',
+      setorId: dto.setorId || null,
+      host: dto.host?.trim() || null,
+      porta: dto.porta != null ? Number(dto.porta) || null : null,
+      vias: Math.max(1, Number(dto.vias) || 1),
+      ativo: dto.ativo != null ? !!dto.ativo : true,
+    };
+    if (dto.id) {
+      const [row] = await this.db
+        .update(equipamento)
+        .set(vals)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, dto.id), eq(equipamento.tipo, 'impressora')))
+        .returning();
+      if (!row) throw new NotFoundException('Impressora não encontrada');
+      return this.publico(row);
+    }
+    const [row] = await this.db
+      .insert(equipamento)
+      .values({ tenantId, unidadeId: dto.unidadeId ?? null, tipo: 'impressora', token: this.novoToken(), escopo: 'producao', ...vals })
+      .returning();
+    return this.publico(row);
+  }
+
+  async removerImpressora(tenantId: string, id: string) {
+    const [row] = await this.db
+      .delete(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.tipo, 'impressora')))
+      .returning();
+    if (!row) throw new NotFoundException('Impressora não encontrada');
+    return { ok: true };
   }
 }

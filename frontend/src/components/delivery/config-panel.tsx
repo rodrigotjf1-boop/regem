@@ -33,10 +33,10 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
   {
     grupo: 'Operação',
     itens: [
-      { k: 'banners', label: 'Banners', breve: true },
-      { k: 'impressoras', label: 'Impressoras', breve: true },
-      { k: 'integracoes', label: 'Integrações', breve: true },
-      { k: 'robo', label: 'Robô de atendimento', breve: true },
+      { k: 'banners', label: 'Banners' },
+      { k: 'impressoras', label: 'Impressoras' },
+      { k: 'integracoes', label: 'Integrações' },
+      { k: 'robo', label: 'Robô de atendimento' },
     ],
   },
 ];
@@ -55,14 +55,73 @@ export function ConfigPanel({
   const [sec, setSec] = useState('quadro');
   const [loja, setLoja] = useState<any>(null);
   const [bairros, setBairros] = useState<any[]>([]);
+  const [banners, setBanners] = useState<any[]>([]);
+  const [impressoras, setImpressoras] = useState<any[]>([]);
+  const [setores, setSetores] = useState<any[]>([]);
+  const [integracoes, setIntegracoes] = useState<any[]>([]);
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     api.cardapioConfig().then((c: any) => setLoja(c ?? {})).catch(() => setLoja({}));
     api.cardapioBairros().then((b: any) => setBairros((b as any[]) ?? [])).catch(() => {});
-  }, []);
+    api.cardapioBanners().then((b: any) => setBanners((b as any[]) ?? [])).catch(() => {});
+    if (isGestor) {
+      api.impressoras().then((p: any) => setImpressoras((p as any[]) ?? [])).catch(() => {});
+      api.setores().then((s: any) => setSetores((s as any[]) ?? [])).catch(() => {});
+      api.integracoesDelivery().then((i: any) => setIntegracoes((i as any[]) ?? [])).catch(() => {});
+    }
+  }, [isGestor]);
+
+  async function salvarIntegracao(dto: any) {
+    try {
+      await api.salvarIntegracao(dto);
+      setIntegracoes(await api.integracoesDelivery() as any[]);
+      toast.success('Integração salva.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
+
+  async function salvarImpressora(row: any) {
+    try {
+      const r = await api.salvarImpressora(row);
+      setImpressoras(await api.impressoras() as any[]);
+      toast.success('Impressora salva.');
+      return r;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
+  async function removerImpressora(id: string) {
+    try {
+      await api.removerImpressora(id);
+      setImpressoras((l) => l.filter((x) => x.id !== id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao remover');
+    }
+  }
 
   const up = (patch: any) => setLoja((l: any) => ({ ...(l ?? {}), ...patch }));
+
+  // Persiste a config da loja com um patch explícito (usado ao trocar o modo da área).
+  async function salvarLojaPatch(patch: any) {
+    const novo = { ...(loja ?? {}), ...patch };
+    setLoja(novo);
+    try { setLoja(await api.setCardapioConfig(novo)); } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+  }
+
+  async function salvarBanners(lista: any[]) {
+    setSalvando(true);
+    try {
+      const b = await api.setCardapioBanners(lista.filter((x) => x.imagemRef));
+      setBanners(b as any[]);
+      toast.success('Banners salvos.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    } finally {
+      setSalvando(false);
+    }
+  }
 
   async function salvarLoja() {
     setSalvando(true);
@@ -205,15 +264,37 @@ export function ConfigPanel({
 
                 {/* ÁREA DE ATENDIMENTO */}
                 {sec === 'area' && (
-                  <AreaAtendimento bairros={bairros} onSalvar={salvarBairros} salvando={salvando} pode={isGestor} />
+                  <AreaAtendimento
+                    modo={loja.areaModo ?? 'bairro'}
+                    onTrocarModo={(m) => salvarLojaPatch({ areaModo: m })}
+                    raios={loja.raios ?? []}
+                    onRaios={(r) => up({ raios: r })}
+                    onSalvarRaios={salvarLoja}
+                    bairros={bairros}
+                    onSalvarBairros={salvarBairros}
+                    salvando={salvando}
+                    pode={isGestor}
+                  />
                 )}
 
-                {/* EM BREVE */}
-                {['banners', 'impressoras', 'integracoes', 'robo'].includes(sec) && (
-                  <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                    <p className="font-semibold">{secLabel(sec)}</p>
-                    <p className="mt-1">{breveTexto(sec)}</p>
-                  </div>
+                {/* BANNERS */}
+                {sec === 'banners' && (
+                  <Banners banners={banners} onSalvar={salvarBanners} salvando={salvando} pode={isGestor} />
+                )}
+
+                {/* IMPRESSORAS */}
+                {sec === 'impressoras' && (
+                  <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
+                )}
+
+                {/* INTEGRAÇÕES */}
+                {sec === 'integracoes' && (
+                  <Integracoes lista={integracoes} onSalvar={salvarIntegracao} pode={isGestor} />
+                )}
+
+                {/* ROBÔ DE ATENDIMENTO */}
+                {sec === 'robo' && (
+                  <Robo loja={loja} up={up} onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                 )}
               </>
             )}
@@ -227,12 +308,6 @@ export function ConfigPanel({
 function secLabel(k: string) {
   const all = MENU.flatMap((g) => g.itens);
   return all.find((i) => i.k === k)?.label ?? 'Configurações';
-}
-function breveTexto(k: string) {
-  return k === 'banners' ? 'Banners rotativos do cardápio digital — em breve.'
-    : k === 'impressoras' ? 'Direcionamento de impressão (caixa/cozinha) + vias — em breve (detecção de impressoras via servidor local).'
-    : k === 'integracoes' ? 'Credenciais dos apps de delivery externos — em breve.'
-    : 'Mensagens do robô de auto atendimento — em breve.';
 }
 
 function Secao({ dica, children }: { dica: string; children: React.ReactNode }) {
@@ -296,39 +371,293 @@ function Horarios({ value, onChange, pode }: { value: any[]; onChange: (h: any[]
   );
 }
 
-function AreaAtendimento({ bairros, onSalvar, salvando, pode }: { bairros: any[]; onSalvar: (l: any[]) => void; salvando: boolean; pode: boolean }) {
+const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+function AreaAtendimento({
+  modo, onTrocarModo, raios, onRaios, onSalvarRaios, bairros, onSalvarBairros, salvando, pode,
+}: {
+  modo: string;
+  onTrocarModo: (m: string) => void;
+  raios: any[];
+  onRaios: (r: any[]) => void;
+  onSalvarRaios: () => void;
+  bairros: any[];
+  onSalvarBairros: (l: any[]) => void;
+  salvando: boolean;
+  pode: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      {/* Modo exclusivo: por bairro OU por raio */}
+      <div className="inline-flex rounded-lg border border-border p-0.5 text-sm">
+        {([['bairro', 'Por bairro'], ['raio', 'Por raio']] as const).map(([k, lb]) => (
+          <button
+            key={k}
+            type="button"
+            disabled={!pode}
+            onClick={() => onTrocarModo(k)}
+            className={`rounded-md px-3 py-1 ${modo === k ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+          >
+            {lb}
+          </button>
+        ))}
+      </div>
+
+      {modo === 'raio' ? (
+        <FaixasRaio raios={raios} onRaios={onRaios} onSalvar={onSalvarRaios} salvando={salvando} pode={pode} />
+      ) : (
+        <ListaBairros bairros={bairros} onSalvar={onSalvarBairros} salvando={salvando} pode={pode} />
+      )}
+    </div>
+  );
+}
+
+function ListaBairros({ bairros, onSalvar, salvando, pode }: { bairros: any[]; onSalvar: (l: any[]) => void; salvando: boolean; pode: boolean }) {
   const [lista, setLista] = useState<any[]>(bairros);
   useEffect(() => { setLista(bairros); }, [bairros]);
-  const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   function add() { setLista((l) => [...l, { nome: '', taxa: 0, ativo: true }]); }
   function up(i: number, patch: any) { setLista((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
   function rem(i: number) { setLista((l) => l.filter((_, j) => j !== i)); }
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Regiões de entrega por <strong>bairro</strong> (nome + taxa). Use o marcador para ativar/desativar cada bairro. <em>Por raio/distância vem em seguida.</em></p>
-      <div className="space-y-1.5">
-        {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhum bairro cadastrado.</p>}
-        {lista.map((b, i) => (
-          <div key={i} className="flex items-center gap-2 rounded-lg border border-border p-2">
-            <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={b.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} title="Ativar/desativar" />
-            <Input value={b.nome} onChange={(e) => up(i, { nome: e.target.value })} placeholder="Bairro" className="h-8 flex-1" disabled={!pode} />
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground">R$</span>
-              <Input inputMode="decimal" value={b.taxa} onChange={(e) => up(i, { taxa: e.target.value })} className="h-8 w-20" disabled={!pode} />
-            </div>
-            {!b.ativo && <span className="text-[10px] font-bold text-muted-foreground">off</span>}
-            {pode && <button type="button" className="text-xs text-destructive" onClick={() => rem(i)}>remover</button>}
-          </div>
-        ))}
-      </div>
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">Bairro + taxa. O marcador liga/desliga cada bairro.</p>
+      {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhum bairro cadastrado.</p>}
+      {lista.map((b, i) => (
+        <div key={i} className="flex items-center gap-2 rounded-lg border border-border p-2">
+          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={b.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} title="Ativar/desativar" />
+          <Input value={b.nome} onChange={(e) => up(i, { nome: e.target.value })} placeholder="Bairro" className="h-8 flex-1" disabled={!pode} />
+          <span className="text-xs text-muted-foreground">R$</span>
+          <Input inputMode="decimal" value={b.taxa} onChange={(e) => up(i, { taxa: e.target.value })} className="h-8 w-20" disabled={!pode} />
+          {pode && <button type="button" className="text-xs text-destructive" onClick={() => rem(i)}>remover</button>}
+        </div>
+      ))}
       {pode && (
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between pt-1">
           <Button type="button" size="sm" variant="outline" onClick={add}>＋ Bairro</Button>
           <Button type="button" onClick={() => onSalvar(lista)} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
         </div>
       )}
-      {lista.some((b) => b.nome && Number(b.taxa) > 0) && (
-        <p className="text-[11px] text-muted-foreground">Ex.: {lista.filter((b) => b.nome).slice(0, 3).map((b) => `${b.nome} ${brl(Number(b.taxa))}`).join(' · ')}</p>
+    </div>
+  );
+}
+
+function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]; onRaios: (r: any[]) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
+  const lista = raios ?? [];
+  function add() { onRaios([...lista, { ateKm: '', taxa: 0 }]); }
+  function up(i: number, patch: any) { onRaios(lista.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
+  function rem(i: number) { onRaios(lista.filter((_, j) => j !== i)); }
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">Faixas a partir do endereço da loja: “até X km custa R$Y”. Some faixas para cobrir mais longe.</p>
+      {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma faixa. Ex.: até 3 km R$5, até 6 km R$9.</p>}
+      {lista.map((r, i) => (
+        <div key={i} className="flex items-center gap-2 rounded-lg border border-border p-2 text-sm">
+          <span>até</span>
+          <Input inputMode="decimal" value={r.ateKm} onChange={(e) => up(i, { ateKm: e.target.value })} className="h-8 w-20" disabled={!pode} />
+          <span>km</span>
+          <span className="ml-2 text-muted-foreground">R$</span>
+          <Input inputMode="decimal" value={r.taxa} onChange={(e) => up(i, { taxa: e.target.value })} className="h-8 w-20" disabled={!pode} />
+          {pode && <button type="button" className="ml-auto text-xs text-destructive" onClick={() => rem(i)}>remover</button>}
+        </div>
+      ))}
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O cálculo da distância no checkout do cliente depende de geocoding (endereço → coordenadas) — entra junto com a integração de mapas. A configuração já fica salva.</p>
+      {pode && (
+        <div className="flex items-center justify-between pt-1">
+          <Button type="button" size="sm" variant="outline" onClick={add}>＋ Faixa</Button>
+          <Button type="button" onClick={onSalvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const areaTxt = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm';
+
+function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
+  const msgs: any[] = loja.roboMensagens ?? [];
+  const setMsgs = (m: any[]) => up({ roboMensagens: m });
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Robô de auto atendimento do cardápio/WhatsApp. Aqui você configura as <strong>mensagens</strong>. O “cérebro” com IA (respostas livres) entra numa etapa dedicada.</p>
+      <ToggleLinha label="Robô ativo" desc="Responde os clientes automaticamente." checked={!!loja.roboAtivo} onChange={(v) => up({ roboAtivo: v })} pode={pode} />
+
+      <Campo label="Saudação (primeira mensagem)">
+        <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboSaudacao ?? ''} onChange={(e) => up({ roboSaudacao: e.target.value })} placeholder="Olá! 👋 Bem-vindo. Como posso ajudar?" />
+      </Campo>
+      <Campo label="Mensagem de ausência (loja fechada/pausada)">
+        <textarea rows={2} className={areaTxt} disabled={!pode} value={loja.roboAusencia ?? ''} onChange={(e) => up({ roboAusencia: e.target.value })} placeholder="No momento estamos fechados. Nosso horário é…" />
+      </Campo>
+
+      {/* Mensagens pré-definidas */}
+      <div className="space-y-2">
+        <Label className="text-xs">Respostas prontas (gatilho → resposta)</Label>
+        {msgs.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma. Ex.: “horário” → “Funcionamos das 18h às 23h”.</p>}
+        {msgs.map((m, i) => (
+          <div key={i} className="flex items-start gap-2 rounded-lg border border-border p-2">
+            <Input value={m.gatilho} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, gatilho: e.target.value } : x)))} placeholder="gatilho (ex.: horário)" className="h-8 w-40" disabled={!pode} />
+            <textarea rows={2} className={`${areaTxt} flex-1`} disabled={!pode} value={m.resposta} onChange={(e) => setMsgs(msgs.map((x, j) => (j === i ? { ...x, resposta: e.target.value } : x)))} placeholder="resposta" />
+            {pode && <button type="button" className="mt-1 text-xs text-destructive" onClick={() => setMsgs(msgs.filter((_, j) => j !== i))}>x</button>}
+          </div>
+        ))}
+        {pode && <Button type="button" size="sm" variant="outline" onClick={() => setMsgs([...msgs, { gatilho: '', resposta: '' }])}>＋ Resposta</Button>}
+      </div>
+
+      <Campo label="Base de conhecimento (para a IA — futuro)">
+        <textarea rows={4} className={areaTxt} disabled={!pode} value={loja.roboPrompt ?? ''} onChange={(e) => up({ roboPrompt: e.target.value })} placeholder="Descreva o negócio, produtos, políticas de entrega, troca, etc. Será usado pelo robô com IA quando ativarmos o cérebro." />
+      </Campo>
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">As respostas livres por IA (usando a base de conhecimento) entram numa etapa dedicada — precisa de um provedor de IA (custo por uso). As mensagens acima já funcionam sem IA.</p>
+
+      <SalvarBar onSalvar={onSalvar} salvando={salvando} pode={pode} />
+    </div>
+  );
+}
+
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', ubereats: 'Uber Eats', rappi: 'Rappi', '99food': '99Food' };
+
+function Integracoes({ lista, onSalvar, pode }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Credenciais dos apps de delivery externos. As chaves ficam guardadas com segurança e <strong>não são exibidas de volta</strong> — deixe o campo em branco para manter a atual.</p>
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A ativação real (receber pedidos do app) roda no <strong>servidor local (edge)</strong> com essas credenciais. Aqui você só as cadastra.</p>
+      {lista.map((it) => (
+        <IntegracaoCard key={it.canal} it={it} onSalvar={onSalvar} pode={pode} />
+      ))}
+    </div>
+  );
+}
+
+function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) => void; pode: boolean }) {
+  const [ativo, setAtivo] = useState(!!it.ativo);
+  const [merchantId, setMerchantId] = useState(it.merchantId ?? '');
+  const [clientId, setClientId] = useState(it.clientId ?? '');
+  const [clientSecret, setClientSecret] = useState('');
+  const [tokenV, setTokenV] = useState('');
+  useEffect(() => { setAtivo(!!it.ativo); setMerchantId(it.merchantId ?? ''); setClientId(it.clientId ?? ''); }, [it]);
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3">
+      <div className="flex items-center gap-2">
+        <span className="font-display text-sm font-bold">{CANAL_NOME[it.canal] ?? it.canal}</span>
+        <label className="ml-auto flex items-center gap-1 text-xs">
+          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> ativo
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Campo label="Merchant ID"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
+        <Campo label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
+        <Campo label={`Client Secret${it.temSecret ? ' (salvo)' : ''}`}>
+          <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : ''} className="h-8" disabled={!pode} />
+        </Campo>
+        <Campo label={`Token${it.temToken ? ' (salvo)' : ''}`}>
+          <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ''} className="h-8" disabled={!pode} />
+        </Campo>
+      </div>
+      {pode && (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV })}>Salvar</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any[]; setores: any[]; onSalvar: (r: any) => Promise<any>; onRemover: (id: string) => void; pode: boolean }) {
+  const [rows, setRows] = useState<any[]>(lista);
+  useEffect(() => { setRows(lista); }, [lista]);
+  function up(i: number, patch: any) { setRows((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
+  function add() { setRows((l) => [...l, { nome: '', papel: 'cupom', setorId: '', host: '', porta: 9100, vias: 1, ativo: true, _novo: true }]); }
+  async function salvar(i: number) {
+    const r = rows[i];
+    await onSalvar({ id: r.id, nome: r.nome, papel: r.papel, setorId: r.papel === 'producao' ? r.setorId || null : null, host: r.host, porta: r.porta, vias: r.vias, ativo: r.ativo });
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente) ou <strong>Cozinha</strong> (produção, por setor). Informe o IP da impressora de rede e o nº de vias.</p>
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A <strong>detecção automática</strong> das impressoras instaladas no Windows depende do servidor local (edge). Por enquanto o cadastro é manual (nome + IP).</p>
+      {rows.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma impressora cadastrada.</p>}
+      {rows.map((r, i) => (
+        <div key={r.id ?? `n${i}`} className="space-y-2 rounded-lg border border-border p-2.5">
+          <div className="flex items-center gap-2">
+            <Input value={r.nome} onChange={(e) => up(i, { nome: e.target.value })} placeholder="Nome da impressora" className="h-8 flex-1" disabled={!pode} />
+            <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={r.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} /> ativa</label>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-[11px]">Direcionamento</Label>
+              <select value={r.papel} onChange={(e) => up(i, { papel: e.target.value })} aria-label="Direcionamento" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
+                <option value="cupom">Caixa (cupom)</option>
+                <option value="producao">Cozinha (produção)</option>
+              </select>
+            </div>
+            {r.papel === 'producao' && (
+              <div>
+                <Label className="text-[11px]">Setor</Label>
+                <select value={r.setorId ?? ''} onChange={(e) => up(i, { setorId: e.target.value })} aria-label="Setor" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
+                  <option value="">Todos / geral</option>
+                  {setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <Label className="text-[11px]">IP : porta</Label>
+              <div className="flex items-center gap-1">
+                <Input value={r.host ?? ''} onChange={(e) => up(i, { host: e.target.value })} placeholder="192.168.0.50" className="h-8 flex-1" disabled={!pode} />
+                <Input inputMode="numeric" value={r.porta ?? ''} onChange={(e) => up(i, { porta: e.target.value })} placeholder="9100" className="h-8 w-16" disabled={!pode} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-[11px]">Vias</Label>
+              <Input inputMode="numeric" value={r.vias ?? 1} onChange={(e) => up(i, { vias: e.target.value })} className="h-8 w-20" disabled={!pode} />
+            </div>
+          </div>
+          {pode && (
+            <div className="flex items-center justify-end gap-2">
+              {r.id && <button type="button" className="text-xs text-destructive" onClick={() => onRemover(r.id)}>remover</button>}
+              <Button type="button" size="sm" onClick={() => salvar(i)}>Salvar</Button>
+            </div>
+          )}
+        </div>
+      ))}
+      {pode && <Button type="button" size="sm" variant="outline" onClick={add}>＋ Impressora</Button>}
+    </div>
+  );
+}
+
+function Banners({ banners, onSalvar, salvando, pode }: { banners: any[]; onSalvar: (l: any[]) => void; salvando: boolean; pode: boolean }) {
+  const [lista, setLista] = useState<any[]>(banners);
+  useEffect(() => { setLista(banners); }, [banners]);
+  function up(i: number, patch: any) { setLista((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
+  function rem(i: number) { setLista((l) => l.filter((_, j) => j !== i)); }
+  function move(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= lista.length) return;
+    const cp = [...lista];
+    [cp[i], cp[j]] = [cp[j], cp[i]];
+    setLista(cp);
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital. Ordene e ative/desative cada uma.</p>
+      {lista.map((b, i) => (
+        <div key={i} className="flex items-start gap-3 rounded-lg border border-border p-2.5">
+          <ImageUpload value={b.imagemRef} onChange={(url) => up(i, { imagemRef: url })} id={`banner-${i}`} alt="Banner" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <Input value={b.titulo ?? ''} onChange={(e) => up(i, { titulo: e.target.value })} placeholder="Título (opcional)" className="h-8" disabled={!pode} />
+            <Input value={b.link ?? ''} onChange={(e) => up(i, { link: e.target.value })} placeholder="Link ao clicar (opcional)" className="h-8" disabled={!pode} />
+            <div className="flex items-center gap-2 text-xs">
+              <label className="flex items-center gap-1"><input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={b.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} /> ativo</label>
+              <button type="button" className="ml-auto rounded border border-border px-1.5" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
+              <button type="button" className="rounded border border-border px-1.5" onClick={() => move(i, 1)} disabled={i === lista.length - 1}>↓</button>
+              {pode && <button type="button" className="text-destructive" onClick={() => rem(i)}>remover</button>}
+            </div>
+          </div>
+        </div>
+      ))}
+      {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhum banner ainda.</p>}
+      {pode && (
+        <div className="flex items-center justify-between">
+          <Button type="button" size="sm" variant="outline" onClick={() => setLista((l) => [...l, { imagemRef: '', titulo: '', link: '', ativo: true }])}>＋ Banner</Button>
+          <Button type="button" onClick={() => onSalvar(lista)} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
+        </div>
       )}
     </div>
   );

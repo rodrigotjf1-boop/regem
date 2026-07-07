@@ -101,6 +101,21 @@ export class DeliveryController {
     return this.service.listarBairros(user.tenantId);
   }
 
+  // Integrações (credenciais) — secrets nunca voltam no GET.
+  @Get('integracoes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  integracoes(@CurrentUser() user: AuthUser) {
+    return this.service.listarIntegracoes(user.tenantId);
+  }
+
+  @Put('integracoes')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  salvarIntegracao(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.salvarIntegracao(user.tenantId, dto);
+  }
+
   // Cancelamento é liberado pela senha de um gestor (a trava está no service),
   // então um atendente também pode cancelar informando a senha autorizadora.
   @Post('pedidos/:id/cancelar')
