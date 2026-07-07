@@ -1324,6 +1324,14 @@ export const deliveryConfig = pgTable('delivery_config', {
   colunas: jsonb('colunas')
     .notNull()
     .default('{"chegada":true,"producao":true,"rota":true,"finalizado":true}'),
+  // Pausa temporária (reativa sozinha ao passar de pausado_ate).
+  pausadoAte: timestamp('pausado_ate', { withTimezone: true }),
+  pausaMotivo: text('pausa_motivo'),
+  // Faixas de tempo de preparo (min–max) por tipo.
+  prepBalcaoMin: integer('prep_balcao_min').notNull().default(15),
+  prepBalcaoMax: integer('prep_balcao_max').notNull().default(25),
+  prepDeliveryMin: integer('prep_delivery_min').notNull().default(45),
+  prepDeliveryMax: integer('prep_delivery_max').notNull().default(55),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1370,6 +1378,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   profissional: text('profissional'),
   cnpj: text('cnpj'), // indústria (faturamento)
   bandeira: text('bandeira'), // forma de cartão escolhida (rótulo livre)
+  numero: integer('numero'), // sequencial do dia (o "#284" do card)
   entregadorId: uuid('entregador_id'), // atribuído no despacho
   entregadorNome: text('entregador_nome'),
   entregadorTelefone: text('entregador_telefone'), // snapshot no despacho

@@ -771,6 +771,11 @@ export class VendasService {
     return { ok: true };
   }
 
+  // Emite a NFC-e de uma comanda (botão "NF" do delivery). Usa a config fiscal.
+  async emitirNf(tenantId: string, atorId: string, comandaId: string) {
+    return this.fiscal.emitir(tenantId, atorId, comandaId);
+  }
+
   // Baixa de estoque do delivery na CONCLUSÃO (entrega). Idempotente pelo ref
   // (índice único em lancarSaidas). Recalcula o consumo a partir dos itens.
   async baixarEstoqueExterno(tenantId: string, comandaId: string) {

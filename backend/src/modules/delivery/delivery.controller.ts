@@ -113,6 +113,33 @@ export class DeliveryController {
     );
   }
 
+  // Novo pedido manual (delivery ou retirada) — atendente também pode lançar.
+  @Post('pedidos')
+  @UseGuards(JwtAuthGuard)
+  criarManual(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.criarManual(user.tenantId, dto?.unidadeId ?? null, dto);
+  }
+
+  @Post('pedidos/:id/nf')
+  @UseGuards(JwtAuthGuard)
+  nf(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.emitirNf(user.tenantId, user.colaboradorId, id);
+  }
+
+  @Post('pausar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...GESTOR)
+  pausar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.pausar(user.tenantId, Number(dto?.minutos) || 30, dto?.motivo);
+  }
+
+  @Post('despausar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...GESTOR)
+  despausar(@CurrentUser() user: AuthUser) {
+    return this.service.despausar(user.tenantId);
+  }
+
   @Get('config')
   @UseGuards(JwtAuthGuard)
   config(@CurrentUser() user: AuthUser) {

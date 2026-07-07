@@ -291,6 +291,14 @@ export const api = {
     req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: '{}' }),
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
+  criarPedidoDelivery: (body: Record<string, unknown>) =>
+    req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
+  nfDelivery: (id: string) =>
+    req(`/delivery/pedidos/${id}/nf`, { method: 'POST', body: '{}' }),
+  pausarDelivery: (minutos: number, motivo?: string) =>
+    req('/delivery/pausar', { method: 'POST', body: JSON.stringify({ minutos, motivo }) }),
+  despausarDelivery: () =>
+    req('/delivery/despausar', { method: 'POST', body: '{}' }),
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),

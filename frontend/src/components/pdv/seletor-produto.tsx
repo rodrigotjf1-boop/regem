@@ -15,6 +15,7 @@ export type SelecaoProduto = {
   complementos?: string[];
   observacao?: string;
   label: string; // "X-Burger · sem alface + bacon" (para feedback)
+  preco?: number; // preço-base p/ preview (o servidor recalcula no fim)
 };
 
 // Grade de produtos + seletor de variação/opcionais/adicionais. Ao confirmar,
@@ -60,7 +61,7 @@ export function SeletorProduto({
     const complementos = full.complementos ?? [];
     // Produto simples entra em 1 toque (sem abrir o modal) — mais rápido no salão.
     if (variacoes.length === 0 && complementos.length === 0) {
-      onAdd({ produtoId: p.id, complementos: [], label: p.nome });
+      onAdd({ produtoId: p.id, complementos: [], label: p.nome, preco: Number(p.precoVenda) || 0 });
       return;
     }
     setPickVar(undefined);
@@ -93,6 +94,7 @@ export function SeletorProduto({
       complementos: pickOpc,
       observacao: obs,
       label,
+      preco: Number(v?.preco ?? produto.precoVenda) || 0,
     });
     setPicker(null);
   }
