@@ -1,14 +1,19 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
+import * as bcrypt from 'bcryptjs';
+import { and, desc, eq, gte, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   caixaSessao,
+  colaborador,
+  comandaItem,
   deliveryConfig,
+  funcao,
   lancamentoCaixa,
   pedidoExterno,
   produto,
@@ -209,7 +214,11 @@ export class DeliveryService {
   async avancar(
     tenantId: string,
     id: string,
-    dados?: { entregadorId?: string | null; entregadorNome?: string | null },
+    dados?: {
+      entregadorId?: string | null;
+      entregadorNome?: string | null;
+      entregadorTelefone?: string | null;
+    },
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado' || ped.status === 'novo')
@@ -227,6 +236,8 @@ export class DeliveryService {
         patch.entregadorNome = dados.entregadorNome || null;
       if (dados?.entregadorId != null)
         patch.entregadorId = dados.entregadorId || null;
+      if (dados?.entregadorTelefone != null)
+        patch.entregadorTelefone = dados.entregadorTelefone || null;
     }
     if (novo === 'concluido') patch.concluidoEm = new Date();
     const [row] = await this.db
@@ -234,8 +245,30 @@ export class DeliveryService {
       .set(patch)
       .where(eq(pedidoExterno.id, id))
       .returning();
-    // Dinheiro entra na gaveta do delivery quando o pedido é entregue.
-    if (novo === 'concluido') await this.reconciliarDinheiro(tenantId, row);
+    // Ao concluir (entrega): baixa o estoque e concilia o dinheiro na gaveta.
+    if (novo === 'concluido' && row.comandaId) {
+      await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
+      await this.reconciliarDinheiro(tenantId, row);
+    }
+    return row;
+  }
+
+  // Correção de avanço errado: volta de "em rota" para a produção.
+  async retornarProducao(tenantId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status !== 'despachado')
+      throw new BadRequestException('Só um pedido em rota pode retornar à produção.');
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({
+        status: 'confirmado',
+        despachadoEm: null,
+        entregadorId: null,
+        entregadorNome: null,
+        entregadorTelefone: null,
+      })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
     return row;
   }
 
@@ -270,19 +303,45 @@ export class DeliveryService {
       );
   }
 
+  // Valida a senha de login de um gestor (presidente/gerente) do tenant.
+  // Retorna o colaborador que autorizou (para auditoria).
+  private async autorizarPorSenha(tenantId: string, senha?: string) {
+    if (!senha) throw new BadRequestException('Informe a senha de autorização.');
+    const gestores = await this.db
+      .select({ id: colaborador.id, nome: colaborador.nome, senhaHash: colaborador.senhaHash })
+      .from(colaborador)
+      .innerJoin(funcao, eq(funcao.id, colaborador.funcaoId))
+      .where(
+        and(
+          eq(colaborador.tenantId, tenantId),
+          isNotNull(colaborador.senhaHash),
+          inArray(funcao.categoria, ['presidente', 'gerente']),
+        ),
+      );
+    for (const g of gestores) {
+      if (g.senhaHash && (await bcrypt.compare(senha, g.senhaHash)))
+        return { id: g.id, nome: g.nome };
+    }
+    throw new ForbiddenException('Senha de gestor inválida.');
+  }
+
   async cancelar(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     id: string,
     motivo?: string,
+    senha?: string,
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado')
       throw new BadRequestException('Pedido já cancelado.');
     if (ped.status === 'concluido')
       throw new BadRequestException('Pedido concluído não pode ser cancelado.');
-    // Se já virou venda, estorna estoque + financeiro.
+    // Trava: exige senha de um gestor com autoridade para cancelar.
+    const autorizou = await this.autorizarPorSenha(tenantId, senha);
+    // Estorna o financeiro (a baixa de estoque só ocorre na conclusão, então não
+    // há estoque a estornar aqui).
     if (ped.comandaId) {
       await this.vendas.estornarVendaExterna(
         tenantId,
@@ -294,10 +353,96 @@ export class DeliveryService {
     }
     const [row] = await this.db
       .update(pedidoExterno)
-      .set({ status: 'cancelado', canceladoEm: new Date(), motivoCancelamento: motivo })
+      .set({
+        status: 'cancelado',
+        canceladoEm: new Date(),
+        motivoCancelamento: motivo
+          ? `${motivo} (autorizado por ${autorizou.nome})`
+          : `autorizado por ${autorizou.nome}`,
+      })
       .where(eq(pedidoExterno.id, id))
       .returning();
     return row;
+  }
+
+  // ===== Alterar / reimprimir / entregadores =====
+  async alterar(
+    tenantId: string,
+    atorId: string,
+    id: string,
+    dto: {
+      adicionar?: { produtoId: string; quantidade?: number; observacao?: string }[];
+      remover?: string[];
+    },
+  ) {
+    const ped = await this.carregar(tenantId, id);
+    if (!['confirmado', 'pronto'].includes(ped.status))
+      throw new BadRequestException(
+        'Só dá para alterar um pedido aceito e ainda não despachado. Se já saiu, cancele e refaça.',
+      );
+    if (!ped.comandaId)
+      throw new BadRequestException('Pedido sem venda vinculada.');
+    const r = await this.vendas.alterarItensExterno(
+      tenantId,
+      atorId,
+      ped.comandaId,
+      dto,
+    );
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({ alterado: true, alteradoEm: new Date(), total: String(r.total.toFixed(2)) })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    // Reimprime as vias configuradas com o novo conteúdo.
+    await this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId).catch(() => {});
+    return row;
+  }
+
+  // Itens reais da comanda (com id) — para o editor de "Alterar".
+  async itensComanda(tenantId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (!ped.comandaId) return [];
+    return this.db
+      .select({
+        id: comandaItem.id,
+        descricao: comandaItem.descricao,
+        quantidade: comandaItem.quantidade,
+        precoUnitario: comandaItem.precoUnitario,
+      })
+      .from(comandaItem)
+      .where(
+        and(
+          eq(comandaItem.tenantId, tenantId),
+          eq(comandaItem.comandaId, ped.comandaId),
+        ),
+      );
+  }
+
+  async reimprimir(tenantId: string, atorId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (!ped.comandaId)
+      throw new BadRequestException('Pedido ainda não aceito (sem via para imprimir).');
+    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId);
+  }
+
+  // Entregadores = colaboradores ativos com função cujo nome contém "entregador".
+  async listarEntregadores(tenantId: string) {
+    return this.db
+      .select({
+        id: colaborador.id,
+        nome: colaborador.nome,
+        telefone: colaborador.telefone,
+      })
+      .from(colaborador)
+      .innerJoin(funcao, eq(funcao.id, colaborador.funcaoId))
+      .where(
+        and(
+          eq(colaborador.tenantId, tenantId),
+          eq(colaborador.status, 'ativo'),
+          ilike(funcao.nome, '%entregador%'),
+        ),
+      )
+      .orderBy(colaborador.nome);
   }
 
   // ===== Config =====

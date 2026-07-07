@@ -92,12 +92,18 @@ export class VendasService {
   }
 
   // Sessão de caixa aberta (para amarrar a venda ao turno) — null se caixa fechado.
+  // Caixa aberto do BALCÃO (origem 'pdv'). O caixa do delivery é uma gaveta
+  // separada e não deve satisfazer/receber uma venda de balcão.
   private async sessaoAbertaId(tx: any, tenantId: string): Promise<string | null> {
     const [s] = await tx
       .select({ id: caixaSessao.id })
       .from(caixaSessao)
       .where(
-        and(eq(caixaSessao.tenantId, tenantId), eq(caixaSessao.status, 'aberta')),
+        and(
+          eq(caixaSessao.tenantId, tenantId),
+          eq(caixaSessao.status, 'aberta'),
+          eq(caixaSessao.origem, 'pdv'),
+        ),
       );
     return s?.id ?? null;
   }
@@ -597,7 +603,6 @@ export class VendasService {
 
       let total = 0;
       const itensProducao: ItemProducao[] = [];
-      const consumo = new Map<string, number>();
       for (const it of dto.itens) {
         const qtd = Number(it.quantidade) || 1;
         const preco = Number(it.precoUnitario) || 0;
@@ -624,7 +629,6 @@ export class VendasService {
           })
           .returning();
         if (p) {
-          await this.acumularProduto(tx, tenantId, p, 1, qtd, [], consumo);
           if (p.vaiParaProducao)
             itensProducao.push({
               produto: p,
@@ -635,7 +639,8 @@ export class VendasService {
             });
         }
       }
-      await this.lancarSaidas(tx, tenantId, consumo, cmd.id);
+      // Delivery NÃO baixa estoque no aceite: a baixa ocorre só na CONCLUSÃO
+      // (entrega). Pedido cancelado antes disso não movimenta estoque.
       const producaoPayloads = await this.producao.criarPedidos(
         tx,
         {
@@ -764,6 +769,187 @@ export class VendasService {
       detalhe: { motivo },
     });
     return { ok: true };
+  }
+
+  // Baixa de estoque do delivery na CONCLUSÃO (entrega). Idempotente pelo ref
+  // (índice único em lancarSaidas). Recalcula o consumo a partir dos itens.
+  async baixarEstoqueExterno(tenantId: string, comandaId: string) {
+    await this.db.transaction(async (tx) => {
+      const itens = await tx
+        .select()
+        .from(comandaItem)
+        .where(
+          and(
+            eq(comandaItem.tenantId, tenantId),
+            eq(comandaItem.comandaId, comandaId),
+          ),
+        );
+      const consumo = new Map<string, number>();
+      for (const it of itens) {
+        if (!it.produtoId) continue;
+        const [p] = await tx
+          .select()
+          .from(produto)
+          .where(and(eq(produto.id, it.produtoId), eq(produto.tenantId, tenantId)));
+        if (p)
+          await this.acumularProduto(
+            tx,
+            tenantId,
+            p,
+            1,
+            Number(it.quantidade) || 1,
+            [],
+            consumo,
+          );
+      }
+      await this.lancarSaidas(tx, tenantId, consumo, comandaId);
+    });
+  }
+
+  // Reimprime as vias (via do cliente) a partir do estado atual da comanda.
+  async reimprimirViasExterno(
+    tenantId: string,
+    atorId: string,
+    comandaId: string,
+  ) {
+    const [c] = await this.db
+      .select()
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+    if (!c) throw new NotFoundException('Comanda não encontrada');
+    const itens = await this.db
+      .select()
+      .from(comandaItem)
+      .where(
+        and(
+          eq(comandaItem.tenantId, tenantId),
+          eq(comandaItem.comandaId, comandaId),
+        ),
+      );
+    await this.imprimirViaCliente(tenantId, comandaId, c.unidadeId, atorId, {
+      senha: c.senha,
+      mesa: c.mesa,
+      itens: itens.map((it) => ({
+        quantidade: Number(it.quantidade),
+        descricao: it.descricao,
+        precoUnitario: Number(it.precoUnitario),
+        complementosTexto: null,
+      })),
+      total: Number(c.total),
+      forma: c.forma,
+    });
+    return { ok: true };
+  }
+
+  // Altera os itens de um delivery (comanda 'fechada'): adiciona/remove itens,
+  // recalcula o total e ajusta o lançamento no financeiro. A baixa de estoque só
+  // ocorre na conclusão, então NÃO há estorno aqui. Reemite a produção ao KDS.
+  async alterarItensExterno(
+    tenantId: string,
+    atorId: string,
+    comandaId: string,
+    dto: {
+      adicionar?: { produtoId: string; quantidade?: number; observacao?: string }[];
+      remover?: string[];
+    },
+  ) {
+    const [c] = await this.db
+      .select()
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+    if (!c) throw new NotFoundException('Comanda não encontrada');
+
+    for (const itemId of dto.remover ?? []) {
+      await this.db
+        .delete(comandaItemComplemento)
+        .where(eq(comandaItemComplemento.comandaItemId, itemId));
+      await this.producao.removerItemComanda(tenantId, itemId);
+      await this.db
+        .delete(comandaItem)
+        .where(
+          and(eq(comandaItem.id, itemId), eq(comandaItem.comandaId, comandaId)),
+        );
+    }
+
+    for (const add of dto.adicionar ?? []) {
+      const [p] = await this.db
+        .select()
+        .from(produto)
+        .where(and(eq(produto.id, add.produtoId), eq(produto.tenantId, tenantId)));
+      if (!p) continue;
+      const qtd = Number(add.quantidade) || 1;
+      const preco = Number(p.precoVenda) || 0;
+      const [item] = await this.db
+        .insert(comandaItem)
+        .values({
+          tenantId,
+          comandaId,
+          produtoId: p.id,
+          fichaId: p.fichaId,
+          descricao: p.nome,
+          quantidade: String(qtd),
+          precoUnitario: String(preco),
+          observacao: add.observacao || null,
+          criadoPorId: atorId,
+        })
+        .returning();
+      if (p.vaiParaProducao) {
+        const payloads = await this.producao.criarPedidos(
+          this.db,
+          {
+            tenantId,
+            unidadeId: c.unidadeId,
+            comandaId,
+            senha: c.senha,
+            origem: 'delivery',
+          },
+          [
+            {
+              produto: p,
+              descricao: p.nome,
+              quantidade: qtd,
+              observacao: add.observacao || null,
+              comandaItemId: item.id,
+            },
+          ],
+        );
+        this.producao.emitirNovos(payloads);
+      }
+    }
+
+    // Recalcula o total a partir dos itens restantes.
+    const itens = await this.db
+      .select()
+      .from(comandaItem)
+      .where(
+        and(
+          eq(comandaItem.tenantId, tenantId),
+          eq(comandaItem.comandaId, comandaId),
+        ),
+      );
+    const total = itens.reduce(
+      (s, it) => s + Number(it.precoUnitario) * Number(it.quantidade),
+      0,
+    );
+    await this.db
+      .update(comanda)
+      .set({ total: String(total.toFixed(2)) })
+      .where(eq(comanda.id, comandaId));
+    // Ajusta a receita lançada (delivery = 'venda'/'entrada').
+    await this.db
+      .update(lancamentoCaixa)
+      .set({ valor: String(total.toFixed(2)) })
+      .where(
+        and(
+          eq(lancamentoCaixa.tenantId, tenantId),
+          eq(lancamentoCaixa.comandaId, comandaId),
+          eq(lancamentoCaixa.categoria, 'venda'),
+          eq(lancamentoCaixa.tipo, 'entrada'),
+        ),
+      );
+    // Avisa o KDS que o pedido foi alterado.
+    await this.producao.marcarAlteradoPorComanda(tenantId, comandaId);
+    return { total: Number(total.toFixed(2)) };
   }
 
   // ===== Mesas & comandas (J3) =====

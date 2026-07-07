@@ -547,7 +547,14 @@ export class ProducaoPedidoService {
     if (opts.unidadeId) conds.push(eq(producaoPedido.unidadeId, opts.unidadeId));
 
     if (entrega) {
-      conds.push(eq(producaoPedido.status, 'pronto'));
+      // Prontos (a entregar) + cancelados recentes (mostrados riscados por um tempo).
+      conds.push(
+        sql`(status = 'pronto'
+             or (status = 'cancelado'
+                 and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(
+                   String(JANELA_ACAO_MIN),
+                 )} minutes'))` as any,
+      );
     } else {
       // Produção: sempre recebido/preparo. 'pronto' fica aqui só se ninguém de
       // entrega vai assumir (sem KDS de entrega e sem etapa 'entregue').
@@ -753,6 +760,36 @@ export class ProducaoPedidoService {
       });
     }
     return { cancelados: pedidos.filter((p) => p.status !== 'cancelado').length };
+  }
+
+  // Marca os pedidos ativos de uma comanda como "ALTERADO" e avisa o KDS
+  // (usado quando o delivery tem os itens alterados após já estar na produção).
+  async marcarAlteradoPorComanda(tenantId: string, comandaId: string) {
+    const pedidos = await this.db
+      .select()
+      .from(producaoPedido)
+      .where(
+        and(
+          eq(producaoPedido.tenantId, tenantId),
+          eq(producaoPedido.comandaId, comandaId),
+        ),
+      );
+    for (const p of pedidos) {
+      if (['cancelado', 'entregue'].includes(p.status)) continue;
+      await this.db
+        .update(producaoPedido)
+        .set({ obs: 'ALTERADO' })
+        .where(eq(producaoPedido.id, p.id));
+      this.events?.emit('producao.evento', {
+        tenantId,
+        unidadeId: p.unidadeId,
+        setorId: p.setorId,
+        destinoEquipamentoId: p.destinoEquipamentoId,
+        pedidoId: p.id,
+        tipo: 'atualizado',
+      });
+    }
+    return { ok: true };
   }
 
   // Item removido de uma comanda aberta (PDV): marca o item nos pedidos de

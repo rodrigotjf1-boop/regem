@@ -278,11 +278,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body ?? {}),
     }),
-  cancelarDelivery: (id: string, motivo?: string) =>
+  cancelarDelivery: (id: string, motivo?: string, senha?: string) =>
     req(`/delivery/pedidos/${id}/cancelar`, {
       method: 'POST',
-      body: JSON.stringify({ motivo }),
+      body: JSON.stringify({ motivo, senha }),
     }),
+  retornarDelivery: (id: string) =>
+    req(`/delivery/pedidos/${id}/retornar`, { method: 'POST', body: '{}' }),
+  alterarDelivery: (id: string, body: Record<string, unknown>) =>
+    req(`/delivery/pedidos/${id}/alterar`, { method: 'POST', body: JSON.stringify(body) }),
+  reimprimirDelivery: (id: string) =>
+    req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: '{}' }),
+  itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
+  entregadoresDelivery: () => req('/delivery/entregadores'),
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),

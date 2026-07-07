@@ -81,6 +81,7 @@ export const colaborador = pgTable('colaborador', {
   fotoRef: text('foto_ref'),
   unidadeId: uuid('unidade_id'), // loja do colaborador (escopo do mural, etc.)
   funcaoId: uuid('funcao_id').references(() => funcao.id),
+  telefone: text('telefone'), // contato (ex.: entregador em rota)
   vinculo: text('vinculo').notNull().default('clt'),
   pinHash: text('pin_hash'),
   email: text('email'),
@@ -1371,7 +1372,10 @@ export const pedidoExterno = pgTable('pedido_externo', {
   bandeira: text('bandeira'), // forma de cartão escolhida (rótulo livre)
   entregadorId: uuid('entregador_id'), // atribuído no despacho
   entregadorNome: text('entregador_nome'),
+  entregadorTelefone: text('entregador_telefone'), // snapshot no despacho
   autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
+  alterado: boolean('alterado').notNull().default(false),
+  alteradoEm: timestamp('alterado_em', { withTimezone: true }),
 });
 
 // ===== TEF — pagamento integrado (Fase I) =====
