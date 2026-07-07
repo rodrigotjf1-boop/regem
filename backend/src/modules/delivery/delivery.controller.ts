@@ -73,6 +73,7 @@ export class DeliveryController {
     return this.service.alterar(user.tenantId, user.colaboradorId, id, {
       adicionar: dto?.adicionar ?? [],
       remover: dto?.remover ?? [],
+      endereco: dto?.endereco,
     });
   }
 
@@ -92,6 +93,12 @@ export class DeliveryController {
   @UseGuards(JwtAuthGuard)
   entregadores(@CurrentUser() user: AuthUser) {
     return this.service.listarEntregadores(user.tenantId);
+  }
+
+  @Get('bairros')
+  @UseGuards(JwtAuthGuard)
+  bairros(@CurrentUser() user: AuthUser) {
+    return this.service.listarBairros(user.tenantId);
   }
 
   // Cancelamento é liberado pela senha de um gestor (a trava está no service),

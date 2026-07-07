@@ -20,11 +20,13 @@ export function CaixaPanel({
   onChange,
   origem = 'pdv',
   avisoVazio = 'Nenhum turno aberto — abra o caixa para vender.',
+  embedded = false,
 }: {
   caixa: any;
   onChange: () => void;
   origem?: string;
   avisoVazio?: string;
+  embedded?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [mov, setMov] = useState<null | 'sangria' | 'suprimento'>(null);
@@ -94,7 +96,9 @@ export function CaixaPanel({
   // ----- Caixa fechado: CTA de abrir turno -----
   if (!caixa) {
     return (
-      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3">
+      <div className={embedded
+        ? 'flex flex-wrap items-center gap-2'
+        : 'mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3'}>
         <span className="text-sm font-semibold text-warn">⚠️ {avisoVazio}</span>
         <Button type="button" size="sm" onClick={abrir} disabled={busy} className="ml-auto">
           {busy ? 'Abrindo…' : 'Abrir turno'}
@@ -106,7 +110,9 @@ export function CaixaPanel({
   // ----- Turno aberto: info + ações -----
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-ok/40 bg-ok/10 px-4 py-2.5">
+      <div className={embedded
+        ? 'flex flex-wrap items-center gap-x-3 gap-y-1.5'
+        : 'mb-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-ok/40 bg-ok/10 px-4 py-2.5'}>
         <span className="text-sm font-bold text-ok">
           🟢 Turno {String(caixa.turnoNumero ?? '—').padStart(2, '0')}
         </span>

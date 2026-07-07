@@ -291,6 +291,7 @@ export const api = {
     req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: '{}' }),
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
+  bairrosDelivery: () => req('/delivery/bairros'),
   criarPedidoDelivery: (body: Record<string, unknown>) =>
     req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
   nfDelivery: (id: string) =>

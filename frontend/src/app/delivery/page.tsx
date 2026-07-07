@@ -30,6 +30,17 @@ const CANAL_LABEL: Record<string, string> = {
   cardapio: 'Cardápio',
   totem: 'Totem',
   whatsapp: 'WhatsApp',
+  manual: 'Manual',
+};
+// Cor do chip por plataforma (cor predominante da marca). Cardápio usa a cor da
+// marca Regem (dourado/primária); demais integrações, a cor da própria plataforma.
+const CANAL_ESTILO: Record<string, { bg: string; fg: string }> = {
+  ifood: { bg: '#EA1D2C', fg: '#FFFFFF' },
+  whatsapp: { bg: '#25D366', fg: '#0B241B' },
+  totem: { bg: '#334155', fg: '#FFFFFF' },
+  ubereats: { bg: '#06C167', fg: '#0B241B' },
+  rappi: { bg: '#FF4E1B', fg: '#FFFFFF' },
+  '99food': { bg: '#FFD400', fg: '#0B141B' },
 };
 
 // Colunas do quadro. `status` = quais estados do pedido caem na coluna.
@@ -66,7 +77,9 @@ type Filtro = { campo: string; valor: string };
 
 export default function DeliveryPage() {
   const router = useRouter();
-  const cat = getCategoria();
+  // Categoria vem do localStorage (cliente). Só depois de montar para não
+  // divergir do HTML do servidor (evita erro de hidratação).
+  const [cat, setCat] = useState<string | null>(null);
   const isGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
   const [pedidos, setPedidos] = useState<any[] | null>(null);
   const [cfg, setCfg] = useState<any>({ ativo: false, autoAceitar: false, colunas: { chegada: true, producao: true, rota: true, finalizado: true } });
@@ -105,6 +118,7 @@ export default function DeliveryPage() {
   }, []);
 
   useEffect(() => {
+    setCat(getCategoria());
     if (!getToken()) {
       router.replace('/entrar');
       return;
@@ -182,19 +196,9 @@ export default function DeliveryPage() {
       <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
-        {/* Caixa próprio do delivery (fora do quadro) */}
-        {(isGestor || cat === 'atendente') && (
-          <CaixaPanel
-            caixa={caixa}
-            onChange={reload}
-            origem="delivery"
-            avisoVazio="Nenhum caixa de entregas aberto — abra para controlar troco e dinheiro na entrega."
-          />
-        )}
-
         {/* Banner de pausa */}
         {cfg.pausado && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-4 py-2">
             <span className="text-sm font-bold text-warn">
               ⏸ Loja pausada{cfg.pausadoAte ? ` até ${hora(cfg.pausadoAte)}` : ''}
             </span>
@@ -207,8 +211,20 @@ export default function DeliveryPage() {
           </div>
         )}
 
-        {/* Barra de controle — FORA do quadro, sempre acessível */}
-        <Card className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3">
+        {/* Header integrado (fino): caixa do delivery + controles do quadro */}
+        <Card className="px-3 py-2">
+          {(isGestor || cat === 'atendente') && (
+            <div className="mb-2 border-b border-border pb-2">
+              <CaixaPanel
+                caixa={caixa}
+                onChange={reload}
+                origem="delivery"
+                embedded
+                avisoVazio="Caixa de entregas fechado — abra para controlar troco e dinheiro na entrega."
+              />
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Filtro geral por tipo de pedido */}
           <div className="inline-flex rounded-lg border border-border p-0.5 text-sm" role="group" aria-label="Filtrar por tipo">
             {([['todos', 'Todos'], ['entrega', '🛵'], ['retirada', '🏪']] as const).map(([k, lb]) => {
@@ -238,10 +254,10 @@ export default function DeliveryPage() {
             </label>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            <Button type="button" size="sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
+            <Button type="button" size="sm" className="h-8 text-sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
             {isGestor && (
               <div className="relative">
-                <Button type="button" variant="outline" size="sm" onClick={() => setPausarOpen((v) => !v)}>
+                <Button type="button" variant="outline" size="sm" className="h-8 text-sm" onClick={() => setPausarOpen((v) => !v)}>
                   {cfg.pausado ? '⏸ Pausada' : '⏸ Pausar'}
                 </Button>
                 {pausarOpen && (
@@ -252,12 +268,13 @@ export default function DeliveryPage() {
                 )}
               </div>
             )}
-            <Button type="button" variant="outline" size="sm" onClick={() => setConfigQuadro(true)}>⚙️</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => setConfigQuadro(true)}>⚙️</Button>
             {isGestor && (
-              <Button type="button" variant="ghost" size="sm" onClick={() => acao(api.simularDelivery({ produto: 'Combo delivery', preco: 39.9 }), 'Pedido simulado recebido.')}>
+              <Button type="button" variant="ghost" size="sm" className="h-8 text-sm" onClick={() => acao(api.simularDelivery({ produto: 'Combo delivery', preco: 39.9 }), 'Pedido simulado recebido.')}>
                 Simular
               </Button>
             )}
+          </div>
           </div>
         </Card>
 
@@ -274,13 +291,17 @@ export default function DeliveryPage() {
               const f = filtros[col.key] ?? null;
               const filtroAberto = menuAberto === col.key;
               return (
-                <div key={col.key} className="flex min-w-[290px] max-w-[320px] flex-1 flex-col">
+                <div
+                  key={col.key}
+                  className="flex min-w-[290px] max-w-[330px] flex-1 flex-col rounded-xl p-2"
+                  style={{ background: `hsl(${col.cor} / 0.05)` }}
+                >
                   {/* Cabeçalho da coluna */}
-                  <div className="mb-2 rounded-lg border border-border bg-card p-2.5">
+                  <div className="mb-2 rounded-lg px-2.5 py-2" style={{ background: `hsl(${col.cor} / 0.14)` }}>
                     <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: `hsl(${col.cor})` }} />
-                      <span className="font-display text-sm font-bold">{col.titulo}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{lista.length}</span>
+                      <span className="h-3 w-3 rounded-full" style={{ background: `hsl(${col.cor})` }} />
+                      <span className="font-display text-base font-bold tracking-tight">{col.titulo}</span>
+                      <span className="grid h-5 min-w-5 place-items-center rounded-full px-1 font-mono text-xs font-bold text-white" style={{ background: `hsl(${col.cor})` }}>{lista.length}</span>
                       <div className="relative ml-auto">
                         <button
                           type="button"
@@ -560,7 +581,15 @@ function PedidoCard({
         <span className={`font-semibold ${cancelado ? 'line-through opacity-70' : ''}`}>{p.displayId ?? 'Pedido'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[11px] ${s.cor}`}>{s.label}</span>
         {p.alterado && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">ALTERADO</span>}
-        <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
+        {CANAL_ESTILO[p.canal] ? (
+          <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: CANAL_ESTILO[p.canal].bg, color: CANAL_ESTILO[p.canal].fg }}>
+            {CANAL_LABEL[p.canal] ?? p.canal}
+          </span>
+        ) : p.canal === 'cardapio' ? (
+          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary">Cardápio</span>
+        ) : (
+          <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
+        )}
         <span className="ml-auto font-mono text-[11px] text-muted-foreground">{hora(p.criadoEm)}</span>
       </div>
 
@@ -592,8 +621,8 @@ function PedidoCard({
           <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-secondary text-[10px] font-bold text-muted-foreground">{p.numero}</span>
         )}
         <div className={`min-w-0 flex-1 text-xs text-muted-foreground ${cancelado ? 'line-through' : ''}`}>
-          <span className="font-medium text-foreground">{p.clienteNome ?? 'Cliente'}</span>
-          {p.clienteTelefone ? ` · ${p.clienteTelefone}` : ''}
+          <span className="text-sm font-bold text-foreground">{p.clienteNome ?? 'Cliente'}</span>
+          {p.clienteTelefone ? <span className="ml-1">· {p.clienteTelefone}</span> : null}
           {enderecoFmt ? <span className="block">{enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</span> : null}
         </div>
         {mapa && (
