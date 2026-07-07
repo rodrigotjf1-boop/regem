@@ -30,6 +30,17 @@ const CANAL_LABEL: Record<string, string> = {
   cardapio: 'Cardápio',
   totem: 'Totem',
   whatsapp: 'WhatsApp',
+  manual: 'Manual',
+};
+// Cor do chip por plataforma (cor predominante da marca). Cardápio usa a cor da
+// marca Regem (dourado/primária); demais integrações, a cor da própria plataforma.
+const CANAL_ESTILO: Record<string, { bg: string; fg: string }> = {
+  ifood: { bg: '#EA1D2C', fg: '#FFFFFF' },
+  whatsapp: { bg: '#25D366', fg: '#0B241B' },
+  totem: { bg: '#334155', fg: '#FFFFFF' },
+  ubereats: { bg: '#06C167', fg: '#0B241B' },
+  rappi: { bg: '#FF4E1B', fg: '#FFFFFF' },
+  '99food': { bg: '#FFD400', fg: '#0B141B' },
 };
 
 // Colunas do quadro. `status` = quais estados do pedido caem na coluna.
@@ -560,7 +571,15 @@ function PedidoCard({
         <span className={`font-semibold ${cancelado ? 'line-through opacity-70' : ''}`}>{p.displayId ?? 'Pedido'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[11px] ${s.cor}`}>{s.label}</span>
         {p.alterado && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">ALTERADO</span>}
-        <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
+        {CANAL_ESTILO[p.canal] ? (
+          <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: CANAL_ESTILO[p.canal].bg, color: CANAL_ESTILO[p.canal].fg }}>
+            {CANAL_LABEL[p.canal] ?? p.canal}
+          </span>
+        ) : p.canal === 'cardapio' ? (
+          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary">Cardápio</span>
+        ) : (
+          <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
+        )}
         <span className="ml-auto font-mono text-[11px] text-muted-foreground">{hora(p.criadoEm)}</span>
       </div>
 
@@ -592,8 +611,8 @@ function PedidoCard({
           <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-secondary text-[10px] font-bold text-muted-foreground">{p.numero}</span>
         )}
         <div className={`min-w-0 flex-1 text-xs text-muted-foreground ${cancelado ? 'line-through' : ''}`}>
-          <span className="font-medium text-foreground">{p.clienteNome ?? 'Cliente'}</span>
-          {p.clienteTelefone ? ` · ${p.clienteTelefone}` : ''}
+          <span className="text-sm font-bold text-foreground">{p.clienteNome ?? 'Cliente'}</span>
+          {p.clienteTelefone ? <span className="ml-1">· {p.clienteTelefone}</span> : null}
           {enderecoFmt ? <span className="block">{enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</span> : null}
         </div>
         {mapa && (

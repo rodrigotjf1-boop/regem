@@ -28,10 +28,18 @@ export function PedidoDetalhe({
   // cancelar
   const [motivo, setMotivo] = useState('');
   const [senha, setSenha] = useState('');
-  // alterar
+  // alterar — itens
   const [itens, setItens] = useState<any[] | null>(null);
   const [remover, setRemover] = useState<Set<string>>(new Set());
   const [adicionar, setAdicionar] = useState<{ produtoId: string; label: string; observacao?: string }[]>([]);
+  // alterar — endereço
+  const [bairros, setBairros] = useState<any[]>([]);
+  const [endRua, setEndRua] = useState(p.enderecoRua ?? '');
+  const [endNum, setEndNum] = useState(p.enderecoNumero ?? '');
+  const [endBairro, setEndBairro] = useState(p.enderecoBairro ?? '');
+  const [endBairroId, setEndBairroId] = useState('');
+  const [endRef, setEndRef] = useState(p.enderecoReferencia ?? '');
+  const [endEditado, setEndEditado] = useState(false);
 
   const podeAlterar = ['confirmado', 'pronto'].includes(p.status);
   const finalizado = ['concluido', 'cancelado'].includes(p.status);
@@ -45,8 +53,14 @@ export function PedidoDetalhe({
   }, [p.id]);
 
   useEffect(() => {
-    if (modo === 'alterar' && itens === null) carregarItens();
-  }, [modo, itens, carregarItens]);
+    if (modo === 'alterar') {
+      if (itens === null) carregarItens();
+      if (bairros.length === 0) api.bairrosDelivery().then((b: any) => setBairros(b as any[])).catch(() => {});
+    }
+  }, [modo, itens, bairros.length, carregarItens]);
+
+  // Taxa prevista ao escolher um bairro cadastrado.
+  const taxaPrevista = endBairroId ? Number(bairros.find((b) => b.id === endBairroId)?.taxa ?? 0) : null;
 
   async function reimprimir() {
     setBusy(true);
@@ -88,13 +102,16 @@ export function PedidoDetalhe({
   }
 
   async function salvarAlteracao() {
-    if (remover.size === 0 && adicionar.length === 0)
+    if (remover.size === 0 && adicionar.length === 0 && !endEditado)
       return toast.error('Nenhuma mudança para salvar.');
     setBusy(true);
     try {
       await api.alterarDelivery(p.id, {
         remover: [...remover],
         adicionar: adicionar.map((a) => ({ produtoId: a.produtoId, quantidade: 1, observacao: a.observacao })),
+        endereco: endEditado
+          ? { rua: endRua.trim(), numero: endNum.trim(), bairro: endBairro.trim(), bairroId: endBairroId || undefined, referencia: endRef.trim() }
+          : undefined,
       });
       toast.success('Pedido alterado — vias reimpressas e cozinha avisada.');
       onChanged();
@@ -104,6 +121,13 @@ export function PedidoDetalhe({
     } finally {
       setBusy(false);
     }
+  }
+
+  function escolherBairro(id: string) {
+    setEndBairroId(id);
+    setEndEditado(true);
+    const b = bairros.find((x) => x.id === id);
+    if (b) setEndBairro(b.nome);
   }
 
   const enderecoFmt = p.enderecoRua
@@ -213,6 +237,32 @@ export function PedidoDetalhe({
                     <button type="button" className="text-xs text-destructive" onClick={() => setAdicionar((s) => s.filter((_, j) => j !== i))}>tirar</button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Endereço da entrega (recalcula a taxa pelo bairro) */}
+            {p.tipo !== 'retirada' && (
+              <div className="mt-3 rounded-lg border border-border p-2.5">
+                <p className="mb-2 text-xs font-semibold">Endereço da entrega</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="col-span-2"><Input value={endRua} onChange={(e) => { setEndRua(e.target.value); setEndEditado(true); }} placeholder="Rua" /></div>
+                  <Input value={endNum} onChange={(e) => { setEndNum(e.target.value); setEndEditado(true); }} placeholder="Número" />
+                  {bairros.length > 0 ? (
+                    <select value={endBairroId} onChange={(e) => escolherBairro(e.target.value)} aria-label="Bairro" className="rounded-md border border-border bg-background px-2 py-1.5 text-sm">
+                      <option value="">{endBairro || 'Bairro…'}</option>
+                      {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(Number(b.taxa))}</option>)}
+                    </select>
+                  ) : (
+                    <Input value={endBairro} onChange={(e) => { setEndBairro(e.target.value); setEndEditado(true); }} placeholder="Bairro" />
+                  )}
+                  <div className="col-span-2"><Input value={endRef} onChange={(e) => { setEndRef(e.target.value); setEndEditado(true); }} placeholder="Referência" /></div>
+                </div>
+                {taxaPrevista != null && (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">Taxa do bairro: <span className="font-mono font-bold text-foreground">{brl(taxaPrevista)}</span></p>
+                )}
+                {bairros.length === 0 && (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">Cadastre bairros com taxa em Cardápio → Área de atendimento para recalcular a taxa automaticamente.</p>
+                )}
               </div>
             )}
 

@@ -10,6 +10,7 @@ import { and, desc, eq, gte, ilike, inArray, isNotNull, or, sql } from 'drizzle-
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   caixaSessao,
+  cardapioBairro,
   colaborador,
   comandaItem,
   deliveryConfig,
@@ -374,6 +375,39 @@ export class DeliveryService {
   }
 
   // ===== Alterar / reimprimir / entregadores =====
+  // Bairros com taxa cadastrados (para o editor de endereço escolher).
+  listarBairros(tenantId: string) {
+    return this.db
+      .select({ id: cardapioBairro.id, nome: cardapioBairro.nome, taxa: cardapioBairro.taxa })
+      .from(cardapioBairro)
+      .where(eq(cardapioBairro.tenantId, tenantId))
+      .orderBy(cardapioBairro.ordem, cardapioBairro.nome);
+  }
+
+  // Resolve o bairro (taxa + nome) do cadastro de "área de atendimento":
+  // por id, ou pelo nome (case-insensitive).
+  private async resolverBairro(
+    tenantId: string,
+    bairroId?: string,
+    bairroNome?: string,
+  ): Promise<{ taxa: number; nome: string } | null> {
+    if (bairroId) {
+      const [b] = await this.db
+        .select({ taxa: cardapioBairro.taxa, nome: cardapioBairro.nome })
+        .from(cardapioBairro)
+        .where(and(eq(cardapioBairro.tenantId, tenantId), eq(cardapioBairro.id, bairroId)));
+      return b ? { taxa: Number(b.taxa), nome: b.nome } : null;
+    }
+    if (bairroNome?.trim()) {
+      const [b] = await this.db
+        .select({ taxa: cardapioBairro.taxa, nome: cardapioBairro.nome })
+        .from(cardapioBairro)
+        .where(and(eq(cardapioBairro.tenantId, tenantId), ilike(cardapioBairro.nome, bairroNome.trim())));
+      return b ? { taxa: Number(b.taxa), nome: b.nome } : null;
+    }
+    return null;
+  }
+
   async alterar(
     tenantId: string,
     atorId: string,
@@ -381,6 +415,13 @@ export class DeliveryService {
     dto: {
       adicionar?: { produtoId: string; quantidade?: number; observacao?: string }[];
       remover?: string[];
+      endereco?: {
+        rua?: string;
+        numero?: string;
+        bairro?: string;
+        bairroId?: string;
+        referencia?: string;
+      };
     },
   ) {
     const ped = await this.carregar(tenantId, id);
@@ -390,15 +431,45 @@ export class DeliveryService {
       );
     if (!ped.comandaId)
       throw new BadRequestException('Pedido sem venda vinculada.');
-    const r = await this.vendas.alterarItensExterno(
-      tenantId,
-      atorId,
-      ped.comandaId,
-      dto,
-    );
+
+    // Subtotal dos itens: recalcula se houve mudança de itens; senão usa o atual.
+    const mexeuItens = (dto.adicionar?.length ?? 0) > 0 || (dto.remover?.length ?? 0) > 0;
+    let subtotal: number;
+    if (mexeuItens) {
+      const r = await this.vendas.alterarItensExterno(tenantId, atorId, ped.comandaId, {
+        adicionar: dto.adicionar,
+        remover: dto.remover,
+      });
+      subtotal = r.total;
+    } else {
+      subtotal = Number(ped.total) - Number(ped.taxaEntrega ?? 0) + Number(ped.desconto ?? 0);
+    }
+
+    const patch: any = { alterado: true, alteradoEm: new Date() };
+    let taxa = Number(ped.taxaEntrega ?? 0);
+    // Edição de endereço: atualiza campos e, se o bairro mudou, puxa a taxa do cadastro.
+    if (dto.endereco) {
+      const e = dto.endereco;
+      if (e.rua != null) patch.enderecoRua = e.rua || null;
+      if (e.numero != null) patch.enderecoNumero = e.numero || null;
+      if (e.referencia != null) patch.enderecoReferencia = e.referencia || null;
+      if (e.bairro != null || e.bairroId != null) {
+        const b = await this.resolverBairro(tenantId, e.bairroId, e.bairro);
+        // Nome do bairro: o do cadastro (se resolvido) ou o texto informado.
+        patch.enderecoBairro = b?.nome ?? e.bairro ?? null;
+        if (b) {
+          taxa = b.taxa;
+          patch.taxaEntrega = String(b.taxa.toFixed(2));
+        }
+      }
+      const bairroFinal = patch.enderecoBairro ?? ped.enderecoBairro;
+      patch.endereco = [e.rua ?? ped.enderecoRua, e.numero ?? ped.enderecoNumero, bairroFinal].filter(Boolean).join(', ') || ped.endereco;
+    }
+
+    patch.total = String((subtotal + taxa - Number(ped.desconto ?? 0)).toFixed(2));
     const [row] = await this.db
       .update(pedidoExterno)
-      .set({ alterado: true, alteradoEm: new Date(), total: String(r.total.toFixed(2)) })
+      .set(patch)
       .where(eq(pedidoExterno.id, id))
       .returning();
     // Reimprime as vias configuradas com o novo conteúdo.
