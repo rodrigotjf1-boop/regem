@@ -34,7 +34,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     grupo: 'Operação',
     itens: [
       { k: 'banners', label: 'Banners' },
-      { k: 'impressoras', label: 'Impressoras', breve: true },
+      { k: 'impressoras', label: 'Impressoras' },
       { k: 'integracoes', label: 'Integrações', breve: true },
       { k: 'robo', label: 'Robô de atendimento', breve: true },
     ],
@@ -56,13 +56,38 @@ export function ConfigPanel({
   const [loja, setLoja] = useState<any>(null);
   const [bairros, setBairros] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
+  const [impressoras, setImpressoras] = useState<any[]>([]);
+  const [setores, setSetores] = useState<any[]>([]);
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     api.cardapioConfig().then((c: any) => setLoja(c ?? {})).catch(() => setLoja({}));
     api.cardapioBairros().then((b: any) => setBairros((b as any[]) ?? [])).catch(() => {});
     api.cardapioBanners().then((b: any) => setBanners((b as any[]) ?? [])).catch(() => {});
-  }, []);
+    if (isGestor) {
+      api.impressoras().then((p: any) => setImpressoras((p as any[]) ?? [])).catch(() => {});
+      api.setores().then((s: any) => setSetores((s as any[]) ?? [])).catch(() => {});
+    }
+  }, [isGestor]);
+
+  async function salvarImpressora(row: any) {
+    try {
+      const r = await api.salvarImpressora(row);
+      setImpressoras(await api.impressoras() as any[]);
+      toast.success('Impressora salva.');
+      return r;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
+  async function removerImpressora(id: string) {
+    try {
+      await api.removerImpressora(id);
+      setImpressoras((l) => l.filter((x) => x.id !== id));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao remover');
+    }
+  }
 
   const up = (patch: any) => setLoja((l: any) => ({ ...(l ?? {}), ...patch }));
 
@@ -245,8 +270,13 @@ export function ConfigPanel({
                   <Banners banners={banners} onSalvar={salvarBanners} salvando={salvando} pode={isGestor} />
                 )}
 
+                {/* IMPRESSORAS */}
+                {sec === 'impressoras' && (
+                  <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
+                )}
+
                 {/* EM BREVE */}
-                {['impressoras', 'integracoes', 'robo'].includes(sec) && (
+                {['integracoes', 'robo'].includes(sec) && (
                   <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                     <p className="font-semibold">{secLabel(sec)}</p>
                     <p className="mt-1">{breveTexto(sec)}</p>
@@ -429,6 +459,68 @@ function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]
           <Button type="button" onClick={onSalvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
         </div>
       )}
+    </div>
+  );
+}
+
+function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any[]; setores: any[]; onSalvar: (r: any) => Promise<any>; onRemover: (id: string) => void; pode: boolean }) {
+  const [rows, setRows] = useState<any[]>(lista);
+  useEffect(() => { setRows(lista); }, [lista]);
+  function up(i: number, patch: any) { setRows((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
+  function add() { setRows((l) => [...l, { nome: '', papel: 'cupom', setorId: '', host: '', porta: 9100, vias: 1, ativo: true, _novo: true }]); }
+  async function salvar(i: number) {
+    const r = rows[i];
+    await onSalvar({ id: r.id, nome: r.nome, papel: r.papel, setorId: r.papel === 'producao' ? r.setorId || null : null, host: r.host, porta: r.porta, vias: r.vias, ativo: r.ativo });
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente) ou <strong>Cozinha</strong> (produção, por setor). Informe o IP da impressora de rede e o nº de vias.</p>
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A <strong>detecção automática</strong> das impressoras instaladas no Windows depende do servidor local (edge). Por enquanto o cadastro é manual (nome + IP).</p>
+      {rows.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma impressora cadastrada.</p>}
+      {rows.map((r, i) => (
+        <div key={r.id ?? `n${i}`} className="space-y-2 rounded-lg border border-border p-2.5">
+          <div className="flex items-center gap-2">
+            <Input value={r.nome} onChange={(e) => up(i, { nome: e.target.value })} placeholder="Nome da impressora" className="h-8 flex-1" disabled={!pode} />
+            <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={r.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} /> ativa</label>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <Label className="text-[11px]">Direcionamento</Label>
+              <select value={r.papel} onChange={(e) => up(i, { papel: e.target.value })} aria-label="Direcionamento" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
+                <option value="cupom">Caixa (cupom)</option>
+                <option value="producao">Cozinha (produção)</option>
+              </select>
+            </div>
+            {r.papel === 'producao' && (
+              <div>
+                <Label className="text-[11px]">Setor</Label>
+                <select value={r.setorId ?? ''} onChange={(e) => up(i, { setorId: e.target.value })} aria-label="Setor" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
+                  <option value="">Todos / geral</option>
+                  {setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <Label className="text-[11px]">IP : porta</Label>
+              <div className="flex items-center gap-1">
+                <Input value={r.host ?? ''} onChange={(e) => up(i, { host: e.target.value })} placeholder="192.168.0.50" className="h-8 flex-1" disabled={!pode} />
+                <Input inputMode="numeric" value={r.porta ?? ''} onChange={(e) => up(i, { porta: e.target.value })} placeholder="9100" className="h-8 w-16" disabled={!pode} />
+              </div>
+            </div>
+            <div>
+              <Label className="text-[11px]">Vias</Label>
+              <Input inputMode="numeric" value={r.vias ?? 1} onChange={(e) => up(i, { vias: e.target.value })} className="h-8 w-20" disabled={!pode} />
+            </div>
+          </div>
+          {pode && (
+            <div className="flex items-center justify-end gap-2">
+              {r.id && <button type="button" className="text-xs text-destructive" onClick={() => onRemover(r.id)}>remover</button>}
+              <Button type="button" size="sm" onClick={() => salvar(i)}>Salvar</Button>
+            </div>
+          )}
+        </div>
+      ))}
+      {pode && <Button type="button" size="sm" variant="outline" onClick={add}>＋ Impressora</Button>}
     </div>
   );
 }

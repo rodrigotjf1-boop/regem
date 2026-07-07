@@ -471,6 +471,7 @@ export const equipamento = pgTable('equipamento', {
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
   host: text('host'), // IP da impressora de rede (tipo impressora)
   porta: integer('porta'), // porta ESC/POS (padrão 9100)
+  vias: integer('vias').notNull().default(1), // nº de vias (impressora)
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

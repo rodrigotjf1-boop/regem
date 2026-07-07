@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -36,6 +38,25 @@ export class EquipamentoController {
       user.categoria,
       dto,
     );
+  }
+
+  // ----- Impressoras (cadastro manual: direcionamento + vias) -----
+  @Get('impressoras')
+  @Roles('presidente', 'gerente')
+  impressoras(@CurrentUser() user: AuthUser) {
+    return this.service.listarImpressoras(user.tenantId);
+  }
+
+  @Put('impressoras')
+  @Roles('presidente', 'gerente')
+  salvarImpressora(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.salvarImpressora(user.tenantId, dto);
+  }
+
+  @Delete('impressoras/:id')
+  @Roles('presidente', 'gerente')
+  removerImpressora(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.removerImpressora(user.tenantId, id);
   }
 
   @Patch(':id/revogar')
