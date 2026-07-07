@@ -1466,6 +1466,11 @@ export const cardapioConfig = pgTable('cardapio_config', {
   endEstado: text('end_estado'),
   endReferencia: text('end_referencia'),
   endComplemento: text('end_complemento'),
+  endLat: numeric('end_lat'),
+  endLng: numeric('end_lng'),
+  // Área de atendimento: 'bairro' | 'raio' (exclusivos) + faixas de raio
+  areaModo: text('area_modo').notNull().default('bairro'),
+  raios: jsonb('raios').notNull().default('[]'), // [{ateKm, taxa}]
   // Tipos de pedido (independentes)
   tipoDelivery: boolean('tipo_delivery').notNull().default(true),
   tipoRetirada: boolean('tipo_retirada').notNull().default(false),
@@ -1501,6 +1506,21 @@ export const cardapioBairro = pgTable('cardapio_bairro', {
   taxa: numeric('taxa').notNull().default('0'),
   ativo: boolean('ativo').notNull().default(true),
   ordem: integer('ordem').notNull().default(0),
+});
+
+// ===== Banners do cardápio digital =====
+export const banner = pgTable('banner', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  imagemRef: text('imagem_ref').notNull(),
+  titulo: text('titulo'),
+  link: text('link'),
+  ordem: integer('ordem').notNull().default(0),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const cupom = pgTable('cupom', {

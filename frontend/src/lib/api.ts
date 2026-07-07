@@ -364,6 +364,9 @@ export const api = {
   cardapioBairros: () => req('/cardapio/bairros'),
   setCardapioBairros: (bairros: unknown[]) =>
     req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),
+  cardapioBanners: () => req('/cardapio/banners'),
+  setCardapioBanners: (banners: unknown[]) =>
+    req('/cardapio/banners', { method: 'PUT', body: JSON.stringify({ banners }) }),
   cardapioCupons: () => req('/cardapio/cupons'),
   criarCupom: (body: Record<string, unknown>) =>
     req('/cardapio/cupons', { method: 'POST', body: JSON.stringify(body) }),

@@ -15,6 +15,7 @@ import {
   complementoGrupo,
   complementoOpcao,
   cardapioBairro,
+  banner,
   cupom,
   fidelidadeCliente,
   pedidoExterno,
@@ -102,6 +103,16 @@ export class CardapioService {
       endEstado: dto.endEstado ?? row?.endEstado ?? null,
       endReferencia: dto.endReferencia ?? row?.endReferencia ?? null,
       endComplemento: dto.endComplemento ?? row?.endComplemento ?? null,
+      endLat: dto.endLat != null ? String(dto.endLat) : row?.endLat ?? null,
+      endLng: dto.endLng != null ? String(dto.endLng) : row?.endLng ?? null,
+      // Área de atendimento (bairro | raio)
+      areaModo: dto.areaModo === 'raio' ? 'raio' : dto.areaModo === 'bairro' ? 'bairro' : row?.areaModo ?? 'bairro',
+      raios: Array.isArray(dto.raios)
+        ? dto.raios
+            .map((r: any) => ({ ateKm: Number(r.ateKm) || 0, taxa: Number(r.taxa) || 0 }))
+            .filter((r: any) => r.ateKm > 0)
+            .sort((a: any, b: any) => a.ateKm - b.ateKm)
+        : row?.raios ?? [],
       // Tipos de pedido
       tipoDelivery: dto.tipoDelivery != null ? !!dto.tipoDelivery : row?.tipoDelivery ?? true,
       tipoRetirada: dto.tipoRetirada != null ? !!dto.tipoRetirada : row?.tipoRetirada ?? false,
@@ -153,6 +164,38 @@ export class CardapioService {
       );
     }
     return this.listarBairros(tenantId, unidadeId);
+  }
+
+  // ===== Banners do cardápio (gestor) =====
+  listarBanners(tenantId: string) {
+    return this.db
+      .select()
+      .from(banner)
+      .where(eq(banner.tenantId, tenantId))
+      .orderBy(banner.ordem);
+  }
+
+  async setBanners(
+    tenantId: string,
+    unidadeId: string | null,
+    banners: { imagemRef: string; titulo?: string; link?: string; ativo?: boolean }[],
+  ) {
+    await this.db.delete(banner).where(eq(banner.tenantId, tenantId));
+    const validos = (banners ?? []).filter((b) => b.imagemRef?.trim());
+    if (validos.length) {
+      await this.db.insert(banner).values(
+        validos.map((b, i) => ({
+          tenantId,
+          unidadeId,
+          imagemRef: b.imagemRef.trim(),
+          titulo: b.titulo?.trim() || null,
+          link: b.link?.trim() || null,
+          ativo: b.ativo !== false,
+          ordem: i,
+        })),
+      );
+    }
+    return this.listarBanners(tenantId);
   }
 
   // ===== Cupons — gestor =====

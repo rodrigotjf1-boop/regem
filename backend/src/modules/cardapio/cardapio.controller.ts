@@ -87,6 +87,17 @@ export class CardapioController {
     return this.service.setBairros(user.tenantId, dto?.unidadeId ?? null, dto?.bairros ?? []);
   }
 
+  @Get('banners')
+  banners(@CurrentUser() user: AuthUser) {
+    return this.service.listarBanners(user.tenantId);
+  }
+
+  @Put('banners')
+  @Roles('presidente', 'gerente')
+  setBanners(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setBanners(user.tenantId, dto?.unidadeId ?? null, dto?.banners ?? []);
+  }
+
   @Get('cupons')
   cupons(@CurrentUser() user: AuthUser) {
     return this.service.listarCupons(user.tenantId);
