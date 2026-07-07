@@ -35,7 +35,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     itens: [
       { k: 'banners', label: 'Banners' },
       { k: 'impressoras', label: 'Impressoras' },
-      { k: 'integracoes', label: 'Integrações', breve: true },
+      { k: 'integracoes', label: 'Integrações' },
       { k: 'robo', label: 'Robô de atendimento', breve: true },
     ],
   },
@@ -58,6 +58,7 @@ export function ConfigPanel({
   const [banners, setBanners] = useState<any[]>([]);
   const [impressoras, setImpressoras] = useState<any[]>([]);
   const [setores, setSetores] = useState<any[]>([]);
+  const [integracoes, setIntegracoes] = useState<any[]>([]);
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
@@ -67,8 +68,19 @@ export function ConfigPanel({
     if (isGestor) {
       api.impressoras().then((p: any) => setImpressoras((p as any[]) ?? [])).catch(() => {});
       api.setores().then((s: any) => setSetores((s as any[]) ?? [])).catch(() => {});
+      api.integracoesDelivery().then((i: any) => setIntegracoes((i as any[]) ?? [])).catch(() => {});
     }
   }, [isGestor]);
+
+  async function salvarIntegracao(dto: any) {
+    try {
+      await api.salvarIntegracao(dto);
+      setIntegracoes(await api.integracoesDelivery() as any[]);
+      toast.success('Integração salva.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
 
   async function salvarImpressora(row: any) {
     try {
@@ -275,8 +287,13 @@ export function ConfigPanel({
                   <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
                 )}
 
+                {/* INTEGRAÇÕES */}
+                {sec === 'integracoes' && (
+                  <Integracoes lista={integracoes} onSalvar={salvarIntegracao} pode={isGestor} />
+                )}
+
                 {/* EM BREVE */}
-                {['integracoes', 'robo'].includes(sec) && (
+                {['robo'].includes(sec) && (
                   <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
                     <p className="font-semibold">{secLabel(sec)}</p>
                     <p className="mt-1">{breveTexto(sec)}</p>
@@ -457,6 +474,54 @@ function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]
         <div className="flex items-center justify-between pt-1">
           <Button type="button" size="sm" variant="outline" onClick={add}>＋ Faixa</Button>
           <Button type="button" onClick={onSalvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', ubereats: 'Uber Eats', rappi: 'Rappi', '99food': '99Food' };
+
+function Integracoes({ lista, onSalvar, pode }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">Credenciais dos apps de delivery externos. As chaves ficam guardadas com segurança e <strong>não são exibidas de volta</strong> — deixe o campo em branco para manter a atual.</p>
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A ativação real (receber pedidos do app) roda no <strong>servidor local (edge)</strong> com essas credenciais. Aqui você só as cadastra.</p>
+      {lista.map((it) => (
+        <IntegracaoCard key={it.canal} it={it} onSalvar={onSalvar} pode={pode} />
+      ))}
+    </div>
+  );
+}
+
+function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) => void; pode: boolean }) {
+  const [ativo, setAtivo] = useState(!!it.ativo);
+  const [merchantId, setMerchantId] = useState(it.merchantId ?? '');
+  const [clientId, setClientId] = useState(it.clientId ?? '');
+  const [clientSecret, setClientSecret] = useState('');
+  const [tokenV, setTokenV] = useState('');
+  useEffect(() => { setAtivo(!!it.ativo); setMerchantId(it.merchantId ?? ''); setClientId(it.clientId ?? ''); }, [it]);
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3">
+      <div className="flex items-center gap-2">
+        <span className="font-display text-sm font-bold">{CANAL_NOME[it.canal] ?? it.canal}</span>
+        <label className="ml-auto flex items-center gap-1 text-xs">
+          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> ativo
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Campo label="Merchant ID"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
+        <Campo label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
+        <Campo label={`Client Secret${it.temSecret ? ' (salvo)' : ''}`}>
+          <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : ''} className="h-8" disabled={!pode} />
+        </Campo>
+        <Campo label={`Token${it.temToken ? ' (salvo)' : ''}`}>
+          <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ''} className="h-8" disabled={!pode} />
+        </Campo>
+      </div>
+      {pode && (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV })}>Salvar</Button>
         </div>
       )}
     </div>

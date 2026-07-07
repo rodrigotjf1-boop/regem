@@ -1509,6 +1509,24 @@ export const cardapioBairro = pgTable('cardapio_bairro', {
   ordem: integer('ordem').notNull().default(0),
 });
 
+// ===== Integrações com apps externos (credenciais por canal) =====
+export const integracao = pgTable('integracao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  canal: text('canal').notNull(), // ifood | ubereats | rappi | 99food | outro
+  ativo: boolean('ativo').notNull().default(false),
+  merchantId: text('merchant_id'),
+  clientId: text('client_id'),
+  clientSecret: text('client_secret'), // secret — não retorna no GET
+  token: text('token'), // secret — não retorna no GET
+  config: jsonb('config').notNull().default('{}'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Banners do cardápio digital =====
 export const banner = pgTable('banner', {
   id: uuid('id').primaryKey().defaultRandom(),

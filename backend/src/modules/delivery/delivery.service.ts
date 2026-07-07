@@ -15,6 +15,7 @@ import {
   comandaItem,
   deliveryConfig,
   funcao,
+  integracao,
   lancamentoCaixa,
   pedidoExterno,
   produto,
@@ -502,6 +503,62 @@ export class DeliveryService {
     if (!ped.comandaId)
       throw new BadRequestException('Pedido ainda não aceito (sem via para imprimir).');
     return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId);
+  }
+
+  // ===== Integrações (credenciais de apps externos) =====
+  private static readonly CANAIS_INTEGRACAO = ['ifood', 'ubereats', 'rappi', '99food'];
+
+  // Lista as integrações — SECRETS MASCARADOS (nunca voltam em texto).
+  async listarIntegracoes(tenantId: string) {
+    const rows = await this.db
+      .select()
+      .from(integracao)
+      .where(eq(integracao.tenantId, tenantId));
+    const porCanal = new Map(rows.map((r) => [r.canal, r]));
+    // Sempre devolve os canais conhecidos (mesmo sem config), + extras salvos.
+    const canais = [
+      ...DeliveryService.CANAIS_INTEGRACAO,
+      ...rows.map((r) => r.canal).filter((c) => !DeliveryService.CANAIS_INTEGRACAO.includes(c)),
+    ];
+    return canais.map((canal) => {
+      const r: any = porCanal.get(canal);
+      return {
+        canal,
+        ativo: !!r?.ativo,
+        merchantId: r?.merchantId ?? null,
+        clientId: r?.clientId ?? null,
+        temSecret: !!r?.clientSecret,
+        temToken: !!r?.token,
+        updatedAt: r?.updatedAt ?? null,
+      };
+    });
+  }
+
+  // Upsert por (tenant, canal). Secret/token só são alterados quando um NOVO
+  // valor não-vazio é enviado — senão o valor atual é preservado.
+  async salvarIntegracao(tenantId: string, dto: any) {
+    const canal = String(dto?.canal ?? '').trim();
+    if (!canal) throw new BadRequestException('Canal obrigatório.');
+    const [atual] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, canal)));
+    const secretNovo = typeof dto.clientSecret === 'string' && dto.clientSecret.trim() ? dto.clientSecret.trim() : undefined;
+    const tokenNovo = typeof dto.token === 'string' && dto.token.trim() ? dto.token.trim() : undefined;
+    const vals: any = {
+      ativo: dto.ativo != null ? !!dto.ativo : atual?.ativo ?? false,
+      merchantId: dto.merchantId ?? atual?.merchantId ?? null,
+      clientId: dto.clientId ?? atual?.clientId ?? null,
+      clientSecret: secretNovo ?? atual?.clientSecret ?? null,
+      token: tokenNovo ?? atual?.token ?? null,
+      updatedAt: new Date(),
+    };
+    if (atual) {
+      await this.db.update(integracao).set(vals).where(eq(integracao.id, atual.id));
+    } else {
+      await this.db.insert(integracao).values({ tenantId, unidadeId: dto.unidadeId ?? null, canal, ...vals });
+    }
+    return { ok: true };
   }
 
   // Entregadores = colaboradores ativos com função cujo nome contém "entregador".

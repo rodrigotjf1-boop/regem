@@ -292,6 +292,9 @@ export const api = {
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
   bairrosDelivery: () => req('/delivery/bairros'),
+  integracoesDelivery: () => req('/delivery/integracoes'),
+  salvarIntegracao: (body: Record<string, unknown>) =>
+    req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
   criarPedidoDelivery: (body: Record<string, unknown>) =>
     req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
   nfDelivery: (id: string) =>
