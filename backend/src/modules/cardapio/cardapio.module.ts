@@ -6,9 +6,10 @@ import {
 import { CardapioService } from './cardapio.service';
 import { VendasModule } from '../vendas/vendas.module';
 import { DeliveryModule } from '../delivery/delivery.module';
+import { AtendimentoModule } from '../atendimento/atendimento.module';
 
 @Module({
-  imports: [VendasModule, DeliveryModule],
+  imports: [VendasModule, DeliveryModule, AtendimentoModule],
   controllers: [CardapioController, CardapioPublicoController],
   providers: [CardapioService],
 })

@@ -25,6 +25,7 @@ import {
 } from '../../db/schema';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
+import { AtendimentoService } from '../atendimento/atendimento.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -33,7 +34,20 @@ export class CardapioService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly vendas: VendasService,
     private readonly delivery: DeliveryService,
+    private readonly atendimento: AtendimentoService,
   ) {}
+
+  // Público (robô): abre um chamado de atendimento (handoff) para a loja.
+  async abrirAtendimento(token: string, dto: any) {
+    const cfg = await this.resolver(token);
+    return this.atendimento.abrir(cfg.tenantId, cfg.unidadeId, {
+      tipo: dto?.tipo,
+      cliente: dto?.cliente,
+      telefone: dto?.telefone,
+      pedidoNumero: dto?.pedidoNumero,
+      mensagem: dto?.mensagem,
+    });
+  }
 
   // ===== Config (gestor) =====
   private async configRaw(tenantId: string, unidadeId?: string | null) {

@@ -164,6 +164,16 @@ export class RealtimeGateway
     });
   }
 
+  // Chamado de atendimento aberto (handoff do robô) → sino no app do tenant.
+  @OnEvent('atendimento.novo')
+  onAtendimentoNovo(p: { tenantId: string; chamado: any }) {
+    if (!this.server) return;
+    this.server.to(`tenant:${p.tenantId}`).emit('atendimento:novo', {
+      chamado: p.chamado,
+      em: new Date().toISOString(),
+    });
+  }
+
   // Garçom lançou item numa mesa → avisa o PDV dono (e o tenant como fallback).
   @OnEvent('mesa.evento')
   onMesaEvento(p: {

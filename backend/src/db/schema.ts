@@ -1533,6 +1533,24 @@ export const integracao = pgTable('integracao', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ===== Chamados de atendimento (handoff robô → humano) =====
+export const atendimentoChamado = pgTable('atendimento_chamado', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tipo: text('tipo').notNull().default('humano'), // mudanca | erro | humano | outro
+  cliente: text('cliente'),
+  telefone: text('telefone'),
+  pedidoNumero: text('pedido_numero'),
+  mensagem: text('mensagem'),
+  status: text('status').notNull().default('aberto'), // aberto | resolvido
+  resolvidoPorId: uuid('resolvido_por_id'),
+  resolvidoEm: timestamp('resolvido_em', { withTimezone: true }),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Banners do cardápio digital =====
 export const banner = pgTable('banner', {
   id: uuid('id').primaryKey().defaultRandom(),
