@@ -21,6 +21,7 @@ export default function CardapioConfigPage() {
   const [cfg, setCfg] = useState<any>({ ativo: false, modo: 'mesa', token: null });
   const [mesaNum, setMesaNum] = useState('');
   const [qr, setQr] = useState('');
+  const [qrMesa, setQrMesa] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [bairros, setBairros] = useState<{ nome: string; taxa: string }[]>([]);
   const [cupons, setCupons] = useState<any[]>([]);
@@ -69,18 +70,21 @@ export default function CardapioConfigPage() {
   }, [reload, router]);
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const link =
-    cfg.token
-      ? `${origin}/c/${cfg.token}${cfg.modo === 'mesa' && mesaNum ? `?mesa=${mesaNum}` : ''}`
-      : '';
+  // Link do DELIVERY/cardápio digital = link puro (sem mesa). O cliente fecha o
+  // pedido no checkout (tipo, pagamento, endereço).
+  const linkDelivery = cfg.token ? `${origin}/c/${cfg.token}` : '';
+  // Link/QR de MESA = com ?mesa=N (o pedido vai direto para a comanda da mesa).
+  const linkMesa = cfg.token && mesaNum.trim() ? `${linkDelivery}?mesa=${mesaNum.trim()}` : '';
 
   useEffect(() => {
-    if (!link) {
-      setQr('');
-      return;
-    }
-    QRCode.toDataURL(link, { width: 240, margin: 1 }).then(setQr).catch(() => setQr(''));
-  }, [link]);
+    if (!linkDelivery) { setQr(''); return; }
+    QRCode.toDataURL(linkDelivery, { width: 240, margin: 1 }).then(setQr).catch(() => setQr(''));
+  }, [linkDelivery]);
+
+  useEffect(() => {
+    if (!linkMesa) { setQrMesa(''); return; }
+    QRCode.toDataURL(linkMesa, { width: 240, margin: 1 }).then(setQrMesa).catch(() => setQrMesa(''));
+  }, [linkMesa]);
 
   const set = (patch: any) => setCfg((s: any) => ({ ...s, ...patch }));
   function addCartao() {
@@ -245,42 +249,57 @@ export default function CardapioConfigPage() {
         </Card>
 
         {cfg.token && (
-          <Card className="space-y-3 p-4">
-            <h2 className="font-display text-sm font-bold">Link & QR Code</h2>
-            {cfg.modo === 'mesa' && (
+          <>
+            {/* Link do DELIVERY / cardápio digital */}
+            <Card className="space-y-3 p-4">
+              <div>
+                <h2 className="font-display text-sm font-bold">🛵 Link do delivery (cardápio digital)</h2>
+                <p className="text-xs text-muted-foreground">Compartilhe no WhatsApp/Instagram. O cliente monta o pedido e <strong>fecha no checkout</strong> (tipo, pagamento e endereço).</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                {qr && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={qr} alt="QR do delivery" width={180} height={180} className="rounded-lg border border-border" />
+                )}
+                <div className="min-w-0 flex-1 space-y-2">
+                  <code className="block break-all rounded-md bg-secondary px-3 py-2 text-xs">{linkDelivery}</code>
+                  <Button type="button" variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(linkDelivery); toast.success('Link do delivery copiado.'); }}>
+                    Copiar link do delivery
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* QR por MESA (pedido direto na comanda da mesa) */}
+            <Card className="space-y-3 p-4">
+              <div>
+                <h2 className="font-display text-sm font-bold">🍽 QR por mesa (pedido na mesa)</h2>
+                <p className="text-xs text-muted-foreground">Para colar em cada mesa. O pedido vai <strong>direto para a comanda da mesa</strong> (sem checkout). Gere um QR por número.</p>
+              </div>
               <div className="flex items-end gap-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Número da mesa (para o QR)</Label>
+                  <Label className="text-xs">Número da mesa</Label>
                   <Input value={mesaNum} onChange={(e) => setMesaNum(e.target.value)} placeholder="Ex.: 12" className="w-32" />
                 </div>
               </div>
-            )}
-            <div className="flex flex-wrap items-center gap-4">
-              {qr && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={qr} alt="QR Code do cardápio" width={200} height={200} className="rounded-lg border border-border" />
+              {linkMesa ? (
+                <div className="flex flex-wrap items-center gap-4">
+                  {qrMesa && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={qrMesa} alt={`QR mesa ${mesaNum}`} width={180} height={180} className="rounded-lg border border-border" />
+                  )}
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <code className="block break-all rounded-md bg-secondary px-3 py-2 text-xs">{linkMesa}</code>
+                    <Button type="button" variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(linkMesa); toast.success(`Link da mesa ${mesaNum} copiado.`); }}>
+                      Copiar link da mesa {mesaNum}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Digite o número da mesa acima para gerar o QR dela.</p>
               )}
-              <div className="min-w-0 flex-1 space-y-2">
-                <code className="block break-all rounded-md bg-secondary px-3 py-2 text-xs">{link}</code>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(link);
-                    toast.success('Link copiado.');
-                  }}
-                >
-                  Copiar link
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  {cfg.modo === 'mesa'
-                    ? 'Gere um QR por mesa (troque o número acima) e cole em cada mesa.'
-                    : 'Imprima o QR no balcão / totem para o cliente pedir pelo celular.'}
-                </p>
-              </div>
-            </div>
-          </Card>
+            </Card>
+          </>
         )}
 
         {/* Frete por bairro */}
