@@ -360,18 +360,23 @@ export default function KdsPage() {
               );
               const cor = corTempo(min, cores);
               const atrasado = p.tempoPreparoMin && min > p.tempoPreparoMin;
+              const cancelado = p.status === 'cancelado';
+              const alterado = p.obs === 'ALTERADO';
               return (
                 <div
                   key={p.id}
                   className="flex flex-col rounded-[14px] border p-4"
                   style={{
-                    background: '#12202A',
-                    borderColor: '#22333F',
-                    borderTop: `6px solid ${cor}`,
+                    background: cancelado ? '#2A1416' : '#12202A',
+                    borderColor: cancelado ? '#8A2B2B' : '#22333F',
+                    borderTop: `6px solid ${cancelado ? '#E05252' : cor}`,
                   }}
                 >
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-[16px] font-bold" style={{ fontFamily: 'Archivo, sans-serif' }}>
+                    <span
+                      className="text-[16px] font-bold"
+                      style={{ fontFamily: 'Archivo, sans-serif', textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.7 : 1 }}
+                    >
                       {p.senha
                         ? `Senha ${p.senha}`
                         : p.mesa
@@ -395,9 +400,17 @@ export default function KdsPage() {
                       🛵 {p.plataforma}{p.senhaPlataforma ? ` · #${p.senhaPlataforma}` : ''}
                     </div>
                   )}
+                  {(cancelado || alterado) && (
+                    <div
+                      className="mb-2 inline-flex w-max items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold"
+                      style={cancelado ? { background: 'rgba(224,82,82,.2)', color: '#FF8A80' } : { background: 'rgba(226,163,64,.18)', color: '#F4C578' }}
+                    >
+                      {cancelado ? '✕ CANCELADA' : '✏️ ALTERADO'}
+                    </div>
+                  )}
                   <div className="mb-3 flex-1 space-y-1">
                     {(p.itens ?? []).map((it: any) => (
-                      <div key={it.id} className="text-[14px]">
+                      <div key={it.id} className="text-[14px]" style={{ textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.65 : 1 }}>
                         <span className="font-semibold">
                           {Number(it.quantidade)}× {it.descricao}
                         </span>
@@ -423,19 +436,21 @@ export default function KdsPage() {
                   <div className="flex items-center justify-between">
                     <span
                       className="text-[11px] uppercase tracking-wide"
-                      style={{ color: atrasado ? '#FF5A4E' : '#7C93A1' }}
+                      style={{ color: cancelado ? '#FF8A80' : atrasado ? '#FF5A4E' : '#7C93A1' }}
                     >
                       {p.status}
-                      {atrasado ? ' · atrasado' : ''}
+                      {atrasado && !cancelado ? ' · atrasado' : ''}
                     </span>
-                    <button
-                      type="button"
-                      onClick={() => avancar(p.id)}
-                      className="rounded-[10px] px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.08em]"
-                      style={{ background: '#19C08F', color: '#04241A' }}
-                    >
-                      {proximaLabel(p.status)}
-                    </button>
+                    {!cancelado && (
+                      <button
+                        type="button"
+                        onClick={() => avancar(p.id)}
+                        className="rounded-[10px] px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.08em]"
+                        style={{ background: '#19C08F', color: '#04241A' }}
+                      >
+                        {proximaLabel(p.status)}
+                      </button>
+                    )}
                   </div>
                 </div>
               );

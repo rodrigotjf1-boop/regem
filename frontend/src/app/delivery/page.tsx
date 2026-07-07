@@ -8,14 +8,22 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
+import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
+import { NovoPedido } from '@/components/delivery/novo-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hora = (d?: string) =>
   d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+// Contador HH:MM:SS a partir de ms restantes (null quando estourou).
+const countdown = (ms: number) => {
+  if (ms <= 0) return null;
+  const s = Math.floor(ms / 1000);
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${p2(Math.floor(s / 3600))}:${p2(Math.floor((s % 3600) / 60))}:${p2(s % 60)}`;
+};
 
 const CANAL_LABEL: Record<string, string> = {
   ifood: 'iFood',
@@ -26,7 +34,7 @@ const CANAL_LABEL: Record<string, string> = {
 
 // Colunas do quadro. `status` = quais estados do pedido caem na coluna.
 const COLUNAS = [
-  { key: 'chegada', titulo: 'Chegada', dica: 'aguardando aceite', cor: 'var(--info)', status: ['novo'] },
+  { key: 'chegada', titulo: 'Em análise', dica: 'aguardando aceite', cor: 'var(--info)', status: ['novo'] },
   { key: 'producao', titulo: 'Produção', dica: 'preparando', cor: 'var(--warn)', status: ['confirmado', 'pronto'] },
   { key: 'rota', titulo: 'Em rota', dica: 'saiu para entrega', cor: 'var(--primary)', status: ['despachado'] },
   { key: 'finalizado', titulo: 'Finalizado', dica: 'concluído/cancelado', cor: 'var(--muted-foreground)', status: ['concluido', 'cancelado'] },
@@ -68,19 +76,29 @@ export default function DeliveryPage() {
   const [menuAberto, setMenuAberto] = useState<string | null>(null);
   const [configQuadro, setConfigQuadro] = useState(false);
   const [despacho, setDespacho] = useState<any>(null);
+  const [detalhe, setDetalhe] = useState<any>(null);
+  const [entregadores, setEntregadores] = useState<any[]>([]);
+  const [tipoFiltro, setTipoFiltro] = useState<'todos' | 'entrega' | 'retirada'>('todos');
+  const [novoPedido, setNovoPedido] = useState(false);
+  const [pausarOpen, setPausarOpen] = useState(false);
+  const [agora, setAgora] = useState(() => Date.now());
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
 
   const reload = useCallback(async () => {
     try {
-      const [ps, c, cx] = await Promise.all([
+      const [ps, c, cx, ent] = await Promise.all([
         api.deliveryPedidos(),
         api.deliveryConfig().catch(() => cfgRef.current),
         api.caixaAberta('delivery').catch(() => null),
+        api.entregadoresDelivery().catch(() => []),
       ]);
       setPedidos(ps as any[]);
       setCfg(c);
       setCaixa(cx);
+      setEntregadores(ent as any[]);
+      // Mantém o painel de detalhe sincronizado com os dados novos.
+      setDetalhe((d: any) => (d ? (ps as any[]).find((x) => x.id === d.id) ?? null : null));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -93,7 +111,8 @@ export default function DeliveryPage() {
     }
     reload();
     const t = setInterval(reload, 15000);
-    return () => clearInterval(t);
+    const c = setInterval(() => setAgora(Date.now()), 1000); // contador "prepare em até"
+    return () => { clearInterval(t); clearInterval(c); };
   }, [reload, router]);
 
   async function acao(fn: Promise<any>, ok: string) {
@@ -124,9 +143,8 @@ export default function DeliveryPage() {
     acao(api.avancarDelivery(p.id), 'Status atualizado.');
   }
 
-  function cancelar(p: any) {
-    const m = window.prompt('Motivo do cancelamento:') ?? undefined;
-    if (m !== undefined) acao(api.cancelarDelivery(p.id, m || undefined), 'Pedido cancelado.');
+  function retornar(p: any) {
+    acao(api.retornarDelivery(p.id), 'Pedido voltou para a produção.');
   }
 
   // Aplica o filtro da coluna a um pedido.
@@ -151,10 +169,11 @@ export default function DeliveryPage() {
     for (const col of COLUNAS) {
       map[col.key] = (pedidos ?? [])
         .filter((p) => (col.status as readonly string[]).includes(p.status))
+        .filter((p) => tipoFiltro === 'todos' || p.tipo === tipoFiltro)
         .filter((p) => passaFiltro(p, filtros[col.key] ?? null));
     }
     return map;
-  }, [pedidos, filtros]);
+  }, [pedidos, filtros, tipoFiltro]);
 
   const novosPendentes = (pedidos ?? []).filter((p) => p.status === 'novo').length;
 
@@ -173,33 +192,70 @@ export default function DeliveryPage() {
           />
         )}
 
+        {/* Banner de pausa */}
+        {cfg.pausado && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-4 py-2.5">
+            <span className="text-sm font-bold text-warn">
+              ⏸ Loja pausada{cfg.pausadoAte ? ` até ${hora(cfg.pausadoAte)}` : ''}
+            </span>
+            {cfg.pausaMotivo && <span className="text-xs text-muted-foreground">· {cfg.pausaMotivo}</span>}
+            {isGestor && (
+              <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={() => acao(api.despausarDelivery(), 'Loja reativada.')}>
+                Reativar agora
+              </Button>
+            )}
+          </div>
+        )}
+
         {/* Barra de controle — FORA do quadro, sempre acessível */}
         <Card className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3">
-          <span className="font-display text-sm font-bold">Quadro de entregas</span>
+          {/* Filtro geral por tipo de pedido */}
+          <div className="inline-flex rounded-lg border border-border p-0.5 text-sm" role="group" aria-label="Filtrar por tipo">
+            {([['todos', 'Todos'], ['entrega', '🛵'], ['retirada', '🏪']] as const).map(([k, lb]) => {
+              const ativo = tipoFiltro === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setTipoFiltro(k)}
+                  className={`rounded-md px-3 py-1 ${ativo ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                  title={k === 'entrega' ? 'Delivery' : k === 'retirada' ? 'Retirada no balcão' : 'Todos'}
+                >
+                  {lb}
+                </button>
+              );
+            })}
+          </div>
           {novosPendentes > 0 && (
             <span className="rounded-full bg-info/15 px-2 py-0.5 text-xs font-bold text-info">
-              {novosPendentes} novo(s) aguardando aceite
+              {novosPendentes} em análise
             </span>
           )}
           {isGestor && (
-            <>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={!!cfg.ativo} onChange={(e) => toggleCfg({ ativo: e.target.checked })} className="h-4 w-4 accent-primary" />
-                Delivery ativo
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={!!cfg.autoAceitar} onChange={(e) => toggleCfg({ autoAceitar: e.target.checked })} className="h-4 w-4 accent-primary" />
-                Aceitar automaticamente
-              </label>
-            </>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!cfg.autoAceitar} onChange={(e) => toggleCfg({ autoAceitar: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Aceitar automaticamente
+            </label>
           )}
-          <div className="ml-auto flex gap-1.5">
-            <Button type="button" variant="outline" size="sm" onClick={() => setConfigQuadro(true)}>
-              ⚙️ Configurar quadro
-            </Button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button type="button" size="sm" onClick={() => setNovoPedido(true)}>＋ Novo pedido</Button>
             {isGestor && (
-              <Button type="button" variant="outline" size="sm" onClick={() => acao(api.simularDelivery({ produto: 'Combo delivery', preco: 39.9 }), 'Pedido simulado recebido.')}>
-                Simular pedido
+              <div className="relative">
+                <Button type="button" variant="outline" size="sm" onClick={() => setPausarOpen((v) => !v)}>
+                  {cfg.pausado ? '⏸ Pausada' : '⏸ Pausar'}
+                </Button>
+                {pausarOpen && (
+                  <PausarMenu
+                    onFechar={() => setPausarOpen(false)}
+                    onPausar={async (min, motivo) => { await acao(api.pausarDelivery(min, motivo), 'Loja pausada.'); setPausarOpen(false); }}
+                  />
+                )}
+              </div>
+            )}
+            <Button type="button" variant="outline" size="sm" onClick={() => setConfigQuadro(true)}>⚙️</Button>
+            {isGestor && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => acao(api.simularDelivery({ produto: 'Combo delivery', preco: 39.9 }), 'Pedido simulado recebido.')}>
+                Simular
               </Button>
             )}
           </div>
@@ -248,6 +304,11 @@ export default function DeliveryPage() {
                     <p className="mt-0.5 pl-4 text-[11px] text-muted-foreground">{col.dica}</p>
                   </div>
 
+                  {/* Tempo de espera (topo da coluna "Em análise") */}
+                  {col.key === 'chegada' && (
+                    <PrepTempoCard cfg={cfg} podeEditar={isGestor} onSave={toggleCfg} />
+                  )}
+
                   {/* Cards */}
                   <div className="flex flex-col gap-2">
                     {lista.length === 0 && (
@@ -258,11 +319,14 @@ export default function DeliveryPage() {
                     {lista.map((p) => (
                       <PedidoCard
                         key={p.id}
+                        cfg={cfg}
+                        agora={agora}
                         p={p}
-                        isGestor={isGestor}
+                        onAbrir={() => setDetalhe(p)}
                         onAceitar={() => acao(api.aceitarDelivery(p.id), 'Pedido aceito e enviado à produção.')}
                         onAvancar={() => avancar(p)}
-                        onCancelar={() => cancelar(p)}
+                        onRetornar={() => retornar(p)}
+                        onNf={() => acao(api.nfDelivery(p.id), 'NF emitida.')}
                       />
                     ))}
                   </div>
@@ -306,14 +370,47 @@ export default function DeliveryPage() {
       {despacho && (
         <DespachoModal
           pedido={despacho}
+          entregadores={entregadores}
           onFechar={() => setDespacho(null)}
-          onConfirmar={async (nome) => {
-            await acao(api.avancarDelivery(despacho.id, { entregadorNome: nome }), 'Pedido despachado.');
+          onConfirmar={async (ent) => {
+            await acao(api.avancarDelivery(despacho.id, ent), 'Pedido despachado.');
             setDespacho(null);
           }}
         />
       )}
+
+      {/* Painel flutuante: detalhe do pedido (reimprimir/alterar/cancelar) */}
+      {detalhe && (
+        <PedidoDetalhe pedido={detalhe} onClose={() => setDetalhe(null)} onChanged={reload} />
+      )}
+
+      {/* Novo pedido manual */}
+      {novoPedido && <NovoPedido onFechar={() => setNovoPedido(false)} onCriado={reload} />}
     </Shell>
+  );
+}
+
+// ---- Menu de pausa (30min / 1h / 12h + motivo) ----
+function PausarMenu({ onFechar, onPausar }: { onFechar: () => void; onPausar: (min: number, motivo?: string) => void }) {
+  const [motivo, setMotivo] = useState('');
+  const opcoes: [number, string][] = [[30, '30 min'], [60, '1 hora'], [720, '12 horas']];
+  return (
+    <>
+      <button type="button" className="fixed inset-0 z-40 cursor-default" aria-label="Fechar" onClick={onFechar} />
+      <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-border bg-card p-3 shadow-lg">
+        <p className="mb-2 text-xs font-semibold text-muted-foreground">Pausar a loja por</p>
+        <div className="space-y-1">
+          <Input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" autoFocus />
+          <div className="mt-2 flex flex-col gap-1.5">
+            {opcoes.map(([min, lb]) => (
+              <Button key={min} type="button" size="sm" variant="outline" onClick={() => onPausar(min, motivo.trim() || undefined)}>
+                {lb}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -329,7 +426,7 @@ function FiltroMenu({
   onLimpar: () => void;
   onFechar: () => void;
 }) {
-  const [campo, setCampo] = useState(atual?.campo ?? 'entregador');
+  const [campo, setCampo] = useState(atual?.campo ?? 'numero');
   const [valor, setValor] = useState(atual?.valor ?? '');
   return (
     <>
@@ -364,67 +461,115 @@ function FiltroMenu({
   );
 }
 
-// ---- Modal de despacho: atribui o entregador ----
+// ---- Modal de despacho: escolhe o entregador (função Entregador) ----
 function DespachoModal({
   pedido,
+  entregadores,
   onFechar,
   onConfirmar,
 }: {
   pedido: any;
+  entregadores: any[];
   onFechar: () => void;
-  onConfirmar: (nome: string) => void;
+  onConfirmar: (ent: { entregadorId?: string | null; entregadorNome: string; entregadorTelefone?: string | null }) => void;
 }) {
-  const [nome, setNome] = useState('');
+  // "Nenhum" é a opção padrão predefinida quando não há entregador cadastrado.
+  const opcoes = [{ id: '', nome: 'Nenhum', telefone: null }, ...entregadores];
+  const [sel, setSel] = useState(opcoes[0]);
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 p-4" onClick={onFechar}>
       <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-display font-semibold">Despachar {pedido.displayId ?? 'pedido'}</h3>
-        <p className="mb-3 mt-0.5 text-xs text-muted-foreground">Quem vai levar? (habilita o filtro por entregador)</p>
-        <div className="space-y-1">
-          <Label className="text-xs">Entregador</Label>
-          <Input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do entregador" autoFocus />
+        <p className="mb-3 mt-0.5 text-xs text-muted-foreground">
+          Quem vai levar? {entregadores.length === 0 && '(cadastre colaboradores com a função "Entregador" para aparecerem aqui)'}
+        </p>
+        <div className="space-y-1.5">
+          {opcoes.map((e) => (
+            <button
+              key={e.id || 'nenhum'}
+              type="button"
+              onClick={() => setSel(e)}
+              className={`flex w-full items-center justify-between rounded-lg border p-2.5 text-left text-sm ${sel.id === e.id ? 'border-primary bg-primary/10' : 'border-border'}`}
+            >
+              <span className="font-medium">{e.id ? '🛵 ' : ''}{e.nome}</span>
+              {e.telefone && <span className="text-xs text-muted-foreground">📞 {e.telefone}</span>}
+            </button>
+          ))}
         </div>
         <div className="mt-4 flex gap-2">
           <Button type="button" variant="ghost" className="flex-1" onClick={onFechar}>Cancelar</Button>
-          <Button type="button" className="flex-1" onClick={() => onConfirmar(nome.trim())}>Despachar</Button>
+          <Button type="button" className="flex-1" onClick={() => onConfirmar({ entregadorId: sel.id || null, entregadorNome: sel.nome, entregadorTelefone: sel.telefone })}>Despachar</Button>
         </div>
       </Card>
     </div>
   );
 }
 
-// ---- Card de pedido ----
+// ---- Card de pedido (clicável → abre o detalhe) ----
 function PedidoCard({
   p,
-  isGestor,
+  cfg,
+  agora,
+  onAbrir,
   onAceitar,
   onAvancar,
-  onCancelar,
+  onRetornar,
+  onNf,
 }: {
   p: any;
-  isGestor: boolean;
+  cfg: any;
+  agora: number;
+  onAbrir: () => void;
   onAceitar: () => void;
   onAvancar: () => void;
-  onCancelar: () => void;
+  onRetornar: () => void;
+  onNf: () => void;
 }) {
   const s = STATUS[p.status] ?? { label: p.status, cor: '' };
   const finalizado = p.status === 'concluido' || p.status === 'cancelado';
+  const cancelado = p.status === 'cancelado';
   const enderecoFmt = p.enderecoRua
     ? `${p.enderecoRua}${p.enderecoNumero ? `, ${p.enderecoNumero}` : ''}${p.enderecoBairro ? ` · ${p.enderecoBairro}` : ''}`
     : p.endereco;
+  // Ações não devem abrir o detalhe.
+  const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
+  // Contador "prepare em até" (só enquanto em análise/produção).
+  const prepMax = p.tipo === 'retirada' ? cfg?.prepBalcaoMax ?? 25 : cfg?.prepDeliveryMax ?? 55;
+  const emPreparo = ['novo', 'confirmado', 'pronto'].includes(p.status);
+  const restanteMs = new Date(p.criadoEm).getTime() + prepMax * 60000 - agora;
+  const cd = emPreparo ? countdown(restanteMs) : null;
+  const atrasado = emPreparo && restanteMs <= 0;
+  const mapa = enderecoFmt
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${enderecoFmt} ${p.enderecoBairro ?? ''}`)}`
+    : null;
   return (
-    <div className={`rounded-lg border bg-card p-3 ${p.autoAceiteFalhou ? 'border-destructive/60' : 'border-border'}`}>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onAbrir}
+      onKeyDown={(e) => { if (e.key === 'Enter') onAbrir(); }}
+      className={`cursor-pointer rounded-lg border bg-card p-3 text-left transition hover:border-primary/50 ${p.autoAceiteFalhou ? 'border-destructive/60' : 'border-border'}`}
+    >
       {p.autoAceiteFalhou && (
         <p className="mb-2 rounded bg-destructive/10 px-2 py-1 text-[11px] font-bold text-destructive">
           ⚠️ Falha no aceite automático — revise e aceite manualmente
         </p>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="font-semibold">{p.displayId ?? 'Pedido'}</span>
+        <span className="text-xs">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
+        <span className={`font-semibold ${cancelado ? 'line-through opacity-70' : ''}`}>{p.displayId ?? 'Pedido'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[11px] ${s.cor}`}>{s.label}</span>
+        {p.alterado && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">ALTERADO</span>}
         <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
-        <span className="ml-auto font-mono text-sm font-bold">{brl(Number(p.total))}</span>
+        <span className="ml-auto font-mono text-[11px] text-muted-foreground">{hora(p.criadoEm)}</span>
       </div>
+
+      {/* Contador de preparo */}
+      {emPreparo && (
+        <div className={`mt-1.5 rounded px-2 py-1 text-center text-xs font-bold ${atrasado ? 'bg-destructive/10 text-destructive' : 'bg-info/10 text-info'}`}>
+          {atrasado ? 'Atrasado — priorizar' : `Prepare em até ${cd}`}
+        </div>
+      )}
 
       {/* Pagamento */}
       <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -438,47 +583,124 @@ function PedidoCard({
           <span className="text-muted-foreground">troco p/ {brl(Number(p.trocoPara))}</span>
         )}
         {Number(p.taxaEntrega) > 0 && <span className="text-muted-foreground">· taxa {brl(Number(p.taxaEntrega))}</span>}
+        <span className="ml-auto font-mono text-sm font-bold text-foreground">{brl(Number(p.total))}</span>
       </div>
 
       {/* Cliente + endereço */}
-      <div className="mt-1 text-xs text-muted-foreground">
-        <span className="capitalize">{p.tipo}</span>
-        {p.clienteNome ? ` · ${p.clienteNome}` : ''}
-        {enderecoFmt ? ` · ${enderecoFmt}` : ''}
-        {p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}
+      <div className="mt-1.5 flex items-start gap-1.5">
+        {p.numero != null && (
+          <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-secondary text-[10px] font-bold text-muted-foreground">{p.numero}</span>
+        )}
+        <div className={`min-w-0 flex-1 text-xs text-muted-foreground ${cancelado ? 'line-through' : ''}`}>
+          <span className="font-medium text-foreground">{p.clienteNome ?? 'Cliente'}</span>
+          {p.clienteTelefone ? ` · ${p.clienteTelefone}` : ''}
+          {enderecoFmt ? <span className="block">{enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</span> : null}
+        </div>
+        {mapa && (
+          <a
+            href={mapa}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="Abrir no mapa"
+            className="mt-0.5 shrink-0 rounded-md bg-primary/10 px-1.5 py-1 text-primary hover:bg-primary/20"
+          >
+            📍
+          </a>
+        )}
       </div>
-      {p.entregadorNome && <div className="mt-0.5 text-xs font-medium">🛵 {p.entregadorNome}</div>}
+      {p.entregadorNome && (
+        <div className="mt-0.5 text-xs font-medium">
+          🛵 {p.entregadorNome}{p.entregadorTelefone ? ` · 📞 ${p.entregadorTelefone}` : ''}
+        </div>
+      )}
       {p.agendamento && <div className="mt-0.5 text-xs text-info">agendado p/ {hora(p.agendamento)}</div>}
 
       {/* Itens */}
       <div className="mt-1.5 space-y-0.5 border-t border-border pt-1.5">
         {(p.itens ?? []).map((it: any, k: number) => (
-          <div key={k} className="text-xs">
+          <div key={k} className={`text-xs ${cancelado ? 'line-through opacity-70' : ''}`}>
             <span className="font-medium">{Number(it.quantidade)}× {it.descricao}</span>
             {it.observacao && <span className="text-muted-foreground"> · {it.observacao}</span>}
           </div>
         ))}
       </div>
 
-      {p.status === 'cancelado' && p.motivoCancelamento && (
-        <p className="mt-1 text-[11px] text-destructive">Motivo: {p.motivoCancelamento}</p>
+      {cancelado && p.motivoCancelamento && (
+        <p className="mt-1 text-[11px] text-destructive">Cancelado — {p.motivoCancelamento}</p>
       )}
 
       {/* Ações */}
       {!finalizado && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
           {p.status === 'novo' && (
-            <Button type="button" size="sm" onClick={onAceitar}>Aceitar</Button>
+            <Button type="button" size="sm" onClick={stop(onAceitar)}>Aceitar</Button>
           )}
           {AVANCAR[p.status] && (
-            <Button type="button" size="sm" variant="outline" onClick={onAvancar}>{AVANCAR[p.status]}</Button>
+            <Button type="button" size="sm" variant="outline" onClick={stop(onAvancar)}>{AVANCAR[p.status]}</Button>
           )}
-          {isGestor && (
-            <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={onCancelar}>Cancelar</Button>
+          {p.status === 'despachado' && (
+            <Button type="button" size="sm" variant="ghost" onClick={stop(onRetornar)}>↩ Retornar à produção</Button>
+          )}
+          {p.comandaId && p.status !== 'novo' && (
+            <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={stop(onNf)} title="Emitir nota fiscal">NF</Button>
           )}
         </div>
       )}
-      <p className="mt-1.5 text-right font-mono text-[10px] text-muted-foreground">{hora(p.criadoEm)}</p>
+    </div>
+  );
+}
+
+// ---- Card editável de tempo de preparo (topo da coluna "Em análise") ----
+function PrepTempoCard({ cfg, podeEditar, onSave }: { cfg: any; podeEditar: boolean; onSave: (patch: any) => void }) {
+  const [editando, setEditando] = useState(false);
+  const [bMin, setBMin] = useState('');
+  const [bMax, setBMax] = useState('');
+  const [dMin, setDMin] = useState('');
+  const [dMax, setDMax] = useState('');
+  function abrir() {
+    setBMin(String(cfg?.prepBalcaoMin ?? 15));
+    setBMax(String(cfg?.prepBalcaoMax ?? 25));
+    setDMin(String(cfg?.prepDeliveryMin ?? 45));
+    setDMax(String(cfg?.prepDeliveryMax ?? 55));
+    setEditando(true);
+  }
+  function salvar() {
+    onSave({
+      prepBalcaoMin: Number(bMin) || 0, prepBalcaoMax: Number(bMax) || 0,
+      prepDeliveryMin: Number(dMin) || 0, prepDeliveryMax: Number(dMax) || 0,
+    });
+    setEditando(false);
+  }
+  return (
+    <div className="mb-2 rounded-lg border border-border bg-card p-2.5 text-xs">
+      {!editando ? (
+        <div className="flex items-center gap-2">
+          <span><strong>Balcão:</strong> {cfg?.prepBalcaoMin ?? 15} a {cfg?.prepBalcaoMax ?? 25} min</span>
+          <span className="text-muted-foreground">·</span>
+          <span><strong>Delivery:</strong> {cfg?.prepDeliveryMin ?? 45} a {cfg?.prepDeliveryMax ?? 55} min</span>
+          {podeEditar && (
+            <button type="button" className="ml-auto font-semibold text-primary" onClick={abrir}>Editar</button>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center gap-1"><span className="w-16">Balcão</span>
+            <Input value={bMin} onChange={(e) => setBMin(e.target.value)} inputMode="numeric" className="h-7" />
+            <span>a</span>
+            <Input value={bMax} onChange={(e) => setBMax(e.target.value)} inputMode="numeric" className="h-7" /><span>min</span>
+          </div>
+          <div className="flex items-center gap-1"><span className="w-16">Delivery</span>
+            <Input value={dMin} onChange={(e) => setDMin(e.target.value)} inputMode="numeric" className="h-7" />
+            <span>a</span>
+            <Input value={dMax} onChange={(e) => setDMax(e.target.value)} inputMode="numeric" className="h-7" /><span>min</span>
+          </div>
+          <div className="flex gap-1.5">
+            <Button type="button" size="sm" variant="ghost" className="flex-1" onClick={() => setEditando(false)}>Cancelar</Button>
+            <Button type="button" size="sm" className="flex-1" onClick={salvar}>Salvar</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

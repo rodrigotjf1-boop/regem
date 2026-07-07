@@ -57,12 +57,47 @@ export class DeliveryController {
     return this.service.avancar(user.tenantId, id, {
       entregadorId: dto?.entregadorId ?? null,
       entregadorNome: dto?.entregadorNome ?? null,
+      entregadorTelefone: dto?.entregadorTelefone ?? null,
     });
   }
 
+  @Post('pedidos/:id/retornar')
+  @UseGuards(JwtAuthGuard)
+  retornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.retornarProducao(user.tenantId, id);
+  }
+
+  @Post('pedidos/:id/alterar')
+  @UseGuards(JwtAuthGuard)
+  alterar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.alterar(user.tenantId, user.colaboradorId, id, {
+      adicionar: dto?.adicionar ?? [],
+      remover: dto?.remover ?? [],
+    });
+  }
+
+  @Post('pedidos/:id/reimprimir')
+  @UseGuards(JwtAuthGuard)
+  reimprimir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.reimprimir(user.tenantId, user.colaboradorId, id);
+  }
+
+  @Get('pedidos/:id/itens')
+  @UseGuards(JwtAuthGuard)
+  itens(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.itensComanda(user.tenantId, id);
+  }
+
+  @Get('entregadores')
+  @UseGuards(JwtAuthGuard)
+  entregadores(@CurrentUser() user: AuthUser) {
+    return this.service.listarEntregadores(user.tenantId);
+  }
+
+  // Cancelamento é liberado pela senha de um gestor (a trava está no service),
+  // então um atendente também pode cancelar informando a senha autorizadora.
   @Post('pedidos/:id/cancelar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(...GESTOR)
+  @UseGuards(JwtAuthGuard)
   cancelar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -74,7 +109,35 @@ export class DeliveryController {
       user.categoria,
       id,
       dto?.motivo,
+      dto?.senha,
     );
+  }
+
+  // Novo pedido manual (delivery ou retirada) — atendente também pode lançar.
+  @Post('pedidos')
+  @UseGuards(JwtAuthGuard)
+  criarManual(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.criarManual(user.tenantId, dto?.unidadeId ?? null, dto);
+  }
+
+  @Post('pedidos/:id/nf')
+  @UseGuards(JwtAuthGuard)
+  nf(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.emitirNf(user.tenantId, user.colaboradorId, id);
+  }
+
+  @Post('pausar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...GESTOR)
+  pausar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.pausar(user.tenantId, Number(dto?.minutos) || 30, dto?.motivo);
+  }
+
+  @Post('despausar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...GESTOR)
+  despausar(@CurrentUser() user: AuthUser) {
+    return this.service.despausar(user.tenantId);
   }
 
   @Get('config')

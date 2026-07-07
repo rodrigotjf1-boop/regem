@@ -1,14 +1,19 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
+import * as bcrypt from 'bcryptjs';
+import { and, desc, eq, gte, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   caixaSessao,
+  colaborador,
+  comandaItem,
   deliveryConfig,
+  funcao,
   lancamentoCaixa,
   pedidoExterno,
   produto,
@@ -66,14 +71,22 @@ export class DeliveryService {
         );
       if (ja) return ja; // idempotente: webhook duplicado
     }
+    // Nº sequencial do dia (fuso SP) — o "#284" do card.
+    const nq: any = await this.db.execute(sql`
+      select coalesce(max(numero), 0) + 1 as n from pedido_externo
+      where tenant_id = ${tenantId}
+        and (criado_em at time zone 'America/Sao_Paulo')::date
+            = (now() at time zone 'America/Sao_Paulo')::date`);
+    const numero = Number((nq.rows ?? nq)[0].n) || 1;
     const [row] = await this.db
       .insert(pedidoExterno)
       .values({
         tenantId,
         unidadeId,
         canal,
+        numero,
         externalId: norm.externalId,
-        displayId: norm.displayId,
+        displayId: norm.displayId ?? `#${numero}`,
         clienteNome: norm.clienteNome,
         clienteTelefone: norm.clienteTelefone,
         tipo: norm.tipo,
@@ -209,7 +222,11 @@ export class DeliveryService {
   async avancar(
     tenantId: string,
     id: string,
-    dados?: { entregadorId?: string | null; entregadorNome?: string | null },
+    dados?: {
+      entregadorId?: string | null;
+      entregadorNome?: string | null;
+      entregadorTelefone?: string | null;
+    },
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado' || ped.status === 'novo')
@@ -227,6 +244,8 @@ export class DeliveryService {
         patch.entregadorNome = dados.entregadorNome || null;
       if (dados?.entregadorId != null)
         patch.entregadorId = dados.entregadorId || null;
+      if (dados?.entregadorTelefone != null)
+        patch.entregadorTelefone = dados.entregadorTelefone || null;
     }
     if (novo === 'concluido') patch.concluidoEm = new Date();
     const [row] = await this.db
@@ -234,8 +253,30 @@ export class DeliveryService {
       .set(patch)
       .where(eq(pedidoExterno.id, id))
       .returning();
-    // Dinheiro entra na gaveta do delivery quando o pedido é entregue.
-    if (novo === 'concluido') await this.reconciliarDinheiro(tenantId, row);
+    // Ao concluir (entrega): baixa o estoque e concilia o dinheiro na gaveta.
+    if (novo === 'concluido' && row.comandaId) {
+      await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
+      await this.reconciliarDinheiro(tenantId, row);
+    }
+    return row;
+  }
+
+  // Correção de avanço errado: volta de "em rota" para a produção.
+  async retornarProducao(tenantId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status !== 'despachado')
+      throw new BadRequestException('Só um pedido em rota pode retornar à produção.');
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({
+        status: 'confirmado',
+        despachadoEm: null,
+        entregadorId: null,
+        entregadorNome: null,
+        entregadorTelefone: null,
+      })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
     return row;
   }
 
@@ -270,19 +311,45 @@ export class DeliveryService {
       );
   }
 
+  // Valida a senha de login de um gestor (presidente/gerente) do tenant.
+  // Retorna o colaborador que autorizou (para auditoria).
+  private async autorizarPorSenha(tenantId: string, senha?: string) {
+    if (!senha) throw new BadRequestException('Informe a senha de autorização.');
+    const gestores = await this.db
+      .select({ id: colaborador.id, nome: colaborador.nome, senhaHash: colaborador.senhaHash })
+      .from(colaborador)
+      .innerJoin(funcao, eq(funcao.id, colaborador.funcaoId))
+      .where(
+        and(
+          eq(colaborador.tenantId, tenantId),
+          isNotNull(colaborador.senhaHash),
+          inArray(funcao.categoria, ['presidente', 'gerente']),
+        ),
+      );
+    for (const g of gestores) {
+      if (g.senhaHash && (await bcrypt.compare(senha, g.senhaHash)))
+        return { id: g.id, nome: g.nome };
+    }
+    throw new ForbiddenException('Senha de gestor inválida.');
+  }
+
   async cancelar(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     id: string,
     motivo?: string,
+    senha?: string,
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado')
       throw new BadRequestException('Pedido já cancelado.');
     if (ped.status === 'concluido')
       throw new BadRequestException('Pedido concluído não pode ser cancelado.');
-    // Se já virou venda, estorna estoque + financeiro.
+    // Trava: exige senha de um gestor com autoridade para cancelar.
+    const autorizou = await this.autorizarPorSenha(tenantId, senha);
+    // Estorna o financeiro (a baixa de estoque só ocorre na conclusão, então não
+    // há estoque a estornar aqui).
     if (ped.comandaId) {
       await this.vendas.estornarVendaExterna(
         tenantId,
@@ -294,10 +361,96 @@ export class DeliveryService {
     }
     const [row] = await this.db
       .update(pedidoExterno)
-      .set({ status: 'cancelado', canceladoEm: new Date(), motivoCancelamento: motivo })
+      .set({
+        status: 'cancelado',
+        canceladoEm: new Date(),
+        motivoCancelamento: motivo
+          ? `${motivo} (autorizado por ${autorizou.nome})`
+          : `autorizado por ${autorizou.nome}`,
+      })
       .where(eq(pedidoExterno.id, id))
       .returning();
     return row;
+  }
+
+  // ===== Alterar / reimprimir / entregadores =====
+  async alterar(
+    tenantId: string,
+    atorId: string,
+    id: string,
+    dto: {
+      adicionar?: { produtoId: string; quantidade?: number; observacao?: string }[];
+      remover?: string[];
+    },
+  ) {
+    const ped = await this.carregar(tenantId, id);
+    if (!['confirmado', 'pronto'].includes(ped.status))
+      throw new BadRequestException(
+        'Só dá para alterar um pedido aceito e ainda não despachado. Se já saiu, cancele e refaça.',
+      );
+    if (!ped.comandaId)
+      throw new BadRequestException('Pedido sem venda vinculada.');
+    const r = await this.vendas.alterarItensExterno(
+      tenantId,
+      atorId,
+      ped.comandaId,
+      dto,
+    );
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({ alterado: true, alteradoEm: new Date(), total: String(r.total.toFixed(2)) })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    // Reimprime as vias configuradas com o novo conteúdo.
+    await this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId).catch(() => {});
+    return row;
+  }
+
+  // Itens reais da comanda (com id) — para o editor de "Alterar".
+  async itensComanda(tenantId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (!ped.comandaId) return [];
+    return this.db
+      .select({
+        id: comandaItem.id,
+        descricao: comandaItem.descricao,
+        quantidade: comandaItem.quantidade,
+        precoUnitario: comandaItem.precoUnitario,
+      })
+      .from(comandaItem)
+      .where(
+        and(
+          eq(comandaItem.tenantId, tenantId),
+          eq(comandaItem.comandaId, ped.comandaId),
+        ),
+      );
+  }
+
+  async reimprimir(tenantId: string, atorId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (!ped.comandaId)
+      throw new BadRequestException('Pedido ainda não aceito (sem via para imprimir).');
+    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId);
+  }
+
+  // Entregadores = colaboradores ativos com função cujo nome contém "entregador".
+  async listarEntregadores(tenantId: string) {
+    return this.db
+      .select({
+        id: colaborador.id,
+        nome: colaborador.nome,
+        telefone: colaborador.telefone,
+      })
+      .from(colaborador)
+      .innerJoin(funcao, eq(funcao.id, colaborador.funcaoId))
+      .where(
+        and(
+          eq(colaborador.tenantId, tenantId),
+          eq(colaborador.status, 'ativo'),
+          ilike(funcao.nome, '%entregador%'),
+        ),
+      )
+      .orderBy(colaborador.nome);
   }
 
   // ===== Config =====
@@ -318,13 +471,111 @@ export class DeliveryService {
 
   async getConfig(tenantId: string, unidadeId?: string | null) {
     const row = await this.configRaw(tenantId, unidadeId);
-    return (
+    const base =
       row ?? {
         ativo: false,
         autoAceitar: false,
         colunas: DeliveryService.COLUNAS_PADRAO,
-      }
+        prepBalcaoMin: 15,
+        prepBalcaoMax: 25,
+        prepDeliveryMin: 45,
+        prepDeliveryMax: 55,
+        pausadoAte: null,
+        pausaMotivo: null,
+      };
+    // Pausa reativa sozinha: 'pausado' é computado (janela ainda válida?).
+    const pausado = !!base.pausadoAte && new Date(base.pausadoAte) > new Date();
+    return { ...base, pausado, pausadoAte: pausado ? base.pausadoAte : null };
+  }
+
+  // ===== Pausa temporária da loja =====
+  async pausar(tenantId: string, minutos: number, motivo?: string) {
+    const m = [30, 60, 720].includes(Number(minutos)) ? Number(minutos) : 30;
+    const ate = new Date(Date.now() + m * 60 * 1000);
+    await this.setConfig(tenantId, null, { pausadoAte: ate, pausaMotivo: motivo ?? null });
+    return this.getConfig(tenantId, null);
+  }
+
+  async despausar(tenantId: string) {
+    await this.setConfig(tenantId, null, { pausadoAte: null, pausaMotivo: null });
+    return this.getConfig(tenantId, null);
+  }
+
+  // ===== Novo pedido manual (delivery ou retirada) =====
+  // Preço SEMPRE calculado no servidor a partir do cadastro do produto.
+  async criarManual(
+    tenantId: string,
+    unidadeId: string | null,
+    dto: {
+      tipo?: 'entrega' | 'retirada';
+      clienteNome?: string;
+      clienteTelefone?: string;
+      enderecoRua?: string;
+      enderecoNumero?: string;
+      enderecoBairro?: string;
+      enderecoReferencia?: string;
+      formaPagamento?: string;
+      trocoPara?: number;
+      itens?: { produtoId: string; quantidade?: number; observacao?: string }[];
+    },
+  ) {
+    const linhas = dto.itens ?? [];
+    if (linhas.length === 0)
+      throw new BadRequestException('Inclua ao menos um item.');
+    const ids = [...new Set(linhas.map((i) => i.produtoId).filter(Boolean))];
+    const prods = ids.length
+      ? await this.db
+          .select({ id: produto.id, nome: produto.nome, preco: produto.precoVenda, codigo: produto.codigo })
+          .from(produto)
+          .where(and(eq(produto.tenantId, tenantId), inArray(produto.id, ids)))
+      : [];
+    const mapa = new Map(prods.map((p) => [p.id, p]));
+    const itens = linhas.map((l) => {
+      const p = mapa.get(l.produtoId);
+      if (!p) throw new BadRequestException('Produto inválido no pedido.');
+      return {
+        produtoId: p.id,
+        codigo: p.codigo ?? undefined,
+        descricao: p.nome,
+        quantidade: Number(l.quantidade) || 1,
+        precoUnitario: Number(p.preco) || 0, // servidor manda no preço
+        observacao: l.observacao,
+      };
+    });
+    const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
+    const tipo = dto.tipo === 'retirada' ? 'retirada' : 'entrega';
+    const enderecoStr = [dto.enderecoRua, dto.enderecoNumero, dto.enderecoBairro]
+      .filter(Boolean)
+      .join(', ');
+    // Reaproveita a ingestão (canal 'manual') — cai como 'novo' no quadro.
+    return this.ingest(
+      tenantId,
+      unidadeId,
+      'manual',
+      {
+        clienteNome: dto.clienteNome,
+        clienteTelefone: dto.clienteTelefone,
+        tipo,
+        endereco: tipo === 'entrega' ? enderecoStr : undefined,
+        itens,
+        total,
+        formaPagamento: dto.formaPagamento ?? 'dinheiro',
+      },
+      {
+        trocoPara: dto.trocoPara,
+        enderecoRua: dto.enderecoRua,
+        enderecoNumero: dto.enderecoNumero,
+        enderecoBairro: dto.enderecoBairro,
+        enderecoReferencia: dto.enderecoReferencia,
+      },
     );
+  }
+
+  async emitirNf(tenantId: string, atorId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (!ped.comandaId)
+      throw new BadRequestException('Aceite o pedido antes de emitir a NF.');
+    return this.vendas.emitirNf(tenantId, atorId, ped.comandaId);
   }
 
   private static readonly COLUNAS_PADRAO = {
@@ -345,12 +596,21 @@ export class DeliveryService {
         if (dto.colunas[k] != null) colunas[k] = !!dto.colunas[k];
       }
     }
-    const vals = {
+    const numOr = (v: any, atual: any, def: number) =>
+      v != null && Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : atual ?? def;
+    const vals: any = {
       ativo: dto.ativo != null ? !!dto.ativo : row?.ativo ?? false,
       autoAceitar: dto.autoAceitar != null ? !!dto.autoAceitar : row?.autoAceitar ?? false,
       merchantId: dto.merchantId ?? row?.merchantId ?? null,
       colunas,
+      prepBalcaoMin: numOr(dto.prepBalcaoMin, row?.prepBalcaoMin, 15),
+      prepBalcaoMax: numOr(dto.prepBalcaoMax, row?.prepBalcaoMax, 25),
+      prepDeliveryMin: numOr(dto.prepDeliveryMin, row?.prepDeliveryMin, 45),
+      prepDeliveryMax: numOr(dto.prepDeliveryMax, row?.prepDeliveryMax, 55),
     };
+    // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
+    if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;
+    if (dto.pausaMotivo !== undefined) vals.pausaMotivo = dto.pausaMotivo;
     if (row) {
       await this.db
         .update(deliveryConfig)
