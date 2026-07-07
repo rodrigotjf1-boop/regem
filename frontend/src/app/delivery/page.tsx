@@ -193,19 +193,9 @@ export default function DeliveryPage() {
       <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
-        {/* Caixa próprio do delivery (fora do quadro) */}
-        {(isGestor || cat === 'atendente') && (
-          <CaixaPanel
-            caixa={caixa}
-            onChange={reload}
-            origem="delivery"
-            avisoVazio="Nenhum caixa de entregas aberto — abra para controlar troco e dinheiro na entrega."
-          />
-        )}
-
         {/* Banner de pausa */}
         {cfg.pausado && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/40 bg-warn/10 px-4 py-2">
             <span className="text-sm font-bold text-warn">
               ⏸ Loja pausada{cfg.pausadoAte ? ` até ${hora(cfg.pausadoAte)}` : ''}
             </span>
@@ -218,8 +208,20 @@ export default function DeliveryPage() {
           </div>
         )}
 
-        {/* Barra de controle — FORA do quadro, sempre acessível */}
-        <Card className="flex flex-wrap items-center gap-x-4 gap-y-2 p-3">
+        {/* Header integrado (fino): caixa do delivery + controles do quadro */}
+        <Card className="px-3 py-2">
+          {(isGestor || cat === 'atendente') && (
+            <div className="mb-2 border-b border-border pb-2">
+              <CaixaPanel
+                caixa={caixa}
+                onChange={reload}
+                origem="delivery"
+                embedded
+                avisoVazio="Caixa de entregas fechado — abra para controlar troco e dinheiro na entrega."
+              />
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           {/* Filtro geral por tipo de pedido */}
           <div className="inline-flex rounded-lg border border-border p-0.5 text-sm" role="group" aria-label="Filtrar por tipo">
             {([['todos', 'Todos'], ['entrega', '🛵'], ['retirada', '🏪']] as const).map(([k, lb]) => {
@@ -270,6 +272,7 @@ export default function DeliveryPage() {
               </Button>
             )}
           </div>
+          </div>
         </Card>
 
         {!pedidos ? (
@@ -285,13 +288,17 @@ export default function DeliveryPage() {
               const f = filtros[col.key] ?? null;
               const filtroAberto = menuAberto === col.key;
               return (
-                <div key={col.key} className="flex min-w-[290px] max-w-[320px] flex-1 flex-col">
+                <div
+                  key={col.key}
+                  className="flex min-w-[290px] max-w-[330px] flex-1 flex-col rounded-xl p-2"
+                  style={{ background: `hsl(${col.cor} / 0.05)` }}
+                >
                   {/* Cabeçalho da coluna */}
-                  <div className="mb-2 rounded-lg border border-border bg-card p-2.5">
+                  <div className="mb-2 rounded-lg px-2.5 py-2" style={{ background: `hsl(${col.cor} / 0.14)` }}>
                     <div className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: `hsl(${col.cor})` }} />
-                      <span className="font-display text-sm font-bold">{col.titulo}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{lista.length}</span>
+                      <span className="h-3 w-3 rounded-full" style={{ background: `hsl(${col.cor})` }} />
+                      <span className="font-display text-base font-bold tracking-tight">{col.titulo}</span>
+                      <span className="grid h-5 min-w-5 place-items-center rounded-full px-1 font-mono text-xs font-bold text-white" style={{ background: `hsl(${col.cor})` }}>{lista.length}</span>
                       <div className="relative ml-auto">
                         <button
                           type="button"
