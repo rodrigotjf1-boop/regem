@@ -57,6 +57,13 @@ export class CardapioPublicoController {
   pontos(@Param('token') token: string, @Query('telefone') telefone: string) {
     return this.service.pontosPublico(token, telefone ?? '');
   }
+
+  // Pedidos recentes de um telefone (robô: "cadê meu pedido?").
+  @Get(':token/pedidos')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  pedidosTelefone(@Param('token') token: string, @Query('telefone') telefone: string) {
+    return this.service.pedidosPorTelefone(token, telefone ?? '');
+  }
 }
 
 // Gestão (JWT).
