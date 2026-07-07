@@ -223,6 +223,7 @@ export function ConfigPanel({
                       <Campo label="Instagram"><Input value={loja.instagram ?? ''} onChange={(e) => up({ instagram: e.target.value })} placeholder="@sualoja" /></Campo>
                       <Campo label="Site"><Input value={loja.site ?? ''} onChange={(e) => up({ site: e.target.value })} placeholder="https://" /></Campo>
                     </div>
+                    <FormasPagamentoCardapio pagamentos={loja.pagamentos ?? []} onChange={(p) => up({ pagamentos: p })} pode={isGestor} />
                     <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                   </Secao>
                 )}
@@ -308,6 +309,33 @@ export function ConfigPanel({
 function secLabel(k: string) {
   const all = MENU.flatMap((g) => g.itens);
   return all.find((i) => i.k === k)?.label ?? 'Configurações';
+}
+
+// Formas de pagamento que aparecem no checkout do cardápio digital.
+const FORMAS_CARDAPIO: [string, string][] = [
+  ['pix', '⚡ Pix (online)'],
+  ['cartao', '💳 Cartão (online)'],
+  ['entrega', '💵 Dinheiro / cartão na entrega'],
+];
+function FormasPagamentoCardapio({ pagamentos, onChange, pode }: { pagamentos: string[]; onChange: (p: string[]) => void; pode: boolean }) {
+  const set = new Set(pagamentos ?? []);
+  function toggle(k: string, v: boolean) {
+    const n = new Set(set);
+    v ? n.add(k) : n.delete(k);
+    onChange([...n]);
+  }
+  return (
+    <div className="space-y-1.5 rounded-lg border border-border p-2.5">
+      <p className="text-xs font-semibold">Formas de pagamento no cardápio</p>
+      <p className="text-[11px] text-muted-foreground">Marque o que o cliente pode escolher ao fechar o pedido. Sem nenhuma marcada, o checkout não mostra pagamento.</p>
+      {FORMAS_CARDAPIO.map(([k, lb]) => (
+        <label key={k} className="flex items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={set.has(k)} onChange={(e) => toggle(k, e.target.checked)} />
+          {lb}
+        </label>
+      ))}
+    </div>
+  );
 }
 
 function Secao({ dica, children }: { dica: string; children: React.ReactNode }) {

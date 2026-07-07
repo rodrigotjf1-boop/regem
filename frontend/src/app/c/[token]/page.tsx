@@ -70,6 +70,24 @@ export default function CardapioPublicoPage() {
     if (Object.keys(c).length) setChk((s: any) => ({ ...s, ...c }));
   }, [menu, token]);
 
+  // Prefill pelo link (WhatsApp/n8n manda ?nome=...&tel=...).
+  useEffect(() => {
+    const nome = search?.get('nome');
+    const tel = search?.get('tel');
+    if (!nome && !tel) return;
+    setChk((s: any) => ({ ...s, nome: s.nome || nome || '', telefone: s.telefone || tel || '' }));
+  }, [search]);
+
+  // Tipo padrão respeita a config (se a loja só faz retirada, começa em retirada).
+  useEffect(() => {
+    const t = menu?.tipos;
+    if (!t) return;
+    setChk((s: any) => {
+      const ok = (s.tipo === 'entrega' && t.delivery) || (s.tipo === 'retirada' && (t.retirada || t.local));
+      return ok ? s : { ...s, tipo: t.delivery ? 'entrega' : 'retirada' };
+    });
+  }, [menu]);
+
   // Prefill do nome pelo telefone (se a fidelidade estiver ativa).
   useEffect(() => {
     const tel = (chk.telefone ?? '').replace(/\D/g, '');
@@ -269,7 +287,7 @@ export default function CardapioPublicoPage() {
             <h1 className="truncate text-lg font-bold">{loja.nome}</h1>
             {loja.subtitulo && <p className="truncate text-xs text-white/60">{loja.subtitulo}</p>}
           </div>
-          <span className={`ml-auto flex-none rounded-full border px-3 py-1 text-[10px] font-bold ${loja.aberto ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-red-400/50 bg-red-400/15 text-red-300'}`}>{loja.aberto ? '● ABERTO' : '● FECHADO'}</span>
+          <span className={`ml-auto flex-none rounded-full border px-3 py-1 text-[10px] font-bold ${menu.abertaAgora ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-red-400/50 bg-red-400/15 text-red-300'}`}>{menu.abertaAgora ? '● ABERTO' : '● FECHADO'}</span>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {loja.tempoEntregaMin && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">⏱ {loja.tempoEntregaMin} min</span>}
@@ -347,6 +365,8 @@ export default function CardapioPublicoPage() {
         <CartSheet
           accent={accent}
           loja={loja}
+          tipos={menu.tipos}
+          abertaAgora={menu.abertaAgora}
           bairros={bairros}
           cart={cart}
           upsell={upsell}
