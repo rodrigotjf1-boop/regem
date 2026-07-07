@@ -169,7 +169,9 @@ export default function CardapioPublicoPage() {
 
   function enviar() {
     if (!cart.length) return;
-    if (menu.modo === 'mesa') return void submitPedido();
+    // Envio direto SÓ quando é um QR de mesa de verdade (link com ?mesa=).
+    // O link de delivery (sem mesa) sempre abre o checkout (tipo/pagamento/endereço).
+    if (menu.modo === 'mesa' && mesa) return void submitPedido();
     setCheckout(true);
   }
 
@@ -353,7 +355,7 @@ export default function CardapioPublicoPage() {
         <div className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-lg p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
           <button type="button" onClick={enviar} disabled={enviando} className="flex w-full items-center gap-3 rounded-2xl px-5 py-3.5 font-bold text-white shadow-lg disabled:opacity-60" style={{ background: accent }}>
             <span className="rounded-lg bg-black/20 px-2 py-0.5 font-mono text-xs">{qtdItens}</span>
-            <span>{enviando ? 'Enviando…' : menu.modo === 'mesa' ? 'Enviar pedido' : 'Ver pedido'}</span>
+            <span>{enviando ? 'Enviando…' : menu.modo === 'mesa' && mesa ? 'Enviar pedido' : 'Ver pedido'}</span>
             <span className="ml-auto font-mono">{brl(total)}</span>
           </button>
         </div>
