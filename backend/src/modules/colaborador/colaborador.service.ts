@@ -4,10 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { colaborador } from '../../db/schema';
+import { colaborador, colaboradorFuncao, funcao } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
@@ -35,25 +35,76 @@ export class ColaboradorService {
 
   async create(tenantId: string, dto: CreateColaboradorDto) {
     const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 10) : undefined;
+
+    // Só aceita funções deste tenant (evita vínculo cross-tenant).
+    const pedidas = [
+      ...new Set([...(dto.funcaoIds ?? []), dto.funcaoId].filter(Boolean)),
+    ] as string[];
+    const validas = pedidas.length
+      ? (
+          await this.db
+            .select({ id: funcao.id })
+            .from(funcao)
+            .where(
+              and(
+                eq(funcao.tenantId, tenantId),
+                inArray(funcao.id, pedidas),
+                isNull(funcao.deletedAt),
+              ),
+            )
+        ).map((f) => f.id)
+      : [];
+    const principal = dto.funcaoId && validas.includes(dto.funcaoId)
+      ? dto.funcaoId
+      : validas[0];
+
     const [row] = await this.db
       .insert(colaborador)
       .values({
         tenantId,
         nome: dto.nome,
         fotoRef: dto.fotoRef,
-        funcaoId: dto.funcaoId,
+        funcaoId: principal,
         vinculo: dto.vinculo ?? 'clt',
         pinHash,
       })
       .returning(publicCols);
-    return row;
+
+    if (validas.length) {
+      await this.db
+        .insert(colaboradorFuncao)
+        .values(
+          validas.map((funcaoId) => ({
+            tenantId,
+            colaboradorId: row.id,
+            funcaoId,
+          })),
+        )
+        .onConflictDoNothing();
+    }
+    return { ...row, funcaoIds: validas };
   }
 
-  findAll(tenantId: string) {
-    return this.db
+  async findAll(tenantId: string) {
+    const rows = await this.db
       .select(publicCols)
       .from(colaborador)
       .where(and(eq(colaborador.tenantId, tenantId), isNull(colaborador.deletedAt)));
+    // Anexa as funções (N:N) de cada colaborador.
+    const links = await this.db
+      .select({
+        colaboradorId: colaboradorFuncao.colaboradorId,
+        funcaoId: colaboradorFuncao.funcaoId,
+      })
+      .from(colaboradorFuncao)
+      .where(eq(colaboradorFuncao.tenantId, tenantId));
+    const porColab = new Map<string, string[]>();
+    for (const l of links) {
+      const arr = porColab.get(l.colaboradorId) ?? [];
+      arr.push(l.funcaoId);
+      porColab.set(l.colaboradorId, arr);
+    }
+    return rows.map((r) => ({ ...r, funcaoIds: porColab.get(r.id) ?? [] }));
   }
 
   // Reset de senha pelo gestor (recuperação sem e-mail): define e-mail (opcional)

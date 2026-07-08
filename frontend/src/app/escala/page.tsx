@@ -36,7 +36,9 @@ function iso(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 function hoje() {
-  return iso(new Date());
+  // Data de "hoje" no fuso de SP (en-CA formata YYYY-MM-DD). Usar toISOString
+  // aqui daria a data em UTC — à noite no Brasil apontaria o dia seguinte.
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 }
 function addDays(s: string, n: number) {
   const d = new Date(`${s}T00:00:00Z`);

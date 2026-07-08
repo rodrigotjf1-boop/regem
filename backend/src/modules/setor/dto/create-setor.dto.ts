@@ -11,4 +11,8 @@ export class CreateSetorDto {
   @IsOptional()
   @IsString()
   icone?: string;
+
+  @IsOptional()
+  @IsString()
+  cor?: string;
 }

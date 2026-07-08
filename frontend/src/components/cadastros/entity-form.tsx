@@ -12,7 +12,7 @@ type Opt = { value: string; label: string };
 export type FieldDef = {
   name: string;
   label: string;
-  type: 'text' | 'select' | 'time' | 'date' | 'image';
+  type: 'text' | 'select' | 'time' | 'date' | 'image' | 'color' | 'multiselect';
   options?: Opt[];
   required?: boolean;
   placeholder?: string;
@@ -72,7 +72,8 @@ export function EntityForm({
       setValues((s) => {
         const n = { ...s };
         fields.forEach((f) => {
-          if (f.type !== 'select') n[f.name] = '';
+          // Limpa só campos de "digitar"; mantém select/cor/multiselect no default.
+          if (['text', 'time', 'date', 'image'].includes(f.type)) n[f.name] = '';
         });
         return n;
       });
@@ -95,6 +96,52 @@ export function EntityForm({
               value={values[f.name] ?? ''}
               onChange={(url) => set(f.name, url)}
             />
+          ) : f.type === 'color' ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                id={f.name}
+                aria-label={f.label}
+                value={values[f.name] || '#94a3b8'}
+                onChange={(e) => set(f.name, e.target.value)}
+                className="h-9 w-14 cursor-pointer rounded-md border border-input bg-card p-1"
+              />
+              <span className="font-mono text-xs text-muted-foreground">
+                {values[f.name] || '#94a3b8'}
+              </span>
+            </div>
+          ) : f.type === 'multiselect' ? (
+            <div className="flex flex-wrap gap-1.5">
+              {(opts[f.name] ?? []).map((o) => {
+                const sel = (values[f.name] ?? '').split(',').filter(Boolean);
+                const on = sel.includes(o.value);
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    aria-pressed={on ? 'true' : 'false'}
+                    onClick={() =>
+                      set(
+                        f.name,
+                        (on ? sel.filter((v) => v !== o.value) : [...sel, o.value]).join(','),
+                      )
+                    }
+                    className={`rounded-md border px-2.5 py-1 text-sm transition-colors ${
+                      on
+                        ? 'border-primary bg-primary/15 text-primary'
+                        : 'border-border text-muted-foreground hover:border-primary/50'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+              {(opts[f.name] ?? []).length === 0 && (
+                <span className="text-xs text-muted-foreground">
+                  Nenhuma opção cadastrada ainda.
+                </span>
+              )}
+            </div>
           ) : f.type === 'select' ? (
             <>
               <Select

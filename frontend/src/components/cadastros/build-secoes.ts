@@ -73,12 +73,14 @@ export function buildSecoes({
           placeholder: 'Ex.: Cozinha',
         },
         { name: 'icone', label: 'Ícone (opcional)', type: 'text', placeholder: 'cozinha' },
+        { name: 'cor', label: 'Cor do setor', type: 'color', defaultValue: '#94a3b8' },
       ] as FieldDef[],
       submit: (v: any) =>
         api.post('/setores', {
           unidadeId: v.unidadeId,
           nome: v.nome,
           icone: v.icone || undefined,
+          cor: v.cor || undefined,
         }),
     },
     {
@@ -123,11 +125,10 @@ export function buildSecoes({
         },
         { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
         {
-          name: 'funcaoId',
-          label: 'Função',
-          type: 'select',
-          options: withNone(optF),
-          onCreate: criarFuncao,
+          name: 'funcaoIds',
+          label: 'Funções (uma ou mais)',
+          type: 'multiselect',
+          options: optF,
         },
         {
           name: 'vinculo',
@@ -147,7 +148,7 @@ export function buildSecoes({
         api.post('/colaboradores', {
           nome: v.nome,
           fotoRef: v.fotoRef || undefined,
-          funcaoId: v.funcaoId || undefined,
+          funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
           vinculo: v.vinculo,
           pin: v.pin || undefined,
         }),

@@ -1,4 +1,6 @@
 import {
+  ArrayUnique,
+  IsArray,
   IsIn,
   IsOptional,
   IsString,
@@ -16,9 +18,17 @@ export class CreateColaboradorDto {
   @IsString()
   fotoRef?: string;
 
+  // Função principal (compat). Se vazia, assume a 1ª de funcaoIds.
   @IsOptional()
   @IsUUID()
   funcaoId?: string;
+
+  // Funções que o colaborador cobre (N:N). Uma ou mais.
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('4', { each: true })
+  funcaoIds?: string[];
 
   @IsOptional()
   @IsIn(['clt', 'horista', 'diarista', 'pj', 'autonomo'])

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -16,6 +24,16 @@ export class SetorController {
   @Roles('presidente', 'gerente')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateSetorDto) {
     return this.service.create(user.tenantId, dto);
+  }
+
+  @Patch(':id')
+  @Roles('presidente', 'gerente')
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { nome?: string; icone?: string; cor?: string },
+  ) {
+    return this.service.update(user.tenantId, id, dto);
   }
 
   @Get()
