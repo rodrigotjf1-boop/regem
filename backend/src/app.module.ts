@@ -15,6 +15,7 @@ import { TurnoModule } from './modules/turno/turno.module';
 import { EtiquetaModule } from './modules/etiqueta/etiqueta.module';
 import { EscalaModule } from './modules/escala/escala.module';
 import { DiaEspecialModule } from './modules/dia-especial/dia-especial.module';
+import { ContagemModule } from './modules/contagem/contagem.module';
 import { TarefaModule } from './modules/tarefa/tarefa.module';
 import { ChecklistModule } from './modules/checklist/checklist.module';
 import { DocumentoModule } from './modules/documento/documento.module';
@@ -72,6 +73,7 @@ import { AuthModule } from './auth/auth.module';
     EtiquetaModule,
     EscalaModule,
     DiaEspecialModule,
+    ContagemModule,
     TarefaModule,
     ChecklistModule,
     DocumentoModule,

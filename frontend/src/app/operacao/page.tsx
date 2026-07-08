@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { InsumoForm } from '@/components/estoque/insumo-form';
+import { ContagemSecao } from '@/components/estoque/contagem-secao';
 import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
 import { Shell } from '@/components/app-shell/shell';
 
@@ -269,13 +270,8 @@ export default function EstoquePage() {
           </section>
         )}
 
-        {/* ---------- CONTAGEM (em breve — Fase E2) ---------- */}
-        {secao === 'contagem' && (
-          <Card className="p-8 text-center text-sm text-muted-foreground">
-            <p className="mb-1 font-display text-base font-semibold text-foreground">Contagem de estoque</p>
-            Listas de contagem personalizadas (recorrência, delegação e alerta por horário → KDS e dashboard do gerente) chegam na próxima etapa.
-          </Card>
-        )}
+        {/* ---------- CONTAGEM (E2) ---------- */}
+        {secao === 'contagem' && <ContagemSecao itens={itens} />}
 
         {/* ---------- COMPRAS (em breve — Fase E3) ---------- */}
         {secao === 'compras' && (
