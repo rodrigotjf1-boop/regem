@@ -199,6 +199,37 @@ export class FichasService {
           and(eq(fichaTecnica.id, id), eq(fichaTecnica.tenantId, tenantId)),
         );
     }
+    // Ingredientes (replace-all) quando enviados — valida ciclo das sub-fichas.
+    if (dto.ingredientes) {
+      for (const s of dto.ingredientes
+        .map((i) => i.subFichaId)
+        .filter((x): x is string => !!x)) {
+        await this.validarSubFicha(tenantId, id, s);
+      }
+      await this.db
+        .delete(fichaIngrediente)
+        .where(
+          and(
+            eq(fichaIngrediente.fichaId, id),
+            eq(fichaIngrediente.tenantId, tenantId),
+          ),
+        );
+      if (dto.ingredientes.length)
+        await this.db.insert(fichaIngrediente).values(
+          dto.ingredientes.map((i, idx) => ({
+            tenantId,
+            fichaId: id,
+            itemId: i.subFichaId ? undefined : i.itemId,
+            subFichaId: i.subFichaId,
+            insumoNome: i.insumoNome,
+            quantidade: i.quantidade != null ? String(i.quantidade) : '0',
+            unidade: i.unidade,
+            fatorCorrecao: i.fatorCorrecao != null ? String(i.fatorCorrecao) : '1',
+            custoUnitario: i.custoUnitario != null ? String(i.custoUnitario) : '0',
+            ordem: i.ordem ?? idx,
+          })),
+        );
+    }
     return this.getOne(tenantId, id);
   }
 

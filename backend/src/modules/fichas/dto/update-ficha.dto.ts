@@ -1,10 +1,14 @@
+import { Type } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  ValidateNested,
 } from 'class-validator';
+import { CreateIngredienteDto } from './create-ingrediente.dto';
 
 export class UpdateFichaDto {
   @IsOptional()
@@ -46,4 +50,11 @@ export class UpdateFichaDto {
   @IsOptional()
   @IsBoolean()
   ativo?: boolean;
+
+  // Se enviado, SUBSTITUI todos os ingredientes da ficha (replace-all).
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateIngredienteDto)
+  ingredientes?: CreateIngredienteDto[];
 }

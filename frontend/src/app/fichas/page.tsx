@@ -1,14 +1,16 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Pencil } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { SkeletonList } from '@/components/ui/skeleton';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Ing = {
@@ -48,7 +50,10 @@ export default function FichasPage() {
   const [rendimento, setRendimento] = useState('10');
   const [rendUnidade, setRendUnidade] = useState('porções');
   const [precoVenda, setPrecoVenda] = useState('');
+  const [metaCmvInput, setMetaCmvInput] = useState(String(META_CMV));
   const [ings, setIngs] = useState<Ing[]>([linhaVazia()]);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [carregou, setCarregou] = useState(false);
 
   const carregar = useCallback(async () => {
     try {
@@ -57,6 +62,8 @@ export default function FichasPage() {
       setInsumos(ins as any[]);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    } finally {
+      setCarregou(true);
     }
   }, []);
 
@@ -111,12 +118,48 @@ export default function FichasPage() {
   const rend = Number(rendimento) || 1;
   const custoPorcao = custoTotal / rend;
   const pv = Number(precoVenda) || 0;
+  const meta = Number(metaCmvInput) || META_CMV;
   const cmv = pv > 0 ? (custoPorcao / pv) * 100 : null;
-  const cmvOk = cmv != null && cmv <= META_CMV;
+  const cmvOk = cmv != null && cmv <= meta;
   // G5: preço sugerido pela meta de CMV + markup vs margem.
-  const precoSugerido = custoPorcao > 0 ? custoPorcao / (META_CMV / 100) : null;
+  const precoSugerido = custoPorcao > 0 ? custoPorcao / (meta / 100) : null;
   const markup = pv > 0 && custoPorcao > 0 ? pv / custoPorcao : null;
   const margem = pv > 0 ? ((pv - custoPorcao) / pv) * 100 : null;
+
+  function resetForm() {
+    setEditId(null);
+    setNome('');
+    setCategoria('base');
+    setRendimento('10');
+    setRendUnidade('porções');
+    setPrecoVenda('');
+    setMetaCmvInput(String(META_CMV));
+    setIngs([linhaVazia()]);
+  }
+
+  function editar(f: any) {
+    setEditId(f.id);
+    setNome(f.nome ?? '');
+    setCategoria(f.categoria ?? 'base');
+    setRendimento(String(f.rendimento ?? 1));
+    setRendUnidade(f.rendimentoUnidade ?? 'porções');
+    setPrecoVenda(f.precoVenda != null ? String(f.precoVenda) : '');
+    setMetaCmvInput(String(f.metaCmv ?? META_CMV));
+    setIngs(
+      (f.ingredientes ?? []).length
+        ? f.ingredientes.map((i: any) => ({
+            insumoNome: i.insumoNome ?? '',
+            quantidade: String(i.quantidade ?? ''),
+            unidade: i.unidade ?? '',
+            fatorCorrecao: String(i.fatorCorrecao ?? '1'),
+            custoUnitario: String(i.custoUnitario ?? ''),
+            itemId: i.itemId ?? undefined,
+            subFichaId: i.subFichaId ?? undefined,
+          }))
+        : [linhaVazia()],
+    );
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
 
   async function salvar() {
     if (nome.trim().length < 2) {
@@ -125,28 +168,30 @@ export default function FichasPage() {
     }
     setSaving(true);
     setErro('');
+    const body = {
+      nome,
+      categoria,
+      rendimento: rend,
+      rendimentoUnidade: rendUnidade || undefined,
+      precoVenda: pv || undefined,
+      metaCmv: meta,
+      ingredientes: ings
+        .filter((i) => i.insumoNome.trim() || i.subFichaId || i.itemId)
+        .map((i) => ({
+          insumoNome: i.insumoNome,
+          quantidade: Number(i.quantidade) || 0,
+          unidade: i.unidade || undefined,
+          fatorCorrecao: Number(i.fatorCorrecao) || 1,
+          custoUnitario: Number(i.custoUnitario) || 0,
+          itemId: i.itemId || undefined,
+          subFichaId: i.subFichaId || undefined,
+        })),
+    };
     try {
-      await api.post('/fichas', {
-        nome,
-        categoria,
-        rendimento: rend,
-        rendimentoUnidade: rendUnidade || undefined,
-        precoVenda: pv || undefined,
-        ingredientes: ings
-          .filter((i) => i.insumoNome.trim() || i.subFichaId || i.itemId)
-          .map((i) => ({
-            insumoNome: i.insumoNome,
-            quantidade: Number(i.quantidade) || 0,
-            unidade: i.unidade || undefined,
-            fatorCorrecao: Number(i.fatorCorrecao) || 1,
-            custoUnitario: Number(i.custoUnitario) || 0,
-            itemId: i.itemId || undefined,
-            subFichaId: i.subFichaId || undefined,
-          })),
-      });
-      setNome('');
-      setPrecoVenda('');
-      setIngs([linhaVazia()]);
+      if (editId) await api.patch(`/fichas/${editId}`, body);
+      else await api.post('/fichas', body);
+      toast.success(editId ? 'Ficha atualizada.' : 'Ficha salva.');
+      resetForm();
       await carregar();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao salvar');
@@ -156,6 +201,7 @@ export default function FichasPage() {
   }
 
   async function excluir(id: string) {
+    if (editId === id) resetForm();
     await api.del(`/fichas/${id}`);
     carregar();
   }
@@ -167,7 +213,16 @@ export default function FichasPage() {
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         {/* Formulário */}
         <Card className="p-5">
-          <h2 className="mb-4 font-display text-lg font-bold">Nova ficha técnica</h2>
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-display text-lg font-bold">
+              {editId ? 'Editar ficha técnica' : 'Nova ficha técnica'}
+            </h2>
+            {editId && (
+              <Button type="button" variant="outline" size="sm" onClick={resetForm}>
+                Cancelar edição
+              </Button>
+            )}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="nome">Nome da receita / produção</Label>
@@ -260,7 +315,7 @@ export default function FichasPage() {
           </div>
 
           <Button className="mt-5 w-full" size="lg" disabled={saving} onClick={salvar}>
-            {saving ? 'Salvando…' : 'Salvar ficha'}
+            {saving ? 'Salvando…' : editId ? 'Salvar alterações' : 'Salvar ficha'}
           </Button>
         </Card>
 
@@ -296,14 +351,15 @@ export default function FichasPage() {
               {cmv == null ? 'Informe o preço' : cmvOk ? 'Dentro da meta' : 'Acima da meta'}
             </span>
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Meta de CMV: <strong>{META_CMV.toFixed(1).replace('.', ',')}%</strong>
-          </p>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <Label htmlFor="meta" className="text-xs text-muted-foreground">Meta de CMV (%)</Label>
+            <Input id="meta" type="number" value={metaCmvInput} onChange={(e) => setMetaCmvInput(e.target.value)} className="h-8 w-24" />
+          </div>
 
           {precoSugerido != null && (
             <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 p-3 text-center">
               <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
-                Preço sugerido (p/ meta {META_CMV.toFixed(1).replace('.', ',')}%)
+                Preço sugerido (p/ meta {meta.toFixed(1).replace('.', ',')}%)
               </p>
               <p className="font-mono text-2xl font-bold text-primary">
                 {brl(precoSugerido)}
@@ -330,6 +386,9 @@ export default function FichasPage() {
       <h2 className="mb-3 mt-8 font-display text-sm font-bold uppercase tracking-wide text-muted-foreground">
         Fichas cadastradas ({fichas.length})
       </h2>
+      {!carregou ? (
+        <SkeletonList rows={3} />
+      ) : (
       <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-3">
         {fichas.length === 0 && (
           <p className="text-sm text-muted-foreground">Nenhuma ficha ainda.</p>
@@ -350,9 +409,14 @@ export default function FichasPage() {
                     )}
                   </p>
                 </div>
-                <Button variant="ghost" size="icon" aria-label="Excluir" onClick={() => excluir(f.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex flex-none gap-0.5">
+                  <Button variant="ghost" size="icon" aria-label="Editar" onClick={() => editar(f)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" aria-label="Excluir" className="text-destructive" onClick={() => excluir(f.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="mt-3 flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">
@@ -372,6 +436,7 @@ export default function FichasPage() {
           );
         })}
       </div>
+      )}
     </Shell>
   );
 }
