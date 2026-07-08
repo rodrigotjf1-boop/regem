@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { NovaAlocacaoForm } from '@/components/escala/nova-alocacao-form';
 import { Shell } from '@/components/app-shell/shell';
 import { cn } from '@/lib/utils';
+import { corHierarquia, LABEL_HIERARQUIA, ORDEM_HIERARQUIA } from '@/lib/hierarquia';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Aloc = {
@@ -19,8 +22,9 @@ type Aloc = {
   etiquetaId: string | null;
   etiquetaSigla: string | null;
   etiquetaContador: number | null;
-  etiquetaCor: string | null;
+  categoria: string | null;
   setorNome: string | null;
+  setorCor: string | null;
   turnoNome: string | null;
   colaboradorNome: string | null;
 };
@@ -30,7 +34,13 @@ type Etiqueta = {
   contador: number;
   cor: string | null;
   setorId: string | null;
+  setorNome: string | null;
+  setorCor: string | null;
+  categoria: string | null;
+  funcaoId: string | null;
 };
+type Colab = { id: string; nome: string; funcaoIds?: string[] };
+type Grupo = { setorId: string; nome: string; cor: string | null; vagas: Etiqueta[] };
 
 function iso(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -66,7 +76,7 @@ export default function EscalaPage() {
   const [inicio, setInicio] = useState(() => mondayOf(hoje()));
   const [semana, setSemana] = useState<Aloc[]>([]);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
-  const [setorMap, setSetorMap] = useState<Record<string, string>>({});
+  const [colabs, setColabs] = useState<Colab[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [alocar, setAlocar] = useState<{ etiquetaId?: string; data: string } | null>(
@@ -98,16 +108,14 @@ export default function EscalaPage() {
     setLoading(true);
     setErro('');
     try {
-      const [aloc, ets, setores] = await Promise.all([
+      const [aloc, ets, cs] = await Promise.all([
         api.escalaSemana(inicio),
         api.etiquetas(),
-        api.setores(),
+        api.colaboradores(),
       ]);
       setSemana(aloc);
       setEtiquetas(ets);
-      setSetorMap(
-        Object.fromEntries((setores as any[]).map((s) => [s.id, s.nome])),
-      );
+      setColabs(cs);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
@@ -138,17 +146,60 @@ export default function EscalaPage() {
     return m;
   }, [semana]);
 
-  // Vagas agrupadas por setor
-  const grupos = useMemo(() => {
-    const g: Record<string, Etiqueta[]> = {};
+  // Vagas agrupadas por setor (nome + cor do setor).
+  const grupos: Grupo[] = useMemo(() => {
+    const g: Record<string, Grupo> = {};
     for (const e of etiquetas) {
-      const nome = (e.setorId && setorMap[e.setorId]) || 'Sem setor';
-      (g[nome] ??= []).push(e);
+      const key = e.setorId ?? 'sem';
+      if (!g[key])
+        g[key] = {
+          setorId: key,
+          nome: e.setorNome ?? 'Sem setor',
+          cor: e.setorCor ?? null,
+          vagas: [],
+        };
+      g[key].vagas.push(e);
     }
-    return Object.entries(g).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [etiquetas, setorMap]);
+    return Object.values(g).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [etiquetas]);
+
+  // Colaboradores elegíveis para uma vaga = os que cobrem a função dela.
+  const elegiveis = useCallback(
+    (funcaoId?: string | null) =>
+      funcaoId ? colabs.filter((c) => (c.funcaoIds ?? []).includes(funcaoId)) : colabs,
+    [colabs],
+  );
+
+  async function removerAloc(id: string) {
+    if (!confirm('Remover esta alocação?')) return;
+    try {
+      await api.removerAlocacao(id);
+      toast.success('Alocação removida.');
+      await carregar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao remover');
+    }
+  }
+  async function trocarResp(id: string, colaboradorId: string) {
+    try {
+      await api.alterarAlocacao(id, { colaboradorId: colaboradorId || null });
+      toast.success(colaboradorId ? 'Responsável atualizado.' : 'Vaga reaberta.');
+      await carregar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao alterar');
+    }
+  }
 
   const rotulo = `${fmtDia(inicio).dm} – ${fmtDia(addDays(inicio, 6)).dm}`;
+
+  // Dados do modal (alocações existentes na célula + vaga selecionada).
+  const vagaSel = alocar?.etiquetaId
+    ? etiquetas.find((e) => e.id === alocar.etiquetaId)
+    : undefined;
+  const existentes = alocar?.etiquetaId
+    ? cell[`${alocar.etiquetaId}|${alocar.data}`] ?? []
+    : [];
+  const elegVaga = elegiveis(vagaSel?.funcaoId);
 
   return (
     <Shell
@@ -187,6 +238,20 @@ export default function EscalaPage() {
         >
           <ChevronRight className="h-4 w-4" />
         </Button>
+      </div>
+
+      {/* Legenda de hierarquia (define a cor das vagas). */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        <span className="font-medium">Hierarquia:</span>
+        {ORDEM_HIERARQUIA.map((c) => (
+          <span key={c} className="inline-flex items-center gap-1">
+            <span
+              className="h-2.5 w-2.5 rounded-full"
+              style={{ background: corHierarquia(c) }}
+            />
+            {LABEL_HIERARQUIA[c]}
+          </span>
+        ))}
       </div>
 
       {erro && <p className="mb-4 text-destructive">{erro}</p>}
@@ -241,11 +306,10 @@ export default function EscalaPage() {
               </tr>
             </thead>
             <tbody>
-              {grupos.map(([setorNome, vagas]) => (
+              {grupos.map((g) => (
                 <FragmentSetor
-                  key={setorNome}
-                  setorNome={setorNome}
-                  vagas={vagas}
+                  key={g.setorId}
+                  grupo={g}
                   dias={dias}
                   cell={cell}
                   onCell={(etiquetaId, data) => setAlocar({ etiquetaId, data })}
@@ -277,24 +341,25 @@ export default function EscalaPage() {
           </div>
 
           <div className="space-y-3">
-            {grupos.map(([setorNome, vagas]) => (
-              <div key={setorNome}>
-                <p className="mb-1.5 px-1 font-display text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
-                  {setorNome}
+            {grupos.map((g) => (
+              <div key={g.setorId}>
+                <p className="mb-1.5 flex items-center gap-1.5 px-1 font-display text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                  <span
+                    className="h-2.5 w-2.5 flex-none rounded-full"
+                    style={{ background: g.cor || 'hsl(var(--muted-foreground))' }}
+                  />
+                  {g.nome}
                 </p>
                 <div className="space-y-1.5">
-                  {vagas.map((v) => {
+                  {g.vagas.map((v) => {
                     const allocs = cell[`${v.id}|${dias[diaIdx]}`] ?? [];
                     return (
                       <Card
                         key={v.id}
                         onClick={() => setAlocar({ etiquetaId: v.id, data: dias[diaIdx] })}
                         className="flex min-h-[44px] cursor-pointer items-center gap-3 p-3 active:bg-primary/5"
+                        style={{ borderLeft: `3px solid ${corHierarquia(v.categoria)}` }}
                       >
-                        <span
-                          className="h-2.5 w-2.5 flex-none rounded-full"
-                          style={{ background: v.cor || 'hsl(var(--muted-foreground))' }}
-                        />
                         <span className="w-12 flex-none font-mono text-xs font-bold">
                           {v.sigla}
                           {v.contador}
@@ -331,8 +396,8 @@ export default function EscalaPage() {
       )}
 
       <p className="mt-3 text-xs text-muted-foreground">
-        Clique em qualquer célula para alocar um colaborador naquela vaga e dia.
-        Conflitos (mesma pessoa em dois lugares) são bloqueados automaticamente.
+        Clique em qualquer célula para alocar, trocar ou remover. Conflitos (mesma
+        pessoa em dois lugares no mesmo turno) são bloqueados automaticamente.
       </p>
 
       {alocar && (
@@ -340,8 +405,52 @@ export default function EscalaPage() {
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-16"
           role="dialog"
           aria-modal="true"
+          onClick={() => setAlocar(null)}
         >
-          <div className="w-full max-w-md">
+          <div className="w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
+            {/* Alocações já existentes na célula: trocar responsável ou remover. */}
+            {existentes.length > 0 && (
+              <Card className="space-y-2 p-4">
+                <p className="font-display text-sm font-bold">
+                  {vagaSel ? `${vagaSel.sigla}${vagaSel.contador}` : 'Alocações'} ·{' '}
+                  {fmtDia(alocar.data).dm}
+                </p>
+                {existentes.map((a) => (
+                  <div key={a.id} className="flex items-center gap-2">
+                    <div className="flex-1">
+                      <Select
+                        aria-label="Responsável"
+                        value={
+                          colabs.find((c) => c.nome === a.colaboradorNome)?.id ?? ''
+                        }
+                        onChange={(e) => trocarResp(a.id, e.target.value)}
+                      >
+                        <option value="">Vaga aberta</option>
+                        {elegVaga.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    {a.turnoNome && (
+                      <span className="text-xs text-muted-foreground">{a.turnoNome}</span>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Remover alocação"
+                      className="text-destructive"
+                      onClick={() => removerAloc(a.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </Card>
+            )}
+
             <NovaAlocacaoForm
               data={alocar.data}
               defaultEtiquetaId={alocar.etiquetaId}
@@ -359,14 +468,12 @@ export default function EscalaPage() {
 }
 
 function FragmentSetor({
-  setorNome,
-  vagas,
+  grupo,
   dias,
   cell,
   onCell,
 }: {
-  setorNome: string;
-  vagas: Etiqueta[];
+  grupo: Grupo;
   dias: string[];
   cell: Record<string, Aloc[]>;
   onCell: (etiquetaId: string, data: string) => void;
@@ -378,16 +485,25 @@ function FragmentSetor({
           colSpan={dias.length + 1}
           className="px-3 py-1.5 font-display text-[11px] font-bold uppercase tracking-wide text-muted-foreground"
         >
-          {setorNome}
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="h-2.5 w-2.5 flex-none rounded-full"
+              style={{ background: grupo.cor || 'hsl(var(--muted-foreground))' }}
+            />
+            {grupo.nome}
+          </span>
         </td>
       </tr>
-      {vagas.map((v) => (
+      {grupo.vagas.map((v) => (
         <tr key={v.id} className="border-b border-border last:border-0">
-          <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-3 py-2">
+          <td
+            className="sticky left-0 z-10 whitespace-nowrap bg-card px-3 py-2"
+            style={{ boxShadow: `inset 3px 0 0 ${corHierarquia(v.categoria)}` }}
+          >
             <span className="inline-flex items-center gap-2">
               <span
                 className="h-2.5 w-2.5 flex-none rounded-full"
-                style={{ background: v.cor || 'hsl(var(--muted-foreground))' }}
+                style={{ background: corHierarquia(v.categoria) }}
               />
               <span className="font-mono text-xs font-bold">
                 {v.sigla}
@@ -413,6 +529,7 @@ function FragmentSetor({
                       <div
                         key={a.id}
                         className="rounded-md bg-secondary px-1.5 py-1 leading-tight"
+                        style={{ borderLeft: `3px solid ${corHierarquia(v.categoria)}` }}
                       >
                         <p className="truncate text-[11px] font-semibold">
                           {a.colaboradorNome ?? 'Vaga aberta'}
