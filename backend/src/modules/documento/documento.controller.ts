@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -13,6 +15,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { DocumentoService } from './documento.service';
 import { CreateDocumentoDto } from './dto/create-documento.dto';
+import { UpdateDocumentoDto } from './dto/update-documento.dto';
 
 @Controller('documentos')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -27,7 +30,30 @@ export class DocumentoController {
 
   @Get()
   findAll(@CurrentUser() user: AuthUser) {
-    return this.service.findAll(user.tenantId);
+    return this.service.findAll(user.tenantId, user.colaboradorId);
+  }
+
+  // Modelos por ramo (rota estática antes de :id).
+  @Get('sugestoes')
+  @Roles('presidente', 'gerente')
+  sugestoes(@CurrentUser() user: AuthUser) {
+    return this.service.sugestoesRamo(user.tenantId);
+  }
+
+  @Patch(':id')
+  @Roles('presidente', 'gerente')
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateDocumentoDto,
+  ) {
+    return this.service.update(user.tenantId, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles('presidente', 'gerente')
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.remove(user.tenantId, id);
   }
 
   @Post(':id/publicar')

@@ -4,9 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { checklist, checklistItem, pop, unidade } from '../../db/schema';
+import { checklist, checklistItem, empresa, pop, unidade } from '../../db/schema';
+import { SUGESTOES_CHECKLIST } from './sugestoes-checklist';
 import { CreateChecklistDto } from './dto/create-checklist.dto';
 import { CreateChecklistItemDto } from './dto/create-item.dto';
 
@@ -75,11 +76,47 @@ export class ChecklistService {
     return row;
   }
 
-  findAll(tenantId: string) {
-    return this.db
+  async findAll(tenantId: string) {
+    const rows = await this.db
       .select()
       .from(checklist)
       .where(and(eq(checklist.tenantId, tenantId), isNull(checklist.deletedAt)));
+    if (rows.length === 0) return [];
+    const ids = rows.map((c) => c.id);
+    const itens = await this.db
+      .select()
+      .from(checklistItem)
+      .where(inArray(checklistItem.checklistId, ids))
+      .orderBy(asc(checklistItem.ordem));
+    return rows.map((c) => ({
+      ...c,
+      itens: itens.filter((i) => i.checklistId === c.id),
+    }));
+  }
+
+  async removeItem(tenantId: string, itemId: string) {
+    await this.db
+      .delete(checklistItem)
+      .where(
+        and(
+          eq(checklistItem.id, itemId),
+          eq(checklistItem.tenantId, tenantId),
+        ),
+      );
+    return { ok: true };
+  }
+
+  // Modelos de checklist sugeridos pelo ramo da empresa (itens editáveis).
+  async sugestoesRamo(tenantId: string) {
+    const [emp] = await this.db
+      .select({ ramo: empresa.ramo })
+      .from(empresa)
+      .where(eq(empresa.id, tenantId));
+    const ramo = emp?.ramo ?? 'food_service';
+    return {
+      ramo,
+      sugestoes: SUGESTOES_CHECKLIST[ramo] ?? SUGESTOES_CHECKLIST.geral,
+    };
   }
 
   async findOne(tenantId: string, id: string) {

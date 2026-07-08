@@ -1,9 +1,17 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { documentoControlado, ciencia } from '../../db/schema';
+import {
+  colaborador,
+  documentoControlado,
+  ciencia,
+  empresa,
+} from '../../db/schema';
 import { CreateDocumentoDto } from './dto/create-documento.dto';
+import { UpdateDocumentoDto } from './dto/update-documento.dto';
+import { SUGESTOES_DOCUMENTO } from './sugestoes-documento';
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
 export class DocumentoService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
@@ -38,8 +46,9 @@ export class DocumentoService {
     return row;
   }
 
-  findAll(tenantId: string) {
-    return this.db
+  // Lista com contagem de ciências da versão vigente e se o usuário já assinou.
+  async findAll(tenantId: string, colaboradorId?: string) {
+    const docs = await this.db
       .select()
       .from(documentoControlado)
       .where(
@@ -47,7 +56,71 @@ export class DocumentoService {
           eq(documentoControlado.tenantId, tenantId),
           isNull(documentoControlado.deletedAt),
         ),
+      )
+      .orderBy(desc(documentoControlado.createdAt));
+    if (docs.length === 0) return [];
+    const ids = docs.map((d) => d.id);
+    const cts = await this.db
+      .select()
+      .from(ciencia)
+      .where(
+        and(eq(ciencia.tenantId, tenantId), inArray(ciencia.documentoId, ids)),
       );
+    return docs.map((d) => {
+      const daVersao = cts.filter(
+        (c) => c.documentoId === d.id && c.versao === d.versao,
+      );
+      return {
+        ...d,
+        cienciaCount: daVersao.length,
+        jaCiente: colaboradorId
+          ? daVersao.some((c) => c.colaboradorId === colaboradorId)
+          : false,
+      };
+    });
+  }
+
+  async update(tenantId: string, id: string, dto: UpdateDocumentoDto) {
+    await this.getOwned(tenantId, id);
+    const patch: any = {};
+    for (const k of ['tipo', 'titulo', 'escopo', 'conteudo'] as const) {
+      if (dto[k] !== undefined) patch[k] = dto[k];
+    }
+    if (Object.keys(patch).length) {
+      patch.updatedAt = new Date();
+      await this.db
+        .update(documentoControlado)
+        .set(patch)
+        .where(
+          and(
+            eq(documentoControlado.id, id),
+            eq(documentoControlado.tenantId, tenantId),
+          ),
+        );
+    }
+    return this.getOwned(tenantId, id);
+  }
+
+  async remove(tenantId: string, id: string) {
+    await this.getOwned(tenantId, id);
+    await this.db
+      .update(documentoControlado)
+      .set({ deletedAt: new Date() })
+      .where(eq(documentoControlado.id, id));
+    return { ok: true };
+  }
+
+  // Modelos de documento sugeridos pelo ramo da empresa (rascunhos editáveis).
+  async sugestoesRamo(tenantId: string) {
+    const [emp] = await this.db
+      .select({ ramo: empresa.ramo })
+      .from(empresa)
+      .where(eq(empresa.id, tenantId));
+    const ramo = emp?.ramo ?? 'food_service';
+    return {
+      ramo,
+      sugestoes: SUGESTOES_DOCUMENTO[ramo] ?? SUGESTOES_DOCUMENTO.geral,
+    };
   }
 
   async publicar(tenantId: string, id: string) {
@@ -85,13 +158,21 @@ export class DocumentoService {
 
   listCiencias(tenantId: string, documentoId: string) {
     return this.db
-      .select()
+      .select({
+        id: ciencia.id,
+        colaboradorId: ciencia.colaboradorId,
+        nome: colaborador.nome,
+        versao: ciencia.versao,
+        data: ciencia.data,
+      })
       .from(ciencia)
+      .leftJoin(colaborador, eq(colaborador.id, ciencia.colaboradorId))
       .where(
         and(
           eq(ciencia.tenantId, tenantId),
           eq(ciencia.documentoId, documentoId),
         ),
-      );
+      )
+      .orderBy(desc(ciencia.data));
   }
 }
