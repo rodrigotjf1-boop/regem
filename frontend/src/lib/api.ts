@@ -541,6 +541,10 @@ export const api = {
   unidades: () => req('/unidades'),
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
+  alterarAlocacao: (id: string, body: Record<string, unknown>) =>
+    req(`/escala/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removerAlocacao: (id: string) =>
+    req(`/escala/${id}`, { method: 'DELETE' }),
   criarTarefaDef: (body: Record<string, unknown>) =>
     req('/tarefas', { method: 'POST', body: JSON.stringify(body) }),
   instanciarTarefa: (body: Record<string, unknown>) =>

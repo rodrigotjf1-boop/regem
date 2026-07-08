@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -35,6 +45,43 @@ export class EscalaController {
         colaboradorId: dto.colaboradorId,
         tipo: dto.tipo,
       },
+    });
+    return res;
+  }
+
+  @Patch(':id')
+  @Roles('presidente', 'gerente')
+  async alterar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { colaboradorId?: string | null; tipo?: string },
+  ) {
+    const res = await this.service.alterar(user.tenantId, id, dto);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'escala',
+      acao: 'alterou_alocacao',
+      entidadeTipo: 'alocacao',
+      entidadeId: id,
+      detalhe: { colaboradorId: dto.colaboradorId, tipo: dto.tipo },
+    });
+    return res;
+  }
+
+  @Delete(':id')
+  @Roles('presidente', 'gerente')
+  async remover(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const res = await this.service.remover(user.tenantId, id);
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'escala',
+      acao: 'removeu_alocacao',
+      entidadeTipo: 'alocacao',
+      entidadeId: id,
     });
     return res;
   }

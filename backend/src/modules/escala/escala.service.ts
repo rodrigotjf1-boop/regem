@@ -3,8 +3,9 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
-import { and, asc, eq, gte, isNull, lte } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lte, ne } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   escalaAlocacao,
@@ -129,6 +130,72 @@ export class EscalaService {
     ];
     if (data) conds.push(eq(escalaAlocacao.data, data));
     return this.joined().where(and(...conds));
+  }
+
+  // Remove uma alocação (soft-delete). Reversível pela trilha de auditoria.
+  async remover(tenantId: string, id: string) {
+    const [row] = await this.db
+      .update(escalaAlocacao)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(escalaAlocacao.id, id),
+          eq(escalaAlocacao.tenantId, tenantId),
+          isNull(escalaAlocacao.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Alocação não encontrada');
+    return row;
+  }
+
+  // Altera o responsável (trocar pessoa / reabrir vaga) ou o tipo da alocação.
+  async alterar(
+    tenantId: string,
+    id: string,
+    dto: { colaboradorId?: string | null; tipo?: string },
+  ) {
+    const [atual] = await this.db
+      .select()
+      .from(escalaAlocacao)
+      .where(
+        and(
+          eq(escalaAlocacao.id, id),
+          eq(escalaAlocacao.tenantId, tenantId),
+          isNull(escalaAlocacao.deletedAt),
+        ),
+      );
+    if (!atual) throw new NotFoundException('Alocação não encontrada');
+
+    // Se trocar de pessoa, ela não pode já estar em outra vaga no mesmo dia/turno.
+    if (dto.colaboradorId) {
+      const conflito = await this.db
+        .select({ id: escalaAlocacao.id })
+        .from(escalaAlocacao)
+        .where(
+          and(
+            eq(escalaAlocacao.tenantId, tenantId),
+            eq(escalaAlocacao.data, atual.data),
+            eq(escalaAlocacao.turnoId, atual.turnoId),
+            eq(escalaAlocacao.colaboradorId, dto.colaboradorId),
+            ne(escalaAlocacao.id, id),
+            isNull(escalaAlocacao.deletedAt),
+          ),
+        );
+      if (conflito.length)
+        throw new ConflictException('Colaborador já alocado neste turno/dia');
+    }
+
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (dto.colaboradorId !== undefined)
+      patch.colaboradorId = dto.colaboradorId || null;
+    if (dto.tipo) patch.tipo = dto.tipo;
+    const [row] = await this.db
+      .update(escalaAlocacao)
+      .set(patch)
+      .where(and(eq(escalaAlocacao.id, id), eq(escalaAlocacao.tenantId, tenantId)))
+      .returning();
+    return row;
   }
 
   // Grade semanal: alocações de [inicio, inicio+6], para montar a matriz vaga × dia.

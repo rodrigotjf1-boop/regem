@@ -8,9 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card } from '@/components/ui/card';
 
-type Etiqueta = { id: string; sigla: string; contador: number };
+type Etiqueta = { id: string; sigla: string; contador: number; funcaoId?: string | null };
 type Turno = { id: string; nome: string };
-type Colaborador = { id: string; nome: string };
+type Colaborador = { id: string; nome: string; funcaoIds?: string[] };
 
 export function NovaAlocacaoForm({
   data,
@@ -73,6 +73,14 @@ export function NovaAlocacaoForm({
     }
   }
 
+  // Responsáveis elegíveis = colaboradores que cobrem a função da vaga escolhida.
+  const funcaoIdSel = etiquetas.find((e) => e.id === etiquetaId)?.funcaoId ?? null;
+  const elegiveis = funcaoIdSel
+    ? colabs.filter((c) => (c.funcaoIds ?? []).includes(funcaoIdSel))
+    : colabs;
+  const semFuncao = !!funcaoIdSel && elegiveis.length === 0;
+  const lista = elegiveis.length ? elegiveis : colabs;
+
   return (
     <Card className="p-4">
       <form onSubmit={salvar} className="space-y-3">
@@ -134,12 +142,17 @@ export function NovaAlocacaoForm({
             onChange={(e) => setColaboradorId(e.target.value)}
           >
             <option value="">Vaga aberta</option>
-            {colabs.map((c) => (
+            {lista.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nome}
               </option>
             ))}
           </Select>
+          {semFuncao && (
+            <p className="text-xs text-warn">
+              Nenhum colaborador cadastrado com essa função — mostrando todos.
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5">
