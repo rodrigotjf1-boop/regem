@@ -25,6 +25,15 @@ export const VINCULOS = ['clt', 'horista', 'diarista', 'pj', 'autonomo'].map((v)
   label: v.toUpperCase(),
 }));
 
+// Tipo de escala/jornada do colaborador (regras CLT na montagem da escala).
+export const JORNADAS = [
+  { value: 'outro', label: 'Outro / não definido' },
+  { value: '5x2', label: '5x2 (5 dias, 2 folgas)' },
+  { value: '12x36', label: '12x36 (12h, folga 36h)' },
+  { value: '4x3', label: '4x3 (4 dias, 3 folgas)' },
+  { value: 'horista', label: 'Horista' },
+];
+
 export const DIAS_SEMANA = [
   { value: '', label: 'Todos os dias' },
   { value: '0', label: 'Domingo' },

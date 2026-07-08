@@ -35,6 +35,10 @@ export class CreateColaboradorDto {
   vinculo?: string;
 
   @IsOptional()
+  @IsIn(['5x2', '12x36', '4x3', 'horista', 'outro'])
+  jornadaTipo?: string;
+
+  @IsOptional()
   @Matches(/^\d{4,6}$/, { message: 'PIN deve ter de 4 a 6 dígitos' })
   pin?: string;
 }

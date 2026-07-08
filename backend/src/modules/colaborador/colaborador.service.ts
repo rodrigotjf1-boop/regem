@@ -20,6 +20,7 @@ const publicCols = {
   fotoRef: colaborador.fotoRef,
   funcaoId: colaborador.funcaoId,
   vinculo: colaborador.vinculo,
+  jornadaTipo: colaborador.jornadaTipo,
   email: colaborador.email,
   status: colaborador.status,
   createdAt: colaborador.createdAt,
@@ -66,6 +67,7 @@ export class ColaboradorService {
         fotoRef: dto.fotoRef,
         funcaoId: principal,
         vinculo: dto.vinculo ?? 'clt',
+        jornadaTipo: dto.jornadaTipo ?? 'outro',
         pinHash,
       })
       .returning(publicCols);

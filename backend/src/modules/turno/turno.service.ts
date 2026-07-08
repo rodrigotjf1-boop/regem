@@ -30,6 +30,8 @@ export class TurnoService {
         nome: dto.nome,
         horaInicio: dto.horaInicio,
         horaFim: dto.horaFim,
+        pausaInicio: dto.pausaInicio || null,
+        pausaFim: dto.pausaFim || null,
       })
       .returning();
     return row;

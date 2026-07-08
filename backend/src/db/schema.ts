@@ -83,6 +83,7 @@ export const colaborador = pgTable('colaborador', {
   funcaoId: uuid('funcao_id').references(() => funcao.id),
   telefone: text('telefone'), // contato (ex.: entregador em rota)
   vinculo: text('vinculo').notNull().default('clt'),
+  jornadaTipo: text('jornada_tipo').notNull().default('outro'), // 5x2|12x36|4x3|horista|outro
   pinHash: text('pin_hash'),
   email: text('email'),
   senhaHash: text('senha_hash'),
@@ -139,6 +140,8 @@ export const turno = pgTable('turno', {
   nome: text('nome').notNull(),
   horaInicio: time('hora_inicio').notNull(),
   horaFim: time('hora_fim').notNull(),
+  pausaInicio: time('pausa_inicio'), // intervalo intrajornada (timeline + CLT)
+  pausaFim: time('pausa_fim'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

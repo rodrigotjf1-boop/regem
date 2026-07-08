@@ -3,6 +3,7 @@ import { type FieldDef } from '@/components/cadastros/entity-form';
 import {
   CATEGORIAS,
   VINCULOS,
+  JORNADAS,
   DIAS_SEMANA,
   DIA_ABREV,
   type Lists,
@@ -156,6 +157,13 @@ export function buildSecoes({
           defaultValue: 'clt',
         },
         {
+          name: 'jornadaTipo',
+          label: 'Tipo de escala/jornada',
+          type: 'select',
+          options: JORNADAS,
+          defaultValue: 'outro',
+        },
+        {
           name: 'pin',
           label: 'PIN (opcional, 4-6 díg.)',
           type: 'text',
@@ -168,6 +176,7 @@ export function buildSecoes({
           fotoRef: v.fotoRef || undefined,
           funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
           vinculo: v.vinculo,
+          jornadaTipo: v.jornadaTipo || undefined,
           pin: v.pin || undefined,
         }),
     },
@@ -193,6 +202,8 @@ export function buildSecoes({
         },
         { name: 'horaInicio', label: 'Início', type: 'time', required: true },
         { name: 'horaFim', label: 'Fim', type: 'time', required: true },
+        { name: 'pausaInicio', label: 'Início da pausa (opcional)', type: 'time' },
+        { name: 'pausaFim', label: 'Fim da pausa (opcional)', type: 'time' },
       ] as FieldDef[],
       submit: (v: any) =>
         api.post('/turnos', {
@@ -200,6 +211,8 @@ export function buildSecoes({
           nome: v.nome,
           horaInicio: v.horaInicio,
           horaFim: v.horaFim,
+          pausaInicio: v.pausaInicio || undefined,
+          pausaFim: v.pausaFim || undefined,
         }),
     },
     {
