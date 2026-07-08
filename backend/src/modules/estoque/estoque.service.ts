@@ -1,7 +1,18 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { itemEstoque, movimentoEstoque, alertaEstoque } from '../../db/schema';
+import {
+  itemEstoque,
+  movimentoEstoque,
+  alertaEstoque,
+  categoriaItem,
+  itemConversao,
+} from '../../db/schema';
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
@@ -21,9 +32,99 @@ export class EstoqueService {
         estoqueMinimo:
           dto.estoqueMinimo != null ? String(dto.estoqueMinimo) : undefined,
         categoria: dto.categoria,
+        fornecedorId: dto.fornecedorId,
+        categoriaItemId: dto.categoriaItemId,
       })
       .returning();
+    await this.gravarConversoes(tenantId, row.id, dto.conversoes);
     return row;
+  }
+
+  // Edita um insumo (campos + conversões replace-all).
+  async updateItem(tenantId: string, id: string, dto: CreateItemDto) {
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (dto.nome !== undefined) patch.nome = dto.nome;
+    if (dto.unidadeMedida !== undefined) patch.unidadeMedida = dto.unidadeMedida;
+    if (dto.estoqueMinimo != null) patch.estoqueMinimo = String(dto.estoqueMinimo);
+    if (dto.categoria !== undefined) patch.categoria = dto.categoria;
+    if (dto.fornecedorId !== undefined) patch.fornecedorId = dto.fornecedorId || null;
+    if (dto.categoriaItemId !== undefined)
+      patch.categoriaItemId = dto.categoriaItemId || null;
+    const [row] = await this.db
+      .update(itemEstoque)
+      .set(patch)
+      .where(
+        and(
+          eq(itemEstoque.id, id),
+          eq(itemEstoque.tenantId, tenantId),
+          isNull(itemEstoque.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Item não encontrado');
+    if (dto.conversoes) await this.gravarConversoes(tenantId, id, dto.conversoes);
+    return row;
+  }
+
+  // Replace-all das conversões do item (só as válidas: fator > 0 e unidades).
+  private async gravarConversoes(
+    tenantId: string,
+    itemId: string,
+    conversoes?: { unidadeDe: string; fator: number; unidadePara: string }[],
+  ) {
+    if (!conversoes) return;
+    await this.db
+      .delete(itemConversao)
+      .where(
+        and(
+          eq(itemConversao.tenantId, tenantId),
+          eq(itemConversao.itemId, itemId),
+        ),
+      );
+    const validas = conversoes.filter(
+      (c) => c.unidadeDe?.trim() && c.unidadePara?.trim() && Number(c.fator) > 0,
+    );
+    if (validas.length)
+      await this.db.insert(itemConversao).values(
+        validas.map((c) => ({
+          tenantId,
+          itemId,
+          unidadeDe: c.unidadeDe.trim(),
+          fator: String(c.fator),
+          unidadePara: c.unidadePara.trim(),
+        })),
+      );
+  }
+
+  // ----- Categorias de insumo (cadastro próprio) -----
+  listCategorias(tenantId: string) {
+    return this.db
+      .select()
+      .from(categoriaItem)
+      .where(and(eq(categoriaItem.tenantId, tenantId), isNull(categoriaItem.deletedAt)))
+      .orderBy(categoriaItem.nome);
+  }
+  async createCategoria(tenantId: string, dto: { nome: string; cor?: string }) {
+    const [row] = await this.db
+      .insert(categoriaItem)
+      .values({ tenantId, nome: dto.nome, cor: dto.cor })
+      .returning();
+    return row;
+  }
+  async removerCategoria(tenantId: string, id: string) {
+    const [row] = await this.db
+      .update(categoriaItem)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(categoriaItem.id, id),
+          eq(categoriaItem.tenantId, tenantId),
+          isNull(categoriaItem.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Categoria não encontrada');
+    return { ok: true };
   }
 
   // Saldo derivado do ledger (entrada +, saida -, ajuste sinalizado).
@@ -32,21 +133,39 @@ export class EstoqueService {
       select i.id, i.nome, i.unidade_medida as "unidadeMedida",
              i.estoque_minimo as "estoqueMinimo",
              i.custo_medio as "custoMedio",
+             i.categoria_item_id as "categoriaItemId",
+             i.fornecedor_id as "fornecedorId",
+             cat.nome as "categoriaNome", cat.cor as "categoriaCor",
+             f.nome as "fornecedorNome",
              coalesce(sum(case m.tipo
                when 'entrada' then m.quantidade
                when 'saida'   then -m.quantidade
                else m.quantidade end), 0) as saldo
       from item_estoque i
       left join movimento_estoque m on m.item_id = i.id
+      left join categoria_item cat on cat.id = i.categoria_item_id
+      left join fornecedor f on f.id = i.fornecedor_id
       where i.tenant_id = ${tenantId} and i.deleted_at is null
-      group by i.id
+      group by i.id, cat.nome, cat.cor, f.nome
       order by i.nome
     `);
     const rows = res.rows ?? res;
+    // Conversões por item (anexadas em memória).
+    const convs = await this.db
+      .select()
+      .from(itemConversao)
+      .where(eq(itemConversao.tenantId, tenantId));
+    const porItem = new Map<string, any[]>();
+    for (const c of convs) {
+      const arr = porItem.get(c.itemId) ?? [];
+      arr.push({ unidadeDe: c.unidadeDe, fator: Number(c.fator), unidadePara: c.unidadePara });
+      porItem.set(c.itemId, arr);
+    }
     // Valor em estoque = saldo × custo médio (derivado, nunca armazenado).
     return rows.map((r: any) => ({
       ...r,
       valorEstoque: Number(r.saldo) * Number(r.custoMedio ?? 0),
+      conversoes: porItem.get(r.id) ?? [],
     }));
   }
 

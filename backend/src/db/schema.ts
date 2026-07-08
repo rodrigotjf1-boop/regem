@@ -431,10 +431,40 @@ export const itemEstoque = pgTable('item_estoque', {
   custoMedio: numeric('custo_medio').notNull().default('0'),
   diasSeguranca: integer('dias_seguranca').notNull().default(2),
   classeAbc: text('classe_abc'),
-  categoria: text('categoria'),
+  categoria: text('categoria'), // texto livre (compat); ver categoriaItemId
+  fornecedorId: uuid('fornecedor_id').references(() => fornecedor.id),
+  categoriaItemId: uuid('categoria_item_id').references(() => categoriaItem.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Categoria de insumo (cadastro próprio). Usada p/ filtro/agrupamento no estoque.
+export const categoriaItem = pgTable('categoria_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  cor: text('cor'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Conversões personalizadas: 1 <unidadeDe> = <fator> <unidadePara>.
+export const itemConversao = pgTable('item_conversao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  unidadeDe: text('unidade_de').notNull(),
+  fator: numeric('fator').notNull(),
+  unidadePara: text('unidade_para').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const tipoOcorrencia = pgTable('tipo_ocorrencia', {
