@@ -152,6 +152,12 @@ export class VendasController {
     return this.service.getCupom(user.tenantId, id);
   }
 
+  // Reimprime a 2ª via do comprovante (via do cliente) na impressora 'cupom'.
+  @Post('cupons/:id/reimprimir')
+  reimprimirCupom(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.reimprimirCupom(user.tenantId, user.colaboradorId, id);
+  }
+
   @Post('comandas/:id/cancelar')
   cancelar(
     @CurrentUser() user: AuthUser,

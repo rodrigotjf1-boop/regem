@@ -18,7 +18,9 @@ const hora = (d?: string) =>
 
 export default function CuponsPage() {
   const router = useRouter();
-  const cat = getCategoria();
+  // cat resolvido no cliente (evita divergência de hidratação: no SSR o token
+  // é null e viraria presidente só depois de montar).
+  const [cat, setCat] = useState<string | null>(null);
   const isPresidente = cat === 'presidente';
   const [cupons, setCupons] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
@@ -26,6 +28,9 @@ export default function CuponsPage() {
   const [motivo, setMotivo] = useState('');
   const [cancelando, setCancelando] = useState(false);
   const [cancelLivre, setCancelLivre] = useState<boolean | null>(null);
+  const [busca, setBusca] = useState('');
+  const [buscando, setBuscando] = useState(false);
+  const [reimprimindo, setReimprimindo] = useState(false);
 
   const reload = useCallback(async () => {
     setErro('');
@@ -46,6 +51,7 @@ export default function CuponsPage() {
       router.replace('/entrar');
       return;
     }
+    setCat(getCategoria());
     reload();
   }, [reload, router]);
 
@@ -56,6 +62,34 @@ export default function CuponsPage() {
       setSel(c);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao abrir cupom');
+    }
+  }
+
+  async function buscarPorSenha() {
+    const n = busca.trim();
+    if (!n) return;
+    setBuscando(true);
+    try {
+      const c: any = await api.buscarCupomSenha(n);
+      setSel(c);
+      setMotivo('');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Nenhum cupom com essa senha.');
+    } finally {
+      setBuscando(false);
+    }
+  }
+
+  async function reimprimir() {
+    if (!sel) return;
+    setReimprimindo(true);
+    try {
+      await api.reimprimirCupom(sel.id);
+      toast.success('2ª via enviada para a impressora.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao reimprimir');
+    } finally {
+      setReimprimindo(false);
     }
   }
 
@@ -111,6 +145,26 @@ export default function CuponsPage() {
             </label>
           </Card>
         )}
+
+        <Card className="p-3">
+          <div className="flex items-end gap-2">
+            <div className="flex-1 space-y-1">
+              <Label className="text-xs">Buscar por senha/nº</Label>
+              <Input
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') buscarPorSenha();
+                }}
+                inputMode="numeric"
+                placeholder="Ex.: 42"
+              />
+            </div>
+            <Button type="button" variant="outline" disabled={buscando} onClick={buscarPorSenha}>
+              {buscando ? 'Buscando…' : 'Buscar'}
+            </Button>
+          </div>
+        </Card>
 
         <Card className="p-4">
           <p className="mb-3 text-sm font-medium text-muted-foreground">
@@ -177,6 +231,16 @@ export default function CuponsPage() {
                 </div>
               ))}
             </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-3 w-full"
+              disabled={reimprimindo}
+              onClick={reimprimir}
+            >
+              {reimprimindo ? 'Enviando…' : '🖨 Reimprimir 2ª via'}
+            </Button>
 
             {sel.status === 'cancelada' ? (
               <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
