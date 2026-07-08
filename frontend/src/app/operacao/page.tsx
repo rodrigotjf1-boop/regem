@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { InsumoForm } from '@/components/estoque/insumo-form';
+import { PainelSecao } from '@/components/estoque/painel-secao';
 import { ContagemSecao } from '@/components/estoque/contagem-secao';
 import { ComprasSecao } from '@/components/estoque/compras-secao';
 import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
@@ -34,6 +35,7 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 type Secao =
+  | 'painel'
   | 'insumos'
   | 'contagem'
   | 'compras'
@@ -43,6 +45,7 @@ type Secao =
   | 'vistorias';
 
 const SECOES: { key: Secao; label: string }[] = [
+  { key: 'painel', label: '📊 Painel' },
   { key: 'insumos', label: '📦 Insumos' },
   { key: 'contagem', label: '🧮 Contagem' },
   { key: 'compras', label: '🛒 Compras' },
@@ -54,7 +57,7 @@ const SECOES: { key: Secao; label: string }[] = [
 
 export default function EstoquePage() {
   const router = useRouter();
-  const [secao, setSecao] = useState<Secao>('insumos');
+  const [secao, setSecao] = useState<Secao>('painel');
   const [itens, setItens] = useState<any[]>([]);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [fornecedores, setFornecedores] = useState<any[]>([]);
@@ -172,6 +175,9 @@ export default function EstoquePage() {
         </div>
 
         {erro && <p role="alert" className="text-destructive">{erro}</p>}
+
+        {/* ---------- PAINEL (E4) ---------- */}
+        {secao === 'painel' && <PainelSecao itens={itens} />}
 
         {/* ---------- INSUMOS ---------- */}
         {secao === 'insumos' && (
