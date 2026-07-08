@@ -144,6 +144,15 @@ export const api = {
   escalaSemana: (inicio: string) => req(`/escala/semana?inicio=${inicio}`),
   escalaPeriodo: (de: string, ate: string) =>
     req(`/escala/periodo?de=${de}&ate=${ate}`),
+  contagemListas: () => req('/contagem/listas'),
+  criarContagemLista: (body: Record<string, unknown>) =>
+    req('/contagem/listas', { method: 'POST', body: JSON.stringify(body) }),
+  removerContagemLista: (id: string) =>
+    req(`/contagem/listas/${id}`, { method: 'DELETE' }),
+  iniciarContagem: (listaId: string) =>
+    req(`/contagem/listas/${listaId}/iniciar`, { method: 'POST', body: '{}' }),
+  salvarContagem: (execId: string, body: Record<string, unknown>) =>
+    req(`/contagem/execucoes/${execId}/salvar`, { method: 'POST', body: JSON.stringify(body) }),
   diasEspeciais: (de?: string, ate?: string) => {
     const p = new URLSearchParams();
     if (de) p.set('de', de);

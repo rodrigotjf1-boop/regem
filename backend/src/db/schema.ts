@@ -467,6 +467,72 @@ export const itemConversao = pgTable('item_conversao', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ----- Contagem de estoque (E2) -----
+export const contagemLista = pgTable('contagem_lista', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id').references(() => unidade.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  recorrencia: text('recorrencia').notNull().default('semanal'), // diaria|semanal|mensal|avulsa
+  diaSemana: integer('dia_semana'),
+  diaMes: integer('dia_mes'),
+  hora: time('hora'),
+  delegadoId: uuid('delegado_id').references(() => colaborador.id, { onDelete: 'set null' }),
+  enviarKds: boolean('enviar_kds').notNull().default(true),
+  enviarDashboard: boolean('enviar_dashboard').notNull().default(true),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const contagemListaItem = pgTable('contagem_lista_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  listaId: uuid('lista_id')
+    .notNull()
+    .references(() => contagemLista.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+});
+
+export const contagemExecucao = pgTable('contagem_execucao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  listaId: uuid('lista_id')
+    .notNull()
+    .references(() => contagemLista.id, { onDelete: 'cascade' }),
+  data: date('data').notNull().default(sql`current_date`),
+  status: text('status').notNull().default('aberta'), // aberta|concluida
+  delegadoId: uuid('delegado_id').references(() => colaborador.id, { onDelete: 'set null' }),
+  criadaPorId: uuid('criada_por_id').references(() => colaborador.id, { onDelete: 'set null' }),
+  concluidaEm: timestamp('concluida_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const contagemItem = pgTable('contagem_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  execucaoId: uuid('execucao_id')
+    .notNull()
+    .references(() => contagemExecucao.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  saldoSistema: numeric('saldo_sistema').notNull().default('0'),
+  contado: numeric('contado'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const tipoOcorrencia = pgTable('tipo_ocorrencia', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
