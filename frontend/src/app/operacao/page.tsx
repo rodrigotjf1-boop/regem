@@ -11,6 +11,7 @@ import { SkeletonList } from '@/components/ui/skeleton';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { InsumoForm } from '@/components/estoque/insumo-form';
 import { ContagemSecao } from '@/components/estoque/contagem-secao';
+import { ComprasSecao } from '@/components/estoque/compras-secao';
 import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
 import { Shell } from '@/components/app-shell/shell';
 
@@ -273,13 +274,8 @@ export default function EstoquePage() {
         {/* ---------- CONTAGEM (E2) ---------- */}
         {secao === 'contagem' && <ContagemSecao itens={itens} />}
 
-        {/* ---------- COMPRAS (em breve — Fase E3) ---------- */}
-        {secao === 'compras' && (
-          <Card className="p-8 text-center text-sm text-muted-foreground">
-            <p className="mb-1 font-display text-base font-semibold text-foreground">Lista de compras</p>
-            Gerar lista (seleção + quantidades + filtro), recebimento delegado e entrada automática no estoque chegam na próxima etapa.
-          </Card>
-        )}
+        {/* ---------- COMPRAS (E3) ---------- */}
+        {secao === 'compras' && <ComprasSecao itens={itens} fornecedores={fornecedores} />}
 
         {/* ---------- RECEBIMENTO ---------- */}
         {secao === 'recebimento' && (

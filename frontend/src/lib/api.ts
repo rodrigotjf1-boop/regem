@@ -153,6 +153,14 @@ export const api = {
     req(`/contagem/listas/${listaId}/iniciar`, { method: 'POST', body: '{}' }),
   salvarContagem: (execId: string, body: Record<string, unknown>) =>
     req(`/contagem/execucoes/${execId}/salvar`, { method: 'POST', body: JSON.stringify(body) }),
+  comprasListas: () => req('/compras/listas'),
+  comprasSugestao: () => req('/compras/sugestao'),
+  criarCompraLista: (body: Record<string, unknown>) =>
+    req('/compras/listas', { method: 'POST', body: JSON.stringify(body) }),
+  removerCompraLista: (id: string) =>
+    req(`/compras/listas/${id}`, { method: 'DELETE' }),
+  receberCompra: (id: string) =>
+    req(`/compras/listas/${id}/receber`, { method: 'POST', body: '{}' }),
   diasEspeciais: (de?: string, ate?: string) => {
     const p = new URLSearchParams();
     if (de) p.set('de', de);
