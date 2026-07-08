@@ -248,6 +248,8 @@ export const api = {
   vendasCupom: (id: string) => req(`/vendas/cupons/${id}`),
   buscarCupomSenha: (senha: string | number) =>
     req(`/vendas/cupons/busca?senha=${encodeURIComponent(String(senha))}`),
+  reimprimirCupom: (id: string) =>
+    req(`/vendas/cupons/${id}/reimprimir`, { method: 'POST', body: '{}' }),
   cancelarVenda: (id: string, body: Record<string, unknown>) =>
     req(`/vendas/comandas/${id}/cancelar`, {
       method: 'POST',

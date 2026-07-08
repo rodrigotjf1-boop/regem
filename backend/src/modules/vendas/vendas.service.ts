@@ -846,6 +846,12 @@ export class VendasService {
     return { ok: true };
   }
 
+  // Reimprime a 2ª via do comprovante de um cupom (balcão/mesa/delivery).
+  // Reaproveita a via do cliente a partir do estado atual da comanda.
+  reimprimirCupom(tenantId: string, atorId: string, comandaId: string) {
+    return this.reimprimirViasExterno(tenantId, atorId, comandaId);
+  }
+
   // Altera os itens de um delivery (comanda 'fechada'): adiciona/remove itens,
   // recalcula o total e ajusta o lançamento no financeiro. A baixa de estoque só
   // ocorre na conclusão, então NÃO há estorno aqui. Reemite a produção ao KDS.
