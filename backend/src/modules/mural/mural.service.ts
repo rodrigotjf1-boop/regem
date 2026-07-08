@@ -17,6 +17,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { CreateComunicadoDto } from './dto/create-comunicado.dto';
 import { CreatePesquisaDto } from './dto/create-pesquisa.dto';
 import { ResponderClimaDto } from './dto/responder-clima.dto';
+import { MODELOS_COMUNICADO } from './modelos-comunicado';
 
 @Injectable()
 export class MuralService {
@@ -54,20 +55,61 @@ export class MuralService {
 
   // ── Mural ──────────────────────────────────────────────────────────────────
   async publicar(user: AuthUser, dto: CreateComunicadoDto) {
+    const audiencia = dto.audiencia ?? 'loja';
+    // Rede = todas as lojas (unidade nula). Loja/Setor = a loja do autor (ou a
+    // informada). Setor também amarra o setorId.
+    const unidadeId =
+      audiencia === 'rede'
+        ? null
+        : (dto.unidadeId ?? user.unidadeId ?? null);
     const [row] = await this.db
       .insert(comunicado)
       .values({
         tenantId: user.tenantId,
-        unidadeId: dto.unidadeId ?? user.unidadeId ?? undefined,
-        setorId: dto.audiencia === 'setor' ? dto.setorId : undefined,
+        unidadeId: unidadeId ?? undefined,
+        setorId: audiencia === 'setor' ? dto.setorId : undefined,
         autorColaboradorId: user.colaboradorId,
         titulo: dto.titulo,
         corpo: dto.corpo,
-        audiencia: dto.audiencia ?? 'loja',
+        audiencia,
         fixado: dto.fixado ?? false,
       })
       .returning();
     return row;
+  }
+
+  // Gestor exclui (soft-delete) — some do feed de todos.
+  async excluirComunicado(user: AuthUser, id: string) {
+    const r: any = await this.db.execute(sql`
+      update comunicado set deleted_at = now()
+      where id = ${id} and tenant_id = ${user.tenantId} and deleted_at is null
+      returning id
+    `);
+    if (!(r.rows ?? r).length)
+      throw new NotFoundException('Comunicado não encontrado.');
+    return { ok: true };
+  }
+
+  // Alterna o "fixado no topo".
+  async toggleFixado(user: AuthUser, id: string) {
+    const r: any = await this.db.execute(sql`
+      update comunicado set fixado = not fixado
+      where id = ${id} and tenant_id = ${user.tenantId} and deleted_at is null
+      returning fixado
+    `);
+    const row = (r.rows ?? r)[0];
+    if (!row) throw new NotFoundException('Comunicado não encontrado.');
+    return { ok: true, fixado: row.fixado };
+  }
+
+  // Modelos rápidos de comunicado por ramo (preenchem o formulário; nada é
+  // publicado sem o gestor).
+  async modelosComunicado(user: AuthUser) {
+    const r: any = await this.db.execute(sql`
+      select ramo from empresa where id = ${user.tenantId}
+    `);
+    const ramo = (r.rows ?? r)[0]?.ramo ?? 'food_service';
+    return { ramo, modelos: MODELOS_COMUNICADO[ramo] ?? MODELOS_COMUNICADO.geral };
   }
 
   async feed(user: AuthUser) {
@@ -119,6 +161,17 @@ export class MuralService {
 
   // ── Clima (anônimo) ──────────────────────────────────────────────────────────
   async criarPesquisa(user: AuthUser, dto: CreatePesquisaDto) {
+    // Uma pesquisa aberta por vez — evita empilhar duplicatas.
+    const aberta: any = await this.db.execute(sql`
+      select 1 from clima_pesquisa
+      where tenant_id = ${user.tenantId} and aberta = true and deleted_at is null
+      limit 1
+    `);
+    if ((aberta.rows ?? aberta).length) {
+      throw new BadRequestException(
+        'Já existe uma pesquisa aberta. Encerre-a antes de abrir outra.',
+      );
+    }
     const [row] = await this.db
       .insert(climaPesquisa)
       .values({
@@ -128,6 +181,17 @@ export class MuralService {
       })
       .returning();
     return row;
+  }
+
+  async encerrarPesquisa(user: AuthUser, id: string) {
+    const r: any = await this.db.execute(sql`
+      update clima_pesquisa set aberta = false
+      where id = ${id} and tenant_id = ${user.tenantId} and deleted_at is null
+      returning id
+    `);
+    if (!(r.rows ?? r).length)
+      throw new NotFoundException('Pesquisa não encontrada.');
+    return { ok: true };
   }
 
   // Pesquisa aberta mais recente + CONSOLIDADO (nunca resposta individual).

@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -26,9 +35,28 @@ export class MuralController {
     return this.service.publicar(user, dto);
   }
 
+  // Modelos por ramo (rota estática antes de :id).
+  @Get('modelos')
+  @Roles('presidente', 'gerente', 'supervisao')
+  modelos(@CurrentUser() user: AuthUser) {
+    return this.service.modelosComunicado(user);
+  }
+
   @Post(':id/leitura')
   confirmarLeitura(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.confirmarLeitura(user, id);
+  }
+
+  @Patch(':id/fixar')
+  @Roles('presidente', 'gerente', 'supervisao')
+  fixar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.toggleFixado(user, id);
+  }
+
+  @Delete(':id')
+  @Roles('presidente', 'gerente', 'supervisao')
+  excluir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.excluirComunicado(user, id);
   }
 
   // ── Clima (anônimo) ──────────────────────────────────────────────────────────
@@ -50,5 +78,11 @@ export class MuralController {
     @Body() dto: ResponderClimaDto,
   ) {
     return this.service.responder(user, id, dto);
+  }
+
+  @Post('clima/:id/encerrar')
+  @Roles('presidente', 'gerente', 'supervisao')
+  encerrar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.encerrarPesquisa(user, id);
   }
 }

@@ -17,8 +17,8 @@ export class CreateComunicadoDto {
   corpo?: string;
 
   @IsOptional()
-  @IsIn(['loja', 'setor'])
-  audiencia?: 'loja' | 'setor';
+  @IsIn(['rede', 'loja', 'setor'])
+  audiencia?: 'rede' | 'loja' | 'setor';
 
   @IsOptional()
   @IsUUID()

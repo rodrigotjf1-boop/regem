@@ -523,8 +523,13 @@ export const api = {
   muralFeed: () => req('/mural'),
   publicarComunicado: (body: Record<string, unknown>) =>
     req('/mural', { method: 'POST', body: JSON.stringify(body) }),
+  muralModelos: () => req('/mural/modelos'),
   confirmarLeituraMural: (id: string) =>
     req(`/mural/${id}/leitura`, { method: 'POST', body: '{}' }),
+  fixarComunicado: (id: string) =>
+    req(`/mural/${id}/fixar`, { method: 'PATCH', body: '{}' }),
+  excluirComunicado: (id: string) =>
+    req(`/mural/${id}`, { method: 'DELETE' }),
   climaAtual: () => req('/mural/clima'),
   criarPesquisaClima: (body: Record<string, unknown>) =>
     req('/mural/clima', { method: 'POST', body: JSON.stringify(body) }),
@@ -533,6 +538,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  encerrarClima: (id: string) =>
+    req(`/mural/clima/${id}/encerrar`, { method: 'POST', body: '{}' }),
   botRegras: () => req('/bot/regras'),
   botMetricas: () => req('/bot/metricas'),
   criarBotRegra: (body: Record<string, unknown>) =>

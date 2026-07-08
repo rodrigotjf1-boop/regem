@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Pin, PinOff, Trash2 } from 'lucide-react';
 import { api, getToken, getCategoria } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29,27 +31,50 @@ function quando(iso: string) {
   });
 }
 
+const AUD_LABEL: Record<string, string> = {
+  rede: 'Toda a rede',
+  loja: 'Toda a loja',
+  setor: 'Setor',
+};
+
 export default function MuralPage() {
   const router = useRouter();
   const [feed, setFeed] = useState<any>(null);
   const [clima, setClima] = useState<any>(null);
+  const [setores, setSetores] = useState<any[]>([]);
+  const [modelos, setModelos] = useState<any[]>([]);
   const [erro, setErro] = useState('');
+  const [busy, setBusy] = useState(false);
+
   const [titulo, setTitulo] = useState('');
   const [corpo, setCorpo] = useState('');
   const [fixado, setFixado] = useState(false);
+  const [audiencia, setAudiencia] = useState('loja');
+  const [setorId, setSetorId] = useState('');
+  const [comentario, setComentario] = useState('');
+
   const cat = getCategoria();
-  const gestor = cat === 'presidente' || cat === 'gerente' || cat === 'supervisao';
+  const presidente = cat === 'presidente';
+  const gestor =
+    cat === 'presidente' || cat === 'gerente' || cat === 'supervisao';
 
   const carregar = useCallback(async () => {
     setErro('');
     try {
-      const [f, c] = await Promise.all([api.muralFeed(), api.climaAtual()]);
+      const [f, c, s, m] = await Promise.all([
+        api.muralFeed(),
+        api.climaAtual(),
+        gestor ? api.get('/setores').catch(() => []) : Promise.resolve([]),
+        gestor ? api.muralModelos().catch(() => ({ modelos: [] })) : Promise.resolve({ modelos: [] }),
+      ]);
       setFeed(f);
       setClima(c);
+      setSetores(Array.isArray(s) ? s : []);
+      setModelos(m?.modelos ?? []);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, []);
+  }, [gestor]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -61,48 +86,71 @@ export default function MuralPage() {
 
   async function publicar() {
     if (titulo.trim().length < 2) return;
+    if (audiencia === 'setor' && !setorId) {
+      setErro('Escolha o setor de destino.');
+      return;
+    }
+    setBusy(true);
+    setErro('');
     try {
-      await api.publicarComunicado({ titulo, corpo: corpo || undefined, fixado });
+      await api.publicarComunicado({
+        titulo,
+        corpo: corpo || undefined,
+        fixado,
+        audiencia,
+        setorId: audiencia === 'setor' ? setorId : undefined,
+      });
       setTitulo('');
       setCorpo('');
       setFixado(false);
       await carregar();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao publicar');
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function confirmarLeitura(id: string) {
+  async function acao(fn: () => Promise<unknown>) {
+    setBusy(true);
+    setErro('');
     try {
-      await api.confirmarLeituraMural(id);
+      await fn();
       await carregar();
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao confirmar');
+      setErro(e instanceof Error ? e.message : 'Erro');
+    } finally {
+      setBusy(false);
     }
   }
 
   async function criarPesquisa() {
-    const t = new Date().toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
-    try {
-      await api.criarPesquisaClima({ titulo: `Pesquisa de clima — ${t}` });
-      await carregar();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao criar pesquisa');
-    }
+    const t = new Date().toLocaleString('pt-BR', {
+      month: 'long',
+      year: 'numeric',
+    });
+    await acao(() =>
+      api.criarPesquisaClima({ titulo: `Pesquisa de clima — ${t}` }),
+    );
   }
 
   async function responder(humor: number) {
     if (!clima?.pesquisa) return;
-    try {
-      await api.responderClima(clima.pesquisa.id, { humor });
-      await carregar();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao responder');
-    }
+    await acao(async () => {
+      await api.responderClima(clima.pesquisa.id, {
+        humor,
+        comentario: comentario || undefined,
+      });
+      setComentario('');
+    });
   }
 
   const comunicados: any[] = feed?.comunicados ?? [];
   const total = feed?.total ?? 0;
+  const pesquisa = clima?.pesquisa;
+  const aberta = pesquisa?.aberta;
+  // Mostra o consolidado quando já respondi OU a pesquisa foi encerrada.
+  const mostrarConsolidado = pesquisa && (clima.euRespondi || !aberta);
 
   return (
     <Shell eyebrow="Comunicação" title="Mural & Clima">
@@ -111,9 +159,32 @@ export default function MuralPage() {
         <div className="space-y-4">
           {gestor && (
             <Card className="space-y-3 p-4">
-              <p className="font-display text-sm font-bold">Publicar comunicado</p>
+              <p className="font-display text-sm font-bold">
+                Publicar comunicado
+              </p>
+
+              {modelos.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {modelos.map((m, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setTitulo(m.titulo);
+                        setCorpo(m.corpo);
+                      }}
+                      className="rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition hover:bg-secondary"
+                    >
+                      + {m.titulo}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="space-y-1">
-                <Label htmlFor="tit" className="text-xs">Título</Label>
+                <Label htmlFor="tit" className="text-xs">
+                  Título
+                </Label>
                 <Input
                   id="tit"
                   value={titulo}
@@ -122,7 +193,9 @@ export default function MuralPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="corpo" className="text-xs">Detalhe (opcional)</Label>
+                <Label htmlFor="corpo" className="text-xs">
+                  Detalhe (opcional)
+                </Label>
                 <Input
                   id="corpo"
                   value={corpo}
@@ -130,6 +203,43 @@ export default function MuralPage() {
                   placeholder="Chegar 1h antes…"
                 />
               </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label htmlFor="aud" className="text-xs">
+                    Público
+                  </Label>
+                  <Select
+                    id="aud"
+                    value={audiencia}
+                    onChange={(e) => setAudiencia(e.target.value)}
+                  >
+                    {presidente && <option value="rede">Toda a rede</option>}
+                    <option value="loja">Esta loja</option>
+                    <option value="setor">Um setor</option>
+                  </Select>
+                </div>
+                {audiencia === 'setor' && (
+                  <div className="space-y-1">
+                    <Label htmlFor="set" className="text-xs">
+                      Setor
+                    </Label>
+                    <Select
+                      id="set"
+                      value={setorId}
+                      onChange={(e) => setSetorId(e.target.value)}
+                    >
+                      <option value="">Escolher…</option>
+                      {setores.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.nome}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2 text-sm">
                   <input
@@ -140,7 +250,10 @@ export default function MuralPage() {
                   />
                   Fixar no topo
                 </label>
-                <Button onClick={publicar} disabled={titulo.trim().length < 2}>
+                <Button
+                  onClick={publicar}
+                  disabled={busy || titulo.trim().length < 2}
+                >
                   Publicar
                 </Button>
               </div>
@@ -149,9 +262,13 @@ export default function MuralPage() {
 
           {erro && <p className="text-destructive">{erro}</p>}
 
-          {feed === null && (
-            <p className="text-muted-foreground">Carregando…</p>
-          )}
+          {feed === null &&
+            [0, 1].map((i) => (
+              <Card key={i} className="p-4">
+                <div className="h-4 w-1/2 animate-pulse rounded bg-secondary" />
+                <div className="mt-2 h-3 w-2/3 animate-pulse rounded bg-secondary" />
+              </Card>
+            ))}
           {feed !== null && comunicados.length === 0 && (
             <Card className="p-8 text-center text-muted-foreground">
               Nenhum comunicado ainda. {gestor ? 'Publique o primeiro acima.' : ''}
@@ -170,22 +287,32 @@ export default function MuralPage() {
                     {c.fixado && (
                       <span
                         className="ml-2 rounded px-1.5 py-0.5 align-middle text-[10px] font-bold"
-                        style={{ background: 'hsl(var(--warn)/.15)', color: 'hsl(var(--warn))' }}
+                        style={{
+                          background: 'hsl(var(--warn)/.15)',
+                          color: 'hsl(var(--warn))',
+                        }}
                       >
                         Fixado
                       </span>
                     )}
                   </p>
-                  {c.corpo && <p className="mt-0.5 text-sm text-muted-foreground">{c.corpo}</p>}
+                  {c.corpo && (
+                    <p className="mt-0.5 text-sm text-muted-foreground">
+                      {c.corpo}
+                    </p>
+                  )}
                   <p className="mt-1 text-xs text-muted-foreground">
                     {c.autorNome ?? 'Gestão'} · {quando(c.createdAt)} ·{' '}
-                    {c.audiencia === 'setor' ? 'Setor' : 'Toda a loja'}
+                    {AUD_LABEL[c.audiencia] ?? 'Toda a loja'}
                   </p>
                 </div>
                 <div className="flex flex-none flex-col items-end gap-1.5">
                   <span
                     className="whitespace-nowrap rounded px-2 py-0.5 font-mono text-[11px] font-bold"
-                    style={{ background: 'hsl(var(--ok)/.15)', color: 'hsl(var(--ok))' }}
+                    style={{
+                      background: 'hsl(var(--ok)/.15)',
+                      color: 'hsl(var(--ok))',
+                    }}
                   >
                     ✓ {c.leram}/{c.alvo ?? total} leram
                   </span>
@@ -193,10 +320,37 @@ export default function MuralPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => confirmarLeitura(c.id)}
+                      onClick={() => acao(() => api.confirmarLeituraMural(c.id))}
                     >
                       Confirmar leitura
                     </Button>
+                  )}
+                  {gestor && (
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={c.fixado ? 'Desafixar' : 'Fixar'}
+                        title={c.fixado ? 'Desafixar' : 'Fixar no topo'}
+                        disabled={busy}
+                        onClick={() => acao(() => api.fixarComunicado(c.id))}
+                      >
+                        {c.fixado ? (
+                          <PinOff className="h-4 w-4" />
+                        ) : (
+                          <Pin className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Excluir comunicado"
+                        disabled={busy}
+                        onClick={() => acao(() => api.excluirComunicado(c.id))}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -207,64 +361,54 @@ export default function MuralPage() {
         {/* Pesquisa de clima */}
         <div>
           <Card className="p-4" style={{ borderTop: '3px solid hsl(var(--info))' }}>
-            {!clima?.pesquisa ? (
+            {!pesquisa ? (
               <div className="space-y-3 text-center">
-                <p className="font-display text-sm font-bold">Pesquisa de clima</p>
+                <p className="font-display text-sm font-bold">
+                  Pesquisa de clima
+                </p>
                 <p className="text-xs text-muted-foreground">
                   Nenhuma pesquisa aberta no momento.
                 </p>
                 {gestor && (
-                  <Button onClick={criarPesquisa}>Abrir pesquisa de clima</Button>
+                  <Button onClick={criarPesquisa} disabled={busy}>
+                    Abrir pesquisa de clima
+                  </Button>
                 )}
               </div>
             ) : (
               <>
-                <p className="font-display text-sm font-bold">{clima.pesquisa.titulo}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-display text-sm font-bold">
+                    {pesquisa.titulo}
+                  </p>
+                  {!aberta && (
+                    <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                      Encerrada
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-muted-foreground">
                   Anônima · {clima.responderam}/{clima.total} responderam
                 </p>
 
-                {clima.euRespondi && clima.distribuicaoOculta ? (
-                  <div className="mt-3 rounded-lg bg-muted p-3 text-center text-xs text-muted-foreground">
-                    ✓ Resposta registrada. O consolidado aparece a partir de{' '}
-                    {clima.minRespostas} respostas (para preservar o anonimato).
-                  </div>
-                ) : clima.euRespondi ? (
-                  <div className="mt-3 space-y-2">
-                    {HUMORES.map((h) => {
-                      const n = clima.distribuicao?.[h.v] ?? 0;
-                      const pct = clima.responderam > 0 ? (n / clima.responderam) * 100 : 0;
-                      return (
-                        <div key={h.v}>
-                          <div className="flex justify-between text-[12.5px]">
-                            <span>{h.emoji} {h.label}</span>
-                            <span className="font-mono font-bold">{n}</span>
-                          </div>
-                          <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${pct}%`,
-                                background:
-                                  h.v <= 2 ? 'hsl(var(--warn))' : 'hsl(var(--info))',
-                              }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
+                {aberta && !clima.euRespondi ? (
                   <div className="mt-3">
                     <p className="mb-2 text-xs text-muted-foreground">
                       Como você avalia o clima? (resposta anônima)
                     </p>
+                    <Input
+                      value={comentario}
+                      onChange={(e) => setComentario(e.target.value)}
+                      placeholder="Comentário (opcional, anônimo)"
+                      className="mb-2"
+                    />
                     <div className="flex justify-between gap-1">
                       {HUMORES.map((h) => (
                         <button
                           key={h.v}
                           type="button"
                           onClick={() => responder(h.v)}
+                          disabled={busy}
                           title={h.label}
                           aria-label={h.label}
                           className="flex flex-1 flex-col items-center gap-1 rounded-lg border border-border py-2 text-2xl transition hover:bg-muted"
@@ -277,11 +421,63 @@ export default function MuralPage() {
                       ))}
                     </div>
                   </div>
-                )}
+                ) : mostrarConsolidado && clima.distribuicaoOculta ? (
+                  <div className="mt-3 rounded-lg bg-muted p-3 text-center text-xs text-muted-foreground">
+                    {clima.euRespondi && '✓ Resposta registrada. '}
+                    O consolidado aparece a partir de {clima.minRespostas}{' '}
+                    respostas (para preservar o anonimato).
+                  </div>
+                ) : mostrarConsolidado ? (
+                  <div className="mt-3 space-y-2">
+                    {HUMORES.map((h) => {
+                      const n = clima.distribuicao?.[h.v] ?? 0;
+                      const pct =
+                        clima.responderam > 0
+                          ? (n / clima.responderam) * 100
+                          : 0;
+                      return (
+                        <div key={h.v}>
+                          <div className="flex justify-between text-[12.5px]">
+                            <span>
+                              {h.emoji} {h.label}
+                            </span>
+                            <span className="font-mono font-bold">{n}</span>
+                          </div>
+                          <div className="mt-0.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full"
+                              style={{
+                                width: `${pct}%`,
+                                background:
+                                  h.v <= 2
+                                    ? 'hsl(var(--warn))'
+                                    : 'hsl(var(--info))',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
 
                 <p className="mt-3 text-xs text-muted-foreground">
                   🔒 Anônima (LGPD) · diretoria vê só o consolidado.
                 </p>
+
+                {gestor && aberta && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 w-full"
+                    disabled={busy}
+                    onClick={() =>
+                      acao(() => api.encerrarClima(pesquisa.id))
+                    }
+                  >
+                    Encerrar pesquisa
+                  </Button>
+                )}
               </>
             )}
           </Card>
