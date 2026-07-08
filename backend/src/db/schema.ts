@@ -217,6 +217,26 @@ export const escalaAlocacao = pgTable('escala_alocacao', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// Dias importantes: feriado/férias/evento. unidade null = rede toda;
+// colaborador preenchido = férias/folga de uma pessoa; data_fim = período.
+export const diaEspecial = pgTable('dia_especial', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id').references(() => unidade.id, { onDelete: 'cascade' }),
+  colaboradorId: uuid('colaborador_id').references(() => colaborador.id, {
+    onDelete: 'cascade',
+  }),
+  data: date('data').notNull(),
+  dataFim: date('data_fim'),
+  tipo: text('tipo').notNull().default('evento'), // feriado|ferias|evento|folga|outro
+  nome: text('nome').notNull(),
+  descricao: text('descricao'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
 export const tarefaDef = pgTable('tarefa_def', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

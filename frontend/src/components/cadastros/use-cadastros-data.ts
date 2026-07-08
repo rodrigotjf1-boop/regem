@@ -22,6 +22,7 @@ export function useCadastrosData() {
         etiquetas,
         janelasPico,
         fornecedores,
+        diasEspeciais,
       ] = await Promise.all([
         api.get('/unidades'),
         api.get('/setores'),
@@ -31,6 +32,7 @@ export function useCadastrosData() {
         api.get('/etiquetas'),
         api.janelasPico(),
         api.fornecedores(),
+        api.diasEspeciais(),
       ]);
       setL({
         unidades,
@@ -41,6 +43,7 @@ export function useCadastrosData() {
         etiquetas,
         janelasPico,
         fornecedores,
+        diasEspeciais,
       });
       setVer((v) => v + 1);
     } catch (e) {

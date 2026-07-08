@@ -11,6 +11,7 @@ export type Lists = {
   etiquetas: any[];
   janelasPico: any[];
   fornecedores: any[];
+  diasEspeciais: any[];
 };
 
 export const CATEGORIAS = [

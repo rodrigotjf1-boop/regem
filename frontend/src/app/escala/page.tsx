@@ -71,12 +71,21 @@ function fmtDia(s: string) {
   };
 }
 
+const EMOJI_ESPECIAL: Record<string, string> = {
+  feriado: '🎉',
+  ferias: '🏖️',
+  evento: '📅',
+  folga: '😴',
+  outro: '⭐',
+};
+
 export default function EscalaPage() {
   const router = useRouter();
   const [inicio, setInicio] = useState(() => mondayOf(hoje()));
   const [semana, setSemana] = useState<Aloc[]>([]);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
   const [colabs, setColabs] = useState<Colab[]>([]);
+  const [especiais, setEspeciais] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [alocar, setAlocar] = useState<{ etiquetaId?: string; data: string } | null>(
@@ -108,14 +117,16 @@ export default function EscalaPage() {
     setLoading(true);
     setErro('');
     try {
-      const [aloc, ets, cs] = await Promise.all([
+      const [aloc, ets, cs, esp] = await Promise.all([
         api.escalaSemana(inicio),
         api.etiquetas(),
         api.colaboradores(),
+        api.diasEspeciais(inicio, addDays(inicio, 6)),
       ]);
       setSemana(aloc);
       setEtiquetas(ets);
       setColabs(cs);
+      setEspeciais(esp as any[]);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     } finally {
@@ -168,6 +179,13 @@ export default function EscalaPage() {
     (funcaoId?: string | null) =>
       funcaoId ? colabs.filter((c) => (c.funcaoIds ?? []).includes(funcaoId)) : colabs,
     [colabs],
+  );
+
+  // Dias importantes que cobrem uma data (feriado/férias/evento da rede;
+  // os por colaborador aparecem como nota também).
+  const especiaisDoDia = useCallback(
+    (d: string) => especiais.filter((e) => e.data <= d && (e.dataFim ?? e.data) >= d),
+    [especiais],
   );
 
   async function removerAloc(id: string) {
@@ -284,6 +302,7 @@ export default function EscalaPage() {
                 {dias.map((d) => {
                   const f = fmtDia(d);
                   const isHoje = d === hoje();
+                  const esp = especiaisDoDia(d);
                   return (
                     <th
                       key={d}
@@ -301,6 +320,14 @@ export default function EscalaPage() {
                       >
                         {f.dm}
                       </span>
+                      {esp.length > 0 && (
+                        <span
+                          className="mt-0.5 block text-xs"
+                          title={esp.map((e) => e.nome).join(', ')}
+                        >
+                          {esp.map((e) => EMOJI_ESPECIAL[e.tipo] ?? '⭐').join(' ')}
+                        </span>
+                      )}
                     </th>
                   );
                 })}
@@ -335,6 +362,11 @@ export default function EscalaPage() {
               {dias[diaIdx] === hoje() && (
                 <span className="text-[11px] font-medium text-primary">hoje</span>
               )}
+              {especiaisDoDia(dias[diaIdx]).map((e) => (
+                <span key={e.id} className="ml-1 text-[11px] text-muted-foreground">
+                  {EMOJI_ESPECIAL[e.tipo] ?? '⭐'} {e.nome}
+                </span>
+              ))}
             </div>
             <Button variant="outline" size="icon" aria-label="Próximo dia" onClick={() => irDia(1)}>
               <ChevronRight className="h-4 w-4" />

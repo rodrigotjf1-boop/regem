@@ -142,6 +142,15 @@ export const api = {
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
   escalaSemana: (inicio: string) => req(`/escala/semana?inicio=${inicio}`),
+  diasEspeciais: (de?: string, ate?: string) => {
+    const p = new URLSearchParams();
+    if (de) p.set('de', de);
+    if (ate) p.set('ate', ate);
+    const q = p.toString();
+    return req(`/dias-especiais${q ? `?${q}` : ''}`);
+  },
+  removerDiaEspecial: (id: string) =>
+    req(`/dias-especiais/${id}`, { method: 'DELETE' }),
   dashboard: (data: string) => req(`/dashboard?data=${data}`),
   dashboardTimeline: (data: string) => req(`/dashboard/timeline?data=${data}`),
   setores: () => req('/setores'),
