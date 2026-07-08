@@ -103,12 +103,30 @@ export function buildSecoes({
           defaultValue: 'execucao',
         },
         { name: 'setorId', label: 'Setor', type: 'select', options: withNone(optS) },
+        {
+          name: 'gerarEtiqueta',
+          label: 'Gerar etiqueta (vaga) da função? (precisa de setor)',
+          type: 'select',
+          options: [
+            { value: '1', label: 'Sim' },
+            { value: '', label: 'Não' },
+          ],
+          defaultValue: '1',
+        },
+        {
+          name: 'sigla',
+          label: 'Sigla da etiqueta (opcional — vazio gera do nome)',
+          type: 'text',
+          placeholder: 'ex.: AUXC',
+        },
       ] as FieldDef[],
       submit: (v: any) =>
         api.post('/funcoes', {
           nome: v.nome,
           categoria: v.categoria,
           setorId: v.setorId || undefined,
+          gerarEtiqueta: v.gerarEtiqueta === '1',
+          sigla: v.sigla || undefined,
         }),
     },
     {
