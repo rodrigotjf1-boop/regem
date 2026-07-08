@@ -18,11 +18,19 @@ export default function FiscalConfigPage() {
   const [f, setF] = useState<any>({ ambiente: '2', regime: 'simples', ativo: false });
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState(false);
-  const isPresidente = getCategoria() === 'presidente';
+  // cat resolvido no cliente (evita divergência de hidratação com o SSR).
+  const [cat, setCat] = useState<string | null>(null);
+  const isPresidente = cat === 'presidente';
+  const [caixaLivre, setCaixaLivre] = useState<boolean | null>(null);
 
   const reload = useCallback(async () => {
     try {
-      setF(await api.fiscalConfig());
+      const [fc, cc] = await Promise.all([
+        api.fiscalConfig(),
+        api.caixaConfig().catch(() => ({ caixaLivre: false })),
+      ]);
+      setF(fc);
+      setCaixaLivre(!!(cc as any).caixaLivre);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -33,8 +41,19 @@ export default function FiscalConfigPage() {
       router.replace('/entrar');
       return;
     }
+    setCat(getCategoria());
     reload();
   }, [reload, router]);
+
+  async function toggleCaixaLivre(ativo: boolean) {
+    try {
+      await api.setCaixaLivre(ativo);
+      setCaixaLivre(ativo);
+      toast.success(ativo ? 'Atendente pode sangrar/suprir sem gerente.' : 'Sangria/suprimento exige gerente.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
 
   const set = (patch: any) => setF((s: any) => ({ ...s, ...patch }));
 
@@ -66,6 +85,14 @@ export default function FiscalConfigPage() {
     } finally {
       setSalvando(false);
     }
+  }
+
+  if (cat === null) {
+    return (
+      <Shell eyebrow="Fiscal" title="Configuração fiscal">
+        <p className="text-sm text-muted-foreground">Carregando…</p>
+      </Shell>
+    );
   }
 
   if (!isPresidente) {
@@ -170,6 +197,23 @@ export default function FiscalConfigPage() {
           <Button type="button" onClick={salvar} disabled={salvando}>
             {salvando ? 'Salvando…' : 'Salvar configuração'}
           </Button>
+        </Card>
+
+        <Card className="p-4">
+          <h2 className="mb-1 font-display text-sm font-bold">Autorização de caixa</h2>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Define se o atendente pode fazer sangria/suprimento no caixa sem autorização de um gerente.
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={!!caixaLivre}
+              onChange={(e) => toggleCaixaLivre(e.target.checked)}
+              className="h-4 w-4 accent-primary"
+              aria-label="Permitir sangria/suprimento pelo atendente"
+            />
+            Atendente pode fazer sangria/suprimento sem autorização
+          </label>
         </Card>
       </div>
     </Shell>

@@ -62,9 +62,6 @@ const NAV: NavGroup[] = [
       { href: '/pedidos', label: 'Pedidos · Produção', icon: Flame },
       { href: '/delivery', label: 'Delivery', icon: Bike },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText },
-      { href: '/notas', label: 'Notas fiscais', icon: FileText },
-      { href: '/tef', label: 'TEF / Maquininha', icon: CreditCard },
-      { href: '/caixa', label: 'Caixa', icon: Coins },
       { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
       { href: '/escala', label: 'Escalas', icon: CalendarDays },
       { href: '/operacao', label: 'Operação', icon: Boxes },
@@ -72,6 +69,20 @@ const NAV: NavGroup[] = [
       { href: '/guias', label: 'POP & Guias', icon: ScrollText },
       { href: '/docs', label: 'Documentos', icon: FileText },
       { href: '/mural', label: 'Mural & Clima', icon: Megaphone },
+    ],
+  },
+  {
+    group: 'Fiscal',
+    presidenteOnly: false,
+    items: [
+      { href: '/notas', label: 'Notas fiscais', icon: FileText },
+      { href: '/tef', label: 'TEF / Maquininha', icon: CreditCard },
+      {
+        href: '/fiscal-config',
+        label: 'Configuração',
+        icon: Coins,
+        roles: ['presidente'],
+      },
     ],
   },
   {
@@ -90,12 +101,6 @@ const NAV: NavGroup[] = [
         label: 'Produção & KDS',
         icon: Flame,
         roles: ['presidente', 'gerente', 'supervisao'],
-      },
-      {
-        href: '/fiscal-config',
-        label: 'Fiscal (NFC-e)',
-        icon: ReceiptText,
-        roles: ['presidente'],
       },
       {
         href: '/cardapio-config',
