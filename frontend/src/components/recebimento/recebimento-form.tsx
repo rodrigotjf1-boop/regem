@@ -63,7 +63,10 @@ export function RecebimentoForm({
   onCreated: () => void;
   onCancel: () => void;
 }) {
-  const hoje = new Date().toISOString().slice(0, 10);
+  // Data de hoje no fuso de SP (toISOString daria UTC — à noite viraria amanhã).
+  const hoje = new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+  });
   const [fornecedorId, setFornecedorId] = useState('');
   const [data, setData] = useState(hoje);
   const [vencimento, setVencimento] = useState('');
