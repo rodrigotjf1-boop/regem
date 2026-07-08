@@ -17,6 +17,7 @@ type Ing = {
   unidade: string;
   fatorCorrecao: string;
   custoUnitario: string;
+  itemId?: string; // ingrediente = insumo do Estoque (baixa na produção)
   subFichaId?: string; // ingrediente = sub-receita (outra ficha)
 };
 
@@ -38,6 +39,7 @@ function linhaVazia(): Ing {
 
 export default function FichasPage() {
   const [fichas, setFichas] = useState<any[]>([]);
+  const [insumos, setInsumos] = useState<any[]>([]);
   const [erro, setErro] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -50,7 +52,9 @@ export default function FichasPage() {
 
   const carregar = useCallback(async () => {
     try {
-      setFichas(await api.get('/fichas'));
+      const [fs, ins] = await Promise.all([api.get('/fichas'), api.estoqueItens()]);
+      setFichas(fs);
+      setInsumos(ins as any[]);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -64,20 +68,34 @@ export default function FichasPage() {
     setIngs((arr) => arr.map((i, n) => (n === idx ? { ...i, [campo]: valor } : i)));
   }
 
-  // Escolhe uma sub-receita para o ingrediente: puxa nome + custo/porção da ficha.
-  function escolherSub(idx: number, fichaId: string) {
+  // Tipo do ingrediente: '' = avulso · 'item:<id>' = insumo do Estoque
+  // (baixa na produção, custo automático) · 'sub:<id>' = sub-receita.
+  function escolherTipo(idx: number, value: string) {
     setIngs((arr) =>
       arr.map((i, n) => {
         if (n !== idx) return i;
-        if (!fichaId)
-          return { ...i, subFichaId: undefined, insumoNome: '', custoUnitario: '' };
-        const f = fichas.find((x) => x.id === fichaId);
-        return {
-          ...i,
-          subFichaId: fichaId,
-          insumoNome: f?.nome ?? 'Sub-receita',
-          custoUnitario: String(f?.custoPorcao ?? 0),
-        };
+        if (value.startsWith('item:')) {
+          const item = insumos.find((x) => x.id === value.slice(5));
+          return {
+            ...i,
+            itemId: item?.id,
+            subFichaId: undefined,
+            insumoNome: item?.nome ?? '',
+            unidade: item?.unidadeMedida ?? i.unidade,
+            custoUnitario: String(item?.custoMedio ?? 0),
+          };
+        }
+        if (value.startsWith('sub:')) {
+          const f = fichas.find((x) => x.id === value.slice(4));
+          return {
+            ...i,
+            subFichaId: f?.id,
+            itemId: undefined,
+            insumoNome: f?.nome ?? 'Sub-receita',
+            custoUnitario: String(f?.custoPorcao ?? 0),
+          };
+        }
+        return { ...i, itemId: undefined, subFichaId: undefined, insumoNome: '', custoUnitario: '' };
       }),
     );
   }
@@ -115,13 +133,14 @@ export default function FichasPage() {
         rendimentoUnidade: rendUnidade || undefined,
         precoVenda: pv || undefined,
         ingredientes: ings
-          .filter((i) => i.insumoNome.trim() || i.subFichaId)
+          .filter((i) => i.insumoNome.trim() || i.subFichaId || i.itemId)
           .map((i) => ({
             insumoNome: i.insumoNome,
             quantidade: Number(i.quantidade) || 0,
             unidade: i.unidade || undefined,
             fatorCorrecao: Number(i.fatorCorrecao) || 1,
             custoUnitario: Number(i.custoUnitario) || 0,
+            itemId: i.itemId || undefined,
             subFichaId: i.subFichaId || undefined,
           })),
       });
@@ -185,16 +204,25 @@ export default function FichasPage() {
                   <div className="flex items-center gap-2">
                     <Select
                       aria-label="Tipo de insumo"
-                      value={ing.subFichaId ?? ''}
-                      onChange={(e) => escolherSub(idx, e.target.value)}
+                      value={ing.itemId ? `item:${ing.itemId}` : ing.subFichaId ? `sub:${ing.subFichaId}` : ''}
+                      onChange={(e) => escolherTipo(idx, e.target.value)}
                       className="flex-1"
                     >
-                      <option value="">Insumo avulso</option>
-                      {fichas.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          Sub-receita: {f.nome}
-                        </option>
-                      ))}
+                      <option value="">Insumo avulso (texto)</option>
+                      {insumos.length > 0 && (
+                        <optgroup label="Insumo do estoque">
+                          {insumos.map((it) => (
+                            <option key={it.id} value={`item:${it.id}`}>{it.nome}</option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {fichas.length > 0 && (
+                        <optgroup label="Sub-receita">
+                          {fichas.map((f) => (
+                            <option key={f.id} value={`sub:${f.id}`}>{f.nome}</option>
+                          ))}
+                        </optgroup>
+                      )}
                     </Select>
                     <Button
                       type="button"
@@ -207,12 +235,17 @@ export default function FichasPage() {
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1.6fr_.8fr_.7fr_.7fr_1fr]">
-                    <Input placeholder="Insumo" value={ing.insumoNome} disabled={!!ing.subFichaId} onChange={(e) => setIng(idx, 'insumoNome', e.target.value)} />
+                    <Input placeholder="Insumo" value={ing.insumoNome} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'insumoNome', e.target.value)} />
                     <Input type="number" placeholder="Qtd" value={ing.quantidade} onChange={(e) => setIng(idx, 'quantidade', e.target.value)} />
-                    <Input placeholder="un" value={ing.unidade} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
+                    <Input placeholder="un" value={ing.unidade} disabled={!!ing.itemId} onChange={(e) => setIng(idx, 'unidade', e.target.value)} />
                     <Input type="number" placeholder="FC" value={ing.fatorCorrecao} onChange={(e) => setIng(idx, 'fatorCorrecao', e.target.value)} />
-                    <Input type="number" placeholder="R$/un" value={ing.custoUnitario} disabled={!!ing.subFichaId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
+                    <Input type="number" placeholder="R$/un" value={ing.custoUnitario} disabled={!!ing.subFichaId || !!ing.itemId} onChange={(e) => setIng(idx, 'custoUnitario', e.target.value)} />
                   </div>
+                  {ing.itemId && (
+                    <p className="text-xs text-muted-foreground">
+                      📦 Insumo do estoque — custo pelo custo médio; <b>baixa o estoque</b> ao produzir.
+                    </p>
+                  )}
                   {ing.subFichaId && (
                     <p className="text-xs text-muted-foreground">
                       🧩 Custo da sub-receita entra automático (por porção) e é recalculado ao produzir.
