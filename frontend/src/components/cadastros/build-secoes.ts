@@ -37,6 +37,7 @@ export function buildSecoes({
   withNone: (arr: Opt[]) => Opt[];
   criarFuncao: (nome: string) => Promise<Opt>;
 }): Secao[] {
+  const optColab: Opt[] = L.colaboradores.map((c: any) => ({ value: c.id, label: c.nome }));
   return [
     {
       key: 'unidade',
@@ -339,6 +340,52 @@ export function buildSecoes({
           funcaoId: v.funcaoId,
           sigla: v.sigla,
           contador: v.contador ? Number(v.contador) : undefined,
+        }),
+    },
+    {
+      key: 'dia_especial',
+      titulo: 'Dias importantes',
+      itens: (L.diasEspeciais ?? []).map(
+        (d: any) =>
+          `${d.data}${d.dataFim ? `–${d.dataFim}` : ''} · ${d.nome} (${d.tipo})`,
+      ),
+      fields: [
+        { name: 'data', label: 'Data', type: 'date', required: true },
+        { name: 'dataFim', label: 'Até (opcional — período)', type: 'date' },
+        {
+          name: 'tipo',
+          label: 'Tipo',
+          type: 'select',
+          options: [
+            { value: 'feriado', label: 'Feriado' },
+            { value: 'ferias', label: 'Férias' },
+            { value: 'evento', label: 'Evento' },
+            { value: 'folga', label: 'Folga' },
+            { value: 'outro', label: 'Outro' },
+          ],
+          defaultValue: 'feriado',
+        },
+        {
+          name: 'nome',
+          label: 'Nome',
+          type: 'text',
+          required: true,
+          placeholder: 'Ex.: Natal / Férias da Maria',
+        },
+        {
+          name: 'colaboradorId',
+          label: 'Colaborador (só p/ férias/folga de 1 pessoa)',
+          type: 'select',
+          options: withNone(optColab),
+        },
+      ] as FieldDef[],
+      submit: (v: any) =>
+        api.post('/dias-especiais', {
+          data: v.data,
+          dataFim: v.dataFim || undefined,
+          tipo: v.tipo,
+          nome: v.nome,
+          colaboradorId: v.colaboradorId || undefined,
         }),
     },
   ];
