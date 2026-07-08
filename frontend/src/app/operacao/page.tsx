@@ -7,6 +7,7 @@ import { api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { SkeletonList } from '@/components/ui/skeleton';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
 import { Shell } from '@/components/app-shell/shell';
@@ -84,9 +85,11 @@ export default function OperacaoPage() {
 
   if (!pronto) {
     return (
-      <div className="grid min-h-dvh place-items-center text-muted-foreground">
-        Carregando…
-      </div>
+      <Shell eyebrow="Produção" title="Operação">
+        <div className="max-w-3xl">
+          <SkeletonList rows={6} />
+        </div>
+      </Shell>
     );
   }
 
@@ -94,7 +97,10 @@ export default function OperacaoPage() {
     value: i.id,
     label: `${i.nome} (${i.saldo} ${i.unidadeMedida})`,
   }));
-  const hoje = new Date().toISOString().slice(0, 10);
+  // Data de hoje no fuso de SP (toISOString daria UTC — à noite viraria amanhã).
+  const hoje = new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+  });
   const TIPO_MOV = [
     { value: 'entrada', label: 'Entrada' },
     { value: 'saida', label: 'Saída' },
