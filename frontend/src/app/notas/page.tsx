@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -24,6 +24,9 @@ const COR: Record<string, string> = {
 
 export default function NotasPage() {
   const router = useRouter();
+  // cat resolvido no cliente (evita divergência de hidratação com o SSR).
+  const [cat, setCat] = useState<string | null>(null);
+  const isGestor = ['presidente', 'gerente'].includes(cat ?? '');
   const [notas, setNotas] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
 
@@ -40,12 +43,17 @@ export default function NotasPage() {
       router.replace('/entrar');
       return;
     }
+    setCat(getCategoria());
     reload();
   }, [reload, router]);
 
   async function cancelar(n: any) {
     const justificativa = window.prompt('Justificativa do cancelamento (mín. 15 caracteres):') ?? '';
     if (!justificativa) return;
+    if (justificativa.trim().length < 15) {
+      toast.error('A justificativa precisa de ao menos 15 caracteres.');
+      return;
+    }
     try {
       await api.cancelarNota(n.id, justificativa);
       toast.success('Nota cancelada.');
@@ -85,7 +93,7 @@ export default function NotasPage() {
                   {n.motivo && <p className="text-[11px] text-muted-foreground">{n.motivo}</p>}
                 </div>
                 <span className="font-mono text-sm font-bold">{brl(Number(n.valorTotal))}</span>
-                {n.status === 'autorizada' && (
+                {n.status === 'autorizada' && isGestor && (
                   <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => cancelar(n)}>
                     Cancelar
                   </Button>

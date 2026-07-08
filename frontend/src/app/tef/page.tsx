@@ -23,7 +23,9 @@ const COR: Record<string, string> = {
 
 export default function TefPage() {
   const router = useRouter();
-  const isGestor = ['presidente', 'gerente', 'supervisao'].includes(getCategoria() ?? '');
+  // cat resolvido no cliente (evita divergência de hidratação com o SSR).
+  const [cat, setCat] = useState<string | null>(null);
+  const isGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
   const [pagamentos, setPagamentos] = useState<any[] | null>(null);
   const [cfg, setCfg] = useState<any>({ ativo: false, provedor: 'mock' });
   const [erro, setErro] = useState('');
@@ -46,6 +48,7 @@ export default function TefPage() {
       router.replace('/entrar');
       return;
     }
+    setCat(getCategoria());
     reload();
     const t = setInterval(reload, 10000);
     return () => clearInterval(t);
