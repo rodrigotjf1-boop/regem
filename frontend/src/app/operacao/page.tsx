@@ -149,9 +149,14 @@ export default function EstoquePage() {
       eyebrow="Insumos & produção"
       title="Estoque"
       actions={
-        <Button size="sm" variant="outline" onClick={() => router.push('/estoque')}>
-          Inteligência <ArrowRight className="h-4 w-4" />
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => router.push('/fichas')}>
+            🧾 Fichas técnicas
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => router.push('/estoque')}>
+            Inteligência <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
       }
     >
       <div className="max-w-3xl space-y-4">

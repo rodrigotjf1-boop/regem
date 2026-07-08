@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Trash2, Pencil } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Plus, Trash2, Pencil, ArrowLeft } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -40,6 +41,7 @@ function linhaVazia(): Ing {
 }
 
 export default function FichasPage() {
+  const router = useRouter();
   const [fichas, setFichas] = useState<any[]>([]);
   const [insumos, setInsumos] = useState<any[]>([]);
   const [erro, setErro] = useState('');
@@ -207,7 +209,15 @@ export default function FichasPage() {
   }
 
   return (
-    <Shell eyebrow="Produção" title="Fichas Técnicas">
+    <Shell
+      eyebrow="Estoque · produção"
+      title="Fichas Técnicas"
+      actions={
+        <Button size="sm" variant="outline" onClick={() => router.push('/operacao')}>
+          <ArrowLeft className="h-4 w-4" /> Estoque
+        </Button>
+      }
+    >
       {erro && <p className="mb-4 text-destructive">{erro}</p>}
 
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
