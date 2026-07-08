@@ -1,10 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { guia, guiaPasso } from '../../db/schema';
+import { empresa, guia, guiaPasso } from '../../db/schema';
 import { CreateGuiaDto } from './dto/create-guia.dto';
 import { CreatePassoDto } from './dto/create-passo.dto';
 import { UpdateGuiaDto } from './dto/update-guia.dto';
+import { SUGESTOES_POP } from './sugestoes-ramo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -19,6 +20,12 @@ export class GuiasService {
         titulo: dto.titulo,
         codigo: dto.codigo,
         descricao: dto.descricao,
+        alcance: dto.alcance,
+        responsavelExecuta: dto.responsavelExecuta,
+        responsavelSupervisiona: dto.responsavelSupervisiona,
+        materiais: dto.materiais,
+        revisaoMeses: dto.revisaoMeses ?? 12,
+        logoRef: dto.logoRef,
         ramo: dto.ramo,
         frequencia: dto.frequencia ?? 'diaria',
         estado: dto.estado ?? 'rascunho',
@@ -84,6 +91,12 @@ export class GuiasService {
       'titulo',
       'codigo',
       'descricao',
+      'alcance',
+      'responsavelExecuta',
+      'responsavelSupervisiona',
+      'materiais',
+      'revisaoMeses',
+      'logoRef',
       'ramo',
       'frequencia',
       'estado',
@@ -93,12 +106,39 @@ export class GuiasService {
       if (dto[k] !== undefined) patch[k] = dto[k];
     }
     if (Object.keys(patch).length) {
+      patch.updatedAt = new Date();
       await this.db
         .update(guia)
         .set(patch)
         .where(and(eq(guia.id, id), eq(guia.tenantId, tenantId)));
     }
+    // Passos (replace-all) quando enviados.
+    if (dto.passos) {
+      await this.db
+        .delete(guiaPasso)
+        .where(and(eq(guiaPasso.guiaId, id), eq(guiaPasso.tenantId, tenantId)));
+      if (dto.passos.length)
+        await this.db.insert(guiaPasso).values(
+          dto.passos.map((p, idx) => ({
+            tenantId,
+            guiaId: id,
+            descricao: p.descricao,
+            mediaRef: p.mediaRef,
+            ordem: p.ordem ?? idx,
+          })),
+        );
+    }
     return this.getOne(tenantId, id);
+  }
+
+  // Biblioteca de POPs sugeridos pelo ramo da empresa (didáticos, editáveis).
+  async sugestoesRamo(tenantId: string) {
+    const [emp] = await this.db
+      .select({ ramo: empresa.ramo })
+      .from(empresa)
+      .where(eq(empresa.id, tenantId));
+    const ramo = emp?.ramo ?? 'food_service';
+    return { ramo, sugestoes: SUGESTOES_POP[ramo] ?? SUGESTOES_POP.geral };
   }
 
   async remove(tenantId: string, id: string) {
