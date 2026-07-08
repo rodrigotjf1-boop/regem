@@ -14,18 +14,18 @@ import { Shell } from '@/components/app-shell/shell';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function validadeStatus(validade: string | null) {
-  if (!validade) return { label: 'sem validade', cls: 'bg-slate-100 text-slate-600' };
+  if (!validade) return { label: 'sem validade', cls: 'bg-secondary text-muted-foreground' };
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
   const v = new Date(`${validade}T00:00:00`);
   const dias = Math.round((v.getTime() - hoje.getTime()) / 86400000);
   const dm = v.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
   if (dias < 0)
-    return { label: `vencido há ${Math.abs(dias)}d`, cls: 'bg-red-100 text-red-700' };
-  if (dias === 0) return { label: 'vence hoje', cls: 'bg-red-100 text-red-700' };
+    return { label: `vencido há ${Math.abs(dias)}d`, cls: 'bg-destructive/10 text-destructive' };
+  if (dias === 0) return { label: 'vence hoje', cls: 'bg-destructive/10 text-destructive' };
   if (dias <= 7)
-    return { label: `vence em ${dias}d (${dm})`, cls: 'bg-amber-100 text-amber-800' };
-  return { label: dm, cls: 'bg-emerald-100 text-emerald-700' };
+    return { label: `vence em ${dias}d (${dm})`, cls: 'bg-warn/10 text-warn' };
+  return { label: dm, cls: 'bg-ok/10 text-ok' };
 }
 
 export default function OperacaoPage() {
@@ -201,8 +201,8 @@ export default function OperacaoPage() {
                   <Badge
                     className={
                       abaixo
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-emerald-100 text-emerald-700'
+                        ? 'bg-destructive/10 text-destructive'
+                        : 'bg-ok/10 text-ok'
                     }
                   >
                     {i.saldo} {i.unidadeMedida}
@@ -270,7 +270,7 @@ export default function OperacaoPage() {
                 </p>
               </div>
               {r.status === 'conferido' ? (
-                <Badge className="bg-emerald-100 text-emerald-700">
+                <Badge className="bg-ok/10 text-ok">
                   conferido
                 </Badge>
               ) : (
@@ -422,7 +422,7 @@ export default function OperacaoPage() {
                   {vi.observacao ?? ''} · {vi.data}
                 </p>
               </div>
-              <Badge className="bg-emerald-100 text-emerald-700">{vi.status}</Badge>
+              <Badge className="bg-ok/10 text-ok">{vi.status}</Badge>
             </Card>
           ))}
         </section>
