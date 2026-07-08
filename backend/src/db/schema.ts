@@ -96,6 +96,21 @@ export const colaborador = pgTable('colaborador', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// N:N colaborador↔função: um operador cobre várias funções; uma função tem 0..N.
+export const colaboradorFuncao = pgTable('colaborador_funcao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  colaboradorId: uuid('colaborador_id')
+    .notNull()
+    .references(() => colaborador.id, { onDelete: 'cascade' }),
+  funcaoId: uuid('funcao_id')
+    .notNull()
+    .references(() => funcao.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const setor = pgTable('setor', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
@@ -106,6 +121,7 @@ export const setor = pgTable('setor', {
     .references(() => unidade.id, { onDelete: 'cascade' }),
   nome: text('nome').notNull(),
   icone: text('icone'),
+  cor: text('cor'), // cor própria do setor (cabeçalho da grade de escala)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

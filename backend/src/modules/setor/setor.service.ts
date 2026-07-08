@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { setor, unidade } from '../../db/schema';
@@ -29,8 +34,34 @@ export class SetorService {
         unidadeId: dto.unidadeId,
         nome: dto.nome,
         icone: dto.icone,
+        cor: dto.cor,
       })
       .returning();
+    return row;
+  }
+
+  // Edição (presidente/gerente): nome/ícone/cor do setor.
+  async update(
+    tenantId: string,
+    id: string,
+    dto: { nome?: string; icone?: string; cor?: string },
+  ) {
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (dto.nome !== undefined) patch.nome = dto.nome;
+    if (dto.icone !== undefined) patch.icone = dto.icone;
+    if (dto.cor !== undefined) patch.cor = dto.cor;
+    const [row] = await this.db
+      .update(setor)
+      .set(patch)
+      .where(
+        and(
+          eq(setor.id, id),
+          eq(setor.tenantId, tenantId),
+          isNull(setor.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Setor não encontrado');
     return row;
   }
 

@@ -12,6 +12,7 @@ import {
   turno,
   setor,
   colaborador,
+  funcao,
 } from '../../db/schema';
 import { CreateAlocacaoDto } from './dto/create-alocacao.dto';
 
@@ -98,8 +99,11 @@ export class EscalaService {
     etiquetaSigla: etiqueta.sigla,
     etiquetaContador: etiqueta.contador,
     etiquetaCor: etiqueta.cor,
+    // Hierarquia da função (define a cor da vaga na grade) + cor do setor.
+    categoria: funcao.categoria,
     setorNome: setor.nome,
     setorIcone: setor.icone,
+    setorCor: setor.cor,
     turnoId: escalaAlocacao.turnoId,
     turnoNome: turno.nome,
     colaboradorId: escalaAlocacao.colaboradorId,
@@ -111,6 +115,7 @@ export class EscalaService {
       .select(this.enriched)
       .from(escalaAlocacao)
       .leftJoin(etiqueta, eq(escalaAlocacao.etiquetaId, etiqueta.id))
+      .leftJoin(funcao, eq(etiqueta.funcaoId, funcao.id))
       .leftJoin(setor, eq(etiqueta.setorId, setor.id))
       .leftJoin(turno, eq(escalaAlocacao.turnoId, turno.id))
       .leftJoin(colaborador, eq(escalaAlocacao.colaboradorId, colaborador.id));

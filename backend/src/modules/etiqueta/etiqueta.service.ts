@@ -66,9 +66,25 @@ export class EtiquetaService {
   }
 
   findAll(tenantId: string) {
+    // Enriquece com a hierarquia da função (categoria → cor da vaga) e a cor do setor.
     return this.db
-      .select()
+      .select({
+        id: etiqueta.id,
+        unidadeId: etiqueta.unidadeId,
+        setorId: etiqueta.setorId,
+        funcaoId: etiqueta.funcaoId,
+        sigla: etiqueta.sigla,
+        contador: etiqueta.contador,
+        cor: etiqueta.cor,
+        icone: etiqueta.icone,
+        categoria: funcao.categoria,
+        funcaoNome: funcao.nome,
+        setorNome: setor.nome,
+        setorCor: setor.cor,
+      })
       .from(etiqueta)
+      .leftJoin(funcao, eq(etiqueta.funcaoId, funcao.id))
+      .leftJoin(setor, eq(etiqueta.setorId, setor.id))
       .where(and(eq(etiqueta.tenantId, tenantId), isNull(etiqueta.deletedAt)));
   }
 }
