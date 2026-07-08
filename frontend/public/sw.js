@@ -50,7 +50,11 @@ self.addEventListener('fetch', (e) => {
       const cached = await caches.match(req);
       const rede = fetch(req)
         .then((res) => {
-          caches.open(CACHE).then((c) => c.put(req, res.clone()));
+          // Clona ANTES de devolver: se o consumidor ler o corpo primeiro,
+          // clonar depois (dentro do caches.open async) quebra com
+          // "Response body is already used".
+          const copia = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
           return res;
         })
         .catch(() => cached);
