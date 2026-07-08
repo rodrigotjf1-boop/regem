@@ -29,6 +29,58 @@ const FREQ_LABEL: Record<string, string> = Object.fromEntries(
   FREQ.map((f) => [f.value, f.label]),
 );
 
+// Estilos de ilustração pré-definidos. `hint` descreve o visual para a IA.
+const ESTILOS = [
+  {
+    value: 'profissional',
+    label: 'Profissional',
+    hint: 'fotos/ilustrações limpas e corporativas, fundo neutro, tom sóbrio, foco na tarefa',
+  },
+  {
+    value: 'fotorrealista',
+    label: 'Fotorrealista',
+    hint: 'imagens realistas retratando a tarefa sendo executada, boa iluminação',
+  },
+  {
+    value: 'dinamico',
+    label: 'Dinâmico',
+    hint: 'imagens com energia e movimento, ângulos variados, setas indicando a ação',
+  },
+  {
+    value: 'divertido',
+    label: 'Divertido',
+    hint: 'cores vibrantes, tom leve e bem-humorado, personagens simpáticos',
+  },
+  {
+    value: 'manual',
+    label: 'Estilo manual',
+    hint: 'estilo de manual de instruções (tipo IKEA), traço técnico simples, passo a passo ilustrado',
+  },
+  {
+    value: 'desenho',
+    label: 'Desenho',
+    hint: 'ilustração desenhada à mão, linhas claras e amigáveis',
+  },
+  {
+    value: 'quadrinhos',
+    label: 'Quadrinhos (HQ)',
+    hint: 'estilo história em quadrinhos, painéis sequenciais e balões',
+  },
+  {
+    value: 'infografico',
+    label: 'Infográfico',
+    hint: 'ícones, blocos e números em visual de infográfico organizado',
+  },
+  {
+    value: 'minimalista',
+    label: 'Minimalista',
+    hint: 'ícones flat, poucas cores e bastante espaço em branco',
+  },
+];
+const ESTILO_MAP: Record<string, (typeof ESTILOS)[number]> = Object.fromEntries(
+  ESTILOS.map((e) => [e.value, e]),
+);
+
 const vazio = () => ({
   titulo: '',
   codigo: '',
@@ -40,6 +92,8 @@ const vazio = () => ({
   materiais: '',
   revisaoMeses: 12,
   logoRef: '',
+  formato: 'listado', // listado | ilustrado
+  estiloIlustracao: 'profissional',
   passos: [''] as string[],
 });
 
@@ -105,6 +159,8 @@ export default function GuiasPage() {
       materiais: g.materiais ?? '',
       revisaoMeses: g.revisaoMeses ?? 12,
       logoRef: g.logoRef ?? '',
+      formato: g.formato ?? 'listado',
+      estiloIlustracao: g.estiloIlustracao ?? 'profissional',
       passos: g.passos?.length ? g.passos.map((p: any) => p.descricao) : [''],
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -163,6 +219,8 @@ export default function GuiasPage() {
   // Monta um prompt pronto p/ colar em qualquer IA gratuita (sem custo p/ nós).
   function copiarPrompt() {
     const passos = f.passos.filter((p) => p.trim());
+    const ilustrado = f.formato === 'ilustrado';
+    const estilo = ESTILO_MAP[f.estiloIlustracao];
     const linhas = [
       'Você é um especialista em processos operacionais. Escreva um Procedimento Operacional Padrão (POP) completo, didático e pronto para impressão, em português do Brasil, seguindo a estrutura da Anvisa RDC 216 quando aplicável.',
       '',
@@ -183,6 +241,10 @@ export default function GuiasPage() {
       '',
       passos.length ? 'Passos base (refine, detalhe e ordene):' : '',
       ...passos.map((p, i) => `${i + 1}. ${p}`),
+      '',
+      ilustrado
+        ? `Formato: POP ILUSTRADO. Para cada passo, gere (ou descreva em detalhe) uma imagem que retrate a tarefa, no estilo ${estilo?.label}: ${estilo?.hint}. Mantenha o mesmo estilo visual em todas as imagens e posicione cada uma ao lado do passo correspondente.`
+        : 'Formato: SOMENTE TEXTO, listado e organizado. Não gere imagens; capriche na hierarquia visual (títulos, numeração, tabelas quando fizer sentido) para leitura e impressão.',
       '',
       'Deixe o texto claro para treinar um colaborador iniciante. Não invente normas específicas; se algo não foi informado, use boas práticas gerais do setor.',
     ].filter(Boolean);
@@ -211,6 +273,8 @@ export default function GuiasPage() {
       materiais: f.materiais || undefined,
       revisaoMeses: Number(f.revisaoMeses) || 12,
       logoRef: f.logoRef || undefined,
+      formato: f.formato,
+      estiloIlustracao: f.formato === 'ilustrado' ? f.estiloIlustracao : undefined,
       estado,
       passos: f.passos
         .filter((p) => p.trim())
@@ -375,6 +439,65 @@ export default function GuiasPage() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Formato do POP — guia a geração por IA */}
+          <div className="mt-5">
+            <h3 className="mb-2 font-display text-sm font-bold">Formato do POP</h3>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {[
+                {
+                  value: 'listado',
+                  titulo: 'Somente listado',
+                  desc: 'Texto organizado, sem imagens.',
+                },
+                {
+                  value: 'ilustrado',
+                  titulo: 'Ilustrado',
+                  desc: 'Uma imagem por tarefa, no estilo escolhido.',
+                },
+              ].map((op) => {
+                const ativo = f.formato === op.value;
+                return (
+                  <button
+                    key={op.value}
+                    type="button"
+                    aria-pressed={ativo ? 'true' : 'false'}
+                    onClick={() => set({ formato: op.value })}
+                    className={`rounded-md border p-3 text-left text-sm transition ${
+                      ativo
+                        ? 'border-primary bg-primary/5 ring-1 ring-primary'
+                        : 'border-border hover:bg-secondary'
+                    }`}
+                  >
+                    <span className="block font-semibold">{op.titulo}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {op.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {f.formato === 'ilustrado' && (
+              <div className="mt-3 space-y-1.5">
+                <Label htmlFor="estilo">Estilo da ilustração</Label>
+                <Select
+                  id="estilo"
+                  value={f.estiloIlustracao}
+                  onChange={(e) => set({ estiloIlustracao: e.target.value })}
+                >
+                  {ESTILOS.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {ESTILO_MAP[f.estiloIlustracao]?.hint}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="mt-5">

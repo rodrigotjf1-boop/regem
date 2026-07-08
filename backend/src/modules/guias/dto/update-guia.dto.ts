@@ -39,6 +39,14 @@ export class UpdateGuiaDto {
 
   @IsOptional()
   @IsString()
+  formato?: string; // listado | ilustrado
+
+  @IsOptional()
+  @IsString()
+  estiloIlustracao?: string;
+
+  @IsOptional()
+  @IsString()
   ramo?: string;
 
   @IsOptional()

@@ -1096,6 +1096,8 @@ export const guia = pgTable('guia', {
   materiais: text('materiais'),
   revisaoMeses: integer('revisao_meses').default(12),
   logoRef: text('logo_ref'),
+  formato: text('formato').notNull().default('listado'), // listado | ilustrado
+  estiloIlustracao: text('estilo_ilustracao'), // profissional, dinamico, …
   ramo: text('ramo'),
   frequencia: text('frequencia').notNull().default('diaria'),
   estado: text('estado').notNull().default('rascunho'),
