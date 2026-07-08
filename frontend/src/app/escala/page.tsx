@@ -182,8 +182,9 @@ export default function EscalaPage() {
   }
   async function trocarResp(id: string, colaboradorId: string) {
     try {
-      await api.alterarAlocacao(id, { colaboradorId: colaboradorId || null });
+      const r: any = await api.alterarAlocacao(id, { colaboradorId: colaboradorId || null });
       toast.success(colaboradorId ? 'Responsável atualizado.' : 'Vaga reaberta.');
+      (r?.avisos ?? []).forEach((a: any) => toast.error(`⚠️ ${a.msg}`));
       await carregar();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao alterar');

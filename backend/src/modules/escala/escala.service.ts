@@ -16,10 +16,80 @@ import {
   funcao,
 } from '../../db/schema';
 import { CreateAlocacaoDto } from './dto/create-alocacao.dto';
+import {
+  validarAlocacao,
+  bloqueios,
+  type Violacao,
+} from '../../common/regras-escala';
 
 @Injectable()
 export class EscalaService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+
+  // Avisos/bloqueios das regras CLT para alocar `colaboradorId` no dia/turno,
+  // considerando a semana (segunda–domingo) dele. `excluirId` ignora a própria
+  // alocação (no PATCH). Bloqueio (ilegal) é lançado; avisos voltam na resposta.
+  private async violacoes(
+    tenantId: string,
+    colaboradorId: string,
+    data: string,
+    turnoId: string,
+    excluirId?: string,
+  ): Promise<Violacao[]> {
+    const [c] = await this.db
+      .select({ jornadaTipo: colaborador.jornadaTipo })
+      .from(colaborador)
+      .where(and(eq(colaborador.id, colaboradorId), eq(colaborador.tenantId, tenantId)));
+    const [t] = await this.db
+      .select({
+        horaInicio: turno.horaInicio,
+        horaFim: turno.horaFim,
+        pausaInicio: turno.pausaInicio,
+        pausaFim: turno.pausaFim,
+      })
+      .from(turno)
+      .where(and(eq(turno.id, turnoId), eq(turno.tenantId, tenantId)));
+    if (!t) return [];
+
+    const seg = segundaISO(data);
+    const dom = addDays(seg, 6);
+    const conds = [
+      eq(escalaAlocacao.tenantId, tenantId),
+      eq(escalaAlocacao.colaboradorId, colaboradorId),
+      isNull(escalaAlocacao.deletedAt),
+      gte(escalaAlocacao.data, seg),
+      lte(escalaAlocacao.data, dom),
+    ];
+    if (excluirId) conds.push(ne(escalaAlocacao.id, excluirId));
+    const outras = await this.db
+      .select({
+        data: escalaAlocacao.data,
+        horaInicio: turno.horaInicio,
+        horaFim: turno.horaFim,
+        pausaInicio: turno.pausaInicio,
+        pausaFim: turno.pausaFim,
+      })
+      .from(escalaAlocacao)
+      .leftJoin(turno, eq(escalaAlocacao.turnoId, turno.id))
+      .where(and(...conds));
+
+    return validarAlocacao({
+      jornadaTipo: c?.jornadaTipo,
+      data,
+      turno: t,
+      outrasNaSemana: outras
+        .filter((o) => o.horaInicio)
+        .map((o) => ({
+          data: o.data,
+          turno: {
+            horaInicio: o.horaInicio!,
+            horaFim: o.horaFim!,
+            pausaInicio: o.pausaInicio,
+            pausaFim: o.pausaFim,
+          },
+        })),
+    });
+  }
 
   async create(tenantId: string, dto: CreateAlocacaoDto) {
     // A unidade deriva da etiqueta (ambas do mesmo tenant).
@@ -66,6 +136,15 @@ export class EscalaService {
       }
     }
 
+    // Regras CLT: bloqueia o ilegal (interjornada/intrajornada); avisos voltam.
+    let avisos: Violacao[] = [];
+    if (dto.colaboradorId) {
+      const vs = await this.violacoes(tenantId, dto.colaboradorId, dto.data, dto.turnoId);
+      const bloq = bloqueios(vs);
+      if (bloq.length) throw new BadRequestException(bloq.map((b) => b.msg).join(' '));
+      avisos = vs;
+    }
+
     try {
       const [row] = await this.db
         .insert(escalaAlocacao)
@@ -79,7 +158,7 @@ export class EscalaService {
           tipo: dto.tipo ?? 'titular',
         })
         .returning();
-      return row;
+      return { ...row, avisos };
     } catch (e: any) {
       if (e?.code === '23505') {
         throw new ConflictException(
@@ -186,6 +265,21 @@ export class EscalaService {
         throw new ConflictException('Colaborador já alocado neste turno/dia');
     }
 
+    // Regras CLT ao trocar de pessoa: bloqueia ilegal; avisos voltam.
+    let avisos: Violacao[] = [];
+    if (dto.colaboradorId) {
+      const vs = await this.violacoes(
+        tenantId,
+        dto.colaboradorId,
+        atual.data,
+        atual.turnoId,
+        id,
+      );
+      const bloq = bloqueios(vs);
+      if (bloq.length) throw new BadRequestException(bloq.map((b) => b.msg).join(' '));
+      avisos = vs;
+    }
+
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.colaboradorId !== undefined)
       patch.colaboradorId = dto.colaboradorId || null;
@@ -195,7 +289,7 @@ export class EscalaService {
       .set(patch)
       .where(and(eq(escalaAlocacao.id, id), eq(escalaAlocacao.tenantId, tenantId)))
       .returning();
-    return row;
+    return { ...row, avisos };
   }
 
   // Grade semanal: alocações de [inicio, inicio+6], para montar a matriz vaga × dia.
@@ -218,5 +312,13 @@ export class EscalaService {
 function addDays(iso: string, n: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Segunda-feira (YYYY-MM-DD) da semana de uma data ISO.
+function segundaISO(iso: string): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  const dow = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
   return d.toISOString().slice(0, 10);
 }

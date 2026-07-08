@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -58,13 +59,15 @@ export function NovaAlocacaoForm({
     setErro('');
     setSaving(true);
     try {
-      await api.criarAlocacao({
+      const r: any = await api.criarAlocacao({
         data: dataSel,
         turnoId,
         etiquetaId,
         colaboradorId: colaboradorId || undefined,
         tipo,
       });
+      // Avisos de regra CLT (não bloqueantes) — o bloqueio vem como erro.
+      (r?.avisos ?? []).forEach((a: any) => toast.error(`⚠️ ${a.msg}`));
       onCreated();
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar');

@@ -17,4 +17,12 @@ export class CreateTurnoDto {
 
   @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'horaFim deve ser HH:MM' })
   horaFim!: string;
+
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'pausaInicio deve ser HH:MM' })
+  pausaInicio?: string;
+
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'pausaFim deve ser HH:MM' })
+  pausaFim?: string;
 }
