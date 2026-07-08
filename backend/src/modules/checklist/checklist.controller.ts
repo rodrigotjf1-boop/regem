@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -35,9 +36,21 @@ export class ChecklistController {
     return this.service.findAll(user.tenantId);
   }
 
+  // Modelos por ramo (rota estática antes de :id).
+  @Get('sugestoes')
+  sugestoes(@CurrentUser() user: AuthUser) {
+    return this.service.sugestoesRamo(user.tenantId);
+  }
+
   @Get(':id')
   findOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.findOne(user.tenantId, id);
+  }
+
+  @Delete('itens/:itemId')
+  @Roles('presidente', 'gerente', 'supervisao')
+  removeItem(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
+    return this.service.removeItem(user.tenantId, itemId);
   }
 
   @Post(':id/itens')
