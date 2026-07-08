@@ -186,6 +186,10 @@ export class EscalaService {
     setorCor: setor.cor,
     turnoId: escalaAlocacao.turnoId,
     turnoNome: turno.nome,
+    turnoInicio: turno.horaInicio,
+    turnoFim: turno.horaFim,
+    pausaInicio: turno.pausaInicio,
+    pausaFim: turno.pausaFim,
     colaboradorId: escalaAlocacao.colaboradorId,
     colaboradorNome: colaborador.nome,
   };
@@ -290,6 +294,20 @@ export class EscalaService {
       .where(and(eq(escalaAlocacao.id, id), eq(escalaAlocacao.tenantId, tenantId)))
       .returning();
     return { ...row, avisos };
+  }
+
+  // Alocações enriquecidas num período arbitrário [de, ate] (visões dia/mês).
+  periodo(tenantId: string, de: string, ate: string) {
+    return this.joined()
+      .where(
+        and(
+          eq(escalaAlocacao.tenantId, tenantId),
+          isNull(escalaAlocacao.deletedAt),
+          gte(escalaAlocacao.data, de),
+          lte(escalaAlocacao.data, ate),
+        ),
+      )
+      .orderBy(asc(escalaAlocacao.data));
   }
 
   // Grade semanal: alocações de [inicio, inicio+6], para montar a matriz vaga × dia.

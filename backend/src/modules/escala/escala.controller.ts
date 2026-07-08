@@ -97,4 +97,14 @@ export class EscalaController {
     const ini = inicio ?? new Date().toISOString().slice(0, 10);
     return this.service.semana(user.tenantId, ini);
   }
+
+  // Alocações num período [de, ate] (visões por dia e por mês).
+  @Get('periodo')
+  periodo(
+    @CurrentUser() user: AuthUser,
+    @Query('de') de: string,
+    @Query('ate') ate: string,
+  ) {
+    return this.service.periodo(user.tenantId, de, ate);
+  }
 }
