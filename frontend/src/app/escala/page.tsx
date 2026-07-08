@@ -10,6 +10,8 @@ import { Card } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { NovaAlocacaoForm } from '@/components/escala/nova-alocacao-form';
+import { TimelineDia } from '@/components/escala/timeline-dia';
+import { GradeMensal } from '@/components/escala/grade-mensal';
 import { Shell } from '@/components/app-shell/shell';
 import { cn } from '@/lib/utils';
 import { corHierarquia, LABEL_HIERARQUIA, ORDEM_HIERARQUIA } from '@/lib/hierarquia';
@@ -87,6 +89,14 @@ export default function EscalaPage() {
   const [colabs, setColabs] = useState<Colab[]>([]);
   const [especiais, setEspeciais] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // Visões: semana (grade) · dia (timeline) · mês (tabela).
+  const [view, setView] = useState<'semana' | 'dia' | 'mes'>('semana');
+  const [diaSel, setDiaSel] = useState(() => hoje());
+  const [diaAloc, setDiaAloc] = useState<any[]>([]);
+  const [diaEsp, setDiaEsp] = useState<any[]>([]);
+  const [mesCursor, setMesCursor] = useState(() => hoje().slice(0, 7)); // YYYY-MM
+  const [mesAloc, setMesAloc] = useState<any[]>([]);
+  const [mesEsp, setMesEsp] = useState<any[]>([]);
   const [erro, setErro] = useState('');
   const [alocar, setAlocar] = useState<{ etiquetaId?: string; data: string } | null>(
     null,
@@ -141,6 +151,47 @@ export default function EscalaPage() {
     }
     carregar();
   }, [carregar, router]);
+
+  // Visão Dia: alocações + dias especiais do dia selecionado.
+  useEffect(() => {
+    if (view !== 'dia' || !getToken()) return;
+    Promise.all([api.escalaPeriodo(diaSel, diaSel), api.diasEspeciais(diaSel, diaSel)])
+      .then(([a, e]) => {
+        setDiaAloc(a as any[]);
+        setDiaEsp(e as any[]);
+      })
+      .catch(() => {});
+  }, [view, diaSel]);
+
+  // Visão Mês: alocações + dias especiais do mês.
+  useEffect(() => {
+    if (view !== 'mes' || !getToken()) return;
+    const ini = `${mesCursor}-01`;
+    const d = new Date(`${ini}T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() + 1);
+    d.setUTCDate(0);
+    const fim = d.toISOString().slice(0, 10);
+    Promise.all([api.escalaPeriodo(ini, fim), api.diasEspeciais(ini, fim)])
+      .then(([a, e]) => {
+        setMesAloc(a as any[]);
+        setMesEsp(e as any[]);
+      })
+      .catch(() => {});
+  }, [view, mesCursor]);
+
+  function irMes(delta: number) {
+    const [ano, mes] = mesCursor.split('-').map(Number);
+    const d = new Date(Date.UTC(ano, mes - 1 + delta, 1));
+    setMesCursor(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`);
+  }
+  const fmtMes = (ym: string) => {
+    const [a, m] = ym.split('-').map(Number);
+    return new Date(Date.UTC(a, m - 1, 1)).toLocaleDateString('pt-BR', {
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  };
 
   const dias = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(inicio, i)),
@@ -230,6 +281,27 @@ export default function EscalaPage() {
         </Button>
       }
     >
+      {/* Alternador de visões */}
+      <div className="mb-4 flex gap-1.5">
+        {(['semana', 'dia', 'mes'] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setView(v)}
+            aria-pressed={view === v ? 'true' : 'false'}
+            className={`rounded-md border px-3 py-1.5 text-sm font-medium capitalize ${
+              view === v
+                ? 'border-primary bg-primary/15 text-primary'
+                : 'border-border text-muted-foreground hover:border-primary/50'
+            }`}
+          >
+            {v === 'mes' ? 'Mês' : v}
+          </button>
+        ))}
+      </div>
+
+      {view === 'semana' && (
+        <>
       <div className="mb-4 flex items-center gap-2">
         <Button
           variant="outline"
@@ -432,6 +504,56 @@ export default function EscalaPage() {
         Clique em qualquer célula para alocar, trocar ou remover. Conflitos (mesma
         pessoa em dois lugares no mesmo turno) são bloqueados automaticamente.
       </p>
+        </>
+      )}
+
+      {/* Visão por dia (timeline por hora) */}
+      {view === 'dia' && (
+        <>
+          <div className="mb-3 flex items-center gap-2">
+            <Button variant="outline" size="icon" aria-label="Dia anterior" onClick={() => setDiaSel((s) => addDays(s, -1))}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex-1 text-center">
+              <p className="font-display text-sm font-bold capitalize">
+                {fmtDia(diaSel).semana} · {fmtDia(diaSel).dm}
+                {diaSel !== hoje() && (
+                  <button type="button" onClick={() => setDiaSel(hoje())} className="ml-2 text-xs font-medium text-primary hover:underline">
+                    hoje
+                  </button>
+                )}
+              </p>
+              {diaEsp.map((e) => (
+                <span key={e.id} className="text-[11px] text-muted-foreground">
+                  {EMOJI_ESPECIAL[e.tipo] ?? '⭐'} {e.nome}{' '}
+                </span>
+              ))}
+            </div>
+            <Button variant="outline" size="icon" aria-label="Próximo dia" onClick={() => setDiaSel((s) => addDays(s, 1))}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <TimelineDia alocacoes={diaAloc} />
+        </>
+      )}
+
+      {/* Visão mensal resumida */}
+      {view === 'mes' && (
+        <>
+          <div className="mb-3 flex items-center gap-2">
+            <Button variant="outline" size="icon" aria-label="Mês anterior" onClick={() => irMes(-1)}>
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <p className="flex-1 text-center font-display text-sm font-bold capitalize">
+              {fmtMes(mesCursor)}
+            </p>
+            <Button variant="outline" size="icon" aria-label="Próximo mês" onClick={() => irMes(1)}>
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <GradeMensal mesCursor={mesCursor} alocacoes={mesAloc} colabs={colabs} especiais={mesEsp} />
+        </>
+      )}
 
       {alocar && (
         <div

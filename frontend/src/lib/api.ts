@@ -142,6 +142,8 @@ export const api = {
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
   escalaSemana: (inicio: string) => req(`/escala/semana?inicio=${inicio}`),
+  escalaPeriodo: (de: string, ate: string) =>
+    req(`/escala/periodo?de=${de}&ate=${ate}`),
   diasEspeciais: (de?: string, ate?: string) => {
     const p = new URLSearchParams();
     if (de) p.set('de', de);
