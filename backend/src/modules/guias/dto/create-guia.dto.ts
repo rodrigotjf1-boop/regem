@@ -22,6 +22,29 @@ export class CreateGuiaDto {
 
   @IsOptional()
   @IsString()
+  alcance?: string;
+
+  @IsOptional()
+  @IsString()
+  responsavelExecuta?: string;
+
+  @IsOptional()
+  @IsString()
+  responsavelSupervisiona?: string;
+
+  @IsOptional()
+  @IsString()
+  materiais?: string;
+
+  @IsOptional()
+  revisaoMeses?: number;
+
+  @IsOptional()
+  @IsString()
+  logoRef?: string;
+
+  @IsOptional()
+  @IsString()
   ramo?: string;
 
   @IsOptional()

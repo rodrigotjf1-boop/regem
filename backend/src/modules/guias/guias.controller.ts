@@ -28,6 +28,12 @@ export class GuiasController {
     return this.service.list(user.tenantId);
   }
 
+  // POPs sugeridos pelo ramo da empresa (rota estática antes de :id).
+  @Get('sugestoes')
+  sugestoes(@CurrentUser() user: AuthUser) {
+    return this.service.sugestoesRamo(user.tenantId);
+  }
+
   @Get(':id')
   getOne(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.getOne(user.tenantId, id);

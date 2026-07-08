@@ -1,4 +1,5 @@
-import { IsOptional, IsString, IsUUID } from 'class-validator';
+import { IsArray, IsOptional, IsString, IsUUID } from 'class-validator';
+import { CreatePassoDto } from './create-passo.dto';
 
 export class UpdateGuiaDto {
   @IsOptional()
@@ -12,6 +13,29 @@ export class UpdateGuiaDto {
   @IsOptional()
   @IsString()
   descricao?: string;
+
+  @IsOptional()
+  @IsString()
+  alcance?: string;
+
+  @IsOptional()
+  @IsString()
+  responsavelExecuta?: string;
+
+  @IsOptional()
+  @IsString()
+  responsavelSupervisiona?: string;
+
+  @IsOptional()
+  @IsString()
+  materiais?: string;
+
+  @IsOptional()
+  revisaoMeses?: number;
+
+  @IsOptional()
+  @IsString()
+  logoRef?: string;
 
   @IsOptional()
   @IsString()
@@ -32,4 +56,9 @@ export class UpdateGuiaDto {
   @IsOptional()
   @IsUUID()
   funcaoId?: string;
+
+  // Se enviado, SUBSTITUI todos os passos (replace-all).
+  @IsOptional()
+  @IsArray()
+  passos?: CreatePassoDto[];
 }
