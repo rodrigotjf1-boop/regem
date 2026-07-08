@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -30,6 +32,37 @@ export class EstoqueController {
   @Get('itens')
   listItens(@CurrentUser() user: AuthUser) {
     return this.service.listItens(user.tenantId);
+  }
+
+  @Patch('itens/:id')
+  @Roles('presidente', 'gerente', 'supervisao')
+  updateItem(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateItemDto,
+  ) {
+    return this.service.updateItem(user.tenantId, id, dto);
+  }
+
+  // ----- Categorias de insumo (cadastro próprio) -----
+  @Get('categorias-item')
+  listCategorias(@CurrentUser() user: AuthUser) {
+    return this.service.listCategorias(user.tenantId);
+  }
+
+  @Post('categorias-item')
+  @Roles('presidente', 'gerente', 'supervisao')
+  createCategoria(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { nome: string; cor?: string },
+  ) {
+    return this.service.createCategoria(user.tenantId, dto);
+  }
+
+  @Delete('categorias-item/:id')
+  @Roles('presidente', 'gerente', 'supervisao')
+  removerCategoria(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.removerCategoria(user.tenantId, id);
   }
 
   @Post('movimentos')

@@ -184,6 +184,13 @@ export const api = {
       body: JSON.stringify({ justificativa }),
     }),
   estoqueItens: () => req('/estoque/itens'),
+  atualizarItem: (id: string, body: Record<string, unknown>) =>
+    req(`/estoque/itens/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  estoqueCategorias: () => req('/estoque/categorias-item'),
+  criarEstoqueCategoria: (body: Record<string, unknown>) =>
+    req('/estoque/categorias-item', { method: 'POST', body: JSON.stringify(body) }),
+  removerEstoqueCategoria: (id: string) =>
+    req(`/estoque/categorias-item/${id}`, { method: 'DELETE' }),
   // Produção (Fase F1)
   producaoFila: (setorId?: string, unidadeId?: string, escopo?: string) => {
     const p = new URLSearchParams();
