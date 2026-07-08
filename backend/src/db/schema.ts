@@ -533,6 +533,41 @@ export const contagemItem = pgTable('contagem_item', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ----- Lista de compras (E3) -----
+export const compraLista = pgTable('compra_lista', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id').references(() => unidade.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  fornecedorId: uuid('fornecedor_id').references(() => fornecedor.id, { onDelete: 'set null' }),
+  dataRecebimento: date('data_recebimento'),
+  delegadoId: uuid('delegado_id').references(() => colaborador.id, { onDelete: 'set null' }),
+  enviarKds: boolean('enviar_kds').notNull().default(true),
+  enviarDashboard: boolean('enviar_dashboard').notNull().default(true),
+  status: text('status').notNull().default('aberta'), // aberta|recebida|cancelada
+  recebidaEm: timestamp('recebida_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+export const compraItem = pgTable('compra_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  listaId: uuid('lista_id')
+    .notNull()
+    .references(() => compraLista.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  quantidade: numeric('quantidade').notNull().default('0'),
+  custoUnitario: numeric('custo_unitario'),
+});
+
 export const tipoOcorrencia = pgTable('tipo_ocorrencia', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
