@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
@@ -23,11 +24,13 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
   {
     grupo: 'Cardápio digital',
     itens: [
+      { k: 'cardapio', label: 'Cardápio digital · QR' },
       { k: 'loja', label: 'Loja' },
       { k: 'endereco', label: 'Endereço' },
       { k: 'horarios', label: 'Horários' },
       { k: 'tipos', label: 'Tipos de pedido' },
       { k: 'area', label: 'Área de atendimento' },
+      { k: 'cupons', label: 'Cupons' },
     ],
   },
   {
@@ -59,12 +62,16 @@ export function ConfigPanel({
   const [impressoras, setImpressoras] = useState<any[]>([]);
   const [setores, setSetores] = useState<any[]>([]);
   const [integracoes, setIntegracoes] = useState<any[]>([]);
+  const [cupons, setCupons] = useState<any[]>([]);
+  const [novoCupom, setNovoCupom] = useState({ codigo: '', tipo: 'percentual', valor: '', minimo: '' });
+  const [qr, setQr] = useState('');
   const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     api.cardapioConfig().then((c: any) => setLoja(c ?? {})).catch(() => setLoja({}));
     api.cardapioBairros().then((b: any) => setBairros((b as any[]) ?? [])).catch(() => {});
     api.cardapioBanners().then((b: any) => setBanners((b as any[]) ?? [])).catch(() => {});
+    api.cardapioCupons().then((c: any) => setCupons((c as any[]) ?? [])).catch(() => {});
     if (isGestor) {
       api.impressoras().then((p: any) => setImpressoras((p as any[]) ?? [])).catch(() => {});
       api.setores().then((s: any) => setSetores((s as any[]) ?? [])).catch(() => {});
@@ -136,6 +143,31 @@ export function ConfigPanel({
     }
   }
 
+  // Link do cardápio digital próprio (gerado quando ativado).
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const linkDelivery = loja?.token ? `${origin}/c/${loja.token}` : '';
+  useEffect(() => {
+    if (!linkDelivery) { setQr(''); return; }
+    QRCode.toDataURL(linkDelivery, { width: 220, margin: 1 }).then(setQr).catch(() => setQr(''));
+  }, [linkDelivery]);
+
+  async function addCupom() {
+    if (!novoCupom.codigo.trim()) return;
+    try {
+      await api.criarCupom({
+        codigo: novoCupom.codigo.trim(),
+        tipo: novoCupom.tipo,
+        valor: Number(String(novoCupom.valor).replace(',', '.')) || 0,
+        minimo: novoCupom.minimo ? Number(String(novoCupom.minimo).replace(',', '.')) : undefined,
+      });
+      setNovoCupom({ codigo: '', tipo: novoCupom.tipo, valor: '', minimo: '' });
+      setCupons(await api.cardapioCupons());
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+  }
+  async function delCupom(id: string) {
+    try { await api.removerCupom(id); setCupons(await api.cardapioCupons()); } catch { /* */ }
+  }
+
   async function salvarBairros(lista: any[]) {
     setSalvando(true);
     try {
@@ -202,6 +234,91 @@ export function ConfigPanel({
                         {c.label}
                       </label>
                     ))}
+                  </Secao>
+                )}
+
+                {/* CARDÁPIO DIGITAL · QR */}
+                {sec === 'cardapio' && (
+                  <Secao dica="Ative o cardápio digital PRÓPRIO — para quando você não tem um cardápio externo (iFood etc.) para integrar. Gera um link e um QR para compartilhar.">
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <input type="checkbox" checked={!!loja.ativo} disabled={somenteGestor} onChange={(e) => up({ ativo: e.target.checked })} className="h-4 w-4 accent-primary" />
+                      Cardápio digital próprio ativo
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Campo label="Modo">
+                        <select aria-label="Modo do cardápio" disabled={somenteGestor} value={loja.modo ?? 'mesa'} onChange={(e) => up({ modo: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
+                          <option value="mesa">Mesa (QR na mesa → comanda)</option>
+                          <option value="retirada">Retirada (cai no delivery)</option>
+                          <option value="totem">Totem (autoatendimento)</option>
+                        </select>
+                      </Campo>
+                      <Campo label="Ramo (tema)">
+                        <select aria-label="Ramo" disabled={somenteGestor} value={loja.ramo ?? 'food'} onChange={(e) => up({ ramo: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
+                          <option value="food">🍔 Food service</option>
+                          <option value="varejo">🛍 Varejo</option>
+                          <option value="industria">🏭 Indústria</option>
+                          <option value="servicos">📅 Serviços</option>
+                        </select>
+                      </Campo>
+                      <Campo label="Logo (emoji)"><Input value={loja.logoEmoji ?? ''} onChange={(e) => up({ logoEmoji: e.target.value })} placeholder="🍔" /></Campo>
+                      <Campo label="Tempo de entrega (min)"><Input type="number" value={loja.tempoEntregaMin ?? ''} onChange={(e) => up({ tempoEntregaMin: e.target.value })} placeholder="40" /></Campo>
+                      <Campo label="Frete grátis acima de (R$)"><Input type="number" value={loja.freteGratisAcima ?? ''} onChange={(e) => up({ freteGratisAcima: e.target.value })} placeholder="opcional" /></Campo>
+                      <Campo label="Parcelas máx. (cartão · varejo)"><Input type="number" value={loja.parcelasMax ?? ''} onChange={(e) => up({ parcelasMax: e.target.value })} placeholder="ex.: 12" /></Campo>
+                    </div>
+                    <Campo label="Subtítulo"><Input value={loja.subtitulo ?? ''} onChange={(e) => up({ subtitulo: e.target.value })} placeholder="Ex.: Hamburgueria artesanal · 1,2 km" /></Campo>
+                    <div className="flex flex-wrap items-center gap-4">
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={loja.autoKds !== false} disabled={somenteGestor} onChange={(e) => up({ autoKds: e.target.checked })} className="h-4 w-4 accent-primary" />
+                        Enviar pedidos automaticamente para o KDS
+                      </label>
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={!!loja.fidelidadeAtiva} disabled={somenteGestor} onChange={(e) => up({ fidelidadeAtiva: e.target.checked })} className="h-4 w-4 accent-primary" />
+                        Fidelidade ativa
+                      </label>
+                    </div>
+                    <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
+
+                    {loja.token && (
+                      <div className="space-y-2 rounded-lg border border-border p-3">
+                        <p className="text-sm font-bold">🛵 Link do delivery (cardápio digital)</p>
+                        <p className="text-xs text-muted-foreground">Compartilhe no WhatsApp/Instagram. O cliente monta o pedido e fecha no checkout.</p>
+                        <div className="flex flex-wrap items-center gap-4">
+                          {qr && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={qr} alt="QR do cardápio" width={160} height={160} className="rounded-lg border border-border" />
+                          )}
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <code className="block break-all rounded-md bg-secondary px-3 py-2 text-xs">{linkDelivery}</code>
+                            <Button type="button" variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(linkDelivery); toast.success('Link copiado.'); }}>Copiar link</Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </Secao>
+                )}
+
+                {/* CUPONS */}
+                {sec === 'cupons' && (
+                  <Secao dica="Cupons de desconto para o cardápio digital (percentual ou valor fixo, com mínimo opcional).">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <Input className="w-32" placeholder="CÓDIGO" value={novoCupom.codigo} onChange={(e) => setNovoCupom((s) => ({ ...s, codigo: e.target.value.toUpperCase() }))} />
+                      <select aria-label="Tipo do cupom" className="flex h-11 w-28 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.tipo} onChange={(e) => setNovoCupom((s) => ({ ...s, tipo: e.target.value }))}>
+                        <option value="percentual">%</option>
+                        <option value="valor">R$</option>
+                      </select>
+                      <Input className="w-24" type="number" placeholder="Valor" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
+                      <Input className="w-28" type="number" placeholder="Mín. (opc)" value={novoCupom.minimo} onChange={(e) => setNovoCupom((s) => ({ ...s, minimo: e.target.value }))} />
+                      <Button type="button" onClick={addCupom} disabled={somenteGestor}>Adicionar</Button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {cupons.length === 0 && <span className="text-sm text-muted-foreground">Nenhum cupom.</span>}
+                      {cupons.map((c) => (
+                        <span key={c.id} className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs">
+                          {c.codigo} · {c.tipo === 'percentual' ? `${Number(c.valor)}%` : Number(c.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          <button type="button" onClick={() => delCupom(c.id)} className="text-destructive">×</button>
+                        </span>
+                      ))}
+                    </div>
                   </Secao>
                 )}
 
