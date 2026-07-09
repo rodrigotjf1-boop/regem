@@ -70,7 +70,9 @@ const NAV: NavGroup[] = [
     group: 'Fiscal',
     presidenteOnly: false,
     items: [
-      { href: '/notas', label: 'Notas fiscais', icon: FileText },
+      // Notas fiscais (NFC-e com valores) = fiscal → presidente/C&O. TEF/maquininha
+      // fica com o gerente (operação de balcão).
+      { href: '/notas', label: 'Notas fiscais', icon: FileText, roles: ['presidente'] },
       { href: '/tef', label: 'TEF / Maquininha', icon: CreditCard },
       {
         href: '/fiscal-config',
