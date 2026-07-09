@@ -7,13 +7,17 @@ import { casarRegraBot } from '../../common/regras-negocio';
 import { CreateRegraDto } from './dto/create-regra.dto';
 import { UpdateRegraDto } from './dto/update-regra.dto';
 import { PerguntarDto } from './dto/perguntar.dto';
+import { ModuloService } from '../modulo/modulo.service';
 
 const SEM_MATCH =
   'Não consegui responder isso automaticamente — vou encaminhar para um responsável.';
 
 @Injectable()
 export class BotService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly modulos: ModuloService,
+  ) {}
 
   listarRegras(tenantId: string) {
     return this.db
@@ -62,6 +66,16 @@ export class BotService {
   // Casa a pergunta contra as regras ativas, registra o atendimento e devolve a
   // resposta. Sem match → escala para humano. Regra 'sempre' → escala sempre.
   async perguntar(user: AuthUser, dto: PerguntarDto) {
+    // Módulo desativado pelo presidente (rede/loja) → não responde.
+    if (!(await this.modulos.ativo(user.tenantId, user.unidadeId ?? null, 'bot'))) {
+      return {
+        resposta: 'O bot de suporte está desativado nesta operação.',
+        escalado: false,
+        regraTipo: null,
+        escalaCondicao: null,
+        desativado: true,
+      };
+    }
     const regras = await this.listarRegras(user.tenantId);
     const regra = casarRegraBot(
       dto.pergunta,

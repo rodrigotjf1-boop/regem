@@ -130,6 +130,19 @@ export const perfilAcesso = pgTable('perfil_acesso', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Módulos ativáveis (CLAUDE.md): presidente liga/desliga por rede (unidade_id nulo)
+// ou por loja. Desativar corta o acesso (checado no servidor) + audita.
+export const moduloAtivacao = pgTable('modulo_ativacao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'), // null = padrão da rede
+  modulo: text('modulo').notNull(), // app_colaborador | kds | terminal_ponto | bot
+  ativo: boolean('ativo').notNull().default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const setor = pgTable('setor', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

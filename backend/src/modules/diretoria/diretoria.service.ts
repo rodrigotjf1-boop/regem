@@ -54,23 +54,49 @@ export class DiretoriaService {
         group by i.id
       ) s where s.saldo < s.estoque_minimo group by unidade_id`);
 
+    // Faturamento do mês por loja (comandas fechadas). Vendas & Comandas já ativo.
+    const vendas = await this.rows(sql`
+      select unidade_id, coalesce(sum(total),0) as faturado, count(*)::int as vendas
+      from comanda
+      where tenant_id = ${tenantId} and status = 'fechada'
+        and fechada_em >= date_trunc('month', current_date)
+      group by unidade_id`);
+
     const by = (arr: any[], id: string) => arr.find((r) => r.unidade_id === id);
 
-    return unidades.map((u: any) => {
+    const linhas = unidades.map((u: any) => {
       const t = by(tarefas, u.id);
       const total = Number(t?.total ?? 0);
       const feitas = Number(t?.feitas ?? 0);
       const d = by(desp, u.id);
       const e = by(escala, u.id);
       const es = by(estoque, u.id);
+      const v = by(vendas, u.id);
       return {
         id: u.id,
         nome: u.nome,
+        faturamento: Number(Number(v?.faturado ?? 0).toFixed(2)),
+        vendas: Number(v?.vendas ?? 0),
         tarefas: { total, feitas, pct: total ? Math.round((feitas / total) * 100) : 0 },
         desperdicio: { total: Number(d?.total ?? 0), quantidade: Number(d?.qtd ?? 0) },
         escala: { vagas: Number(e?.vagas ?? 0), preenchidas: Number(e?.preenchidas ?? 0) },
         estoqueAbaixoMinimo: Number(es?.total ?? 0),
       };
     });
+
+    // Consolidado da rede (KPIs do topo).
+    const soma = (f: (l: any) => number) => linhas.reduce((s, l) => s + f(l), 0);
+    const conclTotal = soma((l) => l.tarefas.total);
+    const conclFeitas = soma((l) => l.tarefas.feitas);
+    const rede = {
+      faturamento: Number(soma((l) => l.faturamento).toFixed(2)),
+      vendas: soma((l) => l.vendas),
+      desperdicios: soma((l) => l.desperdicio.total),
+      conclusaoMedia: conclTotal ? Math.round((conclFeitas / conclTotal) * 100) : 0,
+      estoqueCritico: soma((l) => l.estoqueAbaixoMinimo),
+      lojas: linhas.length,
+    };
+
+    return { unidades: linhas, rede };
   }
 }
