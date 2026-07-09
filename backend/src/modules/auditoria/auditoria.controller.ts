@@ -13,7 +13,18 @@ export class AuditoriaController {
 
   @Get()
   @Roles('presidente', 'gerente')
-  listar(@CurrentUser() user: AuthUser, @Query('tipo') tipo?: string) {
-    return this.service.listar(user.tenantId, tipo || undefined);
+  listar(
+    @CurrentUser() user: AuthUser,
+    @Query('tipo') tipo?: string,
+    @Query('busca') busca?: string,
+    @Query('de') de?: string,
+    @Query('ate') ate?: string,
+  ) {
+    return this.service.listar(user.tenantId, {
+      tipo: tipo || undefined,
+      busca: busca || undefined,
+      de: de || undefined,
+      ate: ate || undefined,
+    });
   }
 }
