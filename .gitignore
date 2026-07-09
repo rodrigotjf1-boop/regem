@@ -15,3 +15,4 @@ build/
 # SO / editor
 .DS_Store
 Thumbs.db
+.vscode/mcp.json
