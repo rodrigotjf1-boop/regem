@@ -47,6 +47,7 @@ export default function WizardPage() {
   const [setoresSel, setSetoresSel] = useState<string[]>([]);
   const [funcoesSel, setFuncoesSel] = useState<string[]>([]);
   const [escalasSel, setEscalasSel] = useState<string[]>([]);
+  const [criarInsumos, setCriarInsumos] = useState(true);
   const [erro, setErro] = useState('');
   const [busy, setBusy] = useState(false);
   const [resultado, setResultado] = useState<any>(null);
@@ -111,6 +112,7 @@ export default function WizardPage() {
         setores: setoresSel,
         funcoes: funcoesValidas,
         escalas: escalasSel,
+        criarInsumos: (blueprint?.itens?.length ?? 0) > 0 ? criarInsumos : false,
       });
       setResultado(res);
     } catch (e) {
@@ -134,15 +136,34 @@ export default function WizardPage() {
     return (
       <Shell eyebrow="Onboarding" title="Configuração por ramo">
         <Card className="mx-auto max-w-xl p-8 text-center">
-          <div className="text-4xl">🚀</div>
-          <h2 className="mt-3 font-display text-2xl font-semibold">Estrutura criada!</h2>
-          <p className="mt-2 text-muted-foreground">
-            {resultado.criados.setores} setores · {resultado.criados.funcoes} funções ·{' '}
-            {resultado.criados.etiquetas} vagas criadas.
-            {resultado.escalas?.length
-              ? ` Modelos de escala anotados: ${resultado.escalas.join(', ')}.`
-              : ''}
-          </p>
+          {(() => {
+            const c = resultado.criados;
+            const nada = !c.setores && !c.funcoes && !c.etiquetas && !c.itens;
+            return (
+              <>
+                <div className="text-4xl">{nada ? '✅' : '🚀'}</div>
+                <h2 className="mt-3 font-display text-2xl font-semibold">
+                  {nada ? 'Tudo já existia' : 'Estrutura criada!'}
+                </h2>
+                <p className="mt-2 text-muted-foreground">
+                  {nada ? (
+                    <>Nada foi duplicado — os setores/funções selecionados já estavam cadastrados.</>
+                  ) : (
+                    <>
+                      {c.setores} setores · {c.funcoes} funções · {c.etiquetas} vagas
+                      {c.itens ? ` · ${c.itens} insumos` : ''} criados.
+                    </>
+                  )}
+                  {c.reaproveitados > 0 && (
+                    <> {c.reaproveitados} já existia(m) e foi(ram) reaproveitado(s).</>
+                  )}
+                  {resultado.escalas?.length
+                    ? ` Modelos de escala anotados: ${resultado.escalas.join(', ')}.`
+                    : ''}
+                </p>
+              </>
+            );
+          })()}
           <div className="mt-6 flex justify-center gap-3">
             <Button onClick={() => router.push('/cadastros')}>Ir para Cadastros</Button>
             <Button variant="outline" onClick={() => router.push('/painel')}>
@@ -289,13 +310,34 @@ export default function WizardPage() {
                   />
                 ))}
               </div>
+              {(blueprint?.itens?.length ?? 0) > 0 && (
+                <label className="flex items-start gap-2.5 rounded-xl border border-border p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={criarInsumos}
+                    onChange={(e) => setCriarInsumos(e.target.checked)}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  <span>
+                    <span className="font-medium">Criar insumos básicos do ramo</span>{' '}
+                    <span className="text-muted-foreground">({blueprint.itens.length} itens)</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {blueprint.itens.map((i: any) => i.nome).join(' · ')} — já semeia o estoque (não duplica).
+                    </span>
+                  </span>
+                </label>
+              )}
               <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm">
                 <p className="font-semibold">🚀 Resumo</p>
                 <p className="mt-1 text-muted-foreground">
                   Ramo: <b className="text-foreground">{blueprint?.label}</b> ·{' '}
                   {setoresSel.length} setores ·{' '}
                   {funcoesSel.filter((f) => funcoesDisponiveis.some((fd) => fd.nome === f)).length}{' '}
-                  funções. Ao concluir, o Regem cria os setores, funções e vagas.
+                  funções
+                  {(blueprint?.itens?.length ?? 0) > 0 && criarInsumos
+                    ? ` · ${blueprint.itens.length} insumos`
+                    : ''}
+                  . Ao concluir, o Regem cria o que estiver selecionado (sem duplicar o que já existe).
                 </p>
               </div>
             </div>

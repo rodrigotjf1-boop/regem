@@ -118,6 +118,7 @@ export class OnboardingService {
         })),
       })),
       escalas: ESCALAS,
+      itens: tpl.itens ?? [], // insumos básicos sugeridos (opcional no wizard)
     };
   }
 
@@ -141,7 +142,7 @@ export class OnboardingService {
 
     const setoresSel = new Set(dto.setores ?? []);
     const funcoesSel = new Set(dto.funcoes ?? []);
-    const criados = { setores: 0, funcoes: 0, etiquetas: 0, reaproveitados: 0 };
+    const criados = { setores: 0, funcoes: 0, etiquetas: 0, itens: 0, reaproveitados: 0 };
 
     // Idempotência: reusa setores/funções que já existem (rodar o wizard 2× não
     // duplica). Setor casa por nome na unidade; função por nome dentro do setor.
@@ -197,6 +198,31 @@ export class OnboardingService {
             contador: 1,
           });
           criados.etiquetas++;
+        }
+      }
+
+      // Insumos básicos do ramo (opcional, idempotente por nome na unidade).
+      if (dto.criarInsumos && (tpl.itens?.length ?? 0) > 0) {
+        const itensExist = await tx
+          .select({ nome: itemEstoque.nome })
+          .from(itemEstoque)
+          .where(
+            and(
+              eq(itemEstoque.tenantId, tenantId),
+              isNull(itemEstoque.deletedAt),
+            ),
+          );
+        const jaTem = new Set(itensExist.map((i) => i.nome.toLowerCase()));
+        for (const it of tpl.itens) {
+          if (jaTem.has(it.nome.toLowerCase())) continue;
+          await tx.insert(itemEstoque).values({
+            tenantId,
+            unidadeId: dto.unidadeId,
+            nome: it.nome,
+            unidadeMedida: it.unidadeMedida,
+            estoqueMinimo: String(it.estoqueMinimo),
+          });
+          criados.itens++;
         }
       }
     });
