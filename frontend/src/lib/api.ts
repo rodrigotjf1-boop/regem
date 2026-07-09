@@ -481,6 +481,21 @@ export const api = {
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
   cardapioPontos: (token: string, telefone: string) =>
     pub(`/publico/cardapio/${token}/pontos?telefone=${encodeURIComponent(telefone)}`),
+  // Cliente do cardápio (link mágico assinado).
+  clienteIdentificar: (token: string, body: Record<string, unknown>) =>
+    pub(`/publico/cardapio/${token}/cliente/identificar`, { method: 'POST', body: JSON.stringify(body) }),
+  clientePerfil: (token: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente?clienteToken=${encodeURIComponent(clienteToken)}`),
+  clienteAddEndereco: (token: string, body: Record<string, unknown>) =>
+    pub(`/publico/cardapio/${token}/cliente/endereco`, { method: 'POST', body: JSON.stringify(body) }),
+  clienteRemEndereco: (token: string, id: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/endereco/${id}?clienteToken=${encodeURIComponent(clienteToken)}`, { method: 'DELETE' }),
+  clientePrincipalEndereco: (token: string, id: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/endereco/${id}/principal`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
+  clienteEsquecer: (token: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/esquecer`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
+  clientePedirDeNovo: (token: string, pedidoId: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/pedir-de-novo/${pedidoId}`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
   cardapioBairros: () => req('/cardapio/bairros'),
   setCardapioBairros: (bairros: unknown[]) =>
     req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),

@@ -54,6 +54,26 @@ export function carregarCliente(token: string): ClientePrefill {
   }
 }
 
+// Token assinado do cliente (link mágico), guardado por cardápio no navegador.
+const chaveTok = (token: string) => `regem_loja_clientetoken_${token}`;
+export function getClienteToken(token: string): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(chaveTok(token));
+  } catch {
+    return null;
+  }
+}
+export function setClienteToken(token: string, clienteToken: string | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (clienteToken) localStorage.setItem(chaveTok(token), clienteToken);
+    else localStorage.removeItem(chaveTok(token));
+  } catch {
+    /* ignora */
+  }
+}
+
 export function salvarCliente(token: string, dados: ClientePrefill) {
   if (typeof window === 'undefined') return;
   try {

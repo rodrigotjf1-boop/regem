@@ -9,8 +9,10 @@ import {
   SELO,
   carregarCliente,
   salvarCliente,
+  getClienteToken,
   type CartItem,
 } from '@/components/loja/tipos';
+import { ClientePanel } from '@/components/loja/cliente-panel';
 import { ItemSheet } from '@/components/loja/item-sheet';
 import { CartSheet } from '@/components/loja/cart-sheet';
 
@@ -50,6 +52,35 @@ export default function CardapioPublicoPage() {
   const [ped, setPed] = useState<any>(null);
   const [chk, setChk] = useState<any>(CHK_INICIAL);
   const [cupomOk, setCupomOk] = useState<any>(null);
+  const [mostrarCliente, setMostrarCliente] = useState(false);
+
+  // "Pedir de novo": recompõe o carrinho a partir do snapshot do pedido.
+  function reordenar(itens: any[]) {
+    const novos: CartItem[] = (itens ?? []).map((it, i) => ({
+      key: `${it.produtoId}::${it.variacaoId ?? ''}::re${i}`,
+      produtoId: it.produtoId,
+      variacaoId: it.variacaoId || undefined,
+      complementos: [],
+      nome: it.descricao ?? 'Item',
+      sub: '',
+      preco: Number(it.precoUnitario ?? 0),
+      obs: it.observacao || '',
+      qtd: Number(it.quantidade) || 1,
+    }));
+    if (novos.length) setCart((c) => [...c, ...novos]);
+  }
+
+  // Usar um endereço salvo: preenche o checkout de entrega.
+  function usarEndereco(e: any) {
+    setChk((s: any) => ({
+      ...s,
+      tipo: 'entrega',
+      rua: e.logradouro || s.rua,
+      numero: e.numero || s.numero,
+      referencia: e.referencia || e.complemento || s.referencia,
+    }));
+    setCheckout(true);
+  }
   const [sel, setSel] = useState<any>(null);
 
   const carregar = useCallback(async () => {
@@ -183,6 +214,7 @@ export default function CardapioPublicoPage() {
         mesa: mesa || undefined,
         cliente: chk.nome || 'Cliente',
         telefone: chk.telefone || undefined,
+        clienteToken: getClienteToken(token) || undefined,
         telefone2: entrega ? chk.telefone2 || undefined : undefined,
         tipo: isServico ? 'retirada' : chk.tipo,
         rua: entrega ? chk.rua || undefined : undefined,
@@ -289,7 +321,14 @@ export default function CardapioPublicoPage() {
             <h1 className="truncate text-lg font-bold">{loja.nome}</h1>
             {loja.subtitulo && <p className="truncate text-xs text-white/60">{loja.subtitulo}</p>}
           </div>
-          <span className={`ml-auto flex-none rounded-full border px-3 py-1 text-[10px] font-bold ${menu.abertaAgora ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-red-400/50 bg-red-400/15 text-red-300'}`}>{menu.abertaAgora ? '● ABERTO' : '● FECHADO'}</span>
+          <button
+            type="button"
+            onClick={() => setMostrarCliente(true)}
+            className="ml-auto flex-none rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white"
+          >
+            👤 {getClienteToken(token) ? 'Meus dados' : 'Entrar'}
+          </button>
+          <span className={`flex-none rounded-full border px-3 py-1 text-[10px] font-bold ${menu.abertaAgora ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-red-400/50 bg-red-400/15 text-red-300'}`}>{menu.abertaAgora ? '● ABERTO' : '● FECHADO'}</span>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {loja.tempoEntregaMin && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">⏱ {loja.tempoEntregaMin} min</span>}
@@ -387,6 +426,15 @@ export default function CardapioPublicoPage() {
           onClose={() => setCheckout(false)}
           onSubmit={submitPedido}
           enviando={enviando}
+        />
+      )}
+
+      {mostrarCliente && (
+        <ClientePanel
+          token={token}
+          onClose={() => setMostrarCliente(false)}
+          onUsarEndereco={usarEndereco}
+          onPedirDeNovo={reordenar}
         />
       )}
     </main>

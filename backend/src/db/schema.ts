@@ -1571,6 +1571,8 @@ export const pedidoExterno = pgTable('pedido_externo', {
   formaPagamento: text('forma_pagamento'),
   status: text('status').notNull().default('novo'),
   comandaId: uuid('comanda_id'),
+  clienteId: uuid('cliente_id'), // cliente identificado (link mágico) — histórico
+
   raw: jsonb('raw'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   confirmadoEm: timestamp('confirmado_em', { withTimezone: true }),
@@ -1597,6 +1599,40 @@ export const pedidoExterno = pgTable('pedido_externo', {
   autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
   alterado: boolean('alterado').notNull().default(false),
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
+});
+
+// Cliente do cardápio (link mágico assinado): perfil por telefone, endereços
+// salvos e histórico (via pedido_externo.cliente_id). LGPD: consentimento.
+export const cliente = pgTable('cliente', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome'),
+  telefone: text('telefone').notNull(),
+  consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const clienteEndereco = pgTable('cliente_endereco', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  clienteId: uuid('cliente_id')
+    .notNull()
+    .references(() => cliente.id, { onDelete: 'cascade' }),
+  apelido: text('apelido'),
+  cep: text('cep'),
+  logradouro: text('logradouro'),
+  numero: text('numero'),
+  complemento: text('complemento'),
+  bairro: text('bairro'),
+  cidade: text('cidade'),
+  referencia: text('referencia'),
+  principal: boolean('principal').notNull().default(false),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ===== TEF — pagamento integrado (Fase I) =====
