@@ -15,6 +15,11 @@ const brl = (n: number) =>
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasAtras = (d: number) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+// 'YYYY-MM' → 'Jan/26'.
+const mesLabel = (ym: string) => {
+  const [y, m] = ym.split('-').map(Number);
+  return `${MESES[m - 1]}/${String(y).slice(2)}`;
+};
 
 // Exporta linhas (array de objetos) como CSV e dispara o download.
 function baixarCsv(nome: string, linhas: Record<string, any>[]) {
@@ -63,7 +68,6 @@ export default function RelatoriosPage() {
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'financeiro'>('vendas');
-  const [ano, setAno] = useState(new Date().getFullYear());
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
   const [balcao, setBalcao] = useState<any>(null);
@@ -91,7 +95,7 @@ export default function RelatoriosPage() {
     setErro('');
     try {
       const [fa, fd] = await Promise.all([
-        api.relatorioFaturamento(ano),
+        api.relatorioFaturamento(inicio, fim),
         api.relatorioFaturamentoDelivery(inicio, fim),
       ]);
       setFatAnual(fa);
@@ -99,7 +103,7 @@ export default function RelatoriosPage() {
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [ano, inicio, fim]);
+  }, [inicio, fim]);
 
   const reloadBalcao = useCallback(async () => {
     setErro('');
@@ -132,6 +136,15 @@ export default function RelatoriosPage() {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
   }, [inicio, fim]);
+
+  // Seletor de mês → ajusta o período De/Até para o mês inteiro.
+  function escolherMes(ym: string) {
+    if (!ym) return;
+    const [y, m] = ym.split('-').map(Number);
+    const ultimo = new Date(y, m, 0).getDate();
+    setInicio(`${ym}-01`);
+    setFim(`${ym}-${String(ultimo).padStart(2, '0')}`);
+  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -315,47 +328,60 @@ export default function RelatoriosPage() {
 
         {aba === 'financeiro' && (
         <>
-          {/* Faturamento anual (mensal + trimestral) */}
+          {/* Faturamento por mês (respeita o período De/Até acima) */}
           <Card className="space-y-3 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="font-display text-sm font-bold">Faturamento por mês</h2>
+              <div>
+                <h2 className="font-display text-sm font-bold">Faturamento por mês</h2>
+                <p className="text-xs text-muted-foreground">Meses dentro do período De/Até. Use o seletor para pular para um mês.</p>
+              </div>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="ghost" size="sm" onClick={() => setAno((a) => a - 1)}>‹</Button>
-                <span className="font-mono text-sm font-bold">{ano}</span>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setAno((a) => a + 1)}>›</Button>
+                <input
+                  type="month"
+                  aria-label="Escolher mês"
+                  value={inicio.slice(0, 7)}
+                  onChange={(e) => escolherMes(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+                />
                 {fatAnual && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv(`faturamento-${ano}`, fatAnual.porMes.map((m: any) => ({ mes: MESES[m.mes - 1], faturamento: m.total, vendas: m.vendas })))}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv('faturamento-mes', fatAnual.porMes.map((m: any) => ({ mes: m.ym, faturamento: m.total, vendas: m.vendas })))}>
                     Exportar CSV
                   </Button>
                 )}
               </div>
             </div>
             {fatAnual && (
+              fatAnual.porMes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Sem vendas no período.</p>
+              ) : (
               <>
                 <div className="flex items-end gap-1.5" style={{ height: 140 }}>
                   {fatAnual.porMes.map((m: any) => {
                     const mx = Math.max(1, ...fatAnual.porMes.map((x: any) => x.total));
                     return (
-                      <div key={m.mes} className="flex flex-1 flex-col items-center justify-end" title={`${MESES[m.mes - 1]} · ${brl(m.total)} · ${m.vendas} vendas`}>
+                      <div key={m.ym} className="flex flex-1 flex-col items-center justify-end" title={`${mesLabel(m.ym)} · ${brl(m.total)} · ${m.vendas} vendas`}>
                         <div className="w-full rounded-t bg-primary" style={{ height: `${(m.total / mx) * 100}%` }} />
-                        <span className="mt-1 text-[9px] text-muted-foreground">{MESES[m.mes - 1]}</span>
+                        <span className="mt-1 text-[9px] text-muted-foreground">{mesLabel(m.ym)}</span>
                       </div>
                     );
                   })}
                 </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {fatAnual.trimestres.map((t: any) => (
-                    <div key={t.trimestre} className="rounded-lg border border-border p-2.5 text-center">
-                      <p className="text-[10px] font-bold uppercase text-muted-foreground">{t.trimestre}º trim.</p>
-                      <p className="mt-0.5 font-mono text-sm font-bold">{brl(t.total)}</p>
-                      <p className="text-[10px] text-muted-foreground">{t.vendas} vendas</p>
-                    </div>
-                  ))}
-                </div>
+                {fatAnual.trimestres.length > 1 && (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {fatAnual.trimestres.map((t: any) => (
+                      <div key={t.trimestre} className="rounded-lg border border-border p-2.5 text-center">
+                        <p className="text-[10px] font-bold uppercase text-muted-foreground">{t.trimestre}</p>
+                        <p className="mt-0.5 font-mono text-sm font-bold">{brl(t.total)}</p>
+                        <p className="text-[10px] text-muted-foreground">{t.vendas} vendas</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-right text-sm">
-                  Total {ano}: <strong className="font-mono">{brl(fatAnual.total)}</strong>
+                  Total do período: <strong className="font-mono">{brl(fatAnual.total)}</strong>
                 </p>
               </>
+              )
             )}
           </Card>
 

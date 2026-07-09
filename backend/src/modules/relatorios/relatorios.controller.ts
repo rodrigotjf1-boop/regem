@@ -82,11 +82,12 @@ export class RelatoriosController {
   }
 
   @Get('faturamento')
-  faturamento(@CurrentUser() user: AuthUser, @Query('ano') ano?: string) {
-    return this.service.faturamentoAnual(
-      user.tenantId,
-      ano ? Number(ano) : undefined,
-    );
+  faturamento(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.faturamentoPeriodo(user.tenantId, inicio, fim);
   }
 
   @Get('faturamento-delivery')
