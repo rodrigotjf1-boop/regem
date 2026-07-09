@@ -437,6 +437,14 @@ export const api = {
     const q = p.toString();
     return req(`/relatorios/faturamento-delivery${q ? `?${q}` : ''}`);
   },
+  relatorioProducao: (inicio?: string, fim?: string, agrupamento?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    if (agrupamento) p.set('agrupamento', agrupamento);
+    const q = p.toString();
+    return req(`/relatorios/producao${q ? `?${q}` : ''}`);
+  },
   cardapioMenu: (token: string) => pub(`/publico/cardapio/${token}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),

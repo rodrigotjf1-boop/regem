@@ -387,4 +387,75 @@ export class RelatoriosService {
       })),
     };
   }
+
+  // Produção de fichas (§1.2 — explosão): lê os eventos auditados `produziu_ficha`
+  // (fonte com fichaId + quantidade + custo). Agrupa por dia/semana/mês.
+  async producao(
+    tenantId: string,
+    inicio?: string,
+    fim?: string,
+    agrupamento: 'dia' | 'semana' | 'mes' = 'dia',
+  ) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    const g = agrupamento === 'semana' ? 'semana' : agrupamento === 'mes' ? 'mes' : 'dia';
+    const chave =
+      g === 'mes'
+        ? sql`to_char(a.created_at, 'YYYY-MM')`
+        : g === 'semana'
+        ? sql`to_char(date_trunc('week', a.created_at), 'YYYY-MM-DD')`
+        : sql`a.created_at::date::text`;
+
+    const base = sql`from audit_log a
+      left join ficha_tecnica ft on ft.id = a.entidade_id
+      where a.tenant_id = ${tenantId}
+        and a.acao = 'produziu_ficha'
+        and a.created_at::date between ${ini} and ${f}`;
+    const qtd = sql`coalesce((a.detalhe->>'quantidade')::numeric, 0)`;
+    const custo = sql`coalesce((a.detalhe->>'custoTotal')::numeric, 0)`;
+
+    const [resumo] = await this.rows(sql`
+      select count(*)::int as producoes,
+             coalesce(sum(${qtd}),0) as qtd,
+             coalesce(sum(${custo}),0) as custo
+      ${base}`);
+    const porProduto = await this.rows(sql`
+      select a.entidade_id as "fichaId",
+             coalesce(ft.nome,'(ficha removida)') as nome,
+             count(*)::int as producoes,
+             coalesce(sum(${qtd}),0) as qtd,
+             coalesce(sum(${custo}),0) as custo
+      ${base}
+      group by a.entidade_id, ft.nome
+      order by qtd desc`);
+    const porPeriodo = await this.rows(sql`
+      select ${chave} as periodo,
+             count(*)::int as producoes,
+             coalesce(sum(${qtd}),0) as qtd,
+             coalesce(sum(${custo}),0) as custo
+      ${base}
+      group by 1 order by 1`);
+
+    return {
+      periodo: { inicio: ini, fim: f },
+      agrupamento: g,
+      resumo: {
+        producoes: Number(resumo.producoes),
+        qtd: Number(Number(resumo.qtd).toFixed(3)),
+        custo: Number(Number(resumo.custo).toFixed(2)),
+      },
+      porProduto: porProduto.map((r) => ({
+        fichaId: r.fichaId,
+        nome: r.nome,
+        producoes: Number(r.producoes),
+        qtd: Number(Number(r.qtd).toFixed(3)),
+        custo: Number(Number(r.custo).toFixed(2)),
+      })),
+      porPeriodo: porPeriodo.map((r) => ({
+        periodo: r.periodo,
+        producoes: Number(r.producoes),
+        qtd: Number(Number(r.qtd).toFixed(3)),
+        custo: Number(Number(r.custo).toFixed(2)),
+      })),
+    };
+  }
 }
