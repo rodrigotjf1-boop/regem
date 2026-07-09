@@ -20,9 +20,15 @@ export class RelatoriosService {
     return r.rows ?? r;
   }
 
+  // Oculta valores em R$ para quem não pode ver financeiro (gerente vê só volume).
+  private oc(v: any, verFin: boolean): number | null {
+    return verFin ? Number(v) : null;
+  }
+
   // Resumo + quebras (forma, canal, dia, hora).
-  async vendas(tenantId: string, inicio?: string, fim?: string) {
+  async vendas(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
     const base = sql`from comanda c
       where c.tenant_id = ${tenantId}
         and c.status = 'fechada'
@@ -56,22 +62,24 @@ export class RelatoriosService {
 
     return {
       periodo: { inicio: ini, fim: f },
+      verFinanceiro: verFin,
       resumo: {
         vendas: Number(resumo.vendas),
-        faturado: Number(resumo.faturado),
-        ticketMedio: Number(Number(resumo.ticket_medio).toFixed(2)),
+        faturado: m(resumo.faturado),
+        ticketMedio: m(Number(resumo.ticket_medio).toFixed(2)),
         canceladas: Number(canceladas),
       },
-      porForma: porForma.map((r) => ({ forma: r.forma, qtd: Number(r.qtd), total: Number(r.total) })),
-      porCanal: porCanal.map((r) => ({ canal: r.canal, qtd: Number(r.qtd), total: Number(r.total) })),
-      porDia: porDia.map((r) => ({ dia: r.dia, qtd: Number(r.qtd), total: Number(r.total) })),
-      porHora: porHora.map((r) => ({ hora: Number(r.hora), qtd: Number(r.qtd), total: Number(r.total) })),
+      porForma: porForma.map((r) => ({ forma: r.forma, qtd: Number(r.qtd), total: m(r.total) })),
+      porCanal: porCanal.map((r) => ({ canal: r.canal, qtd: Number(r.qtd), total: m(r.total) })),
+      porDia: porDia.map((r) => ({ dia: r.dia, qtd: Number(r.qtd), total: m(r.total) })),
+      porHora: porHora.map((r) => ({ hora: Number(r.hora), qtd: Number(r.qtd), total: m(r.total) })),
     };
   }
 
   // Curva ABC dos produtos por faturamento (A<=80%, B<=95%, C resto).
-  async produtos(tenantId: string, inicio?: string, fim?: string) {
+  async produtos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
       select ci.descricao,
              coalesce(sum(ci.quantidade),0) as qtd,
@@ -86,7 +94,8 @@ export class RelatoriosService {
     let acum = 0;
     return {
       periodo: { inicio: ini, fim: f },
-      total: Number(total.toFixed(2)),
+      verFinanceiro: verFin,
+      total: m(total.toFixed(2)),
       itens: rows.map((r) => {
         const fat = Number(r.faturamento);
         acum += fat;
@@ -95,7 +104,7 @@ export class RelatoriosService {
         return {
           descricao: r.descricao,
           qtd: Number(r.qtd),
-          faturamento: Number(fat.toFixed(2)),
+          faturamento: m(fat.toFixed(2)),
           pct: Number(((fat / total) * 100).toFixed(1)),
           pctAcum: Number(pctAcum.toFixed(1)),
           classe,
@@ -105,8 +114,9 @@ export class RelatoriosService {
   }
 
   // Desempenho por atendente (quem abriu a venda).
-  async atendentes(tenantId: string, inicio?: string, fim?: string) {
+  async atendentes(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
       select coalesce(col.nome,'—') as nome,
              count(*)::int as vendas,
@@ -120,11 +130,12 @@ export class RelatoriosService {
       order by total desc`);
     return {
       periodo: { inicio: ini, fim: f },
+      verFinanceiro: verFin,
       atendentes: rows.map((r) => ({
         nome: r.nome,
         vendas: Number(r.vendas),
-        total: Number(r.total),
-        ticketMedio: Number(Number(r.ticket_medio).toFixed(2)),
+        total: m(r.total),
+        ticketMedio: m(Number(r.ticket_medio).toFixed(2)),
       })),
     };
   }
@@ -172,8 +183,10 @@ export class RelatoriosService {
     canal: 'balcao' | 'delivery',
     inicio?: string,
     fim?: string,
+    verFin = false,
   ) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
     const deliv = canal === 'delivery';
     const cond = deliv
       ? sql`and exists (select 1 from pedido_externo pe where pe.comanda_id = c.id and pe.status not in ('novo','cancelado'))`
@@ -216,22 +229,24 @@ export class RelatoriosService {
     return {
       periodo: { inicio: ini, fim: f },
       canal,
+      verFinanceiro: verFin,
       resumo: {
         vendas: Number(resumo.vendas),
-        faturado: Number(resumo.faturado),
-        ticketMedio: Number(Number(resumo.ticket_medio).toFixed(2)),
+        faturado: m(resumo.faturado),
+        ticketMedio: m(Number(resumo.ticket_medio).toFixed(2)),
       },
-      porDia: porDia.map((r) => ({ dia: r.dia, qtd: Number(r.qtd), total: Number(r.total) })),
-      porHora: porHora.map((r) => ({ hora: Number(r.hora), qtd: Number(r.qtd), total: Number(r.total) })),
-      maisVendidos: maisVendidos.map((r) => ({ descricao: r.descricao, qtd: Number(r.qtd), faturamento: Number(r.fat) })),
-      porRegiao: porRegiao.map((r) => ({ regiao: r.regiao, qtd: Number(r.qtd), total: Number(r.total) })),
-      porPlataforma: porPlataforma.map((r) => ({ plataforma: r.plataforma, qtd: Number(r.qtd), total: Number(r.total) })),
+      porDia: porDia.map((r) => ({ dia: r.dia, qtd: Number(r.qtd), total: m(r.total) })),
+      porHora: porHora.map((r) => ({ hora: Number(r.hora), qtd: Number(r.qtd), total: m(r.total) })),
+      maisVendidos: maisVendidos.map((r) => ({ descricao: r.descricao, qtd: Number(r.qtd), faturamento: m(r.fat) })),
+      porRegiao: porRegiao.map((r) => ({ regiao: r.regiao, qtd: Number(r.qtd), total: m(r.total) })),
+      porPlataforma: porPlataforma.map((r) => ({ plataforma: r.plataforma, qtd: Number(r.qtd), total: m(r.total) })),
     };
   }
 
   // Ranking global de produtos (balcão + delivery), com a quebra por canal.
-  async rankingProdutos(tenantId: string, inicio?: string, fim?: string) {
+  async rankingProdutos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
       select ci.descricao,
              coalesce(sum(ci.quantidade),0) as qtd,
@@ -249,10 +264,11 @@ export class RelatoriosService {
       group by ci.descricao order by qtd desc limit 30`);
     return {
       periodo: { inicio: ini, fim: f },
+      verFinanceiro: verFin,
       itens: rows.map((r) => ({
         descricao: r.descricao,
         qtd: Number(r.qtd),
-        faturamento: Number(r.fat),
+        faturamento: m(r.fat),
         qtdDelivery: Number(r.qtd_delivery),
         qtdBalcao: Number(r.qtd_balcao),
       })),
@@ -260,8 +276,9 @@ export class RelatoriosService {
   }
 
   // Turnos = sessões de caixa no período (lista com totais por sessão).
-  async turnos(tenantId: string, inicio?: string, fim?: string) {
+  async turnos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
       select s.id, s.origem, s.status, s.aberta_em as "abertaEm", s.fechada_em as "fechadaEm",
              s.valor_abertura as "abertura", s.valor_informado as "informado",
@@ -281,6 +298,7 @@ export class RelatoriosService {
       order by s.aberta_em desc`);
     return {
       periodo: { inicio: ini, fim: f },
+      verFinanceiro: verFin,
       turnos: rows.map((r) => ({
         id: r.id,
         origem: r.origem,
@@ -289,19 +307,20 @@ export class RelatoriosService {
         fechadaEm: r.fechadaEm,
         abertaPor: r.abertaPor,
         fechadaPor: r.fechadaPor,
-        abertura: Number(r.abertura ?? 0),
-        vendas: Number(r.vendas ?? 0),
-        sangrias: Number(r.sangrias ?? 0),
-        suprimentos: Number(r.suprimentos ?? 0),
-        esperado: r.esperado != null ? Number(r.esperado) : null,
-        informado: r.informado != null ? Number(r.informado) : null,
-        diferenca: r.diferenca != null ? Number(r.diferenca) : null,
+        abertura: m(r.abertura ?? 0),
+        vendas: m(r.vendas ?? 0),
+        sangrias: m(r.sangrias ?? 0),
+        suprimentos: m(r.suprimentos ?? 0),
+        esperado: r.esperado != null ? m(r.esperado) : null,
+        informado: r.informado != null ? m(r.informado) : null,
+        diferenca: r.diferenca != null ? m(r.diferenca) : null,
       })),
     };
   }
 
   // Cupom de fechamento de um turno: vendas por forma + sangrias/suprimentos.
-  async turnoDetalhe(tenantId: string, sessaoId: string) {
+  async turnoDetalhe(tenantId: string, sessaoId: string, verFin = false) {
+    const m = (v: any) => this.oc(v, verFin);
     const [s] = await this.rows(sql`
       select s.id, s.origem, s.status, s.aberta_em as "abertaEm", s.fechada_em as "fechadaEm",
              s.valor_abertura as "abertura", s.valor_informado as "informado",
@@ -334,16 +353,17 @@ export class RelatoriosService {
         fechadaEm: s.fechadaEm,
         abertaPor: s.abertaPor,
         fechadaPor: s.fechadaPor,
-        abertura: Number(s.abertura ?? 0),
-        esperado: s.esperado != null ? Number(s.esperado) : null,
-        informado: s.informado != null ? Number(s.informado) : null,
-        diferenca: s.diferenca != null ? Number(s.diferenca) : null,
+        abertura: m(s.abertura ?? 0),
+        esperado: s.esperado != null ? m(s.esperado) : null,
+        informado: s.informado != null ? m(s.informado) : null,
+        diferenca: s.diferenca != null ? m(s.diferenca) : null,
       },
-      porForma: porForma.map((r) => ({ forma: r.forma, qtd: Number(r.qtd), total: Number(r.total) })),
+      verFinanceiro: verFin,
+      porForma: porForma.map((r) => ({ forma: r.forma, qtd: Number(r.qtd), total: m(r.total) })),
       movimentos: movimentos.map((r) => ({
         categoria: r.categoria,
         tipo: r.tipo,
-        valor: Number(r.valor),
+        valor: m(r.valor),
         descricao: r.descricao,
         em: r.em,
       })),
@@ -395,8 +415,10 @@ export class RelatoriosService {
     inicio?: string,
     fim?: string,
     agrupamento: 'dia' | 'semana' | 'mes' = 'dia',
+    verFin = false,
   ) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
     const g = agrupamento === 'semana' ? 'semana' : agrupamento === 'mes' ? 'mes' : 'dia';
     const chave =
       g === 'mes'
@@ -438,23 +460,24 @@ export class RelatoriosService {
     return {
       periodo: { inicio: ini, fim: f },
       agrupamento: g,
+      verFinanceiro: verFin,
       resumo: {
         producoes: Number(resumo.producoes),
         qtd: Number(Number(resumo.qtd).toFixed(3)),
-        custo: Number(Number(resumo.custo).toFixed(2)),
+        custo: m(Number(resumo.custo).toFixed(2)),
       },
       porProduto: porProduto.map((r) => ({
         fichaId: r.fichaId,
         nome: r.nome,
         producoes: Number(r.producoes),
         qtd: Number(Number(r.qtd).toFixed(3)),
-        custo: Number(Number(r.custo).toFixed(2)),
+        custo: m(Number(r.custo).toFixed(2)),
       })),
       porPeriodo: porPeriodo.map((r) => ({
         periodo: r.periodo,
         producoes: Number(r.producoes),
         qtd: Number(Number(r.qtd).toFixed(3)),
-        custo: Number(Number(r.custo).toFixed(2)),
+        custo: m(Number(r.custo).toFixed(2)),
       })),
     };
   }

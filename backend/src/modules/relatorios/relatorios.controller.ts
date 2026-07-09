@@ -13,13 +13,19 @@ import { RelatoriosService } from './relatorios.service';
 export class RelatoriosController {
   constructor(private readonly service: RelatoriosService) {}
 
+  // Só presidente/C&O vê valores em R$. Gerente recebe volume/quantidades e os
+  // campos financeiros vêm anulados (RBAC no servidor, não no front).
+  private verFin(user: AuthUser) {
+    return user.categoria === 'presidente';
+  }
+
   @Get('vendas')
   vendas(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.vendas(user.tenantId, inicio, fim);
+    return this.service.vendas(user.tenantId, inicio, fim, this.verFin(user));
   }
 
   @Get('produtos')
@@ -28,7 +34,7 @@ export class RelatoriosController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.produtos(user.tenantId, inicio, fim);
+    return this.service.produtos(user.tenantId, inicio, fim, this.verFin(user));
   }
 
   @Get('atendentes')
@@ -37,7 +43,7 @@ export class RelatoriosController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.atendentes(user.tenantId, inicio, fim);
+    return this.service.atendentes(user.tenantId, inicio, fim, this.verFin(user));
   }
 
   @Get('balcao')
@@ -46,7 +52,7 @@ export class RelatoriosController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.detalheCanal(user.tenantId, 'balcao', inicio, fim);
+    return this.service.detalheCanal(user.tenantId, 'balcao', inicio, fim, this.verFin(user));
   }
 
   @Get('delivery')
@@ -55,7 +61,7 @@ export class RelatoriosController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.detalheCanal(user.tenantId, 'delivery', inicio, fim);
+    return this.service.detalheCanal(user.tenantId, 'delivery', inicio, fim, this.verFin(user));
   }
 
   @Get('ranking-produtos')
@@ -64,7 +70,7 @@ export class RelatoriosController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.rankingProdutos(user.tenantId, inicio, fim);
+    return this.service.rankingProdutos(user.tenantId, inicio, fim, this.verFin(user));
   }
 
   @Get('turnos')
@@ -73,15 +79,17 @@ export class RelatoriosController {
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.turnos(user.tenantId, inicio, fim);
+    return this.service.turnos(user.tenantId, inicio, fim, this.verFin(user));
   }
 
   @Get('turnos/:id')
   turnoDetalhe(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.turnoDetalhe(user.tenantId, id);
+    return this.service.turnoDetalhe(user.tenantId, id, this.verFin(user));
   }
 
+  // Relatórios puramente financeiros — presidente/C&O apenas.
   @Get('faturamento')
+  @Roles('presidente')
   faturamento(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
@@ -91,6 +99,7 @@ export class RelatoriosController {
   }
 
   @Get('faturamento-delivery')
+  @Roles('presidente')
   faturamentoDelivery(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
@@ -106,6 +115,6 @@ export class RelatoriosController {
     @Query('fim') fim?: string,
     @Query('agrupamento') agrupamento?: 'dia' | 'semana' | 'mes',
   ) {
-    return this.service.producao(user.tenantId, inicio, fim, agrupamento);
+    return this.service.producao(user.tenantId, inicio, fim, agrupamento, this.verFin(user));
   }
 }

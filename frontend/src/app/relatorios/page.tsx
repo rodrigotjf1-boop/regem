@@ -12,6 +12,10 @@ import { Button } from '@/components/ui/button';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+// Valor em R$ que pode vir ANULADO do servidor (gerente não vê financeiro): mostra "—".
+const rs = (v: any) => (v == null ? '—' : brl(v));
+// Perfil que pode ver valores financeiros (presidente/C&O). A trava real é no servidor.
+const podeFinanceiro = () => getCategoria() === 'presidente';
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasAtras = (d: number) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
@@ -61,6 +65,7 @@ function Barra({ label, valor, max, right }: { label: string; valor: number; max
 export default function RelatoriosPage() {
   const router = useRouter();
   const isGestor = ['presidente', 'gerente', 'supervisao'].includes(getCategoria() ?? '');
+  const verFin = podeFinanceiro(); // presidente/C&O vê valores em R$
   const [inicio, setInicio] = useState(diasAtras(29));
   const [fim, setFim] = useState(hoje());
   const [vendas, setVendas] = useState<any>(null);
@@ -237,7 +242,7 @@ export default function RelatoriosPage() {
             { v: 'estoque', l: 'Estoque' },
             { v: 'producao', l: 'Produção' },
             { v: 'financeiro', l: 'Financeiro' },
-          ].map((t) => (
+          ].filter((t) => verFin || t.v !== 'financeiro').map((t) => (
             <button
               key={t.v}
               type="button"
@@ -259,9 +264,9 @@ export default function RelatoriosPage() {
         {vendas && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              { l: 'Faturado', v: brl(vendas.resumo.faturado) },
+              ...(verFin ? [{ l: 'Faturado', v: rs(vendas.resumo.faturado) }] : []),
               { l: 'Vendas', v: vendas.resumo.vendas },
-              { l: 'Ticket médio', v: brl(vendas.resumo.ticketMedio) },
+              ...(verFin ? [{ l: 'Ticket médio', v: rs(vendas.resumo.ticketMedio) }] : []),
               { l: 'Canceladas', v: vendas.resumo.canceladas },
             ].map((k) => (
               <Card key={k.l} className="p-4">
@@ -272,6 +277,7 @@ export default function RelatoriosPage() {
           </div>
         )}
 
+        {verFin && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {/* Por forma */}
           <Card className="space-y-3 p-4">
@@ -290,6 +296,7 @@ export default function RelatoriosPage() {
             ))}
           </Card>
         </div>
+        )}
 
         {/* Curva ABC */}
         <Card className="p-4">
@@ -301,7 +308,7 @@ export default function RelatoriosPage() {
                 <span className={`w-5 rounded text-center text-xs font-bold ${CLASSE[p.classe] ?? ''}`}>{p.classe}</span>
                 <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
                 <span className="w-10 text-right text-xs text-muted-foreground">{p.qtd}x</span>
-                <span className="w-24 text-right font-mono">{brl(p.faturamento)}</span>
+                <span className="w-24 text-right font-mono">{rs(p.faturamento)}</span>
                 <span className="w-12 text-right text-xs text-muted-foreground">{p.pct}%</span>
               </div>
             ))}
@@ -318,8 +325,8 @@ export default function RelatoriosPage() {
                 <div key={i} className="flex items-center gap-2 text-sm">
                   <span className="min-w-0 flex-1 truncate">{a.nome}</span>
                   <span className="text-xs text-muted-foreground">{a.vendas} vendas</span>
-                  <span className="w-24 text-right font-mono">{brl(a.total)}</span>
-                  <span className="w-20 text-right text-xs text-muted-foreground">tm {brl(a.ticketMedio)}</span>
+                  <span className="w-24 text-right font-mono">{rs(a.total)}</span>
+                  <span className="w-20 text-right text-xs text-muted-foreground">tm {rs(a.ticketMedio)}</span>
                 </div>
               ))}
             </div>
@@ -497,14 +504,18 @@ function BarChart({ pontos, label }: { pontos: { k: string; v: number; t: string
 // vendidos (+ região e plataforma no delivery).
 function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; delivery?: boolean }) {
   if (!data) return <p className="text-sm text-muted-foreground">Carregando…</p>;
+  const vf = data.verFinanceiro !== false; // gerente: sem valores em R$
+  const kpis = vf
+    ? [
+        { l: 'Faturado', v: rs(data.resumo.faturado) },
+        { l: 'Vendas', v: data.resumo.vendas },
+        { l: 'Ticket médio', v: rs(data.resumo.ticketMedio) },
+      ]
+    : [{ l: 'Vendas', v: data.resumo.vendas }];
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { l: 'Faturado', v: brl(data.resumo.faturado) },
-          { l: 'Vendas', v: data.resumo.vendas },
-          { l: 'Ticket médio', v: brl(data.resumo.ticketMedio) },
-        ].map((k) => (
+      <div className={`grid gap-3 ${vf ? 'grid-cols-3' : 'grid-cols-1'}`}>
+        {kpis.map((k) => (
           <Card key={k.l} className="p-4">
             <p className="text-xs text-muted-foreground">{k.l}</p>
             <p className="mt-1 font-mono text-xl font-bold">{k.v}</p>
@@ -514,8 +525,8 @@ function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; deliv
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <BarChart
-          label="Vendas por dia"
-          pontos={data.porDia.map((d: any) => ({ k: String(d.dia).slice(5), v: d.total, t: `${d.dia} · ${brl(d.total)} · ${d.qtd} vendas` }))}
+          label={vf ? 'Vendas por dia (R$)' : 'Vendas por dia'}
+          pontos={data.porDia.map((d: any) => ({ k: String(d.dia).slice(5), v: vf ? d.total : d.qtd, t: `${d.dia} · ${vf ? brl(d.total) + ' · ' : ''}${d.qtd} vendas` }))}
         />
         <BarChart
           label="Vendas por hora"
@@ -532,7 +543,7 @@ function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; deliv
               <div key={p.plataforma} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
                 <span className="min-w-0 flex-1 truncate capitalize">{p.plataforma}</span>
                 <span className="w-12 text-right text-xs text-muted-foreground">{p.qtd}</span>
-                <span className="w-24 text-right font-mono">{brl(p.total)}</span>
+                <span className="w-24 text-right font-mono">{rs(p.total)}</span>
               </div>
             ))}
           </Card>
@@ -548,7 +559,7 @@ function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; deliv
               <div key={r.regiao} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
                 <span className="min-w-0 flex-1 truncate">{r.regiao}</span>
                 <span className="w-12 text-right text-xs text-muted-foreground">{r.qtd}</span>
-                <span className="w-24 text-right font-mono">{brl(r.total)}</span>
+                <span className="w-24 text-right font-mono">{rs(r.total)}</span>
               </div>
             ))}
           </Card>
@@ -569,7 +580,7 @@ function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; deliv
               <span className="w-5 text-center text-xs text-muted-foreground">{i + 1}</span>
               <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
               <span className="w-12 text-right text-xs text-muted-foreground">{p.qtd}x</span>
-              <span className="w-24 text-right font-mono">{brl(p.faturamento)}</span>
+              <span className="w-24 text-right font-mono">{rs(p.faturamento)}</span>
             </div>
           ))}
         </div>
@@ -597,7 +608,7 @@ function RankingGlobal({ data }: { data: any }) {
             <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
             <span className="w-24 text-right text-[11px] text-muted-foreground">🏠 {p.qtdBalcao} · 🛵 {p.qtdDelivery}</span>
             <span className="w-10 text-right text-xs font-bold">{p.qtd}x</span>
-            <span className="w-24 text-right font-mono">{brl(p.faturamento)}</span>
+            <span className="w-24 text-right font-mono">{rs(p.faturamento)}</span>
           </div>
         ))}
       </div>
@@ -634,13 +645,13 @@ function TurnosView({ data }: { data: any }) {
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
               {t.abertaPor ?? '—'} · {dt(t.abertaEm)} {t.fechadaEm ? `→ ${dt(t.fechadaEm)}` : '· (aberto)'}
             </span>
-            <span className="font-mono text-sm">{brl(t.vendas)}</span>
+            <span className="font-mono text-sm">{rs(t.vendas)}</span>
             {t.diferenca != null && (
               <span
                 className="w-24 text-right font-mono text-xs font-bold"
                 style={{ color: t.diferenca < 0 ? 'hsl(var(--destructive))' : t.diferenca > 0 ? 'hsl(var(--warn))' : 'hsl(var(--ok))' }}
               >
-                dif {brl(t.diferenca)}
+                dif {rs(t.diferenca)}
               </span>
             )}
           </button>
@@ -656,10 +667,10 @@ function TurnosView({ data }: { data: any }) {
                     <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv(`turno-formas-${t.id.slice(0, 6)}`, det.porForma)}>CSV</Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                    <div><p className="text-muted-foreground">Abertura</p><p className="font-mono font-bold">{brl(det.sessao.abertura)}</p></div>
-                    <div><p className="text-muted-foreground">Esperado</p><p className="font-mono font-bold">{det.sessao.esperado != null ? brl(det.sessao.esperado) : '—'}</p></div>
-                    <div><p className="text-muted-foreground">Informado</p><p className="font-mono font-bold">{det.sessao.informado != null ? brl(det.sessao.informado) : '—'}</p></div>
-                    <div><p className="text-muted-foreground">Diferença</p><p className="font-mono font-bold" style={{ color: (det.sessao.diferenca ?? 0) < 0 ? 'hsl(var(--destructive))' : undefined }}>{det.sessao.diferenca != null ? brl(det.sessao.diferenca) : '—'}</p></div>
+                    <div><p className="text-muted-foreground">Abertura</p><p className="font-mono font-bold">{rs(det.sessao.abertura)}</p></div>
+                    <div><p className="text-muted-foreground">Esperado</p><p className="font-mono font-bold">{rs(det.sessao.esperado)}</p></div>
+                    <div><p className="text-muted-foreground">Informado</p><p className="font-mono font-bold">{rs(det.sessao.informado)}</p></div>
+                    <div><p className="text-muted-foreground">Diferença</p><p className="font-mono font-bold" style={{ color: (det.sessao.diferenca ?? 0) < 0 ? 'hsl(var(--destructive))' : undefined }}>{rs(det.sessao.diferenca)}</p></div>
                   </div>
                   <div>
                     <p className="mb-1 text-xs font-bold text-muted-foreground">Vendas por forma</p>
@@ -668,7 +679,7 @@ function TurnosView({ data }: { data: any }) {
                       <div key={p.forma} className="flex items-center gap-2 border-b border-border/50 py-1 last:border-0">
                         <span className="min-w-0 flex-1 truncate capitalize">{p.forma}</span>
                         <span className="w-10 text-right text-xs text-muted-foreground">{p.qtd}</span>
-                        <span className="w-24 text-right font-mono">{brl(p.total)}</span>
+                        <span className="w-24 text-right font-mono">{rs(p.total)}</span>
                       </div>
                     ))}
                   </div>
@@ -679,7 +690,7 @@ function TurnosView({ data }: { data: any }) {
                         <div key={i} className="flex items-center gap-2 border-b border-border/50 py-1 text-xs last:border-0">
                           <span className={`rounded px-1.5 py-0.5 font-bold ${m.categoria === 'sangria' ? 'bg-destructive/10 text-destructive' : 'bg-ok/10 text-ok'}`}>{m.categoria}</span>
                           <span className="min-w-0 flex-1 truncate text-muted-foreground">{m.descricao ?? '—'}</span>
-                          <span className="font-mono">{brl(m.valor)}</span>
+                          <span className="font-mono">{rs(m.valor)}</span>
                         </div>
                       ))}
                     </div>
@@ -708,6 +719,7 @@ function ProducaoView({
 }) {
   const periodoLabel = (p: string) =>
     agrup === 'mes' ? mesLabel(p) : String(p).slice(5);
+  const vf = data?.verFinanceiro !== false; // gerente não vê custo
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -738,11 +750,11 @@ function ProducaoView({
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-3">
+          <div className={`grid gap-3 ${vf ? 'grid-cols-3' : 'grid-cols-2'}`}>
             {[
               { l: 'Produções', v: data.resumo.producoes },
               { l: 'Unidades produzidas', v: data.resumo.qtd },
-              { l: 'Custo teórico', v: brl(data.resumo.custo) },
+              ...(vf ? [{ l: 'Custo teórico', v: rs(data.resumo.custo) }] : []),
             ].map((k) => (
               <Card key={k.l} className="p-4">
                 <p className="text-xs text-muted-foreground">{k.l}</p>
@@ -756,7 +768,7 @@ function ProducaoView({
             pontos={(data.porPeriodo ?? []).map((d: any) => ({
               k: periodoLabel(d.periodo),
               v: d.qtd,
-              t: `${d.periodo} · ${d.qtd} un · ${brl(d.custo)} · ${d.producoes} produções`,
+              t: `${d.periodo} · ${d.qtd} un · ${vf ? brl(d.custo) + ' · ' : ''}${d.producoes} produções`,
             }))}
           />
 
@@ -770,7 +782,7 @@ function ProducaoView({
                   <span className="min-w-0 flex-1 truncate">{p.nome}</span>
                   <span className="w-16 text-right text-xs text-muted-foreground">{p.producoes}×</span>
                   <span className="w-16 text-right font-mono text-xs font-bold">{p.qtd} un</span>
-                  <span className="w-24 text-right font-mono">{brl(p.custo)}</span>
+                  {vf && <span className="w-24 text-right font-mono">{rs(p.custo)}</span>}
                 </div>
               ))}
             </div>
@@ -785,16 +797,17 @@ function ProducaoView({
 // "inteligência" de estoque (saldo, valor, consumo no período, cobertura).
 function EstoqueView({ data }: { data: any }) {
   const [ordem, setOrdem] = useState<'mais' | 'menos'>('mais');
+  const verFin = podeFinanceiro(); // valor do estoque (R$) só p/ presidente
   if (!data) return <p className="text-sm text-muted-foreground">Carregando…</p>;
   const itens = [...(data.itens ?? [])].sort((a, b) =>
     ordem === 'mais' ? b.consumoDiario - a.consumoDiario : a.consumoDiario - b.consumoDiario,
   );
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className={`grid gap-3 grid-cols-2 ${verFin ? 'sm:grid-cols-4' : ''}`}>
         {[
-          { l: 'Valor em estoque', v: brl(data.resumo?.valorEstoque ?? 0) },
-          { l: 'Consumido no período', v: brl(data.resumo?.valorConsumido ?? 0) },
+          ...(verFin ? [{ l: 'Valor em estoque', v: brl(data.resumo?.valorEstoque ?? 0) }] : []),
+          ...(verFin ? [{ l: 'Consumido no período', v: brl(data.resumo?.valorConsumido ?? 0) }] : []),
           { l: 'Abaixo do mínimo', v: data.resumo?.itensAbaixoMinimo ?? 0 },
           { l: 'A repor', v: data.resumo?.itensRepor ?? 0 },
         ].map((k) => (
@@ -832,9 +845,9 @@ function EstoqueView({ data }: { data: any }) {
                     produto: i.nome,
                     saldo: i.saldo,
                     unidade: i.unidadeMedida,
-                    valorEstoque: Number(i.valorEstoque.toFixed(2)),
+                    ...(verFin ? { valorEstoque: Number(i.valorEstoque.toFixed(2)) } : {}),
                     consumoDia: i.consumoDiario,
-                    valorConsumido: Number(i.valorConsumido.toFixed(2)),
+                    ...(verFin ? { valorConsumido: Number(i.valorConsumido.toFixed(2)) } : {}),
                     diasCobertura: i.diasCobertura ?? '',
                     abc: i.classeAbc ?? '',
                   })))
@@ -854,7 +867,7 @@ function EstoqueView({ data }: { data: any }) {
                 {i.abaixoMinimo && <span className="ml-1.5 rounded bg-destructive/10 px-1 py-0.5 text-[10px] font-bold text-destructive">baixo</span>}
               </span>
               <span className="w-20 text-right text-xs text-muted-foreground">{i.saldo} {i.unidadeMedida}</span>
-              <span className="w-24 text-right font-mono text-xs">{brl(i.valorEstoque)}</span>
+              {verFin && <span className="w-24 text-right font-mono text-xs">{brl(i.valorEstoque)}</span>}
               <span className="w-24 text-right text-xs text-muted-foreground" title="Consumo por dia">{i.consumoDiario}/dia</span>
               <span className="w-16 text-right text-xs text-muted-foreground" title="Dias de cobertura">{i.diasCobertura != null ? `${i.diasCobertura}d` : '—'}</span>
             </div>
