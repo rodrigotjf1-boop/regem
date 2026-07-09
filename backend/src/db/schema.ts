@@ -1512,6 +1512,7 @@ export const deliveryConfig = pgTable('delivery_config', {
   prepBalcaoMax: integer('prep_balcao_max').notNull().default(25),
   prepDeliveryMin: integer('prep_delivery_min').notNull().default(45),
   prepDeliveryMax: integer('prep_delivery_max').notNull().default(55),
+  setorId: uuid('setor_id'), // setor de produção do delivery (opcional)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -209,11 +209,11 @@ export const api = {
   removerEstoqueCategoria: (id: string) =>
     req(`/estoque/categorias-item/${id}`, { method: 'DELETE' }),
   // Produção (Fase F1)
-  producaoFila: (setorId?: string, unidadeId?: string, escopo?: string) => {
+  producaoFila: (setorId?: string, unidadeId?: string, canal?: string) => {
     const p = new URLSearchParams();
     if (setorId) p.set('setorId', setorId);
     if (unidadeId) p.set('unidadeId', unidadeId);
-    if (escopo) p.set('escopo', escopo);
+    if (canal) p.set('canal', canal);
     const q = p.toString();
     return req(`/producao/fila${q ? `?${q}` : ''}`);
   },

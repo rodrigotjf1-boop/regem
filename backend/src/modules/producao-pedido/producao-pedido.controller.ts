@@ -30,12 +30,12 @@ export class ProducaoPedidoController {
     @CurrentUser() user: AuthUser,
     @Query('setorId') setorId?: string,
     @Query('unidadeId') unidadeId?: string,
-    @Query('escopo') escopo?: string,
+    @Query('canal') canal?: string,
   ) {
     return this.service.filaKds(user.tenantId, {
       setorId: setorId || undefined,
       unidadeId: unidadeId || undefined,
-      escopo: escopo || undefined,
+      canal: canal || undefined,
     });
   }
 
