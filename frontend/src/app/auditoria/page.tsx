@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, getCategoria, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { ResponsiveTable, type Column } from '@/components/ui/responsive-table';
 import { cn } from '@/lib/utils';
 
@@ -20,46 +22,62 @@ type Registro = {
   atorNome: string | null;
 };
 
-const TIPOS: { valor: string; label: string }[] = [
-  { valor: '', label: 'Tudo' },
-  { valor: 'ponto', label: 'Ponto' },
-  { valor: 'escala', label: 'Escala' },
-  { valor: 'modulos', label: 'Módulos & apps' },
-  { valor: 'recebimento', label: 'Recebimento' },
-  { valor: 'cadastro', label: 'Cadastros' },
-  { valor: 'vistoria', label: 'Vistoria' },
-  { valor: 'gamificacao', label: 'Gamificação' },
-];
+// Rótulo amigável por tipo (fallback = o próprio tipo).
+const TIPO_LABEL: Record<string, string> = {
+  auth: 'Acesso',
+  config: 'Configuração',
+  ponto: 'Ponto',
+  escala: 'Escala',
+  estoque: 'Estoque',
+  recebimento: 'Recebimento',
+  cadastro: 'Cadastros',
+  vistoria: 'Vistoria',
+  gamificacao: 'Gamificação',
+  modulos: 'Módulos & apps',
+  producao: 'Produção',
+};
+const tipoLabel = (t?: string | null) =>
+  (t && (TIPO_LABEL[t] ?? t)) || '—';
 
 const TIPO_COR: Record<string, string> = {
+  auth: 'var(--destructive)',
+  config: 'var(--warn)',
   ponto: 'var(--info)',
   escala: 'var(--primary)',
-  modulos: 'var(--warn)',
+  estoque: 'var(--ok)',
   recebimento: 'var(--ok)',
   cadastro: 'var(--ok)',
   vistoria: 'var(--info)',
   gamificacao: 'var(--primary)',
+  modulos: 'var(--warn)',
+  producao: 'var(--primary)',
 };
 
+// Ações conhecidas → texto legível. Fallback troca _ por espaço.
 const ACAO_LABEL: Record<string, string> = {
+  login: 'Entrou no sistema',
+  login_falhou: 'Falha de login',
+  pin_falhou: 'Falha de PIN',
+  senha_alterada: 'Alterou a própria senha',
+  senha_redefinida: 'Redefiniu senha (gestor)',
+  perfil_atualizado: 'Editou um perfil de acesso',
+  acesso_atualizado: 'Alterou acesso de colaborador',
   registrou_ocorrencia: 'Registrou ocorrência',
   anulou_ocorrencia: 'Anulou ocorrência',
   criou_alocacao: 'Criou alocação na escala',
   aplicou_template: 'Aplicou template de ramo',
+  aplicou_wizard: 'Aplicou wizard por ramo',
   marcou_ponto: 'Marcou ponto',
   incluiu_marcacao: 'Incluiu marcação (ajuste)',
   aprovou_hora_extra: 'Aprovou hora extra',
+  produziu_ficha: 'Produziu ficha técnica',
   cadastrou_equipamento: 'Cadastrou equipamento',
   revogou_equipamento: 'Revogou equipamento',
 };
-
-function acaoLabel(a: string) {
-  return ACAO_LABEL[a] ?? a.replace(/_/g, ' ');
-}
+const acaoLabel = (a: string) => ACAO_LABEL[a] ?? a.replace(/_/g, ' ');
 
 function quando(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString('pt-BR', {
+  return new Date(iso).toLocaleString('pt-BR', {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -71,32 +89,50 @@ function resumoDetalhe(d: any): string {
   if (!d || typeof d !== 'object') return '—';
   const partes = Object.entries(d)
     .filter(([, v]) => v !== null && v !== undefined && v !== '')
-    .map(([k, v]) => `${k}: ${v}`);
+    .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`);
   return partes.length ? partes.join(' · ') : '—';
 }
 
+const hoje = () => new Date().toISOString().slice(0, 10);
+const diasAtras = (d: number) =>
+  new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+
 export default function AuditoriaPage() {
   const [rows, setRows] = useState<Registro[] | null>(null);
+  const [tipos, setTipos] = useState<string[]>([]);
   const [tipo, setTipo] = useState('');
+  const [busca, setBusca] = useState('');
+  const [de, setDe] = useState(diasAtras(29));
+  const [ate, setAte] = useState(hoje());
   const [erro, setErro] = useState('');
   const [cat, setCat] = useState<string | null>(null);
 
-  const carregar = useCallback(async (t: string) => {
+  const carregar = useCallback(async () => {
     setErro('');
     try {
-      const q = t ? `?tipo=${encodeURIComponent(t)}` : '';
-      setRows(await api.get(`/auditoria${q}`));
+      const p = new URLSearchParams();
+      if (tipo) p.set('tipo', tipo);
+      if (busca.trim()) p.set('busca', busca.trim());
+      if (de) p.set('de', de);
+      if (ate) p.set('ate', ate);
+      const q = p.toString();
+      const res: any = await api.get(`/auditoria${q ? `?${q}` : ''}`);
+      setRows(res.registros ?? []);
+      if (res.tipos) setTipos(res.tipos);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, []);
+  }, [tipo, busca, de, ate]);
 
+  // Autorização + recarga: tipo/de/ate recarregam na hora; busca com debounce.
   useEffect(() => {
     if (!getToken()) return;
     const c = getCategoria();
     setCat(c);
-    if (c === 'presidente' || c === 'gerente') carregar(tipo);
-  }, [carregar, tipo]);
+    if (c !== 'presidente' && c !== 'gerente') return;
+    const t = setTimeout(carregar, busca ? 350 : 0);
+    return () => clearTimeout(t);
+  }, [carregar, busca]);
 
   const autorizado = cat === 'presidente' || cat === 'gerente';
 
@@ -110,40 +146,67 @@ export default function AuditoriaPage() {
           </p>
         </Card>
       ) : (
-        <>
-          <div className="mb-4 flex flex-wrap gap-2">
-            {TIPOS.map((t) => (
+        <div className="space-y-4">
+          {/* Filtros: busca + período */}
+          <Card className="flex flex-wrap items-end gap-3 p-4">
+            <div className="min-w-[220px] flex-1 space-y-1">
+              <Label className="text-xs">Buscar</Label>
+              <Input
+                type="search"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="usuário, ação ou detalhe…"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">De</Label>
+              <Input type="date" value={de} onChange={(e) => setDe(e.target.value)} className="w-40" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Até</Label>
+              <Input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="w-40" />
+            </div>
+          </Card>
+
+          {/* Chips dinâmicos por tipo (dos tipos realmente registrados) */}
+          <div className="flex flex-wrap gap-2">
+            {[{ v: '', l: 'Tudo' }, ...tipos.map((t) => ({ v: t, l: tipoLabel(t) }))].map((t) => (
               <button
-                key={t.valor}
+                key={t.v || 'tudo'}
                 type="button"
-                onClick={() => setTipo(t.valor)}
+                onClick={() => setTipo(t.v)}
+                aria-pressed={tipo === t.v ? 'true' : 'false'}
                 className={cn(
                   'rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors',
-                  tipo === t.valor
+                  tipo === t.v
                     ? 'border-primary bg-primary/15 text-primary'
                     : 'border-border bg-card text-muted-foreground hover:text-foreground',
                 )}
               >
-                {t.label}
+                {t.l}
               </button>
             ))}
           </div>
 
-          {erro && <p className="mb-4 text-destructive">{erro}</p>}
+          {erro && <p className="text-destructive">{erro}</p>}
 
           <ResponsiveTable<Registro>
             caption="Trilha de eventos de auditoria"
             title="Trilha de eventos"
-            subtitle="Ações sensíveis registradas de forma imutável · 200 mais recentes"
+            subtitle="Ações sensíveis registradas de forma imutável · 300 mais recentes"
             loading={rows === null}
             rows={rows ?? []}
             rowKey={(r) => r.id}
-            empty="Nenhum evento registrado ainda."
+            empty="Nenhum evento no filtro atual."
             variant="scroll-sticky"
             cardTitle={(r) => acaoLabel(r.acao)}
             columns={COLUNAS}
           />
-        </>
+
+          <p className="text-xs text-muted-foreground">
+            🔒 Registros não podem ser editados ou apagados · retenção conforme LGPD.
+          </p>
+        </div>
       )}
     </Shell>
   );
@@ -155,9 +218,7 @@ const COLUNAS: Column<Registro>[] = [
     header: 'Quando',
     mono: true,
     sticky: true,
-    render: (r) => (
-      <span className="text-muted-foreground">{quando(r.criadoEm)}</span>
-    ),
+    render: (r) => <span className="text-muted-foreground">{quando(r.criadoEm)}</span>,
   },
   {
     key: 'ator',
@@ -187,7 +248,7 @@ const COLUNAS: Column<Registro>[] = [
             color: cor ? `hsl(${cor})` : 'hsl(var(--muted-foreground))',
           }}
         >
-          {r.tipo}
+          {tipoLabel(r.tipo)}
         </span>
       );
     },
