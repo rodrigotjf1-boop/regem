@@ -67,7 +67,7 @@ export default function RelatoriosPage() {
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'estoque' | 'financeiro'>('vendas');
+  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'estoque' | 'producao' | 'financeiro'>('vendas');
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
   const [balcao, setBalcao] = useState<any>(null);
@@ -75,6 +75,8 @@ export default function RelatoriosPage() {
   const [ranking, setRanking] = useState<any>(null);
   const [turnos, setTurnos] = useState<any>(null);
   const [estoque, setEstoque] = useState<any>(null);
+  const [producao, setProducao] = useState<any>(null);
+  const [agrupProd, setAgrupProd] = useState<'dia' | 'semana' | 'mes'>('dia');
 
   const reload = useCallback(async () => {
     setErro('');
@@ -147,6 +149,15 @@ export default function RelatoriosPage() {
     }
   }, [inicio, fim]);
 
+  const reloadProducao = useCallback(async () => {
+    setErro('');
+    try {
+      setProducao(await api.relatorioProducao(inicio, fim, agrupProd));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [inicio, fim, agrupProd]);
+
   // Seletor de mês → ajusta o período De/Até para o mês inteiro.
   function escolherMes(ym: string) {
     if (!ym) return;
@@ -171,7 +182,8 @@ export default function RelatoriosPage() {
     else if (aba === 'delivery') reloadDelivery();
     else if (aba === 'turnos') reloadTurnos();
     else if (aba === 'estoque') reloadEstoque();
-  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos, reloadEstoque]);
+    else if (aba === 'producao') reloadProducao();
+  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos, reloadEstoque, reloadProducao]);
 
   if (!isGestor) {
     return (
@@ -207,6 +219,7 @@ export default function RelatoriosPage() {
               else if (aba === 'delivery') reloadDelivery();
               else if (aba === 'turnos') reloadTurnos();
               else if (aba === 'estoque') reloadEstoque();
+              else if (aba === 'producao') reloadProducao();
               else reload();
             }}
           >
@@ -222,6 +235,7 @@ export default function RelatoriosPage() {
             { v: 'delivery', l: 'Delivery' },
             { v: 'turnos', l: 'Turnos / Caixa' },
             { v: 'estoque', l: 'Estoque' },
+            { v: 'producao', l: 'Produção' },
             { v: 'financeiro', l: 'Financeiro' },
           ].map((t) => (
             <button
@@ -340,6 +354,10 @@ export default function RelatoriosPage() {
         {aba === 'turnos' && <TurnosView data={turnos} />}
 
         {aba === 'estoque' && <EstoqueView data={estoque} />}
+
+        {aba === 'producao' && (
+          <ProducaoView data={producao} agrup={agrupProd} setAgrup={setAgrupProd} />
+        )}
 
         {aba === 'financeiro' && (
         <>
@@ -673,6 +691,92 @@ function TurnosView({ data }: { data: any }) {
           )}
         </Card>
       ))}
+    </div>
+  );
+}
+
+// Produção de fichas (§1.2): quanto de cada produto foi produzido no período,
+// agrupável por dia/semana/mês. Fonte = eventos auditados `produziu_ficha`.
+function ProducaoView({
+  data,
+  agrup,
+  setAgrup,
+}: {
+  data: any;
+  agrup: 'dia' | 'semana' | 'mes';
+  setAgrup: (v: 'dia' | 'semana' | 'mes') => void;
+}) {
+  const periodoLabel = (p: string) =>
+    agrup === 'mes' ? mesLabel(p) : String(p).slice(5);
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          {([
+            { v: 'dia', l: 'Dia' },
+            { v: 'semana', l: 'Semana' },
+            { v: 'mes', l: 'Mês' },
+          ] as const).map((o) => (
+            <button
+              key={o.v}
+              type="button"
+              onClick={() => setAgrup(o.v)}
+              className={`rounded-md border px-2.5 py-1 text-xs font-medium ${agrup === o.v ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
+            >
+              {o.l}
+            </button>
+          ))}
+        </div>
+        {data?.porProduto?.length > 0 && (
+          <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv('producao-produto', data.porProduto.map((p: any) => ({ produto: p.nome, producoes: p.producoes, quantidade: p.qtd, custo: p.custo })))}>
+            Exportar CSV
+          </Button>
+        )}
+      </div>
+
+      {!data ? (
+        <p className="text-sm text-muted-foreground">Carregando…</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { l: 'Produções', v: data.resumo.producoes },
+              { l: 'Unidades produzidas', v: data.resumo.qtd },
+              { l: 'Custo teórico', v: brl(data.resumo.custo) },
+            ].map((k) => (
+              <Card key={k.l} className="p-4">
+                <p className="text-xs text-muted-foreground">{k.l}</p>
+                <p className="mt-1 font-mono text-xl font-bold">{k.v}</p>
+              </Card>
+            ))}
+          </div>
+
+          <BarChart
+            label={`Produção por ${agrup === 'mes' ? 'mês' : agrup}`}
+            pontos={(data.porPeriodo ?? []).map((d: any) => ({
+              k: periodoLabel(d.periodo),
+              v: d.qtd,
+              t: `${d.periodo} · ${d.qtd} un · ${brl(d.custo)} · ${d.producoes} produções`,
+            }))}
+          />
+
+          <Card className="p-4">
+            <h2 className="mb-3 font-display text-sm font-bold">Produção por produto (mais → menos)</h2>
+            {(data.porProduto ?? []).length === 0 && <p className="text-sm text-muted-foreground">Nenhuma produção no período.</p>}
+            <div className="space-y-1">
+              {(data.porProduto ?? []).map((p: any, i: number) => (
+                <div key={p.fichaId ?? i} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+                  <span className="w-5 text-center text-xs text-muted-foreground">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate">{p.nome}</span>
+                  <span className="w-16 text-right text-xs text-muted-foreground">{p.producoes}×</span>
+                  <span className="w-16 text-right font-mono text-xs font-bold">{p.qtd} un</span>
+                  <span className="w-24 text-right font-mono">{brl(p.custo)}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

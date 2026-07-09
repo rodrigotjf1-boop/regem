@@ -98,4 +98,14 @@ export class RelatoriosController {
   ) {
     return this.service.faturamentoDelivery(user.tenantId, inicio, fim);
   }
+
+  @Get('producao')
+  producao(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+    @Query('agrupamento') agrupamento?: 'dia' | 'semana' | 'mes',
+  ) {
+    return this.service.producao(user.tenantId, inicio, fim, agrupamento);
+  }
 }
