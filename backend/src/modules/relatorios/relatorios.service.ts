@@ -163,6 +163,100 @@ export class RelatoriosService {
     };
   }
 
+  // Detalhe por canal: 'balcao' (local: balcão/salão) ou 'delivery'. Delivery =
+  // comanda com pedido externo aceito; balcão = sem pedido externo.
+  async detalheCanal(
+    tenantId: string,
+    canal: 'balcao' | 'delivery',
+    inicio?: string,
+    fim?: string,
+  ) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    const deliv = canal === 'delivery';
+    const cond = deliv
+      ? sql`and exists (select 1 from pedido_externo pe where pe.comanda_id = c.id and pe.status not in ('novo','cancelado'))`
+      : sql`and not exists (select 1 from pedido_externo pe where pe.comanda_id = c.id and pe.status not in ('novo','cancelado'))`;
+    const base = sql`from comanda c
+      where c.tenant_id = ${tenantId} and c.status = 'fechada'
+        and c.fechada_em::date between ${ini} and ${f} ${cond}`;
+    const [resumo] = await this.rows(sql`
+      select count(*)::int as vendas, coalesce(sum(c.total),0) as faturado,
+             coalesce(avg(c.total),0) as ticket_medio ${base}`);
+    const porDia = await this.rows(sql`
+      select c.fechada_em::date as dia, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+      ${base} group by 1 order by 1`);
+    const porHora = await this.rows(sql`
+      select extract(hour from c.fechada_em)::int as hora, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+      ${base} group by 1 order by 1`);
+    const maisVendidos = await this.rows(sql`
+      select ci.descricao, coalesce(sum(ci.quantidade),0) as qtd,
+             coalesce(sum(ci.quantidade * ci.preco_unitario),0) as fat
+      from comanda_item ci join comanda c on c.id = ci.comanda_id
+      where c.tenant_id = ${tenantId} and c.status = 'fechada'
+        and c.fechada_em::date between ${ini} and ${f} ${cond}
+      group by ci.descricao order by qtd desc limit 20`);
+    let porRegiao: any[] = [];
+    let porPlataforma: any[] = [];
+    if (deliv) {
+      const baseD = sql`from comanda c
+        join pedido_externo pe on pe.comanda_id = c.id
+        where c.tenant_id = ${tenantId} and c.status = 'fechada'
+          and c.fechada_em::date between ${ini} and ${f}
+          and pe.status not in ('novo','cancelado')`;
+      porRegiao = await this.rows(sql`
+        select coalesce(nullif(pe.endereco_bairro,''),'—') as regiao,
+               count(*)::int as qtd, coalesce(sum(c.total),0) as total
+        ${baseD} group by 1 order by total desc`);
+      porPlataforma = await this.rows(sql`
+        select pe.canal as plataforma, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+        ${baseD} group by 1 order by total desc`);
+    }
+    return {
+      periodo: { inicio: ini, fim: f },
+      canal,
+      resumo: {
+        vendas: Number(resumo.vendas),
+        faturado: Number(resumo.faturado),
+        ticketMedio: Number(Number(resumo.ticket_medio).toFixed(2)),
+      },
+      porDia: porDia.map((r) => ({ dia: r.dia, qtd: Number(r.qtd), total: Number(r.total) })),
+      porHora: porHora.map((r) => ({ hora: Number(r.hora), qtd: Number(r.qtd), total: Number(r.total) })),
+      maisVendidos: maisVendidos.map((r) => ({ descricao: r.descricao, qtd: Number(r.qtd), faturamento: Number(r.fat) })),
+      porRegiao: porRegiao.map((r) => ({ regiao: r.regiao, qtd: Number(r.qtd), total: Number(r.total) })),
+      porPlataforma: porPlataforma.map((r) => ({ plataforma: r.plataforma, qtd: Number(r.qtd), total: Number(r.total) })),
+    };
+  }
+
+  // Ranking global de produtos (balcão + delivery), com a quebra por canal.
+  async rankingProdutos(tenantId: string, inicio?: string, fim?: string) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    const rows = await this.rows(sql`
+      select ci.descricao,
+             coalesce(sum(ci.quantidade),0) as qtd,
+             coalesce(sum(ci.quantidade * ci.preco_unitario),0) as fat,
+             coalesce(sum(case when d.is_deliv then ci.quantidade else 0 end),0) as qtd_delivery,
+             coalesce(sum(case when d.is_deliv then 0 else ci.quantidade end),0) as qtd_balcao
+      from comanda_item ci
+      join comanda c on c.id = ci.comanda_id
+      join lateral (
+        select exists(select 1 from pedido_externo pe
+          where pe.comanda_id = c.id and pe.status not in ('novo','cancelado')) as is_deliv
+      ) d on true
+      where c.tenant_id = ${tenantId} and c.status = 'fechada'
+        and c.fechada_em::date between ${ini} and ${f}
+      group by ci.descricao order by qtd desc limit 30`);
+    return {
+      periodo: { inicio: ini, fim: f },
+      itens: rows.map((r) => ({
+        descricao: r.descricao,
+        qtd: Number(r.qtd),
+        faturamento: Number(r.fat),
+        qtdDelivery: Number(r.qtd_delivery),
+        qtdBalcao: Number(r.qtd_balcao),
+      })),
+    };
+  }
+
   // Faturamento de delivery por plataforma (canal do pedido externo).
   async faturamentoDelivery(tenantId: string, inicio?: string, fim?: string) {
     const { ini, fim: f } = this.periodo(inicio, fim);

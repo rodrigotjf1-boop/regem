@@ -40,6 +40,33 @@ export class RelatoriosController {
     return this.service.atendentes(user.tenantId, inicio, fim);
   }
 
+  @Get('balcao')
+  balcao(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.detalheCanal(user.tenantId, 'balcao', inicio, fim);
+  }
+
+  @Get('delivery')
+  delivery(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.detalheCanal(user.tenantId, 'delivery', inicio, fim);
+  }
+
+  @Get('ranking-produtos')
+  ranking(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.rankingProdutos(user.tenantId, inicio, fim);
+  }
+
   @Get('faturamento')
   faturamento(@CurrentUser() user: AuthUser, @Query('ano') ano?: string) {
     return this.service.faturamentoAnual(
