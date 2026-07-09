@@ -131,6 +131,26 @@ export function ProdutoForm({
           </label>
         </div>
 
+        {/* Canais de venda: onde o produto aparece. */}
+        <div className="rounded-lg border border-border p-3">
+          <p className="mb-2 text-xs font-bold text-muted-foreground">
+            Canais de venda
+          </p>
+          <div className="flex flex-wrap gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={f.disponivelBalcao} onChange={(e) => set({ disponivelBalcao: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Vendas do balcão (PDV)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Vendas cardápio digital
+            </label>
+          </div>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Desmarque um canal para o produto não aparecer nele.
+          </p>
+        </div>
+
         <LojaFields f={f} set={set} />
 
         <VariacoesEditor f={f} set={set} />

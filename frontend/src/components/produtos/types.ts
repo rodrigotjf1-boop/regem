@@ -45,6 +45,7 @@ export const vazio = () => ({
   imagemRef: '',
   precoPromocional: '',
   disponivelCardapio: true,
+  disponivelBalcao: true,
   destaque: false,
   selos: [] as string[],
   duracaoMin: '',
