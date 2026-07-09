@@ -34,8 +34,21 @@ export class ColaboradorService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
+  // O login casa por e-mail (sem filtro de tenant), então o e-mail precisa ser
+  // único no sistema. Rejeita se já usado por outro colaborador.
+  private async emailLivre(email: string, exceptId?: string) {
+    const rows = await this.db
+      .select({ id: colaborador.id })
+      .from(colaborador)
+      .where(and(eq(colaborador.email, email), isNull(colaborador.deletedAt)));
+    if (rows.some((r) => r.id !== exceptId))
+      throw new BadRequestException('Este e-mail já está em uso por outro colaborador.');
+  }
+
   async create(tenantId: string, dto: CreateColaboradorDto) {
     const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 10) : undefined;
+    const email = dto.email?.trim().toLowerCase() || undefined;
+    if (email) await this.emailLivre(email);
 
     // Só aceita funções deste tenant (evita vínculo cross-tenant).
     const pedidas = [
@@ -68,6 +81,7 @@ export class ColaboradorService {
         funcaoId: principal,
         vinculo: dto.vinculo ?? 'clt',
         jornadaTipo: dto.jornadaTipo ?? 'outro',
+        email,
         pinHash,
       })
       .returning(publicCols);
@@ -127,6 +141,11 @@ export class ColaboradorService {
     if (dto.vinculo !== undefined) patch.vinculo = dto.vinculo;
     if (dto.jornadaTipo !== undefined) patch.jornadaTipo = dto.jornadaTipo;
     if (principal !== undefined) patch.funcaoId = principal;
+    if (dto.email !== undefined) {
+      const email = dto.email?.trim().toLowerCase() || null;
+      if (email) await this.emailLivre(email, id);
+      patch.email = email;
+    }
     if (dto.pin) patch.pinHash = await bcrypt.hash(dto.pin, 10);
 
     const [row] = await this.db
