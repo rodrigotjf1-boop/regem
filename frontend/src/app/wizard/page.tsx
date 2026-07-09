@@ -51,22 +51,27 @@ export default function WizardPage() {
   const [erro, setErro] = useState('');
   const [busy, setBusy] = useState(false);
   const [resultado, setResultado] = useState<any>(null);
+  const [progresso, setProgresso] = useState<any>(null);
 
-  const gestor = ['presidente', 'gerente'].includes(getCategoria() ?? '');
+  const presidente = getCategoria() === 'presidente';
+  const LIMITE = 35;
 
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
       return;
     }
+    if (getCategoria() !== 'presidente') return;
     (async () => {
       try {
-        const [rs, unis] = await Promise.all([
+        const [rs, unis, prog] = await Promise.all([
           api.onboardingRamosDetalhes(),
           api.get('/unidades'),
+          api.get('/onboarding/progresso'),
         ]);
         setRamos(rs);
         setUnidadeId((unis as any[])[0]?.id ?? null);
+        setProgresso(prog);
       } catch (e) {
         setErro(e instanceof Error ? e.message : 'Erro ao carregar');
       }
@@ -100,6 +105,13 @@ export default function WizardPage() {
 
   async function concluir() {
     if (!unidadeId || !ramo) return;
+    // Aviso: reforça que o wizard altera a estrutura da operação.
+    const ok = window.confirm(
+      '⚠️ Atenção: o wizard vai criar setores, funções, vagas' +
+        ((blueprint?.itens?.length ?? 0) > 0 && criarInsumos ? ' e insumos' : '') +
+        ' na sua operação. Ele não apaga o que já existe, mas mudanças na estrutura podem afetar dados já cadastrados. Confira o resumo. Deseja aplicar?',
+    );
+    if (!ok) return;
     setBusy(true);
     setErro('');
     try {
@@ -122,11 +134,40 @@ export default function WizardPage() {
     }
   }
 
-  if (!gestor) {
+  if (!presidente) {
     return (
       <Shell eyebrow="Onboarding" title="Configuração por ramo">
         <Card className="p-8 text-center text-muted-foreground">
-          Apenas presidente e gerente podem executar o wizard.
+          Apenas o presidente / C&O pode executar o wizard de configuração.
+        </Card>
+      </Shell>
+    );
+  }
+
+  // Gate de progresso: o wizard é ferramenta de início. Acima do limite, bloqueia.
+  if (progresso && progresso.pct >= LIMITE) {
+    return (
+      <Shell eyebrow="Onboarding" title="Configuração por ramo">
+        <Card className="mx-auto max-w-xl p-8 text-center">
+          <div className="text-4xl">🔒</div>
+          <h2 className="mt-3 font-display text-2xl font-semibold">
+            Seu cadastro já está avançado
+          </h2>
+          <p className="mt-2 text-muted-foreground">
+            O wizard é uma ferramenta de <b>início</b> de operação e fica disponível só
+            enquanto o cadastro está abaixo de {LIMITE}%. O seu já está em{' '}
+            <b className="text-foreground">{progresso.pct}%</b>. Para ajustes, use os
+            Cadastros.
+          </p>
+          <div className="mx-auto mt-4 h-2 max-w-xs overflow-hidden rounded-full bg-muted">
+            <div className="h-2 rounded-full bg-primary" style={{ width: `${progresso.pct}%` }} />
+          </div>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button onClick={() => router.push('/cadastros')}>Ir para Cadastros</Button>
+            <Button variant="outline" onClick={() => router.push('/painel')}>
+              Ir para o app
+            </Button>
+          </div>
         </Card>
       </Shell>
     );

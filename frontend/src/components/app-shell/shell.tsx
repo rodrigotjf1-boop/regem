@@ -129,7 +129,7 @@ const NAV: NavGroup[] = [
         href: '/wizard',
         label: 'Config. por ramo',
         icon: Wand2,
-        roles: ['presidente', 'gerente'],
+        roles: ['presidente'],
       },
       {
         href: '/config/acessos',

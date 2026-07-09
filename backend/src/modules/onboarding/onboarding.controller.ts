@@ -22,21 +22,28 @@ export class OnboardingController {
     return this.service.ramosDisponiveis();
   }
 
-  // Wizard rico (mockup "Configuração por ramo").
-  @Get('ramos-detalhes')
+  // Progresso do cadastro (para gate do wizard e barras de setup).
+  @Get('progresso')
   @Roles('presidente', 'gerente')
+  progresso(@CurrentUser() user: AuthUser) {
+    return this.service.progresso(user.tenantId);
+  }
+
+  // Wizard rico (mockup "Configuração por ramo") — só presidente/C&O.
+  @Get('ramos-detalhes')
+  @Roles('presidente')
   ramosDetalhes() {
     return this.service.ramosDetalhados();
   }
 
   @Get('blueprint')
-  @Roles('presidente', 'gerente')
+  @Roles('presidente')
   blueprint(@Query('ramo') ramo: string) {
     return this.service.blueprint(ramo);
   }
 
   @Post('wizard')
-  @Roles('presidente', 'gerente')
+  @Roles('presidente')
   async wizard(@CurrentUser() user: AuthUser, @Body() dto: AplicarWizardDto) {
     const res = await this.service.aplicarWizard(user.tenantId, dto);
     await this.auditoria.registrar({

@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   unidade,
@@ -12,6 +12,9 @@ import {
 import { AplicarTemplateDto } from './dto/aplicar-template.dto';
 import { AplicarWizardDto } from './dto/aplicar-wizard.dto';
 import { TEMPLATES, ESCALAS } from './templates';
+
+// Acima deste % de cadastro o wizard fica bloqueado (é ferramenta de início).
+export const LIMITE_WIZARD = 35;
 
 @Injectable()
 export class OnboardingService {
@@ -99,6 +102,36 @@ export class OnboardingService {
     }));
   }
 
+  // Progresso do cadastro (0–100%): marcos básicos de configuração. O wizard só
+  // fica disponível abaixo de LIMITE_WIZARD% (ferramenta de início de operação).
+  async progresso(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select
+        (select count(*) from unidade where tenant_id=${tenantId} and deleted_at is null)::int as unidades,
+        (select count(*) from setor where tenant_id=${tenantId} and deleted_at is null)::int as setores,
+        (select count(*) from funcao where tenant_id=${tenantId} and deleted_at is null)::int as funcoes,
+        (select count(*) from colaborador where tenant_id=${tenantId} and deleted_at is null)::int as colaboradores,
+        (select count(*) from turno where tenant_id=${tenantId} and deleted_at is null)::int as turnos,
+        (select count(*) from item_estoque where tenant_id=${tenantId} and deleted_at is null)::int as itens,
+        (select count(*) from produto where tenant_id=${tenantId} and deleted_at is null)::int as produtos
+    `);
+    const c = (r.rows ?? r)[0] ?? {};
+    // Função "Presidente" e o colaborador admin já vêm do cadastro inicial, então
+    // funções/colaboradores exigem ≥2 para contar como "começou a cadastrar".
+    const milestones = [
+      { chave: 'unidade', label: 'Unidade cadastrada', ok: Number(c.unidades) >= 1 },
+      { chave: 'setor', label: 'Setores', ok: Number(c.setores) >= 1 },
+      { chave: 'funcao', label: 'Funções', ok: Number(c.funcoes) >= 2 },
+      { chave: 'colaborador', label: 'Colaboradores', ok: Number(c.colaboradores) >= 2 },
+      { chave: 'turno', label: 'Turnos', ok: Number(c.turnos) >= 1 },
+      { chave: 'estoque', label: 'Insumos no estoque', ok: Number(c.itens) >= 1 },
+      { chave: 'produto', label: 'Produtos / cardápio', ok: Number(c.produtos) >= 1 },
+    ];
+    const feitos = milestones.filter((m) => m.ok).length;
+    const pct = Math.round((feitos / milestones.length) * 100);
+    return { pct, feitos, total: milestones.length, milestones };
+  }
+
   // Blueprint sugerido para o ramo (setores + funções + modelos de escala) —
   // alimenta os chips selecionáveis do wizard.
   blueprint(ramo: string) {
@@ -139,6 +172,15 @@ export class OnboardingService {
 
     const tpl = TEMPLATES[dto.ramo];
     if (!tpl) throw new BadRequestException(`Sem template para o ramo "${dto.ramo}"`);
+
+    // Gate: o wizard é para o início da operação. Acima do limite, bloqueia
+    // (evita reaplicar sobre um cadastro já avançado). Trava no servidor.
+    const prog = await this.progresso(tenantId);
+    if (prog.pct >= LIMITE_WIZARD) {
+      throw new BadRequestException(
+        `O wizard é só para o início da configuração (cadastro já em ${prog.pct}%). Use os Cadastros para ajustes.`,
+      );
+    }
 
     const setoresSel = new Set(dto.setores ?? []);
     const funcoesSel = new Set(dto.funcoes ?? []);
