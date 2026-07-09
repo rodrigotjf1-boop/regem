@@ -63,7 +63,7 @@ export default function KdsPage() {
   const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10 });
   const [setores, setSetores] = useState<any[]>([]);
   const [setorSel, setSetorSel] = useState('');
-  const [escopo, setEscopo] = useState<'producao' | 'entrega'>('producao');
+  const [canal, setCanal] = useState<'balcao' | 'delivery'>('balcao');
   const [mudo, setMudo] = useState(false);
   // Tema do KDS (preferência do aparelho — UI, não dado de negócio).
   const [claro, setClaro] = useState(false);
@@ -87,8 +87,8 @@ export default function KdsPage() {
   pedidosRef.current = pedidos;
   const setorRef = useRef(setorSel);
   setorRef.current = setorSel;
-  const escopoRef = useRef(escopo);
-  escopoRef.current = escopo;
+  const canalRef = useRef(canal);
+  canalRef.current = canal;
 
   const bip = useCallback(() => {
     if (mudoRef.current) return;
@@ -115,9 +115,9 @@ export default function KdsPage() {
     if (!getToken()) return; // fila durável requer operador logado (JWT)
     try {
       const r: any = await api.producaoFila(
-        escopoRef.current === 'entrega' ? undefined : setorRef.current || undefined,
+        setorRef.current || undefined,
         undefined,
-        escopoRef.current,
+        canalRef.current,
       );
       setPedidos(r.pedidos ?? []);
       if (r.cores) setCores(r.cores);
@@ -138,10 +138,10 @@ export default function KdsPage() {
     }
   }, []);
 
-  // Recarrega quando muda o setor ou o escopo (produção/entrega).
+  // Recarrega quando muda o setor ou o canal (balcão/delivery).
   useEffect(() => {
     carregarFila();
-  }, [setorSel, escopo, carregarFila]);
+  }, [setorSel, canal, carregarFila]);
 
   useEffect(() => {
     // Device real: ?token=… (um KDS físico abre app.dmsregem.com/kds?token=…).
@@ -220,7 +220,8 @@ export default function KdsPage() {
 
   async function avancar(id: string) {
     try {
-      await api.producaoAvancar(id, escopoRef.current);
+      // Board único por canal → permite concluir (entregue) no próprio KDS.
+      await api.producaoAvancar(id, 'entrega');
       await carregarFila();
     } catch {
       /* concorrência: outra tela avançou — o refetch corrige */
@@ -273,25 +274,28 @@ export default function KdsPage() {
           </div>
         </div>
 
-        {/* Escopo: produção (cozinha) x entrega (retirada por senha) */}
+        {/* Canal: balcão/salão (local + retirada) x delivery (courier) */}
         <div className="ml-2 flex overflow-hidden rounded-lg border" style={{ borderColor: T.border }}>
-          {(['producao', 'entrega'] as const).map((es) => (
+          {([
+            ['balcao', 'Balcão / Salão'],
+            ['delivery', 'Delivery'],
+          ] as const).map(([c, rotulo]) => (
             <button
-              key={es}
+              key={c}
               type="button"
-              onClick={() => setEscopo(es)}
+              onClick={() => setCanal(c)}
               className="px-3 py-2 text-[13px] font-semibold"
               style={{
-                background: escopo === es ? '#E2A340' : T.panel2,
-                color: escopo === es ? '#0B141B' : T.muted,
+                background: canal === c ? '#E2A340' : T.panel2,
+                color: canal === c ? '#0B141B' : T.muted,
               }}
             >
-              {es === 'producao' ? 'Produção' : 'Entrega'}
+              {rotulo}
             </button>
           ))}
         </div>
 
-        {escopo === 'producao' && setores.length > 0 && (
+        {setores.length > 0 && (
           <select
             aria-label="Filtrar por setor"
             value={setorSel}

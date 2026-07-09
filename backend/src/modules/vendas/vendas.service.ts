@@ -570,6 +570,7 @@ export class VendasService {
       cliente?: string | null;
       forma?: string | null;
       origem?: string;
+      setorId?: string | null; // setor de produção (ex.: delivery)
       plataforma?: string | null; // ex.: "Cardápio", "iFood"
       senhaPlataforma?: string | null; // senha/nº do pedido na plataforma
       itens: {
@@ -648,6 +649,7 @@ export class VendasService {
           unidadeId: dto.unidadeId ?? null,
           comandaId: cmd.id,
           origem: dto.origem ?? 'delivery',
+          setorId: dto.setorId ?? null,
           mesa: null,
           senha,
           plataforma: dto.plataforma ?? null,

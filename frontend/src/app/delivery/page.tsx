@@ -740,27 +740,41 @@ function PrepTempoCard({ cfg, podeEditar, onSave }: { cfg: any; podeEditar: bool
   const [bMax, setBMax] = useState('');
   const [dMin, setDMin] = useState('');
   const [dMax, setDMax] = useState('');
+  const [setorId, setSetorId] = useState('');
+  const [setores, setSetores] = useState<any[]>([]);
+  useEffect(() => {
+    api.setores().then((r: any) => setSetores(r ?? [])).catch(() => {});
+  }, []);
+  const setorNome = setores.find((s) => s.id === cfg?.setorId)?.nome;
   function abrir() {
     setBMin(String(cfg?.prepBalcaoMin ?? 15));
     setBMax(String(cfg?.prepBalcaoMax ?? 25));
     setDMin(String(cfg?.prepDeliveryMin ?? 45));
     setDMax(String(cfg?.prepDeliveryMax ?? 55));
+    setSetorId(cfg?.setorId ?? '');
     setEditando(true);
   }
   function salvar() {
     onSave({
       prepBalcaoMin: Number(bMin) || 0, prepBalcaoMax: Number(bMax) || 0,
       prepDeliveryMin: Number(dMin) || 0, prepDeliveryMax: Number(dMax) || 0,
+      setorId: setorId || null,
     });
     setEditando(false);
   }
   return (
     <div className="mb-2 rounded-lg border border-border bg-card p-2.5 text-xs">
       {!editando ? (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span><strong>Balcão:</strong> {cfg?.prepBalcaoMin ?? 15} a {cfg?.prepBalcaoMax ?? 25} min</span>
           <span className="text-muted-foreground">·</span>
           <span><strong>Delivery:</strong> {cfg?.prepDeliveryMin ?? 45} a {cfg?.prepDeliveryMax ?? 55} min</span>
+          {setorNome && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span><strong>Setor:</strong> {setorNome}</span>
+            </>
+          )}
           {podeEditar && (
             <button type="button" className="ml-auto font-semibold text-primary" onClick={abrir}>Editar</button>
           )}
@@ -776,6 +790,20 @@ function PrepTempoCard({ cfg, podeEditar, onSave }: { cfg: any; podeEditar: bool
             <Input value={dMin} onChange={(e) => setDMin(e.target.value)} inputMode="numeric" className="h-7" />
             <span>a</span>
             <Input value={dMax} onChange={(e) => setDMax(e.target.value)} inputMode="numeric" className="h-7" /><span>min</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="w-16">Setor</span>
+            <select
+              value={setorId}
+              onChange={(e) => setSetorId(e.target.value)}
+              className="h-7 flex-1 rounded-md border border-input bg-card px-2"
+              aria-label="Setor de produção do delivery"
+            >
+              <option value="">— nenhum —</option>
+              {setores.map((s) => (
+                <option key={s.id} value={s.id}>{s.nome}</option>
+              ))}
+            </select>
           </div>
           <div className="flex gap-1.5">
             <Button type="button" size="sm" variant="ghost" className="flex-1" onClick={() => setEditando(false)}>Cancelar</Button>

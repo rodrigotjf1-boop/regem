@@ -535,39 +535,34 @@ export class ProducaoPedidoService {
     }));
   }
 
-  // Fila do KDS. escopo 'entrega' mostra os PRONTOS (retirada); 'producao' mostra
-  // recebido/preparo (+pronto só se não houver KDS de entrega assumindo a entrega).
+  // Fila do KDS por CANAL: 'delivery' (courier) x 'balcao' (salão/balcão + retirada
+  // e consumo local vindos de plataformas). Mostra os pedidos ativos
+  // (recebido/preparo/pronto) + cancelados recentes (riscados por um tempo).
   async filaKds(
     tenantId: string,
-    opts: { setorId?: string; unidadeId?: string; escopo?: string } = {},
+    opts: { setorId?: string; unidadeId?: string; canal?: string } = {},
   ) {
-    const entrega = opts.escopo === 'entrega';
     const cores = await this.getCores(tenantId, opts.unidadeId);
     const conds = [
       eq(producaoPedido.tenantId, tenantId),
       eq(producaoPedido.destinoTipo, 'kds'),
     ];
     if (opts.unidadeId) conds.push(eq(producaoPedido.unidadeId, opts.unidadeId));
-
-    if (entrega) {
-      // Prontos (a entregar) + cancelados recentes (mostrados riscados por um tempo).
-      conds.push(
-        sql`(status = 'pronto'
-             or (status = 'cancelado'
-                 and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(
-                   String(JANELA_ACAO_MIN),
-                 )} minutes'))` as any,
-      );
+    // Canal
+    if (opts.canal === 'delivery') {
+      conds.push(eq(producaoPedido.origem, 'delivery'));
     } else {
-      // Produção: sempre recebido/preparo. 'pronto' fica aqui só se ninguém de
-      // entrega vai assumir (sem KDS de entrega e sem etapa 'entregue').
-      const temEntrega = await this.temKdsEntrega(tenantId, opts.unidadeId);
-      const statusProd = ['recebido', 'preparo'];
-      if (!temEntrega && !cores.usaEntregue) statusProd.push('pronto');
-      else if (!temEntrega && cores.usaEntregue) statusProd.push('pronto'); // avança até entregue no próprio KDS
-      conds.push(inArray(producaoPedido.status, statusProd));
-      if (opts.setorId) conds.push(eq(producaoPedido.setorId, opts.setorId));
+      conds.push(sql`origem <> 'delivery'` as any);
     }
+    if (opts.setorId) conds.push(eq(producaoPedido.setorId, opts.setorId));
+    // Ativos + cancelados recentes.
+    conds.push(
+      sql`(status in ('recebido','preparo','pronto')
+           or (status = 'cancelado'
+               and coalesce(cancelado_em, criado_em) > now() - interval '${sql.raw(
+                 String(JANELA_ACAO_MIN),
+               )} minutes'))` as any,
+    );
     const pedidos = await this.db
       .select()
       .from(producaoPedido)

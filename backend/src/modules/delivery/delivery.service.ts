@@ -193,11 +193,15 @@ export class DeliveryService {
     const porCodigo = new Map(prods.map((p) => [p.codigo, p.id]));
 
     const PLAT: Record<string, string> = { cardapio: 'Cardápio', ifood: 'iFood', totem: 'Totem' };
+    const cfg = await this.configRaw(tenantId, ped.unidadeId);
+    // Retirada/consumo no local = produção do BALCÃO; entrega (courier) = DELIVERY.
+    // A plataforma (iFood/Cardápio/Totem) segue no rótulo do card em ambos.
     const venda = await this.vendas.venderExterno(tenantId, atorId, {
       unidadeId: ped.unidadeId,
       cliente: ped.clienteNome,
       forma: ped.formaPagamento ?? 'online',
-      origem: 'delivery',
+      origem: ped.tipo === 'retirada' ? 'balcao' : 'delivery',
+      setorId: (cfg as any)?.setorId ?? null,
       plataforma: PLAT[ped.canal] ?? ped.canal,
       senhaPlataforma: ped.displayId ?? null,
       itens: itens.map((it) => ({
@@ -647,6 +651,7 @@ export class DeliveryService {
         prepBalcaoMax: 25,
         prepDeliveryMin: 45,
         prepDeliveryMax: 55,
+        setorId: null,
         pausadoAte: null,
         pausaMotivo: null,
       };
@@ -774,6 +779,8 @@ export class DeliveryService {
       prepBalcaoMax: numOr(dto.prepBalcaoMax, row?.prepBalcaoMax, 25),
       prepDeliveryMin: numOr(dto.prepDeliveryMin, row?.prepDeliveryMin, 45),
       prepDeliveryMax: numOr(dto.prepDeliveryMax, row?.prepDeliveryMax, 55),
+      setorId:
+        dto.setorId !== undefined ? dto.setorId || null : row?.setorId ?? null,
     };
     // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
     if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;
