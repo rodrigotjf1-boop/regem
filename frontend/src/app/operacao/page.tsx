@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Pencil, ArrowRight } from 'lucide-react';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -142,6 +142,7 @@ export default function EstoquePage() {
     { value: 'padrao', label: 'Padrão' },
   ];
 
+  const verFin = getCategoria() === 'presidente'; // valor do estoque (R$) só p/ presidente
   const valorTotal = itens.reduce((s, i) => s + Number(i.valorEstoque ?? 0), 0);
 
   return (
@@ -153,9 +154,12 @@ export default function EstoquePage() {
           <Button size="sm" variant="outline" onClick={() => router.push('/fichas')}>
             🧾 Fichas técnicas
           </Button>
-          <Button size="sm" variant="outline" onClick={() => router.push('/estoque')}>
-            Inteligência <ArrowRight className="h-4 w-4" />
-          </Button>
+          {/* Inteligência de estoque = motor de custo (financeiro) → só presidente/C&O */}
+          {verFin && (
+            <Button size="sm" variant="outline" onClick={() => router.push('/estoque')}>
+              Inteligência <ArrowRight className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       }
     >
@@ -191,7 +195,7 @@ export default function EstoquePage() {
               <div>
                 <h2 className="font-display font-semibold">Insumos</h2>
                 <p className="text-xs text-muted-foreground">
-                  {itens.length} itens · valor em estoque {brl(valorTotal)}
+                  {itens.length} itens{verFin ? ` · valor em estoque ${brl(valorTotal)}` : ''}
                 </p>
               </div>
               {!novoInsumo && !editItem && (

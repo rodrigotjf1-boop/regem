@@ -31,7 +31,8 @@ export class EstoqueController {
 
   @Get('itens')
   listItens(@CurrentUser() user: AuthUser) {
-    return this.service.listItens(user.tenantId);
+    // Custo/valor em R$ = financeiro → só presidente/C&O (RBAC no servidor).
+    return this.service.listItens(user.tenantId, user.categoria === 'presidente');
   }
 
   @Patch('itens/:id')
@@ -94,7 +95,12 @@ export class EstoqueController {
     const ini =
       inicio ||
       new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-    return this.service.inteligencia(user.tenantId, ini, fim || hoje);
+    return this.service.inteligencia(
+      user.tenantId,
+      ini,
+      fim || hoje,
+      user.categoria === 'presidente',
+    );
   }
 
   // Validades FEFO: lotes por vencimento com status.
@@ -105,8 +111,9 @@ export class EstoqueController {
   }
 
   // CMV real (EI + Compras − EF) × teórico → desvio. Período padrão: mês corrente.
+  // CMV é relatório de custo (financeiro) → presidente/C&O apenas.
   @Get('cmv')
-  @Roles('presidente', 'gerente')
+  @Roles('presidente')
   cmv(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,

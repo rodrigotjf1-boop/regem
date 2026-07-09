@@ -128,7 +128,7 @@ export class EstoqueService {
   }
 
   // Saldo derivado do ledger (entrada +, saida -, ajuste sinalizado).
-  async listItens(tenantId: string) {
+  async listItens(tenantId: string, verFin = true) {
     const res: any = await this.db.execute(sql`
       select i.id, i.nome, i.unidade_medida as "unidadeMedida",
              i.estoque_minimo as "estoqueMinimo",
@@ -162,9 +162,11 @@ export class EstoqueService {
       porItem.set(c.itemId, arr);
     }
     // Valor em estoque = saldo × custo médio (derivado, nunca armazenado).
+    // Valores em R$ (custo médio e valor) são financeiros → só presidente/C&O.
     return rows.map((r: any) => ({
       ...r,
-      valorEstoque: Number(r.saldo) * Number(r.custoMedio ?? 0),
+      custoMedio: verFin ? r.custoMedio : null,
+      valorEstoque: verFin ? Number(r.saldo) * Number(r.custoMedio ?? 0) : null,
       conversoes: porItem.get(r.id) ?? [],
     }));
   }
@@ -213,7 +215,7 @@ export class EstoqueService {
   // Valorização (valor em estoque + compras), reposição (ROP) e curva ABC no período.
   // Lead time é POR FORNECEDOR (item.fornecedor_id → fornecedor.lead_time_dias);
   // item sem fornecedor cai no padrão.
-  async inteligencia(tenantId: string, inicio: string, fim: string) {
+  async inteligencia(tenantId: string, inicio: string, fim: string, verFin = true) {
     const LEAD_TIME_PADRAO = 7;
     const COBERTURA_ALVO_DIAS = 7;
     const res: any = await this.db.execute(sql`
@@ -294,15 +296,27 @@ export class EstoqueService {
     }
     itens = itens.map((i: any) => ({ ...i, classeAbc: classe[i.id] }));
 
+    // Curva ABC (classeAbc) já calculada com os valores reais acima. Agora, se o
+    // usuário não pode ver financeiro (gerente), anula os campos em R$ — mantendo
+    // saldo, giro, cobertura, ROP e sugestão de compra (operacional).
     const resumo = {
-      valorEstoque: itens.reduce((s: number, i: any) => s + i.valorEstoque, 0),
-      comprasPeriodo: itens.reduce((s: number, i: any) => s + i.comprasValor, 0),
-      valorConsumido: totalConsumo,
+      valorEstoque: verFin ? itens.reduce((s: number, i: any) => s + i.valorEstoque, 0) : null,
+      comprasPeriodo: verFin ? itens.reduce((s: number, i: any) => s + i.comprasValor, 0) : null,
+      valorConsumido: verFin ? totalConsumo : null,
       itensAbaixoMinimo: itens.filter((i: any) => i.abaixoMinimo).length,
       itensRepor: itens.filter((i: any) => i.repor).length,
       leadTimePadrao: LEAD_TIME_PADRAO,
       dias,
     };
+    if (!verFin) {
+      itens = itens.map((i: any) => ({
+        ...i,
+        custoMedio: null,
+        valorEstoque: null,
+        valorConsumido: null,
+        comprasValor: null,
+      }));
+    }
     return { resumo, itens };
   }
 
