@@ -18,14 +18,18 @@ import { FinanceiroService } from './financeiro.service';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 
-// Financeiro (contas a pagar/receber + caixa) — presidente e gerente.
+// Financeiro. Valores financeiros (títulos a pagar/receber, resumo, fluxo, DRE)
+// são presidente/C&O — o gerente só opera o CAIXA/turno e as formas de pagamento
+// (operacional). RBAC no servidor: cada bloco marca seu @Roles.
 @Controller('financeiro')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('presidente', 'gerente')
 export class FinanceiroController {
   constructor(private readonly service: FinanceiroService) {}
 
+  // ----- Contas a pagar/receber + relatórios financeiros — presidente/C&O. -----
   @Get('titulos')
+  @Roles('presidente')
   listar(
     @CurrentUser() user: AuthUser,
     @Query('tipo') tipo?: string,
@@ -35,16 +39,19 @@ export class FinanceiroController {
   }
 
   @Get('resumo')
+  @Roles('presidente')
   resumo(@CurrentUser() user: AuthUser) {
     return this.service.resumo(user.tenantId);
   }
 
   @Get('fluxo')
+  @Roles('presidente')
   fluxo(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
     return this.service.fluxoCaixa(user.tenantId, dias ? Number(dias) : 30);
   }
 
   @Get('dre')
+  @Roles('presidente')
   dre(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
@@ -56,11 +63,13 @@ export class FinanceiroController {
   }
 
   @Post('titulos')
+  @Roles('presidente')
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateTituloDto) {
     return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto);
   }
 
   @Patch('titulos/:id')
+  @Roles('presidente')
   atualizar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -70,11 +79,13 @@ export class FinanceiroController {
   }
 
   @Delete('titulos/:id')
+  @Roles('presidente')
   cancelar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.cancelar(user.tenantId, user.colaboradorId, user.categoria, id);
   }
 
   @Post('titulos/:id/pagar')
+  @Roles('presidente')
   pagar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -84,6 +95,7 @@ export class FinanceiroController {
   }
 
   @Post('titulos/:id/estornar')
+  @Roles('presidente')
   estornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.estornar(user.tenantId, user.colaboradorId, user.categoria, id);
   }

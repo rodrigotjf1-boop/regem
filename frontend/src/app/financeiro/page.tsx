@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Pencil, Trash2 } from 'lucide-react';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { FormasPagamentoCard } from '@/components/financeiro/formas-pagamento-card';
@@ -32,6 +32,9 @@ const FILTROS = [
 
 export default function FinanceiroPage() {
   const router = useRouter();
+  // Valores financeiros (títulos/resumo/fluxo/DRE) = presidente/C&O. O gerente
+  // só gerencia as formas de pagamento (operacional). Trava real é no servidor.
+  const isPresidente = getCategoria() === 'presidente';
   const [resumo, setResumo] = useState<any>(null);
   const [fluxo, setFluxo] = useState<any>(null);
   const [dre, setDre] = useState<any>(null);
@@ -44,6 +47,8 @@ export default function FinanceiroPage() {
   const [editVals, setEditVals] = useState<any>(null);
 
   const carregar = useCallback(async (f: string) => {
+    // Gerente não acessa dados financeiros — só as formas de pagamento (card próprio).
+    if (!isPresidente) return;
     setErro('');
     try {
       const [res, forn, flx, dr] = await Promise.all([
@@ -64,7 +69,7 @@ export default function FinanceiroPage() {
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, []);
+  }, [isPresidente]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -163,6 +168,17 @@ export default function FinanceiroPage() {
     <Shell eyebrow="Gestão · financeiro" title="Financeiro">
       <div className="max-w-4xl space-y-5">
         <FormasPagamentoCard />
+
+        {!isPresidente && (
+          <Card className="p-5 text-sm text-muted-foreground">
+            Contas a pagar/receber, fluxo de caixa e resultado são da alçada do
+            presidente/C&O. Como gerente, você gerencia as formas de pagamento acima e
+            opera o caixa/turno no PDV.
+          </Card>
+        )}
+
+        {isPresidente && (
+        <>
         {/* Resumo */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Kpi label="A pagar (aberto)" value={resumo ? brl(resumo.aPagar) : '—'} tone="warn" />
@@ -376,6 +392,8 @@ export default function FinanceiroPage() {
             </Card>
           ))}
         </div>
+        </>
+        )}
       </div>
     </Shell>
   );
