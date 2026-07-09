@@ -67,13 +67,14 @@ export default function RelatoriosPage() {
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'financeiro'>('vendas');
+  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'estoque' | 'financeiro'>('vendas');
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
   const [balcao, setBalcao] = useState<any>(null);
   const [delivery, setDelivery] = useState<any>(null);
   const [ranking, setRanking] = useState<any>(null);
   const [turnos, setTurnos] = useState<any>(null);
+  const [estoque, setEstoque] = useState<any>(null);
 
   const reload = useCallback(async () => {
     setErro('');
@@ -137,6 +138,15 @@ export default function RelatoriosPage() {
     }
   }, [inicio, fim]);
 
+  const reloadEstoque = useCallback(async () => {
+    setErro('');
+    try {
+      setEstoque(await api.estoqueInteligencia(inicio, fim));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [inicio, fim]);
+
   // Seletor de mês → ajusta o período De/Até para o mês inteiro.
   function escolherMes(ym: string) {
     if (!ym) return;
@@ -160,7 +170,8 @@ export default function RelatoriosPage() {
     else if (aba === 'balcao') reloadBalcao();
     else if (aba === 'delivery') reloadDelivery();
     else if (aba === 'turnos') reloadTurnos();
-  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos]);
+    else if (aba === 'estoque') reloadEstoque();
+  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos, reloadEstoque]);
 
   if (!isGestor) {
     return (
@@ -195,6 +206,7 @@ export default function RelatoriosPage() {
               else if (aba === 'balcao') reloadBalcao();
               else if (aba === 'delivery') reloadDelivery();
               else if (aba === 'turnos') reloadTurnos();
+              else if (aba === 'estoque') reloadEstoque();
               else reload();
             }}
           >
@@ -209,6 +221,7 @@ export default function RelatoriosPage() {
             { v: 'balcao', l: 'Balcão / Salão' },
             { v: 'delivery', l: 'Delivery' },
             { v: 'turnos', l: 'Turnos / Caixa' },
+            { v: 'estoque', l: 'Estoque' },
             { v: 'financeiro', l: 'Financeiro' },
           ].map((t) => (
             <button
@@ -325,6 +338,8 @@ export default function RelatoriosPage() {
         {aba === 'delivery' && <DetalheCanal data={delivery} nome="delivery" delivery />}
 
         {aba === 'turnos' && <TurnosView data={turnos} />}
+
+        {aba === 'estoque' && <EstoqueView data={estoque} />}
 
         {aba === 'financeiro' && (
         <>
@@ -658,6 +673,90 @@ function TurnosView({ data }: { data: any }) {
           )}
         </Card>
       ))}
+    </div>
+  );
+}
+
+// Estoque: posição por produto + giro (mais → menos giram). Reaproveita a
+// "inteligência" de estoque (saldo, valor, consumo no período, cobertura).
+function EstoqueView({ data }: { data: any }) {
+  const [ordem, setOrdem] = useState<'mais' | 'menos'>('mais');
+  if (!data) return <p className="text-sm text-muted-foreground">Carregando…</p>;
+  const itens = [...(data.itens ?? [])].sort((a, b) =>
+    ordem === 'mais' ? b.consumoDiario - a.consumoDiario : a.consumoDiario - b.consumoDiario,
+  );
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { l: 'Valor em estoque', v: brl(data.resumo?.valorEstoque ?? 0) },
+          { l: 'Consumido no período', v: brl(data.resumo?.valorConsumido ?? 0) },
+          { l: 'Abaixo do mínimo', v: data.resumo?.itensAbaixoMinimo ?? 0 },
+          { l: 'A repor', v: data.resumo?.itensRepor ?? 0 },
+        ].map((k) => (
+          <Card key={k.l} className="p-4">
+            <p className="text-xs text-muted-foreground">{k.l}</p>
+            <p className="mt-1 font-mono text-xl font-bold">{k.v}</p>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-display text-sm font-bold">Posição e giro por produto</h2>
+            <p className="text-xs text-muted-foreground">Ordenado por giro (consumo/dia) no período.</p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {(['mais', 'menos'] as const).map((o) => (
+              <button
+                key={o}
+                type="button"
+                onClick={() => setOrdem(o)}
+                className={`rounded-md border px-2.5 py-1 text-xs font-medium ${ordem === o ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
+              >
+                {o === 'mais' ? 'Mais giram' : 'Menos giram'}
+              </button>
+            ))}
+            {itens.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  baixarCsv('estoque-giro', itens.map((i: any) => ({
+                    produto: i.nome,
+                    saldo: i.saldo,
+                    unidade: i.unidadeMedida,
+                    valorEstoque: Number(i.valorEstoque.toFixed(2)),
+                    consumoDia: i.consumoDiario,
+                    valorConsumido: Number(i.valorConsumido.toFixed(2)),
+                    diasCobertura: i.diasCobertura ?? '',
+                    abc: i.classeAbc ?? '',
+                  })))
+                }
+              >
+                Exportar CSV
+              </Button>
+            )}
+          </div>
+        </div>
+        {itens.length === 0 && <p className="text-sm text-muted-foreground">Nenhum insumo cadastrado.</p>}
+        <div className="space-y-1">
+          {itens.map((i: any) => (
+            <div key={i.id} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+              <span className="min-w-0 flex-1 truncate">
+                {i.nome}
+                {i.abaixoMinimo && <span className="ml-1.5 rounded bg-destructive/10 px-1 py-0.5 text-[10px] font-bold text-destructive">baixo</span>}
+              </span>
+              <span className="w-20 text-right text-xs text-muted-foreground">{i.saldo} {i.unidadeMedida}</span>
+              <span className="w-24 text-right font-mono text-xs">{brl(i.valorEstoque)}</span>
+              <span className="w-24 text-right text-xs text-muted-foreground" title="Consumo por dia">{i.consumoDiario}/dia</span>
+              <span className="w-16 text-right text-xs text-muted-foreground" title="Dias de cobertura">{i.diasCobertura != null ? `${i.diasCobertura}d` : '—'}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
