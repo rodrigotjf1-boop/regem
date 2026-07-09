@@ -129,36 +129,38 @@ export class RelatoriosService {
     };
   }
 
-  // Faturamento por mês e por trimestre de um ano (vendas fechadas).
-  async faturamentoAnual(tenantId: string, ano?: number) {
-    const y = ano || new Date().getFullYear();
+  // Faturamento por mês e por trimestre DENTRO do período (respeita De/Até).
+  async faturamentoPeriodo(tenantId: string, inicio?: string, fim?: string) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
     const rows = await this.rows(sql`
-      select extract(month from c.fechada_em)::int as mes,
+      select to_char(c.fechada_em, 'YYYY-MM') as ym,
              coalesce(sum(c.total),0) as total, count(*)::int as vendas
       from comanda c
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and extract(year from c.fechada_em) = ${y}
+        and c.fechada_em::date between ${ini} and ${f}
       group by 1 order by 1`);
-    const porMes = Array.from({ length: 12 }, (_, i) => {
-      const r = rows.find((x) => Number(x.mes) === i + 1);
-      return {
-        mes: i + 1,
-        total: Number(r?.total ?? 0),
-        vendas: Number(r?.vendas ?? 0),
-      };
-    });
-    const trimestres = [0, 1, 2, 3].map((q) => {
-      const meses = porMes.slice(q * 3, q * 3 + 3);
-      return {
-        trimestre: q + 1,
-        total: Number(meses.reduce((s, m) => s + m.total, 0).toFixed(2)),
-        vendas: meses.reduce((s, m) => s + m.vendas, 0),
-      };
-    });
+    const porMes = rows.map((r) => ({
+      ym: r.ym as string,
+      total: Number(r.total),
+      vendas: Number(r.vendas),
+    }));
+    // Trimestres agrupados por ano-Qn (funciona mesmo cruzando anos).
+    const tri = new Map<string, { trimestre: string; total: number; vendas: number }>();
+    for (const m of porMes) {
+      const [y, mm] = m.ym.split('-').map(Number);
+      const key = `${y}·T${Math.ceil(mm / 3)}`;
+      const cur = tri.get(key) ?? { trimestre: key, total: 0, vendas: 0 };
+      cur.total += m.total;
+      cur.vendas += m.vendas;
+      tri.set(key, cur);
+    }
     return {
-      ano: y,
+      periodo: { inicio: ini, fim: f },
       porMes,
-      trimestres,
+      trimestres: [...tri.values()].map((t) => ({
+        ...t,
+        total: Number(t.total.toFixed(2)),
+      })),
       total: Number(porMes.reduce((s, m) => s + m.total, 0).toFixed(2)),
     };
   }
