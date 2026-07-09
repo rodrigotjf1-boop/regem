@@ -493,6 +493,10 @@ export const api = {
   },
   criarTitulo: (body: Record<string, unknown>) =>
     req('/financeiro/titulos', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarTitulo: (id: string, body: Record<string, unknown>) =>
+    req(`/financeiro/titulos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  excluirTitulo: (id: string) =>
+    req(`/financeiro/titulos/${id}`, { method: 'DELETE' }),
   pagarTitulo: (id: string, body: Record<string, unknown>) =>
     req(`/financeiro/titulos/${id}/pagar`, {
       method: 'POST',

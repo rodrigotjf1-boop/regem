@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Pencil, Trash2 } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -39,6 +40,8 @@ export default function FinanceiroPage() {
   const [filtro, setFiltro] = useState('pagar');
   const [ver, setVer] = useState(0);
   const [erro, setErro] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editVals, setEditVals] = useState<any>(null);
 
   const carregar = useCallback(async (f: string) => {
     setErro('');
@@ -89,6 +92,36 @@ export default function FinanceiroPage() {
       setErro(e instanceof Error ? e.message : 'Erro ao estornar');
     }
   }
+  function editar(t: any) {
+    setEditId(t.id);
+    setEditVals({
+      tipo: t.tipo,
+      descricao: t.descricao ?? '',
+      categoria: t.categoria ?? '',
+      valor: String(t.valor ?? '').replace('.', ','),
+      vencimento: t.vencimento ?? '',
+      recorrencia: t.recorrencia ?? 'nenhuma',
+      fornecedorId: t.fornecedorId ?? '',
+      fotoRef: t.fotoRef ?? '',
+    });
+    setVer((n) => n + 1);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  function cancelarEdicao() {
+    setEditId(null);
+    setEditVals(null);
+    setVer((n) => n + 1);
+  }
+  async function excluir(id: string) {
+    if (!confirm('Excluir esta conta? (fica cancelada, para auditoria)')) return;
+    try {
+      await api.excluirTitulo(id);
+      if (editId === id) cancelarEdicao();
+      await carregar(filtro);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao excluir');
+    }
+  }
 
   const optForn = [
     { value: '', label: '— nenhum —' },
@@ -104,12 +137,12 @@ export default function FinanceiroPage() {
         { value: 'pagar', label: 'A pagar' },
         { value: 'receber', label: 'A receber' },
       ],
-      defaultValue: 'pagar',
+      defaultValue: editVals?.tipo ?? 'pagar',
     },
-    { name: 'descricao', label: 'Descrição', type: 'text', required: true, placeholder: 'Ex.: Aluguel' },
-    { name: 'categoria', label: 'Tipo de conta', type: 'text', placeholder: 'Ex.: aluguel, energia, fornecedor' },
-    { name: 'valor', label: 'Valor (R$)', type: 'text', required: true, placeholder: '0,00' },
-    { name: 'vencimento', label: 'Vencimento', type: 'date' },
+    { name: 'descricao', label: 'Descrição', type: 'text', required: true, placeholder: 'Ex.: Aluguel', defaultValue: editVals?.descricao },
+    { name: 'categoria', label: 'Tipo de conta', type: 'text', placeholder: 'Ex.: aluguel, energia, fornecedor', defaultValue: editVals?.categoria },
+    { name: 'valor', label: 'Valor (R$)', type: 'text', required: true, placeholder: '0,00', defaultValue: editVals?.valor },
+    { name: 'vencimento', label: 'Vencimento', type: 'date', defaultValue: editVals?.vencimento },
     {
       name: 'recorrencia',
       label: 'Recorrência',
@@ -120,10 +153,10 @@ export default function FinanceiroPage() {
         { value: 'quinzenal', label: 'Quinzenal' },
         { value: 'mensal', label: 'Mensal' },
       ],
-      defaultValue: 'nenhuma',
+      defaultValue: editVals?.recorrencia ?? 'nenhuma',
     },
-    { name: 'fornecedorId', label: 'Fornecedor', type: 'select', options: optForn },
-    { name: 'fotoRef', label: 'Comprovante / boleto (opcional)', type: 'image' },
+    { name: 'fornecedorId', label: 'Fornecedor', type: 'select', options: optForn, defaultValue: editVals?.fornecedorId },
+    { name: 'fotoRef', label: 'Comprovante / boleto (opcional)', type: 'image', defaultValue: editVals?.fotoRef },
   ];
 
   return (
@@ -224,15 +257,24 @@ export default function FinanceiroPage() {
           </Card>
         )}
 
-        {/* Novo título */}
+        {/* Novo/editar título */}
         <Card className="p-4">
-          <h2 className="mb-3 font-display text-lg font-semibold">Nova conta</h2>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-semibold">
+              {editId ? 'Editar conta' : 'Nova conta'}
+            </h2>
+            {editId && (
+              <Button type="button" variant="ghost" size="sm" onClick={cancelarEdicao}>
+                Cancelar edição
+              </Button>
+            )}
+          </div>
           <EntityForm
             key={`tit-${ver}`}
             fields={campos}
-            submitLabel="Cadastrar conta"
+            submitLabel={editId ? 'Salvar alterações' : 'Cadastrar conta'}
             onSubmit={async (v) => {
-              await api.criarTitulo({
+              const body = {
                 tipo: v.tipo,
                 descricao: v.descricao,
                 categoria: v.categoria || undefined,
@@ -241,8 +283,14 @@ export default function FinanceiroPage() {
                 recorrencia: v.recorrencia || 'nenhuma',
                 fornecedorId: v.fornecedorId || undefined,
                 fotoRef: v.fotoRef || undefined,
-              });
-              setVer((n) => n + 1);
+              };
+              if (editId) {
+                await api.atualizarTitulo(editId, body);
+                cancelarEdicao();
+              } else {
+                await api.criarTitulo(body);
+                setVer((n) => n + 1);
+              }
               await carregar(filtro);
             }}
           />
@@ -303,9 +351,17 @@ export default function FinanceiroPage() {
                 {brl(Number(t.valor))}
               </p>
               {t.status === 'aberto' ? (
-                <Button type="button" size="sm" onClick={() => pagar(t.id)}>
-                  {t.tipo === 'pagar' ? 'Pagar' : 'Receber'}
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button type="button" size="sm" onClick={() => pagar(t.id)}>
+                    {t.tipo === 'pagar' ? 'Pagar' : 'Receber'}
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" aria-label="Editar" onClick={() => editar(t)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button type="button" variant="ghost" size="icon" aria-label="Excluir" onClick={() => excluir(t.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               ) : (
                 <Button
                   type="button"

@@ -37,6 +37,7 @@ export class FinanceiroService {
     const res: any = await this.db.execute(sql`
       select t.id, t.tipo, t.descricao, t.categoria, t.valor, t.vencimento,
              t.recorrencia, t.status, t.origem, t.foto_ref as "fotoRef",
+             t.fornecedor_id as "fornecedorId",
              t.created_at as "createdAt", f.nome as "fornecedorNome"
       from titulo_financeiro t
       left join fornecedor f on f.id = t.fornecedor_id
@@ -83,6 +84,74 @@ export class FinanceiroService {
       detalhe: { descricao: row.descricao, valor: Number(row.valor), tipo: row.tipo },
     });
     return row;
+  }
+
+  // Edição — só contas EM ABERTO (paga tem lançamento; estorne antes de editar).
+  async atualizar(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    id: string,
+    dto: CreateTituloDto,
+  ) {
+    const [t] = await this.db
+      .select()
+      .from(tituloFinanceiro)
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)));
+    if (!t) throw new NotFoundException('Título não encontrado');
+    if (t.status !== 'aberto')
+      throw new BadRequestException('Só é possível editar contas em aberto.');
+    const [row] = await this.db
+      .update(tituloFinanceiro)
+      .set({
+        tipo: dto.tipo ?? t.tipo,
+        descricao: dto.descricao,
+        categoria: dto.categoria ?? null,
+        fornecedorId: dto.fornecedorId ?? null,
+        valor: String(dto.valor),
+        vencimento: dto.vencimento ?? null,
+        recorrencia: dto.recorrencia ?? 'nenhuma',
+        fotoRef: dto.fotoRef ?? null,
+      })
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)))
+      .returning();
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'financeiro',
+      acao: 'editou_titulo',
+      entidadeTipo: 'titulo_financeiro',
+      entidadeId: id,
+      detalhe: { descricao: row.descricao, valor: Number(row.valor) },
+    });
+    return row;
+  }
+
+  // "Excluir" = cancela a conta em aberto (mantém o registro para auditoria).
+  async cancelar(tenantId: string, atorId: string, atorPerfil: string, id: string) {
+    const [t] = await this.db
+      .select()
+      .from(tituloFinanceiro)
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)));
+    if (!t) throw new NotFoundException('Título não encontrado');
+    if (t.status !== 'aberto')
+      throw new BadRequestException('Só é possível excluir contas em aberto.');
+    await this.db
+      .update(tituloFinanceiro)
+      .set({ status: 'cancelado' })
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)));
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'financeiro',
+      acao: 'cancelou_titulo',
+      entidadeTipo: 'titulo_financeiro',
+      entidadeId: id,
+      detalhe: { descricao: t.descricao, valor: Number(t.valor) },
+    });
+    return { ok: true };
   }
 
   // Baixa: gera lançamento de caixa e fecha o título. Recorrente → cria o próximo.
@@ -291,15 +360,24 @@ export class FinanceiroService {
   // DRE gerencial (regime de caixa) — receitas − despesas por categoria, do ledger. H3.
   // Valor pleno (receita de vendas, CMV, folha) chega com o PDV (Fase J) e a folha.
   async dreCaixa(tenantId: string, inicio: string, fim: string) {
+    // Exclui os estornos (estorno_de not null) E os lançamentos que foram
+    // estornados (id referenciado por algum estorno) — assim reversões não
+    // contam como receita/despesa na DRE.
+    const estornados = sql`
+      select estorno_de from lancamento_caixa
+      where tenant_id=${tenantId} and estorno_de is not null
+    `;
     const rec: any = await this.db.execute(sql`
       select coalesce(sum(valor),0) as v from lancamento_caixa
       where tenant_id=${tenantId} and tipo='entrada' and estorno_de is null
+        and id not in (${estornados})
         and data between ${inicio} and ${fim}
     `);
     const desp: any = await this.db.execute(sql`
       select coalesce(categoria,'outros') as categoria, coalesce(sum(valor),0) as v
       from lancamento_caixa
       where tenant_id=${tenantId} and tipo='saida' and estorno_de is null
+        and id not in (${estornados})
         and data between ${inicio} and ${fim}
       group by coalesce(categoria,'outros')
       order by v desc
