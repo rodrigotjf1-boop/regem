@@ -16,7 +16,8 @@ export class DashboardController {
   resumo(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
     const d =
       data ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-    return this.service.resumo(user.tenantId, d);
+    // Só presidente/C&O recebe o bloco financeiro (valores em R$). Gerente: omitido.
+    return this.service.resumo(user.tenantId, d, user.categoria === 'presidente');
   }
 
   @Get('timeline')

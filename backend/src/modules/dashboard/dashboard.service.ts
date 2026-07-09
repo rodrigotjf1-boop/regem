@@ -11,7 +11,7 @@ export class DashboardService {
     return r.rows[0];
   }
 
-  async resumo(tenantId: string, data: string) {
+  async resumo(tenantId: string, data: string, verFinanceiro = false) {
     const t = await this.row(sql`
       select count(*) as total,
         count(*) filter (where estado = 'feita')     as feitas,
@@ -62,10 +62,19 @@ export class DashboardService {
       where tenant_id = ${tenantId}
         and status in ('novo', 'confirmado', 'pronto', 'despachado')`);
 
+    // Produção do dia (unidades = operacional; custo = financeiro).
+    const prod = await this.row(sql`
+      select count(*)::int as producoes,
+             coalesce(sum((detalhe->>'quantidade')::numeric), 0) as unidades,
+             coalesce(sum((detalhe->>'custoTotal')::numeric), 0) as custo
+      from audit_log
+      where tenant_id = ${tenantId} and acao = 'produziu_ficha'
+        and (created_at at time zone 'America/Sao_Paulo')::date = ${data}::date`);
+
     const total = Number(t.total);
     const feitas = Number(t.feitas);
 
-    return {
+    const base: any = {
       data,
       tarefas: {
         total,
@@ -79,13 +88,29 @@ export class DashboardService {
       desperdicio: { total: Number(d.total), quantidade: Number(d.qtd) },
       vistorias: Number(v.total),
       estoqueAbaixoMinimo: Number(est.total),
-      vendas: {
-        total: Number(vend.vendas),
-        faturado: Number(Number(vend.faturado).toFixed(2)),
-        ticketMedio: Number(Number(vend.ticket).toFixed(2)),
-      },
+      // Volume operacional (sem valores em R$): nº de vendas, produção e delivery aberto.
+      vendas: { total: Number(vend.vendas) },
+      producaoHoje: { producoes: Number(prod.producoes), unidades: Number(Number(prod.unidades).toFixed(3)) },
       deliveryPendentes: Number(deliv.pendentes),
     };
+
+    // Bloco COMERCIAL/FINANCEIRO — RBAC no servidor: só presidente/C&O recebe
+    // valores em R$ (faturamento, ticket, delivery, custo). Gerente NUNCA recebe.
+    if (verFinanceiro) {
+      const delivFat = await this.row(sql`
+        select coalesce(sum(total), 0) as faturado
+        from pedido_externo
+        where tenant_id = ${tenantId} and status not in ('novo', 'cancelado')
+          and (criado_em at time zone 'America/Sao_Paulo')::date = ${data}::date`);
+      base.comercial = {
+        faturado: Number(Number(vend.faturado).toFixed(2)),
+        ticketMedio: Number(Number(vend.ticket).toFixed(2)),
+        deliveryFaturado: Number(Number(delivFat.faturado).toFixed(2)),
+        producaoCusto: Number(Number(prod.custo).toFixed(2)),
+      };
+    }
+
+    return base;
   }
 
   // Linha do tempo operacional do dia: faixas de turno, tarefas com horário e

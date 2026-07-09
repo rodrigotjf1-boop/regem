@@ -76,11 +76,14 @@ export default function DashboardPage() {
       t.estado === 'parcial',
   );
 
-  const kpisVendas = d
+  // Faixa comercial/financeira: só existe quando o servidor envia `comercial`
+  // (RBAC — presidente/C&O). Gerente não recebe o bloco, logo a faixa some.
+  const kpisFinanceiro = d?.comercial
     ? [
-        { label: 'Vendas hoje', value: brl(d.vendas?.faturado ?? 0), sub: `${d.vendas?.total ?? 0} venda(s)`, color: 'var(--ok)' },
-        { label: 'Ticket médio', value: brl(d.vendas?.ticketMedio ?? 0), sub: 'por venda', color: 'var(--info)' },
-        { label: 'Delivery pendente', value: d.deliveryPendentes ?? 0, sub: 'pedidos em aberto', color: 'var(--warn)' },
+        { label: 'Faturamento hoje', value: brl(d.comercial.faturado ?? 0), sub: `${d.vendas?.total ?? 0} venda(s)`, color: 'var(--ok)' },
+        { label: 'Ticket médio', value: brl(d.comercial.ticketMedio ?? 0), sub: 'por venda', color: 'var(--info)' },
+        { label: 'Delivery faturado', value: brl(d.comercial.deliveryFaturado ?? 0), sub: 'apps + retirada', color: 'var(--info)' },
+        { label: 'Custo de produção', value: brl(d.comercial.producaoCusto ?? 0), sub: 'fichas produzidas', color: 'var(--warn)' },
       ]
     : [];
 
@@ -88,6 +91,9 @@ export default function DashboardPage() {
     ? [
         { label: 'Conclusão', value: `${d.tarefas.pctConclusao}%`, sub: `${d.tarefas.feitas}/${d.tarefas.total} tarefas`, color: 'var(--ok)' },
         { label: 'Escalados hoje', value: `${d.escala.preenchidas}/${d.escala.vagas}`, sub: 'vagas preenchidas', color: 'var(--info)' },
+        { label: 'Vendas hoje', value: d.vendas?.total ?? 0, sub: 'comandas fechadas', color: 'var(--ok)' },
+        { label: 'Produção hoje', value: d.producaoHoje?.unidades ?? 0, sub: `${d.producaoHoje?.producoes ?? 0} produção(ões)`, color: 'var(--info)' },
+        { label: 'Delivery aberto', value: d.deliveryPendentes ?? 0, sub: 'pedidos pendentes', color: 'var(--warn)' },
         { label: 'Pendentes', value: d.tarefas.pendentes, sub: 'tarefas do dia', color: 'var(--warn)' },
         { label: 'Estoque crítico', value: d.estoqueAbaixoMinimo, sub: 'abaixo do mínimo', color: 'var(--destructive)' },
         { label: 'Desperdícios', value: d.desperdicio.total, sub: `${d.desperdicio.quantidade} un.`, color: 'var(--warn)' },
@@ -126,19 +132,24 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {kpisVendas.length > 0 && (
-        <div className="mb-3.5 grid grid-cols-2 gap-3.5 md:grid-cols-3">
-          {kpisVendas.map((k) => (
-            <Card key={k.label} className="relative overflow-hidden p-4">
-              <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: `hsl(${k.color})` }} />
-              <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
-                {k.label}
-              </p>
-              <p className="mt-1 font-mono text-2xl font-bold tabular-nums">{k.value}</p>
-              <p className="text-xs text-muted-foreground">{k.sub}</p>
-            </Card>
-          ))}
-        </div>
+      {kpisFinanceiro.length > 0 && (
+        <>
+          <p className="mb-2 font-display text-[11px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+            Comercial &amp; financeiro
+          </p>
+          <div className="mb-4 grid grid-cols-2 gap-3.5 md:grid-cols-4">
+            {kpisFinanceiro.map((k) => (
+              <Card key={k.label} className="relative overflow-hidden p-4">
+                <span className="absolute inset-y-0 left-0 w-[3px]" style={{ background: `hsl(${k.color})` }} />
+                <p className="font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                  {k.label}
+                </p>
+                <p className="mt-1 font-mono text-2xl font-bold tabular-nums">{k.value}</p>
+                <p className="text-xs text-muted-foreground">{k.sub}</p>
+              </Card>
+            ))}
+          </div>
+        </>
       )}
 
       <div className="mb-5 grid grid-cols-2 gap-3.5 md:grid-cols-3 xl:grid-cols-5">
