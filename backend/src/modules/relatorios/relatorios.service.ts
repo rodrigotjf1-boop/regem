@@ -128,4 +128,76 @@ export class RelatoriosService {
       })),
     };
   }
+
+  // Faturamento por mês e por trimestre de um ano (vendas fechadas).
+  async faturamentoAnual(tenantId: string, ano?: number) {
+    const y = ano || new Date().getFullYear();
+    const rows = await this.rows(sql`
+      select extract(month from c.fechada_em)::int as mes,
+             coalesce(sum(c.total),0) as total, count(*)::int as vendas
+      from comanda c
+      where c.tenant_id = ${tenantId} and c.status = 'fechada'
+        and extract(year from c.fechada_em) = ${y}
+      group by 1 order by 1`);
+    const porMes = Array.from({ length: 12 }, (_, i) => {
+      const r = rows.find((x) => Number(x.mes) === i + 1);
+      return {
+        mes: i + 1,
+        total: Number(r?.total ?? 0),
+        vendas: Number(r?.vendas ?? 0),
+      };
+    });
+    const trimestres = [0, 1, 2, 3].map((q) => {
+      const meses = porMes.slice(q * 3, q * 3 + 3);
+      return {
+        trimestre: q + 1,
+        total: Number(meses.reduce((s, m) => s + m.total, 0).toFixed(2)),
+        vendas: meses.reduce((s, m) => s + m.vendas, 0),
+      };
+    });
+    return {
+      ano: y,
+      porMes,
+      trimestres,
+      total: Number(porMes.reduce((s, m) => s + m.total, 0).toFixed(2)),
+    };
+  }
+
+  // Faturamento de delivery por plataforma (canal do pedido externo).
+  async faturamentoDelivery(tenantId: string, inicio?: string, fim?: string) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    // Faturado = pedidos aceitos (exclui 'novo' pendente e 'cancelado').
+    const base = sql`from pedido_externo pe
+      where pe.tenant_id = ${tenantId}
+        and pe.status not in ('novo','cancelado')
+        and pe.criado_em::date between ${ini} and ${f}`;
+    const porPlataforma = await this.rows(sql`
+      select pe.canal as plataforma, count(*)::int as pedidos,
+             coalesce(sum(pe.total),0) as total,
+             coalesce(avg(pe.total),0) as ticket_medio
+      ${base} group by pe.canal order by total desc`);
+    const porDia = await this.rows(sql`
+      select pe.criado_em::date as dia, count(*)::int as pedidos,
+             coalesce(sum(pe.total),0) as total
+      ${base} group by 1 order by 1`);
+    const total = porPlataforma.reduce((s, r) => s + Number(r.total), 0);
+    const pedidos = porPlataforma.reduce((s, r) => s + Number(r.pedidos), 0);
+    return {
+      periodo: { inicio: ini, fim: f },
+      total: Number(total.toFixed(2)),
+      pedidos,
+      ticketMedio: Number((pedidos ? total / pedidos : 0).toFixed(2)),
+      porPlataforma: porPlataforma.map((r) => ({
+        plataforma: r.plataforma,
+        pedidos: Number(r.pedidos),
+        total: Number(r.total),
+        ticketMedio: Number(Number(r.ticket_medio).toFixed(2)),
+      })),
+      porDia: porDia.map((r) => ({
+        dia: r.dia,
+        pedidos: Number(r.pedidos),
+        total: Number(r.total),
+      })),
+    };
+  }
 }

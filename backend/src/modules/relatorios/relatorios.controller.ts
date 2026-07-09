@@ -39,4 +39,21 @@ export class RelatoriosController {
   ) {
     return this.service.atendentes(user.tenantId, inicio, fim);
   }
+
+  @Get('faturamento')
+  faturamento(@CurrentUser() user: AuthUser, @Query('ano') ano?: string) {
+    return this.service.faturamentoAnual(
+      user.tenantId,
+      ano ? Number(ano) : undefined,
+    );
+  }
+
+  @Get('faturamento-delivery')
+  faturamentoDelivery(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.faturamentoDelivery(user.tenantId, inicio, fim);
+  }
 }

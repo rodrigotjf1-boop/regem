@@ -14,6 +14,24 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasAtras = (d: number) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+// Exporta linhas (array de objetos) como CSV e dispara o download.
+function baixarCsv(nome: string, linhas: Record<string, any>[]) {
+  if (!linhas.length) return;
+  const cols = Object.keys(linhas[0]);
+  const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [
+    cols.join(';'),
+    ...linhas.map((l) => cols.map((c) => esc(l[c])).join(';')),
+  ].join('\n');
+  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${nome}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 const CLASSE: Record<string, string> = {
   A: 'bg-ok/15 text-ok',
   B: 'bg-warn/15 text-warn',
@@ -44,6 +62,10 @@ export default function RelatoriosPage() {
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
+  const [aba, setAba] = useState<'vendas' | 'financeiro'>('vendas');
+  const [ano, setAno] = useState(new Date().getFullYear());
+  const [fatAnual, setFatAnual] = useState<any>(null);
+  const [fatDelivery, setFatDelivery] = useState<any>(null);
 
   const reload = useCallback(async () => {
     setErro('');
@@ -61,6 +83,20 @@ export default function RelatoriosPage() {
     }
   }, [inicio, fim]);
 
+  const reloadFin = useCallback(async () => {
+    setErro('');
+    try {
+      const [fa, fd] = await Promise.all([
+        api.relatorioFaturamento(ano),
+        api.relatorioFaturamentoDelivery(inicio, fim),
+      ]);
+      setFatAnual(fa);
+      setFatDelivery(fd);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [ano, inicio, fim]);
+
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
@@ -68,6 +104,10 @@ export default function RelatoriosPage() {
     }
     reload();
   }, [reload, router]);
+
+  useEffect(() => {
+    if (aba === 'financeiro' && getToken()) reloadFin();
+  }, [aba, reloadFin]);
 
   if (!isGestor) {
     return (
@@ -95,9 +135,34 @@ export default function RelatoriosPage() {
             <Label className="text-xs">Até</Label>
             <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} className="w-40" />
           </div>
-          <Button type="button" onClick={reload}>Atualizar</Button>
+          <Button type="button" onClick={aba === 'financeiro' ? reloadFin : reload}>
+            Atualizar
+          </Button>
         </Card>
 
+        {/* Abas por módulo */}
+        <div className="flex flex-wrap gap-2">
+          {[
+            { v: 'vendas', l: 'Vendas' },
+            { v: 'financeiro', l: 'Financeiro' },
+          ].map((t) => (
+            <button
+              key={t.v}
+              type="button"
+              onClick={() => setAba(t.v as any)}
+              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                aba === t.v
+                  ? 'border-primary bg-primary/15 text-primary'
+                  : 'border-border bg-card text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t.l}
+            </button>
+          ))}
+        </div>
+
+        {aba === 'vendas' && (
+        <>
         {/* KPIs */}
         {vendas && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -182,6 +247,103 @@ export default function RelatoriosPage() {
             </div>
           </Card>
         </div>
+        </>
+        )}
+
+        {aba === 'financeiro' && (
+        <>
+          {/* Faturamento anual (mensal + trimestral) */}
+          <Card className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-display text-sm font-bold">Faturamento por mês</h2>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAno((a) => a - 1)}>‹</Button>
+                <span className="font-mono text-sm font-bold">{ano}</span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setAno((a) => a + 1)}>›</Button>
+                {fatAnual && (
+                  <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv(`faturamento-${ano}`, fatAnual.porMes.map((m: any) => ({ mes: MESES[m.mes - 1], faturamento: m.total, vendas: m.vendas })))}>
+                    Exportar CSV
+                  </Button>
+                )}
+              </div>
+            </div>
+            {fatAnual && (
+              <>
+                <div className="flex items-end gap-1.5" style={{ height: 140 }}>
+                  {fatAnual.porMes.map((m: any) => {
+                    const mx = Math.max(1, ...fatAnual.porMes.map((x: any) => x.total));
+                    return (
+                      <div key={m.mes} className="flex flex-1 flex-col items-center justify-end" title={`${MESES[m.mes - 1]} · ${brl(m.total)} · ${m.vendas} vendas`}>
+                        <div className="w-full rounded-t bg-primary" style={{ height: `${(m.total / mx) * 100}%` }} />
+                        <span className="mt-1 text-[9px] text-muted-foreground">{MESES[m.mes - 1]}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {fatAnual.trimestres.map((t: any) => (
+                    <div key={t.trimestre} className="rounded-lg border border-border p-2.5 text-center">
+                      <p className="text-[10px] font-bold uppercase text-muted-foreground">{t.trimestre}º trim.</p>
+                      <p className="mt-0.5 font-mono text-sm font-bold">{brl(t.total)}</p>
+                      <p className="text-[10px] text-muted-foreground">{t.vendas} vendas</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-right text-sm">
+                  Total {ano}: <strong className="font-mono">{brl(fatAnual.total)}</strong>
+                </p>
+              </>
+            )}
+          </Card>
+
+          {/* Faturamento por delivery / plataforma (usa o período De/Até) */}
+          <Card className="space-y-3 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-display text-sm font-bold">Faturamento por delivery (plataforma)</h2>
+                <p className="text-xs text-muted-foreground">Período De/Até acima · exclui pendentes e cancelados.</p>
+              </div>
+              {fatDelivery && fatDelivery.porPlataforma.length > 0 && (
+                <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv('faturamento-delivery', fatDelivery.porPlataforma.map((p: any) => ({ plataforma: p.plataforma, pedidos: p.pedidos, total: p.total, ticketMedio: p.ticketMedio })))}>
+                  Exportar CSV
+                </Button>
+              )}
+            </div>
+            {fatDelivery && (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg border border-border p-2.5 text-center">
+                    <p className="text-[10px] uppercase text-muted-foreground">Total delivery</p>
+                    <p className="mt-0.5 font-mono text-sm font-bold">{brl(fatDelivery.total)}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-2.5 text-center">
+                    <p className="text-[10px] uppercase text-muted-foreground">Pedidos</p>
+                    <p className="mt-0.5 font-mono text-sm font-bold">{fatDelivery.pedidos}</p>
+                  </div>
+                  <div className="rounded-lg border border-border p-2.5 text-center">
+                    <p className="text-[10px] uppercase text-muted-foreground">Ticket médio</p>
+                    <p className="mt-0.5 font-mono text-sm font-bold">{brl(fatDelivery.ticketMedio)}</p>
+                  </div>
+                </div>
+                {fatDelivery.porPlataforma.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Sem pedidos de delivery no período.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {fatDelivery.porPlataforma.map((p: any) => (
+                      <div key={p.plataforma} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+                        <span className="min-w-0 flex-1 truncate capitalize">{p.plataforma}</span>
+                        <span className="w-14 text-right text-xs text-muted-foreground">{p.pedidos} ped.</span>
+                        <span className="w-24 text-right font-mono">{brl(p.total)}</span>
+                        <span className="w-20 text-right text-xs text-muted-foreground">tm {brl(p.ticketMedio)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
+        </>
+        )}
       </div>
     </Shell>
   );
