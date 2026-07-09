@@ -95,11 +95,36 @@ export class BotService {
         count(*) filter (where (created_at at time zone 'America/Sao_Paulo')::date
           = (now() at time zone 'America/Sao_Paulo')::date)::int as "hoje",
         count(*) filter (where (created_at at time zone 'America/Sao_Paulo')::date
-          = (now() at time zone 'America/Sao_Paulo')::date and escalado)::int as "escaladosHoje"
+          = (now() at time zone 'America/Sao_Paulo')::date and escalado)::int as "escaladosHoje",
+        count(*) filter (where regra_id is null
+          and created_at > now() - interval '30 days')::int as "semRespostaMes"
       from bot_atendimento
       where tenant_id = ${tenantId}
     `);
     const row = (r.rows ?? r)[0] ?? {};
-    return { hoje: Number(row.hoje ?? 0), escaladosHoje: Number(row.escaladosHoje ?? 0) };
+
+    // Perguntas que não casaram nenhuma regra (últimos 30 dias), agrupadas por
+    // frequência — insumo direto para o presidente criar novas regras.
+    const nr: any = await this.db.execute(sql`
+      select trim(pergunta) as pergunta, count(*)::int as vezes,
+             max(created_at) as "ultima"
+      from bot_atendimento
+      where tenant_id = ${tenantId} and regra_id is null
+        and created_at > now() - interval '30 days'
+      group by trim(pergunta)
+      order by vezes desc, "ultima" desc
+      limit 15
+    `);
+
+    return {
+      hoje: Number(row.hoje ?? 0),
+      escaladosHoje: Number(row.escaladosHoje ?? 0),
+      semRespostaMes: Number(row.semRespostaMes ?? 0),
+      naoRespondidas: (nr.rows ?? nr).map((x: any) => ({
+        pergunta: x.pergunta,
+        vezes: Number(x.vezes),
+        ultima: x.ultima,
+      })),
+    };
   }
 }

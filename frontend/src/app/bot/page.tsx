@@ -31,12 +31,14 @@ export default function BotPage() {
   const [enviando, setEnviando] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
-  // Form de nova regra
+  // Form de nova/editar regra
+  const [editId, setEditId] = useState<string | null>(null);
   const [tipo, setTipo] = useState('');
   const [gatilhos, setGatilhos] = useState('');
   const [resposta, setResposta] = useState('');
   const [escala, setEscala] = useState('nunca');
   const [escalaCondicao, setEscalaCondicao] = useState('');
+  const formRef = useRef<HTMLDivElement>(null);
 
   const presidente = getCategoria() === 'presidente';
 
@@ -86,25 +88,53 @@ export default function BotPage() {
     }
   }
 
-  async function criar() {
+  function limparForm() {
+    setEditId(null);
+    setTipo('');
+    setGatilhos('');
+    setResposta('');
+    setEscala('nunca');
+    setEscalaCondicao('');
+  }
+
+  async function salvar() {
     if (tipo.trim().length < 2 || !gatilhos.trim() || !resposta.trim()) return;
+    const body = {
+      tipo,
+      gatilhos,
+      resposta,
+      escala,
+      escalaCondicao: escala === 'condicional' ? escalaCondicao || undefined : undefined,
+    };
     try {
-      await api.criarBotRegra({
-        tipo,
-        gatilhos,
-        resposta,
-        escala,
-        escalaCondicao: escala === 'condicional' ? escalaCondicao || undefined : undefined,
-      });
-      setTipo('');
-      setGatilhos('');
-      setResposta('');
-      setEscala('nunca');
-      setEscalaCondicao('');
+      if (editId) await api.atualizarBotRegra(editId, body);
+      else await api.criarBotRegra(body);
+      limparForm();
       await carregar();
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao criar regra');
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar regra');
     }
+  }
+
+  function editar(r: any) {
+    setEditId(r.id);
+    setTipo(r.tipo);
+    setGatilhos(r.gatilhos);
+    setResposta(r.resposta);
+    setEscala(r.escala ?? 'nunca');
+    setEscalaCondicao(r.escalaCondicao ?? '');
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // "Virar regra" a partir de uma pergunta sem resposta: prefila o form.
+  function virarRegra(pergunta: string) {
+    setEditId(null);
+    setTipo('');
+    setGatilhos(pergunta);
+    setResposta('');
+    setEscala('nunca');
+    setEscalaCondicao('');
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   async function toggle(r: any) {
@@ -141,6 +171,14 @@ export default function BotPage() {
               🤖 {metricas.hoje} atendimento(s) hoje · {metricas.escaladosHoje} escalado(s)
             </span>
           )}
+          {metricas?.semRespostaMes > 0 && (
+            <span
+              className="rounded-lg px-3 py-1.5 text-xs font-medium"
+              style={{ background: 'hsl(var(--warn)/.12)', color: 'hsl(var(--warn))' }}
+            >
+              ❓ {metricas.semRespostaMes} sem resposta (30 dias)
+            </span>
+          )}
         </div>
 
         {erro && <p className="text-destructive">{erro}</p>}
@@ -160,7 +198,7 @@ export default function BotPage() {
                 <caption className="sr-only">Regras do bot de suporte</caption>
                 <thead>
                   <tr className="border-b border-border text-left">
-                    {['Tipo', 'Gatilhos', 'Escala', 'Ativa', ''].map((h) => (
+                    {['Tipo', 'Gatilhos', 'Escala p/ gerente', 'Ativa', ''].map((h) => (
                       <th
                         key={h}
                         className="whitespace-nowrap px-4 py-2.5 font-display text-[10px] font-bold uppercase tracking-[.1em] text-muted-foreground"
@@ -210,15 +248,24 @@ export default function BotPage() {
                           {r.ativa ? 'Ativa' : 'Inativa'}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="whitespace-nowrap px-4 py-3 text-right">
                         {presidente && (
-                          <button
-                            type="button"
-                            onClick={() => remover(r.id)}
-                            className="text-xs text-destructive hover:underline"
-                          >
-                            Remover
-                          </button>
+                          <span className="inline-flex gap-3">
+                            <button
+                              type="button"
+                              onClick={() => editar(r)}
+                              className="text-xs text-primary hover:underline"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => remover(r.id)}
+                              className="text-xs text-destructive hover:underline"
+                            >
+                              Remover
+                            </button>
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -228,10 +275,17 @@ export default function BotPage() {
             </div>
 
             {presidente && (
-              <div className="space-y-3 border-t border-border p-4">
-                <p className="font-display text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                  Nova regra
-                </p>
+              <div ref={formRef} className="space-y-3 border-t border-border p-4">
+                <div className="flex items-center justify-between">
+                  <p className="font-display text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                    {editId ? 'Editar regra' : 'Nova regra'}
+                  </p>
+                  {editId && (
+                    <button type="button" onClick={limparForm} className="text-xs text-muted-foreground hover:underline">
+                      Cancelar edição
+                    </button>
+                  )}
+                </div>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label htmlFor="tipo" className="text-xs">Tipo</Label>
@@ -271,10 +325,10 @@ export default function BotPage() {
                 </div>
                 <div className="flex justify-end">
                   <Button
-                    onClick={criar}
+                    onClick={salvar}
                     disabled={tipo.trim().length < 2 || !gatilhos.trim() || !resposta.trim()}
                   >
-                    + Nova regra
+                    {editId ? 'Salvar alterações' : '+ Nova regra'}
                   </Button>
                 </div>
               </div>
@@ -323,8 +377,49 @@ export default function BotPage() {
                 Enviar
               </Button>
             </div>
+            {(regras ?? []).some((r) => r.ativa) && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Gatilhos:{' '}
+                {(regras ?? [])
+                  .filter((r) => r.ativa)
+                  .map((r) => r.gatilhos.split(',')[0].trim())
+                  .slice(0, 6)
+                  .join(' · ')}
+              </p>
+            )}
           </Card>
         </div>
+
+        {/* Perguntas sem resposta — insumo para novas regras (só presidente) */}
+        {presidente && (metricas?.naoRespondidas?.length ?? 0) > 0 && (
+          <Card className="p-0">
+            <div className="border-b border-border px-5 py-3.5">
+              <p className="font-display text-sm font-bold">Perguntas sem resposta</p>
+              <p className="text-xs text-muted-foreground">
+                O bot não encontrou regra para estas perguntas (últimos 30 dias) — vire-as em regras
+              </p>
+            </div>
+            <div className="divide-y divide-border">
+              {metricas.naoRespondidas.map((q: any, i: number) => (
+                <div key={i} className="flex items-center gap-3 px-5 py-2.5">
+                  <span className="min-w-0 flex-1 truncate text-sm">{q.pergunta}</span>
+                  {q.vezes > 1 && (
+                    <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      {q.vezes}×
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => virarRegra(q.pergunta)}
+                    className="flex-none text-xs font-medium text-primary hover:underline"
+                  >
+                    ＋ virar regra
+                  </button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
       </div>
     </Shell>
   );
