@@ -287,7 +287,8 @@ export class PontoService {
         c.nome as "colaboradorNome"
       from ponto_marcacao m
       join colaborador c on c.id = m.colaborador_id
-      where m.tenant_id = ${tenantId} and m.marcado_em::date = ${data}
+      where m.tenant_id = ${tenantId}
+        and (m.marcado_em at time zone 'America/Sao_Paulo')::date = ${data}
       ${colaboradorId ? sql`and m.colaborador_id = ${colaboradorId}` : sql``}
       order by m.marcado_em asc
     `);
@@ -301,10 +302,12 @@ export class PontoService {
     fim: string,
   ) {
     const ms: any = await this.db.execute(sql`
-      select id, tipo, nsr, origem, marcado_em as "marcadoEm"
+      select id, tipo, nsr, origem, marcado_em as "marcadoEm",
+        (marcado_em at time zone 'America/Sao_Paulo')::date::text as "dataLocal"
       from ponto_marcacao
       where tenant_id = ${tenantId} and colaborador_id = ${colaboradorId}
-        and marcado_em::date between ${inicio} and ${fim}
+        and (marcado_em at time zone 'America/Sao_Paulo')::date
+            between ${inicio} and ${fim}
       order by marcado_em asc
     `);
     const es: any = await this.db.execute(sql`
@@ -339,7 +342,7 @@ export class PontoService {
       { marcacoes: any[]; esperadoMin: number; ajustes: any[] }
     > = {};
     for (const m of ms.rows ?? ms) {
-      const d = new Date(m.marcadoEm).toISOString().slice(0, 10);
+      const d = m.dataLocal; // data no fuso BRT (alinha com a escala)
       (dias[d] ??= { marcacoes: [], esperadoMin: 0, ajustes: [] }).marcacoes.push({
         ...m,
         desconsiderada: desconsid.has(m.id),
@@ -436,7 +439,8 @@ export class PontoService {
         m.marcado_em as "marcadoEm"
       from ponto_marcacao m
       join colaborador c on c.id = m.colaborador_id
-      where m.tenant_id = ${tenantId} and m.marcado_em::date = ${data}
+      where m.tenant_id = ${tenantId}
+        and (m.marcado_em at time zone 'America/Sao_Paulo')::date = ${data}
       order by m.marcado_em asc
     `);
     const by: Record<string, any> = {};
