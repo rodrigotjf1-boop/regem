@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -56,6 +58,20 @@ export class FinanceiroController {
   @Post('titulos')
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateTituloDto) {
     return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto);
+  }
+
+  @Patch('titulos/:id')
+  atualizar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateTituloDto,
+  ) {
+    return this.service.atualizar(user.tenantId, user.colaboradorId, user.categoria, id, dto);
+  }
+
+  @Delete('titulos/:id')
+  cancelar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.cancelar(user.tenantId, user.colaboradorId, user.categoria, id);
   }
 
   @Post('titulos/:id/pagar')
