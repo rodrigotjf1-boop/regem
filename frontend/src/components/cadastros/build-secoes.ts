@@ -151,6 +151,12 @@ export function buildSecoes({
         },
         { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
         {
+          name: 'email',
+          label: 'E-mail de login (p/ gerente/supervisor acessarem)',
+          type: 'text',
+          placeholder: 'voce@empresa.com',
+        },
+        {
           name: 'funcaoIds',
           label: 'Funções (uma ou mais)',
           type: 'multiselect',
@@ -180,6 +186,7 @@ export function buildSecoes({
       submit: (v: any) =>
         api.post('/colaboradores', {
           nome: v.nome,
+          email: v.email || undefined,
           fotoRef: v.fotoRef || undefined,
           funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
           vinculo: v.vinculo,
@@ -441,6 +448,7 @@ export function buildSecoes({
       update: (id, v) =>
         api.patch(`/colaboradores/${id}`, {
           nome: v.nome,
+          email: v.email ?? undefined,
           fotoRef: v.fotoRef || undefined,
           funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
           vinculo: v.vinculo,

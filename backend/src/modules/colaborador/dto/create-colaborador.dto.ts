@@ -1,6 +1,7 @@
 import {
   ArrayUnique,
   IsArray,
+  IsEmail,
   IsIn,
   IsOptional,
   IsString,
@@ -13,6 +14,12 @@ export class CreateColaboradorDto {
   @IsString()
   @MinLength(2)
   nome!: string;
+
+  // E-mail de login (opcional). Necessário para acessar por senha; a senha em si
+  // é definida em Pessoas → "Acesso & senha".
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsOptional()
   @IsString()
