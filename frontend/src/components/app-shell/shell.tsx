@@ -27,12 +27,13 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
+  ShieldCheck,
   ShoppingCart,
   Users,
   Wallet,
   Wand2,
 } from 'lucide-react';
-import { clearToken, getCategoria, getToken } from '@/lib/api';
+import { clearToken, getCategoria, getPermissoes, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
@@ -44,6 +45,7 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   roles?: string[];
+  perm?: string; // permissão do perfil exigida para ver o item (ex.: 'fiscal')
 };
 type NavGroup = { group: string; presidenteOnly: boolean; items: NavItem[] };
 
@@ -70,9 +72,9 @@ const NAV: NavGroup[] = [
     group: 'Fiscal',
     presidenteOnly: false,
     items: [
-      // Notas fiscais (NFC-e com valores) = fiscal → presidente/C&O. TEF/maquininha
-      // fica com o gerente (operação de balcão).
-      { href: '/notas', label: 'Notas fiscais', icon: FileText, roles: ['presidente'] },
+      // Notas fiscais (NFC-e) = gestão fiscal → permissão "fiscal" do perfil.
+      // TEF/maquininha fica na operação de balcão.
+      { href: '/notas', label: 'Notas fiscais', icon: FileText, perm: 'fiscal' },
       { href: '/tef', label: 'TEF / Maquininha', icon: CreditCard },
       {
         href: '/fiscal-config',
@@ -128,6 +130,12 @@ const NAV: NavGroup[] = [
         label: 'Config. por ramo',
         icon: Wand2,
         roles: ['presidente', 'gerente'],
+      },
+      {
+        href: '/config/acessos',
+        label: 'Acessos & perfis',
+        icon: ShieldCheck,
+        roles: ['presidente'],
       },
     ],
   },
@@ -276,6 +284,7 @@ export function Shell({
               </p>
               {g.items
                 .filter((it) => !it.roles || it.roles.includes(cat))
+                .filter((it) => !it.perm || !!getPermissoes()?.[it.perm])
                 .map((it) => {
                   const active = path === it.href;
                   return (

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Pencil, ArrowRight } from 'lucide-react';
-import { api, getToken, getCategoria } from '@/lib/api';
+import { api, getToken, podeVerFinanceiro } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -142,7 +142,7 @@ export default function EstoquePage() {
     { value: 'padrao', label: 'Padrão' },
   ];
 
-  const verFin = getCategoria() === 'presidente'; // valor do estoque (R$) só p/ presidente
+  const verFin = podeVerFinanceiro(); // valor do estoque (R$) conforme permissão do perfil
   const valorTotal = itens.reduce((s, i) => s + Number(i.valorEstoque ?? 0), 0);
 
   return (

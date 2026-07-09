@@ -2,21 +2,23 @@ import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { RelatoriosService } from './relatorios.service';
 
 // Relatórios de venda — gestão (presidente/gerente/supervisão).
 @Controller('relatorios')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @Roles('presidente', 'gerente', 'supervisao')
 export class RelatoriosController {
   constructor(private readonly service: RelatoriosService) {}
 
-  // Só presidente/C&O vê valores em R$. Gerente recebe volume/quantidades e os
+  // Vê valores em R$ conforme o perfil (permissão "ver_financeiro"). Sem ela, os
   // campos financeiros vêm anulados (RBAC no servidor, não no front).
   private verFin(user: AuthUser) {
-    return user.categoria === 'presidente';
+    return !!user.permissoes?.ver_financeiro;
   }
 
   @Get('vendas')
@@ -89,7 +91,7 @@ export class RelatoriosController {
 
   // Relatórios puramente financeiros — presidente/C&O apenas.
   @Get('faturamento')
-  @Roles('presidente')
+  @RequirePerm('ver_financeiro')
   faturamento(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
@@ -99,7 +101,7 @@ export class RelatoriosController {
   }
 
   @Get('faturamento-delivery')
-  @Roles('presidente')
+  @RequirePerm('ver_financeiro')
   faturamentoDelivery(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,

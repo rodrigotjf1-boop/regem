@@ -12,24 +12,26 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { FinanceiroService } from './financeiro.service';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 
-// Financeiro. Valores financeiros (títulos a pagar/receber, resumo, fluxo, DRE)
-// são presidente/C&O — o gerente só opera o CAIXA/turno e as formas de pagamento
-// (operacional). RBAC no servidor: cada bloco marca seu @Roles.
+// Financeiro. Contas a pagar/receber, resumo, fluxo e DRE exigem a permissão
+// "financeiro" do perfil; o caixa/turno e as formas de pagamento são operacionais
+// (gerente/atendente). RBAC no servidor.
 @Controller('financeiro')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @Roles('presidente', 'gerente')
 export class FinanceiroController {
   constructor(private readonly service: FinanceiroService) {}
 
-  // ----- Contas a pagar/receber + relatórios financeiros — presidente/C&O. -----
+  // ----- Contas a pagar/receber + relatórios financeiros — permissão 'financeiro'. -----
   @Get('titulos')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   listar(
     @CurrentUser() user: AuthUser,
     @Query('tipo') tipo?: string,
@@ -39,19 +41,19 @@ export class FinanceiroController {
   }
 
   @Get('resumo')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   resumo(@CurrentUser() user: AuthUser) {
     return this.service.resumo(user.tenantId);
   }
 
   @Get('fluxo')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   fluxo(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
     return this.service.fluxoCaixa(user.tenantId, dias ? Number(dias) : 30);
   }
 
   @Get('dre')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   dre(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
@@ -63,13 +65,13 @@ export class FinanceiroController {
   }
 
   @Post('titulos')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateTituloDto) {
     return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto);
   }
 
   @Patch('titulos/:id')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   atualizar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -79,13 +81,13 @@ export class FinanceiroController {
   }
 
   @Delete('titulos/:id')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   cancelar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.cancelar(user.tenantId, user.colaboradorId, user.categoria, id);
   }
 
   @Post('titulos/:id/pagar')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   pagar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -95,7 +97,7 @@ export class FinanceiroController {
   }
 
   @Post('titulos/:id/estornar')
-  @Roles('presidente')
+  @RequirePerm('financeiro')
   estornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.estornar(user.tenantId, user.colaboradorId, user.categoria, id);
   }

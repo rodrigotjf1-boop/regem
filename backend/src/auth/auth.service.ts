@@ -8,12 +8,20 @@ import { JwtService } from '@nestjs/jwt';
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
-import { empresa, funcao, colaborador, unidade, setor } from '../db/schema';
+import {
+  empresa,
+  funcao,
+  colaborador,
+  unidade,
+  setor,
+  perfilAcesso,
+} from '../db/schema';
 import { AuditoriaService } from '../modules/auditoria/auditoria.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { PinLoginDto } from './dto/pin-login.dto';
 import { AuthUser } from './auth-user';
+import { PERFIS_PADRAO, perfilPadrao, type Permissoes } from './permissoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Lockout de PIN: após N falhas em JANELA minutos (na mesma unidade), bloqueia.
@@ -43,6 +51,21 @@ export class AuthService {
         .values({ tenantId: emp.id, nome: 'Presidente', categoria: 'presidente' })
         .returning();
 
+      // Semeia os 4 perfis de acesso do novo tenant (mesmos padrões da migration).
+      const perfis = await tx
+        .insert(perfilAcesso)
+        .values(
+          PERFIS_PADRAO.map((p) => ({
+            tenantId: emp.id,
+            nome: p.nome,
+            nivel: p.nivel,
+            loginWeb: p.loginWeb,
+            permissoes: p.permissoes,
+          })),
+        )
+        .returning();
+      const perfilPres = perfis.find((p) => p.nivel === 'presidente');
+
       const [colab] = await tx
         .insert(colaborador)
         .values({
@@ -51,16 +74,23 @@ export class AuthService {
           email: dto.email,
           senhaHash,
           funcaoId: fun.id,
+          perfilAcessoId: perfilPres?.id,
         })
         .returning();
 
-      return { emp, colab, categoria: fun.categoria };
+      return {
+        emp,
+        colab,
+        categoria: fun.categoria,
+        permissoes: perfilPres?.permissoes as Permissoes,
+      };
     });
 
     return this.assinar({
       colaboradorId: result.colab.id,
       tenantId: result.emp.id,
       categoria: result.categoria,
+      permissoes: result.permissoes,
     });
   }
 
@@ -71,11 +101,22 @@ export class AuthService {
         tenantId: colaborador.tenantId,
         funcaoId: colaborador.funcaoId,
         senhaHash: colaborador.senhaHash,
-        categoria: funcao.categoria,
+        status: colaborador.status,
+        funcaoCategoria: funcao.categoria,
+        perfilNivel: perfilAcesso.nivel,
+        loginWeb: perfilAcesso.loginWeb,
+        permissoes: perfilAcesso.permissoes,
       })
       .from(colaborador)
       .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
+      .leftJoin(perfilAcesso, eq(colaborador.perfilAcessoId, perfilAcesso.id))
       .where(eq(colaborador.email, dto.email));
+
+    // Nível + permissões do perfil (fallback pelo padrão se ainda sem perfil).
+    const nivel = row?.perfilNivel ?? row?.funcaoCategoria ?? 'execucao';
+    const pad = perfilPadrao(nivel);
+    const loginWeb = row?.perfilNivel ? row.loginWeb : pad.loginWeb;
+    const permissoes = (row?.permissoes as Permissoes) ?? pad.permissoes;
 
     if (
       !row ||
@@ -87,7 +128,7 @@ export class AuthService {
         await this.auditoria.registrar({
           tenantId: row.tenantId,
           atorId: row.id,
-          atorPerfil: row.categoria ?? undefined,
+          atorPerfil: nivel,
           tipo: 'auth',
           acao: 'login_falhou',
           entidadeTipo: 'colaborador',
@@ -98,11 +139,21 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
+    // Bloqueio de acesso e método de login (RBAC no servidor, não no front).
+    if (row.status === 'bloqueado') {
+      throw new ForbiddenException('Acesso bloqueado. Fale com o presidente/C&O.');
+    }
+    if (!loginWeb) {
+      throw new ForbiddenException(
+        'Este perfil não acessa pelo e-mail/senha — use o PIN no terminal/app.',
+      );
+    }
+
     const esc = await this.escopo(row.funcaoId);
     await this.auditoria.registrar({
       tenantId: row.tenantId,
       atorId: row.id,
-      atorPerfil: row.categoria ?? 'execucao',
+      atorPerfil: nivel,
       tipo: 'auth',
       acao: 'login',
       entidadeTipo: 'colaborador',
@@ -112,9 +163,10 @@ export class AuthService {
     return this.assinar({
       colaboradorId: row.id,
       tenantId: row.tenantId,
-      categoria: row.categoria ?? 'execucao',
+      categoria: nivel,
       setorId: esc.setorId,
       unidadeId: esc.unidadeId,
+      permissoes,
     });
   }
 
@@ -140,12 +192,16 @@ export class AuthService {
         tenantId: colaborador.tenantId,
         funcaoId: colaborador.funcaoId,
         pinHash: colaborador.pinHash,
-        categoria: funcao.categoria,
+        status: colaborador.status,
+        funcaoCategoria: funcao.categoria,
+        perfilNivel: perfilAcesso.nivel,
+        permissoes: perfilAcesso.permissoes,
         nome: colaborador.nome,
         matricula: colaborador.matricula,
       })
       .from(colaborador)
       .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
+      .leftJoin(perfilAcesso, eq(colaborador.perfilAcessoId, perfilAcesso.id))
       .where(
         and(
           eq(colaborador.tenantId, uni.tenantId),
@@ -155,13 +211,20 @@ export class AuthService {
 
     for (const c of candidatos) {
       if (c.pinHash && (await bcrypt.compare(dto.pin, c.pinHash))) {
+        if (c.status === 'bloqueado') {
+          throw new ForbiddenException('Acesso bloqueado. Fale com o presidente/C&O.');
+        }
+        const nivel = c.perfilNivel ?? c.funcaoCategoria ?? 'execucao';
+        const permissoes =
+          (c.permissoes as Permissoes) ?? perfilPadrao(nivel).permissoes;
         const esc = await this.escopo(c.funcaoId);
         const base = this.assinar({
           colaboradorId: c.id,
           tenantId: c.tenantId,
-          categoria: c.categoria ?? 'execucao',
+          categoria: nivel,
           setorId: esc.setorId,
           unidadeId: esc.unidadeId,
+          permissoes,
         });
         return { ...base, nome: c.nome, matricula: c.matricula ?? null };
       }
@@ -190,6 +253,42 @@ export class AuthService {
     return Number((r.rows ?? r)[0].n) >= PIN_MAX_FALHAS;
   }
 
+  // Self-service: o próprio colaborador troca a senha (confere a atual).
+  async trocarPropriaSenha(
+    user: AuthUser,
+    dto: { senhaAtual: string; novaSenha: string },
+  ) {
+    const nova = (dto.novaSenha ?? '').trim();
+    if (nova.length < 6)
+      throw new UnauthorizedException('A nova senha deve ter ao menos 6 caracteres.');
+    const [row] = await this.db
+      .select({ senhaHash: colaborador.senhaHash })
+      .from(colaborador)
+      .where(eq(colaborador.id, user.colaboradorId));
+    if (
+      !row?.senhaHash ||
+      !(await bcrypt.compare(dto.senhaAtual ?? '', row.senhaHash))
+    ) {
+      throw new UnauthorizedException('Senha atual incorreta.');
+    }
+    const senhaHash = await bcrypt.hash(nova, 10);
+    await this.db
+      .update(colaborador)
+      .set({ senhaHash, updatedAt: new Date() })
+      .where(eq(colaborador.id, user.colaboradorId));
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'auth',
+      acao: 'senha_alterada',
+      entidadeTipo: 'colaborador',
+      entidadeId: user.colaboradorId,
+      origem: 'web',
+    });
+    return { ok: true };
+  }
+
   private assinar(user: AuthUser) {
     const access_token = this.jwt.sign({
       sub: user.colaboradorId,
@@ -197,6 +296,7 @@ export class AuthService {
       cat: user.categoria,
       setor: user.setorId ?? null,
       uni: user.unidadeId ?? null,
+      perm: user.permissoes ?? null,
     });
     return { access_token, user };
   }

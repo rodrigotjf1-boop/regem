@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Pencil, Trash2 } from 'lucide-react';
-import { api, getToken, getCategoria } from '@/lib/api';
+import { api, getToken, podePerm } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { FormasPagamentoCard } from '@/components/financeiro/formas-pagamento-card';
@@ -32,9 +32,9 @@ const FILTROS = [
 
 export default function FinanceiroPage() {
   const router = useRouter();
-  // Valores financeiros (títulos/resumo/fluxo/DRE) = presidente/C&O. O gerente
+  // Títulos/resumo/fluxo/DRE exigem a permissão "financeiro". Sem ela, o usuário
   // só gerencia as formas de pagamento (operacional). Trava real é no servidor.
-  const isPresidente = getCategoria() === 'presidente';
+  const isPresidente = podePerm('financeiro');
   const [resumo, setResumo] = useState<any>(null);
   const [fluxo, setFluxo] = useState<any>(null);
   const [dre, setDre] = useState<any>(null);

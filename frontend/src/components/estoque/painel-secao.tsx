@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, getCategoria } from '@/lib/api';
+import { api, podeVerFinanceiro } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -12,7 +12,7 @@ const brl = (n: number) =>
 // Valores em R$ (valor, CMV) são financeiros → só presidente/C&O; o gerente vê
 // as métricas operacionais (nº de insumos, abaixo do mínimo, zerados, por categoria).
 export function PainelSecao({ itens }: { itens: any[] }) {
-  const verFin = getCategoria() === 'presidente';
+  const verFin = podeVerFinanceiro();
   const [cmv, setCmv] = useState<any>(null);
 
   useEffect(() => {

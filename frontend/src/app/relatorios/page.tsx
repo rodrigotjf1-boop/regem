@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken, getCategoria } from '@/lib/api';
+import { api, getToken, getCategoria, podeVerFinanceiro } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,8 +14,8 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 // Valor em R$ que pode vir ANULADO do servidor (gerente não vê financeiro): mostra "—".
 const rs = (v: any) => (v == null ? '—' : brl(v));
-// Perfil que pode ver valores financeiros (presidente/C&O). A trava real é no servidor.
-const podeFinanceiro = () => getCategoria() === 'presidente';
+// Pode ver valores financeiros (permissão do perfil). A trava real é no servidor.
+const podeFinanceiro = () => podeVerFinanceiro();
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasAtras = (d: number) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];

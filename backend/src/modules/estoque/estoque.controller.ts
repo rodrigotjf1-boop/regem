@@ -12,6 +12,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { EstoqueService } from './estoque.service';
@@ -19,24 +21,24 @@ import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 
 @Controller('estoque')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class EstoqueController {
   constructor(private readonly service: EstoqueService) {}
 
   @Post('itens')
-  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'criar')
   createItem(@CurrentUser() user: AuthUser, @Body() dto: CreateItemDto) {
     return this.service.createItem(user.tenantId, dto);
   }
 
   @Get('itens')
   listItens(@CurrentUser() user: AuthUser) {
-    // Custo/valor em R$ = financeiro → só presidente/C&O (RBAC no servidor).
-    return this.service.listItens(user.tenantId, user.categoria === 'presidente');
+    // Custo/valor em R$ conforme a permissão "ver_financeiro" do perfil.
+    return this.service.listItens(user.tenantId, !!user.permissoes?.ver_financeiro);
   }
 
   @Patch('itens/:id')
-  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'editar')
   updateItem(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -67,7 +69,7 @@ export class EstoqueController {
   }
 
   @Post('movimentos')
-  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'editar')
   createMovimento(
     @CurrentUser() user: AuthUser,
     @Body() dto: CreateMovimentoDto,
@@ -99,7 +101,7 @@ export class EstoqueController {
       user.tenantId,
       ini,
       fim || hoje,
-      user.categoria === 'presidente',
+      !!user.permissoes?.ver_financeiro,
     );
   }
 
@@ -111,9 +113,9 @@ export class EstoqueController {
   }
 
   // CMV real (EI + Compras − EF) × teórico → desvio. Período padrão: mês corrente.
-  // CMV é relatório de custo (financeiro) → presidente/C&O apenas.
+  // CMV é relatório de custo (financeiro) → exige a permissão "ver_financeiro".
   @Get('cmv')
-  @Roles('presidente')
+  @RequirePerm('ver_financeiro')
   cmv(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
