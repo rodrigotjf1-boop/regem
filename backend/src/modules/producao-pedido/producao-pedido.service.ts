@@ -128,82 +128,85 @@ export class ProducaoPedidoService {
       senha?: number | null;
       plataforma?: string | null;
       senhaPlataforma?: string | null;
+      setorId?: string | null; // setor do card (ex.: setor do delivery)
     },
     itens: ItemProducao[],
   ): Promise<any[]> {
     const daProducao = itens.filter((it) => it.produto?.vaiParaProducao);
     if (!daProducao.length) return [];
 
-    // Agrupa itens por destino (chave estável).
-    const grupos = new Map<string, { destino: Destino; itens: ItemProducao[] }>();
+    // Regra: 1 pedido de produção por venda (senha ÚNICA) — todos os itens de
+    // produção num único card de KDS, sem quebrar por setor. As impressoras
+    // configuradas continuam recebendo suas vias de produção.
+    const impressoras = new Map<string, ItemProducao[]>();
     for (const it of daProducao) {
       const destinos = await this.resolverDestinos(tx, ctx.tenantId, it.produto);
       for (const d of destinos) {
-        const chave = `${d.equipamentoId ?? 'null'}|${d.tipo}|${d.setorId ?? 'null'}`;
-        if (!grupos.has(chave)) grupos.set(chave, { destino: d, itens: [] });
-        grupos.get(chave)!.itens.push(it);
+        if (d.tipo === 'impressora' && d.equipamentoId) {
+          const arr = impressoras.get(d.equipamentoId) ?? [];
+          arr.push(it);
+          impressoras.set(d.equipamentoId, arr);
+        }
       }
     }
 
-    const payloads: any[] = [];
-    for (const { destino, itens: its } of grupos.values()) {
-      const numero = await this.proximoNumero(tx, ctx.tenantId, ctx.unidadeId);
-      const tempo = its.reduce(
-        (mx, it) => Math.max(mx, Number(it.produto?.tempoPreparoMin) || 0),
-        0,
-      );
-      const [ped] = await tx
-        .insert(producaoPedido)
-        .values({
-          tenantId: ctx.tenantId,
-          unidadeId: ctx.unidadeId ?? null,
-          comandaId: ctx.comandaId,
-          destinoEquipamentoId: destino.equipamentoId,
-          destinoTipo: destino.tipo,
-          setorId: destino.setorId,
-          numero,
-          senha: ctx.senha ?? null,
-          origem: ctx.origem,
-          plataforma: ctx.plataforma ?? null,
-          senhaPlataforma: ctx.senhaPlataforma ?? null,
-          mesa: ctx.mesa ?? null,
-          status: 'recebido',
-          tempoPreparoMin: tempo || null,
-        })
-        .returning();
-      for (const it of its) {
-        await tx.insert(producaoPedidoItem).values({
-          tenantId: ctx.tenantId,
-          pedidoId: ped.id,
-          comandaItemId: it.comandaItemId ?? null,
-          descricao: it.descricao,
-          quantidade: String(it.quantidade),
-          complementosTexto: it.complementosTexto ?? null,
-          observacao: it.observacao ?? null,
-        });
-      }
-      // Destino impressora → enfileira a VIA DE PRODUÇÃO (sem valores; worker imprime).
-      if (destino.tipo === 'impressora') {
-        await tx.insert(impressaoJob).values({
-          tenantId: ctx.tenantId,
-          unidadeId: ctx.unidadeId ?? null,
-          equipamentoId: destino.equipamentoId,
-          pedidoId: ped.id,
-          via: 'producao',
-          conteudo: this.renderTicket(ctx, its, numero),
-        });
-      }
-      payloads.push({
+    const numero = await this.proximoNumero(tx, ctx.tenantId, ctx.unidadeId);
+    const tempo = daProducao.reduce(
+      (mx, it) => Math.max(mx, Number(it.produto?.tempoPreparoMin) || 0),
+      0,
+    );
+    const [ped] = await tx
+      .insert(producaoPedido)
+      .values({
         tenantId: ctx.tenantId,
         unidadeId: ctx.unidadeId ?? null,
-        setorId: destino.setorId,
-        destinoEquipamentoId: destino.equipamentoId,
-        destinoTipo: destino.tipo,
+        comandaId: ctx.comandaId,
+        destinoEquipamentoId: null,
+        destinoTipo: 'kds',
+        setorId: ctx.setorId ?? null,
+        numero,
+        senha: ctx.senha ?? null,
+        origem: ctx.origem,
+        plataforma: ctx.plataforma ?? null,
+        senhaPlataforma: ctx.senhaPlataforma ?? null,
+        mesa: ctx.mesa ?? null,
+        status: 'recebido',
+        tempoPreparoMin: tempo || null,
+      })
+      .returning();
+    for (const it of daProducao) {
+      await tx.insert(producaoPedidoItem).values({
+        tenantId: ctx.tenantId,
         pedidoId: ped.id,
-        tipo: 'novo',
+        comandaItemId: it.comandaItemId ?? null,
+        descricao: it.descricao,
+        quantidade: String(it.quantidade),
+        complementosTexto: it.complementosTexto ?? null,
+        observacao: it.observacao ?? null,
       });
     }
-    return payloads;
+    // Vias de produção por impressora (uma por equipamento), quando houver.
+    for (const [equipamentoId, its] of impressoras) {
+      await tx.insert(impressaoJob).values({
+        tenantId: ctx.tenantId,
+        unidadeId: ctx.unidadeId ?? null,
+        equipamentoId,
+        pedidoId: ped.id,
+        via: 'producao',
+        conteudo: this.renderTicket(ctx, its, numero),
+      });
+    }
+    return [
+      {
+        tenantId: ctx.tenantId,
+        unidadeId: ctx.unidadeId ?? null,
+        setorId: ctx.setorId ?? null,
+        destinoEquipamentoId: null,
+        destinoTipo: 'kds',
+        pedidoId: ped.id,
+        tipo: 'novo',
+      },
+    ];
   }
 
   // VIA DE PRODUÇÃO (cozinha) — sem valores; senha e observações/adicionais em
