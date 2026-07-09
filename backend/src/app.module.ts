@@ -11,6 +11,7 @@ import { UnidadeModule } from './modules/unidade/unidade.module';
 import { SetorModule } from './modules/setor/setor.module';
 import { FuncaoModule } from './modules/funcao/funcao.module';
 import { ColaboradorModule } from './modules/colaborador/colaborador.module';
+import { PerfilModule } from './modules/perfil/perfil.module';
 import { TurnoModule } from './modules/turno/turno.module';
 import { EtiquetaModule } from './modules/etiqueta/etiqueta.module';
 import { EscalaModule } from './modules/escala/escala.module';
@@ -70,6 +71,7 @@ import { AuthModule } from './auth/auth.module';
     SetorModule,
     FuncaoModule,
     ColaboradorModule,
+    PerfilModule,
     TurnoModule,
     EtiquetaModule,
     EscalaModule,

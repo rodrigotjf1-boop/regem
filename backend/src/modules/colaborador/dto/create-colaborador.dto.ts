@@ -30,6 +30,11 @@ export class CreateColaboradorDto {
   @IsUUID()
   funcaoId?: string;
 
+  // Perfil de acesso (RBAC). Se vazio, resolve pelo nível da função principal.
+  @IsOptional()
+  @IsUUID()
+  perfilAcessoId?: string;
+
   // Funções que o colaborador cobre (N:N). Uma ou mais.
   @IsOptional()
   @IsArray()

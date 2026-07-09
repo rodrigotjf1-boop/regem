@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken, getCategoria } from '@/lib/api';
+import { api, getToken, podeVerFinanceiro } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -84,8 +84,8 @@ export default function EstoqueInteligenciaPage() {
       router.replace('/entrar');
       return;
     }
-    // Motor de custo (CMV/valorização) = financeiro → só presidente/C&O.
-    if (getCategoria() !== 'presidente') {
+    // Motor de custo (CMV/valorização) = financeiro → exige permissão "ver_financeiro".
+    if (!podeVerFinanceiro()) {
       router.replace('/operacao');
       return;
     }

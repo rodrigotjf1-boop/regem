@@ -35,6 +35,32 @@ export function getCategoria(): string | null {
   }
 }
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Permissões do perfil de acesso (claim `perm` do JWT). Gates de UI apenas — a
+// trava real é no servidor. Ausente (token antigo) = objeto vazio.
+export function getPermissoes(): any {
+  const t = getToken();
+  if (!t) return {};
+  try {
+    const payload = JSON.parse(atob(t.split('.')[1] ?? ''));
+    return payload.perm ?? {};
+  } catch {
+    return {};
+  }
+}
+
+// Atalho: o perfil pode ver valores financeiros (R$)?
+export function podeVerFinanceiro(): boolean {
+  return !!getPermissoes()?.ver_financeiro;
+}
+
+// Atalho: permissão de ação por módulo (ex.: podePerm('estoque','criar')).
+export function podePerm(modulo: string, acao?: string): boolean {
+  const p = getPermissoes()?.[modulo];
+  if (acao) return !!p?.[acao];
+  return !!p;
+}
+
 // Rota inicial por perfil: só presidente/gerente têm dashboard (RBAC do
 // backend); os demais caem no Meu Dia (acessível a todos os autenticados).
 export function rotaInicial(cat?: string | null): string {

@@ -7,7 +7,12 @@ import {
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { colaborador, colaboradorFuncao, funcao } from '../../db/schema';
+import {
+  colaborador,
+  colaboradorFuncao,
+  funcao,
+  perfilAcesso,
+} from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
@@ -23,6 +28,8 @@ const publicCols = {
   jornadaTipo: colaborador.jornadaTipo,
   email: colaborador.email,
   status: colaborador.status,
+  perfilAcessoId: colaborador.perfilAcessoId,
+  appHabilitado: colaborador.appHabilitado,
   createdAt: colaborador.createdAt,
   updatedAt: colaborador.updatedAt,
 };
@@ -43,6 +50,87 @@ export class ColaboradorService {
       .where(and(eq(colaborador.email, email), isNull(colaborador.deletedAt)));
     if (rows.some((r) => r.id !== exceptId))
       throw new BadRequestException('Este e-mail já está em uso por outro colaborador.');
+  }
+
+  // Resolve o perfil de acesso: o informado (validado no tenant) ou o do nível
+  // da função principal (perfil.nivel = funcao.categoria). Null se não achar.
+  private async resolverPerfil(
+    tenantId: string,
+    perfilAcessoId?: string,
+    funcaoId?: string,
+  ): Promise<string | null> {
+    if (perfilAcessoId) {
+      const [p] = await this.db
+        .select({ id: perfilAcesso.id })
+        .from(perfilAcesso)
+        .where(and(eq(perfilAcesso.id, perfilAcessoId), eq(perfilAcesso.tenantId, tenantId)));
+      if (!p) throw new BadRequestException('Perfil de acesso inválido.');
+      return p.id;
+    }
+    if (!funcaoId) return null;
+    const [f] = await this.db
+      .select({ categoria: funcao.categoria })
+      .from(funcao)
+      .where(eq(funcao.id, funcaoId));
+    if (!f) return null;
+    const [p] = await this.db
+      .select({ id: perfilAcesso.id })
+      .from(perfilAcesso)
+      .where(
+        and(eq(perfilAcesso.tenantId, tenantId), eq(perfilAcesso.nivel, f.categoria as string)),
+      );
+    return p?.id ?? null;
+  }
+
+  // Presidente/C&O: associa perfil, libera o app e bloqueia/desbloqueia o acesso.
+  async atualizarAcesso(
+    ator: AuthUser,
+    id: string,
+    dto: { perfilAcessoId?: string; appHabilitado?: boolean; status?: string },
+  ) {
+    const [alvo] = await this.db
+      .select({ id: colaborador.id })
+      .from(colaborador)
+      .where(
+        and(
+          eq(colaborador.id, id),
+          eq(colaborador.tenantId, ator.tenantId),
+          isNull(colaborador.deletedAt),
+        ),
+      );
+    if (!alvo) throw new NotFoundException('Colaborador não encontrado.');
+    if (id === ator.colaboradorId && dto.status === 'bloqueado') {
+      throw new BadRequestException('Você não pode bloquear o seu próprio acesso.');
+    }
+
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (dto.perfilAcessoId !== undefined) {
+      patch.perfilAcessoId = await this.resolverPerfil(ator.tenantId, dto.perfilAcessoId);
+    }
+    if (dto.appHabilitado !== undefined) patch.appHabilitado = !!dto.appHabilitado;
+    if (dto.status !== undefined) {
+      if (!['ativo', 'bloqueado'].includes(dto.status))
+        throw new BadRequestException('Status inválido (ativo | bloqueado).');
+      patch.status = dto.status;
+    }
+
+    const [row] = await this.db
+      .update(colaborador)
+      .set(patch)
+      .where(and(eq(colaborador.id, id), eq(colaborador.tenantId, ator.tenantId)))
+      .returning(publicCols);
+
+    await this.auditoria.registrar({
+      tenantId: ator.tenantId,
+      atorId: ator.colaboradorId,
+      atorPerfil: ator.categoria,
+      tipo: 'config',
+      acao: 'acesso_atualizado',
+      entidadeTipo: 'colaborador',
+      entidadeId: id,
+      detalhe: { perfilAcessoId: dto.perfilAcessoId, status: dto.status, appHabilitado: dto.appHabilitado },
+    });
+    return row;
   }
 
   async create(tenantId: string, dto: CreateColaboradorDto) {
@@ -72,6 +160,11 @@ export class ColaboradorService {
       ? dto.funcaoId
       : validas[0];
 
+    // Perfil de acesso: usa o informado ou resolve pelo nível da função principal.
+    const perfilAcessoId =
+      (await this.resolverPerfil(tenantId, dto.perfilAcessoId, principal)) ??
+      undefined;
+
     const [row] = await this.db
       .insert(colaborador)
       .values({
@@ -83,6 +176,7 @@ export class ColaboradorService {
         jornadaTipo: dto.jornadaTipo ?? 'outro',
         email,
         pinHash,
+        perfilAcessoId,
       })
       .returning(publicCols);
 

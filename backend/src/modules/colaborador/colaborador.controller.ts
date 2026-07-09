@@ -58,4 +58,15 @@ export class ColaboradorController {
   ) {
     return this.service.definirSenha(user, id, dto);
   }
+
+  // Acesso ao sistema (presidente/C&O): associa perfil, libera app, bloqueia/ativa.
+  @Patch(':id/acesso')
+  @Roles('presidente')
+  atualizarAcesso(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { perfilAcessoId?: string; appHabilitado?: boolean; status?: string },
+  ) {
+    return this.service.atualizarAcesso(user, id, dto);
+  }
 }

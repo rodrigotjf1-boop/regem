@@ -10,6 +10,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { PontoService } from './ponto.service';
@@ -26,7 +28,7 @@ function hojeISO() {
 }
 
 @Controller('ponto')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class PontoController {
   constructor(private readonly service: PontoService) {}
 
@@ -80,9 +82,9 @@ export class PontoController {
     return this.service.pessoas(user.tenantId, data ?? hojeISO());
   }
 
-  // Gestão (presidente/gerente): incluir marcação esquecida.
+  // Gestão de ponto: incluir marcação esquecida (permissão ponto.criar).
   @Post('marcacao-manual')
-  @Roles('presidente', 'gerente')
+  @RequirePerm('ponto', 'criar')
   incluirMarcacao(
     @CurrentUser() user: AuthUser,
     @Body() dto: IncluirMarcacaoDto,
@@ -95,9 +97,9 @@ export class PontoController {
     );
   }
 
-  // Gestão: ajuste (desconsideração / abono / atestado / justificativa).
+  // Gestão de ponto: ajuste (desconsideração / abono / atestado / justificativa).
   @Post('ajuste')
-  @Roles('presidente', 'gerente')
+  @RequirePerm('ponto', 'editar')
   criarAjuste(@CurrentUser() user: AuthUser, @Body() dto: CriarAjusteDto) {
     return this.service.criarAjuste(
       user.tenantId,

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { LogOut, Settings2, PanelLeft, PanelRight, Check } from 'lucide-react';
+import Link from 'next/link';
+import { LogOut, Settings2, PanelLeft, PanelRight, Check, KeyRound } from 'lucide-react';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { cn } from '@/lib/utils';
 import type { UiPrefs } from '@/hooks/use-ui-prefs';
@@ -121,6 +122,14 @@ export function AccountMenu({
           </button>
 
           <div className="my-1 border-t border-white/10" />
+          <Link
+            href="/trocar-senha"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-[#B9CBD7] hover:bg-white/5 hover:text-white"
+          >
+            <KeyRound className="h-4 w-4" /> Trocar minha senha
+          </Link>
           <button
             type="button"
             role="menuitem"

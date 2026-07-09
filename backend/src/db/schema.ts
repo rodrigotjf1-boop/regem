@@ -87,7 +87,9 @@ export const colaborador = pgTable('colaborador', {
   pinHash: text('pin_hash'),
   email: text('email'),
   senhaHash: text('senha_hash'),
-  status: text('status').notNull().default('ativo'),
+  status: text('status').notNull().default('ativo'), // ativo | bloqueado
+  perfilAcessoId: uuid('perfil_acesso_id'), // perfil de acesso (RBAC configurável)
+  appHabilitado: boolean('app_habilitado').notNull().default(false), // libera o PIN do app do colaborador
   matricula: text('matricula'),
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
   dataConsentimento: date('data_consentimento'),
@@ -110,6 +112,22 @@ export const colaboradorFuncao = pgTable('colaborador_funcao', {
     .notNull()
     .references(() => funcao.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Perfil de acesso (RBAC configurável): o presidente edita as permissões e associa
+// ao colaborador. `nivel` casa com a categoria da hierarquia; `login_web` decide se
+// o perfil entra por e-mail+senha (execução = só PIN). `permissoes` é o pacote de toggles.
+export const perfilAcesso = pgTable('perfil_acesso', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  nivel: text('nivel').notNull(), // presidente | gerente | supervisao | execucao
+  loginWeb: boolean('login_web').notNull().default(false),
+  permissoes: jsonb('permissoes').notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const setor = pgTable('setor', {
