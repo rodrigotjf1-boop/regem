@@ -1,48 +1,21 @@
 'use client';
 
-import { Card } from '@/components/ui/card';
-import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { META } from '@/components/cadastros/constants';
-import { type Opt, type Secao } from '@/components/cadastros/build-secoes';
-import { api } from '@/lib/api';
+import { type Secao } from '@/components/cadastros/build-secoes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const RAMOS: Record<string, { label: string; emoji: string }> = {
-  food_service: { label: 'Food Service', emoji: '🍽️' },
-  varejo: { label: 'Varejo', emoji: '🛍️' },
-  industria_leve: { label: 'Indústria leve', emoji: '🏭' },
-  servicos: { label: 'Serviços', emoji: '🧰' },
-};
-
 export function CadastrosHub({
   secoes,
-  busca,
-  setBusca,
   onSelect,
-  ver,
-  optU,
-  ramo,
-  reload,
   onNavigate,
 }: {
   secoes: Secao[];
-  busca: string;
-  setBusca: (v: string) => void;
   onSelect: (key: string) => void;
-  ver: number;
-  optU: Opt[];
-  ramo: string;
-  reload: () => Promise<void>;
   onNavigate: (path: string) => void;
 }) {
-  const ramoInfo = RAMOS[ramo] ?? RAMOS.food_service;
   const feitas = secoes.filter((s) => s.itens.length > 0).length;
   const pct = Math.round((feitas / secoes.length) * 100);
-  const q = busca.trim().toLowerCase();
-  const visiveis = secoes.filter(
-    (s) => !q || s.titulo.toLowerCase().includes(q) || s.key.includes(q),
-  );
   const tint = (key: string) =>
     key === 'pico' || key === 'fornecedor'
       ? 'bg-warn/10'
@@ -52,84 +25,26 @@ export function CadastrosHub({
 
   return (
     <>
-      {/* Busca */}
-      <div className="relative max-w-sm">
-        <input
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          type="search"
-          placeholder="Buscar cadastro… (ex.: funções)"
-          aria-label="Buscar cadastro"
-          className="h-11 w-full rounded-lg border border-input bg-card pl-3 pr-3 text-sm"
-        />
-      </div>
-
-      {/* Barra de completude */}
-      <Card className="p-5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <b className="font-display text-sm font-bold">
-            Configuração da unidade
-          </b>
-          <span className="font-mono text-sm font-bold text-primary">
-            {pct}%
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {feitas} de {secoes.length} cadastros com dados
-          </span>
-        </div>
-        <div className="my-3 h-2 overflow-hidden rounded-full bg-secondary">
+      {/* Completude — faixa minimalista, sem roubar a atenção dos cards */}
+      <div className="flex items-center gap-3 px-1 text-xs text-muted-foreground">
+        <span className="font-mono font-bold text-primary">{pct}%</span>
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-secondary">
           <div
             className="h-full rounded-full bg-primary transition-all duration-700"
             style={{ width: `${pct}%` }}
           />
         </div>
-      </Card>
-
-      {/* Template por ramo */}
-      <Card className="border-primary/40 bg-primary/5 p-5">
-        <h2 className="font-display text-sm font-bold">Template por ramo</h2>
-        <p className="mb-3 mt-1 max-w-xl text-sm text-muted-foreground">
-          Cria setores, funções, etiquetas, tipos de ocorrência e itens de
-          estoque de uma vez — sem cadastrar tudo à mão. Nada existente é
-          apagado.
-        </p>
-        {optU.length > 0 ? (
-          <EntityForm
-            key={`tpl-${ver}`}
-            submitLabel={`Aplicar ${ramoInfo.emoji} ${ramoInfo.label}`}
-            fields={
-              [
-                {
-                  name: 'unidadeId',
-                  label: 'Unidade',
-                  type: 'select',
-                  required: true,
-                  options: optU,
-                  defaultValue: optU[0]?.value,
-                },
-              ] as FieldDef[]
-            }
-            onSubmit={async (v) => {
-              await api.post('/onboarding/template', {
-                unidadeId: v.unidadeId,
-                ramo,
-              });
-              await reload();
-            }}
-          />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Crie uma unidade primeiro (em Unidades).
-          </p>
-        )}
-      </Card>
+        <span className="whitespace-nowrap">
+          {feitas}/{secoes.length} com dados
+        </span>
+      </div>
 
       {/* Grid por dependência */}
       <p className="px-1 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
         Ordem sugerida — cada etapa habilita a próxima
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {visiveis.map((sec) => {
+        {secoes.map((sec) => {
           const m = META[sec.key];
           const zero = sec.itens.length === 0;
           return (
@@ -188,11 +103,6 @@ export function CadastrosHub({
             </button>
           );
         })}
-        {visiveis.length === 0 && (
-          <div className="col-span-full rounded-2xl border border-dashed border-input bg-secondary/50 p-10 text-center text-sm text-muted-foreground">
-            🔍 Nenhum cadastro encontrado para “{busca}”.
-          </div>
-        )}
       </div>
 
       {/* Produtos & Equipamentos (fora da cadeia de dependência) */}
@@ -209,7 +119,8 @@ export function CadastrosHub({
             Produtos & Catálogo
           </h3>
           <span className="text-sm text-muted-foreground">
-            O que se vende no PDV — categorias, fichas, variações, combos
+            Produtos finais vendidos no balcão (PDV) e no cardápio digital — cada
+            produto escolhe onde aparece. Ligados às fichas técnicas.
           </span>
         </div>
       </button>
