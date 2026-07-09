@@ -295,7 +295,6 @@ export default function CardapioPublicoPage() {
           {loja.tempoEntregaMin && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">⏱ {loja.tempoEntregaMin} min</span>}
           {loja.freteGratisAcima != null && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">🛵 Frete grátis &gt; {brl(loja.freteGratisAcima)}</span>}
           {loja.pedidoMinimo != null && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">Mín. {brl(loja.pedidoMinimo)}</span>}
-          {loja.avaliacao != null && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">⭐ {loja.avaliacao}</span>}
         </div>
       </header>
 

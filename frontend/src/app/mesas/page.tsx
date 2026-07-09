@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import QRCode from 'qrcode';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { connectAsGestor, type Socket } from '@/lib/rt';
@@ -266,9 +267,11 @@ export default function MesasPage() {
 
   // ---- Lista de mesas ----
   return (
-    <Shell eyebrow="PDV · mesas" title="Mesas">
+    <Shell eyebrow="PDV · mesas" title="Mesas e comandas">
       <div className="max-w-3xl space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
+
+        <QrMesaCard />
 
         <Card className="p-4">
           <h2 className="mb-2 font-display text-sm font-bold">Abrir mesa</h2>
@@ -328,5 +331,63 @@ export default function MesasPage() {
         </Card>
       </div>
     </Shell>
+  );
+}
+
+// QR por mesa: o pedido do QR vai direto para a comanda da mesa (sem checkout).
+// Usa o token do cardápio digital (configurado em Delivery → Configurações).
+function QrMesaCard() {
+  const [token, setToken] = useState<string | null>(null);
+  const [num, setNum] = useState('');
+  const [qr, setQr] = useState('');
+  useEffect(() => {
+    api.cardapioConfig().then((c: any) => setToken(c?.token ?? null)).catch(() => {});
+  }, []);
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const link = token && num.trim() ? `${origin}/c/${token}?mesa=${num.trim()}` : '';
+  useEffect(() => {
+    if (!link) { setQr(''); return; }
+    QRCode.toDataURL(link, { width: 220, margin: 1 }).then(setQr).catch(() => setQr(''));
+  }, [link]);
+
+  return (
+    <Card className="space-y-3 p-4">
+      <div>
+        <h2 className="font-display text-sm font-bold">🍽 QR por mesa</h2>
+        <p className="text-xs text-muted-foreground">
+          Cole em cada mesa. O pedido vai <strong>direto para a comanda da mesa</strong> (sem checkout). Gere um QR por número.
+        </p>
+      </div>
+      {!token ? (
+        <p className="text-xs text-muted-foreground">
+          Ative o cardápio digital em <strong>Delivery → Configurações → Cardápio digital · QR</strong> para gerar os QRs.
+        </p>
+      ) : (
+        <>
+          <div className="flex items-end gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Número da mesa</Label>
+              <Input value={num} onChange={(e) => setNum(e.target.value)} placeholder="Ex.: 12" className="w-32" />
+            </div>
+          </div>
+          {link ? (
+            <div className="flex flex-wrap items-center gap-4">
+              {qr && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={qr} alt={`QR mesa ${num}`} width={160} height={160} className="rounded-lg border border-border" />
+              )}
+              <div className="min-w-0 flex-1 space-y-2">
+                <code className="block break-all rounded-md bg-secondary px-3 py-2 text-xs">{link}</code>
+                <Button type="button" variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(link); toast.success(`Link da mesa ${num} copiado.`); }}>
+                  Copiar link da mesa {num}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Digite o número da mesa acima para gerar o QR dela.</p>
+          )}
+        </>
+      )}
+    </Card>
   );
 }

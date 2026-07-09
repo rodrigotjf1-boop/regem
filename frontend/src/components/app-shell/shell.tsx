@@ -26,7 +26,6 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  QrCode,
   Settings,
   ShoppingCart,
   Users,
@@ -55,7 +54,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/painel', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart },
-      { href: '/mesas', label: 'Mesas', icon: ClipboardList },
+      { href: '/mesas', label: 'Mesas e comandas', icon: ClipboardList },
       { href: '/garcom', label: 'Garçom', icon: ConciergeBell },
       { href: '/pedidos', label: 'Pedidos · Produção', icon: Flame },
       { href: '/delivery', label: 'Delivery', icon: Bike },
@@ -97,12 +96,6 @@ const NAV: NavGroup[] = [
         label: 'Produção & KDS',
         icon: Flame,
         roles: ['presidente', 'gerente', 'supervisao'],
-      },
-      {
-        href: '/cardapio-config',
-        label: 'Cardápio · QR',
-        icon: QrCode,
-        roles: ['presidente', 'gerente'],
       },
       {
         href: '/financeiro',

@@ -712,13 +712,15 @@ export class CardapioService {
         precoVenda: produto.precoVenda,
         precoPromocional: produto.precoPromocional,
         ativo: produto.ativo,
+        disponivelCardapio: produto.disponivelCardapio,
       })
       .from(produto)
       .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)));
     const porId = new Map(prods.map((p) => [p.id, p]));
     for (const it of dto.itens) {
       const p = porId.get(it.produtoId);
-      if (!p || p.ativo === false)
+      // Só entra no cardápio produto ativo E marcado para o canal cardápio digital.
+      if (!p || p.ativo === false || p.disponivelCardapio === false)
         throw new BadRequestException('Produto indisponível no pedido.');
     }
 
