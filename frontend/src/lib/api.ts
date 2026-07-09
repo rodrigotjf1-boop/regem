@@ -415,6 +415,14 @@ export const api = {
     const q = p.toString();
     return req(`/relatorios/ranking-produtos${q ? `?${q}` : ''}`);
   },
+  relatorioTurnos: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/turnos${q ? `?${q}` : ''}`);
+  },
+  relatorioTurnoDetalhe: (id: string) => req(`/relatorios/turnos/${id}`),
   relatorioFaturamento: (ano?: number) =>
     req(`/relatorios/faturamento${ano ? `?ano=${ano}` : ''}`),
   relatorioFaturamentoDelivery: (inicio?: string, fim?: string) => {

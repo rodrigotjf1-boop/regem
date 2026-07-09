@@ -257,6 +257,97 @@ export class RelatoriosService {
     };
   }
 
+  // Turnos = sessões de caixa no período (lista com totais por sessão).
+  async turnos(tenantId: string, inicio?: string, fim?: string) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    const rows = await this.rows(sql`
+      select s.id, s.origem, s.status, s.aberta_em as "abertaEm", s.fechada_em as "fechadaEm",
+             s.valor_abertura as "abertura", s.valor_informado as "informado",
+             s.valor_esperado as "esperado", s.diferenca,
+             ab.nome as "abertaPor", fe.nome as "fechadaPor",
+             coalesce((select sum(l.valor) from lancamento_caixa l
+               where l.sessao_id = s.id and l.tipo='entrada' and l.estorno_de is null
+                 and coalesce(l.categoria,'') <> 'suprimento'),0) as vendas,
+             coalesce((select sum(l.valor) from lancamento_caixa l
+               where l.sessao_id = s.id and l.categoria='sangria'),0) as sangrias,
+             coalesce((select sum(l.valor) from lancamento_caixa l
+               where l.sessao_id = s.id and l.categoria='suprimento'),0) as suprimentos
+      from caixa_sessao s
+      left join colaborador ab on ab.id = s.aberta_por_id
+      left join colaborador fe on fe.id = s.fechada_por_id
+      where s.tenant_id = ${tenantId} and s.aberta_em::date between ${ini} and ${f}
+      order by s.aberta_em desc`);
+    return {
+      periodo: { inicio: ini, fim: f },
+      turnos: rows.map((r) => ({
+        id: r.id,
+        origem: r.origem,
+        status: r.status,
+        abertaEm: r.abertaEm,
+        fechadaEm: r.fechadaEm,
+        abertaPor: r.abertaPor,
+        fechadaPor: r.fechadaPor,
+        abertura: Number(r.abertura ?? 0),
+        vendas: Number(r.vendas ?? 0),
+        sangrias: Number(r.sangrias ?? 0),
+        suprimentos: Number(r.suprimentos ?? 0),
+        esperado: r.esperado != null ? Number(r.esperado) : null,
+        informado: r.informado != null ? Number(r.informado) : null,
+        diferenca: r.diferenca != null ? Number(r.diferenca) : null,
+      })),
+    };
+  }
+
+  // Cupom de fechamento de um turno: vendas por forma + sangrias/suprimentos.
+  async turnoDetalhe(tenantId: string, sessaoId: string) {
+    const [s] = await this.rows(sql`
+      select s.id, s.origem, s.status, s.aberta_em as "abertaEm", s.fechada_em as "fechadaEm",
+             s.valor_abertura as "abertura", s.valor_informado as "informado",
+             s.valor_esperado as "esperado", s.diferenca,
+             ab.nome as "abertaPor", fe.nome as "fechadaPor"
+      from caixa_sessao s
+      left join colaborador ab on ab.id = s.aberta_por_id
+      left join colaborador fe on fe.id = s.fechada_por_id
+      where s.tenant_id = ${tenantId} and s.id = ${sessaoId}`);
+    if (!s) return null;
+    const porForma = await this.rows(sql`
+      select coalesce(forma,'—') as forma, count(*)::int as qtd,
+             coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as total
+      from lancamento_caixa
+      where tenant_id = ${tenantId} and sessao_id = ${sessaoId} and estorno_de is null
+        and coalesce(categoria,'') not in ('sangria','suprimento')
+      group by 1 order by total desc`);
+    const movimentos = await this.rows(sql`
+      select categoria, tipo, valor, descricao, created_at as "em"
+      from lancamento_caixa
+      where tenant_id = ${tenantId} and sessao_id = ${sessaoId}
+        and categoria in ('sangria','suprimento')
+      order by created_at`);
+    return {
+      sessao: {
+        id: s.id,
+        origem: s.origem,
+        status: s.status,
+        abertaEm: s.abertaEm,
+        fechadaEm: s.fechadaEm,
+        abertaPor: s.abertaPor,
+        fechadaPor: s.fechadaPor,
+        abertura: Number(s.abertura ?? 0),
+        esperado: s.esperado != null ? Number(s.esperado) : null,
+        informado: s.informado != null ? Number(s.informado) : null,
+        diferenca: s.diferenca != null ? Number(s.diferenca) : null,
+      },
+      porForma: porForma.map((r) => ({ forma: r.forma, qtd: Number(r.qtd), total: Number(r.total) })),
+      movimentos: movimentos.map((r) => ({
+        categoria: r.categoria,
+        tipo: r.tipo,
+        valor: Number(r.valor),
+        descricao: r.descricao,
+        em: r.em,
+      })),
+    };
+  }
+
   // Faturamento de delivery por plataforma (canal do pedido externo).
   async faturamentoDelivery(tenantId: string, inicio?: string, fim?: string) {
     const { ini, fim: f } = this.periodo(inicio, fim);
