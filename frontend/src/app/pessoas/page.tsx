@@ -21,13 +21,16 @@ const AJUSTE_LABEL: Record<string, string> = {
 };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function iso(d: Date) {
-  return d.toISOString().slice(0, 10);
+// "Hoje" no fuso da operação (BRT) — não UTC.
+function hojeSP() {
+  return new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+  });
 }
 function addDays(s: string, n: number) {
   const d = new Date(`${s}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + n);
-  return iso(d);
+  return d.toISOString().slice(0, 10);
 }
 function fmtMin(min: number) {
   const s = min < 0 ? '-' : '';
@@ -46,8 +49,9 @@ export default function PessoasPage() {
   const [pessoas, setPessoas] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [sel, setSel] = useState<{ id: string; nome: string } | null>(null);
-  const [inicio, setInicio] = useState(() => addDays(iso(new Date()), -6));
-  const [fim, setFim] = useState(() => iso(new Date()));
+  const [colaboradores, setColaboradores] = useState<any[]>([]);
+  const [inicio, setInicio] = useState(() => addDays(hojeSP(), -6));
+  const [fim, setFim] = useState(() => hojeSP());
   const [espelho, setEspelho] = useState<any | null>(null);
   const [gestaoOpen, setGestaoOpen] = useState(false);
 
@@ -66,7 +70,12 @@ export default function PessoasPage() {
   const carregar = useCallback(async () => {
     setErro('');
     try {
-      setPessoas(await api.pontoPessoas());
+      const [ps, cols] = await Promise.all([
+        api.pontoPessoas(),
+        api.colaboradores().catch(() => []),
+      ]);
+      setPessoas(ps);
+      setColaboradores(Array.isArray(cols) ? cols : []);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -113,7 +122,7 @@ export default function PessoasPage() {
               <AcessoSenhaCard />
             </div>
           )}
-          <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+          <div className="mb-4 rounded-lg border border-warn/30 bg-warn/10 px-4 py-2.5 text-xs text-warn">
             ⚠️ Ponto de <strong>gestão de jornada</strong> (lógica da Portaria
             671, registro imutável com NSR). Não substitui um REP-P homologado
             (AFD/AEJ + certificação) — no backlog.
@@ -123,11 +132,31 @@ export default function PessoasPage() {
 
           <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
             <Card className="p-0">
-              <div className="border-b border-border px-5 py-3.5">
-                <p className="font-display text-sm font-bold">Ponto de hoje</p>
-                <p className="text-xs text-muted-foreground">
-                  Clique num colaborador para ver o espelho
-                </p>
+              <div className="space-y-2 border-b border-border px-5 py-3.5">
+                <div>
+                  <p className="font-display text-sm font-bold">Ponto de hoje</p>
+                  <p className="text-xs text-muted-foreground">
+                    Clique num colaborador para ver o espelho
+                  </p>
+                </div>
+                {colaboradores.length > 0 && (
+                  <select
+                    aria-label="Ver espelho de qualquer colaborador"
+                    value={sel?.id ?? ''}
+                    onChange={(e) => {
+                      const c = colaboradores.find((x) => x.id === e.target.value);
+                      if (c) abrirEspelho(c.id, c.nome);
+                    }}
+                    className="h-9 w-full rounded-md border border-input bg-card px-2 text-sm"
+                  >
+                    <option value="">Ver qualquer colaborador…</option>
+                    {colaboradores.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nome}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               <div className="divide-y divide-border">
                 {pessoas === null &&
@@ -205,30 +234,58 @@ export default function PessoasPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-end gap-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="ini" className="text-[10px]">
-                      De
-                    </Label>
-                    <Input
-                      id="ini"
-                      type="date"
-                      value={inicio}
-                      onChange={(e) => setInicio(e.target.value)}
-                      className="h-8 w-[130px]"
-                    />
+                <div className="flex flex-col items-end gap-1.5">
+                  <div className="flex gap-1">
+                    {[
+                      { l: '7 dias', ini: addDays(hojeSP(), -6), f: hojeSP() },
+                      { l: 'Este mês', ini: `${hojeSP().slice(0, 8)}01`, f: hojeSP() },
+                      { l: '30 dias', ini: addDays(hojeSP(), -29), f: hojeSP() },
+                    ].map((p) => {
+                      const ativo = inicio === p.ini && fim === p.f;
+                      return (
+                        <button
+                          key={p.l}
+                          type="button"
+                          onClick={() => {
+                            setInicio(p.ini);
+                            setFim(p.f);
+                          }}
+                          className={`rounded-md border px-2 py-1 text-[11px] transition ${
+                            ativo
+                              ? 'border-primary bg-primary/10 text-primary'
+                              : 'border-border text-muted-foreground hover:bg-secondary'
+                          }`}
+                        >
+                          {p.l}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="fim" className="text-[10px]">
-                      Até
-                    </Label>
-                    <Input
-                      id="fim"
-                      type="date"
-                      value={fim}
-                      onChange={(e) => setFim(e.target.value)}
-                      className="h-8 w-[130px]"
-                    />
+                  <div className="flex items-end gap-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="ini" className="text-[10px]">
+                        De
+                      </Label>
+                      <Input
+                        id="ini"
+                        type="date"
+                        value={inicio}
+                        onChange={(e) => setInicio(e.target.value)}
+                        className="h-8 w-[130px]"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="fim" className="text-[10px]">
+                        Até
+                      </Label>
+                      <Input
+                        id="fim"
+                        type="date"
+                        value={fim}
+                        onChange={(e) => setFim(e.target.value)}
+                        className="h-8 w-[130px]"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

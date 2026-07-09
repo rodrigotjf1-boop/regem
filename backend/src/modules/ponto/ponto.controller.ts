@@ -19,7 +19,10 @@ import { CriarAjusteDto } from './dto/criar-ajuste.dto';
 
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
 function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
+  // Data "de hoje" no fuso da operação (BRT), não UTC.
+  return new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+  });
 }
 
 @Controller('ponto')
