@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getCategoria } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -9,12 +9,16 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // Painel do estoque: valor total, insumos por categoria, alertas e CMV do mês.
+// Valores em R$ (valor, CMV) são financeiros → só presidente/C&O; o gerente vê
+// as métricas operacionais (nº de insumos, abaixo do mínimo, zerados, por categoria).
 export function PainelSecao({ itens }: { itens: any[] }) {
+  const verFin = getCategoria() === 'presidente';
   const [cmv, setCmv] = useState<any>(null);
 
   useEffect(() => {
+    if (!verFin) return;
     api.estoqueCmv().then(setCmv).catch(() => setCmv(null));
-  }, []);
+  }, [verFin]);
 
   const valorTotal = itens.reduce((s, i) => s + Number(i.valorEstoque ?? 0), 0);
   const criticos = itens.filter((i) => Number(i.saldo) < Number(i.estoqueMinimo)).length;
@@ -27,8 +31,10 @@ export function PainelSecao({ itens }: { itens: any[] }) {
     cat[nome].valor += Number(i.valorEstoque ?? 0);
     cat[nome].n += 1;
   }
-  const categorias = Object.values(cat).sort((a, b) => b.valor - a.valor);
-  const maxCat = Math.max(1, ...categorias.map((c) => c.valor));
+  // Presidente ordena/dimensiona por valor; gerente por quantidade de itens.
+  const metrica = (c: { valor: number; n: number }) => (verFin ? c.valor : c.n);
+  const categorias = Object.values(cat).sort((a, b) => metrica(b) - metrica(a));
+  const maxCat = Math.max(1, ...categorias.map((c) => metrica(c)));
 
   const KPI = ({ label, valor, tom }: { label: string; valor: string; tom?: string }) => (
     <Card className="p-4">
@@ -40,13 +46,14 @@ export function PainelSecao({ itens }: { itens: any[] }) {
   return (
     <section className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KPI label="Valor em estoque" valor={brl(valorTotal)} />
+        {verFin && <KPI label="Valor em estoque" valor={brl(valorTotal)} />}
         <KPI label="Insumos" valor={String(itens.length)} />
         <KPI label="Abaixo do mínimo" valor={String(criticos)} tom={criticos ? 'text-warn' : ''} />
         <KPI label="Zerados" valor={String(zerados)} tom={zerados ? 'text-destructive' : ''} />
       </div>
 
-      {/* CMV do mês */}
+      {/* CMV do mês — financeiro (só presidente/C&O) */}
+      {verFin && (
       <Card className="p-4">
         <p className="mb-2 font-display text-sm font-bold">CMV do mês</p>
         {!cmv ? (
@@ -70,10 +77,11 @@ export function PainelSecao({ itens }: { itens: any[] }) {
           </div>
         )}
       </Card>
+      )}
 
-      {/* Insumos por categoria */}
+      {/* Insumos por categoria — valor (presidente) ou quantidade (gerente) */}
       <Card className="p-4">
-        <p className="mb-3 font-display text-sm font-bold">Valor por categoria</p>
+        <p className="mb-3 font-display text-sm font-bold">{verFin ? 'Valor por categoria' : 'Insumos por categoria'}</p>
         {categorias.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nenhum insumo cadastrado.</p>
         ) : (
@@ -85,10 +93,10 @@ export function PainelSecao({ itens }: { itens: any[] }) {
                     <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.cor || 'hsl(var(--muted-foreground))' }} />
                     {c.nome} <span className="text-muted-foreground">· {c.n}</span>
                   </span>
-                  <span className="font-mono">{brl(c.valor)}</span>
+                  <span className="font-mono">{verFin ? brl(c.valor) : `${c.n} ${c.n === 1 ? 'item' : 'itens'}`}</span>
                 </div>
                 <div className="h-2 rounded-full bg-secondary">
-                  <div className="h-2 rounded-full" style={{ width: `${(c.valor / maxCat) * 100}%`, background: c.cor || 'hsl(var(--primary))' }} />
+                  <div className="h-2 rounded-full" style={{ width: `${(metrica(c) / maxCat) * 100}%`, background: c.cor || 'hsl(var(--primary))' }} />
                 </div>
               </div>
             ))}

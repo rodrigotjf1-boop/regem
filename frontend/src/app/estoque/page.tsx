@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -82,6 +82,11 @@ export default function EstoqueInteligenciaPage() {
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
+      return;
+    }
+    // Motor de custo (CMV/valorização) = financeiro → só presidente/C&O.
+    if (getCategoria() !== 'presidente') {
+      router.replace('/operacao');
       return;
     }
     carregar(inicio, fim);
