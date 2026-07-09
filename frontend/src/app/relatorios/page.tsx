@@ -62,10 +62,13 @@ export default function RelatoriosPage() {
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'vendas' | 'financeiro'>('vendas');
+  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'financeiro'>('vendas');
   const [ano, setAno] = useState(new Date().getFullYear());
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
+  const [balcao, setBalcao] = useState<any>(null);
+  const [delivery, setDelivery] = useState<any>(null);
+  const [ranking, setRanking] = useState<any>(null);
 
   const reload = useCallback(async () => {
     setErro('');
@@ -97,6 +100,29 @@ export default function RelatoriosPage() {
     }
   }, [ano, inicio, fim]);
 
+  const reloadBalcao = useCallback(async () => {
+    setErro('');
+    try {
+      const [b, r] = await Promise.all([
+        api.relatorioBalcao(inicio, fim),
+        api.relatorioRanking(inicio, fim),
+      ]);
+      setBalcao(b);
+      setRanking(r);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [inicio, fim]);
+
+  const reloadDelivery = useCallback(async () => {
+    setErro('');
+    try {
+      setDelivery(await api.relatorioDelivery(inicio, fim));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [inicio, fim]);
+
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
@@ -106,8 +132,11 @@ export default function RelatoriosPage() {
   }, [reload, router]);
 
   useEffect(() => {
-    if (aba === 'financeiro' && getToken()) reloadFin();
-  }, [aba, reloadFin]);
+    if (!getToken()) return;
+    if (aba === 'financeiro') reloadFin();
+    else if (aba === 'balcao') reloadBalcao();
+    else if (aba === 'delivery') reloadDelivery();
+  }, [aba, reloadFin, reloadBalcao, reloadDelivery]);
 
   if (!isGestor) {
     return (
@@ -135,7 +164,15 @@ export default function RelatoriosPage() {
             <Label className="text-xs">Até</Label>
             <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} className="w-40" />
           </div>
-          <Button type="button" onClick={aba === 'financeiro' ? reloadFin : reload}>
+          <Button
+            type="button"
+            onClick={() => {
+              if (aba === 'financeiro') reloadFin();
+              else if (aba === 'balcao') reloadBalcao();
+              else if (aba === 'delivery') reloadDelivery();
+              else reload();
+            }}
+          >
             Atualizar
           </Button>
         </Card>
@@ -144,6 +181,8 @@ export default function RelatoriosPage() {
         <div className="flex flex-wrap gap-2">
           {[
             { v: 'vendas', l: 'Vendas' },
+            { v: 'balcao', l: 'Balcão / Salão' },
+            { v: 'delivery', l: 'Delivery' },
             { v: 'financeiro', l: 'Financeiro' },
           ].map((t) => (
             <button
@@ -250,6 +289,15 @@ export default function RelatoriosPage() {
         </>
         )}
 
+        {aba === 'balcao' && (
+          <>
+            <DetalheCanal data={balcao} nome="balcao" />
+            <RankingGlobal data={ranking} />
+          </>
+        )}
+
+        {aba === 'delivery' && <DetalheCanal data={delivery} nome="delivery" delivery />}
+
         {aba === 'financeiro' && (
         <>
           {/* Faturamento anual (mensal + trimestral) */}
@@ -346,5 +394,139 @@ export default function RelatoriosPage() {
         )}
       </div>
     </Shell>
+  );
+}
+
+// Barras simples (por dia/hora) reutilizadas.
+function BarChart({ pontos, label }: { pontos: { k: string; v: number; t: string }[]; label: string }) {
+  const mx = Math.max(1, ...pontos.map((p) => p.v));
+  return (
+    <Card className="p-4">
+      <h2 className="mb-3 font-display text-sm font-bold">{label}</h2>
+      {pontos.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Sem dados no período.</p>
+      ) : (
+        <div className="flex items-end gap-1" style={{ height: 120 }}>
+          {pontos.map((p) => (
+            <div key={p.k} className="flex flex-1 flex-col items-center justify-end" title={p.t}>
+              <div className="w-full rounded-t bg-primary" style={{ height: `${(p.v / mx) * 100}%` }} />
+              <span className="mt-1 text-[9px] text-muted-foreground">{p.k}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// Detalhe de um canal (balcão ou delivery): KPIs + por dia + por hora + mais
+// vendidos (+ região e plataforma no delivery).
+function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; delivery?: boolean }) {
+  if (!data) return <p className="text-sm text-muted-foreground">Carregando…</p>;
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { l: 'Faturado', v: brl(data.resumo.faturado) },
+          { l: 'Vendas', v: data.resumo.vendas },
+          { l: 'Ticket médio', v: brl(data.resumo.ticketMedio) },
+        ].map((k) => (
+          <Card key={k.l} className="p-4">
+            <p className="text-xs text-muted-foreground">{k.l}</p>
+            <p className="mt-1 font-mono text-xl font-bold">{k.v}</p>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <BarChart
+          label="Vendas por dia"
+          pontos={data.porDia.map((d: any) => ({ k: String(d.dia).slice(5), v: d.total, t: `${d.dia} · ${brl(d.total)} · ${d.qtd} vendas` }))}
+        />
+        <BarChart
+          label="Vendas por hora"
+          pontos={data.porHora.map((h: any) => ({ k: String(h.hora), v: h.qtd, t: `${h.hora}h · ${h.qtd} vendas` }))}
+        />
+      </div>
+
+      {delivery && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Card className="p-4">
+            <h2 className="mb-3 font-display text-sm font-bold">Por plataforma</h2>
+            {data.porPlataforma.length === 0 && <p className="text-sm text-muted-foreground">Sem pedidos.</p>}
+            {data.porPlataforma.map((p: any) => (
+              <div key={p.plataforma} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+                <span className="min-w-0 flex-1 truncate capitalize">{p.plataforma}</span>
+                <span className="w-12 text-right text-xs text-muted-foreground">{p.qtd}</span>
+                <span className="w-24 text-right font-mono">{brl(p.total)}</span>
+              </div>
+            ))}
+          </Card>
+          <Card className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-display text-sm font-bold">Por região (bairro)</h2>
+              {data.porRegiao.length > 0 && (
+                <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv('delivery-regiao', data.porRegiao)}>CSV</Button>
+              )}
+            </div>
+            {data.porRegiao.length === 0 && <p className="text-sm text-muted-foreground">Sem entregas com bairro.</p>}
+            {data.porRegiao.map((r: any) => (
+              <div key={r.regiao} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+                <span className="min-w-0 flex-1 truncate">{r.regiao}</span>
+                <span className="w-12 text-right text-xs text-muted-foreground">{r.qtd}</span>
+                <span className="w-24 text-right font-mono">{brl(r.total)}</span>
+              </div>
+            ))}
+          </Card>
+        </div>
+      )}
+
+      <Card className="p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="font-display text-sm font-bold">Mais vendidos</h2>
+          {data.maisVendidos.length > 0 && (
+            <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv(`mais-vendidos-${nome}`, data.maisVendidos)}>Exportar CSV</Button>
+          )}
+        </div>
+        {data.maisVendidos.length === 0 && <p className="text-sm text-muted-foreground">Sem vendas no período.</p>}
+        <div className="space-y-1">
+          {data.maisVendidos.map((p: any, i: number) => (
+            <div key={i} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+              <span className="w-5 text-center text-xs text-muted-foreground">{i + 1}</span>
+              <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
+              <span className="w-12 text-right text-xs text-muted-foreground">{p.qtd}x</span>
+              <span className="w-24 text-right font-mono">{brl(p.faturamento)}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// Ranking global de produtos (balcão + delivery), com a quebra por canal.
+function RankingGlobal({ data }: { data: any }) {
+  if (!data) return null;
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-display text-sm font-bold">Ranking global de produtos (balcão + delivery)</h2>
+        {data.itens.length > 0 && (
+          <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv('ranking-global', data.itens)}>Exportar CSV</Button>
+        )}
+      </div>
+      {data.itens.length === 0 && <p className="text-sm text-muted-foreground">Sem vendas no período.</p>}
+      <div className="space-y-1">
+        {data.itens.map((p: any, i: number) => (
+          <div key={i} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+            <span className="w-5 text-center text-xs text-muted-foreground">{i + 1}</span>
+            <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
+            <span className="w-24 text-right text-[11px] text-muted-foreground">🏠 {p.qtdBalcao} · 🛵 {p.qtdDelivery}</span>
+            <span className="w-10 text-right text-xs font-bold">{p.qtd}x</span>
+            <span className="w-24 text-right font-mono">{brl(p.faturamento)}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }

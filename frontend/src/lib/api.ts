@@ -394,6 +394,27 @@ export const api = {
     const q = p.toString();
     return req(`/relatorios/atendentes${q ? `?${q}` : ''}`);
   },
+  relatorioBalcao: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/balcao${q ? `?${q}` : ''}`);
+  },
+  relatorioDelivery: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/delivery${q ? `?${q}` : ''}`);
+  },
+  relatorioRanking: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/ranking-produtos${q ? `?${q}` : ''}`);
+  },
   relatorioFaturamento: (ano?: number) =>
     req(`/relatorios/faturamento${ano ? `?ano=${ano}` : ''}`),
   relatorioFaturamentoDelivery: (inicio?: string, fim?: string) => {
