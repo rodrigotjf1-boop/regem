@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Sparkles } from 'lucide-react';
+import { ScrollText, Sparkles } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { ChecklistCard } from '@/components/docs/checklist-card';
@@ -122,6 +123,29 @@ export default function DocsPage() {
           </div>
         ) : (
           <>
+            {/* Atalho para POP & Guias (agora dentro de Documentos) */}
+            <Card className="flex items-center justify-between gap-3 p-4">
+              <div className="flex items-start gap-3">
+                <div className="grid h-9 w-9 flex-none place-items-center rounded-lg bg-primary/10 text-primary">
+                  <ScrollText className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-display font-semibold">POP &amp; Guias</p>
+                  <p className="text-sm text-muted-foreground">
+                    Procedimentos operacionais padrão e guias ilustrados, com
+                    criação assistida por IA.
+                  </p>
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => router.push('/guias')}
+                className="flex-none"
+              >
+                Abrir →
+              </Button>
+            </Card>
+
             {/* ── Checklists → POP ── */}
             <section className="space-y-3">
               <div>

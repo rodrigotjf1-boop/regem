@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
+  ArrowLeft,
   Copy,
   FileText,
   Pencil,
@@ -98,6 +100,7 @@ const vazio = () => ({
 });
 
 export default function GuiasPage() {
+  const router = useRouter();
   const [guias, setGuias] = useState<any[]>([]);
   const [sugestoes, setSugestoes] = useState<any[]>([]);
   const [checklists, setChecklists] = useState<any[]>([]);
@@ -304,7 +307,15 @@ export default function GuiasPage() {
   }
 
   return (
-    <Shell eyebrow="Capacitação" title="POP & Guias">
+    <Shell
+      eyebrow="Documentos · qualidade"
+      title="POP & Guias"
+      actions={
+        <Button size="sm" variant="outline" onClick={() => router.push('/docs')}>
+          <ArrowLeft className="h-4 w-4" /> Documentos
+        </Button>
+      }
+    >
       {erro && <p className="mb-4 text-destructive">{erro}</p>}
       {msg && (
         <p className="mb-4 rounded-md bg-ok/10 px-3 py-2 text-sm font-medium text-ok">
