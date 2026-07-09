@@ -1,4 +1,9 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { turno, unidade } from '../../db/schema';
@@ -35,6 +40,54 @@ export class TurnoService {
       })
       .returning();
     return row;
+  }
+
+  async update(
+    tenantId: string,
+    id: string,
+    dto: {
+      nome?: string;
+      horaInicio?: string;
+      horaFim?: string;
+      pausaInicio?: string;
+      pausaFim?: string;
+    },
+  ) {
+    const [row] = await this.db
+      .update(turno)
+      .set({
+        nome: dto.nome,
+        horaInicio: dto.horaInicio,
+        horaFim: dto.horaFim,
+        pausaInicio: dto.pausaInicio || null,
+        pausaFim: dto.pausaFim || null,
+      })
+      .where(
+        and(
+          eq(turno.id, id),
+          eq(turno.tenantId, tenantId),
+          isNull(turno.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Turno não encontrado.');
+    return row;
+  }
+
+  async remove(tenantId: string, id: string) {
+    const [row] = await this.db
+      .update(turno)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(turno.id, id),
+          eq(turno.tenantId, tenantId),
+          isNull(turno.deletedAt),
+        ),
+      )
+      .returning({ id: turno.id });
+    if (!row) throw new NotFoundException('Turno não encontrado.');
+    return { ok: true };
   }
 
   findAll(tenantId: string) {

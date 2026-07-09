@@ -18,6 +18,7 @@ export default function CadastrosPage() {
   const { L, erro, ver, reload } = useCadastrosData();
   const [sel, setSel] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
+  const [ramo, setRamo] = useState('food_service');
 
   useEffect(() => {
     if (!getToken()) {
@@ -25,6 +26,10 @@ export default function CadastrosPage() {
       return;
     }
     reload();
+    api
+      .get('/empresas')
+      .then((e: any) => e?.ramo && setRamo(e.ramo))
+      .catch(() => {});
   }, [reload, router]);
 
   if (!L) {
@@ -73,6 +78,7 @@ export default function CadastrosPage() {
             onSelect={setSel}
             ver={ver}
             optU={optU}
+            ramo={ramo}
             reload={reload}
             onNavigate={(path) => router.push(path)}
           />

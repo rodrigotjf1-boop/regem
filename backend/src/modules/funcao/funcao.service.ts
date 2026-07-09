@@ -1,5 +1,10 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull } from 'drizzle-orm';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { funcao, setor, etiqueta } from '../../db/schema';
 import { CreateFuncaoDto } from './dto/create-funcao.dto';
@@ -74,6 +79,48 @@ export class FuncaoService {
       }
     }
     return { ...row, etiqueta: etiquetaGerada };
+  }
+
+  async update(tenantId: string, id: string, dto: CreateFuncaoDto) {
+    const [row] = await this.db
+      .update(funcao)
+      .set({
+        nome: dto.nome,
+        categoria: dto.categoria ?? 'execucao',
+        setorId: dto.setorId ?? null,
+      })
+      .where(
+        and(
+          eq(funcao.id, id),
+          eq(funcao.tenantId, tenantId),
+          isNull(funcao.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Função não encontrada.');
+    return row;
+  }
+
+  async remove(tenantId: string, id: string) {
+    // Guarda: não excluir função vinculada a colaboradores ou etiquetas ativas.
+    const r: any = await this.db.execute(sql`
+      select
+        (select count(*) from colaborador_funcao where funcao_id = ${id})
+      + (select count(*) from etiqueta where funcao_id = ${id} and deleted_at is null)
+        as n
+    `);
+    if (Number((r.rows ?? r)[0]?.n ?? 0) > 0) {
+      throw new BadRequestException(
+        'Função em uso por colaboradores ou etiquetas. Desvincule antes.',
+      );
+    }
+    const [row] = await this.db
+      .update(funcao)
+      .set({ deletedAt: new Date() })
+      .where(and(eq(funcao.id, id), eq(funcao.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new NotFoundException('Função não encontrada.');
+    return { ok: true };
   }
 
   findAll(tenantId: string) {

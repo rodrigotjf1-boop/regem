@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -36,6 +37,16 @@ export class DiaEspecialController {
   @Roles('presidente', 'gerente', 'supervisao')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateDiaEspecialDto) {
     return this.service.create(user.tenantId, dto);
+  }
+
+  @Patch(':id')
+  @Roles('presidente', 'gerente', 'supervisao')
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: CreateDiaEspecialDto,
+  ) {
+    return this.service.update(user.tenantId, id, dto);
   }
 
   @Delete(':id')

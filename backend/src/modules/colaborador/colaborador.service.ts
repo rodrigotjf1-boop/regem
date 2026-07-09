@@ -87,6 +87,87 @@ export class ColaboradorService {
     return { ...row, funcaoIds: validas };
   }
 
+  // Edição geral (Cadastros): dados básicos + funções (N:N) + PIN opcional.
+  async update(tenantId: string, id: string, dto: CreateColaboradorDto) {
+    const [atual] = await this.db
+      .select({ id: colaborador.id })
+      .from(colaborador)
+      .where(
+        and(
+          eq(colaborador.id, id),
+          eq(colaborador.tenantId, tenantId),
+          isNull(colaborador.deletedAt),
+        ),
+      );
+    if (!atual) throw new NotFoundException('Colaborador não encontrado.');
+
+    const pedidas = [
+      ...new Set([...(dto.funcaoIds ?? []), dto.funcaoId].filter(Boolean)),
+    ] as string[];
+    const validas = pedidas.length
+      ? (
+          await this.db
+            .select({ id: funcao.id })
+            .from(funcao)
+            .where(
+              and(
+                eq(funcao.tenantId, tenantId),
+                inArray(funcao.id, pedidas),
+                isNull(funcao.deletedAt),
+              ),
+            )
+        ).map((f) => f.id)
+      : [];
+    const principal =
+      dto.funcaoId && validas.includes(dto.funcaoId) ? dto.funcaoId : validas[0];
+
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (dto.nome !== undefined) patch.nome = dto.nome;
+    if (dto.fotoRef !== undefined) patch.fotoRef = dto.fotoRef;
+    if (dto.vinculo !== undefined) patch.vinculo = dto.vinculo;
+    if (dto.jornadaTipo !== undefined) patch.jornadaTipo = dto.jornadaTipo;
+    if (principal !== undefined) patch.funcaoId = principal;
+    if (dto.pin) patch.pinHash = await bcrypt.hash(dto.pin, 10);
+
+    const [row] = await this.db
+      .update(colaborador)
+      .set(patch)
+      .where(and(eq(colaborador.id, id), eq(colaborador.tenantId, tenantId)))
+      .returning(publicCols);
+
+    // Substitui os vínculos de função quando o campo é enviado.
+    if (dto.funcaoIds !== undefined || dto.funcaoId !== undefined) {
+      await this.db
+        .delete(colaboradorFuncao)
+        .where(eq(colaboradorFuncao.colaboradorId, id));
+      if (validas.length) {
+        await this.db
+          .insert(colaboradorFuncao)
+          .values(
+            validas.map((funcaoId) => ({ tenantId, colaboradorId: id, funcaoId })),
+          )
+          .onConflictDoNothing();
+      }
+    }
+    return { ...row, funcaoIds: validas };
+  }
+
+  async remove(tenantId: string, id: string) {
+    const [row] = await this.db
+      .update(colaborador)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(colaborador.id, id),
+          eq(colaborador.tenantId, tenantId),
+          isNull(colaborador.deletedAt),
+        ),
+      )
+      .returning({ id: colaborador.id });
+    if (!row) throw new NotFoundException('Colaborador não encontrado.');
+    return { ok: true };
+  }
+
   async findAll(tenantId: string) {
     const rows = await this.db
       .select(publicCols)

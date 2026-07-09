@@ -1,11 +1,27 @@
 'use client';
 
-import { ArrowLeft } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowLeft, Pencil, Trash2, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
-import { EntityForm } from '@/components/cadastros/entity-form';
+import { Button } from '@/components/ui/button';
+import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { type Secao } from '@/components/cadastros/build-secoes';
 
-// Detalhe de uma seção: formulário de cadastro + lista dos itens já cadastrados.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Converte o valor da linha no defaultValue (string) que o EntityForm espera.
+function toDefault(field: FieldDef, row: any): string {
+  const val = row[field.name];
+  if (Array.isArray(val)) return val.join(',');
+  if (typeof val === 'boolean') return val ? '1' : '';
+  if (val === null || val === undefined) return '';
+  const s = String(val);
+  if (field.type === 'time') return s.slice(0, 5);
+  if (field.type === 'date') return s.slice(0, 10);
+  return s;
+}
+
+// Detalhe de uma seção: cadastro + lista dos itens já cadastrados (editar/excluir).
 export function SecaoDetalhe({
   sec,
   ver,
@@ -17,6 +33,33 @@ export function SecaoDetalhe({
   onBack: () => void;
   reload: () => Promise<void>;
 }) {
+  const [editId, setEditId] = useState<string | null>(null);
+  const [erro, setErro] = useState('');
+  const rows: any[] = sec.rows ?? [];
+  const label = sec.rowLabel ?? ((r: any) => r.nome ?? r.id);
+  const podeEditar = !!sec.update;
+  const podeExcluir = !!sec.remove;
+
+  async function excluir(r: any) {
+    if (!sec.remove) return;
+    if (!confirm(`Excluir "${label(r)}"? Esta ação não pode ser desfeita.`)) {
+      return;
+    }
+    setErro('');
+    try {
+      await sec.remove(r.id);
+      await reload();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao excluir');
+    }
+  }
+
+  function editFields(row: any): FieldDef[] {
+    return sec.fields
+      .filter((f) => !(sec.editHide ?? []).includes(f.name))
+      .map((f) => ({ ...f, defaultValue: toDefault(f, row) }));
+  }
+
   return (
     <div className="space-y-4">
       <button
@@ -28,9 +71,7 @@ export function SecaoDetalhe({
       </button>
 
       <Card className="p-4">
-        <h2 className="mb-3 font-display text-lg font-semibold">
-          {sec.titulo}
-        </h2>
+        <h2 className="mb-3 font-display text-lg font-semibold">{sec.titulo}</h2>
         <EntityForm
           key={`${sec.key}-${ver}`}
           fields={sec.fields}
@@ -42,21 +83,79 @@ export function SecaoDetalhe({
         />
       </Card>
 
-      {sec.itens.length > 0 && (
+      {erro && (
+        <p role="alert" className="text-sm text-destructive">
+          {erro}
+        </p>
+      )}
+
+      {rows.length > 0 && (
         <Card className="p-4">
-          <p className="mb-2 text-sm font-medium text-muted-foreground">
-            Cadastrados ({sec.itens.length})
+          <p className="mb-3 text-sm font-medium text-muted-foreground">
+            Cadastrados ({rows.length})
           </p>
-          <div className="flex flex-wrap gap-1.5">
-            {sec.itens.map((n: string, i: number) => (
-              <span
-                key={i}
-                className="rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground"
+          <ul className="space-y-2">
+            {rows.map((r) => (
+              <li
+                key={r.id}
+                className="rounded-lg border border-border p-2.5"
               >
-                {n}
-              </span>
+                {editId === r.id && podeEditar ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Editando</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditId(null)}
+                      >
+                        <X className="h-4 w-4" /> Cancelar
+                      </Button>
+                    </div>
+                    <EntityForm
+                      key={`edit-${r.id}-${ver}`}
+                      fields={editFields(r)}
+                      submitLabel="Salvar alterações"
+                      onSubmit={async (v) => {
+                        await sec.update!(r.id, v);
+                        setEditId(null);
+                        await reload();
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-sm">{label(r)}</span>
+                    <div className="flex flex-none items-center gap-1">
+                      {podeEditar && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Editar"
+                          onClick={() => {
+                            setErro('');
+                            setEditId(r.id);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {podeExcluir && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label="Excluir"
+                          onClick={() => excluir(r)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </li>
             ))}
-          </div>
+          </ul>
         </Card>
       )}
     </div>
