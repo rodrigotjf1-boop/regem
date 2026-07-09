@@ -25,6 +25,7 @@ export const SELOS = [
   { v: 'sem_gluten', l: '🌾 S/ glúten' },
   { v: 'sem_lactose', l: '🥛 S/ lactose' },
   { v: 'picante', l: '🌶️ Picante' },
+  { v: 'promocao', l: '🏷️ Promoção' },
 ];
 
 export const vazio = () => ({
