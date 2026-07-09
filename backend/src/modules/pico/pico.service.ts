@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { janelaPico } from '../../db/schema';
@@ -34,6 +34,36 @@ export class PicoService {
       .from(janelaPico)
       .where(and(...conds))
       .orderBy(asc(janelaPico.horaInicio));
+  }
+
+  async update(
+    tenantId: string,
+    id: string,
+    dto: {
+      nome?: string;
+      diaSemana?: number | null;
+      horaInicio?: string;
+      horaFim?: string;
+    },
+  ) {
+    const [row] = await this.db
+      .update(janelaPico)
+      .set({
+        nome: dto.nome,
+        diaSemana: dto.diaSemana ?? null,
+        horaInicio: dto.horaInicio,
+        horaFim: dto.horaFim,
+      })
+      .where(
+        and(
+          eq(janelaPico.id, id),
+          eq(janelaPico.tenantId, tenantId),
+          isNull(janelaPico.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Janela de pico não encontrada.');
+    return row;
   }
 
   async remove(tenantId: string, id: string) {

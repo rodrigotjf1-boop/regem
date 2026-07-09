@@ -3,6 +3,7 @@ import {
   ConflictException,
   Inject,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { and, eq, isNull } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -63,6 +64,56 @@ export class EtiquetaService {
       }
       throw e;
     }
+  }
+
+  async update(
+    tenantId: string,
+    id: string,
+    dto: { sigla?: string; contador?: number; cor?: string; icone?: string },
+  ) {
+    try {
+      const [row] = await this.db
+        .update(etiqueta)
+        .set({
+          sigla: dto.sigla,
+          contador: dto.contador ?? 1,
+          cor: dto.cor,
+          icone: dto.icone,
+        })
+        .where(
+          and(
+            eq(etiqueta.id, id),
+            eq(etiqueta.tenantId, tenantId),
+            isNull(etiqueta.deletedAt),
+          ),
+        )
+        .returning();
+      if (!row) throw new NotFoundException('Etiqueta não encontrada.');
+      return row;
+    } catch (e: any) {
+      if (e?.code === '23505') {
+        throw new ConflictException(
+          'Já existe etiqueta com essa sigla+contador na unidade',
+        );
+      }
+      throw e;
+    }
+  }
+
+  async remove(tenantId: string, id: string) {
+    const [row] = await this.db
+      .update(etiqueta)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(etiqueta.id, id),
+          eq(etiqueta.tenantId, tenantId),
+          isNull(etiqueta.deletedAt),
+        ),
+      )
+      .returning({ id: etiqueta.id });
+    if (!row) throw new NotFoundException('Etiqueta não encontrada.');
+    return { ok: true };
   }
 
   findAll(tenantId: string) {

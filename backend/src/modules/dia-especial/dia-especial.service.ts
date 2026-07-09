@@ -43,6 +43,30 @@ export class DiaEspecialService {
       .orderBy(asc(diaEspecial.data));
   }
 
+  async update(tenantId: string, id: string, dto: CreateDiaEspecialDto) {
+    const [row] = await this.db
+      .update(diaEspecial)
+      .set({
+        unidadeId: dto.unidadeId ?? null,
+        colaboradorId: dto.colaboradorId ?? null,
+        data: dto.data,
+        dataFim: dto.dataFim ?? null,
+        tipo: dto.tipo ?? 'evento',
+        nome: dto.nome,
+        descricao: dto.descricao ?? null,
+      })
+      .where(
+        and(
+          eq(diaEspecial.id, id),
+          eq(diaEspecial.tenantId, tenantId),
+          isNull(diaEspecial.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Dia especial não encontrado');
+    return row;
+  }
+
   async remover(tenantId: string, id: string) {
     const [row] = await this.db
       .update(diaEspecial)

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { fornecedor } from '../../db/schema';
@@ -30,6 +30,45 @@ export class FornecedorService {
       .from(fornecedor)
       .where(and(eq(fornecedor.tenantId, tenantId), isNull(fornecedor.deletedAt)))
       .orderBy(asc(fornecedor.nome));
+  }
+
+  async update(tenantId: string, id: string, dto: CreateFornecedorDto) {
+    const [row] = await this.db
+      .update(fornecedor)
+      .set({
+        nome: dto.nome,
+        cnpj: dto.cnpj,
+        contato: dto.contato,
+        telefone: dto.telefone,
+        email: dto.email,
+        obs: dto.obs,
+      })
+      .where(
+        and(
+          eq(fornecedor.id, id),
+          eq(fornecedor.tenantId, tenantId),
+          isNull(fornecedor.deletedAt),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Fornecedor não encontrado.');
+    return row;
+  }
+
+  async remove(tenantId: string, id: string) {
+    const [row] = await this.db
+      .update(fornecedor)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(fornecedor.id, id),
+          eq(fornecedor.tenantId, tenantId),
+          isNull(fornecedor.deletedAt),
+        ),
+      )
+      .returning({ id: fornecedor.id });
+    if (!row) throw new NotFoundException('Fornecedor não encontrado.');
+    return { ok: true };
   }
 
   // Índice de pendências: divergências acumuladas por fornecedor.

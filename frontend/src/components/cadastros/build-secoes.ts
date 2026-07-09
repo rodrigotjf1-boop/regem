@@ -18,6 +18,12 @@ export type Secao = {
   itens: string[];
   fields: FieldDef[];
   submit: (v: any) => Promise<any>;
+  // Edição / exclusão (Cadastros CRUD). rows = objetos completos (com id).
+  rows?: any[];
+  rowLabel?: (r: any) => string;
+  update?: (id: string, v: any) => Promise<any>;
+  remove?: (id: string) => Promise<any>;
+  editHide?: string[]; // campos ocultos no modo edição
 };
 
 // Monta as seções de cadastro (ordem de dependência) a partir das listas
@@ -38,7 +44,7 @@ export function buildSecoes({
   criarFuncao: (nome: string) => Promise<Opt>;
 }): Secao[] {
   const optColab: Opt[] = L.colaboradores.map((c: any) => ({ value: c.id, label: c.nome }));
-  return [
+  const base: Secao[] = [
     {
       key: 'unidade',
       titulo: 'Unidades',
@@ -389,4 +395,126 @@ export function buildSecoes({
         }),
     },
   ];
+
+  const diaLabel = (d: any) =>
+    `${d.data}${d.dataFim ? `–${d.dataFim}` : ''} · ${d.nome} (${d.tipo})`;
+  const picoLabel = (p: any) =>
+    `${p.nome} · ${
+      p.diaSemana == null ? 'todos' : DIA_ABREV[String(p.diaSemana)]
+    } ${String(p.horaInicio).slice(0, 5)}–${String(p.horaFim).slice(0, 5)}`;
+
+  // Edição/exclusão por seção (mesclado por key, sem repetir os forms).
+  const extra: Record<string, Partial<Secao>> = {
+    unidade: {
+      rows: L.unidades,
+      rowLabel: (u) => u.nome,
+      update: (id, v) => api.patch(`/unidades/${id}`, { nome: v.nome }),
+      remove: (id) => api.del(`/unidades/${id}`),
+    },
+    setor: {
+      rows: L.setores,
+      rowLabel: (s) => s.nome,
+      editHide: ['unidadeId'],
+      update: (id, v) =>
+        api.patch(`/setores/${id}`, {
+          nome: v.nome,
+          icone: v.icone || undefined,
+          cor: v.cor || undefined,
+        }),
+      remove: (id) => api.del(`/setores/${id}`),
+    },
+    funcao: {
+      rows: L.funcoes,
+      rowLabel: (f) => `${f.nome} (${f.categoria})`,
+      editHide: ['gerarEtiqueta', 'sigla'],
+      update: (id, v) =>
+        api.patch(`/funcoes/${id}`, {
+          nome: v.nome,
+          categoria: v.categoria,
+          setorId: v.setorId || undefined,
+        }),
+      remove: (id) => api.del(`/funcoes/${id}`),
+    },
+    colaborador: {
+      rows: L.colaboradores,
+      rowLabel: (c) => c.nome,
+      update: (id, v) =>
+        api.patch(`/colaboradores/${id}`, {
+          nome: v.nome,
+          fotoRef: v.fotoRef || undefined,
+          funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
+          vinculo: v.vinculo,
+          jornadaTipo: v.jornadaTipo || undefined,
+          pin: v.pin || undefined,
+        }),
+      remove: (id) => api.del(`/colaboradores/${id}`),
+    },
+    turno: {
+      rows: L.turnos,
+      rowLabel: (t) => t.nome,
+      editHide: ['unidadeId'],
+      update: (id, v) =>
+        api.patch(`/turnos/${id}`, {
+          nome: v.nome,
+          horaInicio: v.horaInicio,
+          horaFim: v.horaFim,
+          pausaInicio: v.pausaInicio || undefined,
+          pausaFim: v.pausaFim || undefined,
+        }),
+      remove: (id) => api.del(`/turnos/${id}`),
+    },
+    pico: {
+      rows: L.janelasPico,
+      rowLabel: picoLabel,
+      editHide: ['unidadeId'],
+      update: (id, v) =>
+        api.patch(`/janelas-pico/${id}`, {
+          nome: v.nome,
+          diaSemana: v.diaSemana === '' ? undefined : Number(v.diaSemana),
+          horaInicio: v.horaInicio,
+          horaFim: v.horaFim,
+        }),
+      remove: (id) => api.del(`/janelas-pico/${id}`),
+    },
+    fornecedor: {
+      rows: L.fornecedores,
+      rowLabel: (f) => f.nome,
+      update: (id, v) =>
+        api.patch(`/fornecedores/${id}`, {
+          nome: v.nome,
+          cnpj: v.cnpj || undefined,
+          contato: v.contato || undefined,
+          telefone: v.telefone || undefined,
+          email: v.email || undefined,
+          obs: v.obs || undefined,
+        }),
+      remove: (id) => api.del(`/fornecedores/${id}`),
+    },
+    etiqueta: {
+      rows: L.etiquetas,
+      rowLabel: (e) => `${e.sigla}${e.contador}`,
+      editHide: ['setorId', 'funcaoId'],
+      update: (id, v) =>
+        api.patch(`/etiquetas/${id}`, {
+          sigla: v.sigla,
+          contador: v.contador ? Number(v.contador) : undefined,
+        }),
+      remove: (id) => api.del(`/etiquetas/${id}`),
+    },
+    dia_especial: {
+      rows: L.diasEspeciais ?? [],
+      rowLabel: diaLabel,
+      update: (id, v) =>
+        api.patch(`/dias-especiais/${id}`, {
+          data: v.data,
+          dataFim: v.dataFim || undefined,
+          tipo: v.tipo,
+          nome: v.nome,
+          colaboradorId: v.colaboradorId || undefined,
+        }),
+      remove: (id) => api.del(`/dias-especiais/${id}`),
+    },
+  };
+
+  return base.map((s) => ({ ...s, ...extra[s.key] }));
 }

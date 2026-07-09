@@ -8,6 +8,13 @@ import { api } from '@/lib/api';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+const RAMOS: Record<string, { label: string; emoji: string }> = {
+  food_service: { label: 'Food Service', emoji: '🍽️' },
+  varejo: { label: 'Varejo', emoji: '🛍️' },
+  industria_leve: { label: 'Indústria leve', emoji: '🏭' },
+  servicos: { label: 'Serviços', emoji: '🧰' },
+};
+
 export function CadastrosHub({
   secoes,
   busca,
@@ -15,6 +22,7 @@ export function CadastrosHub({
   onSelect,
   ver,
   optU,
+  ramo,
   reload,
   onNavigate,
 }: {
@@ -24,9 +32,11 @@ export function CadastrosHub({
   onSelect: (key: string) => void;
   ver: number;
   optU: Opt[];
+  ramo: string;
   reload: () => Promise<void>;
   onNavigate: (path: string) => void;
 }) {
+  const ramoInfo = RAMOS[ramo] ?? RAMOS.food_service;
   const feitas = secoes.filter((s) => s.itens.length > 0).length;
   const pct = Math.round((feitas / secoes.length) * 100);
   const q = busca.trim().toLowerCase();
@@ -86,7 +96,7 @@ export function CadastrosHub({
         {optU.length > 0 ? (
           <EntityForm
             key={`tpl-${ver}`}
-            submitLabel="Aplicar Food Service"
+            submitLabel={`Aplicar ${ramoInfo.emoji} ${ramoInfo.label}`}
             fields={
               [
                 {
@@ -102,7 +112,7 @@ export function CadastrosHub({
             onSubmit={async (v) => {
               await api.post('/onboarding/template', {
                 unidadeId: v.unidadeId,
-                ramo: 'food_service',
+                ramo,
               });
               await reload();
             }}

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -34,6 +35,12 @@ export class SetorController {
     @Body() dto: { nome?: string; icone?: string; cor?: string },
   ) {
     return this.service.update(user.tenantId, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles('presidente', 'gerente')
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.remove(user.tenantId, id);
   }
 
   @Get()

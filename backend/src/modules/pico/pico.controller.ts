@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -33,6 +34,22 @@ export class PicoController {
   @Roles('presidente', 'gerente')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateJanelaPicoDto) {
     return this.service.create(user.tenantId, dto);
+  }
+
+  @Patch(':id')
+  @Roles('presidente', 'gerente')
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      nome?: string;
+      diaSemana?: number | null;
+      horaInicio?: string;
+      horaFim?: string;
+    },
+  ) {
+    return this.service.update(user.tenantId, id, dto);
   }
 
   @Delete(':id')
