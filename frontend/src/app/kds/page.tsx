@@ -35,6 +35,26 @@ function corTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: numb
 const proximaLabel = (status: string) =>
   status === 'recebido' ? 'Iniciar' : status === 'preparo' ? 'Pronto' : 'Entregar';
 
+// Temas do KDS (só o "chrome" muda; verde/amarelo/vermelho/dourado são semânticos).
+const TEMAS = {
+  escuro: {
+    bg: '#0B141B',
+    panel: '#12202A',
+    panel2: '#182B37',
+    border: '#22333F',
+    text: '#EAF1F5',
+    muted: '#9FB3BF',
+  },
+  claro: {
+    bg: '#EDF0F4',
+    panel: '#FFFFFF',
+    panel2: '#F1F4F8',
+    border: '#D8DEE6',
+    text: '#0F2230',
+    muted: '#5B6B78',
+  },
+};
+
 export default function KdsPage() {
   const [conectado, setConectado] = useState(false);
   const [temSessao, setTemSessao] = useState<boolean | null>(null);
@@ -45,6 +65,19 @@ export default function KdsPage() {
   const [setorSel, setSetorSel] = useState('');
   const [escopo, setEscopo] = useState<'producao' | 'entrega'>('producao');
   const [mudo, setMudo] = useState(false);
+  // Tema do KDS (preferência do aparelho — UI, não dado de negócio).
+  const [claro, setClaro] = useState(false);
+  useEffect(() => {
+    setClaro(localStorage.getItem('kds-tema') === 'claro');
+  }, []);
+  const T = claro ? TEMAS.claro : TEMAS.escuro;
+  function alternarTema() {
+    setClaro((v) => {
+      const novo = !v;
+      localStorage.setItem('kds-tema', novo ? 'claro' : 'escuro');
+      return novo;
+    });
+  }
   // null no SSR/1ª render → evita hydration mismatch do relógio (server ≠ client).
   const [now, setNow] = useState<Date | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -207,12 +240,12 @@ export default function KdsPage() {
   return (
     <main
       className="min-h-dvh"
-      style={{ background: '#0B141B', color: '#EAF1F5' }}
+      style={{ background: T.bg, color: T.text }}
     >
       {/* Header */}
       <header
         className="sticky top-0 z-10 flex items-center gap-4 border-b px-6 py-3"
-        style={{ background: '#12202A', borderColor: '#22333F' }}
+        style={{ background: T.panel, borderColor: T.border }}
       >
         <div
           className="grid h-10 w-10 place-items-center rounded-[10px] font-bold"
@@ -234,14 +267,14 @@ export default function KdsPage() {
           </div>
           <div
             className="text-[11px] uppercase tracking-[0.12em]"
-            style={{ color: '#7C93A1' }}
+            style={{ color: T.muted }}
           >
             Produção & alertas
           </div>
         </div>
 
         {/* Escopo: produção (cozinha) x entrega (retirada por senha) */}
-        <div className="ml-2 flex overflow-hidden rounded-lg border" style={{ borderColor: '#22333F' }}>
+        <div className="ml-2 flex overflow-hidden rounded-lg border" style={{ borderColor: T.border }}>
           {(['producao', 'entrega'] as const).map((es) => (
             <button
               key={es}
@@ -249,8 +282,8 @@ export default function KdsPage() {
               onClick={() => setEscopo(es)}
               className="px-3 py-2 text-[13px] font-semibold"
               style={{
-                background: escopo === es ? '#E2A340' : '#182B37',
-                color: escopo === es ? '#0B141B' : '#9FB3BF',
+                background: escopo === es ? '#E2A340' : T.panel2,
+                color: escopo === es ? '#0B141B' : T.muted,
               }}
             >
               {es === 'producao' ? 'Produção' : 'Entrega'}
@@ -264,7 +297,7 @@ export default function KdsPage() {
             value={setorSel}
             onChange={(e) => setSetorSel(e.target.value)}
             className="ml-1 rounded-lg border px-3 py-2 text-[13px] font-semibold"
-            style={{ background: '#182B37', borderColor: '#22333F', color: '#EAF1F5' }}
+            style={{ background: T.panel2, borderColor: T.border, color: T.text }}
           >
             <option value="">Todos os setores</option>
             {setores.map((s) => (
@@ -275,7 +308,7 @@ export default function KdsPage() {
 
         <div
           className="ml-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px] font-semibold"
-          style={{ background: '#182B37', borderColor: '#22333F', color: '#9FB3BF' }}
+          style={{ background: T.panel2, borderColor: T.border, color: T.muted }}
         >
           <span
             className="inline-block h-2.5 w-2.5 rounded-full"
@@ -302,10 +335,21 @@ export default function KdsPage() {
           onClick={() => setMudo((m) => !m)}
           aria-pressed={mudo}
           className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
-          style={{ background: '#182B37', borderColor: '#22333F' }}
+          style={{ background: T.panel2, borderColor: T.border }}
           title={mudo ? 'Som desligado' : 'Som ligado'}
         >
           {mudo ? '🔇' : '🔊'}
+        </button>
+
+        <button
+          type="button"
+          onClick={alternarTema}
+          aria-pressed={claro}
+          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
+          style={{ background: T.panel2, borderColor: T.border }}
+          title={claro ? 'Modo claro' : 'Modo escuro'}
+        >
+          {claro ? '☀️' : '🌙'}
         </button>
       </header>
 
@@ -315,13 +359,13 @@ export default function KdsPage() {
           <div className="mb-3 flex items-center justify-between">
             <span
               className="text-[13px] font-bold uppercase tracking-[0.16em]"
-              style={{ color: '#7C93A1', fontFamily: 'Archivo, sans-serif' }}
+              style={{ color: T.muted, fontFamily: 'Archivo, sans-serif' }}
             >
               Pedidos em produção
             </span>
             <span
               className="text-[13px] font-bold"
-              style={{ color: '#7C93A1', fontFamily: 'JetBrains Mono, monospace' }}
+              style={{ color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}
             >
               {pedidos.length} na fila
             </span>
@@ -333,11 +377,11 @@ export default function KdsPage() {
                 <div
                   key={i}
                   className="animate-pulse rounded-2xl border p-4"
-                  style={{ borderColor: '#22333F', background: '#12202A' }}
+                  style={{ borderColor: T.border, background: T.panel }}
                 >
-                  <div className="h-4 w-1/2 rounded" style={{ background: '#22333F' }} />
-                  <div className="mt-3 h-3 w-2/3 rounded" style={{ background: '#1A2A34' }} />
-                  <div className="mt-2 h-3 w-1/3 rounded" style={{ background: '#1A2A34' }} />
+                  <div className="h-4 w-1/2 rounded" style={{ background: T.border }} />
+                  <div className="mt-3 h-3 w-2/3 rounded" style={{ background: T.panel2 }} />
+                  <div className="mt-2 h-3 w-1/3 rounded" style={{ background: T.panel2 }} />
                 </div>
               ))}
             </div>
@@ -346,7 +390,7 @@ export default function KdsPage() {
           {temSessao !== null && pedidos.length === 0 && (
             <div
               className="rounded-2xl border border-dashed px-6 py-14 text-center text-sm"
-              style={{ borderColor: '#22333F', color: '#7C93A1' }}
+              style={{ borderColor: T.border, color: T.muted }}
             >
               Nenhum pedido em produção. Novos pedidos aparecem aqui em tempo real.
             </div>
@@ -367,8 +411,8 @@ export default function KdsPage() {
                   key={p.id}
                   className="flex flex-col rounded-[14px] border p-4"
                   style={{
-                    background: cancelado ? '#2A1416' : '#12202A',
-                    borderColor: cancelado ? '#8A2B2B' : '#22333F',
+                    background: cancelado ? '#2A1416' : T.panel,
+                    borderColor: cancelado ? '#8A2B2B' : T.border,
                     borderTop: `6px solid ${cancelado ? '#E05252' : cor}`,
                   }}
                 >
@@ -436,7 +480,7 @@ export default function KdsPage() {
                   <div className="flex items-center justify-between">
                     <span
                       className="text-[11px] uppercase tracking-wide"
-                      style={{ color: cancelado ? '#FF8A80' : atrasado ? '#FF5A4E' : '#7C93A1' }}
+                      style={{ color: cancelado ? '#FF8A80' : atrasado ? '#FF5A4E' : T.muted }}
                     >
                       {p.status}
                       {atrasado && !cancelado ? ' · atrasado' : ''}
@@ -473,7 +517,7 @@ export default function KdsPage() {
           <div className="mb-3 flex items-center justify-between">
             <span
               className="text-[12px] font-bold uppercase tracking-[0.16em]"
-              style={{ color: '#7C93A1', fontFamily: 'Archivo, sans-serif' }}
+              style={{ color: T.muted, fontFamily: 'Archivo, sans-serif' }}
             >
               Alertas
             </span>
@@ -485,7 +529,7 @@ export default function KdsPage() {
           {alertas.length === 0 && (
             <div
               className="rounded-[14px] border border-dashed px-4 py-8 text-center text-[13px]"
-              style={{ borderColor: '#22333F', color: '#7C93A1' }}
+              style={{ borderColor: T.border, color: T.muted }}
             >
               Tarefas, picos e avisos aparecem aqui.
             </div>
@@ -496,8 +540,8 @@ export default function KdsPage() {
               key={a.id}
               className="mb-3 flex items-start gap-3 rounded-[12px] border p-3.5"
               style={{
-                background: '#12202A',
-                borderColor: '#22333F',
+                background: T.panel,
+                borderColor: T.border,
                 borderLeft: `6px solid ${borderFor(a.prioridade)}`,
                 opacity: a.ack ? 0.5 : 1,
               }}
@@ -507,7 +551,7 @@ export default function KdsPage() {
                   {a.titulo}
                 </div>
                 {a.detalhe && (
-                  <div className="mt-1 text-[12.5px]" style={{ color: '#9FB3BF' }}>
+                  <div className="mt-1 text-[12.5px]" style={{ color: T.muted }}>
                     {a.detalhe}
                   </div>
                 )}
@@ -519,7 +563,7 @@ export default function KdsPage() {
                 className="rounded-[10px] px-3 py-2 text-[12px] font-extrabold uppercase"
                 style={
                   a.ack
-                    ? { background: '#182B37', color: '#7C93A1' }
+                    ? { background: T.panel2, color: T.muted }
                     : { background: '#19C08F', color: '#04241A' }
                 }
               >

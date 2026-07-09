@@ -16,6 +16,7 @@ export default function ProducaoConfigPage() {
   const router = useRouter();
   const [setores, setSetores] = useState<any[]>([]);
   const [equipamentos, setEquipamentos] = useState<any[]>([]);
+  const [destinosPorSetor, setDestinosPorSetor] = useState<Record<string, string[]>>({});
   const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10, usaPreparo: true, usaEntregue: true });
   const [senhaPeriodo, setSenhaPeriodo] = useState('diario');
   const [erro, setErro] = useState('');
@@ -41,6 +42,14 @@ export default function ProducaoConfigPage() {
         usaEntregue: (cor as any).usaEntregue ?? true,
       });
       setSenhaPeriodo((sc as any).periodo ?? 'diario');
+      const mapa: Record<string, string[]> = {};
+      await Promise.all(
+        (ss as any[]).map(async (s) => {
+          const d: any = await api.destinosSetor(s.id).catch(() => []);
+          mapa[s.id] = (d as any[]).map((x) => x.equipamentoId);
+        }),
+      );
+      setDestinosPorSetor(mapa);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -53,6 +62,30 @@ export default function ProducaoConfigPage() {
     }
     reload();
   }, [reload, router]);
+
+  function toggle(setorId: string, equipId: string) {
+    setDestinosPorSetor((m) => {
+      const atual = m[setorId] ?? [];
+      return {
+        ...m,
+        [setorId]: atual.includes(equipId)
+          ? atual.filter((x) => x !== equipId)
+          : [...atual, equipId],
+      };
+    });
+  }
+
+  async function salvarSetor(setorId: string) {
+    setSalvando(setorId);
+    try {
+      await api.setDestinosSetor(setorId, destinosPorSetor[setorId] ?? []);
+      toast.success('Direcionamento do setor salvo.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    } finally {
+      setSalvando('');
+    }
+  }
 
   async function salvarCores() {
     setSalvando('cores');
@@ -180,19 +213,63 @@ export default function ProducaoConfigPage() {
           </div>
         </Card>
 
-        {/* Destino da produção — informativo */}
+        {/* Direcionamento por setor */}
         <Card className="p-4">
-          <h2 className="font-display text-lg font-semibold">Destino da produção</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Cada venda gera <strong>um único pedido</strong> no KDS, com a senha e
-            todos os itens juntos. As impressoras cadastradas continuam recebendo
-            a via de produção automaticamente.
+          <h2 className="font-display text-lg font-semibold">
+            Direcionamento por setor
+          </h2>
+          <p className="mb-3 text-xs text-muted-foreground">
+            Para onde vai a produção de cada setor: um <strong>KDS</strong> (tela)
+            ou uma <strong>impressora</strong> (via automática, cadastrada pelo
+            servidor edge). A venda continua com <strong>1 senha</strong>; os itens
+            do setor aparecem no destino escolhido.
           </p>
-          <p className="mt-2 text-xs text-muted-foreground">
-            Aparelhos (KDS/impressora):{' '}
-            <strong>{equipamentos.length}</strong> cadastrado(s) · gerencie em
-            Cadastros → Equipamentos.
-          </p>
+          {setores.length === 0 && (
+            <p className="text-sm text-muted-foreground">Nenhum setor cadastrado.</p>
+          )}
+          {equipamentos.length === 0 && setores.length > 0 && (
+            <p className="text-sm text-muted-foreground">
+              Nenhum KDS/impressora. Cadastre em Cadastros → Equipamentos (as
+              impressoras do sistema são registradas pelo servidor edge).
+            </p>
+          )}
+          <div className="space-y-3">
+            {setores.map((s) => (
+              <div key={s.id} className="rounded-lg border border-border p-3">
+                <div className="mb-2 font-medium">{s.nome}</div>
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {equipamentos.map((e) => (
+                    <label
+                      key={e.id}
+                      className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-sm ${(destinosPorSetor[s.id] ?? []).includes(e.id) ? 'border-primary bg-primary/10' : 'border-border'}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={(destinosPorSetor[s.id] ?? []).includes(e.id)}
+                        onChange={() => toggle(s.id, e.id)}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <span className="flex-1">{e.nome}</span>
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                        {e.tipo === 'impressora' ? '🖨️ impressora' : '🖥️ KDS'}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {equipamentos.length > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => salvarSetor(s.id)}
+                    disabled={salvando === s.id}
+                  >
+                    {salvando === s.id ? 'Salvando…' : 'Salvar setor'}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
         </Card>
       </div>
     </Shell>
