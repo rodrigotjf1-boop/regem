@@ -959,6 +959,7 @@ export const produto = pgTable('produto', {
   precoPromocional: numeric('preco_promocional'),
   selos: jsonb('selos').notNull().default('[]'),
   disponivelCardapio: boolean('disponivel_cardapio').notNull().default(true),
+  disponivelBalcao: boolean('disponivel_balcao').notNull().default(true), // canal PDV
   destaque: boolean('destaque').notNull().default(false), // upsell "peça também"
   vendaMultiplo: integer('venda_multiplo'),
   duracaoMin: integer('duracao_min'),

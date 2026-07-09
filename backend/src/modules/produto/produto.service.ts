@@ -50,6 +50,8 @@ export class ProdutoService {
              p.unidade_medida as "unidadeMedida", p.preco_venda as "precoVenda",
              p.preco_custo as "precoCusto", p.controla_estoque as "controlaEstoque",
              p.validade_dias as "validadeDias", p.vai_para_producao as "vaiParaProducao",
+             p.disponivel_cardapio as "disponivelCardapio",
+             p.disponivel_balcao as "disponivelBalcao",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
              p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
              c.nome as "categoriaNome", f.nome as "fichaNome"
@@ -271,6 +273,7 @@ export class ProdutoService {
             dto.precoPromocional != null ? String(dto.precoPromocional) : undefined,
           selos: dto.selos ?? [],
           disponivelCardapio: dto.disponivelCardapio ?? true,
+          disponivelBalcao: dto.disponivelBalcao ?? true,
           destaque: dto.destaque ?? false,
           vendaMultiplo: dto.vendaMultiplo,
           duracaoMin: dto.duracaoMin,
@@ -355,6 +358,7 @@ export class ProdutoService {
       patch.precoPromocional = dto.precoPromocional != null ? String(dto.precoPromocional) : null;
     set('selos', dto.selos);
     set('disponivelCardapio', dto.disponivelCardapio);
+    set('disponivelBalcao', dto.disponivelBalcao);
     set('destaque', dto.destaque);
     set('vendaMultiplo', dto.vendaMultiplo);
     set('duracaoMin', dto.duracaoMin);

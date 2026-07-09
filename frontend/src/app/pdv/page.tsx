@@ -67,7 +67,12 @@ export default function PdvPage() {
         api.caixaAberta().catch(() => null),
         api.formasPagamento().catch(() => []),
       ]);
-      setProdutos(ps.filter((p: any) => p.ativo !== false));
+      // PDV = canal balcão: só produtos ativos e marcados para o balcão.
+      setProdutos(
+        ps.filter(
+          (p: any) => p.ativo !== false && p.disponivelBalcao !== false,
+        ),
+      );
       setCategorias(cs);
       setTefAtivo(!!(tc as any).ativo);
       setCaixa((cx as any)?.id ? cx : null);

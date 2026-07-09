@@ -39,7 +39,12 @@ export function SeletorProduto({
   const reload = useCallback(async () => {
     try {
       const [ps, cs] = await Promise.all([api.produtos(), api.produtoCategorias()]);
-      setProdutos((ps as any[]).filter((p) => p.ativo !== false));
+      // Venda física (balcão/garçom): só produtos ativos e marcados p/ o balcão.
+      setProdutos(
+        (ps as any[]).filter(
+          (p) => p.ativo !== false && p.disponivelBalcao !== false,
+        ),
+      );
       setCategorias(cs as any[]);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
