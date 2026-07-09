@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -65,6 +65,20 @@ export class RelatoriosController {
     @Query('fim') fim?: string,
   ) {
     return this.service.rankingProdutos(user.tenantId, inicio, fim);
+  }
+
+  @Get('turnos')
+  turnos(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.turnos(user.tenantId, inicio, fim);
+  }
+
+  @Get('turnos/:id')
+  turnoDetalhe(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.turnoDetalhe(user.tenantId, id);
   }
 
   @Get('faturamento')

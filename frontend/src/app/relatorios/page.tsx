@@ -62,13 +62,14 @@ export default function RelatoriosPage() {
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'financeiro'>('vendas');
+  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'financeiro'>('vendas');
   const [ano, setAno] = useState(new Date().getFullYear());
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
   const [balcao, setBalcao] = useState<any>(null);
   const [delivery, setDelivery] = useState<any>(null);
   const [ranking, setRanking] = useState<any>(null);
+  const [turnos, setTurnos] = useState<any>(null);
 
   const reload = useCallback(async () => {
     setErro('');
@@ -123,6 +124,15 @@ export default function RelatoriosPage() {
     }
   }, [inicio, fim]);
 
+  const reloadTurnos = useCallback(async () => {
+    setErro('');
+    try {
+      setTurnos(await api.relatorioTurnos(inicio, fim));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [inicio, fim]);
+
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
@@ -136,7 +146,8 @@ export default function RelatoriosPage() {
     if (aba === 'financeiro') reloadFin();
     else if (aba === 'balcao') reloadBalcao();
     else if (aba === 'delivery') reloadDelivery();
-  }, [aba, reloadFin, reloadBalcao, reloadDelivery]);
+    else if (aba === 'turnos') reloadTurnos();
+  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos]);
 
   if (!isGestor) {
     return (
@@ -170,6 +181,7 @@ export default function RelatoriosPage() {
               if (aba === 'financeiro') reloadFin();
               else if (aba === 'balcao') reloadBalcao();
               else if (aba === 'delivery') reloadDelivery();
+              else if (aba === 'turnos') reloadTurnos();
               else reload();
             }}
           >
@@ -183,6 +195,7 @@ export default function RelatoriosPage() {
             { v: 'vendas', l: 'Vendas' },
             { v: 'balcao', l: 'Balcão / Salão' },
             { v: 'delivery', l: 'Delivery' },
+            { v: 'turnos', l: 'Turnos / Caixa' },
             { v: 'financeiro', l: 'Financeiro' },
           ].map((t) => (
             <button
@@ -297,6 +310,8 @@ export default function RelatoriosPage() {
         )}
 
         {aba === 'delivery' && <DetalheCanal data={delivery} nome="delivery" delivery />}
+
+        {aba === 'turnos' && <TurnosView data={turnos} />}
 
         {aba === 'financeiro' && (
         <>
@@ -528,5 +543,95 @@ function RankingGlobal({ data }: { data: any }) {
         ))}
       </div>
     </Card>
+  );
+}
+
+// Data/hora curta.
+function dt(iso?: string) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// Turnos/Caixa: lista de sessões + cupom de fechamento (detalhe ao expandir).
+function TurnosView({ data }: { data: any }) {
+  const [sel, setSel] = useState<string | null>(null);
+  const [det, setDet] = useState<any>(null);
+  async function abrir(id: string) {
+    if (sel === id) { setSel(null); setDet(null); return; }
+    setSel(id);
+    setDet(null);
+    try { setDet(await api.relatorioTurnoDetalhe(id)); } catch { /* */ }
+  }
+  if (!data) return <p className="text-sm text-muted-foreground">Carregando…</p>;
+  return (
+    <div className="space-y-2">
+      {data.turnos.length === 0 && (
+        <Card className="p-8 text-center text-sm text-muted-foreground">Nenhum turno no período.</Card>
+      )}
+      {data.turnos.map((t: any) => (
+        <Card key={t.id} className="p-0">
+          <button type="button" onClick={() => abrir(t.id)} className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 text-left hover:bg-primary/5">
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] uppercase text-muted-foreground">{t.origem}</span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+              {t.abertaPor ?? '—'} · {dt(t.abertaEm)} {t.fechadaEm ? `→ ${dt(t.fechadaEm)}` : '· (aberto)'}
+            </span>
+            <span className="font-mono text-sm">{brl(t.vendas)}</span>
+            {t.diferenca != null && (
+              <span
+                className="w-24 text-right font-mono text-xs font-bold"
+                style={{ color: t.diferenca < 0 ? 'hsl(var(--destructive))' : t.diferenca > 0 ? 'hsl(var(--warn))' : 'hsl(var(--ok))' }}
+              >
+                dif {brl(t.diferenca)}
+              </span>
+            )}
+          </button>
+
+          {sel === t.id && (
+            <div className="border-t border-border p-4 text-sm">
+              {!det ? (
+                <p className="text-muted-foreground">Carregando cupom…</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="font-display font-bold">Cupom de fechamento de turno</p>
+                    <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv(`turno-formas-${t.id.slice(0, 6)}`, det.porForma)}>CSV</Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                    <div><p className="text-muted-foreground">Abertura</p><p className="font-mono font-bold">{brl(det.sessao.abertura)}</p></div>
+                    <div><p className="text-muted-foreground">Esperado</p><p className="font-mono font-bold">{det.sessao.esperado != null ? brl(det.sessao.esperado) : '—'}</p></div>
+                    <div><p className="text-muted-foreground">Informado</p><p className="font-mono font-bold">{det.sessao.informado != null ? brl(det.sessao.informado) : '—'}</p></div>
+                    <div><p className="text-muted-foreground">Diferença</p><p className="font-mono font-bold" style={{ color: (det.sessao.diferenca ?? 0) < 0 ? 'hsl(var(--destructive))' : undefined }}>{det.sessao.diferenca != null ? brl(det.sessao.diferenca) : '—'}</p></div>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-xs font-bold text-muted-foreground">Vendas por forma</p>
+                    {det.porForma.length === 0 && <p className="text-xs text-muted-foreground">Sem vendas.</p>}
+                    {det.porForma.map((p: any) => (
+                      <div key={p.forma} className="flex items-center gap-2 border-b border-border/50 py-1 last:border-0">
+                        <span className="min-w-0 flex-1 truncate capitalize">{p.forma}</span>
+                        <span className="w-10 text-right text-xs text-muted-foreground">{p.qtd}</span>
+                        <span className="w-24 text-right font-mono">{brl(p.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {det.movimentos.length > 0 && (
+                    <div>
+                      <p className="mb-1 text-xs font-bold text-muted-foreground">Sangrias / suprimentos</p>
+                      {det.movimentos.map((m: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2 border-b border-border/50 py-1 text-xs last:border-0">
+                          <span className={`rounded px-1.5 py-0.5 font-bold ${m.categoria === 'sangria' ? 'bg-destructive/10 text-destructive' : 'bg-ok/10 text-ok'}`}>{m.categoria}</span>
+                          <span className="min-w-0 flex-1 truncate text-muted-foreground">{m.descricao ?? '—'}</span>
+                          <span className="font-mono">{brl(m.valor)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">Operador: abriu {det.sessao.abertaPor ?? '—'} · fechou {det.sessao.fechadaPor ?? '—'}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
   );
 }
