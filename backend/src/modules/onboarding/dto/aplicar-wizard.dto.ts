@@ -1,4 +1,11 @@
-import { ArrayNotEmpty, IsArray, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  ArrayNotEmpty,
+  IsArray,
+  IsBoolean,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 export class AplicarWizardDto {
   @IsUUID()
@@ -23,4 +30,9 @@ export class AplicarWizardDto {
   @IsArray()
   @IsString({ each: true })
   escalas?: string[];
+
+  // Semear os insumos básicos do ramo no estoque da unidade (idempotente).
+  @IsOptional()
+  @IsBoolean()
+  criarInsumos?: boolean;
 }

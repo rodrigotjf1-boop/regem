@@ -47,25 +47,31 @@ export default function WizardPage() {
   const [setoresSel, setSetoresSel] = useState<string[]>([]);
   const [funcoesSel, setFuncoesSel] = useState<string[]>([]);
   const [escalasSel, setEscalasSel] = useState<string[]>([]);
+  const [criarInsumos, setCriarInsumos] = useState(true);
   const [erro, setErro] = useState('');
   const [busy, setBusy] = useState(false);
   const [resultado, setResultado] = useState<any>(null);
+  const [progresso, setProgresso] = useState<any>(null);
 
-  const gestor = ['presidente', 'gerente'].includes(getCategoria() ?? '');
+  const presidente = getCategoria() === 'presidente';
+  const LIMITE = 35;
 
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
       return;
     }
+    if (getCategoria() !== 'presidente') return;
     (async () => {
       try {
-        const [rs, unis] = await Promise.all([
+        const [rs, unis, prog] = await Promise.all([
           api.onboardingRamosDetalhes(),
           api.get('/unidades'),
+          api.get('/onboarding/progresso'),
         ]);
         setRamos(rs);
         setUnidadeId((unis as any[])[0]?.id ?? null);
+        setProgresso(prog);
       } catch (e) {
         setErro(e instanceof Error ? e.message : 'Erro ao carregar');
       }
@@ -99,6 +105,13 @@ export default function WizardPage() {
 
   async function concluir() {
     if (!unidadeId || !ramo) return;
+    // Aviso: reforça que o wizard altera a estrutura da operação.
+    const ok = window.confirm(
+      '⚠️ Atenção: o wizard vai criar setores, funções, vagas' +
+        ((blueprint?.itens?.length ?? 0) > 0 && criarInsumos ? ' e insumos' : '') +
+        ' na sua operação. Ele não apaga o que já existe, mas mudanças na estrutura podem afetar dados já cadastrados. Confira o resumo. Deseja aplicar?',
+    );
+    if (!ok) return;
     setBusy(true);
     setErro('');
     try {
@@ -111,6 +124,7 @@ export default function WizardPage() {
         setores: setoresSel,
         funcoes: funcoesValidas,
         escalas: escalasSel,
+        criarInsumos: (blueprint?.itens?.length ?? 0) > 0 ? criarInsumos : false,
       });
       setResultado(res);
     } catch (e) {
@@ -120,11 +134,40 @@ export default function WizardPage() {
     }
   }
 
-  if (!gestor) {
+  if (!presidente) {
     return (
       <Shell eyebrow="Onboarding" title="Configuração por ramo">
         <Card className="p-8 text-center text-muted-foreground">
-          Apenas presidente e gerente podem executar o wizard.
+          Apenas o presidente / C&O pode executar o wizard de configuração.
+        </Card>
+      </Shell>
+    );
+  }
+
+  // Gate de progresso: o wizard é ferramenta de início. Acima do limite, bloqueia.
+  if (progresso && progresso.pct >= LIMITE) {
+    return (
+      <Shell eyebrow="Onboarding" title="Configuração por ramo">
+        <Card className="mx-auto max-w-xl p-8 text-center">
+          <div className="text-4xl">🔒</div>
+          <h2 className="mt-3 font-display text-2xl font-semibold">
+            Seu cadastro já está avançado
+          </h2>
+          <p className="mt-2 text-muted-foreground">
+            O wizard é uma ferramenta de <b>início</b> de operação e fica disponível só
+            enquanto o cadastro está abaixo de {LIMITE}%. O seu já está em{' '}
+            <b className="text-foreground">{progresso.pct}%</b>. Para ajustes, use os
+            Cadastros.
+          </p>
+          <div className="mx-auto mt-4 h-2 max-w-xs overflow-hidden rounded-full bg-muted">
+            <div className="h-2 rounded-full bg-primary" style={{ width: `${progresso.pct}%` }} />
+          </div>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button onClick={() => router.push('/cadastros')}>Ir para Cadastros</Button>
+            <Button variant="outline" onClick={() => router.push('/painel')}>
+              Ir para o app
+            </Button>
+          </div>
         </Card>
       </Shell>
     );
@@ -134,15 +177,34 @@ export default function WizardPage() {
     return (
       <Shell eyebrow="Onboarding" title="Configuração por ramo">
         <Card className="mx-auto max-w-xl p-8 text-center">
-          <div className="text-4xl">🚀</div>
-          <h2 className="mt-3 font-display text-2xl font-semibold">Estrutura criada!</h2>
-          <p className="mt-2 text-muted-foreground">
-            {resultado.criados.setores} setores · {resultado.criados.funcoes} funções ·{' '}
-            {resultado.criados.etiquetas} vagas criadas.
-            {resultado.escalas?.length
-              ? ` Modelos de escala anotados: ${resultado.escalas.join(', ')}.`
-              : ''}
-          </p>
+          {(() => {
+            const c = resultado.criados;
+            const nada = !c.setores && !c.funcoes && !c.etiquetas && !c.itens;
+            return (
+              <>
+                <div className="text-4xl">{nada ? '✅' : '🚀'}</div>
+                <h2 className="mt-3 font-display text-2xl font-semibold">
+                  {nada ? 'Tudo já existia' : 'Estrutura criada!'}
+                </h2>
+                <p className="mt-2 text-muted-foreground">
+                  {nada ? (
+                    <>Nada foi duplicado — os setores/funções selecionados já estavam cadastrados.</>
+                  ) : (
+                    <>
+                      {c.setores} setores · {c.funcoes} funções · {c.etiquetas} vagas
+                      {c.itens ? ` · ${c.itens} insumos` : ''} criados.
+                    </>
+                  )}
+                  {c.reaproveitados > 0 && (
+                    <> {c.reaproveitados} já existia(m) e foi(ram) reaproveitado(s).</>
+                  )}
+                  {resultado.escalas?.length
+                    ? ` Modelos de escala anotados: ${resultado.escalas.join(', ')}.`
+                    : ''}
+                </p>
+              </>
+            );
+          })()}
           <div className="mt-6 flex justify-center gap-3">
             <Button onClick={() => router.push('/cadastros')}>Ir para Cadastros</Button>
             <Button variant="outline" onClick={() => router.push('/painel')}>
@@ -289,13 +351,34 @@ export default function WizardPage() {
                   />
                 ))}
               </div>
+              {(blueprint?.itens?.length ?? 0) > 0 && (
+                <label className="flex items-start gap-2.5 rounded-xl border border-border p-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={criarInsumos}
+                    onChange={(e) => setCriarInsumos(e.target.checked)}
+                    className="mt-0.5 h-4 w-4"
+                  />
+                  <span>
+                    <span className="font-medium">Criar insumos básicos do ramo</span>{' '}
+                    <span className="text-muted-foreground">({blueprint.itens.length} itens)</span>
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {blueprint.itens.map((i: any) => i.nome).join(' · ')} — já semeia o estoque (não duplica).
+                    </span>
+                  </span>
+                </label>
+              )}
               <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm">
                 <p className="font-semibold">🚀 Resumo</p>
                 <p className="mt-1 text-muted-foreground">
                   Ramo: <b className="text-foreground">{blueprint?.label}</b> ·{' '}
                   {setoresSel.length} setores ·{' '}
                   {funcoesSel.filter((f) => funcoesDisponiveis.some((fd) => fd.nome === f)).length}{' '}
-                  funções. Ao concluir, o Regem cria os setores, funções e vagas.
+                  funções
+                  {(blueprint?.itens?.length ?? 0) > 0 && criarInsumos
+                    ? ` · ${blueprint.itens.length} insumos`
+                    : ''}
+                  . Ao concluir, o Regem cria o que estiver selecionado (sem duplicar o que já existe).
                 </p>
               </div>
             </div>
