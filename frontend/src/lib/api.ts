@@ -487,6 +487,10 @@ export const api = {
   // Cliente do cardápio (link mágico assinado).
   clienteIdentificar: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/cliente/identificar`, { method: 'POST', body: JSON.stringify(body) }),
+  clienteOtpEnviar: (token: string, telefone: string) =>
+    pub(`/publico/cardapio/${token}/cliente/otp/enviar`, { method: 'POST', body: JSON.stringify({ telefone }) }),
+  clienteOtpConfirmar: (token: string, body: Record<string, unknown>) =>
+    pub(`/publico/cardapio/${token}/cliente/otp/confirmar`, { method: 'POST', body: JSON.stringify(body) }),
   clientePerfil: (token: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente?clienteToken=${encodeURIComponent(clienteToken)}`),
   clienteAddEndereco: (token: string, body: Record<string, unknown>) =>

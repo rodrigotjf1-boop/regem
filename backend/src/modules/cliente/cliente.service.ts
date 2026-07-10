@@ -5,18 +5,20 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   cardapioConfig,
   cliente,
   clienteEndereco,
+  clienteOtp,
   pedidoExterno,
 } from '../../db/schema';
 import { assinarCliente, verificarCliente } from './cliente-token';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
+const OTP_MIN = 5; // validade do código em minutos
 
 @Injectable()
 export class ClienteService {
@@ -100,6 +102,94 @@ export class ClienteService {
     };
   }
 
+  // ── OTP (confirmação do telefone por WhatsApp) ──────────────────────────────
+  // Gera um código de 6 dígitos, guarda (expira em OTP_MIN) e dispara o webhook
+  // do n8n (OTP_WEBHOOK_URL) que envia pelo Evolution.
+  async enviarOtp(cardapioToken: string, telefone?: string) {
+    const tenantId = await this.tenantDoCardapio(cardapioToken);
+    const tel = soDigitos(telefone);
+    if (tel.length < 10) throw new BadRequestException('Telefone inválido.');
+
+    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    const expira = new Date(Date.now() + OTP_MIN * 60000);
+    await this.db
+      .delete(clienteOtp)
+      .where(and(eq(clienteOtp.tenantId, tenantId), eq(clienteOtp.telefone, tel)));
+    await this.db
+      .insert(clienteOtp)
+      .values({ tenantId, telefone: tel, codigo, expiraEm: expira });
+
+    // Loja (para o texto da mensagem) + disparo do webhook (best-effort).
+    const [cfg] = await this.db
+      .select({ nome: cardapioConfig.nomePublico })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.token, cardapioToken));
+    const url = process.env.OTP_WEBHOOK_URL;
+    if (url) {
+      try {
+        await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ telefone: tel, codigo, loja: cfg?.nome ?? 'Regem', tenantId }),
+        });
+      } catch {
+        /* falha de rede no webhook não bloqueia o fluxo */
+      }
+    }
+    return { ok: true, expiraEm: expira, enviado: !!url };
+  }
+
+  // Confirma o código e devolve a identidade (nome é obrigatório no cadastro).
+  async confirmarOtp(
+    cardapioToken: string,
+    dto: { telefone?: string; codigo?: string; nome?: string },
+  ) {
+    const tenantId = await this.tenantDoCardapio(cardapioToken);
+    const tel = soDigitos(dto.telefone);
+    const [otp] = await this.db
+      .select()
+      .from(clienteOtp)
+      .where(and(eq(clienteOtp.tenantId, tenantId), eq(clienteOtp.telefone, tel)));
+    if (!otp || otp.expiraEm < new Date())
+      throw new BadRequestException('Código expirado. Peça um novo.');
+    if (otp.tentativas >= 5)
+      throw new BadRequestException('Muitas tentativas. Peça um novo código.');
+    if (String(dto.codigo ?? '').trim() !== otp.codigo) {
+      await this.db
+        .update(clienteOtp)
+        .set({ tentativas: otp.tentativas + 1 })
+        .where(eq(clienteOtp.id, otp.id));
+      throw new BadRequestException('Código incorreto.');
+    }
+
+    // Código ok: acha/cria o cliente. Nome é obrigatório ao criar.
+    let [c] = await this.db
+      .select()
+      .from(cliente)
+      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+    if (!c) {
+      const nome = dto.nome?.trim();
+      if (!nome) throw new BadRequestException('Informe seu nome.');
+      [c] = await this.db
+        .insert(cliente)
+        .values({ tenantId, telefone: tel, nome, consentimentoLgpd: true })
+        .returning();
+    } else if (dto.nome?.trim() && dto.nome.trim() !== c.nome) {
+      [c] = await this.db
+        .update(cliente)
+        .set({ nome: dto.nome.trim(), atualizadoEm: new Date() })
+        .where(eq(cliente.id, c.id))
+        .returning();
+    }
+    await this.db.delete(clienteOtp).where(eq(clienteOtp.id, otp.id));
+
+    return {
+      clienteToken: assinarCliente(c.id, tenantId),
+      cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
+      enderecos: await this.enderecosDe(c.id),
+    };
+  }
+
   // Perfil completo: dados + endereços + histórico (para "pedir de novo").
   async perfil(cardapioToken: string, clienteToken?: string) {
     const c = await this.clienteDoToken(cardapioToken, clienteToken);
@@ -111,7 +201,12 @@ export class ClienteService {
         status: pedidoExterno.status,
         tipo: pedidoExterno.tipo,
         itens: pedidoExterno.itens,
+        formaPagamento: pedidoExterno.formaPagamento,
         criadoEm: pedidoExterno.criadoEm,
+        confirmadoEm: pedidoExterno.confirmadoEm,
+        despachadoEm: pedidoExterno.despachadoEm,
+        concluidoEm: pedidoExterno.concluidoEm,
+        canceladoEm: pedidoExterno.canceladoEm,
       })
       .from(pedidoExterno)
       .where(eq(pedidoExterno.clienteId, c.id))

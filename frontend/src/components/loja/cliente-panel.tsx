@@ -6,8 +6,11 @@ import { brl, getClienteToken, setClienteToken } from './tipos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// Painel "Meus dados" do cliente do cardápio (link mágico assinado). Identifica
-// por telefone, mostra endereços salvos e histórico com "pedir de novo".
+const hhmm = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
+
+// Painel "Meus dados" do cliente — identidade confirmada por OTP (WhatsApp),
+// endereços salvos, histórico e detalhe do pedido.
 export function ClientePanel({
   token,
   onClose,
@@ -20,12 +23,15 @@ export function ClientePanel({
   onPedirDeNovo: (itens: any[]) => void;
 }) {
   const [perfil, setPerfil] = useState<any>(null);
+  const [etapa, setEtapa] = useState<'telefone' | 'codigo'>('telefone');
   const [telefone, setTelefone] = useState('');
+  const [codigo, setCodigo] = useState('');
   const [nome, setNome] = useState('');
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
   const [novoEnd, setNovoEnd] = useState(false);
   const [end, setEnd] = useState<any>({ apelido: '', logradouro: '', numero: '', bairro: '', complemento: '', referencia: '' });
+  const [pedidoSel, setPedidoSel] = useState<any>(null);
 
   const clienteToken = getClienteToken(token);
 
@@ -35,7 +41,7 @@ export function ClientePanel({
     try {
       setPerfil(await api.clientePerfil(token, ct));
     } catch {
-      setClienteToken(token, null); // token inválido/expirado
+      setClienteToken(token, null);
       setPerfil(null);
     }
   }, [token]);
@@ -44,16 +50,31 @@ export function ClientePanel({
     carregar();
   }, [carregar]);
 
-  async function identificar() {
-    if (telefone.replace(/\D/g, '').length < 10) return setErro('Informe um telefone válido.');
+  async function enviarCodigo() {
+    if (telefone.replace(/\D/g, '').length < 10) return setErro('Informe um telefone válido (com DDD).');
     setBusy(true);
     setErro('');
     try {
-      const r: any = await api.clienteIdentificar(token, { telefone, nome });
+      const r: any = await api.clienteOtpEnviar(token, telefone);
+      setEtapa('codigo');
+      if (!r?.enviado) setErro('Código gerado (envio por WhatsApp ainda não configurado).');
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao enviar o código');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function confirmarCodigo() {
+    if (!nome.trim()) return setErro('Informe seu nome.');
+    if (codigo.trim().length < 4) return setErro('Digite o código recebido.');
+    setBusy(true);
+    setErro('');
+    try {
+      const r: any = await api.clienteOtpConfirmar(token, { telefone, codigo, nome });
       setClienteToken(token, r.clienteToken);
       await carregar();
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao identificar');
+      setErro(e instanceof Error ? e.message : 'Código inválido');
     } finally {
       setBusy(false);
     }
@@ -94,11 +115,15 @@ export function ClientePanel({
   }
 
   const inp = 'w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm';
+  const statusLabel: Record<string, string> = {
+    novo: 'Recebido', confirmado: 'Em preparo', pronto: 'Pronto',
+    despachado: 'Saiu para entrega', concluido: 'Concluído', cancelado: 'Cancelado',
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
       <div
-        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 text-[#1a1a1a] shadow-xl sm:rounded-2xl"
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 text-[#1a1a1a] shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -108,19 +133,30 @@ export function ClientePanel({
         {erro && <p className="mb-2 text-sm text-red-600">{erro}</p>}
 
         {!perfil ? (
-          <div className="space-y-3">
-            <p className="text-sm text-black/60">Informe seu telefone para salvar endereços e ver seus pedidos anteriores.</p>
-            <input className={inp} inputMode="tel" placeholder="Telefone (com DDD)" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
-            <input className={inp} placeholder="Seu nome (opcional)" value={nome} onChange={(e) => setNome(e.target.value)} />
-            <button type="button" onClick={identificar} disabled={busy} className="w-full rounded-lg bg-[#1a1a1a] py-2.5 text-sm font-semibold text-white disabled:opacity-60">
-              {busy ? 'Entrando…' : 'Entrar / criar meu cadastro'}
-            </button>
-            <p className="text-[11px] text-black/40">Seus dados ficam salvos neste aparelho e você pode apagá-los quando quiser (LGPD).</p>
-          </div>
+          etapa === 'telefone' ? (
+            <div className="space-y-3">
+              <p className="text-sm text-black/60">Confirme seu telefone para salvar endereços e ver seus pedidos. Enviaremos um código pelo WhatsApp.</p>
+              <input className={inp} inputMode="tel" placeholder="Telefone (com DDD)" value={telefone} onChange={(e) => setTelefone(e.target.value)} />
+              <button type="button" onClick={enviarCodigo} disabled={busy} className="w-full rounded-lg bg-[#1a1a1a] py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                {busy ? 'Enviando…' : 'Enviar código'}
+              </button>
+              <p className="text-[11px] text-black/40">Seus dados ficam salvos e você pode apagá-los quando quiser (LGPD).</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-black/60">Enviamos um código para <b>{telefone}</b>.</p>
+              <input className={inp} placeholder="Seu nome" value={nome} onChange={(e) => setNome(e.target.value)} />
+              <input className={inp} inputMode="numeric" placeholder="Código de 6 dígitos" value={codigo} onChange={(e) => setCodigo(e.target.value)} />
+              <button type="button" onClick={confirmarCodigo} disabled={busy} className="w-full rounded-lg bg-[#1a1a1a] py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                {busy ? 'Confirmando…' : 'Confirmar'}
+              </button>
+              <button type="button" onClick={() => { setEtapa('telefone'); setErro(''); }} className="w-full text-xs text-black/50 underline">trocar telefone</button>
+            </div>
+          )
         ) : (
           <div className="space-y-4">
             <p className="text-sm">
-              Olá{perfil.cliente.nome ? `, ${perfil.cliente.nome}` : ''}! 👋
+              Olá, {perfil.cliente.nome || 'cliente'}! 👋
               <span className="block text-xs text-black/50">{perfil.cliente.telefone}</span>
             </p>
 
@@ -169,15 +205,13 @@ export function ClientePanel({
               {perfil.historico.length === 0 && <p className="text-xs text-black/40">Você ainda não fez pedidos por aqui.</p>}
               <div className="space-y-1.5">
                 {perfil.historico.map((p: any) => (
-                  <div key={p.id} className="flex items-center gap-2 rounded-lg border border-black/10 px-3 py-2 text-sm">
+                  <button key={p.id} type="button" onClick={() => setPedidoSel(p)} className="flex w-full items-center gap-2 rounded-lg border border-black/10 px-3 py-2 text-left text-sm hover:border-black/30">
                     <div className="min-w-0 flex-1">
-                      <p className="font-medium">{brl(Number(p.total))} <span className="text-xs text-black/40">· {p.status}</span></p>
-                      <p className="truncate text-xs text-black/50">
-                        {new Date(p.criadoEm).toLocaleDateString('pt-BR')} · {(p.itens ?? []).length} item(ns)
-                      </p>
+                      <p className="font-medium">{brl(Number(p.total))} <span className="text-xs text-black/40">· {statusLabel[p.status] ?? p.status}</span></p>
+                      <p className="truncate text-xs text-black/50">{hhmm(p.criadoEm)} · {(p.itens ?? []).length} item(ns)</p>
                     </div>
-                    <button type="button" onClick={() => pedirDeNovo(p.id)} className="flex-none rounded-lg bg-[#1a1a1a] px-2.5 py-1 text-xs font-semibold text-white">pedir de novo</button>
-                  </div>
+                    <span className="text-black/30">›</span>
+                  </button>
                 ))}
               </div>
             </div>
@@ -186,6 +220,35 @@ export function ClientePanel({
           </div>
         )}
       </div>
+
+      {/* Detalhe do pedido (toast/modal) */}
+      {pedidoSel && (
+        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 sm:items-center" onClick={() => setPedidoSel(null)}>
+          <div className="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-t-2xl bg-white p-5 text-[#1a1a1a] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="font-bold">Pedido {pedidoSel.numero ? `#${pedidoSel.numero}` : ''}</p>
+              <button type="button" onClick={() => setPedidoSel(null)} className="text-2xl leading-none text-black/40">×</button>
+            </div>
+            <p className="text-sm"><b>{brl(Number(pedidoSel.total))}</b> · {statusLabel[pedidoSel.status] ?? pedidoSel.status}
+              {pedidoSel.formaPagamento ? ` · ${pedidoSel.formaPagamento}` : ''}</p>
+            <div className="mt-2 space-y-0.5 text-xs text-black/60">
+              {hhmm(pedidoSel.criadoEm) && <p>🕐 Iniciado: {hhmm(pedidoSel.criadoEm)}</p>}
+              {hhmm(pedidoSel.despachadoEm) && <p>🛵 Despachado: {hhmm(pedidoSel.despachadoEm)}</p>}
+              {hhmm(pedidoSel.concluidoEm) && <p>✅ Concluído: {hhmm(pedidoSel.concluidoEm)}</p>}
+              {hhmm(pedidoSel.canceladoEm) && <p>✕ Cancelado: {hhmm(pedidoSel.canceladoEm)}</p>}
+            </div>
+            <div className="mt-3 border-t border-black/10 pt-2">
+              {(pedidoSel.itens ?? []).map((it: any, i: number) => (
+                <div key={i} className="flex justify-between text-sm">
+                  <span className="min-w-0 truncate">{it.quantidade}× {it.descricao ?? it.nome}</span>
+                  <span className="flex-none text-black/50">{brl(Number(it.precoUnitario ?? 0) * Number(it.quantidade ?? 1))}</span>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => pedirDeNovo(pedidoSel.id)} className="mt-3 w-full rounded-lg bg-[#1a1a1a] py-2 text-sm font-semibold text-white">Pedir de novo</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

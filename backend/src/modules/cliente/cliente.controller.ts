@@ -15,6 +15,19 @@ export class ClientePublicoController {
     return this.service.identificar(token, dto);
   }
 
+  // OTP por WhatsApp: envia o código e confirma (identidade verificada).
+  @Post(':token/cliente/otp/enviar')
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  otpEnviar(@Param('token') token: string, @Body() dto: any) {
+    return this.service.enviarOtp(token, dto?.telefone);
+  }
+
+  @Post(':token/cliente/otp/confirmar')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  otpConfirmar(@Param('token') token: string, @Body() dto: any) {
+    return this.service.confirmarOtp(token, dto);
+  }
+
   @Get(':token/cliente')
   perfil(@Param('token') token: string, @Query('clienteToken') clienteToken?: string) {
     return this.service.perfil(token, clienteToken);
