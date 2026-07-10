@@ -1834,22 +1834,98 @@ export const cupom = pgTable('cupom', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
   codigo: text('codigo').notNull(),
-  tipo: text('tipo').notNull().default('percentual'), // percentual | valor
+  tipo: text('tipo').notNull().default('percentual'), // percentual | valor | fretegratis
   valor: numeric('valor').notNull().default('0'),
+  tetoDesconto: numeric('teto_desconto'), // teto R$ do desconto percentual (null = sem teto)
   minimo: numeric('minimo'),
   ativo: boolean('ativo').notNull().default(true),
   validade: date('validade'),
+  // Condicionais de uso (opcionais)
+  somenteNovos: boolean('somente_novos').notNull().default(false), // só cliente sem pedido anterior
+  maxPorCliente: integer('max_por_cliente'), // nº máx. de usos por cliente (null = ilimitado)
+  minDiasSemCompra: integer('min_dias_sem_compra'), // cliente há > N dias sem comprar
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Uso do cupom por cliente (enforce max_por_cliente + histórico).
+export const cupomUso = pgTable('cupom_uso', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  cupomId: uuid('cupom_id')
+    .notNull()
+    .references(() => cupom.id, { onDelete: 'cascade' }),
+  clienteId: uuid('cliente_id'),
+  telefone: text('telefone'),
+  pedidoId: uuid('pedido_id'),
+  usadoEm: timestamp('usado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Fidelidade (L5) =====
+// Definição do plano: regra (qualificador) + meta + prêmio + prazo.
+export const fidelidadePlano = pgTable('fidelidade_plano', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  nome: text('nome').notNull(),
+  ativo: boolean('ativo').notNull().default(true),
+  status: text('status').notNull().default('ativo'), // ativo | finalizando | encerrado
+  qualificadorTipo: text('qualificador_tipo').notNull().default('qualquer'), // qualquer | categoria | produto
+  qualificadorId: uuid('qualificador_id'), // categoria_produto.id ou produto.id
+  pontosMeta: integer('pontos_meta').notNull().default(10),
+  recompensaTipo: text('recompensa_tipo').notNull().default('percentual_proximo'), // percentual_proximo | percentual_produtos | valor_fixo
+  recompensaValor: numeric('recompensa_valor').notNull().default('0'),
+  recompensaProdutos: jsonb('recompensa_produtos').notNull().default('[]'),
+  prazoResgateDias: integer('prazo_resgate_dias'), // null = indeterminado
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Saldo de pontos por plano por cliente (telefone).
 export const fidelidadeCliente = pgTable('fidelidade_cliente', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
+  planoId: uuid('plano_id'),
+  clienteId: uuid('cliente_id'),
   telefone: text('telefone').notNull(),
   nome: text('nome'),
   pontos: integer('pontos').notNull().default(0),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Dedupe: um pedido pontua no máx. 1 vez por plano.
+export const fidelidadePonto = pgTable('fidelidade_ponto', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  planoId: uuid('plano_id')
+    .notNull()
+    .references(() => fidelidadePlano.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  clienteId: uuid('cliente_id'),
+  pedidoId: uuid('pedido_id'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Prêmio conquistado / resgatado (base do relatório).
+export const fidelidadeResgate = pgTable('fidelidade_resgate', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  planoId: uuid('plano_id')
+    .notNull()
+    .references(() => fidelidadePlano.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  clienteId: uuid('cliente_id'),
+  ganhoEm: timestamp('ganho_em', { withTimezone: true }).notNull().defaultNow(),
+  prazoEm: timestamp('prazo_em', { withTimezone: true }),
+  resgatadoEm: timestamp('resgatado_em', { withTimezone: true }),
+  pedidoId: uuid('pedido_id'),
+  status: text('status').notNull().default('disponivel'), // disponivel | resgatado | expirado
 });

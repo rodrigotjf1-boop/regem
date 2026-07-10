@@ -85,25 +85,46 @@ export default function CardapioPublicoPage() {
     if (novos.length) setCart((c) => [...c, ...novos]);
   }
 
-  // Salva o endereço do checkout nos dados do cliente (área de atendimento → frete).
-  async function salvarEnderecoAtual() {
+  // Endereços salvos do cliente (para o select no checkout).
+  const [enderecosSalvos, setEnderecosSalvos] = useState<any[]>([]);
+  const recarregarEnderecos = useCallback(async () => {
     const ct = getClienteToken(token);
-    if (!ct) return;
-    const b = bairros.find((x: any) => x.id === chk.bairroId);
-    try {
-      await api.clienteAddEndereco(token, {
-        clienteToken: ct,
-        logradouro: chk.rua,
-        numero: chk.numero,
-        referencia: chk.referencia,
-        bairroId: chk.bairroId || undefined,
-        bairro: b?.nome ?? undefined,
-      });
-      setErro('');
-      alert('Endereço salvo nos seus dados.');
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao salvar endereço');
+    if (!ct) {
+      setEnderecosSalvos([]);
+      return;
     }
+    try {
+      const p: any = await api.clientePerfil(token, ct);
+      setEnderecosSalvos(p.enderecos ?? []);
+    } catch {
+      /* sem perfil: lista vazia */
+    }
+  }, [token]);
+
+  // Cadastra um novo endereço a partir do checkout (mesmo processo de "Meus dados").
+  async function cadastrarEndereco(dados: any) {
+    const ct = getClienteToken(token);
+    if (!ct) {
+      setErro('Confirme seu telefone em "Meus dados" para salvar endereços.');
+      return;
+    }
+    const b = bairros.find((x: any) => x.id === dados.bairroId);
+    await api.clienteAddEndereco(token, {
+      clienteToken: ct,
+      apelido: dados.apelido || undefined,
+      logradouro: dados.logradouro,
+      numero: dados.numero,
+      referencia: dados.referencia,
+      bairroId: dados.bairroId || undefined,
+      bairro: b?.nome ?? undefined,
+    });
+    await recarregarEnderecos();
+    usarEndereco({
+      logradouro: dados.logradouro,
+      numero: dados.numero,
+      referencia: dados.referencia,
+      bairroId: dados.bairroId,
+    });
   }
 
   // Usar um endereço salvo: preenche o checkout de entrega.
@@ -151,6 +172,7 @@ export default function CardapioPublicoPage() {
     const ct = getClienteToken(token);
     if (!menu || !ct) return;
     api.clientePerfil(token, ct).then((p: any) => {
+      setEnderecosSalvos(p.enderecos ?? []);
       const pr = (p.enderecos ?? []).find((e: any) => e.principal) ?? (p.enderecos ?? [])[0];
       setChk((s: any) => ({
         ...s,
@@ -218,9 +240,10 @@ export default function CardapioPublicoPage() {
 
   const taxa = useMemo(() => {
     if (isServico || chk.tipo !== 'entrega') return 0;
+    if (cupomOk?.valido && cupomOk.freteGratis) return 0; // cupom de frete grátis
     if (loja?.freteGratisAcima != null && total >= loja.freteGratisAcima) return 0;
     return Number(bairros.find((b) => b.id === chk.bairroId)?.taxa ?? 0);
-  }, [chk.tipo, chk.bairroId, total, bairros, loja, isServico]);
+  }, [chk.tipo, chk.bairroId, total, bairros, loja, isServico, cupomOk]);
   const desc = cupomOk?.valido ? cupomOk.desconto : 0;
   const totalFinal = Math.max(0, total - desc + taxa);
 
@@ -249,14 +272,26 @@ export default function CardapioPublicoPage() {
     });
   }
 
-  async function aplicarCupom() {
-    if (!chk.cupom.trim()) return;
+  async function aplicarCupom(codigo?: string) {
+    const cod = (codigo ?? chk.cupom ?? '').trim();
+    if (!cod) return;
+    if (codigo) setChk((s: any) => ({ ...s, cupom: cod.toUpperCase() }));
     try {
-      setCupomOk(await api.cardapioCupomValidar(token, chk.cupom.trim(), total));
+      setCupomOk(await api.cardapioCupomValidar(token, cod, total, chk.telefone));
     } catch {
       setCupomOk({ valido: false });
     }
   }
+
+  // Cupons que o cliente pode usar agora (sugestão no checkout).
+  const [cuponsSugeridos, setCuponsSugeridos] = useState<any[]>([]);
+  useEffect(() => {
+    if (!checkout || !menu) return;
+    api
+      .cardapioCuponsDisponiveis(token, (chk.telefone ?? '').replace(/\D/g, ''), Math.round(total))
+      .then((l: any) => setCuponsSugeridos(Array.isArray(l) ? l : []))
+      .catch(() => setCuponsSugeridos([]));
+  }, [checkout, menu, token, chk.telefone, total]);
 
   function enviar() {
     if (!cart.length) return;
@@ -415,7 +450,7 @@ export default function CardapioPublicoPage() {
       {mesa && <div className="bg-white px-4 py-2 text-center text-xs text-neutral-500">Mesa {mesa}</div>}
 
       {aba === 'promos' && (
-        <PromosPanel token={token} produtosPromo={produtosPromo} accent={accent} />
+        <PromosPanel token={token} produtosPromo={produtosPromo} accent={accent} telefone={(chk.telefone ?? '').replace(/\D/g, '')} />
       )}
 
       {aba === 'inicio' && (
@@ -494,13 +529,17 @@ export default function CardapioPublicoPage() {
           chk={chk}
           setChk={setChk}
           cupomOk={cupomOk}
-          onAplicarCupom={aplicarCupom}
+          onAplicarCupom={() => aplicarCupom()}
+          cuponsSugeridos={cuponsSugeridos}
+          onEscolherCupom={(c: string) => aplicarCupom(c)}
           onQtd={mudarQtd}
           onRemove={removeItem}
           onAddUpsell={addUpsell}
           onClose={() => setCheckout(false)}
           onSubmit={submitPedido}
-          onSalvarEndereco={salvarEnderecoAtual}
+          enderecos={enderecosSalvos}
+          onUsarEndereco={usarEndereco}
+          onCadastrarEndereco={cadastrarEndereco}
           temCliente={temCliente}
           enviando={enviando}
         />

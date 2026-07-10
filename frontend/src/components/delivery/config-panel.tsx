@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -31,6 +32,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
       { k: 'tipos', label: 'Tipos de pedido' },
       { k: 'area', label: 'Área de atendimento' },
       { k: 'cupons', label: 'Cupons' },
+      { k: 'fidelidade', label: 'Plano de fidelidade' },
     ],
   },
   {
@@ -63,7 +65,16 @@ export function ConfigPanel({
   const [setores, setSetores] = useState<any[]>([]);
   const [integracoes, setIntegracoes] = useState<any[]>([]);
   const [cupons, setCupons] = useState<any[]>([]);
-  const [novoCupom, setNovoCupom] = useState({ codigo: '', tipo: 'percentual', valor: '', minimo: '' });
+  const [novoCupom, setNovoCupom] = useState({
+    codigo: '',
+    tipo: 'percentual',
+    valor: '',
+    tetoDesconto: '',
+    minimo: '',
+    condicao: 'nenhuma', // nenhuma | novos | dias | max
+    minDiasSemCompra: '',
+    maxPorCliente: '',
+  });
   const [qr, setQr] = useState('');
   const [salvando, setSalvando] = useState(false);
 
@@ -153,14 +164,19 @@ export function ConfigPanel({
 
   async function addCupom() {
     if (!novoCupom.codigo.trim()) return;
+    const n = (v: string) => (v ? Number(String(v).replace(',', '.')) : undefined);
     try {
       await api.criarCupom({
         codigo: novoCupom.codigo.trim(),
         tipo: novoCupom.tipo,
-        valor: Number(String(novoCupom.valor).replace(',', '.')) || 0,
-        minimo: novoCupom.minimo ? Number(String(novoCupom.minimo).replace(',', '.')) : undefined,
+        valor: novoCupom.tipo === 'fretegratis' ? 0 : n(novoCupom.valor) || 0,
+        tetoDesconto: novoCupom.tipo === 'percentual' ? n(novoCupom.tetoDesconto) : undefined,
+        minimo: n(novoCupom.minimo),
+        somenteNovos: novoCupom.condicao === 'novos',
+        minDiasSemCompra: novoCupom.condicao === 'dias' ? n(novoCupom.minDiasSemCompra) : undefined,
+        maxPorCliente: novoCupom.condicao === 'max' ? n(novoCupom.maxPorCliente) : undefined,
       });
-      setNovoCupom({ codigo: '', tipo: novoCupom.tipo, valor: '', minimo: '' });
+      setNovoCupom({ codigo: '', tipo: novoCupom.tipo, valor: '', tetoDesconto: '', minimo: '', condicao: 'nenhuma', minDiasSemCompra: '', maxPorCliente: '' });
       setCupons(await api.cardapioCupons());
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
   }
@@ -299,26 +315,91 @@ export function ConfigPanel({
 
                 {/* CUPONS */}
                 {sec === 'cupons' && (
-                  <Secao dica="Cupons de desconto para o cardápio digital (percentual ou valor fixo, com mínimo opcional).">
-                    <div className="flex flex-wrap items-end gap-2">
-                      <Input className="w-32" placeholder="CÓDIGO" value={novoCupom.codigo} onChange={(e) => setNovoCupom((s) => ({ ...s, codigo: e.target.value.toUpperCase() }))} />
-                      <select aria-label="Tipo do cupom" className="flex h-11 w-28 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.tipo} onChange={(e) => setNovoCupom((s) => ({ ...s, tipo: e.target.value }))}>
-                        <option value="percentual">%</option>
-                        <option value="valor">R$</option>
-                      </select>
-                      <Input className="w-24" type="number" placeholder="Valor" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
-                      <Input className="w-28" type="number" placeholder="Mín. (opc)" value={novoCupom.minimo} onChange={(e) => setNovoCupom((s) => ({ ...s, minimo: e.target.value }))} />
-                      <Button type="button" onClick={addCupom} disabled={somenteGestor}>Adicionar</Button>
+                  <Secao dica="Cupons de desconto para o cardápio digital. Todo cupom desconta no valor da compra: percentual (com teto opcional), valor fixo (com pedido mínimo) ou frete grátis. Condicionais opcionais limitam quem pode usar.">
+                    <div className="max-w-xl space-y-3 rounded-lg border border-border p-3">
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Código</label>
+                          <Input className="w-32" placeholder="CÓDIGO" value={novoCupom.codigo} onChange={(e) => setNovoCupom((s) => ({ ...s, codigo: e.target.value.toUpperCase() }))} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Tipo de desconto</label>
+                          <select aria-label="Tipo do cupom" className="flex h-11 w-40 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.tipo} onChange={(e) => setNovoCupom((s) => ({ ...s, tipo: e.target.value }))}>
+                            <option value="percentual">Percentual (%)</option>
+                            <option value="valor">Valor fixo (R$)</option>
+                            <option value="fretegratis">Frete grátis</option>
+                          </select>
+                        </div>
+                        {novoCupom.tipo !== 'fretegratis' && (
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">{novoCupom.tipo === 'percentual' ? '% de desconto' : 'Valor (R$)'}</label>
+                            <Input className="w-24" type="number" placeholder="Valor" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
+                          </div>
+                        )}
+                        {novoCupom.tipo === 'percentual' && (
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">Teto do desconto (R$)</label>
+                            <Input className="w-28" type="number" placeholder="opcional" value={novoCupom.tetoDesconto} onChange={(e) => setNovoCupom((s) => ({ ...s, tetoDesconto: e.target.value }))} />
+                          </div>
+                        )}
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Pedido mínimo (R$)</label>
+                          <Input className="w-28" type="number" placeholder="opcional" value={novoCupom.minimo} onChange={(e) => setNovoCupom((s) => ({ ...s, minimo: e.target.value }))} />
+                        </div>
+                      </div>
+
+                      {/* Condicional de uso */}
+                      <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Condição de uso</label>
+                          <select aria-label="Condição do cupom" className="flex h-11 w-56 rounded-md border border-input bg-card px-2 text-sm" value={novoCupom.condicao} onChange={(e) => setNovoCupom((s) => ({ ...s, condicao: e.target.value }))}>
+                            <option value="nenhuma">Sem condição (uso livre)</option>
+                            <option value="novos">Só clientes novos (1º pedido)</option>
+                            <option value="dias">Cliente há X dias sem comprar</option>
+                            <option value="max">Máx. X usos por cliente</option>
+                          </select>
+                        </div>
+                        {novoCupom.condicao === 'dias' && (
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">Dias sem comprar</label>
+                            <Input className="w-24" type="number" placeholder="ex: 30" value={novoCupom.minDiasSemCompra} onChange={(e) => setNovoCupom((s) => ({ ...s, minDiasSemCompra: e.target.value }))} />
+                          </div>
+                        )}
+                        {novoCupom.condicao === 'max' && (
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">Máx. usos/cliente</label>
+                            <Input className="w-24" type="number" placeholder="ex: 1" value={novoCupom.maxPorCliente} onChange={(e) => setNovoCupom((s) => ({ ...s, maxPorCliente: e.target.value }))} />
+                          </div>
+                        )}
+                        <Button type="button" onClick={addCupom} disabled={somenteGestor}>Adicionar cupom</Button>
+                      </div>
                     </div>
+
                     <div className="flex flex-wrap gap-2">
                       {cupons.length === 0 && <span className="text-sm text-muted-foreground">Nenhum cupom.</span>}
                       {cupons.map((c) => (
                         <span key={c.id} className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs">
-                          {c.codigo} · {c.tipo === 'percentual' ? `${Number(c.valor)}%` : Number(c.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          <strong>{c.codigo}</strong> ·{' '}
+                          {c.tipo === 'fretegratis'
+                            ? 'frete grátis'
+                            : c.tipo === 'percentual'
+                              ? `${Number(c.valor)}%${c.tetoDesconto ? ` (até ${Number(c.tetoDesconto).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` : ''}`
+                              : Number(c.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                          {c.minimo ? ` · mín. ${Number(c.minimo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}
+                          {c.somenteNovos ? ' · novos' : ''}
+                          {c.minDiasSemCompra ? ` · ${c.minDiasSemCompra}d inativo` : ''}
+                          {c.maxPorCliente ? ` · máx ${c.maxPorCliente}x` : ''}
                           <button type="button" onClick={() => delCupom(c.id)} className="text-destructive">×</button>
                         </span>
                       ))}
                     </div>
+                  </Secao>
+                )}
+
+                {/* PLANO DE FIDELIDADE */}
+                {sec === 'fidelidade' && (
+                  <Secao dica="Programa de fidelidade do cardápio digital: o cliente ganha 1 ponto por pedido que atenda à regra e, ao bater a meta, conquista um prêmio para resgatar na aba Promos.">
+                    <FidelidadePanel pode={isGestor} />
                   </Secao>
                 )}
 

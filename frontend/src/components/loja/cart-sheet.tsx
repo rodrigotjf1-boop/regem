@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { brl, type CartItem } from '@/components/loja/tipos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -27,12 +28,16 @@ export function CartSheet({
   setChk,
   cupomOk,
   onAplicarCupom,
+  cuponsSugeridos,
+  onEscolherCupom,
   onQtd,
   onRemove,
   onAddUpsell,
   onClose,
   onSubmit,
-  onSalvarEndereco,
+  enderecos,
+  onUsarEndereco,
+  onCadastrarEndereco,
   temCliente,
   enviando,
   tipos,
@@ -55,16 +60,50 @@ export function CartSheet({
   setChk: (fn: (s: any) => any) => void;
   cupomOk: any;
   onAplicarCupom: () => void;
+  cuponsSugeridos?: any[];
+  onEscolherCupom?: (codigo: string) => void;
   onQtd: (key: string, d: number) => void;
   onRemove: (key: string) => void;
   onAddUpsell: (p: any) => void;
   onClose: () => void;
   onSubmit: () => void;
-  onSalvarEndereco?: () => void;
+  enderecos?: any[];
+  onUsarEndereco?: (e: any) => void;
+  onCadastrarEndereco?: (dados: any) => Promise<void>;
   temCliente?: boolean;
   enviando: boolean;
 }) {
   const set = (patch: any) => setChk((s: any) => ({ ...s, ...patch }));
+  const listaEnd = enderecos ?? [];
+  const [endSel, setEndSel] = useState('');
+  const [novoEnd, setNovoEnd] = useState(false);
+  const [ne, setNe] = useState({ apelido: '', logradouro: '', numero: '', bairroId: '', referencia: '' });
+  const [salvandoEnd, setSalvandoEnd] = useState(false);
+  const [mostrarCupons, setMostrarCupons] = useState(false);
+  const sugeridos = cuponsSugeridos ?? [];
+  const cupomSugLabel = (c: any) =>
+    c.tipo === 'fretegratis'
+      ? '🛵 Frete grátis'
+      : c.tipo === 'valor'
+        ? `${brl(c.valor)} OFF`
+        : `${c.valor}% OFF${c.tetoDesconto ? ` (até ${brl(c.tetoDesconto)})` : ''}`;
+  // Default do select = endereço principal (ou o 1º) quando a lista chega.
+  useEffect(() => {
+    if (!listaEnd.length) return;
+    const pr = listaEnd.find((e: any) => e.principal) ?? listaEnd[0];
+    setEndSel((cur) => cur || pr?.id || '');
+  }, [listaEnd]);
+  async function salvarNovoEndereco() {
+    if (!onCadastrarEndereco || !ne.logradouro.trim() || !ne.bairroId) return;
+    setSalvandoEnd(true);
+    try {
+      await onCadastrarEndereco(ne);
+      setNovoEnd(false);
+      setNe({ apelido: '', logradouro: '', numero: '', bairroId: '', referencia: '' });
+    } finally {
+      setSalvandoEnd(false);
+    }
+  }
   const freteGratis = loja.freteGratisAcima != null;
   const falta = freteGratis ? Math.max(0, loja.freteGratisAcima - total) : 0;
   const pct = freteGratis ? Math.min(100, (total / loja.freteGratisAcima) * 100) : 0;
@@ -151,10 +190,36 @@ export function CartSheet({
 
           {/* cupom */}
           <div className="mt-4 flex gap-2">
-            <input value={chk.cupom} onChange={(e) => set({ cupom: e.target.value.toUpperCase() })} placeholder="CUPOM" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 font-mono text-sm uppercase tracking-wider" disabled={cupomOk?.valido} />
+            <input value={chk.cupom} onChange={(e) => set({ cupom: e.target.value.toUpperCase() })} onFocus={() => setMostrarCupons(true)} placeholder="CUPOM" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2 font-mono text-sm uppercase tracking-wider" disabled={cupomOk?.valido} />
             <button type="button" onClick={onAplicarCupom} className="rounded-xl bg-neutral-900 px-4 text-sm font-semibold text-white">{cupomOk?.valido ? '✓ Aplicado' : 'Aplicar'}</button>
           </div>
-          {cupomOk && <p className={`mt-1 text-xs ${cupomOk.valido ? 'text-emerald-600' : 'text-red-600'}`}>{cupomOk.valido ? `Cupom aplicado: −${brl(cupomOk.desconto)}` : cupomOk.motivo ?? 'Cupom inválido'}</p>}
+          {/* sugestões: cupons ativos que o cliente pode usar agora */}
+          {mostrarCupons && !cupomOk?.valido && sugeridos.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              <p className="text-[11px] font-semibold text-neutral-500">Cupons disponíveis para você</p>
+              {sugeridos.map((c: any) => (
+                <button
+                  key={c.codigo}
+                  type="button"
+                  onClick={() => onEscolherCupom?.(c.codigo)}
+                  disabled={!c.atingeMinimo}
+                  className="flex w-full items-center gap-2 rounded-xl border border-dashed border-neutral-300 px-3 py-2 text-left disabled:opacity-50"
+                >
+                  <span className="text-base">🎟️</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-mono text-sm font-bold" style={{ color: accent }}>{c.codigo}</span>
+                    <span className="block text-[11px] text-neutral-500">
+                      {cupomSugLabel(c)}
+                      {c.minimo ? ` · mín. ${brl(c.minimo)}` : ''}
+                      {!c.atingeMinimo ? ' · adicione mais itens' : ''}
+                    </span>
+                  </span>
+                  {c.atingeMinimo && <span className="text-[11px] font-semibold" style={{ color: accent }}>usar</span>}
+                </button>
+              ))}
+            </div>
+          )}
+          {cupomOk && <p className={`mt-1 text-xs ${cupomOk.valido ? 'text-emerald-600' : 'text-red-600'}`}>{cupomOk.valido ? (cupomOk.freteGratis ? 'Cupom aplicado: frete grátis 🛵' : `Cupom aplicado: −${brl(cupomOk.desconto)}`) : cupomOk.motivo ?? 'Cupom inválido'}</p>}
 
           {/* entrega / retirada (respeita os tipos habilitados na config) */}
           {!isServico && opcoesTipo.length > 1 && (
@@ -171,20 +236,68 @@ export function CartSheet({
           {/* endereço estruturado (entrega) */}
           {!isServico && chk.tipo === 'entrega' && (
             <div className="mt-3 space-y-2">
-              <div className="flex gap-2">
-                <input value={chk.rua} onChange={(e) => set({ rua: e.target.value })} placeholder="Rua / Avenida" className="flex-[2] rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
-                <input value={chk.numero} onChange={(e) => set({ numero: e.target.value })} placeholder="Nº" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
-              </div>
-              <input value={chk.referencia} onChange={(e) => set({ referencia: e.target.value })} placeholder="Ponto de referência (opcional)" className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
-              <select aria-label="Bairro" value={chk.bairroId} onChange={(e) => set({ bairroId: e.target.value })} className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base">
-                <option value="">Selecione o bairro (área de entrega)</option>
-                {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
-              </select>
-              {bairros.length === 0 && <p className="text-xs text-amber-600">Nenhuma área de entrega cadastrada nas configurações do cardápio.</p>}
-              {temCliente && onSalvarEndereco && chk.rua && chk.bairroId && (
-                <button type="button" onClick={onSalvarEndereco} className="text-xs font-semibold underline" style={{ color: accent }}>
-                  💾 Salvar este endereço nos meus dados
-                </button>
+              {/* Endereços salvos + botão Novo endereço (mesmo do "Meus dados") */}
+              {temCliente && (
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Endereço de entrega</p>
+                  <button type="button" onClick={() => setNovoEnd((v) => !v)} className="text-xs font-semibold underline" style={{ color: accent }}>
+                    {novoEnd ? 'cancelar' : '＋ Novo endereço'}
+                  </button>
+                </div>
+              )}
+              {temCliente && !novoEnd && (
+                <select
+                  aria-label="Endereços salvos"
+                  value={endSel}
+                  onChange={(e) => {
+                    setEndSel(e.target.value);
+                    const end = listaEnd.find((x: any) => x.id === e.target.value);
+                    if (end && onUsarEndereco) onUsarEndereco(end);
+                  }}
+                  className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base"
+                >
+                  <option value="">{listaEnd.length ? 'Escolha um endereço salvo…' : 'Nenhum endereço salvo'}</option>
+                  {listaEnd.map((e: any) => (
+                    <option key={e.id} value={e.id}>
+                      {e.apelido || 'Endereço'} — {[e.logradouro, e.numero].filter(Boolean).join(', ')}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {/* Cadastro de novo endereço — mesmo processo da tela "Meus dados" */}
+              {novoEnd && temCliente && (
+                <div className="space-y-2 rounded-xl border border-neutral-200 bg-neutral-50 p-2.5">
+                  <input value={ne.apelido} onChange={(e) => setNe({ ...ne, apelido: e.target.value })} placeholder="Apelido (Casa, Trabalho)" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                  <div className="flex gap-2">
+                    <input value={ne.logradouro} onChange={(e) => setNe({ ...ne, logradouro: e.target.value })} placeholder="Rua / Avenida" className="flex-[2] rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                    <input value={ne.numero} onChange={(e) => setNe({ ...ne, numero: e.target.value })} placeholder="Nº" className="w-20 rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                  </div>
+                  <select aria-label="Bairro (área de entrega)" value={ne.bairroId} onChange={(e) => setNe({ ...ne, bairroId: e.target.value })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+                    <option value="">Selecione o bairro (área de entrega)</option>
+                    {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
+                  </select>
+                  <input value={ne.referencia} onChange={(e) => setNe({ ...ne, referencia: e.target.value })} placeholder="Complemento / referência (opcional)" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                  <button type="button" onClick={salvarNovoEndereco} disabled={salvandoEnd || !ne.logradouro.trim() || !ne.bairroId} className="w-full rounded-lg py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: accent }}>
+                    {salvandoEnd ? 'Salvando…' : 'Salvar endereço'}
+                  </button>
+                </div>
+              )}
+
+              {/* Endereço ativo do pedido (editável) */}
+              {!novoEnd && (
+                <>
+                  <div className="flex gap-2">
+                    <input value={chk.rua} onChange={(e) => set({ rua: e.target.value })} placeholder="Rua / Avenida" className="flex-[2] rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                    <input value={chk.numero} onChange={(e) => set({ numero: e.target.value })} placeholder="Nº" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                  </div>
+                  <input value={chk.referencia} onChange={(e) => set({ referencia: e.target.value })} placeholder="Ponto de referência (opcional)" className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                  <select aria-label="Bairro" value={chk.bairroId} onChange={(e) => set({ bairroId: e.target.value })} className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base">
+                    <option value="">Selecione o bairro (área de entrega)</option>
+                    {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
+                  </select>
+                  {bairros.length === 0 && <p className="text-xs text-amber-600">Nenhuma área de entrega cadastrada nas configurações do cardápio.</p>}
+                </>
               )}
             </div>
           )}
