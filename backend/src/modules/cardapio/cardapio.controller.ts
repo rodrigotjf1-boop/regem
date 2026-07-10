@@ -58,6 +58,11 @@ export class CardapioPublicoController {
     return this.service.pontosPublico(token, telefone ?? '');
   }
 
+  @Get(':token/promos')
+  promos(@Param('token') token: string) {
+    return this.service.promosPublico(token);
+  }
+
   // Pedidos recentes de um telefone (robô: "cadê meu pedido?").
   @Get(':token/pedidos')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
