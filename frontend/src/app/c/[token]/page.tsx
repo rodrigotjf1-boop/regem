@@ -225,6 +225,11 @@ export default function CardapioPublicoPage() {
   }
 
   async function submitPedido() {
+    // Cliente é obrigado a informar nome e telefone (exceto QR de mesa).
+    if (!mesa) {
+      if (!chk.nome?.trim()) { setErro('Informe seu nome.'); setCheckout(true); return; }
+      if ((chk.telefone ?? '').replace(/\D/g, '').length < 10) { setErro('Informe um telefone válido (com DDD).'); setCheckout(true); return; }
+    }
     setEnviando(true);
     try {
       const entrega = !isServico && chk.tipo === 'entrega';
