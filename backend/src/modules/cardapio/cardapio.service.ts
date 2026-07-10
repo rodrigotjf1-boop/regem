@@ -615,6 +615,11 @@ export class CardapioService {
         avaliacao: cfg.avaliacao != null ? Number(cfg.avaliacao) : null,
         freteGratisAcima:
           cfg.freteGratisAcima != null ? Number(cfg.freteGratisAcima) : null,
+        // Área de atendimento (para o frete no checkout do cardápio).
+        areaModo: cfg.areaModo ?? 'bairro',
+        raios: (cfg.raios as any[]) ?? [],
+        lojaLat: cfg.endLat != null ? Number(cfg.endLat) : null,
+        lojaLng: cfg.endLng != null ? Number(cfg.endLng) : null,
         pagamentos: cfg.pagamentos ?? [],
         formasCartao: cfg.formasCartao ?? [],
         fidelidadeAtiva: cfg.fidelidadeAtiva,

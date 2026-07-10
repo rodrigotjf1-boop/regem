@@ -68,6 +68,27 @@ export async function geocodificar(endereco: string): Promise<{ lat: number; lng
   }
 }
 
+// Distância entre duas coordenadas (km). null se faltar alguma coordenada.
+export function distanciaKm(lat1: any, lng1: any, lat2: any, lng2: any): number | null {
+  const a1 = Number(lat1), o1 = Number(lng1), a2 = Number(lat2), o2 = Number(lng2);
+  if (![a1, o1, a2, o2].every(Number.isFinite)) return null;
+  const R = 6371;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(a2 - a1);
+  const dLon = rad(o2 - o1);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a1)) * Math.cos(rad(a2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+// Taxa da faixa de raio para uma distância (km). Usa a menor faixa que cobre;
+// se ultrapassar todas, usa a última.
+export function taxaPorRaio(raios: any[], km: number): number {
+  const ord = [...(raios ?? [])].sort((a, b) => (Number(a.ateKm) || 0) - (Number(b.ateKm) || 0));
+  if (!ord.length) return 0;
+  const faixa = ord.find((r) => km <= Number(r.ateKm)) ?? ord[ord.length - 1];
+  return Number(faixa.taxa) || 0;
+}
+
 // URL do mapa centralizado num ponto. Google Embed se houver chave; senão,
 // o mapa embutido do OpenStreetMap (sem chave).
 export function mapaEmbedUrl(lat: number, lng: number, zoom = 16): string {

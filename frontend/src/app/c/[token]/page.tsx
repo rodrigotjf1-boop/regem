@@ -13,6 +13,7 @@ import {
   setClienteToken,
   type CartItem,
 } from '@/components/loja/tipos';
+import { distanciaKm, taxaPorRaio, geocodificar } from '@/lib/geo';
 import { ClientePanel } from '@/components/loja/cliente-panel';
 import { LojaBottomNav } from '@/components/loja/bottom-nav';
 import { PromosPanel } from '@/components/loja/promos-panel';
@@ -178,7 +179,18 @@ export default function CardapioPublicoPage() {
     if (Object.keys(c).length) setChk((s: any) => ({ ...s, ...c }));
   }, [menu, token]);
 
-  // Prefill pelo link (WhatsApp/n8n manda ?nome=...&tel=...).
+  // Identidade por TOKEN aleatório no link (robô manda ?u=<token>). Não expõe
+  // nome/telefone na URL — o token resolve o cliente no servidor.
+  const [ident, setIdent] = useState(0);
+  useEffect(() => {
+    const u = search?.get('u');
+    if (u) {
+      setClienteToken(token, u);
+      setIdent((n) => n + 1);
+    }
+  }, [search, token]);
+
+  // Compat: link antigo com ?nome=...&tel=... (só prefill, sem identidade).
   useEffect(() => {
     const nome = search?.get('nome');
     const tel = search?.get('tel');
@@ -201,9 +213,12 @@ export default function CardapioPublicoPage() {
         numero: s.numero || pr?.numero || '',
         referencia: s.referencia || pr?.referencia || pr?.complemento || '',
         bairroId: s.bairroId || pr?.bairroId || '',
+        lat: s.lat || pr?.lat || '',
+        lng: s.lng || pr?.lng || '',
       }));
     }).catch(() => {});
-  }, [menu, token]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu, token, ident]);
 
   // Último pedido do cliente (card do topo quando não há banners).
   useEffect(() => {
@@ -215,6 +230,20 @@ export default function CardapioPublicoPage() {
     }
     api.cardapioUltimoPedido(token, tel).then(setUltimoPedido).catch(() => setUltimoPedido(null));
   }, [menu, token, chk.telefone]);
+
+  // Modo raio: se o endereço não tem coordenadas, geocodifica o endereço
+  // digitado (CEP/rua) para calcular o frete por distância.
+  useEffect(() => {
+    if (!checkout || !menu || menu.loja?.areaModo !== 'raio' || chk.tipo !== 'entrega') return;
+    if (chk.lat && chk.lng) return; // já tem coordenadas (endereço salvo/GPS)
+    if (!chk.rua?.trim()) return;
+    const cidade = menu.loja?.endereco?.cidade ?? '';
+    const q = [chk.rua, chk.numero, cidade, 'Brasil'].filter(Boolean).join(', ');
+    const t = setTimeout(() => {
+      geocodificar(q).then((c) => { if (c) setChk((s: any) => ({ ...s, lat: c.lat, lng: c.lng })); }).catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [checkout, menu, chk.rua, chk.numero, chk.tipo, chk.lat, chk.lng]);
 
   // Tipo padrão respeita a config (se a loja só faz retirada, começa em retirada).
   useEffect(() => {
@@ -267,9 +296,16 @@ export default function CardapioPublicoPage() {
   const taxa = useMemo(() => {
     if (isServico || chk.tipo !== 'entrega') return 0;
     if (cupomOk?.valido && cupomOk.freteGratis) return 0; // cupom de frete grátis
-    if (loja?.freteGratisAcima != null && total >= loja.freteGratisAcima) return 0;
+    const gratisAcima = loja?.freteGratisAcima != null && total >= loja.freteGratisAcima;
+    if (loja?.areaModo === 'raio') {
+      if (gratisAcima) return 0;
+      const km = distanciaKm(loja.lojaLat, loja.lojaLng, chk.lat, chk.lng);
+      if (km == null) return 0; // sem localização ainda
+      return taxaPorRaio(loja.raios ?? [], km);
+    }
+    if (gratisAcima) return 0;
     return Number(bairros.find((b) => b.id === chk.bairroId)?.taxa ?? 0);
-  }, [chk.tipo, chk.bairroId, total, bairros, loja, isServico, cupomOk]);
+  }, [chk.tipo, chk.bairroId, chk.lat, chk.lng, total, bairros, loja, isServico, cupomOk]);
   const desc = cupomOk?.valido ? cupomOk.desconto : 0;
 
   function onAdd(item: CartItem) {
@@ -670,6 +706,7 @@ export default function CardapioPublicoPage() {
           enderecos={enderecosSalvos}
           onUsarEndereco={usarEndereco}
           onCadastrarEndereco={cadastrarEndereco}
+          areaRaio={menu.loja?.areaModo === 'raio'}
           temCliente={temCliente}
           enviando={enviando}
         />
