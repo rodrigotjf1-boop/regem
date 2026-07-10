@@ -29,6 +29,8 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
   const [trocoPara, setTrocoPara] = useState('');
   const [itens, setItens] = useState<ItemNovo[]>([]);
   const [busy, setBusy] = useState(false);
+  const [enderecosCli, setEnderecosCli] = useState<any[]>([]);
+  const [achou, setAchou] = useState<string | null>(null);
 
   useEffect(() => {
     api.formasPagamento().then((f: any) => {
@@ -37,6 +39,42 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
       if (ativas[0]) setForma(ativas[0].nome);
     }).catch(() => {});
   }, []);
+
+  // Ao digitar o telefone, busca o cliente na base (autopreenchimento). Debounce.
+  useEffect(() => {
+    const tel = telefone.replace(/\D/g, '');
+    if (tel.length < 10) {
+      setEnderecosCli([]);
+      setAchou(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const r: any = await api.buscarClienteTelefone(tel);
+        if (r?.cliente) {
+          setAchou(r.cliente.nome || 'Cliente');
+          if (r.cliente.nome) setCliente((c) => c || r.cliente.nome);
+          setEnderecosCli(r.enderecos ?? []);
+          const pr = (r.enderecos ?? []).find((e: any) => e.principal) ?? (r.enderecos ?? [])[0];
+          if (pr) usarEndereco(pr, true);
+        } else {
+          setAchou(null);
+          setEnderecosCli([]);
+        }
+      } catch {
+        /* ignora */
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [telefone]);
+
+  function usarEndereco(e: any, soSeVazio = false) {
+    if (soSeVazio && rua.trim()) return;
+    setRua(e.logradouro || '');
+    setNumero(e.numero || '');
+    setBairro(e.bairro || '');
+    setRef(e.referencia || e.complemento || '');
+  }
 
   function addItem(s: SelecaoProduto) {
     setItens((a) => {
@@ -81,8 +119,8 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
   }
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={onFechar}>
-      <Card className="grid w-full max-w-2xl gap-4 p-5 lg:grid-cols-[1fr_320px]" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-3" onClick={onFechar}>
+      <Card className="grid max-h-[94vh] w-full max-w-5xl gap-4 overflow-y-auto p-5 lg:grid-cols-[1fr_380px]" onClick={(e) => e.stopPropagation()}>
         <div className="min-w-0">
           <h3 className="mb-3 font-display text-base font-bold">Novo pedido</h3>
           <div className="mb-3 inline-flex rounded-lg border border-border p-0.5 text-sm">
@@ -97,7 +135,7 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
               </button>
             ))}
           </div>
-          <div className="max-h-[50vh] overflow-y-auto rounded-lg border border-border p-2">
+          <div className="max-h-[64vh] min-h-[300px] overflow-y-auto rounded-lg border border-border p-2">
             <SeletorProduto onAdd={addItem} enviando={busy} />
           </div>
         </div>
@@ -105,8 +143,27 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1"><Label className="text-xs">Cliente</Label><Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nome" /></div>
-            <div className="space-y-1"><Label className="text-xs">Telefone</Label><Input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(00) 0000-0000" /></div>
+            <div className="space-y-1"><Label className="text-xs">Telefone</Label><Input inputMode="tel" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(00) 0000-0000" /></div>
           </div>
+          {achou && (
+            <p className="rounded-md bg-ok/10 px-2.5 py-1.5 text-xs text-ok">
+              📇 Cliente encontrado: <b>{achou}</b>{enderecosCli.length > 0 ? ` · ${enderecosCli.length} endereço(s)` : ''}
+            </p>
+          )}
+          {tipo === 'entrega' && enderecosCli.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {enderecosCli.map((e: any) => (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => usarEndereco(e)}
+                  className="rounded-full border border-border px-2.5 py-1 text-xs hover:border-primary hover:text-primary"
+                >
+                  {e.apelido || `${e.logradouro ?? 'Endereço'}, ${e.numero ?? ''}`}{e.principal ? ' ★' : ''}
+                </button>
+              ))}
+            </div>
+          )}
           {tipo === 'entrega' && (
             <div className="grid grid-cols-2 gap-2">
               <div className="col-span-2 space-y-1"><Label className="text-xs">Rua</Label><Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Rua / logradouro" /></div>
