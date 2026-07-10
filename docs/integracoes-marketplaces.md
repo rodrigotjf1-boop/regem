@@ -208,6 +208,50 @@ comercial, não só código).
 
 ---
 
+## 6. Como funciona a homologação (o "portão" antes da produção)
+
+Cada plataforma trata isso de forma bem diferente. **Só o iFood tem homologação
+formal**; as demais são credenciais/onboarding/parceria.
+
+### 🔴 iFood — homologação formal com sessão ao vivo
+1. **Pré-requisito:** conta **profissional (CNPJ)** — conta CPF/estudante **não** homologa.
+2. **Desenvolve** com a **loja e app de teste** (criados no cadastro).
+3. **Agenda** pela área de tickets (aba Suporte); o time do iFood marca a data.
+4. **Sessão de validação remota (~45 min):** um analista faz **acesso remoto e
+   assiste** você executar os fluxos obrigatórios do **módulo Order**:
+   - receber, **confirmar e despachar** um pedido **agendado** (com data/hora),
+   - receber e **cancelar** um pedido **imediato**,
+   - polling a cada 30s (ou webhook) + **acknowledgment**.
+5. **Aprovado** → cria o **app de produção** → habilita nas lojas reais.
+6. **Reprovado** → registram no ticket o que faltou; **reagenda só após 15 dias**.
+
+### 🟢 Open Delivery (Cardápio Web) — SEM homologação obrigatória
+O padrão é **aberto e pode ser usado por qualquer empresa "sem necessidade de
+adesão ou homologação, bastando implementar a partir da documentação"**. Há um
+**"Portal de Aderentes"** opcional (só para usar o **selo/marca**). Cada
+marketplace (ex.: Cardápio Web) apenas fornece **credenciais** e uma loja de teste.
+
+### 🟡 99Food — onboarding (não homologação)
+Cadastro no developer portal → integrador gera **link de autorização** → lojista
+**autoriza** → vincula loja e gera **`AppShopID`**. A "validação" é o vínculo
+funcionar; sem sessão formal.
+
+### 🟠 Anota AI — gate comercial (não técnico)
+Sem homologação técnica pública: passa pelo **programa de parceiros** (virar
+parceiro → ticket com o token do estabelecimento → suporte gera os tokens). O
+portão é **aprovação de parceria**. Parte do ecossistema fala Open Delivery.
+
+| Plataforma | Tipo de gate | Peso |
+|---|---|---|
+| Open Delivery / Cardápio Web | Nenhum obrigatório (só credenciais) | 🟢 leve |
+| 99Food | Onboarding (autorização + vínculo) | 🟡 médio-leve |
+| Anota AI | Parceria comercial (ticket) | 🟠 comercial |
+| iFood | Homologação formal (sessão ao vivo ~45min, CNPJ) | 🔴 pesado |
+
+→ Reforça a ordem: **Open Delivery → iFood → Anota/99Food**.
+
+---
+
 ## Fontes
 - iFood Developer — visão geral, módulos, homologação: https://developer.ifood.com.br/pt-BR/docs/getting-started · https://developer.ifood.com.br/pt-BR/docs/guides/modules/order/homologation/ · https://developermercado.ifood.com.br/docs/partners/
 - iFood — polling de eventos / acknowledgment / auth centralizada: https://developer.ifood.com.br/en-US/docs/guides/modules/events/polling-overview/ · https://developer.ifood.com.br/en-US/docs/guides/modules/authentication/centralized/
