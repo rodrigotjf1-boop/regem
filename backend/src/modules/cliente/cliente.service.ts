@@ -54,6 +54,22 @@ export class ClienteService {
       .orderBy(desc(clienteEndereco.principal), desc(clienteEndereco.criadoEm));
   }
 
+  // Busca autenticada (gestor) por telefone — autopreenchimento do "Novo pedido"
+  // no Delivery. Devolve o cliente + endereços salvos (1:N), ou null.
+  async buscarPorTelefone(tenantId: string, telefone: string) {
+    const tel = (telefone ?? '').replace(/\D/g, '');
+    if (tel.length < 8) return null;
+    const [c] = await this.db
+      .select()
+      .from(cliente)
+      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+    if (!c) return null;
+    return {
+      cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
+      enderecos: await this.enderecosDe(c.id),
+    };
+  }
+
   // Identifica pelo telefone: acha ou cria o cliente, devolve o token assinado.
   async identificar(cardapioToken: string, dto: { telefone?: string; nome?: string }) {
     const tenantId = await this.tenantDoCardapio(cardapioToken);

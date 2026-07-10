@@ -1609,7 +1609,7 @@ export const cliente = pgTable('cliente', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   nome: text('nome'),
-  telefone: text('telefone'), // opcional — identidade é o token; telefone só p/ entrega
+  telefone: text('telefone').notNull(), // obrigatório — identidade por telefone (sem anônimo)
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),

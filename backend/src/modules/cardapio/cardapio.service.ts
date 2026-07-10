@@ -855,9 +855,9 @@ export class CardapioService {
       },
     );
 
-    // Cliente do cardápio: identidade por TOKEN aleatório (não exige telefone).
-    // Se veio um token válido, usa; senão cria o cliente no 1º pedido (acha por
-    // telefone se informado, senão anônimo) e devolve o token para o navegador.
+    // Cliente do cardápio: identidade por TELEFONE (obrigatório no pedido; um
+    // cliente tem 1:N endereços). O token identifica sem expor os dados na URL.
+    // Não há pedido anônimo — sempre acha/cria o cliente pelo telefone.
     const cli = verificarCliente(dto.clienteToken);
     let clienteId = cli && cli.tenant === cfg.tenantId ? cli.cli : null;
     if (!clienteId && ped?.id) {
@@ -867,16 +867,17 @@ export class CardapioService {
           .select({ id: cliente.id })
           .from(cliente)
           .where(and(eq(cliente.tenantId, cfg.tenantId), eq(cliente.telefone, tel)));
-        clienteId = ex?.id ?? null;
-      }
-      if (!clienteId) {
-        const nomeCli =
-          dto.cliente && !['Cliente', 'Cardápio'].includes(dto.cliente) ? dto.cliente : null;
-        const [c] = await this.db
-          .insert(cliente)
-          .values({ tenantId: cfg.tenantId, nome: nomeCli, telefone: tel.length >= 10 ? tel : null })
-          .returning();
-        clienteId = c.id;
+        if (ex) {
+          clienteId = ex.id;
+        } else {
+          const nomeCli =
+            dto.cliente && !['Cliente', 'Cardápio'].includes(dto.cliente) ? dto.cliente : null;
+          const [c] = await this.db
+            .insert(cliente)
+            .values({ tenantId: cfg.tenantId, nome: nomeCli, telefone: tel })
+            .returning();
+          clienteId = c.id;
+        }
       }
     }
     if (clienteId && ped?.id) {
