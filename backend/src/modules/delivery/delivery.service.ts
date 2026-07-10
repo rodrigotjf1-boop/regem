@@ -138,7 +138,7 @@ export class DeliveryService {
   // Ativos (qualquer idade) + finalizados das últimas 24h (coluna Finalizado).
   async listar(tenantId: string) {
     const desde = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    return this.db
+    const rows = await this.db
       .select()
       .from(pedidoExterno)
       .where(
@@ -160,6 +160,21 @@ export class DeliveryService {
       )
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(200);
+    // Total de pedidos (histórico completo) por telefone — ícone no card do kanban.
+    const counts = new Map<string, number>();
+    if (rows.length) {
+      const c: any = await this.db.execute(sql`
+        select cliente_telefone as tel, count(*)::int as n
+        from pedido_externo
+        where tenant_id = ${tenantId} and cliente_telefone is not null and cliente_telefone <> ''
+        group by 1
+      `);
+      for (const x of c?.rows ?? c) counts.set(String(x.tel), Number(x.n));
+    }
+    return rows.map((r) => ({
+      ...r,
+      clientePedidosCount: r.clienteTelefone ? counts.get(r.clienteTelefone) ?? 1 : 1,
+    }));
   }
 
   private async carregar(tenantId: string, id: string) {

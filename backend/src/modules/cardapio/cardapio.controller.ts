@@ -88,6 +88,13 @@ export class CardapioPublicoController {
     return this.service.pedidosPorTelefone(token, telefone ?? '');
   }
 
+  // Último pedido do cliente (card do topo, com imagem dos produtos).
+  @Get(':token/ultimo-pedido')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  ultimoPedido(@Param('token') token: string, @Query('telefone') telefone: string) {
+    return this.service.ultimoPedidoPublico(token, telefone ?? '');
+  }
+
   // Handoff: o robô abre um chamado de atendimento para a loja.
   @Post(':token/atendimento')
   @Throttle({ default: { ttl: 60000, limit: 20 } })
