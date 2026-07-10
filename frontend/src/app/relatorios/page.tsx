@@ -72,7 +72,7 @@ export default function RelatoriosPage() {
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'estoque' | 'producao' | 'financeiro'>('vendas');
+  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'estoque' | 'producao' | 'fidelidade' | 'cashback' | 'financeiro'>('vendas');
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
   const [balcao, setBalcao] = useState<any>(null);
@@ -241,6 +241,8 @@ export default function RelatoriosPage() {
             { v: 'turnos', l: 'Turnos / Caixa' },
             { v: 'estoque', l: 'Estoque' },
             { v: 'producao', l: 'Produção' },
+            { v: 'fidelidade', l: 'Fidelidades' },
+            { v: 'cashback', l: 'Cashbacks' },
             { v: 'financeiro', l: 'Financeiro' },
           ].filter((t) => verFin || t.v !== 'financeiro').map((t) => (
             <button
@@ -366,6 +368,24 @@ export default function RelatoriosPage() {
           <ProducaoView data={producao} agrup={agrupProd} setAgrup={setAgrupProd} />
         )}
 
+        {aba === 'fidelidade' && (
+          <ResgatesView
+            titulo="Prêmios de fidelidade resgatados"
+            colunaDetalhe="Prêmio"
+            buscar={(i, f, t) => api.fidelidadeRelatorioPeriodo(i, f, t)}
+            mapa={(r: any) => ({ data: r.resgatadoEm, cliente: r.telefone, item: r.premio, detalhe: r.detalhe })}
+          />
+        )}
+
+        {aba === 'cashback' && (
+          <ResgatesView
+            titulo="Cashbacks resgatados"
+            colunaDetalhe="Uso"
+            buscar={(i, f, t) => api.cashbackRelatorio(i, f, t)}
+            mapa={(r: any) => ({ data: r.criadoEm, cliente: r.telefone, item: r.tipo === 'valor' ? 'Saldo (R$)' : 'Pontos', detalhe: r.tipo === 'valor' ? brl(r.valor) : `${r.valor} pts` })}
+          />
+        )}
+
         {aba === 'financeiro' && (
         <>
           {/* Faturamento por mês (respeita o período De/Até acima) */}
@@ -475,6 +495,95 @@ export default function RelatoriosPage() {
         )}
       </div>
     </Shell>
+  );
+}
+
+// Relatório de resgates (fidelidade/cashback) por período + filtro por cliente.
+function ResgatesView({
+  titulo,
+  colunaDetalhe,
+  buscar,
+  mapa,
+}: {
+  titulo: string;
+  colunaDetalhe: string;
+  buscar: (inicio: string, fim: string, telefone: string) => Promise<any>;
+  mapa: (r: any) => { data: any; cliente: string; item: string; detalhe: string };
+}) {
+  const [inicio, setInicio] = useState(diasAtras(30));
+  const [fim, setFim] = useState(hoje());
+  const [telefone, setTelefone] = useState('');
+  const [linhas, setLinhas] = useState<any[]>([]);
+  const [carregando, setCarregando] = useState(false);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    try {
+      const r = await buscar(inicio, fim, telefone.replace(/\D/g, ''));
+      setLinhas(((r as any[]) ?? []).map(mapa));
+    } catch {
+      setLinhas([]);
+    } finally {
+      setCarregando(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inicio, fim, telefone]);
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const dh = (d: any) => (d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
+
+  return (
+    <Card className="space-y-4 p-4">
+      <div className="flex flex-wrap items-end gap-3">
+        <h2 className="mr-auto font-display text-base font-bold">{titulo}</h2>
+        <div>
+          <Label className="text-xs">Início</Label>
+          <Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} className="h-9" />
+        </div>
+        <div>
+          <Label className="text-xs">Fim</Label>
+          <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} className="h-9" />
+        </div>
+        <div>
+          <Label className="text-xs">Cliente (telefone)</Label>
+          <Input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="opcional" className="h-9 w-40" />
+        </div>
+        <Button type="button" onClick={carregar} disabled={carregando}>{carregando ? 'Buscando…' : 'Filtrar'}</Button>
+        <Button type="button" variant="outline" onClick={() => baixarCsv(titulo, linhas.map((l) => ({ Data: dh(l.data), Cliente: l.cliente, Item: l.item, Detalhe: l.detalhe })))} disabled={!linhas.length}>CSV</Button>
+      </div>
+
+      <p className="text-sm text-muted-foreground">{linhas.length} resgate(s) no período.</p>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <caption className="sr-only">{titulo}</caption>
+          <thead>
+            <tr className="border-b border-border text-left text-xs text-muted-foreground">
+              <th className="py-2 pr-3 font-medium">Data</th>
+              <th className="py-2 pr-3 font-medium">Cliente</th>
+              <th className="py-2 pr-3 font-medium">{colunaDetalhe}</th>
+              <th className="py-2 font-medium">Detalhe</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.length === 0 && (
+              <tr><td colSpan={4} className="py-6 text-center text-muted-foreground">Nenhum resgate no período.</td></tr>
+            )}
+            {linhas.map((l, i) => (
+              <tr key={i} className="border-b border-border/50">
+                <td className="py-2 pr-3 font-mono text-xs">{dh(l.data)}</td>
+                <td className="py-2 pr-3 font-mono">{l.cliente}</td>
+                <td className="py-2 pr-3">{l.item}</td>
+                <td className="py-2 font-semibold">{l.detalhe}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   categoriaProduto,
@@ -142,6 +142,39 @@ export class FidelidadeService {
     return (r?.rows ?? r).map((x: any) => ({ periodo: x.periodo, total: Number(x.total) }));
   }
 
+  // Relatório detalhado de resgates por período (data início/fim) + cliente.
+  async relatorioPeriodo(tenantId: string, inicio?: string, fim?: string, telefone?: string) {
+    const tel = soDigitos(telefone);
+    const cond = [
+      eq(fidelidadeResgate.tenantId, tenantId),
+      eq(fidelidadeResgate.status, 'resgatado'),
+    ];
+    if (inicio) cond.push(gte(fidelidadeResgate.resgatadoEm, new Date(inicio)));
+    if (fim) cond.push(lte(fidelidadeResgate.resgatadoEm, new Date(fim + 'T23:59:59')));
+    if (tel) cond.push(sql`${fidelidadeResgate.telefone} like ${'%' + tel + '%'}`);
+    const rows = await this.db
+      .select({
+        id: fidelidadeResgate.id,
+        telefone: fidelidadeResgate.telefone,
+        resgatadoEm: fidelidadeResgate.resgatadoEm,
+        plano: fidelidadePlano.nome,
+        recompensaTipo: fidelidadePlano.recompensaTipo,
+        recompensaValor: fidelidadePlano.recompensaValor,
+      })
+      .from(fidelidadeResgate)
+      .leftJoin(fidelidadePlano, eq(fidelidadePlano.id, fidelidadeResgate.planoId))
+      .where(and(...cond))
+      .orderBy(desc(fidelidadeResgate.resgatadoEm))
+      .limit(500);
+    return rows.map((r) => ({
+      id: r.id,
+      telefone: r.telefone,
+      resgatadoEm: r.resgatadoEm,
+      premio: r.plano ?? 'Prêmio',
+      detalhe: descreverRecompensa({ recompensaTipo: r.recompensaTipo, recompensaValor: r.recompensaValor }),
+    }));
+  }
+
   // ===== Motor de pontos (chamado no checkout) =====
   async pontuarPedido(
     tenantId: string,
@@ -205,6 +238,30 @@ export class FidelidadeService {
       await this.setSaldo(tenantId, plano.id, tel, novo, dados.nome, dados.clienteId);
     }
     return { pontosGanhos, premios };
+  }
+
+  // Estorno: pedido cancelado (mesmo após finalizado) devolve os pontos que
+  // gerou em cada plano. Marca o ponto como estornado (idempotente).
+  async estornarPedido(tenantId: string, pedidoId: string) {
+    const pontos = await this.db
+      .select()
+      .from(fidelidadePonto)
+      .where(
+        and(
+          eq(fidelidadePonto.tenantId, tenantId),
+          eq(fidelidadePonto.pedidoId, pedidoId),
+          eq(fidelidadePonto.estornado, false),
+        ),
+      );
+    for (const pt of pontos) {
+      const saldo = await this.saldo(tenantId, pt.planoId, pt.telefone);
+      await this.setSaldo(tenantId, pt.planoId, pt.telefone, Math.max(0, saldo - 1));
+      await this.db
+        .update(fidelidadePonto)
+        .set({ estornado: true })
+        .where(eq(fidelidadePonto.id, pt.id));
+    }
+    return { estornados: pontos.length };
   }
 
   // ===== Público (por token, via CardapioService) =====

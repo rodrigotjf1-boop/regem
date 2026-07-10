@@ -1909,6 +1909,7 @@ export const fidelidadePonto = pgTable('fidelidade_ponto', {
   telefone: text('telefone').notNull(),
   clienteId: uuid('cliente_id'),
   pedidoId: uuid('pedido_id'),
+  estornado: boolean('estornado').notNull().default(false), // pedido cancelado
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1928,4 +1929,80 @@ export const fidelidadeResgate = pgTable('fidelidade_resgate', {
   resgatadoEm: timestamp('resgatado_em', { withTimezone: true }),
   pedidoId: uuid('pedido_id'),
   status: text('status').notNull().default('disponivel'), // disponivel | resgatado | expirado
+});
+
+// ===== Cashback (concorre com Fidelidade) =====
+export const cashbackPlano = pgTable('cashback_plano', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  tipo: text('tipo').notNull(), // valor | pontos
+  ativo: boolean('ativo').notNull().default(true),
+  status: text('status').notNull().default('ativo'), // ativo | finalizando | encerrado
+  percentual: numeric('percentual'), // tipo valor
+  base: text('base').notNull().default('total'), // total | sem_frete
+  regras: jsonb('regras').notNull().default('[]'), // tipo pontos: [{ reais, pontos }]
+  prazoResgateDias: integer('prazo_resgate_dias'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Valor em pontos de cada produto (resgate no tipo pontos).
+export const cashbackProdutoValor = pgTable('cashback_produto_valor', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  planoId: uuid('plano_id')
+    .notNull()
+    .references(() => cashbackPlano.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id').notNull(),
+  pontos: integer('pontos').notNull().default(0),
+});
+
+// Saldo do cliente por tipo (valor R$ ou pontos).
+export const cashbackSaldo = pgTable('cashback_saldo', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  clienteId: uuid('cliente_id'),
+  tipo: text('tipo').notNull(), // valor | pontos
+  saldo: numeric('saldo').notNull().default('0'),
+  expiraEm: timestamp('expira_em', { withTimezone: true }),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Razão (ledger) — integridade/estorno.
+export const cashbackMovimento = pgTable('cashback_movimento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  clienteId: uuid('cliente_id'),
+  tipo: text('tipo').notNull(), // valor | pontos
+  delta: numeric('delta').notNull(), // + crédito | - resgate/estorno
+  origem: text('origem').notNull(), // credito | resgate | estorno | expiracao
+  planoId: uuid('plano_id'),
+  pedidoId: uuid('pedido_id'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Vale de produto resgatado por pontos (abate no próximo pedido).
+export const cashbackVale = pgTable('cashback_vale', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  clienteId: uuid('cliente_id'),
+  produtoId: uuid('produto_id'),
+  descricao: text('descricao'),
+  valor: numeric('valor').notNull().default('0'), // desconto equivalente
+  status: text('status').notNull().default('disponivel'), // disponivel | usado
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  pedidoId: uuid('pedido_id'),
 });

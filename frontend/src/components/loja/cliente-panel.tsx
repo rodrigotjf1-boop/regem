@@ -36,12 +36,16 @@ export function ClientePanel({
   const [pedidoSel, setPedidoSel] = useState<any>(null);
 
   const clienteToken = getClienteToken(token);
+  const [cashback, setCashback] = useState<any>(null);
 
   const carregar = useCallback(async () => {
     const ct = getClienteToken(token);
     if (!ct) return;
     try {
-      setPerfil(await api.clientePerfil(token, ct));
+      const p: any = await api.clientePerfil(token, ct);
+      setPerfil(p);
+      const tel = (p?.cliente?.telefone ?? '').replace(/\D/g, '');
+      if (tel.length >= 10) api.cardapioCashback(token, tel).then(setCashback).catch(() => setCashback(null));
     } catch {
       setClienteToken(token, null);
       setPerfil(null);
@@ -205,6 +209,20 @@ export function ClientePanel({
               Olá, {perfil.cliente.nome || 'cliente'}! 👋
               <span className="block text-xs text-black/50">{perfil.cliente.telefone}</span>
             </p>
+
+            {/* Saldo de cashback */}
+            {cashback && ((cashback.valor ?? 0) > 0 || (cashback.pontos ?? 0) > 0 || (cashback.vales ?? []).length > 0) && (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <p className="text-sm font-bold text-emerald-700">💰 Seu cashback</p>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-emerald-700">
+                  {(cashback.valor ?? 0) > 0 && <span>Saldo: <b>{brl(Number(cashback.valor))}</b> (abate no próximo pedido)</span>}
+                  {(cashback.pontos ?? 0) > 0 && <span>Pontos: <b>{cashback.pontos}</b> (troque em Promos)</span>}
+                </div>
+                {(cashback.vales ?? []).length > 0 && (
+                  <p className="mt-1 text-[11px] text-emerald-600">{cashback.vales.length} vale(s) para usar: {cashback.vales.map((v: any) => v.descricao).join(', ')}</p>
+                )}
+              </div>
+            )}
 
             {/* Endereços */}
             <div>

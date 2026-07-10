@@ -8,9 +8,10 @@ import { VendasModule } from '../vendas/vendas.module';
 import { DeliveryModule } from '../delivery/delivery.module';
 import { AtendimentoModule } from '../atendimento/atendimento.module';
 import { FidelidadeModule } from '../fidelidade/fidelidade.module';
+import { CashbackModule } from '../cashback/cashback.module';
 
 @Module({
-  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule],
+  imports: [VendasModule, DeliveryModule, AtendimentoModule, FidelidadeModule, CashbackModule],
   controllers: [CardapioController, CardapioPublicoController],
   providers: [CardapioService],
 })
