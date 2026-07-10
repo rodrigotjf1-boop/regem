@@ -81,6 +81,12 @@ export class CardapioPublicoController {
     return this.service.resgatarFidelidade(token, dto?.resgateId ?? '', dto?.telefone ?? '');
   }
 
+  // Prêmios resgatados, prontos para abater no próximo pedido.
+  @Get(':token/fidelidade/premios')
+  premios(@Param('token') token: string, @Query('telefone') telefone: string) {
+    return this.service.premiosFidelidade(token, telefone ?? '');
+  }
+
   // Pedidos recentes de um telefone (robô: "cadê meu pedido?").
   @Get(':token/pedidos')
   @Throttle({ default: { ttl: 60000, limit: 30 } })

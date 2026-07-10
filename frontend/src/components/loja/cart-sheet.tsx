@@ -30,6 +30,11 @@ export function CartSheet({
   onAplicarCupom,
   cuponsSugeridos,
   onEscolherCupom,
+  premios,
+  premioSel,
+  premioDesc,
+  premioNome,
+  onEscolherPremio,
   onQtd,
   onRemove,
   onAddUpsell,
@@ -62,6 +67,11 @@ export function CartSheet({
   onAplicarCupom: () => void;
   cuponsSugeridos?: any[];
   onEscolherCupom?: (codigo: string) => void;
+  premios?: any[];
+  premioSel?: string;
+  premioDesc?: number;
+  premioNome?: string;
+  onEscolherPremio?: (id: string) => void;
   onQtd: (key: string, d: number) => void;
   onRemove: (key: string) => void;
   onAddUpsell: (p: any) => void;
@@ -221,6 +231,29 @@ export function CartSheet({
           )}
           {cupomOk && <p className={`mt-1 text-xs ${cupomOk.valido ? 'text-emerald-600' : 'text-red-600'}`}>{cupomOk.valido ? (cupomOk.freteGratis ? 'Cupom aplicado: frete grátis 🛵' : `Cupom aplicado: −${brl(cupomOk.desconto)}`) : cupomOk.motivo ?? 'Cupom inválido'}</p>}
 
+          {/* prêmio de fidelidade resgatado (abate automático) */}
+          {(premios?.length ?? 0) > 0 && (
+            <div className="mt-3 rounded-xl border-2 border-dashed p-3" style={{ borderColor: accent }}>
+              <p className="text-sm font-bold">🎁 Prêmio de fidelidade</p>
+              {(premios ?? []).length > 1 ? (
+                <select
+                  aria-label="Prêmio a usar"
+                  value={premioSel}
+                  onChange={(e) => onEscolherPremio?.(e.target.value)}
+                  className="mt-2 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                >
+                  <option value="">Não usar prêmio agora</option>
+                  {(premios ?? []).map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.plano} — {p.recompensa}</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="mt-0.5 text-xs text-neutral-600">{premios?.[0]?.plano} — {premios?.[0]?.recompensa}</p>
+              )}
+              {(premioDesc ?? 0) > 0 && <p className="mt-1 text-xs font-semibold text-emerald-600">Desconto aplicado: −{brl(premioDesc ?? 0)}</p>}
+            </div>
+          )}
+
           {/* entrega / retirada (respeita os tipos habilitados na config) */}
           {!isServico && opcoesTipo.length > 1 && (
             <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-neutral-200 p-1">
@@ -365,6 +398,7 @@ export function CartSheet({
           <div className="mt-4 space-y-1 border-t border-neutral-200 pt-3 text-sm">
             <div className="flex justify-between text-neutral-500"><span>Subtotal</span><span className="font-mono">{brl(total)}</span></div>
             {desc > 0 && <div className="flex justify-between text-emerald-600"><span>Cupom</span><span className="font-mono">− {brl(desc)}</span></div>}
+            {(premioDesc ?? 0) > 0 && <div className="flex justify-between text-emerald-600"><span>Prêmio{premioNome ? ` · ${premioNome}` : ''}</span><span className="font-mono">− {brl(premioDesc ?? 0)}</span></div>}
             {!isServico && chk.tipo === 'entrega' && <div className="flex justify-between text-neutral-500"><span>Frete {bairroSel ? `· ${bairroSel.nome}` : ''}</span><span className="font-mono">{taxa === 0 ? 'Grátis' : brl(taxa)}</span></div>}
             {loja.fidelidadeAtiva && !isIndustria && <div className="flex justify-between text-emerald-600"><span>Fidelidade</span><span className="font-mono">+ {Math.round(totalFinal)} pts</span></div>}
             <div className="flex justify-between text-base font-bold"><span>{isIndustria ? 'Estimativa' : 'Total'}</span><span className="font-mono">{brl(totalFinal)}</span></div>

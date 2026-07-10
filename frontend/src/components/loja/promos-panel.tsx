@@ -37,6 +37,7 @@ export function PromosPanel({
     const tel = (telefone ?? '').replace(/\D/g, '');
     try {
       await api.cardapioFidelidadeResgatar(token, id, tel);
+      alert('Prêmio resgatado! O desconto entra automaticamente no seu próximo pedido.');
       carregarStatus();
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Não foi possível resgatar.');
@@ -49,6 +50,7 @@ export function PromosPanel({
   const nada =
     data && !data.fidelidadeAtiva && (data.cupons?.length ?? 0) === 0 && produtosPromo.length === 0;
   const disponiveis = (status?.resgates ?? []).filter((r: any) => r.status === 'disponivel');
+  const naCarteira = (status?.resgates ?? []).filter((r: any) => r.status === 'resgatado');
 
   return (
     <div className="space-y-5 px-4 py-4">
@@ -79,6 +81,18 @@ export function PromosPanel({
                   <button type="button" onClick={() => resgatar(r.id)} className="flex-none rounded-lg px-3 py-1.5 text-xs font-bold text-white" style={{ background: accent }}>
                     Resgatar
                   </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Prêmios resgatados aguardando uso (aplicam no próximo pedido) */}
+          {naCarteira.length > 0 && (
+            <div className="space-y-1.5">
+              {naCarteira.map((r: any) => (
+                <div key={r.id} className="flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                  <span>✅</span>
+                  <span className="min-w-0 flex-1"><b>{r.plano}</b> · {r.recompensa} — aplica no seu próximo pedido</span>
                 </div>
               ))}
             </div>

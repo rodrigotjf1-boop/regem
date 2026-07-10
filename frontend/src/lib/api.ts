@@ -480,6 +480,8 @@ export const api = {
     pub(`/publico/cardapio/${token}/cupons-disponiveis?telefone=${encodeURIComponent(telefone)}&subtotal=${subtotal}`),
   cardapioFidelidadeResgatar: (token: string, resgateId: string, telefone: string) =>
     pub(`/publico/cardapio/${token}/fidelidade/resgatar`, { method: 'POST', body: JSON.stringify({ resgateId, telefone }) }),
+  cardapioFidelidadePremios: (token: string, telefone: string) =>
+    pub(`/publico/cardapio/${token}/fidelidade/premios?telefone=${encodeURIComponent(telefone)}`),
   cardapioStatus: (token: string, id: string) => pub(`/publico/cardapio/${token}/pedido/${id}`),
   cardapioPagar: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),

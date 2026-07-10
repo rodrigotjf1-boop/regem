@@ -268,6 +268,109 @@ export class FidelidadeService {
     };
   }
 
+  // Prêmios já resgatados (status 'resgatado') prontos para abater no pedido.
+  async premiosParaUsar(tenantId: string, telefone: string) {
+    const tel = soDigitos(telefone);
+    if (!tel) return [];
+    await this.expirarVencidos(tenantId, tel);
+    const rows = await this.db
+      .select()
+      .from(fidelidadeResgate)
+      .where(
+        and(
+          eq(fidelidadeResgate.tenantId, tenantId),
+          eq(fidelidadeResgate.telefone, tel),
+          eq(fidelidadeResgate.status, 'resgatado'),
+        ),
+      );
+    if (!rows.length) return [];
+    const planoIds = [...new Set(rows.map((r) => r.planoId))];
+    const planos = await this.db
+      .select()
+      .from(fidelidadePlano)
+      .where(inArray(fidelidadePlano.id, planoIds));
+    const byId = new Map(planos.map((p) => [p.id, p]));
+    return rows
+      .map((r) => {
+        const p = byId.get(r.planoId);
+        if (!p) return null;
+        return {
+          id: r.id,
+          plano: p.nome,
+          recompensa: descreverRecompensa(p),
+          recompensaTipo: p.recompensaTipo,
+          recompensaValor: Number(p.recompensaValor) || 0,
+          recompensaProdutos: (p.recompensaProdutos as string[]) ?? [],
+        };
+      })
+      .filter(Boolean);
+  }
+
+  // Calcula o desconto de um prêmio para um carrinho (não muta nada).
+  static descontoPremio(
+    recompensaTipo: string,
+    recompensaValor: number,
+    recompensaProdutos: string[],
+    itens: { produtoId: string; precoUnitario: number; quantidade: number }[],
+    subtotal: number,
+  ): number {
+    const v = Number(recompensaValor) || 0;
+    if (recompensaTipo === 'valor_fixo') return Math.min(subtotal, v);
+    if (recompensaTipo === 'percentual_produtos') {
+      const sel = new Set(recompensaProdutos ?? []);
+      const base = itens
+        .filter((i) => sel.has(i.produtoId))
+        .reduce((a, i) => a + Number(i.precoUnitario) * Number(i.quantidade), 0);
+      return Number(((base * v) / 100).toFixed(2));
+    }
+    return Number(((subtotal * v) / 100).toFixed(2)); // percentual_proximo
+  }
+
+  // Avalia o prêmio no checkout: valida posse/estado e devolve o desconto.
+  async avaliarPremio(
+    tenantId: string,
+    resgateId: string | undefined,
+    telefone: string,
+    itens: any[],
+    subtotal: number,
+  ): Promise<{ desconto: number; resgateId?: string; plano?: string }> {
+    if (!resgateId) return { desconto: 0 };
+    const tel = soDigitos(telefone);
+    const [r] = await this.db
+      .select()
+      .from(fidelidadeResgate)
+      .where(and(eq(fidelidadeResgate.id, resgateId), eq(fidelidadeResgate.tenantId, tenantId)));
+    if (!r || r.telefone !== tel || r.status !== 'resgatado') return { desconto: 0 };
+    if (r.prazoEm && new Date(r.prazoEm) < new Date()) return { desconto: 0 };
+    const [plano] = await this.db
+      .select()
+      .from(fidelidadePlano)
+      .where(eq(fidelidadePlano.id, r.planoId));
+    if (!plano) return { desconto: 0 };
+    const desconto = FidelidadeService.descontoPremio(
+      plano.recompensaTipo,
+      Number(plano.recompensaValor) || 0,
+      (plano.recompensaProdutos as string[]) ?? [],
+      itens,
+      subtotal,
+    );
+    return { desconto, resgateId: r.id, plano: plano.nome };
+  }
+
+  // Marca o prêmio como consumido no pedido (após o pedido ser criado).
+  async marcarPremioUsado(tenantId: string, resgateId: string, pedidoId: string) {
+    await this.db
+      .update(fidelidadeResgate)
+      .set({ status: 'usado', pedidoId })
+      .where(
+        and(
+          eq(fidelidadeResgate.id, resgateId),
+          eq(fidelidadeResgate.tenantId, tenantId),
+          eq(fidelidadeResgate.status, 'resgatado'),
+        ),
+      );
+  }
+
   async resgatar(tenantId: string, resgateId: string, telefone: string) {
     const tel = soDigitos(telefone);
     const [r] = await this.db

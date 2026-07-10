@@ -806,6 +806,7 @@ export class CardapioService {
       bandeira?: string; // forma de cartão escolhida (rótulo)
       trocoPara?: number;
       cupom?: string;
+      resgateId?: string; // prêmio de fidelidade a abater no pedido
       agendamento?: string; // serviços: data/hora
       profissional?: string; // serviços
       cnpj?: string; // indústria: faturamento
@@ -924,8 +925,13 @@ export class CardapioService {
     const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
       telefone: dto.telefone,
     });
-    const desconto = cup.valido ? cup.desconto : 0;
+    let desconto = cup.valido ? cup.desconto : 0;
     if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
+    // Prêmio de fidelidade resgatado: abate automático no pedido.
+    const premio = cfg.fidelidadeAtiva
+      ? await this.fidelidade.avaliarPremio(cfg.tenantId, dto.resgateId, dto.telefone ?? '', itensOut, total)
+      : { desconto: 0 };
+    desconto = Number((desconto + (premio.desconto || 0)).toFixed(2));
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
@@ -1034,6 +1040,15 @@ export class CardapioService {
       }
     }
 
+    // Prêmio de fidelidade consumido: marca como usado neste pedido.
+    if ((premio as any).desconto > 0 && (premio as any).resgateId && ped?.id) {
+      try {
+        await this.fidelidade.marcarPremioUsado(cfg.tenantId, (premio as any).resgateId, ped.id);
+      } catch {
+        /* não bloqueia o pedido */
+      }
+    }
+
     // Fidelidade (L5): pontua os planos que o pedido atende (dedupe por pedido).
     let fidelidade: any;
     if (cfg.fidelidadeAtiva && dto.telefone && ped?.id) {
@@ -1063,6 +1078,7 @@ export class CardapioService {
       agendamento: dto.agendamento ?? null,
       pontos: fidelidade?.pontosGanhos ?? undefined,
       fidelidade: fidelidade ?? null,
+      premioAplicado: (premio as any).desconto > 0 ? { plano: (premio as any).plano, desconto: (premio as any).desconto } : null,
       clienteToken: clienteTokenOut, // identidade do cliente (guardar no navegador)
     };
   }
@@ -1114,6 +1130,13 @@ export class CardapioService {
   async resgatarFidelidade(token: string, resgateId: string, telefone: string) {
     const cfg = await this.resolver(token);
     return this.fidelidade.resgatar(cfg.tenantId, resgateId, telefone);
+  }
+
+  // Público: prêmios já resgatados, prontos para abater no próximo pedido.
+  async premiosFidelidade(token: string, telefone: string) {
+    const cfg = await this.resolver(token);
+    if (!cfg.fidelidadeAtiva) return [];
+    return this.fidelidade.premiosParaUsar(cfg.tenantId, telefone);
   }
 
   // Acha (ou abre) a mesa pelo número e devolve a comanda ativa dela.
