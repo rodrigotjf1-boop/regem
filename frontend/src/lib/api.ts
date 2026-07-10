@@ -474,8 +474,12 @@ export const api = {
   cardapioMenu: (token: string) => pub(`/publico/cardapio/${token}`),
   cardapioPedido: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/pedido`, { method: 'POST', body: JSON.stringify(body) }),
-  cardapioCupomValidar: (token: string, codigo: string, subtotal: number) =>
-    pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal }) }),
+  cardapioCupomValidar: (token: string, codigo: string, subtotal: number, telefone?: string) =>
+    pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal, telefone }) }),
+  cardapioCuponsDisponiveis: (token: string, telefone: string, subtotal: number) =>
+    pub(`/publico/cardapio/${token}/cupons-disponiveis?telefone=${encodeURIComponent(telefone)}&subtotal=${subtotal}`),
+  cardapioFidelidadeResgatar: (token: string, resgateId: string, telefone: string) =>
+    pub(`/publico/cardapio/${token}/fidelidade/resgatar`, { method: 'POST', body: JSON.stringify({ resgateId, telefone }) }),
   cardapioStatus: (token: string, id: string) => pub(`/publico/cardapio/${token}/pedido/${id}`),
   cardapioPagar: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
@@ -513,6 +517,19 @@ export const api = {
   criarCupom: (body: Record<string, unknown>) =>
     req('/cardapio/cupons', { method: 'POST', body: JSON.stringify(body) }),
   removerCupom: (id: string) => req(`/cardapio/cupons/${id}`, { method: 'DELETE' }),
+  // Fidelidade (gestão)
+  fidelidadePlanos: () => req('/fidelidade/planos'),
+  salvarFidelidadePlano: (body: Record<string, unknown>) =>
+    req('/fidelidade/planos', { method: 'POST', body: JSON.stringify(body) }),
+  removerFidelidadePlano: (id: string) => req(`/fidelidade/planos/${id}`, { method: 'DELETE' }),
+  finalizarFidelidadePlano: (id: string) =>
+    req(`/fidelidade/planos/${id}/finalizar`, { method: 'POST', body: '{}' }),
+  fidelidadeParticipantes: (id: string, telefone = '') =>
+    req(`/fidelidade/planos/${id}/participantes?telefone=${encodeURIComponent(telefone)}`),
+  ajustarFidelidadePontos: (id: string, body: Record<string, unknown>) =>
+    req(`/fidelidade/planos/${id}/pontos`, { method: 'PUT', body: JSON.stringify(body) }),
+  fidelidadeRelatorio: (periodo = 'dia') =>
+    req(`/fidelidade/relatorio?periodo=${encodeURIComponent(periodo)}`),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>

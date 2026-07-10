@@ -39,7 +39,18 @@ export class CardapioPublicoController {
   @Post(':token/cupom')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
   cupom(@Param('token') token: string, @Body() dto: any) {
-    return this.service.validarCupomPublico(token, dto?.codigo ?? '', dto?.subtotal ?? 0);
+    return this.service.validarCupomPublico(token, dto?.codigo ?? '', dto?.subtotal ?? 0, dto?.telefone);
+  }
+
+  // Cupons que o cliente pode usar agora (sugestão no checkout).
+  @Get(':token/cupons-disponiveis')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  cuponsDisponiveis(
+    @Param('token') token: string,
+    @Query('telefone') telefone?: string,
+    @Query('subtotal') subtotal?: string,
+  ) {
+    return this.service.cuponsDisponiveis(token, telefone, Number(subtotal) || 0);
   }
 
   @Get(':token/pedido/:id')
@@ -61,6 +72,13 @@ export class CardapioPublicoController {
   @Get(':token/promos')
   promos(@Param('token') token: string) {
     return this.service.promosPublico(token);
+  }
+
+  // Resgata um prêmio de fidelidade disponível.
+  @Post(':token/fidelidade/resgatar')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  resgatar(@Param('token') token: string, @Body() dto: any) {
+    return this.service.resgatarFidelidade(token, dto?.resgateId ?? '', dto?.telefone ?? '');
   }
 
   // Pedidos recentes de um telefone (robô: "cadê meu pedido?").

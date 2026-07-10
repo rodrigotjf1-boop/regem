@@ -52,6 +52,7 @@ import { TefModule } from './modules/tef/tef.module';
 import { CardapioModule } from './modules/cardapio/cardapio.module';
 import { ClienteModule } from './modules/cliente/cliente.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
+import { FidelidadeModule } from './modules/fidelidade/fidelidade.module';
 import { RelatoriosModule } from './modules/relatorios/relatorios.module';
 import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
@@ -112,6 +113,7 @@ import { AuthModule } from './auth/auth.module';
     DeliveryModule,
     TefModule,
     CardapioModule,
+    FidelidadeModule,
     ClienteModule,
     AtendimentoModule,
     RelatoriosModule,

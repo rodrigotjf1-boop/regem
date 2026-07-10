@@ -18,7 +18,7 @@ import {
   cardapioBairro,
   banner,
   cupom,
-  fidelidadeCliente,
+  cupomUso,
   pedidoExterno,
   comandaItem,
   mesa,
@@ -28,6 +28,7 @@ import {
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
+import { FidelidadeService } from '../fidelidade/fidelidade.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -37,6 +38,7 @@ export class CardapioService {
     private readonly vendas: VendasService,
     private readonly delivery: DeliveryService,
     private readonly atendimento: AtendimentoService,
+    private readonly fidelidade: FidelidadeService,
   ) {}
 
   // Público (robô): abre um chamado de atendimento (handoff) para a loja.
@@ -232,12 +234,19 @@ export class CardapioService {
   async criarCupom(tenantId: string, unidadeId: string | null, dto: any) {
     if (!dto?.codigo?.trim()) throw new BadRequestException('Informe o código.');
     const codigo = dto.codigo.trim().toUpperCase();
+    const tipo = ['valor', 'fretegratis'].includes(dto.tipo) ? dto.tipo : 'percentual';
+    const num = (v: any) => (v != null && v !== '' ? String(Number(v)) : null);
+    const int = (v: any) => (v ? Number(v) || null : null);
     const vals = {
-      tipo: dto.tipo === 'valor' ? 'valor' : 'percentual',
+      tipo,
       valor: String(Number(dto.valor) || 0),
-      minimo: dto.minimo != null ? String(dto.minimo) : null,
+      tetoDesconto: tipo === 'percentual' ? num(dto.tetoDesconto) : null,
+      minimo: num(dto.minimo),
       ativo: dto.ativo != null ? !!dto.ativo : true,
       validade: dto.validade || null,
+      somenteNovos: !!dto.somenteNovos,
+      maxPorCliente: int(dto.maxPorCliente),
+      minDiasSemCompra: int(dto.minDiasSemCompra),
     };
     const [ja] = await this.db
       .select({ id: cupom.id })
@@ -265,9 +274,59 @@ export class CardapioService {
     return { ok: true };
   }
 
-  // Valida o cupom e devolve o desconto para um subtotal.
-  private async avaliarCupom(tenantId: string, codigo: string, subtotal: number) {
-    if (!codigo) return { valido: false, desconto: 0 };
+  // Histórico do cliente (por telefone): nº de pedidos válidos e data do último.
+  // Usado nos condicionais de cupom (cliente novo / dias sem compra).
+  private async historicoCliente(tenantId: string, tel: string) {
+    if (!tel) return { total: 0, ultimoEm: null as Date | null };
+    const [r]: any = await this.db.execute(sql`
+      select count(*)::int as total, max(criado_em) as ultimo
+      from pedido_externo
+      where tenant_id = ${tenantId} and cliente_telefone = ${tel}
+        and coalesce(status,'') <> 'cancelado'
+    `);
+    const row = (r?.rows ?? r)[0] ?? {};
+    return { total: Number(row.total ?? 0), ultimoEm: row.ultimo ? new Date(row.ultimo) : null };
+  }
+
+  // Checa os condicionais do cupom (cliente novo, dias sem compra, máx por
+  // cliente). Devolve { ok } ou { ok:false, motivo }.
+  private async checarCondicoesCupom(
+    tenantId: string,
+    c: any,
+    tel: string,
+  ): Promise<{ ok: boolean; motivo?: string }> {
+    if (!c.somenteNovos && !c.minDiasSemCompra && !c.maxPorCliente) return { ok: true };
+    // Sem telefone não dá para avaliar cupom condicional.
+    if (!tel) return { ok: false, motivo: 'Informe seu telefone para usar este cupom.' };
+    const hist = await this.historicoCliente(tenantId, tel);
+    if (c.somenteNovos && hist.total > 0)
+      return { ok: false, motivo: 'Cupom exclusivo para o primeiro pedido.' };
+    if (c.minDiasSemCompra && hist.ultimoEm) {
+      const dias = (Date.now() - hist.ultimoEm.getTime()) / 86400000;
+      if (dias < c.minDiasSemCompra)
+        return { ok: false, motivo: `Válido só para quem está há ${c.minDiasSemCompra}+ dias sem comprar.` };
+    }
+    if (c.maxPorCliente) {
+      const [u]: any = await this.db.execute(sql`
+        select count(*)::int as n from cupom_uso
+        where cupom_id = ${c.id} and telefone = ${tel}
+      `);
+      const usos = Number(((u?.rows ?? u)[0] ?? {}).n ?? 0);
+      if (usos >= c.maxPorCliente)
+        return { ok: false, motivo: 'Você já usou este cupom o máximo de vezes.' };
+    }
+    return { ok: true };
+  }
+
+  // Valida o cupom e devolve o desconto (e efeito no frete) para um subtotal.
+  // ctx.telefone habilita a checagem dos condicionais.
+  private async avaliarCupom(
+    tenantId: string,
+    codigo: string,
+    subtotal: number,
+    ctx: { telefone?: string } = {},
+  ) {
+    if (!codigo) return { valido: false, desconto: 0, freteGratis: false };
     const [c] = await this.db
       .select()
       .from(cupom)
@@ -278,16 +337,68 @@ export class CardapioService {
           eq(cupom.ativo, true),
         ),
       );
-    if (!c) return { valido: false, desconto: 0, motivo: 'Cupom inválido.' };
+    if (!c) return { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom inválido.' };
     if (c.validade && new Date(c.validade) < new Date())
-      return { valido: false, desconto: 0, motivo: 'Cupom expirado.' };
+      return { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom expirado.' };
     if (c.minimo && subtotal < Number(c.minimo))
-      return { valido: false, desconto: 0, motivo: `Mínimo de ${Number(c.minimo)}.` };
-    const desconto =
-      c.tipo === 'valor'
-        ? Math.min(subtotal, Number(c.valor))
-        : Number((subtotal * (Number(c.valor) / 100)).toFixed(2));
-    return { valido: true, desconto, codigo: c.codigo, tipo: c.tipo, valor: Number(c.valor) };
+      return { valido: false, desconto: 0, freteGratis: false, motivo: `Mínimo de R$ ${Number(c.minimo).toFixed(2)}.` };
+    const tel = (ctx.telefone ?? '').replace(/\D/g, '');
+    const cond = await this.checarCondicoesCupom(tenantId, c, tel);
+    if (!cond.ok) return { valido: false, desconto: 0, freteGratis: false, motivo: cond.motivo };
+    let desconto = 0;
+    let freteGratis = false;
+    if (c.tipo === 'fretegratis') {
+      freteGratis = true;
+    } else if (c.tipo === 'valor') {
+      desconto = Math.min(subtotal, Number(c.valor));
+    } else {
+      desconto = (subtotal * Number(c.valor)) / 100;
+      if (c.tetoDesconto) desconto = Math.min(desconto, Number(c.tetoDesconto));
+      desconto = Number(desconto.toFixed(2));
+    }
+    return {
+      valido: true,
+      desconto,
+      freteGratis,
+      codigo: c.codigo,
+      tipo: c.tipo,
+      valor: Number(c.valor),
+      cupomId: c.id,
+    };
+  }
+
+  // Público: cupons que o cliente PODE usar agora (passa nos condicionais e no
+  // mínimo). Usado para sugerir no checkout. Sem telefone, oculta os condicionais.
+  async cuponsDisponiveis(token: string, telefone: string | undefined, subtotal: number) {
+    const cfg = await this.resolver(token);
+    const tel = (telefone ?? '').replace(/\D/g, '');
+    const lista = await this.db
+      .select()
+      .from(cupom)
+      .where(
+        and(
+          eq(cupom.tenantId, cfg.tenantId),
+          eq(cupom.ativo, true),
+          or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= current_date`),
+        ),
+      );
+    const sub = Number(subtotal) || 0;
+    const out: any[] = [];
+    for (const c of lista) {
+      const temCond = c.somenteNovos || c.minDiasSemCompra || c.maxPorCliente;
+      if (temCond && !tel) continue; // condicional sem telefone: não sugere
+      const cond = await this.checarCondicoesCupom(cfg.tenantId, c, tel);
+      if (!cond.ok) continue;
+      out.push({
+        codigo: c.codigo,
+        tipo: c.tipo,
+        valor: Number(c.valor),
+        tetoDesconto: c.tetoDesconto != null ? Number(c.tetoDesconto) : null,
+        minimo: c.minimo != null ? Number(c.minimo) : null,
+        atingeMinimo: !c.minimo || sub >= Number(c.minimo),
+      });
+    }
+    return out;
   }
 
   // ===== Público (por token) =====
@@ -599,10 +710,15 @@ export class CardapioService {
     }));
   }
 
-  // Público: valida um cupom para um subtotal.
-  async validarCupomPublico(token: string, codigo: string, subtotal: number) {
+  // Público: valida um cupom para um subtotal (com telefone p/ condicionais).
+  async validarCupomPublico(
+    token: string,
+    codigo: string,
+    subtotal: number,
+    telefone?: string,
+  ) {
     const cfg = await this.resolver(token);
-    return this.avaliarCupom(cfg.tenantId, codigo, Number(subtotal) || 0);
+    return this.avaliarCupom(cfg.tenantId, codigo, Number(subtotal) || 0, { telefone });
   }
 
   // Público: status do pedido (timeline) por id.
@@ -805,8 +921,11 @@ export class CardapioService {
             .filter((s) => s && s.trim())
             .join(' · ') || dto.endereco
         : undefined;
-    const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total);
+    const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
+      telefone: dto.telefone,
+    });
     const desconto = cup.valido ? cup.desconto : 0;
+    if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
@@ -900,15 +1019,35 @@ export class CardapioService {
       }
     }
 
-    // Fidelidade (L5): acumula pontos por telefone (1 ponto por real, arred.).
-    let pontos: number | undefined;
-    if (cfg.fidelidadeAtiva && dto.telefone) {
-      pontos = await this.acumularPontos(
-        cfg.tenantId,
-        dto.telefone,
-        dto.cliente,
-        grande,
-      );
+    // Registra o uso do cupom (para max_por_cliente e histórico).
+    if (cup.valido && (cup as any).cupomId && ped?.id) {
+      try {
+        await this.db.insert(cupomUso).values({
+          tenantId: cfg.tenantId,
+          cupomId: (cup as any).cupomId,
+          clienteId: clienteId ?? undefined,
+          telefone: (dto.telefone ?? '').replace(/\D/g, '') || undefined,
+          pedidoId: ped.id,
+        });
+      } catch {
+        /* histórico de uso não bloqueia o pedido */
+      }
+    }
+
+    // Fidelidade (L5): pontua os planos que o pedido atende (dedupe por pedido).
+    let fidelidade: any;
+    if (cfg.fidelidadeAtiva && dto.telefone && ped?.id) {
+      try {
+        fidelidade = await this.fidelidade.pontuarPedido(cfg.tenantId, {
+          telefone: dto.telefone,
+          clienteId: clienteId ?? undefined,
+          nome: dto.cliente,
+          pedidoId: ped.id,
+          produtoIds: ids,
+        });
+      } catch {
+        /* fidelidade nunca quebra o pedido */
+      }
     }
 
     return {
@@ -922,7 +1061,8 @@ export class CardapioService {
       pagamentoOnline: online,
       orcamento,
       agendamento: dto.agendamento ?? null,
-      pontos,
+      pontos: fidelidade?.pontosGanhos ?? undefined,
+      fidelidade: fidelidade ?? null,
       clienteToken: clienteTokenOut, // identidade do cliente (guardar no navegador)
     };
   }
@@ -947,8 +1087,12 @@ export class CardapioService {
           or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= current_date`),
         ),
       );
+    const planos = cfg.fidelidadeAtiva
+      ? await this.fidelidade.planosPublicos(cfg.tenantId)
+      : [];
     return {
       fidelidadeAtiva: !!cfg.fidelidadeAtiva,
+      planos,
       cupons: cupons.map((c) => ({
         codigo: c.codigo,
         tipo: c.tipo,
@@ -959,55 +1103,17 @@ export class CardapioService {
     };
   }
 
-  // Fidelidade: soma pontos (1/real) ao saldo do telefone; devolve saldo novo.
-  private async acumularPontos(
-    tenantId: string,
-    telefone: string,
-    nome: string | undefined,
-    valor: number,
-  ): Promise<number> {
-    const ganho = Math.round(Number(valor) || 0);
-    const tel = telefone.replace(/\D/g, '');
-    if (!tel) return 0;
-    const [ja] = await this.db
-      .select()
-      .from(fidelidadeCliente)
-      .where(
-        and(
-          eq(fidelidadeCliente.tenantId, tenantId),
-          eq(fidelidadeCliente.telefone, tel),
-        ),
-      );
-    if (ja) {
-      const novo = (ja.pontos ?? 0) + ganho;
-      await this.db
-        .update(fidelidadeCliente)
-        .set({ pontos: novo, nome: nome ?? ja.nome, atualizadoEm: new Date() })
-        .where(eq(fidelidadeCliente.id, ja.id));
-      return novo;
-    }
-    await this.db
-      .insert(fidelidadeCliente)
-      .values({ tenantId, telefone: tel, nome: nome ?? null, pontos: ganho });
-    return ganho;
-  }
-
-  // Público: consulta o saldo de pontos por telefone.
+  // Público: status de fidelidade do cliente (planos, progresso e prêmios).
   async pontosPublico(token: string, telefone: string) {
     const cfg = await this.resolver(token);
-    if (!cfg.fidelidadeAtiva) return { ativo: false, pontos: 0 };
-    const tel = (telefone ?? '').replace(/\D/g, '');
-    if (!tel) return { ativo: true, pontos: 0 };
-    const [row] = await this.db
-      .select()
-      .from(fidelidadeCliente)
-      .where(
-        and(
-          eq(fidelidadeCliente.tenantId, cfg.tenantId),
-          eq(fidelidadeCliente.telefone, tel),
-        ),
-      );
-    return { ativo: true, pontos: row?.pontos ?? 0, nome: row?.nome ?? null };
+    if (!cfg.fidelidadeAtiva) return { ativo: false, planos: [], resgates: [] };
+    return { ativo: true, ...(await this.fidelidade.statusCliente(cfg.tenantId, telefone)) };
+  }
+
+  // Público: resgata um prêmio de fidelidade disponível.
+  async resgatarFidelidade(token: string, resgateId: string, telefone: string) {
+    const cfg = await this.resolver(token);
+    return this.fidelidade.resgatar(cfg.tenantId, resgateId, telefone);
   }
 
   // Acha (ou abre) a mesa pelo número e devolve a comanda ativa dela.

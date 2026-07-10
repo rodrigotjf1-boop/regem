@@ -1,40 +1,102 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { brl } from './tipos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Aba Promos: cupons vigentes, fidelidade e produtos em promoção (do menu).
+// Aba Promos: cupons vigentes, fidelidade (progresso + resgate) e ofertas.
 export function PromosPanel({
   token,
   produtosPromo,
   accent,
+  telefone,
 }: {
   token: string;
   produtosPromo: any[];
   accent: string;
+  telefone?: string;
 }) {
   const [data, setData] = useState<any>(null);
+  const [status, setStatus] = useState<any>(null);
 
   useEffect(() => {
     api.cardapioPromos(token).then(setData).catch(() => setData({ cupons: [], fidelidadeAtiva: false }));
   }, [token]);
 
+  const carregarStatus = useCallback(() => {
+    const tel = (telefone ?? '').replace(/\D/g, '');
+    if (tel.length < 10) return setStatus(null);
+    api.cardapioPontos(token, tel).then(setStatus).catch(() => setStatus(null));
+  }, [token, telefone]);
+  useEffect(() => {
+    carregarStatus();
+  }, [carregarStatus]);
+
+  async function resgatar(id: string) {
+    const tel = (telefone ?? '').replace(/\D/g, '');
+    try {
+      await api.cardapioFidelidadeResgatar(token, id, tel);
+      carregarStatus();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Não foi possível resgatar.');
+    }
+  }
+
   const cupomLabel = (c: any) =>
-    c.tipo === 'percentual' ? `${c.valor}% OFF` : `${brl(c.valor)} OFF`;
+    c.tipo === 'fretegratis' ? 'Frete grátis' : c.tipo === 'percentual' ? `${c.valor}% OFF` : `${brl(c.valor)} OFF`;
 
   const nada =
     data && !data.fidelidadeAtiva && (data.cupons?.length ?? 0) === 0 && produtosPromo.length === 0;
+  const disponiveis = (status?.resgates ?? []).filter((r: any) => r.status === 'disponivel');
 
   return (
     <div className="space-y-5 px-4 py-4">
       <h2 className="text-lg font-bold">Promoções</h2>
 
       {data?.fidelidadeAtiva && (
-        <div className="rounded-2xl p-4 text-white" style={{ background: accent }}>
-          <p className="text-sm font-bold">⭐ Programa de fidelidade</p>
-          <p className="mt-0.5 text-xs opacity-90">Você acumula pontos a cada pedido — use como desconto.</p>
+        <div className="space-y-3">
+          <div className="rounded-2xl p-4 text-white" style={{ background: accent }}>
+            <p className="text-sm font-bold">⭐ Programa de fidelidade</p>
+            <p className="mt-0.5 text-xs opacity-90">
+              {status?.ativo ? 'Acompanhe seus pontos e resgate seus prêmios.' : 'Confirme seu telefone (Meus dados) para acumular pontos.'}
+            </p>
+          </div>
+
+          {/* Prêmios disponíveis para resgate */}
+          {disponiveis.length > 0 && (
+            <div className="space-y-2">
+              {disponiveis.map((r: any) => (
+                <div key={r.id} className="flex items-center gap-3 rounded-xl border-2 border-dashed p-3" style={{ borderColor: accent }}>
+                  <span className="text-2xl">🎁</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-bold">{r.plano}</p>
+                    <p className="text-xs text-black/60">
+                      {r.recompensa}
+                      {r.prazoEm ? ` · resgate até ${new Date(r.prazoEm).toLocaleDateString('pt-BR')}` : ''}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => resgatar(r.id)} className="flex-none rounded-lg px-3 py-1.5 text-xs font-bold text-white" style={{ background: accent }}>
+                    Resgatar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Progresso dos planos */}
+          {(status?.planos ?? []).map((p: any) => (
+            <div key={p.id} className="rounded-xl border border-black/10 p-3">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-semibold">{p.nome}</span>
+                <span className="font-mono text-xs text-black/60">{p.pontos}/{p.pontosMeta} pts</span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-black/10">
+                <div className="h-full rounded-full" style={{ width: `${Math.min(100, (p.pontos / p.pontosMeta) * 100)}%`, background: accent }} />
+              </div>
+              <p className="mt-1 text-[11px] text-black/50">Prêmio: {p.recompensa}</p>
+            </div>
+          ))}
         </div>
       )}
 
