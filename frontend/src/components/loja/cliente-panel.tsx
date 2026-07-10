@@ -13,11 +13,13 @@ const hhmm = (iso?: string | null) =>
 // endereços salvos, histórico e detalhe do pedido.
 export function ClientePanel({
   token,
+  bairros = [],
   onClose,
   onUsarEndereco,
   onPedirDeNovo,
 }: {
   token: string;
+  bairros?: any[];
   onClose: () => void;
   onUsarEndereco: (e: any) => void;
   onPedirDeNovo: (itens: any[]) => void;
@@ -30,7 +32,7 @@ export function ClientePanel({
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
   const [novoEnd, setNovoEnd] = useState(false);
-  const [end, setEnd] = useState<any>({ apelido: '', logradouro: '', numero: '', bairro: '', complemento: '', referencia: '' });
+  const [end, setEnd] = useState<any>({ apelido: '', logradouro: '', numero: '', bairro: '', bairroId: '', complemento: '', referencia: '' });
   const [pedidoSel, setPedidoSel] = useState<any>(null);
 
   const clienteToken = getClienteToken(token);
@@ -85,7 +87,7 @@ export function ClientePanel({
     try {
       await api.clienteAddEndereco(token, { clienteToken, ...end });
       setNovoEnd(false);
-      setEnd({ apelido: '', logradouro: '', numero: '', bairro: '', complemento: '', referencia: '' });
+      setEnd({ apelido: '', logradouro: '', numero: '', bairro: '', bairroId: '', complemento: '', referencia: '' });
       await carregar();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao salvar endereço');
@@ -175,7 +177,24 @@ export function ClientePanel({
                     <input className={inp} placeholder="Rua" value={end.logradouro} onChange={(e) => setEnd({ ...end, logradouro: e.target.value })} />
                     <input className={`${inp} w-24`} placeholder="Nº" value={end.numero} onChange={(e) => setEnd({ ...end, numero: e.target.value })} />
                   </div>
-                  <input className={inp} placeholder="Bairro" value={end.bairro} onChange={(e) => setEnd({ ...end, bairro: e.target.value })} />
+                  {bairros.length > 0 ? (
+                    <select
+                      className={inp}
+                      aria-label="Bairro (área de atendimento)"
+                      value={end.bairroId}
+                      onChange={(e) => {
+                        const b = bairros.find((x: any) => x.id === e.target.value);
+                        setEnd({ ...end, bairroId: e.target.value, bairro: b?.nome ?? '' });
+                      }}
+                    >
+                      <option value="">Bairro (área de entrega)</option>
+                      {bairros.map((b: any) => (
+                        <option key={b.id} value={b.id}>{b.nome} — {brl(Number(b.taxa))}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input className={inp} placeholder="Bairro" value={end.bairro} onChange={(e) => setEnd({ ...end, bairro: e.target.value })} />
+                  )}
                   <input className={inp} placeholder="Complemento / referência" value={end.referencia} onChange={(e) => setEnd({ ...end, referencia: e.target.value })} />
                   <button type="button" onClick={addEndereco} className="w-full rounded-lg bg-[#1a1a1a] py-2 text-sm font-semibold text-white">Salvar endereço</button>
                 </div>

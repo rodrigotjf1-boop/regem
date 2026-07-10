@@ -233,6 +233,7 @@ export class ClienteService {
         numero: dto.numero || null,
         complemento: dto.complemento || null,
         bairro: dto.bairro || null,
+        bairroId: dto.bairroId || null,
         cidade: dto.cidade || null,
         referencia: dto.referencia || null,
         principal: dto.principal ?? primeiro,
