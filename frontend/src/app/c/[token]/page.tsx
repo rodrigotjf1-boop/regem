@@ -10,9 +10,12 @@ import {
   carregarCliente,
   salvarCliente,
   getClienteToken,
+  setClienteToken,
   type CartItem,
 } from '@/components/loja/tipos';
 import { ClientePanel } from '@/components/loja/cliente-panel';
+import { LojaBottomNav } from '@/components/loja/bottom-nav';
+import { PromosPanel } from '@/components/loja/promos-panel';
 import { ItemSheet } from '@/components/loja/item-sheet';
 import { CartSheet } from '@/components/loja/cart-sheet';
 
@@ -53,6 +56,17 @@ export default function CardapioPublicoPage() {
   const [chk, setChk] = useState<any>(CHK_INICIAL);
   const [cupomOk, setCupomOk] = useState<any>(null);
   const [mostrarCliente, setMostrarCliente] = useState(false);
+  const [aba, setAba] = useState<'inicio' | 'pedidos' | 'promos' | 'carrinho'>('inicio');
+  const temCliente = typeof window !== 'undefined' && !!getClienteToken(token);
+
+  function irAba(a: 'inicio' | 'pedidos' | 'promos' | 'carrinho') {
+    if (a === 'pedidos') setMostrarCliente(true);
+    else if (a === 'carrinho') setCheckout(true);
+    else {
+      setAba(a);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
 
   // "Pedir de novo": recompõe o carrinho a partir do snapshot do pedido.
   function reordenar(itens: any[]) {
@@ -152,6 +166,10 @@ export default function CardapioPublicoPage() {
 
   const total = useMemo(() => cart.reduce((s, i) => s + i.preco * i.qtd, 0), [cart]);
   const qtdItens = cart.reduce((s, i) => s + i.qtd, 0);
+  const produtosPromo = useMemo(
+    () => produtos.filter((p) => p.precoDe != null && !p.esgotado),
+    [produtos],
+  );
   const upsell = useMemo(
     () => produtos.filter((p) => p.destaque && !p.esgotado && !cart.some((c) => c.produtoId === p.id)).slice(0, 6),
     [produtos, cart],
@@ -237,6 +255,8 @@ export default function CardapioPublicoPage() {
         })),
       });
       if (r.pagamentoOnline && r.pedidoId) await api.cardapioPagar(token, r.pedidoId).catch(() => {});
+      // Identidade do cliente (token aleatório) criada/confirmada no 1º pedido.
+      if (r.clienteToken) setClienteToken(token, r.clienteToken);
       // Lembra o cliente neste aparelho para o próximo pedido.
       salvarCliente(token, {
         nome: chk.nome,
@@ -347,6 +367,12 @@ export default function CardapioPublicoPage() {
 
       {mesa && <div className="bg-white px-4 py-2 text-center text-xs text-neutral-500">Mesa {mesa}</div>}
 
+      {aba === 'promos' && (
+        <PromosPanel token={token} produtosPromo={produtosPromo} accent={accent} />
+      )}
+
+      {aba === 'inicio' && (
+      <>
       {/* Busca + categorias */}
       <div className="sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
         <input value={busca} onChange={(e) => setBusca(e.target.value)} type="search" placeholder="Buscar no cardápio…" className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm" />
@@ -387,6 +413,8 @@ export default function CardapioPublicoPage() {
           </button>
         ))}
       </div>
+      </>
+      )}
 
       {/* barra do carrinho */}
       {qtdItens > 0 && (
@@ -436,6 +464,11 @@ export default function CardapioPublicoPage() {
           onUsarEndereco={usarEndereco}
           onPedirDeNovo={reordenar}
         />
+      )}
+
+      {/* Menu inferior — aparece após o 1º pedido (cliente identificado). */}
+      {temCliente && qtdItens === 0 && (
+        <LojaBottomNav aba={aba} onAba={irAba} accent={accent} carrinhoQtd={qtdItens} />
       )}
     </main>
   );

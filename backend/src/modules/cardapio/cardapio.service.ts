@@ -7,7 +7,7 @@ import {
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { verificarCliente } from '../cliente/cliente-token';
+import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import {
   cardapioConfig,
   produto,
@@ -23,6 +23,7 @@ import {
   comandaItem,
   mesa,
   comanda,
+  cliente,
 } from '../../db/schema';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
@@ -854,15 +855,39 @@ export class CardapioService {
       },
     );
 
-    // Link mágico: associa o pedido ao cliente identificado (histórico / "pedir
-    // de novo"). Só se o token confere e é do mesmo tenant da loja.
+    // Cliente do cardápio: identidade por TOKEN aleatório (não exige telefone).
+    // Se veio um token válido, usa; senão cria o cliente no 1º pedido (acha por
+    // telefone se informado, senão anônimo) e devolve o token para o navegador.
     const cli = verificarCliente(dto.clienteToken);
-    if (cli && cli.tenant === cfg.tenantId && ped?.id) {
+    let clienteId = cli && cli.tenant === cfg.tenantId ? cli.cli : null;
+    if (!clienteId && ped?.id) {
+      const tel = (dto.telefone ?? '').replace(/\D/g, '');
+      if (tel.length >= 10) {
+        const [ex] = await this.db
+          .select({ id: cliente.id })
+          .from(cliente)
+          .where(and(eq(cliente.tenantId, cfg.tenantId), eq(cliente.telefone, tel)));
+        clienteId = ex?.id ?? null;
+      }
+      if (!clienteId) {
+        const nomeCli =
+          dto.cliente && !['Cliente', 'Cardápio'].includes(dto.cliente) ? dto.cliente : null;
+        const [c] = await this.db
+          .insert(cliente)
+          .values({ tenantId: cfg.tenantId, nome: nomeCli, telefone: tel.length >= 10 ? tel : null })
+          .returning();
+        clienteId = c.id;
+      }
+    }
+    if (clienteId && ped?.id) {
       await this.db
         .update(pedidoExterno)
-        .set({ clienteId: cli.cli })
+        .set({ clienteId })
         .where(eq(pedidoExterno.id, ped.id));
     }
+    const clienteTokenOut = clienteId
+      ? assinarCliente(clienteId, cfg.tenantId)
+      : dto.clienteToken;
 
     // Envio automático ao KDS: aceita o pedido na hora (cria comanda + produção
     // com senha local + selo da plataforma). Orçamento (indústria) não produz.
@@ -897,6 +922,39 @@ export class CardapioService {
       orcamento,
       agendamento: dto.agendamento ?? null,
       pontos,
+      clienteToken: clienteTokenOut, // identidade do cliente (guardar no navegador)
+    };
+  }
+
+  // Promoções públicas do cardápio: cupons ativos/vigentes + flag de fidelidade.
+  // Produtos em promoção o front deriva do próprio menu (precoDe).
+  async promosPublico(token: string) {
+    const cfg = await this.resolver(token);
+    const cupons = await this.db
+      .select({
+        codigo: cupom.codigo,
+        tipo: cupom.tipo,
+        valor: cupom.valor,
+        minimo: cupom.minimo,
+        validade: cupom.validade,
+      })
+      .from(cupom)
+      .where(
+        and(
+          eq(cupom.tenantId, cfg.tenantId),
+          eq(cupom.ativo, true),
+          or(sql`${cupom.validade} is null`, sql`${cupom.validade} >= current_date`),
+        ),
+      );
+    return {
+      fidelidadeAtiva: !!cfg.fidelidadeAtiva,
+      cupons: cupons.map((c) => ({
+        codigo: c.codigo,
+        tipo: c.tipo,
+        valor: Number(c.valor),
+        minimo: c.minimo != null ? Number(c.minimo) : null,
+        validade: c.validade,
+      })),
     };
   }
 
