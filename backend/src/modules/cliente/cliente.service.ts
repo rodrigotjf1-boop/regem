@@ -6,13 +6,14 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   cardapioConfig,
   cliente,
   clienteEndereco,
+  clienteLink,
   clienteOtp,
   integracao,
   pedidoExterno,
@@ -162,11 +163,10 @@ export class ClienteService {
   }
 
   // Identifica pelo telefone: acha ou cria o cliente, devolve o token assinado.
-  async identificar(cardapioToken: string, dto: { telefone?: string; nome?: string }) {
-    const tenantId = await this.tenantDoCardapio(cardapioToken);
-    const tel = soDigitos(dto.telefone);
+  // Acha (ou cria) o cliente pelo telefone; atualiza o nome se veio um novo.
+  private async acharOuCriarCliente(tenantId: string, telefone?: string, nome?: string) {
+    const tel = soDigitos(telefone);
     if (tel.length < 10) throw new BadRequestException('Telefone inválido.');
-
     let [c] = await this.db
       .select()
       .from(cliente)
@@ -174,21 +174,70 @@ export class ClienteService {
     if (!c) {
       [c] = await this.db
         .insert(cliente)
-        .values({ tenantId, telefone: tel, nome: dto.nome?.trim() || null, consentimentoLgpd: true })
+        .values({ tenantId, telefone: tel, nome: nome?.trim() || null, consentimentoLgpd: true })
         .returning();
-    } else if (dto.nome?.trim() && dto.nome.trim() !== c.nome) {
+    } else if (nome?.trim() && nome.trim() !== c.nome) {
       [c] = await this.db
         .update(cliente)
-        .set({ nome: dto.nome.trim(), atualizadoEm: new Date() })
+        .set({ nome: nome.trim(), atualizadoEm: new Date() })
         .where(eq(cliente.id, c.id))
         .returning();
     }
+    return c;
+  }
 
+  async identificar(cardapioToken: string, dto: { telefone?: string; nome?: string }) {
+    const tenantId = await this.tenantDoCardapio(cardapioToken);
+    const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);
     return {
       clienteToken: assinarCliente(c.id, tenantId),
       cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
       enderecos: await this.enderecosDe(c.id),
     };
+  }
+
+  // Link curto por cliente (slug ~8 chars). Reusa o slug se já existir.
+  async criarLink(
+    cardapioToken: string,
+    dto: { telefone?: string; nome?: string },
+  ): Promise<{ slug: string; url: string; clienteToken: string }> {
+    const tenantId = await this.tenantDoCardapio(cardapioToken);
+    const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);
+    let [link] = await this.db
+      .select()
+      .from(clienteLink)
+      .where(eq(clienteLink.clienteId, c.id));
+    if (!link) {
+      // slug base62 curto, com retry em caso de colisão (unique).
+      for (let i = 0; i < 5 && !link; i++) {
+        const slug = randomBytes(6).toString('base64url').slice(0, 8);
+        try {
+          [link] = await this.db
+            .insert(clienteLink)
+            .values({ tenantId, clienteId: c.id, slug })
+            .returning();
+        } catch {
+          /* colisão de slug: tenta de novo */
+        }
+      }
+    }
+    const base = process.env.APP_URL ?? 'https://app.dmsregem.com';
+    return {
+      slug: link.slug,
+      url: `${base}/c/${cardapioToken}?u=${link.slug}`,
+      clienteToken: assinarCliente(c.id, tenantId),
+    };
+  }
+
+  // Resolve um slug curto → clienteToken assinado (para o cardápio identificar).
+  async resolverLink(cardapioToken: string, slug: string) {
+    const tenantId = await this.tenantDoCardapio(cardapioToken);
+    const [link] = await this.db
+      .select()
+      .from(clienteLink)
+      .where(and(eq(clienteLink.tenantId, tenantId), eq(clienteLink.slug, slug)));
+    if (!link) throw new NotFoundException('Link inválido.');
+    return { clienteToken: assinarCliente(link.clienteId, tenantId) };
   }
 
   // ── OTP (confirmação do telefone por WhatsApp) ──────────────────────────────

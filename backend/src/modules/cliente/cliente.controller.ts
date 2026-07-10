@@ -15,6 +15,20 @@ export class ClientePublicoController {
     return this.service.identificar(token, dto);
   }
 
+  // Link curto do cliente (robô/n8n): devolve { slug, url, clienteToken }.
+  @Post(':token/cliente/link')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  criarLink(@Param('token') token: string, @Body() dto: any) {
+    return this.service.criarLink(token, dto);
+  }
+
+  // Resolve o slug curto → clienteToken (o cardápio chama ao abrir ?u=slug).
+  @Get(':token/cliente/link/:slug')
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  resolverLink(@Param('token') token: string, @Param('slug') slug: string) {
+    return this.service.resolverLink(token, slug);
+  }
+
   // OTP por WhatsApp: envia o código e confirma (identidade verificada).
   @Post(':token/cliente/otp/enviar')
   @Throttle({ default: { ttl: 60000, limit: 5 } })

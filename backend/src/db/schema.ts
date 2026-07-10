@@ -1651,6 +1651,19 @@ export const clienteEndereco = pgTable('cliente_endereco', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Link curto por cliente (slug) — URL do robô sem token JWT longo.
+export const clienteLink = pgTable('cliente_link', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  clienteId: uuid('cliente_id')
+    .notNull()
+    .references(() => cliente.id, { onDelete: 'cascade' }),
+  slug: text('slug').notNull().unique(),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== TEF — pagamento integrado (Fase I) =====
 export const tefConfig = pgTable('tef_config', {
   id: uuid('id').primaryKey().defaultRandom(),

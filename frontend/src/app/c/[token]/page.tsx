@@ -179,14 +179,24 @@ export default function CardapioPublicoPage() {
     if (Object.keys(c).length) setChk((s: any) => ({ ...s, ...c }));
   }, [menu, token]);
 
-  // Identidade por TOKEN aleatório no link (robô manda ?u=<token>). Não expõe
-  // nome/telefone na URL — o token resolve o cliente no servidor.
+  // Identidade por link no ?u=. Aceita slug curto (resolve no servidor) ou o
+  // token JWT assinado (legado). Não expõe nome/telefone na URL.
   const [ident, setIdent] = useState(0);
   useEffect(() => {
     const u = search?.get('u');
-    if (u) {
+    if (!u) return;
+    if (u.includes('.')) {
+      // token assinado (legado): tem pontos (header.payload.assinatura)
       setClienteToken(token, u);
       setIdent((n) => n + 1);
+    } else {
+      // slug curto: troca por clienteToken no servidor
+      api.cardapioResolverLink(token, u).then((r: any) => {
+        if (r?.clienteToken) {
+          setClienteToken(token, r.clienteToken);
+          setIdent((n) => n + 1);
+        }
+      }).catch(() => {});
     }
   }, [search, token]);
 
