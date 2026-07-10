@@ -32,6 +32,8 @@ export function CartSheet({
   onAddUpsell,
   onClose,
   onSubmit,
+  onSalvarEndereco,
+  temCliente,
   enviando,
   tipos,
   abertaAgora,
@@ -58,6 +60,8 @@ export function CartSheet({
   onAddUpsell: (p: any) => void;
   onClose: () => void;
   onSubmit: () => void;
+  onSalvarEndereco?: () => void;
+  temCliente?: boolean;
   enviando: boolean;
 }) {
   const set = (patch: any) => setChk((s: any) => ({ ...s, ...patch }));
@@ -177,6 +181,11 @@ export function CartSheet({
                 {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
               </select>
               {bairros.length === 0 && <p className="text-xs text-amber-600">Nenhuma área de entrega cadastrada nas configurações do cardápio.</p>}
+              {temCliente && onSalvarEndereco && chk.rua && chk.bairroId && (
+                <button type="button" onClick={onSalvarEndereco} className="text-xs font-semibold underline" style={{ color: accent }}>
+                  💾 Salvar este endereço nos meus dados
+                </button>
+              )}
             </div>
           )}
 

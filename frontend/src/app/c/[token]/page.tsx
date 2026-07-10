@@ -85,6 +85,27 @@ export default function CardapioPublicoPage() {
     if (novos.length) setCart((c) => [...c, ...novos]);
   }
 
+  // Salva o endereço do checkout nos dados do cliente (área de atendimento → frete).
+  async function salvarEnderecoAtual() {
+    const ct = getClienteToken(token);
+    if (!ct) return;
+    const b = bairros.find((x: any) => x.id === chk.bairroId);
+    try {
+      await api.clienteAddEndereco(token, {
+        clienteToken: ct,
+        logradouro: chk.rua,
+        numero: chk.numero,
+        referencia: chk.referencia,
+        bairroId: chk.bairroId || undefined,
+        bairro: b?.nome ?? undefined,
+      });
+      setErro('');
+      alert('Endereço salvo nos seus dados.');
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar endereço');
+    }
+  }
+
   // Usar um endereço salvo: preenche o checkout de entrega.
   function usarEndereco(e: any) {
     setChk((s: any) => ({
@@ -93,6 +114,7 @@ export default function CardapioPublicoPage() {
       rua: e.logradouro || s.rua,
       numero: e.numero || s.numero,
       referencia: e.referencia || e.complemento || s.referencia,
+      bairroId: e.bairroId || s.bairroId, // já traz o frete da área de atendimento
     }));
     setCheckout(true);
   }
@@ -137,6 +159,7 @@ export default function CardapioPublicoPage() {
         rua: s.rua || pr?.logradouro || '',
         numero: s.numero || pr?.numero || '',
         referencia: s.referencia || pr?.referencia || pr?.complemento || '',
+        bairroId: s.bairroId || pr?.bairroId || '',
       }));
     }).catch(() => {});
   }, [menu, token]);
@@ -477,6 +500,8 @@ export default function CardapioPublicoPage() {
           onAddUpsell={addUpsell}
           onClose={() => setCheckout(false)}
           onSubmit={submitPedido}
+          onSalvarEndereco={salvarEnderecoAtual}
+          temCliente={temCliente}
           enviando={enviando}
         />
       )}
@@ -498,14 +523,15 @@ export default function CardapioPublicoPage() {
       {mostrarCliente && (
         <ClientePanel
           token={token}
+          bairros={bairros}
           onClose={() => setMostrarCliente(false)}
           onUsarEndereco={usarEndereco}
           onPedirDeNovo={reordenar}
         />
       )}
 
-      {/* Menu inferior — aparece após o 1º pedido (cliente identificado). */}
-      {temCliente && qtdItens === 0 && (
+      {/* Menu inferior — aparece após o 1º pedido; some quando há overlay aberto. */}
+      {temCliente && qtdItens === 0 && !sel && !checkout && !perguntaAdd && !mostrarCliente && (
         <LojaBottomNav aba={aba} onAba={irAba} accent={accent} carrinhoQtd={qtdItens} />
       )}
     </main>

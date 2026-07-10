@@ -1642,6 +1642,7 @@ export const clienteEndereco = pgTable('cliente_endereco', {
   numero: text('numero'),
   complemento: text('complemento'),
   bairro: text('bairro'),
+  bairroId: uuid('bairro_id'), // área de atendimento (cardapio_bairro) → frete
   cidade: text('cidade'),
   referencia: text('referencia'),
   principal: boolean('principal').notNull().default(false),
