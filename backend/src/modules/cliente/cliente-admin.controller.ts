@@ -22,7 +22,7 @@ export class ClienteAdminController {
   // Diagnóstico do webhook do OTP — mostra o status/resposta do n8n.
   @Post('otp-teste')
   @Roles('presidente')
-  otpTeste(@Body() dto: any) {
-    return this.service.testarWebhook(dto?.telefone);
+  otpTeste(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.testarWebhook(user.tenantId, dto?.telefone);
   }
 }

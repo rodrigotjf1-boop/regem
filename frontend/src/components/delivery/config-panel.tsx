@@ -689,7 +689,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       </div>
       {ehN8n ? (
         <>
-          <p className="text-[11px] text-muted-foreground">O Regem avisa esta URL quando o pedido muda de status (para o robô notificar o cliente no WhatsApp). O segredo assina a chamada (cabeçalho <code>X-Regem-Signature</code>).</p>
+          <p className="text-[11px] text-muted-foreground">O Regem avisa esta URL quando o pedido muda de status <strong>e para enviar o código OTP</strong> do cliente (o robô notifica no WhatsApp). O campo <code>evento</code> do corpo diz o que é: <code>status</code> ou <code>otp</code> — trate os dois no seu fluxo. O segredo assina a chamada (cabeçalho <code>X-Regem-Signature</code>).</p>
           <div className="grid gap-2">
             <Campo label="URL do webhook (do seu n8n)"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="https://seu-n8n/webhook/regem-status" className="h-8" disabled={!pode} /></Campo>
             <Campo label={`Segredo${it.temSecret ? ' (salvo)' : ''}`}>

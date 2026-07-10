@@ -6,6 +6,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { createHmac } from 'crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -13,6 +14,7 @@ import {
   cliente,
   clienteEndereco,
   clienteOtp,
+  integracao,
   pedidoExterno,
 } from '../../db/schema';
 import { assinarCliente, verificarCliente } from './cliente-token';
@@ -26,21 +28,44 @@ export class ClienteService {
   private readonly logger = new Logger('ClienteOtp');
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
+  // Resolve o webhook do n8n: prefere a integração n8n da loja (por tenant, com
+  // secret p/ HMAC); cai no OTP_WEBHOOK_URL global se a loja não tiver integração.
+  private async resolverWebhook(
+    tenantId: string,
+  ): Promise<{ url: string; secret?: string } | null> {
+    const [row] = await this.db
+      .select({
+        ativo: integracao.ativo,
+        merchantId: integracao.merchantId,
+        clientSecret: integracao.clientSecret,
+      })
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'n8n')));
+    if (row?.ativo && row.merchantId)
+      return { url: row.merchantId, secret: row.clientSecret ?? undefined };
+    const env = process.env.OTP_WEBHOOK_URL;
+    return env ? { url: env } : null;
+  }
+
   // Dispara o webhook do n8n com log do resultado. Devolve true só se 2xx.
-  private async dispararWebhook(url: string, payload: any): Promise<boolean> {
+  // Assina com HMAC-SHA256 (X-Regem-Signature) quando há secret, igual ao status.
+  private async dispararWebhook(
+    url: string,
+    payload: any,
+    secret?: string,
+  ): Promise<boolean> {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 8000);
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: ctrl.signal,
-      });
+      const body = JSON.stringify(payload);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (secret)
+        headers['X-Regem-Signature'] = createHmac('sha256', secret).update(body).digest('hex');
+      const res = await fetch(url, { method: 'POST', headers, body, signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
-        this.logger.error(`webhook ${res.status}: ${body.slice(0, 200)}`);
+        const b = await res.text().catch(() => '');
+        this.logger.error(`webhook ${res.status}: ${b.slice(0, 200)}`);
         return false;
       }
       this.logger.log(`webhook OK (${res.status})`);
@@ -52,19 +77,37 @@ export class ClienteService {
   }
 
   // Teste do webhook (presidente) — mostra exatamente o que o n8n responde.
-  async testarWebhook(telefone?: string) {
-    const url = process.env.OTP_WEBHOOK_URL;
-    if (!url) return { configurado: false, msg: 'OTP_WEBHOOK_URL não está configurada no servidor.' };
+  async testarWebhook(tenantId: string, telefone?: string) {
+    const wh = await this.resolverWebhook(tenantId);
+    if (!wh)
+      return {
+        configurado: false,
+        msg: 'Nenhum webhook n8n configurado (integração da loja nem OTP_WEBHOOK_URL).',
+      };
     const tel = soDigitos(telefone) || '21999999999';
     const whats = tel.startsWith('55') ? tel : `55${tel}`;
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ telefone: tel, telefoneWhatsapp: whats, codigo: '123456', loja: 'Teste Regem', teste: true }),
+      const body = JSON.stringify({
+        evento: 'otp',
+        telefone: tel,
+        telefoneWhatsapp: whats,
+        codigo: '123456',
+        loja: 'Teste Regem',
+        teste: true,
+        tenantId,
       });
-      const body = await res.text().catch(() => '');
-      return { configurado: true, url: url.replace(/\/[^/]+$/, '/…'), status: res.status, ok: res.ok, resposta: body.slice(0, 400) };
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (wh.secret)
+        headers['X-Regem-Signature'] = createHmac('sha256', wh.secret).update(body).digest('hex');
+      const res = await fetch(wh.url, { method: 'POST', headers, body });
+      const resp = await res.text().catch(() => '');
+      return {
+        configurado: true,
+        url: wh.url.replace(/\/[^/]+$/, '/…'),
+        status: res.status,
+        ok: res.ok,
+        resposta: resp.slice(0, 400),
+      };
     } catch (e: any) {
       return { configurado: true, erro: e?.message ?? String(e) };
     }
@@ -150,7 +193,7 @@ export class ClienteService {
 
   // ── OTP (confirmação do telefone por WhatsApp) ──────────────────────────────
   // Gera um código de 6 dígitos, guarda (expira em OTP_MIN) e dispara o webhook
-  // do n8n (OTP_WEBHOOK_URL) que envia pelo Evolution.
+  // do n8n (integração da loja ou OTP_WEBHOOK_URL) que envia pelo Evolution.
   async enviarOtp(cardapioToken: string, telefone?: string) {
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const tel = soDigitos(telefone);
@@ -170,19 +213,26 @@ export class ClienteService {
       .select({ nome: cardapioConfig.nomePublico })
       .from(cardapioConfig)
       .where(eq(cardapioConfig.token, cardapioToken));
-    const url = process.env.OTP_WEBHOOK_URL;
+    const wh = await this.resolverWebhook(tenantId);
     let enviado = false;
-    if (url) {
+    if (wh) {
       const whats = tel.startsWith('55') ? tel : `55${tel}`;
-      enviado = await this.dispararWebhook(url, {
-        telefone: tel,
-        telefoneWhatsapp: whats, // com DDI 55, formato que o Evolution espera
-        codigo,
-        loja: cfg?.nome ?? 'Regem',
-        tenantId,
-      });
+      enviado = await this.dispararWebhook(
+        wh.url,
+        {
+          evento: 'otp', // n8n roteia: 'otp' → texto do código; 'status' → aviso de pedido
+          telefone: tel,
+          telefoneWhatsapp: whats, // com DDI 55, formato que o Evolution espera
+          codigo,
+          loja: cfg?.nome ?? 'Regem',
+          tenantId,
+        },
+        wh.secret,
+      );
     } else {
-      this.logger.warn('OTP_WEBHOOK_URL não configurada — código gerado mas não enviado.');
+      this.logger.warn(
+        'Nenhum webhook n8n configurado (integração da loja nem OTP_WEBHOOK_URL) — código gerado mas não enviado.',
+      );
     }
     return { ok: true, expiraEm: expira, enviado };
   }
