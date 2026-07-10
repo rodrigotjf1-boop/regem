@@ -1615,6 +1615,19 @@ export const cliente = pgTable('cliente', {
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// OTP do cliente (confirmação de telefone via WhatsApp — webhook n8n).
+export const clienteOtp = pgTable('cliente_otp', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  codigo: text('codigo').notNull(),
+  expiraEm: timestamp('expira_em', { withTimezone: true }).notNull(),
+  tentativas: integer('tentativas').notNull().default(0),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const clienteEndereco = pgTable('cliente_endereco', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

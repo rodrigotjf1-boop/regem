@@ -56,6 +56,7 @@ export default function CardapioPublicoPage() {
   const [chk, setChk] = useState<any>(CHK_INICIAL);
   const [cupomOk, setCupomOk] = useState<any>(null);
   const [mostrarCliente, setMostrarCliente] = useState(false);
+  const [perguntaAdd, setPerguntaAdd] = useState(false);
   const [aba, setAba] = useState<'inicio' | 'pedidos' | 'promos' | 'carrinho'>('inicio');
   const temCliente = typeof window !== 'undefined' && !!getClienteToken(token);
 
@@ -122,6 +123,23 @@ export default function CardapioPublicoPage() {
     if (!nome && !tel) return;
     setChk((s: any) => ({ ...s, nome: s.nome || nome || '', telefone: s.telefone || tel || '' }));
   }, [search]);
+
+  // Cliente identificado: pré-preenche nome, telefone e endereço principal.
+  useEffect(() => {
+    const ct = getClienteToken(token);
+    if (!menu || !ct) return;
+    api.clientePerfil(token, ct).then((p: any) => {
+      const pr = (p.enderecos ?? []).find((e: any) => e.principal) ?? (p.enderecos ?? [])[0];
+      setChk((s: any) => ({
+        ...s,
+        nome: s.nome || p.cliente?.nome || '',
+        telefone: s.telefone || p.cliente?.telefone || '',
+        rua: s.rua || pr?.logradouro || '',
+        numero: s.numero || pr?.numero || '',
+        referencia: s.referencia || pr?.referencia || pr?.complemento || '',
+      }));
+    }).catch(() => {});
+  }, [menu, token]);
 
   // Tipo padrão respeita a config (se a loja só faz retirada, começa em retirada).
   useEffect(() => {
@@ -190,6 +208,7 @@ export default function CardapioPublicoPage() {
       return [...c, item];
     });
     setSel(null);
+    if (!mesa) setPerguntaAdd(true); // pergunta: continuar comprando ou finalizar
   }
   function mudarQtd(key: string, d: number) {
     setCart((c) => c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + d } : i)).filter((i) => i.qtd > 0));
@@ -392,7 +411,7 @@ export default function CardapioPublicoPage() {
       </div>
 
       {/* Cards de item */}
-      <div className="space-y-2.5 px-4 pt-3">
+      <div className={`space-y-2.5 px-4 pt-3 ${temCliente ? 'pb-24' : ''}`}>
         {visiveis.length === 0 && <p className="py-10 text-center text-sm text-neutral-400">Nada encontrado.</p>}
         {visiveis.map((p: any) => (
           <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="flex w-full items-stretch gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left transition active:scale-[.99] disabled:opacity-50">
@@ -460,6 +479,20 @@ export default function CardapioPublicoPage() {
           onSubmit={submitPedido}
           enviando={enviando}
         />
+      )}
+
+      {/* Após adicionar: continuar comprando ou ir para "Seu pedido". */}
+      {perguntaAdd && (
+        <div className="fixed inset-0 z-[55] flex items-end justify-center bg-black/40 sm:items-center" onClick={() => setPerguntaAdd(false)}>
+          <div className="w-full max-w-sm rounded-t-2xl bg-white p-5 text-neutral-900 sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-center text-sm font-semibold">Item adicionado ao carrinho ✓</p>
+            <p className="mt-0.5 text-center text-xs text-neutral-500">{qtdItens} item(ns) · {brl(total)}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setPerguntaAdd(false)} className="rounded-lg border border-neutral-300 py-2.5 text-sm font-semibold">Continuar comprando</button>
+              <button type="button" onClick={() => { setPerguntaAdd(false); setCheckout(true); }} className="rounded-lg py-2.5 text-sm font-semibold text-white" style={{ background: accent }}>Finalizar</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {mostrarCliente && (
