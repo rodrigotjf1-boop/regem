@@ -201,7 +201,7 @@ export function ConfigPanel({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
-      <div className="flex h-[86vh] w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
+      <div className="flex h-[92vh] w-full max-w-6xl overflow-hidden rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
         {/* Menu lateral */}
         <aside className="w-52 shrink-0 overflow-y-auto border-r border-border bg-secondary/40 p-3">
           <p className="mb-2 px-1 font-display text-sm font-bold">Configurações</p>

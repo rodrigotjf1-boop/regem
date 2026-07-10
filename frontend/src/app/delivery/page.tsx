@@ -675,6 +675,14 @@ function PedidoCard({
         )}
         <div className={`min-w-0 flex-1 text-xs text-muted-foreground ${cancelado ? 'line-through' : ''}`}>
           <span className="text-sm font-bold text-foreground">{p.clienteNome ?? 'Cliente'}</span>
+          {p.clientePedidosCount > 0 && (
+            <span
+              title="Total de pedidos deste cliente"
+              className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-bold text-primary"
+            >
+              🛍 {p.clientePedidosCount}
+            </span>
+          )}
           {p.clienteTelefone ? <span className="ml-1">· {p.clienteTelefone}</span> : null}
           {enderecoFmt ? <span className="block">{enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</span> : null}
         </div>

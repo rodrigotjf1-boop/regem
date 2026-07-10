@@ -120,7 +120,7 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-3" onClick={onFechar}>
-      <Card className="grid max-h-[94vh] w-full max-w-5xl gap-4 overflow-y-auto p-5 lg:grid-cols-[1fr_380px]" onClick={(e) => e.stopPropagation()}>
+      <Card className="grid max-h-[92vh] w-full max-w-6xl gap-4 overflow-y-auto p-5 lg:grid-cols-[1fr_380px]" onClick={(e) => e.stopPropagation()}>
         <div className="min-w-0">
           <h3 className="mb-3 font-display text-base font-bold">Novo pedido</h3>
           <div className="mb-3 inline-flex rounded-lg border border-border p-0.5 text-sm">

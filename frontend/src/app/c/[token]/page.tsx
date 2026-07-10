@@ -48,7 +48,6 @@ export default function CardapioPublicoPage() {
   const [menu, setMenu] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [cat, setCat] = useState('');
-  const [busca, setBusca] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [enviando, setEnviando] = useState(false);
   const [checkout, setCheckout] = useState(false);
@@ -58,6 +57,7 @@ export default function CardapioPublicoPage() {
   const [mostrarCliente, setMostrarCliente] = useState(false);
   const [perguntaAdd, setPerguntaAdd] = useState(false);
   const [aba, setAba] = useState<'inicio' | 'pedidos' | 'promos' | 'carrinho'>('inicio');
+  const [ultimoPedido, setUltimoPedido] = useState<any>(null);
   const temCliente = typeof window !== 'undefined' && !!getClienteToken(token);
 
   function irAba(a: 'inicio' | 'pedidos' | 'promos' | 'carrinho') {
@@ -70,6 +70,17 @@ export default function CardapioPublicoPage() {
   }
 
   // "Pedir de novo": recompõe o carrinho a partir do snapshot do pedido.
+  async function reordenarUltimo() {
+    const ct = getClienteToken(token);
+    if (!ct || !ultimoPedido) return;
+    try {
+      const r: any = await api.clientePedirDeNovo(token, ultimoPedido.id, ct);
+      reordenar(r.itens ?? []);
+      setPerguntaAdd(true);
+    } catch {
+      /* ignore */
+    }
+  }
   function reordenar(itens: any[]) {
     const novos: CartItem[] = (itens ?? []).map((it, i) => ({
       key: `${it.produtoId}::${it.variacaoId ?? ''}::re${i}`,
@@ -186,6 +197,17 @@ export default function CardapioPublicoPage() {
     }).catch(() => {});
   }, [menu, token]);
 
+  // Último pedido do cliente (card do topo quando não há banners).
+  useEffect(() => {
+    if (!menu) return;
+    const tel = (chk.telefone ?? '').replace(/\D/g, '');
+    if (tel.length < 10) {
+      setUltimoPedido(null);
+      return;
+    }
+    api.cardapioUltimoPedido(token, tel).then(setUltimoPedido).catch(() => setUltimoPedido(null));
+  }, [menu, token, chk.telefone]);
+
   // Tipo padrão respeita a config (se a loja só faz retirada, começa em retirada).
   useEffect(() => {
     const t = menu?.tipos;
@@ -218,14 +240,10 @@ export default function CardapioPublicoPage() {
   const produtos: any[] = menu?.produtos ?? [];
   const bairros: any[] = menu?.bairros ?? [];
 
-  const visiveis = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return produtos.filter(
-      (p) =>
-        (!cat || p.categoriaId === cat) &&
-        (!q || `${p.nome} ${p.descricao ?? ''}`.toLowerCase().includes(q)),
-    );
-  }, [produtos, cat, busca]);
+  const visiveis = useMemo(
+    () => produtos.filter((p) => !cat || p.categoriaId === cat),
+    [produtos, cat],
+  );
 
   const total = useMemo(() => cart.reduce((s, i) => s + i.preco * i.qtd, 0), [cart]);
   const qtdItens = cart.reduce((s, i) => s + i.qtd, 0);
@@ -450,26 +468,27 @@ export default function CardapioPublicoPage() {
   return (
     <main className="min-h-dvh bg-neutral-50 pb-28 text-neutral-900">
       {/* Hero */}
-      <header className="px-4 py-4 text-white" style={{ backgroundColor: '#1f1a14', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}33)` }}>
+      <header className="px-4 py-3 text-white" style={{ backgroundColor: '#1a1a1a', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}22)` }}>
         <div className="flex items-center gap-3">
-          <div className="grid h-14 w-14 flex-none place-items-center rounded-2xl text-3xl" style={{ background: accent }}>{loja.logoEmoji ?? '🍔'}</div>
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-bold">{loja.nome}</h1>
-            {loja.subtitulo && <p className="truncate text-xs text-white/60">{loja.subtitulo}</p>}
+          {loja.logoRef ? (
+            <img src={loja.logoRef} alt={loja.nome} className="h-11 w-11 flex-none rounded-xl object-cover object-center" />
+          ) : (
+            <div className="grid h-11 w-11 flex-none place-items-center rounded-xl text-2xl" style={{ background: accent }}>{loja.logoEmoji ?? '🍔'}</div>
+          )}
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-bold leading-tight">{loja.nome}</h1>
+            <p className="truncate text-[11px] leading-tight">
+              <span className={menu.abertaAgora ? 'text-emerald-300' : 'text-red-300'}>● </span>
+              <span className="text-white/70">{menu.horarioLabel ?? (menu.abertaAgora ? 'Aberta' : 'Fechada')}</span>
+            </p>
           </div>
           <button
             type="button"
             onClick={() => setMostrarCliente(true)}
-            className="ml-auto flex-none rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[11px] font-semibold text-white"
+            className="flex-none rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-semibold text-white"
           >
             👤 {getClienteToken(token) ? 'Meus dados' : 'Entrar'}
           </button>
-          <span className={`flex-none rounded-full border px-3 py-1 text-[10px] font-bold ${menu.abertaAgora ? 'border-emerald-400/50 bg-emerald-400/15 text-emerald-300' : 'border-red-400/50 bg-red-400/15 text-red-300'}`}>{menu.abertaAgora ? '● ABERTO' : '● FECHADO'}</span>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {loja.tempoEntregaMin && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">⏱ {loja.tempoEntregaMin} min</span>}
-          {loja.freteGratisAcima != null && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">🛵 Frete grátis &gt; {brl(loja.freteGratisAcima)}</span>}
-          {loja.pedidoMinimo != null && <span className="rounded-lg bg-white/10 px-2.5 py-1.5 text-xs">Mín. {brl(loja.pedidoMinimo)}</span>}
         </div>
       </header>
 
@@ -489,18 +508,49 @@ export default function CardapioPublicoPage() {
 
       {aba === 'inicio' && (
       <>
-      {/* Busca + categorias */}
-      <div className="sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} type="search" placeholder="Buscar no cardápio…" className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm" />
-        {menu.categorias.length > 0 && (
+      {/* Banners cadastrados OU card do último pedido do cliente */}
+      {(menu.banners?.length ?? 0) > 0 ? (
+        <div className="flex gap-2 overflow-x-auto px-4 pt-3">
+          {menu.banners.map((b: any, i: number) =>
+            b.link ? (
+              <a key={i} href={b.link} target="_blank" rel="noopener noreferrer" className="flex-none">
+                <img src={b.imagemRef} alt={b.titulo ?? 'Banner'} className="h-32 w-72 rounded-2xl object-cover object-center" />
+              </a>
+            ) : (
+              <img key={i} src={b.imagemRef} alt={b.titulo ?? 'Banner'} className="h-32 w-72 flex-none rounded-2xl object-cover object-center" />
+            ),
+          )}
+        </div>
+      ) : ultimoPedido ? (
+        <button type="button" onClick={reordenarUltimo} className="mx-4 mt-3 flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left">
+          <div className="flex flex-none -space-x-3">
+            {ultimoPedido.itens.slice(0, 3).map((it: any, i: number) =>
+              it.imagemRef ? (
+                <img key={i} src={it.imagemRef} alt={it.nome} className="h-12 w-12 rounded-xl border-2 border-white object-cover object-center" />
+              ) : (
+                <div key={i} className="grid h-12 w-12 place-items-center rounded-xl border-2 border-white bg-neutral-100 text-lg">🍽</div>
+              ),
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold">Seu último pedido</p>
+            <p className="truncate text-xs text-neutral-500">{ultimoPedido.itens.map((i: any) => i.nome).join(', ')}</p>
+          </div>
+          <span className="flex-none rounded-lg px-3 py-1.5 text-xs font-bold text-white" style={{ background: accent }}>Pedir de novo</span>
+        </button>
+      ) : null}
+
+      {/* Categorias (sticky) */}
+      {menu.categorias.length > 0 && (
+        <div className="sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
           <div className="flex gap-2 overflow-x-auto py-3">
             <button type="button" onClick={() => setCat('')} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === '' ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>Todos</button>
             {menu.categorias.map((c: any) => (
               <button key={c.id} type="button" onClick={() => setCat(c.id)} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Cards de item */}
       <div className={`space-y-2.5 px-4 pt-3 ${temCliente ? 'pb-24' : ''}`}>
@@ -523,7 +573,7 @@ export default function CardapioPublicoPage() {
               </div>
             </div>
             <div className="relative grid w-20 flex-none place-items-center overflow-hidden rounded-xl bg-neutral-100 text-3xl">
-              {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover" /> : '🍽'}
+              {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover object-center" /> : '🍽'}
               {!p.esgotado && <span className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-lg text-base font-bold text-white shadow" style={{ background: accent }}>＋</span>}
             </div>
           </button>
