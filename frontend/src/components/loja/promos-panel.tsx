@@ -19,6 +19,7 @@ export function PromosPanel({
 }) {
   const [data, setData] = useState<any>(null);
   const [status, setStatus] = useState<any>(null);
+  const [cashback, setCashback] = useState<any>(null);
 
   useEffect(() => {
     api.cardapioPromos(token).then(setData).catch(() => setData({ cupons: [], fidelidadeAtiva: false }));
@@ -26,12 +27,32 @@ export function PromosPanel({
 
   const carregarStatus = useCallback(() => {
     const tel = (telefone ?? '').replace(/\D/g, '');
-    if (tel.length < 10) return setStatus(null);
+    if (tel.length < 10) {
+      setStatus(null);
+      setCashback(null);
+      return;
+    }
     api.cardapioPontos(token, tel).then(setStatus).catch(() => setStatus(null));
+    api.cardapioCashback(token, tel).then(setCashback).catch(() => setCashback(null));
   }, [token, telefone]);
   useEffect(() => {
     carregarStatus();
   }, [carregarStatus]);
+
+  async function resgatarProduto(produtoId: string) {
+    const tel = (telefone ?? '').replace(/\D/g, '');
+    try {
+      await api.cardapioCashbackResgatar(token, tel, produtoId);
+      alert('Produto resgatado! O desconto entra automaticamente no seu próximo pedido.');
+      carregarStatus();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Não foi possível resgatar.');
+    }
+  }
+  const cbPontosProdutos = (cashback?.planos ?? [])
+    .filter((p: any) => p.tipo === 'pontos')
+    .flatMap((p: any) => p.produtos ?? []);
+  const temCashback = cashback && ((cashback.valor ?? 0) > 0 || (cashback.pontos ?? 0) > 0 || cbPontosProdutos.length > 0);
 
   async function resgatar(id: string) {
     const tel = (telefone ?? '').replace(/\D/g, '');
@@ -48,13 +69,54 @@ export function PromosPanel({
     c.tipo === 'fretegratis' ? 'Frete grátis' : c.tipo === 'percentual' ? `${c.valor}% OFF` : `${brl(c.valor)} OFF`;
 
   const nada =
-    data && !data.fidelidadeAtiva && (data.cupons?.length ?? 0) === 0 && produtosPromo.length === 0;
+    data && !data.fidelidadeAtiva && (data.cupons?.length ?? 0) === 0 && produtosPromo.length === 0 && !temCashback;
   const disponiveis = (status?.resgates ?? []).filter((r: any) => r.status === 'disponivel');
   const naCarteira = (status?.resgates ?? []).filter((r: any) => r.status === 'resgatado');
 
   return (
     <div className="space-y-5 px-4 py-4">
       <h2 className="text-lg font-bold">Promoções</h2>
+
+      {/* Cashback */}
+      {temCashback && (
+        <div className="space-y-3">
+          <div className="rounded-2xl bg-emerald-600 p-4 text-white">
+            <p className="text-sm font-bold">💰 Cashback</p>
+            <div className="mt-1 flex flex-wrap gap-x-4 text-xs opacity-95">
+              {(cashback.valor ?? 0) > 0 && <span>Saldo <b>{brl(Number(cashback.valor))}</b> — abate automático no próximo pedido</span>}
+              {(cashback.pontos ?? 0) > 0 && <span>Você tem <b>{cashback.pontos}</b> pontos</span>}
+            </div>
+          </div>
+
+          {cbPontosProdutos.length > 0 && (
+            <div>
+              <p className="mb-2 text-sm font-semibold">Troque seus pontos</p>
+              <div className="space-y-2">
+                {cbPontosProdutos.map((pr: any) => {
+                  const podeResgatar = (cashback.pontos ?? 0) >= pr.pontos;
+                  return (
+                    <div key={pr.produtoId} className="flex items-center gap-3 rounded-xl border border-black/10 px-3 py-2.5">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{pr.nome}</p>
+                        <p className="text-xs text-black/50">{pr.pontos} pontos · vale {brl(Number(pr.precoVenda))}</p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!podeResgatar}
+                        onClick={() => resgatarProduto(pr.produtoId)}
+                        className="flex-none rounded-lg px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
+                        style={{ background: accent }}
+                      >
+                        {podeResgatar ? 'Resgatar' : 'Faltam pontos'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {data?.fidelidadeAtiva && (
         <div className="space-y-3">

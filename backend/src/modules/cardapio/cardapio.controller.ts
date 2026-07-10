@@ -87,6 +87,19 @@ export class CardapioPublicoController {
     return this.service.premiosFidelidade(token, telefone ?? '');
   }
 
+  // Saldo de cashback do cliente.
+  @Get(':token/cashback')
+  cashback(@Param('token') token: string, @Query('telefone') telefone: string) {
+    return this.service.cashbackSaldoPublico(token, telefone ?? '');
+  }
+
+  // Troca pontos de cashback por um produto (gera vale).
+  @Post(':token/cashback/resgatar')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  cashbackResgatar(@Param('token') token: string, @Body() dto: any) {
+    return this.service.cashbackResgatarProduto(token, dto?.telefone ?? '', dto?.produtoId ?? '');
+  }
+
   // Pedidos recentes de um telefone (robô: "cadê meu pedido?").
   @Get(':token/pedidos')
   @Throttle({ default: { ttl: 60000, limit: 30 } })

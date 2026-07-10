@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
+import { CashbackPanel } from '@/components/delivery/cashback-panel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -33,6 +34,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
       { k: 'area', label: 'Área de atendimento' },
       { k: 'cupons', label: 'Cupons' },
       { k: 'fidelidade', label: 'Plano de fidelidade' },
+      { k: 'cashback', label: 'Cashback' },
     ],
   },
   {
@@ -400,6 +402,13 @@ export function ConfigPanel({
                 {sec === 'fidelidade' && (
                   <Secao dica="Programa de fidelidade do cardápio digital: o cliente ganha 1 ponto por pedido que atenda à regra e, ao bater a meta, conquista um prêmio para resgatar na aba Promos.">
                     <FidelidadePanel pode={isGestor} />
+                  </Secao>
+                )}
+
+                {/* CASHBACK */}
+                {sec === 'cashback' && (
+                  <Secao dica="Cashback do cardápio: retorno em valor (% do pedido vira saldo) ou em pontos (troca por produtos). Creditado após a confirmação do pedido; estornado se o pedido for cancelado. Concorre com a fidelidade — a loja escolhe a estratégia.">
+                    <CashbackPanel pode={isGestor} />
                   </Secao>
                 )}
 

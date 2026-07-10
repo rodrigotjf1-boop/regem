@@ -534,6 +534,22 @@ export const api = {
     req(`/fidelidade/planos/${id}/pontos`, { method: 'PUT', body: JSON.stringify(body) }),
   fidelidadeRelatorio: (periodo = 'dia') =>
     req(`/fidelidade/relatorio?periodo=${encodeURIComponent(periodo)}`),
+  fidelidadeRelatorioPeriodo: (inicio = '', fim = '', telefone = '') =>
+    req(`/fidelidade/relatorio/periodo?inicio=${inicio}&fim=${fim}&telefone=${encodeURIComponent(telefone)}`),
+  // Cashback (gestão)
+  cashbackPlanos: () => req('/cashback/planos'),
+  salvarCashbackPlano: (body: Record<string, unknown>) =>
+    req('/cashback/planos', { method: 'POST', body: JSON.stringify(body) }),
+  removerCashbackPlano: (id: string) => req(`/cashback/planos/${id}`, { method: 'DELETE' }),
+  finalizarCashbackPlano: (id: string) =>
+    req(`/cashback/planos/${id}/finalizar`, { method: 'POST', body: '{}' }),
+  cashbackRelatorio: (inicio = '', fim = '', telefone = '') =>
+    req(`/cashback/relatorio?inicio=${inicio}&fim=${fim}&telefone=${encodeURIComponent(telefone)}`),
+  // Cashback (público, cardápio)
+  cardapioCashback: (token: string, telefone: string) =>
+    pub(`/publico/cardapio/${token}/cashback?telefone=${encodeURIComponent(telefone)}`),
+  cardapioCashbackResgatar: (token: string, telefone: string, produtoId: string) =>
+    pub(`/publico/cardapio/${token}/cashback/resgatar`, { method: 'POST', body: JSON.stringify({ telefone, produtoId }) }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>

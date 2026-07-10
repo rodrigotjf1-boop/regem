@@ -4,9 +4,11 @@ import { DeliveryService } from './delivery.service';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { VendasModule } from '../vendas/vendas.module';
+import { CashbackModule } from '../cashback/cashback.module';
+import { FidelidadeModule } from '../fidelidade/fidelidade.module';
 
 @Module({
-  imports: [EquipamentoModule, VendasModule],
+  imports: [EquipamentoModule, VendasModule, CashbackModule, FidelidadeModule],
   controllers: [DeliveryController],
   providers: [DeliveryService, SyncTokenGuard],
   exports: [DeliveryService],

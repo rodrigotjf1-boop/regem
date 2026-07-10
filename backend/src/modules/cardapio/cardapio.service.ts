@@ -29,6 +29,7 @@ import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
+import { CashbackService } from '../cashback/cashback.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -39,6 +40,7 @@ export class CardapioService {
     private readonly delivery: DeliveryService,
     private readonly atendimento: AtendimentoService,
     private readonly fidelidade: FidelidadeService,
+    private readonly cashback: CashbackService,
   ) {}
 
   // Público (robô): abre um chamado de atendimento (handoff) para a loja.
@@ -1016,6 +1018,13 @@ export class CardapioService {
       ? await this.fidelidade.avaliarPremio(cfg.tenantId, dto.resgateId, dto.telefone ?? '', itensOut, total)
       : { desconto: 0 };
     desconto = Number((desconto + (premio.desconto || 0)).toFixed(2));
+    // Cashback: aplica saldo (valor) + vales (produto) sobre o que restou.
+    const cb = await this.cashback.avaliarDescontos(
+      cfg.tenantId,
+      dto.telefone ?? '',
+      Math.max(0, total - desconto),
+    );
+    desconto = Number((desconto + (cb.desconto || 0)).toFixed(2));
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
@@ -1133,6 +1142,21 @@ export class CardapioService {
       }
     }
 
+    // Cashback consumido: debita o saldo usado e marca os vales como usados.
+    if (cb.desconto > 0 && dto.telefone && ped?.id) {
+      try {
+        await this.cashback.consumir(
+          cfg.tenantId,
+          dto.telefone,
+          ped.id,
+          cb.saldoUsado,
+          cb.vales.map((v: any) => v.id),
+        );
+      } catch {
+        /* não bloqueia o pedido */
+      }
+    }
+
     // Fidelidade (L5): pontua os planos que o pedido atende (dedupe por pedido).
     let fidelidade: any;
     if (cfg.fidelidadeAtiva && dto.telefone && ped?.id) {
@@ -1221,6 +1245,18 @@ export class CardapioService {
     const cfg = await this.resolver(token);
     if (!cfg.fidelidadeAtiva) return [];
     return this.fidelidade.premiosParaUsar(cfg.tenantId, telefone);
+  }
+
+  // Público: saldo de cashback do cliente (valor, pontos, vales, planos).
+  async cashbackSaldoPublico(token: string, telefone: string) {
+    const cfg = await this.resolver(token);
+    return this.cashback.saldoCliente(cfg.tenantId, telefone);
+  }
+
+  // Público: troca pontos de cashback por um produto (gera vale).
+  async cashbackResgatarProduto(token: string, telefone: string, produtoId: string) {
+    const cfg = await this.resolver(token);
+    return this.cashback.resgatarProduto(cfg.tenantId, telefone, produtoId);
   }
 
   // Acha (ou abre) a mesa pelo número e devolve a comanda ativa dela.

@@ -22,6 +22,8 @@ import {
   produto,
 } from '../../db/schema';
 import { VendasService } from '../vendas/vendas.service';
+import { CashbackService } from '../cashback/cashback.service';
+import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { adaptar, PedidoNormalizado } from './adapters';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -33,6 +35,8 @@ export class DeliveryService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly vendas: VendasService,
+    private readonly cashback: CashbackService,
+    private readonly fidelidade: FidelidadeService,
   ) {}
 
   // ===== Ingestão (edge → nós) =====
@@ -239,6 +243,16 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
+    // Cashback: credita o retorno no saldo do cliente após a confirmação.
+    void this.cashback
+      .creditarPedido(tenantId, {
+        telefone: row.clienteTelefone ?? undefined,
+        clienteId: row.clienteId ?? undefined,
+        pedidoId: row.id,
+        total: Number(row.total),
+        taxaEntrega: Number(row.taxaEntrega),
+      })
+      .catch(() => {});
     return row;
   }
 
@@ -396,6 +410,9 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
+    // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
+    void this.cashback.estornarPedido(tenantId, id, row.clienteTelefone ?? undefined).catch(() => {});
+    void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
     return row;
   }
 
