@@ -7,6 +7,9 @@ COPY . .
 # NEXT_PUBLIC_* é embutido no bundle no BUILD — precisa estar presente aqui.
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# Chave do Google Maps (mapa da loja + geocodificação). Passar como build arg.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 RUN npm run build
 
 # ---- runtime (Next.js standalone) ----
