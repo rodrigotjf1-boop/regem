@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -22,7 +23,52 @@ const OTP_MIN = 5; // validade do código em minutos
 
 @Injectable()
 export class ClienteService {
+  private readonly logger = new Logger('ClienteOtp');
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+
+  // Dispara o webhook do n8n com log do resultado. Devolve true só se 2xx.
+  private async dispararWebhook(url: string, payload: any): Promise<boolean> {
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+      clearTimeout(t);
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        this.logger.error(`webhook ${res.status}: ${body.slice(0, 200)}`);
+        return false;
+      }
+      this.logger.log(`webhook OK (${res.status})`);
+      return true;
+    } catch (e: any) {
+      this.logger.error(`webhook falhou: ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  // Teste do webhook (presidente) — mostra exatamente o que o n8n responde.
+  async testarWebhook(telefone?: string) {
+    const url = process.env.OTP_WEBHOOK_URL;
+    if (!url) return { configurado: false, msg: 'OTP_WEBHOOK_URL não está configurada no servidor.' };
+    const tel = soDigitos(telefone) || '21999999999';
+    const whats = tel.startsWith('55') ? tel : `55${tel}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telefone: tel, telefoneWhatsapp: whats, codigo: '123456', loja: 'Teste Regem', teste: true }),
+      });
+      const body = await res.text().catch(() => '');
+      return { configurado: true, url: url.replace(/\/[^/]+$/, '/…'), status: res.status, ok: res.ok, resposta: body.slice(0, 400) };
+    } catch (e: any) {
+      return { configurado: true, erro: e?.message ?? String(e) };
+    }
+  }
 
   // Token do cardápio → tenant da loja (endpoints são públicos).
   private async tenantDoCardapio(cardapioToken: string): Promise<string> {
@@ -125,18 +171,20 @@ export class ClienteService {
       .from(cardapioConfig)
       .where(eq(cardapioConfig.token, cardapioToken));
     const url = process.env.OTP_WEBHOOK_URL;
+    let enviado = false;
     if (url) {
-      try {
-        await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ telefone: tel, codigo, loja: cfg?.nome ?? 'Regem', tenantId }),
-        });
-      } catch {
-        /* falha de rede no webhook não bloqueia o fluxo */
-      }
+      const whats = tel.startsWith('55') ? tel : `55${tel}`;
+      enviado = await this.dispararWebhook(url, {
+        telefone: tel,
+        telefoneWhatsapp: whats, // com DDI 55, formato que o Evolution espera
+        codigo,
+        loja: cfg?.nome ?? 'Regem',
+        tenantId,
+      });
+    } else {
+      this.logger.warn('OTP_WEBHOOK_URL não configurada — código gerado mas não enviado.');
     }
-    return { ok: true, expiraEm: expira, enviado: !!url };
+    return { ok: true, expiraEm: expira, enviado };
   }
 
   // Confirma o código e devolve a identidade (nome é obrigatório no cadastro).
