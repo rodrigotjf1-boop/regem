@@ -7,6 +7,7 @@ import {
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { verificarCliente } from '../cliente/cliente-token';
 import {
   cardapioConfig,
   produto,
@@ -676,6 +677,7 @@ export class CardapioService {
       mesa?: string;
       cliente?: string;
       telefone?: string;
+      clienteToken?: string; // link mágico: associa o pedido ao cliente identificado
       tipo?: string; // entrega | retirada
       endereco?: string; // texto livre (compat/legado)
       rua?: string;
@@ -851,6 +853,16 @@ export class CardapioService {
         bandeira: dto.bandeira,
       },
     );
+
+    // Link mágico: associa o pedido ao cliente identificado (histórico / "pedir
+    // de novo"). Só se o token confere e é do mesmo tenant da loja.
+    const cli = verificarCliente(dto.clienteToken);
+    if (cli && cli.tenant === cfg.tenantId && ped?.id) {
+      await this.db
+        .update(pedidoExterno)
+        .set({ clienteId: cli.cli })
+        .where(eq(pedidoExterno.id, ped.id));
+    }
 
     // Envio automático ao KDS: aceita o pedido na hora (cria comanda + produção
     // com senha local + selo da plataforma). Orçamento (indústria) não produz.
