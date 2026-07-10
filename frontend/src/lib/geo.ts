@@ -39,23 +39,41 @@ export function localizacaoAtual(): Promise<{ lat: number; lng: number }> {
   });
 }
 
-// Geocodifica um endereço em coordenadas (Google). Requer a chave.
+// Geocodifica um endereço em coordenadas. Usa o Google se houver chave; senão,
+// cai no Nominatim (OpenStreetMap), que é gratuito e sem chave.
 export async function geocodificar(endereco: string): Promise<{ lat: number; lng: number } | null> {
-  if (!MAPS_KEY || !endereco.trim()) return null;
+  if (!endereco.trim()) return null;
+  if (MAPS_KEY) {
+    try {
+      const r = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(endereco)}&key=${MAPS_KEY}&region=br`,
+      );
+      const j = await r.json();
+      const loc = j?.results?.[0]?.geometry?.location;
+      if (loc) return { lat: loc.lat, lng: loc.lng };
+    } catch {
+      /* cai no fallback */
+    }
+  }
+  // Fallback keyless (Nominatim / OpenStreetMap).
   try {
     const r = await fetch(
-      `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(endereco)}&key=${MAPS_KEY}&region=br`,
+      `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(endereco)}`,
     );
     const j = await r.json();
-    const loc = j?.results?.[0]?.geometry?.location;
-    return loc ? { lat: loc.lat, lng: loc.lng } : null;
+    const hit = Array.isArray(j) ? j[0] : null;
+    return hit ? { lat: Number(hit.lat), lng: Number(hit.lon) } : null;
   } catch {
     return null;
   }
 }
 
-// URL do mapa (Google Embed) centralizado num ponto. Vazio se não houver chave.
+// URL do mapa centralizado num ponto. Google Embed se houver chave; senão,
+// o mapa embutido do OpenStreetMap (sem chave).
 export function mapaEmbedUrl(lat: number, lng: number, zoom = 16): string {
-  if (!MAPS_KEY || !Number.isFinite(lat) || !Number.isFinite(lng)) return '';
-  return `https://www.google.com/maps/embed/v1/place?key=${MAPS_KEY}&q=${lat},${lng}&zoom=${zoom}`;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+  if (MAPS_KEY) return `https://www.google.com/maps/embed/v1/place?key=${MAPS_KEY}&q=${lat},${lng}&zoom=${zoom}`;
+  const d = 0.008; // ~800m de margem no bbox
+  const bbox = `${lng - d},${lat - d},${lng + d},${lat + d}`;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lng}`;
 }
