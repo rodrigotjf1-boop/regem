@@ -245,7 +245,6 @@ export default function CardapioPublicoPage() {
     return Number(bairros.find((b) => b.id === chk.bairroId)?.taxa ?? 0);
   }, [chk.tipo, chk.bairroId, total, bairros, loja, isServico, cupomOk]);
   const desc = cupomOk?.valido ? cupomOk.desconto : 0;
-  const totalFinal = Math.max(0, total - desc + taxa);
 
   function onAdd(item: CartItem) {
     setCart((c) => {
@@ -293,6 +292,40 @@ export default function CardapioPublicoPage() {
       .catch(() => setCuponsSugeridos([]));
   }, [checkout, menu, token, chk.telefone, total]);
 
+  // Prêmios de fidelidade resgatados (abate automático no pedido).
+  const [premios, setPremios] = useState<any[]>([]);
+  const [premioSel, setPremioSel] = useState('');
+  useEffect(() => {
+    if (!checkout || !menu) return;
+    const tel = (chk.telefone ?? '').replace(/\D/g, '');
+    if (tel.length < 10) {
+      setPremios([]);
+      return;
+    }
+    api
+      .cardapioFidelidadePremios(token, tel)
+      .then((l: any) => {
+        const arr = Array.isArray(l) ? l : [];
+        setPremios(arr);
+        setPremioSel((c) => c || arr[0]?.id || ''); // auto-aplica o 1º
+      })
+      .catch(() => setPremios([]));
+  }, [checkout, menu, token, chk.telefone]);
+  const premioDesc = useMemo(() => {
+    const p = premios.find((x) => x.id === premioSel);
+    if (!p) return 0;
+    const v = Number(p.recompensaValor) || 0;
+    if (p.recompensaTipo === 'valor_fixo') return Math.min(total, v);
+    if (p.recompensaTipo === 'percentual_produtos') {
+      const sel = new Set(p.recompensaProdutos ?? []);
+      const base = cart.filter((i) => sel.has(i.produtoId)).reduce((a, i) => a + i.preco * i.qtd, 0);
+      return Number(((base * v) / 100).toFixed(2));
+    }
+    return Number(((total * v) / 100).toFixed(2));
+  }, [premios, premioSel, total, cart]);
+  const totalFinal = Math.max(0, total - desc - premioDesc + taxa);
+  const premioNome = premios.find((x) => x.id === premioSel)?.plano;
+
   function enviar() {
     if (!cart.length) return;
     // Envio direto SÓ quando é um QR de mesa de verdade (link com ?mesa=).
@@ -325,6 +358,7 @@ export default function CardapioPublicoPage() {
         bandeira: chk.forma === 'cartao' ? chk.bandeira || undefined : undefined,
         trocoPara: chk.forma === 'entrega' && chk.troco ? Number(String(chk.troco).replace(',', '.')) : undefined,
         cupom: cupomOk?.valido ? chk.cupom.trim() : undefined,
+        resgateId: premioDesc > 0 ? premioSel || undefined : undefined,
         agendamento: chk.agendamento || undefined,
         profissional: chk.profissional || undefined,
         cnpj: chk.cnpj || undefined,
@@ -532,6 +566,11 @@ export default function CardapioPublicoPage() {
           onAplicarCupom={() => aplicarCupom()}
           cuponsSugeridos={cuponsSugeridos}
           onEscolherCupom={(c: string) => aplicarCupom(c)}
+          premios={premios}
+          premioSel={premioSel}
+          premioDesc={premioDesc}
+          premioNome={premioNome}
+          onEscolherPremio={setPremioSel}
           onQtd={mudarQtd}
           onRemove={removeItem}
           onAddUpsell={addUpsell}
