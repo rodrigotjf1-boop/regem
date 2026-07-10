@@ -677,8 +677,10 @@ function PedidoCard({
           <span className="text-sm font-bold text-foreground">{p.clienteNome ?? 'Cliente'}</span>
           {p.clientePedidosCount > 0 && (
             <span
-              title="Total de pedidos deste cliente"
-              className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 align-middle text-[10px] font-bold text-primary"
+              title={p.clientePedidosCount === 1 ? 'Primeiro pedido deste cliente' : 'Total de pedidos deste cliente'}
+              className={`ml-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-bold ${
+                p.clientePedidosCount === 1 ? 'bg-emerald-500 text-white' : 'bg-primary/10 text-primary'
+              }`}
             >
               🛍 {p.clientePedidosCount}
             </span>

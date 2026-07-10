@@ -490,6 +490,13 @@ export default function CardapioPublicoPage() {
             👤 {getClienteToken(token) ? 'Meus dados' : 'Entrar'}
           </button>
         </div>
+        {(loja.pedidoMinimo != null || loja.freteGratisAcima != null || loja.tempoEntregaMin) && (
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/70">
+            {loja.tempoEntregaMin && <span>⏱ {loja.tempoEntregaMin} min</span>}
+            {loja.pedidoMinimo != null && <span>Pedido mínimo {brl(loja.pedidoMinimo)}</span>}
+            {loja.freteGratisAcima != null && <span>🛵 Frete grátis acima de {brl(loja.freteGratisAcima)}</span>}
+          </div>
+        )}
       </header>
 
       {/* Fidelidade */}
