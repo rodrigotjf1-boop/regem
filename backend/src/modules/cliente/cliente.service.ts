@@ -334,6 +334,8 @@ export class ClienteService {
         bairroId: dto.bairroId || null,
         cidade: dto.cidade || null,
         referencia: dto.referencia || null,
+        lat: dto.lat != null && dto.lat !== '' ? String(dto.lat) : null,
+        lng: dto.lng != null && dto.lng !== '' ? String(dto.lng) : null,
         principal: dto.principal ?? primeiro,
       })
       .returning();

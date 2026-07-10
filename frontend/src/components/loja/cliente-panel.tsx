@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { brl, getClienteToken, setClienteToken } from './tipos';
+import { buscarCep, localizacaoAtual } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,7 +33,22 @@ export function ClientePanel({
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
   const [novoEnd, setNovoEnd] = useState(false);
-  const [end, setEnd] = useState<any>({ apelido: '', logradouro: '', numero: '', bairro: '', bairroId: '', complemento: '', referencia: '' });
+  const [end, setEnd] = useState<any>({ apelido: '', cep: '', logradouro: '', numero: '', bairro: '', bairroId: '', complemento: '', referencia: '', lat: '', lng: '' });
+  const [geoMsg, setGeoMsg] = useState('');
+  async function cepBlur(cep: string) {
+    const d = await buscarCep(cep);
+    if (d) setEnd((s: any) => ({ ...s, logradouro: d.logradouro || s.logradouro, bairro: d.bairro || s.bairro, cidade: d.cidade || s.cidade }));
+  }
+  async function usarLocalizacao() {
+    setGeoMsg('Obtendo localização…');
+    try {
+      const c = await localizacaoAtual();
+      setEnd((s: any) => ({ ...s, lat: c.lat, lng: c.lng }));
+      setGeoMsg('📍 Localização capturada.');
+    } catch (e) {
+      setGeoMsg(e instanceof Error ? e.message : 'Falha ao localizar.');
+    }
+  }
   const [pedidoSel, setPedidoSel] = useState<any>(null);
 
   const clienteToken = getClienteToken(token);
@@ -235,6 +251,11 @@ export function ClientePanel({
               {novoEnd && (
                 <div className="mb-2 space-y-2 rounded-lg border border-black/10 p-2.5">
                   <input className={inp} placeholder="Apelido (Casa, Trabalho)" value={end.apelido} onChange={(e) => setEnd({ ...end, apelido: e.target.value })} />
+                  <div className="flex gap-2">
+                    <input className={`${inp} w-32`} inputMode="numeric" placeholder="CEP" value={end.cep} onChange={(e) => setEnd({ ...end, cep: e.target.value })} onBlur={(e) => cepBlur(e.target.value)} />
+                    <button type="button" onClick={usarLocalizacao} className="flex-1 rounded-lg border border-black/15 px-2 text-xs font-semibold">📍 Usar minha localização</button>
+                  </div>
+                  {geoMsg && <p className="text-[11px] text-black/50">{geoMsg}</p>}
                   <div className="flex gap-2">
                     <input className={inp} placeholder="Rua" value={end.logradouro} onChange={(e) => setEnd({ ...end, logradouro: e.target.value })} />
                     <input className={`${inp} w-24`} placeholder="Nº" value={end.numero} onChange={(e) => setEnd({ ...end, numero: e.target.value })} />

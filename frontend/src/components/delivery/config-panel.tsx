@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
+import { localizacaoAtual, geocodificar, mapaEmbedUrl, MAPS_KEY } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -448,6 +449,7 @@ export function ConfigPanel({
                       <Campo label="Referência"><Input value={loja.endReferencia ?? ''} onChange={(e) => up({ endReferencia: e.target.value })} /></Campo>
                       <Campo label="Complemento"><Input value={loja.endComplemento ?? ''} onChange={(e) => up({ endComplemento: e.target.value })} /></Campo>
                     </div>
+                    <PontoLojaMapa loja={loja} up={up} pode={isGestor} />
                     <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                   </Secao>
                 )}
@@ -676,14 +678,38 @@ function ListaBairros({ bairros, onSalvar, salvando, pode }: { bairros: any[]; o
   );
 }
 
+const RAIO_PRESETS: { km: number; label: string }[] = [
+  { km: 0.5, label: '500m' }, { km: 1, label: '1km' }, { km: 1.5, label: '1,5km' },
+  { km: 2, label: '2km' }, { km: 2.5, label: '2,5km' }, { km: 3, label: '3km' },
+  { km: 3.5, label: '3,5km' }, { km: 4, label: '4km' }, { km: 5, label: '5km' },
+  { km: 6, label: '6km' }, { km: 7, label: '7km' }, { km: 999, label: '7km+' },
+];
+
 function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]; onRaios: (r: any[]) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
   const lista = raios ?? [];
-  function add() { onRaios([...lista, { ateKm: '', taxa: 0 }]); }
+  function add(ateKm: any = '') { onRaios([...lista, { ateKm, taxa: 0 }].sort((a, b) => (Number(a.ateKm) || 9999) - (Number(b.ateKm) || 9999))); }
   function up(i: number, patch: any) { onRaios(lista.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
   function rem(i: number) { onRaios(lista.filter((_, j) => j !== i)); }
+  const jaTem = (km: number) => lista.some((r) => Number(r.ateKm) === km);
   return (
     <div className="space-y-2">
-      <p className="text-xs text-muted-foreground">Faixas a partir do endereço da loja: “até X km custa R$Y”. Some faixas para cobrir mais longe.</p>
+      <p className="text-xs text-muted-foreground">Faixas de distância a partir do endereço da loja: “até X km custa R$Y”. Toque num preset para adicionar e depois preencha a taxa.</p>
+      {/* Presets rápidos */}
+      {pode && (
+        <div className="flex flex-wrap gap-1.5">
+          {RAIO_PRESETS.map((p) => (
+            <button
+              key={p.km}
+              type="button"
+              disabled={jaTem(p.km)}
+              onClick={() => add(p.km)}
+              className="rounded-full border border-border px-2.5 py-1 text-xs hover:border-primary hover:text-primary disabled:opacity-40"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
       {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma faixa. Ex.: até 3 km R$5, até 6 km R$9.</p>}
       {lista.map((r, i) => (
         <div key={i} className="flex items-center gap-2 rounded-lg border border-border p-2 text-sm">
@@ -695,12 +721,68 @@ function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]
           {pode && <button type="button" className="ml-auto text-xs text-destructive" onClick={() => rem(i)}>remover</button>}
         </div>
       ))}
-      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O cálculo da distância no checkout do cliente depende de geocoding (endereço → coordenadas) — entra junto com a integração de mapas. A configuração já fica salva.</p>
+      <p className="rounded bg-ok/10 px-2 py-1 text-[11px] text-ok">O frete por distância usa a geolocalização do cliente (📍 no checkout) e o ponto da loja (aba Endereço). Defina o ponto da loja em Endereço.</p>
       {pode && (
         <div className="flex items-center justify-between pt-1">
-          <Button type="button" size="sm" variant="outline" onClick={add}>＋ Faixa</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => add()}>＋ Faixa manual</Button>
           <Button type="button" onClick={onSalvar} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Ponto da loja no mapa (base do frete por raio).
+function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => void; pode: boolean }) {
+  const [msg, setMsg] = useState('');
+  const lat = Number(loja.endLat);
+  const lng = Number(loja.endLng);
+  const temPonto = Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0);
+  const embed = temPonto ? mapaEmbedUrl(lat, lng) : '';
+  async function usarAtual() {
+    setMsg('Obtendo localização…');
+    try {
+      const c = await localizacaoAtual();
+      up({ endLat: c.lat, endLng: c.lng });
+      setMsg('📍 Ponto definido pela sua localização.');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Falha ao localizar.');
+    }
+  }
+  async function geocodar() {
+    const endereco = [loja.endRua, loja.endNumero, loja.endBairro, loja.endCidade, loja.endEstado]
+      .filter(Boolean)
+      .join(', ');
+    setMsg('Geocodificando o endereço…');
+    const c = await geocodificar(endereco || (loja.endCep ?? ''));
+    if (c) {
+      up({ endLat: c.lat, endLng: c.lng });
+      setMsg('📍 Ponto definido pelo endereço.');
+    } else {
+      setMsg(MAPS_KEY ? 'Endereço não encontrado.' : 'Configure NEXT_PUBLIC_GOOGLE_MAPS_API_KEY para geocodificar.');
+    }
+  }
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3">
+      <p className="text-sm font-semibold">Ponto da loja no mapa</p>
+      <p className="text-xs text-muted-foreground">Base para o frete por distância (raio). Defina pelo endereço, pela sua localização, ou ajuste as coordenadas.</p>
+      {pode && (
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={geocodar}>Definir pelo endereço</Button>
+          <Button type="button" size="sm" variant="outline" onClick={usarAtual}>Usar minha localização</Button>
+        </div>
+      )}
+      <div className="flex gap-2">
+        <Campo label="Latitude"><Input value={loja.endLat ?? ''} onChange={(e) => up({ endLat: e.target.value })} disabled={!pode} /></Campo>
+        <Campo label="Longitude"><Input value={loja.endLng ?? ''} onChange={(e) => up({ endLng: e.target.value })} disabled={!pode} /></Campo>
+      </div>
+      {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
+      {embed ? (
+        <iframe title="Mapa da loja" src={embed} className="h-56 w-full rounded-lg border-0" loading="lazy" allowFullScreen />
+      ) : temPonto ? (
+        <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">Coordenadas salvas. Configure <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> para exibir o mapa aqui.</p>
+      ) : (
+        <p className="text-xs text-muted-foreground">Defina o ponto para ver o mapa.</p>
       )}
     </div>
   );
