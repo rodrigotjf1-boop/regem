@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
-import { localizacaoAtual, geocodificar, mapaEmbedUrl, MAPS_KEY } from '@/lib/geo';
+import { buscarCep, localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -440,7 +440,7 @@ export function ConfigPanel({
                 {sec === 'endereco' && (
                   <Secao dica="Endereço físico da loja.">
                     <div className="grid grid-cols-2 gap-2">
-                      <Campo label="CEP"><Input value={loja.endCep ?? ''} onChange={(e) => up({ endCep: e.target.value })} /></Campo>
+                      <Campo label="CEP"><Input value={loja.endCep ?? ''} onChange={(e) => up({ endCep: e.target.value })} onBlur={async (e) => { const d = await buscarCep(e.target.value); if (d) up({ endRua: d.logradouro || loja.endRua, endBairro: d.bairro || loja.endBairro, endCidade: d.cidade || loja.endCidade, endEstado: d.uf || loja.endEstado }); }} placeholder="00000-000" /></Campo>
                       <Campo label="Cidade"><Input value={loja.endCidade ?? ''} onChange={(e) => up({ endCidade: e.target.value })} /></Campo>
                       <Campo label="Rua"><Input value={loja.endRua ?? ''} onChange={(e) => up({ endRua: e.target.value })} /></Campo>
                       <Campo label="Número"><Input value={loja.endNumero ?? ''} onChange={(e) => up({ endNumero: e.target.value })} /></Campo>
@@ -759,7 +759,7 @@ function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => void; po
       up({ endLat: c.lat, endLng: c.lng });
       setMsg('📍 Ponto definido pelo endereço.');
     } else {
-      setMsg(MAPS_KEY ? 'Endereço não encontrado.' : 'Configure NEXT_PUBLIC_GOOGLE_MAPS_API_KEY para geocodificar.');
+      setMsg('Endereço não encontrado. Confira rua/número/cidade ou use "Usar minha localização".');
     }
   }
   return (
@@ -779,8 +779,6 @@ function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => void; po
       {msg && <p className="text-xs text-muted-foreground">{msg}</p>}
       {embed ? (
         <iframe title="Mapa da loja" src={embed} className="h-56 w-full rounded-lg border-0" loading="lazy" allowFullScreen />
-      ) : temPonto ? (
-        <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">Coordenadas salvas. Configure <code>NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code> para exibir o mapa aqui.</p>
       ) : (
         <p className="text-xs text-muted-foreground">Defina o ponto para ver o mapa.</p>
       )}
