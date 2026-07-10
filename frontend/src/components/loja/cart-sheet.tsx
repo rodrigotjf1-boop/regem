@@ -52,6 +52,7 @@ export function CartSheet({
   enviando,
   tipos,
   abertaAgora,
+  areaRaio,
 }: {
   accent: string;
   loja: any;
@@ -91,6 +92,7 @@ export function CartSheet({
   onCadastrarEndereco?: (dados: any) => Promise<void>;
   temCliente?: boolean;
   enviando: boolean;
+  areaRaio?: boolean;
 }) {
   const set = (patch: any) => setChk((s: any) => ({ ...s, ...patch }));
   const listaEnd = enderecos ?? [];
@@ -139,7 +141,7 @@ export function CartSheet({
     setEndSel((cur) => cur || pr?.id || '');
   }, [listaEnd]);
   async function salvarNovoEndereco() {
-    if (!onCadastrarEndereco || !ne.logradouro.trim() || !ne.bairroId) return;
+    if (!onCadastrarEndereco || !ne.logradouro.trim() || (!areaRaio && !ne.bairroId)) return;
     setSalvandoEnd(true);
     try {
       await onCadastrarEndereco(ne);
@@ -170,7 +172,7 @@ export function CartSheet({
     (!isIndustria && (loja.pagamentos ?? []).length > 0 && !chk.forma) ||
     (chk.forma === 'cartao' && (loja.formasCartao ?? []).length > 0 && !chk.bandeira) ||
     (agendar && !chk.agendamento) ||
-    (chk.tipo === 'entrega' && (!chk.rua || !chk.bairroId)) ||
+    (chk.tipo === 'entrega' && (!chk.rua || (areaRaio ? !(chk.lat && chk.lng) : !chk.bairroId))) ||
     !((chk.nome ?? '').trim()) ||
     !((chk.telefone ?? '').trim());
 
@@ -323,12 +325,14 @@ export function CartSheet({
                     <input value={ne.logradouro} onChange={(e) => setNe({ ...ne, logradouro: e.target.value })} placeholder="Rua / Avenida" className="flex-[2] rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
                     <input value={ne.numero} onChange={(e) => setNe({ ...ne, numero: e.target.value })} placeholder="Nº" className="w-20 rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
                   </div>
-                  <select aria-label="Bairro (área de entrega)" value={ne.bairroId} onChange={(e) => setNe({ ...ne, bairroId: e.target.value })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
-                    <option value="">Selecione o bairro (área de entrega)</option>
-                    {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
-                  </select>
+                  {!areaRaio && (
+                    <select aria-label="Bairro (área de entrega)" value={ne.bairroId} onChange={(e) => setNe({ ...ne, bairroId: e.target.value })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+                      <option value="">Selecione o bairro (área de entrega)</option>
+                      {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
+                    </select>
+                  )}
                   <input value={ne.referencia} onChange={(e) => setNe({ ...ne, referencia: e.target.value })} placeholder="Complemento / referência (opcional)" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-                  <button type="button" onClick={salvarNovoEndereco} disabled={salvandoEnd || !ne.logradouro.trim() || !ne.bairroId} className="w-full rounded-lg py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: accent }}>
+                  <button type="button" onClick={salvarNovoEndereco} disabled={salvandoEnd || !ne.logradouro.trim() || (!areaRaio && !ne.bairroId)} className="w-full rounded-lg py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: accent }}>
                     {salvandoEnd ? 'Salvando…' : 'Salvar endereço'}
                   </button>
                 </div>
@@ -342,16 +346,18 @@ export function CartSheet({
                     <input value={chk.numero} onChange={(e) => set({ numero: e.target.value })} placeholder="Nº" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
                   </div>
                   <input value={chk.referencia} onChange={(e) => set({ referencia: e.target.value })} placeholder="Ponto de referência (opcional)" className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
-                  <select aria-label="Bairro" value={chk.bairroId} onChange={(e) => set({ bairroId: e.target.value })} className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base">
-                    <option value="">Selecione o bairro (área de entrega)</option>
-                    {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
-                  </select>
-                  {bairros.length === 0 && (
+                  {!areaRaio && (
+                    <select aria-label="Bairro" value={chk.bairroId} onChange={(e) => set({ bairroId: e.target.value })} className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base">
+                      <option value="">Selecione o bairro (área de entrega)</option>
+                      {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
+                    </select>
+                  )}
+                  {(areaRaio || bairros.length === 0) && (
                     <div className="space-y-1">
                       <button type="button" onClick={usarLocalizacaoChk} className="w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold" style={{ color: accent }}>
                         📍 Usar minha localização (frete por distância)
                       </button>
-                      <p className={`text-xs ${chk.lat ? 'text-emerald-600' : 'text-amber-600'}`}>{geoChk || (chk.lat ? '📍 Localização definida.' : 'Ative a localização para calcular o frete por distância.')}</p>
+                      <p className={`text-xs ${chk.lat ? 'text-emerald-600' : 'text-amber-600'}`}>{geoChk || (chk.lat ? '📍 Localização definida — frete calculado pela distância.' : 'Preencha o CEP/endereço ou toque em usar localização para calcular o frete.')}</p>
                     </div>
                   )}
                 </>
