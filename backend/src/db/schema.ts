@@ -1645,6 +1645,8 @@ export const clienteEndereco = pgTable('cliente_endereco', {
   bairroId: uuid('bairro_id'), // área de atendimento (cardapio_bairro) → frete
   cidade: text('cidade'),
   referencia: text('referencia'),
+  lat: numeric('lat'), // geolocalização (frete por raio)
+  lng: numeric('lng'),
   principal: boolean('principal').notNull().default(false),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });

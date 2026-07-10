@@ -32,6 +32,18 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Distância entre duas coordenadas (km) — frete por raio.
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLon = rad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 @Injectable()
 export class CardapioService {
   constructor(
@@ -888,11 +900,14 @@ export class CardapioService {
       referencia?: string;
       telefone2?: string;
       bairroId?: string;
+      lat?: number; // frete por raio
+      lng?: number;
       formaPagamento?: string;
       bandeira?: string; // forma de cartão escolhida (rótulo)
       trocoPara?: number;
       cupom?: string;
       resgateId?: string; // prêmio de fidelidade a abater no pedido
+      usarCashback?: boolean; // false = não usar o saldo de cashback
       agendamento?: string; // serviços: data/hora
       profissional?: string; // serviços
       cnpj?: string; // indústria: faturamento
@@ -981,7 +996,20 @@ export class CardapioService {
     let taxa = 0;
     let bairroNome: string | undefined;
     if (tipo === 'entrega') {
-      if (dto.bairroId) {
+      if (cfg.areaModo === 'raio') {
+        // Frete por raio: distância loja→cliente (Haversine) escolhe a faixa.
+        const lat = Number(dto.lat);
+        const lng = Number(dto.lng);
+        const slat = Number(cfg.endLat);
+        const slng = Number(cfg.endLng);
+        const raios = [...((cfg.raios as any[]) ?? [])].sort((a, b) => Number(a.ateKm) - Number(b.ateKm));
+        if ([lat, lng, slat, slng].every((n) => Number.isFinite(n)) && raios.length) {
+          const km = haversineKm(slat, slng, lat, lng);
+          const faixa = raios.find((r) => km <= Number(r.ateKm)) ?? raios[raios.length - 1];
+          taxa = Number(faixa.taxa) || 0;
+          bairroNome = `~${km.toFixed(1)} km`;
+        }
+      } else if (dto.bairroId) {
         const [b] = await this.db
           .select()
           .from(cardapioBairro)
@@ -1019,11 +1047,11 @@ export class CardapioService {
       : { desconto: 0 };
     desconto = Number((desconto + (premio.desconto || 0)).toFixed(2));
     // Cashback: aplica saldo (valor) + vales (produto) sobre o que restou.
-    const cb = await this.cashback.avaliarDescontos(
-      cfg.tenantId,
-      dto.telefone ?? '',
-      Math.max(0, total - desconto),
-    );
+    // O cliente pode optar por NÃO usar o saldo (usarCashback=false).
+    const cb =
+      dto.usarCashback === false
+        ? { saldoUsado: 0, vales: [] as any[], desconto: 0 }
+        : await this.cashback.avaliarDescontos(cfg.tenantId, dto.telefone ?? '', Math.max(0, total - desconto));
     desconto = Number((desconto + (cb.desconto || 0)).toFixed(2));
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { buscarCep } from '@/lib/geo';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Card } from '@/components/ui/card';
@@ -20,10 +21,15 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
   const [tipo, setTipo] = useState<'entrega' | 'retirada'>('entrega');
   const [cliente, setCliente] = useState('');
   const [telefone, setTelefone] = useState('');
+  const [cep, setCep] = useState('');
   const [rua, setRua] = useState('');
   const [numero, setNumero] = useState('');
   const [bairro, setBairro] = useState('');
   const [ref, setRef] = useState('');
+  async function cepBlur(v: string) {
+    const d = await buscarCep(v);
+    if (d) { setRua((r) => r || d.logradouro); setBairro((b) => b || d.bairro); }
+  }
   const [formas, setFormas] = useState<any[]>([]);
   const [forma, setForma] = useState('Dinheiro');
   const [trocoPara, setTrocoPara] = useState('');
@@ -166,6 +172,8 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
           )}
           {tipo === 'entrega' && (
             <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1"><Label className="text-xs">CEP</Label><Input value={cep} inputMode="numeric" onChange={(e) => setCep(e.target.value)} onBlur={(e) => cepBlur(e.target.value)} placeholder="00000-000" /></div>
+              <div className="flex items-end"><span className="text-xs text-muted-foreground">Preenche rua e bairro automaticamente.</span></div>
               <div className="col-span-2 space-y-1"><Label className="text-xs">Rua</Label><Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Rua / logradouro" /></div>
               <div className="space-y-1"><Label className="text-xs">Número</Label><Input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="123" /></div>
               <div className="space-y-1"><Label className="text-xs">Bairro</Label><Input value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Bairro" /></div>

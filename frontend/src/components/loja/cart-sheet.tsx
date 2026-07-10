@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { brl, type CartItem } from '@/components/loja/tipos';
+import { buscarCep, localizacaoAtual } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -35,6 +36,10 @@ export function CartSheet({
   premioDesc,
   premioNome,
   onEscolherPremio,
+  cashbackSaldo,
+  cashbackDesc,
+  usarCashback,
+  onUsarCashback,
   onQtd,
   onRemove,
   onAddUpsell,
@@ -72,6 +77,10 @@ export function CartSheet({
   premioDesc?: number;
   premioNome?: string;
   onEscolherPremio?: (id: string) => void;
+  cashbackSaldo?: number;
+  cashbackDesc?: number;
+  usarCashback?: boolean;
+  onUsarCashback?: (v: boolean) => void;
   onQtd: (key: string, d: number) => void;
   onRemove: (key: string) => void;
   onAddUpsell: (p: any) => void;
@@ -87,8 +96,34 @@ export function CartSheet({
   const listaEnd = enderecos ?? [];
   const [endSel, setEndSel] = useState('');
   const [novoEnd, setNovoEnd] = useState(false);
-  const [ne, setNe] = useState({ apelido: '', logradouro: '', numero: '', bairroId: '', referencia: '' });
+  const [ne, setNe] = useState<any>({ apelido: '', cep: '', logradouro: '', numero: '', bairroId: '', referencia: '', cidade: '', lat: '', lng: '' });
   const [salvandoEnd, setSalvandoEnd] = useState(false);
+  const [geoMsg, setGeoMsg] = useState('');
+  async function cepBlurNe(cep: string) {
+    const d = await buscarCep(cep);
+    if (d) setNe((s: any) => ({ ...s, logradouro: d.logradouro || s.logradouro, cidade: d.cidade || s.cidade }));
+  }
+  async function usarLocalizacaoNe() {
+    setGeoMsg('Obtendo localização…');
+    try {
+      const c = await localizacaoAtual();
+      setNe((s: any) => ({ ...s, lat: c.lat, lng: c.lng }));
+      setGeoMsg('📍 Localização capturada.');
+    } catch (e) {
+      setGeoMsg(e instanceof Error ? e.message : 'Falha ao localizar.');
+    }
+  }
+  const [geoChk, setGeoChk] = useState('');
+  async function usarLocalizacaoChk() {
+    setGeoChk('Obtendo localização…');
+    try {
+      const c = await localizacaoAtual();
+      set({ lat: c.lat, lng: c.lng });
+      setGeoChk('📍 Localização capturada — frete por distância.');
+    } catch (e) {
+      setGeoChk(e instanceof Error ? e.message : 'Falha ao localizar.');
+    }
+  }
   const [mostrarCupons, setMostrarCupons] = useState(false);
   const sugeridos = cuponsSugeridos ?? [];
   const cupomSugLabel = (c: any) =>
@@ -231,29 +266,6 @@ export function CartSheet({
           )}
           {cupomOk && <p className={`mt-1 text-xs ${cupomOk.valido ? 'text-emerald-600' : 'text-red-600'}`}>{cupomOk.valido ? (cupomOk.freteGratis ? 'Cupom aplicado: frete grátis 🛵' : `Cupom aplicado: −${brl(cupomOk.desconto)}`) : cupomOk.motivo ?? 'Cupom inválido'}</p>}
 
-          {/* prêmio de fidelidade resgatado (abate automático) */}
-          {(premios?.length ?? 0) > 0 && (
-            <div className="mt-3 rounded-xl border-2 border-dashed p-3" style={{ borderColor: accent }}>
-              <p className="text-sm font-bold">🎁 Prêmio de fidelidade</p>
-              {(premios ?? []).length > 1 ? (
-                <select
-                  aria-label="Prêmio a usar"
-                  value={premioSel}
-                  onChange={(e) => onEscolherPremio?.(e.target.value)}
-                  className="mt-2 w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
-                >
-                  <option value="">Não usar prêmio agora</option>
-                  {(premios ?? []).map((p: any) => (
-                    <option key={p.id} value={p.id}>{p.plano} — {p.recompensa}</option>
-                  ))}
-                </select>
-              ) : (
-                <p className="mt-0.5 text-xs text-neutral-600">{premios?.[0]?.plano} — {premios?.[0]?.recompensa}</p>
-              )}
-              {(premioDesc ?? 0) > 0 && <p className="mt-1 text-xs font-semibold text-emerald-600">Desconto aplicado: −{brl(premioDesc ?? 0)}</p>}
-            </div>
-          )}
-
           {/* entrega / retirada (respeita os tipos habilitados na config) */}
           {!isServico && opcoesTipo.length > 1 && (
             <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl border border-neutral-200 p-1">
@@ -303,6 +315,11 @@ export function CartSheet({
                 <div className="space-y-2 rounded-xl border border-neutral-200 bg-neutral-50 p-2.5">
                   <input value={ne.apelido} onChange={(e) => setNe({ ...ne, apelido: e.target.value })} placeholder="Apelido (Casa, Trabalho)" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
                   <div className="flex gap-2">
+                    <input value={ne.cep} onChange={(e) => setNe({ ...ne, cep: e.target.value })} onBlur={(e) => cepBlurNe(e.target.value)} inputMode="numeric" placeholder="CEP" className="w-28 rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                    <button type="button" onClick={usarLocalizacaoNe} className="flex-1 rounded-lg border border-neutral-300 px-2 text-xs font-semibold">📍 Usar minha localização</button>
+                  </div>
+                  {geoMsg && <p className="text-[11px] text-neutral-500">{geoMsg}</p>}
+                  <div className="flex gap-2">
                     <input value={ne.logradouro} onChange={(e) => setNe({ ...ne, logradouro: e.target.value })} placeholder="Rua / Avenida" className="flex-[2] rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
                     <input value={ne.numero} onChange={(e) => setNe({ ...ne, numero: e.target.value })} placeholder="Nº" className="w-20 rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
                   </div>
@@ -329,7 +346,14 @@ export function CartSheet({
                     <option value="">Selecione o bairro (área de entrega)</option>
                     {bairros.map((b) => <option key={b.id} value={b.id}>{b.nome} — {brl(b.taxa)}</option>)}
                   </select>
-                  {bairros.length === 0 && <p className="text-xs text-amber-600">Nenhuma área de entrega cadastrada nas configurações do cardápio.</p>}
+                  {bairros.length === 0 && (
+                    <div className="space-y-1">
+                      <button type="button" onClick={usarLocalizacaoChk} className="w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold" style={{ color: accent }}>
+                        📍 Usar minha localização (frete por distância)
+                      </button>
+                      <p className={`text-xs ${chk.lat ? 'text-emerald-600' : 'text-amber-600'}`}>{geoChk || (chk.lat ? '📍 Localização definida.' : 'Ative a localização para calcular o frete por distância.')}</p>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -389,7 +413,41 @@ export function CartSheet({
               )}
               {chk.forma === 'cartao' && loja.parcelasMax > 1 && <p className="mt-1 text-xs text-neutral-500">Em até {loja.parcelasMax}x no cartão.</p>}
               {chk.forma === 'entrega' && (
-                <input value={chk.troco} onChange={(e) => set({ troco: e.target.value })} inputMode="decimal" placeholder="Troco para quanto?" className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                <div className="relative mt-2">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-base">💵</span>
+                  <input value={chk.troco} onChange={(e) => set({ troco: e.target.value })} inputMode="decimal" placeholder="Troco para quanto?" className="w-full rounded-xl border border-neutral-200 py-2.5 pl-9 pr-3 text-base" />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* resgates: prêmio de fidelidade + saldo de cashback (entre troco e valores) */}
+          {((premios?.length ?? 0) > 0 || (cashbackSaldo ?? 0) > 0) && (
+            <div className="mt-4 space-y-2 rounded-xl border-2 border-dashed p-3" style={{ borderColor: accent }}>
+              <p className="text-sm font-bold">🎁 Usar no pedido</p>
+              {(premios?.length ?? 0) > 0 && (
+                <div>
+                  {(premios ?? []).length > 1 ? (
+                    <select aria-label="Prêmio a usar" value={premioSel} onChange={(e) => onEscolherPremio?.(e.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+                      <option value="">Não usar prêmio agora</option>
+                      {(premios ?? []).map((p: any) => (
+                        <option key={p.id} value={p.id}>{p.plano} — {p.recompensa}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={!!premioSel} onChange={(e) => onEscolherPremio?.(e.target.checked ? premios?.[0]?.id ?? '' : '')} />
+                      Usar prêmio: {premios?.[0]?.plano} — {premios?.[0]?.recompensa}
+                    </label>
+                  )}
+                  {(premioDesc ?? 0) > 0 && <p className="mt-1 text-xs font-semibold text-emerald-600">Prêmio: −{brl(premioDesc ?? 0)}</p>}
+                </div>
+              )}
+              {(cashbackSaldo ?? 0) > 0 && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" className="h-4 w-4 accent-emerald-600" checked={usarCashback !== false} onChange={(e) => onUsarCashback?.(e.target.checked)} />
+                  Usar meu saldo de cashback (<b>{brl(cashbackSaldo ?? 0)}</b> disponível)
+                </label>
               )}
             </div>
           )}
@@ -399,6 +457,7 @@ export function CartSheet({
             <div className="flex justify-between text-neutral-500"><span>Subtotal</span><span className="font-mono">{brl(total)}</span></div>
             {desc > 0 && <div className="flex justify-between text-emerald-600"><span>Cupom</span><span className="font-mono">− {brl(desc)}</span></div>}
             {(premioDesc ?? 0) > 0 && <div className="flex justify-between text-emerald-600"><span>Prêmio{premioNome ? ` · ${premioNome}` : ''}</span><span className="font-mono">− {brl(premioDesc ?? 0)}</span></div>}
+            {(cashbackDesc ?? 0) > 0 && <div className="flex justify-between text-emerald-600"><span>Cashback</span><span className="font-mono">− {brl(cashbackDesc ?? 0)}</span></div>}
             {!isServico && chk.tipo === 'entrega' && <div className="flex justify-between text-neutral-500"><span>Frete {bairroSel ? `· ${bairroSel.nome}` : ''}</span><span className="font-mono">{taxa === 0 ? 'Grátis' : brl(taxa)}</span></div>}
             {loja.fidelidadeAtiva && !isIndustria && <div className="flex justify-between text-emerald-600"><span>Fidelidade</span><span className="font-mono">+ {Math.round(totalFinal)} pts</span></div>}
             <div className="flex justify-between text-base font-bold"><span>{isIndustria ? 'Estimativa' : 'Total'}</span><span className="font-mono">{brl(totalFinal)}</span></div>
