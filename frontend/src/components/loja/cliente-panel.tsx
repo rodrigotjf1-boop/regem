@@ -108,12 +108,56 @@ export function ClientePanel({
       setErro(e instanceof Error ? e.message : 'Erro ao repetir pedido');
     }
   }
-  async function esquecer() {
-    if (!clienteToken) return;
-    if (!confirm('Apagar seus dados (perfil, endereços e vínculo com pedidos) deste estabelecimento?')) return;
-    await api.clienteEsquecer(token, clienteToken).catch(() => {});
+  // Sair: só desconecta este aparelho (não apaga a conta).
+  function sair() {
     setClienteToken(token, null);
     setPerfil(null);
+    onClose();
+  }
+
+  // Excluir conta: exige confirmação por código OTP no WhatsApp.
+  const [excluir, setExcluir] = useState<'aviso' | 'codigo' | null>(null);
+  const [codExc, setCodExc] = useState('');
+  const [busyExc, setBusyExc] = useState(false);
+  const [erroExc, setErroExc] = useState('');
+
+  async function enviarCodExclusao() {
+    const tel = perfil?.cliente?.telefone;
+    if (!tel) return;
+    setBusyExc(true);
+    setErroExc('');
+    try {
+      const r: any = await api.clienteOtpEnviar(token, tel);
+      setExcluir('codigo');
+      if (!r?.enviado) setErroExc('Código gerado (envio por WhatsApp ainda não configurado).');
+    } catch (e) {
+      setErroExc(e instanceof Error ? e.message : 'Erro ao enviar o código');
+    } finally {
+      setBusyExc(false);
+    }
+  }
+  async function confirmarExclusao() {
+    if (codExc.trim().length < 4) return setErroExc('Digite o código recebido.');
+    if (!clienteToken) return;
+    setBusyExc(true);
+    setErroExc('');
+    try {
+      // Verifica o código (valida a posse do telefone) e então exclui a conta.
+      await api.clienteOtpConfirmar(token, {
+        telefone: perfil?.cliente?.telefone,
+        codigo: codExc,
+        nome: perfil?.cliente?.nome ?? 'Cliente',
+      });
+      await api.clienteEsquecer(token, clienteToken).catch(() => {});
+      setClienteToken(token, null);
+      setPerfil(null);
+      setExcluir(null);
+      onClose();
+    } catch (e) {
+      setErroExc(e instanceof Error ? e.message : 'Código inválido');
+    } finally {
+      setBusyExc(false);
+    }
   }
 
   const inp = 'w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm';
@@ -235,10 +279,47 @@ export function ClientePanel({
               </div>
             </div>
 
-            <button type="button" onClick={esquecer} className="text-xs text-red-500 underline">Sair e apagar meus dados</button>
+            <div className="flex items-center justify-between border-t border-black/10 pt-3">
+              <button type="button" onClick={sair} className="text-sm font-semibold text-[#1a1a1a] underline">Sair</button>
+              <button type="button" onClick={() => { setExcluir('aviso'); setErroExc(''); setCodExc(''); }} className="flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600" title="Excluir conta">
+                🗑️ Excluir conta
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      {/* Excluir conta — confirmação + OTP */}
+      {excluir && (
+        <div className="fixed inset-0 z-[75] flex items-end justify-center bg-black/50 sm:items-center" onClick={() => setExcluir(null)}>
+          <div className="w-full max-w-sm rounded-t-2xl bg-white p-5 text-[#1a1a1a] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+            <p className="text-base font-bold text-red-600">Excluir sua conta?</p>
+            {excluir === 'aviso' ? (
+              <>
+                <p className="mt-2 text-sm text-black/70">
+                  Você vai perder <b>todo o histórico de pedidos, seus dados, endereços salvos e os pontos de fidelidade</b> deste estabelecimento. Essa ação não pode ser desfeita.
+                </p>
+                <p className="mt-2 text-xs text-black/50">Para confirmar, enviaremos um código pelo WhatsApp.</p>
+                {erroExc && <p className="mt-2 text-xs text-red-600">{erroExc}</p>}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setExcluir(null)} className="rounded-lg border border-black/15 py-2.5 text-sm font-semibold">Cancelar</button>
+                  <button type="button" onClick={enviarCodExclusao} disabled={busyExc} className="rounded-lg bg-red-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busyExc ? 'Enviando…' : 'Sim, excluir'}</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-black/70">Digite o código enviado para o seu WhatsApp para confirmar a exclusão.</p>
+                <input value={codExc} onChange={(e) => setCodExc(e.target.value)} inputMode="numeric" placeholder="Código" className="mt-3 w-full rounded-lg border border-black/10 px-3 py-2 text-center font-mono text-lg tracking-widest" />
+                {erroExc && <p className="mt-2 text-xs text-red-600">{erroExc}</p>}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setExcluir(null)} className="rounded-lg border border-black/15 py-2.5 text-sm font-semibold">Cancelar</button>
+                  <button type="button" onClick={confirmarExclusao} disabled={busyExc} className="rounded-lg bg-red-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{busyExc ? 'Excluindo…' : 'Confirmar exclusão'}</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Detalhe do pedido (toast/modal) */}
       {pedidoSel && (

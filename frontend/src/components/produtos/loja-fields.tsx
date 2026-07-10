@@ -21,6 +21,7 @@ export function LojaFields({
         <div className="space-y-1 sm:col-span-3">
           <Label className="text-xs text-muted-foreground">Foto do produto</Label>
           <ImageUpload value={f.imagemRef || undefined} onChange={(url) => set({ imagemRef: url })} alt={f.nome || 'produto'} />
+          <p className="text-[11px] text-muted-foreground">Ideal: imagem <strong>quadrada 800×800px</strong> (mín. 500×500), JPG ou PNG até ~1&nbsp;MB. O cardápio recorta centralizado — deixe o produto no centro.</p>
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Preço promocional (de/por)</Label>

@@ -508,6 +508,35 @@ export class CardapioService {
     );
   }
 
+  // Rótulo de horário para o cabeçalho: "Aberta até 23:00" ou "Abre às 18:00"
+  // (com dia abreviado quando não for hoje). null quando não há horários.
+  private horarioLabel(cfg: any): string | null {
+    if (cfg.aberto === false) return 'Fechada';
+    const hs = (cfg.horarios ?? []) as any[];
+    if (!Array.isArray(hs) || hs.length === 0) return null;
+    const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const dia = agora.getDay();
+    const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+    const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+    if (this.estaAberta(cfg)) {
+      const doDia = hs.filter((h) => Number(h.dia) === dia && h.ativo && h.abre && h.fecha);
+      const win = doDia.find((h) =>
+        h.fecha > h.abre ? hhmm >= h.abre && hhmm <= h.fecha : hhmm >= h.abre || hhmm <= h.fecha,
+      );
+      return win ? `Aberta até ${win.fecha}` : 'Aberta';
+    }
+    // Fechada: procura a próxima abertura (hoje mais tarde, senão próximos dias).
+    for (let d = 0; d < 7; d++) {
+      const cd = (dia + d) % 7;
+      const wins = hs
+        .filter((h) => Number(h.dia) === cd && h.ativo && h.abre && h.fecha)
+        .filter((h) => d > 0 || h.abre > hhmm)
+        .sort((a, b) => (a.abre < b.abre ? -1 : 1));
+      if (wins.length) return d === 0 ? `Abre às ${wins[0].abre}` : `Abre ${DIAS[cd]} ${wins[0].abre}`;
+    }
+    return 'Fechada';
+  }
+
   async menu(token: string) {
     const cfg = await this.resolver(token);
     const cats = await this.db
@@ -602,6 +631,7 @@ export class CardapioService {
       },
       // Aberta agora (respeita horários) — o storefront e o robô usam isto.
       abertaAgora: this.estaAberta(cfg),
+      horarioLabel: this.horarioLabel(cfg), // "Aberta até 23:00" / "Abre às 18:00"
       // Contexto para o robô/atendimento (o n8n lê tudo com o token):
       horarios: cfg.horarios ?? [],
       tipos: {
@@ -623,6 +653,10 @@ export class CardapioService {
         taxa: Number(b.taxa),
       })),
       categorias: cats.map((c) => ({ id: c.id, nome: c.nome })),
+      // Banners ativos (aparecem no topo do cardápio no lugar da busca).
+      banners: (await this.listarBanners(cfg.tenantId))
+        .filter((b: any) => b.ativo !== false && b.imagemRef)
+        .map((b: any) => ({ imagemRef: b.imagemRef, titulo: b.titulo ?? null, link: b.link ?? null })),
       produtos: lista.map((p: any) => {
         const promo = p.precoPromocional != null ? Number(p.precoPromocional) : null;
         return {
@@ -708,6 +742,56 @@ export class CardapioService {
       statusTexto: LABEL[r.status] ?? r.status,
       estimativaMin: ['novo', 'confirmado', 'pronto', 'despachado'].includes(r.status) ? estimativaMin : null,
     }));
+  }
+
+  // Público: último pedido do cliente (com imagem dos produtos) — card do topo.
+  async ultimoPedidoPublico(token: string, telefone: string) {
+    const cfg = await this.resolver(token);
+    const digits = String(telefone ?? '').replace(/\D/g, '');
+    if (digits.length < 8) return null;
+    const tail = digits.slice(-8);
+    const [ped] = await this.db
+      .select({
+        id: pedidoExterno.id,
+        displayId: pedidoExterno.displayId,
+        total: pedidoExterno.total,
+        criadoEm: pedidoExterno.criadoEm,
+        itens: pedidoExterno.itens,
+      })
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, cfg.tenantId),
+          or(
+            ilike(pedidoExterno.clienteTelefone, `%${tail}%`),
+            ilike(pedidoExterno.clienteTelefone2, `%${tail}%`),
+          ),
+        ),
+      )
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(1);
+    if (!ped) return null;
+    const itens = Array.isArray(ped.itens) ? (ped.itens as any[]) : [];
+    const ids = [...new Set(itens.map((i) => i.produtoId).filter(Boolean))];
+    const imgs = ids.length
+      ? await this.db
+          .select({ id: produto.id, imagemRef: produto.imagemRef, nome: produto.nome })
+          .from(produto)
+          .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)))
+      : [];
+    const byId = new Map(imgs.map((p) => [p.id, p]));
+    return {
+      id: ped.id,
+      displayId: ped.displayId,
+      total: Number(ped.total),
+      criadoEm: ped.criadoEm,
+      itens: itens.map((i) => ({
+        produtoId: i.produtoId,
+        nome: i.descricao ?? byId.get(i.produtoId)?.nome ?? 'Item',
+        quantidade: Number(i.quantidade) || 1,
+        imagemRef: byId.get(i.produtoId)?.imagemRef ?? null,
+      })),
+    };
   }
 
   // Público: valida um cupom para um subtotal (com telefone p/ condicionais).
@@ -806,6 +890,7 @@ export class CardapioService {
       bandeira?: string; // forma de cartão escolhida (rótulo)
       trocoPara?: number;
       cupom?: string;
+      resgateId?: string; // prêmio de fidelidade a abater no pedido
       agendamento?: string; // serviços: data/hora
       profissional?: string; // serviços
       cnpj?: string; // indústria: faturamento
@@ -924,8 +1009,13 @@ export class CardapioService {
     const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
       telefone: dto.telefone,
     });
-    const desconto = cup.valido ? cup.desconto : 0;
+    let desconto = cup.valido ? cup.desconto : 0;
     if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
+    // Prêmio de fidelidade resgatado: abate automático no pedido.
+    const premio = cfg.fidelidadeAtiva
+      ? await this.fidelidade.avaliarPremio(cfg.tenantId, dto.resgateId, dto.telefone ?? '', itensOut, total)
+      : { desconto: 0 };
+    desconto = Number((desconto + (premio.desconto || 0)).toFixed(2));
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
@@ -1034,6 +1124,15 @@ export class CardapioService {
       }
     }
 
+    // Prêmio de fidelidade consumido: marca como usado neste pedido.
+    if ((premio as any).desconto > 0 && (premio as any).resgateId && ped?.id) {
+      try {
+        await this.fidelidade.marcarPremioUsado(cfg.tenantId, (premio as any).resgateId, ped.id);
+      } catch {
+        /* não bloqueia o pedido */
+      }
+    }
+
     // Fidelidade (L5): pontua os planos que o pedido atende (dedupe por pedido).
     let fidelidade: any;
     if (cfg.fidelidadeAtiva && dto.telefone && ped?.id) {
@@ -1063,6 +1162,7 @@ export class CardapioService {
       agendamento: dto.agendamento ?? null,
       pontos: fidelidade?.pontosGanhos ?? undefined,
       fidelidade: fidelidade ?? null,
+      premioAplicado: (premio as any).desconto > 0 ? { plano: (premio as any).plano, desconto: (premio as any).desconto } : null,
       clienteToken: clienteTokenOut, // identidade do cliente (guardar no navegador)
     };
   }
@@ -1114,6 +1214,13 @@ export class CardapioService {
   async resgatarFidelidade(token: string, resgateId: string, telefone: string) {
     const cfg = await this.resolver(token);
     return this.fidelidade.resgatar(cfg.tenantId, resgateId, telefone);
+  }
+
+  // Público: prêmios já resgatados, prontos para abater no próximo pedido.
+  async premiosFidelidade(token: string, telefone: string) {
+    const cfg = await this.resolver(token);
+    if (!cfg.fidelidadeAtiva) return [];
+    return this.fidelidade.premiosParaUsar(cfg.tenantId, telefone);
   }
 
   // Acha (ou abre) a mesa pelo número e devolve a comanda ativa dela.

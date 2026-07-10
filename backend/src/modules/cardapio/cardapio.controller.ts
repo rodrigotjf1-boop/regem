@@ -81,11 +81,24 @@ export class CardapioPublicoController {
     return this.service.resgatarFidelidade(token, dto?.resgateId ?? '', dto?.telefone ?? '');
   }
 
+  // Prêmios resgatados, prontos para abater no próximo pedido.
+  @Get(':token/fidelidade/premios')
+  premios(@Param('token') token: string, @Query('telefone') telefone: string) {
+    return this.service.premiosFidelidade(token, telefone ?? '');
+  }
+
   // Pedidos recentes de um telefone (robô: "cadê meu pedido?").
   @Get(':token/pedidos')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
   pedidosTelefone(@Param('token') token: string, @Query('telefone') telefone: string) {
     return this.service.pedidosPorTelefone(token, telefone ?? '');
+  }
+
+  // Último pedido do cliente (card do topo, com imagem dos produtos).
+  @Get(':token/ultimo-pedido')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  ultimoPedido(@Param('token') token: string, @Query('telefone') telefone: string) {
+    return this.service.ultimoPedidoPublico(token, telefone ?? '');
   }
 
   // Handoff: o robô abre um chamado de atendimento para a loja.
