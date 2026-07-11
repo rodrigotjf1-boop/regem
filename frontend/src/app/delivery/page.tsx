@@ -98,23 +98,26 @@ export default function DeliveryPage() {
   const [agora, setAgora] = useState(() => Date.now());
   const [atendimentos, setAtendimentos] = useState<any[]>([]);
   const [atendAberto, setAtendAberto] = useState(false);
+  const [roboAtivo, setRoboAtivo] = useState(false); // status geral do robô (cardapio_config.roboAtivo)
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
 
   const reload = useCallback(async () => {
     try {
-      const [ps, c, cx, ent, at] = await Promise.all([
+      const [ps, c, cx, ent, at, lc] = await Promise.all([
         api.deliveryPedidos(),
         api.deliveryConfig().catch(() => cfgRef.current),
         api.caixaAberta('delivery').catch(() => null),
         api.entregadoresDelivery().catch(() => []),
         api.atendimentos().catch(() => []),
+        api.cardapioConfig().catch(() => null),
       ]);
       setPedidos(ps as any[]);
       setCfg(c);
       setCaixa(cx);
       setEntregadores(ent as any[]);
       setAtendimentos(at as any[]);
+      if (lc) setRoboAtivo(!!(lc as any).roboAtivo);
       // Mantém o painel de detalhe sincronizado com os dados novos.
       setDetalhe((d: any) => (d ? (ps as any[]).find((x) => x.id === d.id) ?? null : null));
     } catch (e) {
@@ -149,6 +152,19 @@ export default function DeliveryPage() {
       const c = await api.setDeliveryConfig({ ...cfg, ...patch });
       setCfg(c);
     } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
+
+  // Liga/desliga o robô de atendimento (geral, para qualquer cliente que mande msg).
+  async function toggleRobo() {
+    const novo = !roboAtivo;
+    setRoboAtivo(novo); // otimista
+    try {
+      await api.setCardapioConfig({ roboAtivo: novo });
+      toast.success(novo ? 'Robô online — respondendo os clientes.' : 'Robô offline — não responde os clientes.');
+    } catch (e) {
+      setRoboAtivo(!novo); // reverte em erro
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
     }
   }
@@ -259,6 +275,24 @@ export default function DeliveryPage() {
             </label>
           )}
           <div className="ml-auto flex items-center gap-1.5">
+            {isGestor && (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={roboAtivo}
+                aria-label={roboAtivo ? 'Robô online' : 'Robô offline'}
+                onClick={toggleRobo}
+                title={roboAtivo ? 'Robô respondendo os clientes — clique para desligar' : 'Robô sem responder — clique para ligar'}
+                className="flex h-8 items-center gap-2 rounded-md border border-border px-2 text-sm"
+              >
+                <span className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${roboAtivo ? 'bg-ok' : 'bg-destructive'}`}>
+                  <span className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${roboAtivo ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+                </span>
+                <span className={`font-medium ${roboAtivo ? 'text-ok' : 'text-destructive'}`}>
+                  {roboAtivo ? 'Robô online' : 'Robô offline'}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setAtendAberto(true)}
