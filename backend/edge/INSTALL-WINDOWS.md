@@ -1,125 +1,178 @@
-# Regem Edge — instalar num PC de loja (Windows)
+# Regem Edge — instalar num PC de loja (Windows) · passo a passo detalhado
 
-O **servidor edge é o próprio backend do Regem** rodando **localmente** com um
-**Postgres local** + o **daemon de sync**. Este guia instala o appliance num PC
-de teste. Arquitetura: `docs/arquitetura-edge.md` e `docs/edge-distribuicao-revenda.md`.
+> O servidor edge **é o próprio backend do Regem** rodando **no PC da loja**, com
+> um **Postgres local** e o **daemon de sync**. É um **instalador à parte** (o app
+> da nuvem continua no EasyPanel). **Um PC = uma loja.**
+>
+> **Como ler este guia:** cada passo tem **Ação** (o que fazer), **Onde** (o local
+> exato), **Como** (o comando/clique/valor) e **Confirmação** (o que prova que deu
+> certo). Faça na ordem, sem pular. Se a Confirmação não bater, **pare** e resolva
+> antes de seguir.
 
-> **É um instalador à parte** (o app da nuvem fica no EasyPanel). Mesma base de
-> código, configuração local. Um edge = **uma loja**.
-
----
-
-## 0. Gerar o pacote (na sua máquina de dev)
-
-```bash
-cd backend
-npm ci
-npm run build
-node edge/package.mjs        # cria ../regem-edge-dist/
-```
-
-Copie a pasta **`regem-edge-dist/`** para o PC da loja (ex.: `C:\regem-edge\backend`).
+> ⚠️ Antes de começar: você vai precisar de **2 informações da nuvem** (peça a
+> quem administra o Regem): o **token do equipamento `servidor_local`** (passo 6)
+> e a **chave pública da licença** `LICENSE_PUBLIC_KEY_B64` (passo 6). Sem elas, o
+> sync e a licença não funcionam.
 
 ---
 
-## 1. Pré-requisitos no PC da loja
+## PARTE A — Na SUA máquina (a de desenvolvimento)
 
-1. **Node 20+** — https://nodejs.org (LTS).
-2. **PostgreSQL 15+** — https://www.postgresql.org/download/windows/ (instalador EDB).
-   - Anote a senha do usuário `postgres` e mantenha a porta **5432**.
-   - *(Alternativa "embutida": usar os binários portáteis do Postgres — fica para o instalador `.exe` final.)*
-3. **NSSM** — https://nssm.cc/download (coloque `nssm.exe` no PATH).
-4. **OpenSSL** — já vem no Git for Windows (`C:\Program Files\Git\usr\bin`), ou instale à parte (para gerar o cert local).
+### Passo 1 — Gerar o pacote do edge
 
----
+- **Ação:** compilar o backend e montar a pasta que vai para a loja.
+- **Onde:** um terminal (PowerShell ou Git Bash), dentro da pasta `backend` do projeto.
+- **Como:** rode, um comando por vez:
+  ```bash
+  cd backend
+  npm ci
+  npm run build
+  node edge/package.mjs
+  ```
+- **Confirmação:** apareceu a mensagem `Pronto: ...\regem-edge-dist` e existe uma pasta **`regem-edge-dist`** ao lado da pasta `backend`.
 
-## 2. Preparar o banco local
+### Passo 2 — Levar o pacote para o PC da loja
 
-```powershell
-cd C:\regem-edge\backend
-npm ci --omit=dev
-
-# cria o banco (uma vez)
-node -e "const{Client}=require('pg');(async()=>{const c=new Client({connectionString:'postgresql://postgres:SENHA@localhost:5432/postgres'});await c.connect();await c.query('create database regem_local').catch(()=>{});await c.end()})()"
-```
-
----
-
-## 3. Configurar o `.env.local`
-
-Copie `edge\.env.local.example` para `backend\.env.local` e preencha:
-- `DATABASE_URL` / `EDGE_DATABASE_URL` → sua senha do Postgres.
-- `JWT_SECRET` → um segredo forte.
-- `EDGE_MODE=true`, `EDGE_UNIDADE_ID` → id da unidade (loja).
-- `SYNC_TOKEN` → token do equipamento **`servidor_local`** (cadastre em **Cadastros → Equipamentos** na nuvem e cole aqui).
-- `LICENSE_PUBLIC_KEY_B64` → a **chave pública** da nuvem (para validar o lease offline).
-
-Aplique as migrations no banco local:
-```powershell
-node scripts\apply-all-local.mjs
-```
+- **Ação:** copiar a pasta gerada para o computador da loja.
+- **Onde:** a pasta `regem-edge-dist` (criada no passo 1).
+- **Como:** copie por pen drive, rede ou nuvem para o PC da loja, dentro de **`C:\regem-edge\backend`** (crie a pasta `C:\regem-edge` e cole o conteúdo de `regem-edge-dist` dentro de `backend`).
+- **Confirmação:** no PC da loja existe **`C:\regem-edge\backend\dist\main.js`** e a pasta **`C:\regem-edge\backend\edge`**.
 
 ---
 
-## 4. Cert local (HTTPS na LAN, sem internet)
+## PARTE B — No PC da LOJA
 
-Descubra o IP do PC (`ipconfig` → IPv4, ex.: `192.168.1.2`) e gere o cert:
-```powershell
-node edge\gen-cert.mjs 192.168.1.2
-```
-Saída em `edge\certs\` (`ca.pem`, `server.crt`, `server.key`).
-- **Confie o `ca.pem`** em cada equipamento cliente (KDS/PDV/Ponto): `certlm.msc` → *Autoridades de Certificação Raiz Confiáveis* → Importar.
-- Aponte `EDGE_TLS_CERT`/`EDGE_TLS_KEY` no `.env.local` para `server.crt`/`server.key`.
+### Passo 3 — Instalar os pré-requisitos
 
-> **Dica de IP fixo:** reserve o IP do PC no roteador (reserva DHCP) para não mudar.
+- **Ação:** instalar os 4 programas de base.
+- **Onde:** navegador do PC da loja, nos sites oficiais.
+- **Como:** baixe e instale, nesta ordem:
+  1. **Node.js 20+ (LTS)** — https://nodejs.org (aceite as opções padrão).
+  2. **PostgreSQL 15+** — https://www.postgresql.org/download/windows/. **Anote a senha** que você definir para o usuário `postgres` e **mantenha a porta 5432**.
+  3. **NSSM** — https://nssm.cc/download. Extraia e coloque o `nssm.exe` numa pasta do **PATH** (ex.: `C:\Windows\System32`).
+  4. **OpenSSL** — já vem com o **Git for Windows** (https://git-scm.com/download/win). Instale o Git e o OpenSSL estará disponível.
+- **Confirmação:** abra o **PowerShell** e rode `node -v`, `nssm version` e `openssl version`. Cada um deve responder com a versão (sem "não reconhecido").
+
+### Passo 4 — Instalar as dependências e criar o banco
+
+- **Ação:** baixar as bibliotecas do backend e criar o banco de dados local.
+- **Onde:** PowerShell, na pasta `C:\regem-edge\backend`.
+- **Como:**
+  ```powershell
+  cd C:\regem-edge\backend
+  npm ci --omit=dev
+  node -e "const{Client}=require('pg');(async()=>{const c=new Client({connectionString:'postgresql://postgres:SUA_SENHA@localhost:5432/postgres'});await c.connect();await c.query('create database regem_local').catch(()=>{});await c.end()})()"
+  ```
+  Troque **`SUA_SENHA`** pela senha do Postgres definida no passo 3.
+- **Confirmação:** o `npm ci` termina sem erro (aparece `added N packages`) e o comando do banco não gera erro (retorna ao prompt em silêncio = banco criado).
+
+### Passo 5 — Preencher a configuração (`.env.local`)
+
+- **Ação:** criar o arquivo de configuração com os valores da loja.
+- **Onde:** a pasta `C:\regem-edge\backend`. Existe lá um modelo em `edge\.env.local.example`.
+- **Como:** copie o modelo e edite:
+  ```powershell
+  Copy-Item edge\.env.local.example .env.local
+  notepad .env.local
+  ```
+  No Bloco de Notas, preencha (deixe o resto como está):
+  - `DATABASE_URL` e `EDGE_DATABASE_URL` → troque `SENHA` pela senha do Postgres.
+  - `JWT_SECRET` → um texto forte com **16+ caracteres**.
+  - `EDGE_UNIDADE_ID` → o id da unidade (loja) — peça a quem administra a nuvem.
+  - `SYNC_TOKEN` → o **token do equipamento `servidor_local`** (passo 6).
+  - `LICENSE_PUBLIC_KEY_B64` → a **chave pública da licença** (passo 6).
+  - Salve e feche.
+- **Confirmação:** existe o arquivo **`C:\regem-edge\backend\.env.local`** e, ao abri-lo, `DATABASE_URL` aponta para **`localhost:5432/regem_local`** (não para a nuvem!).
+
+### Passo 6 — Pegar o token e a chave pública (na nuvem)
+
+- **Ação:** obter as 2 credenciais que faltam.
+- **Onde:** no **Regem da nuvem** (app.dmsregem.com), logado como presidente/gerente.
+- **Como:**
+  - **Token do servidor local:** menu **Cadastros → Equipamentos → Novo equipamento**, tipo **`servidor_local`**. Ao salvar, o **token aparece uma vez** — copie e cole no `SYNC_TOKEN` do `.env.local`.
+  - **Chave pública da licença:** peça a quem gerou as chaves (`node scripts/gen-license-keys.mjs`) o valor **`LICENSE_PUBLIC_KEY_B64`** e cole no `.env.local`.
+- **Confirmação:** o `.env.local` agora tem `SYNC_TOKEN=...` e `LICENSE_PUBLIC_KEY_B64=...` preenchidos (não vazios).
+
+### Passo 7 — Aplicar as migrations no banco local
+
+- **Ação:** criar as tabelas do sistema no banco `regem_local`.
+- **Onde:** PowerShell, em `C:\regem-edge\backend`.
+- **Como:**
+  ```powershell
+  node scripts\apply-all-local.mjs
+  ```
+- **Confirmação:** aparece uma lista de migrations aplicadas e termina **sem erro** (nenhuma linha em vermelho de falha).
+
+### Passo 8 — Gerar o certificado local (HTTPS na rede)
+
+- **Ação:** criar o certificado que deixa o `https://` funcionar na rede da loja (necessário para **câmera do ponto** e **modo offline**).
+- **Onde:** PowerShell, em `C:\regem-edge\backend`. Antes, descubra o IP do PC.
+- **Como:**
+  1. Descubra o IP: rode `ipconfig` e anote o **Endereço IPv4** (ex.: `192.168.1.2`).
+  2. Gere o certificado com esse IP:
+     ```powershell
+     node edge\gen-cert.mjs 192.168.1.2
+     ```
+- **Confirmação:** existe a pasta **`edge\certs`** com os arquivos **`ca.pem`**, **`server.crt`** e **`server.key`**. (O `.env.local` já aponta `EDGE_TLS_CERT`/`EDGE_TLS_KEY` para eles.)
+
+> **Dica importante:** reserve esse IP no **roteador** (reserva DHCP por MAC) para ele **não mudar** quando reiniciar. Se o IP mudar, os clientes deixam de achar o servidor.
+
+### Passo 9 — Subir como serviços do Windows (ligam sozinhos)
+
+- **Ação:** registrar o backend e o sync como serviços que iniciam no boot, sem terminal aberto.
+- **Onde:** um **PowerShell aberto como Administrador** (clique direito → *Executar como administrador*), em `C:\regem-edge\backend`.
+- **Como:**
+  ```powershell
+  cd C:\regem-edge\backend
+  .\edge\instalar-servicos.ps1 -Raiz "C:\regem-edge\backend"
+  ```
+- **Confirmação:** aparece `Pronto. Serviços RegemEdgeApi + RegemEdgeSync ativos`. Em **Serviços do Windows** (`services.msc`) os dois aparecem como **Em execução** e **Automático**.
+
+### Passo 10 — Testar o servidor
+
+- **Ação:** confirmar que o servidor está respondendo.
+- **Onde:** o navegador do próprio PC da loja.
+- **Como:** abra **`https://localhost:3001/api/v1/ping`**.
+- **Confirmação:** aparece um texto como `{"regem":true,"edge":true,...}`. Se o navegador reclamar do certificado em `localhost`, é normal — o que importa é vir o JSON.
+
+### Passo 11 — Ativar a licença da loja
+
+- **Ação:** vincular a licença a este equipamento.
+- **Onde:** primeiro na nuvem (tela **`/frota`**), depois no PowerShell do PC da loja.
+- **Como:**
+  1. Na nuvem, tela **Revenda & frota** (`/frota`, como presidente): **Emitir token** para a loja (informe o `tenantId`, ramo *food service*, plano e módulos). **Copie o token** (aparece uma vez).
+  2. No PC da loja, ative:
+     ```powershell
+     curl.exe -X POST https://localhost:3001/api/v1/provisionamento/ativar -H "content-type: application/json" -d "{\"token\":\"COLE_O_TOKEN\",\"fingerprint\":\"pc-loja-01\"}"
+     ```
+- **Confirmação:** a resposta traz um `lease` (texto longo) e, minutos depois, a loja aparece **🟢 online** no painel **`/frota`** da nuvem.
+
+### Passo 12 — Confiar o certificado nos aparelhos clientes
+
+- **Ação:** fazer cada aparelho (KDS/PDV/Ponto) confiar no certificado do servidor.
+- **Onde:** em **cada** equipamento cliente (Windows), no gerenciador de certificados.
+- **Como:**
+  1. Copie o arquivo **`edge\certs\ca.pem`** para o aparelho.
+  2. Abra **`certlm.msc`** → *Autoridades de Certificação Raiz Confiáveis* → *Certificados* → clique direito → *Todas as tarefas → Importar* → selecione o `ca.pem`.
+- **Confirmação:** o certificado "Regem Edge CA" aparece na lista de raízes confiáveis.
+
+### Passo 13 — Apontar os aparelhos para o servidor
+
+- **Ação:** abrir o Regem nos aparelhos apontando para o servidor local.
+- **Onde:** o navegador de cada aparelho, **na mesma rede WiFi/cabo** do servidor.
+- **Como:** abra **`https://regem.local:3001`** (se o aparelho resolver mDNS) ou **`https://192.168.1.2:3001`** (o IP do passo 8).
+- **Confirmação:** a tela abre **com cadeado** (sem aviso de segurança) e, em `/api/v1/ping`, retorna o JSON. A câmera do Ponto e o modo offline passam a funcionar.
 
 ---
 
-## 5. Subir como serviços do Windows (auto-start)
+## Manutenção do dia a dia
 
-PowerShell **como Administrador**:
-```powershell
-cd C:\regem-edge\backend
-.\edge\instalar-servicos.ps1 -Raiz "C:\regem-edge\backend"
-```
-Registra **RegemEdgeApi** (backend) + **RegemEdgeSync** (daemon), libera a porta **3001 só na LAN** e sobe tudo no boot.
+- **Ver logs:** abra `C:\regem-edge\backend\logs\` (arquivos `RegemEdgeApi.log` / `RegemEdgeSync.log`).
+- **Parar/iniciar:** PowerShell (Admin) → `nssm stop RegemEdgeApi` / `nssm start RegemEdgeApi`.
+- **Atualizar versão:** substitua a pasta `dist` pelo novo build, rode `node scripts\apply-all-local.mjs` (se houver migration nova) e reinicie os serviços. *(A automação disso é a Fase E-D — update assinado/blue-green.)*
 
-Verifique:
-```
-https://localhost:3001/api/v1/ping   →  { "regem": true, "edge": true, ... }
-```
+## Atalho: instalador de um clique (opcional)
 
----
-
-## 6. Apontar os clientes (KDS/PDV/Ponto)
-
-Nos aparelhos da **mesma rede**, abra:
-- `https://regem.local:3001` (se o SO resolver mDNS — Windows/iOS), ou
-- `https://192.168.1.2:3001` (IP fixo).
-
-O `/api/v1/ping` confirma que acharam o servidor. Câmera (Ponto) e Service Worker
-funcionam por causa do **cert local confiado** (passo 4).
-
----
-
-## 7. Ativar a licença (revenda)
-
-1. Na nuvem, tela **`/frota`** (presidente): **Emitir token** para a loja (tenantId, ramo=food service, plano, módulos).
-2. No PC da loja, ative:
-```powershell
-curl -X POST https://localhost:3001/api/v1/provisionamento/ativar -H "content-type: application/json" -d "{\"token\":\"SEU_TOKEN\",\"fingerprint\":\"pc-da-loja-01\"}"
-```
-O `fingerprint` prende a licença a este equipamento (anti-clonagem). O daemon
-passa a renovar o **lease** e mandar **heartbeat** (aparece no painel `/frota`).
-
----
-
-## Serviço / manutenção
-- Logs: `C:\regem-edge\backend\logs\`.
-- Parar/iniciar: `nssm stop RegemEdgeApi` / `nssm start RegemEdgeApi`.
-- Atualizar: substitua `dist\` (novo build) + rode `node scripts\apply-all-local.mjs` + reinicie os serviços. *(A automação disso é a Fase E-D — update assinado/blue-green.)*
-
-## Ainda pendente (Fase E-E final)
-Instalador **`.exe` de um clique** (Inno Setup) com **Postgres portátil embutido**
-e os serviços já registrados — empacota tudo acima num assistente. Este guia
-manual/scriptado já permite **testar num hardware real** agora.
+Existe um instalador **Inno Setup** (`edge\regem-edge.iss`) que empacota tudo isso
+num assistente `.exe`. Ele ainda precisa ser **compilado e validado num Windows
+real** — enquanto isso, use este guia manual, que faz exatamente os mesmos passos.
