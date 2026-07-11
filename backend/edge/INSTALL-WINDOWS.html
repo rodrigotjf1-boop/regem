@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Regem Edge — instalação no PC da loja</title>
+<style>
+  :root{
+    --bg:#eef1f5; --card:#ffffff; --ink:#0f2230; --muted:#5b6b78;
+    --line:#d8dee6; --gold:#e2a340; --ok:#1fa875; --navy:#0f2230;
+    --code-bg:#0f2230; --code-ink:#e8eef3; --warn-bg:#fff6e6; --warn-ink:#8a5a00;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#0c1620; --card:#12212e; --ink:#e8eef3; --muted:#93a4b2;
+      --line:#22323f; --code-bg:#060d13; --warn-bg:#2a2110; --warn-ink:#e2b877; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Segoe UI",Figtree,system-ui,sans-serif;line-height:1.55;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:900px;margin:0 auto;padding:28px 20px 80px}
+  header{background:var(--navy);color:#fff;border-radius:16px;padding:22px 24px;margin-bottom:22px}
+  header h1{margin:0 0 4px;font-size:1.5rem;letter-spacing:-.02em}
+  header p{margin:0;color:#b9c6d1;font-size:.95rem}
+  .badge{display:inline-block;background:var(--gold);color:#3a2a08;font-weight:700;
+    font-size:.72rem;padding:2px 9px;border-radius:999px;margin-bottom:10px;letter-spacing:.04em}
+  .callout{background:var(--warn-bg);color:var(--warn-ink);border:1px solid color-mix(in srgb,var(--warn-ink) 30%,transparent);
+    border-radius:12px;padding:12px 16px;margin:18px 0;font-size:.92rem}
+  h2.part{font-size:1.05rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+    margin:34px 0 12px;padding-bottom:8px;border-bottom:2px solid var(--line)}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:16px 18px;margin:12px 0;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+  .chk{appearance:none;-webkit-appearance:none;width:26px;height:26px;border:2px solid var(--line);
+    border-radius:7px;cursor:pointer;position:relative;flex:none;margin-top:2px;background:var(--card)}
+  .chk:checked{background:var(--ok);border-color:var(--ok)}
+  .chk:checked::after{content:"✓";color:#fff;position:absolute;inset:0;display:grid;place-items:center;font-weight:800;font-size:15px}
+  .step-body h3{margin:0 0 8px;font-size:1.06rem;letter-spacing:-.01em}
+  .step-body h3 .n{color:var(--gold);font-weight:800;margin-right:6px}
+  .row{margin:5px 0;font-size:.94rem}
+  .row b{display:inline-block;min-width:104px;color:var(--muted);font-weight:600}
+  .ok-row b{color:var(--ok)}
+  pre{background:var(--code-bg);color:var(--code-ink);border-radius:10px;padding:12px 14px;
+    overflow-x:auto;margin:8px 0 4px;font-family:"JetBrains Mono",Consolas,monospace;font-size:.84rem;position:relative}
+  code.inline{background:color-mix(in srgb,var(--muted) 16%,transparent);padding:1px 6px;border-radius:5px;
+    font-family:"JetBrains Mono",Consolas,monospace;font-size:.86em}
+  .copy{position:absolute;top:8px;right:8px;background:#ffffff22;color:#e8eef3;border:1px solid #ffffff33;
+    border-radius:7px;padding:3px 9px;font-size:.74rem;cursor:pointer}
+  .copy:hover{background:#ffffff33}
+  .tip{font-size:.86rem;color:var(--muted);margin-top:6px;padding-left:10px;border-left:3px solid var(--gold)}
+  .progress{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0 10px;margin-bottom:6px;
+    font-size:.85rem;color:var(--muted)}
+  .bar{height:8px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:5px}
+  .bar > i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+  footer{margin-top:30px;color:var(--muted);font-size:.85rem;text-align:center}
+  a{color:var(--gold)}
+  @media print{
+    body{background:#fff}
+    .copy,.progress{display:none}
+    .step,header,.callout{break-inside:avoid}
+    header{background:#0f2230 !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="badge">REGEM EDGE · INSTALAÇÃO</span>
+    <h1>Servidor local no PC da loja — passo a passo</h1>
+    <p>Cada passo tem <b>Ação</b>, <b>Onde</b>, <b>Como</b> e <b>Confirmação</b>. Marque ✓ ao concluir. Se a confirmação não bater, <b>pare</b> e resolva antes de seguir.</p>
+  </header>
+
+  <div class="progress">
+    <span id="ptxt">0 de 13 passos concluídos</span>
+    <div class="bar"><i id="pbar"></i></div>
+  </div>
+
+  <div class="callout">
+    ⚠️ <b>Antes de começar</b>, tenha em mãos 2 informações da nuvem: o <b>token do equipamento <code class="inline">servidor_local</code></b> (passo 6) e a <b>chave pública da licença <code class="inline">LICENSE_PUBLIC_KEY_B64</code></b> (passo 6). Sem elas, sync e licença não funcionam.
+  </div>
+
+  <h2 class="part">Parte A — na sua máquina (gerar o pacote)</h2>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">1.</span>Compilar e empacotar</h3>
+      <div class="row"><b>Onde:</b> terminal na pasta <code class="inline">backend</code> do projeto.</div>
+      <div class="row"><b>Como:</b></div>
+      <pre><button class="copy">copiar</button><code>npm ci
+npm run build
+node edge/package.mjs</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> aparece <code class="inline">Pronto: ...\regem-edge-dist</code> e a pasta <code class="inline">regem-edge-dist</code> existe.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">2.</span>Levar para o PC de teste</h3>
+      <div class="row"><b>Como:</b> copie o conteúdo de <code class="inline">regem-edge-dist</code> para <code class="inline">C:\regem-edge\backend</code> no PC de teste (pen drive/rede).</div>
+      <div class="row ok-row"><b>Confirmação:</b> no PC de teste existe <code class="inline">C:\regem-edge\backend\dist\main.js</code> e a pasta <code class="inline">...\backend\edge</code>.</div>
+    </div>
+  </div>
+
+  <h2 class="part">Parte B — no PC de teste (a máquina da loja)</h2>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">3.</span>Pré-requisitos</h3>
+      <div class="row"><b>Como:</b> instale, nesta ordem:</div>
+      <div class="row">1. <b style="min-width:0">Node.js 20+ LTS</b> — <a href="https://nodejs.org">nodejs.org</a></div>
+      <div class="row">2. <b style="min-width:0">PostgreSQL 15+</b> — <a href="https://www.postgresql.org/download/windows/">postgresql.org</a> · anote a senha do <code class="inline">postgres</code>, porta <b>5432</b></div>
+      <div class="row">3. <b style="min-width:0">NSSM</b> — <a href="https://nssm.cc/download">nssm.cc</a> · ponha <code class="inline">nssm.exe</code> numa pasta do PATH</div>
+      <div class="row">4. <b style="min-width:0">OpenSSL</b> — vem com o <a href="https://git-scm.com/download/win">Git for Windows</a></div>
+      <div class="row ok-row"><b>Confirmação:</b> no PowerShell, <code class="inline">node -v</code>, <code class="inline">nssm version</code> e <code class="inline">openssl version</code> respondem sem erro.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">4.</span>Dependências + banco local</h3>
+      <div class="row"><b>Onde:</b> PowerShell em <code class="inline">C:\regem-edge\backend</code>.</div>
+      <div class="row"><b>Como:</b> (troque <code class="inline">SUA_SENHA</code>)</div>
+      <pre><button class="copy">copiar</button><code>cd C:\regem-edge\backend
+npm ci --omit=dev
+node -e "const{Client}=require('pg');(async()=>{const c=new Client({connectionString:'postgresql://postgres:SUA_SENHA@localhost:5432/postgres'});await c.connect();await c.query('create database regem_local').catch(()=>{});await c.end()})()"</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> <code class="inline">npm ci</code> termina com <code class="inline">added N packages</code>; o comando do banco volta ao prompt sem erro.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">5.</span>Configuração (<code class="inline">.env.local</code>)</h3>
+      <div class="row"><b>Como:</b></div>
+      <pre><button class="copy">copiar</button><code>Copy-Item edge\.env.local.example .env.local
+notepad .env.local</code></pre>
+      <div class="row">Preencha: <code class="inline">DATABASE_URL</code>/<code class="inline">EDGE_DATABASE_URL</code> (senha), <code class="inline">JWT_SECRET</code> (16+ chars), <code class="inline">EDGE_UNIDADE_ID</code>. Deixe <code class="inline">SYNC_TOKEN</code> e <code class="inline">LICENSE_PUBLIC_KEY_B64</code> para o passo 6.</div>
+      <div class="row ok-row"><b>Confirmação:</b> o arquivo existe e o <code class="inline">DATABASE_URL</code> aponta para <code class="inline">localhost:5432/regem_local</code> — <b>não</b> a nuvem!</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">6.</span>Token + chave pública (na nuvem)</h3>
+      <div class="row"><b>Onde:</b> app.dmsregem.com, como presidente/gerente.</div>
+      <div class="row"><b>Como:</b> <b style="min-width:0">Cadastros → Equipamentos → Novo</b>, tipo <code class="inline">servidor_local</code> → copie o <b>token</b> (aparece 1 vez) para <code class="inline">SYNC_TOKEN</code>. Peça a quem gerou as chaves o <code class="inline">LICENSE_PUBLIC_KEY_B64</code> e cole no <code class="inline">.env.local</code>.</div>
+      <div class="row ok-row"><b>Confirmação:</b> <code class="inline">SYNC_TOKEN=...</code> e <code class="inline">LICENSE_PUBLIC_KEY_B64=...</code> preenchidos.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">7.</span>Migrations no banco local</h3>
+      <div class="row"><b>Como:</b></div>
+      <pre><button class="copy">copiar</button><code>node scripts\apply-all-local.mjs</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> lista de migrations aplicadas, <b>sem linha em vermelho</b>.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">8.</span>Certificado HTTPS local</h3>
+      <div class="row"><b>Como:</b> rode <code class="inline">ipconfig</code>, anote o <b>IPv4</b> (ex. <code class="inline">192.168.1.2</code>) e gere o certificado:</div>
+      <pre><button class="copy">copiar</button><code>node edge\gen-cert.mjs 192.168.1.2</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> existe <code class="inline">edge\certs\</code> com <code class="inline">ca.pem</code>, <code class="inline">server.crt</code>, <code class="inline">server.key</code>.</div>
+      <div class="tip">Reserve esse IP no roteador (DHCP por MAC) para ele não mudar ao reiniciar.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">9.</span>Subir como serviços do Windows</h3>
+      <div class="row"><b>Onde:</b> PowerShell <b>como Administrador</b>.</div>
+      <div class="row"><b>Como:</b></div>
+      <pre><button class="copy">copiar</button><code>cd C:\regem-edge\backend
+.\edge\instalar-servicos.ps1 -Raiz "C:\regem-edge\backend"</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> <code class="inline">Serviços RegemEdgeApi + RegemEdgeSync ativos</code>; no <code class="inline">services.msc</code> os dois estão <b>Em execução / Automático</b>.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">10.</span>Testar o servidor</h3>
+      <div class="row"><b>Como:</b> no navegador do PC, abra:</div>
+      <pre><button class="copy">copiar</button><code>https://localhost:3001/api/v1/ping</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> volta <code class="inline">{"regem":true,"edge":true,...}</code> (o aviso de certificado em <code class="inline">localhost</code> é normal).</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">11.</span>Ativar a licença</h3>
+      <div class="row"><b>Onde:</b> na nuvem, tela <code class="inline">/frota</code>.</div>
+      <div class="row"><b>Como:</b> <b style="min-width:0">Emitir token</b> para a loja (tenantId, ramo <i>food service</i>, plano, módulos) → copie o token. No PC de teste:</div>
+      <pre><button class="copy">copiar</button><code>curl.exe -X POST https://localhost:3001/api/v1/provisionamento/ativar -H "content-type: application/json" -d "{\"token\":\"COLE_O_TOKEN\",\"fingerprint\":\"pc-loja-01\"}"</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> resposta com <code class="inline">lease</code>; minutos depois a loja aparece <b style="color:var(--ok)">🟢 online</b> em <code class="inline">/frota</code>.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">12.</span>Confiar o certificado nos clientes</h3>
+      <div class="row"><b>Onde:</b> em <b>cada</b> aparelho cliente (KDS/PDV/Ponto).</div>
+      <div class="row"><b>Como:</b> copie <code class="inline">edge\certs\ca.pem</code> para o aparelho → abra <code class="inline">certlm.msc</code> → <i>Autoridades de Certificação Raiz Confiáveis → Certificados → Importar</i> → selecione o <code class="inline">ca.pem</code>.</div>
+      <div class="row ok-row"><b>Confirmação:</b> "Regem Edge CA" aparece nas raízes confiáveis.</div>
+    </div>
+  </div>
+
+  <div class="step">
+    <input type="checkbox" class="chk" />
+    <div class="step-body">
+      <h3><span class="n">13.</span>Apontar os clientes para o servidor</h3>
+      <div class="row"><b>Onde:</b> navegador de cada aparelho, na <b>mesma rede</b>.</div>
+      <div class="row"><b>Como:</b> abra <code class="inline">https://regem.local:3001</code> (se resolver mDNS) ou <code class="inline">https://192.168.1.2:3001</code> (o IP do passo 8).</div>
+      <div class="row ok-row"><b>Confirmação:</b> abre <b>com cadeado</b> (sem aviso) e <code class="inline">/api/v1/ping</code> retorna o JSON. Câmera do Ponto e modo offline funcionam.</div>
+    </div>
+  </div>
+
+  <h2 class="part">Depois — testar a atualização automática (Fase E-D)</h2>
+  <div class="step" style="grid-template-columns:1fr">
+    <div class="step-body">
+      <div class="row"><b style="min-width:0">1) Na sua máquina:</b></div>
+      <pre><button class="copy">copiar</button><code>.\edge\publicar.ps1 -Versao 1.4.0</code></pre>
+      <div class="row">Suba o <code class="inline">.zip</code> num HTTPS e cole as 3 variáveis (<code class="inline">EDGE_LATEST_VERSION</code> / <code class="inline">EDGE_UPDATE_URL</code> / <code class="inline">EDGE_UPDATE_SHA256</code>) no <code class="inline">regem-api</code>.</div>
+      <div class="row" style="margin-top:10px"><b style="min-width:0">2) No PC de teste (Admin, loja fechada):</b></div>
+      <pre><button class="copy">copiar</button><code>.\edge\atualizar.ps1 -Raiz "C:\regem-edge\backend"</code></pre>
+      <div class="row ok-row"><b>Confirmação:</b> confere o SHA-256, faz backup, troca, migra, health-check no <code class="inline">/ping</code> e faz <b>rollback</b> se falhar.</div>
+    </div>
+  </div>
+
+  <footer>Regem — no comando de todo o negócio · do balcão ao balanço</footer>
+</div>
+
+<script>
+  // Botões de copiar
+  document.querySelectorAll('.copy').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var code = btn.parentElement.querySelector('code').innerText;
+      navigator.clipboard.writeText(code).then(function(){
+        var t = btn.textContent; btn.textContent = 'copiado!';
+        setTimeout(function(){ btn.textContent = t; }, 1200);
+      });
+    });
+  });
+  // Progresso + persistência local dos checks
+  var chks = Array.prototype.slice.call(document.querySelectorAll('.chk'));
+  var saved = JSON.parse(localStorage.getItem('regem_edge_steps') || '[]');
+  chks.forEach(function(c,i){ if(saved[i]) c.checked = true; });
+  function upd(){
+    var done = chks.filter(function(c){return c.checked;}).length;
+    document.getElementById('ptxt').textContent = done + ' de ' + chks.length + ' passos concluídos';
+    document.getElementById('pbar').style.width = (done/chks.length*100) + '%';
+    localStorage.setItem('regem_edge_steps', JSON.stringify(chks.map(function(c){return c.checked;})));
+  }
+  chks.forEach(function(c){ c.addEventListener('change', upd); });
+  upd();
+</script>
+</body>
+</html>
