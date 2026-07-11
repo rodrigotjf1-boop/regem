@@ -169,7 +169,10 @@
 
 - **Ver logs:** abra `C:\regem-edge\backend\logs\` (arquivos `RegemEdgeApi.log` / `RegemEdgeSync.log`).
 - **Parar/iniciar:** PowerShell (Admin) → `nssm stop RegemEdgeApi` / `nssm start RegemEdgeApi`.
-- **Atualizar versão:** o daemon já **avisa** quando há versão nova (loga `⬆️ atualização disponível` e grava em `sync_state`, comparando com o `EDGE_LATEST_VERSION` publicado na nuvem). Para aplicar: substitua a pasta `dist` pelo novo build, rode `node scripts\apply-all-local.mjs` (se houver migration nova) e reinicie os serviços. *(A automação completa — baixar/trocar/blue-green — é a Fase E-D em andamento.)*
+- **Atualizar versão (automatizado — Fase E-D):**
+  1. **Na sua máquina:** publique a versão com `.\edge\publicar.ps1 -Versao 1.4.0` — ele empacota, calcula o **SHA-256** e imprime as 3 variáveis (`EDGE_LATEST_VERSION` / `EDGE_UPDATE_URL` / `EDGE_UPDATE_SHA256`) para colar no `regem-api` (suba o `.zip` para um HTTPS que a loja acesse).
+  2. **O edge da loja avisa sozinho** (o daemon loga `⬆️ atualização disponível` em até 1h e grava em `sync_state`).
+  3. **No PC da loja (com a loja fechada), como Admin:** `.\edge\atualizar.ps1 -Raiz "C:\regem-edge\backend"` — ele **confere o SHA-256**, faz **backup do banco (pg_dump) e do código**, para os serviços, troca os arquivos, roda as migrations, sobe de novo e faz **health-check no /ping**; se algo falhar, faz **rollback do código** automaticamente. Depois, atualize `APP_VERSION` no `.env.local`.
 
 ## Atalho: instalador de um clique (opcional)
 
