@@ -6,6 +6,35 @@
 > Regras de sempre ([[seguranca-continua]]): RBAC no servidor, tenant forçado,
 > nada de baixa/estorno sem `ref_*`, segredos fora do código.
 
+## 0.5. Modelo de distribuição por ramo (decidido 2026-07-11)
+
+- **1 instalador ÚNICO** (mesma base de código multi-ramo). O **ramo + plano +
+  módulos** vêm no **token de ativação**; o provisionamento aplica e o wizard
+  configura a loja. NÃO fazer instaladores por ramo.
+- **Ramo e módulos = ENTITLEMENTS PAGOS**, carregados no **lease assinado**.
+  Adicionar ramo/módulo = **upgrade** (muda na nuvem → desce no lease). Unifica
+  licença + enforcement de módulos + cobrança + ramo.
+- **A REVENDA define o ramo/plano no ato da venda** (emite o token na tela
+  Revenda & frota → `/frota`).
+- **Lançamento: SÓ food service** agora (único ramo maduro); os outros ficam
+  "em breve" e entram como upgrade.
+- Efeito no "trocar ramo" de hoje: deixa de ser toggle livre → vira
+  **entitlement** (loja só usa o ramo contratado); o wizard vira o assistente de
+  config do ramo já ativado.
+
+## 0.6. Status de implementação (2026-07-11)
+
+- **E-A** (mDNS `regem.local` + `/ping`): ✅ na main. HTTPS local via cert do
+  edge (`EDGE_TLS_CERT/KEY` em `main.ts`) + `edge/gen-cert.mjs`: ✅ (validar num PC).
+- **E-B** (lease assinado Ed25519 + entitlements + provisionamento por token +
+  binding de device + grace + anti-rollback): ✅ backend (`modules/licenca`),
+  migration 082. Chaves: `LICENSE_PRIVATE_KEY_B64`/`LICENSE_PUBLIC_KEY_B64`/`LICENSE_KID`.
+- **E-C** (heartbeat + painel de frota + emitir token/suspender/reativar/rebind):
+  ✅ backend + tela `/frota` (presidente); daemon envia heartbeat + busca lease.
+- **E-D** (pipeline de update assinado/blue-green/backup-antes-de-migrar) e
+  **E-E** (empacotamento Windows + Postgres embutido + NSSM): pendentes (precisam
+  de um PC de loja para validar).
+
 ## 1. Segurança (transversal — vem embutida em tudo)
 
 **Banco local (Postgres na loja):**

@@ -153,14 +153,65 @@ async function push() {
   return lotes.reduce((s, l) => s + l.linhas.length, 0);
 }
 
-async function ciclo() {
+const GRACE_MS = (Number(process.env.LICENSE_GRACE_DAYS) || 30) * 86400000;
+
+// Licença: busca o lease na nuvem, guarda local com GRACE (offline continua até
+// vencer o grace) e detecta rollback de relógio (não pode voltar no tempo).
+async function licenca() {
   try {
-    const p = await pull();
-    const u = await push();
+    const res = await fetch(`${CLOUD}/edge/lease`, { headers: { 'x-sync-token': TOKEN } });
+    if (res.ok) {
+      const j = await res.json();
+      if (j.ativo && j.lease) {
+        // anti-rollback: guarda o maior "srv" já visto.
+        try {
+          const payload = JSON.parse(Buffer.from(j.lease.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
+          const srvMax = Number(await getState('lic_srv_max', '0'));
+          if (payload.srv && payload.srv >= srvMax) await setState('lic_srv_max', String(payload.srv));
+          else if (Date.now() < srvMax) console.warn('  ⚠️ relógio local voltou no tempo (rollback)');
+        } catch { /* ignore */ }
+        await setState('lic_lease', j.lease);
+        await setState('lic_ativa', '1');
+        await setState('lic_grace_ate', String(Date.now() + GRACE_MS));
+      } else {
+        await setState('lic_ativa', '0'); // suspensa/expirada/revogada
+      }
+    }
+  } catch {
+    // Offline: mantém o status; se passou do grace, desativa.
+    const graceAte = Number(await getState('lic_grace_ate', '0'));
+    if (graceAte && Date.now() > graceAte) await setState('lic_ativa', '0');
+  }
+}
+
+async function heartbeat(pullN, pushN, erro) {
+  try {
+    await fetch(`${CLOUD}/edge/heartbeat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
+      body: JSON.stringify({
+        versao: process.env.APP_VERSION || '1',
+        estado: erro ? 'erro' : 'sync_ok',
+        ultimoSync: new Date().toISOString(),
+        clientes: Number(process.env.EDGE_CLIENTES || 0) || null,
+        erro: erro || null,
+      }),
+    });
+  } catch { /* heartbeat é best-effort */ }
+}
+
+async function ciclo() {
+  let erro = null, p = 0, u = 0;
+  try {
+    p = await pull();
+    u = await push();
     console.log(`[${new Date().toISOString()}] sync ok — pull ${p} linha(s), push ${u} linha(s)`);
   } catch (e) {
+    erro = e.message;
     console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
   }
+  await licenca();
+  await heartbeat(p, u, erro);
 }
 
 console.log(`Daemon de sync — edge=${EDGE_DB.replace(/:[^:@/]*@/, ':****@')} cloud=${CLOUD} intervalo=${INTERVAL}ms`);
