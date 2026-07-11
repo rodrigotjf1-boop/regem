@@ -4,6 +4,8 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
+  forwardRef,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { createHmac } from 'crypto';
@@ -24,6 +26,7 @@ import {
 import { VendasService } from '../vendas/vendas.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
+import { OpenDeliveryService } from '../integracoes/open-delivery/open-delivery.service';
 import { adaptar, PedidoNormalizado } from './adapters';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -37,7 +40,23 @@ export class DeliveryService {
     private readonly vendas: VendasService,
     private readonly cashback: CashbackService,
     private readonly fidelidade: FidelidadeService,
+    @Optional()
+    @Inject(forwardRef(() => OpenDeliveryService))
+    private readonly openDelivery?: OpenDeliveryService,
   ) {}
+
+  // Status back para marketplaces (hoje: Open Delivery). Best-effort.
+  private async statusBack(tenantId: string, row: any, acao: 'dispatch' | 'cancel') {
+    if (!this.openDelivery || row?.canal !== 'open_delivery' || !row?.externalId) return;
+    try {
+      const ig = await this.openDelivery.integracaoDoTenant(tenantId);
+      if (!ig) return;
+      if (acao === 'dispatch') await this.openDelivery.despachar(ig, row.externalId);
+      else await this.openDelivery.cancelar(ig, row.externalId, row.motivoCancelamento ?? undefined);
+    } catch {
+      /* nunca quebra o fluxo por causa do status back */
+    }
+  }
 
   // ===== Ingestão (edge → nós) =====
   // Recebe o pedido bruto do canal, normaliza e grava (dedup por external_id).
@@ -296,6 +315,7 @@ export class DeliveryService {
       await this.reconciliarDinheiro(tenantId, row);
     }
     void this.dispararWebhook(tenantId, row);
+    if (novo === 'despachado') void this.statusBack(tenantId, row, 'dispatch');
     return row;
   }
 
@@ -413,6 +433,7 @@ export class DeliveryService {
     // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
     void this.cashback.estornarPedido(tenantId, id, row.clienteTelefone ?? undefined).catch(() => {});
     void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
+    void this.statusBack(tenantId, row, 'cancel'); // avisa o marketplace
     return row;
   }
 
@@ -547,7 +568,7 @@ export class DeliveryService {
   }
 
   // ===== Integrações (credenciais de apps externos) =====
-  private static readonly CANAIS_INTEGRACAO = ['ifood', 'ubereats', 'rappi', '99food', 'n8n'];
+  private static readonly CANAIS_INTEGRACAO = ['ifood', 'ubereats', 'rappi', '99food', 'open_delivery', 'n8n'];
 
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).

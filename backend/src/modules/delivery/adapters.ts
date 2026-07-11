@@ -74,6 +74,45 @@ export function adaptarGenerico(raw: any): PedidoNormalizado {
   };
 }
 
+// Open Delivery (Abrasel): mapeia o pedido do padrão aberto → modelo interno.
+// Cobre marketplaces que falam Open Delivery (ex.: Cardápio Web).
+export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
+  const itens = (raw?.items ?? []).map((it: any) => {
+    const opts = (it.options ?? it.optionsGroups ?? [])
+      .flatMap((g: any) => (g?.options ? g.options : [g]))
+      .map((o: any) => o?.name)
+      .filter(Boolean);
+    const obs = [it.observation ?? it.observations, ...opts].filter(Boolean).join(' · ') || undefined;
+    return {
+      codigo: it.externalCode ?? it.sku ?? undefined,
+      descricao: it.name ?? 'Item',
+      quantidade: Number(it.quantity) || 1,
+      precoUnitario: Number(it.unitPrice?.value ?? it.unitPrice ?? it.price) || 0,
+      observacao: obs,
+    };
+  });
+  const tipoRaw = String(raw?.type ?? raw?.orderType ?? 'DELIVERY').toUpperCase();
+  const tipo = tipoRaw === 'TAKEOUT' || tipoRaw === 'TAKEAWAY' ? 'retirada' : 'entrega';
+  const addr = raw?.delivery?.deliveryAddress ?? raw?.delivery?.address;
+  const endereco =
+    addr?.formattedAddress ||
+    [addr?.street, addr?.number, addr?.neighborhood, addr?.city].filter(Boolean).join(', ') ||
+    undefined;
+  return {
+    externalId: raw?.id ? String(raw.id) : undefined,
+    displayId: raw?.displayId ? String(raw.displayId) : raw?.orderExternalCode,
+    clienteNome: raw?.customer?.name,
+    clienteTelefone: raw?.customer?.phone?.number ?? raw?.customer?.phoneNumber ?? raw?.customer?.phone,
+    tipo,
+    endereco,
+    itens,
+    total: Number(raw?.total?.orderAmount?.value ?? raw?.total?.orderAmount ?? raw?.totalAmount) || 0,
+    formaPagamento: raw?.payments?.methods?.[0]?.method ?? raw?.payments?.[0]?.method ?? 'online',
+  };
+}
+
 export function adaptar(canal: string, raw: any): PedidoNormalizado {
-  return canal === 'ifood' ? adaptarIfood(raw) : adaptarGenerico(raw);
+  if (canal === 'ifood') return adaptarIfood(raw);
+  if (canal === 'open_delivery') return adaptarOpenDelivery(raw);
+  return adaptarGenerico(raw);
 }
