@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { EdgeService } from './edge.service';
 
 // Rota pública de identificação: o cliente confirma que achou o servidor Regem
@@ -10,5 +10,12 @@ export class EdgeController {
   @Get('ping')
   ping() {
     return this.service.info();
+  }
+
+  // O edge consulta se há versão nova publicada (Fase E-D). Só informa versão +
+  // url/sha do pacote — nada sensível, por isso público.
+  @Get('edge/update-check')
+  updateCheck(@Query('versao') versao?: string) {
+    return this.service.atualizacao(versao);
   }
 }

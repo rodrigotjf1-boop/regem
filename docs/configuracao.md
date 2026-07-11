@@ -34,6 +34,10 @@
 | `LICENSE_PRIVATE_KEY_B64` | **assina** o lease de licença | base64 (do `gen-license-keys.mjs`) | **NUNCA** colocar isto no edge! |
 | `LICENSE_PUBLIC_KEY_B64` | verifica o lease | base64 (pública) | — |
 | `LICENSE_KID` | id da chave (rotação) | `k1` | trocar a chave sem trocar o kid |
+| `EDGE_LATEST_VERSION` | última versão do edge publicada (E-D) | `1.4.0` | esquecer de subir → edge nunca é avisado |
+| `EDGE_UPDATE_URL` | url do pacote assinado do edge | `https://.../regem-edge-1.4.0.zip` | opcional |
+| `EDGE_UPDATE_SHA256` | hash do pacote (integridade) | `a1b2…` | opcional |
+| `EDGE_UPDATE_NOTAS` | nota curta da versão | `corrige X` | opcional |
 | `APP_URL` | base dos links (cardápio/robô) | `https://app.dmsregem.com` | — |
 
 ## 2. `regem-web` (nuvem) — variáveis (⚠️ build-time)

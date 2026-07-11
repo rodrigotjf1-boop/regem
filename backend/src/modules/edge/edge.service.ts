@@ -24,6 +24,35 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     };
   }
 
+  // Compara "1.4.2" > "1.4.0" numericamente por segmento (não string).
+  private static maior(a: string, b: string): boolean {
+    const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+    const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const x = pa[i] ?? 0;
+      const y = pb[i] ?? 0;
+      if (x !== y) return x > y;
+    }
+    return false;
+  }
+
+  // O edge pergunta "tem versão nova?". A nuvem responde com a última publicada
+  // (env EDGE_LATEST_VERSION) + url do pacote assinado + notas. Sem segredo → público.
+  // A aplicação em si (baixar/trocar/reiniciar) é feita pelo daemon/instalador no PC.
+  atualizacao(versaoCliente?: string) {
+    const ultima = process.env.EDGE_LATEST_VERSION ?? process.env.APP_VERSION ?? '1';
+    const atual = versaoCliente || '0';
+    return {
+      atual,
+      ultima,
+      atualizar: EdgeService.maior(ultima, atual),
+      url: process.env.EDGE_UPDATE_URL ?? null,
+      sha256: process.env.EDGE_UPDATE_SHA256 ?? null,
+      notas: process.env.EDGE_UPDATE_NOTAS ?? null,
+      ts: new Date().toISOString(),
+    };
+  }
+
   onApplicationBootstrap() {
     if (!EdgeService.ehEdge) return; // nuvem não anuncia
     try {
