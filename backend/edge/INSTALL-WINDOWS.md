@@ -169,7 +169,7 @@
 
 - **Ver logs:** abra `C:\regem-edge\backend\logs\` (arquivos `RegemEdgeApi.log` / `RegemEdgeSync.log`).
 - **Parar/iniciar:** PowerShell (Admin) → `nssm stop RegemEdgeApi` / `nssm start RegemEdgeApi`.
-- **Atualizar versão:** substitua a pasta `dist` pelo novo build, rode `node scripts\apply-all-local.mjs` (se houver migration nova) e reinicie os serviços. *(A automação disso é a Fase E-D — update assinado/blue-green.)*
+- **Atualizar versão:** o daemon já **avisa** quando há versão nova (loga `⬆️ atualização disponível` e grava em `sync_state`, comparando com o `EDGE_LATEST_VERSION` publicado na nuvem). Para aplicar: substitua a pasta `dist` pelo novo build, rode `node scripts\apply-all-local.mjs` (se houver migration nova) e reinicie os serviços. *(A automação completa — baixar/trocar/blue-green — é a Fase E-D em andamento.)*
 
 ## Atalho: instalador de um clique (opcional)
 

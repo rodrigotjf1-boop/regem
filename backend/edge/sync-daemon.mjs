@@ -184,6 +184,26 @@ async function licenca() {
   }
 }
 
+// Fase E-D: pergunta à nuvem se há versão nova. NÃO aplica sozinho (troca de
+// binário/serviço é do instalador) — só registra e loga um aviso claro para o
+// operador. Guarda em sync_state pra a UI/painel poder mostrar depois.
+async function updateCheck() {
+  try {
+    const atual = process.env.APP_VERSION || '1';
+    const res = await fetch(`${CLOUD}/edge/update-check?versao=${encodeURIComponent(atual)}`);
+    if (!res.ok) return;
+    const j = await res.json();
+    if (j.atualizar) {
+      await setState('update_disponivel', j.ultima || '');
+      await setState('update_url', j.url || '');
+      await setState('update_notas', j.notas || '');
+      console.warn(`  ⬆️ atualização disponível: ${atual} → ${j.ultima}${j.url ? ` (${j.url})` : ''}. Rode a atualização do edge quando a loja estiver fechada.`);
+    } else {
+      await setState('update_disponivel', '');
+    }
+  } catch { /* best-effort: sem rede, ignora */ }
+}
+
 async function heartbeat(pullN, pushN, erro) {
   try {
     await fetch(`${CLOUD}/edge/heartbeat`, {
@@ -211,8 +231,16 @@ async function ciclo() {
     console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
   }
   await licenca();
+  // update-check é barato mas não precisa a cada 30s: no máximo 1x/hora.
+  const agora = Date.now();
+  if (agora - ultimoUpdateCheck > 3600000) {
+    ultimoUpdateCheck = agora;
+    await updateCheck();
+  }
   await heartbeat(p, u, erro);
 }
+
+let ultimoUpdateCheck = 0;
 
 console.log(`Daemon de sync — edge=${EDGE_DB.replace(/:[^:@/]*@/, ':****@')} cloud=${CLOUD} intervalo=${INTERVAL}ms`);
 await ensureState();
