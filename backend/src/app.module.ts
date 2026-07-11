@@ -54,6 +54,7 @@ import { ClienteModule } from './modules/cliente/cliente.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
 import { FidelidadeModule } from './modules/fidelidade/fidelidade.module';
 import { CashbackModule } from './modules/cashback/cashback.module';
+import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 import { RelatoriosModule } from './modules/relatorios/relatorios.module';
 import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
@@ -116,6 +117,7 @@ import { AuthModule } from './auth/auth.module';
     CardapioModule,
     FidelidadeModule,
     CashbackModule,
+    WhatsappModule,
     ClienteModule,
     AtendimentoModule,
     RelatoriosModule,
