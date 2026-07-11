@@ -1760,6 +1760,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   roboAusencia: text('robo_ausencia'),
   roboPrompt: text('robo_prompt'), // base de conhecimento (futuro LLM)
   roboMensagens: jsonb('robo_mensagens').notNull().default('[]'), // [{gatilho, resposta}]
+  evolutionInstancia: text('evolution_instancia'), // instância WhatsApp (chave do bot multi-tenant)
+  evolutionNumero: text('evolution_numero'), // número conectado (quando pareado)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

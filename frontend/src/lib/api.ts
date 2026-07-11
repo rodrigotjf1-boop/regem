@@ -361,6 +361,10 @@ export const api = {
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
+  // WhatsApp da loja (Evolution)
+  whatsappConectar: () => req('/whatsapp/conectar', { method: 'POST', body: '{}' }),
+  whatsappStatus: () => req('/whatsapp/status'),
+  whatsappDesconectar: () => req('/whatsapp/desconectar', { method: 'DELETE' }),
   criarPedidoDelivery: (body: Record<string, unknown>) =>
     req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
   nfDelivery: (id: string) =>

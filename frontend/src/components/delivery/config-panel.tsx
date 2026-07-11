@@ -788,11 +788,80 @@ function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => void; po
 
 const areaTxt = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm';
 
+// Conectar o WhatsApp da loja (Evolution): mostra o QR e faz polling do status.
+function ConectarWhatsapp({ pode }: { pode: boolean }) {
+  const [status, setStatus] = useState<any>(null);
+  const [qr, setQr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [erro, setErro] = useState('');
+
+  async function carregarStatus() {
+    try { setStatus(await api.whatsappStatus()); } catch { /* ignore */ }
+  }
+  useEffect(() => { carregarStatus(); }, []);
+  // Enquanto o QR está na tela, verifica a cada 3s se pareou.
+  useEffect(() => {
+    if (!qr) return;
+    const t = setInterval(async () => {
+      try {
+        const s: any = await api.whatsappStatus();
+        setStatus(s);
+        if (s?.conectado) { setQr(null); clearInterval(t); }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [qr]);
+
+  async function conectar() {
+    setBusy(true); setErro('');
+    try {
+      const r: any = await api.whatsappConectar();
+      setQr(r?.qr ?? null);
+      if (!r?.qr) setErro('Não veio QR. Verifique a configuração do Evolution no servidor.');
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao conectar'); }
+    finally { setBusy(false); }
+  }
+  async function desconectar() {
+    if (!confirm('Desconectar o WhatsApp desta loja?')) return;
+    try { await api.whatsappDesconectar(); setQr(null); carregarStatus(); } catch { /* ignore */ }
+  }
+
+  const conectado = status?.conectado;
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold">WhatsApp da loja</p>
+          <p className="text-xs text-muted-foreground">
+            {conectado
+              ? `● Conectado${status?.instancia ? ` · ${status.instancia}` : ''}`
+              : 'Conecte o número do WhatsApp que o robô vai atender.'}
+          </p>
+        </div>
+        {pode && (
+          conectado
+            ? <Button type="button" size="sm" variant="outline" onClick={desconectar}>Desconectar</Button>
+            : <Button type="button" size="sm" onClick={conectar} disabled={busy}>{busy ? 'Gerando…' : (qr ? 'Gerar novo QR' : 'Conectar WhatsApp')}</Button>
+        )}
+      </div>
+      {qr && !conectado && (
+        <div className="mt-3 flex flex-col items-center gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={qr} alt="QR do WhatsApp" className="h-56 w-56 rounded-lg border border-border" />
+          <p className="text-xs text-muted-foreground">No celular da loja: WhatsApp → Aparelhos conectados → <strong>Conectar aparelho</strong> → aponte para o QR.</p>
+        </div>
+      )}
+      {erro && <p className="mt-2 text-xs text-destructive">{erro}</p>}
+    </div>
+  );
+}
+
 function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
   const msgs: any[] = loja.roboMensagens ?? [];
   const setMsgs = (m: any[]) => up({ roboMensagens: m });
   return (
     <div className="space-y-3">
+      <ConectarWhatsapp pode={pode} />
       <p className="text-xs text-muted-foreground">Robô de auto atendimento do cardápio/WhatsApp. Aqui você configura as <strong>mensagens</strong>. O “cérebro” com IA (respostas livres) entra numa etapa dedicada.</p>
       <ToggleLinha label="Robô ativo" desc="Responde os clientes automaticamente." checked={!!loja.roboAtivo} onChange={(v) => up({ roboAtivo: v })} pode={pode} />
 
