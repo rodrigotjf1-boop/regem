@@ -361,6 +361,16 @@ export const api = {
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
+  // Revenda / frota (edge appliance)
+  revendas: () => req('/revenda'),
+  criarRevenda: (nome: string) => req('/revenda', { method: 'POST', body: JSON.stringify({ nome }) }),
+  emitirTokenAtivacao: (body: Record<string, unknown>) =>
+    req('/revenda/token', { method: 'POST', body: JSON.stringify(body) }),
+  frotaEdge: () => req('/revenda/frota'),
+  ativacaoModulos: (id: string, body: Record<string, unknown>) =>
+    req(`/ativacao/${id}/modulos`, { method: 'POST', body: JSON.stringify(body) }),
+  ativacaoAcao: (id: string, acao: 'suspender' | 'reativar' | 'revogar' | 'rebind') =>
+    req(`/ativacao/${id}/${acao}`, { method: 'POST', body: '{}' }),
   // WhatsApp da loja (Evolution)
   whatsappConectar: () => req('/whatsapp/conectar', { method: 'POST', body: '{}' }),
   whatsappStatus: () => req('/whatsapp/status'),

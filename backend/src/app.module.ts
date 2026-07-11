@@ -61,6 +61,7 @@ import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { EdgeModule } from './modules/edge/edge.module';
+import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -128,6 +129,7 @@ import { AuthModule } from './auth/auth.module';
     BotModule,
     SyncModule,
     EdgeModule,
+    LicencaModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

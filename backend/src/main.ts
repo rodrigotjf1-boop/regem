@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import { readFileSync } from 'fs';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -21,7 +22,21 @@ async function bootstrap() {
     );
   }
 
-  const app = await NestFactory.create(AppModule);
+  // Edge: HTTPS local com o cert do próprio servidor (SW + câmera na LAN sem
+  // internet). Aponte EDGE_TLS_CERT/EDGE_TLS_KEY para os arquivos PEM.
+  let httpsOptions: { key: Buffer; cert: Buffer } | undefined;
+  if (process.env.EDGE_TLS_CERT && process.env.EDGE_TLS_KEY) {
+    try {
+      httpsOptions = {
+        cert: readFileSync(process.env.EDGE_TLS_CERT),
+        key: readFileSync(process.env.EDGE_TLS_KEY),
+      };
+    } catch (e) {
+      console.error('EDGE_TLS_* configurado mas não pôde ler os certificados:', e);
+    }
+  }
+
+  const app = await NestFactory.create(AppModule, httpsOptions ? { httpsOptions } : {});
 
   // Cabeçalhos de segurança.
   app.use(helmet());

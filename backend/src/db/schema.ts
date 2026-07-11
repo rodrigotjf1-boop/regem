@@ -1664,6 +1664,46 @@ export const clienteLink = pgTable('cliente_link', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ===== Licença / revenda / frota (edge appliance) =====
+export const revenda = pgTable('revenda', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  nome: text('nome').notNull(),
+  ativo: boolean('ativo').notNull().default(true),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Ativação/licença por loja: o token que a revenda emite; base do lease assinado.
+export const ativacao = pgTable('ativacao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  revendaId: uuid('revenda_id'),
+  tenantId: uuid('tenant_id'),
+  tokenHash: text('token_hash').notNull().unique(),
+  ramo: text('ramo').notNull().default('food_service'),
+  plano: text('plano').notNull().default('basico'),
+  modulos: jsonb('modulos').notNull().default('[]'),
+  trial: boolean('trial').notNull().default(false),
+  validadeAte: timestamp('validade_ate', { withTimezone: true }),
+  status: text('status').notNull().default('emitido'), // emitido | ativado | suspenso | revogado
+  deviceFingerprint: text('device_fingerprint'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  ativadoEm: timestamp('ativado_em', { withTimezone: true }),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Telemetria da frota: heartbeat do edge → painel da revenda.
+export const edgeHeartbeat = pgTable('edge_heartbeat', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ativacaoId: uuid('ativacao_id'),
+  tenantId: uuid('tenant_id'),
+  versao: text('versao'),
+  estado: text('estado'),
+  ultimoSync: timestamp('ultimo_sync', { withTimezone: true }),
+  discoLivreMb: integer('disco_livre_mb'),
+  clientes: integer('clientes'),
+  erro: text('erro'),
+  recebidoEm: timestamp('recebido_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== TEF — pagamento integrado (Fase I) =====
 export const tefConfig = pgTable('tef_config', {
   id: uuid('id').primaryKey().defaultRandom(),
