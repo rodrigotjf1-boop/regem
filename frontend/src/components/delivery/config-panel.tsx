@@ -896,7 +896,7 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   );
 }
 
-const CANAL_NOME: Record<string, string> = { ifood: 'iFood', ubereats: 'Uber Eats', rappi: 'Rappi', '99food': '99Food', n8n: 'WhatsApp / n8n' };
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', ubereats: 'Uber Eats', rappi: 'Rappi', '99food': '99Food', open_delivery: 'Open Delivery (Cardápio Web)', n8n: 'WhatsApp / n8n' };
 
 function Integracoes({ lista, onSalvar, pode }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean }) {
   return (
@@ -934,6 +934,19 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
             <Campo label={`Segredo${it.temSecret ? ' (salvo)' : ''}`}>
               <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : 'uma frase secreta qualquer'} className="h-8" disabled={!pode} />
             </Campo>
+          </div>
+        </>
+      ) : it.canal === 'open_delivery' ? (
+        <>
+          <p className="text-[11px] text-muted-foreground">Padrão aberto da Abrasel. Cole a <strong>URL base da API Open Delivery</strong> do marketplace (ex.: no Cardápio Web em Configurações → Integrações → API Open Delivery) e as credenciais OAuth. O Regem faz o polling dos pedidos e devolve o status automaticamente.</p>
+          <div className="grid gap-2">
+            <Campo label="URL base da API Open Delivery"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="https://.../open-delivery-api/v1" className="h-8" disabled={!pode} /></Campo>
+            <div className="grid grid-cols-2 gap-2">
+              <Campo label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
+              <Campo label={`Client Secret${it.temSecret ? ' (salvo)' : ''}`}>
+                <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : ''} className="h-8" disabled={!pode} />
+              </Campo>
+            </div>
           </div>
         </>
       ) : (
