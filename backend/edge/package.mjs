@@ -9,10 +9,14 @@ const out = join(raiz, '..', 'regem-edge-dist');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
+// Nunca empacotar os binários portáteis do instalador (edge/bundle) nem node_modules:
+// o instalador (.iss) já os inclui à parte; empacotá-los aqui incharia a dist (~250MB).
+const semBundle = (s) => !/[\\/](bundle|node_modules)([\\/]|$)/.test(s);
+
 const copiar = (rel) => {
   const src = join(raiz, rel);
   if (!existsSync(src)) { console.warn(`  (pulando, não existe) ${rel}`); return; }
-  cpSync(src, join(out, rel), { recursive: true });
+  cpSync(src, join(out, rel), { recursive: true, filter: semBundle });
   console.log(`  + ${rel}`);
 };
 
