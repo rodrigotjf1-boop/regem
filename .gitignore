@@ -17,3 +17,6 @@ build/
 Thumbs.db
 .vscode/mcp.json
 graphify-out/
+
+# Binários portáteis do instalador edge (não versionar — baixados à parte)
+backend/edge/bundle/
