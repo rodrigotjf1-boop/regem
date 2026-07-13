@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Inject,
@@ -38,7 +39,40 @@ export class AuthService {
   ) {}
 
   // Onboarding em transação: empresa -> função Presidente -> colaborador admin.
+  // Valida CNPJ pelos dígitos verificadores (14 dígitos, não todos iguais).
+  private cnpjValido(c: string): boolean {
+    if (!/^\d{14}$/.test(c) || /^(\d)\1{13}$/.test(c)) return false;
+    const dv = (base: string) => {
+      let soma = 0;
+      let pos = base.length - 7;
+      for (const ch of base) {
+        soma += Number(ch) * pos--;
+        if (pos < 2) pos = 9;
+      }
+      const r = soma % 11;
+      return r < 2 ? 0 : 11 - r;
+    };
+    const d1 = dv(c.slice(0, 12));
+    const d2 = dv(c.slice(0, 12) + String(d1));
+    return c.slice(12) === `${d1}${d2}`;
+  }
+
   async register(dto: RegisterDto) {
+    // CNPJ é a âncora anti-burla: 1 trial por CNPJ (empresa.cnpj é único).
+    const cnpj = String(dto.cnpj ?? '').replace(/\D/g, '');
+    if (!this.cnpjValido(cnpj)) {
+      throw new BadRequestException('CNPJ inválido. Confira os 14 dígitos.');
+    }
+    const [cnpjExiste] = await this.db
+      .select({ id: empresa.id })
+      .from(empresa)
+      .where(eq(empresa.cnpj, cnpj))
+      .limit(1);
+    if (cnpjExiste) {
+      throw new ConflictException(
+        'Este CNPJ já tem uma conta no Regem. Faça login ou fale com a distribuição.',
+      );
+    }
     // E-mail é único global (uq_colaborador_email). Checa antes para dar uma
     // mensagem clara em vez de estourar 500 na violação de unicidade.
     const [existe] = await this.db
@@ -57,6 +91,7 @@ export class AuthService {
         .insert(empresa)
         .values({
           nome: dto.empresaNome,
+          cnpj,
           plano: 'completo',
           trialAte: new Date(Date.now() + 90 * 86400000),
         })

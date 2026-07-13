@@ -6,10 +6,22 @@ import Link from 'next/link';
 import { api, setToken } from '@/lib/api';
 import { RegemMark } from '@/components/brand/regem-mark';
 
+// Máscara progressiva de CNPJ (00.000.000/0000-00).
+function mascaraCnpj(v: string) {
+  return v
+    .replace(/\D/g, '')
+    .slice(0, 14)
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2');
+}
+
 export default function CriarContaPage() {
   const router = useRouter();
   const [form, setForm] = useState({
     empresaNome: '',
+    cnpj: '',
     nome: '',
     email: '',
     senha: '',
@@ -94,7 +106,7 @@ export default function CriarContaPage() {
             Criar sua conta
           </h2>
           <p className="mt-2 text-[#909CB4]">
-            Comece grátis. Configure sua empresa em minutos.
+            3 meses grátis do sistema completo. Configure sua empresa em minutos.
           </p>
 
           <form onSubmit={onSubmit} className="mt-8 space-y-5">
@@ -110,6 +122,21 @@ export default function CriarContaPage() {
                 placeholder="Ex.: Bar do Zé"
                 required
                 minLength={2}
+              />
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="cnpj">
+                CNPJ
+              </label>
+              <input
+                id="cnpj"
+                className={inputCls}
+                value={form.cnpj}
+                onChange={(e) => set('cnpj', mascaraCnpj(e.target.value))}
+                placeholder="00.000.000/0000-00"
+                inputMode="numeric"
+                required
+                minLength={18}
               />
             </div>
             <div>
