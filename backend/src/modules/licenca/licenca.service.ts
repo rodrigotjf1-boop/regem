@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ForbiddenException,
+  HttpException,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,7 +10,9 @@ import {
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import Stripe from 'stripe';
+// stripe usa `export =` — com o tsconfig do projeto (sem esModuleInterop), o
+// `import Stripe from 'stripe'` compila para `stripe_1.default` e quebra em runtime.
+import Stripe = require('stripe');
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ativacao, colaborador, edgeHeartbeat, empresa, equipamento, funcao, revenda } from '../../db/schema';
@@ -352,33 +355,46 @@ export class LicencaService {
       .limit(1);
     if (!emp) throw new NotFoundException('Empresa não encontrada.');
 
-    let customerId = emp.cust;
-    if (!customerId) {
-      const c = await stripe.customers.create({
-        name: emp.nome,
-        metadata: { tenantId, cnpj: emp.cnpj ?? '' },
+    try {
+      let customerId = emp.cust;
+      if (!customerId) {
+        const c = await stripe.customers.create({
+          name: emp.nome,
+          metadata: { tenantId, cnpj: emp.cnpj ?? '' },
+        });
+        customerId = c.id;
+        await this.db.update(empresa).set({ stripeCustomerId: customerId }).where(eq(empresa.id, tenantId));
+      }
+
+      // O preço é resolvido pelo lookup_key (ex.: completo_mensal) criado no seed.
+      const prices = await stripe.prices.list({ lookup_keys: [`${chave}_${ciclo}`], active: true, limit: 1 });
+      const price = prices.data[0];
+      if (!price) {
+        throw new ServiceUnavailableException(
+          `Preço "${chave}_${ciclo}" não existe no Stripe. Rode o seed com a MESMA chave do regem-api.`,
+        );
+      }
+
+      const base = process.env.APP_URL || 'https://app.dmsregem.com';
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        customer: customerId,
+        line_items: [{ price: price.id, quantity: 1 }],
+        success_url: `${base}/planos?assinatura=ok`,
+        cancel_url: `${base}/planos?assinatura=cancel`,
+        allow_promotion_codes: true,
+        metadata: { tenantId, chave, ciclo },
+        subscription_data: { metadata: { tenantId, chave, ciclo } },
       });
-      customerId = c.id;
-      await this.db.update(empresa).set({ stripeCustomerId: customerId }).where(eq(empresa.id, tenantId));
+      return { url: session.url };
+    } catch (e: any) {
+      if (e instanceof HttpException) throw e; // 503/404 já tratados acima
+      // Erro vindo do Stripe → devolve a mensagem real (em vez de 500 mudo) e loga.
+      const msg = e?.raw?.message || e?.message || 'erro desconhecido no Stripe';
+      // eslint-disable-next-line no-console
+      console.error('[stripe checkout] ', e?.type || '', msg);
+      throw new BadRequestException(`Falha no pagamento (Stripe): ${msg}`);
     }
-
-    // O preço é resolvido pelo lookup_key (ex.: completo_mensal) criado no seed.
-    const prices = await stripe.prices.list({ lookup_keys: [`${chave}_${ciclo}`], active: true, limit: 1 });
-    const price = prices.data[0];
-    if (!price) throw new ServiceUnavailableException('Preço não configurado no Stripe. Rode o seed de preços.');
-
-    const base = process.env.APP_URL || 'https://app.dmsregem.com';
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      line_items: [{ price: price.id, quantity: 1 }],
-      success_url: `${base}/planos?assinatura=ok`,
-      cancel_url: `${base}/planos?assinatura=cancel`,
-      allow_promotion_codes: true,
-      metadata: { tenantId, chave, ciclo },
-      subscription_data: { metadata: { tenantId, chave, ciclo } },
-    });
-    return { url: session.url };
   }
 
   // Aplica o estado de uma assinatura na empresa (trial_ate = fim do período).
