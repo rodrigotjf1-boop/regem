@@ -1,8 +1,7 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
-import { RolesGuard } from '../../auth/roles.guard';
-import { Roles } from '../../auth/roles.decorator';
+import { DistribuidorGuard } from '../../auth/distribuidor.guard';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -22,64 +21,55 @@ export class LicencaController {
 
   // ===== Portal da revenda (presidente/C&O) =====
   @Get('revenda')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   revendas() {
     return this.service.listarRevendas();
   }
 
   @Post('revenda')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   criarRevenda(@Body() dto: any) {
     return this.service.criarRevenda(dto?.nome);
   }
 
   @Post('revenda/token')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   emitir(@Body() dto: any) {
     return this.service.emitirToken(dto);
   }
 
   @Get('revenda/frota')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   frota() {
     return this.service.frota();
   }
 
   @Post('ativacao/:id/modulos')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   modulos(@Param('id') id: string, @Body() dto: any) {
     return this.service.atualizarModulos(id, dto?.modulos ?? [], dto?.plano);
   }
 
   @Post('ativacao/:id/suspender')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   suspender(@Param('id') id: string) {
     return this.service.mudarStatus(id, 'suspenso');
   }
 
   @Post('ativacao/:id/reativar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   reativar(@Param('id') id: string) {
     return this.service.mudarStatus(id, 'ativado');
   }
 
   @Post('ativacao/:id/revogar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   revogar(@Param('id') id: string) {
     return this.service.mudarStatus(id, 'revogado');
   }
 
   @Post('ativacao/:id/rebind')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
   rebind(@Param('id') id: string) {
     return this.service.rebind(id);
   }
