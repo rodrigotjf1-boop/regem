@@ -20,9 +20,11 @@ export default function FrotaPage() {
   const [frota, setFrota] = useState<any[]>([]);
   const [form, setForm] = useState<any>({ tenantId: '', ramo: 'food_service', plano: 'basico', modulos: [] as string[], trial: false, validadeDias: '' });
   const [tokenNovo, setTokenNovo] = useState<string | null>(null);
+  const [restrito, setRestrito] = useState(false);
 
   const carregar = useCallback(async () => {
-    try { setFrota((await api.frotaEdge()) as any[]); } catch { /* ignore */ }
+    try { setFrota((await api.frotaEdge()) as any[]); setRestrito(false); }
+    catch (e) { if (e instanceof Error && /restrit/i.test(e.message)) setRestrito(true); }
   }, []);
   useEffect(() => {
     setCat(getCategoria());
@@ -32,8 +34,8 @@ export default function FrotaPage() {
     return () => clearInterval(t);
   }, [carregar, router]);
 
-  if (cat && cat !== 'presidente') {
-    return <Shell eyebrow="Frota" title="Revenda & frota"><Card className="p-4"><p className="text-sm text-muted-foreground">Acesso restrito ao presidente / C&O.</p></Card></Shell>;
+  if (restrito || (cat && cat !== 'presidente')) {
+    return <Shell eyebrow="Frota" title="Revenda & frota"><Card className="p-4"><p className="text-sm text-muted-foreground">Acesso restrito à distribuição (DMS/revenda).</p></Card></Shell>;
   }
 
   const toggleMod = (m: string) =>
