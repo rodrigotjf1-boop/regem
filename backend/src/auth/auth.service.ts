@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -38,6 +39,16 @@ export class AuthService {
 
   // Onboarding em transação: empresa -> função Presidente -> colaborador admin.
   async register(dto: RegisterDto) {
+    // E-mail é único global (uq_colaborador_email). Checa antes para dar uma
+    // mensagem clara em vez de estourar 500 na violação de unicidade.
+    const [existe] = await this.db
+      .select({ id: colaborador.id })
+      .from(colaborador)
+      .where(eq(colaborador.email, dto.email))
+      .limit(1);
+    if (existe) {
+      throw new ConflictException('Este e-mail já tem uma conta. Faça login.');
+    }
     const senhaHash = await bcrypt.hash(dto.senha, 10);
 
     const result = await this.db.transaction(async (tx) => {
