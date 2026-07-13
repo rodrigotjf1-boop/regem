@@ -262,22 +262,37 @@ export default function WizardPage() {
                   O Regem sugere setores, funções e tarefas padrão — tudo editável depois.
                 </p>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Por enquanto, só <strong>bares &amp; restaurantes</strong> está completo. Os outros ramos estão em desenvolvimento.
+              </p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {ramos.map((r) => (
-                  <button
-                    key={r.ramo}
-                    type="button"
-                    onClick={() => escolherRamo(r.ramo)}
-                    className={`flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition ${
-                      ramo === r.ramo
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:bg-muted'
-                    }`}
-                  >
-                    <span className="text-3xl">{r.emoji}</span>
-                    <span className="text-xs font-medium leading-tight">{r.label}</span>
-                  </button>
-                ))}
+                {ramos.map((r) => {
+                  const liberado = r.ramo === 'food_service';
+                  return (
+                    <button
+                      key={r.ramo}
+                      type="button"
+                      disabled={!liberado}
+                      onClick={() => liberado && escolherRamo(r.ramo)}
+                      title={liberado ? undefined : 'Em desenvolvimento — disponível em breve'}
+                      className={`relative flex flex-col items-center gap-2 rounded-xl border p-4 text-center transition ${
+                        !liberado
+                          ? 'cursor-not-allowed border-border opacity-45'
+                          : ramo === r.ramo
+                            ? 'border-primary bg-primary/5'
+                            : 'border-border hover:bg-muted'
+                      }`}
+                    >
+                      <span className="text-3xl">{r.emoji}</span>
+                      <span className="text-xs font-medium leading-tight">{r.label}</span>
+                      {!liberado && (
+                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+                          Em breve
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}

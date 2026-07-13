@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
+// WhatsApp de suporte (só dígitos, ex.: 5521999999999). Configure em
+// NEXT_PUBLIC_WHATSAPP_SUPORTE (build-time). Sem valor, o botão não aparece.
+const WHATS = (process.env.NEXT_PUBLIC_WHATSAPP_SUPORTE || '').replace(/\D/g, '');
+
 // Landing pública (antes do login). Tema escuro navy + âmbar (marca).
 // Porte fiel do mockup Fable "regem-landing" — CSS escopado em .lp.
 const CSS = `
@@ -153,7 +157,8 @@ export default function LandingPage() {
         </h1>
         <p>
           Vendas, estoque, equipe e financeiro numa só plataforma. Simples no
-          balcão, completa na diretoria.
+          balcão, completa na diretoria. <strong style={{ color: '#F2F5F9' }}>3 meses grátis</strong> do
+          sistema completo — sem cartão.
         </p>
         <div className="hero-ctas">
           <Link
@@ -464,7 +469,7 @@ export default function LandingPage() {
 
       {/* CTA FINAL */}
       <div className="cta-final">
-        <div className="eyebrow">14 dias grátis · sem cartão</div>
+        <div className="eyebrow">3 meses grátis · sem cartão</div>
         <h2>
           Sua operação inteira, <em>no comando</em>.
         </h2>
@@ -494,6 +499,33 @@ export default function LandingPage() {
           REGEM · NO COMANDO DE TODO O NEGÓCIO · DO BALCÃO AO BALANÇO
         </div>
       </footer>
+
+      {/* WhatsApp flutuante — tirar dúvidas antes de assinar */}
+      {WHATS && (
+        <a
+          href={`https://wa.me/${WHATS}?text=${encodeURIComponent('Olá! Tenho uma dúvida sobre o Regem.')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Falar no WhatsApp"
+          style={{
+            position: 'fixed',
+            right: 22,
+            bottom: 22,
+            zIndex: 60,
+            width: 58,
+            height: 58,
+            borderRadius: '50%',
+            background: '#25D366',
+            display: 'grid',
+            placeItems: 'center',
+            boxShadow: '0 8px 24px rgba(0,0,0,.35)',
+          }}
+        >
+          <svg viewBox="0 0 32 32" width="30" height="30" fill="#fff" aria-hidden="true">
+            <path d="M16 3C9.4 3 4 8.4 4 15c0 2.1.6 4.1 1.6 5.9L4 29l8.3-1.6c1.7.9 3.6 1.4 5.7 1.4 6.6 0 12-5.4 12-12S22.6 3 16 3zm0 21.8c-1.8 0-3.5-.5-5-1.4l-.4-.2-3.7.7.7-3.6-.2-.4c-1-1.6-1.5-3.4-1.5-5.3C6 10 10.5 5.6 16 5.6S26 10 26 15.4 21.5 24.8 16 24.8zm5.4-7.1c-.3-.1-1.8-.9-2-1s-.5-.1-.7.1c-.2.3-.8 1-1 1.2-.2.2-.4.2-.7.1-1.8-.9-3-1.6-4.2-3.6-.3-.5.3-.5.8-1.5.1-.2 0-.4 0-.5s-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.2 3.4 5.4 4.7 2 .9 2.8.9 3.8.8.6-.1 1.8-.7 2-1.5.3-.7.3-1.4.2-1.5-.1-.1-.3-.2-.6-.3z" />
+          </svg>
+        </a>
+      )}
     </div>
   );
 }
