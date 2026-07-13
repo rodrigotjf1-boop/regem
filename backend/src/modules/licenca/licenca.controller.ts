@@ -81,6 +81,15 @@ export class LicencaController {
     return this.service.ativar(dto?.token ?? '', dto?.fingerprint ?? '');
   }
 
+  // Auto-instalação self-service (G-4): autentica a conta C&O + fingerprint e
+  // devolve { syncToken, lease }. É o que o instalador chama no fim (sem token
+  // emitido à mão pela distribuição).
+  @Post('provisionamento/instalar')
+  @Throttle({ default: { ttl: 60000, limit: 8 } })
+  instalar(@Body() dto: any) {
+    return this.service.instalarSelfService(dto ?? {});
+  }
+
   // ===== Edge (token de dispositivo servidor_local) =====
   @Get('edge/lease')
   @UseGuards(SyncTokenGuard)
