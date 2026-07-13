@@ -1,16 +1,31 @@
-import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
+import * as bcrypt from 'bcryptjs';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { ativacao, edgeHeartbeat, empresa, revenda } from '../../db/schema';
+import { ativacao, colaborador, edgeHeartbeat, empresa, equipamento, funcao, revenda } from '../../db/schema';
+import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease } from './lease';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 
+// Trial completo = todos os módulos ativáveis (o cadastro dá 3 meses do completo).
+const TRIAL_MODULOS = ['kds', 'ponto', 'app_colaborador', 'cashback', 'fidelidade', 'integracoes', 'bot'];
+
 @Injectable()
 export class LicencaService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly equip: EquipamentoService,
+  ) {}
 
   // ===== Revenda (portal) =====
   listarRevendas() {
@@ -127,6 +142,111 @@ export class LicencaService {
       .where(eq(ativacao.id, a.id))
       .returning();
     return { ativacaoId: row.id, lease: this.leaseDe(row) };
+  }
+
+  // Auto-instalação SELF-SERVICE (G-4): o instalador manda a conta C&O + o
+  // fingerprint do aparelho; a nuvem confere trial + anti-clonagem e devolve o
+  // token de sync (cria/reusa o equipamento servidor_local) e o lease. Sem humano.
+  async instalarSelfService(dto: { email?: string; senha?: string; fingerprint?: string; unidadeId?: string }) {
+    const email = String(dto.email ?? '').trim();
+    const fingerprint = String(dto.fingerprint ?? '').trim();
+    if (!email || !dto.senha || !fingerprint) {
+      throw new BadRequestException('E-mail, senha e device são obrigatórios.');
+    }
+    // 1) Autentica a conta C&O.
+    const [u] = await this.db
+      .select({
+        id: colaborador.id,
+        tenantId: colaborador.tenantId,
+        senhaHash: colaborador.senhaHash,
+        categoria: funcao.categoria,
+      })
+      .from(colaborador)
+      .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
+      .where(eq(colaborador.email, email))
+      .limit(1);
+    if (!u?.senhaHash || !(await bcrypt.compare(dto.senha, u.senhaHash))) {
+      throw new UnauthorizedException('E-mail ou senha inválidos.');
+    }
+    if (!['presidente', 'gerente'].includes(u.categoria ?? '')) {
+      throw new ForbiddenException('Apenas o C&O ou gerente pode ativar o servidor local.');
+    }
+    const tenantId = u.tenantId;
+
+    // 2) Trial/assinatura precisa estar ativa.
+    const st = await this.statusConta(tenantId);
+    if (!st.ativa) throw new ForbiddenException('Conta sem teste/assinatura ativa. Assine para ativar.');
+
+    // 3) Anti-clonagem: o fingerprint não pode pertencer a OUTRA empresa.
+    const [outro] = await this.db
+      .select({ tenantId: ativacao.tenantId })
+      .from(ativacao)
+      .where(eq(ativacao.deviceFingerprint, fingerprint))
+      .limit(1);
+    if (outro && outro.tenantId !== tenantId) {
+      throw new ForbiddenException('Este equipamento já está vinculado a outra empresa.');
+    }
+
+    // 4) Equipamento servidor_local: reusa o existente ou cria (gera o sync token).
+    let syncToken: string;
+    const [eqExiste] = await this.db
+      .select({ token: equipamento.token })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'servidor_local')))
+      .limit(1);
+    if (eqExiste?.token) {
+      syncToken = eqExiste.token;
+    } else {
+      const novo: any = await this.equip.criar(tenantId, u.id, u.categoria ?? 'presidente', {
+        tipo: 'servidor_local',
+        nome: 'Servidor local',
+        unidadeId: dto.unidadeId,
+      } as any);
+      syncToken = novo.token;
+    }
+
+    // 5) Ativação (1 por empresa): status ativado + fingerprint + validade do trial.
+    const [emp] = await this.db
+      .select({ trialAte: empresa.trialAte })
+      .from(empresa)
+      .where(eq(empresa.id, tenantId))
+      .limit(1);
+    const validadeAte = emp?.trialAte ?? null;
+    const [aExiste] = await this.db.select().from(ativacao).where(eq(ativacao.tenantId, tenantId)).limit(1);
+    let row: any;
+    if (aExiste) {
+      [row] = await this.db
+        .update(ativacao)
+        .set({
+          deviceFingerprint: fingerprint,
+          status: 'ativado',
+          plano: 'completo',
+          modulos: TRIAL_MODULOS,
+          validadeAte,
+          ativadoEm: aExiste.ativadoEm ?? new Date(),
+          atualizadoEm: new Date(),
+        })
+        .where(eq(ativacao.id, aExiste.id))
+        .returning();
+    } else {
+      [row] = await this.db
+        .insert(ativacao)
+        .values({
+          tenantId,
+          tokenHash: hash(`self-${fingerprint}-${Date.now()}`),
+          ramo: 'food_service',
+          plano: 'completo',
+          modulos: TRIAL_MODULOS,
+          trial: true,
+          validadeAte,
+          status: 'ativado',
+          deviceFingerprint: fingerprint,
+          ativadoEm: new Date(),
+        })
+        .returning();
+    }
+
+    return { syncToken, lease: this.leaseDe(row), ativo: true };
   }
 
   // Renova o lease (o edge chama no sync). Suspenso/revogado → sem lease.
