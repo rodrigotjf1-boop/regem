@@ -385,6 +385,8 @@ export const api = {
     req('/delivery/despausar', { method: 'POST', body: '{}' }),
   // Status da licença/trial da conta (para o aviso e o paywall).
   licencaStatus: () => req('/licenca/status'),
+  // Catálogo de planos (página de assinatura).
+  planos: () => req('/planos'),
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),

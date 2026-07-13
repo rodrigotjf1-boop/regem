@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { api, getToken } from '@/lib/api';
 
 // Aviso de trial + bloqueio (G-1b). Lê /licenca/status e mostra:
@@ -42,7 +43,7 @@ export function LicencaAviso() {
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-destructive/30 bg-destructive/10 px-5 py-2.5 text-sm text-destructive">
         <span className="font-bold">⛔ Seu teste do Regem terminou.</span>
         <span>Novas operações estão bloqueadas — a leitura continua liberada.</span>
-        <span className="font-semibold">Fale com a distribuição para escolher um plano e reativar.</span>
+        <Link href="/planos" className="font-bold underline underline-offset-2">Ver planos e reativar</Link>
       </div>
     );
   }
@@ -61,9 +62,8 @@ export function LicencaAviso() {
         <span className="font-bold">
           {urgente ? '⏳' : '✨'} Teste grátis: {s.dias} {s.dias === 1 ? 'dia' : 'dias'} restantes
         </span>
-        <span className="text-muted-foreground">
-          — sistema completo. Assine antes do fim para não perder o acesso.
-        </span>
+        <span className="text-muted-foreground">— sistema completo.</span>
+        <Link href="/planos" className="font-semibold underline underline-offset-2">Ver planos</Link>
       </div>
     );
   }

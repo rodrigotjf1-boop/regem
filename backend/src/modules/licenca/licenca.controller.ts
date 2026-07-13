@@ -6,6 +6,7 @@ import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { LicencaService } from './licenca.service';
+import { PLANOS } from './planos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Controller()
@@ -17,6 +18,13 @@ export class LicencaController {
   @UseGuards(JwtAuthGuard)
   status(@CurrentUser() user: AuthUser) {
     return this.service.statusConta(user.tenantId);
+  }
+
+  // Catálogo de planos (para a página de assinatura). Qualquer usuário logado.
+  @Get('planos')
+  @UseGuards(JwtAuthGuard)
+  planos() {
+    return PLANOS;
   }
 
   // ===== Portal da revenda (presidente/C&O) =====
