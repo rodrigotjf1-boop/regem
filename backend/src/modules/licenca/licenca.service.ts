@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundEx
 import { createHash, randomBytes } from 'crypto';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { ativacao, edgeHeartbeat, revenda } from '../../db/schema';
+import { ativacao, edgeHeartbeat, empresa, revenda } from '../../db/schema';
 import { assinarLease } from './lease';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -169,6 +169,31 @@ export class LicencaService {
       erro: dto?.erro ?? null,
     });
     return { ok: true };
+  }
+
+  // Status da CONTA na nuvem (trial/assinatura) — base do bloqueio duro (G-1).
+  // trial_ate NULL = conta sem limite (legado/assinatura ativa) -> sempre ativa.
+  async statusConta(tenantId: string) {
+    const [e] = await this.db
+      .select({ trialAte: empresa.trialAte, plano: empresa.plano, status: empresa.status })
+      .from(empresa)
+      .where(eq(empresa.id, tenantId))
+      .limit(1);
+    if (!e) return { ativa: false, tipo: 'sem_conta', plano: null };
+    if (e.status === 'bloqueado') return { ativa: false, tipo: 'bloqueado', plano: e.plano };
+    if (!e.trialAte) return { ativa: true, tipo: 'ativa', plano: e.plano };
+    const ate = new Date(e.trialAte).getTime();
+    const agora = Date.now();
+    if (ate >= agora) {
+      return {
+        ativa: true,
+        tipo: 'trial',
+        plano: e.plano,
+        ate: new Date(ate).toISOString(),
+        dias: Math.ceil((ate - agora) / 86400000),
+      };
+    }
+    return { ativa: false, tipo: 'trial_expirado', plano: e.plano, ate: new Date(ate).toISOString() };
   }
 
   // Entitlements atuais de uma loja (para enforcement de módulos).

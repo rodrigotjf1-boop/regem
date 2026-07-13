@@ -24,6 +24,8 @@ export const empresa = pgTable('empresa', {
   ramo: text('ramo').notNull().default('food_service'),
   plano: text('plano').notNull().default('basico'),
   status: text('status').notNull().default('ativo'),
+  // Trial da conta na nuvem (G-1): NULL = sem limite (legado/assinatura); data = fim do teste.
+  trialAte: timestamp('trial_ate', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

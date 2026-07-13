@@ -20,3 +20,9 @@ graphify-out/
 
 # Binários portáteis do instalador edge (não versionar — baixados à parte)
 backend/edge/bundle/
+
+# Pasta distribuível gerada por edge/package.mjs (artefato de build)
+regem-edge-dist/
+
+# Saída do Inno Setup (instalador .exe gerado)
+backend/edge/Output/

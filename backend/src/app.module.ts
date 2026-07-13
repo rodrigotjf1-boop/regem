@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { LicenseInterceptor } from './modules/licenca/license.interceptor';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -132,6 +133,10 @@ import { AuthModule } from './auth/auth.module';
     LicencaModule,
   ],
   controllers: [AppController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Bloqueio duro por licença/trial (G-1) — só na nuvem, só escrita.
+    { provide: APP_INTERCEPTOR, useClass: LicenseInterceptor },
+  ],
 })
 export class AppModule {}
