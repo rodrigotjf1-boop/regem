@@ -41,9 +41,14 @@ export class AuthService {
     const senhaHash = await bcrypt.hash(dto.senha, 10);
 
     const result = await this.db.transaction(async (tx) => {
+      // G-1: todo cadastro novo ganha 3 meses (90 dias) do sistema COMPLETO.
       const [emp] = await tx
         .insert(empresa)
-        .values({ nome: dto.empresaNome })
+        .values({
+          nome: dto.empresaNome,
+          plano: 'completo',
+          trialAte: new Date(Date.now() + 90 * 86400000),
+        })
         .returning();
 
       const [fun] = await tx

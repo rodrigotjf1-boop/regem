@@ -4,12 +4,21 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { AuthUser } from '../../auth/auth-user';
 import { LicencaService } from './licenca.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Controller()
 export class LicencaController {
   constructor(private readonly service: LicencaService) {}
+
+  // Status da conta (trial/assinatura) — o front usa para o aviso e o paywall.
+  @Get('licenca/status')
+  @UseGuards(JwtAuthGuard)
+  status(@CurrentUser() user: AuthUser) {
+    return this.service.statusConta(user.tenantId);
+  }
 
   // ===== Portal da revenda (presidente/C&O) =====
   @Get('revenda')
