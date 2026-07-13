@@ -28,6 +28,10 @@ export const empresa = pgTable('empresa', {
   trialAte: timestamp('trial_ate', { withTimezone: true }),
   // Distribuidor (DMS/revenda): só true acessa o /frota (emitir licença/ativação).
   isDistribuidor: boolean('is_distribuidor').notNull().default(false),
+  // Assinatura Stripe (G-6b). O "válido até" fica no trial_ate (fim do período pago).
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  assinaturaStatus: text('assinatura_status'), // active|trialing|past_due|canceled|null
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

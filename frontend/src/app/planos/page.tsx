@@ -31,7 +31,23 @@ export default function PlanosPage() {
     api.licencaStatus().then(setStatus).catch(() => {});
   }, [router]);
 
-  function assinar(p: any) {
+  const [indo, setIndo] = useState<string | null>(null);
+
+  async function assinar(p: any) {
+    // 1) tenta o checkout do Stripe.
+    setIndo(p.chave);
+    try {
+      const r: any = await api.assinaturaCheckout({ chave: p.chave, ciclo });
+      if (r?.url) {
+        window.location.href = r.url;
+        return;
+      }
+    } catch {
+      /* gateway ainda não configurado → cai no WhatsApp */
+    } finally {
+      setIndo(null);
+    }
+    // 2) fallback: WhatsApp da distribuição.
     const preco = p[ciclo];
     const msg = `Olá! Quero assinar o plano ${p.nome} (${ciclo}) do Regem — R$ ${preco}/mês.`;
     if (WHATS) window.open(`https://wa.me/${WHATS}?text=${encodeURIComponent(msg)}`, '_blank');
@@ -93,8 +109,8 @@ export default function PlanosPage() {
                 </li>
               ))}
             </ul>
-            <Button className="mt-auto" onClick={() => assinar(p)}>
-              Assinar {p.nome}
+            <Button className="mt-auto" onClick={() => assinar(p)} disabled={indo === p.chave}>
+              {indo === p.chave ? 'Abrindo…' : `Assinar ${p.nome}`}
             </Button>
           </Card>
         ))}
