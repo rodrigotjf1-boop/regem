@@ -383,6 +383,8 @@ export const api = {
     req('/delivery/pausar', { method: 'POST', body: JSON.stringify({ minutos, motivo }) }),
   despausarDelivery: () =>
     req('/delivery/despausar', { method: 'POST', body: '{}' }),
+  // Status da licença/trial da conta (para o aviso e o paywall).
+  licencaStatus: () => req('/licenca/status'),
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),

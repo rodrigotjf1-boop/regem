@@ -196,6 +196,22 @@ export class LicencaService {
     return { ativa: false, tipo: 'trial_expirado', plano: e.plano, ate: new Date(ate).toISOString() };
   }
 
+  // Status da licença no EDGE (servidor local): lê o sync_state que o daemon
+  // mantém (lic_ativa 1/0). Sem registro ainda (antes do 1º ciclo) = libera.
+  async statusEdge() {
+    try {
+      const r: any = await this.db.execute(
+        sql`select valor from sync_state where chave = 'lic_ativa' limit 1`,
+      );
+      const rows = r.rows ?? r;
+      const v = rows?.[0]?.valor;
+      if (v == null) return { ativa: true, tipo: 'edge_sem_status' };
+      return v === '1' ? { ativa: true, tipo: 'ativa' } : { ativa: false, tipo: 'edge_bloqueado' };
+    } catch {
+      return { ativa: true, tipo: 'edge_erro' }; // fail-open
+    }
+  }
+
   // Entitlements atuais de uma loja (para enforcement de módulos).
   async entitlements(tenantId: string) {
     const [a] = await this.db
