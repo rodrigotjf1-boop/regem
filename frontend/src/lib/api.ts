@@ -387,6 +387,9 @@ export const api = {
   licencaStatus: () => req('/licenca/status'),
   // Catálogo de planos (página de assinatura).
   planos: () => req('/planos'),
+  // Checkout de assinatura (Stripe) → devolve { url } da página de pagamento.
+  assinaturaCheckout: (body: Record<string, unknown>) =>
+    req('/assinatura/checkout', { method: 'POST', body: JSON.stringify(body) }),
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),

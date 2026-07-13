@@ -4,15 +4,18 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { createHash, randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import Stripe from 'stripe';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ativacao, colaborador, edgeHeartbeat, empresa, equipamento, funcao, revenda } from '../../db/schema';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease } from './lease';
+import { PLANOS } from './planos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -292,28 +295,146 @@ export class LicencaService {
   }
 
   // Status da CONTA na nuvem (trial/assinatura) — base do bloqueio duro (G-1).
-  // trial_ate NULL = conta sem limite (legado/assinatura ativa) -> sempre ativa.
+  // trial_ate NULL = conta sem limite (legado); data = "válido até" (trial ou fim
+  // do período pago). O rótulo muda se há assinatura Stripe ativa.
   async statusConta(tenantId: string) {
     const [e] = await this.db
-      .select({ trialAte: empresa.trialAte, plano: empresa.plano, status: empresa.status })
+      .select({
+        trialAte: empresa.trialAte,
+        plano: empresa.plano,
+        status: empresa.status,
+        assinaturaStatus: empresa.assinaturaStatus,
+      })
       .from(empresa)
       .where(eq(empresa.id, tenantId))
       .limit(1);
     if (!e) return { ativa: false, tipo: 'sem_conta', plano: null };
     if (e.status === 'bloqueado') return { ativa: false, tipo: 'bloqueado', plano: e.plano };
-    if (!e.trialAte) return { ativa: true, tipo: 'ativa', plano: e.plano };
+    const assinante = ['active', 'trialing', 'past_due'].includes(e.assinaturaStatus ?? '');
+    if (!e.trialAte) return { ativa: true, tipo: assinante ? 'assinatura' : 'ativa', plano: e.plano };
     const ate = new Date(e.trialAte).getTime();
     const agora = Date.now();
     if (ate >= agora) {
       return {
         ativa: true,
-        tipo: 'trial',
+        tipo: assinante ? 'assinatura' : 'trial',
         plano: e.plano,
         ate: new Date(ate).toISOString(),
         dias: Math.ceil((ate - agora) / 86400000),
       };
     }
-    return { ativa: false, tipo: 'trial_expirado', plano: e.plano, ate: new Date(ate).toISOString() };
+    return {
+      ativa: false,
+      tipo: assinante ? 'assinatura_vencida' : 'trial_expirado',
+      plano: e.plano,
+      ate: new Date(ate).toISOString(),
+    };
+  }
+
+  // ===== Assinatura (Stripe · G-6b) =====
+  private stripe(): Stripe {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) throw new ServiceUnavailableException('Pagamento não configurado (STRIPE_SECRET_KEY).');
+    return new Stripe(key);
+  }
+
+  // Cria a sessão de Checkout (assinatura recorrente) e devolve a URL do Stripe.
+  async criarCheckout(tenantId: string, chave: string, ciclo: string) {
+    const plano = PLANOS.find((p) => p.chave === chave);
+    if (!plano || !['mensal', 'semestral', 'anual'].includes(ciclo)) {
+      throw new BadRequestException('Plano ou ciclo inválido.');
+    }
+    const stripe = this.stripe();
+    const [emp] = await this.db
+      .select({ nome: empresa.nome, cnpj: empresa.cnpj, cust: empresa.stripeCustomerId })
+      .from(empresa)
+      .where(eq(empresa.id, tenantId))
+      .limit(1);
+    if (!emp) throw new NotFoundException('Empresa não encontrada.');
+
+    let customerId = emp.cust;
+    if (!customerId) {
+      const c = await stripe.customers.create({
+        name: emp.nome,
+        metadata: { tenantId, cnpj: emp.cnpj ?? '' },
+      });
+      customerId = c.id;
+      await this.db.update(empresa).set({ stripeCustomerId: customerId }).where(eq(empresa.id, tenantId));
+    }
+
+    // O preço é resolvido pelo lookup_key (ex.: completo_mensal) criado no seed.
+    const prices = await stripe.prices.list({ lookup_keys: [`${chave}_${ciclo}`], active: true, limit: 1 });
+    const price = prices.data[0];
+    if (!price) throw new ServiceUnavailableException('Preço não configurado no Stripe. Rode o seed de preços.');
+
+    const base = process.env.APP_URL || 'https://app.dmsregem.com';
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      line_items: [{ price: price.id, quantity: 1 }],
+      success_url: `${base}/planos?assinatura=ok`,
+      cancel_url: `${base}/planos?assinatura=cancel`,
+      allow_promotion_codes: true,
+      metadata: { tenantId, chave, ciclo },
+      subscription_data: { metadata: { tenantId, chave, ciclo } },
+    });
+    return { url: session.url };
+  }
+
+  // Aplica o estado de uma assinatura na empresa (trial_ate = fim do período).
+  private async aplicarAssinatura(tenantId: string, sub: Stripe.Subscription, plano?: string) {
+    const manter = ['active', 'trialing', 'past_due'].includes(sub.status);
+    // current_period_end migrou para o item da assinatura em versões novas da API.
+    const anySub = sub as any;
+    const fimUnix = anySub.current_period_end ?? anySub.items?.data?.[0]?.current_period_end ?? null;
+    const ate = fimUnix ? new Date(fimUnix * 1000) : null;
+    await this.db
+      .update(empresa)
+      .set({
+        stripeSubscriptionId: sub.id,
+        assinaturaStatus: sub.status,
+        ...(plano ? { plano } : {}),
+        // válido até o fim do período pago; se não mantém, expira agora.
+        trialAte: manter && ate ? ate : new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(empresa.id, tenantId));
+  }
+
+  // Webhook do Stripe (corpo cru + assinatura). Converte trial em assinatura.
+  async stripeWebhook(rawBody: Buffer, sig: string) {
+    const whsec = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!whsec) throw new ServiceUnavailableException('Webhook não configurado (STRIPE_WEBHOOK_SECRET).');
+    const stripe = this.stripe();
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, sig, whsec);
+    } catch {
+      throw new BadRequestException('Assinatura do webhook inválida.');
+    }
+
+    if (event.type === 'checkout.session.completed') {
+      const s = event.data.object as Stripe.Checkout.Session;
+      const tenantId = s.metadata?.tenantId;
+      if (tenantId && s.subscription) {
+        const sub = await stripe.subscriptions.retrieve(String(s.subscription));
+        await this.aplicarAssinatura(tenantId, sub, s.metadata?.chave);
+      }
+    } else if (
+      event.type === 'customer.subscription.updated' ||
+      event.type === 'customer.subscription.deleted' ||
+      event.type === 'invoice.paid' ||
+      event.type === 'invoice.payment_failed'
+    ) {
+      const obj: any = event.data.object;
+      const subId = obj.subscription || obj.id;
+      if (subId) {
+        const sub = await stripe.subscriptions.retrieve(String(subId));
+        const tenantId = sub.metadata?.tenantId;
+        if (tenantId) await this.aplicarAssinatura(tenantId, sub, sub.metadata?.chave);
+      }
+    }
+    return { received: true };
   }
 
   // Status da licença no EDGE (servidor local): lê o sync_state que o daemon

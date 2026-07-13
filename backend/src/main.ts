@@ -36,7 +36,12 @@ async function bootstrap() {
     }
   }
 
-  const app = await NestFactory.create(AppModule, httpsOptions ? { httpsOptions } : {});
+  // rawBody: true mantém o corpo cru (req.rawBody) — necessário para verificar
+  // a assinatura do webhook do Stripe.
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true,
+    ...(httpsOptions ? { httpsOptions } : {}),
+  });
 
   // Cabeçalhos de segurança.
   app.use(helmet());

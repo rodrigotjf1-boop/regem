@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { DistribuidorGuard } from '../../auth/distribuidor.guard';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
@@ -25,6 +25,20 @@ export class LicencaController {
   @UseGuards(JwtAuthGuard)
   planos() {
     return PLANOS;
+  }
+
+  // Checkout de assinatura (Stripe) — devolve a URL da página de pagamento.
+  @Post('assinatura/checkout')
+  @UseGuards(JwtAuthGuard)
+  checkout(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.criarCheckout(user.tenantId, dto?.chave ?? '', dto?.ciclo ?? '');
+  }
+
+  // Webhook do Stripe (público, corpo cru + assinatura). Sem throttle.
+  @Post('publico/stripe/webhook')
+  @SkipThrottle()
+  stripeWebhook(@Req() req: any, @Headers('stripe-signature') sig: string) {
+    return this.service.stripeWebhook(req.rawBody, sig ?? '');
   }
 
   // ===== Portal da revenda (presidente/C&O) =====
