@@ -19,7 +19,7 @@
 #define AppVer  "1.0"
 ; ==== EDITE ESTES 2 VALORES ANTES DE COMPILAR ====
 #define MyCloudApi     "https://api.dmsregem.com/api/v1"
-#define MyLicensePubKey "COLE_AQUI_A_CHAVE_PUBLICA_B64"   ; (nao e segredo — a mesma para todas as lojas)
+#define MyLicensePubKey "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQW9SY2phUGJjb0ZQYjk2dFBiSExFcHUzVmNDUjY1TlpwUFRuNWJWQmgwZ289Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo"   ; (nao e segredo — a mesma para todas as lojas)
 
 [Setup]
 AppName={#AppName}
@@ -43,47 +43,47 @@ Source: "bundle\nssm\*";  DestDir: "{app}\nssm";  Flags: recursesubdirs createal
 [Run]
 ; Roda o orquestrador com os dados coletados no wizard. Sem notepad, sem prompts.
 Filename: "powershell.exe"; \
-  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -UnidadeId ""{code:GetUnidade}"" -SyncToken ""{code:GetSync}"" -AtivacaoToken ""{code:GetAtiv}"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
+  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Email ""{code:GetEmail}"" -Senha ""{code:GetSenha}"" -UnidadeId ""{code:GetUnidade}"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
   StatusMsg: "Instalando o Regem Edge (Postgres, banco, certificado, servicos)…"; \
   Flags: runascurrentuser waituntilterminated
 
 [Messages]
-WelcomeLabel2=Este assistente instala o servidor local do Regem e configura tudo automaticamente. Voce so precisa informar os dados desta loja (vindos do painel Regem) na proxima tela.
+WelcomeLabel2=Este assistente instala o servidor local do Regem e configura tudo automaticamente. Voce so precisa entrar com a conta do C&O (a mesma do app) na proxima tela.
 
 [Code]
 var
-  PgNuvem: TInputQueryWizardPage;
+  PgConta: TInputQueryWizardPage;
 
 procedure InitializeWizard;
 begin
-  PgNuvem := CreateInputQueryPage(wpWelcome,
-    'Dados desta loja (nuvem)',
-    'Informe os 3 dados abaixo — o resto e automatico.',
-    'Pegue no Regem da nuvem: o ID da unidade e o token em Cadastros > Equipamentos (tipo servidor_local); o token de licenca em /frota.');
-  PgNuvem.Add('ID da unidade (loja):', False);
-  PgNuvem.Add('Token do servidor local (sync):', False);
-  PgNuvem.Add('Token de ativacao da licenca (opcional):', False);
+  PgConta := CreateInputQueryPage(wpWelcome,
+    'Entrar com a conta C&O',
+    'Use o e-mail e a senha da conta do Regem (a mesma do app).',
+    'A ativacao e feita automaticamente pela nuvem. O ID da unidade e opcional (so preencha se a empresa tiver mais de uma loja).');
+  PgConta.Add('E-mail do C&O:', False);
+  PgConta.Add('Senha:', True);
+  PgConta.Add('ID da unidade (opcional):', False);
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if CurPageID = PgNuvem.ID then
+  if CurPageID = PgConta.ID then
   begin
-    if Trim(PgNuvem.Values[0]) = '' then
+    if Trim(PgConta.Values[0]) = '' then
     begin
-      MsgBox('Informe o ID da unidade (loja).', mbError, MB_OK); Result := False; Exit;
+      MsgBox('Informe o e-mail do C&O.', mbError, MB_OK); Result := False; Exit;
     end;
-    if Trim(PgNuvem.Values[1]) = '' then
+    if PgConta.Values[1] = '' then
     begin
-      MsgBox('Informe o token do servidor local (sync).', mbError, MB_OK); Result := False; Exit;
+      MsgBox('Informe a senha.', mbError, MB_OK); Result := False; Exit;
     end;
   end;
 end;
 
+function GetEmail(Param: string): string;
+begin Result := Trim(PgConta.Values[0]); end;
+function GetSenha(Param: string): string;
+begin Result := PgConta.Values[1]; end;
 function GetUnidade(Param: string): string;
-begin Result := Trim(PgNuvem.Values[0]); end;
-function GetSync(Param: string): string;
-begin Result := Trim(PgNuvem.Values[1]); end;
-function GetAtiv(Param: string): string;
-begin Result := Trim(PgNuvem.Values[2]); end;
+begin Result := Trim(PgConta.Values[2]); end;

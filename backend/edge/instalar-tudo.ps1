@@ -10,18 +10,23 @@
 #   - (opcional) ativa a licenca se receber o token
 #
 # So depende de valores da NUVEM, passados por parametro (o instalador coleta no wizard):
-#   -UnidadeId  -SyncToken  [-AtivacaoToken]   (CloudApi e a chave publica ja vem baked)
+#   Self-service (recomendado): -Email -Senha [-UnidadeId]
+#   Manual (fallback):          -SyncToken -AtivacaoToken -UnidadeId
 #
 # Uso direto (fora do instalador), como Administrador:
 #   .\edge\instalar-tudo.ps1 -Raiz "C:\regem-edge\backend" -UnidadeId "<uuid>" -SyncToken "<token>" `
 #       -LicensePublicKey "<b64>" -AtivacaoToken "<token-licenca>"
 param(
   [string]$Raiz = "C:\regem-edge\backend",
-  [Parameter(Mandatory = $true)][string]$UnidadeId,
-  [Parameter(Mandatory = $true)][string]$SyncToken,
+  [string]$UnidadeId = "",
+  # Self-service (recomendado): a conta C&O provisiona sozinha.
+  [string]$Email = "",
+  [string]$Senha = "",
+  # Modo manual (fallback): token de sync + token de ativacao emitidos na nuvem.
+  [string]$SyncToken = "",
+  [string]$AtivacaoToken = "",
   [string]$LicensePublicKey = "",
   [string]$CloudApi = "https://api.dmsregem.com/api/v1",
-  [string]$AtivacaoToken = "",
   [int]$Porta = 3001,
   [int]$PgPorta = 5432
 )
@@ -89,6 +94,24 @@ $ip = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Wher
 if (-not $ip) { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1).IPAddress }
 Diga "IP da LAN detectado: $ip"
 
+# Self-service (G-4b): com e-mail/senha do C&O, a nuvem cria/reusa o equipamento
+# servidor_local + ativa a licenca e devolve o SYNC_TOKEN. Sem token manual.
+$fingerprint = $env:COMPUTERNAME
+if ($Email -and $Senha) {
+  Diga "Provisionando pela conta C&O (self-service)..."
+  $payload = @{ email = $Email; senha = $Senha; fingerprint = $fingerprint }
+  if ($UnidadeId) { $payload.unidadeId = $UnidadeId }
+  try {
+    $r = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/instalar" -f $CloudApi.TrimEnd('/')) `
+      -ContentType "application/json" -Body ($payload | ConvertTo-Json -Compress) -TimeoutSec 40
+    $SyncToken = $r.syncToken
+    Diga "Provisionado: sync token recebido e licenca ativada na nuvem."
+  } catch {
+    throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+  }
+}
+if (-not $SyncToken) { throw "Sem SYNC_TOKEN. Use -Email/-Senha (self-service) ou -SyncToken (manual)." }
+
 $dbLocal = "postgresql://postgres:$pgSenha@localhost:$PgPorta/regem_local"
 $certDir = Join-Path $root "edge\certs"
 $envLocal = Join-Path $root ".env.local"
@@ -138,8 +161,8 @@ foreach ($i in 1..15) {
 }
 if ($okPing) { Diga "OK - /ping respondeu." } else { Diga "AVISO: /ping ainda nao respondeu; veja os logs em $logDir." }
 
-# ---- 6) (opcional) ativar a licenca ----
-if ($AtivacaoToken) {
+# ---- 6) (opcional) ativar a licenca via token manual (self-service ja ativou) ----
+if ($AtivacaoToken -and -not ($Email -and $Senha)) {
   Diga "Ativando licenca..."
   try {
     $body = @{ token = $AtivacaoToken; fingerprint = $env:COMPUTERNAME } | ConvertTo-Json -Compress
