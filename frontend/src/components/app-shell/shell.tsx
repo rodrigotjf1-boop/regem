@@ -37,6 +37,7 @@ import { clearToken, getCategoria, getPermissoes, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
+import { LicencaAviso } from '@/components/licenca/licenca-aviso';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 
@@ -340,6 +341,7 @@ export function Shell({
       )}
 
       <div className="shell-content min-w-0">
+        <LicencaAviso />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-5 py-3.5">
           {prefs.side === 'left' && burger}
           <div>

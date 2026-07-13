@@ -16,43 +16,54 @@ import { LicencaService } from './licenca.service';
 // por isso aqui saímos quando EDGE_MODE=true.
 @Injectable()
 export class LicenseInterceptor implements NestInterceptor {
-  // Cache curto por tenant para não bater no banco a cada escrita.
+  // Cache curto por tenant (nuvem) e um global (edge) para não bater no banco a cada escrita.
   private readonly cache = new Map<string, { ativa: boolean; exp: number }>();
+  private edgeCache?: { ativa: boolean; exp: number };
 
   constructor(private readonly licenca: LicencaService) {}
 
   async intercept(ctx: ExecutionContext, next: CallHandler): Promise<Observable<any>> {
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return next.handle();
-
     const req = ctx.switchToHttp().getRequest();
     const metodo = String(req.method ?? '');
-    const user = req.user as { tenantId?: string } | undefined;
 
-    // Só barra escrita autenticada; leitura e requisições sem usuário passam.
-    if (!user?.tenantId || metodo === 'GET' || metodo === 'HEAD' || metodo === 'OPTIONS') {
-      return next.handle();
-    }
-    // Rotas que precisam funcionar mesmo com o teste vencido (login, licença,
-    // provisionamento/ativação, edge, público, sync).
+    // Leitura sempre passa (o cliente precisa ver o aviso e renovar).
+    if (metodo === 'GET' || metodo === 'HEAD' || metodo === 'OPTIONS') return next.handle();
+    // Rotas que precisam funcionar mesmo com a licença vencida.
     const url = String(req.originalUrl ?? req.url ?? '');
     if (/\/api\/v1\/(auth|licenca|provisionamento|edge|publico|sync)\b/.test(url)) {
       return next.handle();
     }
 
-    const cached = this.cache.get(user.tenantId);
+    const isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
     let ativa: boolean;
-    if (cached && cached.exp > Date.now()) {
-      ativa = cached.ativa;
-    } else {
-      // Fail-open: qualquer erro ao apurar o status (coluna ausente durante o
-      // deploy, glitch de banco) LIBERA — nunca bloquear cliente por falha nossa.
-      try {
-        const s = await this.licenca.statusConta(user.tenantId);
-        ativa = !!s.ativa;
-      } catch {
-        ativa = true;
+
+    if (isEdge) {
+      // EDGE: licença é global do servidor local (via sync_state/lease).
+      if (this.edgeCache && this.edgeCache.exp > Date.now()) {
+        ativa = this.edgeCache.ativa;
+      } else {
+        try {
+          ativa = !!(await this.licenca.statusEdge()).ativa;
+        } catch {
+          ativa = true; // fail-open
+        }
+        this.edgeCache = { ativa, exp: Date.now() + 30000 };
       }
-      this.cache.set(user.tenantId, { ativa, exp: Date.now() + 60000 });
+    } else {
+      // NUVEM: licença é por conta (trial/assinatura).
+      const user = req.user as { tenantId?: string } | undefined;
+      if (!user?.tenantId) return next.handle();
+      const cached = this.cache.get(user.tenantId);
+      if (cached && cached.exp > Date.now()) {
+        ativa = cached.ativa;
+      } else {
+        try {
+          ativa = !!(await this.licenca.statusConta(user.tenantId)).ativa;
+        } catch {
+          ativa = true; // fail-open
+        }
+        this.cache.set(user.tenantId, { ativa, exp: Date.now() + 60000 });
+      }
     }
 
     if (!ativa) {
