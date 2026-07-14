@@ -191,10 +191,14 @@ if (Test-Path $ca) {
 }
 
 # ---- 5) health-check ----
+# PS 5.1 NAO tem -SkipCertificateCheck. Aceita o cert local nesta sessao (localhost)
+# via callback e forca TLS 1.2 — funciona em PS 5.1 e 7.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } } catch {}
 $okPing = $false
 foreach ($i in 1..15) {
   Start-Sleep -Seconds 2
-  try { $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $Porta) -TimeoutSec 5 -SkipCertificateCheck; if ($r.StatusCode -eq 200) { $okPing = $true; break } } catch {}
+  try { $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $Porta) -TimeoutSec 5 -UseBasicParsing; if ($r.StatusCode -eq 200) { $okPing = $true; break } } catch {}
 }
 if ($okPing) { Diga "OK - /ping respondeu." } else { Diga "AVISO: /ping ainda nao respondeu; veja os logs em $logDir." }
 
@@ -203,7 +207,7 @@ if ($AtivacaoToken -and -not ($Email -and $Senha)) {
   Diga "Ativando licenca..."
   try {
     $body = @{ token = $AtivacaoToken; fingerprint = $env:COMPUTERNAME } | ConvertTo-Json -Compress
-    $r = Invoke-RestMethod -Method Post -Uri ("https://localhost:{0}/api/v1/provisionamento/ativar" -f $Porta) -ContentType "application/json" -Body $body -SkipCertificateCheck -TimeoutSec 20
+    $r = Invoke-RestMethod -Method Post -Uri ("https://localhost:{0}/api/v1/provisionamento/ativar" -f $Porta) -ContentType "application/json" -Body $body -TimeoutSec 20
     Diga "Licenca ativada (lease recebido)."
   } catch { Diga "AVISO: nao consegui ativar a licenca agora: $($_.Exception.Message). Ative depois pelo /frota." }
 }
