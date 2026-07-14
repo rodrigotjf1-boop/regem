@@ -6,6 +6,7 @@ import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { ServidorStatus } from '@/components/ui/servidor-status';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -145,6 +146,7 @@ export default function GarcomPage() {
   return (
     <Shell eyebrow="Garçom · pedidos" title="Mesas">
       <div className="max-w-3xl space-y-4">
+        <div className="flex justify-end"><ServidorStatus /></div>
         <Card className="p-4">
           <h2 className="mb-2 font-display text-sm font-bold">Abrir mesa</h2>
           <div className="flex items-end gap-2">

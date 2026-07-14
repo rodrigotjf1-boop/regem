@@ -10,6 +10,17 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL || 'https://api.dmsregem.com/api/v1';
 }
 
+// Ping leve do servidor (status online/offline nos apps clientes). Público, sem
+// auth e sem redirecionar — só diz se o servidor respondeu.
+export async function pingServidor(): Promise<boolean> {
+  try {
+    const r = await fetch(`${apiBase()}/ping`, { cache: 'no-store' });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 const TOKEN_KEY = 'regen_token';
 
 export function getToken() {

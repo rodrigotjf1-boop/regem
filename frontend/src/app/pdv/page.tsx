@@ -7,6 +7,7 @@ import { toast } from '@/lib/toast';
 import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { ServidorStatus } from '@/components/ui/servidor-status';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
@@ -292,6 +293,7 @@ export default function PdvPage() {
 
   return (
     <Shell eyebrow="PDV · balcão" title="Venda rápida">
+      <div className="mb-2 flex justify-end"><ServidorStatus /></div>
       {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} />}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
         {/* Produtos */}
