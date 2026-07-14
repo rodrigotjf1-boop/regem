@@ -39,9 +39,16 @@ Source: "..\..\regem-edge-dist\*"; DestDir: "{app}\backend"; Flags: recursesubdi
 Source: "bundle\node\*";  DestDir: "{app}\node";  Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "bundle\pgsql\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "bundle\nssm\*";  DestDir: "{app}\nssm";  Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+; Runtime do Windows (VC++ x64) — o Postgres embutido precisa dele. Coloque em
+; edge\bundle\vc_redist.x64.exe (baixe: https://aka.ms/vs/17/release/vc_redist.x64.exe).
+Source: "bundle\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 
 [Run]
-; Roda o orquestrador com os dados coletados no wizard. Sem notepad, sem prompts.
+; 1) Instala o VC++ Redistributable silenciosamente (se estiver no bundle).
+Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
+  StatusMsg: "Instalando componentes do Windows (VC++)…"; \
+  Flags: waituntilterminated skipifdoesntexist
+; 2) Roda o orquestrador com os dados coletados no wizard. Sem notepad, sem prompts.
 Filename: "powershell.exe"; \
   Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Email ""{code:GetEmail}"" -Senha ""{code:GetSenha}"" -UnidadeId ""{code:GetUnidade}"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
   StatusMsg: "Instalando o Regem Edge (Postgres, banco, certificado, servicos)…"; \
