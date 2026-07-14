@@ -34,6 +34,20 @@ copiar('drizzle.config.ts');
 cpSync(join(raiz, '..', 'database', 'migrations'), join(out, 'database', 'migrations'), { recursive: true });
 console.log('  + database/migrations');
 
+// App (frontend) em modo edge -> web/ (Next standalone autossuficiente). O
+// edge-web.mjs sobe esse Next em HTTP no localhost e serve por HTTPS na LAN.
+if (!process.env.SKIP_WEB_BUILD) {
+  console.log('  + web (build do app em modo edge)…');
+  execSync('node edge/build-web.mjs', { cwd: raiz, stdio: 'inherit' });
+}
+const saDir = join(raiz, '..', 'frontend', '.next', 'standalone');
+if (existsSync(join(saDir, 'server.js'))) {
+  cpSync(saDir, join(out, 'web'), { recursive: true }); // inclui .next (oculto) e node_modules
+  console.log('  + web');
+} else {
+  console.warn('  (AVISO) web nao encontrado — rode sem SKIP_WEB_BUILD para gerar o app.');
+}
+
 // Dependências de produção EMBUTIDAS → instalação 100% offline (sem npm ci na loja).
 // bcryptjs e pg são JS puro (sem binários nativos), então o node_modules é portável
 // entre máquinas Windows x64 e casa com o Node embutido no instalador.
