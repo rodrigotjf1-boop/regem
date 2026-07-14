@@ -140,6 +140,7 @@ export default function LandingPage() {
           <a href="#produto">Produto</a>
           <a href="#perfis">Ramos</a>
           <a href="#precos">Preços</a>
+          <Link href="/como-funciona">Como funciona</Link>
         </nav>
         <Link className="entrar" href="/entrar" style={{ marginLeft: 26 }}>
           Entrar
