@@ -10,10 +10,11 @@ const out = join(raiz, '..', 'regem-edge-dist');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
-// Não copiar os binários portáteis do instalador (edge/bundle) nem o node_modules
-// de desenvolvimento do backend. O node_modules de PRODUÇÃO é gerado do zero mais
-// abaixo (npm ci --omit=dev), para a loja não precisar baixar nada na instalação.
-const semBundle = (s) => !/[\\/](bundle|node_modules)([\\/]|$)/.test(s);
+// Não copiar: binários portáteis do instalador (edge/bundle), node_modules de
+// desenvolvimento, nem edge/Output (o .exe que o Inno Setup compila — copiá-lo
+// geraria um instalador-dentro-do-instalador, inchando centenas de MB). O
+// node_modules de PRODUÇÃO é gerado do zero mais abaixo (npm ci --omit=dev).
+const semBundle = (s) => !/[\\/](bundle|node_modules|Output)([\\/]|$)/.test(s);
 
 const copiar = (rel) => {
   const src = join(raiz, rel);
