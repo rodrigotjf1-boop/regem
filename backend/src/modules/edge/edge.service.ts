@@ -1,5 +1,20 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleDestroy,
+} from '@nestjs/common';
 import { Bonjour } from 'bonjour-service';
+import { sql } from 'drizzle-orm';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+
+const pExecFile = promisify(execFile);
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Descoberta do servidor local na LAN. SÓ roda no edge (EDGE_MODE=true) — a
@@ -10,8 +25,98 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('Edge');
   private bonjour?: InstanceType<typeof Bonjour>;
 
+  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+
   static get ehEdge(): boolean {
     return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  }
+
+  // ===== Atualização do servidor local (só no edge) =====
+  // A VERIFICAÇÃO automática é feita pelo sync-daemon nas janelas de abertura da
+  // loja e grava o estado em `sync_state`. Aqui o app (gestor) lê esse estado,
+  // pode forçar uma verificação ao vivo e DISPARAR a instalação — que roda pela
+  // tarefa SYSTEM `RegemEdgeUpdate` (atualizar.ps1, com backup + rollback).
+  private garanteEdge() {
+    if (!EdgeService.ehEdge)
+      throw new ForbiddenException('Disponível apenas no servidor local (edge).');
+  }
+
+  private async getState(chave: string): Promise<string | null> {
+    try {
+      const r: any = await this.db.execute(
+        sql`select valor from sync_state where chave = ${chave} limit 1`,
+      );
+      return (r.rows ?? r)[0]?.valor ?? null;
+    } catch {
+      return null;
+    }
+  }
+  private async setState(chave: string, valor: string) {
+    await this.db.execute(
+      sql`insert into sync_state (chave, valor) values (${chave}, ${valor})
+          on conflict (chave) do update set valor = ${valor}`,
+    );
+  }
+
+  // Estado conhecido (última verificação do daemon).
+  async statusAtualizacao() {
+    this.garanteEdge();
+    const disp = await this.getState('update_disponivel');
+    return {
+      atual: process.env.APP_VERSION ?? '1',
+      disponivel: !!disp,
+      ultima: disp || null,
+      notas: (await this.getState('update_notas')) || null,
+    };
+  }
+
+  // Verifica AO VIVO na nuvem agora (botão "Verificar atualização").
+  async verificarAtualizacao() {
+    this.garanteEdge();
+    const cloud = (process.env.CLOUD_API ?? '').replace(/\/$/, '');
+    if (!cloud)
+      throw new InternalServerErrorException('CLOUD_API não configurada no servidor local.');
+    const atual = process.env.APP_VERSION ?? '1';
+    let info: any;
+    try {
+      const res = await fetch(
+        `${cloud}/edge/update-check?versao=${encodeURIComponent(atual)}`,
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      info = await res.json();
+    } catch (e: any) {
+      return { ok: false, atual, disponivel: false, erro: `Sem resposta da nuvem: ${e.message}` };
+    }
+    if (info.atualizar) {
+      await this.setState('update_disponivel', info.ultima ?? '');
+      await this.setState('update_url', info.url ?? '');
+      await this.setState('update_notas', info.notas ?? '');
+    } else {
+      await this.setState('update_disponivel', '');
+    }
+    return {
+      ok: true,
+      atual,
+      disponivel: !!info.atualizar,
+      ultima: info.ultima ?? null,
+      notas: info.notas ?? null,
+    };
+  }
+
+  // Dispara a instalação (a tarefa SYSTEM faz o trabalho pesado com rollback).
+  async aplicarAtualizacao() {
+    this.garanteEdge();
+    const disp = await this.getState('update_disponivel');
+    if (!disp)
+      throw new BadRequestException('Não há atualização disponível. Verifique primeiro.');
+    try {
+      await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeUpdate']);
+      return { iniciada: true, versao: disp };
+    } catch (e: any) {
+      throw new InternalServerErrorException(
+        `Não consegui iniciar a atualização: ${e.message}`,
+      );
+    }
   }
 
   info() {

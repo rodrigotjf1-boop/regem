@@ -92,6 +92,21 @@ try {
       Copy-Item $de $para -Recurse -Force
     }
   }
+
+  # Atualiza os arquivos do EDGE (daemons .mjs + scripts .ps1) com COPIA OVERLAY -
+  # arquivo por arquivo, SEM apagar a pasta (o proprio atualizar.ps1 roda de dentro
+  # dela). Assim daemons novos (ex.: impressao-daemon) chegam pelo auto-update, e
+  # nao so na reinstalacao completa. Um arquivo travado nao aborta o update.
+  $edgeDe = Join-Path $novo "edge"
+  if (Test-Path $edgeDe) {
+    Diga "Atualizando scripts do edge (overlay)..."
+    New-Item -ItemType Directory -Force (Join-Path $Raiz "edge") | Out-Null
+    Get-ChildItem -Path $edgeDe -File | ForEach-Object {
+      try { Copy-Item $_.FullName (Join-Path $Raiz ("edge\" + $_.Name)) -Force }
+      catch { Diga "  (aviso) nao troquei edge\$($_.Name): $($_.Exception.Message)" }
+    }
+  }
+
   Diga "npm ci (caso deps tenham mudado)..."
   Push-Location $Raiz; npm ci --omit=dev; $ciCode = $LASTEXITCODE; Pop-Location
   if ($ciCode -ne 0) { throw "npm ci falhou." }
@@ -99,6 +114,36 @@ try {
   Diga "Aplicando migrations locais..."
   Push-Location $Raiz; node scripts\apply-all-local.mjs; $mgCode = $LASTEXITCODE; Pop-Location
   if ($mgCode -ne 0) { throw "migrations falharam." }
+
+  # Garante servicos que podem NAO existir num edge instalado antes desta versao
+  # (ex.: RegemEdgeImpressao). Idempotente: so registra o que faltar.
+  $nodeExe = if (Test-Path (Join-Path $edgeBase 'node\node.exe')) { Join-Path $edgeBase 'node\node.exe' } else { 'node' }
+  function GarantirSvc($nome, $script) {
+    $status = (& $nssmExe status $nome 2>$null)
+    if (-not $status) {
+      Diga "Registrando servico faltante: $nome"
+      & $nssmExe install $nome $nodeExe | Out-Null
+      & $nssmExe set $nome AppParameters $script | Out-Null
+      & $nssmExe set $nome AppDirectory $Raiz | Out-Null
+      & $nssmExe set $nome Start SERVICE_AUTO_START | Out-Null
+      & $nssmExe set $nome AppStdout (Join-Path $Raiz ("logs\" + $nome + ".log")) | Out-Null
+      & $nssmExe set $nome AppStderr (Join-Path $Raiz ("logs\" + $nome + ".err.log")) | Out-Null
+    }
+  }
+  GarantirSvc "RegemEdgeImpressao" (Join-Path $Raiz "edge\impressao-daemon.mjs")
+
+  # Atualiza APP_VERSION no .env.local ANTES de subir (senao o daemon/update-check
+  # ainda se acham na versao antiga e rebaixam o mesmo pacote em loop).
+  try {
+    $linhas = Get-Content $envFile
+    if ($linhas -match '^\s*APP_VERSION\s*=') {
+      $linhas = $linhas | ForEach-Object { if ($_ -match '^\s*APP_VERSION\s*=') { "APP_VERSION=$($info.ultima)" } else { $_ } }
+    } else {
+      $linhas += "APP_VERSION=$($info.ultima)"
+    }
+    Set-Content -Path $envFile -Value $linhas -Encoding UTF8
+    Diga "APP_VERSION atualizado para $($info.ultima) no .env.local."
+  } catch { Diga "(aviso) nao consegui atualizar APP_VERSION: $($_.Exception.Message)" }
 
   Diga "Subindo servicos..."; Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"; Svc start "RegemEdgeImpressao"; Svc start "RegemEdgeWeb"
 
@@ -122,7 +167,6 @@ try {
   if (-not $ok) { throw "Health-check /ping falhou apos a troca." }
 
   Diga "OK! Atualizado para $($info.ultima). Backup em: $bakDir"
-  Diga "IMPORTANTE: atualize APP_VERSION=$($info.ultima) no .env.local (o heartbeat/telemetria usa isso)."
 }
 catch {
   Diga "ERRO: $($_.Exception.Message)"
@@ -132,6 +176,11 @@ catch {
     if (Test-Path $distAtual) { Remove-Item $distAtual -Recurse -Force }
     Copy-Item $distBak $distAtual -Recurse -Force
   }
+  # Reverte APP_VERSION (o codigo voltou a ser o antigo).
+  try {
+    $linhas = Get-Content $envFile | ForEach-Object { if ($_ -match '^\s*APP_VERSION\s*=') { "APP_VERSION=$versaoAtual" } else { $_ } }
+    Set-Content -Path $envFile -Value $linhas -Encoding UTF8
+  } catch {}
   Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"; Svc start "RegemEdgeImpressao"; Svc start "RegemEdgeWeb"
   Diga "Codigo restaurado. Se a migration ja rodou e o problema for o banco, restaure manualmente:"
   Diga "   pg_restore --clean --dbname `"$($cfg.EDGE_DATABASE_URL)`" `"$dumpFile`""

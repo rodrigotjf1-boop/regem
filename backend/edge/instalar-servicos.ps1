@@ -1,4 +1,4 @@
-# Regem Edge — registra backend + daemon de sync como SERVIÇOS do Windows (NSSM),
+# Regem Edge - registra backend + daemon de sync como SERVIÇOS do Windows (NSSM),
 # para subirem sozinhos no boot, sem terminal aberto.
 #
 # Pré-requisitos: Node 20+, NSSM no PATH (https://nssm.cc), a pasta do edge já
@@ -16,7 +16,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Resolve node e nssm do bundle (ao lado de backend/) — o PC da loja nao os tem no
+# Resolve node e nssm do bundle (ao lado de backend/) - o PC da loja nao os tem no
 # PATH. Cai para o PATH so se nao houver embutido.
 $bundle = Split-Path $Raiz -Parent
 $bNode = Join-Path $bundle "node\node.exe"
@@ -64,7 +64,7 @@ Svc "RegemEdgeWeb" "$Raiz\edge\edge-web.mjs" $Raiz
 try {
   New-NetFirewallRule -DisplayName "Regem Edge (LAN)" -Direction Inbound -Action Allow `
     -Protocol TCP -LocalPort @($PortaWeb, $PortaApi) -Profile Private,Domain -ErrorAction Stop | Out-Null
-  Write-Host "→ Firewall: portas $PortaWeb (app) e $PortaApi (API) liberadas (perfil Privado/Domínio)"
+  Write-Host "-> Firewall: portas $PortaWeb (app) e $PortaApi (API) liberadas (perfil Privado/Domínio)"
 } catch { Write-Warning "Não consegui criar a regra de firewall: $_" }
 
 & $Nssm start RegemEdgeApi
@@ -72,22 +72,24 @@ try {
 & $Nssm start RegemEdgeImpressao
 & $Nssm start RegemEdgeWeb
 
-# Auto-update (Fase E-D): tarefa agendada que roda o atualizar.ps1 todo dia de
-# madrugada. Ele só aplica se houver versão nova (com backup + rollback); se não,
-# sai em silêncio. Roda como SYSTEM (privilégio para parar/subir os serviços).
+# Auto-update SOB DEMANDA: tarefa que roda o atualizar.ps1 como SYSTEM (privilégio
+# para parar/subir serviços e trocar arquivos). SEM gatilho de horário - a
+# atualização NUNCA é aplicada sozinha; quem dispara é o gestor pelo botão do app
+# ("Instalar atualização"), que chama `schtasks /run /tn RegemEdgeUpdate`. A
+# VERIFICAÇÃO (notificar que há versão nova) é feita pelo sync-daemon nos horários
+# de abertura da loja.
 try {
   $atualizar = Join-Path $Raiz "edge\atualizar.ps1"
   if (Test-Path $atualizar) {
     $acao = New-ScheduledTaskAction -Execute "powershell.exe" `
       -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $atualizar, $Raiz)
-    $gatilho = New-ScheduledTaskTrigger -Daily -At 4am
     $conta = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
     $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
-    Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acao -Trigger $gatilho `
+    Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acao `
       -Principal $conta -Settings $cfg -Force | Out-Null
-    Write-Host "→ Auto-update agendado (RegemEdgeUpdate, 04:00 diário)."
+    Write-Host "-> Auto-update registrado SOB DEMANDA (RegemEdgeUpdate) - disparado pelo botão do app."
   }
-} catch { Write-Warning "Não consegui criar o agendamento de auto-update: $_" }
+} catch { Write-Warning "Não consegui registrar a tarefa de update: $_" }
 
 Write-Host "`nPronto. Serviços RegemEdgeApi + RegemEdgeSync + RegemEdgeImpressao + RegemEdgeWeb ativos e no boot."
 Write-Host "App:  https://localhost:$PortaWeb    API: https://localhost:$PortaApi/api/v1/ping"

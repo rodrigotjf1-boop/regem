@@ -1,11 +1,104 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getToken } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Só aparece no app rodando NO edge (build com NEXT_PUBLIC_EDGE=1). Verifica na
+// nuvem se há versão nova e, se houver, deixa o gestor INSTALAR (a tarefa SYSTEM
+// do Windows faz a troca com backup + rollback). Na nuvem o card fica oculto.
+function AtualizacaoServidor() {
+  const [status, setStatus] = useState<any>(null);
+  const [carregando, setCarregando] = useState(false);
+  const [aplicando, setAplicando] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const carregar = useCallback(async () => {
+    try {
+      setStatus(await api.edgeAtualizacaoStatus());
+    } catch {
+      /* fora do edge / sem sync_state ainda */
+    }
+  }, []);
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  async function verificar() {
+    setMsg('');
+    setCarregando(true);
+    try {
+      const r: any = await api.edgeVerificarAtualizacao();
+      if (r.ok === false) setMsg(r.erro || 'Não consegui verificar agora. Tente de novo.');
+      else if (!r.disponivel) setMsg('Você já está na versão mais recente.');
+      setStatus(r);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao verificar');
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  async function aplicar() {
+    if (
+      !confirm(
+        'Instalar a atualização agora? Os serviços do servidor vão reiniciar por 1–2 minutos (KDS, PDV e ponto ficam indisponíveis nesse intervalo). Recomendado com a loja fechada.',
+      )
+    )
+      return;
+    setAplicando(true);
+    setMsg('');
+    try {
+      await api.edgeAplicarAtualizacao();
+      setMsg('Atualização iniciada. O servidor vai reiniciar em instantes — aguarde 1–2 minutos e recarregue a página.');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao iniciar');
+    } finally {
+      setAplicando(false);
+    }
+  }
+
+  return (
+    <Card className="p-6 lg:col-span-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold">Atualização do servidor</h2>
+          <p className="text-sm text-muted-foreground">
+            Versão instalada: <strong className="font-mono">{status?.atual ?? '—'}</strong>
+            {status?.disponivel && status?.ultima ? (
+              <>
+                {' '}· nova disponível:{' '}
+                <strong className="font-mono text-primary">{status.ultima}</strong>
+              </>
+            ) : null}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button type="button" variant="outline" onClick={verificar} disabled={carregando}>
+            {carregando ? 'Verificando…' : 'Verificar atualização'}
+          </Button>
+          {status?.disponivel && (
+            <Button type="button" onClick={aplicar} disabled={aplicando}>
+              {aplicando ? 'Iniciando…' : 'Instalar atualização'}
+            </Button>
+          )}
+        </div>
+      </div>
+      {status?.disponivel && status?.notas && (
+        <div className="mt-3 rounded-lg border border-border bg-secondary/40 p-3 text-sm">
+          <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">O que muda</p>
+          <p className="whitespace-pre-line text-muted-foreground">{status.notas}</p>
+        </div>
+      )}
+      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+    </Card>
+  );
+}
 
 // URL do instalador (.exe) hospedado. Configure NEXT_PUBLIC_EDGE_INSTALLER_URL
 // (build-time). Sem valor, mostra "em breve".
@@ -35,6 +128,7 @@ export default function ServidorPage() {
   return (
     <Shell eyebrow="Instalação" title="Servidor local">
       <div className="grid gap-4 lg:grid-cols-3">
+        {process.env.NEXT_PUBLIC_EDGE === '1' && <AtualizacaoServidor />}
         <Card className="p-6 lg:col-span-2">
           <h2 className="font-display text-xl font-bold">Instale o Regem na sua loja</h2>
           <p className="mt-2 max-w-prose text-sm text-muted-foreground">

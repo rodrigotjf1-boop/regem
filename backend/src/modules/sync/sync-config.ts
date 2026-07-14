@@ -26,6 +26,7 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'bot_regra', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'feriado', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'tipo_ocorrencia', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'cardapio_config', direcao: 'desce', cursor: 'updated_at' }, // horários (update por abertura) + config da loja offline
   // Bidirecional (LWW)
   { tabela: 'item_estoque', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'fornecedor', direcao: 'ambos', cursor: 'updated_at' },
