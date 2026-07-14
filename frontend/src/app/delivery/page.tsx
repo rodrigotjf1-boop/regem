@@ -96,6 +96,11 @@ export default function DeliveryPage() {
   const [novoPedido, setNovoPedido] = useState(false);
   const [pausarOpen, setPausarOpen] = useState(false);
   const [agora, setAgora] = useState(() => Date.now());
+  // Alerta sonoro de pedido novo (o navegador exige um clique antes de tocar áudio).
+  const [somAtivo, setSomAtivo] = useState(false);
+  const audioRef = useRef<AudioContext | null>(null);
+  const prevNovosRef = useRef<number | null>(null);
+  const [piscar, setPiscar] = useState(false);
   const [atendimentos, setAtendimentos] = useState<any[]>([]);
   const [atendAberto, setAtendAberto] = useState(false);
   const [roboAtivo, setRoboAtivo] = useState(false); // status geral do robô (cardapio_config.roboAtivo)
@@ -136,6 +141,42 @@ export default function DeliveryPage() {
     const c = setInterval(() => setAgora(Date.now()), 1000); // contador "prepare em até"
     return () => { clearInterval(t); clearInterval(c); };
   }, [reload, router]);
+
+  // Preferência de som (o áudio em si só destrava no 1º clique do usuário).
+  useEffect(() => {
+    try { setSomAtivo(localStorage.getItem('som_pedido') === '1'); } catch {}
+  }, []);
+  function garantirAudio() {
+    try {
+      if (!audioRef.current) {
+        const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+        if (AC) audioRef.current = new AC();
+      }
+      if (audioRef.current?.state === 'suspended') audioRef.current.resume();
+    } catch {}
+    return audioRef.current;
+  }
+  function tocarBeep() {
+    const ctx = garantirAudio();
+    if (!ctx || ctx.state !== 'running') return;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35);
+    o.connect(g).connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.36);
+  }
+  function alternarSom() {
+    const ligar = !somAtivo;
+    garantirAudio(); // o clique é o gesto que destrava o áudio no navegador
+    setSomAtivo(ligar);
+    try { localStorage.setItem('som_pedido', ligar ? '1' : '0'); } catch {}
+    if (ligar) tocarBeep();
+  }
 
   async function acao(fn: Promise<any>, ok: string) {
     try {
@@ -211,6 +252,18 @@ export default function DeliveryPage() {
   }, [pedidos, filtros, tipoFiltro]);
 
   const novosPendentes = (pedidos ?? []).filter((p) => p.status === 'novo').length;
+  // Chegou pedido novo (a contagem subiu entre recargas): toca o som + pisca.
+  useEffect(() => {
+    if (prevNovosRef.current != null && novosPendentes > prevNovosRef.current && somAtivo) {
+      tocarBeep();
+      setPiscar(true);
+      const t = setTimeout(() => setPiscar(false), 4000);
+      prevNovosRef.current = novosPendentes;
+      return () => clearTimeout(t);
+    }
+    prevNovosRef.current = novosPendentes;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [novosPendentes, somAtivo]);
 
   return (
     <Shell eyebrow="Delivery · central de entregas" title="Delivery">
@@ -264,10 +317,18 @@ export default function DeliveryPage() {
             })}
           </div>
           {novosPendentes > 0 && (
-            <span className="rounded-full bg-info/15 px-2 py-0.5 text-xs font-bold text-info">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${piscar ? 'animate-pulse bg-primary/20 text-primary' : 'bg-info/15 text-info'}`}>
               {novosPendentes} em análise
             </span>
           )}
+          <button
+            type="button"
+            onClick={alternarSom}
+            title={somAtivo ? 'Som de pedido novo ligado' : 'Clique para ativar o som de pedido novo'}
+            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${somAtivo ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+          >
+            {somAtivo ? '🔔 Som on' : '🔕 Ativar som'}
+          </button>
           {isGestor && (
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={!!cfg.autoAceitar} onChange={(e) => toggleCfg({ autoAceitar: e.target.checked })} className="h-4 w-4 accent-primary" />

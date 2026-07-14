@@ -212,8 +212,11 @@ export function CartSheet({
               <p className="text-xs font-semibold">
                 {falta > 0 ? <>Faltam <b className="font-mono" style={{ color: accent }}>{brl(falta)}</b> para o frete grátis 🛵</> : '🎉 Você ganhou frete grátis!'}
               </p>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-100">
-                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: 'var(--ok, #1FA875)' }} />
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-neutral-100">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500 ease-out"
+                  style={{ width: `${Math.max(pct, 3)}%`, background: accent }}
+                />
               </div>
             </div>
           )}
@@ -222,13 +225,19 @@ export function CartSheet({
           {upsell.length > 0 && (
             <div className="mt-4">
               <p className="mb-2 text-sm font-bold">Peça também 👇</p>
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="flex items-stretch gap-2 overflow-x-auto pb-1">
                 {upsell.map((u) => (
-                  <div key={u.id} className="w-28 flex-none rounded-xl border border-neutral-200 p-2 text-center">
-                    <div className="grid h-14 place-items-center text-2xl">{u.imagemRef ? '🛒' : '🍽'}</div>
-                    <p className="line-clamp-2 text-[11px] font-semibold leading-tight">{u.nome}</p>
+                  <div key={u.id} className="flex w-28 flex-none flex-col rounded-xl border border-neutral-200 p-2 text-center">
+                    <div className="grid h-16 place-items-center overflow-hidden rounded-lg bg-neutral-100">
+                      {u.imagemRef ? (
+                        <img src={u.imagemRef} alt={u.nome} className="h-full w-full object-cover object-center" />
+                      ) : (
+                        <span className="text-2xl">🍽</span>
+                      )}
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-[11px] font-semibold leading-tight">{u.nome}</p>
                     <p className="font-mono text-[11px] text-neutral-500">{brl(u.precoVenda)}</p>
-                    <button type="button" onClick={() => onAddUpsell(u)} className="mt-1.5 w-full rounded-lg py-1 text-[11px] font-bold text-white" style={{ background: accent }}>+ Adicionar</button>
+                    <button type="button" onClick={() => onAddUpsell(u)} className="mt-auto w-full rounded-lg py-1 text-[11px] font-bold text-white" style={{ background: accent }}>+ Adicionar</button>
                   </div>
                 ))}
               </div>

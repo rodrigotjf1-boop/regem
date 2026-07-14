@@ -544,7 +544,7 @@ export default function CardapioPublicoPage() {
       setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setCheckout(false);
       if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
-      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total });
+      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -619,6 +619,15 @@ export default function CardapioPublicoPage() {
           {ped.orcamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Orçamento solicitado — em breve retornamos com a proposta.</p>}
           {ped.agendamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Agendado para {new Date(ped.agendamento).toLocaleString('pt-BR')}.</p>}
           {ped.pontos != null && <p className="mt-3 text-sm font-semibold" style={{ color: accent }}>⭐ Você tem {ped.pontos} pontos de fidelidade.</p>}
+          {ped.pedidoId && ped.status !== 'cancelado' && (
+            <a
+              href={`/c/${token}/pedido/${ped.pedidoId}${ped.ref ? `?ref=${encodeURIComponent(ped.ref)}` : ''}`}
+              className="mt-4 block rounded-xl border-2 px-5 py-3 font-semibold"
+              style={{ borderColor: accent, color: accent }}
+            >
+              🔗 Acompanhar pedido (salve este link)
+            </a>
+          )}
           {loja.whatsapp && (
             <a href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}`} className="mt-4 inline-block rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-white">💬 Falar no WhatsApp</a>
           )}

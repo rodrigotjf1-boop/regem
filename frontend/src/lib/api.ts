@@ -514,7 +514,8 @@ export const api = {
     pub(`/publico/cardapio/${token}/fidelidade/premios?telefone=${encodeURIComponent(telefone)}`),
   cardapioUltimoPedido: (token: string, telefone: string) =>
     pub(`/publico/cardapio/${token}/ultimo-pedido?telefone=${encodeURIComponent(telefone)}`),
-  cardapioStatus: (token: string, id: string) => pub(`/publico/cardapio/${token}/pedido/${id}`),
+  cardapioStatus: (token: string, id: string, ref?: string) =>
+    pub(`/publico/cardapio/${token}/pedido/${id}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`),
   cardapioPagar: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
   cardapioPontos: (token: string, telefone: string) =>

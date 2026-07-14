@@ -61,8 +61,8 @@ export class CardapioPublicoController {
   }
 
   @Get(':token/pedido/:id')
-  status(@Param('token') token: string, @Param('id') id: string) {
-    return this.service.statusPedido(token, id);
+  status(@Param('token') token: string, @Param('id') id: string, @Query('ref') ref?: string) {
+    return this.service.statusPedido(token, id, ref);
   }
 
   @Post(':token/pedido/:id/pagar')
