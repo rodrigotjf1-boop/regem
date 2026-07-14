@@ -42,5 +42,23 @@ try {
 
 nssm start RegemEdgeApi
 nssm start RegemEdgeSync
+
+# Auto-update (Fase E-D): tarefa agendada que roda o atualizar.ps1 todo dia de
+# madrugada. Ele só aplica se houver versão nova (com backup + rollback); se não,
+# sai em silêncio. Roda como SYSTEM (privilégio para parar/subir os serviços).
+try {
+  $atualizar = Join-Path $Raiz "edge\atualizar.ps1"
+  if (Test-Path $atualizar) {
+    $acao = New-ScheduledTaskAction -Execute "powershell.exe" `
+      -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $atualizar, $Raiz)
+    $gatilho = New-ScheduledTaskTrigger -Daily -At 4am
+    $conta = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+    Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acao -Trigger $gatilho `
+      -Principal $conta -Settings $cfg -Force | Out-Null
+    Write-Host "→ Auto-update agendado (RegemEdgeUpdate, 04:00 diário)."
+  }
+} catch { Write-Warning "Não consegui criar o agendamento de auto-update: $_" }
+
 Write-Host "`nPronto. Serviços RegemEdgeApi + RegemEdgeSync ativos e no boot."
 Write-Host "Confira: http(s)://localhost:3001/api/v1/ping"

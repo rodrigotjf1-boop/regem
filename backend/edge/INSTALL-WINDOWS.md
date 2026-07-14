@@ -172,7 +172,8 @@
 - **Atualizar versão (automatizado — Fase E-D):**
   1. **Na sua máquina:** publique a versão com `.\edge\publicar.ps1 -Versao 1.4.0` — ele empacota, calcula o **SHA-256** e imprime as 3 variáveis (`EDGE_LATEST_VERSION` / `EDGE_UPDATE_URL` / `EDGE_UPDATE_SHA256`) para colar no `regem-api` (suba o `.zip` para um HTTPS que a loja acesse).
   2. **O edge da loja avisa sozinho** (o daemon loga `⬆️ atualização disponível` em até 1h e grava em `sync_state`).
-  3. **No PC da loja (com a loja fechada), como Admin:** `.\edge\atualizar.ps1 -Raiz "C:\regem-edge\backend"` — ele **confere o SHA-256**, faz **backup do banco (pg_dump) e do código**, para os serviços, troca os arquivos, roda as migrations, sobe de novo e faz **health-check no /ping**; se algo falhar, faz **rollback do código** automaticamente. Depois, atualize `APP_VERSION` no `.env.local`.
+  3. **Automático (Fase E-D · G-7):** o instalador cria a tarefa agendada **`RegemEdgeUpdate`** (roda todo dia às **04:00** como SYSTEM). Ela executa o `atualizar.ps1`, que **confere o SHA-256**, faz **backup do banco (pg_dump) e do código**, para os serviços, troca os arquivos, roda as migrations, sobe de novo e faz **health-check no /ping**; se algo falhar, faz **rollback do código** sozinho. Se não houver versão nova, sai em silêncio.
+  4. **Manual (quando quiser aplicar na hora):** como Admin, `.\edge\atualizar.ps1 -Raiz "C:\regem-edge\backend"` (o mesmo que a tarefa roda).
 
 ## Atalho: instalador de um clique (opcional)
 
