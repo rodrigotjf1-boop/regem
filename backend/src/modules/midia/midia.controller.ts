@@ -18,7 +18,9 @@ export class MidiaController {
 
   // multipart/form-data, campo "file". Qualquer usuário autenticado pode enviar.
   @Post('upload')
-  @UseInterceptors(FileInterceptor('file'))
+  // Corta no Multer antes de bufferizar arquivo gigante (defesa em profundidade;
+  // o service ainda valida os magic bytes de imagem).
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 8 * 1024 * 1024 } }))
   upload(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: UploadedFileLike,

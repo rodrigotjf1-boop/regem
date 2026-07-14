@@ -50,6 +50,8 @@ export default function CardapioPublicoPage() {
   const [erro, setErro] = useState('');
   const [cat, setCat] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
+  // Idempotência: 1 ref por carrinho, reenviado em qualquer retry; zera no sucesso.
+  const [clientRef, setClientRef] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [checkout, setCheckout] = useState(false);
   const [ped, setPed] = useState<any>(null);
@@ -434,8 +436,15 @@ export default function CardapioPublicoPage() {
     setEnviando(true);
     try {
       const entrega = !isServico && chk.tipo === 'entrega';
+      // Mesmo ref em qualquer retry deste carrinho → o backend não duplica o pedido.
+      const ref =
+        clientRef ||
+        (globalThis.crypto?.randomUUID?.() ??
+          `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      if (ref !== clientRef) setClientRef(ref);
       const r: any = await api.cardapioPedido(token, {
         mesa: mesa || undefined,
+        clientRef: ref,
         cliente: chk.nome || 'Cliente',
         telefone: chk.telefone || undefined,
         clienteToken: getClienteToken(token) || undefined,
@@ -478,6 +487,7 @@ export default function CardapioPublicoPage() {
         bairroId: chk.bairroId,
       });
       setCart([]);
+      setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setCheckout(false);
       if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
       else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total });

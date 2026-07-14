@@ -20,7 +20,27 @@ const MIME_EXT: Record<string, string> = {
   'image/gif': 'gif',
 };
 
-const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_BYTES = 8 * 1024 * 1024; // 8 MB (alinhado ao limite do FileInterceptor)
+
+// Detecta o tipo REAL da imagem pelos magic bytes (não confia no mimetype do
+// cliente, que é forjável). Retorna o mime canônico ou null se não for imagem.
+function detectarImagem(buf: Buffer): string | null {
+  if (!buf || buf.length < 12) return null;
+  // JPEG: FF D8 FF
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 &&
+    buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a
+  )
+    return 'image/png';
+  // GIF: "GIF87a" / "GIF89a"
+  if (buf.toString('ascii', 0, 3) === 'GIF') return 'image/gif';
+  // WebP: "RIFF"....(tam)...."WEBP"
+  if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP')
+    return 'image/webp';
+  return null;
+}
 
 @Injectable()
 export class MidiaService {
@@ -34,15 +54,17 @@ export class MidiaService {
   async upload(tenantId: string, file?: UploadedFileLike) {
     if (!file) throw new BadRequestException('Arquivo ausente.');
 
-    const ext = MIME_EXT[file.mimetype];
-    if (!ext) {
+    if (file.size > MAX_BYTES) {
+      throw new BadRequestException('Imagem maior que o limite de 8 MB.');
+    }
+    // Confia no CONTEÚDO (magic bytes), não no mimetype enviado pelo cliente.
+    const tipoReal = detectarImagem(file.buffer);
+    if (!tipoReal) {
       throw new BadRequestException(
-        'Formato não suportado. Use JPG, PNG, WEBP ou GIF.',
+        'Arquivo não é uma imagem válida. Use JPG, PNG, WEBP ou GIF.',
       );
     }
-    if (file.size > MAX_BYTES) {
-      throw new BadRequestException('Arquivo maior que o limite de 5 MB.');
-    }
+    const ext = MIME_EXT[tipoReal];
 
     const { url, key, bucket } = this.cfg();
     if (!url || !key) {
@@ -60,7 +82,7 @@ export class MidiaService {
       headers: {
         Authorization: `Bearer ${key}`,
         apikey: key,
-        'Content-Type': file.mimetype,
+        'Content-Type': tipoReal,
         'cache-control': '3600',
         'x-upsert': 'true',
       },
@@ -77,7 +99,7 @@ export class MidiaService {
 
     // Bucket público → URL direta e estável.
     const publicUrl = `${url}/storage/v1/object/public/${bucket}/${path}`;
-    return { url: publicUrl, path, mime: file.mimetype, tamanho: file.size };
+    return { url: publicUrl, path, mime: tipoReal, tamanho: file.size };
   }
 
   // Apaga um objeto do storage a partir da sua URL pública (rotina de expurgo LGPD).

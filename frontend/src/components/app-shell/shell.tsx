@@ -110,6 +110,12 @@ const NAV: NavGroup[] = [
         roles: ['presidente', 'gerente'],
       },
       {
+        href: '/caixa/fechamentos',
+        label: 'Fechamentos de caixa',
+        icon: Wallet,
+        roles: ['presidente', 'gerente'],
+      },
+      {
         href: '/relatorios',
         label: 'Relatórios de venda',
         icon: BarChart3,

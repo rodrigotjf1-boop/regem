@@ -8,6 +8,7 @@ import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
+import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import {
   cardapioConfig,
   produto,
@@ -99,6 +100,7 @@ export class CardapioService {
       ativo: dto.ativo != null ? !!dto.ativo : row?.ativo ?? false,
       modo: dto.modo ?? row?.modo ?? 'mesa',
       nomePublico: dto.nomePublico ?? row?.nomePublico ?? null,
+      tema: dto.tema ?? row?.tema ?? 'claro',
       ramo: dto.ramo ?? row?.ramo ?? 'food',
       logoEmoji: dto.logoEmoji ?? row?.logoEmoji ?? null,
       subtitulo: dto.subtitulo ?? row?.subtitulo ?? null,
@@ -607,6 +609,7 @@ export class CardapioService {
       loja: {
         nome: cfg.nomePublico ?? 'Cardápio',
         ramo: cfg.ramo,
+        tema: cfg.tema ?? 'claro',
         logoEmoji: cfg.logoEmoji,
         subtitulo: cfg.subtitulo,
         aberto: cfg.aberto,
@@ -891,6 +894,25 @@ export class CardapioService {
   }
 
   // Recebe o pedido do cliente. Preço/complementos vêm SEMPRE do banco.
+  // Resposta de um pedido já existente (replay idempotente por client_ref):
+  // reconstrói o mesmo formato do fluxo normal a partir da linha gravada.
+  private respostaPedido(cfg: { tenantId: string }, row: typeof pedidoExterno.$inferSelect) {
+    return {
+      ok: true,
+      modo: row.tipo,
+      pedidoId: row.id,
+      displayId: row.displayId,
+      total: Number(row.total),
+      taxaEntrega: Number(row.taxaEntrega),
+      desconto: Number(row.desconto),
+      pagamentoOnline: row.statusPagamento === 'aguardando',
+      orcamento: row.statusPagamento === 'orcamento',
+      agendamento: row.agendamento ? new Date(row.agendamento).toISOString() : null,
+      clienteToken: row.clienteId ? assinarCliente(row.clienteId, cfg.tenantId) : undefined,
+      reenvio: true, // sinaliza ao front que é o mesmo pedido (não duplicou)
+    };
+  }
+
   async receberPedido(
     token: string,
     dto: {
@@ -898,6 +920,7 @@ export class CardapioService {
       cliente?: string;
       telefone?: string;
       clienteToken?: string; // link mágico: associa o pedido ao cliente identificado
+      clientRef?: string; // idempotência: mesmo ref em retries = 1 pedido
       tipo?: string; // entrega | retirada
       endereco?: string; // texto livre (compat/legado)
       rua?: string;
@@ -926,6 +949,15 @@ export class CardapioService {
     },
   ) {
     const cfg = await this.resolver(token);
+    // Idempotência: se este client_ref já virou pedido, devolve o mesmo (200) —
+    // não recria nem recobra. Retry do cliente (rede ruim, duplo toque) é seguro.
+    if (dto.clientRef) {
+      const [ja] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, cfg.tenantId), eq(pedidoExterno.clientRef, dto.clientRef)));
+      if (ja) return this.respostaPedido(cfg, ja);
+    }
     if (!dto.itens?.length) throw new BadRequestException('Pedido vazio.');
     // Loja fechada: bloqueia (pedidos agendados passam).
     if (!dto.agendamento && !this.estaAberta(cfg))
@@ -968,7 +1000,7 @@ export class CardapioService {
 
     // Modo RETIRADA/TOTEM: pedido externo com preço/rótulos calculados no servidor.
     const itensOut: any[] = [];
-    let total = 0;
+    let totalCent = 0; // subtotal dos itens em centavos (exato, sem drift)
     for (const it of dto.itens) {
       const p = porId.get(it.produtoId)!;
       let base = p.precoPromocional != null ? Number(p.precoPromocional) : Number(p.precoVenda);
@@ -986,7 +1018,7 @@ export class CardapioService {
       const { precoDelta, labels } = await this.resolverOpcoes(cfg.tenantId, it.complementos ?? []);
       const qtd = Number(it.quantidade) || 1;
       const preco = base + precoDelta;
-      total += preco * qtd;
+      totalCent += paraCentavos(preco) * qtd;
       itensOut.push({
         produtoId: it.produtoId,
         variacaoId: it.variacaoId,
@@ -996,6 +1028,8 @@ export class CardapioService {
         observacao: it.observacao,
       });
     }
+    // Subtotal em reais (fronteira) — usado nos serviços de cupom/prêmio/cashback.
+    const total = paraReais(totalCent);
     // Checkout: tipo, frete (bairro), cupom, pagamento.
     const tipo = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
     let taxa = 0;
@@ -1044,25 +1078,31 @@ export class CardapioService {
     const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
       telefone: dto.telefone,
     });
-    let desconto = cup.valido ? cup.desconto : 0;
+    // Descontos acumulados em CENTAVOS (cupom + prêmio + cashback) — sem drift.
+    let descontoCent = cup.valido ? paraCentavos(cup.desconto) : 0;
     if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
     // Prêmio de fidelidade resgatado: abate automático no pedido.
     const premio = cfg.fidelidadeAtiva
       ? await this.fidelidade.avaliarPremio(cfg.tenantId, dto.resgateId, dto.telefone ?? '', itensOut, total)
       : { desconto: 0 };
-    desconto = Number((desconto + (premio.desconto || 0)).toFixed(2));
+    descontoCent = somarCentavos(descontoCent, paraCentavos(premio.desconto || 0));
     // Cashback: aplica saldo (valor) + vales (produto) sobre o que restou.
     // O cliente pode optar por NÃO usar o saldo (usarCashback=false).
     const cb =
       dto.usarCashback === false
         ? { saldoUsado: 0, vales: [] as any[], desconto: 0 }
-        : await this.cashback.avaliarDescontos(cfg.tenantId, dto.telefone ?? '', Math.max(0, total - desconto));
-    desconto = Number((desconto + (cb.desconto || 0)).toFixed(2));
+        : await this.cashback.avaliarDescontos(
+            cfg.tenantId,
+            dto.telefone ?? '',
+            Math.max(0, paraReais(somarCentavos(totalCent, -descontoCent))),
+          );
+    descontoCent = somarCentavos(descontoCent, paraCentavos(cb.desconto || 0));
+    const desconto = paraReais(descontoCent); // reais na fronteira (gravação/resposta)
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
     const online = !orcamento && (forma === 'pix' || forma === 'cartao');
-    const grande = Math.max(0, total - desconto + taxa);
+    const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 
     // Senha PRÓPRIA do cardápio (contador sequencial por tenant do canal).
     const cnt: any = await this.db.execute(
@@ -1085,6 +1125,7 @@ export class CardapioService {
         itens: itensOut,
       },
       {
+        clientRef: dto.clientRef,
         taxaEntrega: taxa,
         cupom: cup.valido ? cup.codigo : undefined,
         desconto,

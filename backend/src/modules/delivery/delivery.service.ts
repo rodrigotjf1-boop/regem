@@ -81,9 +81,23 @@ export class DeliveryService {
       enderecoReferencia?: string;
       enderecoBairro?: string;
       bandeira?: string;
+      clientRef?: string;
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
+    // Idempotência do pedido público (retry do cliente): mesmo client_ref = mesmo pedido.
+    if (extra?.clientRef) {
+      const [ja] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(
+          and(
+            eq(pedidoExterno.tenantId, tenantId),
+            eq(pedidoExterno.clientRef, extra.clientRef),
+          ),
+        );
+      if (ja) return ja;
+    }
     if (norm.externalId) {
       const [ja] = await this.db
         .select()
@@ -104,13 +118,16 @@ export class DeliveryService {
         and (criado_em at time zone 'America/Sao_Paulo')::date
             = (now() at time zone 'America/Sao_Paulo')::date`);
     const numero = Number((nq.rows ?? nq)[0].n) || 1;
-    const [row] = await this.db
+    let row: typeof pedidoExterno.$inferSelect;
+    try {
+      [row] = await this.db
       .insert(pedidoExterno)
       .values({
         tenantId,
         unidadeId,
         canal,
         numero,
+        clientRef: extra?.clientRef ?? null,
         externalId: norm.externalId,
         displayId: norm.displayId ?? `#${numero}`,
         clienteNome: norm.clienteNome,
@@ -138,6 +155,23 @@ export class DeliveryService {
         raw: raw as any,
       })
       .returning();
+    } catch (e: any) {
+      // Corrida: duas requisições com o mesmo client_ref ao mesmo tempo. O índice
+      // único barra a 2ª (23505) — devolvemos o pedido que a 1ª já criou.
+      if (e?.code === '23505' && extra?.clientRef) {
+        const [ja] = await this.db
+          .select()
+          .from(pedidoExterno)
+          .where(
+            and(
+              eq(pedidoExterno.tenantId, tenantId),
+              eq(pedidoExterno.clientRef, extra.clientRef),
+            ),
+          );
+        if (ja) return ja;
+      }
+      throw e;
+    }
 
     const cfg = await this.configRaw(tenantId, unidadeId);
     if (cfg?.autoAceitar) {

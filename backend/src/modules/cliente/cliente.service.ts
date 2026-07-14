@@ -6,7 +6,10 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHmac, randomBytes } from 'crypto';
+import { createHmac, createHash, randomBytes, randomInt } from 'crypto';
+
+// SHA-256 do código OTP (o banco só guarda o hash; comparação hash-com-hash).
+const hashOtp = (codigo: string) => createHash('sha256').update(codigo.trim()).digest('hex');
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -248,14 +251,16 @@ export class ClienteService {
     const tel = soDigitos(telefone);
     if (tel.length < 10) throw new BadRequestException('Telefone inválido.');
 
-    const codigo = String(Math.floor(100000 + Math.random() * 900000));
+    // Código seguro (uniforme, imprevisível): randomInt em vez de Math.random.
+    const codigo = String(randomInt(100000, 1000000)); // 6 dígitos [100000..999999]
     const expira = new Date(Date.now() + OTP_MIN * 60000);
     await this.db
       .delete(clienteOtp)
       .where(and(eq(clienteOtp.tenantId, tenantId), eq(clienteOtp.telefone, tel)));
+    // Guarda só o HASH — o texto puro nunca vai ao banco.
     await this.db
       .insert(clienteOtp)
-      .values({ tenantId, telefone: tel, codigo, expiraEm: expira });
+      .values({ tenantId, telefone: tel, codigoHash: hashOtp(codigo), expiraEm: expira });
 
     // Loja (para o texto da mensagem) + disparo do webhook (best-effort).
     const [cfg] = await this.db
@@ -301,7 +306,8 @@ export class ClienteService {
       throw new BadRequestException('Código expirado. Peça um novo.');
     if (otp.tentativas >= 5)
       throw new BadRequestException('Muitas tentativas. Peça um novo código.');
-    if (String(dto.codigo ?? '').trim() !== otp.codigo) {
+    // Compara HASH com HASH (o banco não tem o código em claro).
+    if (!otp.codigoHash || hashOtp(String(dto.codigo ?? '')) !== otp.codigoHash) {
       await this.db
         .update(clienteOtp)
         .set({ tentativas: otp.tentativas + 1 })

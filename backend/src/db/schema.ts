@@ -45,6 +45,8 @@ export const unidade = pgTable('unidade', {
   nome: text('nome').notNull(),
   endereco: text('endereco'),
   timezone: text('timezone').notNull().default('America/Sao_Paulo'),
+  // Diferença de caixa (em reais) acima da qual o fechamento gera ocorrência.
+  limiteDiferencaCaixa: numeric('limite_diferenca_caixa').notNull().default('5'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -785,6 +787,9 @@ export const caixaSessao = pgTable('caixa_sessao', {
   valorInformado: numeric('valor_informado'),
   valorEsperado: numeric('valor_esperado'),
   diferenca: numeric('diferenca'),
+  valoresInformados: jsonb('valores_informados'), // contado por forma {dinheiro,cartao,pix,...}
+  esperadoPorForma: jsonb('esperado_por_forma'),
+  diferencaPorForma: jsonb('diferenca_por_forma'),
   fechadaEm: timestamp('fechada_em', { withTimezone: true }),
   fechadaPorId: uuid('fechada_por_id'),
   obs: text('obs'),
@@ -1564,6 +1569,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   unidadeId: uuid('unidade_id'),
   canal: text('canal').notNull().default('ifood'),
   externalId: text('external_id'),
+  clientRef: text('client_ref'), // idempotência do pedido público (UUID do cliente)
   displayId: text('display_id'),
   clienteNome: text('cliente_nome'),
   clienteTelefone: text('cliente_telefone'),
@@ -1630,7 +1636,8 @@ export const clienteOtp = pgTable('cliente_otp', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   telefone: text('telefone').notNull(),
-  codigo: text('codigo').notNull(),
+  codigo: text('codigo'), // legado (nullable) — não gravamos mais o texto puro
+  codigoHash: text('codigo_hash'), // SHA-256 do código (o que confere no confirmar)
   expiraEm: timestamp('expira_em', { withTimezone: true }).notNull(),
   tentativas: integer('tentativas').notNull().default(0),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
@@ -1759,6 +1766,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   ativo: boolean('ativo').notNull().default(false),
   modo: text('modo').notNull().default('mesa'), // mesa | retirada | totem
   nomePublico: text('nome_publico'),
+  tema: text('tema').notNull().default('claro'), // claro | escuro | auto (Etapa 5)
   // Loja / tema (Fase L2)
   ramo: text('ramo').notNull().default('food'), // food|varejo|industria|servicos
   logoEmoji: text('logo_emoji'),
