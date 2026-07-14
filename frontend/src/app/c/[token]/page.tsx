@@ -47,6 +47,8 @@ export default function CardapioPublicoPage() {
   const mesa = search?.get('mesa') ?? '';
 
   const [menu, setMenu] = useState<any>(null);
+  const [temaCliente, setTemaCliente] = useState(''); // '' = segue a loja
+  const [prefereDark, setPrefereDark] = useState(false);
   const [erro, setErro] = useState('');
   const [cat, setCat] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -284,6 +286,35 @@ export default function CardapioPublicoPage() {
 
   const loja = menu?.loja;
   const accent = TEMA[loja?.ramo] ?? '#E2A340';
+
+  // Tema do cardápio: o lojista escolhe (loja.tema: claro|escuro|auto); o cliente
+  // pode alternar (persistido por token). 'auto' segue o sistema do cliente.
+  useEffect(() => {
+    try {
+      setTemaCliente(localStorage.getItem(`cardapio_tema_${token}`) || '');
+    } catch {}
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      setPrefereDark(mq.matches);
+      const on = (e: MediaQueryListEvent) => setPrefereDark(e.matches);
+      mq.addEventListener?.('change', on);
+      return () => mq.removeEventListener?.('change', on);
+    }
+  }, [token]);
+  const temaBase = temaCliente || loja?.tema || 'claro';
+  const dark = temaBase === 'escuro' || (temaBase === 'auto' && prefereDark);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.classList.toggle('tema-escuro', dark);
+    return () => document.body.classList.remove('tema-escuro');
+  }, [dark]);
+  function alternarTema() {
+    const prox = dark ? 'claro' : 'escuro';
+    setTemaCliente(prox);
+    try {
+      localStorage.setItem(`cardapio_tema_${token}`, prox);
+    } catch {}
+  }
   const isServico = loja?.ramo === 'servicos';
   const isIndustria = loja?.ramo === 'industria';
   const produtos: any[] = menu?.produtos ?? [];
@@ -614,6 +645,14 @@ export default function CardapioPublicoPage() {
               <span className="text-white/70">{menu.horarioLabel ?? (menu.abertaAgora ? 'Aberta' : 'Fechada')}</span>
             </p>
           </div>
+          <button
+            type="button"
+            onClick={alternarTema}
+            aria-label={dark ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
+            className="flex-none rounded-full border border-white/25 bg-white/10 px-2.5 py-1.5 text-[13px] text-white"
+          >
+            {dark ? '☀️' : '🌙'}
+          </button>
           <button
             type="button"
             onClick={() => setMostrarCliente(true)}

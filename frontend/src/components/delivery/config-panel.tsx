@@ -279,6 +279,13 @@ export function ConfigPanel({
                           <option value="servicos">📅 Serviços</option>
                         </select>
                       </Campo>
+                      <Campo label="Tema do cardápio">
+                        <select aria-label="Tema do cardápio" disabled={somenteGestor} value={loja.tema ?? 'claro'} onChange={(e) => up({ tema: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
+                          <option value="claro">☀️ Claro</option>
+                          <option value="escuro">🌙 Escuro</option>
+                          <option value="auto">🌗 Automático (segue o aparelho do cliente)</option>
+                        </select>
+                      </Campo>
                       <Campo label="Logo (emoji)"><Input value={loja.logoEmoji ?? ''} onChange={(e) => up({ logoEmoji: e.target.value })} placeholder="🍔" /></Campo>
                       <Campo label="Tempo de entrega (min)"><Input type="number" value={loja.tempoEntregaMin ?? ''} onChange={(e) => up({ tempoEntregaMin: e.target.value })} placeholder="40" /></Campo>
                       <Campo label="Frete grátis acima de (R$)"><Input type="number" value={loja.freteGratisAcima ?? ''} onChange={(e) => up({ freteGratisAcima: e.target.value })} placeholder="opcional" /></Campo>
