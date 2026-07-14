@@ -181,7 +181,7 @@ Diga ".env.local escrito."
 # ---- 3) migrations + certificado + servicos ----
 Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; if ($LASTEXITCODE -ne 0) { throw "migrations falharam." }
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
-Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root
+Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm
 
 # ---- 4) confiar o ca.pem NESTA maquina ----
 $ca = Join-Path $certDir "ca.pem"

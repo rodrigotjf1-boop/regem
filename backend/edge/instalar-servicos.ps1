@@ -8,21 +8,34 @@
 #   .\instalar-servicos.ps1 -Raiz "C:\regem-edge\backend"
 param(
   [string]$Raiz = "C:\regem-edge\backend",
-  [string]$Node = "node"
+  [string]$Node = "node",
+  [string]$Nssm = "nssm"
 )
 
 $ErrorActionPreference = "Stop"
-$nodeExe = (Get-Command $Node).Source
+
+# Resolve node e nssm do bundle (ao lado de backend/) — o PC da loja nao os tem no
+# PATH. Cai para o PATH so se nao houver embutido.
+$bundle = Split-Path $Raiz -Parent
+$bNode = Join-Path $bundle "node\node.exe"
+$bNssm = Join-Path $bundle "nssm\nssm.exe"
+if     (Test-Path $bNode)                                   { $nodeExe = $bNode }
+elseif (Get-Command $Node -ErrorAction SilentlyContinue)    { $nodeExe = (Get-Command $Node).Source }
+else   { throw "Node nao encontrado (nem no bundle $bNode nem no PATH)." }
+if (-not (Test-Path $Nssm)) { if (Test-Path $bNssm) { $Nssm = $bNssm } }
+if ($Nssm -eq "nssm" -and -not (Get-Command nssm -ErrorAction SilentlyContinue)) {
+  throw "NSSM nao encontrado (nem no bundle $bNssm nem no PATH)."
+}
 
 function Svc($nome, $args, $cwd) {
-  Write-Host "→ Serviço $nome"
-  nssm install $nome $nodeExe $args | Out-Null
-  nssm set $nome AppDirectory $cwd | Out-Null
-  nssm set $nome Start SERVICE_AUTO_START | Out-Null
-  nssm set $nome AppStdout "$cwd\logs\$nome.log" | Out-Null
-  nssm set $nome AppStderr "$cwd\logs\$nome.err.log" | Out-Null
-  nssm set $nome AppRotateFiles 1 | Out-Null
-  nssm set $nome AppRotateBytes 10485760 | Out-Null
+  Write-Host "-> Servico $nome"
+  & $Nssm install $nome $nodeExe $args | Out-Null
+  & $Nssm set $nome AppDirectory $cwd | Out-Null
+  & $Nssm set $nome Start SERVICE_AUTO_START | Out-Null
+  & $Nssm set $nome AppStdout "$cwd\logs\$nome.log" | Out-Null
+  & $Nssm set $nome AppStderr "$cwd\logs\$nome.err.log" | Out-Null
+  & $Nssm set $nome AppRotateFiles 1 | Out-Null
+  & $Nssm set $nome AppRotateBytes 10485760 | Out-Null
 }
 
 New-Item -ItemType Directory -Force "$Raiz\logs" | Out-Null
@@ -40,8 +53,8 @@ try {
   Write-Host "→ Firewall: porta 3001 liberada (perfil Privado/Domínio)"
 } catch { Write-Warning "Não consegui criar a regra de firewall: $_" }
 
-nssm start RegemEdgeApi
-nssm start RegemEdgeSync
+& $Nssm start RegemEdgeApi
+& $Nssm start RegemEdgeSync
 
 # Auto-update (Fase E-D): tarefa agendada que roda o atualizar.ps1 todo dia de
 # madrugada. Ele só aplica se houver versão nova (com backup + rollback); se não,
