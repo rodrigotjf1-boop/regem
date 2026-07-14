@@ -33,8 +33,11 @@ $dist = (Resolve-Path (Join-Path $backend "..\regem-edge-dist")).Path
 $zip  = Join-Path (Split-Path $dist -Parent) ("regem-edge-{0}.zip" -f $Versao)
 
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Write-Host "→ Zipando $dist → $zip"
-Compress-Archive -Path (Join-Path $dist "*") -DestinationPath $zip -CompressionLevel Optimal
+Write-Host "→ Zipando $dist → $zip (sem node_modules — o atualizar.ps1 roda npm ci)"
+# node_modules fica FORA do zip de update: o atualizar.ps1 restaura as deps com
+# npm ci. So o instalador .exe embute node_modules (para instalar offline).
+$itens = Get-ChildItem -Path $dist -Force | Where-Object { $_.Name -ne 'node_modules' } | ForEach-Object { $_.FullName }
+Compress-Archive -Path $itens -DestinationPath $zip -CompressionLevel Optimal
 
 $sha = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
 
