@@ -37,7 +37,12 @@ WizardStyle=modern
 Source: "..\..\regem-edge-dist\*"; DestDir: "{app}\backend"; Flags: recursesubdirs createallsubdirs
 ; Binarios portateis EMBUTIDOS (opcionais) — se a pasta existir, sao empacotados:
 Source: "bundle\node\*";  DestDir: "{app}\node";  Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
-Source: "bundle\pgsql\*"; DestDir: "{app}\pgsql"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+; Postgres: SO o que o servidor precisa (bin/lib/share). Exclui pgAdmin 4,
+; StackBuilder, doc, include, symbols — inuteis e pesados (pgAdmin gerava o erro
+; de ucrtbase.dll na extracao). Deixa o .exe bem menor.
+Source: "bundle\pgsql\bin\*";   DestDir: "{app}\pgsql\bin";   Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "bundle\pgsql\lib\*";   DestDir: "{app}\pgsql\lib";   Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "bundle\pgsql\share\*"; DestDir: "{app}\pgsql\share"; Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 Source: "bundle\nssm\*";  DestDir: "{app}\nssm";  Flags: recursesubdirs createallsubdirs skipifsourcedoesntexist
 ; Runtime do Windows (VC++ x64) — o Postgres embutido precisa dele. Coloque em
 ; edge\bundle\vc_redist.x64.exe (baixe: https://aka.ms/vs/17/release/vc_redist.x64.exe).
