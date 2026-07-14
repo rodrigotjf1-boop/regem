@@ -520,6 +520,8 @@ export const api = {
   cardapioPontos: (token: string, telefone: string) =>
     pub(`/publico/cardapio/${token}/pontos?telefone=${encodeURIComponent(telefone)}`),
   cardapioPromos: (token: string) => pub(`/publico/cardapio/${token}/promos`),
+  cardapioPecaTambem: (token: string, produtos: string[]) =>
+    pub(`/publico/cardapio/${token}/peca-tambem?produtos=${encodeURIComponent(produtos.join(','))}`),
   buscarClienteTelefone: (telefone: string) =>
     req(`/clientes/buscar?telefone=${encodeURIComponent(telefone)}`),
   // Cliente do cardápio (link mágico assinado).

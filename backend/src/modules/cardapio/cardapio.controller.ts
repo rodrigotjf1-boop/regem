@@ -53,6 +53,13 @@ export class CardapioPublicoController {
     return this.service.cuponsDisponiveis(token, telefone, Number(subtotal) || 0);
   }
 
+  // "Peça também": sugestões para o carrinho (produtos = ids no carrinho, csv).
+  @Get(':token/peca-tambem')
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  pecaTambem(@Param('token') token: string, @Query('produtos') produtos?: string) {
+    return this.service.pecaTambem(token, produtos);
+  }
+
   @Get(':token/pedido/:id')
   status(@Param('token') token: string, @Param('id') id: string) {
     return this.service.statusPedido(token, id);

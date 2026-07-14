@@ -140,4 +140,10 @@ export class CreateProdutoDto {
   @ValidateNested({ each: true })
   @Type(() => ComboItemDto)
   combo?: ComboItemDto[];
+
+  // "Peça também": IDs de produtos sugeridos vinculados a este produto.
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  sugestoes?: string[];
 }
