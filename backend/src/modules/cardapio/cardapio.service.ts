@@ -891,6 +891,25 @@ export class CardapioService {
   }
 
   // Recebe o pedido do cliente. Preço/complementos vêm SEMPRE do banco.
+  // Resposta de um pedido já existente (replay idempotente por client_ref):
+  // reconstrói o mesmo formato do fluxo normal a partir da linha gravada.
+  private respostaPedido(cfg: { tenantId: string }, row: typeof pedidoExterno.$inferSelect) {
+    return {
+      ok: true,
+      modo: row.tipo,
+      pedidoId: row.id,
+      displayId: row.displayId,
+      total: Number(row.total),
+      taxaEntrega: Number(row.taxaEntrega),
+      desconto: Number(row.desconto),
+      pagamentoOnline: row.statusPagamento === 'aguardando',
+      orcamento: row.statusPagamento === 'orcamento',
+      agendamento: row.agendamento ? new Date(row.agendamento).toISOString() : null,
+      clienteToken: row.clienteId ? assinarCliente(row.clienteId, cfg.tenantId) : undefined,
+      reenvio: true, // sinaliza ao front que é o mesmo pedido (não duplicou)
+    };
+  }
+
   async receberPedido(
     token: string,
     dto: {
@@ -898,6 +917,7 @@ export class CardapioService {
       cliente?: string;
       telefone?: string;
       clienteToken?: string; // link mágico: associa o pedido ao cliente identificado
+      clientRef?: string; // idempotência: mesmo ref em retries = 1 pedido
       tipo?: string; // entrega | retirada
       endereco?: string; // texto livre (compat/legado)
       rua?: string;
@@ -926,6 +946,15 @@ export class CardapioService {
     },
   ) {
     const cfg = await this.resolver(token);
+    // Idempotência: se este client_ref já virou pedido, devolve o mesmo (200) —
+    // não recria nem recobra. Retry do cliente (rede ruim, duplo toque) é seguro.
+    if (dto.clientRef) {
+      const [ja] = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, cfg.tenantId), eq(pedidoExterno.clientRef, dto.clientRef)));
+      if (ja) return this.respostaPedido(cfg, ja);
+    }
     if (!dto.itens?.length) throw new BadRequestException('Pedido vazio.');
     // Loja fechada: bloqueia (pedidos agendados passam).
     if (!dto.agendamento && !this.estaAberta(cfg))
@@ -1085,6 +1114,7 @@ export class CardapioService {
         itens: itensOut,
       },
       {
+        clientRef: dto.clientRef,
         taxaEntrega: taxa,
         cupom: cup.valido ? cup.codigo : undefined,
         desconto,

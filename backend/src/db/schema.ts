@@ -1564,6 +1564,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   unidadeId: uuid('unidade_id'),
   canal: text('canal').notNull().default('ifood'),
   externalId: text('external_id'),
+  clientRef: text('client_ref'), // idempotência do pedido público (UUID do cliente)
   displayId: text('display_id'),
   clienteNome: text('cliente_nome'),
   clienteTelefone: text('cliente_telefone'),
