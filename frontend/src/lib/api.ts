@@ -1,5 +1,14 @@
-const BASE =
-  process.env.NEXT_PUBLIC_API_URL ?? 'https://api.dmsregem.com/api/v1';
+// Base da API. Nuvem: NEXT_PUBLIC_API_URL (fixado no build). Edge
+// (NEXT_PUBLIC_EDGE=1): cada loja tem IP proprio, entao a API fica no MESMO host
+// que serviu o app (o que o cliente digitou: localhost / IP / regem.local), na
+// porta do edge (default 3002). Resolve em runtime, no navegador.
+function apiBase(): string {
+  if (process.env.NEXT_PUBLIC_EDGE === '1' && typeof window !== 'undefined') {
+    const porta = process.env.NEXT_PUBLIC_EDGE_API_PORT || '3002';
+    return `${window.location.protocol}//${window.location.hostname}:${porta}/api/v1`;
+  }
+  return process.env.NEXT_PUBLIC_API_URL || 'https://api.dmsregem.com/api/v1';
+}
 
 const TOKEN_KEY = 'regen_token';
 
@@ -79,7 +88,7 @@ async function req(path: string, options: RequestInit = {}) {
   const token = getToken();
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(`${apiBase()}${path}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',
@@ -104,7 +113,7 @@ async function req(path: string, options: RequestInit = {}) {
 
 // Chamada PÚBLICA (sem login, sem redirecionar em 401) — cardápio por QR.
 async function pub(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${apiBase()}${path}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
   });
@@ -122,7 +131,7 @@ async function uploadFile(path: string, file: File) {
   form.append('file', file);
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, {
+    res = await fetch(`${apiBase()}${path}`, {
       method: 'POST',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: form,
