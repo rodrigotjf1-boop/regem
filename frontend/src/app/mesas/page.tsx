@@ -31,6 +31,8 @@ export default function MesasPage() {
   // abrir mesa
   const [novoNum, setNovoNum] = useState('');
   const [novoModo, setNovoModo] = useState('mesa');
+  const [remocao, setRemocao] = useState<{ itemId: string; nome?: string } | null>(null); // modal de justificativa
+  const [justif, setJustif] = useState('');
   // abrir comanda por cliente
   const [novoIdent, setNovoIdent] = useState('');
 
@@ -127,14 +129,36 @@ export default function MesasPage() {
     }
   }
 
-  async function removerItem(itemId: string) {
-    if (!confirm('Remover este item? A cozinha é avisada.')) return;
+  // Remoção de item exige justificativa (relatório) e autorização no servidor
+  // (atendente só remove se o presidente liberou o cancelamento livre).
+  function pedirRemocao(itemId: string, nome?: string) {
+    setJustif('');
+    setRemocao({ itemId, nome });
+  }
+  async function confirmarRemocao() {
+    if (!justif.trim()) {
+      toast.error('Informe a justificativa da remoção.');
+      return;
+    }
     try {
-      await api.removerComandaItem(itemId);
+      await api.removerComandaItem(remocao!.itemId, justif.trim());
       toast.success('Item removido.');
+      setRemocao(null);
       await abrirDetalhe(sel.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao remover');
+    }
+  }
+
+  async function excluirMesa() {
+    if (!confirm(`Excluir a mesa ${sel.numero}? (só se estiver sem itens)`)) return;
+    try {
+      await api.excluirMesa(sel.id);
+      toast.success('Mesa excluída.');
+      setSel(null);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao excluir mesa');
     }
   }
 
@@ -172,6 +196,11 @@ export default function MesasPage() {
           <span className="text-sm text-muted-foreground">
             {sel.modo === 'comandas' ? 'Comandas por cliente' : 'Comanda única'}
           </span>
+          {totalMesa === 0 && (
+            <Button type="button" variant="ghost" size="sm" className="ml-auto text-destructive" onClick={excluirMesa}>
+              🗑 Excluir mesa
+            </Button>
+          )}
         </div>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
@@ -217,10 +246,10 @@ export default function MesasPage() {
                       <span className="font-mono">{brl(Number(it.precoUnitario) * Number(it.quantidade))}</span>
                       <button
                         type="button"
-                        onClick={() => removerItem(it.id)}
+                        onClick={() => pedirRemocao(it.id, it.descricao)}
                         className="text-destructive hover:opacity-70"
                         aria-label="Remover item"
-                        title="Remover item"
+                        title="Remover item (exige justificativa)"
                       >
                         ×
                       </button>
@@ -261,6 +290,30 @@ export default function MesasPage() {
             </Button>
           </Card>
         </div>
+
+        {/* Modal: justificativa da remoção (obrigatória, vai para o relatório) */}
+        {remocao && (
+          <div className="fixed inset-0 z-40 grid place-items-center bg-black/50 p-4" onClick={() => setRemocao(null)}>
+            <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+              <h3 className="font-display font-semibold">Remover item</h3>
+              {remocao.nome && <p className="mt-0.5 text-sm text-muted-foreground">{remocao.nome}</p>}
+              <p className="mt-2 text-xs text-muted-foreground">
+                A cozinha é avisada e a remoção fica registrada no relatório de retiradas. Informe o motivo:
+              </p>
+              <Input
+                className="mt-3"
+                autoFocus
+                value={justif}
+                onChange={(e) => setJustif(e.target.value)}
+                placeholder="Ex.: cliente desistiu / erro do garçom"
+              />
+              <div className="mt-4 flex gap-2">
+                <Button type="button" variant="ghost" className="flex-1" onClick={() => setRemocao(null)}>Cancelar</Button>
+                <Button type="button" className="flex-1" onClick={confirmarRemocao} disabled={!justif.trim()}>Remover</Button>
+              </div>
+            </Card>
+          </div>
+        )}
       </Shell>
     );
   }

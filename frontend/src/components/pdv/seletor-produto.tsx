@@ -131,7 +131,7 @@ export function SeletorProduto({
         <button
           type="button"
           onClick={() => setCatAtiva('')}
-          className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${!catAtiva ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
+          className={`rounded-full border px-3 py-1 text-sm font-semibold ${!catAtiva ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
         >
           Todos
         </button>
@@ -140,7 +140,7 @@ export function SeletorProduto({
             key={c.id}
             type="button"
             onClick={() => setCatAtiva(c.id)}
-            className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${catAtiva === c.id ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
+            className={`rounded-full border px-3 py-1 text-sm font-semibold ${catAtiva === c.id ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
           >
             {c.nome}
           </button>
@@ -157,7 +157,7 @@ export function SeletorProduto({
           <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
             {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
           </h3>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
             {g.itens.map((p) => (
               <button
                 key={p.id}
@@ -175,7 +175,7 @@ export function SeletorProduto({
                   )}
                 </div>
                 <div className="flex flex-1 flex-col gap-0.5 p-2.5">
-                  <span className="line-clamp-2 text-sm font-medium leading-tight">{p.nome}</span>
+                  <span className="line-clamp-2 text-[13px] font-bold leading-tight">{p.nome}</span>
                   <span className="mt-auto font-mono text-sm font-bold text-primary">{brl(Number(p.precoVenda))}</span>
                   {p.tipo === 'variavel' && <span className="text-[10px] text-muted-foreground">escolher tamanho</span>}
                 </div>
