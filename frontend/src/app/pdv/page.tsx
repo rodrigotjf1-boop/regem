@@ -293,37 +293,42 @@ export default function PdvPage() {
 
   return (
     <Shell eyebrow="PDV · balcão" title="Venda rápida">
-      <div className="mb-2 flex justify-end"><ServidorStatus /></div>
-      {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} />}
+      {/* Topo compacto: caixa (fino) + status/busca, com as categorias coladas abaixo */}
+      <div className="mb-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {carregado && <CaixaPanel caixa={caixa} onChange={reloadCaixa} embedded />}
+          <div className="ml-auto flex items-center gap-2">
+            <ServidorStatus />
+            <BuscarCupom />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => setCatAtiva('')}
+            className={`rounded-full border px-3 py-1 text-sm font-semibold ${!catAtiva ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
+          >
+            Todos
+          </button>
+          {categorias.filter((c) => !c.parentId).map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setCatAtiva(c.id)}
+              className={`rounded-full border px-3 py-1 text-sm font-semibold ${catAtiva === c.id ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
+            >
+              {c.nome}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
         {/* Produtos */}
         <div className="space-y-3">
           {erro && <p className="text-destructive">{erro}</p>}
-          <div className="flex justify-end">
-            <BuscarCupom />
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setCatAtiva('')}
-              className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${!catAtiva ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
-            >
-              Todos
-            </button>
-            {categorias.filter((c) => !c.parentId).map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setCatAtiva(c.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium ${catAtiva === c.id ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
-              >
-                {c.nome}
-              </button>
-            ))}
-          </div>
 
           {!carregado && (
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
               {Array.from({ length: 9 }).map((_, i) => (
                 <div key={i} className="rounded-xl border border-border bg-card p-3">
                   <Skeleton className="h-4 w-3/4" />
@@ -342,7 +347,7 @@ export default function PdvPage() {
               <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
                 {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
               </h3>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
                 {g.itens.map((p) => (
                   <button
                     key={p.id}
@@ -358,8 +363,8 @@ export default function PdvPage() {
                         <span aria-hidden>🍽️</span>
                       )}
                     </div>
-                    <div className="flex flex-1 flex-col gap-0.5 p-2.5">
-                      <span className="line-clamp-2 text-sm font-medium leading-tight">{p.nome}</span>
+                    <div className="flex flex-1 flex-col gap-0.5 p-2">
+                      <span className="line-clamp-2 text-[13px] font-bold leading-tight">{p.nome}</span>
                       <span className="mt-auto font-mono text-sm font-bold text-primary">{brl(Number(p.precoVenda))}</span>
                       {p.tipo === 'variavel' && (
                         <span className="text-[10px] text-muted-foreground">escolher tamanho</span>
