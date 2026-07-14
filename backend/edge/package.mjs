@@ -2,6 +2,7 @@
 // Uso (na pasta backend/): npm run build && node edge/package.mjs
 // Saída: ../regem-edge-dist/  → copie para o PC da loja e siga edge/INSTALL-WINDOWS.md
 import { cpSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
 import { join } from 'path';
 
 const raiz = process.cwd(); // backend/
@@ -9,8 +10,9 @@ const out = join(raiz, '..', 'regem-edge-dist');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
-// Nunca empacotar os binários portáteis do instalador (edge/bundle) nem node_modules:
-// o instalador (.iss) já os inclui à parte; empacotá-los aqui incharia a dist (~250MB).
+// Não copiar os binários portáteis do instalador (edge/bundle) nem o node_modules
+// de desenvolvimento do backend. O node_modules de PRODUÇÃO é gerado do zero mais
+// abaixo (npm ci --omit=dev), para a loja não precisar baixar nada na instalação.
 const semBundle = (s) => !/[\\/](bundle|node_modules)([\\/]|$)/.test(s);
 
 const copiar = (rel) => {
@@ -31,5 +33,13 @@ copiar('drizzle.config.ts');
 cpSync(join(raiz, '..', 'database', 'migrations'), join(out, 'database', 'migrations'), { recursive: true });
 console.log('  + database/migrations');
 
+// Dependências de produção EMBUTIDAS → instalação 100% offline (sem npm ci na loja).
+// bcryptjs e pg são JS puro (sem binários nativos), então o node_modules é portável
+// entre máquinas Windows x64 e casa com o Node embutido no instalador.
+console.log('  + node_modules (npm ci --omit=dev — baixa as deps uma vez, aqui)…');
+execSync('npm ci --omit=dev --no-audit --no-fund', { cwd: out, stdio: 'inherit' });
+console.log('  + node_modules (embutido)');
+
 console.log(`\nPronto: ${out}`);
-console.log('No PC da loja: npm ci --omit=dev  →  configure backend/.env.local  →  siga edge/INSTALL-WINDOWS.md');
+console.log('Dependências já embutidas — a loja NÃO precisa de internet para as deps.');
+console.log('No PC da loja: siga edge/INSTALL-WINDOWS.md (o .exe faz tudo).');

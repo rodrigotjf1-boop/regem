@@ -72,9 +72,15 @@ if ($embutido.pg) {
 }
 
 # ---- 0.5) Dependencias ANTES do Postgres (o passo do banco usa o modulo 'pg') ----
-Diga "Instalando dependencias (npm ci)..."
-& npm ci --omit=dev
-if ($LASTEXITCODE -ne 0) { throw "npm ci falhou (a loja tem internet?)." }
+# O pacote ja vem com node_modules embutido (instalacao offline). So baixa se, por
+# algum motivo, as dependencias nao vieram junto.
+if (Test-Path (Join-Path $root "node_modules\pg")) {
+  Diga "Dependencias ja embutidas - pulando download."
+} else {
+  Diga "Instalando dependencias (npm ci)... (precisa de internet)"
+  & npm ci --omit=dev
+  if ($LASTEXITCODE -ne 0) { throw "npm ci falhou (a loja tem internet?)." }
+}
 
 # ---- 1) Postgres local ----
 $pgSenha = Rand 24
@@ -201,6 +207,14 @@ if ($AtivacaoToken -and -not ($Email -and $Senha)) {
     Diga "Licenca ativada (lease recebido)."
   } catch { Diga "AVISO: nao consegui ativar a licenca agora: $($_.Exception.Message). Ative depois pelo /frota." }
 }
+
+# ---- 6.5) atalho na area de trabalho para o servidor local ----
+try {
+  $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
+  $scut = Join-Path $desktop "Regem (servidor local).url"
+  Set-Content -Path $scut -Encoding ascii -Value "[InternetShortcut]`r`nURL=https://localhost:$Porta`r`nIconIndex=0"
+  Diga "Atalho criado na area de trabalho: Regem (servidor local) -> https://localhost:$Porta"
+} catch { Diga "AVISO: nao consegui criar o atalho na area de trabalho: $($_.Exception.Message)" }
 
 Diga ""
 Diga "==================== CONCLUIDO ===================="

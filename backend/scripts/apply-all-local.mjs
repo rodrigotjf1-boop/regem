@@ -1,7 +1,7 @@
 // Aplica TODAS as migrations (database/migrations/*.sql, em ordem) no banco
 // apontado por DATABASE_URL do backend/.env.local. Uso: node scripts/apply-all-local.mjs
 // Idempotente na prática (as migrations usam IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
 
@@ -14,7 +14,17 @@ if (!line) {
 }
 const connectionString = line.slice('DATABASE_URL='.length).trim();
 
-const dir = path.join(cwd, '..', 'database', 'migrations');
+// Em dev (monorepo) as migrations ficam em ../database/migrations; no edge
+// empacotado elas vao para ./database/migrations (dentro de backend/). Aceita os dois.
+const candidatos = [
+  path.join(cwd, '..', 'database', 'migrations'),
+  path.join(cwd, 'database', 'migrations'),
+];
+const dir = candidatos.find((d) => existsSync(d));
+if (!dir) {
+  console.error('Pasta de migrations nao encontrada. Procurei em:\n  ' + candidatos.join('\n  '));
+  process.exit(1);
+}
 const arquivos = readdirSync(dir)
   .filter((f) => f.endsWith('.sql'))
   .sort();
