@@ -107,6 +107,7 @@ export class CardapioService {
       subtitulo: dto.subtitulo ?? row?.subtitulo ?? null,
       aberto: dto.aberto != null ? !!dto.aberto : row?.aberto ?? true,
       tempoEntregaMin: dto.tempoEntregaMin ?? row?.tempoEntregaMin ?? null,
+      tempoRetiradaMin: dto.tempoRetiradaMin ?? row?.tempoRetiradaMin ?? null,
       pedidoMinimo:
         dto.pedidoMinimo != null ? String(dto.pedidoMinimo) : row?.pedidoMinimo ?? null,
       avaliacao: dto.avaliacao != null ? String(dto.avaliacao) : row?.avaliacao ?? null,
@@ -615,6 +616,7 @@ export class CardapioService {
         subtitulo: cfg.subtitulo,
         aberto: cfg.aberto,
         tempoEntregaMin: cfg.tempoEntregaMin,
+        tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
         avaliacao: cfg.avaliacao != null ? Number(cfg.avaliacao) : null,
         freteGratisAcima:

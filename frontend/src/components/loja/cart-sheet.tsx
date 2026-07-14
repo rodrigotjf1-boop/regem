@@ -288,6 +288,13 @@ export function CartSheet({
           {!isServico && opcoesTipo.length === 1 && (
             <p className="mt-4 rounded-xl border border-neutral-200 px-3 py-2 text-sm font-semibold text-neutral-700">{opcoesTipo[0][1]}</p>
           )}
+          {/* estimativa de tempo conforme o tipo escolhido */}
+          {!isServico && chk.tipo === 'entrega' && loja.tempoEntregaMin != null && (
+            <p className="mt-2 text-xs font-semibold text-neutral-600">⏱ Entrega em ~{loja.tempoEntregaMin} min</p>
+          )}
+          {!isServico && chk.tipo === 'retirada' && loja.tempoRetiradaMin != null && (
+            <p className="mt-2 text-xs font-semibold text-neutral-600">⏱ Pronto para retirada em ~{loja.tempoRetiradaMin} min</p>
+          )}
 
           {/* endereço estruturado (entrega) */}
           {!isServico && chk.tipo === 'entrega' && (
