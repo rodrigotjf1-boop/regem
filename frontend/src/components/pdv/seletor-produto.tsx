@@ -157,7 +157,7 @@ export function SeletorProduto({
           <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
             {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
           </h3>
-          <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8">
             {g.itens.map((p) => (
               <button
                 key={p.id}
@@ -166,7 +166,7 @@ export function SeletorProduto({
                 onClick={() => tap(p)}
                 className="flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition hover:border-primary/50 active:scale-95 disabled:opacity-50"
               >
-                <div className="grid aspect-square w-full place-items-center overflow-hidden bg-muted/40 text-3xl">
+                <div className="grid aspect-square w-full place-items-center overflow-hidden bg-muted/40 text-xl">
                   {p.imagemRef ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover" />
@@ -174,9 +174,9 @@ export function SeletorProduto({
                     <span aria-hidden>🍽️</span>
                   )}
                 </div>
-                <div className="flex flex-1 flex-col gap-0.5 p-2.5">
-                  <span className="line-clamp-2 text-[13px] font-bold leading-tight">{p.nome}</span>
-                  <span className="mt-auto font-mono text-sm font-bold text-primary">{brl(Number(p.precoVenda))}</span>
+                <div className="flex flex-1 flex-col gap-0.5 p-1.5">
+                  <span className="line-clamp-2 text-[11px] font-bold leading-tight">{p.nome}</span>
+                  <span className="mt-auto font-mono text-xs font-bold text-primary">{brl(Number(p.precoVenda))}</span>
                   {p.tipo === 'variavel' && <span className="text-[10px] text-muted-foreground">escolher tamanho</span>}
                 </div>
               </button>
