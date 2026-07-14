@@ -372,7 +372,7 @@ export default function TerminalPontoPage() {
               className="h-2 w-2 rounded-full"
               style={{ background: online ? '#19C08F' : '#FFB13D' }}
             />
-            {online ? 'Online' : 'Offline'}
+            {online ? 'Servidor online' : 'Servidor offline'}
           </span>
           <button
             type="button"

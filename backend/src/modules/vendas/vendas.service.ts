@@ -27,6 +27,7 @@ import {
   caixaSessao,
   entitlement,
   colaborador,
+  auditLog,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
@@ -1322,7 +1323,16 @@ export class VendasService {
     atorId: string,
     atorPerfil: string,
     itemId: string,
+    justificativa?: string,
   ) {
+    // Autorização: atendente só remove se o presidente liberou (mesmo gate do
+    // cancelamento); gerente+ sempre. E a justificativa é SEMPRE obrigatória
+    // (alimenta o relatório de retiradas).
+    if (atorPerfil === 'atendente' && !(await this.cancelamentoLivre(tenantId))) {
+      throw new ForbiddenException('Remoção de item requer autorização de um gerente.');
+    }
+    const just = (justificativa ?? '').trim();
+    if (!just) throw new BadRequestException('Informe a justificativa da remoção.');
     const [it] = await this.db
       .select()
       .from(comandaItem)
@@ -1356,7 +1366,7 @@ export class VendasService {
       acao: 'removeu_item_comanda',
       entidadeTipo: 'comanda_item',
       entidadeId: itemId,
-      detalhe: { descricao: it.descricao, comandaId: it.comandaId },
+      detalhe: { descricao: it.descricao, comandaId: it.comandaId, justificativa: just },
     });
     return { ok: true };
   }
@@ -1525,6 +1535,62 @@ export class VendasService {
   }
 
   // Configuração do presidente/C&O: se o cancelamento é livre para o atendente.
+  // D1: exclui uma mesa VAZIA (sem item lançado). Se tiver item, bloqueia.
+  async excluirMesa(tenantId: string, atorId: string, mesaId: string) {
+    const [m] = await this.db
+      .select()
+      .from(mesa)
+      .where(and(eq(mesa.id, mesaId), eq(mesa.tenantId, tenantId)));
+    if (!m) throw new NotFoundException('Mesa não encontrada.');
+    const r: any = await this.db.execute(sql`
+      select count(ci.id)::int as n
+      from comanda c left join comanda_item ci on ci.comanda_id = c.id
+      where c.mesa_id = ${mesaId} and c.tenant_id = ${tenantId}`);
+    const n = Number((r.rows ?? r)[0].n) || 0;
+    if (n > 0) {
+      throw new BadRequestException('A mesa tem itens lançados. Remova os itens ou feche a mesa antes de excluir.');
+    }
+    await this.db.delete(comanda).where(and(eq(comanda.mesaId, mesaId), eq(comanda.tenantId, tenantId)));
+    await this.db.delete(mesa).where(and(eq(mesa.id, mesaId), eq(mesa.tenantId, tenantId)));
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil: '',
+      tipo: 'venda',
+      acao: 'excluiu_mesa',
+      entidadeTipo: 'mesa',
+      entidadeId: mesaId,
+      detalhe: { numero: m.numero, nome: m.nome },
+    });
+    return { ok: true };
+  }
+
+  // D2: relatório de retiradas de item (com justificativa), lido da auditoria.
+  async remocoesItens(tenantId: string, inicio?: string, fim?: string) {
+    const cond = [eq(auditLog.tenantId, tenantId), eq(auditLog.acao, 'removeu_item_comanda')];
+    if (inicio) cond.push(sql`${auditLog.createdAt} >= ${inicio}`);
+    if (fim) cond.push(sql`${auditLog.createdAt} <= ${fim + ' 23:59:59'}`);
+    const rows = await this.db
+      .select({
+        id: auditLog.id,
+        createdAt: auditLog.createdAt,
+        detalhe: auditLog.detalhe,
+        ator: colaborador.nome,
+      })
+      .from(auditLog)
+      .leftJoin(colaborador, eq(colaborador.id, auditLog.actorId))
+      .where(and(...cond))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(300);
+    return rows.map((r: any) => ({
+      id: r.id,
+      data: r.createdAt,
+      ator: r.ator ?? '—',
+      descricao: r.detalhe?.descricao ?? '—',
+      justificativa: r.detalhe?.justificativa ?? '',
+    }));
+  }
+
   private async cancelamentoLivre(tenantId: string): Promise<boolean> {
     const [e] = await this.db
       .select({ ativo: entitlement.ativo })

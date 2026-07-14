@@ -98,13 +98,31 @@ export class VendasController {
   }
 
   @Delete('comandas/itens/:itemId')
-  removerItem(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string) {
+  removerItem(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string, @Body() dto: any) {
     return this.service.removerItem(
       user.tenantId,
       user.colaboradorId,
       user.categoria,
       itemId,
+      dto?.justificativa,
     );
+  }
+
+  // D1: excluir mesa vazia.
+  @Delete('mesas/:id')
+  excluirMesa(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.excluirMesa(user.tenantId, user.colaboradorId, id);
+  }
+
+  // D2: relatório de retiradas de item (gestão).
+  @Get('remocoes')
+  @Roles('presidente', 'gerente', 'supervisao')
+  remocoes(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.remocoesItens(user.tenantId, inicio, fim);
   }
 
   @Post('comandas/:id/fechar')

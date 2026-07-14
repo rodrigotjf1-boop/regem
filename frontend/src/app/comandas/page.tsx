@@ -113,8 +113,11 @@ export default function ComandasPage() {
   }
 
   async function removerItem(itemId: string) {
+    // Justificativa obrigatória (relatório de retiradas) — o servidor também exige.
+    const j = window.prompt('Motivo da remoção (obrigatório):')?.trim();
+    if (!j) return;
     try {
-      await api.removerComandaItem(itemId);
+      await api.removerComandaItem(itemId, j);
       await abrirSel(sel.id);
       await reloadLista();
     } catch (e) {

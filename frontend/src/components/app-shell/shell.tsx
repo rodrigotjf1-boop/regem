@@ -122,6 +122,12 @@ const NAV: NavGroup[] = [
         roles: ['presidente', 'gerente', 'supervisao'],
       },
       {
+        href: '/vendas/remocoes',
+        label: 'Retiradas de item',
+        icon: BarChart3,
+        roles: ['presidente', 'gerente', 'supervisao'],
+      },
+      {
         href: '/auditoria',
         label: 'Auditoria',
         icon: History,

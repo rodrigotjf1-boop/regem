@@ -318,7 +318,7 @@ export default function KdsPage() {
             className="inline-block h-2.5 w-2.5 rounded-full"
             style={{ background: conectado ? '#19C08F' : '#FF5A4E' }}
           />
-          {conectado ? 'Conectado' : 'Offline'}
+          {conectado ? 'Servidor online' : 'Servidor offline'}
         </div>
 
         <div
