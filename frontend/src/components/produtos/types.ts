@@ -49,6 +49,7 @@ export const vazio = () => ({
   disponivelBalcao: true,
   destaque: false,
   selos: [] as string[],
+  sugestoes: [] as string[],
   duracaoMin: '',
   vendaMultiplo: '',
   ncm: '',
