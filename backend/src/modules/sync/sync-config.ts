@@ -16,6 +16,7 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'unidade', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'setor', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'funcao', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'perfil_acesso', direcao: 'desce', cursor: 'updated_at' }, // pai do colaborador (RBAC)
   { tabela: 'colaborador', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'turno', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'etiqueta', direcao: 'desce', cursor: 'updated_at' },
@@ -54,8 +55,12 @@ export function modoPush(tabela: string): 'append' | 'lww' | null {
   return null;
 }
 
-// Segurança: colunas NUNCA enviadas no pull (segredos). PIN de 4 dígitos + bcrypt é
-// brute-forçável offline → não sai daqui. Auth offline de credencial fica p/ design futuro.
-export const REDIGIR: Record<string, string[]> = {
-  colaborador: ['senha_hash', 'pin_hash'],
-};
+// Segurança: colunas NUNCA enviadas no pull.
+// NOTA sobre auth offline (decidido 14/07/2026): o edge é um appliance ON-PREMISE
+// do próprio cliente licenciado — ele PRECISA de senha_hash/pin_hash locais para
+// autenticar login (senha) e PIN sem internet. Os hashes são bcrypt (mão única),
+// enviados só ao edge daquele tenant, pela rota /sync autenticada por sync token, e
+// o pgdata é local (dono NetworkService). É o mesmo modelo de qualquer sistema
+// on-prem, que sempre guarda os próprios hashes. Por isso NÃO redigimos mais aqui.
+// Deixe o mapa pronto para redigir segredos futuros (ex.: tokens de integração).
+export const REDIGIR: Record<string, string[]> = {};
