@@ -113,7 +113,11 @@ try {
     try {
       $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $porta) -TimeoutSec 5 -UseBasicParsing
       if ($r.StatusCode -eq 200) { $ok = $true; break }
-    } catch { }
+    } catch {
+      # PS 5.1 pode falhar o TLS com o cert local; confirma pela porta TCP aberta.
+      try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('localhost', [int]$porta); if ($c.Connected) { $ok = $true }; $c.Close() } catch {}
+      if ($ok) { break }
+    }
   }
   if (-not $ok) { throw "Health-check /ping falhou apos a troca." }
 

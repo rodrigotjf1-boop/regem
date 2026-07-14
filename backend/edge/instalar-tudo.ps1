@@ -191,14 +191,19 @@ if (Test-Path $ca) {
 }
 
 # ---- 5) health-check ----
-# PS 5.1 NAO tem -SkipCertificateCheck. Aceita o cert local nesta sessao (localhost)
-# via callback e forca TLS 1.2 — funciona em PS 5.1 e 7.
+# PS 5.1 NAO tem -SkipCertificateCheck. Aceita o cert local via callback + TLS 1.2.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } } catch {}
+# Tenta o /ping real (HTTPS). Se o TLS do PS 5.1 falhar com o cert local, cai para
+# um teste de porta TCP (o servico esta aceitando conexao = no ar).
+function Testa-Ping($porta) {
+  try { $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $porta) -TimeoutSec 5 -UseBasicParsing; if ($r.StatusCode -eq 200) { return $true } } catch {}
+  try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('localhost', [int]$porta); $ok = $c.Connected; $c.Close(); return $ok } catch { return $false }
+}
 $okPing = $false
 foreach ($i in 1..15) {
   Start-Sleep -Seconds 2
-  try { $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $Porta) -TimeoutSec 5 -UseBasicParsing; if ($r.StatusCode -eq 200) { $okPing = $true; break } } catch {}
+  if (Testa-Ping $Porta) { $okPing = $true; break }
 }
 if ($okPing) { Diga "OK - /ping respondeu." } else { Diga "AVISO: /ping ainda nao respondeu; veja os logs em $logDir." }
 

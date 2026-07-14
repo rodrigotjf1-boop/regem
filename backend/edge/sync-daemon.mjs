@@ -10,6 +10,18 @@
 //   SYNC_TOKEN          token do equipamento 'servidor_local' (header x-sync-token)
 //   SYNC_INTERVAL_MS    intervalo entre ciclos (default 30000)
 import pg from 'pg';
+import { readFileSync, existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+
+// Rodando como servico do Windows nao ha shell que exporte as envs. A API usa
+// @nestjs/config para ler o .env.local; este daemon carrega por conta propria.
+const _envFile = fileURLToPath(new URL('../.env.local', import.meta.url));
+if (existsSync(_envFile)) {
+  for (const _l of readFileSync(_envFile, 'utf8').split(/\r?\n/)) {
+    const _m = _l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
+    if (_m && !process.env[_m[1]]) process.env[_m[1]] = _m[2].trim();
+  }
+}
 
 const EDGE_DB = req('EDGE_DATABASE_URL');
 const CLOUD = req('CLOUD_API').replace(/\/$/, '');
