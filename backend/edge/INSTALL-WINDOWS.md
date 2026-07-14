@@ -14,6 +14,13 @@
 > e a **chave pública da licença** `LICENSE_PUBLIC_KEY_B64` (passo 6). Sem elas, o
 > sync e a licença não funcionam.
 
+> 🌐 **Conexão de internet — só no setup:** a instalação **precisa de internet**
+> por 2 motivos: (1) **baixar as dependências** (`npm ci`) e (2) **ativar a licença**
+> na nuvem (login do C&O). **Depois de instalado, o servidor roda 100% offline** —
+> a loja opera sem internet e sincroniza com a nuvem quando a conexão volta.
+> A **ativação** exige internet **uma vez** (é inevitável — valida o direito de uso).
+> *(Opção futura: embutir as dependências no pacote para dispensar o `npm ci`; aí só a ativação fica online.)*
+
 ---
 
 ## PARTE A — Na SUA máquina (a de desenvolvimento)

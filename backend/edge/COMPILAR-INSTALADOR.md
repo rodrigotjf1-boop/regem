@@ -26,7 +26,8 @@
   - `edge\bundle\node\` → **Node.js Windows Binary (.zip x64)** de <https://nodejs.org/en/download> (o conteúdo do zip, com `node.exe` e `npm.cmd` na raiz dessa pasta).
   - `edge\bundle\pgsql\` → **PostgreSQL Binaries (.zip)** da EnterpriseDB (<https://www.enterprisedb.com/download-postgresql-binaries>) — deve conter `bin\initdb.exe` e `bin\postgres.exe`.
   - `edge\bundle\nssm\` → **`nssm.exe`** de <https://nssm.cc/download> (o `nssm.exe` de 64 bits direto nessa pasta).
-- **Confirmação:** existem `edge\bundle\node\node.exe`, `edge\bundle\pgsql\bin\initdb.exe` e `edge\bundle\nssm\nssm.exe`.
+  - `edge\bundle\vc_redist.x64.exe` → **Visual C++ Redistributable x64** de <https://aka.ms/vs/17/release/vc_redist.x64.exe> (o Postgres embutido depende dele; o instalador o instala silenciosamente). ~25 MB.
+- **Confirmação:** existem `edge\bundle\node\node.exe`, `edge\bundle\pgsql\bin\initdb.exe`, `edge\bundle\nssm\nssm.exe` e `edge\bundle\vc_redist.x64.exe`.
 
 > **Opcional:** se pular este passo, o instalador ainda funciona, mas **exige** Node/Postgres/NSSM já instalados no PC da loja. Com o bundle, não exige nada.
 
