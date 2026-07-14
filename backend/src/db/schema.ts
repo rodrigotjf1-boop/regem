@@ -1790,6 +1790,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   subtitulo: text('subtitulo'),
   aberto: boolean('aberto').notNull().default(true),
   tempoEntregaMin: integer('tempo_entrega_min'),
+  tempoRetiradaMin: integer('tempo_retirada_min'), // estimativa de preparo p/ retirada
   pedidoMinimo: numeric('pedido_minimo'),
   avaliacao: numeric('avaliacao'),
   freteGratisAcima: numeric('frete_gratis_acima'),
