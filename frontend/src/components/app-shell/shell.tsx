@@ -17,6 +17,7 @@ import {
   ReceiptText,
   FileText,
   Flame,
+  HardDrive,
   History,
   LayoutDashboard,
   ListChecks,
@@ -130,6 +131,18 @@ const NAV: NavGroup[] = [
         href: '/wizard',
         label: 'Config. por ramo',
         icon: Wand2,
+        roles: ['presidente'],
+      },
+      {
+        href: '/servidor',
+        label: 'Servidor local',
+        icon: HardDrive,
+        roles: ['presidente', 'gerente'],
+      },
+      {
+        href: '/planos',
+        label: 'Planos & assinatura',
+        icon: CreditCard,
         roles: ['presidente'],
       },
       {
