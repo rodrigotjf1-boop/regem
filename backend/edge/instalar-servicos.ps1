@@ -27,9 +27,12 @@ if ($Nssm -eq "nssm" -and -not (Get-Command nssm -ErrorAction SilentlyContinue))
   throw "NSSM nao encontrado (nem no bundle $bNssm nem no PATH)."
 }
 
-function Svc($nome, $args, $cwd) {
+# NAO usar $args como nome de parametro: e variavel automatica do PowerShell e
+# nao recebe o valor posicional (o servico subiria node.exe SEM script -> REPL).
+function Svc($nome, $appArgs, $cwd) {
   Write-Host "-> Servico $nome"
-  & $Nssm install $nome $nodeExe $args | Out-Null
+  & $Nssm install $nome $nodeExe | Out-Null
+  & $Nssm set $nome AppParameters $appArgs | Out-Null
   & $Nssm set $nome AppDirectory $cwd | Out-Null
   & $Nssm set $nome Start SERVICE_AUTO_START | Out-Null
   & $Nssm set $nome AppStdout "$cwd\logs\$nome.log" | Out-Null

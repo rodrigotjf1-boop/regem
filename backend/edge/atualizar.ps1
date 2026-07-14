@@ -103,12 +103,15 @@ try {
   Diga "Subindo servicos..."; Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"
 
   # ---- 5) HEALTH-CHECK (ate ~40s) ----
+  # PS 5.1 nao tem -SkipCertificateCheck; aceita o cert local via callback + TLS 1.2.
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } } catch {}
   $porta = if ($cfg.PORT) { $cfg.PORT } else { "3001" }
   $ok = $false
   foreach ($i in 1..20) {
     Start-Sleep -Seconds 2
     try {
-      $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $porta) -TimeoutSec 5 -SkipCertificateCheck
+      $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $porta) -TimeoutSec 5 -UseBasicParsing
       if ($r.StatusCode -eq 200) { $ok = $true; break }
     } catch { }
   }
