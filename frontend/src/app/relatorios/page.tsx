@@ -358,7 +358,16 @@ export default function RelatoriosPage() {
           </>
         )}
 
-        {aba === 'delivery' && <DetalheCanal data={delivery} nome="delivery" delivery />}
+        {aba === 'delivery' && (
+          <>
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" onClick={() => router.push('/relatorios/delivery')}>
+                🗺️ Mapa de calor por bairro
+              </Button>
+            </div>
+            <DetalheCanal data={delivery} nome="delivery" delivery />
+          </>
+        )}
 
         {aba === 'turnos' && <TurnosView data={turnos} />}
 

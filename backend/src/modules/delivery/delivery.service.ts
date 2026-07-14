@@ -481,6 +481,59 @@ export class DeliveryService {
       .orderBy(cardapioBairro.ordem, cardapioBairro.nome);
   }
 
+  // Mapa de calor de entregas por bairro (todos os canais). Agrega pedidos de
+  // ENTREGA não cancelados no período. Sem lat/lng no pedido → visão por bairro
+  // (o pedido só guarda `endereco_bairro`). Financeiro/receita: gestão apenas.
+  async mapaCalorBairros(tenantId: string, dias: number) {
+    const d = Math.max(1, Math.min(365, Math.floor(dias) || 30));
+    const r: any = await this.db.execute(sql`
+      select
+        coalesce(nullif(trim(endereco_bairro), ''), 'Sem bairro') as bairro,
+        count(*)::int as pedidos,
+        coalesce(sum(total), 0) as receita,
+        coalesce(round(avg(taxa_entrega), 2), 0) as taxa_media
+      from pedido_externo
+      where tenant_id = ${tenantId}
+        and tipo = 'entrega'
+        and status <> 'cancelado'
+        and criado_em >= now() - (${d} * interval '1 day')
+      group by 1
+      order by pedidos desc, receita desc
+    `);
+    const rows = (r.rows ?? r) as any[];
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const totalPedidos = rows.reduce((s, x) => s + Number(x.pedidos), 0);
+    const totalReceita = rows.reduce((s, x) => s + Number(x.receita), 0);
+    const somaTaxaPonderada = rows.reduce(
+      (s, x) => s + Number(x.taxa_media) * Number(x.pedidos),
+      0,
+    );
+    const bairros = rows.map((x) => {
+      const pedidos = Number(x.pedidos);
+      const receita = Number(x.receita);
+      return {
+        bairro: x.bairro,
+        pedidos,
+        receita: round2(receita),
+        ticketMedio: pedidos ? round2(receita / pedidos) : 0,
+        taxaMedia: Number(x.taxa_media),
+        // participação em pedidos (1 casa) — usado na barra de calor
+        pct: totalPedidos ? Math.round((pedidos / totalPedidos) * 1000) / 10 : 0,
+      };
+    });
+    return {
+      periodoDias: d,
+      geral: {
+        pedidos: totalPedidos,
+        receita: round2(totalReceita),
+        ticketMedio: totalPedidos ? round2(totalReceita / totalPedidos) : 0,
+        taxaMedia: totalPedidos ? round2(somaTaxaPonderada / totalPedidos) : 0,
+        bairros: bairros.length,
+      },
+      bairros,
+    };
+  }
+
   // Resolve o bairro (taxa + nome) do cadastro de "área de atendimento":
   // por id, ou pelo nome (case-insensitive).
   private async resolverBairro(
