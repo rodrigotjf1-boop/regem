@@ -46,9 +46,15 @@ async function bootstrap() {
   // Cabeçalhos de segurança.
   app.use(helmet());
 
-  // CORS: produção usa a lista de CORS_ORIGIN; em dev (sem a var) libera todas.
+  // CORS: '*' libera qualquer origem (edge/appliance na LAN — o app em :3001 chama
+  // a API em :3002, e o host varia por loja); lista separada por vírgula em
+  // produção nuvem; sem a var (dev) libera todas.
   app.enableCors(
-    corsOrigin ? { origin: corsOrigin.split(',').map((o) => o.trim()) } : {},
+    !corsOrigin
+      ? {}
+      : corsOrigin.trim() === '*'
+        ? { origin: true }
+        : { origin: corsOrigin.split(',').map((o) => o.trim()) },
   );
 
   // Prefixo versionado da API: /api/v1/*

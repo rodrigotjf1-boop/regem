@@ -27,7 +27,8 @@ param(
   [string]$AtivacaoToken = "",
   [string]$LicensePublicKey = "",
   [string]$CloudApi = "https://api.dmsregem.com/api/v1",
-  [int]$Porta = 3001,
+  [int]$Porta = 3002,       # API (NestJS) - atras do app
+  [int]$PortaWeb = 3001,    # App (Next) - porta que os aparelhos/atalho abrem
   [int]$PgPorta = 5432
 )
 
@@ -181,7 +182,7 @@ Diga ".env.local escrito."
 # ---- 3) migrations + certificado + servicos ----
 Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; if ($LASTEXITCODE -ne 0) { throw "migrations falharam." }
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
-Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm
+Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
 
 # ---- 4) confiar o ca.pem NESTA maquina ----
 $ca = Join-Path $certDir "ca.pem"
@@ -200,12 +201,18 @@ function Testa-Ping($porta) {
   try { $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $porta) -TimeoutSec 5 -UseBasicParsing; if ($r.StatusCode -eq 200) { return $true } } catch {}
   try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('localhost', [int]$porta); $ok = $c.Connected; $c.Close(); return $ok } catch { return $false }
 }
+function Testa-Porta($porta) {
+  try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('localhost', [int]$porta); $ok = $c.Connected; $c.Close(); return $ok } catch { return $false }
+}
 $okPing = $false
 foreach ($i in 1..15) {
   Start-Sleep -Seconds 2
   if (Testa-Ping $Porta) { $okPing = $true; break }
 }
-if ($okPing) { Diga "OK - /ping respondeu." } else { Diga "AVISO: /ping ainda nao respondeu; veja os logs em $logDir." }
+if ($okPing) { Diga "OK - API respondeu (porta $Porta)." } else { Diga "AVISO: API (porta $Porta) ainda nao respondeu; veja os logs em $logDir." }
+$okWeb = $false
+foreach ($i in 1..10) { if (Testa-Porta $PortaWeb) { $okWeb = $true; break }; Start-Sleep -Seconds 2 }
+if ($okWeb) { Diga "OK - app no ar (porta $PortaWeb)." } else { Diga "AVISO: app (porta $PortaWeb) ainda nao subiu; veja o log RegemEdgeWeb.err.log em $logDir." }
 
 # ---- 6) (opcional) ativar a licenca via token manual (self-service ja ativou) ----
 if ($AtivacaoToken -and -not ($Email -and $Senha)) {
@@ -221,13 +228,14 @@ if ($AtivacaoToken -and -not ($Email -and $Senha)) {
 try {
   $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
   $scut = Join-Path $desktop "Regem (servidor local).url"
-  Set-Content -Path $scut -Encoding ascii -Value "[InternetShortcut]`r`nURL=https://localhost:$Porta`r`nIconIndex=0"
-  Diga "Atalho criado na area de trabalho: Regem (servidor local) -> https://localhost:$Porta"
+  Set-Content -Path $scut -Encoding ascii -Value "[InternetShortcut]`r`nURL=https://localhost:$PortaWeb`r`nIconIndex=0"
+  Diga "Atalho criado na area de trabalho: Regem (servidor local) -> https://localhost:$PortaWeb"
 } catch { Diga "AVISO: nao consegui criar o atalho na area de trabalho: $($_.Exception.Message)" }
 
 Diga ""
 Diga "==================== CONCLUIDO ===================="
-Diga "Servidor local: https://${ip}:$Porta  (ou https://regem.local:$Porta)"
-Diga "Nos aparelhos clientes (KDS/PDV/Ponto): confie o arquivo $ca e aponte o navegador para o endereco acima."
+Diga "App (abra aqui): https://${ip}:$PortaWeb  (ou https://regem.local:$PortaWeb)"
+Diga "API (interna):   https://${ip}:$Porta"
+Diga "Nos aparelhos clientes (KDS/PDV/Ponto): confie o arquivo $ca e aponte o navegador para o endereco do app acima."
 Diga "Log completo: $log"
 Stop-Transcript -ErrorAction SilentlyContinue | Out-Null

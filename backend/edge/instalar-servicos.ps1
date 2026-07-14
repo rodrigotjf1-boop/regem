@@ -9,7 +9,9 @@
 param(
   [string]$Raiz = "C:\regem-edge\backend",
   [string]$Node = "node",
-  [string]$Nssm = "nssm"
+  [string]$Nssm = "nssm",
+  [int]$PortaWeb = 3001,   # App (Next) - HTTPS publico na LAN
+  [int]$PortaApi = 3002    # API (NestJS) - atras do app
 )
 
 $ErrorActionPreference = "Stop"
@@ -49,15 +51,22 @@ Svc "RegemEdgeApi" "$Raiz\dist\main.js" $Raiz
 # Daemon de sync (nuvem <-> local).
 Svc "RegemEdgeSync" "$Raiz\edge\sync-daemon.mjs" $Raiz
 
-# Libera a porta 3001 só na rede local (nunca exposta à internet pelo Windows).
+# App (Next standalone) servido por HTTPS via edge-web.mjs. PORT = HTTPS publico;
+# WEB_INNER_PORT = HTTP interno do Next (so localhost). Ambos precisam vir da env
+# do servico (o edge-web nao sobrescreve envs ja definidas).
+Svc "RegemEdgeWeb" "$Raiz\edge\edge-web.mjs" $Raiz
+& $Nssm set RegemEdgeWeb AppEnvironmentExtra "PORT=$PortaWeb" "WEB_INNER_PORT=3011" | Out-Null
+
+# Libera as portas do app e da API só na rede local (nunca expostas à internet).
 try {
-  New-NetFirewallRule -DisplayName "Regem Edge 3001 (LAN)" -Direction Inbound -Action Allow `
-    -Protocol TCP -LocalPort 3001 -Profile Private,Domain -ErrorAction Stop | Out-Null
-  Write-Host "→ Firewall: porta 3001 liberada (perfil Privado/Domínio)"
+  New-NetFirewallRule -DisplayName "Regem Edge (LAN)" -Direction Inbound -Action Allow `
+    -Protocol TCP -LocalPort @($PortaWeb, $PortaApi) -Profile Private,Domain -ErrorAction Stop | Out-Null
+  Write-Host "→ Firewall: portas $PortaWeb (app) e $PortaApi (API) liberadas (perfil Privado/Domínio)"
 } catch { Write-Warning "Não consegui criar a regra de firewall: $_" }
 
 & $Nssm start RegemEdgeApi
 & $Nssm start RegemEdgeSync
+& $Nssm start RegemEdgeWeb
 
 # Auto-update (Fase E-D): tarefa agendada que roda o atualizar.ps1 todo dia de
 # madrugada. Ele só aplica se houver versão nova (com backup + rollback); se não,
@@ -76,5 +85,5 @@ try {
   }
 } catch { Write-Warning "Não consegui criar o agendamento de auto-update: $_" }
 
-Write-Host "`nPronto. Serviços RegemEdgeApi + RegemEdgeSync ativos e no boot."
-Write-Host "Confira: http(s)://localhost:3001/api/v1/ping"
+Write-Host "`nPronto. Serviços RegemEdgeApi + RegemEdgeSync + RegemEdgeWeb ativos e no boot."
+Write-Host "App:  https://localhost:$PortaWeb    API: https://localhost:$PortaApi/api/v1/ping"

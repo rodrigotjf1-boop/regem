@@ -80,11 +80,11 @@ if (Test-Path $distAtual) { Copy-Item $distAtual $distBak -Recurse -Force; Diga 
 
 # ---- 4) para servicos, troca arquivos, migra, sobe ----
 function Svc($acao, $nome) { & $nssmExe $acao $nome 2>$null | Out-Null }
-Diga "Parando servicos..."; Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"
+Diga "Parando servicos..."; Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeWeb"
 
 try {
   Diga "Trocando arquivos (dist, migrations, scripts, package)..."
-  foreach ($item in @("dist", "database", "scripts", "package.json", "package-lock.json")) {
+  foreach ($item in @("dist", "web", "database", "scripts", "package.json", "package-lock.json")) {
     $de  = Join-Path $novo $item
     $para = Join-Path $Raiz $item
     if (Test-Path $de) {
@@ -100,7 +100,7 @@ try {
   Push-Location $Raiz; node scripts\apply-all-local.mjs; $mgCode = $LASTEXITCODE; Pop-Location
   if ($mgCode -ne 0) { throw "migrations falharam." }
 
-  Diga "Subindo servicos..."; Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"
+  Diga "Subindo servicos..."; Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"; Svc start "RegemEdgeWeb"
 
   # ---- 5) HEALTH-CHECK (ate ~40s) ----
   # PS 5.1 nao tem -SkipCertificateCheck; aceita o cert local via callback + TLS 1.2.
@@ -127,12 +127,12 @@ try {
 catch {
   Diga "ERRO: $($_.Exception.Message)"
   Diga "ROLLBACK do codigo (dist.bak)..."
-  Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"
+  Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeWeb"
   if (Test-Path $distBak) {
     if (Test-Path $distAtual) { Remove-Item $distAtual -Recurse -Force }
     Copy-Item $distBak $distAtual -Recurse -Force
   }
-  Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"
+  Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"; Svc start "RegemEdgeWeb"
   Diga "Codigo restaurado. Se a migration ja rodou e o problema for o banco, restaure manualmente:"
   Diga "   pg_restore --clean --dbname `"$($cfg.EDGE_DATABASE_URL)`" `"$dumpFile`""
   throw
