@@ -159,6 +159,52 @@ export function ProdutoForm({
           <ComboEditor f={f} set={set} produtos={produtos} editId={editId} />
         )}
 
+        {/* Peça também: sugestões vinculadas (prioridade sobre o automático). */}
+        <div className="space-y-1.5 rounded-lg border border-border p-3">
+          <Label className="text-xs font-semibold">Peça também (sugestões no cardápio)</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Produtos sugeridos quando este entra no carrinho. Vazio → o cardápio sugere os mais pedidos automaticamente.
+          </p>
+          {(f.sugestoes ?? []).length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {(f.sugestoes ?? []).map((id: string) => {
+                const p = (produtos ?? []).find((x: any) => x.id === id);
+                return (
+                  <span key={id} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                    {p?.nome ?? 'Produto'}
+                    <button
+                      type="button"
+                      aria-label="Remover sugestão"
+                      onClick={() => set({ sugestoes: (f.sugestoes ?? []).filter((s: string) => s !== id) })}
+                      className="text-primary/70 hover:text-primary"
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          <select
+            className={selectCls}
+            aria-label="Adicionar produto sugerido"
+            value=""
+            onChange={(e) => {
+              const id = e.target.value;
+              if (id && !(f.sugestoes ?? []).includes(id)) set({ sugestoes: [...(f.sugestoes ?? []), id] });
+            }}
+          >
+            <option value="">＋ Adicionar sugestão…</option>
+            {(produtos ?? [])
+              .filter((p: any) => p.id !== editId && !(f.sugestoes ?? []).includes(p.id))
+              .map((p: any) => (
+                <option key={p.id} value={p.id}>
+                  {p.nome}
+                </option>
+              ))}
+          </select>
+        </div>
+
         <FiscalFields f={f} set={set} />
 
         <Button type="submit" disabled={salvando}>
