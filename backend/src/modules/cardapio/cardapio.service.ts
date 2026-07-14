@@ -829,7 +829,7 @@ export class CardapioService {
   }
 
   // Público: status do pedido (timeline) por id.
-  async statusPedido(token: string, pedidoId: string) {
+  async statusPedido(token: string, pedidoId: string, ref?: string) {
     const cfg = await this.resolver(token);
     const [p] = await this.db
       .select()
@@ -841,6 +841,10 @@ export class CardapioService {
         ),
       );
     if (!p) throw new NotFoundException('Pedido não encontrado.');
+    // Link reabrível/compartilhável: se veio `ref`, tem que bater com o client_ref
+    // do pedido — evita ver pedido de outro cliente trocando o ID na URL.
+    if (ref !== undefined && ref !== '' && p.clientRef && ref !== p.clientRef)
+      throw new NotFoundException('Pedido não encontrado.');
     return {
       id: p.id,
       displayId: p.displayId,
