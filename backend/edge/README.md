@@ -3,6 +3,9 @@
 Ver a arquitetura em `docs/arquitetura-edge.md`. O servidor local é o **próprio backend**
 apontando para um **Postgres local** + o **daemon de sync** que fala com a nuvem.
 
+> 📘 **Guias:** instalar num PC de loja → `INSTALL-WINDOWS.md` · compilar o `.exe`
+> → `COMPILAR-INSTALADOR.md` · **publicar e aplicar atualizações** → `ATUALIZAR.md`.
+
 ## 1. Pré-requisitos
 - Node 20+ e **PostgreSQL local** (porta 5432).
 - `backend/.env.local` (NÃO commitado) com `DATABASE_URL` do Postgres local, ex.:
