@@ -86,12 +86,21 @@ if ($embutido.pg) {
     Set-Content -Path $pwfile -Value $pgSenha -NoNewline -Encoding ascii
     & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -D $pgData | Out-Null
     Remove-Item $pwfile -Force
-    # sobe o Postgres como servico proprio (auto-start)
+    # O postgres.exe se RECUSA a rodar como conta admin (Sistema Local). O servico
+    # roda como "Servico de rede" (NetworkService = SID S-1-5-20, nao-admin) — igual
+    # ao instalador oficial do Postgres. Ele precisa ser DONO/ter acesso ao pgdata
+    # e ler os binarios do pgsql.
+    icacls $pgData /setowner "*S-1-5-20" /T /C /Q | Out-Null
+    icacls $pgData /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q | Out-Null
+    icacls $pgDir  /grant "*S-1-5-20:(OI)(CI)RX" /T /C /Q | Out-Null
     $pgArgs = '-D "' + $pgData + '" -p ' + $PgPorta
     & $nssm install RegemEdgePg (Join-Path $pgDir "bin\postgres.exe") $pgArgs | Out-Null
+    & $nssm set RegemEdgePg ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
     & $nssm set RegemEdgePg Start SERVICE_AUTO_START | Out-Null
+    & $nssm set RegemEdgePg AppStderr "$logDir\RegemEdgePg.err.log" | Out-Null
     & $nssm start RegemEdgePg | Out-Null
-    Diga "Postgres embutido no ar (porta $PgPorta)."
+    Start-Sleep -Seconds 2
+    Diga "Postgres embutido: servico iniciado como Servico de rede (porta $PgPorta)."
   } else {
     Diga "pgdata ja existe - reaproveitando. (Se nao souber a senha, apague $pgData para reinicializar.)"
   }
