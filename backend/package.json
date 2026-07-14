@@ -9,7 +9,9 @@
     "start:dev": "nest start --watch",
     "start:prod": "node dist/main.js",
     "test": "jest",
-    "openapi": "node scripts/gen-openapi.js"
+    "openapi": "node scripts/gen-openapi.js",
+    "impressora:fake": "node edge/impressora-fake.mjs",
+    "impressao:worker": "node edge/impressao-daemon.mjs"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",

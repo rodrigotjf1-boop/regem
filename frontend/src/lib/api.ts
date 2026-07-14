@@ -668,6 +668,9 @@ export const api = {
     }),
   reimprimir: (id: string) =>
     req(`/impressao/${id}/reimprimir`, { method: 'POST', body: '{}' }),
+  impressaoFila: () => req('/impressao/fila'),
+  impressoraTeste: (id: string) =>
+    req(`/impressao/impressoras/${id}/teste`, { method: 'POST', body: '{}' }),
   abrirCaixa: (body: Record<string, unknown>) =>
     req('/financeiro/caixa/abrir', { method: 'POST', body: JSON.stringify(body) }),
   movimentarCaixa: (body: Record<string, unknown>) =>

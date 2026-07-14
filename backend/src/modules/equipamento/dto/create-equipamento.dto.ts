@@ -1,4 +1,13 @@
-import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 export class CreateEquipamentoDto {
   @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora'])
@@ -35,4 +44,19 @@ export class CreateEquipamentoDto {
   @IsOptional()
   @IsInt()
   porta?: number;
+
+  // Impressora: largura do papel (58 | 80 mm) e setores que ela atende.
+  @IsOptional()
+  @IsIn([58, 80])
+  largura?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  setoresAtendidos?: string[];
+
+  // Marca esta impressora como a PADRÃO da unidade (fallback de produção).
+  @IsOptional()
+  @IsBoolean()
+  padrao?: boolean;
 }
