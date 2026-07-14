@@ -1028,6 +1028,23 @@ export const produto = pgTable('produto', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// "Peça também": sugestões vinculadas ao produto (cadastro). Prioridade sobre a
+// sugestão automática (mais vendidos) no cardápio público.
+export const produtoSugestao = pgTable('produto_sugestao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  sugeridoId: uuid('sugerido_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const produtoVariacao = pgTable('produto_variacao', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

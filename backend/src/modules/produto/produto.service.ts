@@ -6,6 +6,7 @@ import {
   produtoVariacao,
   produtoComboItem,
   produtoFaixaPreco,
+  produtoSugestao,
   complementoGrupo,
   complementoOpcao,
   categoriaProduto,
@@ -84,7 +85,31 @@ export class ProdutoService {
       .from(produtoFaixaPreco)
       .where(eq(produtoFaixaPreco.produtoId, id))
       .orderBy(produtoFaixaPreco.ordem);
-    return { ...p, variacoes, combo, complementos, faixas };
+    const sugestoes = await this.sugestoesDe(tenantId, id);
+    return { ...p, variacoes, combo, complementos, faixas, sugestoes };
+  }
+
+  // IDs dos produtos sugeridos ("Peça também") vinculados a este produto.
+  async sugestoesDe(tenantId: string, produtoId: string) {
+    const rows = await this.db
+      .select({ sugeridoId: produtoSugestao.sugeridoId })
+      .from(produtoSugestao)
+      .where(and(eq(produtoSugestao.tenantId, tenantId), eq(produtoSugestao.produtoId, produtoId)))
+      .orderBy(produtoSugestao.ordem);
+    return rows.map((r) => r.sugeridoId);
+  }
+
+  // Substitui (replace-all) as sugestões vinculadas ao produto.
+  async setSugestoes(tenantId: string, produtoId: string, sugeridoIds: string[]) {
+    await this.db
+      .delete(produtoSugestao)
+      .where(and(eq(produtoSugestao.tenantId, tenantId), eq(produtoSugestao.produtoId, produtoId)));
+    const limpos = [...new Set((sugeridoIds ?? []).filter((s) => s && s !== produtoId))];
+    if (limpos.length) {
+      await this.db.insert(produtoSugestao).values(
+        limpos.map((sugeridoId, ordem) => ({ tenantId, produtoId, sugeridoId, ordem })),
+      );
+    }
   }
 
   // ===== Faixas de preço por volume (B2B) =====
@@ -322,6 +347,7 @@ export class ProdutoService {
       entidadeId: row.id,
       detalhe: { nome: row.nome, preco: Number(row.precoVenda) },
     });
+    if (dto.sugestoes !== undefined) await this.setSugestoes(tenantId, row.id, dto.sugestoes);
     return row;
   }
 
@@ -410,6 +436,7 @@ export class ProdutoService {
           })),
         );
     }
+    if (dto.sugestoes !== undefined) await this.setSugestoes(tenantId, id, dto.sugestoes);
     return row;
   }
 

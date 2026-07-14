@@ -12,6 +12,7 @@ import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import {
   cardapioConfig,
   produto,
+  produtoSugestao,
   produtoVariacao,
   categoriaProduto,
   complementoGrupo,
@@ -894,6 +895,73 @@ export class CardapioService {
   }
 
   // Recebe o pedido do cliente. Preço/complementos vêm SEMPRE do banco.
+  // "Peça também": sugestões para o carrinho. Prioridade = manual (cadastro
+  // vinculado aos produtos do carrinho); se não houver, cai no automático (mais
+  // pedidos). Sempre exclui o que já está no carrinho e o indisponível.
+  async pecaTambem(token: string, produtosCsv?: string) {
+    const cfg = await this.resolver(token);
+    const carrinho = (produtosCsv ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    const excluir = new Set(carrinho);
+    const disp = (p: any) => p.ativo !== false && p.disponivelCardapio !== false && !excluir.has(p.id);
+    const mapProd = (p: any) => ({
+      id: p.id,
+      nome: p.nome,
+      preco: p.precoPromocional != null ? Number(p.precoPromocional) : Number(p.precoVenda),
+      precoDe: p.precoPromocional != null ? Number(p.precoVenda) : null,
+      imagem: p.imagemRef ?? null,
+    });
+    const out: any[] = [];
+    const vistos = new Set<string>();
+    const add = (p: any) => {
+      if (disp(p) && !vistos.has(p.id)) {
+        vistos.add(p.id);
+        out.push(mapProd(p));
+      }
+    };
+
+    // 1) Manual (cadastro) — prioridade.
+    if (carrinho.length) {
+      const rows = await this.db
+        .select({
+          id: produto.id,
+          nome: produto.nome,
+          precoVenda: produto.precoVenda,
+          precoPromocional: produto.precoPromocional,
+          ativo: produto.ativo,
+          disponivelCardapio: produto.disponivelCardapio,
+          imagemRef: produto.imagemRef,
+        })
+        .from(produtoSugestao)
+        .innerJoin(produto, eq(produto.id, produtoSugestao.sugeridoId))
+        .where(and(eq(produtoSugestao.tenantId, cfg.tenantId), inArray(produtoSugestao.produtoId, carrinho)))
+        .orderBy(produtoSugestao.ordem);
+      for (const r of rows) add(r);
+    }
+
+    // 2) Automático (fallback): mais pedidos.
+    if (!out.length) {
+      const rank: any = await this.db.execute(sql`
+        select ci.produto_id as id, count(*)::int as qtd
+        from comanda_item ci join comanda c on c.id = ci.comanda_id
+        where c.tenant_id = ${cfg.tenantId} and ci.produto_id is not null
+        group by ci.produto_id order by qtd desc limit 30`);
+      const ids = (rank.rows ?? rank).map((x: any) => x.id).filter((id: string) => id && !excluir.has(id));
+      if (ids.length) {
+        const prods = await this.db
+          .select()
+          .from(produto)
+          .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)));
+        const byId = new Map(prods.map((p: any) => [p.id, p]));
+        for (const id of ids) {
+          if (out.length >= 6) break;
+          const p = byId.get(id);
+          if (p) add(p);
+        }
+      }
+    }
+    return out.slice(0, 6);
+  }
+
   // Resposta de um pedido já existente (replay idempotente por client_ref):
   // reconstrói o mesmo formato do fluxo normal a partir da linha gravada.
   private respostaPedido(cfg: { tenantId: string }, row: typeof pedidoExterno.$inferSelect) {
