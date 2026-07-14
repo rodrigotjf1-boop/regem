@@ -66,6 +66,14 @@ export default function PlanosPage() {
           Seu teste terminou. Assine para reativar as operações.
         </Card>
       )}
+      {status?.tipo === 'assinatura' && (
+        <Card className="mb-4 border-ok/40 bg-ok/5 p-3 text-sm">
+          <span className="font-semibold text-ok">✓ Assinatura ativa</span> — seu plano:{' '}
+          <strong>{planos.find((p) => p.chave === status.plano)?.nome ?? status.plano ?? '—'}</strong>
+          {status.ate && <> · renova em {new Date(status.ate).toLocaleDateString('pt-BR')}</>}. Você pode
+          trocar de plano abaixo quando quiser.
+        </Card>
+      )}
 
       <div className="mb-5 inline-flex rounded-lg border border-border p-1">
         {CICLOS.map((c) => (
@@ -83,13 +91,19 @@ export default function PlanosPage() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        {planos.map((p) => (
-          <Card key={p.chave} className={`flex flex-col p-5 ${p.destaque ? 'border-primary ring-1 ring-primary/30' : ''}`}>
-            {p.destaque && (
+        {planos.map((p) => {
+          const ehAtual = status?.tipo === 'assinatura' && status.plano === p.chave;
+          return (
+          <Card key={p.chave} className={`flex flex-col p-5 ${ehAtual ? 'border-ok ring-1 ring-ok/40' : p.destaque ? 'border-primary ring-1 ring-primary/30' : ''}`}>
+            {ehAtual ? (
+              <span className="mb-2 w-fit rounded-full bg-ok/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-ok">
+                Plano atual
+              </span>
+            ) : p.destaque ? (
               <span className="mb-2 w-fit rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
                 Mais popular
               </span>
-            )}
+            ) : null}
             <h3 className="font-display text-lg font-bold">{p.nome}</h3>
             <p className="text-sm text-muted-foreground">{p.desc}</p>
             <div className="my-4">
@@ -109,11 +123,23 @@ export default function PlanosPage() {
                 </li>
               ))}
             </ul>
-            <Button className="mt-auto" onClick={() => assinar(p)} disabled={indo === p.chave}>
-              {indo === p.chave ? 'Abrindo…' : `Assinar ${p.nome}`}
+            <Button
+              className="mt-auto"
+              variant={ehAtual ? 'outline' : 'default'}
+              onClick={() => assinar(p)}
+              disabled={indo === p.chave || ehAtual}
+            >
+              {ehAtual
+                ? '✓ Plano atual'
+                : indo === p.chave
+                  ? 'Abrindo…'
+                  : status?.tipo === 'assinatura'
+                    ? `Trocar para ${p.nome}`
+                    : `Assinar ${p.nome}`}
             </Button>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
       <p className="mt-5 text-xs text-muted-foreground">
