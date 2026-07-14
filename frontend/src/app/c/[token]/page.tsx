@@ -304,6 +304,29 @@ export default function CardapioPublicoPage() {
     () => produtos.filter((p) => p.destaque && !p.esgotado && !cart.some((c) => c.produtoId === p.id)).slice(0, 6),
     [produtos, cart],
   );
+  // "Peça também" inteligente: cadastro vinculado (prioridade) → senão mais pedidos.
+  // Busca quando o carrinho abre/muda; cai no upsell por `destaque` se vier vazio.
+  const [pecaTambem, setPecaTambem] = useState<any[]>([]);
+  useEffect(() => {
+    if (!checkout || cart.length === 0) return;
+    let cancel = false;
+    const ids = [...new Set(cart.map((c) => c.produtoId))];
+    api
+      .cardapioPecaTambem(token, ids)
+      .then((r: any) => {
+        if (!cancel)
+          setPecaTambem(
+            Array.isArray(r) ? r.map((p: any) => ({ ...p, precoVenda: p.preco, imagemRef: p.imagem })) : [],
+          );
+      })
+      .catch(() => {
+        if (!cancel) setPecaTambem([]);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [checkout, cart, token]);
+  const upsellFinal = pecaTambem.length ? pecaTambem : upsell;
 
   const taxa = useMemo(() => {
     if (isServico || chk.tipo !== 'entrega') return 0;
@@ -513,7 +536,30 @@ export default function CardapioPublicoPage() {
 
   if (erro && !menu)
     return <main className="grid min-h-dvh place-items-center bg-neutral-50 p-6 text-center text-neutral-600">{erro}</main>;
-  if (!menu) return <main className="grid min-h-dvh place-items-center bg-neutral-50 text-neutral-400">Carregando…</main>;
+  // Skeleton no formato do conteúdo (hero + categorias + cards de item).
+  if (!menu)
+    return (
+      <main className="min-h-dvh bg-neutral-50 pb-28">
+        <div className="h-[68px] animate-pulse bg-neutral-200" />
+        <div className="flex gap-2 overflow-hidden px-4 pt-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-8 w-20 flex-none animate-pulse rounded-full bg-neutral-200" />
+          ))}
+        </div>
+        <div className="space-y-2.5 px-4 pt-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex gap-3 rounded-2xl border border-neutral-200 bg-white p-3">
+              <div className="flex-1 space-y-2">
+                <div className="h-4 w-2/3 animate-pulse rounded bg-neutral-200" />
+                <div className="h-3 w-full animate-pulse rounded bg-neutral-100" />
+                <div className="h-4 w-16 animate-pulse rounded bg-neutral-200" />
+              </div>
+              <div className="h-20 w-20 flex-none animate-pulse rounded-xl bg-neutral-200" />
+            </div>
+          ))}
+        </div>
+      </main>
+    );
 
   // ---- pedido enviado: timeline ----
   if (ped) {
@@ -696,7 +742,7 @@ export default function CardapioPublicoPage() {
           abertaAgora={menu.abertaAgora}
           bairros={bairros}
           cart={cart}
-          upsell={upsell}
+          upsell={upsellFinal}
           isServico={isServico}
           isIndustria={isIndustria}
           total={total}
