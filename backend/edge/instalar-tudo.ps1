@@ -72,6 +72,24 @@ if ($embutido.pg) {
   }
 }
 
+# ---- 0.2) Pre-check de credenciais (self-service): valida o login/senha do C&O na
+# NUVEM antes de instalar qualquer coisa. Falha rapido e claro se estiver errado,
+# em vez de so descobrir la no fim (depois de Postgres, banco, migrations...).
+if ($Email -and $Senha) {
+  Diga "Conferindo o login do C&O na nuvem..."
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+  $code = $null
+  try {
+    $body = @{ email = $Email; senha = $Senha } | ConvertTo-Json -Compress
+    $null = Invoke-RestMethod -Method Post -Uri ("{0}/auth/login" -f $CloudApi.TrimEnd('/')) -ContentType "application/json" -Body $body -TimeoutSec 20
+    Diga "Login conferido - seguindo com a instalacao."
+  } catch {
+    try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+    if ($code -eq 401) { throw "E-mail ou senha invalidos. Confira os dados do C&O e rode o instalador de novo." }
+    throw "Nao consegui validar o login na nuvem (a loja tem internet?). Detalhe: $($_.Exception.Message)"
+  }
+}
+
 # ---- 0.5) Dependencias ANTES do Postgres (o passo do banco usa o modulo 'pg') ----
 # O pacote ja vem com node_modules embutido (instalacao offline). So baixa se, por
 # algum motivo, as dependencias nao vieram junto.
