@@ -1,0 +1,118 @@
+// Construtor de comandos ESC/POS para impressoras termicas (cozinha/cupom).
+// Converte o TEXTO do job (renderTicket/renderViaCliente do backend) em bytes
+// ESC/POS, interpretando as convencoes que o backend ja emite:
+//   '*** ... ***'      -> titulo (centralizado, negrito, fonte dupla)
+//   '>>> SENHA n <<<'  -> destaque (centralizado, fonte dupla)
+//   '  ** OBS: ...'    -> observacao (negrito)
+//   '  >> ...' / '   ' -> complemento/indentado (mantem recuo)
+//   '----'             -> separador
+// Acentos sao transliterados para ASCII: evita lixo por divergencia de codepage
+// entre impressoras (robustez > acento; os tickets ja sao majoritariamente ASCII).
+
+const ESC = 0x1b;
+const GS = 0x1d;
+
+// ---- primitivos ESC/POS ----
+const init = () => [ESC, 0x40]; // ESC @  (reset)
+const boldOn = () => [ESC, 0x45, 1]; // ESC E 1
+const boldOff = () => [ESC, 0x45, 0]; // ESC E 0
+const align = (n) => [ESC, 0x61, n]; // 0=esq 1=centro 2=dir
+const sizeNormal = () => [GS, 0x21, 0x00]; // GS ! 0
+const sizeDouble = () => [GS, 0x21, 0x11]; // GS ! (dupla largura+altura)
+const feed = (n) => [ESC, 0x64, n]; // ESC d n  (avanca n linhas)
+const beep = (n = 2, t = 3) => [ESC, 0x42, n, t]; // ESC B n t  (bipe)
+// Corte parcial com avanco (compat. Epson/genericas): GS V 66 n
+const cut = () => [GS, 0x56, 66, 0x00];
+
+// Remove acentos/diacriticos -> ASCII. Mantem legivel em qualquer codepage.
+function ascii(s) {
+  return String(s == null ? '' : s)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '') // remove diacriticos
+    .replace(/[^\x20-\x7e]/g, ''); // descarta o que nao for ASCII imprimivel
+}
+
+const colsDe = (largura) => (Number(largura) === 58 ? 32 : 48);
+
+// Quebra a linha em varias respeitando a largura e preservando o recuo.
+function wrap(texto, cols) {
+  const t = texto.replace(/\s+$/,'');
+  if (t.length <= cols) return [t];
+  const recuo = (t.match(/^\s*/) || [''])[0];
+  const palavras = t.trim().split(/\s+/);
+  const linhas = [];
+  let atual = recuo;
+  for (const p of palavras) {
+    const cand = atual.trim() ? `${atual} ${p}` : `${recuo}${p}`;
+    if (cand.length > cols && atual.trim()) {
+      linhas.push(atual);
+      atual = `${recuo}${p}`;
+    } else {
+      atual = cand;
+    }
+  }
+  if (atual.trim()) linhas.push(atual);
+  return linhas.length ? linhas : [''];
+}
+
+// Classifica a linha do ticket e devolve o estilo a aplicar.
+function estilo(linhaBruta) {
+  const l = linhaBruta.trim();
+  if (/^\*{2,}.*\*{2,}$/.test(l) || /^\*{3}/.test(l))
+    return { align: 1, bold: true, size: 'double' };
+  if (/^>>>.*<<<$/.test(l) || /^>>> SENHA/i.test(l))
+    return { align: 1, bold: true, size: 'double' };
+  if (/^\*\*\s*OBS|OBS:/i.test(l) || /^\*\*/.test(l))
+    return { align: 0, bold: true, size: 'normal' };
+  return { align: 0, bold: false, size: 'normal' };
+}
+
+// Monta o Buffer ESC/POS completo de um ticket a partir do texto do job.
+export function renderEscpos(conteudo, largura = 80) {
+  const cols = colsDe(largura);
+  const out = [];
+  const push = (arr) => out.push(...arr);
+  const texto = (s) => push([...Buffer.from(ascii(s), 'ascii')]);
+
+  push(init());
+  const linhas = String(conteudo ?? '').split(/\r?\n/);
+  for (const linha of linhas) {
+    const st = estilo(linha);
+    push(align(st.align));
+    push(st.size === 'double' ? sizeDouble() : sizeNormal());
+    if (st.bold) push(boldOn());
+    for (const parte of wrap(linha, st.size === 'double' ? Math.floor(cols / 2) : cols)) {
+      texto(parte);
+      push([0x0a]); // LF
+    }
+    if (st.bold) push(boldOff());
+  }
+  // rodape: reseta estilo, avanca, bipa e corta
+  push(sizeNormal());
+  push(boldOff());
+  push(align(0));
+  push(feed(3));
+  push(beep(2, 3));
+  push(cut());
+  return Buffer.from(out);
+}
+
+// Pagina de teste (botao "imprimir teste" do painel).
+export function paginaTeste(nomeImpressora, largura = 80) {
+  const linha = '-'.repeat(colsDe(largura));
+  const txt = [
+    '*** TESTE REGEM ***',
+    linha,
+    `Impressora: ${nomeImpressora || '-'}`,
+    `Largura: ${largura}mm`,
+    `Data: ${new Date().toLocaleString('pt-BR')}`,
+    linha,
+    'Acentuacao: cafe, acai, pao',
+    '1x X-Salada',
+    '  >> sem cebola',
+    '  ** OBS: ponto da carne',
+    linha,
+    'Se leu isto, a impressora esta OK.',
+  ].join('\n');
+  return renderEscpos(txt, largura);
+}

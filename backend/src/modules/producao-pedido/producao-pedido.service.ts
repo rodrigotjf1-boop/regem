@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   equipamento,
@@ -138,16 +138,58 @@ export class ProducaoPedidoService {
     // Regra: 1 pedido de produção por venda (senha ÚNICA) — todos os itens de
     // produção num único card de KDS, sem quebrar por setor. As impressoras
     // configuradas continuam recebendo suas vias de produção.
-    const impressoras = new Map<string, ItemProducao[]>();
+    // Impressoras de PRODUÇÃO ativas da unidade — para roteamento por
+    // `setores_atendidos` (upgrade) e para a impressora PADRÃO (fallback). NÃO
+    // remove o roteamento por produto/setor (`resolverDestinos`), só o complementa.
+    const printers: any[] = await tx
+      .select({
+        id: equipamento.id,
+        setoresAtendidos: equipamento.setoresAtendidos,
+        padrao: equipamento.padrao,
+      })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, ctx.tenantId),
+          eq(equipamento.tipo, 'impressora'),
+          eq(equipamento.ativo, true),
+          or(isNull(equipamento.papel), eq(equipamento.papel, 'producao')),
+          ctx.unidadeId ? eq(equipamento.unidadeId, ctx.unidadeId) : sql`true`,
+        ),
+      );
+    const padraoId: string | null = printers.find((p) => p.padrao)?.id ?? null;
+
+    const impressoras = new Map<string, Set<ItemProducao>>();
+    const addImp = (eqId: string, it: ItemProducao) => {
+      const s = impressoras.get(eqId) ?? new Set<ItemProducao>();
+      s.add(it);
+      impressoras.set(eqId, s);
+    };
     for (const it of daProducao) {
+      let roteado = false;
+      // (a) destinos explícitos do produto/setor → equipamento (como já existia)
       const destinos = await this.resolverDestinos(tx, ctx.tenantId, it.produto);
       for (const d of destinos) {
         if (d.tipo === 'impressora' && d.equipamentoId) {
-          const arr = impressoras.get(d.equipamentoId) ?? [];
-          arr.push(it);
-          impressoras.set(d.equipamentoId, arr);
+          addImp(d.equipamentoId, it);
+          roteado = true;
         }
       }
+      // (b) impressoras que atendem o setor do produto (setores_atendidos)
+      const setor = it.produto?.setorProducaoId;
+      if (setor) {
+        for (const pr of printers) {
+          const sa = Array.isArray(pr.setoresAtendidos) ? pr.setoresAtendidos : [];
+          if (sa.includes(setor)) {
+            addImp(pr.id, it);
+            roteado = true;
+          }
+        }
+      }
+      // (c) fallback: item SEM setor e sem impressora → impressora PADRÃO da
+      // unidade. Item com setor que só vai pra KDS continua sem imprimir (não
+      // forçamos na padrão para não gerar via indevida).
+      if (!roteado && !setor && padraoId) addImp(padraoId, it);
     }
 
     const numero = await this.proximoNumero(tx, ctx.tenantId, ctx.unidadeId);
@@ -193,7 +235,7 @@ export class ProducaoPedidoService {
         equipamentoId,
         pedidoId: ped.id,
         via: 'producao',
-        conteudo: this.renderTicket(ctx, its, numero),
+        conteudo: this.renderTicket(ctx, Array.from(its), numero),
       });
     }
     return [
@@ -300,6 +342,8 @@ export class ProducaoPedidoService {
         criadoEm: impressaoJob.criadoEm,
         host: equipamento.host,
         porta: equipamento.porta,
+        largura: equipamento.largura,
+        vias: equipamento.vias,
         impressora: equipamento.nome,
       })
       .from(impressaoJob)
@@ -336,6 +380,65 @@ export class ProducaoPedidoService {
         and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
       );
     return { ok: true };
+  }
+
+  // Fila recente para o painel (status + impressora). Gestor logado.
+  async filaRecente(tenantId: string, limite = 40) {
+    return this.db
+      .select({
+        id: impressaoJob.id,
+        via: impressaoJob.via,
+        status: impressaoJob.status,
+        tentativas: impressaoJob.tentativas,
+        erro: impressaoJob.erro,
+        criadoEm: impressaoJob.criadoEm,
+        impressoEm: impressaoJob.impressoEm,
+        impressora: equipamento.nome,
+      })
+      .from(impressaoJob)
+      .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
+      .where(eq(impressaoJob.tenantId, tenantId))
+      .orderBy(desc(impressaoJob.criadoEm))
+      .limit(limite);
+  }
+
+  // Enfileira uma página de teste para a impressora (botão do painel). O worker
+  // do edge converte o texto em ESC/POS e imprime — valida IP/porta/papel na hora.
+  async enfileirarTeste(tenantId: string, equipamentoId: string) {
+    const [imp] = await this.db
+      .select()
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.id, equipamentoId),
+          eq(equipamento.tipo, 'impressora'),
+        ),
+      );
+    if (!imp) throw new NotFoundException('Impressora não encontrada');
+    const linha = '-'.repeat(Number(imp.largura) === 58 ? 32 : 48);
+    const conteudo = [
+      '*** TESTE REGEM ***',
+      linha,
+      `Impressora: ${imp.nome}`,
+      `IP: ${imp.host ?? '(sem IP)'}:${imp.porta ?? 9100}`,
+      `Largura: ${imp.largura ?? 80}mm`,
+      new Date().toLocaleString('pt-BR'),
+      linha,
+      'Se leu isto, a impressora esta OK.',
+    ].join('\n');
+    const [job] = await this.db
+      .insert(impressaoJob)
+      .values({
+        tenantId,
+        unidadeId: imp.unidadeId ?? null,
+        equipamentoId,
+        pedidoId: null,
+        via: 'teste',
+        conteudo,
+      })
+      .returning();
+    return { ok: true, jobId: job.id };
   }
 
   // Reenfileira um job com erro (gestor).

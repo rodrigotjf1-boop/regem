@@ -51,6 +51,9 @@ Svc "RegemEdgeApi" "$Raiz\dist\main.js" $Raiz
 # Daemon de sync (nuvem <-> local).
 Svc "RegemEdgeSync" "$Raiz\edge\sync-daemon.mjs" $Raiz
 
+# Worker de impressao termica (fila local -> impressoras ESC/POS na LAN).
+Svc "RegemEdgeImpressao" "$Raiz\edge\impressao-daemon.mjs" $Raiz
+
 # App (Next standalone) servido por HTTPS via edge-web.mjs. PORT = HTTPS publico;
 # WEB_INNER_PORT = HTTP interno do Next (so localhost). Ambos precisam vir da env
 # do servico (o edge-web nao sobrescreve envs ja definidas).
@@ -66,6 +69,7 @@ try {
 
 & $Nssm start RegemEdgeApi
 & $Nssm start RegemEdgeSync
+& $Nssm start RegemEdgeImpressao
 & $Nssm start RegemEdgeWeb
 
 # Auto-update (Fase E-D): tarefa agendada que roda o atualizar.ps1 todo dia de
@@ -85,5 +89,5 @@ try {
   }
 } catch { Write-Warning "Não consegui criar o agendamento de auto-update: $_" }
 
-Write-Host "`nPronto. Serviços RegemEdgeApi + RegemEdgeSync + RegemEdgeWeb ativos e no boot."
+Write-Host "`nPronto. Serviços RegemEdgeApi + RegemEdgeSync + RegemEdgeImpressao + RegemEdgeWeb ativos e no boot."
 Write-Host "App:  https://localhost:$PortaWeb    API: https://localhost:$PortaApi/api/v1/ping"

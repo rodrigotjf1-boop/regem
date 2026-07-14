@@ -44,6 +44,22 @@ export class ImpressaoController {
     return this.service.marcarErro(ctx.tenantId, id, dto?.erro);
   }
 
+  // Fila recente para o painel (status + impressora). Gestor logado.
+  @Get('fila')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  fila(@CurrentUser() user: AuthUser) {
+    return this.service.filaRecente(user.tenantId);
+  }
+
+  // Página de teste para uma impressora (gestor logado).
+  @Post('impressoras/:id/teste')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  teste(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.enfileirarTeste(user.tenantId, id);
+  }
+
   // Reimprimir (gestor logado) — reenfileira um job com erro.
   @Post(':id/reimprimir')
   @UseGuards(JwtAuthGuard, RolesGuard)

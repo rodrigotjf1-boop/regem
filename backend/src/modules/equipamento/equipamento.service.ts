@@ -40,6 +40,12 @@ export class EquipamentoService {
         setorId: dto.setorId,
         host: dto.host,
         porta: dto.porta,
+        largura: dto.tipo === 'impressora' ? dto.largura ?? 80 : undefined,
+        setoresAtendidos:
+          dto.tipo === 'impressora' && Array.isArray(dto.setoresAtendidos)
+            ? dto.setoresAtendidos
+            : undefined,
+        padrao: dto.tipo === 'impressora' ? !!dto.padrao : undefined,
       })
       .returning();
     await this.auditoria.registrar({
@@ -142,6 +148,8 @@ export class EquipamentoService {
       host: r.host,
       porta: r.porta,
       setorId: r.setorId,
+      largura: r.largura,
+      setoresAtendidos: r.setoresAtendidos ?? [],
       vias: r.vias,
       padrao: r.padrao,
       ativo: r.ativo,
@@ -168,6 +176,9 @@ export class EquipamentoService {
       setorId: dto.setorId || null,
       host: dto.host?.trim() || null,
       porta: dto.porta != null ? Number(dto.porta) || null : null,
+      largura: Number(dto.largura) === 58 ? 58 : 80,
+      setoresAtendidos: Array.isArray(dto.setoresAtendidos) ? dto.setoresAtendidos : [],
+      padrao: !!dto.padrao,
       vias: Math.max(1, Number(dto.vias) || 1),
       ativo: dto.ativo != null ? !!dto.ativo : true,
     };
