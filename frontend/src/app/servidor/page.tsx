@@ -80,10 +80,12 @@ export default function ServidorPage() {
           <ul className="mt-3 flex flex-col gap-2 text-sm text-muted-foreground">
             <li className="flex gap-2"><span className="text-ok">✓</span> Um PC com <strong>Windows</strong> na loja (fica ligado no horário de funcionamento).</li>
             <li className="flex gap-2"><span className="text-ok">✓</span> Na <strong>mesma rede</strong> (WiFi ou cabo) dos aparelhos.</li>
-            <li className="flex gap-2"><span className="text-ok">✓</span> Cerca de <strong>2 GB livres</strong> + internet na 1ª instalação.</li>
+            <li className="flex gap-2"><span className="text-ok">✓</span> Cerca de <strong>2 GB livres</strong>.</li>
+            <li className="flex gap-2"><span className="text-ok">✓</span> <strong>Internet só na instalação</strong> (para baixar e ativar). Depois, o servidor funciona <strong>sem internet</strong>.</li>
           </ul>
           <p className="mt-4 text-xs text-muted-foreground">
-            A instalação leva alguns minutos e é automática — você só entra com a conta.
+            A instalação leva alguns minutos e é automática — você só entra com a conta. Depois de pronta,
+            a loja opera offline e sincroniza com a nuvem quando reconecta.
           </p>
         </Card>
       </div>
