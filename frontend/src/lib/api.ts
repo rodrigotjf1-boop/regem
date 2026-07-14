@@ -375,6 +375,7 @@ export const api = {
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
   bairrosDelivery: () => req('/delivery/bairros'),
+  deliveryMapaCalor: (dias: number) => req(`/delivery/mapa-calor?dias=${dias}`),
   atendimentos: () => req('/atendimento'),
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),

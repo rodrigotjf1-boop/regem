@@ -5,6 +5,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -99,6 +100,15 @@ export class DeliveryController {
   @UseGuards(JwtAuthGuard)
   bairros(@CurrentUser() user: AuthUser) {
     return this.service.listarBairros(user.tenantId);
+  }
+
+  // Mapa de calor de entregas por bairro (gestão) — só presidente/gerente.
+  // RBAC no servidor: supervisão/execução não recebem o payload.
+  @Get('mapa-calor')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  mapaCalor(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
+    return this.service.mapaCalorBairros(user.tenantId, Number(dias) || 30);
   }
 
   // Integrações (credenciais) — secrets nunca voltam no GET.
