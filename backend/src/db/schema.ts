@@ -1631,7 +1631,8 @@ export const clienteOtp = pgTable('cliente_otp', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   telefone: text('telefone').notNull(),
-  codigo: text('codigo').notNull(),
+  codigo: text('codigo'), // legado (nullable) — não gravamos mais o texto puro
+  codigoHash: text('codigo_hash'), // SHA-256 do código (o que confere no confirmar)
   expiraEm: timestamp('expira_em', { withTimezone: true }).notNull(),
   tentativas: integer('tentativas').notNull().default(0),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
