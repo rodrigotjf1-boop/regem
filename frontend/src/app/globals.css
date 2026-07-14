@@ -186,3 +186,31 @@
     padding-right: env(safe-area-inset-right);
   }
 }
+
+/* ============================================================
+   Modo escuro do CARDÁPIO PÚBLICO (Etapa 5).
+   Escopado por `.tema-escuro` (aplicado ao <body> só na rota /c/[token]).
+   Sobrepõe as classes claras usadas na página sem tocar no modo claro.
+   O âmbar (ação) vem de estilos inline (var accent), então continua visível.
+   ============================================================ */
+.tema-escuro {
+  color-scheme: dark;
+  background-color: #0f1115;
+}
+.tema-escuro .bg-neutral-50 { background-color: #0f1115; }
+.tema-escuro .bg-white { background-color: #1a1d23; }
+.tema-escuro .bg-neutral-100 { background-color: #23272f; }
+.tema-escuro .bg-neutral-200 { background-color: #2a2f38; }
+.tema-escuro .text-neutral-900 { color: #f2f4f7; }
+.tema-escuro .text-neutral-800 { color: #e9ecf1; }
+.tema-escuro .text-neutral-700 { color: #dde1e8; }
+.tema-escuro .text-neutral-600 { color: #cbd0d8; }
+.tema-escuro .text-neutral-500 { color: #9aa1ac; }
+.tema-escuro .text-neutral-400 { color: #6b7280; }
+.tema-escuro .border-neutral-100 { border-color: #23272f; }
+.tema-escuro .border-neutral-200 { border-color: #2b303a; }
+.tema-escuro .border-neutral-300 { border-color: #363c47; }
+/* inputs/selects nativos legíveis no escuro */
+.tema-escuro input,
+.tema-escuro select,
+.tema-escuro textarea { color: #f2f4f7; }
