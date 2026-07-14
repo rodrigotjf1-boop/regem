@@ -37,7 +37,11 @@ $base = Split-Path $root -Parent          # C:\regem-edge
 Set-Location $root                        # cwd = raiz do backend (resolve node_modules + caminhos relativos)
 $logDir = Join-Path $root "logs"; New-Item -ItemType Directory -Force $logDir | Out-Null
 $log = Join-Path $logDir ("instalar-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
-function Diga($m) { $l = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m; Write-Host $l; Add-Content $log $l }
+# Grava TODA a saida (inclusive erros de npm/node/initdb/postgres) no log — o
+# arquivo fica em logs\instalar-*.log para enviar ao suporte quando algo falhar.
+Start-Transcript -Path $log -Force -ErrorAction SilentlyContinue | Out-Null
+trap { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null }
+function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 function Rand($n) { -join ((48..57) + (65..90) + (97..122) | Get-Random -Count $n | ForEach-Object { [char]$_ }) }
 
 Diga "=== Regem Edge - instalacao automatica ==="
@@ -51,6 +55,21 @@ if ($embutido.node) { $env:Path = $nodeDir + ';' + $env:Path; Diga 'Node: embuti
 if ($embutido.pg)   { $env:Path = (Join-Path $pgDir 'bin') + ';' + $env:Path; Diga 'Postgres: embutido' } else { Diga 'Postgres: do sistema' }
 if (-not $embutido.nssm) { $nssm = "nssm" }  # do PATH
 $node = "node"
+
+# ---- 0.1) Pre-flight: checa o ambiente e para cedo com mensagem clara ----
+Diga "Verificando o ambiente..."
+try { $null = Invoke-WebRequest -Uri "https://registry.npmjs.org/-/ping" -TimeoutSec 8 -UseBasicParsing }
+catch { Diga "AVISO: internet nao respondeu (registry npm) - o npm ci pode falhar." }
+& $node --version | Out-Null
+if ($LASTEXITCODE -ne 0) {
+  throw "O Node nao executou. Instale o Microsoft Visual C++ Redistributable x64 (https://aka.ms/vs/17/release/vc_redist.x64.exe) e rode de novo."
+}
+if ($embutido.pg) {
+  & (Join-Path $pgDir "bin\postgres.exe") --version | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "O Postgres embutido nao executou - falta runtime do Windows. Instale o Microsoft Visual C++ Redistributable x64 (https://aka.ms/vs/17/release/vc_redist.x64.exe) e rode o instalador de novo."
+  }
+}
 
 # ---- 0.5) Dependencias ANTES do Postgres (o passo do banco usa o modulo 'pg') ----
 Diga "Instalando dependencias (npm ci)..."
@@ -179,3 +198,4 @@ Diga "==================== CONCLUIDO ===================="
 Diga "Servidor local: https://${ip}:$Porta  (ou https://regem.local:$Porta)"
 Diga "Nos aparelhos clientes (KDS/PDV/Ponto): confie o arquivo $ca e aponte o navegador para o endereco acima."
 Diga "Log completo: $log"
+Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
