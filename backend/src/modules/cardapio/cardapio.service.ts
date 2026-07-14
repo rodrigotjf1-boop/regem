@@ -100,6 +100,7 @@ export class CardapioService {
       ativo: dto.ativo != null ? !!dto.ativo : row?.ativo ?? false,
       modo: dto.modo ?? row?.modo ?? 'mesa',
       nomePublico: dto.nomePublico ?? row?.nomePublico ?? null,
+      tema: dto.tema ?? row?.tema ?? 'claro',
       ramo: dto.ramo ?? row?.ramo ?? 'food',
       logoEmoji: dto.logoEmoji ?? row?.logoEmoji ?? null,
       subtitulo: dto.subtitulo ?? row?.subtitulo ?? null,
@@ -608,6 +609,7 @@ export class CardapioService {
       loja: {
         nome: cfg.nomePublico ?? 'Cardápio',
         ramo: cfg.ramo,
+        tema: cfg.tema ?? 'claro',
         logoEmoji: cfg.logoEmoji,
         subtitulo: cfg.subtitulo,
         aberto: cfg.aberto,

@@ -1766,6 +1766,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   ativo: boolean('ativo').notNull().default(false),
   modo: text('modo').notNull().default('mesa'), // mesa | retirada | totem
   nomePublico: text('nome_publico'),
+  tema: text('tema').notNull().default('claro'), // claro | escuro | auto (Etapa 5)
   // Loja / tema (Fase L2)
   ramo: text('ramo').notNull().default('food'), // food|varejo|industria|servicos
   logoEmoji: text('logo_emoji'),
