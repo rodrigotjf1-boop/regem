@@ -8,6 +8,7 @@ import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
+import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import {
   cardapioConfig,
   produto,
@@ -997,7 +998,7 @@ export class CardapioService {
 
     // Modo RETIRADA/TOTEM: pedido externo com preço/rótulos calculados no servidor.
     const itensOut: any[] = [];
-    let total = 0;
+    let totalCent = 0; // subtotal dos itens em centavos (exato, sem drift)
     for (const it of dto.itens) {
       const p = porId.get(it.produtoId)!;
       let base = p.precoPromocional != null ? Number(p.precoPromocional) : Number(p.precoVenda);
@@ -1015,7 +1016,7 @@ export class CardapioService {
       const { precoDelta, labels } = await this.resolverOpcoes(cfg.tenantId, it.complementos ?? []);
       const qtd = Number(it.quantidade) || 1;
       const preco = base + precoDelta;
-      total += preco * qtd;
+      totalCent += paraCentavos(preco) * qtd;
       itensOut.push({
         produtoId: it.produtoId,
         variacaoId: it.variacaoId,
@@ -1025,6 +1026,8 @@ export class CardapioService {
         observacao: it.observacao,
       });
     }
+    // Subtotal em reais (fronteira) — usado nos serviços de cupom/prêmio/cashback.
+    const total = paraReais(totalCent);
     // Checkout: tipo, frete (bairro), cupom, pagamento.
     const tipo = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
     let taxa = 0;
@@ -1073,25 +1076,31 @@ export class CardapioService {
     const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
       telefone: dto.telefone,
     });
-    let desconto = cup.valido ? cup.desconto : 0;
+    // Descontos acumulados em CENTAVOS (cupom + prêmio + cashback) — sem drift.
+    let descontoCent = cup.valido ? paraCentavos(cup.desconto) : 0;
     if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
     // Prêmio de fidelidade resgatado: abate automático no pedido.
     const premio = cfg.fidelidadeAtiva
       ? await this.fidelidade.avaliarPremio(cfg.tenantId, dto.resgateId, dto.telefone ?? '', itensOut, total)
       : { desconto: 0 };
-    desconto = Number((desconto + (premio.desconto || 0)).toFixed(2));
+    descontoCent = somarCentavos(descontoCent, paraCentavos(premio.desconto || 0));
     // Cashback: aplica saldo (valor) + vales (produto) sobre o que restou.
     // O cliente pode optar por NÃO usar o saldo (usarCashback=false).
     const cb =
       dto.usarCashback === false
         ? { saldoUsado: 0, vales: [] as any[], desconto: 0 }
-        : await this.cashback.avaliarDescontos(cfg.tenantId, dto.telefone ?? '', Math.max(0, total - desconto));
-    desconto = Number((desconto + (cb.desconto || 0)).toFixed(2));
+        : await this.cashback.avaliarDescontos(
+            cfg.tenantId,
+            dto.telefone ?? '',
+            Math.max(0, paraReais(somarCentavos(totalCent, -descontoCent))),
+          );
+    descontoCent = somarCentavos(descontoCent, paraCentavos(cb.desconto || 0));
+    const desconto = paraReais(descontoCent); // reais na fronteira (gravação/resposta)
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
     const online = !orcamento && (forma === 'pix' || forma === 'cartao');
-    const grande = Math.max(0, total - desconto + taxa);
+    const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 
     // Senha PRÓPRIA do cardápio (contador sequencial por tenant do canal).
     const cnt: any = await this.db.execute(

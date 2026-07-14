@@ -18,6 +18,7 @@ import {
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { proximaData } from '../../common/regras-negocio';
+import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
 
@@ -615,10 +616,14 @@ export class FinanceiroService {
       from lancamento_caixa
       where sessao_id=${s.id} and (forma='dinheiro' or forma is null)
     `);
-    const mov = Number((r.rows ?? r)[0].mov);
-    const esperado = Number(s.valorAbertura) + mov;
-    const informado = Number(dto.valorInformado);
-    const diferenca = Number((informado - esperado).toFixed(2));
+    // Tudo em centavos (exato) — converte para reais só na resposta/gravação.
+    const movCent = paraCentavos(Number((r.rows ?? r)[0].mov));
+    const esperadoCent = somarCentavos(paraCentavos(s.valorAbertura), movCent);
+    const informadoCent = paraCentavos(dto.valorInformado);
+    const diferencaCent = somarCentavos(informadoCent, -esperadoCent);
+    const esperado = paraReais(esperadoCent);
+    const informado = paraReais(informadoCent);
+    const diferenca = paraReais(diferencaCent);
 
     // Resumo por forma de pagamento (vendas registradas na sessão) — útil sem TEF.
     const rf: any = await this.db.execute(sql`
@@ -631,7 +636,7 @@ export class FinanceiroService {
     `);
     const porForma = (rf.rows ?? rf).map((x: any) => ({
       forma: x.forma,
-      total: Number(Number(x.total).toFixed(2)),
+      total: paraReais(paraCentavos(x.total)),
     }));
     const [row] = await this.db
       .update(caixaSessao)
