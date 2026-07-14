@@ -243,16 +243,58 @@ async function ciclo() {
     console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
   }
   await licenca();
-  // update-check é barato mas não precisa a cada 30s: no máximo 1x/hora.
-  const agora = Date.now();
-  if (agora - ultimoUpdateCheck > 3600000) {
-    ultimoUpdateCheck = agora;
-    await updateCheck();
-  }
+  // Verificação de update SÓ nas janelas de abertura da loja (não aplica — só
+  // notifica; o gestor instala pelo botão do app).
+  await updateCheckSeJanela();
   await heartbeat(p, u, erro);
 }
 
-let ultimoUpdateCheck = 0;
+// Hora/dia locais no fuso do Brasil (as janelas seguem o relógio da loja).
+function spParts() {
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+  return {
+    data: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+    dia: d.getDay(), // 0=domingo..6=sábado (igual ao cadastro de horários)
+    minutos: d.getHours() * 60 + d.getMinutes(),
+  };
+}
+
+// Minutos desde a meia-noite da ABERTURA de hoje (cardapio_config.horarios).
+// Sem horário cadastrado para o dia → padrão 04:00 (240).
+async function aberturaHojeMin(diaSemana) {
+  try {
+    const r = await pool.query('select horarios from cardapio_config limit 1');
+    const arr = Array.isArray(r.rows[0]?.horarios) ? r.rows[0].horarios : [];
+    const h = arr.find((x) => Number(x.dia) === diaSemana && x.ativo && x.abre);
+    if (h && /^\d{1,2}:\d{2}$/.test(h.abre)) {
+      const [hh, mm] = h.abre.split(':').map(Number);
+      return hh * 60 + mm;
+    }
+  } catch {
+    /* sem tabela/linha → cai no padrão */
+  }
+  return 240; // 04:00
+}
+
+// Verifica no máx. 2x/dia: uma nos 10 primeiros minutos após abrir e outra ~30min
+// depois. Marca a janela já verificada no dia (sync_state) para não repetir.
+async function updateCheckSeJanela() {
+  try {
+    const { data, dia, minutos } = spParts();
+    const ab = await aberturaHojeMin(dia);
+    const naJanelaA = minutos >= ab && minutos <= ab + 10;
+    const naJanelaB = minutos >= ab + 29 && minutos <= ab + 31;
+    if (naJanelaA && (await getState('upd_janela_a', '')) !== data) {
+      await setState('upd_janela_a', data);
+      await updateCheck();
+    } else if (naJanelaB && (await getState('upd_janela_b', '')) !== data) {
+      await setState('upd_janela_b', data);
+      await updateCheck();
+    }
+  } catch (e) {
+    console.warn(`  updateCheckSeJanela: ${e.message}`);
+  }
+}
 
 console.log(`Daemon de sync — edge=${EDGE_DB.replace(/:[^:@/]*@/, ':****@')} cloud=${CLOUD} intervalo=${INTERVAL}ms`);
 await ensureState();
