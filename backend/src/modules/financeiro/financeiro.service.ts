@@ -15,6 +15,9 @@ import {
   colaborador,
   formaPagamento,
   entitlement,
+  unidade,
+  ocorrencia,
+  tipoOcorrencia,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { proximaData } from '../../common/regras-negocio';
@@ -597,12 +600,20 @@ export class FinanceiroService {
     }
   }
 
-  // Fechamento CEGO: recebe a contagem; calcula o esperado (só dinheiro) e a diferença.
+  // Fechamento CEGO por forma: recebe o CONTADO por forma (o operador não vê o
+  // esperado); calcula esperado e diferença por forma (dinheiro inclui a abertura
+  // e sangrias/suprimentos) e devolve o comparativo. Diferença acima do limite da
+  // unidade gera ocorrência automática + auditoria.
   async fecharSessao(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
-    dto: { valorInformado: number; obs?: string; origem?: string },
+    dto: {
+      valorInformado?: number; // legado (dinheiro) — compat
+      valoresInformados?: Record<string, number>; // contado por forma
+      obs?: string;
+      origem?: string;
+    },
   ) {
     const s = await this.sessaoAberta(
       tenantId,
@@ -610,47 +621,67 @@ export class FinanceiroService {
     );
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
-    // Esperado em gaveta = abertura + entradas − saídas (apenas dinheiro) da sessão.
-    const r: any = await this.db.execute(sql`
-      select coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
-      from lancamento_caixa
-      where sessao_id=${s.id} and (forma='dinheiro' or forma is null)
-    `);
-    // Tudo em centavos (exato) — converte para reais só na resposta/gravação.
-    const movCent = paraCentavos(Number((r.rows ?? r)[0].mov));
-    const esperadoCent = somarCentavos(paraCentavos(s.valorAbertura), movCent);
-    const informadoCent = paraCentavos(dto.valorInformado);
-    const diferencaCent = somarCentavos(informadoCent, -esperadoCent);
-    const esperado = paraReais(esperadoCent);
-    const informado = paraReais(informadoCent);
-    const diferenca = paraReais(diferencaCent);
 
-    // Resumo por forma de pagamento (vendas registradas na sessão) — útil sem TEF.
+    // Esperado por forma = movimentos (entrada − saída) da sessão agrupados por
+    // forma; sangrias/suprimentos já são lançamentos, então entram naturalmente.
+    // A abertura conta como dinheiro (gaveta).
     const rf: any = await this.db.execute(sql`
       select coalesce(forma,'dinheiro') as forma,
-             coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as total
-      from lancamento_caixa
-      where sessao_id=${s.id} and categoria='venda'
-      group by coalesce(forma,'dinheiro')
-      order by 1
-    `);
-    const porForma = (rf.rows ?? rf).map((x: any) => ({
-      forma: x.forma,
-      total: paraReais(paraCentavos(x.total)),
-    }));
+             coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
+      from lancamento_caixa where sessao_id=${s.id}
+      group by coalesce(forma,'dinheiro')`);
+    const espCent: Record<string, number> = {};
+    for (const x of rf.rows ?? rf) espCent[x.forma] = paraCentavos(x.mov);
+    espCent['dinheiro'] = somarCentavos(espCent['dinheiro'] ?? 0, paraCentavos(s.valorAbertura));
+
+    // Contado por forma (compat: só valorInformado = dinheiro).
+    const informados: Record<string, number> =
+      dto.valoresInformados ??
+      (dto.valorInformado != null ? { dinheiro: dto.valorInformado } : {});
+
+    const formas = Array.from(new Set([...Object.keys(espCent), ...Object.keys(informados)])).sort();
+    const esperadoPorForma: Record<string, number> = {};
+    const informadoPorForma: Record<string, number> = {};
+    const diferencaPorForma: Record<string, number> = {};
+    let totEspCent = 0;
+    let totInfCent = 0;
+    let excedeu = false;
+    const limiteCent = await this.limiteDiferenca(tenantId, s.unidadeId);
+    for (const f of formas) {
+      const e = espCent[f] ?? 0;
+      const i = paraCentavos(informados[f] ?? 0);
+      esperadoPorForma[f] = paraReais(e);
+      informadoPorForma[f] = paraReais(i);
+      const d = somarCentavos(i, -e);
+      diferencaPorForma[f] = paraReais(d);
+      totEspCent += e;
+      totInfCent += i;
+      if (Math.abs(d) > limiteCent) excedeu = true;
+    }
+    const esperado = paraReais(totEspCent);
+    const informado = paraReais(totInfCent);
+    const diferencaCent = somarCentavos(totInfCent, -totEspCent);
+    const diferenca = paraReais(diferencaCent);
+    if (Math.abs(diferencaCent) > limiteCent) excedeu = true;
+
     const [row] = await this.db
       .update(caixaSessao)
       .set({
         status: 'fechada',
-        valorInformado: String(informado),
-        valorEsperado: String(esperado.toFixed(2)),
-        diferenca: String(diferenca),
+        // Colunas legadas guardam o DINHEIRO (gaveta); o detalhe fica nos jsonb.
+        valorInformado: String(informadoPorForma['dinheiro'] ?? informado),
+        valorEsperado: String(esperadoPorForma['dinheiro'] ?? esperado),
+        diferenca: String(diferencaPorForma['dinheiro'] ?? diferenca),
+        valoresInformados: informadoPorForma,
+        esperadoPorForma,
+        diferencaPorForma,
         fechadaEm: new Date(),
         fechadaPorId: atorId,
         obs: dto.obs,
       })
       .where(eq(caixaSessao.id, s.id))
       .returning();
+
     await this.auditoria.registrar({
       tenantId,
       atorId,
@@ -659,8 +690,102 @@ export class FinanceiroService {
       acao: 'fechou_caixa',
       entidadeTipo: 'caixa_sessao',
       entidadeId: s.id,
-      detalhe: { esperado, informado, diferenca, porForma },
+      detalhe: { esperado, informado, diferenca, esperadoPorForma, informadoPorForma, diferencaPorForma },
     });
-    return { esperado, informado, diferenca, porForma, sessao: row };
+
+    if (excedeu) {
+      // Ocorrência não bloqueia o fechamento (best-effort).
+      await this.gerarOcorrenciaDiferenca(tenantId, atorId, {
+        esperado, informado, diferenca, diferencaPorForma, limite: paraReais(limiteCent),
+      }).catch(() => undefined);
+    }
+
+    return {
+      esperado, informado, diferenca,
+      esperadoPorForma, informadoPorForma, diferencaPorForma,
+      formas, alertou: excedeu, limite: paraReais(limiteCent),
+      sessao: row,
+    };
+  }
+
+  // Limite de diferença (em centavos) da unidade; default R$ 5,00.
+  private async limiteDiferenca(tenantId: string, unidadeId: string | null) {
+    if (!unidadeId) return paraCentavos(5);
+    const [u] = await this.db
+      .select({ limite: unidade.limiteDiferencaCaixa })
+      .from(unidade)
+      .where(and(eq(unidade.id, unidadeId), eq(unidade.tenantId, tenantId)));
+    return paraCentavos(u?.limite ?? 5);
+  }
+
+  // Ocorrência automática para diferença de caixa acima do limite (get-or-create
+  // de um tipo de sistema "Diferença de caixa").
+  private async gerarOcorrenciaDiferenca(
+    tenantId: string,
+    atorId: string,
+    info: {
+      esperado: number;
+      informado: number;
+      diferenca: number;
+      diferencaPorForma: Record<string, number>;
+      limite: number;
+    },
+  ) {
+    let [tipo] = await this.db
+      .select()
+      .from(tipoOcorrencia)
+      .where(and(eq(tipoOcorrencia.tenantId, tenantId), eq(tipoOcorrencia.nome, 'Diferença de caixa')));
+    if (!tipo) {
+      [tipo] = await this.db
+        .insert(tipoOcorrencia)
+        .values({ tenantId, nome: 'Diferença de caixa', sinal: 'negativo' })
+        .returning();
+    }
+    const detalhe = Object.entries(info.diferencaPorForma)
+      .filter(([, v]) => Math.abs(Number(v)) > 0.001)
+      .map(([f, v]) => `${f}: ${Number(v) >= 0 ? '+' : ''}R$ ${Number(v).toFixed(2)}`)
+      .join(' · ');
+    await this.db.insert(ocorrencia).values({
+      tenantId,
+      colaboradorId: atorId,
+      tipoId: tipo.id,
+      autorId: atorId,
+      sinal: 'negativo',
+      gravidade: Math.abs(info.diferenca) > info.limite * 2 ? 'grave' : 'leve',
+      descricao:
+        `Diferença no fechamento de caixa: total R$ ${info.diferenca.toFixed(2)} ` +
+        `(esperado R$ ${info.esperado.toFixed(2)}, contado R$ ${info.informado.toFixed(2)}).` +
+        (detalhe ? ` ${detalhe}` : ''),
+      setorId: null,
+    });
+  }
+
+  // Relatório de fechamentos (gerente/presidente): sessões fechadas com operador e
+  // diferenças, mais recentes primeiro. Filtro opcional por período (fechadaEm).
+  async fechamentos(tenantId: string, inicio?: string, fim?: string) {
+    const cond = [eq(caixaSessao.tenantId, tenantId), eq(caixaSessao.status, 'fechada')];
+    if (inicio) cond.push(sql`${caixaSessao.fechadaEm} >= ${inicio}`);
+    if (fim) cond.push(sql`${caixaSessao.fechadaEm} <= ${fim + ' 23:59:59'}`);
+    return this.db
+      .select({
+        id: caixaSessao.id,
+        origem: caixaSessao.origem,
+        turnoNumero: caixaSessao.turnoNumero,
+        abertaEm: caixaSessao.abertaEm,
+        fechadaEm: caixaSessao.fechadaEm,
+        valorAbertura: caixaSessao.valorAbertura,
+        valorEsperado: caixaSessao.valorEsperado,
+        valorInformado: caixaSessao.valorInformado,
+        diferenca: caixaSessao.diferenca,
+        esperadoPorForma: caixaSessao.esperadoPorForma,
+        diferencaPorForma: caixaSessao.diferencaPorForma,
+        operador: colaborador.nome,
+        obs: caixaSessao.obs,
+      })
+      .from(caixaSessao)
+      .leftJoin(colaborador, eq(colaborador.id, caixaSessao.fechadaPorId))
+      .where(and(...cond))
+      .orderBy(desc(caixaSessao.fechadaEm))
+      .limit(300);
   }
 }

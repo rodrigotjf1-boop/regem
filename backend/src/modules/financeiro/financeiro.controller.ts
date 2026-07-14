@@ -171,4 +171,15 @@ export class FinanceiroController {
       dto,
     );
   }
+
+  // Relatório de fechamentos de caixa (só gestão).
+  @Get('caixa/fechamentos')
+  @Roles('presidente', 'gerente')
+  fechamentos(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.fechamentos(user.tenantId, inicio, fim);
+  }
 }

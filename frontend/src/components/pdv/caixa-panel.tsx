@@ -33,7 +33,8 @@ export function CaixaPanel({
   const [movValor, setMovValor] = useState('');
   const [movDesc, setMovDesc] = useState('');
   const [fechar, setFechar] = useState(false);
-  const [informado, setInformado] = useState('');
+  // Conferência cega POR FORMA — o operador informa o contado sem ver o esperado.
+  const [informados, setInformados] = useState<Record<string, string>>({ dinheiro: '', cartao: '', pix: '' });
   const [obs, setObs] = useState('');
   const [resultado, setResultado] = useState<any>(null);
 
@@ -72,8 +73,13 @@ export function CaixaPanel({
   async function confirmarFechar() {
     setBusy(true);
     try {
+      const valoresInformados: Record<string, number> = {};
+      for (const [k, v] of Object.entries(informados)) {
+        const n = Number(String(v).replace(',', '.'));
+        if (String(v).trim() !== '' && Number.isFinite(n)) valoresInformados[k] = n;
+      }
       const r: any = await api.fecharCaixa({
-        valorInformado: Number(String(informado).replace(',', '.')) || 0,
+        valoresInformados,
         obs: obs.trim() || undefined,
         origem,
       });
@@ -88,7 +94,7 @@ export function CaixaPanel({
   function encerrarConferencia() {
     setFechar(false);
     setResultado(null);
-    setInformado('');
+    setInformados({ dinheiro: '', cartao: '', pix: '' });
     setObs('');
     onChange(); // caixa fechado → o pai recarrega (volta a "abrir")
   }
@@ -157,12 +163,21 @@ export function CaixaPanel({
             {!resultado ? (
               <>
                 <h3 className="font-display font-semibold">Fechar turno {String(caixa.turnoNumero ?? '').padStart(2, '0')}</h3>
-                <p className="mb-3 mt-0.5 text-xs text-muted-foreground">Conte o dinheiro na gaveta e informe o total (conferência cega).</p>
+                <p className="mb-3 mt-0.5 text-xs text-muted-foreground">Conte cada forma e informe o valor. Você não vê o esperado — o sistema mostra a comparação depois de confirmar.</p>
                 <div className="space-y-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Dinheiro contado na gaveta</Label>
-                    <Input type="number" inputMode="decimal" value={informado} onChange={(e) => setInformado(e.target.value)} placeholder="0,00" autoFocus />
-                  </div>
+                  {([['dinheiro', 'Dinheiro na gaveta'], ['cartao', 'Cartão (terminal)'], ['pix', 'Pix']] as const).map(([k, label], i) => (
+                    <div key={k} className="space-y-1">
+                      <Label className="text-xs">{label}</Label>
+                      <Input
+                        type="number"
+                        inputMode="decimal"
+                        value={informados[k] ?? ''}
+                        onChange={(e) => setInformados((s) => ({ ...s, [k]: e.target.value }))}
+                        placeholder="0,00"
+                        autoFocus={i === 0}
+                      />
+                    </div>
+                  ))}
                   <div className="space-y-1">
                     <Label className="text-xs">Observação (opcional)</Label>
                     <Input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Ex.: falta de troco no início" />
@@ -176,22 +191,43 @@ export function CaixaPanel({
             ) : (
               <>
                 <h3 className="font-display font-semibold text-ok">Turno encerrado ✓</h3>
-                <div className="mt-3 space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Esperado em gaveta</span><span className="font-mono">{brl(resultado.esperado)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Contado</span><span className="font-mono">{brl(resultado.informado)}</span></div>
-                  <div className={`flex justify-between font-bold ${Math.abs(resultado.diferenca) < 0.01 ? 'text-ok' : 'text-destructive'}`}>
-                    <span>Diferença</span>
-                    <span className="font-mono">{resultado.diferenca > 0 ? '+' : ''}{brl(resultado.diferenca)}</span>
-                  </div>
-                </div>
-                {(resultado.porForma ?? []).length > 0 && (
-                  <div className="mt-3 border-t border-border pt-2">
-                    <p className="mb-1 text-xs font-semibold text-muted-foreground">Vendas por forma</p>
-                    {resultado.porForma.map((f: any) => (
-                      <div key={f.forma} className="flex justify-between text-xs"><span className="capitalize">{f.forma}</span><span className="font-mono">{brl(f.total)}</span></div>
-                    ))}
-                  </div>
+                {resultado.alertou && (
+                  <p className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
+                    Diferença acima do limite (R$ {brl(resultado.limite)}) — ocorrência registrada para a gestão.
+                  </p>
                 )}
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <caption className="sr-only">Comparativo do fechamento por forma de pagamento</caption>
+                    <thead>
+                      <tr className="text-xs text-muted-foreground">
+                        <th className="pb-1 text-left font-semibold">Forma</th>
+                        <th className="pb-1 text-right font-semibold">Contado</th>
+                        <th className="pb-1 text-right font-semibold">Esperado</th>
+                        <th className="pb-1 text-right font-semibold">Diferença</th>
+                      </tr>
+                    </thead>
+                    <tbody className="font-mono">
+                      {Object.keys({ ...resultado.esperadoPorForma, ...resultado.informadoPorForma }).map((f) => {
+                        const dif = Number(resultado.diferencaPorForma?.[f] ?? 0);
+                        return (
+                          <tr key={f} className="border-t border-border">
+                            <td className="py-1 font-sans capitalize">{f}</td>
+                            <td className="py-1 text-right">{brl(resultado.informadoPorForma?.[f] ?? 0)}</td>
+                            <td className="py-1 text-right text-muted-foreground">{brl(resultado.esperadoPorForma?.[f] ?? 0)}</td>
+                            <td className={`py-1 text-right font-bold ${Math.abs(dif) < 0.01 ? 'text-ok' : 'text-destructive'}`}>{dif > 0 ? '+' : ''}{brl(dif)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-t-2 border-border font-bold">
+                        <td className="py-1 font-sans">Total</td>
+                        <td className="py-1 text-right">{brl(resultado.informado)}</td>
+                        <td className="py-1 text-right text-muted-foreground">{brl(resultado.esperado)}</td>
+                        <td className={`py-1 text-right ${Math.abs(resultado.diferenca) < 0.01 ? 'text-ok' : 'text-destructive'}`}>{resultado.diferenca > 0 ? '+' : ''}{brl(resultado.diferenca)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
                 <Button type="button" className="mt-4 w-full" onClick={encerrarConferencia}>Concluir</Button>
               </>
             )}

@@ -45,6 +45,8 @@ export const unidade = pgTable('unidade', {
   nome: text('nome').notNull(),
   endereco: text('endereco'),
   timezone: text('timezone').notNull().default('America/Sao_Paulo'),
+  // Diferença de caixa (em reais) acima da qual o fechamento gera ocorrência.
+  limiteDiferencaCaixa: numeric('limite_diferenca_caixa').notNull().default('5'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -785,6 +787,9 @@ export const caixaSessao = pgTable('caixa_sessao', {
   valorInformado: numeric('valor_informado'),
   valorEsperado: numeric('valor_esperado'),
   diferenca: numeric('diferenca'),
+  valoresInformados: jsonb('valores_informados'), // contado por forma {dinheiro,cartao,pix,...}
+  esperadoPorForma: jsonb('esperado_por_forma'),
+  diferencaPorForma: jsonb('diferenca_por_forma'),
   fechadaEm: timestamp('fechada_em', { withTimezone: true }),
   fechadaPorId: uuid('fechada_por_id'),
   obs: text('obs'),

@@ -652,6 +652,13 @@ export const api = {
     req('/financeiro/caixa/movimentar', { method: 'POST', body: JSON.stringify(body) }),
   fecharCaixa: (body: Record<string, unknown>) =>
     req('/financeiro/caixa/fechar', { method: 'POST', body: JSON.stringify(body) }),
+  fechamentosCaixa: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/financeiro/caixa/fechamentos${q ? `?${q}` : ''}`);
+  },
   financeiroDre: (inicio?: string, fim?: string) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
