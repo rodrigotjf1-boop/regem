@@ -9,6 +9,7 @@ import {
   Boxes,
   Building2,
   CalendarDays,
+  ChevronDown,
   ClipboardList,
   Clock,
   Coins,
@@ -59,15 +60,17 @@ type NavNode = {
 const NAV: NavNode[] = [
   { href: '/painel', label: 'Dashboard', icon: LayoutDashboard, perm: 'dashboard' },
   {
-    href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart, perm: 'pdv',
+    label: 'PDV · Balcão', icon: ShoppingCart,
     children: [
+      { href: '/pdv', label: 'Balcão', icon: ShoppingCart, perm: 'pdv' },
       { href: '/mesas', label: 'Mesas e comandas', icon: ClipboardList, perm: 'mesas' },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText, perm: 'cupons' },
     ],
   },
   {
-    href: '/delivery', label: 'Delivery', icon: Bike, perm: 'delivery',
+    label: 'Delivery', icon: Bike,
     children: [
+      { href: '/delivery', label: 'Painel', icon: Bike, perm: 'delivery' },
       { href: '/pedidos', label: 'Pedidos · produção', icon: Flame, perm: 'pedidos' },
     ],
   },
@@ -134,6 +137,7 @@ export function Shell({
   const [open, setOpen] = useState(false); // drawer (mobile)
   const [rel, setRel] = useState('');
   const [cat, setCat] = useState('');
+  const [gruposAbertos, setGruposAbertos] = useState<Record<string, boolean>>({}); // acordeão do menu
   const asideRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -276,19 +280,38 @@ export function Shell({
               );
             };
             return NAV.map((node) => {
+              // Folha: link direto.
+              if (node.href) {
+                return temPerm(node.perm, perms, isPres) ? Item(node) : null;
+              }
+              // Grupo: acordeão (clica no pai → expande/recolhe a lista).
               const kids = (node.children ?? []).filter((c) => temPerm(c.perm, perms, isPres));
-              const selfVisible = !!node.href && temPerm(node.perm, perms, isPres);
-              if (!selfVisible && kids.length === 0) return null;
+              if (kids.length === 0) return null;
+              const temAtivo = kids.some((c) => c.href === path);
+              const aberto = gruposAbertos[node.label] ?? temAtivo; // abre sozinho na tela ativa
               return (
-                <div key={node.href ?? node.label}>
-                  {selfVisible ? (
-                    Item(node)
-                  ) : (
-                    <p className="shell-group-label px-3 pb-1 pt-3 font-display text-[10px] font-bold uppercase tracking-[.16em] text-[#5E7B8E]">
-                      {node.label}
-                    </p>
-                  )}
-                  {kids.map((c) => Item(c, true))}
+                <div key={node.label}>
+                  <button
+                    type="button"
+                    aria-expanded={aberto}
+                    onClick={() => setGruposAbertos((s) => ({ ...s, [node.label]: !aberto }))}
+                    className={cn(
+                      'shell-navlink mb-0.5 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
+                      temAtivo
+                        ? 'text-white'
+                        : 'text-[#B9CBD7] hover:bg-white/5 hover:text-white',
+                    )}
+                  >
+                    <node.icon className="h-4 w-4 flex-none" />
+                    <span className="shell-label flex-1 truncate text-left">{node.label}</span>
+                    <ChevronDown
+                      className={cn(
+                        'shell-label h-4 w-4 flex-none transition-transform',
+                        aberto ? '' : '-rotate-90',
+                      )}
+                    />
+                  </button>
+                  {aberto && kids.map((c) => Item(c, true))}
                 </div>
               );
             });
