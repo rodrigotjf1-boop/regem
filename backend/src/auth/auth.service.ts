@@ -83,7 +83,7 @@ export class AuthService {
     if (existe) {
       throw new ConflictException('Este e-mail já tem uma conta. Faça login.');
     }
-    const senhaHash = await bcrypt.hash(dto.senha, 10);
+    const senhaHash = await bcrypt.hash(dto.senha, 12);
 
     const result = await this.db.transaction(async (tx) => {
       // G-1: todo cadastro novo ganha 3 meses (90 dias) do sistema COMPLETO.
@@ -322,7 +322,7 @@ export class AuthService {
     ) {
       throw new UnauthorizedException('Senha atual incorreta.');
     }
-    const senhaHash = await bcrypt.hash(nova, 10);
+    const senhaHash = await bcrypt.hash(nova, 12);
     await this.db
       .update(colaborador)
       .set({ senhaHash, updatedAt: new Date() })
