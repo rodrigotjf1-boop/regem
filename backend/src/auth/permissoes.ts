@@ -31,11 +31,13 @@ export interface Permissoes {
   // Financeiro / Fiscal
   ver_financeiro?: boolean; // mostra valores em R$
   financeiro?: boolean; // módulo Financeiro (DRE / fluxo)
+  formas_pagamento?: boolean; // formas de pagamento (delivery + balcão)
   fiscal?: boolean; // Notas fiscais (NFC-e)
   tef?: boolean; // TEF / maquininha
   fiscal_config?: boolean; // configuração fiscal
   // Gestão
   cadastros?: boolean;
+  loja?: boolean; // Configurações → Loja (perfil do estabelecimento)
   ponto_gerencial?: boolean; // Gerenciamento de ponto (gerencial)
   producao_kds?: boolean;
   config_ramo?: boolean; // config por ramo (wizard)
@@ -99,10 +101,12 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'mural', rotulo: 'Mural & clima', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'ver_financeiro', rotulo: 'Ver valores em R$', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'financeiro', rotulo: 'Financeiro (DRE)', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
+  { chave: 'formas_pagamento', rotulo: 'Formas de pagamento', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'fiscal', rotulo: 'Notas fiscais', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'tef', rotulo: 'TEF / maquininha', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'fiscal_config', rotulo: 'Configuração fiscal', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'cadastros', rotulo: 'Cadastros', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'loja', rotulo: 'Loja (perfil)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'ponto_gerencial', rotulo: 'Gerenciamento de ponto', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'ponto', rotulo: 'Ponto (ações)', grupo: 'Gestão', tipo: 'crud' },
   { chave: 'producao_kds', rotulo: 'Produção & KDS', grupo: 'Gestão', tipo: 'bool' },
@@ -149,8 +153,8 @@ export const PERFIS_PADRAO: {
     permissoes: {
       ...bools([
         'dashboard', 'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade',
-        'cashback', 'meu_dia', 'escalas', 'checklist', 'mural', 'cadastros',
-        'ponto_gerencial', 'producao_kds', 'servidor',
+        'cashback', 'meu_dia', 'escalas', 'checklist', 'mural', 'cadastros', 'loja',
+        'formas_pagamento', 'ponto_gerencial', 'producao_kds', 'servidor',
       ]),
       ponto: CRUD_ALL,
       estoque: { ver: true, criar: true, editar: true, excluir: false },

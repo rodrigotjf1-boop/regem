@@ -808,6 +808,11 @@ export const formaPagamento = pgTable('forma_pagamento', {
   tipo: text('tipo').notNull().default('outro'), // dinheiro|pix|credito|debito|vr|outro
   ativo: boolean('ativo').notNull().default(true),
   ordem: integer('ordem').notNull().default(0),
+  cardapio: boolean('cardapio').notNull().default(false), // aparece no cardápio digital
+  tiposPedido: jsonb('tipos_pedido').notNull().default('["delivery","retirada","balcao"]'),
+  taxaExtra: numeric('taxa_extra'), // taxa extra R$ (null = não informado)
+  obs: text('obs'),
+  bandeiras: jsonb('bandeiras').notNull().default('[]'), // bandeiras de cartão aceitas
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

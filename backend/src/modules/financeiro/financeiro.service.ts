@@ -493,9 +493,12 @@ export class FinanceiroService {
   // ===== Formas de pagamento (cadastro) =====
   private static readonly FORMAS_PADRAO = [
     { nome: 'Dinheiro', tipo: 'dinheiro' },
-    { nome: 'Pix', tipo: 'pix' },
     { nome: 'Cartão de crédito', tipo: 'credito' },
     { nome: 'Cartão de débito', tipo: 'debito' },
+    { nome: 'Pix', tipo: 'pix' },
+    { nome: 'Vale refeição', tipo: 'vr' },
+    { nome: 'Vale alimentação', tipo: 'vr' },
+    { nome: 'Transferência', tipo: 'outro' },
   ];
 
   async listarFormasPagamento(tenantId: string, apenasAtivas = false) {
@@ -522,21 +525,54 @@ export class FinanceiroService {
     return apenasAtivas ? rows.filter((r) => r.ativo) : rows;
   }
 
-  async criarFormaPagamento(
-    tenantId: string,
-    dto: { nome: string; tipo?: string },
-  ) {
-    if (!dto.nome?.trim()) throw new BadRequestException('Informe o nome.');
+  // Normaliza os campos ricos vindos do dto (compartilhado por criar/atualizar).
+  private valsForma(dto: any) {
     const tipos = ['dinheiro', 'pix', 'credito', 'debito', 'vr', 'outro'];
+    const tiposPed = ['delivery', 'retirada', 'balcao'];
+    const vals: Record<string, unknown> = {};
+    if (dto.nome != null) vals.nome = String(dto.nome).trim();
+    if (dto.tipo != null) vals.tipo = tipos.includes(dto.tipo) ? dto.tipo : 'outro';
+    if (dto.ativo != null) vals.ativo = !!dto.ativo;
+    if (dto.cardapio != null) vals.cardapio = !!dto.cardapio;
+    if (dto.tiposPedido != null)
+      vals.tiposPedido = Array.isArray(dto.tiposPedido)
+        ? dto.tiposPedido.filter((t: string) => tiposPed.includes(t))
+        : [];
+    if (dto.taxaExtra !== undefined)
+      vals.taxaExtra = dto.taxaExtra === '' || dto.taxaExtra == null ? null : String(Number(dto.taxaExtra) || 0);
+    if (dto.obs !== undefined) vals.obs = dto.obs?.trim() || null;
+    if (dto.bandeiras != null) vals.bandeiras = Array.isArray(dto.bandeiras) ? dto.bandeiras : [];
+    return vals;
+  }
+
+  async criarFormaPagamento(tenantId: string, dto: any) {
+    if (!dto.nome?.trim()) throw new BadRequestException('Informe o nome.');
     const [row] = await this.db
       .insert(formaPagamento)
-      .values({
-        tenantId,
-        nome: dto.nome.trim(),
-        tipo: tipos.includes(dto.tipo ?? '') ? dto.tipo : 'outro',
-      })
+      .values({ tenantId, ...this.valsForma(dto) } as any)
       .returning();
     return row;
+  }
+
+  async atualizarFormaPagamento(tenantId: string, id: string, dto: any) {
+    const vals = this.valsForma(dto);
+    if (Object.keys(vals).length === 0) throw new BadRequestException('Nada para atualizar.');
+    const [row] = await this.db
+      .update(formaPagamento)
+      .set(vals)
+      .where(and(eq(formaPagamento.id, id), eq(formaPagamento.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new BadRequestException('Forma não encontrada.');
+    return row;
+  }
+
+  async removerFormaPagamento(tenantId: string, id: string) {
+    const [row] = await this.db
+      .delete(formaPagamento)
+      .where(and(eq(formaPagamento.id, id), eq(formaPagamento.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new BadRequestException('Forma não encontrada.');
+    return { ok: true };
   }
 
   async setFormaPagamentoAtiva(tenantId: string, id: string, ativo: boolean) {

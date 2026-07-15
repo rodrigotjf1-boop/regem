@@ -138,12 +138,28 @@ export class FinanceiroController {
 
   @Post('formas-pagamento')
   @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
   criarFormaPagamento(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.criarFormaPagamento(user.tenantId, dto);
   }
 
+  @Patch('formas-pagamento/:id')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
+  atualizarFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.atualizarFormaPagamento(user.tenantId, id, dto);
+  }
+
+  @Delete('formas-pagamento/:id')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
+  removerFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.removerFormaPagamento(user.tenantId, id);
+  }
+
   @Post('formas-pagamento/:id/ativa')
   @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
   ativarFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.setFormaPagamentoAtiva(user.tenantId, id, !!dto.ativo);
   }
