@@ -82,6 +82,7 @@ const NAV: NavNode[] = [
   {
     label: 'Financeiro', icon: Wallet,
     children: [
+      { href: '/formas-pagamento', label: 'Formas de pagamento', icon: CreditCard, perm: 'formas_pagamento' },
       { href: '/notas', label: 'Notas fiscais', icon: ReceiptText, perm: 'fiscal' },
       { href: '/tef', label: 'TEF / maquininha', icon: CreditCard, perm: 'tef' },
       { href: '/fiscal-config', label: 'Configuração', icon: Coins, perm: 'fiscal_config' },

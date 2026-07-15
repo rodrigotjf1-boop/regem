@@ -663,8 +663,12 @@ export const api = {
   caixaAberta: (origem?: string) =>
     req(`/financeiro/caixa${origem ? `?origem=${origem}` : ''}`),
   formasPagamento: () => req('/financeiro/formas-pagamento'),
-  criarFormaPagamento: (body: { nome: string; tipo?: string }) =>
+  criarFormaPagamento: (body: Record<string, unknown>) =>
     req('/financeiro/formas-pagamento', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarFormaPagamento: (id: string, body: Record<string, unknown>) =>
+    req(`/financeiro/formas-pagamento/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removerFormaPagamento: (id: string) =>
+    req(`/financeiro/formas-pagamento/${id}`, { method: 'DELETE' }),
   ativarFormaPagamento: (id: string, ativo: boolean) =>
     req(`/financeiro/formas-pagamento/${id}/ativa`, { method: 'POST', body: JSON.stringify({ ativo }) }),
   caixaConfig: () => req('/financeiro/caixa/config'),
