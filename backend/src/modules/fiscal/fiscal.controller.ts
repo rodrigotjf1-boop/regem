@@ -26,7 +26,7 @@ export class FiscalController {
   constructor(private readonly service: FiscalService) {}
 
   @Get('config')
-  @RequirePerm('fiscal')
+  @RequirePerm('fiscal_config')
   config(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
     return this.service.getConfig(user.tenantId, unidadeId || null);
   }

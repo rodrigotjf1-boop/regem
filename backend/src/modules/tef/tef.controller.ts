@@ -9,7 +9,9 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
@@ -68,14 +70,15 @@ export class TefController {
   }
 
   @Get('config')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('tef')
   config(@CurrentUser() user: AuthUser) {
     return this.service.getConfig(user.tenantId, null);
   }
 
   @Put('config')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('presidente', 'gerente')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('tef')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto);
   }
