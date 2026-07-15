@@ -12,6 +12,7 @@ import { RelatoriosService } from './relatorios.service';
 @Controller('relatorios')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @Roles('presidente', 'gerente', 'supervisao')
+@RequirePerm('relatorios_vendas')
 export class RelatoriosController {
   constructor(private readonly service: RelatoriosService) {}
 
