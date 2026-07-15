@@ -26,6 +26,11 @@ export class PermissoesGuard implements CanActivate {
     const user: AuthUser | undefined = context
       .switchToHttp()
       .getRequest().user;
+
+    // Presidente/C&O tem acesso total SEMPRE — independente do pacote de
+    // permissões no token (que pode estar defasado após mudança de catálogo).
+    if (user?.categoria === 'presidente') return true;
+
     const perm: Permissoes | undefined = user?.permissoes;
 
     const ok =
