@@ -127,10 +127,12 @@ export class SyncService {
             ${sql.join(valores.map((v) => sql`${v}`), sql`, `)}
           )`;
 
-        // Colunas atualizáveis (LWW): tudo que veio, menos id (chave) e tenant_id (forçado).
+        // LWW (update-se-mais-nova) para QUALQUER tabela com `updated_at` — inclui
+        // as transacionais 'sobe' da v2, que mudam de estado. Tabelas append puras
+        // (sem updated_at, ex.: movimento_estoque) seguem do-nothing (imutáveis).
         const setCols = cols.filter((c) => c !== 'id');
         const conflito =
-          modo === 'lww' && setCols.length && colunas.has('updated_at')
+          (modo === 'lww' || colunas.has('updated_at')) && setCols.length
             ? sql`on conflict (id) do update set ${sql.join(
                 setCols.map((c) => sql`${sql.identifier(c)} = excluded.${sql.identifier(c)}`),
                 sql`, `,
@@ -144,7 +146,9 @@ export class SyncService {
           if ((r?.rowCount ?? 0) > 0) aplicadas++;
           else ignoradas++;
         } catch (e: any) {
-          if (e?.code === '23505') {
+          // 23505 = duplicado; 23503 = FK fora de ordem (pai ainda não chegou) —
+          // ignora sem derrubar o push (a linha volta no próximo ciclo/estado).
+          if (e?.code === '23505' || e?.code === '23503') {
             ignoradas++;
             continue;
           }

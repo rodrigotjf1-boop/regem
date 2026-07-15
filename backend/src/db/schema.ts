@@ -796,6 +796,7 @@ export const caixaSessao = pgTable('caixa_sessao', {
   fechadaPorId: uuid('fechada_por_id'),
   obs: text('obs'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
 export const formaPagamento = pgTable('forma_pagamento', {
@@ -1122,6 +1123,7 @@ export const comanda = pgTable('comanda', {
   canceladaPorId: uuid('cancelada_por_id'),
   motivoCancelamento: text('motivo_cancelamento'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
 export const comandaItem = pgTable('comanda_item', {
@@ -1435,6 +1437,7 @@ export const producaoPedido = pgTable('producao_pedido', {
   canceladoPorId: uuid('cancelado_por_id'),
   obs: text('obs'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
 export const producaoPedidoItem = pgTable('producao_pedido_item', {
@@ -1632,6 +1635,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
   alterado: boolean('alterado').notNull().default(false),
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
 // Cliente do cardápio (link mágico assinado): perfil por telefone, endereços
