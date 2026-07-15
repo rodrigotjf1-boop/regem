@@ -1,7 +1,9 @@
 import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { EdgeService } from './edge.service';
 
 // Rota pública de identificação: o cliente confirma que achou o servidor Regem
@@ -24,30 +26,34 @@ export class EdgeController {
 
   // ----- Atualização pelo app (só no edge; gestão) -----
   @Get('edge/atualizacao/status')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   atualizacaoStatus() {
     return this.service.statusAtualizacao();
   }
 
   @Post('edge/atualizacao/verificar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   atualizacaoVerificar() {
     return this.service.verificarAtualizacao();
   }
 
   @Post('edge/atualizacao/aplicar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   atualizacaoAplicar() {
     return this.service.aplicarAtualizacao();
   }
 
   // ----- Restauração do estado da nuvem (só no edge) -----
   @Get('edge/restaurar/status')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   restaurarStatus() {
     return this.service.statusRestauracao();
   }
