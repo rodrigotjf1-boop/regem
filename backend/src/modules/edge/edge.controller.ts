@@ -43,4 +43,20 @@ export class EdgeController {
   atualizacaoAplicar() {
     return this.service.aplicarAtualizacao();
   }
+
+  // ----- Restauração do estado da nuvem (só no edge) -----
+  @Get('edge/restaurar/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  restaurarStatus() {
+    return this.service.statusRestauracao();
+  }
+
+  // Operação séria (puxa a nuvem) — só presidente/C&O dispara.
+  @Post('edge/restaurar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente')
+  restaurar() {
+    return this.service.solicitarRestauracao();
+  }
 }

@@ -103,6 +103,26 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     };
   }
 
+  // ===== Restauração (voltar ao modo local após operar na nuvem) =====
+  // Grava a flag; o sync-daemon executa os 2 tempos (empurra pendente → puxa a
+  // nuvem) no próximo ciclo. Aditivo (upsert por id) — não apaga dado local.
+  async solicitarRestauracao() {
+    this.garanteEdge();
+    if ((await this.getState('restaurando')) === '1')
+      return { ok: true, jaEmAndamento: true };
+    await this.setState('restaurar_solicitado', '1');
+    return { ok: true };
+  }
+
+  async statusRestauracao() {
+    this.garanteEdge();
+    return {
+      solicitado: (await this.getState('restaurar_solicitado')) === '1',
+      restaurando: (await this.getState('restaurando')) === '1',
+      restauradoEm: (await this.getState('restaurado_em')) || null,
+    };
+  }
+
   // Dispara a instalação (a tarefa SYSTEM faz o trabalho pesado com rollback).
   async aplicarAtualizacao() {
     this.garanteEdge();

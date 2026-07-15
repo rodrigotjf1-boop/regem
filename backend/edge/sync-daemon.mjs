@@ -232,6 +232,53 @@ async function heartbeat(pullN, pushN, erro) {
   } catch { /* heartbeat é best-effort */ }
 }
 
+// RESTAURAÇÃO sob demanda (botão do app): volta ao modo local após operar na
+// nuvem. 2 tempos, aditivo (upsert por id, nunca apaga o que é só local):
+//   1) EMPURRA o operacional local pendente pra nuvem (não perde venda de antes
+//      da queda); 2) PUXA as tabelas transacionais da nuvem e aplica localmente.
+async function restaurar() {
+  console.log('Restauração solicitada — subindo pendências e puxando a nuvem...');
+  await setState('restaurar_solicitado', '0'); // consome o pedido (não repete se travar)
+  await setState('restaurando', '1');
+  try {
+    // 1) empurra o pendente local (as tabelas que sobem)
+    try { await push(); } catch (e) { console.warn(`  push no restore: ${e.message}`); }
+    // 2) puxa as transacionais da nuvem por delta e faz upsert local
+    let cursor = await getState('restore_cursor', '1970-01-01T00:00:00Z');
+    let total = 0;
+    for (let pagina = 0; pagina < 5000; pagina++) {
+      const res = await fetch(`${CLOUD}/sync/restore?desde=${encodeURIComponent(cursor)}`, {
+        headers: { 'x-sync-token': TOKEN },
+      });
+      if (!res.ok) throw new Error(`restore HTTP ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      const linhas = Object.values(data.tabelas).reduce((s, r) => s + r.length, 0);
+      let pendentes = [];
+      for (const [tabela, rows] of Object.entries(data.tabelas)) {
+        for (const row of rows) {
+          try { await upsertLocal(tabela, row); total++; }
+          catch (e) { if (e.code === '23503') pendentes.push([tabela, row]); else throw e; }
+        }
+      }
+      for (let passe = 0; passe < 3 && pendentes.length; passe++) {
+        const resta = [];
+        for (const [tabela, row] of pendentes) {
+          try { await upsertLocal(tabela, row); total++; }
+          catch (e) { if (e.code === '23503') resta.push([tabela, row]); else throw e; }
+        }
+        pendentes = resta;
+      }
+      if (!data.proximoCursor || data.proximoCursor === cursor || linhas === 0) break;
+      cursor = data.proximoCursor;
+      await setState('restore_cursor', cursor);
+    }
+    await setState('restaurado_em', new Date().toISOString());
+    console.log(`Restauração concluída — ${total} linha(s) aplicadas.`);
+  } finally {
+    await setState('restaurando', '0');
+  }
+}
+
 async function ciclo() {
   let erro = null, p = 0, u = 0;
   try {
@@ -241,6 +288,10 @@ async function ciclo() {
   } catch (e) {
     erro = e.message;
     console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
+  }
+  // Restauração sob demanda (botão do app grava a flag em sync_state).
+  if ((await getState('restaurar_solicitado', '0')) === '1') {
+    try { await restaurar(); } catch (e) { console.error(`Restauração FALHOU: ${e.message}`); }
   }
   await licenca();
   // Verificação de update SÓ nas janelas de abertura da loja (não aplica — só

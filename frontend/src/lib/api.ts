@@ -380,6 +380,8 @@ export const api = {
   edgeAtualizacaoStatus: () => req('/edge/atualizacao/status'),
   edgeVerificarAtualizacao: () => req('/edge/atualizacao/verificar', { method: 'POST', body: '{}' }),
   edgeAplicarAtualizacao: () => req('/edge/atualizacao/aplicar', { method: 'POST', body: '{}' }),
+  edgeRestaurarStatus: () => req('/edge/restaurar/status'),
+  edgeRestaurar: () => req('/edge/restaurar', { method: 'POST', body: '{}' }),
   atendimentos: () => req('/atendimento'),
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
