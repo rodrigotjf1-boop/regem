@@ -12,7 +12,6 @@ import {
   ClipboardList,
   Clock,
   Coins,
-  ConciergeBell,
   CreditCard,
   ReceiptText,
   FileText,
@@ -22,7 +21,6 @@ import {
   LayoutDashboard,
   ListChecks,
   type LucideIcon,
-  Bot,
   Megaphone,
   Menu,
   PanelLeftClose,
@@ -44,135 +42,80 @@ import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 
-type NavItem = {
-  href: string;
+// Item de submenu (2º nível). `perm` = permissão do catálogo que libera o item.
+type NavSub = { href: string; label: string; icon: LucideIcon; perm: string };
+// Nó de 1º nível: pode ser um link direto (href) e/ou um grupo com `children`.
+type NavNode = {
   label: string;
   icon: LucideIcon;
-  roles?: string[];
-  perm?: string; // permissão do perfil exigida para ver o item (ex.: 'fiscal')
+  href?: string;
+  perm?: string;
+  children?: NavSub[];
 };
-type NavGroup = { group: string; presidenteOnly: boolean; items: NavItem[] };
 
-const NAV: NavGroup[] = [
+// Menu por PERMISSÃO (catálogo do perfil_acesso). Cada item aparece se o perfil
+// tem a permissão (presidente sempre vê tudo). Estrutura = organização nova
+// (14 grupos + submenus). Garçom e Bot ficam fora do menu (acessados à parte).
+const NAV: NavNode[] = [
+  { href: '/painel', label: 'Dashboard', icon: LayoutDashboard, perm: 'dashboard' },
   {
-    group: 'Operação',
-    presidenteOnly: false,
-    items: [
-      { href: '/painel', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart },
-      { href: '/mesas', label: 'Mesas e comandas', icon: ClipboardList },
-      { href: '/garcom', label: 'Garçom', icon: ConciergeBell },
-      { href: '/pedidos', label: 'Pedidos · Produção', icon: Flame },
-      { href: '/delivery', label: 'Delivery', icon: Bike },
-      { href: '/cupons', label: 'Cupons', icon: ReceiptText },
-      { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
-      { href: '/escala', label: 'Escalas', icon: CalendarDays },
-      { href: '/operacao', label: 'Estoque', icon: Boxes },
-      { href: '/docs', label: 'Documentos', icon: FileText },
-      { href: '/mural', label: 'Mural & Clima', icon: Megaphone },
+    href: '/pdv', label: 'PDV · Balcão', icon: ShoppingCart, perm: 'pdv',
+    children: [
+      { href: '/mesas', label: 'Mesas e comandas', icon: ClipboardList, perm: 'mesas' },
+      { href: '/cupons', label: 'Cupons', icon: ReceiptText, perm: 'cupons' },
     ],
   },
   {
-    group: 'Fiscal',
-    presidenteOnly: false,
-    items: [
-      // Notas fiscais (NFC-e) = gestão fiscal → permissão "fiscal" do perfil.
-      // TEF/maquininha fica na operação de balcão.
-      { href: '/notas', label: 'Notas fiscais', icon: FileText, perm: 'fiscal' },
-      { href: '/tef', label: 'TEF / Maquininha', icon: CreditCard },
-      {
-        href: '/fiscal-config',
-        label: 'Configuração',
-        icon: Coins,
-        roles: ['presidente'],
-      },
+    href: '/delivery', label: 'Delivery', icon: Bike, perm: 'delivery',
+    children: [
+      { href: '/pedidos', label: 'Pedidos · produção', icon: Flame, perm: 'pedidos' },
+    ],
+  },
+  { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks, perm: 'meu_dia' },
+  { href: '/escala', label: 'Escalas', icon: CalendarDays, perm: 'escalas' },
+  { href: '/operacao', label: 'Estoque', icon: Boxes, perm: 'estoque' },
+  { href: '/docs', label: 'Checklist & registros', icon: ClipboardList, perm: 'checklist' },
+  { href: '/mural', label: 'Mural & clima', icon: Megaphone, perm: 'mural' },
+  {
+    label: 'Financeiro', icon: Wallet,
+    children: [
+      { href: '/notas', label: 'Notas fiscais', icon: ReceiptText, perm: 'fiscal' },
+      { href: '/tef', label: 'TEF / maquininha', icon: CreditCard, perm: 'tef' },
+      { href: '/fiscal-config', label: 'Configuração', icon: Coins, perm: 'fiscal_config' },
+    ],
+  },
+  { href: '/cadastros', label: 'Cadastros', icon: Settings, perm: 'cadastros' },
+  { href: '/pessoas', label: 'Gerenciamento de ponto', icon: Users, perm: 'ponto_gerencial' },
+  {
+    label: 'Configurações', icon: Settings,
+    children: [
+      { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds' },
+      { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
+      { href: '/planos', label: 'Planos & assinatura', icon: CreditCard, perm: 'planos' },
+      { href: '/config/acessos', label: 'Acessos & perfis', icon: ShieldCheck, perm: 'acessos' },
+      { href: '/servidor', label: 'Servidor local', icon: HardDrive, perm: 'servidor' },
     ],
   },
   {
-    group: 'Gestão',
-    presidenteOnly: false,
-    items: [
-      { href: '/cadastros', label: 'Cadastros', icon: Settings },
-      {
-        href: '/pessoas',
-        label: 'Pessoas & Ponto',
-        icon: Users,
-        roles: ['presidente', 'gerente', 'supervisao'],
-      },
-      {
-        href: '/producao-config',
-        label: 'Produção & KDS',
-        icon: Flame,
-        roles: ['presidente', 'gerente', 'supervisao'],
-      },
-      {
-        href: '/financeiro',
-        label: 'Financeiro',
-        icon: Wallet,
-        roles: ['presidente', 'gerente'],
-      },
-      {
-        href: '/caixa/fechamentos',
-        label: 'Fechamentos de caixa',
-        icon: Wallet,
-        roles: ['presidente', 'gerente'],
-      },
-      {
-        href: '/relatorios',
-        label: 'Relatórios de venda',
-        icon: BarChart3,
-        roles: ['presidente', 'gerente', 'supervisao'],
-      },
-      {
-        href: '/vendas/remocoes',
-        label: 'Retiradas de item',
-        icon: BarChart3,
-        roles: ['presidente', 'gerente', 'supervisao'],
-      },
-      {
-        href: '/auditoria',
-        label: 'Auditoria',
-        icon: History,
-        roles: ['presidente', 'gerente'],
-      },
-      {
-        href: '/bot',
-        label: 'Bot de Suporte',
-        icon: Bot,
-        roles: ['presidente', 'gerente'],
-      },
-      {
-        href: '/wizard',
-        label: 'Config. por ramo',
-        icon: Wand2,
-        roles: ['presidente'],
-      },
-      {
-        href: '/servidor',
-        label: 'Servidor local',
-        icon: HardDrive,
-        roles: ['presidente', 'gerente'],
-      },
-      {
-        href: '/planos',
-        label: 'Planos & assinatura',
-        icon: CreditCard,
-        roles: ['presidente'],
-      },
-      {
-        href: '/config/acessos',
-        label: 'Acessos & perfis',
-        icon: ShieldCheck,
-        roles: ['presidente'],
-      },
+    label: 'Relatórios', icon: BarChart3,
+    children: [
+      { href: '/caixa/fechamentos', label: 'Turnos', icon: Wallet, perm: 'turnos' },
+      { href: '/relatorios', label: 'Relatórios de vendas', icon: BarChart3, perm: 'relatorios_vendas' },
+      { href: '/vendas/remocoes', label: 'Cancelamentos de itens', icon: FileText, perm: 'cancelamentos' },
     ],
   },
-  {
-    group: 'Diretoria',
-    presidenteOnly: true,
-    items: [{ href: '/diretoria', label: 'Visão C&O', icon: Building2 }],
-  },
+  { href: '/auditoria', label: 'Auditoria', icon: History, perm: 'auditoria' },
+  { href: '/diretoria', label: 'Visão C&O', icon: Building2, perm: 'visao_co' },
 ];
+
+// Visibilidade por permissão: presidente vê tudo; senão checa o toggle do catálogo
+// (para chaves CRUD como `estoque`, considera o `.ver`).
+function temPerm(perm: string | undefined, perms: any, isPres: boolean): boolean {
+  if (!perm) return true;
+  if (isPres) return true;
+  const v = perms?.[perm];
+  return v && typeof v === 'object' ? !!v.ver : !!v;
+}
 
 export function Shell({
   title,
@@ -305,38 +248,51 @@ export function Shell({
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2.5">
-          {NAV.filter((g) => !g.presidenteOnly || cat === 'presidente').map((g) => (
-            <div key={g.group}>
-              <p className="shell-group-label px-3 pb-1.5 pt-3.5 font-display text-[10px] font-bold uppercase tracking-[.16em] text-[#5E7B8E]">
-                {g.group}
-              </p>
-              {g.items
-                .filter((it) => !it.roles || it.roles.includes(cat))
-                .filter((it) => !it.perm || !!getPermissoes()?.[it.perm])
-                .map((it) => {
-                  const active = path === it.href;
-                  return (
-                    <Link
-                      key={it.href}
-                      href={it.href}
-                      onClick={() => setOpen(false)}
-                      title={it.label}
-                      aria-label={it.label}
-                      aria-current={active ? 'page' : undefined}
-                      className={cn(
-                        'shell-navlink mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
-                        active
-                          ? 'bg-primary/25 text-white shadow-[inset_2px_0_0_hsl(var(--primary))]'
-                          : 'text-[#B9CBD7] hover:bg-white/5 hover:text-white',
-                      )}
-                    >
-                      <it.icon className="h-4 w-4 flex-none" />
-                      <span className="shell-label truncate">{it.label}</span>
-                    </Link>
-                  );
-                })}
-            </div>
-          ))}
+          {(() => {
+            const perms = getPermissoes();
+            const isPres = cat === 'presidente';
+            const Item = (it: NavSub | NavNode, sub?: boolean) => {
+              const href = (it as NavSub).href;
+              const active = path === href;
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setOpen(false)}
+                  title={it.label}
+                  aria-label={it.label}
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'shell-navlink mb-0.5 flex items-center gap-3 rounded-lg py-2.5 text-sm font-medium transition-colors',
+                    sub ? 'px-3 pl-9' : 'px-3',
+                    active
+                      ? 'bg-primary/25 text-white shadow-[inset_2px_0_0_hsl(var(--primary))]'
+                      : 'text-[#B9CBD7] hover:bg-white/5 hover:text-white',
+                  )}
+                >
+                  <it.icon className="h-4 w-4 flex-none" />
+                  <span className="shell-label truncate">{it.label}</span>
+                </Link>
+              );
+            };
+            return NAV.map((node) => {
+              const kids = (node.children ?? []).filter((c) => temPerm(c.perm, perms, isPres));
+              const selfVisible = !!node.href && temPerm(node.perm, perms, isPres);
+              if (!selfVisible && kids.length === 0) return null;
+              return (
+                <div key={node.href ?? node.label}>
+                  {selfVisible ? (
+                    Item(node)
+                  ) : (
+                    <p className="shell-group-label px-3 pb-1 pt-3 font-display text-[10px] font-bold uppercase tracking-[.16em] text-[#5E7B8E]">
+                      {node.label}
+                    </p>
+                  )}
+                  {kids.map((c) => Item(c, true))}
+                </div>
+              );
+            });
+          })()}
         </nav>
 
         <button
