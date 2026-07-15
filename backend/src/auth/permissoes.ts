@@ -150,7 +150,7 @@ export const PERFIS_PADRAO: {
       ...bools([
         'dashboard', 'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade',
         'cashback', 'meu_dia', 'escalas', 'checklist', 'mural', 'cadastros',
-        'ponto_gerencial', 'producao_kds', 'acessos', 'servidor',
+        'ponto_gerencial', 'producao_kds', 'servidor',
       ]),
       ponto: CRUD_ALL,
       estoque: { ver: true, criar: true, editar: true, excluir: false },
