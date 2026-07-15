@@ -69,13 +69,21 @@ export default function AcessosPage() {
   const router = useRouter();
   const [perfis, setPerfis] = useState<any[]>([]);
   const [pessoas, setPessoas] = useState<any[]>([]);
+  const [catalogo, setCatalogo] = useState<any[]>([]);
+  const [novoNome, setNovoNome] = useState('');
+  const [novoNivel, setNovoNivel] = useState('execucao');
   const [erro, setErro] = useState('');
 
   const carregar = useCallback(async () => {
     try {
-      const [ps, cs] = await Promise.all([api.get('/perfis'), api.colaboradores()]);
+      const [ps, cs, cat] = await Promise.all([
+        api.get('/perfis'),
+        api.colaboradores(),
+        api.get('/perfis/catalogo').catch(() => []),
+      ]);
       setPerfis(ps ?? []);
       setPessoas(cs ?? []);
+      setCatalogo((cat as any[]) ?? []);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -123,6 +131,35 @@ export default function AcessosPage() {
     }
   }
 
+  async function criarPerfil() {
+    const nome = novoNome.trim();
+    if (!nome) return;
+    try {
+      await api.post('/perfis', { nome, nivel: novoNivel });
+      setNovoNome('');
+      toast.success(`Perfil ${nome} criado.`);
+      carregar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao criar perfil');
+    }
+  }
+  async function removerPerfil(p: any) {
+    if (!confirm(`Remover o perfil "${p.nome}"?`)) return;
+    try {
+      await api.del(`/perfis/${p.id}`);
+      toast.success('Perfil removido.');
+      carregar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao remover perfil');
+    }
+  }
+
+  // Catálogo agrupado (mantém a ordem de inserção dos grupos).
+  const grupos = catalogo.reduce((acc: Record<string, any[]>, it: any) => {
+    (acc[it.grupo] = acc[it.grupo] ?? []).push(it);
+    return acc;
+  }, {});
+
   async function salvarAcesso(id: string, body: any) {
     try {
       await api.patch(`/colaboradores/${id}/acesso`, body);
@@ -152,12 +189,41 @@ export default function AcessosPage() {
             </p>
           </div>
 
+          {/* Novo perfil (o presidente pode acrescentar além dos 4 base) */}
+          <Card className="flex flex-wrap items-end gap-3 border-dashed p-4">
+            <div className="min-w-0 flex-1 space-y-1">
+              <label className="text-xs text-muted-foreground">Nome do novo perfil</label>
+              <input
+                value={novoNome}
+                onChange={(e) => setNovoNome(e.target.value)}
+                placeholder="Ex.: Caixa, Cozinheiro, Atendente"
+                className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">Nível (hierarquia)</label>
+              <select
+                aria-label="Nível do novo perfil"
+                value={novoNivel}
+                onChange={(e) => setNovoNivel(e.target.value)}
+                className="h-10 rounded-md border border-input bg-card px-2 text-sm"
+              >
+                <option value="gerente">Gerência / ADM</option>
+                <option value="supervisao">Supervisão</option>
+                <option value="execucao">Execução</option>
+              </select>
+            </div>
+            <Button type="button" onClick={criarPerfil} disabled={!novoNome.trim()}>
+              Adicionar perfil
+            </Button>
+          </Card>
+
           {perfis.map((p) => {
             const pres = p.nivel === 'presidente';
             const perm = p.permissoes ?? {};
             return (
               <Card key={p.id} className="p-4">
-                <div className="mb-2 flex items-center justify-between">
+                <div className="mb-2 flex items-center justify-between gap-2">
                   <div>
                     <p className="font-display font-bold">{p.nome}</p>
                     <p className="text-xs text-muted-foreground">nível: {p.nivel}</p>
@@ -167,50 +233,49 @@ export default function AcessosPage() {
                       Acesso total (fixo)
                     </span>
                   ) : (
-                    <Button type="button" size="sm" onClick={() => salvarPerfil(p)}>
-                      Salvar
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => removerPerfil(p)}>
+                        Remover
+                      </Button>
+                      <Button type="button" size="sm" onClick={() => salvarPerfil(p)}>
+                        Salvar
+                      </Button>
+                    </div>
                   )}
                 </div>
 
                 {!pres && (
-                  <div className="divide-y divide-border/60">
+                  <div className="space-y-3">
                     <Linha label="Entrar pelo sistema (e-mail + senha)" hint="Desligado = só PIN (ponto/app)">
                       <Toggle label="login web" on={!!p.loginWeb} onChange={(v) => setPerfil(p.id, (x) => ((x.loginWeb = v), x))} />
                     </Linha>
-                    <Linha label="Ver valores financeiros (R$)" hint="Faturamento, custos, valor de estoque, CMV">
-                      <Toggle label="ver financeiro" on={!!perm.ver_financeiro} onChange={(v) => setPerm(p.id, 'ver_financeiro', v)} />
-                    </Linha>
-                    <Linha label="Módulo Financeiro" hint="Contas a pagar/receber, fluxo, DRE">
-                      <Toggle label="financeiro" on={!!perm.financeiro} onChange={(v) => setPerm(p.id, 'financeiro', v)} />
-                    </Linha>
-                    <Linha label="Módulo Fiscal" hint="Notas fiscais (NFC-e)">
-                      <Toggle label="fiscal" on={!!perm.fiscal} onChange={(v) => setPerm(p.id, 'fiscal', v)} />
-                    </Linha>
 
-                    <div className="py-2">
-                      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Ponto</p>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
-                        {ACOES.map((a) => (
-                          <label key={a} className="flex items-center justify-between gap-2 text-sm capitalize">
-                            {a}
-                            <Toggle label={`ponto ${a}`} on={!!perm.ponto?.[a]} onChange={(v) => setPerm(p.id, `ponto.${a}`, v)} />
-                          </label>
-                        ))}
+                    {Object.entries(grupos).map(([grupo, itens]) => (
+                      <div key={grupo}>
+                        <p className="mb-1 mt-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">{grupo}</p>
+                        <div className="divide-y divide-border/60">
+                          {(itens as any[]).map((it) =>
+                            it.tipo === 'crud' ? (
+                              <div key={it.chave} className="py-2">
+                                <p className="mb-1 text-sm">{it.rotulo}</p>
+                                <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+                                  {ACOES.map((a) => (
+                                    <label key={a} className="flex items-center justify-between gap-2 text-sm capitalize">
+                                      {a}
+                                      <Toggle label={`${it.chave} ${a}`} on={!!perm[it.chave]?.[a]} onChange={(v) => setPerm(p.id, `${it.chave}.${a}`, v)} />
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : (
+                              <Linha key={it.chave} label={it.rotulo}>
+                                <Toggle label={it.rotulo} on={!!perm[it.chave]} onChange={(v) => setPerm(p.id, it.chave, v)} />
+                              </Linha>
+                            ),
+                          )}
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="py-2">
-                      <p className="mb-1 text-xs font-bold uppercase tracking-wide text-muted-foreground">Estoque</p>
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
-                        {ACOES.map((a) => (
-                          <label key={a} className="flex items-center justify-between gap-2 text-sm capitalize">
-                            {a}
-                            <Toggle label={`estoque ${a}`} on={!!perm.estoque?.[a]} onChange={(v) => setPerm(p.id, `estoque.${a}`, v)} />
-                          </label>
-                        ))}
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 )}
               </Card>

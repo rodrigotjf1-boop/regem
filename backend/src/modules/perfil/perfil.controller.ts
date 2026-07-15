@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -24,6 +26,25 @@ export class PerfilController {
   @Get()
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);
+  }
+
+  // Catálogo de permissões (estático) — o editor usa para renderizar tudo.
+  @Get('catalogo')
+  catalogo() {
+    return this.service.catalogo();
+  }
+
+  @Post()
+  criar(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { nome?: string; nivel?: string; loginWeb?: boolean; permissoes?: Permissoes },
+  ) {
+    return this.service.criar(user, dto);
+  }
+
+  @Delete(':id')
+  remover(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.remover(user, id);
   }
 
   @Patch(':id')

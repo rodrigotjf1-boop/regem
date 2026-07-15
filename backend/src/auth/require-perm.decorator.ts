@@ -1,11 +1,14 @@
 import { SetMetadata } from '@nestjs/common';
+import type { Permissoes } from './permissoes';
 
 // Exige uma permissão do perfil de acesso. Formas:
-//   @RequirePerm('financeiro')            → toggle de módulo (boolean)
+//   @RequirePerm('financeiro')            → toggle de área (boolean)
 //   @RequirePerm('ponto', 'criar')        → ação de módulo (ver/criar/editar/excluir)
 export const REQUIRE_PERM = 'require_perm';
+// Chaves booleanas do catálogo (tudo em Permissoes menos os módulos CRUD).
+export type PermBool = Exclude<keyof Permissoes, 'ponto' | 'estoque'>;
 export type PermSpec =
-  | { modulo: 'ver_financeiro' | 'financeiro' | 'fiscal' }
+  | { modulo: PermBool }
   | { modulo: 'ponto' | 'estoque'; acao: 'ver' | 'criar' | 'editar' | 'excluir' };
 
 export const RequirePerm = (modulo: string, acao?: string) =>

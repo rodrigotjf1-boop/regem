@@ -9,7 +9,11 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { perfilAcesso } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
-import type { Permissoes } from '../../auth/permissoes';
+import {
+  CATALOGO_PERMISSOES,
+  perfilPadrao,
+  type Permissoes,
+} from '../../auth/permissoes';
 
 const ORDEM: Record<string, number> = {
   presidente: 0,
@@ -17,6 +21,7 @@ const ORDEM: Record<string, number> = {
   supervisao: 2,
   execucao: 3,
 };
+const NIVEIS = ['presidente', 'gerente', 'supervisao', 'execucao'];
 
 @Injectable()
 export class PerfilService {
@@ -25,12 +30,90 @@ export class PerfilService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
+  // Catálogo de permissões (para o editor renderizar tudo, mesmo o que um perfil
+  // ainda não tem gravado). Estático, não depende de tenant.
+  catalogo() {
+    return CATALOGO_PERMISSOES;
+  }
+
   async listar(tenantId: string) {
     const rows = await this.db
       .select()
       .from(perfilAcesso)
       .where(eq(perfilAcesso.tenantId, tenantId));
-    return rows.sort((a, b) => (ORDEM[a.nivel] ?? 9) - (ORDEM[b.nivel] ?? 9));
+    return rows.sort(
+      (a, b) => (ORDEM[a.nivel] ?? 9) - (ORDEM[b.nivel] ?? 9) || a.nome.localeCompare(b.nome),
+    );
+  }
+
+  // Cria um novo perfil (o presidente pode acrescentar perfis além dos 4 base).
+  // O `nivel` define a hierarquia/escopo; as permissões partem do default do nível
+  // e o presidente ajusta. Nome único por tenant.
+  async criar(
+    ator: AuthUser,
+    dto: { nome?: string; nivel?: string; loginWeb?: boolean; permissoes?: Permissoes },
+  ) {
+    const nome = (dto.nome ?? '').trim();
+    if (!nome) throw new BadRequestException('Informe o nome do perfil.');
+    const nivel = NIVEIS.includes(dto.nivel ?? '') ? (dto.nivel as string) : 'execucao';
+    const [ja] = await this.db
+      .select({ id: perfilAcesso.id })
+      .from(perfilAcesso)
+      .where(and(eq(perfilAcesso.tenantId, ator.tenantId), eq(perfilAcesso.nome, nome)));
+    if (ja) throw new BadRequestException('Já existe um perfil com esse nome.');
+    const [row] = await this.db
+      .insert(perfilAcesso)
+      .values({
+        tenantId: ator.tenantId,
+        nome,
+        nivel,
+        loginWeb: dto.loginWeb ?? true,
+        permissoes: dto.permissoes ?? perfilPadrao(nivel).permissoes,
+      })
+      .returning();
+    await this.auditoria.registrar({
+      tenantId: ator.tenantId,
+      atorId: ator.colaboradorId,
+      atorPerfil: ator.categoria,
+      tipo: 'config',
+      acao: 'perfil_criado',
+      entidadeTipo: 'perfil_acesso',
+      entidadeId: row.id,
+      detalhe: { nome, nivel },
+    });
+    return row;
+  }
+
+  async remover(ator: AuthUser, id: string) {
+    const [alvo] = await this.db
+      .select()
+      .from(perfilAcesso)
+      .where(and(eq(perfilAcesso.id, id), eq(perfilAcesso.tenantId, ator.tenantId)));
+    if (!alvo) throw new NotFoundException('Perfil não encontrado.');
+    if (alvo.nivel === 'presidente')
+      throw new BadRequestException('O perfil Presidente/C&O não pode ser removido.');
+    try {
+      await this.db
+        .delete(perfilAcesso)
+        .where(and(eq(perfilAcesso.id, id), eq(perfilAcesso.tenantId, ator.tenantId)));
+    } catch (e: any) {
+      if (e?.code === '23503')
+        throw new BadRequestException(
+          'Este perfil está em uso por colaboradores. Reatribua-os antes de remover.',
+        );
+      throw e;
+    }
+    await this.auditoria.registrar({
+      tenantId: ator.tenantId,
+      atorId: ator.colaboradorId,
+      atorPerfil: ator.categoria,
+      tipo: 'config',
+      acao: 'perfil_removido',
+      entidadeTipo: 'perfil_acesso',
+      entidadeId: id,
+      detalhe: { nome: alvo.nome, nivel: alvo.nivel },
+    });
+    return { ok: true };
   }
 
   async atualizar(
