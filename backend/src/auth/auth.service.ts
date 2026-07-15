@@ -28,7 +28,10 @@ import { PERFIS_PADRAO, perfilPadrao, type Permissoes } from './permissoes';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Lockout de PIN: após N falhas em JANELA minutos (na mesma unidade), bloqueia.
 const PIN_MAX_FALHAS = 10;
-const PIN_JANELA_MIN = 15;
+// Janela curta (recupera rápido) para reduzir DoS interno: um funcionário
+// errando PINs de propósito só trava o terminal por poucos minutos. O brute-force
+// tem como defesa primária o @Throttle 5/60s por IP no endpoint de PIN.
+const PIN_JANELA_MIN = 5;
 
 @Injectable()
 export class AuthService {

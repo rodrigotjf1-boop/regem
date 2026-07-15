@@ -78,6 +78,7 @@ export class PontoController {
 
   @Get('pessoas')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('ponto_gerencial')
   pessoas(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
     return this.service.pessoas(user.tenantId, data ?? hojeISO());
   }
