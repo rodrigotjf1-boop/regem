@@ -102,8 +102,21 @@ if (Test-Path (Join-Path $root "node_modules\pg")) {
 }
 
 # ---- 1) Postgres local ----
-$pgSenha = Rand 24
 $pgData = Join-Path $base "pgdata"
+# Reinstalacao/atualizacao: se o pgdata JA existe, o initdb e pulado e a senha
+# antiga continua valendo. Entao REUSA a senha do .env.local atual — senao a nova
+# senha aleatoria nao bateria com o banco existente e a conexao quebraria.
+$pgSenha = Rand 24
+$envLocalPrev = Join-Path $root ".env.local"
+if ((Test-Path (Join-Path $pgData "PG_VERSION")) -and (Test-Path $envLocalPrev)) {
+  foreach ($l in Get-Content $envLocalPrev) {
+    if ($l -match '^DATABASE_URL=postgresql://postgres:([^@]+)@') {
+      $pgSenha = $Matches[1]
+      Diga "Reinstalacao: reusando a senha do banco existente (.env.local)."
+      break
+    }
+  }
+}
 if ($embutido.pg) {
   if (-not (Test-Path (Join-Path $pgData "PG_VERSION"))) {
     Diga "Inicializando Postgres embutido em $pgData..."
