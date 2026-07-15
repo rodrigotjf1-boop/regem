@@ -29,7 +29,14 @@ const TOKEN = req('SYNC_TOKEN');
 const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 30000);
 
 // Operacional que sobe (espelha as tabelas 'sobe' do sync-config da nuvem).
+// v2: transacionais primeiro (pais antes dos filhos p/ FK) por updated_at (LWW).
 const PUSH_TABLES = [
+  { tabela: 'caixa_sessao', cursor: 'updated_at' },
+  { tabela: 'comanda', cursor: 'updated_at' },
+  { tabela: 'comanda_item', cursor: 'updated_at' },
+  { tabela: 'producao_pedido', cursor: 'updated_at' },
+  { tabela: 'producao_pedido_item', cursor: 'updated_at' },
+  { tabela: 'pedido_externo', cursor: 'updated_at' },
   { tabela: 'movimento_estoque', cursor: 'created_at' },
   { tabela: 'ponto_marcacao', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', cursor: 'created_at' },

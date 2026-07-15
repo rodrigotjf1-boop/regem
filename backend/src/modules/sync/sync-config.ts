@@ -35,6 +35,14 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'ponto_marcacao', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'audit_log', direcao: 'sobe', cursor: 'created_at' },
+  // v2: transacionais SOBEM por LWW (mudam de estado) — cursor por updated_at
+  // (bumpado por gatilho da mig 095). O push aplica update-se-mais-nova na nuvem.
+  { tabela: 'caixa_sessao', direcao: 'sobe', cursor: 'updated_at' },
+  { tabela: 'comanda', direcao: 'sobe', cursor: 'updated_at' },
+  { tabela: 'comanda_item', direcao: 'sobe', cursor: 'updated_at' },
+  { tabela: 'producao_pedido', direcao: 'sobe', cursor: 'updated_at' },
+  { tabela: 'producao_pedido_item', direcao: 'sobe', cursor: 'updated_at' },
+  { tabela: 'pedido_externo', direcao: 'sobe', cursor: 'updated_at' },
 ];
 
 // O servidor local PUXA o que a nuvem manda pra baixo (desce/ambos).
@@ -48,14 +56,16 @@ export const TABELAS_PULL = TABELAS_SYNC.filter(
 // por id (aditivo — nunca apaga o que é só local). Ordem = pais antes dos filhos
 // (o daemon ainda tem retry de FK como rede de segurança). NÃO é sync contínuo.
 export const TABELAS_RESTORE: TabelaSync[] = [
-  { tabela: 'caixa_sessao', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'comanda', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'comanda_item', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'producao_pedido', direcao: 'desce', cursor: 'criado_em' },
-  { tabela: 'producao_pedido_item', direcao: 'desce', cursor: 'criado_em' },
-  { tabela: 'pedido_externo', direcao: 'desce', cursor: 'criado_em' },
-  { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' },
+  // Cursor por updated_at (v2) para trazer também MUDANÇAS DE ESTADO feitas na
+  // nuvem durante a queda (ex.: comanda fechada), não só as criadas.
+  { tabela: 'caixa_sessao', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'comanda', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'comanda_item', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'producao_pedido', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'producao_pedido_item', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'pedido_externo', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' }, // append (sem updated_at)
+  { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' }, // append
 ];
 
 // Push: append-only ('sobe', on conflict do nothing) e LWW ('ambos', on conflict
