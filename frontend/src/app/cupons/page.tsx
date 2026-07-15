@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { imprimirCupomNavegador } from '@/lib/print-cupom';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -232,15 +233,25 @@ export default function CuponsPage() {
               ))}
             </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              className="mb-3 w-full"
-              disabled={reimprimindo}
-              onClick={reimprimir}
-            >
-              {reimprimindo ? 'Enviando…' : '🖨 Reimprimir 2ª via'}
-            </Button>
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={reimprimindo}
+                onClick={reimprimir}
+                title="Reenvia para a impressora térmica pelo servidor local"
+              >
+                {reimprimindo ? 'Enviando…' : '🖨 Reimprimir (térmica)'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => imprimirCupomNavegador(sel)}
+                title="Imprime pelo navegador — use no modo nuvem ou se o servidor local estiver fora"
+              >
+                🌐 Imprimir (navegador)
+              </Button>
+            </div>
 
             {sel.status === 'cancelada' ? (
               <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
