@@ -10,7 +10,9 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { VendasService } from './vendas.service';
@@ -114,9 +116,11 @@ export class VendasController {
     return this.service.excluirMesa(user.tenantId, user.colaboradorId, id);
   }
 
-  // D2: relatório de retiradas de item (gestão).
+  // D2: relatório de retiradas de item (gestão) — permissão "cancelamentos".
   @Get('remocoes')
+  @UseGuards(RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('cancelamentos')
   remocoes(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,

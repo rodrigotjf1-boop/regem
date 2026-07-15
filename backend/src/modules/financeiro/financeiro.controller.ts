@@ -172,9 +172,10 @@ export class FinanceiroController {
     );
   }
 
-  // Relatório de fechamentos de caixa (só gestão).
+  // Relatório de fechamentos de caixa (só gestão) — permissão "turnos".
   @Get('caixa/fechamentos')
   @Roles('presidente', 'gerente')
+  @RequirePerm('turnos')
   fechamentos(
     @CurrentUser() user: AuthUser,
     @Query('inicio') inicio?: string,
