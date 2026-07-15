@@ -29,6 +29,7 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  Store,
   Users,
   Wallet,
   Wand2,
@@ -93,6 +94,7 @@ const NAV: NavNode[] = [
   {
     label: 'Configurações', icon: Settings,
     children: [
+      { href: '/loja', label: 'Loja', icon: Store, perm: 'loja' },
       { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds' },
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
       { href: '/planos', label: 'Planos & assinatura', icon: CreditCard, perm: 'planos' },
