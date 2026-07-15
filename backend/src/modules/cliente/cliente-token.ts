@@ -5,7 +5,15 @@ import { createHmac } from 'node:crypto';
 // navegador do cliente; os endpoints públicos validam a assinatura.
 
 function segredo(): string {
-  return process.env.JWT_SECRET || process.env.CLIENTE_TOKEN_SECRET || 'regem-dev-secret';
+  // Sem fallback: um segredo padrão conhecido permitiria forjar a sessão de
+  // qualquer cliente (PII: histórico + endereços). Falha alto se não houver.
+  const s = process.env.JWT_SECRET || process.env.CLIENTE_TOKEN_SECRET;
+  if (!s || s.length < 16) {
+    throw new Error(
+      'JWT_SECRET/CLIENTE_TOKEN_SECRET ausente ou fraco — token do cliente não pode ser assinado.',
+    );
+  }
+  return s;
 }
 
 const b64u = (s: string) => Buffer.from(s).toString('base64url');

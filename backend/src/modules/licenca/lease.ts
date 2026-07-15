@@ -32,6 +32,15 @@ function chaves() {
     priv = createPrivateKey(Buffer.from(pkB64, 'base64').toString('utf8'));
     pub = createPublicKey(Buffer.from(pubB64, 'base64').toString('utf8'));
   } else {
+    // Em produção, um par EFÊMERO invalidaria as licenças a cada restart e não
+    // casaria com a chave pública do edge — recusa (fail-fast).
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'LICENSE_PRIVATE_KEY_B64/LICENSE_PUBLIC_KEY_B64 ausentes em produção — recusando gerar par efêmero.',
+      );
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[lease] LICENSE_*_KEY_B64 ausentes — usando par EFÊMERO (apenas dev).');
     const kp = generateKeyPairSync('ed25519');
     priv = kp.privateKey;
     pub = kp.publicKey;

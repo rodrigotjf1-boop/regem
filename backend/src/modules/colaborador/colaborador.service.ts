@@ -134,7 +134,7 @@ export class ColaboradorService {
   }
 
   async create(tenantId: string, dto: CreateColaboradorDto) {
-    const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 10) : undefined;
+    const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 12) : undefined;
     const email = dto.email?.trim().toLowerCase() || undefined;
     if (email) await this.emailLivre(email);
 
@@ -240,7 +240,7 @@ export class ColaboradorService {
       if (email) await this.emailLivre(email, id);
       patch.email = email;
     }
-    if (dto.pin) patch.pinHash = await bcrypt.hash(dto.pin, 10);
+    if (dto.pin) patch.pinHash = await bcrypt.hash(dto.pin, 12);
 
     const [row] = await this.db
       .update(colaborador)
@@ -325,7 +325,7 @@ export class ColaboradorService {
       );
     if (!alvo) throw new NotFoundException('Colaborador não encontrado.');
 
-    const senhaHash = await bcrypt.hash(senha, 10);
+    const senhaHash = await bcrypt.hash(senha, 12);
     const patch: any = { senhaHash, updatedAt: new Date() };
     if (dto.email?.trim()) patch.email = dto.email.trim().toLowerCase();
     const [row] = await this.db
