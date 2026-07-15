@@ -2,12 +2,89 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+// Restauração do estado da nuvem — só no edge e só para o presidente/C&O. Usada
+// ao voltar pro modo local depois de ter operado na nuvem (queda do edge/PC): faz
+// os 2 tempos (empurra pendente local → puxa a nuvem), aditivo (não apaga local).
+function RestaurarServidor() {
+  const [status, setStatus] = useState<any>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [msg, setMsg] = useState('');
+  // Resolve o perfil no cliente (evita divergência de hidratação SSR/cliente).
+  const [presidente, setPresidente] = useState(false);
+
+  const carregar = useCallback(async () => {
+    try {
+      setStatus(await api.edgeRestaurarStatus());
+    } catch {
+      /* fora do edge / sem permissão */
+    }
+  }, []);
+  useEffect(() => {
+    setPresidente(getCategoria() === 'presidente');
+    carregar();
+    const t = setInterval(carregar, 10000); // acompanha o andamento
+    return () => clearInterval(t);
+  }, [carregar]);
+
+  if (!presidente) return null; // restaurar é só do presidente/C&O
+
+  async function restaurar() {
+    if (
+      !confirm(
+        'Restaurar do estado da nuvem? Primeiro sobem as vendas locais pendentes, depois o sistema puxa o que foi feito na nuvem. É aditivo (não apaga o que é só local). Faça com a loja parada.',
+      )
+    )
+      return;
+    setEnviando(true);
+    setMsg('');
+    try {
+      await api.edgeRestaurar();
+      setMsg('Restauração iniciada. Ela roda no próximo ciclo de sync — acompanhe o status abaixo.');
+      await carregar();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao iniciar restauração');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  const emAndamento = status?.restaurando || status?.solicitado;
+  return (
+    <Card className="p-6 lg:col-span-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold">Restaurar do estado da nuvem</h2>
+          <p className="max-w-prose text-sm text-muted-foreground">
+            Use ao voltar para o modo local depois de ter operado na nuvem (ex.: o servidor
+            local caiu). Traz para cá o que foi feito na nuvem, sem apagar o que é local.
+          </p>
+        </div>
+        <Button type="button" onClick={restaurar} disabled={enviando || emAndamento}>
+          {status?.restaurando
+            ? 'Restaurando…'
+            : status?.solicitado
+              ? 'Na fila…'
+              : enviando
+                ? 'Iniciando…'
+                : 'Restaurar agora'}
+        </Button>
+      </div>
+      {status?.restauradoEm && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Última restauração: {new Date(status.restauradoEm).toLocaleString('pt-BR')}
+        </p>
+      )}
+      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+    </Card>
+  );
+}
 
 // Só aparece no app rodando NO edge (build com NEXT_PUBLIC_EDGE=1). Verifica na
 // nuvem se há versão nova e, se houver, deixa o gestor INSTALAR (a tarefa SYSTEM
@@ -129,6 +206,7 @@ export default function ServidorPage() {
     <Shell eyebrow="Instalação" title="Servidor local">
       <div className="grid gap-4 lg:grid-cols-3">
         {process.env.NEXT_PUBLIC_EDGE === '1' && <AtualizacaoServidor />}
+        {process.env.NEXT_PUBLIC_EDGE === '1' && <RestaurarServidor />}
         <Card className="p-6 lg:col-span-2">
           <h2 className="font-display text-xl font-bold">Instale o Regem na sua loja</h2>
           <p className="mt-2 max-w-prose text-sm text-muted-foreground">

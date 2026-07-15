@@ -4,7 +4,7 @@ export type Direcao = 'sobe' | 'desce' | 'ambos';
 export type TabelaSync = {
   tabela: string;
   direcao: Direcao;
-  cursor: 'created_at' | 'updated_at';
+  cursor: 'created_at' | 'updated_at' | 'criado_em';
   escopo?: 'tenant_id' | 'id'; // coluna que amarra ao tenant (empresa usa 'id')
 };
 
@@ -41,6 +41,22 @@ export const TABELAS_SYNC: TabelaSync[] = [
 export const TABELAS_PULL = TABELAS_SYNC.filter(
   (t) => t.direcao === 'desce' || t.direcao === 'ambos',
 );
+
+// RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
+// sido criadas na NUVEM enquanto o edge esteve fora (operação no modo nuvem). Ao
+// voltar pro local, o botão de restaurar PUXA essas tabelas por delta e faz UPSERT
+// por id (aditivo — nunca apaga o que é só local). Ordem = pais antes dos filhos
+// (o daemon ainda tem retry de FK como rede de segurança). NÃO é sync contínuo.
+export const TABELAS_RESTORE: TabelaSync[] = [
+  { tabela: 'caixa_sessao', direcao: 'desce', cursor: 'created_at' },
+  { tabela: 'comanda', direcao: 'desce', cursor: 'created_at' },
+  { tabela: 'comanda_item', direcao: 'desce', cursor: 'created_at' },
+  { tabela: 'producao_pedido', direcao: 'desce', cursor: 'criado_em' },
+  { tabela: 'producao_pedido_item', direcao: 'desce', cursor: 'criado_em' },
+  { tabela: 'pedido_externo', direcao: 'desce', cursor: 'criado_em' },
+  { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' },
+  { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' },
+];
 
 // Push: append-only ('sobe', on conflict do nothing) e LWW ('ambos', on conflict
 // do update se a linha recebida for mais nova — ver venceLWW / arquitetura-edge §3).

@@ -15,6 +15,12 @@ export class SyncController {
     return this.service.pull(ctx.tenantId, desde);
   }
 
+  // Restauração sob demanda: deltas das tabelas transacionais (nuvem → edge).
+  @Get('restore')
+  restore(@SyncCtx() ctx: SyncCtxData, @Query('desde') desde?: string) {
+    return this.service.restore(ctx.tenantId, desde);
+  }
+
   @Post('push')
   push(@SyncCtx() ctx: SyncCtxData, @Body() dto: SyncPushDto) {
     return this.service.push(ctx.tenantId, dto.lotes);

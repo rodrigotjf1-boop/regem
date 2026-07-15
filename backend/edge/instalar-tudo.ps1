@@ -242,13 +242,25 @@ if ($AtivacaoToken -and -not ($Email -and $Senha)) {
   } catch { Diga "AVISO: nao consegui ativar a licenca agora: $($_.Exception.Message). Ative depois pelo /frota." }
 }
 
-# ---- 6.5) atalho na area de trabalho para o servidor local ----
+# ---- 6.5) atalhos na area de trabalho ----
+# Atalhos LOCAIS por modo de operacao (o operador abre direto na tela da loja e
+# ganha o "conceito de local") + um atalho de NUVEM como escape hatch (se o PC do
+# servidor estiver fora quando o aparelho liga, abre-se por este).
 try {
   $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
-  $scut = Join-Path $desktop "Regem (servidor local).url"
-  Set-Content -Path $scut -Encoding ascii -Value "[InternetShortcut]`r`nURL=https://localhost:$PortaWeb`r`nIconIndex=0"
-  Diga "Atalho criado na area de trabalho: Regem (servidor local) -> https://localhost:$PortaWeb"
-} catch { Diga "AVISO: nao consegui criar o atalho na area de trabalho: $($_.Exception.Message)" }
+  function Atalho($nome, $url) {
+    $p = Join-Path $desktop ($nome + ".url")
+    Set-Content -Path $p -Encoding ascii -Value "[InternetShortcut]`r`nURL=$url`r`nIconIndex=0"
+    Diga "Atalho: $nome -> $url"
+  }
+  $baseLocal = "https://localhost:$PortaWeb"
+  Atalho "Regem (servidor local)" $baseLocal
+  Atalho "Regem PDV (local)"      "$baseLocal/pdv"
+  Atalho "Regem KDS (local)"      "$baseLocal/kds"
+  Atalho "Regem Ponto (local)"    "$baseLocal/terminal/ponto"
+  Atalho "Regem Garcom (local)"   "$baseLocal/garcom"
+  Atalho "Regem (nuvem)"          "https://app.dmsregem.com"
+} catch { Diga "AVISO: nao consegui criar os atalhos na area de trabalho: $($_.Exception.Message)" }
 
 Diga ""
 Diga "==================== CONCLUIDO ===================="

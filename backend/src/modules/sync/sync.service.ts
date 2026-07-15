@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { TABELAS_PULL, modoPush, REDIGIR } from './sync-config';
+import { TABELAS_PULL, TABELAS_RESTORE, TabelaSync, modoPush, REDIGIR } from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
 
 @Injectable()
@@ -25,6 +25,18 @@ export class SyncService {
   // Deltas de controle (desce/ambos) desde o cursor, escopados ao tenant.
   // Identificadores (tabela/cursor) vêm da whitelist TABELAS_PULL — nunca do usuário.
   async pull(tenantId: string, desde?: string) {
+    return this.deltas(tenantId, TABELAS_PULL, desde);
+  }
+
+  // RESTAURAÇÃO (nuvem → edge, sob demanda): deltas das tabelas TRANSACIONAIS.
+  // Mesma mecânica do pull, outra whitelist (TABELAS_RESTORE). O edge faz UPSERT
+  // por id (aditivo). Autenticado pelo mesmo sync token (tenant forçado).
+  async restore(tenantId: string, desde?: string) {
+    return this.deltas(tenantId, TABELAS_RESTORE, desde);
+  }
+
+  // Núcleo do delta por cursor, reutilizado por pull e restore.
+  private async deltas(tenantId: string, lista: TabelaSync[], desde?: string) {
     const desdeTs = desde || '1970-01-01T00:00:00Z';
     const tabelas: Record<string, any[]> = {};
     let maxCursor = desdeTs;
@@ -32,15 +44,17 @@ export class SyncService {
       if (v && new Date(v) > new Date(maxCursor)) maxCursor = v;
     };
 
-    for (const t of TABELAS_PULL) {
+    for (const t of lista) {
       // Defensivo: se o cursor configurado não existir na tabela real (drift de
-      // schema), cai para created_at; sem nenhum → pula (não derruba o pull).
+      // schema), cai para created_at; sem nenhum → pula (não derruba o delta).
       const colunas = await this.colunasDe(t.tabela);
       const cursor = colunas.has(t.cursor)
         ? t.cursor
         : colunas.has('created_at')
           ? 'created_at'
-          : null;
+          : colunas.has('criado_em')
+            ? 'criado_em'
+            : null;
       if (!cursor) continue;
       // Soft-delete também é "mudança": inclui deleted_at no delta (onde a coluna existe),
       // para exclusões propagarem mesmo que o updated_at não tenha sido bumpado.
