@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { DistribuidorGuard } from '../../auth/distribuidor.guard';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
@@ -20,16 +22,18 @@ export class LicencaController {
     return this.service.statusConta(user.tenantId);
   }
 
-  // Catálogo de planos (para a página de assinatura). Qualquer usuário logado.
+  // Catálogo de planos (página de assinatura) — só quem tem a permissão "planos".
   @Get('planos')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('planos')
   planos() {
     return PLANOS;
   }
 
   // Checkout de assinatura (Stripe) — devolve a URL da página de pagamento.
   @Post('assinatura/checkout')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('planos')
   checkout(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.criarCheckout(user.tenantId, dto?.chave ?? '', dto?.ciclo ?? '');
   }
