@@ -71,6 +71,15 @@ export class CardapioPublicoController {
     return this.service.pagarPedidoPublico(token, id);
   }
 
+  // Webhook do Mercado Pago (confirmação de PIX). Sem token de loja: correlaciona
+  // pelo gateway_payment_id do pedido. Aceita o id no body (data.id) ou na query.
+  @Post('pagamento/mercadopago/webhook')
+  mpWebhook(@Body() body: any, @Query() q: any) {
+    const paymentId =
+      body?.data?.id ?? body?.resource ?? q?.['data.id'] ?? q?.id ?? '';
+    return this.service.webhookMercadoPago(String(paymentId || ''));
+  }
+
   @Get(':token/pontos')
   pontos(@Param('token') token: string, @Query('telefone') telefone: string) {
     return this.service.pontosPublico(token, telefone ?? '');

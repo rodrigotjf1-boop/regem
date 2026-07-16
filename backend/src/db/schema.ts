@@ -1689,6 +1689,8 @@ export const pedidoExterno = pgTable('pedido_externo', {
   trocoPara: numeric('troco_para'),
   pago: boolean('pago').notNull().default(false),
   statusPagamento: text('status_pagamento').notNull().default('na_entrega'), // na_entrega|aguardando|aprovado|orcamento
+  gatewayPaymentId: text('gateway_payment_id'), // id do pagamento no gateway (Mercado Pago) p/ webhook
+
   agendamento: timestamp('agendamento', { withTimezone: true }), // serviços (L4)
   profissional: text('profissional'),
   cnpj: text('cnpj'), // indústria (faturamento)

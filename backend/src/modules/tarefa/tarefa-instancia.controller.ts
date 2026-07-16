@@ -15,8 +15,10 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { TarefaInstanciaService } from './tarefa-instancia.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ModuloService } from '../modulo/modulo.service';
 import { InstanciarTarefaDto } from './dto/instanciar-tarefa.dto';
 import { ConcluirTarefaDto } from './dto/concluir-tarefa.dto';
+import { ForbiddenException } from '@nestjs/common';
 
 @Controller('tarefas-instancias')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -24,7 +26,16 @@ export class TarefaInstanciaController {
   constructor(
     private readonly service: TarefaInstanciaService,
     private readonly auditoria: AuditoriaService,
+    private readonly modulos: ModuloService,
   ) {}
+
+  // Módulo "App do Colaborador" ativável: quando desligado, corta o acesso do
+  // perfil de execução (o app dele). Gestores (que veem tarefas pela gestão) passam.
+  private async exigeAppColaborador(user: AuthUser) {
+    if (user.categoria !== 'execucao') return;
+    if (!(await this.modulos.ativo(user.tenantId, user.unidadeId ?? null, 'app_colaborador')))
+      throw new ForbiddenException('App do Colaborador está desativado para esta unidade.');
+  }
 
   @Post('instanciar')
   @Roles('presidente', 'gerente', 'supervisao')
@@ -33,7 +44,8 @@ export class TarefaInstanciaController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
+  async findAll(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
+    await this.exigeAppColaborador(user);
     return this.service.findAll(user.tenantId, data);
   }
 
@@ -44,6 +56,7 @@ export class TarefaInstanciaController {
     @Param('id') id: string,
     @Body() dto: ConcluirTarefaDto,
   ) {
+    await this.exigeAppColaborador(user);
     const res = await this.service.concluir(
       user.tenantId,
       id,

@@ -152,6 +152,7 @@ export class OnboardingService {
       })),
       escalas: ESCALAS,
       itens: tpl.itens ?? [], // insumos básicos sugeridos (opcional no wizard)
+      tipos: tpl.tipos ?? [], // tipos de ocorrência (usados no preview do template)
     };
   }
 

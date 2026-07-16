@@ -15,6 +15,8 @@ import { MarcarPontoDto } from './dto/marcar-ponto.dto';
 import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
 import { CriarAjusteDto } from './dto/criar-ajuste.dto';
 import { sqlUnidade } from '../../common/filtro-unidade';
+import { ModuloService } from '../modulo/modulo.service';
+import { ForbiddenException } from '@nestjs/common';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const RETENCAO_FOTO_DIAS = 90; // LGPD: retenção da foto do ponto até o expurgo.
@@ -78,6 +80,7 @@ export class PontoService {
     private readonly auditoria: AuditoriaService,
     private readonly equipamentos: EquipamentoService,
     private readonly events: EventEmitter2,
+    private readonly modulos: ModuloService,
   ) {}
 
   // Grava uma marcação com NSR sequencial POR EQUIPAMENTO (Portaria 671).
@@ -181,6 +184,13 @@ export class PontoService {
     equipamentoId?: string,
     atual: string | null = null,
   ) {
+    // Módulo "Terminal de Ponto" ativável: se desligado para a unidade, o terminal
+    // (kiosk) não marca. Marcação web/gestor não passa por aqui (origem 'web'/'ajuste').
+    if (origem === 'terminal') {
+      const uni = atual ?? dto.unidadeId ?? null;
+      if (!(await this.modulos.ativo(tenantId, uni, 'terminal_ponto')))
+        throw new ForbiddenException('Terminal de ponto está desativado para esta unidade.');
+    }
     const colaboradorId = dto.colaboradorId ?? atorId;
     const row = await this.gravarMarcacao(tenantId, {
       colaboradorId,

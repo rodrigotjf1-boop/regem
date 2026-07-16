@@ -23,6 +23,9 @@ const CSS = `
 .cf .step p{color:#C4D0DE;font-size:15px;line-height:1.6;margin:0 0 6px}
 .cf .step ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:#C4D0DE;font-size:14.5px}
 .cf .step code{font-family:var(--font-mono);font-size:13px;background:#0D1A2B;border:1px solid #1A3050;border-radius:6px;padding:1px 7px;color:#F2F5F9}
+.cf .step .sub{margin-top:12px;padding-left:2px}
+.cf .step .sub h4{font-family:var(--font-display);font-size:14px;font-weight:700;color:#E8A845;margin:0 0 4px}
+.cf .step .sub ul{margin-top:2px}
 .cf .tag{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;background:rgba(232,168,69,.15);color:#E8A845;border:1px solid rgba(232,168,69,.4);padding:2px 9px;border-radius:999px;margin-left:8px;vertical-align:middle}
 .cf .nota{background:rgba(232,168,69,.08);border:1px solid rgba(232,168,69,.25);border-radius:12px;padding:14px 18px;color:#E7C79A;font-size:14px;margin-top:10px}
 .cf .cta{text-align:center;margin:40px 0 64px}
@@ -30,7 +33,15 @@ const CSS = `
 @media(max-width:560px){.cf .step{grid-template-columns:1fr}.cf .num{width:34px;height:34px}}
 `;
 
-const STEPS = [
+type Step = {
+  t: string;
+  p: string;
+  tag?: string;
+  ul?: string[];
+  sub?: { titulo: string; itens: string[] }[];
+};
+
+const STEPS: Step[] = [
   {
     t: 'Crie sua conta',
     tag: '3 meses grátis',
@@ -62,11 +73,26 @@ const STEPS = [
   },
   {
     t: 'Confie o certificado nos aparelhos',
-    p: 'Como a conexão local é protegida por um certificado próprio, cada aparelho pode mostrar um aviso na 1ª vez. Para tirá-lo (e liberar câmera do ponto e o modo offline):',
+    p: 'A conexão local é protegida por um certificado próprio, então cada aparelho mostra um aviso na 1ª vez. Instale o certificado uma vez para tirar o aviso (e liberar a câmera do ponto e o modo offline). No PC do servidor isso já é automático — só nos tablets/aparelhos clientes.',
     ul: [
-      'Copie o arquivo ca.pem (fica em C:\\regem-edge\\backend\\edge\\certs) para o aparelho.',
-      'Abra certlm.msc → Autoridades de Certificação Raiz Confiáveis → Importar → selecione o ca.pem.',
-      'No PC do servidor isso já é feito automaticamente pelo instalador.',
+      'No aparelho, abra no navegador: https://SEU-IP:3001/ca.pem (troque SEU-IP pelo endereço que o instalador mostrou). Baixa o arquivo regem-ca.crt.',
+    ],
+    sub: [
+      {
+        titulo: 'No Windows (1 clique)',
+        itens: [
+          'Baixe o instalador do certificado: https://SEU-IP:3001/confiar-certificado.ps1',
+          'Clique com o botão direito no arquivo → “Executar com o PowerShell” → aceite o aviso de administrador. Ele baixa e instala o certificado sozinho.',
+          'Alternativa manual: abra o regem-ca.crt → Instalar Certificado → Máquina Local → Autoridades de Certificação Raiz Confiáveis → Concluir.',
+        ],
+      },
+      {
+        titulo: 'No Android (tablets)',
+        itens: [
+          'Ajustes → Segurança → Criptografia e credenciais → Instalar um certificado → Certificado CA.',
+          'Selecione o regem-ca.crt baixado e confirme. (Em alguns aparelhos: Ajustes → busque por “certificado”.)',
+        ],
+      },
     ],
   },
   {
@@ -116,6 +142,16 @@ export default function ComoFuncionaPage() {
                     ))}
                   </ul>
                 )}
+                {s.sub?.map((g) => (
+                  <div className="sub" key={g.titulo}>
+                    <h4>{g.titulo}</h4>
+                    <ul>
+                      {g.itens.map((li) => (
+                        <li key={li}>{li}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
               </div>
             </div>
           ))}

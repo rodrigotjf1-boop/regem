@@ -9,6 +9,7 @@ import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
+import { geocode, montarEndereco } from '../../common/geocode';
 import {
   cardapioConfig,
   produto,
@@ -27,7 +28,9 @@ import {
   comanda,
   cliente,
   formaPagamento,
+  integracao,
 } from '../../db/schema';
+import { criarPixMP, consultarPagamentoMP } from '../../common/mercadopago';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
@@ -167,6 +170,17 @@ export class CardapioService {
             .filter((m: any) => m.gatilho || m.resposta)
         : row?.roboMensagens ?? [],
     };
+    // Coords da loja (necessárias p/ frete por raio): tem endereço mas não tem
+    // lat/lng → geocoda uma vez (Nominatim). Falha → segue sem coords.
+    if ((vals.endLat == null || vals.endLng == null) && vals.endRua) {
+      const g = await geocode(
+        montarEndereco([vals.endRua, vals.endNumero, vals.endBairro, vals.endCidade, vals.endEstado]),
+      );
+      if (g) {
+        vals.endLat = String(g.lat);
+        vals.endLng = String(g.lng);
+      }
+    }
     if (row) {
       await this.db
         .update(cardapioConfig)
@@ -877,7 +891,20 @@ export class CardapioService {
     };
   }
 
-  // Público: pagamento online (MOCK — o gateway real é o "plug"). Aprova.
+  // Access token do Mercado Pago: por tenant (integracao canal 'mercadopago',
+  // ativo) ou fallback global do env MP_ACCESS_TOKEN. null = sem gateway (mock).
+  private async resolveMpToken(tenantId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ token: integracao.token, ativo: integracao.ativo })
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'mercadopago')));
+    if (row?.ativo && row.token) return row.token;
+    return process.env.MP_ACCESS_TOKEN || null;
+  }
+
+  // Público: pagamento online. Com Mercado Pago configurado → gera PIX (QR +
+  // copia-e-cola) e fica "aguardando" a confirmação (webhook). SEM gateway →
+  // fallback MOCK (aprova na hora), para demo/dev funcionarem sem credencial.
   async pagarPedidoPublico(token: string, pedidoId: string) {
     const cfg = await this.resolver(token);
     const [p] = await this.db
@@ -890,12 +917,66 @@ export class CardapioService {
         ),
       );
     if (!p) throw new NotFoundException('Pedido não encontrado.');
+    if (p.pago) return { ok: true, jaPago: true, statusPagamento: 'aprovado' };
+
+    const mpToken = await this.resolveMpToken(cfg.tenantId);
+    if (!mpToken) {
+      // Fallback mock (sem gateway): aprova imediatamente.
+      await this.db
+        .update(pedidoExterno)
+        .set({ pago: true, statusPagamento: 'aprovado' })
+        .where(eq(pedidoExterno.id, pedidoId));
+      return { ok: true, statusPagamento: 'aprovado', mock: true };
+    }
+
+    // Gera (ou reaproveita) a cobrança PIX real no Mercado Pago.
+    const base = process.env.PUBLIC_API_URL || '';
+    try {
+      const pix = await criarPixMP(mpToken, {
+        valor: Number(p.total),
+        descricao: `Pedido #${p.numero ?? ''} · ${cfg.nomePublico ?? 'Loja'}`,
+        nome: p.clienteNome ?? undefined,
+        referenciaExterna: p.id,
+        notificationUrl: base ? `${base}/api/v1/publico/cardapio/pagamento/mercadopago/webhook` : undefined,
+        idempotencia: `pedido-${p.id}`,
+      });
+      await this.db
+        .update(pedidoExterno)
+        .set({ gatewayPaymentId: pix.id, statusPagamento: 'aguardando' })
+        .where(eq(pedidoExterno.id, pedidoId));
+      return {
+        ok: true,
+        statusPagamento: 'aguardando',
+        pix: { qrCode: pix.qrCode, qrCodeBase64: pix.qrCodeBase64, ticketUrl: pix.ticketUrl },
+      };
+    } catch (e) {
+      throw new BadRequestException(
+        `Não foi possível gerar o PIX: ${e instanceof Error ? e.message : 'erro no gateway'}`,
+      );
+    }
+  }
+
+  // Webhook do Mercado Pago: confirma o pagamento. Descobre o tenant pelo pedido
+  // correlacionado (gateway_payment_id) e consulta o status real no MP.
+  async webhookMercadoPago(paymentId: string) {
+    if (!paymentId) return { ok: true, ignorado: true };
+    const [p] = await this.db
+      .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, pago: pedidoExterno.pago })
+      .from(pedidoExterno)
+      .where(eq(pedidoExterno.gatewayPaymentId, String(paymentId)));
+    if (!p) return { ok: true, naoCorrelacionado: true };
     if (p.pago) return { ok: true, jaPago: true };
-    await this.db
-      .update(pedidoExterno)
-      .set({ pago: true, statusPagamento: 'aprovado' })
-      .where(eq(pedidoExterno.id, pedidoId));
-    return { ok: true, statusPagamento: 'aprovado' };
+    const mpToken = await this.resolveMpToken(p.tenantId);
+    if (!mpToken) return { ok: true, semToken: true };
+    const st = await consultarPagamentoMP(mpToken, String(paymentId));
+    if (st.status === 'approved') {
+      await this.db
+        .update(pedidoExterno)
+        .set({ pago: true, statusPagamento: 'aprovado' })
+        .where(eq(pedidoExterno.id, p.id));
+      return { ok: true, aprovado: true };
+    }
+    return { ok: true, status: st.status };
   }
 
   // Resolve as opções escolhidas (por id) validando o tenant. Preço do banco.
@@ -1127,8 +1208,23 @@ export class CardapioService {
     if (tipo === 'entrega') {
       if (cfg.areaModo === 'raio') {
         // Frete por raio: distância loja→cliente (Haversine) escolhe a faixa.
-        const lat = Number(dto.lat);
-        const lng = Number(dto.lng);
+        let lat = Number(dto.lat);
+        let lng = Number(dto.lng);
+        // Sem GPS do navegador → geocoda o endereço digitado (Nominatim). A cidade/
+        // estado da loja entram na busca para desambiguar. Falha → cai no fallback.
+        if (!(Number.isFinite(lat) && Number.isFinite(lng))) {
+          const q = montarEndereco([
+            dto.endereco || montarEndereco([dto.rua, dto.numero]),
+            cfg.endBairro,
+            cfg.endCidade,
+            cfg.endEstado,
+          ]);
+          const g = await geocode(q);
+          if (g) {
+            lat = g.lat;
+            lng = g.lng;
+          }
+        }
         const slat = Number(cfg.endLat);
         const slng = Number(cfg.endLng);
         const raios = [...((cfg.raios as any[]) ?? [])].sort((a, b) => Number(a.ateKm) - Number(b.ateKm));

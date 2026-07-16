@@ -13,6 +13,8 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { RequirePerm } from '../../auth/require-perm.decorator';
+import { ModuloGuard } from '../../auth/modulo.guard';
+import { RequireModulo } from '../../auth/require-modulo.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -23,12 +25,14 @@ const GESTOR = ['presidente', 'gerente', 'supervisao'];
 
 // Produção (Fase F1). Ver decisoes-design. KDS informa/avança; PDV é dono do ciclo.
 @Controller('producao')
-@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard, ModuloGuard)
 export class ProducaoPedidoController {
   constructor(private readonly service: ProducaoPedidoService) {}
 
   // ----- KDS (operacional): fila por setor + avanço de status -----
+  // Módulo KDS ativável: presidente desliga → a fila do KDS é cortada no servidor.
   @Get('fila')
+  @RequireModulo('kds')
   fila(
     @CurrentUser() user: AuthUser,
     @UnidadeAtual() unidadeAtual: string | null,

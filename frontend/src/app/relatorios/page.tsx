@@ -72,7 +72,8 @@ export default function RelatoriosPage() {
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'estoque' | 'producao' | 'fidelidade' | 'cashback' | 'financeiro'>('vendas');
+  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'caixa' | 'estoque' | 'producao' | 'fidelidade' | 'cashback' | 'financeiro'>('vendas');
+  const [caixaOps, setCaixaOps] = useState<any>(null);
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
   const [balcao, setBalcao] = useState<any>(null);
@@ -163,6 +164,15 @@ export default function RelatoriosPage() {
     }
   }, [inicio, fim, agrupProd]);
 
+  const reloadCaixa = useCallback(async () => {
+    setErro('');
+    try {
+      setCaixaOps(await api.relatorioOperacoesCaixa(inicio, fim));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [inicio, fim]);
+
   // Seletor de mês → ajusta o período De/Até para o mês inteiro.
   function escolherMes(ym: string) {
     if (!ym) return;
@@ -186,9 +196,10 @@ export default function RelatoriosPage() {
     else if (aba === 'balcao') reloadBalcao();
     else if (aba === 'delivery') reloadDelivery();
     else if (aba === 'turnos') reloadTurnos();
+    else if (aba === 'caixa') reloadCaixa();
     else if (aba === 'estoque') reloadEstoque();
     else if (aba === 'producao') reloadProducao();
-  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos, reloadEstoque, reloadProducao]);
+  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos, reloadCaixa, reloadEstoque, reloadProducao]);
 
   if (!isGestor) {
     return (
@@ -223,6 +234,7 @@ export default function RelatoriosPage() {
               else if (aba === 'balcao') reloadBalcao();
               else if (aba === 'delivery') reloadDelivery();
               else if (aba === 'turnos') reloadTurnos();
+              else if (aba === 'caixa') reloadCaixa();
               else if (aba === 'estoque') reloadEstoque();
               else if (aba === 'producao') reloadProducao();
               else reload();
@@ -239,6 +251,7 @@ export default function RelatoriosPage() {
             { v: 'balcao', l: 'Balcão / Salão' },
             { v: 'delivery', l: 'Delivery' },
             { v: 'turnos', l: 'Turnos / Caixa' },
+            { v: 'caixa', l: 'Operações de caixa' },
             { v: 'estoque', l: 'Estoque' },
             { v: 'producao', l: 'Produção' },
             { v: 'fidelidade', l: 'Fidelidades' },
@@ -370,6 +383,8 @@ export default function RelatoriosPage() {
         )}
 
         {aba === 'turnos' && <TurnosView data={turnos} />}
+
+        {aba === 'caixa' && <CaixaOpsView data={caixaOps} />}
 
         {aba === 'estoque' && <EstoqueView data={estoque} />}
 
@@ -913,6 +928,79 @@ function ProducaoView({
 
 // Estoque: posição por produto + giro (mais → menos giram). Reaproveita a
 // "inteligência" de estoque (saldo, valor, consumo no período, cobertura).
+function CaixaOpsView({ data }: { data: any }) {
+  if (!data) return <p className="text-sm text-muted-foreground">Carregando…</p>;
+  return (
+    <div className="space-y-4">
+      {/* Cancelamentos por operador */}
+      <Card className="p-0">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <h3 className="text-sm font-semibold">Cancelamentos</h3>
+          <span className="text-xs text-muted-foreground">
+            {data.cancelamentosTotal.qtd} cancelamento(s) · {rs(data.cancelamentosTotal.valor)}
+          </span>
+        </div>
+        {data.cancelamentos.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhum cancelamento no período.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <caption className="sr-only">Cancelamentos por operador</caption>
+            <thead>
+              <tr className="text-left text-xs uppercase text-muted-foreground">
+                <th className="px-4 py-2 font-medium">Operador</th>
+                <th className="px-4 py-2 text-right font-medium">Qtd</th>
+                <th className="px-4 py-2 text-right font-medium">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.cancelamentos.map((r: any, i: number) => (
+                <tr key={i} className="border-t border-border">
+                  <td className="px-4 py-2">{r.operador}</td>
+                  <td className="px-4 py-2 text-right font-mono">{r.qtd}</td>
+                  <td className="px-4 py-2 text-right font-mono">{rs(r.valor)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      {/* Sangrias e suprimentos por operador */}
+      <Card className="p-0">
+        <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+          <h3 className="text-sm font-semibold">Sangrias e suprimentos</h3>
+          <span className="text-xs text-muted-foreground">
+            sangrias {rs(data.movimentosTotal.sangrias)} · suprimentos {rs(data.movimentosTotal.suprimentos)}
+          </span>
+        </div>
+        {data.movimentos.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhuma sangria/suprimento no período.</p>
+        ) : (
+          <table className="w-full text-sm">
+            <caption className="sr-only">Sangrias e suprimentos por operador</caption>
+            <thead>
+              <tr className="text-left text-xs uppercase text-muted-foreground">
+                <th className="px-4 py-2 font-medium">Operador</th>
+                <th className="px-4 py-2 text-right font-medium">Sangrias</th>
+                <th className="px-4 py-2 text-right font-medium">Suprimentos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.movimentos.map((r: any, i: number) => (
+                <tr key={i} className="border-t border-border">
+                  <td className="px-4 py-2">{r.operador}</td>
+                  <td className="px-4 py-2 text-right font-mono">{rs(r.sangrias)} <span className="text-xs text-muted-foreground">({r.qtdSangrias})</span></td>
+                  <td className="px-4 py-2 text-right font-mono">{rs(r.suprimentos)} <span className="text-xs text-muted-foreground">({r.qtdSuprimentos})</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 function EstoqueView({ data }: { data: any }) {
   const [ordem, setOrdem] = useState<'mais' | 'menos'>('mais');
   const verFin = podeFinanceiro(); // valor do estoque (R$) só p/ presidente

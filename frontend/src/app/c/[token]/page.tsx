@@ -527,7 +527,11 @@ export default function CardapioPublicoPage() {
           observacao: i.obs || undefined,
         })),
       });
-      if (r.pagamentoOnline && r.pedidoId) await api.cardapioPagar(token, r.pedidoId).catch(() => {});
+      // Pagamento online: com Mercado Pago configurado, retorna o PIX (QR +
+      // copia-e-cola) para exibir; sem gateway, aprova na hora (mock).
+      let pixResp: any = null;
+      if (r.pagamentoOnline && r.pedidoId)
+        pixResp = await api.cardapioPagar(token, r.pedidoId).catch(() => null);
       // Identidade do cliente (token aleatório) criada/confirmada no 1º pedido.
       if (r.clienteToken) setClienteToken(token, r.clienteToken);
       // Lembra o cliente neste aparelho para o próximo pedido.
@@ -544,7 +548,7 @@ export default function CardapioPublicoPage() {
       setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setCheckout(false);
       if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
-      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref });
+      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -605,6 +609,28 @@ export default function CardapioPublicoPage() {
           {ped.modo === 'mesa'
             ? <p className="mt-1 text-neutral-600">Foi para a cozinha (mesa {ped.mesa}).</p>
             : <p className="mt-1 text-neutral-600">Senha {ped.displayId} · total {brl(ped.total ?? totalFinal)}</p>}
+          {/* PIX (Mercado Pago): QR + copia-e-cola. O status atualiza pelo webhook. */}
+          {ped.pix?.qrCode && (
+            <div className="mt-5 rounded-2xl border-2 p-4 text-center" style={{ borderColor: accent }}>
+              <p className="text-sm font-semibold">Pague com PIX para confirmar</p>
+              {ped.pix.qrCodeBase64 && (
+                <img src={`data:image/png;base64,${ped.pix.qrCodeBase64}`} alt="QR Code PIX" className="mx-auto my-3 h-48 w-48" />
+              )}
+              <p className="mb-1 text-left text-xs text-neutral-500">Copia e cola:</p>
+              <div className="flex items-center gap-2">
+                <input readOnly aria-label="Código PIX copia e cola" value={ped.pix.qrCode} className="min-w-0 flex-1 truncate rounded-lg border px-2 py-1.5 text-xs" />
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(ped.pix.qrCode)}
+                  className="flex-none rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+                  style={{ background: accent }}
+                >
+                  Copiar
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-neutral-500">Após pagar, o status atualiza automaticamente.</p>
+            </div>
+          )}
           {ped.pedidoId && ped.status !== 'cancelado' && (
             <div className="mt-6 text-left">
               {passos.map((s, i) => (

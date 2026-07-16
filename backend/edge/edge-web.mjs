@@ -55,8 +55,49 @@ next.on('exit', (code) => {
   process.exit(code || 1);
 });
 
+// Certificado da CA local (para os aparelhos confiarem no servidor). Fica em
+// edge/certs/ca.pem (gerado por gen-cert.mjs).
+const caPath = join(edgeDir, 'certs', 'ca.pem');
+// Helper que instala o cert sozinho no Windows do aparelho (item 2 do tutorial).
+const scriptPath = join(edgeDir, 'confiar-certificado.ps1');
+
 // 2) proxy HTTPS (LAN) -> HTTP interno do Next.
 const encaminha = (req, res) => {
+  // Download do certificado: o aparelho (KDS/PDV/ponto) abre /ca.pem e instala
+  // como CA confiavel. Extensao .crt e content-type de CA ajudam o Android a
+  // reconhecer o arquivo. Ver a aba "Como funciona" (passo do certificado).
+  const url = (req.url || '').split('?')[0];
+  if (url === '/ca.pem' || url === '/ca-regem.crt' || url === '/regem-ca.crt') {
+    try {
+      const buf = readFileSync(caPath);
+      res.writeHead(200, {
+        'content-type': 'application/x-x509-ca-cert',
+        'content-disposition': 'attachment; filename="regem-ca.crt"',
+        'cache-control': 'no-store',
+      });
+      res.end(buf);
+    } catch {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('Certificado nao encontrado.');
+    }
+    return;
+  }
+  // Script de 1 clique (Windows) que baixa o cert e o instala como CA confiavel.
+  if (url === '/confiar-certificado.ps1') {
+    try {
+      const buf = readFileSync(scriptPath);
+      res.writeHead(200, {
+        'content-type': 'application/octet-stream',
+        'content-disposition': 'attachment; filename="confiar-certificado.ps1"',
+        'cache-control': 'no-store',
+      });
+      res.end(buf);
+    } catch {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('Script nao encontrado.');
+    }
+    return;
+  }
   const up = http.request(
     { host: '127.0.0.1', port: INNER, method: req.method, path: req.url, headers: req.headers },
     (upRes) => {
