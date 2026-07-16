@@ -16,6 +16,7 @@ export class PicoService {
         unidadeId: dto.unidadeId,
         nome: dto.nome,
         diaSemana: dto.diaSemana ?? null,
+        diaSemanaFim: dto.diaSemanaFim ?? null,
         horaInicio: dto.horaInicio,
         horaFim: dto.horaFim,
       })
@@ -42,6 +43,7 @@ export class PicoService {
     dto: {
       nome?: string;
       diaSemana?: number | null;
+      diaSemanaFim?: number | null;
       horaInicio?: string;
       horaFim?: string;
     },
@@ -51,6 +53,7 @@ export class PicoService {
       .set({
         nome: dto.nome,
         diaSemana: dto.diaSemana ?? null,
+        diaSemanaFim: dto.diaSemanaFim ?? null,
         horaInicio: dto.horaInicio,
         horaFim: dto.horaFim,
       })

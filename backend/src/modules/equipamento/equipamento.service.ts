@@ -46,6 +46,8 @@ export class EquipamentoService {
             ? dto.setoresAtendidos
             : undefined,
         padrao: dto.tipo === 'impressora' ? !!dto.padrao : undefined,
+        impressoraPadraoId:
+          dto.tipo === 'pdv' ? dto.impressoraPadraoId ?? null : undefined,
       })
       .returning();
     await this.auditoria.registrar({
@@ -69,6 +71,27 @@ export class EquipamentoService {
       .where(eq(equipamento.tenantId, tenantId))
       .orderBy(desc(equipamento.createdAt));
     return rows.map((r) => this.publico(r));
+  }
+
+  // Define/limpa a impressora de cupom amarrada a um terminal de PDV.
+  async setImpressoraTerminal(
+    tenantId: string,
+    id: string,
+    impressoraId: string | null,
+  ) {
+    const [row] = await this.db
+      .update(equipamento)
+      .set({ impressoraPadraoId: impressoraId || null })
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.id, id),
+          eq(equipamento.tipo, 'pdv'),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Terminal não encontrado');
+    return this.publico(row);
   }
 
   async revogar(tenantId: string, id: string, atorId: string, atorPerfil: string) {
@@ -106,6 +129,51 @@ export class EquipamentoService {
       .update(equipamento)
       .set({ ultimoPing: new Date() })
       .where(eq(equipamento.id, id));
+  }
+
+  // Pareamento de um terminal de PDV: valida o token (device tipo 'pdv', ativo, do
+  // tenant) e devolve a identidade que o PC guarda localmente (id + nome + unidade).
+  async parear(tenantId: string, token: string) {
+    const t = (token ?? '').trim();
+    if (!t) throw new NotFoundException('Informe o token do terminal.');
+    const [row] = await this.db
+      .select()
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.token, t),
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'pdv'),
+          eq(equipamento.ativo, true),
+        ),
+      );
+    if (!row)
+      throw new NotFoundException(
+        'Terminal não encontrado ou inativo. Confira o token com o gestor.',
+      );
+    await this.registrarPing(row.id);
+    return { id: row.id, nome: row.nome, unidadeId: row.unidadeId };
+  }
+
+  // Resolve o terminal de PDV (ativo, do tenant) e devolve sua unidade — usado pelo
+  // caixa/venda para amarrar a sessão ao terminal. null quando o id é inválido.
+  async terminalUnidade(
+    tenantId: string,
+    terminalId?: string | null,
+  ): Promise<string | null> {
+    if (!terminalId) return null;
+    const [row] = await this.db
+      .select({ unidadeId: equipamento.unidadeId })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.id, terminalId),
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'pdv'),
+          eq(equipamento.ativo, true),
+        ),
+      );
+    return row?.unidadeId ?? null;
   }
 
   // REP-Software lógico: garante um equipamento padrão por (tenant, unidade)
@@ -152,6 +220,7 @@ export class EquipamentoService {
       setoresAtendidos: r.setoresAtendidos ?? [],
       vias: r.vias,
       padrao: r.padrao,
+      impressoraPadraoId: r.impressoraPadraoId ?? null,
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,
       createdAt: r.createdAt,

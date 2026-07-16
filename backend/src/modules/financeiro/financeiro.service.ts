@@ -16,11 +16,13 @@ import {
   formaPagamento,
   entitlement,
   unidade,
+  equipamento,
   ocorrencia,
   tipoOcorrencia,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { proximaData } from '../../common/regras-negocio';
+import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
@@ -37,7 +39,7 @@ export class FinanceiroService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  async listar(tenantId: string, tipo?: string, status?: string) {
+  async listar(tenantId: string, tipo?: string, status?: string, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
       select t.id, t.tipo, t.descricao, t.categoria, t.valor, t.vencimento,
              t.recorrencia, t.status, t.origem, t.foto_ref as "fotoRef",
@@ -45,7 +47,7 @@ export class FinanceiroService {
              t.created_at as "createdAt", f.nome as "fornecedorNome"
       from titulo_financeiro t
       left join fornecedor f on f.id = t.fornecedor_id
-      where t.tenant_id = ${tenantId}
+      where t.tenant_id = ${tenantId} ${sqlUnidade('t.unidade_id', atual)}
       ${tipo ? sql`and t.tipo = ${tipo}` : sql``}
       ${status ? sql`and t.status = ${status}` : sql``}
       order by (t.status = 'aberto') desc, t.vencimento asc nulls last, t.created_at desc
@@ -59,12 +61,13 @@ export class FinanceiroService {
     atorId: string,
     atorPerfil: string,
     dto: CreateTituloDto,
+    atual: string | null = null,
   ) {
     const [row] = await this.db
       .insert(tituloFinanceiro)
       .values({
         tenantId,
-        unidadeId: dto.unidadeId,
+        unidadeId: atual ?? dto.unidadeId,
         tipo: dto.tipo ?? 'pagar',
         descricao: dto.descricao,
         categoria: dto.categoria,
@@ -97,11 +100,12 @@ export class FinanceiroService {
     atorPerfil: string,
     id: string,
     dto: CreateTituloDto,
+    atual: string | null = null,
   ) {
     const [t] = await this.db
       .select()
       .from(tituloFinanceiro)
-      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)));
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId), condUnidade(tituloFinanceiro.unidadeId, atual)));
     if (!t) throw new NotFoundException('Título não encontrado');
     if (t.status !== 'aberto')
       throw new BadRequestException('Só é possível editar contas em aberto.');
@@ -133,11 +137,11 @@ export class FinanceiroService {
   }
 
   // "Excluir" = cancela a conta em aberto (mantém o registro para auditoria).
-  async cancelar(tenantId: string, atorId: string, atorPerfil: string, id: string) {
+  async cancelar(tenantId: string, atorId: string, atorPerfil: string, id: string, atual: string | null = null) {
     const [t] = await this.db
       .select()
       .from(tituloFinanceiro)
-      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId)));
+      .where(and(eq(tituloFinanceiro.id, id), eq(tituloFinanceiro.tenantId, tenantId), condUnidade(tituloFinanceiro.unidadeId, atual)));
     if (!t) throw new NotFoundException('Título não encontrado');
     if (t.status !== 'aberto')
       throw new BadRequestException('Só é possível excluir contas em aberto.');
@@ -165,6 +169,7 @@ export class FinanceiroService {
     atorPerfil: string,
     id: string,
     dto: PagarTituloDto,
+    atual: string | null = null,
   ) {
     return this.db.transaction(async (tx) => {
       const [t] = await tx
@@ -174,6 +179,7 @@ export class FinanceiroService {
           and(
             eq(tituloFinanceiro.id, id),
             eq(tituloFinanceiro.tenantId, tenantId),
+            condUnidade(tituloFinanceiro.unidadeId, atual),
           ),
         );
       if (!t) throw new NotFoundException('Título não encontrado');
@@ -236,6 +242,7 @@ export class FinanceiroService {
     atorId: string,
     atorPerfil: string,
     id: string,
+    atual: string | null = null,
   ) {
     return this.db.transaction(async (tx) => {
       const [lanc] = await tx
@@ -245,6 +252,7 @@ export class FinanceiroService {
           and(
             eq(lancamentoCaixa.tituloId, id),
             eq(lancamentoCaixa.tenantId, tenantId),
+            condUnidade(lancamentoCaixa.unidadeId, atual),
             isNull(lancamentoCaixa.estornoDe),
           ),
         )
@@ -283,16 +291,16 @@ export class FinanceiroService {
   }
 
   // Resumo p/ o topo da tela (base do fluxo de caixa — H2).
-  async resumo(tenantId: string) {
+  async resumo(tenantId: string, atual: string | null = null) {
     const r: any = await this.db.execute(sql`
       select
         coalesce(sum(case when tipo='pagar' and status='aberto' then valor else 0 end),0) as "aPagar",
         coalesce(sum(case when tipo='receber' and status='aberto' then valor else 0 end),0) as "aReceber"
-      from titulo_financeiro where tenant_id=${tenantId}
+      from titulo_financeiro where tenant_id=${tenantId} ${sqlUnidade('unidade_id', atual)}
     `);
     const c: any = await this.db.execute(sql`
       select coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as "saldoCaixa"
-      from lancamento_caixa where tenant_id=${tenantId}
+      from lancamento_caixa where tenant_id=${tenantId} ${sqlUnidade('unidade_id', atual)}
     `);
     const t = (r.rows ?? r)[0];
     const cx = (c.rows ?? c)[0];
@@ -305,10 +313,10 @@ export class FinanceiroService {
 
   // Fluxo de caixa projetado: saldo atual + títulos abertos por vencimento,
   // com saldo acumulado dia a dia (vencidos entram no "hoje"). H2.
-  async fluxoCaixa(tenantId: string, dias = 30) {
+  async fluxoCaixa(tenantId: string, dias = 30, atual: string | null = null) {
     const c: any = await this.db.execute(sql`
       select coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as saldo
-      from lancamento_caixa where tenant_id=${tenantId}
+      from lancamento_caixa where tenant_id=${tenantId} ${sqlUnidade('unidade_id', atual)}
     `);
     const saldoAtual = Number((c.rows ?? c)[0].saldo);
 
@@ -320,7 +328,7 @@ export class FinanceiroService {
       select vencimento::text as data, tipo, coalesce(sum(valor),0) as valor
       from titulo_financeiro
       where tenant_id=${tenantId} and status='aberto' and vencimento is not null
-        and vencimento <= ${limite}
+        and vencimento <= ${limite} ${sqlUnidade('unidade_id', atual)}
       group by vencimento, tipo
       order by vencimento asc
     `);
@@ -363,7 +371,7 @@ export class FinanceiroService {
 
   // DRE gerencial (regime de caixa) — receitas − despesas por categoria, do ledger. H3.
   // Valor pleno (receita de vendas, CMV, folha) chega com o PDV (Fase J) e a folha.
-  async dreCaixa(tenantId: string, inicio: string, fim: string) {
+  async dreCaixa(tenantId: string, inicio: string, fim: string, atual: string | null = null) {
     // Exclui os estornos (estorno_de not null) E os lançamentos que foram
     // estornados (id referenciado por algum estorno) — assim reversões não
     // contam como receita/despesa na DRE.
@@ -375,14 +383,14 @@ export class FinanceiroService {
       select coalesce(sum(valor),0) as v from lancamento_caixa
       where tenant_id=${tenantId} and tipo='entrada' and estorno_de is null
         and id not in (${estornados})
-        and data between ${inicio} and ${fim}
+        and data between ${inicio} and ${fim} ${sqlUnidade('unidade_id', atual)}
     `);
     const desp: any = await this.db.execute(sql`
       select coalesce(categoria,'outros') as categoria, coalesce(sum(valor),0) as v
       from lancamento_caixa
       where tenant_id=${tenantId} and tipo='saida' and estorno_de is null
         and id not in (${estornados})
-        and data between ${inicio} and ${fim}
+        and data between ${inicio} and ${fim} ${sqlUnidade('unidade_id', atual)}
       group by coalesce(categoria,'outros')
       order by v desc
     `);
@@ -402,29 +410,65 @@ export class FinanceiroService {
   }
 
   // ===== Caixa (J5) =====
-  // origem separa a gaveta do balcão (pdv) da gaveta do delivery.
-  async sessaoAberta(tenantId: string, origem = 'pdv') {
-    const [s] = await this.db
-      .select()
-      .from(caixaSessao)
+  // Resolve a unidade de um terminal de PDV (equipamento tipo='pdv', ativo, do tenant).
+  private async unidadeDoTerminal(
+    tenantId: string,
+    terminalId: string,
+  ): Promise<string | null> {
+    const [row] = await this.db
+      .select({ unidadeId: equipamento.unidadeId })
+      .from(equipamento)
       .where(
         and(
-          eq(caixaSessao.tenantId, tenantId),
-          eq(caixaSessao.status, 'aberta'),
-          eq(caixaSessao.origem, origem),
+          eq(equipamento.id, terminalId),
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'pdv'),
+          eq(equipamento.ativo, true),
         ),
       );
+    return row?.unidadeId ?? null;
+  }
+
+  // origem separa a gaveta do balcão (pdv) da gaveta do delivery. No balcão a
+  // sessão é POR TERMINAL (cada caixa físico tem a sua); no delivery é uma só.
+  async sessaoAberta(tenantId: string, origem = 'pdv', terminalId?: string | null) {
+    const conds = [
+      eq(caixaSessao.tenantId, tenantId),
+      eq(caixaSessao.status, 'aberta'),
+      eq(caixaSessao.origem, origem),
+    ];
+    if (origem !== 'delivery') {
+      conds.push(
+        terminalId
+          ? eq(caixaSessao.terminalId, terminalId)
+          : isNull(caixaSessao.terminalId),
+      );
+    }
+    const [s] = await this.db.select().from(caixaSessao).where(and(...conds));
     return s ?? null;
   }
 
   async abrirSessao(
     tenantId: string,
     atorId: string,
-    dto: { valorAbertura?: number; unidadeId?: string; origem?: string },
+    dto: { valorAbertura?: number; origem?: string; terminalId?: string | null },
   ) {
     const origem = dto.origem === 'delivery' ? 'delivery' : 'pdv';
-    const aberta = await this.sessaoAberta(tenantId, origem);
-    if (aberta) throw new BadRequestException('Já existe um caixa aberto.');
+    // Balcão exige terminal pareado (F1); a unidade da sessão deriva do terminal.
+    let terminalId: string | null = null;
+    let unidadeId: string | null = null;
+    if (origem !== 'delivery') {
+      terminalId = dto.terminalId ?? null;
+      if (!terminalId)
+        throw new BadRequestException(
+          'Terminal de PDV não pareado neste computador.',
+        );
+      unidadeId = await this.unidadeDoTerminal(tenantId, terminalId);
+      if (unidadeId === null && terminalId)
+        throw new BadRequestException('Terminal inválido ou inativo.');
+    }
+    const aberta = await this.sessaoAberta(tenantId, origem, terminalId);
+    if (aberta) throw new BadRequestException('Já existe um caixa aberto neste terminal.');
     // Nº do turno = sequencial por dia (fuso SP), por origem: 1º caixa do dia = Turno 1.
     const tn: any = await this.db.execute(sql`
       select coalesce(max(turno_numero), 0) + 1 as n from caixa_sessao
@@ -436,7 +480,8 @@ export class FinanceiroService {
       .insert(caixaSessao)
       .values({
         tenantId,
-        unidadeId: dto.unidadeId,
+        unidadeId,
+        terminalId,
         origem,
         turnoNumero,
         valorAbertura: String(dto.valorAbertura ?? 0),
@@ -447,8 +492,8 @@ export class FinanceiroService {
   }
 
   // Caixa aberto + nome do operador (p/ o PDV mostrar "Turno N · Operador X").
-  async caixaAtual(tenantId: string, origem = 'pdv') {
-    const s = await this.sessaoAberta(tenantId, origem);
+  async caixaAtual(tenantId: string, origem = 'pdv', terminalId?: string | null) {
+    const s = await this.sessaoAberta(tenantId, origem, terminalId);
     if (!s) return null;
     let operadorNome: string | null = null;
     if (s.abertaPorId) {
@@ -493,9 +538,12 @@ export class FinanceiroService {
   // ===== Formas de pagamento (cadastro) =====
   private static readonly FORMAS_PADRAO = [
     { nome: 'Dinheiro', tipo: 'dinheiro' },
-    { nome: 'Pix', tipo: 'pix' },
     { nome: 'Cartão de crédito', tipo: 'credito' },
     { nome: 'Cartão de débito', tipo: 'debito' },
+    { nome: 'Pix', tipo: 'pix' },
+    { nome: 'Vale refeição', tipo: 'vr' },
+    { nome: 'Vale alimentação', tipo: 'vr' },
+    { nome: 'Transferência', tipo: 'outro' },
   ];
 
   async listarFormasPagamento(tenantId: string, apenasAtivas = false) {
@@ -522,21 +570,54 @@ export class FinanceiroService {
     return apenasAtivas ? rows.filter((r) => r.ativo) : rows;
   }
 
-  async criarFormaPagamento(
-    tenantId: string,
-    dto: { nome: string; tipo?: string },
-  ) {
-    if (!dto.nome?.trim()) throw new BadRequestException('Informe o nome.');
+  // Normaliza os campos ricos vindos do dto (compartilhado por criar/atualizar).
+  private valsForma(dto: any) {
     const tipos = ['dinheiro', 'pix', 'credito', 'debito', 'vr', 'outro'];
+    const tiposPed = ['delivery', 'retirada', 'balcao'];
+    const vals: Record<string, unknown> = {};
+    if (dto.nome != null) vals.nome = String(dto.nome).trim();
+    if (dto.tipo != null) vals.tipo = tipos.includes(dto.tipo) ? dto.tipo : 'outro';
+    if (dto.ativo != null) vals.ativo = !!dto.ativo;
+    if (dto.cardapio != null) vals.cardapio = !!dto.cardapio;
+    if (dto.tiposPedido != null)
+      vals.tiposPedido = Array.isArray(dto.tiposPedido)
+        ? dto.tiposPedido.filter((t: string) => tiposPed.includes(t))
+        : [];
+    if (dto.taxaExtra !== undefined)
+      vals.taxaExtra = dto.taxaExtra === '' || dto.taxaExtra == null ? null : String(Number(dto.taxaExtra) || 0);
+    if (dto.obs !== undefined) vals.obs = dto.obs?.trim() || null;
+    if (dto.bandeiras != null) vals.bandeiras = Array.isArray(dto.bandeiras) ? dto.bandeiras : [];
+    return vals;
+  }
+
+  async criarFormaPagamento(tenantId: string, dto: any) {
+    if (!dto.nome?.trim()) throw new BadRequestException('Informe o nome.');
     const [row] = await this.db
       .insert(formaPagamento)
-      .values({
-        tenantId,
-        nome: dto.nome.trim(),
-        tipo: tipos.includes(dto.tipo ?? '') ? dto.tipo : 'outro',
-      })
+      .values({ tenantId, ...this.valsForma(dto) } as any)
       .returning();
     return row;
+  }
+
+  async atualizarFormaPagamento(tenantId: string, id: string, dto: any) {
+    const vals = this.valsForma(dto);
+    if (Object.keys(vals).length === 0) throw new BadRequestException('Nada para atualizar.');
+    const [row] = await this.db
+      .update(formaPagamento)
+      .set(vals)
+      .where(and(eq(formaPagamento.id, id), eq(formaPagamento.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new BadRequestException('Forma não encontrada.');
+    return row;
+  }
+
+  async removerFormaPagamento(tenantId: string, id: string) {
+    const [row] = await this.db
+      .delete(formaPagamento)
+      .where(and(eq(formaPagamento.id, id), eq(formaPagamento.tenantId, tenantId)))
+      .returning();
+    if (!row) throw new BadRequestException('Forma não encontrada.');
+    return { ok: true };
   }
 
   async setFormaPagamentoAtiva(tenantId: string, id: string, ativo: boolean) {
@@ -559,6 +640,7 @@ export class FinanceiroService {
       valor: number;
       descricao?: string;
       origem?: string;
+      terminalId?: string | null;
     },
   ) {
     // Autorização: atendente só sangra/supre se o presidente liberou.
@@ -572,6 +654,7 @@ export class FinanceiroService {
     const s = await this.sessaoAberta(
       tenantId,
       dto.origem === 'delivery' ? 'delivery' : 'pdv',
+      dto.terminalId,
     );
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
@@ -613,11 +696,13 @@ export class FinanceiroService {
       valoresInformados?: Record<string, number>; // contado por forma
       obs?: string;
       origem?: string;
+      terminalId?: string | null;
     },
   ) {
     const s = await this.sessaoAberta(
       tenantId,
       dto.origem === 'delivery' ? 'delivery' : 'pdv',
+      dto.terminalId,
     );
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
@@ -762,8 +847,10 @@ export class FinanceiroService {
 
   // Relatório de fechamentos (gerente/presidente): sessões fechadas com operador e
   // diferenças, mais recentes primeiro. Filtro opcional por período (fechadaEm).
-  async fechamentos(tenantId: string, inicio?: string, fim?: string) {
+  async fechamentos(tenantId: string, inicio?: string, fim?: string, atual: string | null = null) {
     const cond = [eq(caixaSessao.tenantId, tenantId), eq(caixaSessao.status, 'fechada')];
+    const cu = condUnidade(caixaSessao.unidadeId, atual);
+    if (cu) cond.push(cu);
     if (inicio) cond.push(sql`${caixaSessao.fechadaEm} >= ${inicio}`);
     if (fim) cond.push(sql`${caixaSessao.fechadaEm} <= ${fim + ' 23:59:59'}`);
     return this.db

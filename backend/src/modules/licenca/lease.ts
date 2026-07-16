@@ -48,6 +48,14 @@ function chaves() {
   return { priv, pub };
 }
 
+// A licença está configurada (chaves presentes)? Usado para falhar com mensagem
+// clara (e log) ANTES de tentar assinar, em vez de estourar um 500 opaco.
+export function licencaConfigurada(): boolean {
+  return !!(
+    process.env.LICENSE_PRIVATE_KEY_B64 && process.env.LICENSE_PUBLIC_KEY_B64
+  );
+}
+
 export interface LeasePayload {
   tenantId: string;
   ramo: string;

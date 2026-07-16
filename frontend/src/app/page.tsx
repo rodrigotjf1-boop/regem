@@ -117,6 +117,24 @@ const CSS = `
 .lp footer nav{display:flex;gap:22px;margin-left:auto;flex-wrap:wrap}
 .lp footer a:hover{color:#9FB2C8}
 .lp .foot-sign{width:100%;text-align:center;margin-top:26px;font-family:var(--font-mono);font-size:11px;letter-spacing:.3em;color:#5F7590}
+.lp .free-badge{display:inline-flex;align-items:center;gap:9px;background:rgba(46,189,133,.12);border:1px solid rgba(46,189,133,.42);color:#2EBD85;font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:.05em;padding:8px 16px;border-radius:999px;margin:0 0 4px}
+.lp .free-badge b{color:#F2F5F9;font-weight:700}
+.lp .free-badge .fdot{width:7px;height:7px;border-radius:50%;background:#2EBD85;animation:lpPulse 1.8s infinite}
+.lp .hero-reassure{margin-top:18px;font-size:13px;color:#5F7590;display:flex;gap:16px;justify-content:center;flex-wrap:wrap}
+.lp .hero-reassure span{display:inline-flex;align-items:center;gap:7px}
+.lp .hero-reassure span::before{content:"✓";color:#2EBD85;font-weight:700}
+.lp .local{background:linear-gradient(180deg,rgba(74,168,224,.07),transparent 70%);border-top:1px solid #1A3050;border-bottom:1px solid #1A3050}
+.lp .local-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.lp .lcard{background:#12233A;border:1px solid #1A3050;border-radius:16px;padding:22px 22px 24px}
+.lp .lcard .li{font-size:24px}
+.lp .lcard h3{font-family:var(--font-display);font-size:15px;font-weight:700;margin:12px 0 6px}
+.lp .lcard p{font-size:13px;color:#9FB2C8;line-height:1.55}
+.lp .local-modes{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:34px}
+.lp .lmode{background:#12233A;border:1px solid #1A3050;border-radius:14px;padding:16px 20px;max-width:360px;text-align:left;flex:1;min-width:260px}
+.lp .lmode .lmt{font-family:var(--font-display);font-size:14px;font-weight:800;display:flex;align-items:center;gap:9px}
+.lp .lmode .tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;padding:3px 9px;border-radius:20px;margin-left:auto}
+.lp .lmode p{font-size:12.5px;color:#9FB2C8;margin-top:8px;line-height:1.55}
+.lp .pricing-free{text-align:center;font-size:13.5px;color:#2EBD85;font-weight:600;margin:-24px auto 34px;max-width:560px}
 `;
 
 export default function LandingPage() {
@@ -153,13 +171,17 @@ export default function LandingPage() {
       {/* HERO */}
       <div className="hero">
         <div className="eyebrow">Bares · Restaurantes · e o que vier depois</div>
+        <div className="free-badge">
+          <span className="fdot" aria-hidden="true" />
+          <b>3 meses grátis</b> do sistema completo · sem cartão de crédito
+        </div>
         <h1>
           Controle <em>total</em> do seu negócio, de ponta a ponta.
         </h1>
         <p>
           Vendas, estoque, equipe e financeiro numa só plataforma. Simples no
-          balcão, completa na diretoria. <strong style={{ color: '#F2F5F9' }}>3 meses grátis</strong> do
-          sistema completo — sem cartão.
+          balcão, completa na diretoria — e funciona{' '}
+          <strong style={{ color: '#F2F5F9' }}>mesmo quando a internet cai</strong>.
         </p>
         <div className="hero-ctas">
           <Link
@@ -167,7 +189,7 @@ export default function LandingPage() {
             href="/criar-conta"
             style={{ padding: '15px 32px', fontSize: 16 }}
           >
-            Começar agora
+            Começar grátis
           </Link>
           <a
             className="btn btn-ghost"
@@ -176,6 +198,11 @@ export default function LandingPage() {
           >
             Ver demonstração
           </a>
+        </div>
+        <div className="hero-reassure">
+          <span>Sem cartão de crédito</span>
+          <span>Sem fidelidade</span>
+          <span>Cancele quando quiser</span>
         </div>
       </div>
 
@@ -292,6 +319,62 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* NUVEM + LOCAL (offline-first) */}
+      <div className="local">
+        <section>
+          <div className="sec-head">
+            <div className="eyebrow">Nuvem + Local · offline-first</div>
+            <h2>A loja não pode parar porque a internet caiu.</h2>
+            <p>
+              O Regem roda num servidor local dentro da sua loja. PDV, cozinha e
+              impressão continuam funcionando sem internet — e tudo sobe para a
+              nuvem sozinho quando a conexão volta.
+            </p>
+          </div>
+          <div className="local-grid">
+            <div className="lcard">
+              <span className="li">📴</span>
+              <h3>Vende offline</h3>
+              <p>Balcão, comandas, mesas e caixa operam 100% na rede local. Zero tela travada esperando a internet.</p>
+            </div>
+            <div className="lcard">
+              <span className="li">🔄</span>
+              <h3>Sincroniza sozinho</h3>
+              <p>Vendas, estoque e ponto sobem para a nuvem ao reconectar — com resolução de conflito e log de auditoria.</p>
+            </div>
+            <div className="lcard">
+              <span className="li">🖨️</span>
+              <h3>Impressão na loja</h3>
+              <p>Cupons e vias de produção saem direto na impressora térmica (ESC/POS), roteados por setor, mesmo sem nuvem.</p>
+            </div>
+            <div className="lcard">
+              <span className="li">🔒</span>
+              <h3>Seus dados na sua loja</h3>
+              <p>Banco local com atualização automática nas janelas de abertura — sem depender de uma conexão perfeita.</p>
+            </div>
+          </div>
+          <div className="local-modes">
+            <div className="lmode">
+              <div className="lmt">
+                ☁️ Modo Nuvem
+                <span className="tag" style={{ background: 'rgba(74,168,224,.15)', color: '#4AA8E0' }}>Simples</span>
+              </div>
+              <p>Abriu o navegador, está operando. Ideal para quem tem internet estável e uma unidade só.</p>
+            </div>
+            <div className="lmode">
+              <div className="lmt">
+                🏪 Modo Nuvem + Local
+                <span className="tag" style={{ background: 'rgba(46,189,133,.15)', color: '#2EBD85' }}>À prova de queda</span>
+              </div>
+              <p>Servidor na loja espelhado com a nuvem. Opera offline e continua vendendo mesmo com a internet fora.</p>
+            </div>
+          </div>
+          <div className="mod-note">
+            Você escolhe o modo — e o cabeçalho sempre mostra se está operando na nuvem ou no servidor local.
+          </div>
+        </section>
+      </div>
 
       {/* PERFIS RBAC */}
       <section id="perfis">
@@ -414,6 +497,16 @@ export default function LandingPage() {
             <div><h3>Bot de Atendimento</h3><p>Respostas treinadas por você no salão e no delivery. Escala ao gerente quando precisa.</p></div>
             <span className="sw" aria-hidden="true" />
           </div>
+          <div className="mod">
+            <span className="mi">🎁</span>
+            <div><h3>Cashback & Fidelidade</h3><p>Devolva parte da compra em saldo ou pontos, com desconto automático no resgate e estorno em cancelamento.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">🔑</span>
+            <div><h3>Perfis de acesso</h3><p>O dono cria e edita perfis, liga/desliga cada permissão e monta a hierarquia da rede — sem mexer no código.</p></div>
+            <span className="sw" aria-hidden="true" />
+          </div>
         </div>
         <div className="mod-note">
           O proprietário liga e desliga módulos por loja ou para a rede — com registro em auditoria.
@@ -426,6 +519,9 @@ export default function LandingPage() {
           <div className="eyebrow">Preço por unidade · sem surpresa</div>
           <h2>Comece pequeno. Escale quando quiser.</h2>
         </div>
+        <p className="pricing-free">
+          ✦ Todos os planos começam com <strong>3 meses grátis</strong> do sistema completo — sem cartão de crédito.
+        </p>
         <div className="plans">
           <div className="plan">
             <h3>Balcão</h3>

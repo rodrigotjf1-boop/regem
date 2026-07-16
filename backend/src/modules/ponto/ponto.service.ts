@@ -14,6 +14,7 @@ import {
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
 import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
 import { CriarAjusteDto } from './dto/criar-ajuste.dto';
+import { sqlUnidade } from '../../common/filtro-unidade';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const RETENCAO_FOTO_DIAS = 90; // LGPD: retenção da foto do ponto até o expurgo.
@@ -178,6 +179,7 @@ export class PontoService {
     dto: MarcarPontoDto,
     origem = 'web',
     equipamentoId?: string,
+    atual: string | null = null,
   ) {
     const colaboradorId = dto.colaboradorId ?? atorId;
     const row = await this.gravarMarcacao(tenantId, {
@@ -187,7 +189,7 @@ export class PontoService {
       origem,
       registradoPorId: atorId,
       obs: dto.obs,
-      unidadeId: dto.unidadeId,
+      unidadeId: atual ?? dto.unidadeId,
       equipamentoId,
       fotoRef: dto.fotoRef,
       consentimentoLgpd: dto.consentimentoLgpd,
@@ -213,6 +215,7 @@ export class PontoService {
     atorId: string,
     atorPerfil: string,
     dto: IncluirMarcacaoDto,
+    atual: string | null = null,
   ) {
     const row = await this.gravarMarcacao(tenantId, {
       colaboradorId: dto.colaboradorId,
@@ -221,7 +224,7 @@ export class PontoService {
       origem: 'ajuste',
       registradoPorId: atorId,
       obs: dto.justificativa,
-      unidadeId: dto.unidadeId,
+      unidadeId: atual ?? dto.unidadeId,
     });
     await this.auditoria.registrar({
       tenantId,
@@ -281,14 +284,14 @@ export class PontoService {
     return row;
   }
 
-  async listarDia(tenantId: string, data: string, colaboradorId?: string) {
+  async listarDia(tenantId: string, data: string, colaboradorId?: string, atual: string | null = null) {
     const r: any = await this.db.execute(sql`
       select m.id, m.nsr, m.tipo, m.marcado_em as "marcadoEm", m.origem, m.hash,
         c.nome as "colaboradorNome"
       from ponto_marcacao m
       join colaborador c on c.id = m.colaborador_id
       where m.tenant_id = ${tenantId}
-        and (m.marcado_em at time zone 'America/Sao_Paulo')::date = ${data}
+        and (m.marcado_em at time zone 'America/Sao_Paulo')::date = ${data} ${sqlUnidade('m.unidade_id', atual)}
       ${colaboradorId ? sql`and m.colaborador_id = ${colaboradorId}` : sql``}
       order by m.marcado_em asc
     `);
@@ -300,6 +303,7 @@ export class PontoService {
     colaboradorId: string,
     inicio: string,
     fim: string,
+    atual: string | null = null,
   ) {
     const ms: any = await this.db.execute(sql`
       select id, tipo, nsr, origem, marcado_em as "marcadoEm",
@@ -307,7 +311,7 @@ export class PontoService {
       from ponto_marcacao
       where tenant_id = ${tenantId} and colaborador_id = ${colaboradorId}
         and (marcado_em at time zone 'America/Sao_Paulo')::date
-            between ${inicio} and ${fim}
+            between ${inicio} and ${fim} ${sqlUnidade('unidade_id', atual)}
       order by marcado_em asc
     `);
     const es: any = await this.db.execute(sql`
@@ -433,14 +437,14 @@ export class PontoService {
     };
   }
 
-  async pessoas(tenantId: string, data: string) {
+  async pessoas(tenantId: string, data: string, atual: string | null = null) {
     const ms: any = await this.db.execute(sql`
       select m.colaborador_id as "colaboradorId", c.nome, m.tipo,
         m.marcado_em as "marcadoEm"
       from ponto_marcacao m
       join colaborador c on c.id = m.colaborador_id
       where m.tenant_id = ${tenantId}
-        and (m.marcado_em at time zone 'America/Sao_Paulo')::date = ${data}
+        and (m.marcado_em at time zone 'America/Sao_Paulo')::date = ${data} ${sqlUnidade('m.unidade_id', atual)}
       order by m.marcado_em asc
     `);
     const by: Record<string, any> = {};

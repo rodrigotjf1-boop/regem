@@ -12,12 +12,14 @@ import { Label } from '@/components/ui/label';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const TIPOS = [
+  { value: 'pdv', label: 'Terminal de PDV (caixa)' },
   { value: 'terminal_ponto', label: 'Terminal de Ponto' },
   { value: 'kds', label: 'KDS (cozinha)' },
   { value: 'impressora', label: 'Impressora térmica' },
   { value: 'servidor_local', label: 'Servidor local (edge)' },
 ];
 const TIPO_LABEL: Record<string, string> = {
+  pdv: 'Terminal de PDV',
   terminal_ponto: 'Terminal de Ponto',
   kds: 'KDS',
   impressora: 'Impressora',
@@ -43,6 +45,7 @@ export default function EquipamentosPage() {
   const [largura, setLargura] = useState('80');
   const [setoresAtendidos, setSetoresAtendidos] = useState<string[]>([]);
   const [padrao, setPadrao] = useState(false);
+  const [impressoraPadraoId, setImpressoraPadraoId] = useState('');
   const [salvando, setSalvando] = useState(false);
   const [fila, setFila] = useState<any[] | null>(null);
   const [testando, setTestando] = useState<string | null>(null);
@@ -95,6 +98,8 @@ export default function EquipamentosPage() {
         setoresAtendidos:
           tipo === 'impressora' && setoresAtendidos.length ? setoresAtendidos : undefined,
         padrao: tipo === 'impressora' ? padrao : undefined,
+        impressoraPadraoId:
+          tipo === 'pdv' && impressoraPadraoId ? impressoraPadraoId : undefined,
       });
       setTokenNovo({ nome: novo.nome, token: novo.token });
       setCopiado(false);
@@ -116,6 +121,16 @@ export default function EquipamentosPage() {
       await reload();
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao revogar');
+    }
+  }
+
+  async function bindImpressora(id: string, impressoraId: string) {
+    setErro('');
+    try {
+      await api.setTerminalImpressora(id, impressoraId || null);
+      await reload();
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao vincular impressora');
     }
   }
 
@@ -246,6 +261,29 @@ export default function EquipamentosPage() {
                 ))}
               </select>
             </div>
+
+            {/* PDV: impressora de cupom (via do cliente) amarrada ao terminal */}
+            {tipo === 'pdv' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="imp-pdv">Impressora de cupom (opcional)</Label>
+                <select
+                  id="imp-pdv"
+                  value={impressoraPadraoId}
+                  onChange={(e) => setImpressoraPadraoId(e.target.value)}
+                  className={selectCls}
+                >
+                  <option value="">— definir depois —</option>
+                  {(lista ?? [])
+                    .filter((e: any) => e.tipo === 'impressora' && e.papel === 'cupom' && e.ativo)
+                    .map((imp: any) => (
+                      <option key={imp.id} value={imp.id}>{imp.nome}</option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  O cupom (via do cliente) sai só nesta impressora deste caixa.
+                </p>
+              </div>
+            )}
 
             {/* KDS/impressora: setor de produção */}
             {(tipo === 'kds' || tipo === 'impressora') && (
@@ -400,6 +438,24 @@ export default function EquipamentosPage() {
                       ? ` · último acesso ${new Date(eq.ultimoPing).toLocaleString('pt-BR')}`
                       : ' · nunca conectou'}
                   </div>
+                  {eq.tipo === 'pdv' && eq.ativo && (
+                    <div className="mt-2 flex items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">Impressora de cupom:</span>
+                      <select
+                        aria-label={`Impressora de cupom do terminal ${eq.nome}`}
+                        value={eq.impressoraPadraoId ?? ''}
+                        onChange={(e) => bindImpressora(eq.id, e.target.value)}
+                        className="h-8 rounded-md border border-input bg-card px-2 text-xs"
+                      >
+                        <option value="">— nenhuma —</option>
+                        {(lista ?? [])
+                          .filter((p: any) => p.tipo === 'impressora' && p.papel === 'cupom' && p.ativo)
+                          .map((p: any) => (
+                            <option key={p.id} value={p.id}>{p.nome}</option>
+                          ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 {eq.tipo === 'impressora' && eq.ativo && (
                   <Button

@@ -21,15 +21,20 @@ export const CATEGORIAS = [
   { value: 'presidente', label: 'Presidente' },
 ];
 
-export const VINCULOS = ['clt', 'horista', 'diarista', 'pj', 'autonomo'].map((v) => ({
-  value: v,
-  label: v.toUpperCase(),
-}));
+export const VINCULOS = [
+  { value: 'clt', label: 'CLT' },
+  { value: 'diarista', label: 'Diarista' },
+  { value: 'horista', label: 'Horista' },
+  { value: 'pj', label: 'Prestador de serviço' },
+  { value: 'autonomo', label: 'Autônomo' },
+];
 
 // Tipo de escala/jornada do colaborador (regras CLT na montagem da escala).
 export const JORNADAS = [
   { value: 'outro', label: 'Outro / não definido' },
   { value: '5x2', label: '5x2 (5 dias, 2 folgas)' },
+  { value: '6x1', label: '6x1 (6 dias, 1 folga)' },
+  { value: '5x1', label: '5x1 (5 dias, 1 folga)' },
   { value: '12x36', label: '12x36 (12h, folga 36h)' },
   { value: '4x3', label: '4x3 (4 dias, 3 folgas)' },
   { value: 'horista', label: 'Horista' },

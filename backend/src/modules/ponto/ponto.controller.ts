@@ -13,6 +13,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { PontoService } from './ponto.service';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
@@ -34,7 +35,11 @@ export class PontoController {
 
   // Qualquer autenticado bate o próprio ponto; gestor/terminal pode informar colaboradorId.
   @Post('marcar')
-  marcar(@CurrentUser() user: AuthUser, @Body() dto: MarcarPontoDto) {
+  marcar(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Body() dto: MarcarPontoDto,
+  ) {
     const gestor = GESTOR.includes(user.categoria);
     if (dto.colaboradorId && dto.colaboradorId !== user.colaboradorId && !gestor) {
       throw new ForbiddenException('Sem permissão para marcar por outro colaborador');
@@ -45,23 +50,27 @@ export class PontoController {
       user.categoria,
       dto,
       dto.origem ?? 'web',
+      undefined,
+      atual,
     );
   }
 
   @Get('dia')
   dia(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('data') data?: string,
     @Query('colaboradorId') colaboradorId?: string,
   ) {
     const gestor = GESTOR.includes(user.categoria);
     const alvo = colaboradorId && gestor ? colaboradorId : user.colaboradorId;
-    return this.service.listarDia(user.tenantId, data ?? hojeISO(), alvo);
+    return this.service.listarDia(user.tenantId, data ?? hojeISO(), alvo, atual);
   }
 
   @Get('espelho')
   espelho(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('colaboradorId') colaboradorId?: string,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
@@ -73,14 +82,18 @@ export class PontoController {
     }
     const ini = inicio ?? hojeISO();
     const f = fim ?? hojeISO();
-    return this.service.espelho(user.tenantId, alvo, ini, f);
+    return this.service.espelho(user.tenantId, alvo, ini, f, atual);
   }
 
   @Get('pessoas')
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('ponto_gerencial')
-  pessoas(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
-    return this.service.pessoas(user.tenantId, data ?? hojeISO());
+  pessoas(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Query('data') data?: string,
+  ) {
+    return this.service.pessoas(user.tenantId, data ?? hojeISO(), atual);
   }
 
   // Gestão de ponto: incluir marcação esquecida (permissão ponto.criar).
@@ -88,6 +101,7 @@ export class PontoController {
   @RequirePerm('ponto', 'criar')
   incluirMarcacao(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Body() dto: IncluirMarcacaoDto,
   ) {
     return this.service.incluirMarcacao(
@@ -95,6 +109,7 @@ export class PontoController {
       user.colaboradorId,
       user.categoria,
       dto,
+      atual,
     );
   }
 

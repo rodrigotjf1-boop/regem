@@ -298,24 +298,66 @@ export class ProducaoPedidoService {
     return l.join('\n');
   }
 
-  // Enfileira a via do cliente nas impressoras de papel 'cupom' da unidade.
+  // Enfileira a via do cliente (cupom). Prioridade:
+  //  1) impressora amarrada ao terminal de PDV (impressora_padrao_id);
+  //  2) impressoras 'cupom' da UNIDADE (ou de rede, unidade nula).
+  // Antes imprimia em TODAS as 'cupom' do tenant (errado em multi-balcão/multi-loja).
   async enfileirarViaCliente(
     tenantId: string,
     unidadeId: string | null,
     comandaId: string,
     conteudo: string,
+    terminalId?: string | null,
   ) {
-    const cupomPrinters = await this.db
-      .select({ id: equipamento.id })
-      .from(equipamento)
-      .where(
-        and(
-          eq(equipamento.tenantId, tenantId),
-          eq(equipamento.tipo, 'impressora'),
-          eq(equipamento.papel, 'cupom'),
-          eq(equipamento.ativo, true),
-        ),
-      );
+    let cupomPrinters: { id: string }[] = [];
+
+    // (1) impressora do terminal, se configurada e válida (ativa, tipo impressora).
+    if (terminalId) {
+      const [term] = await this.db
+        .select({ imp: equipamento.impressoraPadraoId })
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.id, terminalId),
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'pdv'),
+            eq(equipamento.ativo, true),
+          ),
+        );
+      if (term?.imp) {
+        const [imp] = await this.db
+          .select({ id: equipamento.id })
+          .from(equipamento)
+          .where(
+            and(
+              eq(equipamento.id, term.imp),
+              eq(equipamento.tenantId, tenantId),
+              eq(equipamento.tipo, 'impressora'),
+              eq(equipamento.ativo, true),
+            ),
+          );
+        if (imp) cupomPrinters = [{ id: imp.id }];
+      }
+    }
+
+    // (2) fallback: impressoras 'cupom' da unidade (ou de rede, unidade nula).
+    if (cupomPrinters.length === 0) {
+      const conds = [
+        eq(equipamento.tenantId, tenantId),
+        eq(equipamento.tipo, 'impressora'),
+        eq(equipamento.papel, 'cupom'),
+        eq(equipamento.ativo, true),
+      ];
+      if (unidadeId)
+        conds.push(
+          or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))!,
+        );
+      cupomPrinters = await this.db
+        .select({ id: equipamento.id })
+        .from(equipamento)
+        .where(and(...conds));
+    }
+
     for (const p of cupomPrinters) {
       await this.db.insert(impressaoJob).values({
         tenantId,

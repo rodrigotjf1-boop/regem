@@ -24,6 +24,13 @@ export class CreateJanelaPicoDto {
   @Max(6)
   diaSemana?: number;
 
+  // Fim do intervalo (inclusive) quando é uma faixa de dias (ex.: seg→sex).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  diaSemanaFim?: number;
+
   @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'horaInicio inválida (HH:MM)' })
   horaInicio!: string;
 

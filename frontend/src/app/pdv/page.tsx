@@ -11,6 +11,7 @@ import { ServidorStatus } from '@/components/ui/servidor-status';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
+import { TerminalGate } from '@/components/pdv/terminal-gate';
 import { BuscarCupom } from '@/components/pdv/buscar-cupom';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -293,6 +294,7 @@ export default function PdvPage() {
 
   return (
     <Shell eyebrow="PDV · balcão" title="Venda rápida">
+      <TerminalGate>
       {/* Topo compacto: caixa (fino) + status/busca, com as categorias coladas abaixo */}
       <div className="mb-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -640,6 +642,7 @@ export default function PdvPage() {
           </Card>
         </div>
       )}
+      </TerminalGate>
     </Shell>
   );
 }

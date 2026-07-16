@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsBoolean,
   IsIn,
   IsOptional,
@@ -18,7 +19,13 @@ export class CreateFuncaoDto {
 
   @IsOptional()
   @IsUUID()
-  setorId?: string;
+  setorId?: string; // setor primário (compat); se ausente, usa o 1º de setorIds
+
+  // Setores da função (N:N) — a função pode servir vários setores.
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  setorIds?: string[];
 
   // Fase 3: gerar a etiqueta (vaga) desta função automaticamente.
   @IsOptional()

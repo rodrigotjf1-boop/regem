@@ -3,6 +3,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { VistoriaService } from './vistoria.service';
 import { CreateVistoriaDto } from './dto/create-vistoria.dto';
@@ -14,12 +15,16 @@ export class VistoriaController {
 
   @Post()
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
-  create(@CurrentUser() user: AuthUser, @Body() dto: CreateVistoriaDto) {
-    return this.service.create(user.tenantId, dto);
+  create(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Body() dto: CreateVistoriaDto,
+  ) {
+    return this.service.create(user.tenantId, dto, atual);
   }
 
   @Get()
-  findAll(@CurrentUser() user: AuthUser) {
-    return this.service.findAll(user.tenantId);
+  findAll(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.findAll(user.tenantId, atual);
   }
 }

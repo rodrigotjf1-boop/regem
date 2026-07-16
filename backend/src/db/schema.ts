@@ -43,6 +43,7 @@ export const unidade = pgTable('unidade', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   nome: text('nome').notNull(),
+  tipo: text('tipo').notNull().default('filial'), // matriz | filial
   endereco: text('endereco'),
   timezone: text('timezone').notNull().default('America/Sao_Paulo'),
   // Diferença de caixa (em reais) acima da qual o fechamento gera ocorrência.
@@ -76,10 +77,25 @@ export const funcao = pgTable('funcao', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   nome: text('nome').notNull(),
   categoria: text('categoria').notNull().default('execucao'),
-  setorId: uuid('setor_id'),
+  setorId: uuid('setor_id'), // setor PRIMÁRIO (onboarding/geração de etiqueta)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Função ↔ setor N:N (uma função pode servir vários setores). Ver migration 102.
+export const funcaoSetor = pgTable('funcao_setor', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  funcaoId: uuid('funcao_id')
+    .notNull()
+    .references(() => funcao.id, { onDelete: 'cascade' }),
+  setorId: uuid('setor_id')
+    .notNull()
+    .references(() => setor.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const colaborador = pgTable('colaborador', {
@@ -200,6 +216,7 @@ export const janelaPico = pgTable('janela_pico', {
   setorId: uuid('setor_id'), // override por setor (pós-MVP); null = unidade toda
   nome: text('nome'),
   diaSemana: integer('dia_semana'), // 0=domingo .. 6=sábado; null = todos
+  diaSemanaFim: integer('dia_semana_fim'), // fim do intervalo (inclusive); null = dia único
   horaInicio: time('hora_inicio').notNull(),
   horaFim: time('hora_fim').notNull(),
   intensidade: text('intensidade'), // baixa|media|alta (uso futuro)
@@ -253,6 +270,46 @@ export const escalaAlocacao = pgTable('escala_alocacao', {
   tipo: text('tipo').notNull().default('titular'),
   status: text('status').notNull().default('ativa'),
   observacao: text('observacao'),
+  // Escala recorrente: regra que gerou a alocação + overrides de horário/pausa do dia.
+  regraId: uuid('regra_id'),
+  horaInicioOverride: time('hora_inicio_override'),
+  horaFimOverride: time('hora_fim_override'),
+  pausaInicioOverride: time('pausa_inicio_override'),
+  pausaFimOverride: time('pausa_fim_override'),
+  // Presença: prevista | presente | falta_justificada | falta_injustificada.
+  presenca: text('presenca').notNull().default('prevista'),
+  comprovanteRef: text('comprovante_ref'),
+  presencaObs: text('presenca_obs'),
+  presencaEm: timestamp('presenca_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Regra de recorrência da escala (o "evento recorrente"). Ver migration 101.
+export const escalaRegra = pgTable('escala_regra', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id')
+    .notNull()
+    .references(() => unidade.id, { onDelete: 'cascade' }),
+  colaboradorId: uuid('colaborador_id')
+    .notNull()
+    .references(() => colaborador.id, { onDelete: 'cascade' }),
+  etiquetaId: uuid('etiqueta_id')
+    .notNull()
+    .references(() => etiqueta.id, { onDelete: 'cascade' }),
+  turnoId: uuid('turno_id')
+    .notNull()
+    .references(() => turno.id),
+  jornadaTipo: text('jornada_tipo').notNull(),
+  folgasSemana: jsonb('folgas_semana').notNull().default('[]'),
+  dataInicio: date('data_inicio').notNull(),
+  dataFim: date('data_fim').notNull(),
+  feriadosFechar: boolean('feriados_fechar').notNull().default(true),
+  ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -685,6 +742,8 @@ export const equipamento = pgTable('equipamento', {
   largura: integer('largura').notNull().default(80), // 58 | 80 (mm) — impressora
   setoresAtendidos: jsonb('setores_atendidos').notNull().default('[]'), // [setor_id,...] (impressora)
   vias: integer('vias').notNull().default(1), // nº de vias (impressora)
+  impressoraPadraoId: uuid('impressora_padrao_id'), // terminal PDV: impressora de cupom amarrada
+
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -780,6 +839,7 @@ export const caixaSessao = pgTable('caixa_sessao', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   unidadeId: uuid('unidade_id'),
+  terminalId: uuid('terminal_id'), // terminal de PDV (equipamento tipo='pdv') dono da sessão; null p/ delivery
   origem: text('origem').notNull().default('pdv'), // pdv | delivery (gaveta separada)
   status: text('status').notNull().default('aberta'), // aberta | fechada
   turnoNumero: integer('turno_numero'), // nº do turno (sequencial por dia)
@@ -808,6 +868,11 @@ export const formaPagamento = pgTable('forma_pagamento', {
   tipo: text('tipo').notNull().default('outro'), // dinheiro|pix|credito|debito|vr|outro
   ativo: boolean('ativo').notNull().default(true),
   ordem: integer('ordem').notNull().default(0),
+  cardapio: boolean('cardapio').notNull().default(false), // aparece no cardápio digital
+  tiposPedido: jsonb('tipos_pedido').notNull().default('["delivery","retirada","balcao"]'),
+  taxaExtra: numeric('taxa_extra'), // taxa extra R$ (null = não informado)
+  obs: text('obs'),
+  bandeiras: jsonb('bandeiras').notNull().default('[]'), // bandeiras de cartão aceitas
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

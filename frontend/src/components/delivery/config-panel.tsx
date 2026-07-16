@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
-import { buscarCep, localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
+import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -28,8 +28,6 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     grupo: 'Cardápio digital',
     itens: [
       { k: 'cardapio', label: 'Cardápio digital · QR' },
-      { k: 'loja', label: 'Loja' },
-      { k: 'endereco', label: 'Endereço' },
       { k: 'horarios', label: 'Horários' },
       { k: 'tipos', label: 'Tipos de pedido' },
       { k: 'area', label: 'Área de atendimento' },
@@ -422,45 +420,7 @@ export function ConfigPanel({
                 )}
 
                 {/* LOJA */}
-                {sec === 'loja' && (
-                  <Secao dica="Identidade e contatos que aparecem no cardápio digital.">
-                    <div className="flex items-center gap-3">
-                      <ImageUpload value={loja.logoRef} onChange={(url) => up({ logoRef: url })} id="logo-loja" alt="Logo da loja" />
-                      <div className="text-xs text-muted-foreground">Logo da loja (imagem)</div>
-                    </div>
-                    <Campo label="Nome da loja"><Input value={loja.nomePublico ?? ''} onChange={(e) => up({ nomePublico: e.target.value })} /></Campo>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Campo label="CPF / CNPJ"><Input value={loja.documento ?? ''} onChange={(e) => up({ documento: e.target.value })} /></Campo>
-                      <Campo label="Pedido mínimo (R$)"><Input inputMode="decimal" value={loja.pedidoMinimo ?? ''} onChange={(e) => up({ pedidoMinimo: e.target.value })} /></Campo>
-                      <Campo label="Responsável"><Input value={loja.responsavelNome ?? ''} onChange={(e) => up({ responsavelNome: e.target.value })} /></Campo>
-                      <Campo label="Contato do responsável"><Input value={loja.responsavelContato ?? ''} onChange={(e) => up({ responsavelContato: e.target.value })} /></Campo>
-                      <Campo label="Contato da loja"><Input value={loja.contatoLoja ?? ''} onChange={(e) => up({ contatoLoja: e.target.value })} /></Campo>
-                      <Campo label="WhatsApp"><Input value={loja.whatsapp ?? ''} onChange={(e) => up({ whatsapp: e.target.value })} /></Campo>
-                      <Campo label="Instagram"><Input value={loja.instagram ?? ''} onChange={(e) => up({ instagram: e.target.value })} placeholder="@sualoja" /></Campo>
-                      <Campo label="Site"><Input value={loja.site ?? ''} onChange={(e) => up({ site: e.target.value })} placeholder="https://" /></Campo>
-                    </div>
-                    <FormasPagamentoCardapio pagamentos={loja.pagamentos ?? []} onChange={(p) => up({ pagamentos: p })} pode={isGestor} />
-                    <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
-                  </Secao>
-                )}
-
-                {/* ENDEREÇO */}
-                {sec === 'endereco' && (
-                  <Secao dica="Endereço físico da loja.">
-                    <div className="grid grid-cols-2 gap-2">
-                      <Campo label="CEP"><Input value={loja.endCep ?? ''} onChange={(e) => up({ endCep: e.target.value })} onBlur={async (e) => { const d = await buscarCep(e.target.value); if (d) up({ endRua: d.logradouro || loja.endRua, endBairro: d.bairro || loja.endBairro, endCidade: d.cidade || loja.endCidade, endEstado: d.uf || loja.endEstado }); }} placeholder="00000-000" /></Campo>
-                      <Campo label="Cidade"><Input value={loja.endCidade ?? ''} onChange={(e) => up({ endCidade: e.target.value })} /></Campo>
-                      <Campo label="Rua"><Input value={loja.endRua ?? ''} onChange={(e) => up({ endRua: e.target.value })} /></Campo>
-                      <Campo label="Número"><Input value={loja.endNumero ?? ''} onChange={(e) => up({ endNumero: e.target.value })} /></Campo>
-                      <Campo label="Bairro"><Input value={loja.endBairro ?? ''} onChange={(e) => up({ endBairro: e.target.value })} /></Campo>
-                      <Campo label="Estado (UF)"><Input value={loja.endEstado ?? ''} onChange={(e) => up({ endEstado: e.target.value })} maxLength={2} /></Campo>
-                      <Campo label="Referência"><Input value={loja.endReferencia ?? ''} onChange={(e) => up({ endReferencia: e.target.value })} /></Campo>
-                      <Campo label="Complemento"><Input value={loja.endComplemento ?? ''} onChange={(e) => up({ endComplemento: e.target.value })} /></Campo>
-                    </div>
-                    <PontoLojaMapa loja={loja} up={up} pode={isGestor} />
-                    <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
-                  </Secao>
-                )}
+                {/* Loja e Endereço migraram para Configurações → Loja. */}
 
                 {/* HORÁRIOS */}
                 {sec === 'horarios' && (
@@ -528,32 +488,8 @@ function secLabel(k: string) {
   return all.find((i) => i.k === k)?.label ?? 'Configurações';
 }
 
-// Formas de pagamento que aparecem no checkout do cardápio digital.
-const FORMAS_CARDAPIO: [string, string][] = [
-  ['pix', '⚡ Pix (online)'],
-  ['cartao', '💳 Cartão (online)'],
-  ['entrega', '💵 Dinheiro / cartão na entrega'],
-];
-function FormasPagamentoCardapio({ pagamentos, onChange, pode }: { pagamentos: string[]; onChange: (p: string[]) => void; pode: boolean }) {
-  const set = new Set(pagamentos ?? []);
-  function toggle(k: string, v: boolean) {
-    const n = new Set(set);
-    v ? n.add(k) : n.delete(k);
-    onChange([...n]);
-  }
-  return (
-    <div className="space-y-1.5 rounded-lg border border-border p-2.5">
-      <p className="text-xs font-semibold">Formas de pagamento no cardápio</p>
-      <p className="text-[11px] text-muted-foreground">Marque o que o cliente pode escolher ao fechar o pedido. Sem nenhuma marcada, o checkout não mostra pagamento.</p>
-      {FORMAS_CARDAPIO.map(([k, lb]) => (
-        <label key={k} className="flex items-center gap-2 text-sm">
-          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={set.has(k)} onChange={(e) => toggle(k, e.target.checked)} />
-          {lb}
-        </label>
-      ))}
-    </div>
-  );
-}
+// (Formas de pagamento migraram para Financeiro → Formas de pagamento; a marcação
+// "aparece no cardápio" agora é o toggle por forma na tela nova.)
 
 function Secao({ dica, children }: { dica: string; children: React.ReactNode }) {
   return (
@@ -563,7 +499,7 @@ function Secao({ dica, children }: { dica: string; children: React.ReactNode }) 
     </div>
   );
 }
-function Campo({ label, children }: { label: string; children: React.ReactNode }) {
+export function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
       <Label className="text-xs">{label}</Label>
@@ -741,7 +677,7 @@ function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]
 }
 
 // Ponto da loja no mapa (base do frete por raio).
-function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => void; pode: boolean }) {
+export function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => void; pode: boolean }) {
   const [msg, setMsg] = useState('');
   const lat = Number(loja.endLat);
   const lng = Number(loja.endLng);

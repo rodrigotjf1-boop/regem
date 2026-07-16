@@ -15,6 +15,8 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { TerminalAtual } from '../../auth/terminal-atual.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { FinanceiroService } from './financeiro.service';
 import { CreateTituloDto } from './dto/create-titulo.dto';
@@ -34,98 +36,118 @@ export class FinanceiroController {
   @RequirePerm('financeiro')
   listar(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('tipo') tipo?: string,
     @Query('status') status?: string,
   ) {
-    return this.service.listar(user.tenantId, tipo || undefined, status || undefined);
+    return this.service.listar(user.tenantId, tipo || undefined, status || undefined, atual);
   }
 
   @Get('resumo')
   @RequirePerm('financeiro')
-  resumo(@CurrentUser() user: AuthUser) {
-    return this.service.resumo(user.tenantId);
+  resumo(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.resumo(user.tenantId, atual);
   }
 
   @Get('fluxo')
   @RequirePerm('financeiro')
-  fluxo(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
-    return this.service.fluxoCaixa(user.tenantId, dias ? Number(dias) : 30);
+  fluxo(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Query('dias') dias?: string) {
+    return this.service.fluxoCaixa(user.tenantId, dias ? Number(dias) : 30, atual);
   }
 
   @Get('dre')
   @RequirePerm('financeiro')
   dre(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
     const hoje = new Date();
     const ini = inicio || new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString().slice(0, 10);
-    return this.service.dreCaixa(user.tenantId, ini, fim || hoje.toISOString().slice(0, 10));
+    return this.service.dreCaixa(user.tenantId, ini, fim || hoje.toISOString().slice(0, 10), atual);
   }
 
   @Post('titulos')
   @RequirePerm('financeiro')
-  criar(@CurrentUser() user: AuthUser, @Body() dto: CreateTituloDto) {
-    return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto);
+  criar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Body() dto: CreateTituloDto) {
+    return this.service.criar(user.tenantId, user.colaboradorId, user.categoria, dto, atual);
   }
 
   @Patch('titulos/:id')
   @RequirePerm('financeiro')
   atualizar(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Param('id') id: string,
     @Body() dto: CreateTituloDto,
   ) {
-    return this.service.atualizar(user.tenantId, user.colaboradorId, user.categoria, id, dto);
+    return this.service.atualizar(user.tenantId, user.colaboradorId, user.categoria, id, dto, atual);
   }
 
   @Delete('titulos/:id')
   @RequirePerm('financeiro')
-  cancelar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.cancelar(user.tenantId, user.colaboradorId, user.categoria, id);
+  cancelar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.cancelar(user.tenantId, user.colaboradorId, user.categoria, id, atual);
   }
 
   @Post('titulos/:id/pagar')
   @RequirePerm('financeiro')
   pagar(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Param('id') id: string,
     @Body() dto: PagarTituloDto,
   ) {
-    return this.service.pagar(user.tenantId, user.colaboradorId, user.categoria, id, dto);
+    return this.service.pagar(user.tenantId, user.colaboradorId, user.categoria, id, dto, atual);
   }
 
   @Post('titulos/:id/estornar')
   @RequirePerm('financeiro')
-  estornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.estornar(user.tenantId, user.colaboradorId, user.categoria, id);
+  estornar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.estornar(user.tenantId, user.colaboradorId, user.categoria, id, atual);
   }
 
   // ----- Caixa (sessão) — atendente também opera o caixa (Fase A). -----
   @Get('caixa')
   @Roles('presidente', 'gerente', 'atendente')
-  caixa(@CurrentUser() user: AuthUser, @Query('origem') origem?: string) {
+  caixa(
+    @CurrentUser() user: AuthUser,
+    @TerminalAtual() terminalId: string | null,
+    @Query('origem') origem?: string,
+  ) {
     return this.service.caixaAtual(
       user.tenantId,
       origem === 'delivery' ? 'delivery' : 'pdv',
+      terminalId,
     );
   }
 
   @Post('caixa/abrir')
   @Roles('presidente', 'gerente', 'atendente')
-  abrirCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.abrirSessao(user.tenantId, user.colaboradorId, dto);
+  abrirCaixa(
+    @CurrentUser() user: AuthUser,
+    @TerminalAtual() terminalId: string | null,
+    @Body() dto: any,
+  ) {
+    return this.service.abrirSessao(user.tenantId, user.colaboradorId, {
+      ...dto,
+      terminalId,
+    });
   }
 
   @Post('caixa/movimentar')
   @Roles('presidente', 'gerente', 'atendente')
-  movimentarCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
+  movimentarCaixa(
+    @CurrentUser() user: AuthUser,
+    @TerminalAtual() terminalId: string | null,
+    @Body() dto: any,
+  ) {
     return this.service.movimentarCaixa(
       user.tenantId,
       user.colaboradorId,
       user.categoria,
-      dto,
+      { ...dto, terminalId },
     );
   }
 
@@ -138,12 +160,28 @@ export class FinanceiroController {
 
   @Post('formas-pagamento')
   @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
   criarFormaPagamento(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.criarFormaPagamento(user.tenantId, dto);
   }
 
+  @Patch('formas-pagamento/:id')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
+  atualizarFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.atualizarFormaPagamento(user.tenantId, id, dto);
+  }
+
+  @Delete('formas-pagamento/:id')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
+  removerFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.removerFormaPagamento(user.tenantId, id);
+  }
+
   @Post('formas-pagamento/:id/ativa')
   @Roles('presidente', 'gerente')
+  @RequirePerm('formas_pagamento')
   ativarFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.setFormaPagamentoAtiva(user.tenantId, id, !!dto.ativo);
   }
@@ -163,12 +201,16 @@ export class FinanceiroController {
 
   @Post('caixa/fechar')
   @Roles('presidente', 'gerente', 'atendente')
-  fecharCaixa(@CurrentUser() user: AuthUser, @Body() dto: any) {
+  fecharCaixa(
+    @CurrentUser() user: AuthUser,
+    @TerminalAtual() terminalId: string | null,
+    @Body() dto: any,
+  ) {
     return this.service.fecharSessao(
       user.tenantId,
       user.colaboradorId,
       user.categoria,
-      dto,
+      { ...dto, terminalId },
     );
   }
 
@@ -178,9 +220,10 @@ export class FinanceiroController {
   @RequirePerm('turnos')
   fechamentos(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
-    return this.service.fechamentos(user.tenantId, inicio, fim);
+    return this.service.fechamentos(user.tenantId, inicio, fim, atual);
   }
 }

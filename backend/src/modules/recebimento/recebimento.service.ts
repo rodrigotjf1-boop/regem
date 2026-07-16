@@ -16,6 +16,7 @@ import {
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { custoMedioPonderado } from '../../common/regras-negocio';
+import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -27,13 +28,13 @@ export class RecebimentoService {
   ) {}
 
   // Cria o recebimento como rascunho (status 'aberto') — ainda NÃO mexe no estoque.
-  async create(tenantId: string, dto: CreateRecebimentoDto) {
+  async create(tenantId: string, dto: CreateRecebimentoDto, atual: string | null = null) {
     return this.db.transaction(async (tx) => {
       const [rec] = await tx
         .insert(recebimento)
         .values({
           tenantId,
-          unidadeId: dto.unidadeId,
+          unidadeId: atual ?? dto.unidadeId,
           fornecedorId: dto.fornecedorId,
           data: dto.data ?? undefined,
           vencimento: dto.vencimento ?? undefined,
@@ -65,7 +66,7 @@ export class RecebimentoService {
     });
   }
 
-  async findAll(tenantId: string) {
+  async findAll(tenantId: string, atual: string | null = null) {
     const r: any = await this.db.execute(sql`
       select r.id, r.data, r.status, r.nota_ref as "notaRef",
         f.nome as "fornecedorNome",
@@ -74,7 +75,7 @@ export class RecebimentoService {
           where ri.recebimento_id = r.id and ri.divergencia <> 'ok') as "divergencias"
       from recebimento r
       left join fornecedor f on f.id = r.fornecedor_id
-      where r.tenant_id = ${tenantId} and r.deleted_at is null
+      where r.tenant_id = ${tenantId} and r.deleted_at is null ${sqlUnidade('r.unidade_id', atual)}
       order by r.data desc, r.created_at desc
     `);
     return (r.rows ?? r).map((x: any) => ({
@@ -84,12 +85,12 @@ export class RecebimentoService {
     }));
   }
 
-  async findOne(tenantId: string, id: string) {
+  async findOne(tenantId: string, id: string, atual: string | null = null) {
     const h: any = await this.db.execute(sql`
       select r.*, f.nome as "fornecedorNome"
       from recebimento r
       left join fornecedor f on f.id = r.fornecedor_id
-      where r.id = ${id} and r.tenant_id = ${tenantId} and r.deleted_at is null
+      where r.id = ${id} and r.tenant_id = ${tenantId} and r.deleted_at is null ${sqlUnidade('r.unidade_id', atual)}
     `);
     const header = (h.rows ?? h)[0];
     if (!header) throw new NotFoundException('Recebimento não encontrado');
@@ -112,13 +113,14 @@ export class RecebimentoService {
     atorId: string,
     atorPerfil: string,
     id: string,
+    atual: string | null = null,
   ) {
     const res = await this.db.transaction(async (tx) => {
       const [rec] = await tx
         .select()
         .from(recebimento)
         .where(
-          and(eq(recebimento.id, id), eq(recebimento.tenantId, tenantId)),
+          and(eq(recebimento.id, id), eq(recebimento.tenantId, tenantId), condUnidade(recebimento.unidadeId, atual)),
         );
       if (!rec) throw new NotFoundException('Recebimento não encontrado');
       if (rec.status === 'conferido') {

@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, asc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { diaEspecial } from '../../db/schema';
+import { diaEspecial, escalaAlocacao } from '../../db/schema';
 import { CreateDiaEspecialDto } from './dto/create-dia-especial.dto';
 
 @Injectable()
@@ -22,7 +22,28 @@ export class DiaEspecialService {
         descricao: dto.descricao ?? null,
       })
       .returning();
-    return row;
+
+    // Férias de um colaborador: DESMARCA (soft-delete) as alocações dele no
+    // intervalo — ele sai da escala nesses dias (a vaga fica aberta p/ cobertura).
+    let desmarcadas = 0;
+    if (dto.tipo === 'ferias' && dto.colaboradorId) {
+      const ate = dto.dataFim ?? dto.data;
+      const res = await this.db
+        .update(escalaAlocacao)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(escalaAlocacao.tenantId, tenantId),
+            eq(escalaAlocacao.colaboradorId, dto.colaboradorId),
+            gte(escalaAlocacao.data, dto.data),
+            lte(escalaAlocacao.data, ate),
+            isNull(escalaAlocacao.deletedAt),
+          ),
+        )
+        .returning({ id: escalaAlocacao.id });
+      desmarcadas = res.length;
+    }
+    return { ...row, desmarcadas };
   }
 
   // Dias que tocam o período [de, ate] (sobreposição por data/dataFim).

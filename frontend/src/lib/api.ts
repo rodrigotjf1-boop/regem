@@ -43,6 +43,50 @@ export function clearToken() {
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
+// Unidade selecionada no seletor global (preferência de visão, não dado de negócio).
+// null / 'todas' = ver a rede inteira. O servidor reconfere o RBAC (execução é travada
+// na própria unidade e ignora isto). Notifica a UI via evento para o dropdown reagir.
+const UNIDADE_KEY = 'regen_unidade_atual';
+export function getUnidadeAtual(): string | null {
+  if (typeof window === 'undefined') return null;
+  const v = localStorage.getItem(UNIDADE_KEY);
+  return v && v !== 'todas' ? v : null;
+}
+export function setUnidadeAtual(id: string | null) {
+  if (typeof window === 'undefined') return;
+  if (id) localStorage.setItem(UNIDADE_KEY, id);
+  else localStorage.removeItem(UNIDADE_KEY);
+  window.dispatchEvent(new Event('regem:unidade'));
+}
+
+// Terminal de PDV pareado NESTE PC (identidade da máquina, não dado de negócio).
+// Guarda { id, nome } no localStorage; o `req()` envia o id no header X-Terminal-Id.
+const TERMINAL_KEY = 'regem_terminal';
+function lerTerminal(): { id: string; nome: string } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return JSON.parse(localStorage.getItem(TERMINAL_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+export function getTerminalAtual(): string | null {
+  return lerTerminal()?.id ?? null;
+}
+export function getTerminalNome(): string | null {
+  return lerTerminal()?.nome ?? null;
+}
+export function setTerminalAtual(id: string, nome: string) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TERMINAL_KEY, JSON.stringify({ id, nome }));
+  window.dispatchEvent(new Event('regem:terminal'));
+}
+export function clearTerminal() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TERMINAL_KEY);
+  window.dispatchEvent(new Event('regem:terminal'));
+}
+
 // Lê a categoria da hierarquia do payload do JWT (para gates de UI).
 export function getCategoria(): string | null {
   const t = getToken();
@@ -72,6 +116,18 @@ export function getPermissoes(): any {
 // Atalho: o perfil pode ver valores financeiros (R$)?
 export function podeVerFinanceiro(): boolean {
   return !!getPermissoes()?.ver_financeiro;
+}
+
+// Unidade FIXA do usuário (claim `uni` do JWT): execução/gerente de loja ficam
+// travados nela e não veem o seletor. Presidente/C&O = null (escolhe a unidade).
+export function getUnidadeFixa(): string | null {
+  const t = getToken();
+  if (!t) return null;
+  try {
+    return JSON.parse(atob(t.split('.')[1] ?? '')).uni ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // Atalho: permissão de ação por módulo (ex.: podePerm('estoque','criar')).
@@ -104,6 +160,8 @@ async function req(path: string, options: RequestInit = {}) {
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(getUnidadeAtual() ? { 'X-Unidade-Id': getUnidadeAtual() as string } : {}),
+        ...(getTerminalAtual() ? { 'X-Terminal-Id': getTerminalAtual() as string } : {}),
         ...(options.headers || {}),
       },
     });
@@ -214,6 +272,8 @@ export const api = {
     const q = p.toString();
     return req(`/dias-especiais${q ? `?${q}` : ''}`);
   },
+  criarDiaEspecial: (body: Record<string, unknown>) =>
+    req('/dias-especiais', { method: 'POST', body: JSON.stringify(body) }),
   removerDiaEspecial: (id: string) =>
     req(`/dias-especiais/${id}`, { method: 'DELETE' }),
   dashboard: (data: string) => req(`/dashboard?data=${data}`),
@@ -663,8 +723,12 @@ export const api = {
   caixaAberta: (origem?: string) =>
     req(`/financeiro/caixa${origem ? `?origem=${origem}` : ''}`),
   formasPagamento: () => req('/financeiro/formas-pagamento'),
-  criarFormaPagamento: (body: { nome: string; tipo?: string }) =>
+  criarFormaPagamento: (body: Record<string, unknown>) =>
     req('/financeiro/formas-pagamento', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarFormaPagamento: (id: string, body: Record<string, unknown>) =>
+    req(`/financeiro/formas-pagamento/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removerFormaPagamento: (id: string) =>
+    req(`/financeiro/formas-pagamento/${id}`, { method: 'DELETE' }),
   ativarFormaPagamento: (id: string, ativo: boolean) =>
     req(`/financeiro/formas-pagamento/${id}/ativa`, { method: 'POST', body: JSON.stringify({ ativo }) }),
   caixaConfig: () => req('/financeiro/caixa/config'),
@@ -777,6 +841,13 @@ export const api = {
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),
+  parearTerminal: (token: string) =>
+    req('/equipamento/parear', { method: 'POST', body: JSON.stringify({ token }) }),
+  setTerminalImpressora: (id: string, impressoraId: string | null) =>
+    req(`/equipamento/${id}/impressora`, {
+      method: 'PATCH',
+      body: JSON.stringify({ impressoraId }),
+    }),
   revogarEquipamento: (id: string) =>
     req(`/equipamento/${id}/revogar`, { method: 'PATCH' }),
   recebimentos: () => req('/recebimentos'),
@@ -792,12 +863,30 @@ export const api = {
   definirSenhaColaborador: (id: string, body: { email?: string; senha: string }) =>
     req(`/colaboradores/${id}/senha`, { method: 'POST', body: JSON.stringify(body) }),
   unidades: () => req('/unidades'),
+  criarUnidade: (body: { nome: string; tipo?: string; endereco?: string }) =>
+    req('/unidades', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarUnidade: (id: string, body: { nome: string; tipo?: string; endereco?: string }) =>
+    req(`/unidades/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  removerUnidade: (id: string) => req(`/unidades/${id}`, { method: 'DELETE' }),
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
   alterarAlocacao: (id: string, body: Record<string, unknown>) =>
     req(`/escala/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removerAlocacao: (id: string) =>
     req(`/escala/${id}`, { method: 'DELETE' }),
+  gerarEscala: (body: Record<string, unknown>) =>
+    req('/escala/gerar', { method: 'POST', body: JSON.stringify(body) }),
+  editarHorarioAlocacao: (id: string, body: Record<string, unknown>) =>
+    req(`/escala/${id}/horario`, { method: 'PATCH', body: JSON.stringify(body) }),
+  marcarPresenca: (id: string, body: Record<string, unknown>) =>
+    req(`/escala/${id}/presenca`, { method: 'PATCH', body: JSON.stringify(body) }),
+  faltasEscala: (de?: string, ate?: string) => {
+    const p = new URLSearchParams();
+    if (de) p.set('de', de);
+    if (ate) p.set('ate', ate);
+    const q = p.toString();
+    return req(`/escala/faltas${q ? `?${q}` : ''}`);
+  },
   criarTarefaDef: (body: Record<string, unknown>) =>
     req('/tarefas', { method: 'POST', body: JSON.stringify(body) }),
   instanciarTarefa: (body: Record<string, unknown>) =>

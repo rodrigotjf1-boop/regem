@@ -15,6 +15,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { EstoqueService } from './estoque.service';
 import { CreateItemDto } from './dto/create-item.dto';
@@ -27,24 +28,29 @@ export class EstoqueController {
 
   @Post('itens')
   @RequirePerm('estoque', 'criar')
-  createItem(@CurrentUser() user: AuthUser, @Body() dto: CreateItemDto) {
-    return this.service.createItem(user.tenantId, dto);
+  createItem(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Body() dto: CreateItemDto,
+  ) {
+    return this.service.createItem(user.tenantId, dto, atual);
   }
 
   @Get('itens')
-  listItens(@CurrentUser() user: AuthUser) {
+  listItens(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     // Custo/valor em R$ conforme a permissão "ver_financeiro" do perfil.
-    return this.service.listItens(user.tenantId, !!user.permissoes?.ver_financeiro);
+    return this.service.listItens(user.tenantId, !!user.permissoes?.ver_financeiro, atual);
   }
 
   @Patch('itens/:id')
   @RequirePerm('estoque', 'editar')
   updateItem(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Param('id') id: string,
     @Body() dto: CreateItemDto,
   ) {
-    return this.service.updateItem(user.tenantId, id, dto);
+    return this.service.updateItem(user.tenantId, id, dto, atual);
   }
 
   // ----- Categorias de insumo (cadastro próprio) -----
@@ -72,17 +78,19 @@ export class EstoqueController {
   @RequirePerm('estoque', 'editar')
   createMovimento(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Body() dto: CreateMovimentoDto,
   ) {
-    return this.service.createMovimento(user.tenantId, dto);
+    return this.service.createMovimento(user.tenantId, dto, atual);
   }
 
   @Get('movimentos')
   listMovimentos(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('itemId') itemId: string,
   ) {
-    return this.service.listMovimentos(user.tenantId, itemId);
+    return this.service.listMovimentos(user.tenantId, itemId, atual);
   }
 
   // Inteligência de estoque: valorização + reposição (ROP) + curva ABC no período.
@@ -90,6 +98,7 @@ export class EstoqueController {
   @Roles('presidente', 'gerente', 'supervisao')
   inteligencia(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio: string,
     @Query('fim') fim: string,
   ) {
@@ -102,14 +111,15 @@ export class EstoqueController {
       ini,
       fim || hoje,
       !!user.permissoes?.ver_financeiro,
+      atual,
     );
   }
 
   // Validades FEFO: lotes por vencimento com status.
   @Get('validades')
   @Roles('presidente', 'gerente', 'supervisao')
-  validades(@CurrentUser() user: AuthUser) {
-    return this.service.validades(user.tenantId);
+  validades(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.validades(user.tenantId, atual);
   }
 
   // CMV real (EI + Compras − EF) × teórico → desvio. Período padrão: mês corrente.
@@ -118,6 +128,7 @@ export class EstoqueController {
   @RequirePerm('ver_financeiro')
   cmv(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Query('inicio') inicio?: string,
     @Query('fim') fim?: string,
   ) {
@@ -127,26 +138,30 @@ export class EstoqueController {
       new Date(hoje.getFullYear(), hoje.getMonth(), 1)
         .toISOString()
         .slice(0, 10);
-    return this.service.cmvReal(user.tenantId, ini, fim || hoje.toISOString().slice(0, 10));
+    return this.service.cmvReal(user.tenantId, ini, fim || hoje.toISOString().slice(0, 10), atual);
   }
 
   // Gera o snapshot de estoque de hoje (bootstrap/teste; o job mensal faz automático).
   @Post('snapshot')
   @Roles('presidente', 'gerente')
-  snapshot(@CurrentUser() user: AuthUser) {
-    return this.service.gerarSnapshot(user.tenantId);
+  snapshot(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.gerarSnapshot(user.tenantId, undefined, atual);
   }
 
   // Alertas persistidos (ROP/FEFO) — gerados pelos jobs, resolvidos pelo gestor.
   @Get('alertas')
   @Roles('presidente', 'gerente', 'supervisao')
-  alertas(@CurrentUser() user: AuthUser) {
-    return this.service.listarAlertas(user.tenantId);
+  alertas(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.listarAlertas(user.tenantId, atual);
   }
 
   @Post('alertas/:id/resolver')
   @Roles('presidente', 'gerente', 'supervisao')
-  resolverAlerta(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.resolverAlerta(user.tenantId, id, user.colaboradorId);
+  resolverAlerta(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id') id: string,
+  ) {
+    return this.service.resolverAlerta(user.tenantId, id, user.colaboradorId, atual);
   }
 }

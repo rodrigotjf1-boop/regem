@@ -24,6 +24,7 @@ const publicCols = {
   nome: colaborador.nome,
   fotoRef: colaborador.fotoRef,
   funcaoId: colaborador.funcaoId,
+  unidadeId: colaborador.unidadeId,
   vinculo: colaborador.vinculo,
   jornadaTipo: colaborador.jornadaTipo,
   email: colaborador.email,
@@ -281,11 +282,17 @@ export class ColaboradorService {
     return { ok: true };
   }
 
-  async findAll(tenantId: string) {
+  async findAll(tenantId: string, unidadeId?: string | null) {
     const rows = await this.db
       .select(publicCols)
       .from(colaborador)
-      .where(and(eq(colaborador.tenantId, tenantId), isNull(colaborador.deletedAt)));
+      .where(
+        and(
+          eq(colaborador.tenantId, tenantId),
+          isNull(colaborador.deletedAt),
+          ...(unidadeId ? [eq(colaborador.unidadeId, unidadeId)] : []),
+        ),
+      );
     // Anexa as funções (N:N) de cada colaborador.
     const links = await this.db
       .select({

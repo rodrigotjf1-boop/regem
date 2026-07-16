@@ -59,6 +59,27 @@ export class EquipamentoController {
     return this.service.removerImpressora(user.tenantId, id);
   }
 
+  // ----- Terminal de PDV: pareamento do PC (qualquer autenticado; o token é a prova) -----
+  @Post('parear')
+  parear(@CurrentUser() user: AuthUser, @Body() dto: { token?: string }) {
+    return this.service.parear(user.tenantId, dto?.token ?? '');
+  }
+
+  // Terminal de PDV: amarra (ou limpa) a impressora de cupom do terminal.
+  @Patch(':id/impressora')
+  @Roles('presidente', 'gerente')
+  setImpressora(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { impressoraId?: string | null },
+  ) {
+    return this.service.setImpressoraTerminal(
+      user.tenantId,
+      id,
+      dto?.impressoraId ?? null,
+    );
+  }
+
   @Patch(':id/revogar')
   @Roles('presidente', 'gerente')
   revogar(@CurrentUser() user: AuthUser, @Param('id') id: string) {

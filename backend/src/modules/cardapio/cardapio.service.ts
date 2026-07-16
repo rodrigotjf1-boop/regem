@@ -26,6 +26,7 @@ import {
   mesa,
   comanda,
   cliente,
+  formaPagamento,
 } from '../../db/schema';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
@@ -607,6 +608,21 @@ export class CardapioService {
           .where(inArray(produtoVariacao.produtoId, ids))
       : [];
 
+    // Formas de pagamento do cardápio = as `forma_pagamento` marcadas p/ cardápio.
+    // Fallback: se nenhuma foi marcada ainda, usa o `pagamentos` legado (sem regressão).
+    const formasCardapio = await this.db
+      .select({ nome: formaPagamento.nome })
+      .from(formaPagamento)
+      .where(
+        and(
+          eq(formaPagamento.tenantId, cfg.tenantId),
+          eq(formaPagamento.ativo, true),
+          eq(formaPagamento.cardapio, true),
+        ),
+      )
+      .orderBy(formaPagamento.ordem, formaPagamento.nome);
+    const pagamentosCardapio = formasCardapio.map((f) => f.nome);
+
     return {
       loja: {
         nome: cfg.nomePublico ?? 'Cardápio',
@@ -626,7 +642,7 @@ export class CardapioService {
         raios: (cfg.raios as any[]) ?? [],
         lojaLat: cfg.endLat != null ? Number(cfg.endLat) : null,
         lojaLng: cfg.endLng != null ? Number(cfg.endLng) : null,
-        pagamentos: cfg.pagamentos ?? [],
+        pagamentos: pagamentosCardapio.length ? pagamentosCardapio : (cfg.pagamentos ?? []),
         formasCartao: cfg.formasCartao ?? [],
         fidelidadeAtiva: cfg.fidelidadeAtiva,
         whatsapp: cfg.whatsapp,

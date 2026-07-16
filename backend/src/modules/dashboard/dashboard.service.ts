@@ -11,7 +11,16 @@ export class DashboardService {
     return r.rows[0];
   }
 
-  async resumo(tenantId: string, data: string, verFinanceiro = false) {
+  async resumo(
+    tenantId: string,
+    data: string,
+    verFinanceiro = false,
+    unidadeId?: string | null,
+  ) {
+    // Fragmento de filtro por unidade (vazio = rede toda). `uni` sem alias; `uniI`
+    // para subquery com alias `i` (item_estoque).
+    const uni = unidadeId ? sql`and unidade_id = ${unidadeId}` : sql``;
+    const uniI = unidadeId ? sql`and i.unidade_id = ${unidadeId}` : sql``;
     const t = await this.row(sql`
       select count(*) as total,
         count(*) filter (where estado = 'feita')     as feitas,
@@ -19,21 +28,21 @@ export class DashboardService {
         count(*) filter (where estado = 'nao_feita') as nao_feitas,
         count(*) filter (where conclusao_em_massa)   as em_massa
       from tarefa_instancia
-      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null`);
+      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null ${uni}`);
 
     const e = await this.row(sql`
       select count(*) as vagas, count(colaborador_id) as preenchidas
       from escala_alocacao
-      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null`);
+      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null ${uni}`);
 
     const d = await this.row(sql`
       select count(*) as total, coalesce(sum(quantidade), 0) as qtd
       from desperdicio
-      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null`);
+      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null ${uni}`);
 
     const v = await this.row(sql`
       select count(*) as total from vistoria
-      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null`);
+      where tenant_id = ${tenantId} and data = ${data} and deleted_at is null ${uni}`);
 
     const est = await this.row(sql`
       select count(*) as total from (
@@ -44,7 +53,7 @@ export class DashboardService {
             else m.quantidade end), 0) as saldo
         from item_estoque i
         left join movimento_estoque m on m.item_id = i.id
-        where i.tenant_id = ${tenantId} and i.deleted_at is null
+        where i.tenant_id = ${tenantId} and i.deleted_at is null ${uniI}
         group by i.id
       ) s where s.saldo < s.estoque_minimo`);
 
@@ -54,12 +63,12 @@ export class DashboardService {
              coalesce(sum(total), 0) as faturado,
              coalesce(avg(total), 0) as ticket
       from comanda
-      where tenant_id = ${tenantId} and status = 'fechada'
+      where tenant_id = ${tenantId} and status = 'fechada' ${uni}
         and (fechada_em at time zone 'America/Sao_Paulo')::date = ${data}::date`);
 
     const deliv = await this.row(sql`
       select count(*)::int as pendentes from pedido_externo
-      where tenant_id = ${tenantId}
+      where tenant_id = ${tenantId} ${uni}
         and status in ('novo', 'confirmado', 'pronto', 'despachado')`);
 
     // Produção do dia (unidades = operacional; custo = financeiro).
@@ -68,7 +77,7 @@ export class DashboardService {
              coalesce(sum((detalhe->>'quantidade')::numeric), 0) as unidades,
              coalesce(sum((detalhe->>'custoTotal')::numeric), 0) as custo
       from audit_log
-      where tenant_id = ${tenantId} and acao = 'produziu_ficha'
+      where tenant_id = ${tenantId} and acao = 'produziu_ficha' ${uni}
         and (created_at at time zone 'America/Sao_Paulo')::date = ${data}::date`);
 
     const total = Number(t.total);
@@ -100,7 +109,7 @@ export class DashboardService {
       const delivFat = await this.row(sql`
         select coalesce(sum(total), 0) as faturado
         from pedido_externo
-        where tenant_id = ${tenantId} and status not in ('novo', 'cancelado')
+        where tenant_id = ${tenantId} and status not in ('novo', 'cancelado') ${uni}
           and (criado_em at time zone 'America/Sao_Paulo')::date = ${data}::date`);
       base.comercial = {
         faturado: Number(Number(vend.faturado).toFixed(2)),
@@ -118,8 +127,11 @@ export class DashboardService {
   // Linha do tempo operacional — por SETOR, a partir da escala do dia (fonte da
   // verdade): quem está escalado (turno) + tarefas com horário + janelas de pico
   // + marcador "agora" (só se `data` = hoje no fuso America/Sao_Paulo).
-  async timeline(tenantId: string, data: string) {
+  async timeline(tenantId: string, data: string, unidadeId?: string | null) {
     const rows = (r: any) => (r.rows ?? r) as any[];
+    const uniA = unidadeId ? sql`and a.unidade_id = ${unidadeId}` : sql``;
+    const uniI = unidadeId ? sql`and i.unidade_id = ${unidadeId}` : sql``;
+    const uniN = unidadeId ? sql`and unidade_id = ${unidadeId}` : sql``;
 
     // Alocações da escala do dia (colaborador × turno × etiqueta → setor).
     const aloc: any = await this.db.execute(sql`
@@ -134,7 +146,7 @@ export class DashboardService {
       left join funcao f on f.id = et.funcao_id
       left join colaborador c on c.id = a.colaborador_id
       where a.tenant_id = ${tenantId} and a.data = ${data}
-        and a.deleted_at is null and a.status = 'ativa'
+        and a.deleted_at is null and a.status = 'ativa' ${uniA}
       order by s.nome, inicio`);
 
     // Tarefas com horário do dia (por setor).
@@ -146,7 +158,7 @@ export class DashboardService {
       join tarefa_def d on d.id = i.tarefa_def_id
       left join setor s on s.id = d.setor_id
       where i.tenant_id = ${tenantId} and i.data = ${data}
-        and i.deleted_at is null and d.horario is not null
+        and i.deleted_at is null and d.horario is not null ${uniI}
       order by d.horario`);
 
     const picos: any = await this.db.execute(sql`
@@ -154,8 +166,15 @@ export class DashboardService {
         extract(hour from hora_inicio) + extract(minute from hora_inicio) / 60.0 as inicio,
         extract(hour from hora_fim)   + extract(minute from hora_fim)   / 60.0 as fim
       from janela_pico
-      where tenant_id = ${tenantId} and deleted_at is null
-        and (dia_semana is null or dia_semana = extract(dow from ${data}::date))
+      where tenant_id = ${tenantId} and deleted_at is null ${uniN}
+        and (
+          dia_semana is null
+          or (dia_semana_fim is null and dia_semana = extract(dow from ${data}::date))
+          or (dia_semana_fim is not null and (
+            (dia_semana <= dia_semana_fim and extract(dow from ${data}::date) between dia_semana and dia_semana_fim)
+            or (dia_semana > dia_semana_fim and (extract(dow from ${data}::date) >= dia_semana or extract(dow from ${data}::date) <= dia_semana_fim))
+          ))
+        )
       order by hora_inicio`);
 
     const nowRow: any = await this.db.execute(sql`

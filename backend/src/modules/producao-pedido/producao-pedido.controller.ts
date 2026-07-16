@@ -14,6 +14,7 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ProducaoPedidoService } from './producao-pedido.service';
 
@@ -30,13 +31,15 @@ export class ProducaoPedidoController {
   @Get('fila')
   fila(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
     @Query('setorId') setorId?: string,
     @Query('unidadeId') unidadeId?: string,
     @Query('canal') canal?: string,
   ) {
     return this.service.filaKds(user.tenantId, {
       setorId: setorId || undefined,
-      unidadeId: unidadeId || undefined,
+      // Só o presidente pode escolher a unidade via query; os demais ficam na sua.
+      unidadeId: (user.categoria === 'presidente' ? unidadeId || unidadeAtual : unidadeAtual) || undefined,
       canal: canal || undefined,
     });
   }
@@ -52,9 +55,13 @@ export class ProducaoPedidoController {
 
   // ----- PDV (atendente é dono): consultar + cancelar em produção -----
   @Get('pedidos')
-  pedidos(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
+  pedidos(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Query('unidadeId') unidadeId?: string,
+  ) {
     return this.service.filaPdv(user.tenantId, {
-      unidadeId: unidadeId || undefined,
+      unidadeId: (user.categoria === 'presidente' ? unidadeId || unidadeAtual : unidadeAtual) || undefined,
     });
   }
 

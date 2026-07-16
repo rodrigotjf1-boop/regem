@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from 'lucide-react';
-import { api, getToken } from '@/lib/api';
+import { CalendarPlus, CalendarRange, ChevronLeft, ChevronRight, FileWarning, Plus, Trash2 } from 'lucide-react';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Select } from '@/components/ui/select';
 import { SkeletonList } from '@/components/ui/skeleton';
-import { NovaAlocacaoForm } from '@/components/escala/nova-alocacao-form';
 import { TimelineDia } from '@/components/escala/timeline-dia';
 import { GradeMensal } from '@/components/escala/grade-mensal';
+import { DiaEspecialModal } from '@/components/escala/dia-especial-modal';
+import { GerarEscalaWizard } from '@/components/escala/gerar-escala-wizard';
+import { PresencaModal } from '@/components/escala/presenca-modal';
+import { FaltasModal } from '@/components/escala/faltas-modal';
 import { Shell } from '@/components/app-shell/shell';
 import { cn } from '@/lib/utils';
 import { corHierarquia, LABEL_HIERARQUIA, ORDEM_HIERARQUIA } from '@/lib/hierarquia';
@@ -98,9 +100,15 @@ export default function EscalaPage() {
   const [mesAloc, setMesAloc] = useState<any[]>([]);
   const [mesEsp, setMesEsp] = useState<any[]>([]);
   const [erro, setErro] = useState('');
-  const [alocar, setAlocar] = useState<{ etiquetaId?: string; data: string } | null>(
-    null,
-  );
+  const [cat, setCat] = useState<string | null>(null);
+  const [espModal, setEspModal] = useState<string | null>(null); // data inicial ou null
+  const [gerarModal, setGerarModal] = useState<
+    { data: string; etiquetaId?: string; colaboradorId?: string; colaboradoresDoDia?: string[] } | null
+  >(null); // wizard de geração/alocação (card vazio, botão, editar)
+  const [detalheDia, setDetalheDia] = useState<string | null>(null); // resumo "todos do dia"
+  const [presencaAloc, setPresencaAloc] = useState<any>(null); // alocação p/ marcar presença
+  const [faltasOpen, setFaltasOpen] = useState(false); // relatório de faltas
+  const [bump, setBump] = useState(0); // força refresh de dia/mês após criar especial
   // Visão por dia (mobile): índice 0–6 dentro da semana.
   const [diaIdx, setDiaIdx] = useState(() => {
     const h = hoje();
@@ -149,6 +157,7 @@ export default function EscalaPage() {
       router.replace('/entrar');
       return;
     }
+    setCat(getCategoria());
     carregar();
   }, [carregar, router]);
 
@@ -161,7 +170,7 @@ export default function EscalaPage() {
         setDiaEsp(e as any[]);
       })
       .catch(() => {});
-  }, [view, diaSel]);
+  }, [view, diaSel, bump]);
 
   // Visão Mês: alocações + dias especiais do mês.
   useEffect(() => {
@@ -177,7 +186,7 @@ export default function EscalaPage() {
         setMesEsp(e as any[]);
       })
       .catch(() => {});
-  }, [view, mesCursor]);
+  }, [view, mesCursor, bump]);
 
   function irMes(delta: number) {
     const [ano, mes] = mesCursor.split('-').map(Number);
@@ -226,10 +235,13 @@ export default function EscalaPage() {
   }, [etiquetas]);
 
   // Colaboradores elegíveis para uma vaga = os que cobrem a função dela.
-  const elegiveis = useCallback(
-    (funcaoId?: string | null) =>
-      funcaoId ? colabs.filter((c) => (c.funcaoIds ?? []).includes(funcaoId)) : colabs,
-    [colabs],
+  // Todos os escalados (preenchidos) de um dia, ordenados por horário de entrada.
+  const alocacoesDoDia = useCallback(
+    (date: string) =>
+      (semana as any[])
+        .filter((a) => a.data === date && a.colaboradorId)
+        .sort((a, b) => String(a.turnoInicio ?? '').localeCompare(String(b.turnoInicio ?? ''))),
+    [semana],
   );
 
   // Dias importantes que cobrem uma data (feriado/férias/evento da rede;
@@ -249,36 +261,41 @@ export default function EscalaPage() {
       toast.error(e instanceof Error ? e.message : 'Erro ao remover');
     }
   }
-  async function trocarResp(id: string, colaboradorId: string) {
-    try {
-      const r: any = await api.alterarAlocacao(id, { colaboradorId: colaboradorId || null });
-      toast.success(colaboradorId ? 'Responsável atualizado.' : 'Vaga reaberta.');
-      (r?.avisos ?? []).forEach((a: any) => toast.error(`⚠️ ${a.msg}`));
-      await carregar();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao alterar');
-    }
-  }
 
   const rotulo = `${fmtDia(inicio).dm} – ${fmtDia(addDays(inicio, 6)).dm}`;
-
-  // Dados do modal (alocações existentes na célula + vaga selecionada).
-  const vagaSel = alocar?.etiquetaId
-    ? etiquetas.find((e) => e.id === alocar.etiquetaId)
-    : undefined;
-  const existentes = alocar?.etiquetaId
-    ? cell[`${alocar.etiquetaId}|${alocar.data}`] ?? []
-    : [];
-  const elegVaga = elegiveis(vagaSel?.funcaoId);
 
   return (
     <Shell
       eyebrow="Gestão de pessoas · escala"
       title="Escala da semana"
       actions={
-        <Button size="sm" onClick={() => setAlocar({ data: hoje() })}>
-          <Plus className="h-4 w-4" /> Nova alocação
-        </Button>
+        <div className="flex items-center gap-2">
+          {['presidente', 'gerente'].includes(cat ?? '') && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setEspModal(view === 'dia' ? diaSel : hoje())}
+              title="Cadastrar feriado ou evento (aviso)"
+            >
+              <CalendarPlus className="h-4 w-4" /> Feriado / evento
+            </Button>
+          )}
+          {['presidente', 'gerente'].includes(cat ?? '') && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setGerarModal({ data: view === 'dia' ? diaSel : hoje() })}
+              title="Gerar escala (1 dia ou recorrente)"
+            >
+              <CalendarRange className="h-4 w-4" /> Gerar escala
+            </Button>
+          )}
+          {['presidente', 'gerente'].includes(cat ?? '') && (
+            <Button size="sm" variant="outline" onClick={() => setFaltasOpen(true)} title="Relatório de faltas">
+              <FileWarning className="h-4 w-4" /> Faltas
+            </Button>
+          )}
+        </div>
       }
     >
       {/* Alternador de visões */}
@@ -412,7 +429,11 @@ export default function EscalaPage() {
                   grupo={g}
                   dias={dias}
                   cell={cell}
-                  onCell={(etiquetaId, data) => setAlocar({ etiquetaId, data })}
+                  onCell={(etiquetaId, data) => {
+                    const preenchido = (cell[`${etiquetaId}|${data}`] ?? []).some((a) => a.colaboradorNome);
+                    if (preenchido) setDetalheDia(data);
+                    else setGerarModal({ data, etiquetaId });
+                  }}
                 />
               ))}
             </tbody>
@@ -461,7 +482,11 @@ export default function EscalaPage() {
                     return (
                       <Card
                         key={v.id}
-                        onClick={() => setAlocar({ etiquetaId: v.id, data: dias[diaIdx] })}
+                        onClick={() =>
+                          allocs.some((a) => a.colaboradorNome)
+                            ? setDetalheDia(dias[diaIdx])
+                            : setGerarModal({ data: dias[diaIdx], etiquetaId: v.id })
+                        }
                         className="flex min-h-[44px] cursor-pointer items-center gap-3 p-3 active:bg-primary/5"
                         style={{ borderLeft: `3px solid ${corHierarquia(v.categoria)}` }}
                       >
@@ -555,69 +580,129 @@ export default function EscalaPage() {
         </>
       )}
 
-      {alocar && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-16"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setAlocar(null)}
-        >
-          <div className="w-full max-w-md space-y-3" onClick={(e) => e.stopPropagation()}>
-            {/* Alocações já existentes na célula: trocar responsável ou remover. */}
-            {existentes.length > 0 && (
-              <Card className="space-y-2 p-4">
-                <p className="font-display text-sm font-bold">
-                  {vagaSel ? `${vagaSel.sigla}${vagaSel.contador}` : 'Alocações'} ·{' '}
-                  {fmtDia(alocar.data).dm}
-                </p>
-                {existentes.map((a) => (
-                  <div key={a.id} className="flex items-center gap-2">
-                    <div className="flex-1">
-                      <Select
-                        aria-label="Responsável"
-                        value={
-                          colabs.find((c) => c.nome === a.colaboradorNome)?.id ?? ''
-                        }
-                        onChange={(e) => trocarResp(a.id, e.target.value)}
-                      >
-                        <option value="">Vaga aberta</option>
-                        {elegVaga.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nome}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    {a.turnoNome && (
-                      <span className="text-xs text-muted-foreground">{a.turnoNome}</span>
-                    )}
-                    <Button
+      {espModal && (
+        <DiaEspecialModal
+          dataInicial={espModal}
+          colabs={colabs}
+          onClose={() => setEspModal(null)}
+          onSaved={() => {
+            setEspModal(null);
+            setBump((b) => b + 1);
+            carregar();
+          }}
+        />
+      )}
+
+      {gerarModal && (
+        <GerarEscalaWizard
+          dataInicial={gerarModal.data}
+          etiquetaInicial={gerarModal.etiquetaId}
+          colaboradorInicial={gerarModal.colaboradorId}
+          colaboradoresDoDia={gerarModal.colaboradoresDoDia}
+          colabs={colabs}
+          etiquetas={etiquetas}
+          onClose={() => setGerarModal(null)}
+          onGenerated={() => {
+            setGerarModal(null);
+            setBump((b) => b + 1);
+            carregar();
+          }}
+        />
+      )}
+
+      {detalheDia && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={() => setDetalheDia(null)}>
+          <Card className="max-h-[85vh] w-full max-w-md space-y-3 overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-display text-base font-bold capitalize">
+                Escalados · {fmtDia(detalheDia).semana} {fmtDia(detalheDia).dm}
+              </h2>
+              <span className="font-mono text-xs text-muted-foreground">{alocacoesDoDia(detalheDia).length}</span>
+            </div>
+            {especiaisDoDia(detalheDia).map((e) => (
+              <p key={e.id} className="text-xs text-muted-foreground">
+                {EMOJI_ESPECIAL[e.tipo] ?? '⭐'} {e.nome}
+              </p>
+            ))}
+            {alocacoesDoDia(detalheDia).length === 0 ? (
+              <p className="text-sm text-muted-foreground">Ninguém escalado neste dia.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {alocacoesDoDia(detalheDia).map((a) => (
+                  <li key={a.id} className="flex items-center gap-3 py-2">
+                    <span className="w-11 flex-none font-mono text-xs font-bold" style={{ color: corHierarquia(a.categoria) }}>
+                      {a.etiquetaSigla}{a.etiquetaContador}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{a.colaboradorNome}</span>
+                    <span className="flex-none font-mono text-xs text-muted-foreground">
+                      {String(a.turnoInicio ?? '').slice(0, 5)}–{String(a.turnoFim ?? '').slice(0, 5)}
+                    </span>
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Remover alocação"
-                      className="text-destructive"
+                      className={`flex-none rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                        a.presenca === 'presente'
+                          ? 'bg-ok/15 text-ok'
+                          : a.presenca === 'falta_justificada'
+                            ? 'bg-warn/15 text-warn'
+                            : a.presenca === 'falta_injustificada'
+                              ? 'bg-destructive/15 text-destructive'
+                              : 'bg-secondary text-muted-foreground'
+                      }`}
+                      onClick={() => setPresencaAloc(a)}
+                      title="Marcar presença"
+                    >
+                      {a.presenca === 'presente'
+                        ? '✅ Presente'
+                        : a.presenca === 'falta_justificada'
+                          ? '📄 Justif.'
+                          : a.presenca === 'falta_injustificada'
+                            ? '⛔ Falta'
+                            : 'Presença'}
+                    </button>
+                    <button
+                      type="button"
+                      className="flex-none text-xs text-primary underline"
+                      onClick={() => {
+                        const d = detalheDia;
+                        const ids = [...new Set(alocacoesDoDia(d).map((x: any) => x.colaboradorId).filter(Boolean))] as string[];
+                        setDetalheDia(null);
+                        setGerarModal({ data: d, etiquetaId: a.etiquetaId, colaboradorId: a.colaboradorId, colaboradoresDoDia: ids });
+                      }}
+                    >
+                      editar
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Remover ${a.colaboradorNome}`}
+                      className="flex-none text-destructive"
                       onClick={() => removerAloc(a.id)}
                     >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
                 ))}
-              </Card>
+              </ul>
             )}
-
-            <NovaAlocacaoForm
-              data={alocar.data}
-              defaultEtiquetaId={alocar.etiquetaId}
-              onCancel={() => setAlocar(null)}
-              onCreated={() => {
-                setAlocar(null);
-                carregar();
-              }}
-            />
-          </div>
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" onClick={() => setDetalheDia(null)}>Fechar</Button>
+            </div>
+          </Card>
         </div>
       )}
+
+      {presencaAloc && (
+        <PresencaModal
+          aloc={presencaAloc}
+          onClose={() => setPresencaAloc(null)}
+          onSaved={() => {
+            setPresencaAloc(null);
+            setBump((b) => b + 1);
+            carregar();
+          }}
+        />
+      )}
+
+      {faltasOpen && <FaltasModal onClose={() => setFaltasOpen(false)} />}
     </Shell>
   );
 }

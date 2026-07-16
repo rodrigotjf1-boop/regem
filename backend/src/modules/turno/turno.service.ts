@@ -90,10 +90,16 @@ export class TurnoService {
     return { ok: true };
   }
 
-  findAll(tenantId: string) {
+  findAll(tenantId: string, unidadeId?: string | null) {
     return this.db
       .select()
       .from(turno)
-      .where(and(eq(turno.tenantId, tenantId), isNull(turno.deletedAt)));
+      .where(
+        and(
+          eq(turno.tenantId, tenantId),
+          isNull(turno.deletedAt),
+          ...(unidadeId ? [eq(turno.unidadeId, unidadeId)] : []),
+        ),
+      );
   }
 }
