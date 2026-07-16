@@ -140,6 +140,62 @@ export class RelatoriosService {
     };
   }
 
+  // Operações de caixa no período: cancelamentos (quem cancelou + motivo) e
+  // sangrias/suprimentos por operador. Base para auditoria de caixa.
+  async operacoesCaixa(tenantId: string, inicio?: string, fim?: string, verFin = false) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    const m = (v: any) => this.oc(v, verFin);
+
+    // Cancelamentos: comanda cancelada, por quem cancelou.
+    const cancel = await this.rows(sql`
+      select coalesce(col.nome,'—') as operador,
+             count(*)::int as qtd,
+             coalesce(sum(c.total),0) as valor
+      from comanda c
+      left join colaborador col on col.id = c.cancelada_por_id
+      where c.tenant_id = ${tenantId} and c.status = 'cancelada'
+        and c.created_at::date between ${ini} and ${f}
+      group by col.nome order by qtd desc`);
+
+    // Sangrias e suprimentos: lançamentos de caixa por operador.
+    const mov = await this.rows(sql`
+      select coalesce(col.nome,'—') as operador,
+             coalesce(sum(case when l.categoria='sangria' then l.valor else 0 end),0) as sangrias,
+             coalesce(sum(case when l.categoria='suprimento' then l.valor else 0 end),0) as suprimentos,
+             count(*) filter (where l.categoria='sangria')::int as qtd_sangrias,
+             count(*) filter (where l.categoria='suprimento')::int as qtd_suprimentos
+      from lancamento_caixa l
+      left join colaborador col on col.id = l.criado_por_id
+      where l.tenant_id = ${tenantId} and l.categoria in ('sangria','suprimento')
+        and l.data between ${ini} and ${f}
+      group by col.nome order by operador`);
+
+    return {
+      periodo: { inicio: ini, fim: f },
+      verFinanceiro: verFin,
+      cancelamentos: cancel.map((r) => ({
+        operador: r.operador,
+        qtd: Number(r.qtd),
+        valor: m(r.valor),
+      })),
+      cancelamentosTotal: {
+        qtd: cancel.reduce((s, r) => s + Number(r.qtd), 0),
+        valor: m(cancel.reduce((s, r) => s + Number(r.valor), 0)),
+      },
+      movimentos: mov.map((r) => ({
+        operador: r.operador,
+        sangrias: m(r.sangrias),
+        suprimentos: m(r.suprimentos),
+        qtdSangrias: Number(r.qtd_sangrias),
+        qtdSuprimentos: Number(r.qtd_suprimentos),
+      })),
+      movimentosTotal: {
+        sangrias: m(mov.reduce((s, r) => s + Number(r.sangrias), 0)),
+        suprimentos: m(mov.reduce((s, r) => s + Number(r.suprimentos), 0)),
+      },
+    };
+  }
+
   // Faturamento por mês e por trimestre DENTRO do período (respeita De/Até).
   async faturamentoPeriodo(tenantId: string, inicio?: string, fim?: string) {
     const { ini, fim: f } = this.periodo(inicio, fim);

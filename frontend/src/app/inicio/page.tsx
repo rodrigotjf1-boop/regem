@@ -28,6 +28,7 @@ export default function InicioPage() {
   const [erro, setErro] = useState('');
   const [ver, setVer] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<any | null>(null);
 
   const carregar = useCallback(async () => {
     const [unidades, setores, funcoes, colaboradores, turnos, etiquetas] =
@@ -69,12 +70,27 @@ export default function InicioPage() {
     return { value: f.id, label: f.nome };
   };
 
+  // Preview antes de aplicar: mostra o que o pacote vai criar (não escreve nada).
+  async function verPreview() {
+    setBusy(true);
+    setErro('');
+    try {
+      const bp: any = await api.get('/onboarding/blueprint?ramo=food_service');
+      setPreview(bp);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar o preview');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function aplicarTemplate() {
     setBusy(true);
     setErro('');
     try {
       await api.post('/onboarding/template', { unidadeId, ramo: 'food_service' });
       await carregar();
+      setPreview(null);
       setStep(3);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao aplicar pacote');
@@ -208,11 +224,68 @@ export default function InicioPage() {
                   Continuar <ArrowRight className="h-4 w-4" />
                 </Button>
               </div>
+            ) : preview ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <p className="mb-3 text-sm font-medium">
+                    {preview.emoji} Isto será criado no pacote {preview.label}:
+                  </p>
+                  {/* Setores → funções (vagas) */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {preview.setores?.length ?? 0} setores ·{' '}
+                      {preview.setores?.reduce((n: number, s: any) => n + (s.funcoes?.length ?? 0), 0) ?? 0} vagas
+                    </p>
+                    <ul className="space-y-1.5 text-sm">
+                      {preview.setores?.map((s: any, i: number) => (
+                        <li key={i}>
+                          <span className="font-medium">{s.icone} {s.nome}</span>
+                          <span className="text-muted-foreground">
+                            {' '}— {s.funcoes?.map((f: any) => `${f.sigla} ${f.nome}`).join(', ')}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  {/* Tipos de ocorrência */}
+                  {preview.tipos?.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {preview.tipos.length} tipos de ocorrência
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {preview.tipos.map((t: any) => t.nome).join(' · ')}
+                      </p>
+                    </div>
+                  )}
+                  {/* Itens de estoque */}
+                  {preview.itens?.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {preview.itens.length} itens de estoque
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {preview.itens.map((it: any) => it.nome).join(' · ')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Nada é aplicado até você confirmar. Dá pra ajustar tudo depois em Cadastros.
+                </p>
+                <Button className="w-full" size="lg" disabled={busy} onClick={aplicarTemplate}>
+                  <Check className="h-4 w-4" />
+                  {busy ? 'Aplicando…' : 'Confirmar e criar'}
+                </Button>
+                <Button variant="ghost" className="w-full" disabled={busy} onClick={() => setPreview(null)}>
+                  Voltar
+                </Button>
+              </div>
             ) : (
               <div className="space-y-3">
-                <Button className="w-full" size="lg" disabled={busy} onClick={aplicarTemplate}>
+                <Button className="w-full" size="lg" disabled={busy} onClick={verPreview}>
                   <Sparkles className="h-4 w-4" />
-                  {busy ? 'Aplicando…' : 'Aplicar pacote Food Service'}
+                  {busy ? 'Carregando…' : 'Ver o que será criado'}
                 </Button>
                 <Button
                   variant="ghost"

@@ -49,6 +49,15 @@ export class RelatoriosController {
     return this.service.atendentes(user.tenantId, inicio, fim, this.verFin(user));
   }
 
+  @Get('operacoes-caixa')
+  operacoesCaixa(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.operacoesCaixa(user.tenantId, inicio, fim, this.verFin(user));
+  }
+
   @Get('balcao')
   balcao(
     @CurrentUser() user: AuthUser,

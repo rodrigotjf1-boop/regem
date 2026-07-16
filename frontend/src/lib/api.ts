@@ -528,6 +528,13 @@ export const api = {
     const q = p.toString();
     return req(`/relatorios/atendentes${q ? `?${q}` : ''}`);
   },
+  relatorioOperacoesCaixa: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/operacoes-caixa${q ? `?${q}` : ''}`);
+  },
   relatorioBalcao: (inicio?: string, fim?: string) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);

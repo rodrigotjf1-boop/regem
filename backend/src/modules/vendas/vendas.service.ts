@@ -203,17 +203,23 @@ export class VendasService {
         .select({ custoMedio: itemEstoque.custoMedio })
         .from(itemEstoque)
         .where(eq(itemEstoque.id, itemId));
-      await tx.insert(movimentoEstoque).values({
-        tenantId,
-        itemId,
-        tipo: 'saida',
-        quantidade: String(qtd),
-        custoUnitario: item?.custoMedio != null ? String(item.custoMedio) : undefined,
-        motivo: 'venda',
-        refTipo: 'venda',
-        refId: comandaId,
-        data: hojeISO(),
-      });
+      await tx
+        .insert(movimentoEstoque)
+        .values({
+          tenantId,
+          itemId,
+          tipo: 'saida',
+          quantidade: String(qtd),
+          custoUnitario: item?.custoMedio != null ? String(item.custoMedio) : undefined,
+          motivo: 'venda',
+          refTipo: 'venda',
+          refId: comandaId,
+          data: hojeISO(),
+        })
+        // Idempotência real: índice único parcial idx_movimento_ref
+        // (tenant, ref_tipo, ref_id, item_id). Uma 2ª baixa do mesmo pedido
+        // (ex.: delivery concluído duas vezes) é ignorada em vez de estourar.
+        .onConflictDoNothing();
     }
   }
 
