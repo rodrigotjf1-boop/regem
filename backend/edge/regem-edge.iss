@@ -53,9 +53,11 @@ Source: "bundle\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall 
 Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
   StatusMsg: "Instalando componentes do Windows (VC++)…"; \
   Flags: waituntilterminated skipifdoesntexist
-; 2) Roda o orquestrador com os dados coletados no wizard. Sem notepad, sem prompts.
+; 2) Roda o orquestrador. As credenciais NAO vao na linha de comando (o transcript
+;    do PowerShell gravaria a senha no log) — vao num arquivo temporario que o
+;    [Code] escreve antes e o script le e apaga. So o CAMINHO aparece aqui.
 Filename: "powershell.exe"; \
-  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Email ""{code:GetEmail}"" -Senha ""{code:GetSenha}"" -UnidadeId ""{code:GetUnidade}"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
+  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
   StatusMsg: "Instalando o Regem Edge (Postgres, banco, certificado, servicos)…"; \
   Flags: runascurrentuser waituntilterminated
 
@@ -99,3 +101,16 @@ function GetSenha(Param: string): string;
 begin Result := PgConta.Values[1]; end;
 function GetUnidade(Param: string): string;
 begin Result := Trim(PgConta.Values[2]); end;
+
+// Escreve as credenciais num arquivo temporario (fora da linha de comando) logo
+// antes do [Run]. O {tmp} e apagado pelo Inno no fim; o script tambem remove o
+// arquivo assim que le. Evita que a senha do C&O apareca no transcript/log.
+procedure CurStepChanged(CurStep: TSetupStep);
+var s: string;
+begin
+  if CurStep = ssInstall then
+  begin
+    s := Trim(PgConta.Values[0]) + #13#10 + PgConta.Values[1] + #13#10 + Trim(PgConta.Values[2]);
+    SaveStringToFile(ExpandConstant('{tmp}\regem-cred.txt'), s, False);
+  end;
+end;

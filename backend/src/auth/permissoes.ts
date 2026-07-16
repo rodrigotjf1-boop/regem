@@ -38,6 +38,7 @@ export interface Permissoes {
   // Gestão
   cadastros?: boolean;
   loja?: boolean; // Configurações → Loja (perfil do estabelecimento)
+  unidades?: boolean; // Configurações → Unidades (cadastro/edição de lojas da rede)
   ponto_gerencial?: boolean; // Gerenciamento de ponto (gerencial)
   producao_kds?: boolean;
   config_ramo?: boolean; // config por ramo (wizard)
@@ -107,6 +108,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'fiscal_config', rotulo: 'Configuração fiscal', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'cadastros', rotulo: 'Cadastros', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'loja', rotulo: 'Loja (perfil)', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'unidades', rotulo: 'Unidades (lojas da rede)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'ponto_gerencial', rotulo: 'Gerenciamento de ponto', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'ponto', rotulo: 'Ponto (ações)', grupo: 'Gestão', tipo: 'crud' },
   { chave: 'producao_kds', rotulo: 'Produção & KDS', grupo: 'Gestão', tipo: 'bool' },

@@ -14,6 +14,8 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
+import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { VendasService } from './vendas.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
@@ -25,19 +27,31 @@ export class VendasController {
   constructor(private readonly service: VendasService) {}
 
   @Post('balcao')
-  balcao(@CurrentUser() user: AuthUser, @Body() dto: VendaBalcaoDto) {
+  balcao(
+    @CurrentUser() user: AuthUser,
+    @TerminalAtual() terminalId: string | null,
+    @Body() dto: VendaBalcaoDto,
+  ) {
     return this.service.vendaBalcao(
       user.tenantId,
       user.colaboradorId,
       user.categoria,
       dto,
+      terminalId,
     );
   }
 
   // ----- Mesas (Fase F2) -----
   @Get('mesas')
-  listarMesas(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
-    return this.service.listarMesas(user.tenantId, unidadeId || undefined);
+  listarMesas(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Query('unidadeId') unidadeId?: string,
+  ) {
+    return this.service.listarMesas(
+      user.tenantId,
+      (user.categoria === 'presidente' ? unidadeId || unidadeAtual : unidadeAtual) || undefined,
+    );
   }
 
   @Post('mesas')

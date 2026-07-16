@@ -23,6 +23,7 @@ import {
   pedidoExterno,
   produto,
 } from '../../db/schema';
+import { condUnidade } from '../../common/filtro-unidade';
 import { VendasService } from '../vendas/vendas.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
@@ -193,7 +194,7 @@ export class DeliveryService {
 
   // ===== Gestão (PDV) =====
   // Ativos (qualquer idade) + finalizados das últimas 24h (coluna Finalizado).
-  async listar(tenantId: string) {
+  async listar(tenantId: string, atual: string | null = null) {
     const desde = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const rows = await this.db
       .select()
@@ -201,6 +202,7 @@ export class DeliveryService {
       .where(
         and(
           eq(pedidoExterno.tenantId, tenantId),
+          condUnidade(pedidoExterno.unidadeId, atual),
           or(
             inArray(pedidoExterno.status, [
               'novo',
@@ -224,6 +226,7 @@ export class DeliveryService {
         select cliente_telefone as tel, count(*)::int as n
         from pedido_externo
         where tenant_id = ${tenantId} and cliente_telefone is not null and cliente_telefone <> ''
+          ${atual ? sql`and unidade_id = ${atual}` : sql``}
         group by 1
       `);
       for (const x of c?.rows ?? c) counts.set(String(x.tel), Number(x.n));

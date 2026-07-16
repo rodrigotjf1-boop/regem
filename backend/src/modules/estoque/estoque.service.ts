@@ -16,17 +16,20 @@ import {
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
+import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
 
 @Injectable()
 export class EstoqueService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
-  async createItem(tenantId: string, dto: CreateItemDto) {
+  async createItem(tenantId: string, dto: CreateItemDto, atual: string | null = null) {
     const [row] = await this.db
       .insert(itemEstoque)
       .values({
         tenantId,
-        unidadeId: dto.unidadeId,
+        // Usuário de loja (ou presidente com filial escolhida) grava sempre na
+        // unidade atual; o dto só vale quando não há unidade no contexto.
+        unidadeId: atual ?? dto.unidadeId,
         nome: dto.nome,
         unidadeMedida: dto.unidadeMedida ?? 'un',
         estoqueMinimo:
@@ -41,7 +44,7 @@ export class EstoqueService {
   }
 
   // Edita um insumo (campos + conversões replace-all).
-  async updateItem(tenantId: string, id: string, dto: CreateItemDto) {
+  async updateItem(tenantId: string, id: string, dto: CreateItemDto, atual: string | null = null) {
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.nome !== undefined) patch.nome = dto.nome;
     if (dto.unidadeMedida !== undefined) patch.unidadeMedida = dto.unidadeMedida;
@@ -57,6 +60,7 @@ export class EstoqueService {
         and(
           eq(itemEstoque.id, id),
           eq(itemEstoque.tenantId, tenantId),
+          condUnidade(itemEstoque.unidadeId, atual), // só edita item da própria unidade
           isNull(itemEstoque.deletedAt),
         ),
       )
@@ -128,7 +132,7 @@ export class EstoqueService {
   }
 
   // Saldo derivado do ledger (entrada +, saida -, ajuste sinalizado).
-  async listItens(tenantId: string, verFin = true) {
+  async listItens(tenantId: string, verFin = true, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
       select i.id, i.nome, i.unidade_medida as "unidadeMedida",
              i.estoque_minimo as "estoqueMinimo",
@@ -145,7 +149,7 @@ export class EstoqueService {
       left join movimento_estoque m on m.item_id = i.id
       left join categoria_item cat on cat.id = i.categoria_item_id
       left join fornecedor f on f.id = i.fornecedor_id
-      where i.tenant_id = ${tenantId} and i.deleted_at is null
+      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
       group by i.id, cat.nome, cat.cor, f.nome
       order by i.nome
     `);
@@ -171,7 +175,7 @@ export class EstoqueService {
     }));
   }
 
-  async createMovimento(tenantId: string, dto: CreateMovimentoDto) {
+  async createMovimento(tenantId: string, dto: CreateMovimentoDto, atual: string | null = null) {
     const [it] = await this.db
       .select({ id: itemEstoque.id })
       .from(itemEstoque)
@@ -179,10 +183,11 @@ export class EstoqueService {
         and(
           eq(itemEstoque.id, dto.itemId),
           eq(itemEstoque.tenantId, tenantId),
+          condUnidade(itemEstoque.unidadeId, atual), // item precisa ser da unidade atual
           isNull(itemEstoque.deletedAt),
         ),
       );
-    if (!it) throw new BadRequestException('Item inválido para este tenant');
+    if (!it) throw new BadRequestException('Item inválido para esta unidade');
 
     const [row] = await this.db
       .insert(movimentoEstoque)
@@ -198,7 +203,7 @@ export class EstoqueService {
     return row;
   }
 
-  listMovimentos(tenantId: string, itemId: string) {
+  listMovimentos(tenantId: string, itemId: string, atual: string | null = null) {
     return this.db
       .select()
       .from(movimentoEstoque)
@@ -206,6 +211,10 @@ export class EstoqueService {
         and(
           eq(movimentoEstoque.tenantId, tenantId),
           eq(movimentoEstoque.itemId, itemId),
+          // movimento não tem unidade própria: garante que o item é da unidade atual.
+          atual
+            ? sql`exists (select 1 from item_estoque i where i.id = ${movimentoEstoque.itemId} and i.unidade_id = ${atual})`
+            : undefined,
         ),
       )
       .orderBy(desc(movimentoEstoque.createdAt));
@@ -215,7 +224,7 @@ export class EstoqueService {
   // Valorização (valor em estoque + compras), reposição (ROP) e curva ABC no período.
   // Lead time é POR FORNECEDOR (item.fornecedor_id → fornecedor.lead_time_dias);
   // item sem fornecedor cai no padrão.
-  async inteligencia(tenantId: string, inicio: string, fim: string, verFin = true) {
+  async inteligencia(tenantId: string, inicio: string, fim: string, verFin = true, atual: string | null = null) {
     const LEAD_TIME_PADRAO = 7;
     const COBERTURA_ALVO_DIAS = 7;
     const res: any = await this.db.execute(sql`
@@ -233,7 +242,7 @@ export class EstoqueService {
       from item_estoque i
       left join fornecedor f on f.id = i.fornecedor_id and f.deleted_at is null
       left join movimento_estoque m on m.item_id = i.id
-      where i.tenant_id = ${tenantId} and i.deleted_at is null
+      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
       group by i.id, f.lead_time_dias, f.nome
       order by i.nome
     `);
@@ -322,7 +331,7 @@ export class EstoqueService {
 
   // §1.6 — Validades FEFO: lotes por vencimento com status (crítico/atenção/vencido).
   // (Obs.: saídas ainda não decrementam lotes; usa lote.quantidade como saldo aproximado.)
-  async validades(tenantId: string) {
+  async validades(tenantId: string, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
       select l.id, l.item_id as "itemId", i.nome as "itemNome",
              i.unidade_medida as "unidadeMedida", l.validade,
@@ -331,7 +340,7 @@ export class EstoqueService {
       from lote l
       join item_estoque i on i.id = l.item_id
       where l.tenant_id = ${tenantId} and l.esgotado = false
-        and l.validade is not null and l.deleted_at is null
+        and l.validade is not null and l.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
       order by l.validade asc
     `);
     const rows = res.rows ?? res;
@@ -355,7 +364,7 @@ export class EstoqueService {
 
   // §1.3 — Grava o snapshot de estoque de UMA data (saldo até a data × custo médio atual).
   // Upsert: reexecutar no mesmo dia atualiza. (custo_medio é o cache atual — snapshot é "ao vivo".)
-  async gerarSnapshot(tenantId: string, data?: string) {
+  async gerarSnapshot(tenantId: string, data?: string, atual: string | null = null) {
     const d = data ?? new Date().toISOString().slice(0, 10);
     await this.db.execute(sql`
       insert into estoque_snapshot (tenant_id, unidade_id, item_id, data, saldo, custo_medio)
@@ -365,7 +374,7 @@ export class EstoqueService {
         i.custo_medio
       from item_estoque i
       left join movimento_estoque m on m.item_id = i.id and m.data <= ${d}
-      where i.tenant_id = ${tenantId} and i.deleted_at is null
+      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
       group by i.id
       on conflict (tenant_id, item_id, data)
         do update set saldo = excluded.saldo, custo_medio = excluded.custo_medio
@@ -374,18 +383,18 @@ export class EstoqueService {
   }
 
   // §1.3 — CMV real (EI + Compras − EF) × CMV teórico consumido → desvio.
-  async cmvReal(tenantId: string, inicio: string, fim: string) {
+  async cmvReal(tenantId: string, inicio: string, fim: string, atual: string | null = null) {
     // Valor do snapshot mais recente com data <= alvo (EI/EF).
     const valorSnapshot = async (alvo: string): Promise<number> => {
       const r: any = await this.db.execute(sql`
         with ult as (
           select item_id, max(data) as data from estoque_snapshot
-          where tenant_id=${tenantId} and data <= ${alvo} group by item_id
+          where tenant_id=${tenantId} and data <= ${alvo} ${sqlUnidade('unidade_id', atual)} group by item_id
         )
         select coalesce(sum(s.saldo * s.custo_medio),0) as v
         from estoque_snapshot s
         join ult on ult.item_id = s.item_id and ult.data = s.data
-        where s.tenant_id = ${tenantId}
+        where s.tenant_id = ${tenantId} ${sqlUnidade('s.unidade_id', atual)}
       `);
       return Number((r.rows ?? r)[0].v);
     };
@@ -397,7 +406,7 @@ export class EstoqueService {
               when 'saida' then -m.quantidade else m.quantidade end),0) as saldo
           from item_estoque i
           left join movimento_estoque m on m.item_id = i.id
-          where i.tenant_id=${tenantId} and i.deleted_at is null
+          where i.tenant_id=${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
           group by i.id
         ) t
       `);
@@ -420,7 +429,7 @@ export class EstoqueService {
       const r: any = await this.db.execute(sql`
         select coalesce(sum(m.quantidade * coalesce(m.custo_unitario, i.custo_medio)),0) as v
         from movimento_estoque m join item_estoque i on i.id = m.item_id
-        where m.tenant_id=${tenantId} and m.data between ${inicio} and ${fim} and ${cond}
+        where m.tenant_id=${tenantId} and m.data between ${inicio} and ${fim} ${sqlUnidade('i.unidade_id', atual)} and ${cond}
       `);
       return Number((r.rows ?? r)[0].v);
     };
@@ -491,13 +500,14 @@ export class EstoqueService {
     return novo;
   }
 
-  listarAlertas(tenantId: string) {
+  listarAlertas(tenantId: string, atual: string | null = null) {
     return this.db
       .select()
       .from(alertaEstoque)
       .where(
         and(
           eq(alertaEstoque.tenantId, tenantId),
+          condUnidade(alertaEstoque.unidadeId, atual),
           isNull(alertaEstoque.resolvidoEm),
         ),
       )
@@ -518,12 +528,16 @@ export class EstoqueService {
       );
   }
 
-  async resolverAlerta(tenantId: string, id: string, colaboradorId: string) {
+  async resolverAlerta(tenantId: string, id: string, colaboradorId: string, atual: string | null = null) {
     await this.db
       .update(alertaEstoque)
       .set({ resolvidoEm: new Date(), resolvidoPor: colaboradorId })
       .where(
-        and(eq(alertaEstoque.id, id), eq(alertaEstoque.tenantId, tenantId)),
+        and(
+          eq(alertaEstoque.id, id),
+          eq(alertaEstoque.tenantId, tenantId),
+          condUnidade(alertaEstoque.unidadeId, atual),
+        ),
       );
     return { ok: true };
   }

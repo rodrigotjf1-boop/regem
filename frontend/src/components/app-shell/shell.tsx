@@ -43,6 +43,7 @@ import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
+import { UnidadeSeletor } from './unidade-seletor';
 
 // Item de submenu (2º nível). `perm` = permissão do catálogo que libera o item.
 type NavSub = { href: string; label: string; icon: LucideIcon; perm: string };
@@ -95,6 +96,7 @@ const NAV: NavNode[] = [
     label: 'Configurações', icon: Settings,
     children: [
       { href: '/loja', label: 'Loja', icon: Store, perm: 'loja' },
+      { href: '/unidades', label: 'Unidades', icon: Building2, perm: 'unidades' },
       { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds' },
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
       { href: '/planos', label: 'Planos & assinatura', icon: CreditCard, perm: 'planos' },
@@ -365,6 +367,7 @@ export function Shell({
             </h1>
           </div>
           <div className="ml-auto flex items-center gap-2.5">
+            <UnidadeSeletor />
             <ModoOperacao />
             <span className="hidden items-center gap-2 rounded-md border border-border bg-card px-3 py-2 font-mono text-xs text-muted-foreground sm:inline-flex">
               <Clock className="h-3.5 w-3.5" /> {rel}

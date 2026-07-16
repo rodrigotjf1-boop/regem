@@ -14,6 +14,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { FiscalService } from './fiscal.service';
 
@@ -27,8 +28,15 @@ export class FiscalController {
 
   @Get('config')
   @RequirePerm('fiscal_config')
-  config(@CurrentUser() user: AuthUser, @Query('unidadeId') unidadeId?: string) {
-    return this.service.getConfig(user.tenantId, unidadeId || null);
+  config(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Query('unidadeId') unidadeId?: string,
+  ) {
+    return this.service.getConfig(
+      user.tenantId,
+      (user.categoria === 'presidente' ? unidadeId || unidadeAtual : unidadeAtual) || null,
+    );
   }
 
   @Put('config')

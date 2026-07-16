@@ -17,7 +17,7 @@ export class UnidadeService {
   async create(tenantId: string, dto: CreateUnidadeDto) {
     const [row] = await this.db
       .insert(unidade)
-      .values({ tenantId, nome: dto.nome, endereco: dto.endereco })
+      .values({ tenantId, nome: dto.nome, tipo: dto.tipo ?? 'filial', endereco: dto.endereco })
       .returning();
     return row;
   }
@@ -32,7 +32,7 @@ export class UnidadeService {
   async update(tenantId: string, id: string, dto: CreateUnidadeDto) {
     const [row] = await this.db
       .update(unidade)
-      .set({ nome: dto.nome, endereco: dto.endereco })
+      .set({ nome: dto.nome, ...(dto.tipo ? { tipo: dto.tipo } : {}), endereco: dto.endereco })
       .where(
         and(
           eq(unidade.id, id),

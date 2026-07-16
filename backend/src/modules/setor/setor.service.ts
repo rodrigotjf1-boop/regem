@@ -89,10 +89,16 @@ export class SetorService {
     return { ok: true };
   }
 
-  findAll(tenantId: string) {
+  findAll(tenantId: string, unidadeId?: string | null) {
     return this.db
       .select()
       .from(setor)
-      .where(and(eq(setor.tenantId, tenantId), isNull(setor.deletedAt)));
+      .where(
+        and(
+          eq(setor.tenantId, tenantId),
+          isNull(setor.deletedAt),
+          ...(unidadeId ? [eq(setor.unidadeId, unidadeId)] : []),
+        ),
+      );
   }
 }

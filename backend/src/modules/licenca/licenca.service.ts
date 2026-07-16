@@ -4,6 +4,7 @@ import {
   HttpException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -17,7 +18,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ativacao, colaborador, edgeHeartbeat, empresa, equipamento, funcao, revenda } from '../../db/schema';
 import { EquipamentoService } from '../equipamento/equipamento.service';
-import { assinarLease } from './lease';
+import { assinarLease, licencaConfigurada } from './lease';
 import { PLANOS } from './planos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -28,6 +29,7 @@ const TRIAL_MODULOS = ['kds', 'ponto', 'app_colaborador', 'cashback', 'fidelidad
 
 @Injectable()
 export class LicencaService {
+  private readonly logger = new Logger(LicencaService.name);
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly equip: EquipamentoService,
@@ -178,6 +180,20 @@ export class LicencaService {
       throw new ForbiddenException('Apenas o C&O ou gerente pode ativar o servidor local.');
     }
     const tenantId = u.tenantId;
+
+    // Falha CEDO (antes de criar equipamento/ativação) se a nuvem não tem as
+    // chaves de licença — senão a assinatura do lease estoura um 500 opaco. A
+    // causa fica no LOG do servidor (p/ tratamento); o instalador recebe um erro
+    // genérico, já que ao usuário final essa config interna não importa.
+    if (!licencaConfigurada()) {
+      this.logger.error(
+        'Provisionamento self-service abortado: LICENSE_PRIVATE_KEY_B64/LICENSE_PUBLIC_KEY_B64 ausentes na regem-api. ' +
+          'Gere o par (node scripts/gen-license-keys.mjs) e configure as envs de licença + LICENSE_KID, depois faça o deploy.',
+      );
+      throw new ServiceUnavailableException(
+        'Ativação temporariamente indisponível. Tente novamente em instantes.',
+      );
+    }
 
     // 2) Trial/assinatura precisa estar ativa.
     const st = await this.statusConta(tenantId);

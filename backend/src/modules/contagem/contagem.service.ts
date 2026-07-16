@@ -16,6 +16,7 @@ import {
   CreateContagemListaDto,
   SalvarContagemItemDto,
 } from './dto/create-contagem-lista.dto';
+import { condUnidade } from '../../common/filtro-unidade';
 
 @Injectable()
 export class ContagemService {
@@ -40,8 +41,8 @@ export class ContagemService {
     return map;
   }
 
-  async createLista(tenantId: string, dto: CreateContagemListaDto) {
-    // Só itens do tenant.
+  async createLista(tenantId: string, dto: CreateContagemListaDto, atual: string | null = null) {
+    // Só itens do tenant (e da unidade atual, quando escopada).
     const validos = (
       await this.db
         .select({ id: itemEstoque.id })
@@ -49,6 +50,7 @@ export class ContagemService {
         .where(
           and(
             eq(itemEstoque.tenantId, tenantId),
+            condUnidade(itemEstoque.unidadeId, atual),
             inArray(itemEstoque.id, dto.itemIds),
             isNull(itemEstoque.deletedAt),
           ),
@@ -58,6 +60,7 @@ export class ContagemService {
       .insert(contagemLista)
       .values({
         tenantId,
+        unidadeId: atual,
         nome: dto.nome,
         recorrencia: dto.recorrencia ?? 'semanal',
         diaSemana: dto.diaSemana,
@@ -75,11 +78,11 @@ export class ContagemService {
     return { ...lista, itens: validos.length };
   }
 
-  async listListas(tenantId: string) {
+  async listListas(tenantId: string, atual: string | null = null) {
     const listas = await this.db
       .select()
       .from(contagemLista)
-      .where(and(eq(contagemLista.tenantId, tenantId), isNull(contagemLista.deletedAt)))
+      .where(and(eq(contagemLista.tenantId, tenantId), condUnidade(contagemLista.unidadeId, atual), isNull(contagemLista.deletedAt)))
       .orderBy(contagemLista.nome);
     // contagem de itens + última execução por lista (em memória).
     const ids = listas.map((l) => l.id);
@@ -123,7 +126,7 @@ export class ContagemService {
     return false;
   }
 
-  async removerLista(tenantId: string, id: string) {
+  async removerLista(tenantId: string, id: string, atual: string | null = null) {
     const [row] = await this.db
       .update(contagemLista)
       .set({ deletedAt: new Date() })
@@ -131,6 +134,7 @@ export class ContagemService {
         and(
           eq(contagemLista.id, id),
           eq(contagemLista.tenantId, tenantId),
+          condUnidade(contagemLista.unidadeId, atual),
           isNull(contagemLista.deletedAt),
         ),
       )
@@ -140,7 +144,7 @@ export class ContagemService {
   }
 
   // Abre uma execução: snapshot do saldo de cada item da lista.
-  async iniciarExecucao(tenantId: string, listaId: string, atorId: string) {
+  async iniciarExecucao(tenantId: string, listaId: string, atorId: string, atual: string | null = null) {
     const [lista] = await this.db
       .select()
       .from(contagemLista)
@@ -148,6 +152,7 @@ export class ContagemService {
         and(
           eq(contagemLista.id, listaId),
           eq(contagemLista.tenantId, tenantId),
+          condUnidade(contagemLista.unidadeId, atual),
           isNull(contagemLista.deletedAt),
         ),
       );

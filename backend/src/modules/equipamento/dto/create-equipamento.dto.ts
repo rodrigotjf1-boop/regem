@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 
 export class CreateEquipamentoDto {
-  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora'])
+  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv'])
   tipo!: string;
 
   @IsString()
@@ -59,4 +59,9 @@ export class CreateEquipamentoDto {
   @IsOptional()
   @IsBoolean()
   padrao?: boolean;
+
+  // Terminal de PDV: impressora de cupom (via do cliente) amarrada a este terminal.
+  @IsOptional()
+  @IsUUID()
+  impressoraPadraoId?: string;
 }

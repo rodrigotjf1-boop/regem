@@ -20,6 +20,10 @@ param(
   [string]$Raiz = "C:\regem-edge\backend",
   [string]$UnidadeId = "",
   # Self-service (recomendado): a conta C&O provisiona sozinha.
+  # As credenciais chegam por ARQUIVO temporario (-CredFile) e NAO pela linha de
+  # comando, para nao vazarem no transcript/log. -Email/-Senha seguem como
+  # fallback para execucao manual.
+  [string]$CredFile = "",
   [string]$Email = "",
   [string]$Senha = "",
   # Modo manual (fallback): token de sync + token de ativacao emitidos na nuvem.
@@ -46,6 +50,20 @@ function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m
 function Rand($n) { -join ((48..57) + (65..90) + (97..122) | Get-Random -Count $n | ForEach-Object { [char]$_ }) }
 
 Diga "=== Regem Edge - instalacao automatica ==="
+
+# ---- 0.0) Credenciais via arquivo temporario (o instalador as escreve fora da
+# linha de comando p/ NAO vazarem no log/transcript). Le e apaga imediatamente. ----
+if ($CredFile -and (Test-Path $CredFile)) {
+  try {
+    $cred = @(Get-Content -Path $CredFile -Encoding Default)
+    if ($cred.Count -ge 1 -and -not $Email)     { $Email = ([string]$cred[0]).Trim() }
+    if ($cred.Count -ge 2 -and -not $Senha)     { $Senha = [string]$cred[1] }
+    if ($cred.Count -ge 3 -and -not $UnidadeId) { $UnidadeId = ([string]$cred[2]).Trim() }
+  } finally {
+    Remove-Item -Path $CredFile -Force -ErrorAction SilentlyContinue
+  }
+  Diga "Credenciais do C&O carregadas (arquivo temporario removido)."
+}
 
 # ---- 0) Resolver ferramentas: preferir EMBUTIDAS (ao lado do app) ----
 $nodeDir = Join-Path $base "node"          # node portatil (node.exe, npm.cmd)
@@ -261,9 +279,29 @@ if ($AtivacaoToken -and -not ($Email -and $Senha)) {
 # servidor estiver fora quando o aparelho liga, abre-se por este).
 try {
   $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
+  # Navegador para abrir em modo APP + TELA CHEIA (sem abas/barra = cara de programa).
+  # Edge existe sempre no Win10/11; Chrome se instalado. Sem nenhum: cai no .url simples.
+  $navegador = $null
+  foreach ($c in @(
+      "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+      "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+      "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+      "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe")) {
+    if (Test-Path $c) { $navegador = $c; break }
+  }
+  $wshell = New-Object -ComObject WScript.Shell
   function Atalho($nome, $url) {
-    $p = Join-Path $desktop ($nome + ".url")
-    Set-Content -Path $p -Encoding ascii -Value "[InternetShortcut]`r`nURL=$url`r`nIconIndex=0"
+    if ($navegador) {
+      $p = Join-Path $desktop ($nome + ".lnk")
+      $sc = $wshell.CreateShortcut($p)
+      $sc.TargetPath = $navegador
+      $sc.Arguments  = "--app=$url --start-fullscreen"
+      $sc.IconLocation = $navegador
+      $sc.Save()
+    } else {
+      $p = Join-Path $desktop ($nome + ".url")
+      Set-Content -Path $p -Encoding ascii -Value "[InternetShortcut]`r`nURL=$url`r`nIconIndex=0"
+    }
     Diga "Atalho: $nome -> $url"
   }
   $baseLocal = "https://localhost:$PortaWeb"

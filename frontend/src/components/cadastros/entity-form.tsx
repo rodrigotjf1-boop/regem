@@ -19,6 +19,10 @@ export type FieldDef = {
   defaultValue?: string;
   /** Habilita "＋ Cadastrar nova…" no select; cria e já seleciona a opção. */
   onCreate?: (nome: string) => Promise<Opt>;
+  /** Mostra o campo só quando a condição (sobre os valores atuais) é verdadeira. */
+  showIf?: (values: Record<string, string>) => boolean;
+  /** Deriva o valor inicial (edição) a partir da linha, quando não é `row[name]`. */
+  fromRow?: (row: Record<string, unknown>) => string;
 };
 
 const NOVO = '__novo__';
@@ -86,7 +90,7 @@ export function EntityForm({
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      {fields.map((f) => (
+      {fields.filter((f) => !f.showIf || f.showIf(values)).map((f) => (
         <div key={f.name} className="space-y-1.5">
           <Label htmlFor={f.name}>{f.label}</Label>
 

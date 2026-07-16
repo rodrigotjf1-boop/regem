@@ -3,6 +3,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { DashboardService } from './dashboard.service';
 
@@ -13,18 +14,26 @@ export class DashboardController {
 
   @Get()
   @Roles('presidente', 'gerente')
-  resumo(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
+  resumo(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeId: string | null,
+    @Query('data') data?: string,
+  ) {
     const d =
       data ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
     // Bloco financeiro (R$) só quando o perfil permite "ver_financeiro".
-    return this.service.resumo(user.tenantId, d, !!user.permissoes?.ver_financeiro);
+    return this.service.resumo(user.tenantId, d, !!user.permissoes?.ver_financeiro, unidadeId);
   }
 
   @Get('timeline')
   @Roles('presidente', 'gerente')
-  timeline(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
+  timeline(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeId: string | null,
+    @Query('data') data?: string,
+  ) {
     const d =
       data ?? new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-    return this.service.timeline(user.tenantId, d);
+    return this.service.timeline(user.tenantId, d, unidadeId);
   }
 }

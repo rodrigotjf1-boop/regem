@@ -80,6 +80,26 @@ export function Timeline({
       <div className="min-w-[620px]">
         {/* grade: rótulo do setor + trilha */}
         <div className="grid grid-cols-[92px_1fr]">
+          {/* faixa discreta com o nome dos picos, no topo */}
+          {picos.length > 0 && (
+            <>
+              <div className="flex items-center justify-end pr-2 text-[9px] font-bold uppercase tracking-wide text-warn/70">
+                pico
+              </div>
+              <div className="relative mb-0.5 h-3.5">
+                {picos.map((p, i) => (
+                  <span
+                    key={`pl${i}`}
+                    className="pointer-events-none absolute top-0 flex items-center gap-0.5 whitespace-nowrap text-[9px] font-bold text-warn"
+                    style={{ left: `${pct(p.inicio)}%` }}
+                    title={`${p.nome} · ${hhmm(p.inicio)}–${hhmm(p.fim)}`}
+                  >
+                    🔥 {p.nome}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
           {/* régua de horas (só na coluna da trilha) */}
           <div />
           <div className="relative mb-1 h-4">
@@ -108,8 +128,8 @@ export function Timeline({
                 {picos.map((p, i) => (
                   <span
                     key={`pk${i}`}
-                    className="pointer-events-none absolute inset-y-0 bg-destructive/5"
-                    style={{ left: `${pct(p.inicio)}%`, width: `${Math.max(0.5, pct(p.fim) - pct(p.inicio))}%` }}
+                    className="pointer-events-none absolute inset-y-0 border-x-2 border-warn/60 bg-warn/30"
+                    style={{ left: `${pct(p.inicio)}%`, width: `${Math.max(0.8, pct(p.fim) - pct(p.inicio))}%` }}
                     title={`Pico: ${p.nome} (${hhmm(p.inicio)}–${hhmm(p.fim)})`}
                   />
                 ))}

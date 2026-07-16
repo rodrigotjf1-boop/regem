@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { DeliveryService } from './delivery.service';
@@ -38,8 +39,8 @@ export class DeliveryController {
   // ----- Gestão (PDV) -----
   @Get('pedidos')
   @UseGuards(JwtAuthGuard)
-  pedidos(@CurrentUser() user: AuthUser) {
-    return this.service.listar(user.tenantId);
+  pedidos(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.listar(user.tenantId, atual);
   }
 
   @Post('pedidos/:id/aceitar')

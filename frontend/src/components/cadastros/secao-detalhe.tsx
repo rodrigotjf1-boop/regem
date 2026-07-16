@@ -11,6 +11,7 @@ import { type Secao } from '@/components/cadastros/build-secoes';
 
 // Converte o valor da linha no defaultValue (string) que o EntityForm espera.
 function toDefault(field: FieldDef, row: any): string {
+  if (field.fromRow) return field.fromRow(row);
   const val = row[field.name];
   if (Array.isArray(val)) return val.join(',');
   if (typeof val === 'boolean') return val ? '1' : '';

@@ -4,9 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { funcao, setor, etiqueta } from '../../db/schema';
+import { funcao, funcaoSetor, setor, etiqueta } from '../../db/schema';
 import { CreateFuncaoDto } from './dto/create-funcao.dto';
 
 // Abrevia o nome numa sigla (sem acento, só letras, 4 chars). "Aux. Cozinha" → "AUXC".
@@ -23,27 +23,43 @@ export function gerarSigla(nome: string): string {
 export class FuncaoService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
+  // Sincroniza os setores (N:N) de uma função com a lista informada.
+  private async syncSetores(tenantId: string, funcaoId: string, setorIds: string[]) {
+    await this.db.delete(funcaoSetor).where(eq(funcaoSetor.funcaoId, funcaoId));
+    const ids = [...new Set(setorIds.filter(Boolean))];
+    if (ids.length) {
+      await this.db
+        .insert(funcaoSetor)
+        .values(ids.map((setorId) => ({ tenantId, funcaoId, setorId })))
+        .onConflictDoNothing();
+    }
+  }
+
   async create(tenantId: string, dto: CreateFuncaoDto) {
+    // Setor primário = o informado ou o 1º da lista N:N.
+    const setorPrimario = dto.setorId ?? dto.setorIds?.[0] ?? null;
     const [row] = await this.db
       .insert(funcao)
       .values({
         tenantId,
         nome: dto.nome,
         categoria: dto.categoria ?? 'execucao',
-        setorId: dto.setorId,
+        setorId: setorPrimario ?? undefined,
       })
       .returning();
 
-    // Fase 3: gera a etiqueta (vaga) da função. Precisa de setor (a etiqueta
-    // exige setorId + unidadeId). Sem setor, cria só a função.
+    await this.syncSetores(tenantId, row.id, dto.setorIds ?? (setorPrimario ? [setorPrimario] : []));
+
+    // Geração de etiqueta só quando EXPLICITAMENTE pedida (o cadastro de funções
+    // não gera mais etiqueta — isso ficou só no card Etiquetas).
     let etiquetaGerada: typeof etiqueta.$inferSelect | null = null;
-    if (dto.gerarEtiqueta !== false && dto.setorId) {
+    if (dto.gerarEtiqueta === true && setorPrimario) {
       const [s] = await this.db
         .select({ id: setor.id, unidadeId: setor.unidadeId })
         .from(setor)
         .where(
           and(
-            eq(setor.id, dto.setorId),
+            eq(setor.id, setorPrimario),
             eq(setor.tenantId, tenantId),
             isNull(setor.deletedAt),
           ),
@@ -69,7 +85,7 @@ export class FuncaoService {
           .values({
             tenantId,
             unidadeId: s.unidadeId,
-            setorId: dto.setorId,
+            setorId: setorPrimario,
             funcaoId: row.id,
             sigla,
             contador,
@@ -82,12 +98,13 @@ export class FuncaoService {
   }
 
   async update(tenantId: string, id: string, dto: CreateFuncaoDto) {
+    const setorPrimario = dto.setorId ?? dto.setorIds?.[0] ?? null;
     const [row] = await this.db
       .update(funcao)
       .set({
         nome: dto.nome,
         categoria: dto.categoria ?? 'execucao',
-        setorId: dto.setorId ?? null,
+        setorId: setorPrimario,
       })
       .where(
         and(
@@ -98,6 +115,9 @@ export class FuncaoService {
       )
       .returning();
     if (!row) throw new NotFoundException('Função não encontrada.');
+    // Re-sincroniza os setores N:N quando a lista é informada.
+    if (dto.setorIds !== undefined)
+      await this.syncSetores(tenantId, id, dto.setorIds);
     return row;
   }
 
@@ -123,10 +143,31 @@ export class FuncaoService {
     return { ok: true };
   }
 
-  findAll(tenantId: string) {
-    return this.db
+  async findAll(tenantId: string) {
+    const rows = await this.db
       .select()
       .from(funcao)
       .where(and(eq(funcao.tenantId, tenantId), isNull(funcao.deletedAt)));
+    if (rows.length === 0) return rows;
+    // Anexa os setores (N:N) de cada função.
+    const links = await this.db
+      .select({ funcaoId: funcaoSetor.funcaoId, setorId: funcaoSetor.setorId })
+      .from(funcaoSetor)
+      .where(
+        and(
+          eq(funcaoSetor.tenantId, tenantId),
+          inArray(funcaoSetor.funcaoId, rows.map((r) => r.id)),
+        ),
+      );
+    const porFuncao = new Map<string, string[]>();
+    for (const l of links) {
+      const arr = porFuncao.get(l.funcaoId) ?? [];
+      arr.push(l.setorId);
+      porFuncao.set(l.funcaoId, arr);
+    }
+    return rows.map((r) => ({
+      ...r,
+      setorIds: porFuncao.get(r.id) ?? (r.setorId ? [r.setorId] : []),
+    }));
   }
 }

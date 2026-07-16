@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   mesa,
@@ -27,6 +27,7 @@ import {
   caixaSessao,
   entitlement,
   colaborador,
+  equipamento,
   auditLog,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -95,7 +96,11 @@ export class VendasService {
   // Sessão de caixa aberta (para amarrar a venda ao turno) — null se caixa fechado.
   // Caixa aberto do BALCÃO (origem 'pdv'). O caixa do delivery é uma gaveta
   // separada e não deve satisfazer/receber uma venda de balcão.
-  private async sessaoAbertaId(tx: any, tenantId: string): Promise<string | null> {
+  private async sessaoAbertaId(
+    tx: any,
+    tenantId: string,
+    terminalId?: string | null,
+  ): Promise<string | null> {
     const [s] = await tx
       .select({ id: caixaSessao.id })
       .from(caixaSessao)
@@ -104,6 +109,9 @@ export class VendasService {
           eq(caixaSessao.tenantId, tenantId),
           eq(caixaSessao.status, 'aberta'),
           eq(caixaSessao.origem, 'pdv'),
+          terminalId
+            ? eq(caixaSessao.terminalId, terminalId)
+            : isNull(caixaSessao.terminalId),
         ),
       );
     return s?.id ?? null;
@@ -266,9 +274,28 @@ export class VendasService {
     atorId: string,
     atorPerfil: string,
     dto: VendaBalcaoDto,
+    terminalId?: string | null,
   ) {
     if (!dto.itens?.length)
       throw new BadRequestException('Adicione ao menos um item.');
+
+    // Terminal de PDV (F2): a venda pertence ao terminal — a unidade da comanda
+    // e o caixa a receber derivam dele (fecha o multi-unidade e o multi-balcão).
+    if (terminalId) {
+      const [t] = await this.db
+        .select({ unidadeId: equipamento.unidadeId })
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.id, terminalId),
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'pdv'),
+            eq(equipamento.ativo, true),
+          ),
+        );
+      if (!t) throw new BadRequestException('Terminal de PDV inválido ou inativo.');
+      if (t.unidadeId) dto.unidadeId = t.unidadeId;
+    }
 
     // Idempotência (offline-first): mesma chave → não reprocessa (não duplica baixa/caixa).
     if (dto.idempotencyKey) {
@@ -287,8 +314,8 @@ export class VendasService {
     let res: any;
     try {
       res = await this.db.transaction(async (tx) => {
-      // Fase A: venda exige caixa aberto.
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
+      // Fase A: venda exige caixa aberto (deste terminal).
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId, terminalId);
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para registrar vendas.');
 
@@ -522,14 +549,22 @@ export class VendasService {
     // Notifica destinos (KDS/impressora) dos novos pedidos duráveis (tempo real).
     this.producao.emitirNovos(res.producaoPayloads);
 
-    // Via do cliente (balcão): imprime o cupom nas impressoras de papel 'cupom'.
-    await this.imprimirViaCliente(tenantId, res.comandaId, res.unidadeId, atorId, {
-      senha: res.senha,
-      mesa: dto.mesa ?? null,
-      itens: res.viaClienteItens,
-      total: res.total,
-      forma: dto.forma ?? null,
-    });
+    // Via do cliente (balcão): imprime o cupom na impressora DESTE terminal
+    // (fallback: cupom da unidade). Corrige o disparo em todas as 'cupom'.
+    await this.imprimirViaCliente(
+      tenantId,
+      res.comandaId,
+      res.unidadeId,
+      atorId,
+      {
+        senha: res.senha,
+        mesa: dto.mesa ?? null,
+        itens: res.viaClienteItens,
+        total: res.total,
+        forma: dto.forma ?? null,
+      },
+      terminalId,
+    );
 
     // NFC-e automática (se o fiscal estiver ativo na unidade). Não bloqueia a venda.
     const nota = await this.fiscal.emitirSeAtivo(
@@ -548,6 +583,7 @@ export class VendasService {
     unidadeId: string | null,
     atorId: string,
     dados: { senha?: number | null; mesa?: string | null; itens: any[]; total: number; forma?: string | null },
+    terminalId?: string | null,
   ) {
     const [ator] = await this.db
       .select({ nome: colaborador.nome })
@@ -557,7 +593,13 @@ export class VendasService {
       ...dados,
       atendente: ator?.nome ?? null,
     });
-    await this.producao.enfileirarViaCliente(tenantId, unidadeId, comandaId, conteudo);
+    await this.producao.enfileirarViaCliente(
+      tenantId,
+      unidadeId,
+      comandaId,
+      conteudo,
+      terminalId,
+    );
   }
 
   // Venda por canal externo (delivery). Sem caixa: baixa estoque, cria produção

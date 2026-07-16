@@ -22,7 +22,7 @@ export class UnidadeController {
   constructor(private readonly service: UnidadeService) {}
 
   @Post()
-  @Roles('presidente', 'gerente')
+  @Roles('presidente')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateUnidadeDto) {
     return this.service.create(user.tenantId, dto);
   }
@@ -33,7 +33,7 @@ export class UnidadeController {
   }
 
   @Patch(':id')
-  @Roles('presidente', 'gerente')
+  @Roles('presidente')
   update(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -43,7 +43,7 @@ export class UnidadeController {
   }
 
   @Delete(':id')
-  @Roles('presidente', 'gerente')
+  @Roles('presidente')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.remove(user.tenantId, id);
   }

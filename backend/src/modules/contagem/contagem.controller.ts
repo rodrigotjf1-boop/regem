@@ -11,6 +11,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ContagemService } from './contagem.service';
 import { CreateContagemListaDto } from './dto/create-contagem-lista.dto';
@@ -23,25 +24,29 @@ export class ContagemController {
   constructor(private readonly service: ContagemService) {}
 
   @Get('listas')
-  listListas(@CurrentUser() user: AuthUser) {
-    return this.service.listListas(user.tenantId);
+  listListas(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.listListas(user.tenantId, atual);
   }
 
   @Post('listas')
   @Roles('presidente', 'gerente', 'supervisao')
-  createLista(@CurrentUser() user: AuthUser, @Body() dto: CreateContagemListaDto) {
-    return this.service.createLista(user.tenantId, dto);
+  createLista(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Body() dto: CreateContagemListaDto,
+  ) {
+    return this.service.createLista(user.tenantId, dto, atual);
   }
 
   @Delete('listas/:id')
   @Roles('presidente', 'gerente', 'supervisao')
-  removerLista(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.removerLista(user.tenantId, id);
+  removerLista(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.removerLista(user.tenantId, id, atual);
   }
 
   @Post('listas/:id/iniciar')
-  iniciar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.iniciarExecucao(user.tenantId, id, user.colaboradorId);
+  iniciar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.iniciarExecucao(user.tenantId, id, user.colaboradorId, atual);
   }
 
   @Get('execucoes/:id')

@@ -43,7 +43,12 @@ export function buildSecoes({
   withNone: (arr: Opt[]) => Opt[];
   criarFuncao: (nome: string) => Promise<Opt>;
 }): Secao[] {
-  const optColab: Opt[] = L.colaboradores.map((c: any) => ({ value: c.id, label: c.nome }));
+  // Etiqueta (vaga) não pode ser do presidente/C&O — só funções operacionais.
+  const optFSemPresidente: Opt[] = L.funcoes
+    .filter((f: any) => f.categoria !== 'presidente')
+    .map((f: any) => ({ value: f.id, label: f.nome }));
+  // Dias da semana sem a opção "todos" (para o intervalo do pico).
+  const DIAS_SO = DIAS_SEMANA.filter((d) => d.value !== '');
   const base: Secao[] = [
     {
       key: 'unidade',
@@ -110,31 +115,13 @@ export function buildSecoes({
           options: CATEGORIAS,
           defaultValue: 'execucao',
         },
-        { name: 'setorId', label: 'Setor', type: 'select', options: withNone(optS) },
-        {
-          name: 'gerarEtiqueta',
-          label: 'Gerar etiqueta (vaga) da função? (precisa de setor)',
-          type: 'select',
-          options: [
-            { value: '1', label: 'Sim' },
-            { value: '', label: 'Não' },
-          ],
-          defaultValue: '1',
-        },
-        {
-          name: 'sigla',
-          label: 'Sigla da etiqueta (opcional — vazio gera do nome)',
-          type: 'text',
-          placeholder: 'ex.: AUXC',
-        },
+        { name: 'setorIds', label: 'Setores (um ou mais)', type: 'multiselect', options: optS },
       ] as FieldDef[],
       submit: (v: any) =>
         api.post('/funcoes', {
           nome: v.nome,
           categoria: v.categoria,
-          setorId: v.setorId || undefined,
-          gerarEtiqueta: v.gerarEtiqueta === '1',
-          sigla: v.sigla || undefined,
+          setorIds: v.setorIds ? v.setorIds.split(',').filter(Boolean) : [],
         }),
     },
     {
@@ -216,8 +203,6 @@ export function buildSecoes({
         },
         { name: 'horaInicio', label: 'Início', type: 'time', required: true },
         { name: 'horaFim', label: 'Fim', type: 'time', required: true },
-        { name: 'pausaInicio', label: 'Início da pausa (opcional)', type: 'time' },
-        { name: 'pausaFim', label: 'Fim da pausa (opcional)', type: 'time' },
       ] as FieldDef[],
       submit: (v: any) =>
         api.post('/turnos', {
@@ -225,8 +210,6 @@ export function buildSecoes({
           nome: v.nome,
           horaInicio: v.horaInicio,
           horaFim: v.horaFim,
-          pausaInicio: v.pausaInicio || undefined,
-          pausaFim: v.pausaFim || undefined,
         }),
     },
     {
@@ -235,7 +218,11 @@ export function buildSecoes({
       itens: L.janelasPico.map(
         (p: any) =>
           `${p.nome} · ${
-            p.diaSemana == null ? 'todos' : DIA_ABREV[String(p.diaSemana)]
+            p.diaSemana == null
+              ? 'todos'
+              : p.diaSemanaFim != null
+                ? `${DIA_ABREV[String(p.diaSemana)]}–${DIA_ABREV[String(p.diaSemanaFim)]}`
+                : DIA_ABREV[String(p.diaSemana)]
           } ${String(p.horaInicio).slice(0, 5)}–${String(p.horaFim).slice(0, 5)}`,
       ),
       fields: [
@@ -258,8 +245,28 @@ export function buildSecoes({
           name: 'diaSemana',
           label: 'Dia da semana',
           type: 'select',
-          options: DIAS_SEMANA,
+          options: [...DIAS_SEMANA, { value: 'range', label: 'Personalizar (intervalo)…' }],
           defaultValue: '',
+          fromRow: (r: any) =>
+            r.diaSemanaFim != null ? 'range' : r.diaSemana == null ? '' : String(r.diaSemana),
+        },
+        {
+          name: 'diaSemanaIni',
+          label: 'Do dia',
+          type: 'select',
+          options: DIAS_SO,
+          defaultValue: '1',
+          showIf: (v) => v.diaSemana === 'range',
+          fromRow: (r: any) => (r.diaSemana == null ? '1' : String(r.diaSemana)),
+        },
+        {
+          name: 'diaSemanaFim',
+          label: 'Até o dia',
+          type: 'select',
+          options: DIAS_SO,
+          defaultValue: '5',
+          showIf: (v) => v.diaSemana === 'range',
+          fromRow: (r: any) => (r.diaSemanaFim == null ? '5' : String(r.diaSemanaFim)),
         },
         { name: 'horaInicio', label: 'Início', type: 'time', required: true },
         { name: 'horaFim', label: 'Fim', type: 'time', required: true },
@@ -268,7 +275,13 @@ export function buildSecoes({
         api.post('/janelas-pico', {
           unidadeId: v.unidadeId,
           nome: v.nome,
-          diaSemana: v.diaSemana === '' ? undefined : Number(v.diaSemana),
+          diaSemana:
+            v.diaSemana === 'range'
+              ? Number(v.diaSemanaIni)
+              : v.diaSemana === ''
+                ? undefined
+                : Number(v.diaSemana),
+          diaSemanaFim: v.diaSemana === 'range' ? Number(v.diaSemanaFim) : undefined,
           horaInicio: v.horaInicio,
           horaFim: v.horaFim,
         }),
@@ -334,8 +347,8 @@ export function buildSecoes({
           label: 'Função',
           type: 'select',
           required: true,
-          options: optF,
-          defaultValue: optF[0]?.value,
+          options: optFSemPresidente,
+          defaultValue: optFSemPresidente[0]?.value,
           onCreate: criarFuncao,
         },
         {
@@ -343,7 +356,7 @@ export function buildSecoes({
           label: 'Sigla',
           type: 'text',
           required: true,
-          placeholder: 'AUXC',
+          placeholder: 'Ex.: AUXC1 Auxiliar de cozinha 1',
         },
         { name: 'contador', label: 'Número', type: 'text', placeholder: '1' },
       ] as FieldDef[],
@@ -355,60 +368,16 @@ export function buildSecoes({
           contador: v.contador ? Number(v.contador) : undefined,
         }),
     },
-    {
-      key: 'dia_especial',
-      titulo: 'Dias importantes',
-      itens: (L.diasEspeciais ?? []).map(
-        (d: any) =>
-          `${d.data}${d.dataFim ? `–${d.dataFim}` : ''} · ${d.nome} (${d.tipo})`,
-      ),
-      fields: [
-        { name: 'data', label: 'Data', type: 'date', required: true },
-        { name: 'dataFim', label: 'Até (opcional — período)', type: 'date' },
-        {
-          name: 'tipo',
-          label: 'Tipo',
-          type: 'select',
-          options: [
-            { value: 'feriado', label: 'Feriado' },
-            { value: 'ferias', label: 'Férias' },
-            { value: 'evento', label: 'Evento' },
-            { value: 'folga', label: 'Folga' },
-            { value: 'outro', label: 'Outro' },
-          ],
-          defaultValue: 'feriado',
-        },
-        {
-          name: 'nome',
-          label: 'Nome',
-          type: 'text',
-          required: true,
-          placeholder: 'Ex.: Natal / Férias da Maria',
-        },
-        {
-          name: 'colaboradorId',
-          label: 'Colaborador (só p/ férias/folga de 1 pessoa)',
-          type: 'select',
-          options: withNone(optColab),
-        },
-      ] as FieldDef[],
-      submit: (v: any) =>
-        api.post('/dias-especiais', {
-          data: v.data,
-          dataFim: v.dataFim || undefined,
-          tipo: v.tipo,
-          nome: v.nome,
-          colaboradorId: v.colaboradorId || undefined,
-        }),
-    },
   ];
 
-  const diaLabel = (d: any) =>
-    `${d.data}${d.dataFim ? `–${d.dataFim}` : ''} · ${d.nome} (${d.tipo})`;
+  const picoDias = (p: any) =>
+    p.diaSemana == null
+      ? 'todos'
+      : p.diaSemanaFim != null
+        ? `${DIA_ABREV[String(p.diaSemana)]}–${DIA_ABREV[String(p.diaSemanaFim)]}`
+        : DIA_ABREV[String(p.diaSemana)];
   const picoLabel = (p: any) =>
-    `${p.nome} · ${
-      p.diaSemana == null ? 'todos' : DIA_ABREV[String(p.diaSemana)]
-    } ${String(p.horaInicio).slice(0, 5)}–${String(p.horaFim).slice(0, 5)}`;
+    `${p.nome} · ${picoDias(p)} ${String(p.horaInicio).slice(0, 5)}–${String(p.horaFim).slice(0, 5)}`;
 
   // Edição/exclusão por seção (mesclado por key, sem repetir os forms).
   const extra: Record<string, Partial<Secao>> = {
@@ -433,12 +402,11 @@ export function buildSecoes({
     funcao: {
       rows: L.funcoes,
       rowLabel: (f) => `${f.nome} (${f.categoria})`,
-      editHide: ['gerarEtiqueta', 'sigla'],
       update: (id, v) =>
         api.patch(`/funcoes/${id}`, {
           nome: v.nome,
           categoria: v.categoria,
-          setorId: v.setorId || undefined,
+          setorIds: v.setorIds ? v.setorIds.split(',').filter(Boolean) : [],
         }),
       remove: (id) => api.del(`/funcoes/${id}`),
     },
@@ -466,8 +434,6 @@ export function buildSecoes({
           nome: v.nome,
           horaInicio: v.horaInicio,
           horaFim: v.horaFim,
-          pausaInicio: v.pausaInicio || undefined,
-          pausaFim: v.pausaFim || undefined,
         }),
       remove: (id) => api.del(`/turnos/${id}`),
     },
@@ -478,7 +444,13 @@ export function buildSecoes({
       update: (id, v) =>
         api.patch(`/janelas-pico/${id}`, {
           nome: v.nome,
-          diaSemana: v.diaSemana === '' ? undefined : Number(v.diaSemana),
+          diaSemana:
+            v.diaSemana === 'range'
+              ? Number(v.diaSemanaIni)
+              : v.diaSemana === ''
+                ? undefined
+                : Number(v.diaSemana),
+          diaSemanaFim: v.diaSemana === 'range' ? Number(v.diaSemanaFim) : undefined,
           horaInicio: v.horaInicio,
           horaFim: v.horaFim,
         }),
@@ -508,19 +480,6 @@ export function buildSecoes({
           contador: v.contador ? Number(v.contador) : undefined,
         }),
       remove: (id) => api.del(`/etiquetas/${id}`),
-    },
-    dia_especial: {
-      rows: L.diasEspeciais ?? [],
-      rowLabel: diaLabel,
-      update: (id, v) =>
-        api.patch(`/dias-especiais/${id}`, {
-          data: v.data,
-          dataFim: v.dataFim || undefined,
-          tipo: v.tipo,
-          nome: v.nome,
-          colaboradorId: v.colaboradorId || undefined,
-        }),
-      remove: (id) => api.del(`/dias-especiais/${id}`),
     },
   };
 

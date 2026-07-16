@@ -154,6 +154,7 @@ export class AuthService {
         id: colaborador.id,
         tenantId: colaborador.tenantId,
         funcaoId: colaborador.funcaoId,
+        unidadeId: colaborador.unidadeId,
         senhaHash: colaborador.senhaHash,
         status: colaborador.status,
         funcaoCategoria: funcao.categoria,
@@ -219,7 +220,10 @@ export class AuthService {
       tenantId: row.tenantId,
       categoria: nivel,
       setorId: esc.setorId,
-      unidadeId: esc.unidadeId,
+      // Isolamento por loja: a unidade do colaborador manda; cai na cadeia
+      // função→setor só quando o colaborador não tem unidade fixa. Presidente
+      // (sem unidade) continua null = vê/alterna a rede toda.
+      unidadeId: row.unidadeId ?? esc.unidadeId,
       permissoes,
     });
   }
@@ -245,6 +249,7 @@ export class AuthService {
         id: colaborador.id,
         tenantId: colaborador.tenantId,
         funcaoId: colaborador.funcaoId,
+        unidadeId: colaborador.unidadeId,
         pinHash: colaborador.pinHash,
         status: colaborador.status,
         funcaoCategoria: funcao.categoria,
@@ -277,7 +282,7 @@ export class AuthService {
           tenantId: c.tenantId,
           categoria: nivel,
           setorId: esc.setorId,
-          unidadeId: esc.unidadeId,
+          unidadeId: c.unidadeId ?? esc.unidadeId,
           permissoes,
         });
         return { ...base, nome: c.nome, matricula: c.matricula ?? null };
