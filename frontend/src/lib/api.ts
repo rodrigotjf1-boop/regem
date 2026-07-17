@@ -506,6 +506,11 @@ export const api = {
   cardapioConfig: () => req('/cardapio/config'),
   setCardapioConfig: (body: Record<string, unknown>) =>
     req('/cardapio/config', { method: 'PUT', body: JSON.stringify(body) }),
+  produtoPermiteNegativo: (id: string, ativo: boolean) =>
+    req(`/produtos/${id}/permite-negativo`, { method: 'POST', body: JSON.stringify({ ativo }) }),
+  autoPausaCardapio: () => req('/cardapio/auto-pausa'),
+  setAutoPausaCardapio: (ativo: boolean) =>
+    req('/cardapio/auto-pausa', { method: 'POST', body: JSON.stringify({ ativo }) }),
   // Relatórios de venda (Fase K)
   relatorioVendas: (inicio?: string, fim?: string) => {
     const p = new URLSearchParams();
@@ -901,9 +906,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  concluirTarefa: (id: string, estado: string, motivo?: string) =>
+  concluirTarefa: (id: string, estado: string, motivo?: string, fotos?: string[]) =>
     req(`/tarefas-instancias/${id}/estado`, {
       method: 'PATCH',
-      body: JSON.stringify({ estado, motivo }),
+      body: JSON.stringify({ estado, motivo, fotos }),
     }),
+  // Escalados de uma função (+setor) numa data, para escolher o responsável.
+  tarefaResponsaveis: (data: string, funcaoId: string, setorId?: string) => {
+    const p = new URLSearchParams({ data, funcaoId });
+    if (setorId) p.set('setorId', setorId);
+    return req(`/tarefas-instancias/responsaveis?${p.toString()}`);
+  },
+  editarTarefa: (id: string, body: Record<string, unknown>) =>
+    req(`/tarefas-instancias/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  excluirTarefa: (id: string, motivo: string) =>
+    req(`/tarefas-instancias/${id}`, { method: 'DELETE', body: JSON.stringify({ motivo }) }),
+  politicaFotoTarefa: () => req('/tarefas-instancias/politica-foto'),
+  setPoliticaFotoTarefa: (body: { conclusao?: boolean; parcial?: boolean }) =>
+    req('/tarefas-instancias/politica-foto', { method: 'POST', body: JSON.stringify(body) }),
 };

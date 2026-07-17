@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -34,6 +35,19 @@ const publicCols = {
   createdAt: colaborador.createdAt,
   updatedAt: colaborador.updatedAt,
 };
+
+// Hierarquia de acesso. Regra de quem pode CRIAR quem:
+//  - alvo presidente/C&O: só um presidente cria outro (sociedades/multi-admin);
+//  - demais: o ator precisa estar num nível ESTRITAMENTE acima do alvo
+//    (gerente cria supervisão/execução, mas NÃO outro gerente nem presidente).
+const NIVEL: Record<string, number> = { presidente: 4, gerente: 3, supervisao: 2, execucao: 1 };
+function podeCriarNivel(ator: string, alvo: string): boolean {
+  if (alvo === 'presidente') return ator === 'presidente';
+  return (NIVEL[ator] ?? 0) > (NIVEL[alvo] ?? 0);
+}
+// Níveis de gestão que acessam por e-mail+senha (login web). Execução usa o PIN
+// só no terminal de ponto.
+const NIVEIS_GESTAO = new Set(['presidente', 'gerente', 'supervisao']);
 
 @Injectable()
 export class ColaboradorService {
@@ -134,7 +148,7 @@ export class ColaboradorService {
     return row;
   }
 
-  async create(tenantId: string, dto: CreateColaboradorDto) {
+  async create(tenantId: string, dto: CreateColaboradorDto, atorCategoria = 'presidente') {
     const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 12) : undefined;
     const email = dto.email?.trim().toLowerCase() || undefined;
     if (email) await this.emailLivre(email);
@@ -161,6 +175,33 @@ export class ColaboradorService {
       ? dto.funcaoId
       : validas[0];
 
+    // RBAC de criação: o nível-alvo vem da categoria da função principal.
+    let alvoCategoria = 'execucao';
+    if (principal) {
+      const [f] = await this.db
+        .select({ categoria: funcao.categoria })
+        .from(funcao)
+        .where(eq(funcao.id, principal));
+      alvoCategoria = (f?.categoria as string) ?? 'execucao';
+    }
+    if (!podeCriarNivel(atorCategoria, alvoCategoria)) {
+      throw new ForbiddenException(
+        alvoCategoria === 'presidente'
+          ? 'Só um presidente pode cadastrar outro presidente/C&O.'
+          : `Seu perfil não pode cadastrar um colaborador de nível "${alvoCategoria}".`,
+      );
+    }
+
+    // Senha (email+senha) só para gestão; execução acessa por PIN no terminal.
+    let senhaHash: string | undefined;
+    if (dto.senha) {
+      if (!NIVEIS_GESTAO.has(alvoCategoria))
+        throw new BadRequestException('Senha de login só para presidente, gerente ou supervisão.');
+      if (!email)
+        throw new BadRequestException('Informe o e-mail para o login por senha.');
+      senhaHash = await bcrypt.hash(dto.senha, 12);
+    }
+
     // Perfil de acesso: usa o informado ou resolve pelo nível da função principal.
     const perfilAcessoId =
       (await this.resolverPerfil(tenantId, dto.perfilAcessoId, principal)) ??
@@ -177,6 +218,7 @@ export class ColaboradorService {
         jornadaTipo: dto.jornadaTipo ?? 'outro',
         email,
         pinHash,
+        senhaHash,
         perfilAcessoId,
       })
       .returning(publicCols);

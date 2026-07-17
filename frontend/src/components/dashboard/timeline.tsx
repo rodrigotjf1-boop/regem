@@ -44,10 +44,12 @@ export function Timeline({
   setores,
   picos,
   agora,
+  stepMin = 60,
 }: {
   setores: SetorRow[];
   picos: Faixa[];
   agora: number | null;
+  stepMin?: number; // granularidade da grade em minutos (15/30/60/120); padrão 1h
 }) {
   const pts: number[] = [];
   setores.forEach((s) => {
@@ -72,8 +74,14 @@ export function Timeline({
   const max = pts.length ? Math.min(24, Math.ceil(Math.max(...pts)) + 1) : 22;
   const span = Math.max(1, max - min);
   const pct = (h: number) => ((h - min) / span) * 100;
+  // Grade por passo escolhido (15/30/60/120 min). Começa alinhada a um múltiplo do
+  // passo. Rótulos ficam ao menos de hora em hora (finos não poluem): a cada passo
+  // quando >=1h, e de hora em hora quando 15/30 min.
+  const step = Math.max(0.25, (stepMin || 60) / 60); // horas por linha da grade
   const ticks: number[] = [];
-  for (let h = min; h <= max; h += 1) ticks.push(h);
+  for (let h = Math.ceil(min / step) * step; h <= max + 1e-9; h += step)
+    ticks.push(Number(h.toFixed(4)));
+  const labelEvery = step < 1 ? Math.round(1 / step) : 1; // 15min→4, 30min→2, ≥1h→1
 
   return (
     <div className="overflow-x-auto px-3 py-4">
@@ -103,13 +111,13 @@ export function Timeline({
           {/* régua de horas (só na coluna da trilha) */}
           <div />
           <div className="relative mb-1 h-4">
-            {ticks.filter((h) => h % 2 === 0).map((h) => (
+            {ticks.filter((_, i) => i % labelEvery === 0).map((h) => (
               <span
                 key={h}
                 className="absolute -translate-x-1/2 font-mono text-[10px] text-muted-foreground"
                 style={{ left: `${pct(h)}%` }}
               >
-                {h}h
+                {Number.isInteger(h) ? `${h}h` : hhmm(h)}
               </span>
             ))}
           </div>
@@ -162,17 +170,18 @@ export function Timeline({
                   })}
                 </div>
 
-                {/* tarefas com horário (marcadores) */}
+                {/* tarefas com horário (marcador + nome da tarefa) */}
                 {s.tarefas.length > 0 && (
-                  <div className="relative mt-1 h-3">
+                  <div className="relative mt-1 h-4">
                     {s.tarefas.map((t, ti) => (
                       <span
                         key={ti}
-                        className="absolute top-0 -translate-x-1/2"
+                        className="absolute top-0 flex items-center gap-1 whitespace-nowrap"
                         style={{ left: `${pct(t.horario)}%` }}
                         title={`${hhmm(t.horario)} · ${t.titulo} (${t.estado})`}
                       >
-                        <span className="block h-2.5 w-2.5 rounded-full ring-2 ring-card" style={{ background: `hsl(${ESTADO_COR[t.estado] || 'var(--muted-foreground)'})` }} />
+                        <span className="-ml-1 block h-2 w-2 flex-none rounded-full ring-2 ring-card" style={{ background: `hsl(${ESTADO_COR[t.estado] || 'var(--muted-foreground)'})` }} />
+                        <span className="max-w-[96px] truncate text-[9px] leading-none text-muted-foreground">{t.titulo}</span>
                       </span>
                     ))}
                   </div>

@@ -46,7 +46,7 @@ import { AccountMenu } from './account-menu';
 import { UnidadeSeletor } from './unidade-seletor';
 
 // Item de submenu (2º nível). `perm` = permissão do catálogo que libera o item.
-type NavSub = { href: string; label: string; icon: LucideIcon; perm: string };
+type NavSub = { href: string; label: string; icon: LucideIcon; perm: string; soPres?: boolean };
 // Nó de 1º nível: pode ser um link direto (href) e/ou um grupo com `children`.
 type NavNode = {
   label: string;
@@ -73,6 +73,7 @@ const NAV: NavNode[] = [
     label: 'Delivery', icon: Bike,
     children: [
       { href: '/delivery', label: 'Painel', icon: Bike, perm: 'delivery' },
+      { href: '/produtos', label: 'Gestão do cardápio', icon: Store, perm: 'delivery' },
       { href: '/pedidos', label: 'Pedidos · produção', icon: Flame, perm: 'pedidos' },
     ],
   },
@@ -95,7 +96,7 @@ const NAV: NavNode[] = [
   {
     label: 'Configurações', icon: Settings,
     children: [
-      { href: '/loja', label: 'Loja', icon: Store, perm: 'loja' },
+      { href: '/loja', label: 'Loja', icon: Store, perm: 'loja', soPres: true },
       { href: '/unidades', label: 'Unidades', icon: Building2, perm: 'unidades' },
       { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds' },
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
@@ -290,7 +291,9 @@ export function Shell({
                 return temPerm(node.perm, perms, isPres) ? Item(node) : null;
               }
               // Grupo: acordeão (clica no pai → expande/recolhe a lista).
-              const kids = (node.children ?? []).filter((c) => temPerm(c.perm, perms, isPres));
+              const kids = (node.children ?? []).filter(
+                (c) => temPerm(c.perm, perms, isPres) && (!c.soPres || isPres),
+              );
               if (kids.length === 0) return null;
               const temAtivo = kids.some((c) => c.href === path);
               const aberto = gruposAbertos[node.label] ?? temAtivo; // abre sozinho na tela ativa

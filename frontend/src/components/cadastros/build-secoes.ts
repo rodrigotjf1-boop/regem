@@ -1,4 +1,4 @@
-import { api } from '@/lib/api';
+import { api, getCategoria } from '@/lib/api';
 import { type FieldDef } from '@/components/cadastros/entity-form';
 import {
   CATEGORIAS,
@@ -47,6 +47,27 @@ export function buildSecoes({
   const optFSemPresidente: Opt[] = L.funcoes
     .filter((f: any) => f.categoria !== 'presidente')
     .map((f: any) => ({ value: f.id, label: f.nome }));
+
+  // RBAC de cadastro de colaborador: quem pode criar quem (nível da função).
+  //  - presidente: cria qualquer nível (inclusive outro presidente — sociedades);
+  //  - gerente: só supervisão e execução (não gerente, não presidente).
+  const NIVEL: Record<string, number> = { presidente: 4, gerente: 3, supervisao: 2, execucao: 1 };
+  const ator = getCategoria() ?? 'execucao';
+  const podeCriar = (cat: string) =>
+    cat === 'presidente' ? ator === 'presidente' : (NIVEL[ator] ?? 0) > (NIVEL[cat] ?? 0);
+  const optFColab: Opt[] = L.funcoes
+    .filter((f: any) => podeCriar(f.categoria))
+    .map((f: any) => ({ value: f.id, label: `${f.nome} (${f.categoria})` }));
+  // Categoria por função (para decidir login por senha).
+  const funcCat: Record<string, string> = Object.fromEntries(
+    L.funcoes.map((f: any) => [f.id, f.categoria]),
+  );
+  // Alguma função selecionada é de gestão (presidente/gerente/supervisão)? → login por e-mail+senha.
+  const ehGestao = (v: Record<string, string>) =>
+    (v.funcaoIds ?? '')
+      .split(',')
+      .filter(Boolean)
+      .some((id) => ['presidente', 'gerente', 'supervisao'].includes(funcCat[id]));
   // Dias da semana sem a opção "todos" (para o intervalo do pico).
   const DIAS_SO = DIAS_SEMANA.filter((d) => d.value !== '');
   const base: Secao[] = [
@@ -138,16 +159,26 @@ export function buildSecoes({
         },
         { name: 'fotoRef', label: 'Foto (opcional)', type: 'image' },
         {
-          name: 'email',
-          label: 'E-mail de login (p/ gerente/supervisor acessarem)',
-          type: 'text',
-          placeholder: 'voce@empresa.com',
-        },
-        {
           name: 'funcaoIds',
           label: 'Funções (uma ou mais)',
           type: 'multiselect',
-          options: optF,
+          options: optFColab,
+        },
+        // Login por e-mail+senha só aparece quando a função é de gestão
+        // (presidente/gerente/supervisão). Execução acessa por PIN no terminal.
+        {
+          name: 'email',
+          label: 'E-mail de login',
+          type: 'text',
+          placeholder: 'voce@empresa.com',
+          showIf: (v) => ehGestao(v),
+        },
+        {
+          name: 'senha',
+          label: 'Senha de login (mín. 6)',
+          type: 'password',
+          placeholder: '••••••',
+          showIf: (v) => ehGestao(v),
         },
         {
           name: 'vinculo',
@@ -165,7 +196,7 @@ export function buildSecoes({
         },
         {
           name: 'pin',
-          label: 'PIN (opcional, 4-6 díg.)',
+          label: 'PIN — acesso ao terminal de ponto (opcional, 4-6 díg.)',
           type: 'text',
           placeholder: 'ex.: 1234',
         },
@@ -174,6 +205,7 @@ export function buildSecoes({
         api.post('/colaboradores', {
           nome: v.nome,
           email: v.email || undefined,
+          senha: v.senha || undefined,
           fotoRef: v.fotoRef || undefined,
           funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
           vinculo: v.vinculo,

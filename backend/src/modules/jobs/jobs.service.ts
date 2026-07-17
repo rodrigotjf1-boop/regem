@@ -51,6 +51,30 @@ export class JobsService {
     );
   }
 
+  // Expurgo LGPD: apaga as fotos de comprovação de tarefas vencidas (retenção 30d).
+  @Cron('5 3 * * *') // 03:05 todos os dias
+  async expurgarFotosTarefa() {
+    const r: any = await this.db.execute(sql`
+      select id, foto_ref as "fotoRef", fotos from tarefa_instancia
+      where data_expurgo is not null and data_expurgo < current_date
+      limit 500
+    `);
+    const rows = r.rows ?? r;
+    if (!rows.length) return;
+    let apagadas = 0;
+    for (const row of rows) {
+      const refs: string[] = Array.isArray(row.fotos) ? row.fotos : [];
+      if (row.fotoRef && !refs.includes(row.fotoRef)) refs.push(row.fotoRef);
+      for (const ref of refs) if (await this.midia.remover(ref)) apagadas++;
+      await this.db.execute(
+        sql`update tarefa_instancia set foto_ref = null, fotos = '[]'::jsonb, data_expurgo = null where id = ${row.id}`,
+      );
+    }
+    this.log.log(
+      `Expurgo LGPD: ${apagadas} foto(s) de tarefa removida(s) do storage (${rows.length} tarefa(s))`,
+    );
+  }
+
   // §1.4 — Ponto de pedido: alerta os itens no/abaixo do ROP (por tenant, em tempo real).
   @Cron('0 6 * * *') // 06:00
   async pontoDePedido() {

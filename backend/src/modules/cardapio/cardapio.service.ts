@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
@@ -29,8 +29,11 @@ import {
   cliente,
   formaPagamento,
   integracao,
+  entitlement,
+  alertaEstoque,
 } from '../../db/schema';
 import { criarPixMP, consultarPagamentoMP } from '../../common/mercadopago';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
@@ -59,7 +62,84 @@ export class CardapioService {
     private readonly atendimento: AtendimentoService,
     private readonly fidelidade: FidelidadeService,
     private readonly cashback: CashbackService,
+    private readonly events: EventEmitter2,
   ) {}
+
+  // ===== Gestão do cardápio: auto-pausa por esgotamento de estoque =====
+  // Config do gestor (entitlement): auto-pausar produtos que controlam estoque
+  // quando o insumo zera, emitindo um aviso geral. Default LIGADO.
+  async autoPausaConfig(tenantId: string): Promise<{ ativo: boolean }> {
+    const [e] = await this.db
+      .select({ ativo: entitlement.ativo })
+      .from(entitlement)
+      .where(and(eq(entitlement.tenantId, tenantId), eq(entitlement.modulo, 'cardapio_auto_pausa')));
+    return { ativo: e ? e.ativo : true }; // sem registro = ligado
+  }
+
+  async setAutoPausa(tenantId: string, ativo: boolean) {
+    await this.db
+      .insert(entitlement)
+      .values({ tenantId, modulo: 'cardapio_auto_pausa', ativo })
+      .onConflictDoUpdate({
+        target: [entitlement.tenantId, entitlement.modulo],
+        set: { ativo, updatedAt: new Date() },
+      });
+    return { ativo };
+  }
+
+  // Recalcula o esgotado por estoque e sincroniza `pausado_estoque`:
+  //  - virou esgotado → pausa + aviso geral (KDS + alerta persistido);
+  //  - voltou a ter estoque → despausa sozinho (só o que foi auto-pausado).
+  // A pausa MANUAL (disponivel_cardapio=false) é independente e não é mexida aqui.
+  async sincronizarEsgotados(tenantId: string) {
+    if (!(await this.autoPausaConfig(tenantId)).ativo) return;
+    const produtos = await this.db
+      .select({
+        id: produto.id,
+        nome: produto.nome,
+        tipo: produto.tipo,
+        fichaId: produto.fichaId,
+        controlaEstoque: produto.controlaEstoque,
+        pausadoEstoque: produto.pausadoEstoque,
+        permiteNegativo: produto.permiteNegativo,
+      })
+      .from(produto)
+      .where(and(eq(produto.tenantId, tenantId), isNull(produto.deletedAt)));
+    const esgotados = await this.computeEsgotados(tenantId, produtos);
+
+    const novos: string[] = []; // nomes que acabaram de esgotar
+    for (const p of produtos) {
+      const agora = esgotados.has(p.id);
+      if (agora && !p.pausadoEstoque) {
+        await this.db
+          .update(produto)
+          .set({ pausadoEstoque: true, pausaMotivo: 'Estoque do insumo esgotado', updatedAt: new Date() })
+          .where(eq(produto.id, p.id));
+        novos.push(p.nome);
+      } else if (!agora && p.pausadoEstoque) {
+        await this.db
+          .update(produto)
+          .set({ pausadoEstoque: false, pausaMotivo: null, updatedAt: new Date() })
+          .where(eq(produto.id, p.id));
+      }
+    }
+
+    if (novos.length) {
+      const titulo = `Produto esgotado no cardápio`;
+      const detalhe = `${novos.join(', ')} — pausado(s) por falta de insumo em estoque.`;
+      // Aviso geral em tempo real (KDS) + alerta persistido (dashboard).
+      this.events.emit('kds.alerta.sistema', { tenantId, titulo, detalhe, prioridade: 'alta' });
+      await this.db
+        .insert(alertaEstoque)
+        .values({ tenantId, tipo: 'produto_esgotado', titulo, detalhe, prioridade: 'alta' });
+    }
+  }
+
+  // Gatilho: qualquer baixa/entrada de estoque dispara a sincronização.
+  @OnEvent('estoque.baixado')
+  async onEstoqueBaixado(payload: { tenantId: string }) {
+    if (payload?.tenantId) await this.sincronizarEsgotados(payload.tenantId).catch(() => undefined);
+  }
 
   // Público (robô): abre um chamado de atendimento (handoff) para a loja.
   async abrirAtendimento(token: string, dto: any) {
@@ -99,7 +179,21 @@ export class CardapioService {
     );
   }
 
-  async setConfig(tenantId: string, unidadeId: string | null, dto: any) {
+  // Campos de "dados da loja" (identidade + endereço + coords) — só o presidente/C&O
+  // edita. Gerente pode salvar a config operacional do Delivery (bairros, robô,
+  // pagamentos…), mas não a identidade da loja. RBAC no servidor.
+  private static readonly CAMPOS_LOJA = [
+    'nomePublico', 'logoEmoji', 'subtitulo', 'logoRef', 'documento',
+    'responsavelNome', 'responsavelContato', 'contatoLoja', 'instagram', 'site', 'whatsapp',
+    'endCep', 'endRua', 'endNumero', 'endBairro', 'endCidade', 'endEstado',
+    'endReferencia', 'endComplemento', 'endLat', 'endLng',
+  ];
+
+  async setConfig(tenantId: string, unidadeId: string | null, dto: any, atorCategoria = 'presidente') {
+    // Não-presidente não altera os dados da loja: ignora esses campos (mantém o atual).
+    if (atorCategoria !== 'presidente') {
+      for (const k of CardapioService.CAMPOS_LOJA) delete dto[k];
+    }
     const row = await this.configRaw(tenantId, unidadeId);
     const vals: any = {
       ativo: dto.ativo != null ? !!dto.ativo : row?.ativo ?? false,
@@ -452,7 +546,8 @@ export class CardapioService {
     tenantId: string,
     produtos: any[],
   ): Promise<Set<string>> {
-    const alvo = produtos.filter((p) => p.controlaEstoque);
+    // permite_negativo = reativado sem estoque: não bloqueia por saldo (contagem negativa).
+    const alvo = produtos.filter((p) => p.controlaEstoque && !p.permiteNegativo);
     if (!alvo.length) return new Set();
 
     // Saldo por item (mesmo sinal do módulo de estoque).
@@ -582,10 +677,11 @@ export class CardapioService {
              preco_promocional as "precoPromocional", categoria_id as "categoriaId",
              imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin",
              tipo, ficha_id as "fichaId", controla_estoque as "controlaEstoque",
-             destaque
+             disponivel_cardapio as "disponivelCardapio", pausado_estoque as "pausadoEstoque",
+             permite_negativo as "permiteNegativo", destaque
       from produto
       where tenant_id = ${cfg.tenantId} and deleted_at is null
-        and ativo = true and disponivel_cardapio = true
+        and ativo = true
       order by nome
     `);
     const lista = (prods.rows ?? prods) as any[];
@@ -725,7 +821,8 @@ export class CardapioService {
           selos: p.selos ?? [],
           duracaoMin: p.duracaoMin,
           destaque: p.destaque === true,
-          esgotado: esgotados.has(p.id),
+          // Esgotado = auto por estoque OU pausa manual OU auto-pausa por estoque.
+          esgotado: esgotados.has(p.id) || p.disponivelCardapio === false || p.pausadoEstoque === true,
           variacoes: variacoes
             .filter((v) => v.produtoId === p.id && v.ativo !== false)
             .map((v) => ({

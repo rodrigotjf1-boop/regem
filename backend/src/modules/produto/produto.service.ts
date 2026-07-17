@@ -52,6 +52,8 @@ export class ProdutoService {
              p.preco_custo as "precoCusto", p.controla_estoque as "controlaEstoque",
              p.validade_dias as "validadeDias", p.vai_para_producao as "vaiParaProducao",
              p.disponivel_cardapio as "disponivelCardapio",
+             p.pausado_estoque as "pausadoEstoque", p.pausa_motivo as "pausaMotivo",
+             p.permite_negativo as "permiteNegativo",
              p.disponivel_balcao as "disponivelBalcao",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
              p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
@@ -90,6 +92,26 @@ export class ProdutoService {
   }
 
   // IDs dos produtos sugeridos ("Peça também") vinculados a este produto.
+  // Reativa um produto esgotado SEM dar entrada no estoque: liga "permite negativo"
+  // (não bloqueia mais por saldo — contagem negativa) e o tira da pausa. Desmarcar
+  // (ativo=false) volta ao controle normal. O controle de estoque (baixa) continua,
+  // por isso o saldo do insumo fica negativo (informativo).
+  async permiteNegativo(tenantId: string, id: string, ativo: boolean) {
+    const patch: Record<string, unknown> = { permiteNegativo: ativo, updatedAt: new Date() };
+    if (ativo) {
+      patch.pausadoEstoque = false;
+      patch.pausaMotivo = null;
+      patch.disponivelCardapio = true;
+    }
+    const [row] = await this.db
+      .update(produto)
+      .set(patch)
+      .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)))
+      .returning({ id: produto.id });
+    if (!row) throw new NotFoundException('Produto não encontrado');
+    return { ok: true, permiteNegativo: ativo };
+  }
+
   async sugestoesDe(tenantId: string, produtoId: string) {
     const rows = await this.db
       .select({ sugeridoId: produtoSugestao.sugeridoId })

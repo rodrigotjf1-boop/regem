@@ -12,7 +12,7 @@ type Opt = { value: string; label: string };
 export type FieldDef = {
   name: string;
   label: string;
-  type: 'text' | 'select' | 'time' | 'date' | 'image' | 'color' | 'multiselect';
+  type: 'text' | 'password' | 'select' | 'time' | 'date' | 'image' | 'color' | 'multiselect';
   options?: Opt[];
   required?: boolean;
   placeholder?: string;
@@ -77,7 +77,7 @@ export function EntityForm({
         const n = { ...s };
         fields.forEach((f) => {
           // Limpa só campos de "digitar"; mantém select/cor/multiselect no default.
-          if (['text', 'time', 'date', 'image'].includes(f.type)) n[f.name] = '';
+          if (['text', 'password', 'time', 'date', 'image'].includes(f.type)) n[f.name] = '';
         });
         return n;
       });

@@ -21,6 +21,14 @@ export class CreateColaboradorDto {
   @IsEmail()
   email?: string;
 
+  // Senha de login (email+senha). Só para gestão (presidente/gerente/supervisão);
+  // execução acessa por PIN no terminal de ponto. Validação de quem pode criar
+  // qual nível fica no servidor.
+  @IsOptional()
+  @IsString()
+  @MinLength(6, { message: 'Senha deve ter ao menos 6 caracteres' })
+  senha?: string;
+
   @IsOptional()
   @IsString()
   fotoRef?: string;

@@ -14,6 +14,7 @@ import {
   itemEstoque,
   tituloFinanceiro,
 } from '../../db/schema';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { custoMedioPonderado } from '../../common/regras-negocio';
 import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
@@ -25,6 +26,7 @@ export class RecebimentoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    private readonly events: EventEmitter2,
   ) {}
 
   // Cria o recebimento como rascunho (status 'aberto') — ainda NÃO mexe no estoque.
@@ -235,6 +237,8 @@ export class RecebimentoService {
       entidadeId: id,
       detalhe: { entradas: res.entradas },
     });
+    // Reposição de estoque → o cardápio despausa sozinho os que voltaram a ter insumo.
+    this.events.emit('estoque.baixado', { tenantId });
     return res;
   }
 }
