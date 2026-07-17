@@ -18,10 +18,13 @@ import {
   clienteEndereco,
   clienteLink,
   clienteOtp,
+  fidelidadeResgate,
   integracao,
   pedidoExterno,
 } from '../../db/schema';
+import { inArray } from 'drizzle-orm';
 import { assinarCliente, verificarCliente } from './cliente-token';
+import { AtendimentoService } from '../atendimento/atendimento.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
@@ -30,7 +33,10 @@ const OTP_MIN = 5; // validade do código em minutos
 @Injectable()
 export class ClienteService {
   private readonly logger = new Logger('ClienteOtp');
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly atendimento: AtendimentoService,
+  ) {}
 
   // Resolve o webhook do n8n: prefere a integração n8n da loja (por tenant, com
   // secret p/ HMAC); cai no OTP_WEBHOOK_URL global se a loja não tiver integração.
@@ -344,6 +350,8 @@ export class ClienteService {
   }
 
   // Perfil completo: dados + endereços + histórico (para "pedir de novo").
+  // O histórico traz total, desconto, taxa, endereço e forma de pagamento (detalhe
+  // do pedido) e uma flag `resgate` (pedido que usou prêmio de fidelidade).
   async perfil(cardapioToken: string, clienteToken?: string) {
     const c = await this.clienteDoToken(cardapioToken, clienteToken);
     const historico = await this.db
@@ -351,10 +359,21 @@ export class ClienteService {
         id: pedidoExterno.id,
         numero: pedidoExterno.numero,
         total: pedidoExterno.total,
+        desconto: pedidoExterno.desconto,
+        taxaEntrega: pedidoExterno.taxaEntrega,
+        cupom: pedidoExterno.cupom,
+        trocoPara: pedidoExterno.trocoPara,
         status: pedidoExterno.status,
+        statusPagamento: pedidoExterno.statusPagamento,
+        pago: pedidoExterno.pago,
         tipo: pedidoExterno.tipo,
         itens: pedidoExterno.itens,
         formaPagamento: pedidoExterno.formaPagamento,
+        bandeira: pedidoExterno.bandeira,
+        endereco: pedidoExterno.endereco,
+        enderecoRua: pedidoExterno.enderecoRua,
+        enderecoNumero: pedidoExterno.enderecoNumero,
+        enderecoBairro: pedidoExterno.enderecoBairro,
         criadoEm: pedidoExterno.criadoEm,
         confirmadoEm: pedidoExterno.confirmadoEm,
         despachadoEm: pedidoExterno.despachadoEm,
@@ -365,10 +384,28 @@ export class ClienteService {
       .where(eq(pedidoExterno.clienteId, c.id))
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(10);
+
+    // Marca quais pedidos foram resgate de fidelidade (prêmio "usado" no pedido).
+    const ids = historico.map((p) => p.id);
+    let resgates = new Set<string>();
+    if (ids.length) {
+      const rows = await this.db
+        .select({ pedidoId: fidelidadeResgate.pedidoId })
+        .from(fidelidadeResgate)
+        .where(
+          and(
+            eq(fidelidadeResgate.tenantId, c.tenantId),
+            eq(fidelidadeResgate.status, 'usado'),
+            inArray(fidelidadeResgate.pedidoId, ids),
+          ),
+        );
+      resgates = new Set(rows.map((r) => r.pedidoId).filter(Boolean) as string[]);
+    }
+
     return {
       cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
       enderecos: await this.enderecosDe(c.id),
-      historico,
+      historico: historico.map((p) => ({ ...p, resgate: resgates.has(p.id) })),
     };
   }
 
@@ -435,6 +472,8 @@ export class ClienteService {
   }
 
   // Itens de um pedido do cliente, para prefiler o carrinho ("pedir de novo").
+  // Se o pedido foi um resgate de fidelidade e o cliente não tem mais prêmio
+  // disponível para resgatar, bloqueia (não dá para repetir "de graça").
   async pedirDeNovo(cardapioToken: string, clienteToken: string | undefined, pedidoId: string) {
     const c = await this.clienteDoToken(cardapioToken, clienteToken);
     const [p] = await this.db
@@ -442,6 +481,96 @@ export class ClienteService {
       .from(pedidoExterno)
       .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.clienteId, c.id)));
     if (!p) throw new NotFoundException('Pedido não encontrado.');
+
+    // Foi resgate de fidelidade? (prêmio usado neste pedido)
+    const [foiResgate] = await this.db
+      .select({ id: fidelidadeResgate.id })
+      .from(fidelidadeResgate)
+      .where(
+        and(
+          eq(fidelidadeResgate.tenantId, c.tenantId),
+          eq(fidelidadeResgate.status, 'usado'),
+          eq(fidelidadeResgate.pedidoId, pedidoId),
+        ),
+      );
+    if (foiResgate) {
+      // Tem prêmio disponível para novo resgate? (disponivel ou já resgatado, ainda não usado)
+      const tel = (c.telefone ?? '').replace(/\D/g, '');
+      const disponiveis = tel
+        ? await this.db
+            .select({ id: fidelidadeResgate.id })
+            .from(fidelidadeResgate)
+            .where(
+              and(
+                eq(fidelidadeResgate.tenantId, c.tenantId),
+                eq(fidelidadeResgate.telefone, tel),
+                inArray(fidelidadeResgate.status, ['disponivel', 'resgatado']),
+              ),
+            )
+        : [];
+      if (disponiveis.length === 0) {
+        throw new BadRequestException(
+          'Este pedido foi um resgate de fidelidade e você não tem pontos para um novo resgate.',
+        );
+      }
+    }
     return { itens: p.itens };
+  }
+
+  // Carrega um pedido do cliente garantindo posse, com dados p/ solicitações.
+  private async pedidoDoCliente(cardapioToken: string, clienteToken: string | undefined, pedidoId: string) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    const [p] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.clienteId, c.id)));
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    return { cliente: c, pedido: p };
+  }
+
+  // Cliente pede o CANCELAMENTO do pedido (só enquanto ainda dá — antes de sair
+  // para entrega). Não cancela na hora: abre um chamado no sino, e a equipe decide.
+  async solicitarCancelamento(cardapioToken: string, clienteToken: string | undefined, pedidoId: string) {
+    const { cliente: c, pedido: p } = await this.pedidoDoCliente(cardapioToken, clienteToken, pedidoId);
+    if (['despachado', 'concluido', 'cancelado'].includes(p.status)) {
+      throw new BadRequestException('Este pedido não pode mais ser cancelado.');
+    }
+    return this.atendimento.abrir(c.tenantId, p.unidadeId ?? null, {
+      tipo: 'cancelamento',
+      cliente: c.nome ?? undefined,
+      telefone: c.telefone ?? undefined,
+      pedidoNumero: p.numero != null ? String(p.numero) : undefined,
+      pedidoId: p.id,
+      mensagem: 'Cliente solicitou o cancelamento do pedido pelo cardápio.',
+    });
+  }
+
+  // Cliente pede uma ALTERAÇÃO (endereço / no pedido / forma de pagamento).
+  // Só avisa a equipe no sino — a alteração em si é feita pela equipe.
+  async solicitarAlteracao(
+    cardapioToken: string,
+    clienteToken: string | undefined,
+    pedidoId: string,
+    dto: { alvo?: string; detalhe?: string },
+  ) {
+    const { cliente: c, pedido: p } = await this.pedidoDoCliente(cardapioToken, clienteToken, pedidoId);
+    if (['concluido', 'cancelado'].includes(p.status)) {
+      throw new BadRequestException('Este pedido já foi finalizado.');
+    }
+    const alvoLabel: Record<string, string> = {
+      endereco: 'endereço de entrega',
+      pedido: 'itens do pedido',
+      pagamento: 'forma de pagamento',
+    };
+    const alvo = alvoLabel[dto.alvo ?? ''] ?? 'o pedido';
+    const detalhe = (dto.detalhe ?? '').trim();
+    return this.atendimento.abrir(c.tenantId, p.unidadeId ?? null, {
+      tipo: 'mudanca',
+      cliente: c.nome ?? undefined,
+      telefone: c.telefone ?? undefined,
+      pedidoNumero: p.numero != null ? String(p.numero) : undefined,
+      pedidoId: p.id,
+      mensagem: `Cliente pediu alteração em ${alvo}${detalhe ? `: ${detalhe}` : '.'}`,
+    });
   }
 }

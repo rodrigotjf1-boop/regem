@@ -445,6 +445,8 @@ export const api = {
   atendimentos: () => req('/atendimento'),
   resolverAtendimento: (id: string) =>
     req(`/atendimento/${id}/resolver`, { method: 'POST', body: '{}' }),
+  decidirCancelamento: (id: string, body: { aceita: boolean; senha?: string; motivo?: string }) =>
+    req(`/atendimento/${id}/cancelamento`, { method: 'POST', body: JSON.stringify(body) }),
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
@@ -636,6 +638,10 @@ export const api = {
     pub(`/publico/cardapio/${token}/cliente/esquecer`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
   clientePedirDeNovo: (token: string, pedidoId: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente/pedir-de-novo/${pedidoId}`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
+  clienteSolicitarCancelamento: (token: string, pedidoId: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/pedido/${pedidoId}/solicitar-cancelamento`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
+  clienteSolicitarAlteracao: (token: string, pedidoId: string, clienteToken: string, alvo: string, detalhe?: string) =>
+    pub(`/publico/cardapio/${token}/cliente/pedido/${pedidoId}/solicitar-alteracao`, { method: 'POST', body: JSON.stringify({ clienteToken, alvo, detalhe }) }),
   cardapioBairros: () => req('/cardapio/bairros'),
   setCardapioBairros: (bairros: unknown[]) =>
     req('/cardapio/bairros', { method: 'PUT', body: JSON.stringify({ bairros }) }),

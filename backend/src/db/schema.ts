@@ -1865,7 +1865,10 @@ export const cardapioConfig = pgTable('cardapio_config', {
   modo: text('modo').notNull().default('mesa'), // mesa | retirada | totem
   nomePublico: text('nome_publico'),
   tema: text('tema').notNull().default('claro'), // claro | escuro | auto (Etapa 5)
-  menuTheme: text('menu_theme').notNull().default('classic'), // layout: classic | fastfood
+  menuTheme: text('menu_theme').notNull().default('classic'), // layout: classic | fastfood | grid
+  // Personalização do tema (botão "Editar tema"): { corPrimaria, mostrarDestaques,
+  // mostrarBanner, mostrarUltimos, bannerIntervalo }. Vazio = defaults no código.
+  temaConfig: jsonb('tema_config').notNull().default('{}'),
   // Loja / tema (Fase L2)
   ramo: text('ramo').notNull().default('food'), // food|varejo|industria|servicos
   logoEmoji: text('logo_emoji'),
@@ -1978,8 +1981,10 @@ export const atendimentoChamado = pgTable('atendimento_chamado', {
   cliente: text('cliente'),
   telefone: text('telefone'),
   pedidoNumero: text('pedido_numero'),
+  pedidoId: uuid('pedido_id'), // pedido ligado (cancelamento/alteração pelo cardápio)
   mensagem: text('mensagem'),
   status: text('status').notNull().default('aberto'), // aberto | resolvido
+  decisao: text('decisao'), // aceito | recusado | null (veredito do cancelamento)
   resolvidoPorId: uuid('resolvido_por_id'),
   resolvidoEm: timestamp('resolvido_em', { withTimezone: true }),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),

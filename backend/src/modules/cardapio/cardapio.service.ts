@@ -204,6 +204,12 @@ export class CardapioService {
       menuTheme: ['classic', 'fastfood', 'grid'].includes(dto.menuTheme)
         ? dto.menuTheme
         : row?.menuTheme ?? 'classic',
+      // Personalização do tema (cores + toggles + intervalo do banner). Merge com
+      // o atual para permitir salvar só parte (ex.: só o intervalo pela tela de banners).
+      temaConfig:
+        dto.temaConfig && typeof dto.temaConfig === 'object'
+          ? { ...(row?.temaConfig as any), ...dto.temaConfig }
+          : row?.temaConfig ?? {},
       ramo: dto.ramo ?? row?.ramo ?? 'food',
       logoEmoji: dto.logoEmoji ?? row?.logoEmoji ?? null,
       subtitulo: dto.subtitulo ?? row?.subtitulo ?? null,
@@ -340,7 +346,8 @@ export class CardapioService {
     banners: { imagemRef: string; titulo?: string; link?: string; ativo?: boolean }[],
   ) {
     await this.db.delete(banner).where(eq(banner.tenantId, tenantId));
-    const validos = (banners ?? []).filter((b) => b.imagemRef?.trim());
+    // Máximo de 3 banners no carrossel do cardápio.
+    const validos = (banners ?? []).filter((b) => b.imagemRef?.trim()).slice(0, 3);
     if (validos.length) {
       await this.db.insert(banner).values(
         validos.map((b, i) => ({
@@ -743,6 +750,18 @@ export class CardapioService {
         ramo: cfg.ramo,
         tema: cfg.tema ?? 'claro',
         menuTheme: ['classic', 'fastfood', 'grid'].includes(cfg.menuTheme) ? cfg.menuTheme : 'classic',
+        // Personalização do tema (defaults quando ausente): cor primária + toggles
+        // + intervalo do carrossel de banners (segundos, mínimo 1).
+        temaConfig: (() => {
+          const t = (cfg.temaConfig as any) ?? {};
+          return {
+            corPrimaria: typeof t.corPrimaria === 'string' && t.corPrimaria ? t.corPrimaria : null,
+            mostrarDestaques: t.mostrarDestaques !== false,
+            mostrarBanner: t.mostrarBanner !== false,
+            mostrarUltimos: t.mostrarUltimos !== false,
+            bannerIntervalo: Math.max(1, Number(t.bannerIntervalo) || 2),
+          };
+        })(),
         logoEmoji: cfg.logoEmoji,
         subtitulo: cfg.subtitulo,
         aberto: cfg.aberto,
