@@ -26,3 +26,7 @@ regem-edge-dist/
 
 # Saída do Inno Setup (instalador .exe gerado)
 backend/edge/Output/
+
+# Mídia gravada em disco no modo local/offline (não versionar uploads de teste)
+backend/uploads/
+uploads/

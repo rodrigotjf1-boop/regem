@@ -284,6 +284,13 @@ export function ConfigPanel({
                           <option value="auto">🌗 Automático (segue o aparelho do cliente)</option>
                         </select>
                       </Campo>
+                      <Campo label="Estilo do cardápio (layout)">
+                        <select aria-label="Estilo do cardápio" disabled={somenteGestor} value={loja.menuTheme ?? 'classic'} onChange={(e) => up({ menuTheme: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
+                          <option value="classic">📋 Clássico (padrão)</option>
+                          <option value="fastfood">🍔 Fast-food (destaques + carrossel)</option>
+                          <option value="grid">🔲 Grade (cabeçalho curvo + grade 2 colunas)</option>
+                        </select>
+                      </Campo>
                       <Campo label="Logo (emoji)"><Input value={loja.logoEmoji ?? ''} onChange={(e) => up({ logoEmoji: e.target.value })} placeholder="🍔" /></Campo>
                       <Campo label="Tempo de entrega (min)"><Input type="number" value={loja.tempoEntregaMin ?? ''} onChange={(e) => up({ tempoEntregaMin: e.target.value })} placeholder="40" /></Campo>
                       <Campo label="Tempo de retirada (min)"><Input type="number" value={loja.tempoRetiradaMin ?? ''} onChange={(e) => up({ tempoRetiradaMin: e.target.value })} placeholder="20" /></Campo>
@@ -976,9 +983,33 @@ function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any
   );
 }
 
+// Decodifica o campo `link` do banner em {tipo, valor} para editar.
+function parseAcao(link: string): { tipo: string; valor: string } {
+  const s = link ?? '';
+  if (s.startsWith('item:')) return { tipo: 'item', valor: s.slice(5) };
+  if (s.startsWith('category:')) return { tipo: 'category', valor: s.slice(9) };
+  if (s.startsWith('coupon:')) return { tipo: 'coupon', valor: s.slice(7) };
+  if (/^https?:\/\//.test(s)) return { tipo: 'url', valor: s };
+  return { tipo: '', valor: '' };
+}
+function montarAcao(tipo: string, valor: string): string {
+  if (!tipo || !valor) return '';
+  if (tipo === 'url') return valor;
+  return `${tipo}:${valor}`;
+}
+
 function Banners({ banners, onSalvar, salvando, pode }: { banners: any[]; onSalvar: (l: any[]) => void; salvando: boolean; pode: boolean }) {
   const [lista, setLista] = useState<any[]>(banners);
+  const [prods, setProds] = useState<any[]>([]);
   useEffect(() => { setLista(banners); }, [banners]);
+  useEffect(() => {
+    api.produtos().then((p: any) => setProds(Array.isArray(p) ? p : [])).catch(() => {});
+  }, []);
+  // Categorias derivadas dos produtos (id → nome), sem endpoint extra.
+  const cats = Array.from(
+    new Map(prods.filter((p) => p.categoriaId).map((p) => [p.categoriaId, p.categoriaNome ?? p.categoriaId])).entries(),
+  ).map(([id, nome]) => ({ id, nome }));
+
   function up(i: number, patch: any) { setLista((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
   function rem(i: number) { setLista((l) => l.filter((_, j) => j !== i)); }
   function move(i: number, dir: -1 | 1) {
@@ -988,24 +1019,61 @@ function Banners({ banners, onSalvar, salvando, pode }: { banners: any[]; onSalv
     [cp[i], cp[j]] = [cp[j], cp[i]];
     setLista(cp);
   }
+  // Atualiza o campo `link` do banner conforme a ação escolhida.
+  function setAcao(i: number, tipo: string, valor: string) {
+    up(i, { link: montarAcao(tipo, valor), _tipo: tipo });
+  }
+  const selCls = 'flex h-8 w-full rounded-md border border-input bg-card px-2 text-xs';
+
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital. Ordene e ative/desative cada uma.</p>
-      {lista.map((b, i) => (
-        <div key={i} className="flex items-start gap-3 rounded-lg border border-border p-2.5">
-          <ImageUpload value={b.imagemRef} onChange={(url) => up(i, { imagemRef: url })} id={`banner-${i}`} alt="Banner" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <Input value={b.titulo ?? ''} onChange={(e) => up(i, { titulo: e.target.value })} placeholder="Título (opcional)" className="h-8" disabled={!pode} />
-            <Input value={b.link ?? ''} onChange={(e) => up(i, { link: e.target.value })} placeholder="Link ao clicar (opcional)" className="h-8" disabled={!pode} />
-            <div className="flex items-center gap-2 text-xs">
-              <label className="flex items-center gap-1"><input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={b.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} /> ativo</label>
-              <button type="button" className="ml-auto rounded border border-border px-1.5" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
-              <button type="button" className="rounded border border-border px-1.5" onClick={() => move(i, 1)} disabled={i === lista.length - 1}>↓</button>
-              {pode && <button type="button" className="text-destructive" onClick={() => rem(i)}>remover</button>}
+      <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital. Defina para onde cada banner leva ao tocar.</p>
+      {lista.map((b, i) => {
+        const acao = parseAcao(b.link ?? '');
+        const tipo = b._tipo ?? acao.tipo;
+        return (
+          <div key={i} className="flex items-start gap-3 rounded-lg border border-border p-2.5">
+            <ImageUpload value={b.imagemRef} onChange={(url) => up(i, { imagemRef: url })} id={`banner-${i}`} alt="Banner" />
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <Input value={b.titulo ?? ''} onChange={(e) => up(i, { titulo: e.target.value })} placeholder="Título / texto do botão (opcional)" className="h-8" disabled={!pode} />
+              {/* Ação ao tocar (deep-link) */}
+              <div className="flex gap-1.5">
+                <select aria-label="Ação do banner" disabled={!pode} value={tipo} onChange={(e) => setAcao(i, e.target.value, '')} className={`${selCls} w-32 flex-none`}>
+                  <option value="">Sem ação</option>
+                  <option value="item">Abrir produto</option>
+                  <option value="category">Ir p/ categoria</option>
+                  <option value="coupon">Aplicar cupom</option>
+                  <option value="url">Link externo</option>
+                </select>
+                {tipo === 'item' && (
+                  <select aria-label="Produto do banner" disabled={!pode} value={acao.valor} onChange={(e) => setAcao(i, 'item', e.target.value)} className={selCls}>
+                    <option value="">Escolha o produto…</option>
+                    {prods.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                  </select>
+                )}
+                {tipo === 'category' && (
+                  <select aria-label="Categoria do banner" disabled={!pode} value={acao.valor} onChange={(e) => setAcao(i, 'category', e.target.value)} className={selCls}>
+                    <option value="">Escolha a categoria…</option>
+                    {cats.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                )}
+                {tipo === 'coupon' && (
+                  <Input value={acao.valor} onChange={(e) => setAcao(i, 'coupon', e.target.value.toUpperCase())} placeholder="CÓDIGO" className="h-8" disabled={!pode} />
+                )}
+                {tipo === 'url' && (
+                  <Input value={acao.valor} onChange={(e) => setAcao(i, 'url', e.target.value)} placeholder="https://…" className="h-8" disabled={!pode} />
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <label className="flex items-center gap-1"><input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={b.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} /> ativo</label>
+                <button type="button" className="ml-auto rounded border border-border px-1.5" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
+                <button type="button" className="rounded border border-border px-1.5" onClick={() => move(i, 1)} disabled={i === lista.length - 1}>↓</button>
+                {pode && <button type="button" className="text-destructive" onClick={() => rem(i)}>remover</button>}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhum banner ainda.</p>}
       {pode && (
         <div className="flex items-center justify-between">

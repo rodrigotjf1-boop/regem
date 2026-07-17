@@ -200,6 +200,10 @@ export class CardapioService {
       modo: dto.modo ?? row?.modo ?? 'mesa',
       nomePublico: dto.nomePublico ?? row?.nomePublico ?? null,
       tema: dto.tema ?? row?.tema ?? 'claro',
+      // Layout do cardápio (classic | fastfood). Fallback classic se inválido.
+      menuTheme: ['classic', 'fastfood', 'grid'].includes(dto.menuTheme)
+        ? dto.menuTheme
+        : row?.menuTheme ?? 'classic',
       ramo: dto.ramo ?? row?.ramo ?? 'food',
       logoEmoji: dto.logoEmoji ?? row?.logoEmoji ?? null,
       subtitulo: dto.subtitulo ?? row?.subtitulo ?? null,
@@ -738,6 +742,7 @@ export class CardapioService {
         nome: cfg.nomePublico ?? 'Cardápio',
         ramo: cfg.ramo,
         tema: cfg.tema ?? 'claro',
+        menuTheme: ['classic', 'fastfood', 'grid'].includes(cfg.menuTheme) ? cfg.menuTheme : 'classic',
         logoEmoji: cfg.logoEmoji,
         subtitulo: cfg.subtitulo,
         aberto: cfg.aberto,

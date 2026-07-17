@@ -1,0 +1,62 @@
+/* Tema/layout do cardápio digital. Só aplica sob [data-menu-theme="fastfood"]
+   ou [data-menu-theme="grid"]; NENHUM seletor sem o data-attr, então o "classic" fica 100% intacto
+   (pixel-perfect). A cor da loja chega por --brand-primary (inline no root).
+   O modo escuro (classe tema-escuro no body) continua sendo eixo independente. */
+
+/* Fastfood: fundo cinza-claríssimo, cards brancos flutuando com sombra suave e
+   cantos mais arredondados (visual "food app"). */
+.lp-menu[data-menu-theme='fastfood'] {
+  background: #f3f4f6;
+}
+.lp-menu[data-menu-theme='fastfood'] .lp-cats {
+  background: #f3f4f6;
+  padding-top: 10px;
+  box-shadow: 0 10px 14px -12px rgba(0, 0, 0, 0.15);
+}
+.lp-menu[data-menu-theme='fastfood'] .lp-card {
+  border-color: transparent;
+  border-radius: 18px;
+  box-shadow:
+    0 8px 20px -12px rgba(0, 0, 0, 0.2),
+    0 1px 0 rgba(0, 0, 0, 0.03);
+}
+.lp-menu[data-menu-theme='fastfood'] .lp-card:active {
+  box-shadow: 0 3px 10px -8px rgba(0, 0, 0, 0.25);
+}
+
+/* Carrossel de banners (deep-link) — pontos indicadores e snap horizontal. */
+.lp-menu[data-menu-theme='fastfood'] .lp-banners {
+  scroll-snap-type: x mandatory;
+}
+.lp-menu[data-menu-theme='fastfood'] .lp-banners > * {
+  scroll-snap-align: center;
+}
+
+/* ---- Tema GRID: clean, cabeçalho curvo, cards muito arredondados, dock. ---- */
+.lp-menu[data-menu-theme='grid'] {
+  background: #f3f4f6;
+}
+/* Base curva do cabeçalho na cor da loja. */
+.lp-hero-grid {
+  border-bottom-left-radius: 26px;
+  border-bottom-right-radius: 26px;
+}
+.lp-menu[data-menu-theme='grid'] .lp-cats {
+  background: #f3f4f6;
+  padding-top: 12px;
+  box-shadow: none;
+}
+.lp-menu[data-menu-theme='grid'] .lp-card {
+  border-color: transparent;
+  border-radius: 20px;
+  box-shadow:
+    0 10px 24px -14px rgba(0, 0, 0, 0.22),
+    0 1px 0 rgba(0, 0, 0, 0.03);
+}
+.lp-menu[data-menu-theme='grid'] .lp-banners {
+  scroll-snap-type: x mandatory;
+}
+.lp-menu[data-menu-theme='grid'] .lp-banners > * {
+  scroll-snap-align: center;
+}
+
