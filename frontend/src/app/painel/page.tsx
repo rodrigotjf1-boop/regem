@@ -6,8 +6,13 @@ import { AlertTriangle } from 'lucide-react';
 import { api, getCategoria, getToken } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { toast } from '@/lib/toast';
 import { Timeline } from '@/components/dashboard/timeline';
 import { CardPontoHoje } from '@/components/dashboard/card-ponto-hoje';
+import { NovaTarefaForm } from '@/components/tarefa/nova-tarefa-form';
+import { TarefaModal } from '@/components/tarefa/tarefa-modal';
+import { Plus, Settings2 } from 'lucide-react';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Data de hoje no fuso da operação (America/Sao_Paulo) — alinha KPIs e o
@@ -24,6 +29,11 @@ export default function DashboardPage() {
   const [timeline, setTimeline] = useState<any>(null);
   const [ranking, setRanking] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
+  const [gridMin, setGridMin] = useState(60); // granularidade da grade do timeline (padrão 1h)
+  const [novaTarefa, setNovaTarefa] = useState(false);
+  const [tarefaSel, setTarefaSel] = useState<any>(null);
+  const [politica, setPolitica] = useState({ conclusao: false, parcial: false });
+  const [politicaModal, setPoliticaModal] = useState(false);
   const data = hoje();
 
   const carregar = useCallback(async () => {
@@ -36,6 +46,7 @@ export default function DashboardPage() {
       setD(dash);
       setTarefas(tar);
       setTimeline(tl);
+      api.politicaFotoTarefa().then((p: any) => p && setPolitica(p)).catch(() => {});
       if (getCategoria() === 'presidente') {
         try {
           setRanking(await api.get('/ocorrencias/ranking'));
@@ -100,37 +111,23 @@ export default function DashboardPage() {
       ]
     : [];
 
-  const alertas: { txt: string; cor: string }[] = [];
-  if (d) {
-    if (d.estoqueAbaixoMinimo > 0)
-      alertas.push({ txt: `${d.estoqueAbaixoMinimo} item(ns) de estoque abaixo do mínimo`, cor: 'hsl(var(--destructive))' });
-    if (d.tarefas.naoFeitas > 0)
-      alertas.push({ txt: `${d.tarefas.naoFeitas} tarefa(s) não feita(s) hoje`, cor: 'hsl(var(--destructive))' });
-    if (d.tarefas.pendentes > 0)
-      alertas.push({ txt: `${d.tarefas.pendentes} tarefa(s) pendente(s)`, cor: 'hsl(var(--warn))' });
-    if (d.tarefas.emMassa > 0)
-      alertas.push({ txt: `${d.tarefas.emMassa} conclusão(ões) em massa (governança)`, cor: 'hsl(var(--info))' });
-  }
+  // Data + aviso de tarefa pendente vão para o cabeçalho (Shell actions). "Pendente"
+  // agrega o que precisa de atenção (pendente/não feita/parcial) do dia.
+  const headerInfo = (
+    <div className="flex items-center gap-2.5">
+      <span className="hidden text-xs capitalize text-muted-foreground sm:inline">{dataLabel}</span>
+      {atencao.length > 0 && (
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-warn/40 bg-warn/10 px-2.5 py-1.5 text-xs font-semibold text-warn">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          {atencao.length} pendente{atencao.length > 1 ? 's' : ''}
+        </span>
+      )}
+    </div>
+  );
 
   return (
-    <Shell eyebrow="Visão geral" title="Dashboard">
-      {erro && <p className="text-destructive">{erro}</p>}
-      <p className="mb-4 text-sm capitalize text-muted-foreground">{dataLabel}</p>
-
-      {alertas.length > 0 && (
-        <div className="mb-5 flex gap-2.5 overflow-x-auto pb-1">
-          {alertas.map((a, i) => (
-            <div
-              key={i}
-              className="flex flex-none items-center gap-2 rounded-lg border border-l-[3px] border-border bg-card px-3.5 py-2.5 text-xs font-semibold"
-              style={{ borderLeftColor: a.cor }}
-            >
-              <AlertTriangle className="h-3.5 w-3.5" style={{ color: a.cor }} />
-              {a.txt}
-            </div>
-          ))}
-        </div>
-      )}
+    <Shell eyebrow="Visão geral" title="Dashboard" actions={headerInfo}>
+      {erro && <p className="mb-3 text-destructive">{erro}</p>}
 
       {kpisFinanceiro.length > 0 && (
         <>
@@ -171,39 +168,72 @@ export default function DashboardPage() {
       </div>
 
       <Card className="mb-4 p-0">
-        <div className="border-b border-border px-5 py-3.5">
-          <p className="font-display text-sm font-bold">
-            Linha do tempo operacional
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Quem está escalado e o que deveria estar em execução agora, por setor
-          </p>
+        <div className="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3.5">
+          <div className="min-w-0">
+            <p className="font-display text-sm font-bold">
+              Linha do tempo operacional
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Quem está escalado e o que deveria estar em execução agora, por setor
+            </p>
+          </div>
+          <label className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+            Alinhamento
+            <select
+              value={gridMin}
+              onChange={(e) => setGridMin(Number(e.target.value))}
+              className="rounded-md border border-border bg-card px-2 py-1 text-xs font-medium text-foreground outline-none"
+              aria-label="Granularidade da grade da linha do tempo"
+            >
+              <option value={15}>15 em 15 min</option>
+              <option value={30}>30 em 30 min</option>
+              <option value={60}>1 em 1 hora</option>
+              <option value={120}>2 em 2 horas</option>
+            </select>
+          </label>
         </div>
         {timeline ? (
           <Timeline
             setores={timeline.setores ?? []}
             picos={timeline.picos ?? []}
             agora={timeline.agora ?? null}
+            stepMin={gridMin}
           />
         ) : (
           <p className="px-5 py-6 text-sm text-muted-foreground">Carregando…</p>
         )}
       </Card>
 
-      {/* Ponto de hoje — resumo para o gerente (gestão completa em Pessoas & Ponto) */}
-      <div className="mb-4">
-        <CardPontoHoje />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+      {/* Tarefas em atraso/atenção (½) + Ponto de hoje (½) */}
+      <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <Card className="p-0">
-          <div className="border-b border-border px-5 py-3.5">
-            <p className="font-display text-sm font-bold">
-              Tarefas em atraso ou atenção
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Puxadas da escala do dia
-            </p>
+          <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
+            <div className="min-w-0">
+              <p className="font-display text-sm font-bold">
+                Gerenciamento de tarefas
+              </p>
+              <p className="text-xs text-muted-foreground">Em atraso ou atenção · puxadas da escala do dia</p>
+            </div>
+            {getCategoria() === 'presidente' && (
+              <button
+                type="button"
+                onClick={() => setPoliticaModal(true)}
+                className="ml-auto inline-flex h-8 w-8 flex-none items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary hover:text-primary"
+                aria-label="Política de foto"
+                title="Exigência de foto na conclusão"
+              >
+                <Settings2 className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setNovaTarefa(true)}
+              className={`${getCategoria() === 'presidente' ? '' : 'ml-auto'} inline-flex h-8 w-8 flex-none items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary hover:text-primary`}
+              aria-label="Nova tarefa"
+              title="Nova tarefa"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
           </div>
           <div className="divide-y divide-border">
             {atencao.length === 0 && (
@@ -212,13 +242,18 @@ export default function DashboardPage() {
               </p>
             )}
             {atencao.map((t: any) => (
-              <div key={t.id} className="flex items-center gap-3 px-5 py-3">
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTarefaSel(t)}
+                className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-primary/5"
+              >
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold">
                     {t.titulo ?? 'Tarefa'}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {t.setorNome ?? '—'} · {t.colaboradorNome ?? 'vaga aberta'}
+                    {t.setorNome ?? '—'} · {t.colaboradorNome ?? 'em aberto'}
                   </p>
                 </div>
                 <span
@@ -236,45 +271,115 @@ export default function DashboardPage() {
                 >
                   {t.estado}
                 </span>
-              </div>
+              </button>
             ))}
           </div>
         </Card>
 
-        {ranking && (
-          <Card className="p-0">
-            <div className="border-b border-border px-5 py-3.5">
-              <p className="font-display text-sm font-bold">Ranking da equipe</p>
+        <CardPontoHoje />
+      </div>
+
+      {/* Ranking da equipe — abaixo, largura cheia */}
+      {ranking && (
+        <Card className="mb-4 p-0">
+          <div className="border-b border-border px-5 py-3.5">
+            <p className="font-display text-sm font-bold">Ranking da equipe</p>
+            <p className="text-xs text-muted-foreground">Pontuação · gamificação</p>
+          </div>
+          <div className="grid gap-x-6 sm:grid-cols-2">
+            {ranking.length === 0 && (
+              <p className="px-5 py-6 text-sm text-muted-foreground">
+                Sem pontuação ainda.
+              </p>
+            )}
+            {ranking.slice(0, 10).map((r: any, i: number) => (
+              <div key={r.id} className="flex items-center gap-3 border-b border-border px-5 py-2.5">
+                <span className="w-6 font-mono text-sm font-bold text-muted-foreground">
+                  {i + 1}º
+                </span>
+                <span className="truncate text-sm">{r.nome}</span>
+                <span
+                  className={`ml-auto font-mono text-sm font-bold ${
+                    r.pontos < 0 ? 'text-destructive' : ''
+                  }`}
+                >
+                  {r.pontos > 0 ? '+' : ''}
+                  {r.pontos}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {novaTarefa && (
+        <div className="fixed inset-0 z-[60] grid place-items-center overflow-y-auto bg-black/40 p-4" onClick={() => setNovaTarefa(false)}>
+          <div className="w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+            <NovaTarefaForm
+              data={data}
+              onCreated={() => {
+                setNovaTarefa(false);
+                carregar();
+              }}
+              onCancel={() => setNovaTarefa(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {tarefaSel && (
+        <TarefaModal
+          tarefa={tarefaSel}
+          politica={politica}
+          data={data}
+          onClose={() => setTarefaSel(null)}
+          onChanged={() => {
+            setTarefaSel(null);
+            carregar();
+          }}
+        />
+      )}
+
+      {politicaModal && (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4" onClick={() => setPoliticaModal(false)}>
+          <Card className="w-full max-w-sm space-y-4 p-5" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h2 className="font-display text-base font-bold">Foto na conclusão de tarefas</h2>
               <p className="text-xs text-muted-foreground">
-                Pontuação · gamificação
+                Você (presidente/C&O) decide quando a comprovação por foto é obrigatória.
               </p>
             </div>
-            <div className="divide-y divide-border">
-              {ranking.length === 0 && (
-                <p className="px-5 py-6 text-sm text-muted-foreground">
-                  Sem pontuação ainda.
-                </p>
-              )}
-              {ranking.slice(0, 6).map((r: any, i: number) => (
-                <div key={r.id} className="flex items-center gap-3 px-5 py-2.5">
-                  <span className="w-6 font-mono text-sm font-bold text-muted-foreground">
-                    {i + 1}º
-                  </span>
-                  <span className="truncate text-sm">{r.nome}</span>
-                  <span
-                    className={`ml-auto font-mono text-sm font-bold ${
-                      r.pontos < 0 ? 'text-destructive' : ''
-                    }`}
-                  >
-                    {r.pontos > 0 ? '+' : ''}
-                    {r.pontos}
-                  </span>
-                </div>
-              ))}
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span>Exigir foto ao concluir</span>
+              <input type="checkbox" className="h-4 w-4 accent-primary" checked={politica.conclusao}
+                onChange={(e) => setPolitica((p) => ({ ...p, conclusao: e.target.checked }))} />
+            </label>
+            <label className="flex items-center justify-between gap-3 text-sm">
+              <span>Exigir foto na conclusão parcial</span>
+              <input type="checkbox" className="h-4 w-4 accent-primary" checked={politica.parcial}
+                onChange={(e) => setPolitica((p) => ({ ...p, parcial: e.target.checked }))} />
+            </label>
+            <p className="text-xs text-muted-foreground">Não concluída nunca exige foto — só o motivo.</p>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={async () => {
+                  try {
+                    await api.setPoliticaFotoTarefa(politica);
+                    toast.success('Política salva.');
+                    setPoliticaModal(false);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+                  }
+                }}
+              >
+                Salvar
+              </Button>
+              <Button variant="outline" onClick={() => setPoliticaModal(false)}>Fechar</Button>
             </div>
           </Card>
-        )}
-      </div>
+        </div>
+      )}
     </Shell>
   );
 }

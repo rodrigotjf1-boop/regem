@@ -11,10 +11,12 @@ export function ProdutosLista({
   produtos,
   onEditar,
   onRemover,
+  onReativar,
 }: {
   produtos: any[] | null;
   onEditar: (id: string) => void;
   onRemover: (id: string, nome: string) => void;
+  onReativar?: (p: any, ativo: boolean) => void;
 }) {
   return (
     <Card className="p-4">
@@ -45,9 +47,30 @@ export function ProdutosLista({
                 {p.categoriaNome && <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">{p.categoriaNome}</span>}
                 {p.tipo !== 'simples' && <span className="rounded bg-info/10 px-1.5 py-0.5 text-xs text-info">{p.tipo}</span>}
                 {!p.fichaId && p.controlaEstoque && <span className="rounded bg-warn/10 px-1.5 py-0.5 text-xs text-warn">sem ficha</span>}
+                {(p.pausadoEstoque || p.disponivelCardapio === false) && !p.permiteNegativo && (
+                  <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-semibold text-destructive">
+                    Esgotado{p.pausadoEstoque ? ' (estoque)' : ''}
+                  </span>
+                )}
+                {p.permiteNegativo && (
+                  <span className="rounded bg-warn/10 px-1.5 py-0.5 text-xs font-semibold text-warn">
+                    contagem negativa
+                  </span>
+                )}
               </div>
             </div>
             <span className="font-mono text-sm font-bold">{brl(Number(p.precoVenda))}</span>
+            {/* Reativar esgotado sem estoque (contagem negativa) / voltar a controlar */}
+            {onReativar && p.pausadoEstoque && !p.permiteNegativo && (
+              <Button type="button" size="sm" variant="outline" onClick={() => onReativar(p, true)}>
+                Reativar
+              </Button>
+            )}
+            {onReativar && p.permiteNegativo && (
+              <Button type="button" size="sm" variant="ghost" onClick={() => onReativar(p, false)}>
+                Voltar a controlar
+              </Button>
+            )}
             <Button type="button" size="sm" variant="ghost" onClick={() => onEditar(p.id)}>Editar</Button>
             <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => onRemover(p.id, p.nome)}>×</Button>
           </div>

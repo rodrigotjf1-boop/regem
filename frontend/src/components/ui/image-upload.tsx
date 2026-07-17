@@ -10,11 +10,15 @@ export function ImageUpload({
   onChange,
   id,
   alt = 'Imagem enviada',
+  capture = false,
 }: {
   value?: string;
   onChange: (url: string) => void;
   id?: string;
   alt?: string;
+  // capture: abre a CÂMERA direto (sem galeria) — para comprovação tirada na hora.
+  // No Android/iOS o navegador pede permissão e não oferece a galeria.
+  capture?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
@@ -67,7 +71,15 @@ export function ImageUpload({
             ) : (
               <ImagePlus className="h-4 w-4" />
             )}
-            {enviando ? 'Enviando…' : value ? 'Trocar imagem' : 'Enviar imagem'}
+            {enviando
+              ? 'Enviando…'
+              : capture
+                ? value
+                  ? 'Tirar outra foto'
+                  : 'Tirar foto'
+                : value
+                  ? 'Trocar imagem'
+                  : 'Enviar imagem'}
           </button>
 
           {value && !enviando && (
@@ -87,13 +99,19 @@ export function ImageUpload({
         ref={inputRef}
         id={id}
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        aria-label={capture ? 'Tirar foto com a câmera' : 'Enviar imagem'}
+        // capture="environment" abre a câmera traseira direto (Android/iOS) e não
+        // oferece galeria — comprovação tirada na hora. accept precisa ser amplo.
+        accept={capture ? 'image/*' : 'image/png,image/jpeg,image/webp,image/gif'}
+        capture={capture ? 'environment' : undefined}
         className="hidden"
         onChange={selecionar}
       />
 
       {erro && <p className="text-sm text-destructive">{erro}</p>}
-      <p className="text-xs text-muted-foreground">JPG, PNG, WEBP ou GIF · até 5 MB.</p>
+      <p className="text-xs text-muted-foreground">
+        {capture ? 'Foto tirada na hora, pela câmera.' : 'JPG, PNG, WEBP ou GIF · até 5 MB.'}
+      </p>
     </div>
   );
 }

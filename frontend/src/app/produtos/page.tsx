@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { Card } from '@/components/ui/card';
 import { Shell } from '@/components/app-shell/shell';
 import { vazio, type Variacao, type Combo } from '@/components/produtos/types';
 import { useProdutosData } from '@/components/produtos/use-produtos-data';
@@ -40,12 +41,14 @@ export default function ProdutosPage() {
   const [salvandoDest, setSalvandoDest] = useState(false);
   const [faixas, setFaixas] = useState<{ qtdMin: string; preco: string }[]>([]);
 
+  const [autoPausa, setAutoPausa] = useState(true);
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
       return;
     }
     reload();
+    api.autoPausaCardapio().then((r: any) => r && setAutoPausa(!!r.ativo)).catch(() => {});
   }, [reload, router]);
 
   const set = (patch: any) => setF((s: any) => ({ ...s, ...patch }));
@@ -261,6 +264,27 @@ export default function ProdutosPage() {
     }
   }
 
+  // Reativar um esgotado SEM dar entrada (ativo=true) ou voltar a controlar (false).
+  async function reativar(p: any, ativo: boolean) {
+    if (
+      ativo &&
+      !confirm(
+        `Reativar "${p.nome}" sem dar entrada no estoque?\n\n` +
+          'O controle de estoque (bloqueio por falta) será DESATIVADO para este produto: ' +
+          'ele fica disponível no cardápio e o estoque do insumo pode ficar em CONTAGEM NEGATIVA ' +
+          '(só informativo). Volte a controlar quando repor.',
+      )
+    )
+      return;
+    try {
+      await api.produtoPermiteNegativo(p.id, ativo);
+      toast.success(ativo ? 'Produto reativado (contagem negativa).' : 'Controle de estoque religado.');
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao reativar');
+    }
+  }
+
   async function addCategoria() {
     if (!catNome.trim()) return;
     try {
@@ -322,6 +346,34 @@ export default function ProdutosPage() {
       <div className="max-w-3xl space-y-5">
         {erro && <p className="text-destructive">{erro}</p>}
 
+        <Card className="p-4">
+          <label className="flex items-center justify-between gap-3">
+            <span className="text-sm">
+              <span className="font-semibold">Pausar automaticamente ao esgotar o estoque</span>
+              <span className="block text-xs text-muted-foreground">
+                Produtos que controlam estoque entram em &quot;Esgotado&quot; no cardápio quando o
+                insumo acaba, com aviso geral. Voltam sozinhos ao repor.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 flex-none accent-primary"
+              checked={autoPausa}
+              onChange={async (e) => {
+                const v = e.target.checked;
+                setAutoPausa(v);
+                try {
+                  await api.setAutoPausaCardapio(v);
+                  toast.success('Configuração salva.');
+                } catch {
+                  setAutoPausa(!v);
+                  toast.error('Erro ao salvar.');
+                }
+              }}
+            />
+          </label>
+        </Card>
+
         <CategoriasCard
           categorias={categorias}
           catNome={catNome}
@@ -375,7 +427,7 @@ export default function ProdutosPage() {
           />
         )}
 
-        <ProdutosLista produtos={produtos} onEditar={editar} onRemover={remover} />
+        <ProdutosLista produtos={produtos} onEditar={editar} onRemover={remover} onReativar={reativar} />
       </div>
     </Shell>
   );

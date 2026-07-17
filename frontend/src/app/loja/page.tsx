@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { buscarCep } from '@/lib/geo';
 import { Shell } from '@/components/app-shell/shell';
@@ -26,6 +26,11 @@ export default function LojaPage() {
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
+      return;
+    }
+    // Dados da loja são exclusivos do presidente/C&O (não do gerente).
+    if (getCategoria() !== 'presidente') {
+      router.replace('/painel');
       return;
     }
     carregar();

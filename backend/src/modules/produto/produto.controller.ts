@@ -68,6 +68,17 @@ export class ProdutoController {
     return this.service.remover(user.tenantId, id);
   }
 
+  // Reativar produto esgotado sem dar entrada (liga/desliga a contagem negativa).
+  @Post(':id/permite-negativo')
+  @Roles(...GESTOR)
+  permiteNegativo(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { ativo?: boolean },
+  ) {
+    return this.service.permiteNegativo(user.tenantId, id, dto?.ativo !== false);
+  }
+
   // ----- Complementos (opcionais/adicionais) -----
   @Get(':id/complementos')
   complementos(@CurrentUser() user: AuthUser, @Param('id') id: string) {

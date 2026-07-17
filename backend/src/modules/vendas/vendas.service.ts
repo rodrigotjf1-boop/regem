@@ -221,6 +221,10 @@ export class VendasService {
         // (ex.: delivery concluído duas vezes) é ignorada em vez de estourar.
         .onConflictDoNothing();
     }
+    // Avisa o cardápio para recomputar esgotados (auto-pausa por estoque). O
+    // listener recomputa do ledger; se rodar antes do commit, o próximo movimento
+    // ou o render do menu (que também computa) corrige — sem estado inconsistente.
+    if (consumo.size) this.events.emit('estoque.baixado', { tenantId });
   }
 
   // Resolve os complementos escolhidos (por opcaoId) validando que pertencem ao

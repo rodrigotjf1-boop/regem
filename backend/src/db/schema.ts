@@ -344,6 +344,7 @@ export const tarefaDef = pgTable('tarefa_def', {
     .notNull()
     .references(() => unidade.id, { onDelete: 'cascade' }),
   setorId: uuid('setor_id'),
+  funcaoId: uuid('funcao_id'), // função-alvo da tarefa (cadastro por setor+função)
   origem: text('origem').notNull().default('avulsa'),
   checklistId: uuid('checklist_id'),
   titulo: text('titulo').notNull(),
@@ -375,12 +376,16 @@ export const tarefaInstancia = pgTable('tarefa_instancia', {
   tarefaDefId: uuid('tarefa_def_id').references(() => tarefaDef.id),
   data: date('data').notNull(),
   etiquetaId: uuid('etiqueta_id').references(() => etiqueta.id),
+  funcaoId: uuid('funcao_id'), // snapshot da função-alvo
+  setorId: uuid('setor_id'), // snapshot do setor (opcional)
   colaboradorResolvidoId: uuid('colaborador_resolvido_id').references(
     () => colaborador.id,
   ),
   estado: text('estado').notNull().default('pendente'),
   motivo: text('motivo'),
   fotoRef: text('foto_ref'),
+  fotos: jsonb('fotos').notNull().default('[]'), // comprovação (até 3); expurgo em 30d
+  dataExpurgo: date('data_expurgo'), // LGPD: expurgo das fotos da tarefa
   concluidoPorId: uuid('concluido_por_id').references(() => colaborador.id),
   concluidoEm: timestamp('concluido_em', { withTimezone: true }),
   conclusaoEmMassa: boolean('conclusao_em_massa').notNull().default(false),
@@ -1071,6 +1076,9 @@ export const produto = pgTable('produto', {
   precoPromocional: numeric('preco_promocional'),
   selos: jsonb('selos').notNull().default('[]'),
   disponivelCardapio: boolean('disponivel_cardapio').notNull().default(true),
+  pausadoEstoque: boolean('pausado_estoque').notNull().default(false), // auto-pausa por estoque
+  pausaMotivo: text('pausa_motivo'), // motivo do "esgotado" (aparece no aviso geral)
+  permiteNegativo: boolean('permite_negativo').notNull().default(false), // reativado sem estoque (contagem negativa)
   disponivelBalcao: boolean('disponivel_balcao').notNull().default(true), // canal PDV
   destaque: boolean('destaque').notNull().default(false), // upsell "peça também"
   vendaMultiplo: integer('venda_multiplo'),

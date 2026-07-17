@@ -152,7 +152,19 @@ export class CardapioController {
   @Put('config')
   @Roles('presidente', 'gerente')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto);
+    return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto, user.categoria);
+  }
+
+  // Auto-pausa por esgotamento de estoque (gestão do cardápio).
+  @Get('auto-pausa')
+  autoPausa(@CurrentUser() user: AuthUser) {
+    return this.service.autoPausaConfig(user.tenantId);
+  }
+
+  @Post('auto-pausa')
+  @Roles('presidente', 'gerente')
+  setAutoPausa(@CurrentUser() user: AuthUser, @Body() dto: { ativo?: boolean }) {
+    return this.service.setAutoPausa(user.tenantId, !!dto?.ativo);
   }
 
   @Get('bairros')

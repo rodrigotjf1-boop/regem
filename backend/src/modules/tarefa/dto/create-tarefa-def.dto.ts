@@ -16,6 +16,11 @@ export class CreateTarefaDefDto {
   @IsUUID()
   setorId?: string;
 
+  // Função-alvo da tarefa (obrigatória no cadastro manual pelo card/Meu Dia).
+  @IsOptional()
+  @IsUUID()
+  funcaoId?: string;
+
   @IsOptional()
   @IsIn(['recorrente', 'avulsa'])
   origem?: string;
