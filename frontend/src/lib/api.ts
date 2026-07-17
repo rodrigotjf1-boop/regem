@@ -290,6 +290,32 @@ export const api = {
   produtoCategorias: () => req('/produtos/categorias'),
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarCategoriaProduto: (id: string, body: Record<string, unknown>) =>
+    req(`/produtos/categorias/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  excluirCategoriaProduto: (id: string) =>
+    req(`/produtos/categorias/${id}`, { method: 'DELETE' }),
+  reordenarCategoriasProduto: (ids: string[]) =>
+    req('/produtos/categorias/reordenar', { method: 'POST', body: JSON.stringify({ ids }) }),
+  // Opções reutilizáveis do catálogo (Fase 2)
+  opcoesCatalogo: () => req('/produtos/opcoes'),
+  criarOpcaoCatalogo: (body: Record<string, unknown>) =>
+    req('/produtos/opcoes', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarOpcaoCatalogo: (id: string, body: Record<string, unknown>) =>
+    req(`/produtos/opcoes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  excluirOpcaoCatalogo: (id: string) =>
+    req(`/produtos/opcoes/${id}`, { method: 'DELETE' }),
+  // Complementos reutilizáveis do catálogo (Fase 3)
+  complementosCatalogo: () => req('/produtos/complementos-catalogo'),
+  criarComplementoCatalogo: (body: Record<string, unknown>) =>
+    req('/produtos/complementos-catalogo', { method: 'POST', body: JSON.stringify(body) }),
+  atualizarComplementoCatalogo: (id: string, body: Record<string, unknown>) =>
+    req(`/produtos/complementos-catalogo/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  excluirComplementoCatalogo: (id: string) =>
+    req(`/produtos/complementos-catalogo/${id}`, { method: 'DELETE' }),
+  // Produto ↔ complementos reutilizáveis (Fase 4 — materializa no motor)
+  produtoEtapas: (id: string) => req(`/produtos/${id}/complementos-catalogo`),
+  setProdutoEtapas: (id: string, ids: string[]) =>
+    req(`/produtos/${id}/complementos-catalogo`, { method: 'PUT', body: JSON.stringify({ ids }) }),
   fichasLista: () => req('/fichas'),
   ficha: (id: string) => req(`/fichas/${id}`),
   // Fiscal (Fase G)
@@ -482,8 +508,6 @@ export const api = {
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),
-  simularDelivery: (body: Record<string, unknown>) =>
-    req('/delivery/simular', { method: 'POST', body: JSON.stringify(body) }),
   // TEF (Fase I)
   tefConfig: () => req('/tef/config'),
   setTefConfig: (body: Record<string, unknown>) =>

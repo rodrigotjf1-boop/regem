@@ -5,10 +5,14 @@ import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Shell } from '@/components/app-shell/shell';
 import { vazio, type Variacao, type Combo } from '@/components/produtos/types';
 import { useProdutosData } from '@/components/produtos/use-produtos-data';
 import { CategoriasCard } from '@/components/produtos/categorias-card';
+import { OpcoesCard } from '@/components/produtos/opcoes-card';
+import { ComplementosCatalogoCard } from '@/components/produtos/complementos-catalogo-card';
+import { ProdutoEtapasCard } from '@/components/produtos/produto-etapas-card';
 import { ProdutoForm } from '@/components/produtos/produto-form';
 import { DestinosCard } from '@/components/produtos/destinos-card';
 import { FaixasCard } from '@/components/produtos/faixas-card';
@@ -24,6 +28,9 @@ export default function ProdutosPage() {
 
   const [f, setF] = useState<any>(vazio());
   const [editId, setEditId] = useState<string | null>(null);
+  const [aba, setAba] = useState<'produtos' | 'complementos' | 'opcoes'>('produtos');
+  const [formAberto, setFormAberto] = useState(false); // cadastro/edição em modal
+  const [catSel, setCatSel] = useState<string>(''); // categoria selecionada (filtra a grade)
   const [salvando, setSalvando] = useState(false);
 
   // categoria rápida
@@ -66,6 +73,17 @@ export default function ProdutosPage() {
     setDestinosSel([]);
     setFaixas([]);
   }
+  function abrirNovo() {
+    novo();
+    setFormAberto(true);
+  }
+  function fecharForm() {
+    setFormAberto(false);
+    novo();
+  }
+  const produtosFiltrados = catSel
+    ? (produtos ?? []).filter((p: any) => p.categoriaId === catSel)
+    : (produtos ?? []);
 
   function toggleDestino(id: string) {
     setDestinosSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -126,6 +144,7 @@ export default function ProdutosPage() {
     try {
       const p: any = await api.produto(id);
       setEditId(id);
+      setFormAberto(true);
       await carregarComplementos(id, p.fichaId || undefined);
       setF({
         codigo: p.codigo ?? '',
@@ -245,6 +264,7 @@ export default function ProdutosPage() {
       if (editId) await api.atualizarProduto(editId, body);
       else await api.criarProduto(body);
       novo();
+      setFormAberto(false);
       await reload();
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar');
@@ -343,91 +363,132 @@ export default function ProdutosPage() {
 
   return (
     <Shell eyebrow="Gestão · catálogo" title="Produtos">
-      <div className="max-w-3xl space-y-5">
+      <div className="flex h-full min-h-0 max-w-6xl flex-col gap-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
-        <Card className="p-4">
-          <label className="flex items-center justify-between gap-3">
-            <span className="text-sm">
-              <span className="font-semibold">Pausar automaticamente ao esgotar o estoque</span>
-              <span className="block text-xs text-muted-foreground">
-                Produtos que controlam estoque entram em &quot;Esgotado&quot; no cardápio quando o
-                insumo acaba, com aviso geral. Voltam sozinhos ao repor.
-              </span>
+        {/* Abas do catálogo (Produtos & Catálogo) */}
+        <div className="flex gap-1 border-b border-border">
+          {([['produtos', 'Produtos'], ['complementos', 'Complementos'], ['opcoes', 'Opções']] as const).map(([k, label]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setAba(k)}
+              className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${aba === k ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard /></div>}
+        {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
+
+        {aba === 'produtos' && (
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          {/* Barra de ações (auto-pausa enxuto à direita) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={abrirNovo}>＋ Novo produto</Button>
+            <span className="text-xs text-muted-foreground">
+              {produtosFiltrados.length} produto(s){catSel ? ' nesta categoria' : ''}
             </span>
-            <input
-              type="checkbox"
-              className="h-5 w-5 flex-none accent-primary"
-              checked={autoPausa}
-              onChange={async (e) => {
-                const v = e.target.checked;
-                setAutoPausa(v);
-                try {
-                  await api.setAutoPausaCardapio(v);
-                  toast.success('Configuração salva.');
-                } catch {
-                  setAutoPausa(!v);
-                  toast.error('Erro ao salvar.');
-                }
-              }}
-            />
-          </label>
-        </Card>
+            <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground" title="Produto com estoque controlado vira Esgotado ao acabar o insumo; volta ao repor.">
+              <input
+                type="checkbox"
+                className="h-4 w-4 flex-none accent-primary"
+                checked={autoPausa}
+                onChange={async (e) => {
+                  const v = e.target.checked;
+                  setAutoPausa(v);
+                  try {
+                    await api.setAutoPausaCardapio(v);
+                    toast.success('Configuração salva.');
+                  } catch {
+                    setAutoPausa(!v);
+                    toast.error('Erro ao salvar.');
+                  }
+                }}
+              />
+              Pausar ao esgotar o estoque
+            </label>
+          </div>
 
-        <CategoriasCard
-          categorias={categorias}
-          catNome={catNome}
-          setCatNome={setCatNome}
-          catParent={catParent}
-          setCatParent={setCatParent}
-          onAdd={addCategoria}
-          catLabel={catLabel}
-        />
-
-        <ProdutoForm
-          f={f}
-          set={set}
-          editId={editId}
-          salvando={salvando}
-          categorias={categorias}
-          fichas={fichas}
-          setores={setores}
-          produtos={produtos}
-          catLabel={catLabel}
-          onSubmit={salvar}
-          onCancel={novo}
-        />
-
-        {editId && (
-          <DestinosCard
-            equipamentos={equipamentos}
-            destinosSel={destinosSel}
-            toggleDestino={toggleDestino}
-            salvandoDest={salvandoDest}
-            onSalvar={salvarDestinos}
-          />
+          {/* Sidebar de categorias + grade de produtos — cada coluna rola sozinha
+              no desktop; no mobile empilha e a página rola normalmente. */}
+          <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(220px,280px)_1fr]">
+            <div className="scroll-fino rounded-xl border border-border bg-card/40 p-1 lg:min-h-0 lg:overflow-y-auto">
+              <CategoriasCard
+                categorias={categorias}
+                catNome={catNome}
+                setCatNome={setCatNome}
+                catParent={catParent}
+                setCatParent={setCatParent}
+                onAdd={addCategoria}
+                catLabel={catLabel}
+                reload={reload}
+                selected={catSel}
+                onSelect={setCatSel}
+              />
+            </div>
+            <div className="scroll-fino min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+              <ProdutosLista produtos={produtosFiltrados} onEditar={editar} onRemover={remover} onReativar={reativar} />
+            </div>
+          </div>
+        </div>
         )}
 
-        {editId && (
-          <FaixasCard faixas={faixas} setFaixas={setFaixas} onSalvar={salvarFaixas} />
+        {/* Modal de cadastro/edição do produto (form + etapas/complementos/faixas/destinos) */}
+        {formAberto && (
+          <div className="scroll-fino fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6" onClick={fecharForm}>
+            <div className="mx-auto w-full max-w-5xl space-y-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 shadow-lg">
+                <h2 className="font-display text-base font-bold">{editId ? 'Editar produto' : 'Novo produto'}</h2>
+                <button type="button" onClick={fecharForm} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+              </div>
+              {/* Duas colunas no desktop ao editar: dados à esquerda, etapas/complementos
+                  à direita (usa a largura da tela). Ao criar, só os dados (largura cheia). */}
+              <div className={editId ? 'grid gap-4 lg:grid-cols-2 lg:items-start' : ''}>
+                <ProdutoForm
+                  f={f}
+                  set={set}
+                  editId={editId}
+                  salvando={salvando}
+                  categorias={categorias}
+                  fichas={fichas}
+                  setores={setores}
+                  produtos={produtos}
+                  catLabel={catLabel}
+                  onSubmit={salvar}
+                  onCancel={fecharForm}
+                />
+                {editId && (
+                  <div className="space-y-4">
+                    <ProdutoEtapasCard produtoId={editId} />
+                    <ComplementosCard
+                      comps={comps}
+                      fichaIngs={fichaIngs}
+                      insumos={insumos}
+                      produtos={produtos ?? []}
+                      novoGrupo={novoGrupo}
+                      setNovoGrupo={setNovoGrupo}
+                      onAddOpcao={addOpcao}
+                      onDelGrupo={delGrupo}
+                      onDelOpcao={delOpcao}
+                      onAddGrupo={addGrupo}
+                    />
+                    <FaixasCard faixas={faixas} setFaixas={setFaixas} onSalvar={salvarFaixas} />
+                    <DestinosCard
+                      equipamentos={equipamentos}
+                      destinosSel={destinosSel}
+                      toggleDestino={toggleDestino}
+                      salvandoDest={salvandoDest}
+                      onSalvar={salvarDestinos}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         )}
-
-        {editId && (
-          <ComplementosCard
-            comps={comps}
-            fichaIngs={fichaIngs}
-            insumos={insumos}
-            produtos={produtos ?? []}
-            novoGrupo={novoGrupo}
-            setNovoGrupo={setNovoGrupo}
-            onAddOpcao={addOpcao}
-            onDelGrupo={delGrupo}
-            onDelOpcao={delOpcao}
-            onAddGrupo={addGrupo}
-          />
-        )}
-
-        <ProdutosLista produtos={produtos} onEditar={editar} onRemover={remover} onReativar={reativar} />
       </div>
     </Shell>
   );

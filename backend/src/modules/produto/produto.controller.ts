@@ -36,6 +36,85 @@ export class ProdutoController {
     return this.service.criarCategoria(user.tenantId, dto);
   }
 
+  // Reordenação por arrastar: recebe a lista de ids na ordem desejada.
+  @Post('categorias/reordenar')
+  @Roles(...GESTOR)
+  reordenarCategorias(@CurrentUser() user: AuthUser, @Body() dto: { ids?: string[] }) {
+    return this.service.reordenarCategorias(user.tenantId, dto?.ids ?? []);
+  }
+
+  @Patch('categorias/:id')
+  @Roles(...GESTOR)
+  atualizarCategoria(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.atualizarCategoria(user.tenantId, id, dto);
+  }
+
+  @Delete('categorias/:id')
+  @Roles(...GESTOR)
+  excluirCategoria(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.excluirCategoria(user.tenantId, id);
+  }
+
+  // ----- Opções (catálogo reutilizável, Fase 2) -----
+  @Get('opcoes')
+  listarOpcoes(@CurrentUser() user: AuthUser) {
+    return this.service.listarOpcoes(user.tenantId);
+  }
+
+  @Post('opcoes')
+  @Roles(...GESTOR)
+  criarOpcaoCatalogo(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.criarOpcaoCatalogo(user.tenantId, dto);
+  }
+
+  @Patch('opcoes/:id')
+  @Roles(...GESTOR)
+  atualizarOpcao(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.atualizarOpcao(user.tenantId, id, dto);
+  }
+
+  @Delete('opcoes/:id')
+  @Roles(...GESTOR)
+  excluirOpcao(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.excluirOpcao(user.tenantId, id);
+  }
+
+  // ----- Complementos (etapas reutilizáveis, Fase 3) -----
+  @Get('complementos-catalogo')
+  listarComplementos(@CurrentUser() user: AuthUser) {
+    return this.service.listarComplementos(user.tenantId);
+  }
+
+  @Post('complementos-catalogo')
+  @Roles(...GESTOR)
+  criarComplementoCatalogo(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.criarComplemento(user.tenantId, dto);
+  }
+
+  @Patch('complementos-catalogo/:id')
+  @Roles(...GESTOR)
+  atualizarComplementoCatalogo(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.atualizarComplemento(user.tenantId, id, dto);
+  }
+
+  @Delete('complementos-catalogo/:id')
+  @Roles(...GESTOR)
+  excluirComplementoCatalogo(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.excluirComplemento(user.tenantId, id);
+  }
+
+  // ----- Produto ↔ complementos (etapas) reutilizáveis (Fase 4) -----
+  @Get(':id/complementos-catalogo')
+  getProdutoComplementos(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.getProdutoComplementos(user.tenantId, id);
+  }
+
+  @Put(':id/complementos-catalogo')
+  @Roles(...GESTOR)
+  setProdutoComplementos(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { ids?: string[] }) {
+    return this.service.setProdutoComplementos(user.tenantId, id, dto?.ids ?? []);
+  }
+
   @Get()
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);

@@ -87,7 +87,33 @@
   --drawer-w: 240px;
   display: grid;
   grid-template-columns: var(--sb-w) 1fr;
-  min-height: 100dvh;
+  /* Viewport fixo: o cabeçalho e o menu ficam estáticos e cada região rola sozinha
+     (o menu lateral quando é grande; o conteúdo quando passa da tela). A linha do
+     grid é travada em 1fr(=viewport) com min 0, senão cresceria com o conteúdo e
+     as últimas opções do menu ficariam cortadas sem rolagem. */
+  grid-template-rows: minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
+}
+
+/* Barra de rolagem discreta para as áreas internas (menu, colunas do catálogo). */
+.scroll-fino {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(120, 120, 120, 0.35) transparent;
+}
+.scroll-fino::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.scroll-fino::-webkit-scrollbar-thumb {
+  background: rgba(120, 120, 120, 0.3);
+  border-radius: 999px;
+}
+.scroll-fino::-webkit-scrollbar-thumb:hover {
+  background: rgba(120, 120, 120, 0.5);
+}
+.scroll-fino::-webkit-scrollbar-track {
+  background: transparent;
 }
 .shell[data-collapsed='true'] {
   --sb-w: 72px;
@@ -101,6 +127,8 @@
 .shell-aside {
   width: var(--sb-w);
   min-width: 0;
+  min-height: 0; /* permite o <nav> interno (flex-1 overflow) rolar em vez de crescer */
+  overflow: hidden;
 }
 @media (prefers-reduced-motion: no-preference) {
   .shell-aside {
@@ -172,10 +200,17 @@
 
 /* Safe-areas (notch) — conteúdo do shell não fica sob recortes/gestos */
 .shell-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* permite o <main> interno rolar dentro do grid */
+  overflow: hidden;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
 .shell-content > main {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto; /* só o conteúdo rola; o cabeçalho acima fica fixo */
   padding-bottom: calc(4rem + env(safe-area-inset-bottom));
 }
 @media (max-width: 859px) {

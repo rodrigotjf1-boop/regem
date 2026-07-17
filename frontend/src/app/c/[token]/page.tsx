@@ -304,9 +304,21 @@ export default function CardapioPublicoPage() {
   const menuTheme = ['fastfood', 'grid'].includes(loja?.menuTheme) ? loja.menuTheme : 'classic';
   const isGrid = menuTheme === 'grid';
 
+  // Busca (overlay fastfood/grid) — estados no topo para o abrirItem poder fechá-la.
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const [busca, setBusca] = useState('');
+
+  // Abre o item (sheet de observações/complementos) e fecha a busca se estiver
+  // aberta — senão o sheet abriria ATRÁS do overlay de busca (z maior).
+  const abrirItem = (p: any) => {
+    setSel(p);
+    setBuscaAberta(false);
+    setBusca('');
+  };
+
   // Card de um produto na lista (reusado no classic filtrado e nas seções fastfood).
   const cardProduto = (p: any) => (
-    <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="lp-card flex w-full items-stretch gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left transition active:scale-[.99] disabled:opacity-50">
+    <button key={p.id} type="button" disabled={p.esgotado} onClick={() => abrirItem(p)} className="lp-card flex w-full items-stretch gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left transition active:scale-[.99] disabled:opacity-50">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="font-bold text-neutral-900">{p.nome}</span>
@@ -331,7 +343,7 @@ export default function CardapioPublicoPage() {
 
   // Card vertical para a grade 2 colunas (tema grid): foto grande em cima.
   const gridCard = (p: any) => (
-    <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="lp-card relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left disabled:opacity-60">
+    <button key={p.id} type="button" disabled={p.esgotado} onClick={() => abrirItem(p)} className="lp-card relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left disabled:opacity-60">
       <div className="relative grid aspect-square w-full place-items-center overflow-hidden bg-neutral-100 text-4xl">
         {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="absolute inset-0 h-full w-full object-cover object-center" /> : '🍽'}
         {(p.selos ?? []).slice(0, 1).map((s: string) => <span key={s} className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white">{SELO[s] ?? s}</span>)}
@@ -381,8 +393,6 @@ export default function CardapioPublicoPage() {
   const bairros: any[] = menu?.bairros ?? [];
 
   // Fastfood: grade de destaques + busca (overlay). Reusa os produtos já carregados.
-  const [buscaAberta, setBuscaAberta] = useState(false);
-  const [busca, setBusca] = useState('');
   const destaques = useMemo(
     () =>
       produtos
@@ -792,7 +802,7 @@ export default function CardapioPublicoPage() {
       {/* Hero — grid: base curva; cores de fundo/texto vêm do "Editar tema"
           (padrão: grid = cor da loja; demais = faixa escura; texto branco). */}
       <header
-        className={isGrid ? 'lp-hero lp-hero-grid px-4 pb-8 pt-4' : 'lp-hero px-4 py-3'}
+        className={isGrid ? 'lp-hero lp-hero-grid px-4 pb-5 pt-3' : 'lp-hero px-4 py-2.5'}
         style={
           headerBgCustom
             ? { backgroundColor: headerBgCustom, color: headerText }
@@ -801,14 +811,15 @@ export default function CardapioPublicoPage() {
               : { backgroundColor: '#1a1a1a', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}22)`, color: headerText }
         }
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           {loja.logoRef ? (
-            <img src={loja.logoRef} alt={loja.nome} className="h-11 w-11 flex-none rounded-xl object-cover object-center" />
+            // Logo sempre em círculo preenchido (a foto cobre o círculo inteiro).
+            <img src={loja.logoRef} alt={loja.nome} className="h-10 w-10 flex-none rounded-full object-cover object-center" />
           ) : (
-            <div className="grid h-11 w-11 flex-none place-items-center rounded-xl text-2xl" style={{ background: accent }}>{loja.logoEmoji ?? '🍔'}</div>
+            <div className="grid h-10 w-10 flex-none place-items-center rounded-full text-xl" style={{ background: accent }}>{loja.logoEmoji ?? '🍔'}</div>
           )}
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-bold leading-tight">{loja.nome}</h1>
+            <h1 className="truncate text-[15px] font-bold leading-tight">{loja.nome}</h1>
             <p className="truncate text-[11px] leading-tight">
               <span className={menu.abertaAgora ? 'text-emerald-300' : 'text-red-300'}>● </span>
               <span className="opacity-70">{menu.horarioLabel ?? (menu.abertaAgora ? 'Aberta' : 'Fechada')}</span>
@@ -884,25 +895,25 @@ export default function CardapioPublicoPage() {
           clicar rola até a seção e o scroll-spy destaca a categoria visível.
           Barra de rolagem escondida (arrasta na horizontal). */}
       {menu.categorias.length > 0 && (
-        <div className="lp-cats sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
+        <div className="lp-cats sticky top-0 z-10 bg-neutral-50 px-4 pt-2 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
           {isGrid ? (
-            <div className="no-scrollbar flex gap-4 overflow-x-auto py-3">
+            <div className="no-scrollbar flex gap-3 overflow-x-auto py-2">
               {menu.categorias.map((c: any) => {
                 const on = cat === c.id;
                 return (
-                  <button key={c.id} type="button" onClick={() => irCategoria(c.id)} className="flex w-16 flex-none flex-col items-center gap-1">
-                    <span className="grid h-14 w-14 place-items-center rounded-full text-xl font-bold" style={on ? { background: accent, color: '#fff' } : { background: '#fff', color: accent, boxShadow: '0 4px 12px -6px rgba(0,0,0,.2)' }}>
+                  <button key={c.id} type="button" onClick={() => irCategoria(c.id)} className="flex w-14 flex-none flex-col items-center gap-1">
+                    <span className="grid h-12 w-12 place-items-center rounded-full text-lg font-bold" style={on ? { background: accent, color: '#fff' } : { background: '#fff', color: accent, boxShadow: '0 4px 12px -6px rgba(0,0,0,.2)' }}>
                       {(c.nome || '?').slice(0, 1).toUpperCase()}
                     </span>
-                    <span className="w-full truncate text-center text-[11px] font-semibold text-neutral-600">{c.nome}</span>
+                    <span className="w-full truncate text-center text-[10px] font-semibold text-neutral-600">{c.nome}</span>
                   </button>
                 );
               })}
             </div>
           ) : (
-            <div className="no-scrollbar flex gap-2 overflow-x-auto py-3">
+            <div className="no-scrollbar flex gap-1.5 overflow-x-auto py-2">
               {menu.categorias.map((c: any) => (
-                <button key={c.id} type="button" onClick={() => irCategoria(c.id)} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
+                <button key={c.id} type="button" onClick={() => irCategoria(c.id)} className="whitespace-nowrap rounded-full border px-2.5 py-1 text-[13px] font-semibold" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
               ))}
             </div>
           )}
@@ -938,7 +949,12 @@ export default function CardapioPublicoPage() {
           if (!itens.length) return null;
           return (
             <section key={c.id || 'sem'} data-cat-sec={c.id} className="scroll-mt-24 pt-3">
-              {c.nome && <p className="mb-2 text-base font-extrabold text-neutral-900">{c.nome}</p>}
+              {c.nome && (
+                <div className="mb-2">
+                  <p className="text-base font-extrabold text-neutral-900">{c.nome}</p>
+                  {c.descricao && <p className="text-xs text-neutral-500">{c.descricao}</p>}
+                </div>
+              )}
               {isGrid ? (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{itens.map(gridCard)}</div>
               ) : (

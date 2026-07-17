@@ -1,0 +1,198 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { ImageUpload } from '@/components/ui/image-upload';
+import { selectCls } from '@/components/produtos/types';
+import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+
+/* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
+
+const TIPO_LABEL: Record<string, string> = {
+  simples: 'Produto simples',
+  ficha: 'Preparado (ficha técnica)',
+  insumo: 'Insumo comprado pronto',
+};
+const brl = (v: any) => Number(v ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+// Opções reutilizáveis do catálogo (Fase 2): produto simples / preparado c/ ficha /
+// insumo. Reaproveitadas pelos complementos (ligação vem na Fase 3).
+export function OpcoesCard() {
+  const [opcoes, setOpcoes] = useState<any[]>([]);
+  const [fichas, setFichas] = useState<any[]>([]);
+  const [itens, setItens] = useState<any[]>([]);
+  const [editar, setEditar] = useState<any>(null); // objeto opção ou {} para novo
+  const [busca, setBusca] = useState('');
+
+  const carregar = useCallback(async () => {
+    const [o, f, i] = await Promise.all([
+      api.opcoesCatalogo().catch(() => []),
+      api.fichasLista().catch(() => []),
+      api.estoqueItens().catch(() => []),
+    ]);
+    setOpcoes(o as any[]);
+    setFichas(f as any[]);
+    setItens(i as any[]);
+  }, []);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const filtradas = opcoes.filter((o) => o.nome.toLowerCase().includes(busca.trim().toLowerCase()));
+
+  async function toggleEsgotado(o: any) {
+    try {
+      await api.atualizarOpcaoCatalogo(o.id, { ...o, esgotado: !o.esgotado });
+      await carregar();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+  }
+  async function excluir(o: any) {
+    if (!confirm(`Excluir a opção "${o.nome}"?`)) return;
+    try { await api.excluirOpcaoCatalogo(o.id); toast.success('Opção excluída.'); await carregar(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+  }
+
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <h2 className="font-display text-sm font-bold">Opções</h2>
+        <span className="font-mono text-xs text-muted-foreground">{opcoes.length}</span>
+        <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar opção…" className="h-8 w-40" />
+        <Button type="button" size="sm" className="ml-auto" onClick={() => setEditar({})}>＋ Nova opção</Button>
+      </div>
+      <p className="mb-3 text-[11px] text-muted-foreground">Item reutilizável (bebida, adicional, acompanhamento…). Depois é usado nos complementos/etapas dos produtos.</p>
+
+      {filtradas.length === 0 ? (
+        <p className="py-6 text-center text-sm text-muted-foreground">{opcoes.length === 0 ? 'Nenhuma opção ainda.' : 'Nada encontrado.'}</p>
+      ) : (
+        <ul className="grid gap-1.5 sm:grid-cols-2">
+          {filtradas.map((o) => (
+            <li key={o.id} className={`flex items-center gap-2.5 rounded-lg border border-border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''}`}>
+              {o.imagemRef ? (
+                <img src={o.imagemRef} alt={o.nome} className="h-9 w-9 flex-none rounded-md object-cover" />
+              ) : (
+                <span className="grid h-9 w-9 flex-none place-items-center rounded-md bg-secondary text-sm text-muted-foreground">🍽</span>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{o.nome} {o.esgotado && <span className="rounded bg-destructive/10 px-1 text-[10px] font-bold text-destructive">esgotado</span>}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}` : ''} · custo {brl(o.precoCusto)}</p>
+              </div>
+              <button type="button" onClick={() => toggleEsgotado(o)} className="rounded px-1.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-secondary" title="Alternar esgotado">{o.esgotado ? '↺' : '⏸'}</button>
+              <button type="button" onClick={() => setEditar(o)} className="rounded px-1.5 py-1 text-[11px] font-semibold text-primary hover:bg-secondary">Editar</button>
+              <button type="button" onClick={() => excluir(o)} className="rounded px-1.5 py-1 text-[11px] text-destructive hover:bg-destructive/10">✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {editar && (
+        <OpcaoModal opcao={editar} fichas={fichas} itens={itens} onFechar={() => setEditar(null)} onSalvo={async () => { setEditar(null); await carregar(); }} />
+      )}
+    </Card>
+  );
+}
+
+function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; fichas: any[]; itens: any[]; onFechar: () => void; onSalvo: () => void }) {
+  const novo = !opcao?.id;
+  const [f, setF] = useState<any>({
+    nome: opcao.nome ?? '',
+    codigoPdv: opcao.codigoPdv ?? '',
+    precoCusto: opcao.precoCusto ?? '',
+    descricao: opcao.descricao ?? '',
+    imagemRef: opcao.imagemRef ?? '',
+    tipo: opcao.tipo ?? 'simples',
+    fichaId: opcao.fichaId ?? '',
+    itemId: opcao.itemId ?? '',
+    controlaEstoque: opcao.controlaEstoque ?? false,
+    ativo: opcao.ativo ?? true,
+    esgotado: opcao.esgotado ?? false,
+  });
+  const up = (patch: any) => setF((s: any) => ({ ...s, ...patch }));
+  const [busy, setBusy] = useState(false);
+
+  async function salvar() {
+    if (!f.nome.trim()) { toast.error('Informe o nome.'); return; }
+    setBusy(true);
+    try {
+      if (novo) await api.criarOpcaoCatalogo(f);
+      else await api.atualizarOpcaoCatalogo(opcao.id, f);
+      toast.success('Opção salva.');
+      onSalvo();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao salvar'); }
+    finally { setBusy(false); }
+  }
+
+  const Toggle = ({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) => (
+    <label className="flex items-center justify-between rounded-lg border border-border p-2.5 text-sm">
+      <span>{label}</span>
+      <button type="button" onClick={() => set(!on)} className={`relative h-6 w-11 flex-none rounded-full transition-colors ${on ? 'bg-primary' : 'bg-muted'}`}>
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+      </button>
+    </label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4" onClick={onFechar}>
+      <Card className="max-h-[88vh] w-full max-w-md overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center gap-2">
+          <h3 className="font-display text-base font-bold">{novo ? 'Nova opção' : 'Editar opção'}</h3>
+          <button type="button" onClick={onFechar} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+        </div>
+
+        <div className="flex gap-3">
+          <ImageUpload value={f.imagemRef} onChange={(url) => up({ imagemRef: url })} id={`opcao-${opcao.id ?? 'novo'}`} alt="Opção" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={f.nome} onChange={(e) => up({ nome: e.target.value })} placeholder="Ex.: Coca-Cola Lata" /></div>
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-1"><Label className="text-xs">Código PDV</Label><Input value={f.codigoPdv} onChange={(e) => up({ codigoPdv: e.target.value })} placeholder="opcional" /></div>
+              <div className="flex-1 space-y-1"><Label className="text-xs">Preço de custo</Label><Input type="number" value={f.precoCusto} onChange={(e) => up({ precoCusto: e.target.value })} placeholder="0,00" /></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-1">
+          <Label className="text-xs">Descrição</Label>
+          <textarea value={f.descricao} onChange={(e) => up({ descricao: e.target.value })} placeholder="Opcional" className="min-h-[48px] w-full rounded-md border border-input bg-card px-3 py-2 text-sm" />
+        </div>
+
+        <div className="mt-3 space-y-1">
+          <Label className="text-xs">Tipo</Label>
+          <select className={selectCls} aria-label="Tipo da opção" value={f.tipo} onChange={(e) => up({ tipo: e.target.value })}>
+            <option value="simples">Produto simples</option>
+            <option value="ficha">Preparado na loja (ficha técnica)</option>
+            <option value="insumo">Insumo comprado pronto</option>
+          </select>
+        </div>
+
+        {f.tipo === 'ficha' && (
+          <div className="mt-2 space-y-1">
+            <Label className="text-xs">Ficha técnica</Label>
+            <select className={selectCls} aria-label="Ficha técnica" value={f.fichaId} onChange={(e) => up({ fichaId: e.target.value })}>
+              <option value="">Escolha a ficha…</option>
+              {fichas.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
+            </select>
+          </div>
+        )}
+        {f.tipo === 'insumo' && (
+          <div className="mt-2 space-y-1">
+            <Label className="text-xs">Insumo (estoque)</Label>
+            <select className={selectCls} aria-label="Insumo" value={f.itemId} onChange={(e) => up({ itemId: e.target.value })}>
+              <option value="">Escolha o insumo…</option>
+              {itens.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div className="mt-3 space-y-2">
+          <Toggle label="Controlar estoque desta opção" on={f.controlaEstoque} set={(v) => up({ controlaEstoque: v })} />
+          <Toggle label="Visível no catálogo" on={f.ativo} set={(v) => up({ ativo: v })} />
+          <Toggle label="Esgotado (pausar)" on={f.esgotado} set={(v) => up({ esgotado: v })} />
+        </div>
+
+        <Button type="button" className="mt-5 w-full" disabled={busy} onClick={salvar}>{busy ? 'Salvando…' : 'Salvar opção'}</Button>
+      </Card>
+    </div>
+  );
+}
