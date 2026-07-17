@@ -3,6 +3,16 @@
    (pixel-perfect). A cor da loja chega por --brand-primary (inline no root).
    O modo escuro (classe tema-escuro no body) continua sendo eixo independente. */
 
+/* Barra de rolagem escondida nas faixas horizontais (categorias/destaques):
+   o cliente arrasta para o lado sem a barra aparecer. */
+.no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
 /* Fastfood: fundo cinza-claríssimo, cards brancos flutuando com sombra suave e
    cantos mais arredondados (visual "food app"). */
 .lp-menu[data-menu-theme='fastfood'] {

@@ -506,6 +506,12 @@ export default function DeliveryPage() {
           lista={atendimentos}
           onFechar={() => setAtendAberto(false)}
           onResolver={(id) => acao(api.resolverAtendimento(id), 'Chamado resolvido.')}
+          onDecidir={(id, aceita, senha) =>
+            acao(
+              api.decidirCancelamento(id, { aceita, senha }),
+              aceita ? 'Pedido cancelado.' : 'Cancelamento recusado.',
+            )
+          }
         />
       )}
     </Shell>
@@ -517,9 +523,22 @@ const TIPO_ATEND: Record<string, string> = {
   mudanca: '✏️ Mudança no pedido',
   erro: '⚠️ Erro no recebimento',
   humano: '🙋 Falar com atendente',
+  cancelamento: '🚫 Pedido de cancelamento',
   outro: '💬 Atendimento',
 };
-function AtendimentoPanel({ lista, onFechar, onResolver }: { lista: any[]; onFechar: () => void; onResolver: (id: string) => void }) {
+function AtendimentoPanel({
+  lista,
+  onFechar,
+  onResolver,
+  onDecidir,
+}: {
+  lista: any[];
+  onFechar: () => void;
+  onResolver: (id: string) => void;
+  onDecidir: (id: string, aceita: boolean, senha?: string) => void;
+}) {
+  const [cancelId, setCancelId] = useState<string | null>(null); // chamado expandido p/ aceitar
+  const [senha, setSenha] = useState('');
   const wpp = (tel?: string) => {
     const d = String(tel ?? '').replace(/\D/g, '');
     const num = d.length === 10 || d.length === 11 ? `55${d}` : d;
@@ -545,12 +564,33 @@ function AtendimentoPanel({ lista, onFechar, onResolver }: { lista: any[]; onFec
                 {c.cliente ?? 'Cliente'}{c.telefone ? ` · ${c.telefone}` : ''}{c.pedidoNumero ? ` · pedido #${c.pedidoNumero}` : ''}
               </p>
               {c.mensagem && <p className="mt-1.5 rounded bg-secondary px-2 py-1.5 text-sm">{c.mensagem}</p>}
-              <div className="mt-2 flex gap-2">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 {c.telefone && (
                   <a href={wpp(c.telefone)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="rounded-md bg-ok/10 px-2.5 py-1 text-xs font-semibold text-ok hover:bg-ok/20">💬 Responder no WhatsApp</a>
                 )}
-                <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onResolver(c.id)}>Resolver</Button>
+                {c.tipo === 'cancelamento' ? (
+                  <>
+                    <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onDecidir(c.id, false)}>Recusar</Button>
+                    <Button type="button" size="sm" className="h-7 bg-destructive text-xs text-white hover:bg-destructive/90" onClick={() => { setCancelId(cancelId === c.id ? null : c.id); setSenha(''); }}>Aceitar cancelamento</Button>
+                  </>
+                ) : (
+                  <Button type="button" size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onResolver(c.id)}>Resolver</Button>
+                )}
               </div>
+              {c.tipo === 'cancelamento' && cancelId === c.id && (
+                <div className="mt-2 flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-2">
+                  <input
+                    type="password"
+                    value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
+                    placeholder="Senha do gestor"
+                    className="h-8 flex-1 rounded border border-border bg-background px-2 text-sm"
+                  />
+                  <Button type="button" size="sm" className="h-8 bg-destructive text-xs text-white hover:bg-destructive/90" disabled={!senha} onClick={() => { onDecidir(c.id, true, senha); setCancelId(null); setSenha(''); }}>
+                    Confirmar cancelamento
+                  </Button>
+                </div>
+              )}
             </div>
           ))}
         </div>

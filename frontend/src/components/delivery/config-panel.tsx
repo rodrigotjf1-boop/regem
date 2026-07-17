@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
@@ -78,6 +79,7 @@ export function ConfigPanel({
   });
   const [qr, setQr] = useState('');
   const [salvando, setSalvando] = useState(false);
+  const [editarTema, setEditarTema] = useState(false);
 
   useEffect(() => {
     api.cardapioConfig().then((c: any) => setLoja(c ?? {})).catch(() => setLoja({}));
@@ -129,11 +131,17 @@ export function ConfigPanel({
     try { setLoja(await api.setCardapioConfig(novo)); } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
   }
 
-  async function salvarBanners(lista: any[]) {
+  async function salvarBanners(lista: any[], intervalo: number) {
     setSalvando(true);
     try {
       const b = await api.setCardapioBanners(lista.filter((x) => x.imagemRef));
       setBanners(b as any[]);
+      // Intervalo do carrossel vive no tema_config da loja.
+      const c = await api.setCardapioConfig({
+        ...(loja ?? {}),
+        temaConfig: { ...(loja?.temaConfig ?? {}), bannerIntervalo: intervalo },
+      });
+      setLoja(c);
       toast.success('Banners salvos.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
@@ -271,10 +279,10 @@ export function ConfigPanel({
                       </Campo>
                       <Campo label="Ramo (tema)">
                         <select aria-label="Ramo" disabled={somenteGestor} value={loja.ramo ?? 'food'} onChange={(e) => up({ ramo: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
-                          <option value="food">🍔 Food service</option>
-                          <option value="varejo">🛍 Varejo</option>
-                          <option value="industria">🏭 Indústria</option>
-                          <option value="servicos">📅 Serviços</option>
+                          <option value="food">🍔 Bares e Restaurantes</option>
+                          <option value="varejo" disabled>🛍 Varejo (em breve)</option>
+                          <option value="industria" disabled>🏭 Indústria (em breve)</option>
+                          <option value="servicos" disabled>📅 Serviços (em breve)</option>
                         </select>
                       </Campo>
                       <Campo label="Tema do cardápio">
@@ -296,6 +304,11 @@ export function ConfigPanel({
                       <Campo label="Tempo de retirada (min)"><Input type="number" value={loja.tempoRetiradaMin ?? ''} onChange={(e) => up({ tempoRetiradaMin: e.target.value })} placeholder="20" /></Campo>
                       <Campo label="Frete grátis acima de (R$)"><Input type="number" value={loja.freteGratisAcima ?? ''} onChange={(e) => up({ freteGratisAcima: e.target.value })} placeholder="opcional" /></Campo>
                       <Campo label="Parcelas máx. (cartão · varejo)"><Input type="number" value={loja.parcelasMax ?? ''} onChange={(e) => up({ parcelasMax: e.target.value })} placeholder="ex.: 12" /></Campo>
+                      <Campo label="Aparência do cardápio">
+                        <Button type="button" variant="outline" disabled={somenteGestor} onClick={() => setEditarTema(true)} className="h-11 w-full justify-center gap-2">
+                          🎨 Editar tema
+                        </Button>
+                      </Campo>
                     </div>
                     <Campo label="Subtítulo"><Input value={loja.subtitulo ?? ''} onChange={(e) => up({ subtitulo: e.target.value })} placeholder="Ex.: Hamburgueria artesanal · 1,2 km" /></Campo>
                     <div className="flex flex-wrap items-center gap-4">
@@ -464,7 +477,7 @@ export function ConfigPanel({
 
                 {/* BANNERS */}
                 {sec === 'banners' && (
-                  <Banners banners={banners} onSalvar={salvarBanners} salvando={salvando} pode={isGestor} />
+                  <Banners banners={banners} intervalo={loja?.temaConfig?.bannerIntervalo ?? 2} onSalvar={salvarBanners} salvando={salvando} pode={isGestor} />
                 )}
 
                 {/* IMPRESSORAS */}
@@ -486,6 +499,15 @@ export function ConfigPanel({
           </div>
         </div>
       </div>
+
+      {editarTema && (
+        <EditarTemaModal
+          ramo={loja?.ramo ?? 'food'}
+          temaConfig={loja?.temaConfig ?? {}}
+          onFechar={() => setEditarTema(false)}
+          onSalvar={(tc) => { salvarLojaPatch({ temaConfig: tc }); setEditarTema(false); }}
+        />
+      )}
     </div>
   );
 }
@@ -493,6 +515,76 @@ export function ConfigPanel({
 function secLabel(k: string) {
   const all = MENU.flatMap((g) => g.itens);
   return all.find((i) => i.k === k)?.label ?? 'Configurações';
+}
+
+// Paleta base do produto (cores usadas hoje no código) + cor por ramo.
+const RAMO_COR: Record<string, string> = { food: '#E2A340', varejo: '#2563EB', industria: '#E05A2B', servicos: '#0E8E7E' };
+const PALETA = ['#E2A340', '#0E7C66', '#0E8E7E', '#2563EB', '#E05A2B', '#DC2626', '#7C3AED', '#0F2230'];
+
+// Modal "Editar tema": cor primária (amostras da paleta + custom) e toggles de
+// Destaques / Banner / Últimos pedidos. Salva em cardapio_config.tema_config.
+function EditarTemaModal({
+  ramo,
+  temaConfig,
+  onFechar,
+  onSalvar,
+}: {
+  ramo: string;
+  temaConfig: any;
+  onFechar: () => void;
+  onSalvar: (tc: any) => void;
+}) {
+  const padraoRamo = RAMO_COR[ramo] ?? '#E2A340';
+  const [cor, setCor] = useState<string>(temaConfig?.corPrimaria || padraoRamo);
+  const [destaques, setDestaques] = useState<boolean>(temaConfig?.mostrarDestaques !== false);
+  const [banner, setBanner] = useState<boolean>(temaConfig?.mostrarBanner !== false);
+  const [ultimos, setUltimos] = useState<boolean>(temaConfig?.mostrarUltimos !== false);
+
+  const Toggle = ({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) => (
+    <label className="flex items-center justify-between rounded-lg border border-border p-3 text-sm">
+      <span>{label}</span>
+      <button type="button" aria-pressed={on ? 'true' : 'false'} aria-label={label} onClick={() => set(!on)}
+        className={`relative h-6 w-11 flex-none rounded-full transition-colors ${on ? 'bg-primary' : 'bg-muted'}`}>
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+      </button>
+    </label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4" onClick={onFechar}>
+      <Card className="max-h-[85vh] w-full max-w-md overflow-y-auto p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center gap-2">
+          <h3 className="font-display text-base font-bold">🎨 Editar tema</h3>
+          <button type="button" onClick={onFechar} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+        </div>
+
+        <p className="mb-1.5 text-sm font-semibold">Cor principal</p>
+        <div className="mb-2 flex flex-wrap gap-2">
+          {PALETA.map((c) => (
+            <button key={c} type="button" aria-label={`Cor ${c}`} onClick={() => setCor(c)}
+              className={`h-8 w-8 rounded-full border-2 ${cor.toLowerCase() === c.toLowerCase() ? 'border-foreground' : 'border-transparent'}`}
+              style={{ background: c }} />
+          ))}
+        </div>
+        <div className="mb-4 flex items-center gap-2">
+          <input type="color" aria-label="Cor personalizada" value={cor} onChange={(e) => setCor(e.target.value)} className="h-9 w-12 rounded border border-border bg-transparent" />
+          <span className="font-mono text-xs text-muted-foreground">{cor}</span>
+          <button type="button" onClick={() => setCor(padraoRamo)} className="ml-auto text-xs text-muted-foreground underline">usar padrão do ramo</button>
+        </div>
+
+        <p className="mb-1.5 text-sm font-semibold">Seções do cardápio</p>
+        <div className="space-y-2">
+          <Toggle label="Itens em destaque" on={destaques} set={setDestaques} />
+          <Toggle label="Banner (carrossel)" on={banner} set={setBanner} />
+          <Toggle label="Últimos pedidos" on={ultimos} set={setUltimos} />
+        </div>
+
+        <Button type="button" className="mt-5 w-full" onClick={() => onSalvar({ ...(temaConfig ?? {}), corPrimaria: cor, mostrarDestaques: destaques, mostrarBanner: banner, mostrarUltimos: ultimos })}>
+          Salvar tema
+        </Button>
+      </Card>
+    </div>
+  );
 }
 
 // (Formas de pagamento migraram para Financeiro → Formas de pagamento; a marcação
@@ -998,10 +1090,12 @@ function montarAcao(tipo: string, valor: string): string {
   return `${tipo}:${valor}`;
 }
 
-function Banners({ banners, onSalvar, salvando, pode }: { banners: any[]; onSalvar: (l: any[]) => void; salvando: boolean; pode: boolean }) {
+function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: any[]; intervalo: number; onSalvar: (l: any[], intervalo: number) => void; salvando: boolean; pode: boolean }) {
   const [lista, setLista] = useState<any[]>(banners);
+  const [seg, setSeg] = useState<number>(intervalo);
   const [prods, setProds] = useState<any[]>([]);
   useEffect(() => { setLista(banners); }, [banners]);
+  useEffect(() => { setSeg(intervalo); }, [intervalo]);
   useEffect(() => {
     api.produtos().then((p: any) => setProds(Array.isArray(p) ? p : [])).catch(() => {});
   }, []);
@@ -1027,7 +1121,12 @@ function Banners({ banners, onSalvar, salvando, pode }: { banners: any[]; onSalv
 
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital. Defina para onde cada banner leva ao tocar.</p>
+      <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital (máximo 3). Defina para onde cada banner leva ao tocar.</p>
+      <label className="flex items-center gap-2 text-sm">
+        <span className="text-muted-foreground">Trocar de banner a cada</span>
+        <Input type="number" min={1} value={seg} onChange={(e) => setSeg(Math.max(1, Number(e.target.value) || 2))} className="h-8 w-20" disabled={!pode} />
+        <span className="text-muted-foreground">segundos {lista.length < 2 && '(vale com 2+ banners)'}</span>
+      </label>
       {lista.map((b, i) => {
         const acao = parseAcao(b.link ?? '');
         const tipo = b._tipo ?? acao.tipo;
@@ -1077,8 +1176,12 @@ function Banners({ banners, onSalvar, salvando, pode }: { banners: any[]; onSalv
       {lista.length === 0 && <p className="text-sm text-muted-foreground">Nenhum banner ainda.</p>}
       {pode && (
         <div className="flex items-center justify-between">
-          <Button type="button" size="sm" variant="outline" onClick={() => setLista((l) => [...l, { imagemRef: '', titulo: '', link: '', ativo: true }])}>＋ Banner</Button>
-          <Button type="button" onClick={() => onSalvar(lista)} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
+          {lista.length < 3 ? (
+            <Button type="button" size="sm" variant="outline" onClick={() => setLista((l) => [...l, { imagemRef: '', titulo: '', link: '', ativo: true }])}>＋ Banner</Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">Máximo de 3 banners.</span>
+          )}
+          <Button type="button" onClick={() => onSalvar(lista, seg)} disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
         </div>
       )}
     </div>

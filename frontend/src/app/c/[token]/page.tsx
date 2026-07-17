@@ -16,6 +16,8 @@ import {
 } from '@/components/loja/tipos';
 import { distanciaKm, taxaPorRaio, geocodificar } from '@/lib/geo';
 import { ClientePanel } from '@/components/loja/cliente-panel';
+import { PedidosPanel } from '@/components/loja/pedidos-panel';
+import { BannerCarousel } from '@/components/loja/banner-carousel';
 import { LojaBottomNav } from '@/components/loja/bottom-nav';
 import { PromosPanel } from '@/components/loja/promos-panel';
 import { ItemSheet } from '@/components/loja/item-sheet';
@@ -61,13 +63,14 @@ export default function CardapioPublicoPage() {
   const [chk, setChk] = useState<any>(CHK_INICIAL);
   const [cupomOk, setCupomOk] = useState<any>(null);
   const [mostrarCliente, setMostrarCliente] = useState(false);
+  const [mostrarPedidos, setMostrarPedidos] = useState(false);
   const [perguntaAdd, setPerguntaAdd] = useState(false);
   const [aba, setAba] = useState<'inicio' | 'pedidos' | 'promos' | 'carrinho'>('inicio');
   const [ultimoPedido, setUltimoPedido] = useState<any>(null);
   const temCliente = typeof window !== 'undefined' && !!getClienteToken(token);
 
   function irAba(a: 'inicio' | 'pedidos' | 'promos' | 'carrinho') {
-    if (a === 'pedidos') setMostrarCliente(true);
+    if (a === 'pedidos') setMostrarPedidos(true);
     else if (a === 'carrinho') setCheckout(true);
     else {
       setAba(a);
@@ -286,7 +289,13 @@ export default function CardapioPublicoPage() {
   }, [chk.telefone, chk.nome, menu, token]);
 
   const loja = menu?.loja;
-  const accent = TEMA[loja?.ramo] ?? '#E2A340';
+  // Personalização do tema (botão "Editar tema"): cor primária custom + toggles.
+  const tc = loja?.temaConfig ?? {};
+  const accent = tc.corPrimaria || TEMA[loja?.ramo] || '#E2A340';
+  const showDestaques = tc.mostrarDestaques !== false;
+  const showBanner = tc.mostrarBanner !== false;
+  const showUltimos = tc.mostrarUltimos !== false;
+  const bannerIntervalo = Math.max(1, Number(tc.bannerIntervalo) || 2);
   // Tema/layout do cardápio (só apresentação). Fallback classic. O modo escuro
   // continua sendo eixo independente (classe tema-escuro no body).
   const menuTheme = ['fastfood', 'grid'].includes(loja?.menuTheme) ? loja.menuTheme : 'classic';
@@ -368,11 +377,6 @@ export default function CardapioPublicoPage() {
   const produtos: any[] = menu?.produtos ?? [];
   const bairros: any[] = menu?.bairros ?? [];
 
-  const visiveis = useMemo(
-    () => produtos.filter((p) => !cat || p.categoriaId === cat),
-    [produtos, cat],
-  );
-
   // Fastfood: grade de destaques + busca (overlay). Reusa os produtos já carregados.
   const [buscaAberta, setBuscaAberta] = useState(false);
   const [busca, setBusca] = useState('');
@@ -388,9 +392,9 @@ export default function CardapioPublicoPage() {
     if (!q) return [];
     return produtos.filter((p) => `${p.nome} ${p.descricao ?? ''}`.toLowerCase().includes(q));
   }, [produtos, busca]);
-  // Scroll-spy (fastfood/grid): ativa a aba da seção visível ao rolar.
+  // Scroll-spy (todos os temas): ativa a categoria da seção visível ao rolar.
   useEffect(() => {
-    if (!['fastfood', 'grid'].includes(menuTheme) || buscaAberta || aba !== 'inicio') return;
+    if (buscaAberta || aba !== 'inicio') return;
     const secoes = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-sec]'));
     if (!secoes.length) return;
     const obs = new IntersectionObserver(
@@ -441,7 +445,8 @@ export default function CardapioPublicoPage() {
   const taxa = useMemo(() => {
     if (isServico || chk.tipo !== 'entrega') return 0;
     if (cupomOk?.valido && cupomOk.freteGratis) return 0; // cupom de frete grátis
-    const gratisAcima = loja?.freteGratisAcima != null && total >= loja.freteGratisAcima;
+    // Frete grátis só se o limite for > 0 (0/vazio = função desligada).
+    const gratisAcima = loja?.freteGratisAcima != null && loja.freteGratisAcima > 0 && total >= loja.freteGratisAcima;
     if (loja?.areaModo === 'raio') {
       if (gratisAcima) return 0;
       const km = distanciaKm(loja.lojaLat, loja.lojaLng, chk.lat, chk.lng);
@@ -500,10 +505,9 @@ export default function CardapioPublicoPage() {
     }
   }
 
-  // Clique na aba de categoria: classic filtra; fastfood/grid rola até a seção.
+  // Clique na categoria (todos os temas): rola até a seção; o scroll-spy destaca.
   function irCategoria(id: string) {
     setCat(id);
-    if (!['fastfood', 'grid'].includes(menu?.loja?.menuTheme)) return;
     setTimeout(() => {
       if (id) document.querySelector(`[data-cat-sec="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       else window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -811,14 +815,14 @@ export default function CardapioPublicoPage() {
             onClick={() => setMostrarCliente(true)}
             className="flex-none rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-semibold text-white"
           >
-            👤 {getClienteToken(token) ? 'Meus dados' : 'Entrar'}
+            👤 {getClienteToken(token) ? 'Perfil' : 'Entrar'}
           </button>
         </div>
-        {(loja.pedidoMinimo != null || loja.freteGratisAcima != null || loja.tempoEntregaMin) && (
+        {(loja.pedidoMinimo != null || (loja.freteGratisAcima ?? 0) > 0 || loja.tempoEntregaMin) && (
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/70">
             {loja.tempoEntregaMin && <span>⏱ {loja.tempoEntregaMin} min</span>}
             {loja.pedidoMinimo != null && <span>Pedido mínimo {brl(loja.pedidoMinimo)}</span>}
-            {loja.freteGratisAcima != null && <span>🛵 Frete grátis acima de {brl(loja.freteGratisAcima)}</span>}
+            {(loja.freteGratisAcima ?? 0) > 0 && <span>🛵 Frete grátis acima de {brl(loja.freteGratisAcima)}</span>}
           </div>
         )}
       </header>
@@ -839,25 +843,11 @@ export default function CardapioPublicoPage() {
 
       {aba === 'inicio' && (
       <>
-      {/* Banners cadastrados OU card do último pedido do cliente */}
-      {(menu.banners?.length ?? 0) > 0 ? (
-        <div className="lp-banners flex gap-2 overflow-x-auto px-4 pt-3">
-          {menu.banners.map((b: any, i: number) =>
-            b.link || b.deepLink ? (
-              <button key={i} type="button" onClick={() => abrirBanner(b)} className="relative flex-none text-left">
-                <img src={b.imagemRef} alt={b.titulo ?? 'Banner'} loading="lazy" className="h-32 w-72 rounded-2xl object-cover object-center" />
-                {b.ctaLabel && (
-                  <span className="absolute bottom-2 left-2 rounded-full px-3 py-1 text-xs font-bold text-white shadow" style={{ background: accent }}>
-                    {b.ctaLabel}
-                  </span>
-                )}
-              </button>
-            ) : (
-              <img key={i} src={b.imagemRef} alt={b.titulo ?? 'Banner'} loading="lazy" className="h-32 w-72 flex-none rounded-2xl object-cover object-center" />
-            ),
-          )}
-        </div>
-      ) : ultimoPedido ? (
+      {/* Banner (carrossel automático) OU card do último pedido do cliente.
+          Ambos podem ser desligados no "Editar tema". */}
+      {showBanner && (menu.banners?.length ?? 0) > 0 ? (
+        <BannerCarousel banners={menu.banners} accent={accent} intervalo={bannerIntervalo} onAbrir={abrirBanner} />
+      ) : showUltimos && ultimoPedido ? (
         <button type="button" onClick={reordenarUltimo} className="mx-4 mt-3 flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left">
           <div className="flex flex-none -space-x-3">
             {ultimoPedido.itens.slice(0, 3).map((it: any, i: number) =>
@@ -876,15 +866,17 @@ export default function CardapioPublicoPage() {
         </button>
       ) : null}
 
-      {/* Categorias (sticky) — grid: chips circulares; senão: pills. */}
+      {/* Categorias (sticky) — grid: chips circulares; senão: pills. Sem "Todos":
+          clicar rola até a seção e o scroll-spy destaca a categoria visível.
+          Barra de rolagem escondida (arrasta na horizontal). */}
       {menu.categorias.length > 0 && (
         <div className="lp-cats sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
           {isGrid ? (
-            <div className="flex gap-4 overflow-x-auto py-3">
-              {[{ id: '', nome: 'Todos' }, ...menu.categorias].map((c: any) => {
+            <div className="no-scrollbar flex gap-4 overflow-x-auto py-3">
+              {menu.categorias.map((c: any) => {
                 const on = cat === c.id;
                 return (
-                  <button key={c.id || 'todos'} type="button" onClick={() => irCategoria(c.id)} className="flex w-16 flex-none flex-col items-center gap-1">
+                  <button key={c.id} type="button" onClick={() => irCategoria(c.id)} className="flex w-16 flex-none flex-col items-center gap-1">
                     <span className="grid h-14 w-14 place-items-center rounded-full text-xl font-bold" style={on ? { background: accent, color: '#fff' } : { background: '#fff', color: accent, boxShadow: '0 4px 12px -6px rgba(0,0,0,.2)' }}>
                       {(c.nome || '?').slice(0, 1).toUpperCase()}
                     </span>
@@ -894,8 +886,7 @@ export default function CardapioPublicoPage() {
               })}
             </div>
           ) : (
-            <div className="flex gap-2 overflow-x-auto py-3">
-              <button type="button" onClick={() => irCategoria('')} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === '' ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>Todos</button>
+            <div className="no-scrollbar flex gap-2 overflow-x-auto py-3">
               {menu.categorias.map((c: any) => (
                 <button key={c.id} type="button" onClick={() => irCategoria(c.id)} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
               ))}
@@ -905,11 +896,11 @@ export default function CardapioPublicoPage() {
       )}
 
       {/* Cards de item */}
-      {/* Grade de destaques (fastfood) */}
-      {menuTheme === 'fastfood' && destaques.length > 0 && (
+      {/* Grade de destaques (fastfood) — pode ser desligada no "Editar tema". */}
+      {showDestaques && menuTheme === 'fastfood' && destaques.length > 0 && (
         <div className="px-4 pt-4">
           <p className="mb-2 text-base font-extrabold text-neutral-900">Destaques</p>
-          <div className="flex gap-3 overflow-x-auto pb-1">
+          <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1">
             {destaques.map((p: any) => (
               <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="lp-card w-36 flex-none overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left disabled:opacity-50">
                 <div className="grid h-24 w-full place-items-center bg-neutral-100 text-3xl">
@@ -925,31 +916,24 @@ export default function CardapioPublicoPage() {
         </div>
       )}
 
-      {/* Lista — classic: filtrada; fastfood/grid: seções por categoria (scroll-spy).
-          grid usa grade 2 colunas de cards verticais; fastfood usa lista. */}
-      {menuTheme === 'fastfood' || isGrid ? (
-        <div className={`px-4 pt-2 ${temCliente ? 'pb-24' : ''}`}>
-          {[{ id: '', nome: '' }, ...menu.categorias].map((c: any) => {
-            const itens = produtos.filter((p: any) => (c.id ? p.categoriaId === c.id : !p.categoriaId));
-            if (!itens.length) return null;
-            return (
-              <section key={c.id || 'sem'} data-cat-sec={c.id} className="scroll-mt-24 pt-3">
-                {c.nome && <p className="mb-2 text-base font-extrabold text-neutral-900">{c.nome}</p>}
-                {isGrid ? (
-                  <div className="grid grid-cols-2 gap-3">{itens.map(gridCard)}</div>
-                ) : (
-                  <div className="space-y-2.5">{itens.map(cardProduto)}</div>
-                )}
-              </section>
-            );
-          })}
-        </div>
-      ) : (
-        <div className={`space-y-2.5 px-4 pt-3 ${temCliente ? 'pb-24' : ''}`}>
-          {visiveis.length === 0 && <p className="py-10 text-center text-sm text-neutral-400">Nada encontrado.</p>}
-          {visiveis.map(cardProduto)}
-        </div>
-      )}
+      {/* Lista — seções por categoria com scroll-spy nos 3 temas (estilo iFood).
+          grid usa grade 2 colunas; classic/fastfood usam lista de cards. */}
+      <div className={`px-4 pt-2 ${temCliente ? 'pb-24' : ''}`}>
+        {[{ id: '', nome: '' }, ...menu.categorias].map((c: any) => {
+          const itens = produtos.filter((p: any) => (c.id ? p.categoriaId === c.id : !p.categoriaId));
+          if (!itens.length) return null;
+          return (
+            <section key={c.id || 'sem'} data-cat-sec={c.id} className="scroll-mt-24 pt-3">
+              {c.nome && <p className="mb-2 text-base font-extrabold text-neutral-900">{c.nome}</p>}
+              {isGrid ? (
+                <div className="grid grid-cols-2 gap-3">{itens.map(gridCard)}</div>
+              ) : (
+                <div className="space-y-2.5">{itens.map(cardProduto)}</div>
+              )}
+            </section>
+          );
+        })}
+      </div>
       </>
       )}
 
@@ -1052,12 +1036,21 @@ export default function CardapioPublicoPage() {
           bairros={bairros}
           onClose={() => setMostrarCliente(false)}
           onUsarEndereco={usarEndereco}
+        />
+      )}
+
+      {mostrarPedidos && (
+        <PedidosPanel
+          token={token}
+          accent={accent}
+          onClose={() => setMostrarPedidos(false)}
+          onEntrar={() => { setMostrarPedidos(false); setMostrarCliente(true); }}
           onPedirDeNovo={reordenar}
         />
       )}
 
       {/* Menu inferior — aparece após o 1º pedido; some quando há overlay aberto. */}
-      {temCliente && qtdItens === 0 && !sel && !checkout && !perguntaAdd && !mostrarCliente && (
+      {temCliente && qtdItens === 0 && !sel && !checkout && !perguntaAdd && !mostrarCliente && !mostrarPedidos && (
         <LojaBottomNav aba={aba} onAba={irAba} accent={accent} carrinhoQtd={qtdItens} menuTheme={menuTheme} onBuscar={() => setBuscaAberta(true)} total={total} />
       )}
     </main>

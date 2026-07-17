@@ -7,23 +7,18 @@ import { buscarCep, localizacaoAtual } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const hhmm = (iso?: string | null) =>
-  iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : null;
-
-// Painel "Meus dados" do cliente — identidade confirmada por OTP (WhatsApp),
-// endereços salvos, histórico e detalhe do pedido.
+// Painel "Perfil" do cliente — identidade confirmada por OTP (WhatsApp),
+// cashback e endereços salvos. O histórico de pedidos fica na aba "Pedidos".
 export function ClientePanel({
   token,
   bairros = [],
   onClose,
   onUsarEndereco,
-  onPedirDeNovo,
 }: {
   token: string;
   bairros?: any[];
   onClose: () => void;
   onUsarEndereco: (e: any) => void;
-  onPedirDeNovo: (itens: any[]) => void;
 }) {
   const [perfil, setPerfil] = useState<any>(null);
   const [etapa, setEtapa] = useState<'telefone' | 'codigo'>('telefone');
@@ -49,8 +44,6 @@ export function ClientePanel({
       setGeoMsg(e instanceof Error ? e.message : 'Falha ao localizar.');
     }
   }
-  const [pedidoSel, setPedidoSel] = useState<any>(null);
-
   const clienteToken = getClienteToken(token);
   const [cashback, setCashback] = useState<any>(null);
 
@@ -118,16 +111,6 @@ export function ClientePanel({
     await api.clienteRemEndereco(token, id, clienteToken).catch(() => {});
     await carregar();
   }
-  async function pedirDeNovo(pedidoId: string) {
-    if (!clienteToken) return;
-    try {
-      const r: any = await api.clientePedirDeNovo(token, pedidoId, clienteToken);
-      onPedirDeNovo(r.itens ?? []);
-      onClose();
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao repetir pedido');
-    }
-  }
   // Sair: só desconecta este aparelho (não apaga a conta).
   function sair() {
     setClienteToken(token, null);
@@ -181,10 +164,6 @@ export function ClientePanel({
   }
 
   const inp = 'w-full rounded-lg border border-black/10 bg-white px-3 py-2 text-sm';
-  const statusLabel: Record<string, string> = {
-    novo: 'Recebido', confirmado: 'Em preparo', pronto: 'Pronto',
-    despachado: 'Saiu para entrega', concluido: 'Concluído', cancelado: 'Cancelado',
-  };
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 sm:items-center" onClick={onClose}>
@@ -193,7 +172,7 @@ export function ClientePanel({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold">Meus dados</h2>
+          <h2 className="text-lg font-bold">Perfil</h2>
           <button type="button" onClick={onClose} className="text-2xl leading-none text-black/40">×</button>
         </div>
         {erro && <p className="mb-2 text-sm text-red-600">{erro}</p>}
@@ -301,23 +280,6 @@ export function ClientePanel({
               </div>
             </div>
 
-            {/* Histórico */}
-            <div>
-              <p className="mb-1.5 text-sm font-semibold">Meus pedidos</p>
-              {perfil.historico.length === 0 && <p className="text-xs text-black/40">Você ainda não fez pedidos por aqui.</p>}
-              <div className="space-y-1.5">
-                {perfil.historico.map((p: any) => (
-                  <button key={p.id} type="button" onClick={() => setPedidoSel(p)} className="flex w-full items-center gap-2 rounded-lg border border-black/10 px-3 py-2 text-left text-sm hover:border-black/30">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium">{brl(Number(p.total))} <span className="text-xs text-black/40">· {statusLabel[p.status] ?? p.status}</span></p>
-                      <p className="truncate text-xs text-black/50">{hhmm(p.criadoEm)} · {(p.itens ?? []).length} item(ns)</p>
-                    </div>
-                    <span className="text-black/30">›</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             <div className="flex items-center justify-between border-t border-black/10 pt-3">
               <button type="button" onClick={sair} className="text-sm font-semibold text-[#1a1a1a] underline">Sair</button>
               <button type="button" onClick={() => { setExcluir('aviso'); setErroExc(''); setCodExc(''); }} className="flex items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600" title="Excluir conta">
@@ -356,35 +318,6 @@ export function ClientePanel({
                 </div>
               </>
             )}
-          </div>
-        </div>
-      )}
-
-      {/* Detalhe do pedido (toast/modal) */}
-      {pedidoSel && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/40 sm:items-center" onClick={() => setPedidoSel(null)}>
-          <div className="max-h-[80vh] w-full max-w-sm overflow-y-auto rounded-t-2xl bg-white p-5 text-[#1a1a1a] sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex items-center justify-between">
-              <p className="font-bold">Pedido {pedidoSel.numero ? `#${pedidoSel.numero}` : ''}</p>
-              <button type="button" onClick={() => setPedidoSel(null)} className="text-2xl leading-none text-black/40">×</button>
-            </div>
-            <p className="text-sm"><b>{brl(Number(pedidoSel.total))}</b> · {statusLabel[pedidoSel.status] ?? pedidoSel.status}
-              {pedidoSel.formaPagamento ? ` · ${pedidoSel.formaPagamento}` : ''}</p>
-            <div className="mt-2 space-y-0.5 text-xs text-black/60">
-              {hhmm(pedidoSel.criadoEm) && <p>🕐 Iniciado: {hhmm(pedidoSel.criadoEm)}</p>}
-              {hhmm(pedidoSel.despachadoEm) && <p>🛵 Despachado: {hhmm(pedidoSel.despachadoEm)}</p>}
-              {hhmm(pedidoSel.concluidoEm) && <p>✅ Concluído: {hhmm(pedidoSel.concluidoEm)}</p>}
-              {hhmm(pedidoSel.canceladoEm) && <p>✕ Cancelado: {hhmm(pedidoSel.canceladoEm)}</p>}
-            </div>
-            <div className="mt-3 border-t border-black/10 pt-2">
-              {(pedidoSel.itens ?? []).map((it: any, i: number) => (
-                <div key={i} className="flex justify-between text-sm">
-                  <span className="min-w-0 truncate">{it.quantidade}× {it.descricao ?? it.nome}</span>
-                  <span className="flex-none text-black/50">{brl(Number(it.precoUnitario ?? 0) * Number(it.quantidade ?? 1))}</span>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={() => pedirDeNovo(pedidoSel.id)} className="mt-3 w-full rounded-lg bg-[#1a1a1a] py-2 text-sm font-semibold text-white">Pedir de novo</button>
           </div>
         </div>
       )}

@@ -77,4 +77,21 @@ export class ClientePublicoController {
   pedirDeNovo(@Param('token') token: string, @Param('pedidoId') pedidoId: string, @Body() dto: any) {
     return this.service.pedirDeNovo(token, dto?.clienteToken, pedidoId);
   }
+
+  // Cliente solicita cancelamento do pedido (abre chamado no sino da equipe).
+  @Post(':token/cliente/pedido/:pedidoId/solicitar-cancelamento')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  solicitarCancelamento(@Param('token') token: string, @Param('pedidoId') pedidoId: string, @Body() dto: any) {
+    return this.service.solicitarCancelamento(token, dto?.clienteToken, pedidoId);
+  }
+
+  // Cliente solicita alteração (endereço/pedido/pagamento) — só avisa a equipe.
+  @Post(':token/cliente/pedido/:pedidoId/solicitar-alteracao')
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  solicitarAlteracao(@Param('token') token: string, @Param('pedidoId') pedidoId: string, @Body() dto: any) {
+    return this.service.solicitarAlteracao(token, dto?.clienteToken, pedidoId, {
+      alvo: dto?.alvo,
+      detalhe: dto?.detalhe,
+    });
+  }
 }
