@@ -40,7 +40,7 @@ export function LojaBottomNav({
       </button>
     );
     const inner = (
-      <div className={`mx-auto flex max-w-lg items-end ${dock ? 'rounded-3xl border border-black/5 bg-white px-1 shadow-[0_10px_30px_-12px_rgba(0,0,0,.35)]' : ''}`}>
+      <div className={`mx-auto flex max-w-2xl items-end ${dock ? 'rounded-3xl border border-black/5 bg-white px-1 shadow-[0_10px_30px_-12px_rgba(0,0,0,.35)]' : ''}`}>
         {item(aba === 'inicio', '🏠', 'Início', () => onAba('inicio'), 'inicio')}
         {item(false, '🔍', 'Buscar', () => onBuscar?.(), 'buscar')}
         {/* Carrinho central em destaque */}
@@ -70,7 +70,7 @@ export function LojaBottomNav({
   // Classic: 4 abas (inalterado).
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-black/10 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex max-w-lg">
+      <div className="mx-auto flex max-w-2xl">
         {ABAS.map((a) => {
           const on = aba === a.v;
           return (

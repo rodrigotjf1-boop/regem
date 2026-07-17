@@ -754,8 +754,11 @@ export class CardapioService {
         // + intervalo do carrossel de banners (segundos, mínimo 1).
         temaConfig: (() => {
           const t = (cfg.temaConfig as any) ?? {};
+          const cor = (v: any) => (typeof v === 'string' && v ? v : null);
           return {
-            corPrimaria: typeof t.corPrimaria === 'string' && t.corPrimaria ? t.corPrimaria : null,
+            corPrimaria: cor(t.corPrimaria),
+            corCabecalho: cor(t.corCabecalho), // fundo do cabeçalho (null = padrão do tema)
+            corTextoCabecalho: cor(t.corTextoCabecalho), // cor da fonte do cabeçalho
             mostrarDestaques: t.mostrarDestaques !== false,
             mostrarBanner: t.mostrarBanner !== false,
             mostrarUltimos: t.mostrarUltimos !== false,

@@ -536,9 +536,21 @@ function EditarTemaModal({
 }) {
   const padraoRamo = RAMO_COR[ramo] ?? '#E2A340';
   const [cor, setCor] = useState<string>(temaConfig?.corPrimaria || padraoRamo);
+  // Cores do cabeçalho — null = padrão do tema (fundo escuro/cor da loja; texto branco).
+  const [corCab, setCorCab] = useState<string | null>(temaConfig?.corCabecalho ?? null);
+  const [corTxt, setCorTxt] = useState<string | null>(temaConfig?.corTextoCabecalho ?? null);
   const [destaques, setDestaques] = useState<boolean>(temaConfig?.mostrarDestaques !== false);
   const [banner, setBanner] = useState<boolean>(temaConfig?.mostrarBanner !== false);
   const [ultimos, setUltimos] = useState<boolean>(temaConfig?.mostrarUltimos !== false);
+
+  const CorLinha = ({ label, valor, padrao, set }: { label: string; valor: string | null; padrao: string; set: (v: string | null) => void }) => (
+    <div className="flex items-center gap-2">
+      <span className="flex-1 text-sm">{label}</span>
+      <input type="color" aria-label={label} value={valor ?? padrao} onChange={(e) => set(e.target.value)} className="h-9 w-12 rounded border border-border bg-transparent" />
+      <span className="w-16 font-mono text-xs text-muted-foreground">{valor ?? 'padrão'}</span>
+      <button type="button" onClick={() => set(null)} className="text-xs text-muted-foreground underline">padrão</button>
+    </div>
+  );
 
   const Toggle = ({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) => (
     <label className="flex items-center justify-between rounded-lg border border-border p-3 text-sm">
@@ -572,6 +584,12 @@ function EditarTemaModal({
           <button type="button" onClick={() => setCor(padraoRamo)} className="ml-auto text-xs text-muted-foreground underline">usar padrão do ramo</button>
         </div>
 
+        <p className="mb-1.5 text-sm font-semibold">Cabeçalho</p>
+        <div className="mb-4 space-y-2 rounded-lg border border-border p-3">
+          <CorLinha label="Cor de fundo" valor={corCab} padrao={cor} set={setCorCab} />
+          <CorLinha label="Cor do texto" valor={corTxt} padrao="#ffffff" set={setCorTxt} />
+        </div>
+
         <p className="mb-1.5 text-sm font-semibold">Seções do cardápio</p>
         <div className="space-y-2">
           <Toggle label="Itens em destaque" on={destaques} set={setDestaques} />
@@ -579,7 +597,7 @@ function EditarTemaModal({
           <Toggle label="Últimos pedidos" on={ultimos} set={setUltimos} />
         </div>
 
-        <Button type="button" className="mt-5 w-full" onClick={() => onSalvar({ ...(temaConfig ?? {}), corPrimaria: cor, mostrarDestaques: destaques, mostrarBanner: banner, mostrarUltimos: ultimos })}>
+        <Button type="button" className="mt-5 w-full" onClick={() => onSalvar({ ...(temaConfig ?? {}), corPrimaria: cor, corCabecalho: corCab, corTextoCabecalho: corTxt, mostrarDestaques: destaques, mostrarBanner: banner, mostrarUltimos: ultimos })}>
           Salvar tema
         </Button>
       </Card>
