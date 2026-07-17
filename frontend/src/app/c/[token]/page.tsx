@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import './menu-theme.css';
 import {
   brl,
   TEMA,
@@ -286,6 +287,53 @@ export default function CardapioPublicoPage() {
 
   const loja = menu?.loja;
   const accent = TEMA[loja?.ramo] ?? '#E2A340';
+  // Tema/layout do cardápio (só apresentação). Fallback classic. O modo escuro
+  // continua sendo eixo independente (classe tema-escuro no body).
+  const menuTheme = ['fastfood', 'grid'].includes(loja?.menuTheme) ? loja.menuTheme : 'classic';
+  const isGrid = menuTheme === 'grid';
+
+  // Card de um produto na lista (reusado no classic filtrado e nas seções fastfood).
+  const cardProduto = (p: any) => (
+    <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="lp-card flex w-full items-stretch gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left transition active:scale-[.99] disabled:opacity-50">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="font-bold text-neutral-900">{p.nome}</span>
+          {p.esgotado && <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[9px] font-bold text-neutral-500">ESGOTADO</span>}
+          {(p.selos ?? []).map((s: string) => <span key={s} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600">{SELO[s] ?? s}</span>)}
+          {p.destaque && <span className="rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${accent}18`, color: accent }}>SUGERIDO</span>}
+          {p.duracaoMin && <span className="text-[10px] font-semibold text-neutral-500">🕐 {p.duracaoMin} min</span>}
+        </div>
+        {p.descricao && <p className="mt-1 line-clamp-2 text-xs text-neutral-500">{p.descricao}</p>}
+        <div className="mt-2 flex items-baseline gap-2">
+          {p.precoDe != null && <span className="font-mono text-[11px] text-neutral-400 line-through">{brl(p.precoDe)}</span>}
+          <span className="font-mono font-bold" style={{ color: accent }}>{brl(p.precoVenda)}</span>
+          {loja.parcelasMax > 1 && <span className="text-[10px] font-semibold text-emerald-600">em até {loja.parcelasMax}x</span>}
+        </div>
+      </div>
+      <div className="relative grid w-20 flex-none place-items-center overflow-hidden rounded-xl bg-neutral-100 text-3xl">
+        {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="h-full w-full object-cover object-center" /> : '🍽'}
+        {!p.esgotado && <span className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-lg text-base font-bold text-white shadow" style={{ background: accent }}>＋</span>}
+      </div>
+    </button>
+  );
+
+  // Card vertical para a grade 2 colunas (tema grid): foto grande em cima.
+  const gridCard = (p: any) => (
+    <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="lp-card relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left disabled:opacity-60">
+      <div className="relative grid aspect-square w-full place-items-center bg-neutral-100 text-4xl">
+        {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="h-full w-full object-cover object-center" /> : '🍽'}
+        {(p.selos ?? []).slice(0, 1).map((s: string) => <span key={s} className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white">{SELO[s] ?? s}</span>)}
+        {p.esgotado && <span className="absolute inset-0 grid place-items-center bg-white/70 text-xs font-bold text-neutral-600">ESGOTADO</span>}
+      </div>
+      <div className="flex flex-1 flex-col p-2.5">
+        <p className="line-clamp-2 text-center text-sm font-bold text-neutral-900">{p.nome}</p>
+        <div className="mt-auto flex items-center justify-between pt-2">
+          <span className="font-mono text-sm font-bold" style={{ color: accent }}>{brl(p.precoVenda)}</span>
+          {!p.esgotado && <span className="grid h-8 w-8 flex-none place-items-center rounded-full text-base font-bold text-white shadow" style={{ background: accent }}>＋</span>}
+        </div>
+      </div>
+    </button>
+  );
 
   // Tema do cardápio: o lojista escolhe (loja.tema: claro|escuro|auto); o cliente
   // pode alternar (persistido por token). 'auto' segue o sistema do cliente.
@@ -324,6 +372,37 @@ export default function CardapioPublicoPage() {
     () => produtos.filter((p) => !cat || p.categoriaId === cat),
     [produtos, cat],
   );
+
+  // Fastfood: grade de destaques + busca (overlay). Reusa os produtos já carregados.
+  const [buscaAberta, setBuscaAberta] = useState(false);
+  const [busca, setBusca] = useState('');
+  const destaques = useMemo(
+    () =>
+      produtos
+        .filter((p) => !p.esgotado && (p.destaque || (p.selos ?? []).some((s: string) => ['novo', 'mais_pedido'].includes(s))))
+        .slice(0, 12),
+    [produtos],
+  );
+  const resultadosBusca = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    if (!q) return [];
+    return produtos.filter((p) => `${p.nome} ${p.descricao ?? ''}`.toLowerCase().includes(q));
+  }, [produtos, busca]);
+  // Scroll-spy (fastfood/grid): ativa a aba da seção visível ao rolar.
+  useEffect(() => {
+    if (!['fastfood', 'grid'].includes(menuTheme) || buscaAberta || aba !== 'inicio') return;
+    const secoes = Array.from(document.querySelectorAll<HTMLElement>('[data-cat-sec]'));
+    if (!secoes.length) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const vis = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (vis) setCat(vis.target.getAttribute('data-cat-sec') || '');
+      },
+      { rootMargin: '-120px 0px -60% 0px' },
+    );
+    secoes.forEach((s) => obs.observe(s));
+    return () => obs.disconnect();
+  }, [menuTheme, buscaAberta, aba, produtos, menu]);
 
   const total = useMemo(() => cart.reduce((s, i) => s + i.preco * i.qtd, 0), [cart]);
   const qtdItens = cart.reduce((s, i) => s + i.qtd, 0);
@@ -397,6 +476,38 @@ export default function CardapioPublicoPage() {
       if (ex) return c.map((i) => (i.key === key ? { ...i, qtd: i.qtd + 1 } : i));
       return [...c, { key, produtoId: p.id, complementos: [], nome: p.nome, sub: '', preco: p.precoVenda, obs: '', qtd: 1 }];
     });
+  }
+
+  // Deep-link do banner: `item:ID` abre o produto, `category:ID` filtra a
+  // categoria, `coupon:CODE` aplica o cupom, senão trata como URL. Reusa o campo
+  // `link` existente do banner — sem estrutura nova.
+  function abrirBanner(b: any) {
+    const alvo: string = b?.deepLink || b?.link || '';
+    if (!alvo) return;
+    const [tipo, ...resto] = alvo.split(':');
+    const valor = resto.join(':');
+    if (tipo === 'item') {
+      const it = (menu?.produtos ?? []).find((p: any) => p.id === valor);
+      if (it) setSel(it);
+    } else if (tipo === 'category') {
+      setCat(valor);
+      irAba('inicio');
+    } else if (tipo === 'coupon') {
+      aplicarCupom(valor);
+      irAba('carrinho');
+    } else if (/^https?:\/\//.test(alvo)) {
+      window.open(alvo, '_blank', 'noopener,noreferrer');
+    }
+  }
+
+  // Clique na aba de categoria: classic filtra; fastfood/grid rola até a seção.
+  function irCategoria(id: string) {
+    setCat(id);
+    if (!['fastfood', 'grid'].includes(menu?.loja?.menuTheme)) return;
+    setTimeout(() => {
+      if (id) document.querySelector(`[data-cat-sec="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 0);
   }
 
   async function aplicarCupom(codigo?: string) {
@@ -664,9 +775,16 @@ export default function CardapioPublicoPage() {
   }
 
   return (
-    <main className="min-h-dvh bg-neutral-50 pb-28 text-neutral-900">
-      {/* Hero */}
-      <header className="px-4 py-3 text-white" style={{ backgroundColor: '#1a1a1a', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}22)` }}>
+    <main
+      data-menu-theme={menuTheme}
+      className="lp-menu min-h-dvh bg-neutral-50 pb-28 text-neutral-900"
+      style={{ ['--brand-primary' as any]: accent }}
+    >
+      {/* Hero — grid: cabeçalho na cor da loja com base curva; senão faixa escura. */}
+      <header
+        className={isGrid ? 'lp-hero lp-hero-grid px-4 pb-8 pt-4 text-white' : 'lp-hero px-4 py-3 text-white'}
+        style={isGrid ? { backgroundColor: accent } : { backgroundColor: '#1a1a1a', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}22)` }}
+      >
         <div className="flex items-center gap-3">
           {loja.logoRef ? (
             <img src={loja.logoRef} alt={loja.nome} className="h-11 w-11 flex-none rounded-xl object-cover object-center" />
@@ -723,14 +841,19 @@ export default function CardapioPublicoPage() {
       <>
       {/* Banners cadastrados OU card do último pedido do cliente */}
       {(menu.banners?.length ?? 0) > 0 ? (
-        <div className="flex gap-2 overflow-x-auto px-4 pt-3">
+        <div className="lp-banners flex gap-2 overflow-x-auto px-4 pt-3">
           {menu.banners.map((b: any, i: number) =>
-            b.link ? (
-              <a key={i} href={b.link} target="_blank" rel="noopener noreferrer" className="flex-none">
-                <img src={b.imagemRef} alt={b.titulo ?? 'Banner'} className="h-32 w-72 rounded-2xl object-cover object-center" />
-              </a>
+            b.link || b.deepLink ? (
+              <button key={i} type="button" onClick={() => abrirBanner(b)} className="relative flex-none text-left">
+                <img src={b.imagemRef} alt={b.titulo ?? 'Banner'} loading="lazy" className="h-32 w-72 rounded-2xl object-cover object-center" />
+                {b.ctaLabel && (
+                  <span className="absolute bottom-2 left-2 rounded-full px-3 py-1 text-xs font-bold text-white shadow" style={{ background: accent }}>
+                    {b.ctaLabel}
+                  </span>
+                )}
+              </button>
             ) : (
-              <img key={i} src={b.imagemRef} alt={b.titulo ?? 'Banner'} className="h-32 w-72 flex-none rounded-2xl object-cover object-center" />
+              <img key={i} src={b.imagemRef} alt={b.titulo ?? 'Banner'} loading="lazy" className="h-32 w-72 flex-none rounded-2xl object-cover object-center" />
             ),
           )}
         </div>
@@ -753,45 +876,80 @@ export default function CardapioPublicoPage() {
         </button>
       ) : null}
 
-      {/* Categorias (sticky) */}
+      {/* Categorias (sticky) — grid: chips circulares; senão: pills. */}
       {menu.categorias.length > 0 && (
-        <div className="sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
-          <div className="flex gap-2 overflow-x-auto py-3">
-            <button type="button" onClick={() => setCat('')} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === '' ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>Todos</button>
-            {menu.categorias.map((c: any) => (
-              <button key={c.id} type="button" onClick={() => setCat(c.id)} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
+        <div className="lp-cats sticky top-0 z-10 bg-neutral-50 px-4 pt-3 shadow-[0_8px_12px_-10px_rgba(0,0,0,.12)]">
+          {isGrid ? (
+            <div className="flex gap-4 overflow-x-auto py-3">
+              {[{ id: '', nome: 'Todos' }, ...menu.categorias].map((c: any) => {
+                const on = cat === c.id;
+                return (
+                  <button key={c.id || 'todos'} type="button" onClick={() => irCategoria(c.id)} className="flex w-16 flex-none flex-col items-center gap-1">
+                    <span className="grid h-14 w-14 place-items-center rounded-full text-xl font-bold" style={on ? { background: accent, color: '#fff' } : { background: '#fff', color: accent, boxShadow: '0 4px 12px -6px rgba(0,0,0,.2)' }}>
+                      {(c.nome || '?').slice(0, 1).toUpperCase()}
+                    </span>
+                    <span className="w-full truncate text-center text-[11px] font-semibold text-neutral-600">{c.nome}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex gap-2 overflow-x-auto py-3">
+              <button type="button" onClick={() => irCategoria('')} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === '' ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>Todos</button>
+              {menu.categorias.map((c: any) => (
+                <button key={c.id} type="button" onClick={() => irCategoria(c.id)} className="whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-semibold" style={cat === c.id ? { borderColor: accent, color: accent, background: `${accent}15` } : { borderColor: '#e5e5e5', color: '#666', background: '#fff' }}>{c.nome}</button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cards de item */}
+      {/* Grade de destaques (fastfood) */}
+      {menuTheme === 'fastfood' && destaques.length > 0 && (
+        <div className="px-4 pt-4">
+          <p className="mb-2 text-base font-extrabold text-neutral-900">Destaques</p>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {destaques.map((p: any) => (
+              <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="lp-card w-36 flex-none overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left disabled:opacity-50">
+                <div className="grid h-24 w-full place-items-center bg-neutral-100 text-3xl">
+                  {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="h-full w-full object-cover object-center" /> : '🍔'}
+                </div>
+                <div className="p-2">
+                  <p className="truncate text-xs font-bold">{p.nome}</p>
+                  <p className="mt-0.5 font-mono text-xs font-bold" style={{ color: accent }}>{p.precoDe != null ? 'A partir de ' : ''}{brl(p.precoVenda)}</p>
+                </div>
+              </button>
             ))}
           </div>
         </div>
       )}
 
-      {/* Cards de item */}
-      <div className={`space-y-2.5 px-4 pt-3 ${temCliente ? 'pb-24' : ''}`}>
-        {visiveis.length === 0 && <p className="py-10 text-center text-sm text-neutral-400">Nada encontrado.</p>}
-        {visiveis.map((p: any) => (
-          <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="flex w-full items-stretch gap-3 rounded-2xl border border-neutral-200 bg-white p-3 text-left transition active:scale-[.99] disabled:opacity-50">
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="font-bold text-neutral-900">{p.nome}</span>
-                {p.esgotado && <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[9px] font-bold text-neutral-500">ESGOTADO</span>}
-                {(p.selos ?? []).map((s: string) => <span key={s} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[9px] font-bold text-emerald-600">{SELO[s] ?? s}</span>)}
-                {p.destaque && <span className="rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${accent}18`, color: accent }}>SUGERIDO</span>}
-                {p.duracaoMin && <span className="text-[10px] font-semibold text-neutral-500">🕐 {p.duracaoMin} min</span>}
-              </div>
-              {p.descricao && <p className="mt-1 line-clamp-2 text-xs text-neutral-500">{p.descricao}</p>}
-              <div className="mt-2 flex items-baseline gap-2">
-                {p.precoDe != null && <span className="font-mono text-[11px] text-neutral-400 line-through">{brl(p.precoDe)}</span>}
-                <span className="font-mono font-bold" style={{ color: accent }}>{brl(p.precoVenda)}</span>
-                {loja.parcelasMax > 1 && <span className="text-[10px] font-semibold text-emerald-600">em até {loja.parcelasMax}x</span>}
-              </div>
-            </div>
-            <div className="relative grid w-20 flex-none place-items-center overflow-hidden rounded-xl bg-neutral-100 text-3xl">
-              {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} className="h-full w-full object-cover object-center" /> : '🍽'}
-              {!p.esgotado && <span className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-lg text-base font-bold text-white shadow" style={{ background: accent }}>＋</span>}
-            </div>
-          </button>
-        ))}
-      </div>
+      {/* Lista — classic: filtrada; fastfood/grid: seções por categoria (scroll-spy).
+          grid usa grade 2 colunas de cards verticais; fastfood usa lista. */}
+      {menuTheme === 'fastfood' || isGrid ? (
+        <div className={`px-4 pt-2 ${temCliente ? 'pb-24' : ''}`}>
+          {[{ id: '', nome: '' }, ...menu.categorias].map((c: any) => {
+            const itens = produtos.filter((p: any) => (c.id ? p.categoriaId === c.id : !p.categoriaId));
+            if (!itens.length) return null;
+            return (
+              <section key={c.id || 'sem'} data-cat-sec={c.id} className="scroll-mt-24 pt-3">
+                {c.nome && <p className="mb-2 text-base font-extrabold text-neutral-900">{c.nome}</p>}
+                {isGrid ? (
+                  <div className="grid grid-cols-2 gap-3">{itens.map(gridCard)}</div>
+                ) : (
+                  <div className="space-y-2.5">{itens.map(cardProduto)}</div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        <div className={`space-y-2.5 px-4 pt-3 ${temCliente ? 'pb-24' : ''}`}>
+          {visiveis.length === 0 && <p className="py-10 text-center text-sm text-neutral-400">Nada encontrado.</p>}
+          {visiveis.map(cardProduto)}
+        </div>
+      )}
       </>
       )}
 
@@ -806,7 +964,29 @@ export default function CardapioPublicoPage() {
         </div>
       )}
 
-      {sel && <ItemSheet sel={sel} accent={accent} onClose={() => setSel(null)} onAdd={onAdd} />}
+      {/* Busca (fastfood) — filtra os produtos já carregados, sem API nova. */}
+      {buscaAberta && (
+        <div className="fixed inset-0 z-40 flex flex-col bg-neutral-50">
+          <div className="flex items-center gap-2 border-b border-neutral-200 bg-white p-3">
+            <input
+              autoFocus
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Encontre seu produto"
+              aria-label="Buscar produto"
+              className="h-11 flex-1 rounded-xl border border-neutral-200 px-3 text-sm outline-none"
+            />
+            <button type="button" onClick={() => { setBuscaAberta(false); setBusca(''); }} className="px-2 text-sm font-semibold" style={{ color: accent }}>Fechar</button>
+          </div>
+          <div className="flex-1 space-y-2.5 overflow-y-auto p-4">
+            {!busca.trim() && <p className="py-10 text-center text-sm text-neutral-400">Digite o nome do produto.</p>}
+            {busca.trim() && resultadosBusca.length === 0 && <p className="py-10 text-center text-sm text-neutral-400">Nada encontrado.</p>}
+            {resultadosBusca.map(cardProduto)}
+          </div>
+        </div>
+      )}
+
+      {sel && <ItemSheet sel={sel} accent={accent} menuTheme={menuTheme} onClose={() => setSel(null)} onAdd={onAdd} />}
 
       {checkout && (
         <CartSheet
@@ -878,7 +1058,7 @@ export default function CardapioPublicoPage() {
 
       {/* Menu inferior — aparece após o 1º pedido; some quando há overlay aberto. */}
       {temCliente && qtdItens === 0 && !sel && !checkout && !perguntaAdd && !mostrarCliente && (
-        <LojaBottomNav aba={aba} onAba={irAba} accent={accent} carrinhoQtd={qtdItens} />
+        <LojaBottomNav aba={aba} onAba={irAba} accent={accent} carrinhoQtd={qtdItens} menuTheme={menuTheme} onBuscar={() => setBuscaAberta(true)} total={total} />
       )}
     </main>
   );

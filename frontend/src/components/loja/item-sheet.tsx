@@ -10,14 +10,18 @@ import { brl, type CartItem } from '@/components/loja/tipos';
 export function ItemSheet({
   sel,
   accent,
+  menuTheme = 'classic',
   onClose,
   onAdd,
 }: {
   sel: any;
   accent: string;
+  menuTheme?: string;
   onClose: () => void;
   onAdd: (item: CartItem) => void;
 }) {
+  // fastfood e grid usam a mecânica rica de grupos (cabeçalho sticky + pílula x/y).
+  const ff = menuTheme === 'fastfood' || menuTheme === 'grid';
   const [pickVar, setPickVar] = useState<string | undefined>();
   const [pickOpc, setPickOpc] = useState<string[]>([]);
   const [obs, setObs] = useState('');
@@ -115,21 +119,39 @@ export function ItemSheet({
 
           {(sel.grupos ?? []).map((g: any) => {
             const radio = g.max === 1;
+            const selNoGrupo = (g.opcoes ?? []).filter((o: any) => pickOpc.includes(o.id)).length;
+            const meta = g.max || g.min || 1;
+            const obrig = !!(g.obrigatorio || g.min);
+            const ok = obrig ? selNoGrupo >= (g.min || 1) : selNoGrupo > 0;
             return (
               <div key={g.id} className="mt-4">
-                <p className="mb-1 flex items-center gap-2 text-sm font-semibold">
-                  {g.nome}
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                    style={
-                      g.obrigatorio || g.min
-                        ? { background: accent, color: '#fff' }
-                        : { background: '#f1f1f1', color: '#777' }
-                    }
-                  >
-                    {g.obrigatorio || g.min ? 'OBRIGATÓRIO' : 'OPCIONAL'} · {radio ? 'escolha 1' : g.max ? `até ${g.max}` : 'vários'}
-                  </span>
-                </p>
+                {ff ? (
+                  // Fastfood: cabeçalho do grupo que gruda + pílula selecionados/máximo.
+                  <div className="sticky top-0 z-10 -mx-4 flex items-center gap-2 border-b border-neutral-100 bg-white px-4 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold">{g.nome}</p>
+                      <p className="text-[11px] font-semibold" style={{ color: accent }}>
+                        {radio ? 'Escolha 1 item' : obrig ? `Escolha ${g.min || 1}${g.max ? ` a ${g.max}` : '+'}` : g.max ? `Escolha até ${g.max}` : 'Opcional'}
+                      </p>
+                    </div>
+                    <span
+                      className="ml-auto flex flex-none items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold"
+                      style={ok ? { background: '#16a34a', color: '#fff' } : { background: '#f1f1f1', color: '#777' }}
+                    >
+                      {ok && '✓'} {selNoGrupo}/{meta}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="mb-1 flex items-center gap-2 text-sm font-semibold">
+                    {g.nome}
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                      style={obrig ? { background: accent, color: '#fff' } : { background: '#f1f1f1', color: '#777' }}
+                    >
+                      {obrig ? 'OBRIGATÓRIO' : 'OPCIONAL'} · {radio ? 'escolha 1' : g.max ? `até ${g.max}` : 'vários'}
+                    </span>
+                  </p>
+                )}
                 {(g.opcoes ?? []).map((o: any) => {
                   const on = pickOpc.includes(o.id);
                   return (
