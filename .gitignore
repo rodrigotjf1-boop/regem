@@ -23,6 +23,8 @@ backend/edge/bundle/
 
 # Pasta distribuível gerada por edge/package.mjs (artefato de build)
 regem-edge-dist/
+# Pacote .zip de update do edge (artefato — sobe para o Storage, não para o git)
+regem-edge-*.zip
 
 # Saída do Inno Setup (instalador .exe gerado)
 backend/edge/Output/

@@ -1049,6 +1049,10 @@ export const categoriaProduto = pgTable('categoria_produto', {
   parentId: uuid('parent_id'), // null = categoria; preenchido = subcategoria
   ordem: integer('ordem').notNull().default(0),
   ativo: boolean('ativo').notNull().default(true),
+  imagemRef: text('imagem_ref'), // foto da categoria (Fase 1 catálogo)
+  descricao: text('descricao'),
+  // Janelas de disponibilidade [{ dias:[0..6], inicio:'HH:MM', fim:'HH:MM' }]; vazio = sempre.
+  disponibilidade: jsonb('disponibilidade').notNull().default('[]'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1403,6 +1407,70 @@ export const botAtendimento = pgTable('bot_atendimento', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── Opção reutilizável do catálogo (Fase 2, migration 114) ────────────────────
+// tipo: simples (produto simples) | ficha (preparado c/ ficha) | insumo (comprado pronto).
+export const opcao = pgTable('opcao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  codigoPdv: text('codigo_pdv'),
+  descricao: text('descricao'),
+  imagemRef: text('imagem_ref'),
+  tipo: text('tipo').notNull().default('simples'), // simples | ficha | insumo
+  precoCusto: numeric('preco_custo').notNull().default('0'),
+  controlaEstoque: boolean('controla_estoque').notNull().default(false),
+  fichaId: uuid('ficha_id'),
+  itemId: uuid('item_id'),
+  produtoRefId: uuid('produto_ref_id'),
+  ativo: boolean('ativo').notNull().default(true), // invisível = false
+  esgotado: boolean('esgotado').notNull().default(false), // pausa/esgotado
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ── Complemento reutilizável (etapa) do catálogo (Fase 3, migration 115) ──────
+export const complemento = pgTable('complemento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  regra: text('regra').notNull().default('uma'), // uma | varias_sem_repeticao | varias_com_repeticao
+  obrigatorio: boolean('obrigatorio').notNull().default(false),
+  min: integer('min').notNull().default(0),
+  max: integer('max'),
+  canais: jsonb('canais').notNull().default('["delivery","balcao","mesa_publico","mesa_interno"]'),
+  ativo: boolean('ativo').notNull().default(true),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const complementoItem = pgTable('complemento_item', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  complementoId: uuid('complemento_id').notNull(),
+  opcaoId: uuid('opcao_id').notNull(),
+  preco: numeric('preco').notNull().default('0'),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Produto ↔ complemento reutilizável (etapas do produto), materializado no motor. (Fase 4)
+export const produtoComplemento = pgTable('produto_complemento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id').notNull(),
+  complementoId: uuid('complemento_id').notNull(),
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ── Complementos de produto (opcionais/adicionais) — migration 032 ────────────
 export const complementoGrupo = pgTable('complemento_grupo', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -1416,6 +1484,7 @@ export const complementoGrupo = pgTable('complemento_grupo', {
   max: integer('max'),
   obrigatorio: boolean('obrigatorio').notNull().default(false),
   ordem: integer('ordem').notNull().default(0),
+  origemComplementoId: uuid('origem_complemento_id'), // materializado do complemento reutilizável (Fase 4)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1432,6 +1501,7 @@ export const complementoOpcao = pgTable('complemento_opcao', {
   itemId: uuid('item_id'), // 'adicionar': item de estoque a baixar
   quantidade: numeric('quantidade').notNull().default('1'),
   ordem: integer('ordem').notNull().default(0),
+  origemOpcaoId: uuid('origem_opcao_id'), // materializado da opção reutilizável (Fase 4)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

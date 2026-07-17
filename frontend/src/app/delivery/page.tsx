@@ -380,11 +380,6 @@ export default function DeliveryPage() {
               </div>
             )}
             <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => setConfigQuadro(true)}>⚙️</Button>
-            {isGestor && (
-              <Button type="button" variant="ghost" size="sm" className="h-8 text-sm" onClick={() => acao(api.simularDelivery({ produto: 'Combo delivery', preco: 39.9 }), 'Pedido simulado recebido.')}>
-                Simular
-              </Button>
-            )}
           </div>
           </div>
         </Card>

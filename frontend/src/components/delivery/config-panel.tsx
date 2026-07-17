@@ -24,7 +24,6 @@ const COLUNAS_DEF = [
 ];
 
 const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean }[] }[] = [
-  { grupo: 'Quadro', itens: [{ k: 'quadro', label: 'Colunas do quadro' }] },
   {
     grupo: 'Cardápio digital',
     itens: [
@@ -41,6 +40,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     grupo: 'Operação',
     itens: [
       { k: 'banners', label: 'Banners' },
+      { k: 'quadro', label: 'Colunas do quadro' },
       { k: 'impressoras', label: 'Impressoras' },
       { k: 'integracoes', label: 'Integrações' },
       { k: 'robo', label: 'Robô de atendimento' },
@@ -59,7 +59,7 @@ export function ConfigPanel({
   isGestor: boolean;
   onClose: () => void;
 }) {
-  const [sec, setSec] = useState('quadro');
+  const [sec, setSec] = useState('cardapio');
   const [loja, setLoja] = useState<any>(null);
   const [bairros, setBairros] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
@@ -170,6 +170,42 @@ export function ConfigPanel({
     if (!linkDelivery) { setQr(''); return; }
     QRCode.toDataURL(linkDelivery, { width: 220, margin: 1 }).then(setQr).catch(() => setQr(''));
   }, [linkDelivery]);
+
+  // Exporta o QR em alta resolução (512px) como PNG para arquivo.
+  async function baixarQrPng() {
+    if (!linkDelivery) return;
+    try {
+      const url = await QRCode.toDataURL(linkDelivery, { width: 512, margin: 2 });
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `qrcode-cardapio-${loja?.token ?? 'loja'}.png`;
+      a.click();
+    } catch { toast.error('Não foi possível gerar o PNG.'); }
+  }
+
+  // Abre uma janela pronta para imprimir (o usuário escolhe "Salvar como PDF").
+  async function imprimirQrPdf() {
+    if (!linkDelivery) return;
+    const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+    try {
+      const url = await QRCode.toDataURL(linkDelivery, { width: 512, margin: 2 });
+      const nome = esc(loja?.nomePublico || 'Cardápio digital');
+      const w = window.open('', '_blank', 'width=480,height=680');
+      if (!w) { toast.error('Permita pop-ups para imprimir.'); return; }
+      w.document.write(
+        `<!doctype html><html><head><meta charset="utf-8"><title>QR ${nome}</title>` +
+        `<style>body{font-family:system-ui,Arial,sans-serif;text-align:center;color:#111;padding:28px}` +
+        `h1{font-size:22px;margin:0 0 4px}p.sub{color:#555;font-size:14px;margin:0 0 12px}` +
+        `img{width:340px;height:340px}code{display:block;margin-top:12px;font-size:12px;color:#555;word-break:break-all}` +
+        `@media print{@page{margin:14mm}}</style></head><body>` +
+        `<h1>${nome}</h1><p class="sub">Aponte a câmera do celular para ver o cardápio</p>` +
+        `<img src="${url}" alt="QR do cardápio"/><code>${esc(linkDelivery)}</code>` +
+        `<script>window.onload=function(){setTimeout(function(){window.print()},200)}<\/script>` +
+        `</body></html>`,
+      );
+      w.document.close();
+    } catch { toast.error('Não foi possível gerar o PDF.'); }
+  }
 
   async function addCupom() {
     if (!novoCupom.codigo.trim()) return;
@@ -334,7 +370,11 @@ export function ConfigPanel({
                           )}
                           <div className="min-w-0 flex-1 space-y-2">
                             <code className="block break-all rounded-md bg-secondary px-3 py-2 text-xs">{linkDelivery}</code>
-                            <Button type="button" variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(linkDelivery); toast.success('Link copiado.'); }}>Copiar link</Button>
+                            <div className="flex flex-wrap gap-2">
+                              <Button type="button" variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(linkDelivery); toast.success('Link copiado.'); }}>Copiar link</Button>
+                              <Button type="button" variant="outline" size="sm" onClick={baixarQrPng}>⬇ Exportar PNG</Button>
+                              <Button type="button" variant="outline" size="sm" onClick={imprimirQrPdf}>🖨 Imprimir / PDF</Button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -521,6 +561,31 @@ function secLabel(k: string) {
 const RAMO_COR: Record<string, string> = { food: '#E2A340', varejo: '#2563EB', industria: '#E05A2B', servicos: '#0E8E7E' };
 const PALETA = ['#E2A340', '#0E7C66', '#0E8E7E', '#2563EB', '#E05A2B', '#DC2626', '#7C3AED', '#0F2230'];
 
+// Linha de cor (fundo/texto do cabeçalho). Definida no escopo do módulo (NÃO dentro
+// do modal) — se fosse recriada a cada render, o seletor de cor nativo fecharia sozinho.
+function CorLinha({ label, valor, padrao, set }: { label: string; valor: string | null; padrao: string; set: (v: string | null) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex-1 text-sm">{label}</span>
+      <input type="color" aria-label={label} value={valor ?? padrao} onChange={(e) => set(e.target.value)} className="h-9 w-12 rounded border border-border bg-transparent" />
+      <span className="w-16 font-mono text-xs text-muted-foreground">{valor ?? 'padrão'}</span>
+      <button type="button" onClick={() => set(null)} className="text-xs text-muted-foreground underline">padrão</button>
+    </div>
+  );
+}
+
+function ToggleTema({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center justify-between rounded-lg border border-border p-3 text-sm">
+      <span>{label}</span>
+      <button type="button" aria-pressed={on ? 'true' : 'false'} aria-label={label} onClick={() => set(!on)}
+        className={`relative h-6 w-11 flex-none rounded-full transition-colors ${on ? 'bg-primary' : 'bg-muted'}`}>
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
+      </button>
+    </label>
+  );
+}
+
 // Modal "Editar tema": cor primária (amostras da paleta + custom) e toggles de
 // Destaques / Banner / Últimos pedidos. Salva em cardapio_config.tema_config.
 function EditarTemaModal({
@@ -542,25 +607,6 @@ function EditarTemaModal({
   const [destaques, setDestaques] = useState<boolean>(temaConfig?.mostrarDestaques !== false);
   const [banner, setBanner] = useState<boolean>(temaConfig?.mostrarBanner !== false);
   const [ultimos, setUltimos] = useState<boolean>(temaConfig?.mostrarUltimos !== false);
-
-  const CorLinha = ({ label, valor, padrao, set }: { label: string; valor: string | null; padrao: string; set: (v: string | null) => void }) => (
-    <div className="flex items-center gap-2">
-      <span className="flex-1 text-sm">{label}</span>
-      <input type="color" aria-label={label} value={valor ?? padrao} onChange={(e) => set(e.target.value)} className="h-9 w-12 rounded border border-border bg-transparent" />
-      <span className="w-16 font-mono text-xs text-muted-foreground">{valor ?? 'padrão'}</span>
-      <button type="button" onClick={() => set(null)} className="text-xs text-muted-foreground underline">padrão</button>
-    </div>
-  );
-
-  const Toggle = ({ label, on, set }: { label: string; on: boolean; set: (v: boolean) => void }) => (
-    <label className="flex items-center justify-between rounded-lg border border-border p-3 text-sm">
-      <span>{label}</span>
-      <button type="button" aria-pressed={on ? 'true' : 'false'} aria-label={label} onClick={() => set(!on)}
-        className={`relative h-6 w-11 flex-none rounded-full transition-colors ${on ? 'bg-primary' : 'bg-muted'}`}>
-        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? 'left-[22px]' : 'left-0.5'}`} />
-      </button>
-    </label>
-  );
 
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-black/50 p-4" onClick={onFechar}>
@@ -592,9 +638,9 @@ function EditarTemaModal({
 
         <p className="mb-1.5 text-sm font-semibold">Seções do cardápio</p>
         <div className="space-y-2">
-          <Toggle label="Itens em destaque" on={destaques} set={setDestaques} />
-          <Toggle label="Banner (carrossel)" on={banner} set={setBanner} />
-          <Toggle label="Últimos pedidos" on={ultimos} set={setUltimos} />
+          <ToggleTema label="Itens em destaque" on={destaques} set={setDestaques} />
+          <ToggleTema label="Banner (carrossel)" on={banner} set={setBanner} />
+          <ToggleTema label="Últimos pedidos" on={ultimos} set={setUltimos} />
         </div>
 
         <Button type="button" className="mt-5 w-full" onClick={() => onSalvar({ ...(temaConfig ?? {}), corPrimaria: cor, corCabecalho: corCab, corTextoCabecalho: corTxt, mostrarDestaques: destaques, mostrarBanner: banner, mostrarUltimos: ultimos })}>

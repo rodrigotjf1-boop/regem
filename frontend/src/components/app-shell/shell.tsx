@@ -257,7 +257,7 @@ export function Shell({
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-2.5">
+        <nav className="scroll-fino flex-1 overflow-y-auto p-2.5">
           {(() => {
             const perms = getPermissoes();
             const isPres = cat === 'presidente';

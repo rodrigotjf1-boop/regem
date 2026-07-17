@@ -56,7 +56,7 @@ export function LojaBottomNav({
           </span>
         </button>
         {item(aba === 'pedidos', '🧾', 'Pedidos', () => onAba('pedidos'), 'pedidos')}
-        {item(aba === 'promos', '🎁', 'Perfil', () => onAba('promos'), 'promos')}
+        {item(aba === 'promos', '🎁', 'Promo', () => onAba('promos'), 'promos')}
       </div>
     );
     return (

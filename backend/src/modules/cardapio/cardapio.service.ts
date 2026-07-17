@@ -10,6 +10,22 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { geocode, montarEndereco } from '../../common/geocode';
+
+// Categoria visível agora? Sem janelas = sempre. Senão, hoje (0=Dom..6=Sáb) precisa
+// bater em alguma janela e o horário atual estar entre inicio e fim (HH:MM).
+function categoriaDisponivelAgora(disp: any): boolean {
+  if (!Array.isArray(disp) || disp.length === 0) return true;
+  const agora = new Date();
+  const dia = agora.getDay();
+  const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+  return disp.some(
+    (j: any) =>
+      Array.isArray(j?.dias) &&
+      j.dias.includes(dia) &&
+      String(j?.inicio ?? '00:00') <= hhmm &&
+      hhmm <= String(j?.fim ?? '23:59'),
+  );
+}
 import {
   cardapioConfig,
   produto,
@@ -678,11 +694,13 @@ export class CardapioService {
 
   async menu(token: string) {
     const cfg = await this.resolver(token);
-    const cats = await this.db
+    const catsRaw = await this.db
       .select()
       .from(categoriaProduto)
       .where(eq(categoriaProduto.tenantId, cfg.tenantId))
       .orderBy(categoriaProduto.ordem);
+    // Só as categorias disponíveis agora (janelas dias/horários); vazio = sempre.
+    const cats = catsRaw.filter((c: any) => c.ativo !== false && categoriaDisponivelAgora(c.disponibilidade));
     const prods: any = await this.db.execute(sql`
       select id, nome, descricao, preco_venda as "precoVenda",
              preco_promocional as "precoPromocional", categoria_id as "categoriaId",
@@ -830,7 +848,7 @@ export class CardapioService {
         nome: b.nome,
         taxa: Number(b.taxa),
       })),
-      categorias: cats.map((c) => ({ id: c.id, nome: c.nome })),
+      categorias: cats.map((c: any) => ({ id: c.id, nome: c.nome, descricao: c.descricao ?? null, imagemRef: c.imagemRef ?? null })),
       // Banners ativos (aparecem no topo do cardápio no lugar da busca).
       banners: (await this.listarBanners(cfg.tenantId))
         .filter((b: any) => b.ativo !== false && b.imagemRef)
