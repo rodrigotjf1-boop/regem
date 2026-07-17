@@ -82,7 +82,11 @@ export function ItemSheet({
   return (
     <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/50" onClick={onClose}>
       <div className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white text-neutral-900" onClick={(e) => e.stopPropagation()}>
-        {sel.imagemRef && <img src={sel.imagemRef} alt={sel.nome} className="h-44 w-full object-cover" />}
+        {sel.imagemRef && (
+          <div className="aspect-[16/9] w-full overflow-hidden bg-neutral-100">
+            <img src={sel.imagemRef} alt={sel.nome} className="h-full w-full object-cover object-center" />
+          </div>
+        )}
         <div className="p-4">
           <div className="flex items-start justify-between gap-2">
             <h2 className="text-lg font-bold">{sel.nome}</h2>

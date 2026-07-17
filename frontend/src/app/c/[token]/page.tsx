@@ -292,6 +292,9 @@ export default function CardapioPublicoPage() {
   // Personalização do tema (botão "Editar tema"): cor primária custom + toggles.
   const tc = loja?.temaConfig ?? {};
   const accent = tc.corPrimaria || TEMA[loja?.ramo] || '#E2A340';
+  // Cores do cabeçalho (Editar tema): fundo e texto personalizáveis; null = padrão.
+  const headerBgCustom = tc.corCabecalho || null;
+  const headerText = tc.corTextoCabecalho || '#ffffff';
   const showDestaques = tc.mostrarDestaques !== false;
   const showBanner = tc.mostrarBanner !== false;
   const showUltimos = tc.mostrarUltimos !== false;
@@ -319,8 +322,8 @@ export default function CardapioPublicoPage() {
           {loja.parcelasMax > 1 && <span className="text-[10px] font-semibold text-emerald-600">em até {loja.parcelasMax}x</span>}
         </div>
       </div>
-      <div className="relative grid w-20 flex-none place-items-center overflow-hidden rounded-xl bg-neutral-100 text-3xl">
-        {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="h-full w-full object-cover object-center" /> : '🍽'}
+      <div className="relative grid aspect-square w-20 flex-none self-center place-items-center overflow-hidden rounded-xl bg-neutral-100 text-3xl sm:w-24">
+        {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="absolute inset-0 h-full w-full object-cover object-center" /> : '🍽'}
         {!p.esgotado && <span className="absolute -bottom-1 -right-1 grid h-7 w-7 place-items-center rounded-lg text-base font-bold text-white shadow" style={{ background: accent }}>＋</span>}
       </div>
     </button>
@@ -329,8 +332,8 @@ export default function CardapioPublicoPage() {
   // Card vertical para a grade 2 colunas (tema grid): foto grande em cima.
   const gridCard = (p: any) => (
     <button key={p.id} type="button" disabled={p.esgotado} onClick={() => setSel(p)} className="lp-card relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 bg-white text-left disabled:opacity-60">
-      <div className="relative grid aspect-square w-full place-items-center bg-neutral-100 text-4xl">
-        {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="h-full w-full object-cover object-center" /> : '🍽'}
+      <div className="relative grid aspect-square w-full place-items-center overflow-hidden bg-neutral-100 text-4xl">
+        {p.imagemRef ? <img src={p.imagemRef} alt={p.nome} loading="lazy" className="absolute inset-0 h-full w-full object-cover object-center" /> : '🍽'}
         {(p.selos ?? []).slice(0, 1).map((s: string) => <span key={s} className="absolute left-2 top-2 rounded-full bg-emerald-500 px-2 py-0.5 text-[9px] font-bold text-white">{SELO[s] ?? s}</span>)}
         {p.esgotado && <span className="absolute inset-0 grid place-items-center bg-white/70 text-xs font-bold text-neutral-600">ESGOTADO</span>}
       </div>
@@ -779,15 +782,24 @@ export default function CardapioPublicoPage() {
   }
 
   return (
-    <main
+    <div
       data-menu-theme={menuTheme}
-      className="lp-menu min-h-dvh bg-neutral-50 pb-28 text-neutral-900"
+      className="lp-menu min-h-dvh bg-neutral-50 text-neutral-900"
       style={{ ['--brand-primary' as any]: accent }}
     >
-      {/* Hero — grid: cabeçalho na cor da loja com base curva; senão faixa escura. */}
+      {/* Coluna central responsiva: full-width no celular, centrada no desktop. */}
+      <main className="mx-auto w-full max-w-2xl pb-28">
+      {/* Hero — grid: base curva; cores de fundo/texto vêm do "Editar tema"
+          (padrão: grid = cor da loja; demais = faixa escura; texto branco). */}
       <header
-        className={isGrid ? 'lp-hero lp-hero-grid px-4 pb-8 pt-4 text-white' : 'lp-hero px-4 py-3 text-white'}
-        style={isGrid ? { backgroundColor: accent } : { backgroundColor: '#1a1a1a', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}22)` }}
+        className={isGrid ? 'lp-hero lp-hero-grid px-4 pb-8 pt-4' : 'lp-hero px-4 py-3'}
+        style={
+          headerBgCustom
+            ? { backgroundColor: headerBgCustom, color: headerText }
+            : isGrid
+              ? { backgroundColor: accent, color: headerText }
+              : { backgroundColor: '#1a1a1a', backgroundImage: `linear-gradient(150deg, #1a1a1a, ${accent}22)`, color: headerText }
+        }
       >
         <div className="flex items-center gap-3">
           {loja.logoRef ? (
@@ -799,27 +811,29 @@ export default function CardapioPublicoPage() {
             <h1 className="truncate text-base font-bold leading-tight">{loja.nome}</h1>
             <p className="truncate text-[11px] leading-tight">
               <span className={menu.abertaAgora ? 'text-emerald-300' : 'text-red-300'}>● </span>
-              <span className="text-white/70">{menu.horarioLabel ?? (menu.abertaAgora ? 'Aberta' : 'Fechada')}</span>
+              <span className="opacity-70">{menu.horarioLabel ?? (menu.abertaAgora ? 'Aberta' : 'Fechada')}</span>
             </p>
           </div>
           <button
             type="button"
             onClick={alternarTema}
             aria-label={dark ? 'Mudar para tema claro' : 'Mudar para tema escuro'}
-            className="flex-none rounded-full border border-white/25 bg-white/10 px-2.5 py-1.5 text-[13px] text-white"
+            className="flex-none rounded-full border px-2.5 py-1.5 text-[13px]"
+            style={{ borderColor: `${headerText}40`, backgroundColor: `${headerText}1a` }}
           >
             {dark ? '☀️' : '🌙'}
           </button>
           <button
             type="button"
             onClick={() => setMostrarCliente(true)}
-            className="flex-none rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-semibold text-white"
+            className="flex-none rounded-full border px-3 py-1.5 text-[11px] font-semibold"
+            style={{ borderColor: `${headerText}40`, backgroundColor: `${headerText}1a` }}
           >
             👤 {getClienteToken(token) ? 'Perfil' : 'Entrar'}
           </button>
         </div>
         {(loja.pedidoMinimo != null || (loja.freteGratisAcima ?? 0) > 0 || loja.tempoEntregaMin) && (
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-white/70">
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] opacity-70">
             {loja.tempoEntregaMin && <span>⏱ {loja.tempoEntregaMin} min</span>}
             {loja.pedidoMinimo != null && <span>Pedido mínimo {brl(loja.pedidoMinimo)}</span>}
             {(loja.freteGratisAcima ?? 0) > 0 && <span>🛵 Frete grátis acima de {brl(loja.freteGratisAcima)}</span>}
@@ -926,7 +940,7 @@ export default function CardapioPublicoPage() {
             <section key={c.id || 'sem'} data-cat-sec={c.id} className="scroll-mt-24 pt-3">
               {c.nome && <p className="mb-2 text-base font-extrabold text-neutral-900">{c.nome}</p>}
               {isGrid ? (
-                <div className="grid grid-cols-2 gap-3">{itens.map(gridCard)}</div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{itens.map(gridCard)}</div>
               ) : (
                 <div className="space-y-2.5">{itens.map(cardProduto)}</div>
               )}
@@ -936,10 +950,11 @@ export default function CardapioPublicoPage() {
       </div>
       </>
       )}
+      </main>
 
       {/* barra do carrinho */}
       {qtdItens > 0 && (
-        <div className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-lg p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+        <div className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-2xl p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
           <button type="button" onClick={enviar} disabled={enviando} className="flex w-full items-center gap-3 rounded-2xl px-5 py-3.5 font-bold text-white shadow-lg disabled:opacity-60" style={{ background: accent }}>
             <span className="rounded-lg bg-black/20 px-2 py-0.5 font-mono text-xs">{qtdItens}</span>
             <span>{enviando ? 'Enviando…' : menu.modo === 'mesa' && mesa ? 'Enviar pedido' : 'Ver pedido'}</span>
@@ -1053,6 +1068,6 @@ export default function CardapioPublicoPage() {
       {temCliente && qtdItens === 0 && !sel && !checkout && !perguntaAdd && !mostrarCliente && !mostrarPedidos && (
         <LojaBottomNav aba={aba} onAba={irAba} accent={accent} carrinhoQtd={qtdItens} menuTheme={menuTheme} onBuscar={() => setBuscaAberta(true)} total={total} />
       )}
-    </main>
+    </div>
   );
 }
