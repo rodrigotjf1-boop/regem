@@ -40,9 +40,12 @@ export default function EquipamentosPage() {
   const [setorId, setSetorId] = useState('');
   const [escopo, setEscopo] = useState('producao');
   const [papel, setPapel] = useState('producao');
+  const [conexao, setConexao] = useState('rede'); // 'rede' | 'local' (USB/Windows)
   const [host, setHost] = useState('');
   const [porta, setPorta] = useState('9100');
+  const [dispositivo, setDispositivo] = useState('');
   const [largura, setLargura] = useState('80');
+  const [editandoId, setEditandoId] = useState<string | null>(null);
   const [setoresAtendidos, setSetoresAtendidos] = useState<string[]>([]);
   const [padrao, setPadrao] = useState(false);
   const [impressoraPadraoId, setImpressoraPadraoId] = useState('');
@@ -80,11 +83,63 @@ export default function EquipamentosPage() {
     reload();
   }, [reload, router]);
 
+  function limparForm() {
+    setNome('');
+    setSetoresAtendidos([]);
+    setPadrao(false);
+    setConexao('rede');
+    setHost('');
+    setPorta('9100');
+    setDispositivo('');
+    setLargura('80');
+    setEditandoId(null);
+  }
+
+  // Carrega uma impressora já cadastrada no formulário para editar/configurar.
+  function editarImpressora(eq: any) {
+    setEditandoId(eq.id);
+    setTipo('impressora');
+    setNome(eq.nome ?? '');
+    setUnidadeId(eq.unidadeId ?? '');
+    setSetorId(eq.setorId ?? '');
+    setPapel(eq.papel ?? 'producao');
+    setConexao(eq.conexao ?? 'rede');
+    setHost(eq.host ?? '');
+    setPorta(String(eq.porta ?? 9100));
+    setDispositivo(eq.dispositivo ?? '');
+    setLargura(String(eq.largura ?? 80));
+    setSetoresAtendidos(eq.setoresAtendidos ?? []);
+    setPadrao(!!eq.padrao);
+    setTokenNovo(null);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   async function cadastrar(e: React.FormEvent) {
     e.preventDefault();
     setErro('');
     setSalvando(true);
+    const local = conexao === 'local';
     try {
+      if (editandoId) {
+        // Edição de impressora já cadastrada (não gera token novo).
+        await api.salvarImpressora({
+          id: editandoId,
+          nome,
+          papel,
+          setorId: setorId || null,
+          conexao,
+          host: local ? null : host || null,
+          porta: local ? null : porta ? Number(porta) : null,
+          dispositivo: local ? dispositivo || null : null,
+          largura: Number(largura),
+          setoresAtendidos,
+          padrao,
+        });
+        setAviso('Impressora atualizada.');
+        limparForm();
+        await reload();
+        return;
+      }
       const novo: any = await api.criarEquipamento({
         tipo,
         nome,
@@ -92,8 +147,10 @@ export default function EquipamentosPage() {
         setorId: (tipo === 'kds' || tipo === 'impressora') && setorId ? setorId : undefined,
         escopo: tipo === 'kds' ? escopo : undefined,
         papel: tipo === 'impressora' ? papel : undefined,
-        host: tipo === 'impressora' && host ? host : undefined,
-        porta: tipo === 'impressora' && porta ? Number(porta) : undefined,
+        conexao: tipo === 'impressora' ? conexao : undefined,
+        host: tipo === 'impressora' && !local && host ? host : undefined,
+        porta: tipo === 'impressora' && !local && porta ? Number(porta) : undefined,
+        dispositivo: tipo === 'impressora' && local && dispositivo ? dispositivo : undefined,
         largura: tipo === 'impressora' ? Number(largura) : undefined,
         setoresAtendidos:
           tipo === 'impressora' && setoresAtendidos.length ? setoresAtendidos : undefined,
@@ -103,9 +160,7 @@ export default function EquipamentosPage() {
       });
       setTokenNovo({ nome: novo.nome, token: novo.token });
       setCopiado(false);
-      setNome('');
-      setSetoresAtendidos([]);
-      setPadrao(false);
+      limparForm();
       await reload();
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao cadastrar');
@@ -218,7 +273,9 @@ export default function EquipamentosPage() {
 
         {/* Cadastro */}
         <Card className="p-4">
-          <h2 className="mb-3 font-display text-lg font-semibold">Novo equipamento</h2>
+          <h2 className="mb-3 font-display text-lg font-semibold">
+            {editandoId ? 'Editar impressora' : 'Novo equipamento'}
+          </h2>
           <form onSubmit={cadastrar} className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="tipo">Tipo</Label>
@@ -226,7 +283,8 @@ export default function EquipamentosPage() {
                 id="tipo"
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value)}
-                className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm"
+                disabled={!!editandoId}
+                className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm disabled:opacity-60"
               >
                 {TIPOS.map((t) => (
                   <option key={t.value} value={t.value}>
@@ -320,23 +378,51 @@ export default function EquipamentosPage() {
                     <option value="cupom">Cupom (via do cliente — com valores)</option>
                   </select>
                 </div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="host">IP da impressora</Label>
-                    <Input id="host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="porta">Porta</Label>
-                    <Input id="porta" type="number" value={porta} onChange={(e) => setPorta(e.target.value)} placeholder="9100" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="largura">Papel</Label>
-                    <select id="largura" value={largura} onChange={(e) => setLargura(e.target.value)} className={selectCls} title="Largura do papel">
-                      <option value="80">80 mm</option>
-                      <option value="58">58 mm</option>
-                    </select>
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="conexao">Conexão</Label>
+                  <select id="conexao" value={conexao} onChange={(e) => setConexao(e.target.value)} className={selectCls}>
+                    <option value="rede">Rede (impressora com IP)</option>
+                    <option value="local">Local (USB / instalada no Windows)</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    {conexao === 'local'
+                      ? 'A impressão local roda no servidor local (edge) ou no agente de impressão da máquina do caixa.'
+                      : 'Impressora de rede com IP fixo, alcançável na LAN da loja.'}
+                  </p>
                 </div>
+                {conexao === 'local' ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="dispositivo">Nome no Windows</Label>
+                      <Input id="dispositivo" value={dispositivo} onChange={(e) => setDispositivo(e.target.value)} placeholder="Ex.: EPSON TM-T20" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="largura">Papel</Label>
+                      <select id="largura" value={largura} onChange={(e) => setLargura(e.target.value)} className={selectCls} title="Largura do papel">
+                        <option value="80">80 mm</option>
+                        <option value="58">58 mm</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="host">IP da impressora</Label>
+                      <Input id="host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="porta">Porta</Label>
+                      <Input id="porta" type="number" value={porta} onChange={(e) => setPorta(e.target.value)} placeholder="9100" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="largura">Papel</Label>
+                      <select id="largura" value={largura} onChange={(e) => setLargura(e.target.value)} className={selectCls} title="Largura do papel">
+                        <option value="80">80 mm</option>
+                        <option value="58">58 mm</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
                 {/* Produção: setores que a impressora atende (cozinha, bar…) */}
                 {papel === 'producao' && (
                   <div className="space-y-1.5">
@@ -385,9 +471,16 @@ export default function EquipamentosPage() {
                 {erro}
               </p>
             )}
-            <Button type="submit" disabled={salvando}>
-              {salvando ? 'Cadastrando…' : 'Cadastrar equipamento'}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button type="submit" disabled={salvando}>
+                {salvando ? 'Salvando…' : editandoId ? 'Salvar alterações' : 'Cadastrar equipamento'}
+              </Button>
+              {editandoId && (
+                <Button type="button" variant="ghost" onClick={limparForm} disabled={salvando}>
+                  Cancelar
+                </Button>
+              )}
+            </div>
           </form>
         </Card>
 
@@ -427,7 +520,13 @@ export default function EquipamentosPage() {
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {nomeUnidade(eq.unidadeId)}
-                    {eq.tipo === 'impressora' && eq.host ? ` · ${eq.host}:${eq.porta ?? 9100}` : ''}
+                    {eq.tipo === 'impressora' && eq.conexao === 'local'
+                      ? ` · USB: ${eq.dispositivo || '(sem nome)'}`
+                      : eq.tipo === 'impressora' && eq.host
+                        ? ` · ${eq.host}:${eq.porta ?? 9100}`
+                        : eq.tipo === 'impressora'
+                          ? ' · sem destino'
+                          : ''}
                     {eq.tipo === 'impressora' ? ` · ${eq.largura ?? 80}mm` : ''}
                     {eq.tipo === 'impressora' && (eq.setoresAtendidos?.length ?? 0) > 0
                       ? ` · ${eq.setoresAtendidos.length} setor(es)`
@@ -457,6 +556,16 @@ export default function EquipamentosPage() {
                     </div>
                   )}
                 </div>
+                {eq.tipo === 'impressora' && eq.ativo && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => editarImpressora(eq)}
+                  >
+                    Configurar
+                  </Button>
+                )}
                 {eq.tipo === 'impressora' && eq.ativo && (
                   <Button
                     type="button"

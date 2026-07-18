@@ -37,6 +37,11 @@ export class CreateEquipamentoDto {
   @IsUUID()
   setorId?: string;
 
+  // Impressora: conexão 'rede' (IP:porta) ou 'local' (USB/instalada no Windows).
+  @IsOptional()
+  @IsIn(['rede', 'local'])
+  conexao?: string;
+
   @IsOptional()
   @IsString()
   host?: string;
@@ -44,6 +49,11 @@ export class CreateEquipamentoDto {
   @IsOptional()
   @IsInt()
   porta?: number;
+
+  // Impressora local: nome exato da impressora no Windows.
+  @IsOptional()
+  @IsString()
+  dispositivo?: string;
 
   // Impressora: largura do papel (58 | 80 mm) e setores que ela atende.
   @IsOptional()

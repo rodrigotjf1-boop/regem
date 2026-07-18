@@ -38,8 +38,11 @@ export class EquipamentoService {
         escopo: dto.escopo ?? 'producao',
         papel: dto.papel,
         setorId: dto.setorId,
-        host: dto.host,
-        porta: dto.porta,
+        // Impressora: conexão rede (IP:porta) ou local (USB/Windows por nome).
+        conexao: dto.tipo === 'impressora' ? (dto.conexao === 'local' ? 'local' : 'rede') : undefined,
+        host: dto.tipo === 'impressora' && dto.conexao === 'local' ? null : dto.host,
+        porta: dto.tipo === 'impressora' && dto.conexao === 'local' ? null : dto.porta,
+        dispositivo: dto.tipo === 'impressora' && dto.conexao === 'local' ? dto.dispositivo : undefined,
         largura: dto.tipo === 'impressora' ? dto.largura ?? 80 : undefined,
         setoresAtendidos:
           dto.tipo === 'impressora' && Array.isArray(dto.setoresAtendidos)
