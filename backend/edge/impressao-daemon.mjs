@@ -12,7 +12,11 @@
 //   PRINT_PORTA_PADRAO  porta TCP padrao das impressoras (default 9100)
 import pg from 'pg';
 import net from 'net';
-import { readFileSync, existsSync } from 'fs';
+import { spawn } from 'child_process';
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { renderEscpos } from './escpos.mjs';
 
@@ -61,6 +65,43 @@ function enviarTcp(host, porta, buffer) {
   });
 }
 
+// Imprime bytes crus numa impressora instalada no WINDOWS (USB/local) pelo NOME.
+// Usa o spooler em modo RAW (via raw-print.ps1 → winspool WritePrinter), que NÃO
+// rasteriza: os comandos ESC/POS (negrito, fonte dupla, corte) chegam intactos.
+const RAW_PS1 = fileURLToPath(new URL('./raw-print.ps1', import.meta.url));
+function enviarWindows(dispositivo, buffer) {
+  return new Promise((resolve, reject) => {
+    const tmp = join(tmpdir(), `regem-print-${Date.now()}-${randomUUID().slice(0, 8)}.bin`);
+    try {
+      writeFileSync(tmp, buffer);
+    } catch (e) {
+      return reject(e);
+    }
+    const limpar = () => {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        /* já removido */
+      }
+    };
+    const child = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', RAW_PS1, '-PrinterName', dispositivo, '-FilePath', tmp],
+      { windowsHide: true },
+    );
+    let err = '';
+    child.stderr.on('data', (d) => (err += d.toString()));
+    child.on('error', (e) => {
+      limpar();
+      reject(e);
+    });
+    child.on('close', (code) => {
+      limpar();
+      code === 0 ? resolve() : reject(new Error(err.trim().slice(0, 200) || `powershell saiu com código ${code}`));
+    });
+  });
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function marcarImpresso(id) {
@@ -78,22 +119,30 @@ async function marcarErro(id, msg) {
 
 // Imprime um job com retry/backoff. Devolve true se saiu, false se falhou de vez.
 async function imprimirJob(job) {
-  if (!job.host) {
-    await marcarErro(job.id, 'impressora sem IP configurado');
+  const local = job.conexao === 'local';
+  // Valida o alvo conforme o tipo de conexão da impressora.
+  if (local && !job.dispositivo) {
+    await marcarErro(job.id, 'impressora local sem nome do Windows');
+    console.error(`  job ${job.id.slice(0, 8)} — impressora "${job.impressora || '?'}" local sem nome`);
+    return false;
+  }
+  if (!local && !job.host) {
+    await marcarErro(job.id, 'impressora de rede sem IP configurado');
     console.error(`  job ${job.id.slice(0, 8)} — impressora "${job.impressora || '?'}" sem IP`);
     return false;
   }
   const vias = Math.max(1, Number(job.vias) || 1);
   const buffer = renderEscpos(job.conteudo, job.largura || 80);
+  const enviar = local
+    ? () => enviarWindows(job.dispositivo, buffer)
+    : () => enviarTcp(job.host, job.porta, buffer);
+  const alvo = local ? `win:${job.dispositivo}` : `${job.impressora || job.host}:${job.porta || PORTA_PADRAO}`;
   let ultimoErro = null;
   for (let t = 1; t <= TENTATIVAS; t++) {
     try {
-      for (let v = 0; v < vias; v++) await enviarTcp(job.host, job.porta, buffer);
+      for (let v = 0; v < vias; v++) await enviar();
       await marcarImpresso(job.id);
-      console.log(
-        `  ✓ job ${job.id.slice(0, 8)} -> ${job.impressora || job.host}:${job.porta || PORTA_PADRAO}` +
-          (vias > 1 ? ` (${vias} vias)` : ''),
-      );
+      console.log(`  ✓ job ${job.id.slice(0, 8)} -> ${alvo}` + (vias > 1 ? ` (${vias} vias)` : ''));
       return true;
     } catch (e) {
       ultimoErro = e.message;
@@ -109,7 +158,7 @@ async function imprimirJob(job) {
 async function pendentes() {
   const r = await pool.query(`
     select j.id, j.conteudo, j.tentativas,
-           e.host, e.porta, e.largura, e.vias, e.nome as impressora
+           e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.vias, e.nome as impressora
     from impressao_job j
     left join equipamento e on e.id = j.equipamento_id
     where j.status = 'pendente'

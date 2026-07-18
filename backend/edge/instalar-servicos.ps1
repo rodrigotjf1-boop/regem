@@ -91,5 +91,21 @@ try {
   }
 } catch { Write-Warning "Não consegui registrar a tarefa de update: $_" }
 
+# ROLLBACK SOB DEMANDA: tarefa que roda o reverter.ps1 como SYSTEM (restaura o
+# ultimo backup - dist/web - da versao anterior). Disparado pelo botão do app
+# ("Reverter atualização"), que chama `schtasks /run /tn RegemEdgeRollback`.
+try {
+  $reverter = Join-Path $Raiz "edge\reverter.ps1"
+  if (Test-Path $reverter) {
+    $acaoR = New-ScheduledTaskAction -Execute "powershell.exe" `
+      -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $reverter, $Raiz)
+    $contaR = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+    $cfgR = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+    Register-ScheduledTask -TaskName "RegemEdgeRollback" -Action $acaoR `
+      -Principal $contaR -Settings $cfgR -Force | Out-Null
+    Write-Host "-> Rollback registrado SOB DEMANDA (RegemEdgeRollback) - disparado pelo botão do app."
+  }
+} catch { Write-Warning "Não consegui registrar a tarefa de rollback: $_" }
+
 Write-Host "`nPronto. Serviços RegemEdgeApi + RegemEdgeSync + RegemEdgeImpressao + RegemEdgeWeb ativos e no boot."
 Write-Host "App:  https://localhost:$PortaWeb    API: https://localhost:$PortaApi/api/v1/ping"

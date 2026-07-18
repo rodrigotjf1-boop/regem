@@ -674,7 +674,8 @@ export class DeliveryService {
   }
 
   // ===== Integrações (credenciais de apps externos) =====
-  private static readonly CANAIS_INTEGRACAO = ['ifood', 'ubereats', 'rappi', '99food', 'open_delivery', 'n8n'];
+  // Delivery/marketplaces + integração + gateways de PIX (mercadopago/iugu no fim).
+  private static readonly CANAIS_INTEGRACAO = ['ifood', 'rappi', '99food', 'anotaai', 'keeta', 'open_delivery', 'n8n', 'mercadopago', 'iugu'];
 
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).

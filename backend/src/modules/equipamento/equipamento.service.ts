@@ -213,8 +213,10 @@ export class EquipamentoService {
       mac: r.mac,
       escopo: r.escopo,
       papel: r.papel,
+      conexao: r.conexao ?? 'rede',
       host: r.host,
       porta: r.porta,
+      dispositivo: r.dispositivo ?? null,
       setorId: r.setorId,
       largura: r.largura,
       setoresAtendidos: r.setoresAtendidos ?? [],
@@ -239,12 +241,16 @@ export class EquipamentoService {
 
   // Cria ou edita uma impressora. papel: 'cupom' (caixa) | 'producao' (cozinha).
   async salvarImpressora(tenantId: string, dto: any) {
+    const local = dto.conexao === 'local';
     const vals = {
       nome: (dto.nome ?? '').trim() || 'Impressora',
       papel: dto.papel === 'producao' ? 'producao' : 'cupom',
       setorId: dto.setorId || null,
-      host: dto.host?.trim() || null,
-      porta: dto.porta != null ? Number(dto.porta) || null : null,
+      conexao: local ? 'local' : 'rede',
+      // Rede → host:porta; Local → nome da impressora no Windows (limpa o outro par).
+      host: local ? null : dto.host?.trim() || null,
+      porta: local ? null : dto.porta != null ? Number(dto.porta) || null : null,
+      dispositivo: local ? dto.dispositivo?.trim() || null : null,
       largura: Number(dto.largura) === 58 ? 58 : 80,
       setoresAtendidos: Array.isArray(dto.setoresAtendidos) ? dto.setoresAtendidos : [],
       padrao: !!dto.padrao,
