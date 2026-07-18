@@ -1,3 +1,4 @@
+-- @cloud-only  (tabela SÓ da distribuição, vive na NUVEM; o edge não a cria)
 -- Telemetria de erro do edge → nuvem. A distribuição é alertada de erros locais
 -- (via webhook) e vê o histórico para reparar + publicar update. Dedup por hash
 -- (mesmo erro só conta ocorrências, não spamma). Vive na NUVEM.
