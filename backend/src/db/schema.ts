@@ -1224,6 +1224,7 @@ export const comandaItem = pgTable('comanda_item', {
   observacao: text('observacao'), // obs por item (Fase F4): "sem sal", "bem passado"
   criadoPorId: uuid('criado_por_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW sync (mig 121; gatilho mig 095)
 });
 
 export const guia = pgTable('guia', {
@@ -1611,6 +1612,7 @@ export const producaoPedidoItem = pgTable('producao_pedido_item', {
   complementosTexto: text('complementos_texto'),
   observacao: text('observacao'), // obs do item (Fase F4)
   status: text('status').notNull().default('ok'), // ok | alterado | removido
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW sync (mig 121; gatilho mig 095)
 });
 
 // Job de impressão térmica (Fase F3) — puxado pelo worker do edge (servidor_local).
