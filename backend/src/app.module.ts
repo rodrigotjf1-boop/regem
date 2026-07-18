@@ -61,6 +61,7 @@ import { RelatoriosModule } from './modules/relatorios/relatorios.module';
 import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { EdgeFlashSyncModule } from './modules/sync/edge-flash-sync.service';
 import { EdgeModule } from './modules/edge/edge.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
@@ -129,6 +130,7 @@ import { AuthModule } from './auth/auth.module';
     MuralModule,
     BotModule,
     SyncModule,
+    EdgeFlashSyncModule,
     EdgeModule,
     LicencaModule,
   ],

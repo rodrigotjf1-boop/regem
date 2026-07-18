@@ -391,12 +391,14 @@ export default function MesasPage() {
 // Usa o token do cardápio digital (configurado em Delivery → Configurações).
 function QrMesaCard() {
   const [token, setToken] = useState<string | null>(null);
+  const [base, setBase] = useState('');
   const [num, setNum] = useState('');
   const [qr, setQr] = useState('');
   useEffect(() => {
-    api.cardapioConfig().then((c: any) => setToken(c?.token ?? null)).catch(() => {});
+    api.cardapioConfig().then((c: any) => { setToken(c?.token ?? null); setBase(c?.cardapioBaseUrl ?? ''); }).catch(() => {});
   }, []);
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  // QR de mesa também é ONLINE (nuvem): o cliente scaneia com o próprio celular.
+  const origin = base || (typeof window !== 'undefined' ? window.location.origin : '');
   const link = token && num.trim() ? `${origin}/c/${token}?mesa=${num.trim()}` : '';
   useEffect(() => {
     if (!link) { setQr(''); return; }

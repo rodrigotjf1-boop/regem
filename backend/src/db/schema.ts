@@ -1054,6 +1054,8 @@ export const categoriaProduto = pgTable('categoria_produto', {
   // Janelas de disponibilidade [{ dias:[0..6], inicio:'HH:MM', fim:'HH:MM' }]; vazio = sempre.
   disponibilidade: jsonb('disponibilidade').notNull().default('[]'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW no sync bidirecional (P3)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync (P3)
 });
 
 export const produto = pgTable('produto', {
@@ -1428,6 +1430,7 @@ export const opcao = pgTable('opcao', {
   esgotado: boolean('esgotado').notNull().default(false), // pausa/esgotado
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync (P3)
 });
 
 // ── Complemento reutilizável (etapa) do catálogo (Fase 3, migration 115) ──────
@@ -1445,6 +1448,7 @@ export const complemento = pgTable('complemento', {
   ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync (P3)
 });
 
 export const complementoItem = pgTable('complemento_item', {
@@ -1457,6 +1461,8 @@ export const complementoItem = pgTable('complemento_item', {
   preco: numeric('preco').notNull().default('0'),
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW sync (P3)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync (P3)
 });
 
 // Produto ↔ complemento reutilizável (etapas do produto), materializado no motor. (Fase 4)
@@ -1469,6 +1475,8 @@ export const produtoComplemento = pgTable('produto_complemento', {
   complementoId: uuid('complemento_id').notNull(),
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW sync (P3)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync (P3)
 });
 
 // ── Complementos de produto (opcionais/adicionais) — migration 032 ────────────
@@ -1486,6 +1494,8 @@ export const complementoGrupo = pgTable('complemento_grupo', {
   ordem: integer('ordem').notNull().default(0),
   origemComplementoId: uuid('origem_complemento_id'), // materializado do complemento reutilizável (Fase 4)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW/push sync (P3)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync ao edge (P2)
 });
 
 export const complementoOpcao = pgTable('complemento_opcao', {
@@ -1503,6 +1513,8 @@ export const complementoOpcao = pgTable('complemento_opcao', {
   ordem: integer('ordem').notNull().default(0),
   origemOpcaoId: uuid('origem_opcao_id'), // materializado da opção reutilizável (Fase 4)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW/push sync (P3)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync ao edge (P2)
 });
 
 export const comandaItemComplemento = pgTable('comanda_item_complemento', {

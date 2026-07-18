@@ -31,6 +31,17 @@ const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 30000);
 // Operacional que sobe (espelha as tabelas 'sobe' do sync-config da nuvem).
 // v2: transacionais primeiro (pais antes dos filhos p/ FK) por updated_at (LWW).
 const PUSH_TABLES = [
+  // Catálogo (bidirecional): sobe do edge p/ o cardápio ONLINE (nuvem) por LWW.
+  // Ordem = pais antes dos filhos (FK na nuvem; daemon ainda tem retry de 23503).
+  { tabela: 'categoria_produto', cursor: 'updated_at' },
+  { tabela: 'produto', cursor: 'updated_at' },
+  { tabela: 'cardapio_config', cursor: 'updated_at' },
+  { tabela: 'opcao', cursor: 'updated_at' },
+  { tabela: 'complemento', cursor: 'updated_at' },
+  { tabela: 'complemento_item', cursor: 'updated_at' },
+  { tabela: 'produto_complemento', cursor: 'updated_at' },
+  { tabela: 'complemento_grupo', cursor: 'updated_at' },
+  { tabela: 'complemento_opcao', cursor: 'updated_at' },
   { tabela: 'caixa_sessao', cursor: 'updated_at' },
   { tabela: 'comanda', cursor: 'updated_at' },
   { tabela: 'comanda_item', cursor: 'updated_at' },

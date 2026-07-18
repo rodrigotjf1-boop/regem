@@ -21,6 +21,7 @@ import {
   integracao,
   lancamentoCaixa,
   pedidoExterno,
+  edgeHeartbeat,
   produto,
 } from '../../db/schema';
 import { condUnidade } from '../../common/filtro-unidade';
@@ -57,6 +58,19 @@ export class DeliveryService {
     } catch {
       /* nunca quebra o fluxo por causa do status back */
     }
+  }
+
+  // A nuvem deve adiar a materialização deste pedido para o EDGE? Sim quando NÃO
+  // estamos no edge E a loja tem um servidor edge com heartbeat recente (~3 min).
+  private async deferirParaEdge(tenantId: string): Promise<boolean> {
+    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return false;
+    const limite = new Date(Date.now() - 3 * 60 * 1000);
+    const [hb] = await this.db
+      .select({ id: edgeHeartbeat.id })
+      .from(edgeHeartbeat)
+      .where(and(eq(edgeHeartbeat.tenantId, tenantId), gte(edgeHeartbeat.recebidoEm, limite)))
+      .limit(1);
+    return !!hb;
   }
 
   // ===== Ingestão (edge → nós) =====
@@ -175,7 +189,9 @@ export class DeliveryService {
     }
 
     const cfg = await this.configRaw(tenantId, unidadeId);
-    if (cfg?.autoAceitar) {
+    // P1: se a loja tem servidor edge ativo (modo local), a nuvem NÃO materializa —
+    // o pedido desce pelo sync e o edge o processa localmente (KDS/estoque).
+    if (cfg?.autoAceitar && !(await this.deferirParaEdge(tenantId))) {
       try {
         return await this.aceitar(tenantId, null, row.id);
       } catch {

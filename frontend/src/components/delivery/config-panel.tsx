@@ -164,8 +164,11 @@ export function ConfigPanel({
   }
 
   // Link do cardápio digital próprio (gerado quando ativado).
+  // O link/QR do cardápio é SEMPRE online (nuvem) — o cliente acessa pelo próprio
+  // celular, fora da rede da loja. `cardapioBaseUrl` vem do backend (nuvem, mesmo no edge).
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const linkDelivery = loja?.token ? `${origin}/c/${loja.token}` : '';
+  const cardapioBase = loja?.cardapioBaseUrl || origin;
+  const linkDelivery = loja?.token ? `${cardapioBase}/c/${loja.token}` : '';
   useEffect(() => {
     if (!linkDelivery) { setQr(''); return; }
     QRCode.toDataURL(linkDelivery, { width: 220, margin: 1 }).then(setQr).catch(() => setQr(''));
