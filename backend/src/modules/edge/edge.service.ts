@@ -12,6 +12,9 @@ import { Bonjour } from 'bonjour-service';
 import { sql } from 'drizzle-orm';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 
 const pExecFile = promisify(execFile);
@@ -58,7 +61,32 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     );
   }
 
-  // Estado conhecido (última verificação do daemon).
+  // Progresso da instalação em curso: o atualizar.ps1 grava logs/update-status.json
+  // a cada estágio (a tela mostra a barra e reconecta no reinício dos serviços).
+  private lerProgresso(): {
+    estagio: string;
+    pct: number;
+    versao: string | null;
+    erro: string | null;
+    ts: string | null;
+  } | null {
+    try {
+      const f = join(process.cwd(), 'logs', 'update-status.json');
+      if (!existsSync(f)) return null;
+      const j = JSON.parse(readFileSync(f, 'utf8'));
+      return {
+        estagio: String(j.estagio ?? ''),
+        pct: Number(j.pct ?? 0),
+        versao: j.versao ?? null,
+        erro: j.erro ?? null,
+        ts: j.ts ?? null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Estado conhecido (última verificação do daemon) + progresso da instalação.
   async statusAtualizacao() {
     this.garanteEdge();
     const disp = await this.getState('update_disponivel');
@@ -67,7 +95,47 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       disponivel: !!disp,
       ultima: disp || null,
       notas: (await this.getState('update_notas')) || null,
+      progresso: this.lerProgresso(),
     };
+  }
+
+  // Disponibilidade do instalador (.exe). Roda na NUVEM: faz um HEAD no
+  // EDGE_INSTALLER_URL server-side (evita CORS no navegador). A tela sempre mostra
+  // o botão; ao clicar, decide baixar ou avisar "sem arquivo, contate a distribuição".
+  async instalador(): Promise<{ disponivel: boolean; url: string | null }> {
+    const url = (process.env.EDGE_INSTALLER_URL ?? '').trim();
+    if (!url) return { disponivel: false, url: null };
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      return { disponivel: res.ok, url };
+    } catch {
+      return { disponivel: false, url };
+    }
+  }
+
+  // Telemetria de FALHA de atualização, postada pelo edge (atualizar.ps1) para a
+  // NUVEM. Não é do edge (sem garanteEdge). Registra o erro + fim do log e, se
+  // DIST_ALERT_WEBHOOK estiver configurado, encaminha p/ a distribuição (n8n/etc.).
+  async telemetriaErro(dto: any): Promise<{ ok: true }> {
+    const tenantId = dto?.tenantId ?? 'desconhecido';
+    const versao = dto?.versaoNova ?? dto?.versaoAtual ?? '?';
+    this.logger.error(
+      `[telemetria] ${dto?.tipo ?? 'erro'} tenant=${tenantId} versao=${versao}: ${dto?.erro ?? ''}`,
+    );
+    if (dto?.logTail) this.logger.error(`[telemetria] log:\n${String(dto.logTail).slice(0, 4000)}`);
+    const hook = (process.env.DIST_ALERT_WEBHOOK ?? '').trim();
+    if (hook) {
+      try {
+        await fetch(hook, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ origem: 'regem-edge', ...dto, recebidoEm: new Date().toISOString() }),
+        });
+      } catch (e: any) {
+        this.logger.warn(`telemetria: falha ao encaminhar p/ distribuição: ${e?.message ?? e}`);
+      }
+    }
+    return { ok: true };
   }
 
   // Verifica AO VIVO na nuvem agora (botão "Verificar atualização").
@@ -152,6 +220,65 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
         `Não consegui iniciar o rollback: ${e.message}`,
       );
     }
+  }
+
+  // Telemetria de erro do edge (Frente A). Roda na NUVEM: persiste com DEDUP por
+  // hash (mesmo erro só soma ocorrências), alerta a distribuição (DIST_ALERT_WEBHOOK)
+  // na 1ª ocorrência ou em `fatal`. tenantId vem do sync token (rota autenticada).
+  async registrarTelemetria(tenantId: string, dto: any): Promise<{ ok: true }> {
+    const origem = String(dto?.origem ?? 'outro').slice(0, 20);
+    const tipo = dto?.tipo ? String(dto.tipo).slice(0, 60) : null;
+    const nivel = ['warn', 'error', 'fatal'].includes(dto?.nivel) ? dto.nivel : 'error';
+    const mensagem = String(dto?.mensagem ?? dto?.erro ?? 'erro').slice(0, 2000);
+    const stack = dto?.stack
+      ? String(dto.stack).slice(0, 8000)
+      : dto?.logTail
+        ? String(dto.logTail).slice(0, 8000)
+        : null;
+    const versao = dto?.versao ?? dto?.versaoNova ?? null;
+    const fingerprint = dto?.fingerprint ?? null;
+    const unidadeId = dto?.unidadeId ?? null;
+    const contexto = dto?.contexto && typeof dto.contexto === 'object' ? dto.contexto : {};
+    // Dedup: normaliza a mensagem (tira ids/números que variam) e faz o hash.
+    const norm = mensagem
+      .replace(/[0-9a-f]{8}-[0-9a-f-]{27}/gi, '<id>')
+      .replace(/\d+/g, '#');
+    const hash = createHash('sha256').update(`${origem}|${tipo}|${norm}`).digest('hex').slice(0, 32);
+
+    let primeira = false;
+    try {
+      const r: any = await this.db.execute(sql`
+        insert into telemetria_evento (tenant_id, unidade_id, origem, nivel, tipo, mensagem, hash, stack, contexto, versao, fingerprint)
+        values (${tenantId}, ${unidadeId}, ${origem}, ${nivel}, ${tipo}, ${mensagem}, ${hash}, ${stack}, ${JSON.stringify(contexto)}::jsonb, ${versao}, ${fingerprint})
+        on conflict (tenant_id, hash) do update
+          set ocorrencias = telemetria_evento.ocorrencias + 1, ultimo_em = now(), resolvido = false,
+              versao = coalesce(excluded.versao, telemetria_evento.versao),
+              stack = coalesce(excluded.stack, telemetria_evento.stack)
+        returning (xmax = 0) as inserido`);
+      primeira = (r.rows ?? r)[0]?.inserido === true;
+    } catch (e: any) {
+      this.logger.warn(`telemetria: falha ao persistir: ${e?.message ?? e}`);
+    }
+    this.logger.error(`[telemetria] ${nivel}/${origem} tenant=${tenantId} v=${versao}: ${mensagem}`);
+    const hook = (process.env.DIST_ALERT_WEBHOOK ?? '').trim();
+    if (hook && (primeira || nivel === 'fatal')) {
+      fetch(hook, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ origem: 'regem-edge', tenantId, unidadeId, nivel, origemErro: origem, tipo, mensagem, versao, primeira, recebidoEm: new Date().toISOString() }),
+      }).catch(() => {});
+    }
+    return { ok: true };
+  }
+
+  // Lista os eventos de telemetria do tenant (para o C&O ver os erros do seu edge).
+  async listarTelemetria(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select id, origem, nivel, tipo, mensagem, ocorrencias, versao,
+             primeiro_em as "primeiroEm", ultimo_em as "ultimoEm", resolvido
+      from telemetria_evento where tenant_id = ${tenantId}
+      order by resolvido asc, ultimo_em desc limit 100`);
+    return r.rows ?? r;
   }
 
   info() {

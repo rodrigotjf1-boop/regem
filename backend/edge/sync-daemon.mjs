@@ -297,6 +297,24 @@ async function restaurar() {
   }
 }
 
+// Telemetria (Frente A): reporta erro do daemon à nuvem, com dedup em memória
+// (5 min) e best-effort. Assim a distribuição vê erros de sync/DB do edge (ex.:
+// coluna faltando) para reparar + publicar update.
+const _telemEnviados = new Map();
+async function reportarTelemetria(origem, tipo, mensagem) {
+  try {
+    const chave = origem + '|' + String(mensagem).replace(/\d+/g, '#').slice(0, 120);
+    const agora = Date.now();
+    if (agora - (_telemEnviados.get(chave) ?? 0) < 5 * 60 * 1000) return;
+    _telemEnviados.set(chave, agora);
+    await fetch(`${CLOUD}/edge/telemetria`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
+      body: JSON.stringify({ origem, tipo, nivel: 'error', mensagem: String(mensagem).slice(0, 2000), versao: process.env.APP_VERSION ?? null }),
+    });
+  } catch { /* best-effort */ }
+}
+
 async function ciclo() {
   let erro = null, p = 0, u = 0;
   try {
@@ -306,6 +324,7 @@ async function ciclo() {
   } catch (e) {
     erro = e.message;
     console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
+    await reportarTelemetria('sync', 'sync_erro', e.message);
   }
   // Restauração sob demanda (botão do app grava a flag em sync_state).
   if ((await getState('restaurar_solicitado', '0')) === '1') {

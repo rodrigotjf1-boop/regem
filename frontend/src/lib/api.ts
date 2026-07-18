@@ -467,6 +467,7 @@ export const api = {
   edgeVerificarAtualizacao: () => req('/edge/atualizacao/verificar', { method: 'POST', body: '{}' }),
   edgeAplicarAtualizacao: () => req('/edge/atualizacao/aplicar', { method: 'POST', body: '{}' }),
   edgeReverterAtualizacao: () => req('/edge/atualizacao/reverter', { method: 'POST', body: '{}' }),
+  edgeInstalador: () => req('/edge/instalador'),
   edgeRestaurarStatus: () => req('/edge/restaurar/status'),
   edgeRestaurar: () => req('/edge/restaurar', { method: 'POST', body: '{}' }),
   atendimentos: () => req('/atendimento'),

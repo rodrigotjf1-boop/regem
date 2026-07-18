@@ -89,23 +89,60 @@ function RestaurarServidor() {
 // Só aparece no app rodando NO edge (build com NEXT_PUBLIC_EDGE=1). Verifica na
 // nuvem se há versão nova e, se houver, deixa o gestor INSTALAR (a tarefa SYSTEM
 // do Windows faz a troca com backup + rollback). Na nuvem o card fica oculto.
+// Estágios do atualizar.ps1 (update-status.json) → rótulo amigável.
+const ESTAGIO_LABEL: Record<string, string> = {
+  iniciando: 'Iniciando…',
+  baixando: 'Baixando a atualização…',
+  conferindo: 'Conferindo integridade…',
+  backup: 'Fazendo backup…',
+  trocando: 'Trocando os arquivos…',
+  migrando: 'Atualizando o banco…',
+  subindo: 'Reiniciando os serviços…',
+  verificando: 'Verificando se subiu…',
+  ok: 'Concluído!',
+  erro: 'Falhou',
+};
+
 function AtualizacaoServidor() {
   const [status, setStatus] = useState<any>(null);
   const [carregando, setCarregando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [revertendo, setRevertendo] = useState(false);
+  const [monitorando, setMonitorando] = useState(false);
+  const [reconectando, setReconectando] = useState(false);
   const [msg, setMsg] = useState('');
 
   const carregar = useCallback(async () => {
     try {
-      setStatus(await api.edgeAtualizacaoStatus());
+      const s = await api.edgeAtualizacaoStatus();
+      setStatus(s);
+      setReconectando(false);
+      return s;
     } catch {
-      /* fora do edge / sem sync_state ainda */
+      // API fora do ar (serviços reiniciando durante a instalação) — reconecta.
+      setReconectando(true);
+      return null;
     }
   }, []);
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Enquanto instala/reverte: acompanha o progresso (e reconecta no reinício).
+  // Termina quando o estágio é 'ok' ou 'erro' e a API já respondeu de novo.
+  useEffect(() => {
+    if (!monitorando) return;
+    const id = setInterval(async () => {
+      const s = await carregar();
+      const est = s?.progresso?.estagio;
+      if (s && (est === 'ok' || est === 'erro')) {
+        setMonitorando(false);
+        if (est === 'ok') setMsg('Atualização concluída. O servidor já está na versão nova.');
+        else setMsg(`A atualização falhou: ${s.progresso?.erro || 'erro desconhecido'}. O código foi revertido automaticamente — se o problema persistir, use "Reverter atualização".`);
+      }
+    }, 2500);
+    return () => clearInterval(id);
+  }, [monitorando, carregar]);
 
   async function verificar() {
     setMsg('');
@@ -133,7 +170,8 @@ function AtualizacaoServidor() {
     setMsg('');
     try {
       await api.edgeAplicarAtualizacao();
-      setMsg('Atualização iniciada. O servidor vai reiniciar em instantes — aguarde 1–2 minutos e recarregue a página.');
+      setMsg('');
+      setMonitorando(true); // acompanha a barra de progresso + reconexão
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Erro ao iniciar');
     } finally {
@@ -149,10 +187,10 @@ function AtualizacaoServidor() {
     )
       return;
     setRevertendo(true);
-    setMsg('');
+    setMsg('Rollback iniciado. O servidor vai reiniciar na versão anterior — aguarde 1–2 minutos.');
     try {
       await api.edgeReverterAtualizacao();
-      setMsg('Rollback iniciado. O servidor vai reiniciar na versão anterior — aguarde 1–2 minutos e recarregue a página.');
+      setReconectando(true); // os serviços reiniciam; a tela reconecta sozinha
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Erro ao reverter');
     } finally {
@@ -192,20 +230,86 @@ function AtualizacaoServidor() {
       <p className="mt-2 text-[11px] text-muted-foreground">
         <strong>Reverter atualização</strong> volta o servidor à versão anterior à última atualização (código e app; o banco é mantido). Use só se algo passou a dar problema depois de atualizar.
       </p>
-      {status?.disponivel && status?.notas && (
+      {status?.disponivel && status?.notas && !monitorando && (
         <div className="mt-3 rounded-lg border border-border bg-secondary/40 p-3 text-sm">
           <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">O que muda</p>
           <p className="whitespace-pre-line text-muted-foreground">{status.notas}</p>
         </div>
       )}
+
+      {/* Barra de progresso durante a instalação (com reconexão no reinício) */}
+      {monitorando && status?.progresso && status.progresso.estagio !== 'erro' && (
+        <div className="mt-4">
+          <div className="mb-1 flex items-center justify-between text-xs">
+            <span className="font-medium">
+              {ESTAGIO_LABEL[status.progresso.estagio] ?? status.progresso.estagio}
+              {reconectando && ' · reconectando…'}
+            </span>
+            <span className="font-mono text-muted-foreground">{status.progresso.pct}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-2 rounded-full bg-primary transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, status.progresso.pct))}%` }}
+            />
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            Os serviços (KDS, PDV, ponto) reiniciam por 1–2 minutos. Não feche esta tela — ela reconecta sozinha ao terminar.
+          </p>
+        </div>
+      )}
+
+      {/* Falhou: mostra o erro e recomenda o rollback */}
+      {status?.progresso?.estagio === 'erro' && !monitorando && (
+        <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <p className="font-semibold text-destructive">A última atualização falhou.</p>
+          <p className="mt-1 text-muted-foreground">{status.progresso.erro || 'Erro desconhecido.'}</p>
+          <p className="mt-1 text-[12px] text-muted-foreground">
+            O código foi revertido automaticamente. Se o servidor não voltar ao normal, clique em <strong>Reverter atualização</strong> acima. A distribuição do Regem já foi avisada do erro.
+          </p>
+        </div>
+      )}
+
       {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
     </Card>
   );
 }
 
-// URL do instalador (.exe) hospedado. Configure NEXT_PUBLIC_EDGE_INSTALLER_URL
-// (build-time). Sem valor, mostra "em breve".
-const INSTALLER = process.env.NEXT_PUBLIC_EDGE_INSTALLER_URL || '';
+// Botão do instalador (.exe) — SEMPRE visível. Ao clicar, o backend confere a URL
+// padrão (EDGE_INSTALLER_URL) via HEAD (sem CORS): se existe, baixa; senão, avisa
+// para contatar o distribuidor.
+function BotaoInstalador() {
+  const [buscando, setBuscando] = useState(false);
+  const [aviso, setAviso] = useState('');
+  async function baixar() {
+    setBuscando(true);
+    setAviso('');
+    try {
+      const r: any = await api.edgeInstalador();
+      if (r?.disponivel && r?.url) {
+        window.location.href = r.url; // inicia o download
+      } else {
+        setAviso('Sem arquivo de instalação disponível no momento. Contate o distribuidor do Regem.');
+      }
+    } catch {
+      setAviso('Não consegui verificar o instalador agora. Tente de novo em instantes.');
+    } finally {
+      setBuscando(false);
+    }
+  }
+  return (
+    <div className="mt-5">
+      <Button className="h-11 px-5" onClick={baixar} disabled={buscando}>
+        {buscando ? 'Procurando…' : '⬇ Baixar o instalador (Windows)'}
+      </Button>
+      {aviso && (
+        <p className="mt-2 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+          {aviso}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const PASSOS = [
   {
@@ -241,17 +345,7 @@ export default function ServidorPage() {
             mas recomendado para o dia a dia da operação.
           </p>
 
-          <div className="mt-5">
-            {INSTALLER ? (
-              <a href={INSTALLER}>
-                <Button className="h-11 px-5">⬇ Baixar o instalador (Windows)</Button>
-              </a>
-            ) : (
-              <p className="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                O download ficará disponível aqui em breve. Enquanto isso, fale com a distribuição.
-              </p>
-            )}
-          </div>
+          <BotaoInstalador />
 
           <ol className="mt-6 flex flex-col gap-4">
             {PASSOS.map((p, i) => (

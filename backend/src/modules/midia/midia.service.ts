@@ -264,4 +264,63 @@ export class MidiaService {
     await fs.unlink(join(this.localDir(), loc.tenant, loc.arquivo)).catch(() => {});
     return novo.url;
   }
+
+  // ---- P4 seguro: replicação via NUVEM (edge NÃO tem a service key) ----
+
+  private cloudCfg() {
+    return {
+      cloud: (process.env.CLOUD_API ?? '').replace(/\/$/, ''),
+      token: process.env.SYNC_TOKEN ?? '',
+    };
+  }
+  temCloud(): boolean {
+    const { cloud, token } = this.cloudCfg();
+    return !!cloud && !!token;
+  }
+
+  // EDGE: replica a mídia local para a nuvem SEM a service key aqui — posta o
+  // arquivo (multipart, x-sync-token) no endpoint da nuvem, que sobe ao Supabase e
+  // devolve a URL pública. Apaga o local no sucesso. null = nada a fazer / offline.
+  async replicarViaNuvem(localUrl: string): Promise<string | null> {
+    const { cloud, token } = this.cloudCfg();
+    if (!cloud || !token) return null;
+    const loc = this.ehUrlLocal(localUrl);
+    if (!loc) return null;
+    let img: { buffer: Buffer; mime: string };
+    try {
+      img = await this.lerLocal(loc.tenant, loc.arquivo);
+    } catch {
+      return null; // arquivo sumiu
+    }
+    try {
+      const form = new FormData();
+      form.append('file', new Blob([new Uint8Array(img.buffer)], { type: img.mime }), loc.arquivo);
+      const res = await fetch(`${cloud}/midia/edge/upload`, {
+        method: 'POST',
+        headers: { 'x-sync-token': token },
+        body: form,
+      });
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      if (!j?.url) return null;
+      await fs.unlink(join(this.localDir(), loc.tenant, loc.arquivo)).catch(() => {});
+      return j.url;
+    } catch {
+      return null; // offline / erro — tenta no próximo ciclo
+    }
+  }
+
+  // CLOUD: recebe o buffer vindo do edge e sobe ao Supabase (a service key fica SÓ
+  // aqui). Revalida o conteúdo (magic bytes). tenantId vem do sync token.
+  async uploadBuffer(tenantId: string, buffer?: Buffer) {
+    if (!buffer?.length) throw new BadRequestException('Imagem ausente.');
+    if (buffer.length > MAX_BYTES) throw new BadRequestException('Imagem maior que o limite de 8 MB.');
+    const tipoReal = detectarImagem(buffer);
+    if (!tipoReal) throw new BadRequestException('Arquivo não é uma imagem válida.');
+    if (!this.temNuvem()) {
+      throw new ServiceUnavailableException('Storage da nuvem não configurado.');
+    }
+    const ext = MIME_EXT[tipoReal];
+    return this.subirSupabase(tenantId, new Uint8Array(buffer), tipoReal, ext, buffer.length);
+  }
 }
