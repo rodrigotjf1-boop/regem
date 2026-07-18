@@ -93,6 +93,7 @@ function AtualizacaoServidor() {
   const [status, setStatus] = useState<any>(null);
   const [carregando, setCarregando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
+  const [revertendo, setRevertendo] = useState(false);
   const [msg, setMsg] = useState('');
 
   const carregar = useCallback(async () => {
@@ -112,7 +113,7 @@ function AtualizacaoServidor() {
     try {
       const r: any = await api.edgeVerificarAtualizacao();
       if (r.ok === false) setMsg(r.erro || 'Não consegui verificar agora. Tente de novo.');
-      else if (!r.disponivel) setMsg('Você já está na versão mais recente.');
+      else if (!r.disponivel) setMsg('Você já está com a versão mais recente.');
       setStatus(r);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Erro ao verificar');
@@ -140,6 +141,25 @@ function AtualizacaoServidor() {
     }
   }
 
+  async function reverter() {
+    if (
+      !confirm(
+        'Reverter para a versão anterior?\n\nIsto desfaz a ÚLTIMA atualização e volta o servidor à versão que estava antes dela (código e app; o banco é mantido). Os serviços reiniciam por 1–2 minutos.\n\nSó confirme se algo passou a dar problema DEPOIS da última atualização. Recomendado com a loja fechada.',
+      )
+    )
+      return;
+    setRevertendo(true);
+    setMsg('');
+    try {
+      await api.edgeReverterAtualizacao();
+      setMsg('Rollback iniciado. O servidor vai reiniciar na versão anterior — aguarde 1–2 minutos e recarregue a página.');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao reverter');
+    } finally {
+      setRevertendo(false);
+    }
+  }
+
   return (
     <Card className="p-6 lg:col-span-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -164,8 +184,14 @@ function AtualizacaoServidor() {
               {aplicando ? 'Iniciando…' : 'Instalar atualização'}
             </Button>
           )}
+          <Button type="button" variant="ghost" onClick={reverter} disabled={revertendo} className="text-muted-foreground">
+            {revertendo ? 'Revertendo…' : 'Reverter atualização'}
+          </Button>
         </div>
       </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        <strong>Reverter atualização</strong> volta o servidor à versão anterior à última atualização (código e app; o banco é mantido). Use só se algo passou a dar problema depois de atualizar.
+      </p>
       {status?.disponivel && status?.notas && (
         <div className="mt-3 rounded-lg border border-border bg-secondary/40 p-3 text-sm">
           <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">O que muda</p>

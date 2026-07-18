@@ -80,6 +80,15 @@ export class CardapioPublicoController {
     return this.service.webhookMercadoPago(String(paymentId || ''));
   }
 
+  // Webhook da Iugu (invoice.status_changed). Sem token de loja: correlaciona pelo
+  // gateway_payment_id. Aceita o id da fatura no body (data.id) ou na query.
+  @Post('pagamento/iugu/webhook')
+  iuguWebhook(@Body() body: any, @Query() q: any) {
+    const invoiceId =
+      body?.data?.id ?? body?.['data[id]'] ?? q?.['data[id]'] ?? q?.['data.id'] ?? q?.id ?? '';
+    return this.service.webhookIugu(String(invoiceId || ''));
+  }
+
   @Get(':token/pontos')
   pontos(@Param('token') token: string, @Query('telefone') telefone: string) {
     return this.service.pontosPublico(token, telefone ?? '');

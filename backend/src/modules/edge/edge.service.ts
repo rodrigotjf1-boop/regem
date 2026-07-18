@@ -139,6 +139,21 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
+  // Dispara o ROLLBACK manual (tarefa SYSTEM RegemEdgeRollback → reverter.ps1
+  // restaura o dist/web do último backup). Só o gestor decide, e só faz sentido se
+  // houve atualização recente que causou problema.
+  async reverterAtualizacao() {
+    this.garanteEdge();
+    try {
+      await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeRollback']);
+      return { iniciada: true };
+    } catch (e: any) {
+      throw new InternalServerErrorException(
+        `Não consegui iniciar o rollback: ${e.message}`,
+      );
+    }
+  }
+
   info() {
     return {
       regem: true,

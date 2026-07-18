@@ -742,8 +742,10 @@ export const equipamento = pgTable('equipamento', {
   escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
   papel: text('papel'), // impressora: producao | cupom (via do cliente)
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
-  host: text('host'), // IP da impressora de rede (tipo impressora)
+  conexao: text('conexao').notNull().default('rede'), // impressora: 'rede' (IP:porta) | 'local' (USB/Windows)
+  host: text('host'), // IP da impressora de rede (conexao='rede')
   porta: integer('porta'), // porta ESC/POS (padrão 9100)
+  dispositivo: text('dispositivo'), // nome da impressora no Windows (conexao='local')
   largura: integer('largura').notNull().default(80), // 58 | 80 (mm) — impressora
   setoresAtendidos: jsonb('setores_atendidos').notNull().default('[]'), // [setor_id,...] (impressora)
   vias: integer('vias').notNull().default(1), // nº de vias (impressora)
@@ -1779,7 +1781,8 @@ export const pedidoExterno = pgTable('pedido_externo', {
   trocoPara: numeric('troco_para'),
   pago: boolean('pago').notNull().default(false),
   statusPagamento: text('status_pagamento').notNull().default('na_entrega'), // na_entrega|aguardando|aprovado|orcamento
-  gatewayPaymentId: text('gateway_payment_id'), // id do pagamento no gateway (Mercado Pago) p/ webhook
+  gatewayPaymentId: text('gateway_payment_id'), // id do pagamento no gateway (MP/Iugu) p/ webhook
+  gatewayProvider: text('gateway_provider'), // 'iugu' | 'mercadopago' | null — qual API o webhook consulta
 
   agendamento: timestamp('agendamento', { withTimezone: true }), // serviços (L4)
   profissional: text('profissional'),

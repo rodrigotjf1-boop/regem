@@ -55,6 +55,7 @@ import {
   alertaEstoque,
 } from '../../db/schema';
 import { criarPixMP, consultarPagamentoMP } from '../../common/mercadopago';
+import { criarPixIugu, consultarFaturaIugu } from '../../common/iugu';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
@@ -1051,15 +1052,35 @@ export class CardapioService {
     };
   }
 
-  // Access token do Mercado Pago: por tenant (integracao canal 'mercadopago',
-  // ativo) ou fallback global do env MP_ACCESS_TOKEN. null = sem gateway (mock).
-  private async resolveMpToken(tenantId: string): Promise<string | null> {
+  // Token de um canal de integração do tenant (se ativo). null se não configurado.
+  private async tokenCanal(tenantId: string, canal: string): Promise<string | null> {
     const [row] = await this.db
       .select({ token: integracao.token, ativo: integracao.ativo })
       .from(integracao)
-      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'mercadopago')));
-    if (row?.ativo && row.token) return row.token;
-    return process.env.MP_ACCESS_TOKEN || null;
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, canal)));
+    return row?.ativo && row.token ? row.token : null;
+  }
+
+  // Access token do Mercado Pago: por tenant (canal 'mercadopago') ou env.
+  private async resolveMpToken(tenantId: string): Promise<string | null> {
+    return (await this.tokenCanal(tenantId, 'mercadopago')) || process.env.MP_ACCESS_TOKEN || null;
+  }
+
+  // Live API Token da Iugu: por tenant (canal 'iugu') ou env IUGU_API_TOKEN.
+  private async resolveIuguToken(tenantId: string): Promise<string | null> {
+    return (await this.tokenCanal(tenantId, 'iugu')) || process.env.IUGU_API_TOKEN || null;
+  }
+
+  // Escolhe o provedor de PIX ativo do tenant. Prioridade: Iugu → Mercado Pago →
+  // null (mock). Assim quem já usa MP não quebra, e Iugu ganha quando configurada.
+  private async resolveGateway(
+    tenantId: string,
+  ): Promise<{ provider: 'iugu' | 'mercadopago'; token: string } | null> {
+    const iugu = await this.resolveIuguToken(tenantId);
+    if (iugu) return { provider: 'iugu', token: iugu };
+    const mp = await this.resolveMpToken(tenantId);
+    if (mp) return { provider: 'mercadopago', token: mp };
+    return null;
   }
 
   // Público: pagamento online. Com Mercado Pago configurado → gera PIX (QR +
@@ -1079,8 +1100,8 @@ export class CardapioService {
     if (!p) throw new NotFoundException('Pedido não encontrado.');
     if (p.pago) return { ok: true, jaPago: true, statusPagamento: 'aprovado' };
 
-    const mpToken = await this.resolveMpToken(cfg.tenantId);
-    if (!mpToken) {
+    const gw = await this.resolveGateway(cfg.tenantId);
+    if (!gw) {
       // Fallback mock (sem gateway): aprova imediatamente.
       await this.db
         .update(pedidoExterno)
@@ -1089,20 +1110,30 @@ export class CardapioService {
       return { ok: true, statusPagamento: 'aprovado', mock: true };
     }
 
-    // Gera (ou reaproveita) a cobrança PIX real no Mercado Pago.
+    // Gera a cobrança PIX real no provedor ativo (Iugu ou Mercado Pago).
     const base = process.env.PUBLIC_API_URL || '';
+    const descricao = `Pedido #${p.numero ?? ''} · ${cfg.nomePublico ?? 'Loja'}`;
     try {
-      const pix = await criarPixMP(mpToken, {
-        valor: Number(p.total),
-        descricao: `Pedido #${p.numero ?? ''} · ${cfg.nomePublico ?? 'Loja'}`,
-        nome: p.clienteNome ?? undefined,
-        referenciaExterna: p.id,
-        notificationUrl: base ? `${base}/api/v1/publico/cardapio/pagamento/mercadopago/webhook` : undefined,
-        idempotencia: `pedido-${p.id}`,
-      });
+      const pix =
+        gw.provider === 'iugu'
+          ? await criarPixIugu(gw.token, {
+              valor: Number(p.total),
+              descricao,
+              nome: p.clienteNome ?? undefined,
+              referenciaExterna: p.id,
+              idempotencia: `pedido-${p.id}`,
+            })
+          : await criarPixMP(gw.token, {
+              valor: Number(p.total),
+              descricao,
+              nome: p.clienteNome ?? undefined,
+              referenciaExterna: p.id,
+              notificationUrl: base ? `${base}/api/v1/publico/cardapio/pagamento/mercadopago/webhook` : undefined,
+              idempotencia: `pedido-${p.id}`,
+            });
       await this.db
         .update(pedidoExterno)
-        .set({ gatewayPaymentId: pix.id, statusPagamento: 'aguardando' })
+        .set({ gatewayPaymentId: pix.id, gatewayProvider: gw.provider, statusPagamento: 'aguardando' })
         .where(eq(pedidoExterno.id, pedidoId));
       return {
         ok: true,
@@ -1130,6 +1161,29 @@ export class CardapioService {
     if (!mpToken) return { ok: true, semToken: true };
     const st = await consultarPagamentoMP(mpToken, String(paymentId));
     if (st.status === 'approved') {
+      await this.db
+        .update(pedidoExterno)
+        .set({ pago: true, statusPagamento: 'aprovado' })
+        .where(eq(pedidoExterno.id, p.id));
+      return { ok: true, aprovado: true };
+    }
+    return { ok: true, status: st.status };
+  }
+
+  // Webhook da Iugu (invoice.status_changed). Correlaciona pelo gateway_payment_id
+  // e RE-CONSULTA a fatura na API (não confia no corpo do webhook). 'paid' = aprovado.
+  async webhookIugu(invoiceId: string) {
+    if (!invoiceId) return { ok: true, ignorado: true };
+    const [p] = await this.db
+      .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, pago: pedidoExterno.pago })
+      .from(pedidoExterno)
+      .where(eq(pedidoExterno.gatewayPaymentId, String(invoiceId)));
+    if (!p) return { ok: true, naoCorrelacionado: true };
+    if (p.pago) return { ok: true, jaPago: true };
+    const token = await this.resolveIuguToken(p.tenantId);
+    if (!token) return { ok: true, semToken: true };
+    const st = await consultarFaturaIugu(token, String(invoiceId));
+    if (st.status === 'paid') {
       await this.db
         .update(pedidoExterno)
         .set({ pago: true, statusPagamento: 'aprovado' })

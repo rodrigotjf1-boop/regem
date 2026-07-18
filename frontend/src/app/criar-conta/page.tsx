@@ -22,6 +22,7 @@ export default function CriarContaPage() {
   const [form, setForm] = useState({
     empresaNome: '',
     cnpj: '',
+    endereco: '',
     nome: '',
     email: '',
     senha: '',
@@ -137,6 +138,19 @@ export default function CriarContaPage() {
                 inputMode="numeric"
                 required
                 minLength={18}
+              />
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="endereco">
+                Endereço da matriz <span className="font-normal text-muted-foreground">(opcional)</span>
+              </label>
+              <input
+                id="endereco"
+                className={inputCls}
+                value={form.endereco}
+                onChange={(e) => set('endereco', e.target.value)}
+                placeholder="Rua, nº, bairro, cidade/UF"
+                autoComplete="street-address"
               />
             </div>
             <div>

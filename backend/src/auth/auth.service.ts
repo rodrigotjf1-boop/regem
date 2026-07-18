@@ -100,6 +100,15 @@ export class AuthService {
         })
         .returning();
 
+      // Unidade MATRIZ: a "loja" principal do tenant. Sem ela o primeiro login no
+      // edge não tinha o que puxar (o sync desce `unidade`). Endereço é opcional.
+      await tx.insert(unidade).values({
+        tenantId: emp.id,
+        nome: dto.empresaNome,
+        tipo: 'matriz',
+        endereco: dto.endereco?.trim() || null,
+      });
+
       const [fun] = await tx
         .insert(funcao)
         .values({ tenantId: emp.id, nome: 'Presidente', categoria: 'presidente' })

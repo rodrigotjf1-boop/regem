@@ -49,6 +49,14 @@ export class EdgeController {
     return this.service.aplicarAtualizacao();
   }
 
+  @Post('edge/atualizacao/reverter')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  atualizacaoReverter() {
+    return this.service.reverterAtualizacao();
+  }
+
   // ----- Restauração do estado da nuvem (só no edge) -----
   @Get('edge/restaurar/status')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)

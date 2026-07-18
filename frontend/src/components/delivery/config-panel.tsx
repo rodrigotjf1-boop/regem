@@ -1006,7 +1006,7 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   );
 }
 
-const CANAL_NOME: Record<string, string> = { ifood: 'iFood', ubereats: 'Uber Eats', rappi: 'Rappi', '99food': '99Food', open_delivery: 'Open Delivery (Cardápio Web)', n8n: 'WhatsApp / n8n' };
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', open_delivery: 'Open Delivery (Cardápio Web)', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago (PIX online)', iugu: 'Iugu (PIX online)' };
 
 function Integracoes({ lista, onSalvar, pode }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean }) {
   return (
@@ -1028,6 +1028,9 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const [tokenV, setTokenV] = useState('');
   useEffect(() => { setAtivo(!!it.ativo); setMerchantId(it.merchantId ?? ''); setClientId(it.clientId ?? ''); }, [it]);
   const ehN8n = it.canal === 'n8n';
+  const ehIugu = it.canal === 'iugu';
+  const ehMp = it.canal === 'mercadopago';
+  const ehGatewayPix = ehIugu || ehMp;
   return (
     <div className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
@@ -1045,6 +1048,23 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
               <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : 'uma frase secreta qualquer'} className="h-8" disabled={!pode} />
             </Campo>
           </div>
+        </>
+      ) : ehGatewayPix ? (
+        <>
+          {ehIugu ? (
+            <>
+              <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta Iugu</strong> — o dinheiro cai em você, o Regem não toca no valor. Cole a <strong>Live API Token</strong> (Iugu → Configurações → Contas → API Tokens → copiar a <em>Live</em>). Quando ativa, tem prioridade sobre o Mercado Pago no cardápio.</p>
+              <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">Cadastre o webhook na sua Iugu (Configurações → Gatilhos), evento <strong>invoice.status_changed</strong>, URL: <code>https://api.dmsregem.com/api/v1/publico/cardapio/pagamento/iugu/webhook</code></p>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta Mercado Pago</strong> — o dinheiro cai em você. Cole o <strong>Access Token</strong> de produção (Mercado Pago → Seus negócios → Configurações → Credenciais de produção → <em>Access Token</em>). A Iugu, se ativa, tem prioridade sobre este.</p>
+              <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O webhook do Mercado Pago é automático (o Regem informa a URL na cobrança). Nada a cadastrar no painel do MP.</p>
+            </>
+          )}
+          <Campo label={`${ehIugu ? 'Live API Token' : 'Access Token'}${it.temToken ? ' (salvo)' : ''}`}>
+            <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehIugu ? 'cole a Live API Token da Iugu' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
+          </Campo>
         </>
       ) : it.canal === 'open_delivery' ? (
         <>
@@ -1084,15 +1104,23 @@ function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any
   const [rows, setRows] = useState<any[]>(lista);
   useEffect(() => { setRows(lista); }, [lista]);
   function up(i: number, patch: any) { setRows((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
-  function add() { setRows((l) => [...l, { nome: '', papel: 'cupom', setorId: '', host: '', porta: 9100, vias: 1, ativo: true, _novo: true }]); }
+  function add() { setRows((l) => [...l, { nome: '', papel: 'cupom', setorId: '', conexao: 'rede', host: '', porta: 9100, dispositivo: '', vias: 1, ativo: true, _novo: true }]); }
   async function salvar(i: number) {
     const r = rows[i];
-    await onSalvar({ id: r.id, nome: r.nome, papel: r.papel, setorId: r.papel === 'producao' ? r.setorId || null : null, host: r.host, porta: r.porta, vias: r.vias, ativo: r.ativo });
+    const local = r.conexao === 'local';
+    await onSalvar({
+      id: r.id, nome: r.nome, papel: r.papel,
+      setorId: r.papel === 'producao' ? r.setorId || null : null,
+      conexao: r.conexao ?? 'rede',
+      host: local ? null : r.host, porta: local ? null : r.porta,
+      dispositivo: local ? r.dispositivo || null : null,
+      vias: r.vias, ativo: r.ativo,
+    });
   }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente) ou <strong>Cozinha</strong> (produção, por setor). Informe o IP da impressora de rede e o nº de vias.</p>
-      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A <strong>detecção automática</strong> das impressoras instaladas no Windows depende do servidor local (edge). Por enquanto o cadastro é manual (nome + IP).</p>
+      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente) ou <strong>Cozinha</strong> (produção, por setor). A conexão pode ser <strong>Rede</strong> (impressora com IP) ou <strong>Local</strong> (USB/instalada no Windows do PDV).</p>
+      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn"><strong>Local (USB/Windows)</strong>: informe o <strong>nome exato</strong> da impressora como aparece no Windows (Painel de Controle → Dispositivos e Impressoras). A impressão local roda no <strong>servidor local (edge)</strong> — sem edge instalado, use uma impressora de rede.</p>
       {rows.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma impressora cadastrada.</p>}
       {rows.map((r, i) => (
         <div key={r.id ?? `n${i}`} className="space-y-2 rounded-lg border border-border p-2.5">
@@ -1118,12 +1146,26 @@ function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any
               </div>
             )}
             <div>
-              <Label className="text-[11px]">IP : porta</Label>
-              <div className="flex items-center gap-1">
-                <Input value={r.host ?? ''} onChange={(e) => up(i, { host: e.target.value })} placeholder="192.168.0.50" className="h-8 flex-1" disabled={!pode} />
-                <Input inputMode="numeric" value={r.porta ?? ''} onChange={(e) => up(i, { porta: e.target.value })} placeholder="9100" className="h-8 w-16" disabled={!pode} />
-              </div>
+              <Label className="text-[11px]">Conexão</Label>
+              <select value={r.conexao ?? 'rede'} onChange={(e) => up(i, { conexao: e.target.value })} aria-label="Conexão" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
+                <option value="rede">Rede (IP)</option>
+                <option value="local">Local (USB/Windows)</option>
+              </select>
             </div>
+            {r.conexao === 'local' ? (
+              <div>
+                <Label className="text-[11px]">Nome no Windows</Label>
+                <Input value={r.dispositivo ?? ''} onChange={(e) => up(i, { dispositivo: e.target.value })} placeholder="Ex.: EPSON TM-T20" className="h-8 w-full" disabled={!pode} />
+              </div>
+            ) : (
+              <div>
+                <Label className="text-[11px]">IP : porta</Label>
+                <div className="flex items-center gap-1">
+                  <Input value={r.host ?? ''} onChange={(e) => up(i, { host: e.target.value })} placeholder="192.168.0.50" className="h-8 flex-1" disabled={!pode} />
+                  <Input inputMode="numeric" value={r.porta ?? ''} onChange={(e) => up(i, { porta: e.target.value })} placeholder="9100" className="h-8 w-16" disabled={!pode} />
+                </div>
+              </div>
+            )}
             <div>
               <Label className="text-[11px]">Vias</Label>
               <Input inputMode="numeric" value={r.vias ?? 1} onChange={(e) => up(i, { vias: e.target.value })} className="h-8 w-20" disabled={!pode} />

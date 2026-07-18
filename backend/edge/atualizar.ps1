@@ -77,6 +77,10 @@ if ($pgdump -and $cfg.EDGE_DATABASE_URL) {
 $distAtual = Join-Path $Raiz "dist"
 $distBak   = Join-Path $bakDir "dist"
 if (Test-Path $distAtual) { Copy-Item $distAtual $distBak -Recurse -Force; Diga "Backup do codigo -> $distBak" }
+# Backup do frontend tambem, para o rollback manual (reverter.ps1) restaurar os dois.
+$webAtual = Join-Path $Raiz "web"
+$webBak   = Join-Path $bakDir "web"
+if (Test-Path $webAtual) { Copy-Item $webAtual $webBak -Recurse -Force; Diga "Backup do app -> $webBak" }
 
 # ---- 4) para servicos, troca arquivos, migra, sobe ----
 function Svc($acao, $nome) { & $nssmExe $acao $nome 2>$null | Out-Null }
@@ -131,6 +135,20 @@ try {
     }
   }
   GarantirSvc "RegemEdgeImpressao" (Join-Path $Raiz "edge\impressao-daemon.mjs")
+
+  # Garante a tarefa de ROLLBACK (edge instalado antes desta versao nao a tinha).
+  # Idempotente (-Force). Sem ela o botao "Reverter atualizacao" do app nao funciona.
+  try {
+    $reverter = Join-Path $Raiz "edge\reverter.ps1"
+    if (Test-Path $reverter) {
+      $acaoR = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $reverter, $Raiz)
+      $contaR = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+      $cfgR = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+      Register-ScheduledTask -TaskName "RegemEdgeRollback" -Action $acaoR -Principal $contaR -Settings $cfgR -Force | Out-Null
+      Diga "Tarefa RegemEdgeRollback garantida."
+    }
+  } catch { Diga "(aviso) nao registrei RegemEdgeRollback: $($_.Exception.Message)" }
 
   # Atualiza APP_VERSION no .env.local ANTES de subir (senao o daemon/update-check
   # ainda se acham na versao antiga e rebaixam o mesmo pacote em loop).
