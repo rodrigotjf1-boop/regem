@@ -67,8 +67,8 @@ licenças/leases e o financeiro das contas. Expande o `/frota` que já existe. �
 - [ ] Lote atual em `dev-local` **mergeado + deployado** (PR #200) e **migrations 119–122
       aplicadas na nuvem**.
 - [ ] **Zip do edge** publicado com as fases (proteção Fase 1 + telemetria) e testado num edge real.
-- [ ] **Pendência P4**: reconcile de mídia deve subir por **endpoint na nuvem** (sync-token),
-      pois o edge não pode ter a service key do Supabase. (bloqueia "segredos" 100%.)
+- [x] **Pendência P4 (RESOLVIDA):** reconcile de mídia sobe por endpoint na nuvem
+      (`POST /midia/edge/upload`, sync-token); o edge não tem a service key.
 - [ ] **DPAPI**: validar o boot com segredos cifrados num **edge de teste** antes de ligar por padrão.
 - [ ] (Opcional) Fases seguintes de proteção (bytenode / lógica crítica na nuvem) — não bloqueiam o console.
 

@@ -21,8 +21,10 @@ de produção. **NÃO** envia `docs/`, `mockups/`, `CLAUDE.md`.
 - **JWT_SECRET é único por loja** (instalador gera `Rand 40`). NUNCA usar o da nuvem.
 - **Nunca** colocar segredos MESTRES da nuvem no edge (`SUPABASE_SERVICE_KEY`, JWT da
   nuvem). O edge só tem credenciais locais + o `SYNC_TOKEN` escopado da loja.
-  - *Pendência conhecida:* o reconcile de mídia (P4) precisa que o edge NÃO tenha a
-    service key — a subida de imagem deve passar por um endpoint na nuvem (sync-token).
+  - ✅ *Resolvido:* o reconcile de mídia (P4) NÃO usa mais a service key no edge — o
+    `MidiaReconcileProcessor` posta a imagem local no endpoint `POST /midia/edge/upload`
+    (x-sync-token) e a NUVEM sobe ao Supabase (a service key fica só na nuvem). O edge
+    precisa apenas de `CLOUD_API` + `SYNC_TOKEN` (`temCloud()`), nunca da service key.
 - **ACL**: o instalador restringe o `.env.local` a `SYSTEM` + `Administradores` (icacls).
 - **Criptografia em repouso (DPAPI, opt-in):**
   - `edge/proteger-env.ps1 -EnvFile <.env.local>` cifra `DATABASE_URL`,

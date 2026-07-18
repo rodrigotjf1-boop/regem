@@ -32,7 +32,9 @@ export class MidiaReconcileProcessor {
 
   @Interval(90_000)
   async reconciliar() {
-    if (!this.isEdge || !this.midia.temNuvem() || this.rodando) return;
+    // Replica via NUVEM (posta no endpoint com sync-token) — o edge NÃO precisa da
+    // service key do Supabase. Basta ter CLOUD_API + SYNC_TOKEN.
+    if (!this.isEdge || !this.midia.temCloud() || this.rodando) return;
     this.rodando = true;
     try {
       for (const alvo of ALVOS) {
@@ -47,7 +49,7 @@ export class MidiaReconcileProcessor {
         `);
         for (const l of (res.rows ?? res) as any[]) {
           if (!this.midia.ehUrlLocal(l.ref)) continue; // não é arquivo local nosso
-          const novo = await this.midia.reconciliarParaNuvem(l.ref).catch(() => null);
+          const novo = await this.midia.replicarViaNuvem(l.ref).catch(() => null);
           if (!novo) continue; // offline/arquivo sumiu → próximo ciclo
           await this.db.execute(sql`
             update ${sql.raw(alvo.tabela)}
