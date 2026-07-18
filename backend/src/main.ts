@@ -4,8 +4,13 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { readFileSync } from 'fs';
 import { AppModule } from './app.module';
+import { carregarEnvSeguro } from './secure-env';
 
 async function bootstrap() {
+  // Fase 1 (proteção): decifra segredos do .env cifrados com DPAPI (enc:), se houver.
+  // No-op quando não há criptografia (nuvem/edge padrão) — seguro rodar sempre.
+  carregarEnvSeguro();
+
   // Fail-fast de segurança: sem segredo forte / sem CORS em produção, o app NÃO sobe
   // (melhor recusar a subir do que rodar com segredo indefinido ou CORS aberto).
   const secret = process.env.JWT_SECRET;

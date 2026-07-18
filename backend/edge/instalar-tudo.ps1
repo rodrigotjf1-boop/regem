@@ -33,7 +33,10 @@ param(
   [string]$CloudApi = "https://api.dmsregem.com/api/v1",
   [int]$Porta = 3002,       # API (NestJS) - atras do app
   [int]$PortaWeb = 3001,    # App (Next) - porta que os aparelhos/atalho abrem
-  [int]$PgPorta = 5432
+  [int]$PgPorta = 5432,
+  # Fase 1 (proteção): cifra os segredos do .env em repouso com DPAPI (LocalMachine)
+  # — o blob não abre em outra máquina. Opt-in enquanto validamos em edge de teste.
+  [switch]$ProtegerSegredos
 )
 
 $ErrorActionPreference = "Stop"
@@ -227,6 +230,23 @@ SYNC_INTERVAL_MS=30000
 EDGE_CLIENTES=0
 "@ | Set-Content -Path $envLocal -Encoding ascii
 Diga ".env.local escrito."
+
+# PROTEÇÃO (Fase 1): trava a ACL do .env.local — só SYSTEM e Administradores leem
+# (os serviços rodam como SYSTEM). Remove herança para nenhum usuário comum ler.
+try {
+  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(R)" "*S-1-5-32-544:(R)" | Out-Null
+  Diga "ACL do .env.local restrita (SYSTEM + Administradores)."
+} catch { Diga "(aviso) nao consegui restringir a ACL do .env.local: $($_.Exception.Message)" }
+
+# Opcional (opt-in): cifra os segredos em repouso com DPAPI (blob não abre em outra
+# máquina). O app decifra no boot. Enquanto validamos em edge de teste, fica sob -ProtegerSegredos.
+if ($ProtegerSegredos) {
+  $proteger = Join-Path $root "edge\proteger-env.ps1"
+  if (Test-Path $proteger) {
+    try { & powershell -ExecutionPolicy Bypass -NoProfile -File $proteger -EnvFile $envLocal; Diga "Segredos do .env cifrados (DPAPI)." }
+    catch { Diga "(aviso) nao consegui cifrar os segredos: $($_.Exception.Message)" }
+  }
+}
 
 # ---- 3) migrations + certificado + servicos ----
 Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; if ($LASTEXITCODE -ne 0) { throw "migrations falharam." }
