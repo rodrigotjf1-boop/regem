@@ -12,6 +12,8 @@ import { Bonjour } from 'bonjour-service';
 import { sql } from 'drizzle-orm';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 
 const pExecFile = promisify(execFile);
@@ -58,7 +60,32 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     );
   }
 
-  // Estado conhecido (última verificação do daemon).
+  // Progresso da instalação em curso: o atualizar.ps1 grava logs/update-status.json
+  // a cada estágio (a tela mostra a barra e reconecta no reinício dos serviços).
+  private lerProgresso(): {
+    estagio: string;
+    pct: number;
+    versao: string | null;
+    erro: string | null;
+    ts: string | null;
+  } | null {
+    try {
+      const f = join(process.cwd(), 'logs', 'update-status.json');
+      if (!existsSync(f)) return null;
+      const j = JSON.parse(readFileSync(f, 'utf8'));
+      return {
+        estagio: String(j.estagio ?? ''),
+        pct: Number(j.pct ?? 0),
+        versao: j.versao ?? null,
+        erro: j.erro ?? null,
+        ts: j.ts ?? null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  // Estado conhecido (última verificação do daemon) + progresso da instalação.
   async statusAtualizacao() {
     this.garanteEdge();
     const disp = await this.getState('update_disponivel');
@@ -67,7 +94,47 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       disponivel: !!disp,
       ultima: disp || null,
       notas: (await this.getState('update_notas')) || null,
+      progresso: this.lerProgresso(),
     };
+  }
+
+  // Disponibilidade do instalador (.exe). Roda na NUVEM: faz um HEAD no
+  // EDGE_INSTALLER_URL server-side (evita CORS no navegador). A tela sempre mostra
+  // o botão; ao clicar, decide baixar ou avisar "sem arquivo, contate a distribuição".
+  async instalador(): Promise<{ disponivel: boolean; url: string | null }> {
+    const url = (process.env.EDGE_INSTALLER_URL ?? '').trim();
+    if (!url) return { disponivel: false, url: null };
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      return { disponivel: res.ok, url };
+    } catch {
+      return { disponivel: false, url };
+    }
+  }
+
+  // Telemetria de FALHA de atualização, postada pelo edge (atualizar.ps1) para a
+  // NUVEM. Não é do edge (sem garanteEdge). Registra o erro + fim do log e, se
+  // DIST_ALERT_WEBHOOK estiver configurado, encaminha p/ a distribuição (n8n/etc.).
+  async telemetriaErro(dto: any): Promise<{ ok: true }> {
+    const tenantId = dto?.tenantId ?? 'desconhecido';
+    const versao = dto?.versaoNova ?? dto?.versaoAtual ?? '?';
+    this.logger.error(
+      `[telemetria] ${dto?.tipo ?? 'erro'} tenant=${tenantId} versao=${versao}: ${dto?.erro ?? ''}`,
+    );
+    if (dto?.logTail) this.logger.error(`[telemetria] log:\n${String(dto.logTail).slice(0, 4000)}`);
+    const hook = (process.env.DIST_ALERT_WEBHOOK ?? '').trim();
+    if (hook) {
+      try {
+        await fetch(hook, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ origem: 'regem-edge', ...dto, recebidoEm: new Date().toISOString() }),
+        });
+      } catch (e: any) {
+        this.logger.warn(`telemetria: falha ao encaminhar p/ distribuição: ${e?.message ?? e}`);
+      }
+    }
+    return { ok: true };
   }
 
   // Verifica AO VIVO na nuvem agora (botão "Verificar atualização").

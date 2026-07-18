@@ -382,8 +382,10 @@ export class ProducaoPedidoService {
         conteudo: impressaoJob.conteudo,
         tentativas: impressaoJob.tentativas,
         criadoEm: impressaoJob.criadoEm,
+        conexao: equipamento.conexao, // 'rede' | 'local' (mig 120)
         host: equipamento.host,
         porta: equipamento.porta,
+        dispositivo: equipamento.dispositivo, // nome no Windows (conexao='local')
         largura: equipamento.largura,
         vias: equipamento.vias,
         impressora: equipamento.nome,
