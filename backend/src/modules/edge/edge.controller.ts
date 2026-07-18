@@ -5,6 +5,9 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { RequirePerm } from '../../auth/require-perm.decorator';
+import { CurrentUser } from '../../auth/current-user.decorator';
+import { AuthUser } from '../../auth/auth-user';
+import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { EdgeService } from './edge.service';
 
 // Rota pública de identificação: o cliente confirma que achou o servidor Regem
@@ -73,6 +76,24 @@ export class EdgeController {
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   telemetriaErro(@Body() body: any) {
     return this.service.telemetriaErro(body ?? {});
+  }
+
+  // Telemetria GERAL do edge (Frente A): o edge posta erros autenticado por
+  // x-sync-token (tenant derivado, sem spoof). Persiste com dedup + alerta a distrib.
+  @Post('edge/telemetria')
+  @UseGuards(SyncTokenGuard)
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  telemetria(@SyncCtx() ctx: SyncCtxData, @Body() body: any) {
+    return this.service.registrarTelemetria(ctx.tenantId, body ?? {});
+  }
+
+  // C&O da loja vê os erros do próprio edge (histórico + ocorrências).
+  @Get('edge/telemetria')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  listarTelemetria(@CurrentUser() user: AuthUser) {
+    return this.service.listarTelemetria(user.tenantId);
   }
 
   // ----- Restauração do estado da nuvem (só no edge) -----

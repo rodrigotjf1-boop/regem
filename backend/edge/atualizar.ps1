@@ -214,15 +214,16 @@ catch {
     $logTail = ""
     if (Test-Path $script:logArquivo) { $logTail = (Get-Content $script:logArquivo -Tail 40 -ErrorAction SilentlyContinue) -join "`n" }
     $corpo = @{
+      origem  = "update"
       tipo    = "update_falha"
-      tenantId = $cfg.TENANT_ID
+      nivel   = "fatal"
       unidadeId = $cfg.EDGE_UNIDADE_ID
-      versaoAtual = $versaoAtual
-      versaoNova  = $script:versaoNova
-      erro    = $errMsg
+      versao  = $script:versaoNova
+      mensagem = $errMsg
       logTail = $logTail
     } | ConvertTo-Json -Compress
-    Invoke-RestMethod -Method Post -Uri ("{0}/edge/telemetria/erro" -f $cloud) -Body $corpo -ContentType "application/json" -TimeoutSec 15 | Out-Null
+    $hdr = @{ "x-sync-token" = $cfg.SYNC_TOKEN }
+    Invoke-RestMethod -Method Post -Uri ("{0}/edge/telemetria" -f $cloud) -Headers $hdr -Body $corpo -ContentType "application/json" -TimeoutSec 15 | Out-Null
     Diga "Telemetria de falha enviada a distribuicao."
   } catch { Diga "(aviso) nao consegui enviar a telemetria: $($_.Exception.Message)" }
   Diga "ROLLBACK do codigo (dist.bak)..."

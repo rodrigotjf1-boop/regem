@@ -14,6 +14,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 
 const pExecFile = promisify(execFile);
@@ -219,6 +220,65 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
         `Não consegui iniciar o rollback: ${e.message}`,
       );
     }
+  }
+
+  // Telemetria de erro do edge (Frente A). Roda na NUVEM: persiste com DEDUP por
+  // hash (mesmo erro só soma ocorrências), alerta a distribuição (DIST_ALERT_WEBHOOK)
+  // na 1ª ocorrência ou em `fatal`. tenantId vem do sync token (rota autenticada).
+  async registrarTelemetria(tenantId: string, dto: any): Promise<{ ok: true }> {
+    const origem = String(dto?.origem ?? 'outro').slice(0, 20);
+    const tipo = dto?.tipo ? String(dto.tipo).slice(0, 60) : null;
+    const nivel = ['warn', 'error', 'fatal'].includes(dto?.nivel) ? dto.nivel : 'error';
+    const mensagem = String(dto?.mensagem ?? dto?.erro ?? 'erro').slice(0, 2000);
+    const stack = dto?.stack
+      ? String(dto.stack).slice(0, 8000)
+      : dto?.logTail
+        ? String(dto.logTail).slice(0, 8000)
+        : null;
+    const versao = dto?.versao ?? dto?.versaoNova ?? null;
+    const fingerprint = dto?.fingerprint ?? null;
+    const unidadeId = dto?.unidadeId ?? null;
+    const contexto = dto?.contexto && typeof dto.contexto === 'object' ? dto.contexto : {};
+    // Dedup: normaliza a mensagem (tira ids/números que variam) e faz o hash.
+    const norm = mensagem
+      .replace(/[0-9a-f]{8}-[0-9a-f-]{27}/gi, '<id>')
+      .replace(/\d+/g, '#');
+    const hash = createHash('sha256').update(`${origem}|${tipo}|${norm}`).digest('hex').slice(0, 32);
+
+    let primeira = false;
+    try {
+      const r: any = await this.db.execute(sql`
+        insert into telemetria_evento (tenant_id, unidade_id, origem, nivel, tipo, mensagem, hash, stack, contexto, versao, fingerprint)
+        values (${tenantId}, ${unidadeId}, ${origem}, ${nivel}, ${tipo}, ${mensagem}, ${hash}, ${stack}, ${JSON.stringify(contexto)}::jsonb, ${versao}, ${fingerprint})
+        on conflict (tenant_id, hash) do update
+          set ocorrencias = telemetria_evento.ocorrencias + 1, ultimo_em = now(), resolvido = false,
+              versao = coalesce(excluded.versao, telemetria_evento.versao),
+              stack = coalesce(excluded.stack, telemetria_evento.stack)
+        returning (xmax = 0) as inserido`);
+      primeira = (r.rows ?? r)[0]?.inserido === true;
+    } catch (e: any) {
+      this.logger.warn(`telemetria: falha ao persistir: ${e?.message ?? e}`);
+    }
+    this.logger.error(`[telemetria] ${nivel}/${origem} tenant=${tenantId} v=${versao}: ${mensagem}`);
+    const hook = (process.env.DIST_ALERT_WEBHOOK ?? '').trim();
+    if (hook && (primeira || nivel === 'fatal')) {
+      fetch(hook, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ origem: 'regem-edge', tenantId, unidadeId, nivel, origemErro: origem, tipo, mensagem, versao, primeira, recebidoEm: new Date().toISOString() }),
+      }).catch(() => {});
+    }
+    return { ok: true };
+  }
+
+  // Lista os eventos de telemetria do tenant (para o C&O ver os erros do seu edge).
+  async listarTelemetria(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select id, origem, nivel, tipo, mensagem, ocorrencias, versao,
+             primeiro_em as "primeiroEm", ultimo_em as "ultimoEm", resolvido
+      from telemetria_evento where tenant_id = ${tenantId}
+      order by resolvido asc, ultimo_em desc limit 100`);
+    return r.rows ?? r;
   }
 
   info() {

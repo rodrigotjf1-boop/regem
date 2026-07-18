@@ -63,6 +63,7 @@ import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { EdgeFlashSyncModule } from './modules/sync/edge-flash-sync.service';
 import { EdgeModule } from './modules/edge/edge.module';
+import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
 
@@ -139,6 +140,8 @@ import { AuthModule } from './auth/auth.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // Bloqueio duro por licença/trial (G-1) — só na nuvem, só escrita.
     { provide: APP_INTERCEPTOR, useClass: LicenseInterceptor },
+    // Telemetria de erro (Frente A) — só no edge; na nuvem é passthrough.
+    { provide: APP_INTERCEPTOR, useClass: TelemetriaInterceptor },
   ],
 })
 export class AppModule {}
