@@ -67,6 +67,15 @@ export class MidiaService {
     return { url, key, bucket };
   }
 
+  private ehEdge(): boolean {
+    return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  }
+
+  temNuvem(): boolean {
+    const { url, key } = this.cfg();
+    return !!url && !!key;
+  }
+
   async upload(tenantId: string, file?: UploadedFileLike) {
     if (!file) throw new BadRequestException('Arquivo ausente.');
 
@@ -82,13 +91,30 @@ export class MidiaService {
     }
     const ext = MIME_EXT[tipoReal];
 
-    const { url, key, bucket } = this.cfg();
-    // Sem Supabase configurado (modo local/edge offline) → grava em disco local e
-    // serve pela própria API. Na nuvem as chaves existem, então nunca cai aqui.
-    if (!url || !key) {
+    // Modo híbrido (P4): NO EDGE grava LOCAL na hora (instantâneo, offline-first) e
+    // o reconciliador (MidiaReconcileProcessor) replica p/ a nuvem depois e reescreve
+    // o imagem_ref → o cardápio ONLINE passa a servir a imagem da nuvem. Na NUVEM
+    // (SaaS) sobe direto p/ o Supabase.
+    if (this.ehEdge()) {
       return this.uploadLocal(tenantId, file, ext, tipoReal);
     }
+    if (!this.temNuvem()) {
+      // Sem Supabase (dev/edge sem chaves) → disco local.
+      return this.uploadLocal(tenantId, file, ext, tipoReal);
+    }
+    return this.subirSupabase(tenantId, new Uint8Array(file.buffer), tipoReal, ext, file.size);
+  }
 
+  // Sobe um buffer para o Supabase Storage e devolve a URL pública. Lança em falha
+  // de rede/HTTP (o chamador decide: no edge, o reconciliador tenta de novo depois).
+  private async subirSupabase(
+    tenantId: string,
+    body: Uint8Array,
+    mime: string,
+    ext: string,
+    tamanho: number,
+  ) {
+    const { url, key, bucket } = this.cfg();
     // Caminho isolado por tenant, nome opaco para não vazar o original.
     const path = `${tenantId}/${randomUUID()}.${ext}`;
     const endpoint = `${url}/storage/v1/object/${bucket}/${path}`;
@@ -98,12 +124,12 @@ export class MidiaService {
       headers: {
         Authorization: `Bearer ${key}`,
         apikey: key,
-        'Content-Type': tipoReal,
+        'Content-Type': mime,
         'cache-control': '3600',
         'x-upsert': 'true',
       },
-      // Uint8Array é um BodyInit válido (Buffer, apesar de ser um, não tipa).
-      body: new Uint8Array(file.buffer),
+      // Uint8Array é um BodyInit válido em runtime (o tipo genérico não bate).
+      body: body as unknown as BodyInit,
     });
 
     if (!res.ok) {
@@ -115,7 +141,7 @@ export class MidiaService {
 
     // Bucket público → URL direta e estável.
     const publicUrl = `${url}/storage/v1/object/public/${bucket}/${path}`;
-    return { url: publicUrl, path, mime: tipoReal, tamanho: file.size };
+    return { url: publicUrl, path, mime, tamanho };
   }
 
   // ---- Storage local em disco (modo offline/edge, sem Supabase) ----
@@ -198,5 +224,44 @@ export class MidiaService {
       headers: { Authorization: `Bearer ${key}`, apikey: key },
     });
     return res.ok;
+  }
+
+  // ---- Reconciliação de mídia local → nuvem (P4, modo híbrido) ----
+
+  // Detecta se a URL aponta p/ uma mídia LOCAL deste edge (arquivo em disco).
+  // Devolve {tenant, arquivo} ou null. URLs do Supabase são ignoradas.
+  ehUrlLocal(u?: string | null): { tenant: string; arquivo: string } | null {
+    if (!u || u.includes('/storage/v1/object/public/')) return null;
+    const semQuery = u.split('?')[0].replace(/\/+$/, '');
+    const partes = semQuery.split('/');
+    const arquivo = partes.pop() ?? '';
+    const tenant = partes.pop() ?? '';
+    if (!TENANT_RE.test(tenant) || !ARQUIVO_RE.test(arquivo)) return null;
+    return { tenant, arquivo };
+  }
+
+  // Replica uma mídia local p/ a nuvem (Supabase) e devolve a URL pública nova.
+  // Usado pelo reconciliador do edge. null = não é local / sem nuvem / arquivo sumiu.
+  // Apaga o arquivo local após subir com sucesso (a ref passa a apontar p/ a nuvem).
+  async reconciliarParaNuvem(localUrl: string): Promise<string | null> {
+    if (!this.temNuvem()) return null;
+    const loc = this.ehUrlLocal(localUrl);
+    if (!loc) return null;
+    let img: { buffer: Buffer; mime: string };
+    try {
+      img = await this.lerLocal(loc.tenant, loc.arquivo);
+    } catch {
+      return null; // arquivo não existe mais — nada a reconciliar
+    }
+    const ext = loc.arquivo.split('.').pop() ?? 'jpg';
+    const novo = await this.subirSupabase(
+      loc.tenant,
+      new Uint8Array(img.buffer),
+      img.mime,
+      ext,
+      img.buffer.length,
+    );
+    await fs.unlink(join(this.localDir(), loc.tenant, loc.arquivo)).catch(() => {});
+    return novo.url;
   }
 }

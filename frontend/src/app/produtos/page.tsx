@@ -48,14 +48,12 @@ export default function ProdutosPage() {
   const [salvandoDest, setSalvandoDest] = useState(false);
   const [faixas, setFaixas] = useState<{ qtdMin: string; preco: string }[]>([]);
 
-  const [autoPausa, setAutoPausa] = useState(true);
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
       return;
     }
     reload();
-    api.autoPausaCardapio().then((r: any) => r && setAutoPausa(!!r.ativo)).catch(() => {});
   }, [reload, router]);
 
   const set = (patch: any) => setF((s: any) => ({ ...s, ...patch }));
@@ -384,52 +382,28 @@ export default function ProdutosPage() {
         {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
 
         {aba === 'produtos' && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3">
-          {/* Barra de ações (auto-pausa enxuto à direita) */}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={abrirNovo}>＋ Novo produto</Button>
-            <span className="text-xs text-muted-foreground">
-              {produtosFiltrados.length} produto(s){catSel ? ' nesta categoria' : ''}
-            </span>
-            <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground" title="Produto com estoque controlado vira Esgotado ao acabar o insumo; volta ao repor.">
-              <input
-                type="checkbox"
-                className="h-4 w-4 flex-none accent-primary"
-                checked={autoPausa}
-                onChange={async (e) => {
-                  const v = e.target.checked;
-                  setAutoPausa(v);
-                  try {
-                    await api.setAutoPausaCardapio(v);
-                    toast.success('Configuração salva.');
-                  } catch {
-                    setAutoPausa(!v);
-                    toast.error('Erro ao salvar.');
-                  }
-                }}
-              />
-              Pausar ao esgotar o estoque
-            </label>
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
+          {/* Sidebar de categorias — rola sozinha (separada do corpo) */}
+          <div className="scroll-fino rounded-xl border border-border bg-card/40 p-1 lg:min-h-0 lg:overflow-y-auto">
+            <CategoriasCard
+              categorias={categorias}
+              catNome={catNome}
+              setCatNome={setCatNome}
+              catParent={catParent}
+              setCatParent={setCatParent}
+              onAdd={addCategoria}
+              catLabel={catLabel}
+              reload={reload}
+              selected={catSel}
+              onSelect={setCatSel}
+            />
           </div>
-
-          {/* Sidebar de categorias + grade de produtos — cada coluna rola sozinha
-              no desktop; no mobile empilha e a página rola normalmente. */}
-          <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(220px,280px)_1fr]">
-            <div className="scroll-fino rounded-xl border border-border bg-card/40 p-1 lg:min-h-0 lg:overflow-y-auto">
-              <CategoriasCard
-                categorias={categorias}
-                catNome={catNome}
-                setCatNome={setCatNome}
-                catParent={catParent}
-                setCatParent={setCatParent}
-                onAdd={addCategoria}
-                catLabel={catLabel}
-                reload={reload}
-                selected={catSel}
-                onSelect={setCatSel}
-              />
+          {/* Grade de produtos — botão "Novo produto" enxuto fixo em cima; a lista rola */}
+          <div className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
+            <div className="mb-2 flex items-center justify-end">
+              <Button type="button" size="sm" onClick={abrirNovo}>＋ Novo produto</Button>
             </div>
-            <div className="scroll-fino min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+            <div className="scroll-fino lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
               <ProdutosLista produtos={produtosFiltrados} onEditar={editar} onRemover={remover} onReativar={reativar} />
             </div>
           </div>

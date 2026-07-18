@@ -20,13 +20,29 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'colaborador', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'turno', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'etiqueta', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'categoria_produto', direcao: 'desce', cursor: 'created_at' },
-  { tabela: 'produto', direcao: 'desce', cursor: 'updated_at' },
+  // Categoria: BIDIRECIONAL (P3 completo) — editada no edge, espelha na nuvem.
+  { tabela: 'categoria_produto', direcao: 'ambos', cursor: 'updated_at' },
+  // Produto é BIDIRECIONAL: no modo híbrido (local prioritário) o catálogo é editado
+  // no edge; disponibilidade/esgotado/preço SOBEM para o cardápio ONLINE (nuvem) por
+  // LWW (updated_at, bumpado em atualizar/sincronizarEsgotados). Flash-sync acelera.
+  { tabela: 'produto', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'ficha_tecnica', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'bot_regra', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'feriado', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'tipo_ocorrencia', direcao: 'desce', cursor: 'updated_at' },
-  { tabela: 'cardapio_config', direcao: 'desce', cursor: 'updated_at' }, // horários (update por abertura) + config da loja offline
+  { tabela: 'cardapio_config', direcao: 'ambos', cursor: 'updated_at' }, // bidirecional: config/horários editados no edge sobem p/ o cardápio online
+  // ── Catálogo reutilizável (P3 completo) — BIDIRECIONAL. Editado no edge (modo
+  // híbrido) e espelhado na nuvem p/ o cardápio online + editor. LWW por updated_at,
+  // exclusão por deleted_at (mig 118). Ordem: opção/complemento antes das ligações (FK).
+  { tabela: 'opcao', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'complemento', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'complemento_item', direcao: 'ambos', cursor: 'updated_at' }, // liga complemento↔opção
+  { tabela: 'produto_complemento', direcao: 'ambos', cursor: 'updated_at' }, // liga produto↔complemento
+  // Complementos/opções do PRODUTO (materializados p/ o motor: PDV/garçom/cardápio).
+  // BIDIRECIONAL (P3): a materialização local do edge SOBE p/ a nuvem servir o cardápio
+  // online. Regeração/exclusão propaga por deleted_at; updated_at (mig 118) guia o push.
+  { tabela: 'complemento_grupo', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'complemento_opcao', direcao: 'ambos', cursor: 'updated_at' },
   // Bidirecional (LWW)
   { tabela: 'item_estoque', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'fornecedor', direcao: 'ambos', cursor: 'updated_at' },
@@ -42,7 +58,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'comanda_item', direcao: 'sobe', cursor: 'updated_at' },
   { tabela: 'producao_pedido', direcao: 'sobe', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', direcao: 'sobe', cursor: 'updated_at' },
-  { tabela: 'pedido_externo', direcao: 'sobe', cursor: 'updated_at' },
+  // Pedido externo é BIDIRECIONAL (P1): pedidos ONLINE nascem na nuvem (cardápio/
+  // marketplaces) e precisam DESCER para o edge processá-los localmente (KDS/garçom);
+  // pedidos locais SOBEM. LWW por updated_at resolve conflito de estado.
+  { tabela: 'pedido_externo', direcao: 'ambos', cursor: 'updated_at' },
 ];
 
 // O servidor local PUXA o que a nuvem manda pra baixo (desce/ambos).

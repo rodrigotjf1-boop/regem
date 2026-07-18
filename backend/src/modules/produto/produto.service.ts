@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   complemento,
@@ -16,6 +16,7 @@ import {
   categoriaProduto,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 
@@ -25,6 +26,7 @@ export class ProdutoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    private readonly flash: EdgeFlashSyncService,
   ) {}
 
   // ----- Categorias (hierárquicas) -----
@@ -32,7 +34,7 @@ export class ProdutoService {
     return this.db
       .select()
       .from(categoriaProduto)
-      .where(eq(categoriaProduto.tenantId, tenantId));
+      .where(and(eq(categoriaProduto.tenantId, tenantId), isNull(categoriaProduto.deletedAt)));
   }
 
   async criarCategoria(tenantId: string, dto: CreateCategoriaDto & { descricao?: string; imagemRef?: string; disponibilidade?: any }) {
@@ -77,6 +79,7 @@ export class ProdutoService {
     if (dto.disponibilidade !== undefined) set.disponibilidade = this.sanitizarDisponibilidade(dto.disponibilidade);
     if (dto.ativo != null) set.ativo = !!dto.ativo;
     if (dto.parentId !== undefined) set.parentId = dto.parentId || null;
+    set.updatedAt = new Date(); // LWW p/ o sync bidirecional (P3)
     const [row] = await this.db
       .update(categoriaProduto)
       .set(set)
@@ -88,10 +91,11 @@ export class ProdutoService {
 
   // Reordena por arrastar: aplica a ordem conforme a posição na lista de ids.
   async reordenarCategorias(tenantId: string, ids: string[]) {
+    const agora = new Date();
     for (let i = 0; i < ids.length; i++) {
       await this.db
         .update(categoriaProduto)
-        .set({ ordem: i })
+        .set({ ordem: i, updatedAt: agora }) // updatedAt p/ a reordenação subir no sync (P3)
         .where(and(eq(categoriaProduto.id, ids[i]), eq(categoriaProduto.tenantId, tenantId)));
     }
     return { ok: true };
@@ -100,10 +104,12 @@ export class ProdutoService {
   async excluirCategoria(tenantId: string, id: string) {
     // Solta os produtos da categoria (não apaga os produtos) e remove a categoria.
     await this.db.execute(sql`
-      update produto set categoria_id = null where tenant_id = ${tenantId} and categoria_id = ${id}
+      update produto set categoria_id = null, updated_at = now() where tenant_id = ${tenantId} and categoria_id = ${id}
     `);
+    // Soft-delete p/ a exclusão propagar ao edge/nuvem pelo sync (P3).
     await this.db
-      .delete(categoriaProduto)
+      .update(categoriaProduto)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(categoriaProduto.id, id), eq(categoriaProduto.tenantId, tenantId)));
     return { ok: true };
   }
@@ -118,11 +124,11 @@ export class ProdutoService {
              o.item_id as "itemId", o.produto_ref_id as "produtoRefId",
              o.ativo, o.esgotado,
              f.nome as "fichaNome", i.nome as "itemNome",
-             (select count(*)::int from complemento_item ci where ci.opcao_id = o.id) as "usado"
+             (select count(*)::int from complemento_item ci where ci.opcao_id = o.id and ci.deleted_at is null) as "usado"
       from opcao o
       left join ficha_tecnica f on f.id = o.ficha_id
       left join item_estoque i on i.id = o.item_id
-      where o.tenant_id = ${tenantId}
+      where o.tenant_id = ${tenantId} and o.deleted_at is null
       order by o.nome
     `);
     return res.rows ?? res;
@@ -137,9 +143,9 @@ export class ProdutoService {
                order by ci.ordem
              ) filter (where ci.id is not null), '[]') as itens
       from complemento c
-      left join complemento_item ci on ci.complemento_id = c.id
+      left join complemento_item ci on ci.complemento_id = c.id and ci.deleted_at is null
       left join opcao o on o.id = ci.opcao_id
-      where c.tenant_id = ${tenantId}
+      where c.tenant_id = ${tenantId} and c.deleted_at is null
       group by c.id
       order by c.nome
     `);
@@ -166,7 +172,11 @@ export class ProdutoService {
   }
 
   private async salvarItensComplemento(tenantId: string, complementoId: string, itens: any[]) {
-    await this.db.delete(complementoItem).where(eq(complementoItem.complementoId, complementoId));
+    // Soft-delete dos itens antigos (a exclusão precisa propagar pelo sync — P3).
+    await this.db
+      .update(complementoItem)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(complementoItem.complementoId, complementoId), isNull(complementoItem.deletedAt)));
     const validos = (itens ?? []).filter((it) => it?.opcaoId);
     if (validos.length) {
       await this.db.insert(complementoItem).values(
@@ -208,10 +218,22 @@ export class ProdutoService {
     const alvos = await this.db
       .select({ produtoId: produtoComplemento.produtoId })
       .from(produtoComplemento)
+      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.complementoId, id), isNull(produtoComplemento.deletedAt)));
+    const agora = new Date();
+    // Soft-delete em cascata manual (o sync só propaga exclusão por deleted_at — P3):
+    // ligação produto↔complemento, os itens do complemento e o próprio complemento.
+    await this.db
+      .update(produtoComplemento)
+      .set({ deletedAt: agora, updatedAt: agora })
       .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.complementoId, id)));
-    await this.db.delete(produtoComplemento).where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.complementoId, id)));
-    // complemento_item cai por cascade (FK on delete cascade).
-    await this.db.delete(complemento).where(and(eq(complemento.id, id), eq(complemento.tenantId, tenantId)));
+    await this.db
+      .update(complementoItem)
+      .set({ deletedAt: agora, updatedAt: agora })
+      .where(and(eq(complementoItem.tenantId, tenantId), eq(complementoItem.complementoId, id)));
+    await this.db
+      .update(complemento)
+      .set({ deletedAt: agora, updatedAt: agora })
+      .where(and(eq(complemento.id, id), eq(complemento.tenantId, tenantId)));
     for (const a of alvos) await this.materializarProduto(tenantId, a.produtoId);
     return { ok: true };
   }
@@ -221,7 +243,9 @@ export class ProdutoService {
   // a partir dos complementos reutilizáveis ligados ao produto. Só mexe nos grupos
   // com `origem_complemento_id` (os manuais do editor antigo ficam intactos).
   async materializarProduto(tenantId: string, produtoId: string) {
-    // 1) Remove os grupos materializados anteriores (e suas opções).
+    // 1) Soft-delete dos grupos materializados anteriores (e opções) — soft para a
+    //    remoção/regeração propagar ao EDGE pelo sync (deleted_at). Recriados abaixo.
+    const agora = new Date();
     const antigos = await this.db
       .select({ id: complementoGrupo.id })
       .from(complementoGrupo)
@@ -230,25 +254,27 @@ export class ProdutoService {
           eq(complementoGrupo.tenantId, tenantId),
           eq(complementoGrupo.produtoId, produtoId),
           isNotNull(complementoGrupo.origemComplementoId),
+          isNull(complementoGrupo.deletedAt),
         ),
       );
     for (const g of antigos) {
-      await this.db.delete(complementoOpcao).where(eq(complementoOpcao.grupoId, g.id));
-      await this.db.delete(complementoGrupo).where(eq(complementoGrupo.id, g.id));
+      // updatedAt junto: o push edge→nuvem usa updated_at como cursor (P3).
+      await this.db.update(complementoOpcao).set({ deletedAt: agora, updatedAt: agora }).where(eq(complementoOpcao.grupoId, g.id));
+      await this.db.update(complementoGrupo).set({ deletedAt: agora, updatedAt: agora }).where(eq(complementoGrupo.id, g.id));
     }
 
     // 2) Recria a partir dos complementos ligados (na ordem definida).
     const ligados = await this.db
       .select({ complementoId: produtoComplemento.complementoId, ordem: produtoComplemento.ordem })
       .from(produtoComplemento)
-      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, produtoId)))
+      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, produtoId), isNull(produtoComplemento.deletedAt)))
       .orderBy(produtoComplemento.ordem);
 
     for (const [i, lig] of ligados.entries()) {
       const [comp] = await this.db
         .select()
         .from(complemento)
-        .where(and(eq(complemento.id, lig.complementoId), eq(complemento.tenantId, tenantId)));
+        .where(and(eq(complemento.id, lig.complementoId), eq(complemento.tenantId, tenantId), isNull(complemento.deletedAt)));
       if (!comp || comp.ativo === false) continue;
       const [g] = await this.db
         .insert(complementoGrupo)
@@ -278,7 +304,7 @@ export class ProdutoService {
         })
         .from(complementoItem)
         .innerJoin(opcao, eq(opcao.id, complementoItem.opcaoId))
-        .where(eq(complementoItem.complementoId, comp.id))
+        .where(and(eq(complementoItem.complementoId, comp.id), isNull(complementoItem.deletedAt), isNull(opcao.deletedAt)))
         .orderBy(complementoItem.ordem);
       for (const [j, it] of itens.entries()) {
         await this.db.insert(complementoOpcao).values({
@@ -302,12 +328,16 @@ export class ProdutoService {
     return this.db
       .select({ complementoId: produtoComplemento.complementoId, ordem: produtoComplemento.ordem })
       .from(produtoComplemento)
-      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, produtoId)))
+      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, produtoId), isNull(produtoComplemento.deletedAt)))
       .orderBy(produtoComplemento.ordem);
   }
 
   async setProdutoComplementos(tenantId: string, produtoId: string, ids: string[]) {
-    await this.db.delete(produtoComplemento).where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, produtoId)));
+    // Soft-delete das ligações antigas (a troca precisa propagar pelo sync — P3).
+    await this.db
+      .update(produtoComplemento)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, produtoId), isNull(produtoComplemento.deletedAt)));
     const lista = (ids ?? []).filter(Boolean);
     if (lista.length) {
       await this.db.insert(produtoComplemento).values(
@@ -323,7 +353,7 @@ export class ProdutoService {
     const alvos = await this.db
       .select({ produtoId: produtoComplemento.produtoId })
       .from(produtoComplemento)
-      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.complementoId, complementoId)));
+      .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.complementoId, complementoId), isNull(produtoComplemento.deletedAt)));
     for (const a of alvos) await this.materializarProduto(tenantId, a.produtoId);
   }
 
@@ -332,7 +362,7 @@ export class ProdutoService {
     const comps = await this.db
       .select({ complementoId: complementoItem.complementoId })
       .from(complementoItem)
-      .where(and(eq(complementoItem.tenantId, tenantId), eq(complementoItem.opcaoId, opcaoId)));
+      .where(and(eq(complementoItem.tenantId, tenantId), eq(complementoItem.opcaoId, opcaoId), isNull(complementoItem.deletedAt)));
     const vistos = new Set<string>();
     for (const c of comps) {
       if (vistos.has(c.complementoId)) continue;
@@ -381,7 +411,12 @@ export class ProdutoService {
   }
 
   async excluirOpcao(tenantId: string, id: string) {
-    await this.db.delete(opcao).where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId)));
+    // Soft-delete p/ propagar a exclusão pelo sync (P3). Rematerializa quem a usava.
+    await this.db
+      .update(opcao)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId)));
+    await this.reMaterializarPorOpcao(tenantId, id);
     return { ok: true };
   }
 
@@ -450,6 +485,8 @@ export class ProdutoService {
       .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)))
       .returning({ id: produto.id });
     if (!row) throw new NotFoundException('Produto não encontrado');
+    // Reativar/despausar reflete no cardápio online já (bloqueio/liberação do item).
+    void this.flash.flashProdutos([id]);
     return { ok: true, permiteNegativo: ativo };
   }
 
@@ -527,6 +564,7 @@ export class ProdutoService {
         and(
           eq(complementoGrupo.tenantId, tenantId),
           eq(complementoGrupo.produtoId, produtoId),
+          isNull(complementoGrupo.deletedAt),
         ),
       )
       .orderBy(complementoGrupo.ordem);
@@ -534,7 +572,7 @@ export class ProdutoService {
     const opcoes = await this.db
       .select()
       .from(complementoOpcao)
-      .where(eq(complementoOpcao.tenantId, tenantId))
+      .where(and(eq(complementoOpcao.tenantId, tenantId), isNull(complementoOpcao.deletedAt)))
       .orderBy(complementoOpcao.ordem);
     return grupos.map((g) => ({
       ...g,
@@ -600,8 +638,15 @@ export class ProdutoService {
   }
 
   async removerGrupo(tenantId: string, grupoId: string) {
+    // Soft-delete (deleted_at) para a remoção propagar ao edge pelo sync (P2).
+    const agora = new Date();
     await this.db
-      .delete(complementoGrupo)
+      .update(complementoOpcao)
+      .set({ deletedAt: agora })
+      .where(eq(complementoOpcao.grupoId, grupoId));
+    await this.db
+      .update(complementoGrupo)
+      .set({ deletedAt: agora })
       .where(
         and(
           eq(complementoGrupo.id, grupoId),
@@ -613,7 +658,8 @@ export class ProdutoService {
 
   async removerOpcao(tenantId: string, opcaoId: string) {
     await this.db
-      .delete(complementoOpcao)
+      .update(complementoOpcao)
+      .set({ deletedAt: new Date() })
       .where(
         and(
           eq(complementoOpcao.id, opcaoId),
@@ -766,6 +812,8 @@ export class ProdutoService {
       .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Produto não encontrado');
+    // Flash-sync: edição local reflete no cardápio ONLINE em segundos (edge → nuvem).
+    void this.flash.flashProdutos([id]);
 
     // Substitui variações/combo quando enviados (edição completa).
     if (dto.variacoes) {

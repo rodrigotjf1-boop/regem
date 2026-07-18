@@ -15,6 +15,7 @@ import { ContagemSecao } from '@/components/estoque/contagem-secao';
 import { ComprasSecao } from '@/components/estoque/compras-secao';
 import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
 import { Shell } from '@/components/app-shell/shell';
+import { toast } from '@/lib/toast';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function validadeStatus(validade: string | null) {
@@ -109,12 +110,15 @@ export default function EstoquePage() {
     }
   }
 
+  // Pausar automaticamente o item no cardápio ao esgotar o estoque (config global).
+  const [autoPausa, setAutoPausa] = useState(true);
   useEffect(() => {
     if (!getToken()) {
       router.replace('/entrar');
       return;
     }
     reload();
+    api.autoPausaCardapio().then((r: any) => r && setAutoPausa(!!r.ativo)).catch(() => {});
   }, [reload, router]);
 
   if (!pronto) {
@@ -164,6 +168,34 @@ export default function EstoquePage() {
       }
     >
       <div className="max-w-3xl space-y-4">
+        {/* Config global: pausa automática no cardápio ao esgotar o estoque */}
+        <Card className="p-3">
+          <label className="flex items-center justify-between gap-3">
+            <span className="text-sm">
+              <span className="font-semibold">Pausar no cardápio ao esgotar o estoque</span>
+              <span className="block text-xs text-muted-foreground">
+                Produto com estoque controlado vira &quot;Esgotado&quot; no cardápio quando o insumo acaba; volta sozinho ao repor.
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              className="h-5 w-5 flex-none accent-primary"
+              checked={autoPausa}
+              onChange={async (e) => {
+                const v = e.target.checked;
+                setAutoPausa(v);
+                try {
+                  await api.setAutoPausaCardapio(v);
+                  toast.success('Configuração salva.');
+                } catch {
+                  setAutoPausa(!v);
+                  toast.error('Erro ao salvar.');
+                }
+              }}
+            />
+          </label>
+        </Card>
+
         {/* Navegação por seção (hub) */}
         <div className="flex flex-wrap gap-1.5">
           {SECOES.map((s) => (

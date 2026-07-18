@@ -4,12 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { geocode, montarEndereco } from '../../common/geocode';
+
+// Estamos rodando no servidor EDGE (appliance da loja) e não na nuvem?
+function ehEdge(): boolean {
+  return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+}
 
 // Categoria visível agora? Sem janelas = sempre. Senão, hoje (0=Dom..6=Sáb) precisa
 // bater em alguma janela e o horário atual estar entre inicio e fim (HH:MM).
@@ -39,6 +44,7 @@ import {
   cupom,
   cupomUso,
   pedidoExterno,
+  edgeHeartbeat,
   comandaItem,
   mesa,
   comanda,
@@ -52,6 +58,7 @@ import { criarPixMP, consultarPagamentoMP } from '../../common/mercadopago';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
+import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
@@ -79,6 +86,7 @@ export class CardapioService {
     private readonly fidelidade: FidelidadeService,
     private readonly cashback: CashbackService,
     private readonly events: EventEmitter2,
+    private readonly flash: EdgeFlashSyncService,
   ) {}
 
   // ===== Gestão do cardápio: auto-pausa por esgotamento de estoque =====
@@ -124,6 +132,7 @@ export class CardapioService {
     const esgotados = await this.computeEsgotados(tenantId, produtos);
 
     const novos: string[] = []; // nomes que acabaram de esgotar
+    const idsMudados: string[] = []; // p/ flash-sync (refletir no cardápio online já)
     for (const p of produtos) {
       const agora = esgotados.has(p.id);
       if (agora && !p.pausadoEstoque) {
@@ -132,13 +141,18 @@ export class CardapioService {
           .set({ pausadoEstoque: true, pausaMotivo: 'Estoque do insumo esgotado', updatedAt: new Date() })
           .where(eq(produto.id, p.id));
         novos.push(p.nome);
+        idsMudados.push(p.id);
       } else if (!agora && p.pausadoEstoque) {
         await this.db
           .update(produto)
           .set({ pausadoEstoque: false, pausaMotivo: null, updatedAt: new Date() })
           .where(eq(produto.id, p.id));
+        idsMudados.push(p.id);
       }
     }
+    // Flash-sync: no edge, empurra a disponibilidade para o cardápio ONLINE em
+    // segundos (bloqueia novos pedidos do item esgotado) sem esperar o ciclo do sync.
+    if (idsMudados.length) void this.flash.flashProdutos(idsMudados);
 
     if (novos.length) {
       const titulo = `Produto esgotado no cardápio`;
@@ -186,13 +200,16 @@ export class CardapioService {
   }
 
   async getConfig(tenantId: string, unidadeId?: string | null) {
-    return (
-      (await this.configRaw(tenantId, unidadeId)) ?? {
-        ativo: false,
-        modo: 'mesa',
-        token: null,
-      }
-    );
+    // Base pública do cardápio digital: SEMPRE a nuvem (o cliente scaneia o QR com
+    // o próprio celular, fora da rede da loja). Mesmo no edge/modo local, o link/QR
+    // aponta para a nuvem; o pedido cai lá e o edge puxa via sync. Nunca é local.
+    const cardapioBaseUrl = (
+      process.env.CARDAPIO_PUBLIC_URL ||
+      process.env.APP_URL ||
+      'https://app.dmsregem.com'
+    ).replace(/\/$/, '');
+    const row = await this.configRaw(tenantId, unidadeId);
+    return { ...(row ?? { ativo: false, modo: 'mesa', token: null }), cardapioBaseUrl };
   }
 
   // Campos de "dados da loja" (identidade + endereço + coords) — só o presidente/C&O
@@ -697,7 +714,7 @@ export class CardapioService {
     const catsRaw = await this.db
       .select()
       .from(categoriaProduto)
-      .where(eq(categoriaProduto.tenantId, cfg.tenantId))
+      .where(and(eq(categoriaProduto.tenantId, cfg.tenantId), isNull(categoriaProduto.deletedAt)))
       .orderBy(categoriaProduto.ordem);
     // Só as categorias disponíveis agora (janelas dias/horários); vazio = sempre.
     const cats = catsRaw.filter((c: any) => c.ativo !== false && categoriaDisponivelAgora(c.disponibilidade));
@@ -729,6 +746,7 @@ export class CardapioService {
             and(
               eq(complementoGrupo.tenantId, cfg.tenantId),
               inArray(complementoGrupo.produtoId, ids),
+              isNull(complementoGrupo.deletedAt),
             ),
           )
           .orderBy(complementoGrupo.ordem)
@@ -737,7 +755,7 @@ export class CardapioService {
       ? await this.db
           .select()
           .from(complementoOpcao)
-          .where(eq(complementoOpcao.tenantId, cfg.tenantId))
+          .where(and(eq(complementoOpcao.tenantId, cfg.tenantId), isNull(complementoOpcao.deletedAt)))
           .orderBy(complementoOpcao.ordem)
       : [];
     const variacoes = ids.length
@@ -1226,6 +1244,19 @@ export class CardapioService {
     };
   }
 
+  // A loja está operando em MODO LOCAL? = tem um servidor edge com heartbeat recente
+  // (últimos ~3 min). Usado pela nuvem para adiar a materialização e deixar o edge
+  // processar o pedido online localmente.
+  private async lojaComEdgeAtivo(tenantId: string): Promise<boolean> {
+    const limite = new Date(Date.now() - 3 * 60 * 1000);
+    const [hb] = await this.db
+      .select({ id: edgeHeartbeat.id })
+      .from(edgeHeartbeat)
+      .where(and(eq(edgeHeartbeat.tenantId, tenantId), gte(edgeHeartbeat.recebidoEm, limite)))
+      .limit(1);
+    return !!hb;
+  }
+
   async receberPedido(
     token: string,
     dto: {
@@ -1512,7 +1543,11 @@ export class CardapioService {
 
     // Envio automático ao KDS: aceita o pedido na hora (cria comanda + produção
     // com senha local + selo da plataforma). Orçamento (indústria) não produz.
-    if (cfg.autoKds !== false && !orcamento && (ped as any)?.status === 'novo') {
+    // P1: se a loja tem servidor EDGE ativo (modo local), a NUVEM NÃO materializa —
+    // deixa o pedido em 'novo' para DESCER pelo sync e o edge processá-lo localmente
+    // (o processador do edge chama aceitar lá). No próprio edge (EDGE_MODE) sempre aceita.
+    const deferirParaEdge = !ehEdge() && (await this.lojaComEdgeAtivo(cfg.tenantId));
+    if (cfg.autoKds !== false && !orcamento && (ped as any)?.status === 'novo' && !deferirParaEdge) {
       try {
         await this.delivery.aceitar(cfg.tenantId, null, ped.id);
       } catch {
