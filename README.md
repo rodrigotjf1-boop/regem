@@ -1,6 +1,11 @@
-# Regen
+# Regem
 
 Plataforma de gestão administrativa e operacional **modular, configurável e revendável**, com hierarquia completa do dono à ponta. Âncora de validação (MVP): **food service — bares, restaurantes e fast foods**.
+
+> **Fonte da verdade:** este README é um resumo de alto nível. As regras e o estado
+> atuais vivem em [`CLAUDE.md`](CLAUDE.md) e em [`docs/`](docs/) (especificação,
+> decisões de design, lógica de negócio). O deploy real está em
+> [`DEPLOY-EASYPANEL.md`](DEPLOY-EASYPANEL.md) (EasyPanel na VPS + Supabase).
 
 ## Arquitetura (resumo)
 
@@ -27,7 +32,7 @@ Layout e UX são **prioridade de produto** (usabilidade define a adesão). Const
 
 - **Banco:** PostgreSQL (nuvem) + réplica/nó local.
 - **API:** versionada (`/api/v1/...`), contratos/DTO estáveis, `api_client` + scopes (amarrados a entitlements), webhooks alimentados pelo outbox. **API externa vive na nuvem.**
-- **Front-end:** a definir (responsivo, mobile-first para o app do gerente).
+- **Front-end:** Next.js 14 (App Router) + Tailwind (responsivo, mobile-first para o app do gerente).
 
 ## Estrutura
 

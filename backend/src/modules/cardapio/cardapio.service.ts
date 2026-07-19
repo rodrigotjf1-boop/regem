@@ -257,6 +257,28 @@ export class CardapioService {
         dto.freteGratisAcima != null ? String(dto.freteGratisAcima) : row?.freteGratisAcima ?? null,
       pagamentos: dto.pagamentos ?? row?.pagamentos ?? [],
       fidelidadeAtiva: dto.fidelidadeAtiva != null ? !!dto.fidelidadeAtiva : row?.fidelidadeAtiva ?? false,
+      // Regras de estorno/empilhamento (mig 125) — a loja configura.
+      cancelamentoEstornaCashback:
+        dto.cancelamentoEstornaCashback != null
+          ? !!dto.cancelamentoEstornaCashback
+          : row?.cancelamentoEstornaCashback ?? true,
+      cupomBloqueiaComResgate:
+        dto.cupomBloqueiaComResgate != null
+          ? !!dto.cupomBloqueiaComResgate
+          : row?.cupomBloqueiaComResgate ?? false,
+      // Front envia o teto em REAIS (null/'' = sem limite); guardamos em centavos.
+      cupomMaxCashbackCent:
+        'cupomMaxCashbackReais' in dto
+          ? dto.cupomMaxCashbackReais == null ||
+            dto.cupomMaxCashbackReais === '' ||
+            Number(dto.cupomMaxCashbackReais) <= 0
+            ? null
+            : Math.round(Number(dto.cupomMaxCashbackReais) * 100)
+          : row?.cupomMaxCashbackCent ?? null,
+      fidelidadeIntervaloHoras:
+        dto.fidelidadeIntervaloHoras != null
+          ? Math.max(0, Math.floor(Number(dto.fidelidadeIntervaloHoras) || 0))
+          : row?.fidelidadeIntervaloHoras ?? 3,
       whatsapp: dto.whatsapp ?? row?.whatsapp ?? null,
       parcelasMax:
         dto.parcelasMax != null ? Number(dto.parcelasMax) || null : row?.parcelasMax ?? null,
@@ -1488,16 +1510,57 @@ export class CardapioService {
             .filter((s) => s && s.trim())
             .join(' · ') || dto.endereco
         : undefined;
-    const cup = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
-      telefone: dto.telefone,
-    });
-    // Descontos acumulados em CENTAVOS (cupom + prêmio + cashback) — sem drift.
-    let descontoCent = cup.valido ? paraCentavos(cup.desconto) : 0;
-    if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
-    // Prêmio de fidelidade resgatado: abate automático no pedido.
-    const premio = cfg.fidelidadeAtiva
+    const avisos: string[] = [];
+    // ── Prêmio de fidelidade (resgate) — avaliado ANTES do cupom p/ aplicar as regras.
+    let premio: any = cfg.fidelidadeAtiva
       ? await this.fidelidade.avaliarPremio(cfg.tenantId, dto.resgateId, dto.telefone ?? '', itensOut, total)
       : { desconto: 0 };
+    // Regra: em ENTREGA o resgate exige o PEDIDO MÍNIMO em ITENS (a taxa não conta).
+    if ((premio.desconto || 0) > 0 && tipo === 'entrega' && cfg.pedidoMinimo != null) {
+      const minimo = Number(cfg.pedidoMinimo) || 0;
+      if (total < minimo) {
+        premio = { desconto: 0 };
+        avisos.push(
+          `O resgate da fidelidade exige pedido mínimo de R$ ${minimo.toFixed(2)} em itens ` +
+            `(a taxa de entrega não conta). Complete o mínimo para usar o resgate.`,
+        );
+      }
+    }
+    const temResgate = (premio.desconto || 0) > 0;
+
+    // ── Cashback (PREVIEW) sobre o que sobra após o prêmio — base p/ a regra do cupom.
+    const baseCashbackPrev = Math.max(
+      0,
+      paraReais(somarCentavos(totalCent, -paraCentavos(premio.desconto || 0))),
+    );
+    const cbPrev =
+      dto.usarCashback === false
+        ? { saldoUsado: 0 }
+        : await this.cashback.avaliarDescontos(cfg.tenantId, dto.telefone ?? '', baseCashbackPrev);
+    const cashbackUsadoCent = paraCentavos(cbPrev.saldoUsado || 0);
+
+    // ── Cupom — com as regras configuráveis de empilhamento.
+    let cup: any = await this.avaliarCupom(cfg.tenantId, dto.cupom ?? '', total, {
+      telefone: dto.telefone,
+    });
+    if (cup.valido && cfg.cupomBloqueiaComResgate && temResgate) {
+      avisos.push('Cupom não pode ser usado em pedido com resgate de fidelidade.');
+      cup = { valido: false, desconto: 0, freteGratis: false };
+    } else if (
+      cup.valido &&
+      cfg.cupomMaxCashbackCent != null &&
+      cashbackUsadoCent > Number(cfg.cupomMaxCashbackCent)
+    ) {
+      avisos.push(
+        `Cupom não permitido: o cashback usado (R$ ${(cashbackUsadoCent / 100).toFixed(2)}) passa do ` +
+          `limite de R$ ${(Number(cfg.cupomMaxCashbackCent) / 100).toFixed(2)} definido pela loja.`,
+      );
+      cup = { valido: false, desconto: 0, freteGratis: false };
+    }
+
+    // ── Descontos acumulados em CENTAVOS: cupom → prêmio → cashback (sem drift).
+    let descontoCent = cup.valido ? paraCentavos(cup.desconto) : 0;
+    if (cup.valido && cup.freteGratis) taxa = 0; // cupom de frete grátis zera a entrega
     descontoCent = somarCentavos(descontoCent, paraCentavos(premio.desconto || 0));
     // Cashback: aplica saldo (valor) + vales (produto) sobre o que restou.
     // O cliente pode optar por NÃO usar o saldo (usarCashback=false).
@@ -1510,6 +1573,8 @@ export class CardapioService {
             Math.max(0, paraReais(somarCentavos(totalCent, -descontoCent))),
           );
     descontoCent = somarCentavos(descontoCent, paraCentavos(cb.desconto || 0));
+    // Trava contábil: o desconto total nunca passa do subtotal dos itens.
+    if (descontoCent > totalCent) descontoCent = totalCent;
     const desconto = paraReais(descontoCent); // reais na fronteira (gravação/resposta)
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
@@ -1517,11 +1582,15 @@ export class CardapioService {
     const online = !orcamento && (forma === 'pix' || forma === 'cartao');
     const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 
-    // Senha PRÓPRIA do cardápio (contador sequencial por tenant do canal).
-    const cnt: any = await this.db.execute(
-      sql`select count(*)::int as c from pedido_externo where tenant_id = ${cfg.tenantId} and canal = 'cardapio'`,
-    );
-    const senhaCardapio = String((((cnt.rows ?? cnt)[0]?.c ?? 0) as number) + 1);
+    // Senha PRÓPRIA do cardápio — contador ATÔMICO por tenant/canal. O upsert
+    // "on conflict do update ... returning" serializa no banco: dois pedidos
+    // simultâneos nunca recebem a mesma senha (corrige a colisão do count(*)+1).
+    const seq: any = await this.db.execute(sql`
+      insert into cardapio_senha_seq (tenant_id, canal, ultimo) values (${cfg.tenantId}, 'cardapio', 1)
+      on conflict (tenant_id, canal) do update set ultimo = cardapio_senha_seq.ultimo + 1
+      returning ultimo
+    `);
+    const senhaCardapio = String((seq.rows ?? seq)[0]?.ultimo ?? 1);
 
     const ped = await this.delivery.ingest(
       cfg.tenantId,
@@ -1648,17 +1717,28 @@ export class CardapioService {
       }
     }
 
-    // Fidelidade (L5): pontua os planos que o pedido atende (dedupe por pedido).
+    // Fidelidade (L5): pontua os planos que o pedido atende (dedupe por pedido),
+    // respeitando o intervalo mínimo entre pedidos (config da loja, padrão 3h).
     let fidelidade: any;
     if (cfg.fidelidadeAtiva && dto.telefone && ped?.id) {
       try {
-        fidelidade = await this.fidelidade.pontuarPedido(cfg.tenantId, {
-          telefone: dto.telefone,
-          clienteId: clienteId ?? undefined,
-          nome: dto.cliente,
-          pedidoId: ped.id,
-          produtoIds: ids,
-        });
+        fidelidade = await this.fidelidade.pontuarPedido(
+          cfg.tenantId,
+          {
+            telefone: dto.telefone,
+            clienteId: clienteId ?? undefined,
+            nome: dto.cliente,
+            pedidoId: ped.id,
+            produtoIds: ids,
+          },
+          cfg.fidelidadeIntervaloHoras ?? 3,
+        );
+        if (fidelidade?.aguardeIntervalo) {
+          avisos.push(
+            `Este pedido não pontuou na fidelidade: aguarde ao menos ` +
+              `${fidelidade.intervaloHoras ?? cfg.fidelidadeIntervaloHoras ?? 3}h entre pedidos para acumular pontos.`,
+          );
+        }
       } catch {
         /* fidelidade nunca quebra o pedido */
       }
@@ -1678,6 +1758,7 @@ export class CardapioService {
       pontos: fidelidade?.pontosGanhos ?? undefined,
       fidelidade: fidelidade ?? null,
       premioAplicado: (premio as any).desconto > 0 ? { plano: (premio as any).plano, desconto: (premio as any).desconto } : null,
+      avisos, // mensagens informativas (regras de cupom/resgate/pontuação) p/ o cliente
       clienteToken: clienteTokenOut, // identidade do cliente (guardar no navegador)
     };
   }

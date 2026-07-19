@@ -46,6 +46,10 @@ const PUSH_TABLES = [
   { tabela: 'produto_complemento', cursor: 'updated_at' },
   { tabela: 'complemento_grupo', cursor: 'updated_at' },
   { tabela: 'complemento_opcao', cursor: 'updated_at' },
+  // Cadastros bidirecionais (LWW): compra/recebimento no edge cria/edita fornecedor
+  // e insumo localmente — precisam SUBIR (fornecedor antes de item_estoque por FK).
+  { tabela: 'fornecedor', cursor: 'updated_at' },
+  { tabela: 'item_estoque', cursor: 'updated_at' },
   { tabela: 'caixa_sessao', cursor: 'updated_at' },
   { tabela: 'comanda', cursor: 'updated_at' },
   { tabela: 'comanda_item', cursor: 'updated_at' },

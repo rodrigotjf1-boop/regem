@@ -179,9 +179,10 @@ export class FidelidadeService {
   async pontuarPedido(
     tenantId: string,
     dados: { telefone?: string; clienteId?: string; nome?: string; pedidoId: string; produtoIds: string[] },
+    intervaloHoras = 3,
   ) {
     const tel = soDigitos(dados.telefone);
-    if (!tel) return { pontosGanhos: 0, premios: [] as any[] };
+    if (!tel) return { pontosGanhos: 0, premios: [] as any[], aguardeIntervalo: false };
     const planos = await this.db
       .select()
       .from(fidelidadePlano)
@@ -192,7 +193,32 @@ export class FidelidadeService {
           eq(fidelidadePlano.status, 'ativo'),
         ),
       );
-    if (!planos.length) return { pontosGanhos: 0, premios: [] as any[] };
+    if (!planos.length) return { pontosGanhos: 0, premios: [] as any[], aguardeIntervalo: false };
+
+    // Anti-abuso: exige um intervalo mínimo entre pedidos que pontuam (o lojista
+    // configura; padrão 3h). Sem isso, o cliente fatia pedidos p/ acumular rápido.
+    const horas = Math.max(0, Number(intervaloHoras) || 0);
+    let aguardeIntervalo = false;
+    if (horas > 0) {
+      const desde = new Date(Date.now() - horas * 3600000);
+      const [recente] = await this.db
+        .select({ id: fidelidadePonto.id })
+        .from(fidelidadePonto)
+        .where(
+          and(
+            eq(fidelidadePonto.tenantId, tenantId),
+            eq(fidelidadePonto.telefone, tel),
+            eq(fidelidadePonto.estornado, false),
+            gte(fidelidadePonto.criadoEm, desde),
+            sql`${fidelidadePonto.pedidoId} <> ${dados.pedidoId}`,
+          ),
+        )
+        .limit(1);
+      if (recente) {
+        // Pontuou há menos que o intervalo → não credita agora (informa o cliente).
+        return { pontosGanhos: 0, premios: [] as any[], aguardeIntervalo: true, intervaloHoras: horas };
+      }
+    }
 
     // Categorias dos produtos do pedido (para qualificador 'categoria').
     const ids = [...new Set(dados.produtoIds)].filter(Boolean);
@@ -232,16 +258,22 @@ export class FidelidadeService {
       let novo = (await this.saldo(tenantId, plano.id, tel)) + 1;
       if (novo >= plano.pontosMeta) {
         novo -= plano.pontosMeta;
-        const resg = await this.gerarResgate(tenantId, plano, tel, dados.clienteId);
+        const resg = await this.gerarResgate(tenantId, plano, tel, dados.clienteId, dados.pedidoId);
         premios.push({ plano: plano.nome, recompensa: descreverRecompensa(plano), resgateId: resg.id });
       }
       await this.setSaldo(tenantId, plano.id, tel, novo, dados.nome, dados.clienteId);
     }
-    return { pontosGanhos, premios };
+    return { pontosGanhos, premios, aguardeIntervalo: false };
   }
 
-  // Estorno: pedido cancelado (mesmo após finalizado) devolve os pontos que
-  // gerou em cada plano. Marca o ponto como estornado (idempotente).
+  // Estorno da fidelidade num pedido cancelado (perda FIXA — a loja não configura):
+  //  - devolve (rola) o ponto ganho por este pedido em cada plano;
+  //  - se o ponto COMPLETOU a meta e gerou um prêmio, remove o prêmio e faz o rollback
+  //    da pontuação (soma a meta de volta ao saldo) — desde que o prêmio ainda não
+  //    tenha sido USADO em outro pedido;
+  //  - restaura o prêmio que o cliente CONSUMIU neste pedido (volta a 'resgatado'),
+  //    pois o pedido não aconteceu.
+  // Idempotente: marca o ponto como estornado; roda só sobre pontos não estornados.
   async estornarPedido(tenantId: string, pedidoId: string) {
     const pontos = await this.db
       .select()
@@ -253,15 +285,59 @@ export class FidelidadeService {
           eq(fidelidadePonto.estornado, false),
         ),
       );
+    let premiosPerdidos = 0;
     for (const pt of pontos) {
+      const [plano] = await this.db
+        .select({ pontosMeta: fidelidadePlano.pontosMeta })
+        .from(fidelidadePlano)
+        .where(eq(fidelidadePlano.id, pt.planoId));
+      const meta = plano?.pontosMeta ?? 1;
+      // Prêmio(s) que ESTE pedido gerou neste plano (e que ainda não foram usados).
+      const gerados = await this.db
+        .select({ id: fidelidadeResgate.id })
+        .from(fidelidadeResgate)
+        .where(
+          and(
+            eq(fidelidadeResgate.tenantId, tenantId),
+            eq(fidelidadeResgate.geradoPorPedidoId, pedidoId),
+            eq(fidelidadeResgate.planoId, pt.planoId),
+            sql`${fidelidadeResgate.status} in ('disponivel','resgatado')`,
+          ),
+        );
       const saldo = await this.saldo(tenantId, pt.planoId, pt.telefone);
-      await this.setSaldo(tenantId, pt.planoId, pt.telefone, Math.max(0, saldo - 1));
+      if (gerados.length) {
+        // Rollback da meta: o ponto tinha "dado a volta" no saldo. Remove o prêmio e
+        // devolve a meta menos o ponto deste pedido.
+        await this.db.delete(fidelidadeResgate).where(
+          inArray(fidelidadeResgate.id, gerados.map((g) => g.id)),
+        );
+        premiosPerdidos += gerados.length;
+        await this.setSaldo(tenantId, pt.planoId, pt.telefone, Math.max(0, saldo - 1 + meta * gerados.length));
+      } else {
+        await this.setSaldo(tenantId, pt.planoId, pt.telefone, Math.max(0, saldo - 1));
+      }
       await this.db
         .update(fidelidadePonto)
         .set({ estornado: true })
         .where(eq(fidelidadePonto.id, pt.id));
     }
-    return { estornados: pontos.length };
+    // Prêmio que o cliente USOU neste pedido volta a ficar disponível para resgate.
+    const restaurados = await this.db
+      .update(fidelidadeResgate)
+      .set({ status: 'resgatado', pedidoId: null })
+      .where(
+        and(
+          eq(fidelidadeResgate.tenantId, tenantId),
+          eq(fidelidadeResgate.pedidoId, pedidoId),
+          eq(fidelidadeResgate.status, 'usado'),
+        ),
+      )
+      .returning({ id: fidelidadeResgate.id });
+    return {
+      estornados: pontos.length,
+      premiosPerdidos,
+      premiosRestaurados: restaurados.length,
+    };
   }
 
   // ===== Público (por token, via CardapioService) =====
@@ -496,13 +572,26 @@ export class FidelidadeService {
       .values({ tenantId, planoId, telefone: tel, nome: nome ?? null, clienteId: clienteId ?? null, pontos });
   }
 
-  private async gerarResgate(tenantId: string, plano: any, tel: string, clienteId?: string) {
+  private async gerarResgate(
+    tenantId: string,
+    plano: any,
+    tel: string,
+    clienteId?: string,
+    geradoPorPedidoId?: string,
+  ) {
     const prazoEm = plano.prazoResgateDias
       ? new Date(Date.now() + Number(plano.prazoResgateDias) * 86400000)
       : null;
     const [row] = await this.db
       .insert(fidelidadeResgate)
-      .values({ tenantId, planoId: plano.id, telefone: tel, clienteId: clienteId ?? null, prazoEm })
+      .values({
+        tenantId,
+        planoId: plano.id,
+        telefone: tel,
+        clienteId: clienteId ?? null,
+        prazoEm,
+        geradoPorPedidoId: geradoPorPedidoId ?? null,
+      })
       .returning({ id: fidelidadeResgate.id });
     return row;
   }

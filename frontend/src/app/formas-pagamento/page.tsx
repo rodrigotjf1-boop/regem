@@ -124,7 +124,7 @@ export default function FormasPagamentoPage() {
             <CardOnline
               icon={Landmark}
               titulo="Pix automático online"
-              sub="(Tuna)"
+              sub="(Mercado Pago ou Iugu)"
               linhas={[
                 ['Agilidade', 'Pagamento identificado na hora, sem comprovante.'],
                 ['Fluxo de caixa', 'Dinheiro na conta em 1 dia útil.'],
@@ -215,7 +215,7 @@ function CardOnline({ icon: Icon, titulo, sub, linhas, botao }: any) {
             <p className="text-xs text-muted-foreground">{sub}</p>
           </div>
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={() => toast.info('Integração online em breve.')}>
+        <Button type="button" variant="outline" size="sm" onClick={() => toast.info('Pagamento online se configura em Delivery · Integrações (Mercado Pago / Iugu).')}>
           {botao}
         </Button>
       </div>

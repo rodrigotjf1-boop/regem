@@ -1,4 +1,4 @@
-# Deploy do Regen no EasyPanel (VPS)
+# Deploy do Regem no EasyPanel (VPS)
 
 Hospeda tudo na sua **VPS Hostinger** com **EasyPanel** (já instalado), sob o seu domínio.
 Arquitetura: **frontend + backend** na sua VPS (Docker via EasyPanel) · **DB** no Supabase.
@@ -9,7 +9,7 @@ Suposição de domínios (troque pelos seus):
 
 ## 0. Pré-requisitos
 - Código no **GitHub** (o EasyPanel faz deploy a partir do repo).
-- DB no **Supabase** com migrations `001`–`006` aplicadas.
+- DB no **Supabase** com **todas as migrations** (`001`..N) aplicadas — use `node backend/scripts/apply-all-prod.mjs --sim` com o `.env` apontando pro banco de produção.
 - Apontar no seu provedor de DNS os subdomínios `api` e `app` para o IP da VPS
   (o EasyPanel emite o HTTPS automaticamente via Let's Encrypt).
 
@@ -60,7 +60,7 @@ git push -u origin main
 - Login no app → **Cadastros → Aplicar Food Service** → navegue.
 
 ## Notas
-- **Convive com o n8n:** o EasyPanel roteia cada serviço pelo seu domínio; Regen e n8n coexistem na mesma VPS sem conflito.
+- **Convive com o n8n:** o EasyPanel roteia cada serviço pelo seu domínio; Regem e n8n coexistem na mesma VPS sem conflito.
 - **Deploy automático:** ligue o auto-deploy no push (ou clique em Deploy a cada `git push`).
 - **Migrations futuras:** rode `node backend/scripts/apply-sql.mjs ../database/migrations/NNN.sql` com o `.env` apontando para o banco de produção, ou cole o SQL no editor do Supabase.
 - **DB próprio (opcional):** dá para criar um serviço **Postgres** no próprio EasyPanel e migrar do Supabase depois; por ora, manter o Supabase é mais simples.

@@ -43,7 +43,11 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // online. Regeração/exclusão propaga por deleted_at; updated_at (mig 118) guia o push.
   { tabela: 'complemento_grupo', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'complemento_opcao', direcao: 'ambos', cursor: 'updated_at' },
-  // Bidirecional (LWW)
+  // Bidirecional (LWW) — INTENCIONAL: são cadastros, mas editáveis TANTO na nuvem
+  // quanto no edge (compra/recebimento no local cria item/fornecedor). Diferente de
+  // empresa/colaborador (só descem), aqui a última escrita vence por updated_at, então
+  // uma edição na nuvem pode sobrescrever a local (e vice-versa) — aceitável porque o
+  // dado é o mesmo cadastro e o conflito real é raro.
   { tabela: 'item_estoque', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'fornecedor', direcao: 'ambos', cursor: 'updated_at' },
   // Operacional (local → nuvem) — usadas no push (slice 2); cursor por criação.

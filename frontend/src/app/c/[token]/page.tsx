@@ -676,7 +676,7 @@ export default function CardapioPublicoPage() {
       setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setCheckout(false);
       if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
-      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null });
+      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null, avisos: Array.isArray(r.avisos) ? r.avisos : [] });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -773,6 +773,11 @@ export default function CardapioPublicoPage() {
           {ped.orcamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Orçamento solicitado — em breve retornamos com a proposta.</p>}
           {ped.agendamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Agendado para {new Date(ped.agendamento).toLocaleString('pt-BR')}.</p>}
           {ped.pontos != null && <p className="mt-3 text-sm font-semibold" style={{ color: accent }}>⭐ Você tem {ped.pontos} pontos de fidelidade.</p>}
+          {Array.isArray(ped.avisos) && ped.avisos.length > 0 && (
+            <div className="mt-3 space-y-1 rounded-xl bg-amber-50 px-3 py-2 text-left text-sm text-amber-800">
+              {ped.avisos.map((a: string, i: number) => <p key={i}>ℹ️ {a}</p>)}
+            </div>
+          )}
           {ped.pedidoId && ped.status !== 'cancelado' && (
             <a
               href={`/c/${token}/pedido/${ped.pedidoId}${ped.ref ? `?ref=${encodeURIComponent(ped.ref)}` : ''}`}

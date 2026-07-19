@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { brl, getClienteToken, setClienteToken } from './tipos';
+import { brl, getClienteToken, setClienteToken, limparCliente } from './tipos';
 import { buscarCep, localizacaoAtual } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -111,9 +111,9 @@ export function ClientePanel({
     await api.clienteRemEndereco(token, id, clienteToken).catch(() => {});
     await carregar();
   }
-  // Sair: só desconecta este aparelho (não apaga a conta).
+  // Sair: desconecta este aparelho (não apaga a conta) e limpa o PII local (LGPD).
   function sair() {
-    setClienteToken(token, null);
+    limparCliente(token);
     setPerfil(null);
     onClose();
   }
@@ -152,7 +152,7 @@ export function ClientePanel({
         nome: perfil?.cliente?.nome ?? 'Cliente',
       });
       await api.clienteEsquecer(token, clienteToken).catch(() => {});
-      setClienteToken(token, null);
+      limparCliente(token);
       setPerfil(null);
       setExcluir(null);
       onClose();

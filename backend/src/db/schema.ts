@@ -1797,6 +1797,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
   alterado: boolean('alterado').notNull().default(false),
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ contrato do sync 'ambos' (mig 125); na prática só cancela por status
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
@@ -2008,6 +2009,11 @@ export const cardapioConfig = pgTable('cardapio_config', {
   roboMensagens: jsonb('robo_mensagens').notNull().default('[]'), // [{gatilho, resposta}]
   evolutionInstancia: text('evolution_instancia'), // instância WhatsApp (chave do bot multi-tenant)
   evolutionNumero: text('evolution_numero'), // número conectado (quando pareado)
+  // Regras de estorno/empilhamento de desconto (mig 125) — a loja configura.
+  cancelamentoEstornaCashback: boolean('cancelamento_estorna_cashback').notNull().default(true),
+  cupomBloqueiaComResgate: boolean('cupom_bloqueia_com_resgate').notNull().default(false),
+  cupomMaxCashbackCent: integer('cupom_max_cashback_cent'), // null = sem limite
+  fidelidadeIntervaloHoras: integer('fidelidade_intervalo_horas').notNull().default(3),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2192,8 +2198,9 @@ export const fidelidadeResgate = pgTable('fidelidade_resgate', {
   ganhoEm: timestamp('ganho_em', { withTimezone: true }).notNull().defaultNow(),
   prazoEm: timestamp('prazo_em', { withTimezone: true }),
   resgatadoEm: timestamp('resgatado_em', { withTimezone: true }),
-  pedidoId: uuid('pedido_id'),
-  status: text('status').notNull().default('disponivel'), // disponivel | resgatado | expirado
+  pedidoId: uuid('pedido_id'), // pedido em que o prêmio foi USADO
+  geradoPorPedidoId: uuid('gerado_por_pedido_id'), // pedido que GEROU o prêmio (rollback no cancelamento, mig 125)
+  status: text('status').notNull().default('disponivel'), // disponivel | resgatado | usado | expirado
 });
 
 // ===== Cashback (concorre com Fidelidade) =====

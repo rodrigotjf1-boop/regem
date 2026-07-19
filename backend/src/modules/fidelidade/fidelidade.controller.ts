@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -9,7 +11,8 @@ import { FidelidadeService } from './fidelidade.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Gestão dos planos de fidelidade (Delivery · Config). Só gestor.
 @Controller('fidelidade')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@RequirePerm('fidelidade')
 export class FidelidadeController {
   constructor(private readonly service: FidelidadeService) {}
 

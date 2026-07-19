@@ -14,10 +14,13 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   cardapioConfig,
+  cashbackMovimento,
+  cashbackVale,
   cliente,
   clienteEndereco,
   clienteLink,
   clienteOtp,
+  fidelidadePonto,
   fidelidadeResgate,
   integracao,
   pedidoExterno,
@@ -535,7 +538,9 @@ export class ClienteService {
     if (['despachado', 'concluido', 'cancelado'].includes(p.status)) {
       throw new BadRequestException('Este pedido não pode mais ser cancelado.');
     }
-    return this.atendimento.abrir(c.tenantId, p.unidadeId ?? null, {
+    // Transparência: avisa o cliente o que ele PERDE ao cancelar (antes de confirmar).
+    const avisos = await this.avisosCancelamento(c.tenantId, p.id);
+    const chamado = await this.atendimento.abrir(c.tenantId, p.unidadeId ?? null, {
       tipo: 'cancelamento',
       cliente: c.nome ?? undefined,
       telefone: c.telefone ?? undefined,
@@ -543,6 +548,63 @@ export class ClienteService {
       pedidoId: p.id,
       mensagem: 'Cliente solicitou o cancelamento do pedido pelo cardápio.',
     });
+    return { ...(chamado as any), avisos };
+  }
+
+  // Mensagens do que o cliente perde ao cancelar: cashback GASTO (se a loja não
+  // devolve) e os pontos de fidelidade GANHOS no pedido (perda fixa). Só leitura.
+  private async avisosCancelamento(tenantId: string, pedidoId: string): Promise<string[]> {
+    const avisos: string[] = [];
+    const [cfgLoja] = await this.db
+      .select({ estorna: cardapioConfig.cancelamentoEstornaCashback })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId))
+      .limit(1);
+    if (cfgLoja?.estorna === false) {
+      const movs = await this.db
+        .select({ delta: cashbackMovimento.delta })
+        .from(cashbackMovimento)
+        .where(
+          and(
+            eq(cashbackMovimento.tenantId, tenantId),
+            eq(cashbackMovimento.pedidoId, pedidoId),
+            eq(cashbackMovimento.origem, 'resgate'),
+            eq(cashbackMovimento.tipo, 'valor'),
+          ),
+        );
+      const gasto = movs.reduce((a, m) => a + -Number(m.delta), 0);
+      const vales = await this.db
+        .select({ id: cashbackVale.id })
+        .from(cashbackVale)
+        .where(
+          and(
+            eq(cashbackVale.tenantId, tenantId),
+            eq(cashbackVale.pedidoId, pedidoId),
+            eq(cashbackVale.status, 'usado'),
+          ),
+        );
+      if (gasto > 0 || vales.length) {
+        avisos.push(
+          `Ao cancelar você NÃO recebe de volta o cashback usado` +
+            `${gasto > 0 ? ` (R$ ${gasto.toFixed(2)})` : ''}` +
+            `${vales.length ? ` e perde ${vales.length} vale(s) resgatado(s)` : ''}.`,
+        );
+      }
+    }
+    const pts = await this.db
+      .select({ id: fidelidadePonto.id })
+      .from(fidelidadePonto)
+      .where(
+        and(
+          eq(fidelidadePonto.tenantId, tenantId),
+          eq(fidelidadePonto.pedidoId, pedidoId),
+          eq(fidelidadePonto.estornado, false),
+        ),
+      );
+    if (pts.length) {
+      avisos.push('Os pontos de fidelidade ganhos neste pedido serão cancelados ao cancelar o pedido.');
+    }
+    return avisos;
   }
 
   // Cliente pede uma ALTERAÇÃO (endereço / no pedido / forma de pagamento).
