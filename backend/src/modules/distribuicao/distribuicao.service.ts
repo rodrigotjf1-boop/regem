@@ -180,6 +180,41 @@ export class DistribuicaoService {
     return { ok: true };
   }
 
+  // ===== Fase 4: publicar release + comandos remotos =====
+
+  // Publica um release (o edge lê daqui no update-check em vez do env do EasyPanel).
+  async publicarRelease(dto: any, autor: any) {
+    const versao = String(dto?.versao ?? '').trim();
+    const url = String(dto?.url ?? '').trim();
+    const sha256 = String(dto?.sha256 ?? '').trim().toLowerCase();
+    const notas = dto?.notas ? String(dto.notas).slice(0, 1000) : null;
+    if (!versao || !/^https?:\/\//.test(url) || !/^[0-9a-f]{64}$/.test(sha256)) {
+      throw new BadRequestException('Informe versão, URL (https) e SHA-256 válidos.');
+    }
+    await this.db.execute(sql`
+      insert into edge_release (versao, url, sha256, notas, publicado_por)
+      values (${versao}, ${url}, ${sha256}, ${notas}, ${autor?.nome ?? null})`);
+    await this.auditar(autor, 'publicou_release', versao, { url });
+    return { ok: true, versao };
+  }
+
+  async releases() {
+    const r: any = await this.db.execute(sql`
+      select versao, url, sha256, notas, publicado_por as "publicadoPor", publicado_em as "publicadoEm"
+      from edge_release order by publicado_em desc limit 30`);
+    return r.rows ?? r;
+  }
+
+  // Enfileira um comando remoto p/ o edge de uma loja (o daemon busca e executa).
+  async comandoRemoto(tenantId: string, comando: string, autor: any) {
+    if (!['rollback', 'reprocessar'].includes(comando)) throw new BadRequestException('Comando inválido.');
+    await this.db.execute(sql`
+      insert into edge_comando (tenant_id, comando, solicitado_por)
+      values (${tenantId}, ${comando}, ${autor?.nome ?? null})`);
+    await this.auditar(autor, `comando_${comando}`, tenantId);
+    return { ok: true };
+  }
+
   // Auditoria imutável (append-only). Nunca deve quebrar a ação principal.
   async auditar(autor: any, acao: string, alvo?: string | null, detalhe: any = {}, ip?: string) {
     try {

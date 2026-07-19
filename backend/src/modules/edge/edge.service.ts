@@ -19,6 +19,16 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 
 const pExecFile = promisify(execFile);
 
+// LGPD: redige dados pessoais (e-mail/CPF/CNPJ/telefone) de textos de telemetria.
+function redigirPII(s: string | null): string | null {
+  if (!s) return s;
+  return s
+    .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '<email>')
+    .replace(/\b\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}\b/g, '<cnpj>')
+    .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '<cpf>')
+    .replace(/\b(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}-?\d{4}\b/g, '<tel>');
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Descoberta do servidor local na LAN. SÓ roda no edge (EDGE_MODE=true) — a
 // nuvem não anuncia mDNS. Publica `_regem._tcp` + hostname `regem.local` para
@@ -229,11 +239,13 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     const origem = String(dto?.origem ?? 'outro').slice(0, 20);
     const tipo = dto?.tipo ? String(dto.tipo).slice(0, 60) : null;
     const nivel = ['warn', 'error', 'fatal'].includes(dto?.nivel) ? dto.nivel : 'error';
-    const mensagem = String(dto?.mensagem ?? dto?.erro ?? 'erro').slice(0, 2000);
+    // LGPD: redige PII (e-mail/CPF/CNPJ/telefone) antes de persistir — o técnico
+    // vê o erro técnico, não dado pessoal do cliente da loja.
+    const mensagem = redigirPII(String(dto?.mensagem ?? dto?.erro ?? 'erro').slice(0, 2000)) ?? 'erro';
     const stack = dto?.stack
-      ? String(dto.stack).slice(0, 8000)
+      ? redigirPII(String(dto.stack).slice(0, 8000))
       : dto?.logTail
-        ? String(dto.logTail).slice(0, 8000)
+        ? redigirPII(String(dto.logTail).slice(0, 8000))
         : null;
     const versao = dto?.versao ?? dto?.versaoNova ?? null;
     const fingerprint = dto?.fingerprint ?? null;
@@ -268,6 +280,23 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
         body: JSON.stringify({ origem: 'regem-edge', tenantId, unidadeId, nivel, origemErro: origem, tipo, mensagem, versao, primeira, recebidoEm: new Date().toISOString() }),
       }).catch(() => {});
     }
+    return { ok: true };
+  }
+
+  // ===== Comandos remotos (Fase 4) — o edge busca e confirma =====
+  // O daemon do edge chama isto (x-sync-token) e executa o comando localmente.
+  async comandosPendentes(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select id, comando from edge_comando
+      where tenant_id = ${tenantId} and status = 'pendente'
+      order by criado_em asc limit 10`);
+    return r.rows ?? r;
+  }
+  async ackComando(tenantId: string, id: string, ok: boolean, resultado?: string) {
+    await this.db.execute(sql`
+      update edge_comando set status = ${ok ? 'executado' : 'erro'},
+        resultado = ${resultado ?? null}, executado_em = now()
+      where id = ${id} and tenant_id = ${tenantId}`);
     return { ok: true };
   }
 
@@ -306,16 +335,27 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   // O edge pergunta "tem versão nova?". A nuvem responde com a última publicada
   // (env EDGE_LATEST_VERSION) + url do pacote assinado + notas. Sem segredo → público.
   // A aplicação em si (baixar/trocar/reiniciar) é feita pelo daemon/instalador no PC.
-  atualizacao(versaoCliente?: string) {
-    const ultima = process.env.EDGE_LATEST_VERSION ?? process.env.APP_VERSION ?? '1';
+  async atualizacao(versaoCliente?: string) {
+    // Prioridade: o ÚLTIMO release publicado pelo console (tabela edge_release);
+    // se não houver, cai no env (EDGE_LATEST_VERSION/URL/SHA/NOTAS) — compat.
+    let rel: any = null;
+    try {
+      const r: any = await this.db.execute(
+        sql`select versao, url, sha256, notas from edge_release order by publicado_em desc limit 1`,
+      );
+      rel = (r.rows ?? r)[0] ?? null;
+    } catch {
+      /* tabela pode não existir em edge — usa env */
+    }
+    const ultima = rel?.versao ?? process.env.EDGE_LATEST_VERSION ?? process.env.APP_VERSION ?? '1';
     const atual = versaoCliente || '0';
     return {
       atual,
       ultima,
       atualizar: EdgeService.maior(ultima, atual),
-      url: process.env.EDGE_UPDATE_URL ?? null,
-      sha256: process.env.EDGE_UPDATE_SHA256 ?? null,
-      notas: process.env.EDGE_UPDATE_NOTAS ?? null,
+      url: rel?.url ?? process.env.EDGE_UPDATE_URL ?? null,
+      sha256: rel?.sha256 ?? process.env.EDGE_UPDATE_SHA256 ?? null,
+      notas: rel?.notas ?? process.env.EDGE_UPDATE_NOTAS ?? null,
       ts: new Date().toISOString(),
     };
   }

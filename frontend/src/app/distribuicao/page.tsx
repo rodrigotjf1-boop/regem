@@ -29,7 +29,7 @@ function statusLic(l: any): { k: string; label: string; cor: string } {
 export default function DistHome() {
   const router = useRouter();
   const [me, setMe] = useState<any>(null);
-  const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'usuarios'>('frota');
+  const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'atualizacoes' | 'auditoria' | 'usuarios'>('frota');
   const [frota, setFrota] = useState<any[] | null>(null);
   const [telemetria, setTelemetria] = useState<any[] | null>(null);
   const [licencas, setLicencas] = useState<any[] | null>(null);
@@ -37,8 +37,11 @@ export default function DistHome() {
   const [busca, setBusca] = useState('');
   const [fStatus, setFStatus] = useState('todas');
   const [ocultarTestes, setOcultarTestes] = useState(true);
+  const [releases, setReleases] = useState<any[] | null>(null);
+  const [auditoria, setAuditoria] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [novo, setNovo] = useState({ nome: '', email: '', senha: '', perfil: 'tecnico' });
+  const [rel, setRel] = useState({ versao: '', url: '', sha256: '', notas: '' });
 
   const sair = useCallback(() => { clearDistToken(); router.replace('/distribuicao/login'); }, [router]);
 
@@ -46,8 +49,21 @@ export default function DistHome() {
     distApi.frota().then(setFrota).catch(() => {});
     distApi.licencas().then(setLicencas).catch(() => {});
     if (perfil === 'diretoria' || perfil === 'tecnico') distApi.telemetria().then(setTelemetria).catch(() => {});
+    if (perfil === 'diretoria' || perfil === 'tecnico') distApi.releases().then(setReleases).catch(() => {});
     if (perfil === 'diretoria') distApi.usuarios().then(setUsuarios).catch(() => {});
+    if (perfil === 'diretoria') distApi.auditoria().then(setAuditoria).catch(() => {});
   }, []);
+
+  async function publicar(e: React.FormEvent) {
+    e.preventDefault(); setErro('');
+    try { await distApi.publicarRelease(rel); setRel({ versao: '', url: '', sha256: '', notas: '' }); setReleases(await distApi.releases()); }
+    catch (err) { setErro(err instanceof Error ? err.message : 'Erro ao publicar.'); }
+  }
+  async function rollback(id: string, nome: string) {
+    if (!confirm(`Disparar ROLLBACK remoto no edge de "${nome}"?\nO servidor reverte à versão anterior no próximo ciclo (reinicia serviços). Use só se a última atualização causou problema.`)) return;
+    try { await distApi.rollbackRemoto(id); setErro(''); alert('Rollback solicitado. O edge executa no próximo ciclo de sync.'); }
+    catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
+  }
 
   useEffect(() => {
     if (!getDistToken()) { router.replace('/distribuicao/login'); return; }
@@ -76,7 +92,14 @@ export default function DistHome() {
   const podeTelemetria = me.perfil === 'diretoria' || me.perfil === 'tecnico';
   const ehDiretoria = me.perfil === 'diretoria';
   const podeAgir = me.perfil === 'diretoria' || me.perfil === 'financeiro';
-  const abas = [{ k: 'frota', t: 'Frota' }, ...(podeTelemetria ? [{ k: 'telemetria', t: 'Telemetria' }] : []), { k: 'licencas', t: 'Licenças' }, ...(ehDiretoria ? [{ k: 'usuarios', t: 'Usuários' }] : [])];
+  const abas = [
+    { k: 'frota', t: 'Frota' },
+    ...(podeTelemetria ? [{ k: 'telemetria', t: 'Telemetria' }] : []),
+    { k: 'licencas', t: 'Licenças' },
+    ...(podeTelemetria ? [{ k: 'atualizacoes', t: 'Atualizações' }] : []),
+    ...(ehDiretoria ? [{ k: 'auditoria', t: 'Auditoria' }] : []),
+    ...(ehDiretoria ? [{ k: 'usuarios', t: 'Usuários' }] : []),
+  ];
 
   const filtrar = (l: any[]) => l
     .filter((x) => !ocultarTestes || !ehTeste(x))
@@ -124,7 +147,7 @@ export default function DistHome() {
             {filtroBar(false)}
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
-                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último sinal</th></tr></thead>
+                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último sinal</th>{podeTelemetria && <th className="p-3"></th>}</tr></thead>
                 <tbody>
                   {frota && filtrar(frota).map((l) => (
                     <tr key={l.id} className="border-t border-slate-800/70">
@@ -135,9 +158,10 @@ export default function DistHome() {
                       <td className="p-3">{l.errosAbertos > 0 ? <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-400">{l.errosAbertos}</span> : <span className="text-slate-600">0</span>}</td>
                       <td className={`p-3 text-xs ${statusLic(l).cor}`}>{statusLic(l).label}</td>
                       <td className="p-3 text-xs text-slate-500">{quando(l.ultimoHeartbeat)}</td>
+                      {podeTelemetria && <td className="p-3">{l.edgeVersao && <button onClick={() => rollback(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-amber-400 hover:border-amber-500">Rollback</button>}</td>}
                     </tr>
                   ))}
-                  {frota && filtrar(frota).length === 0 && <tr><td colSpan={7} className="p-6 text-center text-slate-500">Nenhuma loja no filtro.</td></tr>}
+                  {frota && filtrar(frota).length === 0 && <tr><td colSpan={podeTelemetria ? 8 : 7} className="p-6 text-center text-slate-500">Nenhuma loja no filtro.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -203,6 +227,61 @@ export default function DistHome() {
                 </tbody>
               </table>
             </div>
+          </section>
+        )}
+
+        {aba === 'atualizacoes' && podeTelemetria && (
+          <section className="space-y-4">
+            {ehDiretoria && (
+              <form onSubmit={publicar} className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+                <h2 className="font-bold">Publicar release</h2>
+                <p className="mt-1 text-xs text-slate-400">O edge lê o último release aqui no update-check (dispensa mexer no EasyPanel). O gestor da loja instala pelo botão dele.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <input required placeholder="Versão (ex.: 1.1.6)" value={rel.versao} onChange={(e) => setRel({ ...rel, versao: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm" />
+                  <input required placeholder="SHA-256 do .zip" value={rel.sha256} onChange={(e) => setRel({ ...rel, sha256: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono" />
+                  <input required placeholder="URL do .zip (https)" value={rel.url} onChange={(e) => setRel({ ...rel, url: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm sm:col-span-2" />
+                  <input placeholder="Notas (o que muda)" value={rel.notas} onChange={(e) => setRel({ ...rel, notas: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm sm:col-span-2" />
+                </div>
+                <button type="submit" className="mt-3 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400">Publicar release</button>
+              </form>
+            )}
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Versão</th><th className="p-3">Notas</th><th className="p-3">Por</th><th className="p-3">Quando</th></tr></thead>
+                <tbody>
+                  {(releases ?? []).map((r, i) => (
+                    <tr key={i} className="border-t border-slate-800/70">
+                      <td className="p-3 font-mono">{r.versao}{i === 0 && <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-400">atual</span>}</td>
+                      <td className="p-3 text-slate-400">{r.notas ?? '—'}</td>
+                      <td className="p-3 text-xs text-slate-500">{r.publicadoPor ?? '—'}</td>
+                      <td className="p-3 text-xs text-slate-500">{quando(r.publicadoEm)}</td>
+                    </tr>
+                  ))}
+                  {releases && releases.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-slate-500">Nenhum release publicado (usa o env do EasyPanel).</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {aba === 'auditoria' && ehDiretoria && (
+          <section className="overflow-x-auto rounded-xl border border-slate-800">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Quando</th><th className="p-3">Usuário</th><th className="p-3">Perfil</th><th className="p-3">Ação</th><th className="p-3">Alvo</th><th className="p-3">IP</th></tr></thead>
+              <tbody>
+                {(auditoria ?? []).map((a, i) => (
+                  <tr key={i} className="border-t border-slate-800/70">
+                    <td className="p-3 text-xs text-slate-500">{quando(a.criadoEm)}</td>
+                    <td className="p-3">{a.usuario ?? '—'}</td>
+                    <td className="p-3 text-xs text-slate-400">{a.perfil ?? '—'}</td>
+                    <td className="p-3 text-amber-300">{a.acao}</td>
+                    <td className="p-3 text-xs text-slate-500">{a.alvo ?? '—'}</td>
+                    <td className="p-3 text-xs text-slate-500">{a.ip ?? '—'}</td>
+                  </tr>
+                ))}
+                {auditoria && auditoria.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">Sem ações registradas.</td></tr>}
+              </tbody>
+            </table>
           </section>
         )}
 

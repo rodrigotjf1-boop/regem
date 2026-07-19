@@ -10,8 +10,12 @@
 //   SYNC_TOKEN          token do equipamento 'servidor_local' (header x-sync-token)
 //   SYNC_INTERVAL_MS    intervalo entre ciclos (default 30000)
 import pg from 'pg';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+
+const pExecFile = promisify(execFile);
 
 // Rodando como servico do Windows nao ha shell que exporte as envs. A API usa
 // @nestjs/config para ler o .env.local; este daemon carrega por conta propria.
@@ -315,6 +319,32 @@ async function reportarTelemetria(origem, tipo, mensagem) {
   } catch { /* best-effort */ }
 }
 
+// Comandos remotos (Fase 4): a distribuição enfileira (ex.: rollback); o edge busca
+// e executa localmente. Best-effort; confirma o resultado na nuvem.
+async function verificarComandos() {
+  try {
+    const res = await fetch(`${CLOUD}/edge/comandos`, { headers: { 'x-sync-token': TOKEN } });
+    if (!res.ok) return;
+    const cmds = await res.json();
+    for (const c of cmds) {
+      let ok = true, resultado = '';
+      try {
+        if (c.comando === 'rollback') {
+          await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeRollback']);
+          resultado = 'rollback disparado';
+        } else {
+          resultado = 'ignorado';
+        }
+      } catch (e) { ok = false; resultado = String(e.message).slice(0, 200); }
+      await fetch(`${CLOUD}/edge/comandos/${c.id}/ack`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
+        body: JSON.stringify({ ok, resultado }),
+      }).catch(() => {});
+      console.log(`comando ${c.comando} -> ${ok ? 'ok' : 'erro'}: ${resultado}`);
+    }
+  } catch { /* sem rede — tenta no próximo ciclo */ }
+}
+
 async function ciclo() {
   let erro = null, p = 0, u = 0;
   try {
@@ -331,6 +361,7 @@ async function ciclo() {
     try { await restaurar(); } catch (e) { console.error(`Restauração FALHOU: ${e.message}`); }
   }
   await licenca();
+  await verificarComandos();
   // Verificação de update SÓ nas janelas de abertura da loja (não aplica — só
   // notifica; o gestor instala pelo botão do app).
   await updateCheckSeJanela();

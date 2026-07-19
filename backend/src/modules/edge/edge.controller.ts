@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -85,6 +85,19 @@ export class EdgeController {
   @Throttle({ default: { ttl: 60000, limit: 60 } })
   telemetria(@SyncCtx() ctx: SyncCtxData, @Body() body: any) {
     return this.service.registrarTelemetria(ctx.tenantId, body ?? {});
+  }
+
+  // Comandos remotos (Fase 4): o daemon do edge busca os pendentes e confirma.
+  @Get('edge/comandos')
+  @UseGuards(SyncTokenGuard)
+  comandos(@SyncCtx() ctx: SyncCtxData) {
+    return this.service.comandosPendentes(ctx.tenantId);
+  }
+
+  @Post('edge/comandos/:id/ack')
+  @UseGuards(SyncTokenGuard)
+  ackComando(@SyncCtx() ctx: SyncCtxData, @Param('id') id: string, @Body() body: any) {
+    return this.service.ackComando(ctx.tenantId, id, body?.ok !== false, body?.resultado);
   }
 
   // C&O da loja vê os erros do próprio edge (histórico + ocorrências).

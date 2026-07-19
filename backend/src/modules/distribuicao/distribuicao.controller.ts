@@ -95,6 +95,29 @@ export class DistribuicaoController {
     return this.service.mudarPlano(id, String(dto?.plano ?? ''), u);
   }
 
+  // Releases (publicar/listar) — Diretoria. O edge lê o último no update-check.
+  @Get('releases')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  releases() {
+    return this.service.releases();
+  }
+
+  @Post('releases')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  publicarRelease(@DistUser() u: DistCtx, @Body() dto: any) {
+    return this.service.publicarRelease(dto, u);
+  }
+
+  // Rollback remoto — Diretoria+Técnico (o edge executa no próximo ciclo).
+  @Post('licencas/:tenantId/rollback')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  rollbackRemoto(@DistUser() u: DistCtx, @Param('tenantId') id: string) {
+    return this.service.comandoRemoto(id, 'rollback', u);
+  }
+
   // Auditoria — Diretoria (histórico das ações da distribuição).
   @Get('auditoria')
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
