@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { DistribuicaoService } from './distribuicao.service';
 import { DistCtx, DistUser, DistribuicaoGuard, PerfilDist, PerfilDistGuard } from './distribuicao.guard';
@@ -43,6 +43,28 @@ export class DistribuicaoController {
   @PerfilDist('diretoria')
   criarUsuario(@DistUser() u: DistCtx, @Body() dto: any) {
     return this.service.criar(dto, u);
+  }
+
+  // Frota — todos os perfis veem (lojas, versão do edge, online, licença).
+  @Get('frota')
+  @UseGuards(DistribuicaoGuard)
+  frota() {
+    return this.service.frota();
+  }
+
+  // Telemetria — Diretoria + Técnico (Financeiro não vê logs técnicos).
+  @Get('telemetria')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  telemetria() {
+    return this.service.telemetria();
+  }
+
+  @Post('telemetria/:id/resolver')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  resolverTelemetria(@DistUser() u: DistCtx, @Param('id') id: string) {
+    return this.service.resolverTelemetria(id, u);
   }
 
   // Auditoria — Diretoria (histórico das ações da distribuição).

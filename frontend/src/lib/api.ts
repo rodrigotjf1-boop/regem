@@ -238,6 +238,10 @@ export const distApi = {
   criarUsuario: (dto: any) =>
     distReq('/distribuicao/usuarios', { method: 'POST', body: JSON.stringify(dto) }),
   auditoria: () => distReq('/distribuicao/auditoria'),
+  frota: () => distReq('/distribuicao/frota'),
+  telemetria: () => distReq('/distribuicao/telemetria'),
+  resolverTelemetria: (id: string) =>
+    distReq(`/distribuicao/telemetria/${id}/resolver`, { method: 'POST', body: '{}' }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).

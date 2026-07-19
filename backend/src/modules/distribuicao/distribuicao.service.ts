@@ -100,6 +100,43 @@ export class DistribuicaoService {
     return r.rows ?? r;
   }
 
+  // ===== Fase 2: Frota + Telemetria (cross-tenant, visão da distribuição) =====
+
+  // Frota: cada loja (empresa) + o ÚLTIMO heartbeat do edge (versão/estado/online) +
+  // status de licença/assinatura + nº de erros de telemetria em aberto.
+  async frota() {
+    const r: any = await this.db.execute(sql`
+      select e.id, e.nome, e.cnpj, e.plano, e.status,
+             e.trial_ate as "trialAte", e.assinatura_status as "assinaturaStatus",
+             h.versao as "edgeVersao", h.recebido_em as "ultimoHeartbeat",
+             h.estado as "edgeEstado", h.clientes, h.disco_livre_mb as "discoLivreMb", h.erro as "edgeErro",
+             (select count(*) from telemetria_evento t where t.tenant_id = e.id and t.resolvido = false)::int as "errosAbertos"
+      from empresa e
+      left join lateral (
+        select * from edge_heartbeat hb where hb.tenant_id = e.id order by hb.recebido_em desc limit 1
+      ) h on true
+      order by e.nome`);
+    return r.rows ?? r;
+  }
+
+  // Telemetria cross-tenant (erros das lojas). NOTA LGPD: mensagem/stack são técnicos;
+  // uma redação de PII pode entrar num hardening futuro.
+  async telemetria() {
+    const r: any = await this.db.execute(sql`
+      select t.id, t.origem, t.nivel, t.tipo, t.mensagem, t.ocorrencias, t.versao,
+             t.primeiro_em as "primeiroEm", t.ultimo_em as "ultimoEm", t.resolvido,
+             e.nome as "loja"
+      from telemetria_evento t left join empresa e on e.id = t.tenant_id
+      order by t.resolvido asc, t.ultimo_em desc limit 300`);
+    return r.rows ?? r;
+  }
+
+  async resolverTelemetria(id: string, autor: any) {
+    await this.db.execute(sql`update telemetria_evento set resolvido = true where id = ${id}`);
+    await this.auditar(autor, 'resolveu_telemetria', id);
+    return { ok: true };
+  }
+
   // Auditoria imutável (append-only). Nunca deve quebrar a ação principal.
   async auditar(autor: any, acao: string, alvo?: string | null, detalhe: any = {}, ip?: string) {
     try {
