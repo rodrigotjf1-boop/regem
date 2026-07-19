@@ -14,6 +14,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   caixaSessao,
   cardapioBairro,
+  cardapioConfig,
   colaborador,
   comandaItem,
   deliveryConfig,
@@ -484,7 +485,17 @@ export class DeliveryService {
       .returning();
     void this.dispararWebhook(tenantId, row);
     // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
-    void this.cashback.estornarPedido(tenantId, id, row.clienteTelefone ?? undefined).catch(() => {});
+    // Cashback GASTO só volta se a loja configurou (default true); o GANHO sempre sai.
+    // Fidelidade é perda FIXA do ponto (+ rollback do prêmio gerado; devolve o consumido).
+    const [cfgLoja] = await this.db
+      .select({ estorna: cardapioConfig.cancelamentoEstornaCashback })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId))
+      .limit(1);
+    const devolverGasto = cfgLoja?.estorna !== false;
+    void this.cashback
+      .estornarPedido(tenantId, id, row.clienteTelefone ?? undefined, devolverGasto)
+      .catch(() => {});
     void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
     void this.statusBack(tenantId, row, 'cancel'); // avisa o marketplace
     return row;

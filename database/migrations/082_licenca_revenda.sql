@@ -1,6 +1,13 @@
+-- @cloud-only
 -- 082_licenca_revenda.sql — Licença por lease (revenda) + telemetria de frota.
 -- Base das fases E-B (provisionamento/licença) e E-C (heartbeat/portal).
 -- Idempotente. Ver docs/edge-distribuicao-revenda.md.
+--
+-- @cloud-only: revenda/ativacao/edge_heartbeat são do realm da DISTRIBUIÇÃO (só
+-- nuvem). O edge valida licença por LEASE assinado (não lê estas tabelas) e envia
+-- heartbeat para a nuvem (o INSERT em edge_heartbeat acontece do lado da nuvem).
+-- Por isso não são criadas no edge (EDGE_MODE=true). Dev local (não-edge) ainda
+-- cria, pois o apply-all-local só pula @cloud-only quando EDGE_MODE=true.
 
 -- Revendas (quem distribui e controla as lojas).
 create table if not exists revenda (

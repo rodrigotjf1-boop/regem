@@ -34,6 +34,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
       { k: 'cupons', label: 'Cupons' },
       { k: 'fidelidade', label: 'Plano de fidelidade' },
       { k: 'cashback', label: 'Cashback' },
+      { k: 'regras', label: 'Regras de desconto' },
     ],
   },
   {
@@ -479,6 +480,59 @@ export function ConfigPanel({
                 {sec === 'cashback' && (
                   <Secao dica="Cashback do cardápio: retorno em valor (% do pedido vira saldo) ou em pontos (troca por produtos). Creditado após a confirmação do pedido; estornado se o pedido for cancelado. Concorre com a fidelidade — a loja escolhe a estratégia.">
                     <CashbackPanel pode={isGestor} />
+                  </Secao>
+                )}
+
+                {/* REGRAS DE DESCONTO & CANCELAMENTO */}
+                {sec === 'regras' && (
+                  <Secao dica="Como cupom, cashback e fidelidade se combinam e o que o cliente perde ao cancelar um pedido.">
+                    <ToggleLinha
+                      label="Devolver cashback ao cancelar"
+                      desc="Ligado: o cashback usado volta ao cliente quando o pedido é cancelado. Desligado: o cliente perde (e é avisado antes de confirmar o cancelamento)."
+                      checked={loja.cancelamentoEstornaCashback !== false}
+                      onChange={(v) => up({ cancelamentoEstornaCashback: v })}
+                      pode={isGestor}
+                    />
+                    <ToggleLinha
+                      label="Cupom bloqueado com resgate de fidelidade"
+                      desc="Não permite usar cupom em pedidos que já usam um resgate de fidelidade."
+                      checked={!!loja.cupomBloqueiaComResgate}
+                      onChange={(v) => up({ cupomBloqueiaComResgate: v })}
+                      pode={isGestor}
+                    />
+                    <div className="space-y-1.5">
+                      <Label>Cupom só até este cashback usado (R$)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Sem limite"
+                        disabled={!isGestor}
+                        value={
+                          loja.cupomMaxCashbackReais ??
+                          (loja.cupomMaxCashbackCent != null ? loja.cupomMaxCashbackCent / 100 : '')
+                        }
+                        onChange={(e) => up({ cupomMaxCashbackReais: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Vazio = sem limite. Ex.: R$ 8,00 nega o cupom se o cliente usar mais que isso de cashback no pedido.
+                      </p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Intervalo mínimo p/ pontuar fidelidade (horas)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="1"
+                        disabled={!isGestor}
+                        value={loja.fidelidadeIntervaloHoras ?? 3}
+                        onChange={(e) => up({ fidelidadeIntervaloHoras: e.target.value })}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Padrão 3h. Impede fatiar pedidos para acumular pontos rápido.
+                      </p>
+                    </div>
+                    <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                   </Secao>
                 )}
 

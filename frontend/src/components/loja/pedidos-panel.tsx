@@ -173,8 +173,9 @@ function PedidoDetalhe({
   async function solicitarCancel() {
     setBusy(true); setErro('');
     try {
-      await api.clienteSolicitarCancelamento(token, pedido.id, ct);
-      setMsg('Pedido de cancelamento enviado. A equipe vai avaliar e responder.');
+      const r: any = await api.clienteSolicitarCancelamento(token, pedido.id, ct);
+      const av = Array.isArray(r?.avisos) && r.avisos.length ? ' ' + r.avisos.join(' ') : '';
+      setMsg('Pedido de cancelamento enviado. A equipe vai avaliar e responder.' + av);
       setConfirmCancel(false);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Não foi possível solicitar o cancelamento.');

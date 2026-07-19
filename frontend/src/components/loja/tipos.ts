@@ -32,7 +32,12 @@ export type CartItem = {
   qtd: number;
 };
 
-// Dados do cliente lembrados no aparelho (sem login) — prefill do checkout.
+// Dados do cliente lembrados no APARELHO DELE (sem login) — prefill do checkout.
+// LGPD: é o próprio dado do cliente, no dispositivo dele, opt-in (só grava quando ele
+// fecha um pedido), sob o mesmo origin do cardápio e apagável a qualquer momento
+// (ver `limparCliente`, chamado ao "Sair"/"Excluir conta"). Fica em localStorage por
+// ser conveniência local — NÃO é a fila de mutação offline (essa mora no edge, em
+// IndexedDB); os pedidos em si vivem no servidor, nunca aqui.
 export type ClientePrefill = {
   nome?: string;
   telefone?: string;
@@ -80,5 +85,18 @@ export function salvarCliente(token: string, dados: ClientePrefill) {
     localStorage.setItem(chave(token), JSON.stringify(dados));
   } catch {
     /* quota/privado — ignora */
+  }
+}
+
+// LGPD (direito ao esquecimento local): apaga do aparelho o PII de prefill E o token
+// do cliente. Chamado ao "Sair" e ao "Excluir conta" para não deixar nome/telefone/
+// endereço no dispositivo depois que o cliente se desconecta.
+export function limparCliente(token: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(chave(token));
+    localStorage.removeItem(chaveTok(token));
+  } catch {
+    /* ignora */
   }
 }

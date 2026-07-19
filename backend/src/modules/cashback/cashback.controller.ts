@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -9,7 +11,8 @@ import { CashbackService } from './cashback.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Gestão dos planos de cashback (Delivery · Config). Só gestor.
 @Controller('cashback')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@RequirePerm('cashback')
 export class CashbackController {
   constructor(private readonly service: CashbackService) {}
 

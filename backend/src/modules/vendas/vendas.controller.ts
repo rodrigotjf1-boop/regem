@@ -20,13 +20,16 @@ import { AuthUser } from '../../auth/auth-user';
 import { VendasService } from './vendas.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 
-// PDV — qualquer usuário autenticado (operador de balcão) pode vender.
+// PDV — operador de balcão. Guarda de perfil no servidor: as áreas pdv/mesas/cupons
+// exigem a permissão do perfil (@RequirePerm). Sem @RequirePerm/@Roles no método,
+// segue liberado a qualquer autenticado (config/leituras auxiliares do PDV).
 @Controller('vendas')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class VendasController {
   constructor(private readonly service: VendasService) {}
 
   @Post('balcao')
+  @RequirePerm('pdv')
   balcao(
     @CurrentUser() user: AuthUser,
     @TerminalAtual() terminalId: string | null,
@@ -43,6 +46,7 @@ export class VendasController {
 
   // ----- Mesas (Fase F2) -----
   @Get('mesas')
+  @RequirePerm('mesas')
   listarMesas(
     @CurrentUser() user: AuthUser,
     @UnidadeAtual() unidadeAtual: string | null,
@@ -55,6 +59,7 @@ export class VendasController {
   }
 
   @Post('mesas')
+  @RequirePerm('mesas')
   abrirMesa(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.abrirMesa(user.tenantId, user.colaboradorId, dto);
   }
@@ -65,6 +70,7 @@ export class VendasController {
   }
 
   @Post('mesas/:id/comandas')
+  @RequirePerm('mesas')
   abrirComandaNaMesa(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -74,6 +80,7 @@ export class VendasController {
   }
 
   @Post('mesas/:id/fechar')
+  @RequirePerm('mesas')
   fecharMesa(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -90,11 +97,13 @@ export class VendasController {
 
   // ----- Mesas & comandas -----
   @Get('comandas')
+  @RequirePerm('mesas')
   listarComandas(@CurrentUser() user: AuthUser) {
     return this.service.listarComandas(user.tenantId);
   }
 
   @Post('comandas')
+  @RequirePerm('mesas')
   abrir(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.abrirComanda(user.tenantId, user.colaboradorId, dto);
   }
@@ -105,6 +114,7 @@ export class VendasController {
   }
 
   @Post('comandas/:id/itens')
+  @RequirePerm('mesas')
   adicionarItem(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -114,6 +124,7 @@ export class VendasController {
   }
 
   @Delete('comandas/itens/:itemId')
+  @RequirePerm('mesas')
   removerItem(@CurrentUser() user: AuthUser, @Param('itemId') itemId: string, @Body() dto: any) {
     return this.service.removerItem(
       user.tenantId,
@@ -126,6 +137,7 @@ export class VendasController {
 
   // D1: excluir mesa vazia.
   @Delete('mesas/:id')
+  @RequirePerm('mesas')
   excluirMesa(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.excluirMesa(user.tenantId, user.colaboradorId, id);
   }
@@ -144,6 +156,7 @@ export class VendasController {
   }
 
   @Post('comandas/:id/fechar')
+  @RequirePerm('mesas')
   fechar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -173,6 +186,7 @@ export class VendasController {
 
   // ----- Cupons & cancelamento -----
   @Get('cupons')
+  @RequirePerm('cupons')
   cupons(@CurrentUser() user: AuthUser) {
     return this.service.listarCupons(user.tenantId);
   }
@@ -190,11 +204,13 @@ export class VendasController {
 
   // Reimprime a 2ª via do comprovante (via do cliente) na impressora 'cupom'.
   @Post('cupons/:id/reimprimir')
+  @RequirePerm('cupons')
   reimprimirCupom(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.reimprimirCupom(user.tenantId, user.colaboradorId, id);
   }
 
   @Post('comandas/:id/cancelar')
+  @RequirePerm('mesas')
   cancelar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

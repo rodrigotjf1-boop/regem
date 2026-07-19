@@ -9,6 +9,8 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -18,7 +20,8 @@ import { CreateChecklistDto } from './dto/create-checklist.dto';
 import { CreateChecklistItemDto } from './dto/create-item.dto';
 
 @Controller('checklists')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@RequirePerm('checklist')
 export class ChecklistController {
   constructor(
     private readonly service: ChecklistService,

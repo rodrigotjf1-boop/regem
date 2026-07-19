@@ -201,30 +201,101 @@ export class CashbackService {
     }
   }
 
-  // Estorna todo o cashback creditado por um pedido (cancelamento).
-  async estornarPedido(tenantId: string, pedidoId: string, telefone?: string) {
+  // Resumo do que o cancelamento faz com o cashback — usado para AVISAR o cliente
+  // ANTES de cancelar (quando a loja NÃO devolve o gasto, ele perde o saldo usado).
+  async resumoEstorno(tenantId: string, pedidoId: string, devolverGasto: boolean) {
+    const movs = await this.db
+      .select()
+      .from(cashbackMovimento)
+      .where(and(eq(cashbackMovimento.tenantId, tenantId), eq(cashbackMovimento.pedidoId, pedidoId)));
+    // Gasto = soma dos 'resgate' (saldo em R$ usado no pedido); negativo → abs.
+    let gastoCent = 0;
+    for (const m of movs) {
+      if (m.origem === 'resgate' && m.tipo === 'valor') gastoCent += Math.round(-Number(m.delta) * 100);
+    }
+    const valesUsados = await this.db
+      .select({ id: cashbackVale.id, valor: cashbackVale.valor })
+      .from(cashbackVale)
+      .where(and(eq(cashbackVale.tenantId, tenantId), eq(cashbackVale.pedidoId, pedidoId), eq(cashbackVale.status, 'usado')));
+    const gasto = Number((gastoCent / 100).toFixed(2));
+    const temPerda = !devolverGasto && (gasto > 0 || valesUsados.length > 0);
+    return {
+      cashbackGasto: gasto,
+      valesUsados: valesUsados.length,
+      devolve: devolverGasto,
+      // Se a loja não devolve, o cliente perde o que gastou — mensagem para avisar.
+      aviso: temPerda
+        ? `Ao cancelar este pedido você NÃO recebe de volta o cashback usado` +
+          `${gasto > 0 ? ` (R$ ${gasto.toFixed(2)})` : ''}` +
+          `${valesUsados.length ? ` e perde ${valesUsados.length} vale(s) resgatado(s)` : ''}.`
+        : null,
+    };
+  }
+
+  // Estorna o cashback de um pedido cancelado.
+  //  - GANHO (origem 'credito'): SEMPRE removido (pedido cancelado não gera cashback).
+  //  - GASTO (origem 'resgate' + vales): devolvido SÓ se `devolverGasto` (config da loja).
+  // Idempotente: reverte o líquido de crédito uma vez; a devolução do gasto é marcada
+  // por 'estorno_devolucao' (não repete) e os vales só voltam se ainda estão 'usado'.
+  async estornarPedido(
+    tenantId: string,
+    pedidoId: string,
+    telefone?: string,
+    devolverGasto = false,
+  ) {
     const movs = await this.db
       .select()
       .from(cashbackMovimento)
       .where(
         and(eq(cashbackMovimento.tenantId, tenantId), eq(cashbackMovimento.pedidoId, pedidoId)),
       );
-    if (!movs.length) return;
-    // Saldo líquido por tipo já lançado para este pedido (credito + estornos).
-    const porTipo = new Map<string, { tel: string; cli: string | null; net: number }>();
+    const porTipo = new Map<
+      string,
+      { tel: string; cli: string | null; credito: number; gasto: number; jaDevolvido: boolean }
+    >();
     for (const m of movs) {
-      const cur = porTipo.get(m.tipo) ?? { tel: m.telefone, cli: m.clienteId ?? null, net: 0 };
-      // Só nos importa reverter o que foi CREDITADO por este pedido.
-      if (m.origem === 'credito') cur.net += Number(m.delta);
-      if (m.origem === 'estorno') cur.net += Number(m.delta); // já negativo
+      const cur =
+        porTipo.get(m.tipo) ??
+        { tel: m.telefone, cli: m.clienteId ?? null, credito: 0, gasto: 0, jaDevolvido: false };
+      if (m.origem === 'credito') cur.credito += Number(m.delta); // ganho (positivo)
+      if (m.origem === 'estorno') cur.credito += Number(m.delta); // já revertido (negativo)
+      if (m.origem === 'resgate') cur.gasto += Number(m.delta); // gasto (negativo)
+      if (m.origem === 'estorno_devolucao') cur.jaDevolvido = true; // já devolvemos antes
       porTipo.set(m.tipo, cur);
     }
+    let saldoDevolvido = 0;
     for (const [tipo, info] of porTipo) {
-      if (info.net <= 0) continue;
-      await this.ajustarSaldo(tenantId, info.tel, info.cli ?? undefined, tipo, -info.net, 'estorno', {
-        pedidoId,
-      });
+      // 1. Remove o que sobrou de crédito ganho (sempre).
+      if (info.credito > 0) {
+        await this.ajustarSaldo(tenantId, info.tel, info.cli ?? undefined, tipo, -info.credito, 'estorno', {
+          pedidoId,
+        });
+      }
+      // 2. Devolve o gasto (opcional, idempotente): info.gasto é negativo → re-credita.
+      if (devolverGasto && info.gasto < 0 && !info.jaDevolvido) {
+        await this.ajustarSaldo(tenantId, info.tel, info.cli ?? undefined, tipo, -info.gasto, 'estorno_devolucao', {
+          pedidoId,
+        });
+        if (tipo === 'valor') saldoDevolvido += -info.gasto;
+      }
     }
+    // 3. Vales usados no pedido voltam a ficar disponíveis (só se devolver o gasto).
+    let valesDevolvidos = 0;
+    if (devolverGasto) {
+      const back = await this.db
+        .update(cashbackVale)
+        .set({ status: 'disponivel', pedidoId: null })
+        .where(
+          and(
+            eq(cashbackVale.tenantId, tenantId),
+            eq(cashbackVale.pedidoId, pedidoId),
+            eq(cashbackVale.status, 'usado'),
+          ),
+        )
+        .returning({ id: cashbackVale.id });
+      valesDevolvidos = back.length;
+    }
+    return { saldoDevolvido: Number(saldoDevolvido.toFixed(2)), valesDevolvidos };
   }
 
   private async ajustarSaldo(
