@@ -249,6 +249,11 @@ export const distApi = {
     distReq(`/distribuicao/licencas/${tenantId}/liberar`, { method: 'POST', body: JSON.stringify({ dias }) }),
   mudarPlano: (tenantId: string, plano: string) =>
     distReq(`/distribuicao/licencas/${tenantId}/plano`, { method: 'POST', body: JSON.stringify({ plano }) }),
+  rollbackRemoto: (tenantId: string) =>
+    distReq(`/distribuicao/licencas/${tenantId}/rollback`, { method: 'POST', body: '{}' }),
+  releases: () => distReq('/distribuicao/releases'),
+  publicarRelease: (dto: any) =>
+    distReq('/distribuicao/releases', { method: 'POST', body: JSON.stringify(dto) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
