@@ -193,6 +193,53 @@ async function pub(path: string, options: RequestInit = {}) {
   return res.status === 204 ? null : res.json();
 }
 
+// ===== Console da DISTRIBUIÇÃO (realm de auth SEPARADO das lojas) =====
+const DIST_TOKEN_KEY = 'regem_dist_token';
+export function getDistToken() {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(DIST_TOKEN_KEY);
+}
+export function setDistToken(t: string) {
+  if (typeof window !== 'undefined') localStorage.setItem(DIST_TOKEN_KEY, t);
+}
+export function clearDistToken() {
+  if (typeof window !== 'undefined') localStorage.removeItem(DIST_TOKEN_KEY);
+}
+export function getDistPerfil(): string | null {
+  const t = getDistToken();
+  if (!t) return null;
+  try {
+    return JSON.parse(atob(t.split('.')[1] ?? '')).perfil ?? null;
+  } catch {
+    return null;
+  }
+}
+async function distReq(path: string, options: RequestInit = {}) {
+  const token = getDistToken();
+  const res = await fetch(`${apiBase()}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers || {}),
+    },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as any);
+    throw new Error(body.message || `Erro ${res.status}`);
+  }
+  return res.status === 204 ? null : res.json();
+}
+export const distApi = {
+  login: (email: string, senha: string) =>
+    distReq('/distribuicao/login', { method: 'POST', body: JSON.stringify({ email, senha }) }),
+  me: () => distReq('/distribuicao/me'),
+  usuarios: () => distReq('/distribuicao/usuarios'),
+  criarUsuario: (dto: any) =>
+    distReq('/distribuicao/usuarios', { method: 'POST', body: JSON.stringify(dto) }),
+  auditoria: () => distReq('/distribuicao/auditoria'),
+};
+
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
 async function uploadFile(path: string, file: File) {
   const token = getToken();

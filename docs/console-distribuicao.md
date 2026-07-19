@@ -58,7 +58,7 @@ licenças/leases e o financeiro das contas. Expande o `/frota` que já existe. �
 - Ações remotas destrutivas (rollback, revogar) exigem **confirmação** + registro.
 
 ## 8. Fases de implementação (quando liberado)
-1. **Auth + perfis da distribuição** — `usuario_distribuicao`, `DistribuicaoGuard`, login próprio, auditoria. (migrations `@cloud-only`)
+1. ✅ **FEITA (18/07/2026) — Auth + perfis da distribuição**: mig **123** `@cloud-only` (`usuario_distribuicao` + `distribuicao_auditoria`); módulo `distribuicao` (login com secret próprio `DIST_JWT_SECRET`/escopo `distribuicao`, `DistribuicaoGuard` + `PerfilDistGuard` + `@PerfilDist`, auditoria append-only, bootstrap do 1º diretoria por `DIST_BOOTSTRAP_SECRET`); frontend `/distribuicao/login` + `/distribuicao` (home com gestão de usuários p/ diretoria + placeholders dos painéis). Smoke-test ponta a ponta OK. **Decisões:** rota no Next atual (não app separado); sem MFA nesta fase.
 2. **Painel Frota + Telemetria** — consumir `edge_heartbeat` + `telemetria_evento`; view técnica (sem PII).
 3. **Licenças/Leases + Financeiro** — reaproveitar o modelo de lease/licença existente.
 4. **Ações remotas** — publicar update / rollback remoto / reprocessar, com auditoria + confirmação.

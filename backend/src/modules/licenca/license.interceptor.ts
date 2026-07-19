@@ -30,7 +30,7 @@ export class LicenseInterceptor implements NestInterceptor {
     if (metodo === 'GET' || metodo === 'HEAD' || metodo === 'OPTIONS') return next.handle();
     // Rotas que precisam funcionar mesmo com a licença vencida.
     const url = String(req.originalUrl ?? req.url ?? '');
-    if (/\/api\/v1\/(auth|licenca|assinatura|provisionamento|edge|publico|sync)\b/.test(url)) {
+    if (/\/api\/v1\/(auth|licenca|assinatura|provisionamento|edge|publico|sync|distribuicao)\b/.test(url)) {
       return next.handle();
     }
 
