@@ -67,6 +67,34 @@ export class DistribuicaoController {
     return this.service.resolverTelemetria(id, u);
   }
 
+  // Licenças — ver: Diretoria+Técnico+Financeiro. Agir: Diretoria+Financeiro.
+  @Get('licencas')
+  @UseGuards(DistribuicaoGuard)
+  licencas() {
+    return this.service.licencas();
+  }
+
+  @Post('licencas/:tenantId/revogar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'financeiro')
+  revogar(@DistUser() u: DistCtx, @Param('tenantId') id: string) {
+    return this.service.revogarLicenca(id, u);
+  }
+
+  @Post('licencas/:tenantId/liberar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'financeiro')
+  liberar(@DistUser() u: DistCtx, @Param('tenantId') id: string, @Body() dto: any) {
+    return this.service.liberarLicenca(id, dto?.dias ?? 30, u);
+  }
+
+  @Post('licencas/:tenantId/plano')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'financeiro')
+  plano(@DistUser() u: DistCtx, @Param('tenantId') id: string, @Body() dto: any) {
+    return this.service.mudarPlano(id, String(dto?.plano ?? ''), u);
+  }
+
   // Auditoria — Diretoria (histórico das ações da distribuição).
   @Get('auditoria')
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)

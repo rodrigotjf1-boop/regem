@@ -137,6 +137,49 @@ export class DistribuicaoService {
     return { ok: true };
   }
 
+  // ===== Fase 3: Licenças (revogar/liberar/mudar plano) =====
+  // Lista as lojas com status de licença + versão do edge (p/ filtros no console).
+  async licencas() {
+    const r: any = await this.db.execute(sql`
+      select e.id, e.nome, e.cnpj, e.plano, e.status, e.trial_ate as "trialAte",
+             e.assinatura_status as "assinaturaStatus",
+             h.versao as "edgeVersao", h.recebido_em as "ultimoHeartbeat"
+      from empresa e
+      left join lateral (
+        select versao, recebido_em from edge_heartbeat hb where hb.tenant_id = e.id order by hb.recebido_em desc limit 1
+      ) h on true
+      order by e.nome`);
+    return r.rows ?? r;
+  }
+
+  // Revoga: bloqueia a conta (o LicenseInterceptor corta escrita/sync). Reversível.
+  async revogarLicenca(tenantId: string, autor: any) {
+    await this.db.execute(sql`update empresa set status = 'bloqueado' where id = ${tenantId}`);
+    await this.auditar(autor, 'revogou_licenca', tenantId);
+    return { ok: true };
+  }
+
+  // Libera/renova: reativa + estende o trial por N dias (a partir do maior entre agora
+  // e o fim atual). Serve p/ soltar uma loja bloqueada ou dar mais prazo.
+  async liberarLicenca(tenantId: string, dias: number, autor: any) {
+    const d = Math.max(1, Math.min(3650, Number(dias) || 30));
+    await this.db.execute(sql`
+      update empresa
+      set status = 'ativo',
+          trial_ate = greatest(coalesce(trial_ate, now()), now()) + make_interval(0, 0, 0, ${d})
+      where id = ${tenantId}`);
+    await this.auditar(autor, 'liberou_licenca', tenantId, { dias: d });
+    return { ok: true };
+  }
+
+  async mudarPlano(tenantId: string, plano: string, autor: any) {
+    const permitidos = ['basico', 'balcao', 'completo'];
+    if (!permitidos.includes(plano)) throw new BadRequestException('Plano inválido.');
+    await this.db.execute(sql`update empresa set plano = ${plano} where id = ${tenantId}`);
+    await this.auditar(autor, 'mudou_plano', tenantId, { plano });
+    return { ok: true };
+  }
+
   // Auditoria imutável (append-only). Nunca deve quebrar a ação principal.
   async auditar(autor: any, acao: string, alvo?: string | null, detalhe: any = {}, ip?: string) {
     try {

@@ -242,6 +242,13 @@ export const distApi = {
   telemetria: () => distReq('/distribuicao/telemetria'),
   resolverTelemetria: (id: string) =>
     distReq(`/distribuicao/telemetria/${id}/resolver`, { method: 'POST', body: '{}' }),
+  licencas: () => distReq('/distribuicao/licencas'),
+  revogarLicenca: (tenantId: string) =>
+    distReq(`/distribuicao/licencas/${tenantId}/revogar`, { method: 'POST', body: '{}' }),
+  liberarLicenca: (tenantId: string, dias = 30) =>
+    distReq(`/distribuicao/licencas/${tenantId}/liberar`, { method: 'POST', body: JSON.stringify({ dias }) }),
+  mudarPlano: (tenantId: string, plano: string) =>
+    distReq(`/distribuicao/licencas/${tenantId}/plano`, { method: 'POST', body: JSON.stringify({ plano }) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
