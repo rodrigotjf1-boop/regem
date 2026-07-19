@@ -64,6 +64,7 @@ import { SyncModule } from './modules/sync/sync.module';
 import { EdgeFlashSyncModule } from './modules/sync/edge-flash-sync.service';
 import { EdgeModule } from './modules/edge/edge.module';
 import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
+import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
 
@@ -133,6 +134,7 @@ import { AuthModule } from './auth/auth.module';
     SyncModule,
     EdgeFlashSyncModule,
     EdgeModule,
+    DistribuicaoModule,
     LicencaModule,
   ],
   controllers: [AppController],
