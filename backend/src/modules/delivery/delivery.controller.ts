@@ -143,6 +143,9 @@ export class DeliveryController {
       id,
       dto?.motivo,
       dto?.senha,
+      // mig 128 — insumo já baixado: true = reutilizado (volta ao estoque),
+      // false = perda. Default true (comportamento anterior).
+      dto?.reaproveitado !== false,
     );
   }
 

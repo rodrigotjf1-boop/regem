@@ -750,6 +750,11 @@ export const equipamento = pgTable('equipamento', {
   setoresAtendidos: jsonb('setores_atendidos').notNull().default('[]'), // [setor_id,...] (impressora)
   vias: integer('vias').notNull().default(1), // nº de vias (impressora)
   impressoraPadraoId: uuid('impressora_padrao_id'), // terminal PDV: impressora de cupom amarrada
+  // KDS — impressão guiada por etapa (mig 129): o ticket só sai quando o pedido
+  // AVANÇA para `imprimeNoStatus` neste KDS, indo para `impressoraDestinoId`.
+  imprimeAoAvancar: boolean('imprime_ao_avancar').notNull().default(false),
+  imprimeNoStatus: text('imprime_no_status').notNull().default('pronto'),
+  impressoraDestinoId: uuid('impressora_destino_id'),
 
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1013,6 +1018,8 @@ export const fichaTecnica = pgTable('ficha_tecnica', {
   categoria: text('categoria').notNull().default('base'),
   rendimento: numeric('rendimento').notNull().default('1'),
   rendimentoUnidade: text('rendimento_unidade'),
+  porcaoTamanho: numeric('porcao_tamanho'), // rende N porções = rendimento / porcaoTamanho (mig 130)
+  porcaoUnidade: text('porcao_unidade'),
   validade: text('validade'),
   precoVenda: numeric('preco_venda'),
   metaCmv: numeric('meta_cmv').notNull().default('31.5'),
@@ -1039,6 +1046,48 @@ export const fichaIngrediente = pgTable('ficha_ingrediente', {
   custoUnitario: numeric('custo_unitario').notNull().default('0'),
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Ordem de produção (mig 130) — pedido de produção interna a partir de ficha.
+// O PLANO; a execução (baixa insumos + entrada do produzido) é o `produzir()`,
+// disparado na conclusão com a quantidade REAL.
+export const ordemProducao = pgTable('ordem_producao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  fichaId: uuid('ficha_id')
+    .notNull()
+    .references(() => fichaTecnica.id, { onDelete: 'cascade' }),
+  itemSaidaId: uuid('item_saida_id'),
+  quantidadePlanejada: numeric('quantidade_planejada').notNull().default('1'),
+  quantidadeProduzida: numeric('quantidade_produzida'),
+  unidade: text('unidade').notNull().default('un'),
+  dataProducao: date('data_producao').notNull(),
+  horaInicio: time('hora_inicio'),
+  horaFim: time('hora_fim'),
+  setorId: uuid('setor_id'),
+  funcaoId: uuid('funcao_id'),
+  colaboradorId: uuid('colaborador_id'),
+  // planejada | liberada | em_producao | concluida_total | concluida_parcial
+  // | nao_concluida | aguardando_lancamento | pendencia_critica | cancelada
+  status: text('status').notNull().default('planejada'),
+  iniciadaEm: timestamp('iniciada_em', { withTimezone: true }),
+  concluidaEm: timestamp('concluida_em', { withTimezone: true }),
+  concluidaPorId: uuid('concluida_por_id'), // assinatura digital (PIN)
+  motivo: text('motivo'),
+  obs: text('obs'),
+  refId: uuid('ref_id'), // idempotência do produzir()
+  canais: jsonb('canais').notNull().default('[]'), // ["app","kds","linha_tempo","impressao"]
+  kdsEquipamentoId: uuid('kds_equipamento_id'),
+  impressoraId: uuid('impressora_id'),
+  tarefaInstanciaId: uuid('tarefa_instancia_id'),
+  tarefaDefId: uuid('tarefa_def_id'), // recorrência (mig 130, fase 3)
+  criadoPorId: uuid('criado_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
 // ===== Catálogo de produtos (Fase J) — o que se vende no PDV =====
@@ -1203,6 +1252,7 @@ export const comanda = pgTable('comanda', {
   canceladaEm: timestamp('cancelada_em', { withTimezone: true }),
   canceladaPorId: uuid('cancelada_por_id'),
   motivoCancelamento: text('motivo_cancelamento'),
+  estoqueReaproveitado: boolean('estoque_reaproveitado'), // cancelamento: null=n/a, true=reaproveitado, false=perda (mig 128)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
@@ -1429,6 +1479,7 @@ export const opcao = pgTable('opcao', {
   fichaId: uuid('ficha_id'),
   itemId: uuid('item_id'),
   produtoRefId: uuid('produto_ref_id'),
+  padraoMarcada: boolean('padrao_marcada').notNull().default(false), // pré-selecionada (ex.: Talheres? Sim) — mig 126
   ativo: boolean('ativo').notNull().default(true), // invisível = false
   esgotado: boolean('esgotado').notNull().default(false), // pausa/esgotado
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1462,6 +1513,7 @@ export const complementoItem = pgTable('complemento_item', {
   complementoId: uuid('complemento_id').notNull(),
   opcaoId: uuid('opcao_id').notNull(),
   preco: numeric('preco').notNull().default('0'),
+  padraoMarcada: boolean('padrao_marcada').notNull().default(false), // pré-selecionada — mig 126
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW sync (P3)
@@ -1513,6 +1565,10 @@ export const complementoOpcao = pgTable('complemento_opcao', {
   fichaIngredienteId: uuid('ficha_ingrediente_id'), // 'remover': ingrediente a NÃO baixar
   itemId: uuid('item_id'), // 'adicionar': item de estoque a baixar
   quantidade: numeric('quantidade').notNull().default('1'),
+  // mig 126 — discriminador no MOTOR: sem codigo_pdv => informativa (nota, sem estoque/preço).
+  codigoPdv: text('codigo_pdv'),
+  controlaEstoque: boolean('controla_estoque').notNull().default(false),
+  padraoMarcada: boolean('padrao_marcada').notNull().default(false),
   ordem: integer('ordem').notNull().default(0),
   origemOpcaoId: uuid('origem_opcao_id'), // materializado da opção reutilizável (Fase 4)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1562,6 +1618,35 @@ export const setorDestinoProducao = pgTable('setor_destino_producao', {
   setorId: uuid('setor_id')
     .notNull()
     .references(() => setor.id, { onDelete: 'cascade' }),
+  equipamentoId: uuid('equipamento_id')
+    .notNull()
+    .references(() => equipamento.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Destino próprio de COMPLEMENTO (etapa) e OPÇÃO (mig 127). Vazio = herda do produto.
+export const complementoDestinoProducao = pgTable('complemento_destino_producao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  complementoId: uuid('complemento_id')
+    .notNull()
+    .references(() => complemento.id, { onDelete: 'cascade' }),
+  equipamentoId: uuid('equipamento_id')
+    .notNull()
+    .references(() => equipamento.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const opcaoDestinoProducao = pgTable('opcao_destino_producao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  opcaoId: uuid('opcao_id')
+    .notNull()
+    .references(() => opcao.id, { onDelete: 'cascade' }),
   equipamentoId: uuid('equipamento_id')
     .notNull()
     .references(() => equipamento.id, { onDelete: 'cascade' }),
@@ -1798,6 +1883,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   alterado: boolean('alterado').notNull().default(false),
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ contrato do sync 'ambos' (mig 125); na prática só cancela por status
+  estoqueReaproveitado: boolean('estoque_reaproveitado'), // cancelamento: null=n/a, true=reaproveitado (estorna baixa), false=perda (mig 128)
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 

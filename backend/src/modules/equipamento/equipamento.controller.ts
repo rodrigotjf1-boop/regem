@@ -80,6 +80,13 @@ export class EquipamentoController {
     );
   }
 
+  // KDS: impressão guiada por etapa (mig 129).
+  @Patch(':id/impressao-etapa')
+  @Roles('presidente', 'gerente')
+  setImpressaoEtapa(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setImpressaoEtapa(user.tenantId, id, dto ?? {});
+  }
+
   @Patch(':id/revogar')
   @Roles('presidente', 'gerente')
   revogar(@CurrentUser() user: AuthUser, @Param('id') id: string) {

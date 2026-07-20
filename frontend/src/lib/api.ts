@@ -376,6 +376,40 @@ export const api = {
   excluirComplementoCatalogo: (id: string) =>
     req(`/produtos/complementos-catalogo/${id}`, { method: 'DELETE' }),
   // Produto ↔ complementos reutilizáveis (Fase 4 — materializa no motor)
+  // Ordem de produção (mig 130).
+  ordensProducao: (q = '') => req('/ordens-producao' + (q ? `?${q}` : '')),
+  criarOrdemProducao: (body: Record<string, unknown>) =>
+    req('/ordens-producao', { method: 'POST', body: JSON.stringify(body) }),
+  liberarOrdem: (id: string) => req(`/ordens-producao/${id}/liberar`, { method: 'POST', body: '{}' }),
+  iniciarOrdem: (id: string) => req(`/ordens-producao/${id}/iniciar`, { method: 'POST', body: '{}' }),
+  concluirOrdem: (id: string, body: Record<string, unknown>) =>
+    req(`/ordens-producao/${id}/concluir`, { method: 'POST', body: JSON.stringify(body) }),
+  cancelarOrdem: (id: string, motivo?: string) =>
+    req(`/ordens-producao/${id}/cancelar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
+  ordemRecorrencia: (body: Record<string, unknown>) =>
+    req('/ordens-producao/recorrencia', { method: 'POST', body: JSON.stringify(body) }),
+  ordensRelatorio: (de: string, ate: string) =>
+    req(`/ordens-producao/relatorio?de=${de}&ate=${ate}`),
+  // Direcionamento do catálogo em massa (produto → KDS/impressora).
+  direcionamento: () => req('/produtos/direcionamento'),
+  setDirecionamento: (produtoIds: string[], equipamentoIds: string[], modo: 'substituir' | 'adicionar') =>
+    req('/produtos/direcionamento', {
+      method: 'PUT',
+      body: JSON.stringify({ produtoIds, equipamentoIds, modo }),
+    }),
+  // KDS: impressão guiada por etapa (mig 129).
+  setImpressaoEtapa: (id: string, body: { imprimeAoAvancar: boolean; imprimeNoStatus: string; impressoraDestinoId: string | null }) =>
+    req(`/equipamento/${id}/impressao-etapa`, { method: 'PATCH', body: JSON.stringify(body) }),
+  // Destinos próprios (KDS/impressora) de opção e etapa — mig 127. Vazio = herda do produto.
+  opcaoDestinos: (id: string) => req(`/produtos/opcoes/${id}/destinos`),
+  setOpcaoDestinos: (id: string, equipamentoIds: string[]) =>
+    req(`/produtos/opcoes/${id}/destinos`, { method: 'PUT', body: JSON.stringify({ equipamentoIds }) }),
+  complementoDestinos: (id: string) => req(`/produtos/complementos-catalogo/${id}/destinos`),
+  setComplementoDestinos: (id: string, equipamentoIds: string[]) =>
+    req(`/produtos/complementos-catalogo/${id}/destinos`, {
+      method: 'PUT',
+      body: JSON.stringify({ equipamentoIds }),
+    }),
   produtoEtapas: (id: string) => req(`/produtos/${id}/complementos-catalogo`),
   setProdutoEtapas: (id: string, ids: string[]) =>
     req(`/produtos/${id}/complementos-catalogo`, { method: 'PUT', body: JSON.stringify({ ids }) }),
@@ -510,10 +544,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(body ?? {}),
     }),
-  cancelarDelivery: (id: string, motivo?: string, senha?: string) =>
+  // `reaproveitado` (mig 128): insumo já baixado voltou ao estoque (true) ou virou perda (false).
+  cancelarDelivery: (id: string, motivo?: string, senha?: string, reaproveitado?: boolean) =>
     req(`/delivery/pedidos/${id}/cancelar`, {
       method: 'POST',
-      body: JSON.stringify({ motivo, senha }),
+      body: JSON.stringify({ motivo, senha, reaproveitado }),
     }),
   retornarDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/retornar`, { method: 'POST', body: '{}' }),

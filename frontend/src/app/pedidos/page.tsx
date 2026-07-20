@@ -99,7 +99,7 @@ export default function PedidosPage() {
         </p>
 
         {/* Resumo */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Resumo label="Em produção" valor={pedidos ? String(ativos.length) : '—'} cor="var(--info)" />
           <Resumo label="Atrasados" valor={pedidos ? String(atrasados.length) : '—'} cor={atrasados.length ? 'var(--destructive)' : 'var(--ok)'} />
           <Resumo label="Prontos" valor={pedidos ? String(ativos.filter((p) => p.status === 'pronto').length) : '—'} cor="var(--ok)" />

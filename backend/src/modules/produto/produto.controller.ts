@@ -55,6 +55,23 @@ export class ProdutoController {
     return this.service.excluirCategoria(user.tenantId, id);
   }
 
+  // ----- Direcionamento do catálogo (produto → KDS/impressora, em massa) -----
+  @Get('direcionamento')
+  listarDirecionamento(@CurrentUser() user: AuthUser) {
+    return this.service.listarDirecionamento(user.tenantId);
+  }
+
+  @Put('direcionamento')
+  @Roles(...GESTOR)
+  setDirecionamento(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setDirecionamentoLote(
+      user.tenantId,
+      dto?.produtoIds ?? [],
+      dto?.equipamentoIds ?? [],
+      dto?.modo === 'adicionar' ? 'adicionar' : 'substituir',
+    );
+  }
+
   // ----- Opções (catálogo reutilizável, Fase 2) -----
   @Get('opcoes')
   listarOpcoes(@CurrentUser() user: AuthUser) {
@@ -79,6 +96,18 @@ export class ProdutoController {
     return this.service.excluirOpcao(user.tenantId, id);
   }
 
+  // Destino de produção PRÓPRIO da opção (mig 127). Vazio = herda do produto.
+  @Get('opcoes/:id/destinos')
+  opcaoDestinos(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.getOpcaoDestinos(user.tenantId, id);
+  }
+
+  @Put('opcoes/:id/destinos')
+  @Roles(...GESTOR)
+  setOpcaoDestinos(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setOpcaoDestinos(user.tenantId, id, dto?.equipamentoIds ?? []);
+  }
+
   // ----- Complementos (etapas reutilizáveis, Fase 3) -----
   @Get('complementos-catalogo')
   listarComplementos(@CurrentUser() user: AuthUser) {
@@ -95,6 +124,18 @@ export class ProdutoController {
   @Roles(...GESTOR)
   atualizarComplementoCatalogo(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.atualizarComplemento(user.tenantId, id, dto);
+  }
+
+  // Destino de produção PRÓPRIO da etapa/complemento (mig 127). Vazio = herda do produto.
+  @Get('complementos-catalogo/:id/destinos')
+  complementoDestinos(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.getComplementoDestinos(user.tenantId, id);
+  }
+
+  @Put('complementos-catalogo/:id/destinos')
+  @Roles(...GESTOR)
+  setComplementoDestinos(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setComplementoDestinos(user.tenantId, id, dto?.equipamentoIds ?? []);
   }
 
   @Delete('complementos-catalogo/:id')

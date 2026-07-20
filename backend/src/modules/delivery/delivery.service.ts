@@ -446,6 +446,9 @@ export class DeliveryService {
     throw new ForbiddenException('Senha de gestor inválida.');
   }
 
+  // `reaproveitado` (mig 128): quando o pedido JÁ produziu (baixou insumo), diz se o
+  // insumo foi REUTILIZADO (volta ao estoque) ou virou PERDA (fica baixado). Default
+  // true = reaproveitado (comportamento anterior).
   async cancelar(
     tenantId: string,
     atorId: string,
@@ -453,6 +456,7 @@ export class DeliveryService {
     id: string,
     motivo?: string,
     senha?: string,
+    reaproveitado = true,
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado')
@@ -470,6 +474,7 @@ export class DeliveryService {
         atorPerfil,
         ped.comandaId,
         motivo,
+        reaproveitado,
       );
     }
     const [row] = await this.db
@@ -477,6 +482,8 @@ export class DeliveryService {
       .set({
         status: 'cancelado',
         canceladoEm: new Date(),
+        // Só faz sentido registrar quando houve produção (comanda) — senão nada baixou.
+        estoqueReaproveitado: ped.comandaId ? reaproveitado : null,
         motivoCancelamento: motivo
           ? `${motivo} (autorizado por ${autorizou.nome})`
           : `autorizado por ${autorizou.nome}`,
@@ -498,7 +505,15 @@ export class DeliveryService {
       .catch(() => {});
     void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
     void this.statusBack(tenantId, row, 'cancel'); // avisa o marketplace
-    return row;
+    return {
+      ...row,
+      // Informa o destino do insumo já baixado (perda × reutilizado) — mig 128.
+      estoqueAviso: ped.comandaId
+        ? reaproveitado
+          ? 'Os insumos deste pedido foram devolvidos ao estoque (reutilizados).'
+          : 'Os insumos deste pedido foram registrados como PERDA (não voltaram ao estoque).'
+        : null,
+    };
   }
 
   // ===== Alterar / reimprimir / entregadores =====

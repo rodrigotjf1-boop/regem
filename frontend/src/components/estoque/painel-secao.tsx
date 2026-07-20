@@ -59,7 +59,7 @@ export function PainelSecao({ itens }: { itens: any[] }) {
         {!cmv ? (
           <p className="text-sm text-muted-foreground">Carregando…</p>
         ) : (
-          <div className="grid grid-cols-3 gap-2 text-center text-sm">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 text-center text-sm">
             <div>
               <p className="text-xs text-muted-foreground">CMV real</p>
               <p className="font-mono font-bold">{brl(cmv.cmvReal)}</p>

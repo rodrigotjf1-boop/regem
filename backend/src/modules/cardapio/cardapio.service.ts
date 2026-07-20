@@ -932,6 +932,10 @@ export class CardapioService {
                   id: o.id,
                   nome: o.nome,
                   precoDelta: Number(o.precoDelta),
+                  // mig 126 — sem código PDV = opção INFORMATIVA (observação de preparo:
+                  // "ponto de carne", "talheres"): não soma preço nem baixa estoque.
+                  informativa: !(o.codigoPdv ?? '').trim(),
+                  padraoMarcada: !!o.padraoMarcada, // já vem pré-selecionada
                 })),
             })),
         };
@@ -1215,21 +1219,79 @@ export class CardapioService {
     return { ok: true, status: st.status };
   }
 
-  // Resolve as opções escolhidas (por id) validando o tenant. Preço do banco.
-  private async resolverOpcoes(tenantId: string, opcaoIds: string[]) {
-    if (!opcaoIds?.length) return { precoDelta: 0, labels: [] as string[] };
-    const ops = await this.db
-      .select({ nome: complementoOpcao.nome, precoDelta: complementoOpcao.precoDelta })
-      .from(complementoOpcao)
+  // Resolve as opções escolhidas (por id) para UM produto. Preço SEMPRE do banco.
+  // Valida no SERVIDOR (não confia no front):
+  //   • a opção pertence a um grupo/etapa DESTE produto;
+  //   • min/max/obrigatório de cada etapa são respeitados.
+  // Opção INFORMATIVA (sem código PDV) entra como observação: não soma preço.
+  private async resolverOpcoes(tenantId: string, produtoId: string, opcaoIds: string[]) {
+    const escolhidas = [...new Set((opcaoIds ?? []).filter(Boolean))];
+    // Etapas do produto + opções (o motor materializado é a fonte da verdade).
+    const grupos = await this.db
+      .select({
+        id: complementoGrupo.id,
+        nome: complementoGrupo.nome,
+        min: complementoGrupo.min,
+        max: complementoGrupo.max,
+        obrigatorio: complementoGrupo.obrigatorio,
+      })
+      .from(complementoGrupo)
       .where(
         and(
-          eq(complementoOpcao.tenantId, tenantId),
-          inArray(complementoOpcao.id, opcaoIds),
+          eq(complementoGrupo.tenantId, tenantId),
+          eq(complementoGrupo.produtoId, produtoId),
+          isNull(complementoGrupo.deletedAt),
         ),
       );
+    const ops = grupos.length
+      ? await this.db
+          .select({
+            id: complementoOpcao.id,
+            grupoId: complementoOpcao.grupoId,
+            nome: complementoOpcao.nome,
+            precoDelta: complementoOpcao.precoDelta,
+            codigoPdv: complementoOpcao.codigoPdv,
+          })
+          .from(complementoOpcao)
+          .where(
+            and(
+              eq(complementoOpcao.tenantId, tenantId),
+              inArray(
+                complementoOpcao.grupoId,
+                grupos.map((g) => g.id),
+              ),
+              isNull(complementoOpcao.deletedAt),
+            ),
+          )
+      : [];
+    const porId = new Map(ops.map((o) => [o.id, o]));
+
+    // 1) Pertencimento: toda opção escolhida tem de ser deste produto.
+    const invalida = escolhidas.find((id) => !porId.has(id));
+    if (invalida) throw new BadRequestException('Opção inválida para este produto.');
+
+    // 2) Obrigatoriedade por etapa (min/max/obrigatório).
+    for (const g of grupos) {
+      const n = escolhidas.filter((id) => porId.get(id)!.grupoId === g.id).length;
+      const min = g.obrigatorio ? Math.max(1, g.min ?? 1) : g.min ?? 0;
+      if (n < min) {
+        throw new BadRequestException(
+          `Escolha ${min === 1 ? 'uma opção' : `pelo menos ${min} opções`} em "${g.nome}".`,
+        );
+      }
+      if (g.max != null && n > g.max) {
+        throw new BadRequestException(`Escolha no máximo ${g.max} em "${g.nome}".`);
+      }
+    }
+
+    const sel = escolhidas.map((id) => porId.get(id)!);
     return {
-      precoDelta: ops.reduce((s, o) => s + Number(o.precoDelta), 0),
-      labels: ops.map((o) => o.nome),
+      // Informativa (sem código PDV) não altera o preço.
+      precoDelta: sel.reduce(
+        (s, o) => s + ((o.codigoPdv ?? '').trim() ? Number(o.precoDelta) : 0),
+        0,
+      ),
+      labels: sel.map((o) => o.nome),
     };
   }
 
@@ -1435,7 +1497,11 @@ export class CardapioService {
           desc = `${p.nome} · ${v.nome}`;
         }
       }
-      const { precoDelta, labels } = await this.resolverOpcoes(cfg.tenantId, it.complementos ?? []);
+      const { precoDelta, labels } = await this.resolverOpcoes(
+        cfg.tenantId,
+        it.produtoId,
+        it.complementos ?? [],
+      );
       const qtd = Number(it.quantidade) || 1;
       const preco = base + precoDelta;
       totalCent += paraCentavos(preco) * qtd;

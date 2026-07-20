@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { MidiaService } from '../midia/midia.service';
 import { EstoqueService } from '../estoque/estoque.service';
+import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Agendador de jobs do backend. (Instância única no EasyPanel — sem lock distribuído.)
@@ -16,8 +17,35 @@ export class JobsService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly midia: MidiaService,
     private readonly estoque: EstoqueService,
+    private readonly ordemProducao: OrdemProducaoService,
     private readonly events: EventEmitter2,
   ) {}
+
+  // Ordens de produção "aguardando lançamento" com data prevista > 1 dia viram
+  // pendência crítica (sobem no painel do gerente/C&O; exigem desfecho). Mig 130.
+  @Cron('20 6 * * *') // 06:20 todos os dias
+  async promoverOrdensPendentes() {
+    try {
+      const n = await this.ordemProducao.promoverPendenciasCriticas();
+      if (n) this.log.log(`ordens de produção → pendência crítica: ${n}`);
+    } catch (e: any) {
+      this.log.error(`promoverOrdensPendentes: ${e?.message ?? e}`);
+    }
+  }
+
+  // Gera as ordens de produção RECORRENTES do dia (a partir de tarefa_def). Mig 130.
+  @Cron('30 5 * * *') // 05:30 todos os dias
+  async gerarOrdensRecorrentes() {
+    const hoje = new Date().toISOString().slice(0, 10);
+    for (const tid of await this.tenantsAtivos()) {
+      try {
+        const n = await this.ordemProducao.gerarRecorrentes(tid, hoje);
+        if (n) this.log.log(`ordens recorrentes geradas (${tid}): ${n}`);
+      } catch (e: any) {
+        this.log.error(`gerarOrdensRecorrentes[${tid}]: ${e?.message ?? e}`);
+      }
+    }
+  }
 
   private async tenantsAtivos(): Promise<string[]> {
     const r: any = await this.db.execute(

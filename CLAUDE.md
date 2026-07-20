@@ -52,6 +52,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 ## Convenções de código
 
 - Front: componentes pequenos, um por arquivo; usar tokens (nada de cor crua/estilo inline repetido). Reusar `Shell`, `EntityForm`, `Card`, `Button`, etc.
+- **Responsividade é padrão em TODA tela (nova ou editada)**: grid nunca `grid-cols-N` fixo sem breakpoint (use `grid-cols-1 sm:grid-cols-2 lg:grid-cols-N`); `<table>` sempre dentro de `overflow-x-auto`; linha de abas/filtros/botões com `flex-wrap` ou `overflow-x-auto`; preferir `max-w-*`/`w-full` a largura fixa; o body nunca rola na horizontal. Testar em ~375px.
 - Acessibilidade: `aria-pressed` em toggles, `aria-expanded` em dropdowns, `caption` sr-only em tabelas, foco visível, `prefers-reduced-motion`.
 - Textos em **pt-BR, sentence case, voz ativa** ("Salvar ficha"). Toda ação tem feedback (toast/estado). Estados vazios sempre implementados.
 - Datas/horas **sempre com seletor nativo** (nunca digitação); selects que podem faltar item oferecem "＋ cadastrar nova".

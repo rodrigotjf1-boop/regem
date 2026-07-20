@@ -71,6 +71,8 @@ export class FichasService {
         categoria: dto.categoria ?? 'base',
         rendimento: dto.rendimento != null ? String(dto.rendimento) : '1',
         rendimentoUnidade: dto.rendimentoUnidade,
+        porcaoTamanho: dto.porcaoTamanho != null ? String(dto.porcaoTamanho) : undefined,
+        porcaoUnidade: dto.porcaoUnidade,
         validade: dto.validade,
         precoVenda: dto.precoVenda != null ? String(dto.precoVenda) : undefined,
         metaCmv: dto.metaCmv != null ? String(dto.metaCmv) : undefined,
@@ -184,6 +186,10 @@ export class FichasService {
     if (dto.rendimento !== undefined) patch.rendimento = String(dto.rendimento);
     if (dto.rendimentoUnidade !== undefined)
       patch.rendimentoUnidade = dto.rendimentoUnidade;
+    // Tamanho da porção (mig 130): converte porções (un) ↔ rendimento na ordem de produção.
+    if (dto.porcaoTamanho !== undefined)
+      patch.porcaoTamanho = dto.porcaoTamanho != null ? String(dto.porcaoTamanho) : null;
+    if (dto.porcaoUnidade !== undefined) patch.porcaoUnidade = dto.porcaoUnidade || null;
     if (dto.validade !== undefined) patch.validade = dto.validade;
     if (dto.precoVenda !== undefined)
       patch.precoVenda = dto.precoVenda != null ? String(dto.precoVenda) : null;

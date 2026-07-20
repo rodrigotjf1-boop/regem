@@ -233,7 +233,7 @@ export default function CuponsPage() {
               ))}
             </div>
 
-            <div className="mb-3 grid grid-cols-2 gap-2">
+            <div className="mb-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Button
                 type="button"
                 variant="outline"

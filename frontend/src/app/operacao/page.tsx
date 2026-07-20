@@ -45,9 +45,11 @@ type Secao =
   | 'desperdicio'
   | 'vistorias';
 
-const SECOES: { key: Secao; label: string }[] = [
+// `href` = seção que vive em outra rota (abre a página em vez de trocar a aba).
+const SECOES: { key: Secao | 'fichas'; label: string; href?: string }[] = [
   { key: 'painel', label: '📊 Painel' },
   { key: 'insumos', label: '📦 Insumos' },
+  { key: 'fichas', label: '🧾 Fichas técnicas', href: '/fichas' },
   { key: 'contagem', label: '🧮 Contagem' },
   { key: 'compras', label: '🛒 Compras' },
   { key: 'recebimento', label: '🚚 Recebimento' },
@@ -154,10 +156,8 @@ export default function EstoquePage() {
       eyebrow="Insumos & produção"
       title="Estoque"
       actions={
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" onClick={() => router.push('/fichas')}>
-            🧾 Fichas técnicas
-          </Button>
+        <div className="flex flex-wrap gap-2">
+          {/* Fichas técnicas desceu para a linha de seções (entre Insumos e Contagem). */}
           {/* Inteligência de estoque = motor de custo (financeiro) → só presidente/C&O */}
           {verFin && (
             <Button size="sm" variant="outline" onClick={() => router.push('/estoque')}>
@@ -196,23 +196,26 @@ export default function EstoquePage() {
           </label>
         </Card>
 
-        {/* Navegação por seção (hub) */}
-        <div className="flex flex-wrap gap-1.5">
-          {SECOES.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              onClick={() => setSecao(s.key)}
-              aria-pressed={secao === s.key ? 'true' : 'false'}
-              className={`rounded-md border px-3 py-1.5 text-sm font-medium ${
-                secao === s.key
-                  ? 'border-primary bg-primary/15 text-primary'
-                  : 'border-border text-muted-foreground hover:border-primary/50'
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
+        {/* Navegação por seção (hub) — rola na horizontal no mobile, quebra no desktop */}
+        <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+          {SECOES.map((s) => {
+            const ativo = !s.href && secao === s.key;
+            return (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => (s.href ? router.push(s.href) : setSecao(s.key as Secao))}
+                aria-pressed={ativo ? 'true' : 'false'}
+                className={`shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-sm font-medium ${
+                  ativo
+                    ? 'border-primary bg-primary/15 text-primary'
+                    : 'border-border text-muted-foreground hover:border-primary/50'
+                }`}
+              >
+                {s.label}
+              </button>
+            );
+          })}
         </div>
 
         {erro && <p role="alert" className="text-destructive">{erro}</p>}

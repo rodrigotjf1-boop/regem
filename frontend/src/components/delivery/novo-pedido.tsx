@@ -147,7 +147,7 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
         </div>
 
         <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div className="space-y-1"><Label className="text-xs">Cliente</Label><Input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nome" /></div>
             <div className="space-y-1"><Label className="text-xs">Telefone</Label><Input inputMode="tel" value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="(00) 0000-0000" /></div>
           </div>
@@ -171,7 +171,7 @@ export function NovoPedido({ onFechar, onCriado }: { onFechar: () => void; onCri
             </div>
           )}
           {tipo === 'entrega' && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="space-y-1"><Label className="text-xs">CEP</Label><Input value={cep} inputMode="numeric" onChange={(e) => setCep(e.target.value)} onBlur={(e) => cepBlur(e.target.value)} placeholder="00000-000" /></div>
               <div className="flex items-end"><span className="text-xs text-muted-foreground">Preenche rua e bairro automaticamente.</span></div>
               <div className="col-span-2 space-y-1"><Label className="text-xs">Rua</Label><Input value={rua} onChange={(e) => setRua(e.target.value)} placeholder="Rua / logradouro" /></div>

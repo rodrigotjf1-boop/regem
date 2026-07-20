@@ -647,7 +647,7 @@ function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; deliv
     : [{ l: 'Vendas', v: data.resumo.vendas }];
   return (
     <div className="space-y-4">
-      <div className={`grid gap-3 ${vf ? 'grid-cols-3' : 'grid-cols-1'}`}>
+      <div className={`grid gap-3 ${vf ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1'}`}>
         {kpis.map((k) => (
           <Card key={k.l} className="p-4">
             <p className="text-xs text-muted-foreground">{k.l}</p>
@@ -883,7 +883,7 @@ function ProducaoView({
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
         <>
-          <div className={`grid gap-3 ${vf ? 'grid-cols-3' : 'grid-cols-2'}`}>
+          <div className={`grid gap-3 ${vf ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-2'}`}>
             {[
               { l: 'Produções', v: data.resumo.producoes },
               { l: 'Unidades produzidas', v: data.resumo.qtd },
@@ -943,7 +943,7 @@ function CaixaOpsView({ data }: { data: any }) {
         {data.cancelamentos.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhum cancelamento no período.</p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
             <caption className="sr-only">Cancelamentos por operador</caption>
             <thead>
               <tr className="text-left text-xs uppercase text-muted-foreground">
@@ -961,7 +961,7 @@ function CaixaOpsView({ data }: { data: any }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
 
@@ -976,7 +976,7 @@ function CaixaOpsView({ data }: { data: any }) {
         {data.movimentos.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhuma sangria/suprimento no período.</p>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full min-w-[420px] text-sm">
             <caption className="sr-only">Sangrias e suprimentos por operador</caption>
             <thead>
               <tr className="text-left text-xs uppercase text-muted-foreground">
@@ -994,7 +994,7 @@ function CaixaOpsView({ data }: { data: any }) {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Card>
     </div>
