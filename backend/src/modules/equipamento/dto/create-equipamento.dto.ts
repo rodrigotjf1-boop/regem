@@ -74,4 +74,18 @@ export class CreateEquipamentoDto {
   @IsOptional()
   @IsUUID()
   impressoraPadraoId?: string;
+
+  // KDS — impressão guiada por etapa (mig 129): o ticket só sai quando o pedido
+  // AVANÇA para `imprimeNoStatus` neste KDS, indo para `impressoraDestinoId`.
+  @IsOptional()
+  @IsBoolean()
+  imprimeAoAvancar?: boolean;
+
+  @IsOptional()
+  @IsIn(['recebido', 'preparo', 'pronto', 'entregue'])
+  imprimeNoStatus?: string;
+
+  @IsOptional()
+  @IsUUID()
+  impressoraDestinoId?: string;
 }

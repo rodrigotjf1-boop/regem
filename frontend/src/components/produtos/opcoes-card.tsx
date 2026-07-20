@@ -106,18 +106,27 @@ function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; f
     fichaId: opcao.fichaId ?? '',
     itemId: opcao.itemId ?? '',
     controlaEstoque: opcao.controlaEstoque ?? false,
+    padraoMarcada: opcao.padraoMarcada ?? false,
     ativo: opcao.ativo ?? true,
     esgotado: opcao.esgotado ?? false,
   });
   const up = (patch: any) => setF((s: any) => ({ ...s, ...patch }));
   const [busy, setBusy] = useState(false);
+  // Destino de produção próprio (mig 127). Vazio = herda do produto.
+  const [equipamentos, setEquipamentos] = useState<any[]>([]);
+  const [destinos, setDestinos] = useState<string[]>([]);
+  useEffect(() => {
+    api.equipamentos().then((e: any) => setEquipamentos(Array.isArray(e) ? e : [])).catch(() => setEquipamentos([]));
+    if (!novo) api.opcaoDestinos(opcao.id).then((d: any) => setDestinos(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [novo, opcao.id]);
 
   async function salvar() {
     if (!f.nome.trim()) { toast.error('Informe o nome.'); return; }
     setBusy(true);
     try {
-      if (novo) await api.criarOpcaoCatalogo(f);
-      else await api.atualizarOpcaoCatalogo(opcao.id, f);
+      const salva: any = novo ? await api.criarOpcaoCatalogo(f) : await api.atualizarOpcaoCatalogo(opcao.id, f);
+      const id = novo ? salva?.id : opcao.id;
+      if (id) await api.setOpcaoDestinos(id, destinos).catch(() => {});
       toast.success('Opção salva.');
       onSalvo();
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao salvar'); }
@@ -185,11 +194,47 @@ function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; f
           </div>
         )}
 
+        {/* Sem código PDV a opção vira INFORMATIVA (observação de preparo). */}
+        <div className={`mt-3 rounded-lg border p-2.5 text-xs ${(f.codigoPdv ?? '').trim() ? 'border-border text-muted-foreground' : 'border-primary/40 bg-primary/5 text-foreground'}`}>
+          {(f.codigoPdv ?? '').trim() ? (
+            <>Com <strong>código PDV</strong>: opção real — soma preço e pode baixar estoque.</>
+          ) : (
+            <>Sem <strong>código PDV</strong>: opção <strong>informativa</strong> (observação tipo &quot;ponto de carne&quot; ou &quot;talheres&quot;) — não soma preço nem baixa estoque; vai como nota para o preparo.</>
+          )}
+        </div>
+
         <div className="mt-3 space-y-2">
           <Toggle label="Controlar estoque desta opção" on={f.controlaEstoque} set={(v) => up({ controlaEstoque: v })} />
+          <Toggle label="Já vem marcada por padrão" on={f.padraoMarcada} set={(v) => up({ padraoMarcada: v })} />
           <Toggle label="Visível no catálogo" on={f.ativo} set={(v) => up({ ativo: v })} />
           <Toggle label="Esgotado (pausar)" on={f.esgotado} set={(v) => up({ esgotado: v })} />
         </div>
+
+        {/* Destino de produção próprio — vazio herda o do produto (mig 127). */}
+        {equipamentos.length > 0 && (
+          <div className="mt-3 space-y-1.5">
+            <Label className="text-xs">Destino de produção desta opção</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Sem seleção, herda o destino do produto. Marque para mandar esta opção a um KDS/impressora específico.
+            </p>
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+              {equipamentos.map((e: any) => (
+                <label key={e.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-xs ${destinos.includes(e.id) ? 'border-primary bg-primary/10' : 'border-border'}`}>
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-primary"
+                    checked={destinos.includes(e.id)}
+                    onChange={() => setDestinos((s) => (s.includes(e.id) ? s.filter((x) => x !== e.id) : [...s, e.id]))}
+                  />
+                  <span className="flex-1">{e.nome}</span>
+                  <span className="rounded bg-secondary px-1 py-0.5 text-[10px] text-muted-foreground">
+                    {e.tipo === 'impressora' ? 'impressora' : 'KDS'}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Button type="button" className="mt-5 w-full" disabled={busy} onClick={salvar}>{busy ? 'Salvando…' : 'Salvar opção'}</Button>
       </Card>

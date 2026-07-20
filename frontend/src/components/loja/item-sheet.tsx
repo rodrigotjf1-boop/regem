@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { brl, type CartItem } from '@/components/loja/tipos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
@@ -31,6 +31,16 @@ export function ItemSheet({
     () => (sel?.grupos ?? []).flatMap((g: any) => (g.opcoes ?? []).map((o: any) => ({ ...o }))),
     [sel],
   );
+
+  // Opções marcadas por padrão (mig 126) — ex.: "Talheres? Sim" já vem selecionado.
+  // Respeita o max do grupo (não pré-marca além do permitido).
+  useEffect(() => {
+    const padrao = (sel?.grupos ?? []).flatMap((g: any) => {
+      const marcadas = (g.opcoes ?? []).filter((o: any) => o.padraoMarcada).map((o: any) => o.id);
+      return g.max != null ? marcadas.slice(0, g.max) : marcadas;
+    });
+    setPickOpc(padrao);
+  }, [sel]);
   const variacao = (sel?.variacoes ?? []).find((v: any) => v.id === pickVar);
   const base = variacao ? variacao.precoVenda : sel?.precoVenda ?? 0;
   const extra = pickOpc.reduce((s, id) => s + (opcoes.find((o: any) => o.id === id)?.precoDelta ?? 0), 0);
@@ -173,7 +183,12 @@ export function ItemSheet({
                         {on ? '✓' : ''}
                       </span>
                       <span className="flex-1 text-sm">{o.nome}</span>
-                      {o.precoDelta > 0 && <span className="font-mono text-xs text-neutral-500">+ {brl(o.precoDelta)}</span>}
+                      {o.precoDelta > 0 ? (
+                        <span className="font-mono text-xs text-neutral-500">+ {brl(o.precoDelta)}</span>
+                      ) : o.informativa ? (
+                        // Opção informativa (sem código PDV): só observação de preparo.
+                        <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500">obs</span>
+                      ) : null}
                     </button>
                   );
                 })}

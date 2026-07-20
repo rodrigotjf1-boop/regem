@@ -155,7 +155,7 @@ export default function ComandasPage() {
           {erro && <p className="text-destructive">{erro}</p>}
           <Card className="space-y-2 p-4">
             <h2 className="font-display text-sm font-bold">Nova comanda</h2>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-xs">Mesa</Label>
                 <Input value={mesa} onChange={(e) => setMesa(e.target.value)} placeholder="Ex.: 12" />

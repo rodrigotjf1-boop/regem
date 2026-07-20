@@ -124,7 +124,7 @@ export function DiaEspecialModal({
             />
           </div>
         )}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <div className="space-y-1.5">
             <Label className="text-xs">{ehFerias ? 'Início das férias' : 'Data'}</Label>
             <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />

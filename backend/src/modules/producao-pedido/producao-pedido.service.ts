@@ -12,6 +12,8 @@ import {
   equipamento,
   produtoDestinoProducao,
   setorDestinoProducao,
+  complementoDestinoProducao,
+  opcaoDestinoProducao,
   producaoPedido,
   producaoPedidoItem,
   impressaoJob,
@@ -105,8 +107,63 @@ export class ProducaoPedidoService {
       // (3) legado: setor sem device → pedido de KDS filtrável por setor
       return [{ equipamentoId: null, tipo: 'kds', setorId: p.setorProducaoId }];
     }
+    // (3b) impressora ÚNICA da loja vira destino automático: se a loja só tem uma
+    // impressora ativa e nada foi definido, não faz sentido exigir configuração.
+    const impressoras = await tx
+      .select({
+        equipamentoId: equipamento.id,
+        tipo: equipamento.tipo,
+        setorId: equipamento.setorId,
+      })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'impressora'),
+          eq(equipamento.ativo, true),
+        ),
+      );
+    if (impressoras.length === 1) return impressoras.map(this.normalizaDestino);
     // (4) genérico
     return [{ equipamentoId: null, tipo: 'kds', setorId: null }];
+  }
+
+  // Destinos PRÓPRIOS de uma opção escolhida (mig 127). Vazio = herda do produto.
+  // Precedência: destino da opção → destino do complemento (etapa) → [] (herda).
+  async destinosDaOpcao(
+    tenantId: string,
+    origemOpcaoId?: string | null,
+    origemComplementoId?: string | null,
+  ): Promise<Destino[]> {
+    if (origemOpcaoId) {
+      const daOpcao = await this.db
+        .select({ equipamentoId: equipamento.id, tipo: equipamento.tipo, setorId: equipamento.setorId })
+        .from(opcaoDestinoProducao)
+        .innerJoin(equipamento, eq(equipamento.id, opcaoDestinoProducao.equipamentoId))
+        .where(
+          and(
+            eq(opcaoDestinoProducao.tenantId, tenantId),
+            eq(opcaoDestinoProducao.opcaoId, origemOpcaoId),
+            eq(equipamento.ativo, true),
+          ),
+        );
+      if (daOpcao.length) return daOpcao.map(this.normalizaDestino);
+    }
+    if (origemComplementoId) {
+      const daEtapa = await this.db
+        .select({ equipamentoId: equipamento.id, tipo: equipamento.tipo, setorId: equipamento.setorId })
+        .from(complementoDestinoProducao)
+        .innerJoin(equipamento, eq(equipamento.id, complementoDestinoProducao.equipamentoId))
+        .where(
+          and(
+            eq(complementoDestinoProducao.tenantId, tenantId),
+            eq(complementoDestinoProducao.complementoId, origemComplementoId),
+            eq(equipamento.ativo, true),
+          ),
+        );
+      if (daEtapa.length) return daEtapa.map(this.normalizaDestino);
+    }
+    return []; // herda do produto
   }
 
   private normalizaDestino = (d: any): Destino => ({
@@ -805,6 +862,9 @@ export class ProducaoPedidoService {
       .update(producaoPedido)
       .set(patch)
       .where(eq(producaoPedido.id, pedidoId));
+    // Impressão guiada por etapa (mig 129): se o KDS deste pedido está configurado
+    // para imprimir ao chegar nesta etapa, o ticket sai agora (e não no PDV).
+    await this.imprimirNaEtapa(tenantId, p, novo).catch(() => {});
     this.events?.emit('producao.evento', {
       tenantId,
       unidadeId: p.unidadeId,
@@ -815,6 +875,81 @@ export class ProducaoPedidoService {
       status: novo,
     });
     return { ok: true, status: novo };
+  }
+
+  // Enfileira o ticket quando o pedido AVANÇA para a etapa configurada no KDS.
+  // O KDS pode ser o destino explícito do pedido ou, no legado (sem equipamento),
+  // qualquer KDS ativo do mesmo setor com a regra ligada.
+  private async imprimirNaEtapa(tenantId: string, p: any, novoStatus: string) {
+    const cond = [
+      eq(equipamento.tenantId, tenantId),
+      eq(equipamento.tipo, 'kds'),
+      eq(equipamento.ativo, true),
+      eq(equipamento.imprimeAoAvancar, true),
+      eq(equipamento.imprimeNoStatus, novoStatus),
+    ];
+    if (p.destinoEquipamentoId) cond.push(eq(equipamento.id, p.destinoEquipamentoId));
+    else if (p.setorId) cond.push(eq(equipamento.setorId, p.setorId));
+    else return; // sem como identificar o KDS de origem
+    const kdss = await this.db
+      .select({ id: equipamento.id, impressoraDestinoId: equipamento.impressoraDestinoId })
+      .from(equipamento)
+      .where(and(...cond));
+    if (!kdss.length) return;
+
+    const itens = await this.db
+      .select()
+      .from(producaoPedidoItem)
+      .where(eq(producaoPedidoItem.pedidoId, p.id));
+    const ctx: any = {
+      tenantId,
+      unidadeId: p.unidadeId,
+      comandaId: p.comandaId,
+      setorId: p.setorId,
+      senha: p.senha,
+      origem: p.origem,
+      plataforma: p.plataforma,
+      senhaPlataforma: p.senhaPlataforma,
+      mesa: p.mesa,
+    };
+    const conteudo = this.renderTicket(
+      ctx,
+      itens.map((i) => ({
+        descricao: i.descricao,
+        quantidade: Number(i.quantidade),
+        complementosTexto: i.complementosTexto ?? undefined,
+        observacao: i.observacao ?? undefined,
+      })),
+      p.numero ?? 0,
+    );
+    for (const k of kdss) {
+      // Sem impressora explícita, cai na padrão do setor do pedido.
+      let alvo = k.impressoraDestinoId;
+      if (!alvo && p.setorId) {
+        const [padrao] = await this.db
+          .select({ id: equipamento.id })
+          .from(equipamento)
+          .where(
+            and(
+              eq(equipamento.tenantId, tenantId),
+              eq(equipamento.tipo, 'impressora'),
+              eq(equipamento.ativo, true),
+              eq(equipamento.setorId, p.setorId),
+            ),
+          )
+          .limit(1);
+        alvo = padrao?.id ?? null;
+      }
+      if (!alvo) continue;
+      await this.db.insert(impressaoJob).values({
+        tenantId,
+        unidadeId: p.unidadeId ?? null,
+        equipamentoId: alvo,
+        pedidoId: p.id,
+        via: 'producao',
+        conteudo,
+      });
+    }
   }
 
   // PDV (atendente) cancela o pedido em produção e avisa o KDS. Respeita a janela.

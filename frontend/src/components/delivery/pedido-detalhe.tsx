@@ -28,6 +28,8 @@ export function PedidoDetalhe({
   // cancelar
   const [motivo, setMotivo] = useState('');
   const [senha, setSenha] = useState('');
+  // mig 128 — destino do insumo já baixado ao cancelar: reutilizado x perda.
+  const [reaproveitado, setReaproveitado] = useState(true);
   // alterar — itens
   const [itens, setItens] = useState<any[] | null>(null);
   const [remover, setRemover] = useState<Set<string>>(new Set());
@@ -78,8 +80,8 @@ export function PedidoDetalhe({
     if (!senha.trim()) return toast.error('Informe a senha do gestor.');
     setBusy(true);
     try {
-      await api.cancelarDelivery(p.id, motivo.trim() || undefined, senha);
-      toast.success('Pedido cancelado.');
+      const r: any = await api.cancelarDelivery(p.id, motivo.trim() || undefined, senha, reaproveitado);
+      toast.success(r?.estoqueAviso ? `Pedido cancelado. ${r.estoqueAviso}` : 'Pedido cancelado.');
       onChanged();
       onClose();
     } catch (e) {
@@ -196,6 +198,28 @@ export function PedidoDetalhe({
                 <Input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha do presidente/gerente" />
               </div>
             </div>
+            {/* Insumo já baixado (pedido produzido): voltou ao estoque ou virou perda? */}
+            <div className="mt-3 space-y-1.5">
+              <p className="text-xs font-medium">O que aconteceu com os insumos deste pedido?</p>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  aria-pressed={reaproveitado}
+                  onClick={() => setReaproveitado(true)}
+                  className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${reaproveitado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}
+                >
+                  ♻️ Reutilizados (voltam ao estoque)
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={!reaproveitado}
+                  onClick={() => setReaproveitado(false)}
+                  className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-medium ${!reaproveitado ? 'border-destructive bg-destructive/10 text-destructive' : 'border-border text-muted-foreground'}`}
+                >
+                  🗑️ Perda (não voltam)
+                </button>
+              </div>
+            </div>
             <div className="mt-4 flex gap-2">
               <Button type="button" variant="ghost" className="flex-1" onClick={() => setModo('view')}>Voltar</Button>
               <Button type="button" className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={confirmarCancelamento} disabled={busy}>
@@ -244,7 +268,7 @@ export function PedidoDetalhe({
             {p.tipo !== 'retirada' && (
               <div className="mt-3 rounded-lg border border-border p-2.5">
                 <p className="mb-2 text-xs font-semibold">Endereço da entrega</p>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="col-span-2"><Input value={endRua} onChange={(e) => { setEndRua(e.target.value); setEndEditado(true); }} placeholder="Rua" /></div>
                   <Input value={endNum} onChange={(e) => { setEndNum(e.target.value); setEndEditado(true); }} placeholder="Número" />
                   {bairros.length > 0 ? (

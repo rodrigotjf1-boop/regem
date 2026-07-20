@@ -275,7 +275,7 @@ function ModalForma({ forma, onFechar, onSalvar, onRemover }: any) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label className="space-y-1">
             <span className="text-xs text-muted-foreground">Taxa extra (R$)</span>
             <Input inputMode="decimal" value={f.taxaExtra ?? ''} onChange={(e) => set({ taxaExtra: e.target.value })} placeholder="0,00" />

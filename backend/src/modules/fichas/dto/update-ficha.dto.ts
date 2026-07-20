@@ -28,6 +28,14 @@ export class UpdateFichaDto {
   rendimentoUnidade?: string;
 
   @IsOptional()
+  @IsNumber()
+  porcaoTamanho?: number;
+
+  @IsOptional()
+  @IsString()
+  porcaoUnidade?: string;
+
+  @IsOptional()
   @IsString()
   validade?: string;
 

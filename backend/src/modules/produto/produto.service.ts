@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -14,6 +14,9 @@ import {
   complementoGrupo,
   complementoOpcao,
   categoriaProduto,
+  complementoDestinoProducao,
+  opcaoDestinoProducao,
+  produtoDestinoProducao,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
@@ -122,7 +125,7 @@ export class ProdutoService {
              o.imagem_ref as "imagemRef", o.tipo, o.preco_custo as "precoCusto",
              o.controla_estoque as "controlaEstoque", o.ficha_id as "fichaId",
              o.item_id as "itemId", o.produto_ref_id as "produtoRefId",
-             o.ativo, o.esgotado,
+             o.padrao_marcada as "padraoMarcada", o.ativo, o.esgotado,
              f.nome as "fichaNome", i.nome as "itemNome",
              (select count(*)::int from complemento_item ci where ci.opcao_id = o.id and ci.deleted_at is null) as "usado"
       from opcao o
@@ -139,7 +142,9 @@ export class ProdutoService {
     const res: any = await this.db.execute(sql`
       select c.id, c.nome, c.regra, c.obrigatorio, c.min, c.max, c.canais, c.ativo,
              coalesce(json_agg(
-               json_build_object('opcaoId', ci.opcao_id, 'preco', ci.preco, 'ordem', ci.ordem, 'nome', o.nome)
+               json_build_object('opcaoId', ci.opcao_id, 'preco', ci.preco, 'ordem', ci.ordem,
+                                 'padraoMarcada', ci.padrao_marcada, 'nome', o.nome,
+                                 'codigoPdv', o.codigo_pdv)
                order by ci.ordem
              ) filter (where ci.id is not null), '[]') as itens
       from complemento c
@@ -185,6 +190,7 @@ export class ProdutoService {
           complementoId,
           opcaoId: it.opcaoId,
           preco: it.preco != null && it.preco !== '' ? String(Number(it.preco) || 0) : '0',
+          padraoMarcada: !!it.padraoMarcada, // pré-marcada nesta etapa (mig 126)
           ordem: it.ordem != null ? Number(it.ordem) : i,
         })),
       );
@@ -295,31 +301,177 @@ export class ProdutoService {
         .select({
           preco: complementoItem.preco,
           ordem: complementoItem.ordem,
+          padraoItem: complementoItem.padraoMarcada,
           opcaoId: opcao.id,
           nome: opcao.nome,
           tipo: opcao.tipo,
           fichaId: opcao.fichaId,
           itemId: opcao.itemId,
           produtoRefId: opcao.produtoRefId,
+          codigoPdv: opcao.codigoPdv,
+          controlaEstoque: opcao.controlaEstoque,
+          padraoOpcao: opcao.padraoMarcada,
         })
         .from(complementoItem)
         .innerJoin(opcao, eq(opcao.id, complementoItem.opcaoId))
         .where(and(eq(complementoItem.complementoId, comp.id), isNull(complementoItem.deletedAt), isNull(opcao.deletedAt)))
         .orderBy(complementoItem.ordem);
       for (const [j, it] of itens.entries()) {
+        // mig 126 — discriminador: SEM código PDV a opção é INFORMATIVA (observação:
+        // "ponto de carne", "talheres"): não baixa estoque, não soma preço e não
+        // carrega link de estoque. COM código PDV é item real.
+        const informativa = !(it.codigoPdv ?? '').trim();
         await this.db.insert(complementoOpcao).values({
           tenantId,
           grupoId: g.id,
           nome: it.nome,
-          precoDelta: it.preco != null ? String(it.preco) : '0',
+          precoDelta: informativa ? '0' : it.preco != null ? String(it.preco) : '0',
           // Link de baixa por tipo de opção: insumo→item; simples/ficha→produto (se houver).
-          itemId: it.tipo === 'insumo' ? it.itemId ?? null : null,
-          produtoRefId: it.tipo !== 'insumo' ? it.produtoRefId ?? null : null,
+          itemId: informativa ? null : it.tipo === 'insumo' ? it.itemId ?? null : null,
+          produtoRefId: informativa ? null : it.tipo !== 'insumo' ? it.produtoRefId ?? null : null,
           quantidade: '1',
+          codigoPdv: informativa ? null : it.codigoPdv,
+          controlaEstoque: informativa ? false : !!it.controlaEstoque,
+          // Pré-marcada: o item da etapa manda; se não, o padrão da própria opção.
+          padraoMarcada: !!(it.padraoItem || it.padraoOpcao),
           ordem: j,
           origemOpcaoId: it.opcaoId,
         });
       }
+    }
+    return { ok: true };
+  }
+
+  // ----- Direcionamento do catálogo (tela em massa: produto → KDS/impressora) -----
+  // Lista os produtos com os destinos JÁ definidos + os campos usados nos filtros
+  // (categoria, setor, preparado×pronto). Sem destino = herda setor/impressora única.
+  async listarDirecionamento(tenantId: string) {
+    const res: any = await this.db.execute(sql`
+      select p.id, p.nome, p.tipo, p.ficha_id as "fichaId",
+             p.categoria_id as "categoriaId", c.nome as "categoriaNome",
+             p.setor_producao_id as "setorProducaoId", s.nome as "setorNome",
+             p.disponivel_cardapio as "disponivelCardapio",
+             p.disponivel_balcao as "disponivelBalcao",
+             p.vai_para_producao as "vaiParaProducao",
+             coalesce(
+               (select json_agg(d.equipamento_id) from produto_destino_producao d
+                 where d.produto_id = p.id and d.tenant_id = p.tenant_id),
+               '[]'
+             ) as destinos
+      from produto p
+      left join categoria_produto c on c.id = p.categoria_id
+      left join setor s on s.id = p.setor_producao_id
+      where p.tenant_id = ${tenantId} and p.deleted_at is null and p.ativo = true
+      order by c.nome nulls last, p.nome
+    `);
+    return (res.rows ?? res).map((r: any) => ({
+      ...r,
+      destinos: Array.isArray(r.destinos) ? r.destinos.filter(Boolean) : [],
+      // "Preparado" = tem ficha técnica (explode ao vender). Sem ficha = pronto/revenda.
+      preparado: !!r.fichaId,
+    }));
+  }
+
+  // Grava o direcionamento de VÁRIOS produtos de uma vez.
+  //  modo 'substituir' = troca os destinos; 'adicionar' = soma aos existentes.
+  async setDirecionamentoLote(
+    tenantId: string,
+    produtoIds: string[],
+    equipamentoIds: string[],
+    modo: 'substituir' | 'adicionar' = 'substituir',
+  ) {
+    const produtos = [...new Set((produtoIds ?? []).filter(Boolean))];
+    const equipamentos = [...new Set((equipamentoIds ?? []).filter(Boolean))];
+    if (!produtos.length) throw new BadRequestException('Selecione ao menos um produto.');
+    for (const produtoId of produtos) {
+      if (modo === 'substituir') {
+        await this.db
+          .delete(produtoDestinoProducao)
+          .where(
+            and(
+              eq(produtoDestinoProducao.tenantId, tenantId),
+              eq(produtoDestinoProducao.produtoId, produtoId),
+            ),
+          );
+      }
+      const atuais =
+        modo === 'adicionar'
+          ? (
+              await this.db
+                .select({ equipamentoId: produtoDestinoProducao.equipamentoId })
+                .from(produtoDestinoProducao)
+                .where(
+                  and(
+                    eq(produtoDestinoProducao.tenantId, tenantId),
+                    eq(produtoDestinoProducao.produtoId, produtoId),
+                  ),
+                )
+            ).map((r) => r.equipamentoId)
+          : [];
+      const novos = equipamentos.filter((e) => !atuais.includes(e));
+      if (novos.length) {
+        await this.db.insert(produtoDestinoProducao).values(
+          novos.map((equipamentoId) => ({ tenantId, produtoId, equipamentoId })),
+        );
+      }
+    }
+    return { ok: true, produtos: produtos.length, destinos: equipamentos.length };
+  }
+
+  // ----- Destinos próprios de COMPLEMENTO e OPÇÃO (mig 127) -----
+  // Vazio = herda do produto (padrão). Preenchido = prevalece sobre o do produto.
+  async getComplementoDestinos(tenantId: string, complementoId: string) {
+    const rows = await this.db
+      .select({ equipamentoId: complementoDestinoProducao.equipamentoId })
+      .from(complementoDestinoProducao)
+      .where(
+        and(
+          eq(complementoDestinoProducao.tenantId, tenantId),
+          eq(complementoDestinoProducao.complementoId, complementoId),
+        ),
+      );
+    return rows.map((r) => r.equipamentoId);
+  }
+
+  async setComplementoDestinos(tenantId: string, complementoId: string, ids: string[]) {
+    await this.db
+      .delete(complementoDestinoProducao)
+      .where(
+        and(
+          eq(complementoDestinoProducao.tenantId, tenantId),
+          eq(complementoDestinoProducao.complementoId, complementoId),
+        ),
+      );
+    const lista = [...new Set((ids ?? []).filter(Boolean))];
+    if (lista.length) {
+      await this.db.insert(complementoDestinoProducao).values(
+        lista.map((equipamentoId) => ({ tenantId, complementoId, equipamentoId })),
+      );
+    }
+    return { ok: true };
+  }
+
+  async getOpcaoDestinos(tenantId: string, opcaoId: string) {
+    const rows = await this.db
+      .select({ equipamentoId: opcaoDestinoProducao.equipamentoId })
+      .from(opcaoDestinoProducao)
+      .where(
+        and(eq(opcaoDestinoProducao.tenantId, tenantId), eq(opcaoDestinoProducao.opcaoId, opcaoId)),
+      );
+    return rows.map((r) => r.equipamentoId);
+  }
+
+  async setOpcaoDestinos(tenantId: string, opcaoId: string, ids: string[]) {
+    await this.db
+      .delete(opcaoDestinoProducao)
+      .where(
+        and(eq(opcaoDestinoProducao.tenantId, tenantId), eq(opcaoDestinoProducao.opcaoId, opcaoId)),
+      );
+    const lista = [...new Set((ids ?? []).filter(Boolean))];
+    if (lista.length) {
+      await this.db.insert(opcaoDestinoProducao).values(
+        lista.map((equipamentoId) => ({ tenantId, opcaoId, equipamentoId })),
+      );
     }
     return { ok: true };
   }
@@ -385,6 +537,9 @@ export class ProdutoService {
       fichaId: tipo === 'ficha' ? dto?.fichaId || null : null,
       itemId: tipo === 'insumo' ? dto?.itemId || null : null,
       produtoRefId: tipo === 'simples' ? dto?.produtoRefId || null : null,
+      // mig 126 — pré-marcada por padrão (ex.: "Talheres? Sim"). Útil sobretudo nas
+      // opções informativas (sem código PDV), que servem de observação ao preparo.
+      padraoMarcada: !!dto?.padraoMarcada,
       ativo: dto?.ativo != null ? !!dto.ativo : true,
       esgotado: dto?.esgotado != null ? !!dto.esgotado : false,
     };
@@ -669,12 +824,24 @@ export class ProdutoService {
     return { ok: true };
   }
 
+  // A categoria organiza o catálogo de vendas (cardápio digital + balcão/PDV), por
+  // isso é OBRIGATÓRIA no produto. Insumos internos não são `produto` — vivem em
+  // item_estoque, com categoria própria (categoria_item).
+  private exigirCategoria(categoriaId?: string | null) {
+    if (!categoriaId) {
+      throw new BadRequestException(
+        'Selecione uma categoria: ela organiza o produto no cardápio digital e no balcão/PDV.',
+      );
+    }
+  }
+
   async criar(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     dto: CreateProdutoDto,
   ) {
+    this.exigirCategoria(dto.categoriaId);
     const row = await this.db.transaction(async (tx) => {
       const [p] = await tx
         .insert(produto)
@@ -761,6 +928,8 @@ export class ProdutoService {
   }
 
   async atualizar(tenantId: string, id: string, dto: CreateProdutoDto) {
+    // Se o campo veio no payload, não pode vir vazio (limpar categoria é proibido).
+    if (dto.categoriaId !== undefined) this.exigirCategoria(dto.categoriaId);
     const patch: any = { updatedAt: new Date() };
     const set = (k: string, v: any) => {
       if (v !== undefined) patch[k] = v;

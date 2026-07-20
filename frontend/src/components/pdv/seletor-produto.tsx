@@ -157,7 +157,7 @@ export function SeletorProduto({
           <h3 className="font-display text-xs font-bold uppercase tracking-[.12em] text-muted-foreground">
             {g.nome} <span className="font-mono font-normal">· {g.itens.length}</span>
           </h3>
-          <div className="grid grid-cols-4 gap-1.5 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8">
+          <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5 md:grid-cols-6 xl:grid-cols-8">
             {g.itens.map((p) => (
               <button
                 key={p.id}

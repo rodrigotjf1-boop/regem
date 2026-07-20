@@ -309,7 +309,7 @@ export function ConfigPanel({
                       <input type="checkbox" checked={!!loja.ativo} disabled={somenteGestor} onChange={(e) => up({ ativo: e.target.checked })} className="h-4 w-4 accent-primary" />
                       Cardápio digital próprio ativo
                     </label>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <Campo label="Modo">
                         <select aria-label="Modo do cardápio" disabled={somenteGestor} value={loja.modo ?? 'mesa'} onChange={(e) => up({ modo: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
                           <option value="mesa">Mesa (QR na mesa → comanda)</option>
@@ -1125,7 +1125,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <p className="text-[11px] text-muted-foreground">Padrão aberto da Abrasel. Cole a <strong>URL base da API Open Delivery</strong> do marketplace (ex.: no Cardápio Web em Configurações → Integrações → API Open Delivery) e as credenciais OAuth. O Regem faz o polling dos pedidos e devolve o status automaticamente.</p>
           <div className="grid gap-2">
             <Campo label="URL base da API Open Delivery"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="https://.../open-delivery-api/v1" className="h-8" disabled={!pode} /></Campo>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Campo label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
               <Campo label={`Client Secret${it.temSecret ? ' (salvo)' : ''}`}>
                 <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : ''} className="h-8" disabled={!pode} />
@@ -1134,7 +1134,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           </div>
         </>
       ) : (
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <Campo label="Merchant ID"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
         <Campo label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
         <Campo label={`Client Secret${it.temSecret ? ' (salvo)' : ''}`}>
@@ -1182,7 +1182,7 @@ function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any
             <Input value={r.nome} onChange={(e) => up(i, { nome: e.target.value })} placeholder="Nome da impressora" className="h-8 flex-1" disabled={!pode} />
             <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={r.ativo !== false} onChange={(e) => up(i, { ativo: e.target.checked })} /> ativa</label>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
               <Label className="text-[11px]">Direcionamento</Label>
               <select value={r.papel} onChange={(e) => up(i, { papel: e.target.value })} aria-label="Direcionamento" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>

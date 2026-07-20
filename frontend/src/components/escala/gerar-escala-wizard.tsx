@@ -201,7 +201,7 @@ export function GerarEscalaWizard({
           <h2 className="font-display text-base font-bold">Gerar escala</h2>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs">Colaborador</Label>
             <select aria-label="Colaborador" className={selectCls} value={colaboradorId} onChange={(e) => escolherColab(e.target.value)}>
@@ -228,7 +228,7 @@ export function GerarEscalaWizard({
           </select>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs">Entrada</Label>
             <Input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} />
@@ -243,7 +243,7 @@ export function GerarEscalaWizard({
           <p className="mb-2 text-xs text-muted-foreground">
             Pausa (intervalo) sugerida pela CLT — editável:
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input type="time" value={pausaIni} onChange={(e) => setPausaInicio(e.target.value)} aria-label="Início da pausa" />
             <Input type="time" value={pausaF} onChange={(e) => setPausaFim(e.target.value)} aria-label="Fim da pausa" />
           </div>
@@ -273,7 +273,7 @@ export function GerarEscalaWizard({
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="space-y-1.5">
             <Label className="text-xs">{recorrente ? 'Início' : 'Dia'}</Label>
             <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />

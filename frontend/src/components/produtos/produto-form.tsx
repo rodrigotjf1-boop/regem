@@ -64,13 +64,24 @@ export function ProdutoForm({
             <Input value={f.descricao} onChange={(e) => set({ descricao: e.target.value })} />
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Categoria</Label>
-            <select className={selectCls} value={f.categoriaId} onChange={(e) => set({ categoriaId: e.target.value })}>
-              <option value="">— sem categoria —</option>
+            <Label className="text-xs">Categoria *</Label>
+            <select
+              className={selectCls}
+              required
+              aria-invalid={!f.categoriaId}
+              value={f.categoriaId}
+              onChange={(e) => set({ categoriaId: e.target.value })}
+            >
+              <option value="">— selecione a categoria —</option>
               {categorias.map((c) => (
                 <option key={c.id} value={c.id}>{catLabel(c)}</option>
               ))}
             </select>
+            {!f.categoriaId && (
+              <p className="text-[11px] text-destructive">
+                Obrigatória: organiza o produto no cardápio digital e no balcão/PDV.
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Ficha técnica (baixa de estoque)</Label>

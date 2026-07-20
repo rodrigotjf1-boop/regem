@@ -69,7 +69,7 @@ export default function LojaPage() {
             <div className="text-xs text-muted-foreground">Logo da loja (imagem)</div>
           </div>
           <Campo label="Nome do estabelecimento"><Input value={loja.nomePublico ?? ''} onChange={(e) => up({ nomePublico: e.target.value })} /></Campo>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Campo label="Telefone de contato"><Input value={loja.contatoLoja ?? ''} onChange={(e) => up({ contatoLoja: e.target.value })} /></Campo>
             <Campo label="CPF / CNPJ"><Input value={loja.documento ?? ''} onChange={(e) => up({ documento: e.target.value })} /></Campo>
             <Campo label="WhatsApp"><Input value={loja.whatsapp ?? ''} onChange={(e) => up({ whatsapp: e.target.value })} placeholder="+55" /></Campo>
@@ -89,7 +89,7 @@ export default function LojaPage() {
         {/* Endereço + operação */}
         <Card className="space-y-4 p-5">
           <h2 className="font-display text-base font-bold">Endereço do estabelecimento</h2>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Campo label="CEP">
               <Input
                 value={loja.endCep ?? ''}
@@ -111,7 +111,7 @@ export default function LojaPage() {
           </div>
           <PontoLojaMapa loja={loja} up={up} pode />
 
-          <div className="grid grid-cols-2 gap-2 border-t border-border pt-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-border pt-3">
             <Campo label="Pedido mínimo p/ delivery (R$)"><Input inputMode="decimal" value={loja.pedidoMinimo ?? ''} onChange={(e) => up({ pedidoMinimo: e.target.value })} placeholder="0,00" /></Campo>
           </div>
           <Campo label="Observação antes de finalizar o pedido">

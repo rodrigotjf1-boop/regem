@@ -246,7 +246,7 @@ export default function FichasPage() {
                 ))}
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="rend">Rendimento</Label>
                 <Input id="rend" type="number" value={rendimento} onChange={(e) => setRendimento(e.target.value)} />
@@ -378,7 +378,7 @@ export default function FichasPage() {
           )}
 
           {(markup != null || margem != null) && (
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
               <Row
                 label="Markup (preço÷custo)"
                 value={markup != null ? `${markup.toFixed(2).replace('.', ',')}×` : '—'}

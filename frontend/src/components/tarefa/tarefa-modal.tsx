@@ -202,7 +202,7 @@ export function TarefaModal({
         {/* VIEW: ações */}
         {modo === 'view' && (
           <div className="space-y-3">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Button type="button" size="sm" onClick={() => setModo('feita')}>Concluída</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setModo('parcial')}>Parcial</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setModo('nao_feita')}>Não concluída</Button>

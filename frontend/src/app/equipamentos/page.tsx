@@ -179,6 +179,21 @@ export default function EquipamentosPage() {
     }
   }
 
+  // Salva a config de impressão por etapa do KDS (mig 129) e recarrega a lista.
+  async function salvarImpressaoEtapa(eq: any, patch: Record<string, unknown>) {
+    try {
+      await api.setImpressaoEtapa(eq.id, {
+        imprimeAoAvancar: eq.imprimeAoAvancar ?? false,
+        imprimeNoStatus: eq.imprimeNoStatus ?? 'pronto',
+        impressoraDestinoId: eq.impressoraDestinoId ?? null,
+        ...patch,
+      } as any);
+      await reload();
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar a impressão por etapa');
+    }
+  }
+
   async function bindImpressora(id: string, impressoraId: string) {
     setErro('');
     try {
@@ -391,7 +406,7 @@ export default function EquipamentosPage() {
                   </p>
                 </div>
                 {conexao === 'local' ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label htmlFor="dispositivo">Nome no Windows</Label>
                       <Input id="dispositivo" value={dispositivo} onChange={(e) => setDispositivo(e.target.value)} placeholder="Ex.: EPSON TM-T20" />
@@ -405,7 +420,7 @@ export default function EquipamentosPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="space-y-1.5">
                       <Label htmlFor="host">IP da impressora</Label>
                       <Input id="host" value={host} onChange={(e) => setHost(e.target.value)} placeholder="192.168.1.50" />
@@ -553,6 +568,48 @@ export default function EquipamentosPage() {
                             <option key={p.id} value={p.id}>{p.nome}</option>
                           ))}
                       </select>
+                    </div>
+                  )}
+                  {/* KDS — impressão guiada por etapa (mig 129): o ticket só sai
+                      quando o pedido AVANÇA para a etapa escolhida neste KDS. */}
+                  {eq.tipo === 'kds' && eq.ativo && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <label className="flex items-center gap-1.5">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 accent-primary"
+                          checked={!!eq.imprimeAoAvancar}
+                          onChange={(e) => salvarImpressaoEtapa(eq, { imprimeAoAvancar: e.target.checked })}
+                        />
+                        <span>Imprimir ao avançar</span>
+                      </label>
+                      {eq.imprimeAoAvancar && (
+                        <>
+                          <select
+                            aria-label={`Etapa que dispara a impressão no ${eq.nome}`}
+                            value={eq.imprimeNoStatus ?? 'pronto'}
+                            onChange={(e) => salvarImpressaoEtapa(eq, { imprimeNoStatus: e.target.value })}
+                            className="h-8 rounded-md border border-input bg-card px-2 text-xs"
+                          >
+                            <option value="preparo">ao iniciar preparo</option>
+                            <option value="pronto">ao ficar pronto</option>
+                            <option value="entregue">ao despachar/entregar</option>
+                          </select>
+                          <select
+                            aria-label={`Impressora de destino do ${eq.nome}`}
+                            value={eq.impressoraDestinoId ?? ''}
+                            onChange={(e) => salvarImpressaoEtapa(eq, { impressoraDestinoId: e.target.value || null })}
+                            className="h-8 rounded-md border border-input bg-card px-2 text-xs"
+                          >
+                            <option value="">— padrão do setor —</option>
+                            {(lista ?? [])
+                              .filter((p: any) => p.tipo === 'impressora' && p.ativo)
+                              .map((p: any) => (
+                                <option key={p.id} value={p.id}>{p.nome}</option>
+                              ))}
+                          </select>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

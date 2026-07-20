@@ -51,6 +51,15 @@ export class EquipamentoService {
         padrao: dto.tipo === 'impressora' ? !!dto.padrao : undefined,
         impressoraPadraoId:
           dto.tipo === 'pdv' ? dto.impressoraPadraoId ?? null : undefined,
+        // KDS — impressão guiada por etapa (mig 129).
+        imprimeAoAvancar: dto.tipo === 'kds' ? !!dto.imprimeAoAvancar : undefined,
+        imprimeNoStatus:
+          dto.tipo === 'kds'
+            ? ['recebido', 'preparo', 'pronto', 'entregue'].includes(dto.imprimeNoStatus ?? '')
+              ? (dto.imprimeNoStatus as string)
+              : 'pronto'
+            : undefined,
+        impressoraDestinoId: dto.tipo === 'kds' ? dto.impressoraDestinoId ?? null : undefined,
       })
       .returning();
     await this.auditoria.registrar({
@@ -206,6 +215,35 @@ export class EquipamentoService {
     return row;
   }
 
+  // KDS — impressão guiada por etapa (mig 129): liga/desliga, escolhe a etapa que
+  // dispara e a impressora que recebe o ticket. Só vale para equipamento tipo 'kds'.
+  async setImpressaoEtapa(
+    tenantId: string,
+    id: string,
+    dto: { imprimeAoAvancar?: boolean; imprimeNoStatus?: string; impressoraDestinoId?: string | null },
+  ) {
+    const status = ['recebido', 'preparo', 'pronto', 'entregue'].includes(dto?.imprimeNoStatus ?? '')
+      ? (dto.imprimeNoStatus as string)
+      : 'pronto';
+    const [row] = await this.db
+      .update(equipamento)
+      .set({
+        imprimeAoAvancar: !!dto?.imprimeAoAvancar,
+        imprimeNoStatus: status,
+        impressoraDestinoId: dto?.impressoraDestinoId || null,
+      })
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.id, id),
+          eq(equipamento.tipo, 'kds'),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('KDS não encontrado.');
+    return this.publico(row);
+  }
+
   private publico(r: any) {
     return {
       id: r.id,
@@ -226,6 +264,10 @@ export class EquipamentoService {
       vias: r.vias,
       padrao: r.padrao,
       impressoraPadraoId: r.impressoraPadraoId ?? null,
+      // KDS — impressão guiada por etapa (mig 129).
+      imprimeAoAvancar: !!r.imprimeAoAvancar,
+      imprimeNoStatus: r.imprimeNoStatus ?? 'pronto',
+      impressoraDestinoId: r.impressoraDestinoId ?? null,
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,
       createdAt: r.createdAt,

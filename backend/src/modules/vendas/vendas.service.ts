@@ -245,6 +245,8 @@ export class VendasService {
         itemId: complementoOpcao.itemId,
         produtoRefId: complementoOpcao.produtoRefId,
         quantidade: complementoOpcao.quantidade,
+        codigoPdv: complementoOpcao.codigoPdv,
+        controlaEstoque: complementoOpcao.controlaEstoque,
         tipo: complementoGrupo.tipo,
         gProduto: complementoGrupo.produtoId,
       })
@@ -263,15 +265,21 @@ export class VendasService {
     let precoDelta = 0;
     for (const o of opcoes) {
       if (o.gProduto !== produtoId) continue; // não é deste produto → ignora
-      precoDelta += Number(o.precoDelta) || 0;
+      // mig 126 — SEM código PDV a opção é INFORMATIVA (observação de preparo:
+      // "ponto de carne", "talheres"): não soma preço nem baixa estoque; entra só
+      // como snapshot/nota na comanda e no ticket de produção.
+      const informativa = !(o.codigoPdv ?? '').trim();
+      if (!informativa) precoDelta += Number(o.precoDelta) || 0;
       snapshots.push({
         opcaoId: o.id,
         tipo: o.tipo,
         nome: o.nome,
-        precoDelta: o.precoDelta,
-        fichaIngredienteId: o.fichaIngredienteId,
-        itemId: o.itemId,
-        produtoRefId: o.produtoRefId,
+        precoDelta: informativa ? '0' : o.precoDelta,
+        informativa,
+        // Links de baixa só valem para opção real COM controle de estoque.
+        fichaIngredienteId: o.fichaIngredienteId, // 'remover' vale mesmo informativa
+        itemId: informativa || !o.controlaEstoque ? null : o.itemId,
+        produtoRefId: informativa ? null : o.produtoRefId,
         quantidade: o.quantidade,
       });
     }
@@ -737,12 +745,16 @@ export class VendasService {
 
   // Estorna uma venda externa (delivery cancelado). Como não passa por caixa,
   // reverte estoque (entrada inversa) e o lançamento 'online', sem exigir sessão.
+  // `reaproveitado` (mig 128): true = o insumo baixado foi REUTILIZADO → devolve ao
+  // estoque (entrada inversa). false = virou PERDA → a saída permanece (o insumo se
+  // perdeu) e a decisão fica registrada na comanda para relatório.
   async estornarVendaExterna(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     comandaId: string,
     motivo?: string,
+    reaproveitado = true,
   ) {
     await this.db.transaction(async (tx) => {
       const [c] = await tx
@@ -762,18 +774,29 @@ export class VendasService {
             eq(movimentoEstoque.refId, comandaId),
           ),
         );
-      for (const m of saidas) {
-        await tx.insert(movimentoEstoque).values({
-          tenantId,
-          itemId: m.itemId,
-          tipo: 'entrada',
-          quantidade: m.quantidade,
-          custoUnitario: m.custoUnitario ?? undefined,
-          motivo: 'estorno',
-          refTipo: 'estorno',
-          refId: comandaId,
-          data: hojeISO(),
-        });
+      // Só devolve ao estoque se o insumo foi REUTILIZADO. Em caso de PERDA a saída
+      // original permanece (o insumo realmente se perdeu) — nada a estornar.
+      if (reaproveitado) {
+        for (const m of saidas) {
+          await tx.insert(movimentoEstoque).values({
+            tenantId,
+            itemId: m.itemId,
+            tipo: 'entrada',
+            quantidade: m.quantidade,
+            custoUnitario: m.custoUnitario ?? undefined,
+            motivo: 'estorno',
+            refTipo: 'estorno',
+            refId: comandaId,
+            data: hojeISO(),
+          });
+        }
+      }
+      // Registra a decisão (só quando houve baixa de fato) para relatório/auditoria.
+      if (saidas.length) {
+        await tx
+          .update(comanda)
+          .set({ estoqueReaproveitado: reaproveitado, updatedAt: new Date() })
+          .where(eq(comanda.id, comandaId));
       }
       const [lanc] = await tx
         .select()
