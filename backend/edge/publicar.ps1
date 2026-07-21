@@ -1,4 +1,4 @@
-# Regem Edge — PUBLICAR uma nova versão (rode na SUA máquina de dev).
+﻿# Regem Edge — PUBLICAR uma nova versão (rode na SUA máquina de dev).
 #
 # O que faz: compila o backend, monta o pacote (regem-edge-dist), zipa numa
 # versão e calcula o SHA-256. No fim, mostra as 3 variáveis para colar no

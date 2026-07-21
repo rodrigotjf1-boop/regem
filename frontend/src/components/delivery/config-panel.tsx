@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
-import { api } from '@/lib/api';
+import { api, getUnidadeAtual } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -42,7 +42,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     itens: [
       { k: 'banners', label: 'Banners' },
       { k: 'quadro', label: 'Colunas do quadro' },
-      { k: 'impressoras', label: 'Impressoras' },
+      { k: 'impressoras', label: 'Impressoras e cupons' },
       { k: 'integracoes', label: 'Integrações' },
       { k: 'robo', label: 'Robô de atendimento' },
     ],
@@ -54,11 +54,13 @@ export function ConfigPanel({
   onDeliveryToggle,
   isGestor,
   onClose,
+  pagina = false,
 }: {
   deliveryCfg: any;
   onDeliveryToggle: (patch: any) => void;
   isGestor: boolean;
   onClose: () => void;
+  pagina?: boolean;
 }) {
   const [sec, setSec] = useState('cardapio');
   const [loja, setLoja] = useState<any>(null);
@@ -249,37 +251,57 @@ export function ConfigPanel({
   const somenteGestor = !isGestor;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onClose}>
-      <div className="flex h-[92vh] w-full max-w-6xl overflow-hidden rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
-        {/* Menu lateral */}
-        <aside className="w-52 shrink-0 overflow-y-auto border-r border-border bg-secondary/40 p-3">
-          <p className="mb-2 px-1 font-display text-sm font-bold">Configurações</p>
-          {MENU.map((g) => (
-            <div key={g.grupo} className="mb-3">
-              <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{g.grupo}</p>
-              {g.itens.map((it) => (
-                <button
-                  key={it.k}
-                  type="button"
-                  onClick={() => setSec(it.k)}
-                  className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm ${sec === it.k ? 'bg-primary/15 font-semibold text-primary' : 'hover:bg-secondary'}`}
-                >
-                  {it.label}
-                  {it.breve && <span className="rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">em breve</span>}
-                </button>
-              ))}
-            </div>
-          ))}
-        </aside>
+    <div className={pagina ? 'w-full' : 'fixed inset-0 z-50 grid place-items-center bg-black/50 p-4'} onClick={pagina ? undefined : onClose}>
+      <div className={pagina ? 'flex w-full flex-col' : 'flex h-[92vh] w-full max-w-6xl overflow-hidden rounded-xl border border-border bg-card'} onClick={(e) => e.stopPropagation()}>
+        {/* Abas no topo (modo página) */}
+        {pagina && (
+          <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border pb-1">
+            {MENU.flatMap((g) => g.itens).map((it) => (
+              <button
+                key={it.k}
+                type="button"
+                onClick={() => setSec(it.k)}
+                className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm ${sec === it.k ? 'bg-primary/15 font-semibold text-primary' : 'text-muted-foreground hover:bg-secondary'}`}
+              >
+                {it.label}
+                {it.breve && <span className="ml-1 rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">em breve</span>}
+              </button>
+            ))}
+          </div>
+        )}
+        {/* Menu lateral (modo modal) */}
+        {!pagina && (
+          <aside className="w-52 shrink-0 overflow-y-auto border-r border-border bg-secondary/40 p-3">
+            <p className="mb-2 px-1 font-display text-sm font-bold">Configurações</p>
+            {MENU.map((g) => (
+              <div key={g.grupo} className="mb-3">
+                <p className="mb-1 px-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">{g.grupo}</p>
+                {g.itens.map((it) => (
+                  <button
+                    key={it.k}
+                    type="button"
+                    onClick={() => setSec(it.k)}
+                    className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm ${sec === it.k ? 'bg-primary/15 font-semibold text-primary' : 'hover:bg-secondary'}`}
+                  >
+                    {it.label}
+                    {it.breve && <span className="rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">em breve</span>}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </aside>
+        )}
 
         {/* Conteúdo */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-            <h3 className="font-display text-base font-bold">{secLabel(sec)}</h3>
-            <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-secondary">Fechar ✕</button>
-          </div>
+          {!pagina && (
+            <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
+              <h3 className="font-display text-base font-bold">{secLabel(sec)}</h3>
+              <button type="button" onClick={onClose} className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-secondary">Fechar ✕</button>
+            </div>
+          )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className={pagina ? 'min-h-0 flex-1' : 'min-h-0 flex-1 overflow-y-auto p-4'}>
             {loja === null ? (
               <p className="text-sm text-muted-foreground">Carregando…</p>
             ) : (
@@ -579,12 +601,15 @@ export function ConfigPanel({
 
                 {/* IMPRESSORAS */}
                 {sec === 'impressoras' && (
-                  <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
+                  <div className="space-y-4">
+                    <CupomLayoutEditor cfg={deliveryCfg} onSave={onDeliveryToggle} pode={isGestor} />
+                    <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
+                  </div>
                 )}
 
                 {/* INTEGRAÇÕES */}
                 {sec === 'integracoes' && (
-                  <Integracoes lista={integracoes} onSalvar={salvarIntegracao} pode={isGestor} />
+                  <Integracoes lista={integracoes} onSalvar={salvarIntegracao} pode={isGestor} cardapioAtivo={!!loja?.ativo} />
                 )}
 
                 {/* ROBÔ DE ATENDIMENTO */}
@@ -1025,6 +1050,9 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   const setMsgs = (m: any[]) => up({ roboMensagens: m });
   return (
     <div className="space-y-3">
+      <p className="rounded-lg bg-primary/10 px-3 py-2 text-xs text-primary">
+        ℹ️ Este robô é do <strong>cardápio digital do Regem</strong>. Se a sua loja usa um cardápio externo (Cardápio Web, Anota Aí, Delivery Web…), o robô de atendimento é o <strong>desse cardápio</strong> — aqui o Regem apenas centraliza e administra os pedidos.
+      </p>
       <ConectarWhatsapp pode={pode} />
       <p className="text-xs text-muted-foreground">Robô de auto atendimento do cardápio/WhatsApp. Aqui você configura as <strong>mensagens</strong>. O “cérebro” com IA (respostas livres) entra numa etapa dedicada.</p>
       <ToggleLinha label="Robô ativo" desc="Responde os clientes automaticamente." checked={!!loja.roboAtivo} onChange={(v) => up({ roboAtivo: v })} pode={pode} />
@@ -1060,14 +1088,22 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   );
 }
 
-const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', open_delivery: 'Open Delivery (Cardápio Web)', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago (PIX online)', iugu: 'Iugu (PIX online)' };
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', open_delivery: 'Open Delivery (Abrasel)', cardapio_web: 'Cardápio Web (API de integração)', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago (PIX online)', iugu: 'Iugu (PIX online)' };
 
-function Integracoes({ lista, onSalvar, pode }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean }) {
+// Mercado Pago, Iugu e WhatsApp/n8n são recursos do CARDÁPIO DIGITAL do Regem —
+// só aparecem quando ele está ativo (senão a loja usa cardápio externo e o Regem
+// é só centralizador de pedidos).
+const CANAIS_DO_CARDAPIO = ['mercadopago', 'iugu', 'n8n'];
+function Integracoes({ lista, onSalvar, pode, cardapioAtivo }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean; cardapioAtivo: boolean }) {
+  const visiveis = lista.filter((it) => cardapioAtivo || !CANAIS_DO_CARDAPIO.includes(it.canal));
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">Credenciais dos apps de delivery externos. As chaves ficam guardadas com segurança e <strong>não são exibidas de volta</strong> — deixe o campo em branco para manter a atual.</p>
       <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A ativação real (receber pedidos do app) roda no <strong>servidor local (edge)</strong> com essas credenciais. Aqui você só as cadastra.</p>
-      {lista.map((it) => (
+      {!cardapioAtivo && (
+        <p className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground">Mercado Pago, Iugu e WhatsApp/n8n aparecem quando o <strong>cardápio digital do Regem</strong> está ativo — são recursos dele.</p>
+      )}
+      {visiveis.map((it) => (
         <IntegracaoCard key={it.canal} it={it} onSalvar={onSalvar} pode={pode} />
       ))}
     </div>
@@ -1080,11 +1116,69 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const [clientId, setClientId] = useState(it.clientId ?? '');
   const [clientSecret, setClientSecret] = useState('');
   const [tokenV, setTokenV] = useState('');
-  useEffect(() => { setAtivo(!!it.ativo); setMerchantId(it.merchantId ?? ''); setClientId(it.clientId ?? ''); }, [it]);
+  const [cor, setCor] = useState(it.cor ?? '');
+  useEffect(() => { setAtivo(!!it.ativo); setMerchantId(it.merchantId ?? ''); setClientId(it.clientId ?? ''); setCor(it.cor ?? ''); }, [it]);
+  // Cor de identificação no kanban — só cardápios/marketplaces (não pagamento/robô).
+  const temCor = !['n8n', 'iugu', 'mercadopago'].includes(it.canal);
   const ehN8n = it.canal === 'n8n';
   const ehIugu = it.canal === 'iugu';
   const ehMp = it.canal === 'mercadopago';
   const ehGatewayPix = ehIugu || ehMp;
+  const ehCw = it.canal === 'cardapio_web';
+  const [ambiente, setAmbiente] = useState('producao');
+  const [cwMsg, setCwMsg] = useState('');
+  const [cwBusy, setCwBusy] = useState(false);
+  const [unidades, setUnidades] = useState<any[]>([]);
+  const [unidadeSel, setUnidadeSel] = useState('');
+  useEffect(() => {
+    if (!ehCw) return;
+    api
+      .unidades()
+      .then((u: any) => {
+        const lista = (u as any[]) ?? [];
+        setUnidades(lista);
+        setUnidadeSel(
+          (prev) =>
+            prev ||
+            it.unidadeId ||
+            getUnidadeAtual() ||
+            lista.find((x: any) => x.tipo === 'matriz')?.id ||
+            lista[0]?.id ||
+            '',
+        );
+      })
+      .catch(() => {});
+  }, [ehCw, it.unidadeId]);
+  async function salvarCw() {
+    setCwBusy(true);
+    setCwMsg('');
+    try {
+      await api.cardapioWebSalvarChave({
+        apiKey: tokenV,
+        codigoLoja: merchantId,
+        ambiente,
+        unidadeId: unidadeSel || undefined,
+      });
+      setCwMsg('Chave e unidade salvas. Já pode puxar os pedidos.');
+      setTokenV('');
+    } catch (e: any) {
+      setCwMsg('Erro ao salvar: ' + (e?.message ?? ''));
+    } finally {
+      setCwBusy(false);
+    }
+  }
+  async function puxarCw() {
+    setCwBusy(true);
+    setCwMsg('Puxando pedidos…');
+    try {
+      const r: any = await api.cardapioWebPuxar();
+      setCwMsg(`${r?.ingeridos ?? 0} de ${r?.total ?? 0} pedido(s) importado(s) do Cardápio Web.`);
+    } catch (e: any) {
+      setCwMsg('Erro ao puxar: ' + (e?.message ?? ''));
+    } finally {
+      setCwBusy(false);
+    }
+  }
   return (
     <div className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
@@ -1120,6 +1214,39 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
             <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehIugu ? 'cole a Live API Token da Iugu' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
           </Campo>
         </>
+      ) : ehCw ? (
+        <>
+          <p className="text-[11px] text-muted-foreground">API Aberta do Cardápio Web (modo chave). No painel do Cardápio Web em <strong>Configurações → Integrações → API de integração</strong>: copie o <strong>código da loja</strong> e clique <strong>gerar novo token</strong>. O Regem puxa os pedidos, joga no KDS e os <strong>aceita de volta</strong> automaticamente.</p>
+          <div className="grid gap-2">
+            <Campo label="Unidade (loja) que recebe os pedidos">
+              <select aria-label="Unidade do Cardápio Web" value={unidadeSel} onChange={(e) => setUnidadeSel(e.target.value)} disabled={!pode} className="flex h-8 w-full rounded-md border border-input bg-card px-2 text-sm">
+                {unidades.length === 0 && <option value="">—</option>}
+                {unidades.map((u: any) => (
+                  <option key={u.id} value={u.id}>{u.nome}{u.tipo === 'matriz' ? ' (matriz)' : ''}</option>
+                ))}
+              </select>
+            </Campo>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Campo label="Ambiente">
+                <select aria-label="Ambiente do Cardápio Web" value={ambiente} onChange={(e) => setAmbiente(e.target.value)} disabled={!pode} className="flex h-8 w-full rounded-md border border-input bg-card px-2 text-sm">
+                  <option value="producao">Produção</option>
+                  <option value="sandbox">Sandbox</option>
+                </select>
+              </Campo>
+              <Campo label="Código da loja"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="ex.: 59412" className="h-8" disabled={!pode} /></Campo>
+            </div>
+            <Campo label={`Token (API Key)${it.temToken ? ' (salvo)' : ''}`}>
+              <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (deixe em branco p/ manter)' : 'cole o token gerado no painel'} className="h-8" disabled={!pode} />
+            </Campo>
+          </div>
+          {cwMsg && <p className="text-[11px] text-muted-foreground">{cwMsg}</p>}
+          {pode && (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={cwBusy} onClick={puxarCw}>Puxar pedidos agora</Button>
+              <Button type="button" size="sm" disabled={cwBusy} onClick={salvarCw}>Salvar</Button>
+            </div>
+          )}
+        </>
       ) : it.canal === 'open_delivery' ? (
         <>
           <p className="text-[11px] text-muted-foreground">Padrão aberto da Abrasel. Cole a <strong>URL base da API Open Delivery</strong> do marketplace (ex.: no Cardápio Web em Configurações → Integrações → API Open Delivery) e as credenciais OAuth. O Regem faz o polling dos pedidos e devolve o status automaticamente.</p>
@@ -1145,9 +1272,84 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </Campo>
       </div>
       )}
-      {pode && (
+      {pode && temCor && !ehCw && (
+        <div className="flex items-center gap-2 border-t border-border pt-2">
+          <span className="text-[11px] text-muted-foreground">Cor no quadro</span>
+          <input type="color" aria-label="Cor de identificação no kanban" value={cor || '#888888'} onChange={(e) => setCor(e.target.value)} disabled={!pode} className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent p-0.5" />
+          {cor && <button type="button" className="text-[11px] text-muted-foreground underline" onClick={() => setCor('')}>usar padrão</button>}
+          <span className="ml-auto rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: cor || '#e5e7eb', color: cor ? '#fff' : '#666' }}>{CANAL_NOME[it.canal] ?? it.canal}</span>
+        </div>
+      )}
+      {pode && !ehCw && (
         <div className="flex justify-end">
-          <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV })}>Salvar</Button>
+          <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV, cor: cor || '' })}>Salvar</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Prévia do cupom conforme os toggles (espelha renderViaCliente do backend).
+function previewCupom(L: any): string {
+  const on = (k: string) => L[k] !== false;
+  const lines: string[] = [L.cabecalho?.trim() || 'REGEM', 'Cupom - via do cliente'];
+  if (on('mostrarSenha')) lines.push('>>> SENHA 12 <<<');
+  lines.push('--------------------------------');
+  if (on('mostrarItens')) {
+    lines.push('1x X-Burger');
+    if (on('mostrarComplementos')) lines.push('   sem cebola · bacon extra');
+    if (on('mostrarValoresItem')) lines.push('   R$ 28,00');
+    lines.push('--------------------------------');
+  }
+  if (on('mostrarTotal')) lines.push('TOTAL: R$ 28,00');
+  if (on('mostrarPagamento')) lines.push('Pagamento: dinheiro');
+  if (on('mostrarAtendente')) lines.push('Atendente: Ana');
+  if (on('mostrarData')) lines.push('21/07/2026 20:00');
+  if (L.rodape?.trim()) { lines.push('--------------------------------'); lines.push(L.rodape.trim()); }
+  return lines.join('\n');
+}
+
+const CUPOM_TOGGLES = [
+  { k: 'mostrarSenha', label: 'Senha' },
+  { k: 'mostrarItens', label: 'Itens' },
+  { k: 'mostrarComplementos', label: 'Complementos / observação' },
+  { k: 'mostrarValoresItem', label: 'Valor por item' },
+  { k: 'mostrarTotal', label: 'Total' },
+  { k: 'mostrarPagamento', label: 'Forma de pagamento' },
+  { k: 'mostrarAtendente', label: 'Atendente' },
+  { k: 'mostrarData', label: 'Data e hora' },
+];
+
+// Editor de layout do cupom (via do cliente) — o que sai na térmica. Ajuda
+// produções sem KDS. Salva em delivery_config.cupomLayout (mig 131).
+function CupomLayoutEditor({ cfg, onSave, pode }: { cfg: any; onSave: (p: any) => void; pode: boolean }) {
+  const [local, setLocal] = useState<any>(cfg?.cupomLayout ?? {});
+  useEffect(() => { setLocal(cfg?.cupomLayout ?? {}); }, [cfg?.cupomLayout]);
+  const on = (k: string) => local[k] !== false;
+  const set = (patch: any) => setLocal((s: any) => ({ ...s, ...patch }));
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <p className="font-display text-sm font-bold">Layout do cupom (via do cliente)</p>
+      <p className="mb-3 text-[11px] text-muted-foreground">Como o cupom sai nas impressoras térmicas — útil para produções sem KDS.</p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Campo label="Cabeçalho"><Input value={local.cabecalho ?? ''} onChange={(e) => set({ cabecalho: e.target.value })} placeholder="REGEM" className="h-8" disabled={!pode} /></Campo>
+        <Campo label="Rodapé (mensagem final)"><Input value={local.rodape ?? ''} onChange={(e) => set({ rodape: e.target.value })} placeholder="Obrigado pela preferência!" className="h-8" disabled={!pode} /></Campo>
+      </div>
+      <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {CUPOM_TOGGLES.map((t) => (
+          <label key={t.k} className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-primary" checked={on(t.k)} onChange={(e) => set({ [t.k]: e.target.checked })} disabled={!pode} />
+            {t.label}
+          </label>
+        ))}
+      </div>
+      <div className="mt-3">
+        <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Prévia</p>
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border bg-secondary/40 p-2 font-mono text-[11px] leading-tight">{previewCupom(local)}</pre>
+      </div>
+      {pode && (
+        <div className="mt-3 flex justify-end">
+          <Button type="button" size="sm" onClick={() => onSave({ cupomLayout: local })}>Salvar layout</Button>
         </div>
       )}
     </div>

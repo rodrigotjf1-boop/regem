@@ -327,31 +327,46 @@ export class ProducaoPedidoService {
   }
 
   // VIA DO CLIENTE (cupom) — com valores, atendente, hora e senha em destaque.
-  renderViaCliente(dados: {
-    senha?: number | null;
-    mesa?: string | null;
-    itens: { quantidade: number; descricao: string; precoUnitario: number; complementosTexto?: string | null }[];
-    total: number;
-    forma?: string | null;
-    atendente?: string | null;
-  }): string {
+  // layout (mig 131): { cabecalho, rodape, mostrarSenha, mostrarItens,
+  // mostrarComplementos, mostrarValoresItem, mostrarTotal, mostrarPagamento,
+  // mostrarAtendente, mostrarData } — toggles com DEFAULT LIGADO (vazio = padrão).
+  renderViaCliente(
+    dados: {
+      senha?: number | null;
+      mesa?: string | null;
+      itens: { quantidade: number; descricao: string; precoUnitario: number; complementosTexto?: string | null }[];
+      total: number;
+      forma?: string | null;
+      atendente?: string | null;
+    },
+    layout?: any,
+  ): string {
+    const L = layout ?? {};
+    const on = (k: string) => L[k] !== false; // default ligado
     const linha = '--------------------------------';
     const money = (n: number) =>
       Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const l: string[] = ['REGEM', 'Cupom - via do cliente'];
-    if (dados.senha) l.push(`>>> SENHA ${dados.senha} <<<`);
+    const cab = typeof L.cabecalho === 'string' && L.cabecalho.trim() ? L.cabecalho.trim() : 'REGEM';
+    const l: string[] = [cab, 'Cupom - via do cliente'];
+    if (dados.senha && on('mostrarSenha')) l.push(`>>> SENHA ${dados.senha} <<<`);
     l.push(linha);
-    for (const it of dados.itens) {
-      const sub = Number(it.precoUnitario) * Number(it.quantidade);
-      l.push(`${Number(it.quantidade)}x ${it.descricao}`);
-      if (it.complementosTexto) l.push(`   ${it.complementosTexto}`);
-      l.push(`   ${money(sub)}`);
+    if (on('mostrarItens')) {
+      for (const it of dados.itens) {
+        const sub = Number(it.precoUnitario) * Number(it.quantidade);
+        l.push(`${Number(it.quantidade)}x ${it.descricao}`);
+        if (it.complementosTexto && on('mostrarComplementos')) l.push(`   ${it.complementosTexto}`);
+        if (on('mostrarValoresItem')) l.push(`   ${money(sub)}`);
+      }
+      l.push(linha);
     }
-    l.push(linha);
-    l.push(`TOTAL: ${money(dados.total)}`);
-    if (dados.forma) l.push(`Pagamento: ${dados.forma}`);
-    if (dados.atendente) l.push(`Atendente: ${dados.atendente}`);
-    l.push(new Date().toLocaleString('pt-BR'));
+    if (on('mostrarTotal')) l.push(`TOTAL: ${money(dados.total)}`);
+    if (dados.forma && on('mostrarPagamento')) l.push(`Pagamento: ${dados.forma}`);
+    if (dados.atendente && on('mostrarAtendente')) l.push(`Atendente: ${dados.atendente}`);
+    if (on('mostrarData')) l.push(new Date().toLocaleString('pt-BR'));
+    if (typeof L.rodape === 'string' && L.rodape.trim()) {
+      l.push(linha);
+      l.push(L.rodape.trim());
+    }
     return l.join('\n');
   }
 

@@ -111,8 +111,49 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
   };
 }
 
+// Cardápio Web (API Aberta nativa): mapeia o objeto Order (docs.cardapioweb.com)
+// → modelo interno. De-para de item por CÓDIGO/SKU: usamos o código PDV que o
+// item carrega no CW (a confirmar o campo exato com um pedido real do Sandbox);
+// item_id é o id interno do CW e NÃO casa com o produto do Regem.
+export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
+  const itens = (raw?.items ?? []).map((it: any) => {
+    const opts = (it.options ?? [])
+      .map((o: any) => (o?.quantity > 1 ? `${o.quantity}x ${o.name}` : o?.name))
+      .filter(Boolean);
+    const obs = [it.observation, ...opts].filter(Boolean).join(' · ') || undefined;
+    return {
+      // De-para: código PDV (external_code) se a loja preencheu; senão o item_id
+      // do Cardápio Web prefixado com "cw" — o importador de catálogo usa a mesma
+      // regra, então o item casa com o produto do Regem sem cadastro manual.
+      codigo: it.external_code ?? (it.item_id != null ? 'cw' + it.item_id : undefined),
+      descricao: it.name ?? 'Item',
+      quantidade: Number(it.quantity) || 1,
+      precoUnitario: Number(it.unit_price ?? it.total_price) || 0,
+      observacao: obs,
+    };
+  });
+  const t = String(raw?.order_type ?? 'delivery').toLowerCase();
+  const tipo = t === 'delivery' ? 'entrega' : 'retirada'; // takeout/onsite/closed_table → retirada
+  const a = raw?.delivery_address ?? {};
+  const endereco =
+    [a.street, a.number, a.neighborhood, a.city, a.state].filter(Boolean).join(', ') || undefined;
+  const pgto = (raw?.payments ?? [])[0] ?? {};
+  return {
+    externalId: raw?.id != null ? String(raw.id) : undefined,
+    displayId: raw?.display_id != null ? String(raw.display_id) : undefined,
+    clienteNome: raw?.customer?.name,
+    clienteTelefone: raw?.customer?.phone,
+    tipo,
+    endereco,
+    itens,
+    total: Number(raw?.total) || 0,
+    formaPagamento: pgto.payment_method ?? 'online',
+  };
+}
+
 export function adaptar(canal: string, raw: any): PedidoNormalizado {
   if (canal === 'ifood') return adaptarIfood(raw);
   if (canal === 'open_delivery') return adaptarOpenDelivery(raw);
+  if (canal === 'cardapio_web') return adaptarCardapioWeb(raw);
   return adaptarGenerico(raw);
 }

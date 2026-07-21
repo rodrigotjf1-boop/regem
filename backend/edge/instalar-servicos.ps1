@@ -1,4 +1,4 @@
-# Regem Edge - registra backend + daemon de sync como SERVIÇOS do Windows (NSSM),
+﻿# Regem Edge - registra backend + daemon de sync como SERVIÇOS do Windows (NSSM),
 # para subirem sozinhos no boot, sem terminal aberto.
 #
 # Pré-requisitos: Node 20+, NSSM no PATH (https://nssm.cc), a pasta do edge já

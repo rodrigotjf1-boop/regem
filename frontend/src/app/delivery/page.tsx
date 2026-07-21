@@ -11,7 +11,6 @@ import { Input } from '@/components/ui/input';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
 import { NovoPedido } from '@/components/delivery/novo-pedido';
-import { ConfigPanel } from '@/components/delivery/config-panel';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -29,6 +28,11 @@ const countdown = (ms: number) => {
 const CANAL_LABEL: Record<string, string> = {
   ifood: 'iFood',
   cardapio: 'Cardápio',
+  cardapio_web: 'Cardápio Web',
+  anotaai: 'Anota Aí',
+  keeta: 'Keeta',
+  rappi: 'Rappi',
+  '99food': '99Food',
   totem: 'Totem',
   whatsapp: 'WhatsApp',
   manual: 'Manual',
@@ -49,7 +53,7 @@ const COLUNAS = [
   { key: 'chegada', titulo: 'Em análise', dica: 'aguardando aceite', cor: 'var(--info)', status: ['novo'] },
   { key: 'producao', titulo: 'Produção', dica: 'preparando', cor: 'var(--warn)', status: ['confirmado', 'pronto'] },
   { key: 'rota', titulo: 'Em rota', dica: 'saiu para entrega', cor: 'var(--primary)', status: ['despachado'] },
-  { key: 'finalizado', titulo: 'Finalizado', dica: 'concluído/cancelado', cor: 'var(--muted-foreground)', status: ['concluido', 'cancelado'] },
+  { key: 'finalizado', titulo: 'Finalizar/pronto', dica: 'pronto p/ retirar · concluído', cor: 'var(--muted-foreground)', status: ['concluido', 'cancelado'] },
 ] as const;
 
 const STATUS: Record<string, { label: string; cor: string }> = {
@@ -65,6 +69,12 @@ const AVANCAR: Record<string, string> = {
   pronto: 'Despachar',
   despachado: 'Concluir',
 };
+// Label do botão de avanço por tipo: retirada não despacha — de "pronto" vai
+// direto p/ "Entregue" (conclui + baixa estoque).
+function labelAvancar(p: any): string | null {
+  if (p.status === 'pronto') return p.tipo === 'retirada' ? 'Entregue' : 'Despachar';
+  return AVANCAR[p.status] ?? null;
+}
 
 // Campos de filtro por coluna (menu ancorado).
 const CAMPOS = [
@@ -88,7 +98,6 @@ export default function DeliveryPage() {
   const [erro, setErro] = useState('');
   const [filtros, setFiltros] = useState<Record<string, Filtro | null>>({});
   const [menuAberto, setMenuAberto] = useState<string | null>(null);
-  const [configQuadro, setConfigQuadro] = useState(false);
   const [despacho, setDespacho] = useState<any>(null);
   const [detalhe, setDetalhe] = useState<any>(null);
   const [entregadores, setEntregadores] = useState<any[]>([]);
@@ -104,8 +113,20 @@ export default function DeliveryPage() {
   const [atendimentos, setAtendimentos] = useState<any[]>([]);
   const [atendAberto, setAtendAberto] = useState(false);
   const [roboAtivo, setRoboAtivo] = useState(false); // status geral do robô (cardapio_config.roboAtivo)
+  const [cardapioAtivo, setCardapioAtivo] = useState(false); // cardápio digital do Regem ativo?
+  const [corPorCanal, setCorPorCanal] = useState<Record<string, string>>({}); // cor de identificação por canal
   const cfgRef = useRef(cfg);
   cfgRef.current = cfg;
+
+  // Cores de identificação das integrações (herdadas no badge do canal no kanban).
+  useEffect(() => {
+    if (!isGestor) return;
+    api.integracoesDelivery().then((list: any) => {
+      const m: Record<string, string> = {};
+      for (const it of (list as any[]) ?? []) if (it?.cor) m[it.canal] = it.cor;
+      setCorPorCanal(m);
+    }).catch(() => {});
+  }, [isGestor]);
 
   const reload = useCallback(async () => {
     try {
@@ -122,7 +143,10 @@ export default function DeliveryPage() {
       setCaixa(cx);
       setEntregadores(ent as any[]);
       setAtendimentos(at as any[]);
-      if (lc) setRoboAtivo(!!(lc as any).roboAtivo);
+      if (lc) {
+        setRoboAtivo(!!(lc as any).roboAtivo);
+        setCardapioAtivo(!!(lc as any).ativo);
+      }
       // Mantém o painel de detalhe sincronizado com os dados novos.
       setDetalhe((d: any) => (d ? (ps as any[]).find((x) => x.id === d.id) ?? null : null));
     } catch (e) {
@@ -244,7 +268,12 @@ export default function DeliveryPage() {
     const map: Record<string, any[]> = {};
     for (const col of COLUNAS) {
       map[col.key] = (pedidos ?? [])
-        .filter((p) => (col.status as readonly string[]).includes(p.status))
+        .filter((p) =>
+          // Retirada "pronto" vai pra "Finalizar/pronto"; delivery "pronto" fica em Produção.
+          p.status === 'pronto'
+            ? col.key === (p.tipo === 'retirada' ? 'finalizado' : 'producao')
+            : (col.status as readonly string[]).includes(p.status),
+        )
         .filter((p) => tipoFiltro === 'todos' || p.tipo === tipoFiltro)
         .filter((p) => passaFiltro(p, filtros[col.key] ?? null));
     }
@@ -336,7 +365,9 @@ export default function DeliveryPage() {
             </label>
           )}
           <div className="ml-auto flex items-center gap-1.5">
-            {isGestor && (
+            {/* Toggle do robô só faz sentido com o cardápio digital do Regem ativo
+                (com cardápio externo, o robô é do outro cardápio). */}
+            {isGestor && cardapioAtivo && (
               <button
                 type="button"
                 role="switch"
@@ -379,7 +410,7 @@ export default function DeliveryPage() {
                 )}
               </div>
             )}
-            <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => setConfigQuadro(true)}>⚙️</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => router.push('/delivery/configuracoes')} title="Configurações do delivery">⚙️</Button>
           </div>
           </div>
         </Card>
@@ -449,6 +480,7 @@ export default function DeliveryPage() {
                         cfg={cfg}
                         agora={agora}
                         p={p}
+                        corCanal={corPorCanal[p.canal]}
                         onAbrir={() => setDetalhe(p)}
                         onAceitar={() => acao(api.aceitarDelivery(p.id), 'Pedido aceito e enviado à produção.')}
                         onAvancar={() => avancar(p)}
@@ -464,15 +496,7 @@ export default function DeliveryPage() {
         )}
       </div>
 
-      {/* Painel de configurações (menu lateral) */}
-      {configQuadro && (
-        <ConfigPanel
-          deliveryCfg={cfg}
-          onDeliveryToggle={toggleCfg}
-          isGestor={isGestor}
-          onClose={() => setConfigQuadro(false)}
-        />
-      )}
+      {/* Configurações agora é uma página cheia (/delivery/configuracoes). */}
 
       {/* Modal: despachar (escolher entregador) */}
       {despacho && (
@@ -714,6 +738,7 @@ function PedidoCard({
   p,
   cfg,
   agora,
+  corCanal,
   onAbrir,
   onAceitar,
   onAvancar,
@@ -723,12 +748,16 @@ function PedidoCard({
   p: any;
   cfg: any;
   agora: number;
+  corCanal?: string;
   onAbrir: () => void;
   onAceitar: () => void;
   onAvancar: () => void;
   onRetornar: () => void;
   onNf: () => void;
 }) {
+  // Cor do badge do canal: cor salva na integração > cor padrão da marca > cinza.
+  const bgCanal = corCanal ?? CANAL_ESTILO[p.canal]?.bg;
+  const fgCanal = corCanal ? '#FFFFFF' : CANAL_ESTILO[p.canal]?.fg ?? '#FFFFFF';
   const s = STATUS[p.status] ?? { label: p.status, cor: '' };
   const finalizado = p.status === 'concluido' || p.status === 'cancelado';
   const cancelado = p.status === 'cancelado';
@@ -764,8 +793,8 @@ function PedidoCard({
         <span className={`font-semibold ${cancelado ? 'line-through opacity-70' : ''}`}>{p.displayId ?? 'Pedido'}</span>
         <span className={`rounded px-1.5 py-0.5 text-[11px] ${s.cor}`}>{s.label}</span>
         {p.alterado && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">ALTERADO</span>}
-        {CANAL_ESTILO[p.canal] ? (
-          <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: CANAL_ESTILO[p.canal].bg, color: CANAL_ESTILO[p.canal].fg }}>
+        {bgCanal ? (
+          <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: bgCanal, color: fgCanal }}>
             {CANAL_LABEL[p.canal] ?? p.canal}
           </span>
         ) : p.canal === 'cardapio' ? (
@@ -858,8 +887,8 @@ function PedidoCard({
           {p.status === 'novo' && (
             <Button type="button" size="sm" onClick={stop(onAceitar)}>Aceitar</Button>
           )}
-          {AVANCAR[p.status] && (
-            <Button type="button" size="sm" variant="outline" onClick={stop(onAvancar)}>{AVANCAR[p.status]}</Button>
+          {labelAvancar(p) && (
+            <Button type="button" size="sm" variant="outline" onClick={stop(onAvancar)}>{labelAvancar(p)}</Button>
           )}
           {p.status === 'despachado' && (
             <Button type="button" size="sm" variant="ghost" onClick={stop(onRetornar)}>↩ Retornar à produção</Button>

@@ -1814,6 +1814,9 @@ export const deliveryConfig = pgTable('delivery_config', {
   colunas: jsonb('colunas')
     .notNull()
     .default('{"chegada":true,"producao":true,"rota":true,"finalizado":true}'),
+  // Layout do cupom (via do cliente) nas térmicas — toggles + cabeçalho/rodapé.
+  // Vazio = comportamento padrão. Ver renderViaCliente (mig 131).
+  cupomLayout: jsonb('cupom_layout').notNull().default('{}'),
   // Pausa temporária (reativa sozinha ao passar de pausado_ate).
   pausadoAte: timestamp('pausado_ate', { withTimezone: true }),
   pausaMotivo: text('pausa_motivo'),

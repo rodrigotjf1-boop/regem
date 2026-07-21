@@ -1,4 +1,4 @@
-# Regem Edge — cifra os SEGREDOS do .env.local em repouso com DPAPI (LocalMachine).
+﻿# Regem Edge — cifra os SEGREDOS do .env.local em repouso com DPAPI (LocalMachine).
 # O blob resultante (prefixo enc:) só decifra NESTA máquina — copiar o arquivo para
 # outro PC torna os segredos inúteis. O app decifra no boot (carregarEnvSeguro em main.ts).
 # Idempotente: valores já cifrados (enc:) são ignorados. Rode como Administrador.
