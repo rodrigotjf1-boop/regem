@@ -12,6 +12,12 @@ import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-pr
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const hora = (d: any) =>
+  d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+const STATUS_LABEL: Record<string, string> = {
+  novo: 'Novo', confirmado: 'Em produção', pronto: 'Pronto',
+  despachado: 'Em rota', concluido: 'Concluído', cancelado: 'Cancelado',
+};
 
 // Painel flutuante com o pedido completo + ações: reimprimir, alterar, cancelar.
 export function PedidoDetalhe({
@@ -150,26 +156,56 @@ export function PedidoDetalhe({
         {modo === 'view' && (
           <>
             <div className="mt-2 space-y-1 text-sm">
-              <p><span className="capitalize">{p.tipo}</span> · {p.clienteNome ?? 'Cliente'}</p>
-              {enderecoFmt && <p className="text-muted-foreground">{enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</p>}
-              {p.clienteTelefone && <p className="text-muted-foreground">📞 {p.clienteTelefone}</p>}
+              <p className="flex flex-wrap items-center gap-1.5">
+                <span>{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
+                <span className="font-medium capitalize">{p.tipo}</span>
+                {STATUS_LABEL[p.status] && (
+                  <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{STATUS_LABEL[p.status]}</span>
+                )}
+                {p.numero != null && <span className="text-xs text-muted-foreground">#{p.numero}</span>}
+                <span className="ml-auto font-mono text-[11px] text-muted-foreground">{hora(p.criadoEm)}</span>
+              </p>
+              <p className="font-medium">
+                {p.clienteNome ?? 'Cliente'}
+                {p.clienteTelefone ? <span className="font-normal text-muted-foreground"> · 📞 {p.clienteTelefone}</span> : null}
+              </p>
+              {enderecoFmt && <p className="text-muted-foreground">📍 {enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</p>}
               <p className="text-xs">
                 {p.pago ? <span className="font-bold text-ok">Pago</span> : <span className="font-bold text-warn">Paga na entrega</span>}
                 {p.formaPagamento ? ` · ${p.formaPagamento}` : ''}
                 {p.trocoPara != null && Number(p.trocoPara) > 0 ? ` · troco p/ ${brl(Number(p.trocoPara))}` : ''}
-                {Number(p.taxaEntrega) > 0 ? ` · taxa ${brl(Number(p.taxaEntrega))}` : ''}
               </p>
               {p.entregadorNome && (
                 <p className="text-xs font-medium">🛵 {p.entregadorNome}{p.entregadorTelefone ? ` · 📞 ${p.entregadorTelefone}` : ''}</p>
               )}
+              {p.agendamento && <p className="text-xs text-info">🗓 agendado p/ {hora(p.agendamento)}</p>}
+              {p.cupom && <p className="text-xs text-muted-foreground">🎟 cupom {p.cupom}</p>}
             </div>
 
-            <div className="mt-3 space-y-1 border-t border-border pt-2">
+            {/* Itens — com complementos/observação e valor por linha */}
+            <div className="mt-3 space-y-1.5 border-t border-border pt-2">
               {(p.itens ?? []).map((it: any, k: number) => (
-                <div key={k} className="flex justify-between text-sm">
-                  <span>{Number(it.quantidade)}× {it.descricao}</span>
+                <div key={k} className="text-sm">
+                  <div className="flex justify-between gap-2">
+                    <span className="font-medium">{Number(it.quantidade)}× {it.descricao}</span>
+                    {it.precoUnitario != null && Number(it.precoUnitario) > 0 && (
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">{brl(Number(it.precoUnitario) * Number(it.quantidade))}</span>
+                    )}
+                  </div>
+                  {it.observacao && <p className="text-xs text-muted-foreground">↳ {it.observacao}</p>}
                 </div>
               ))}
+            </div>
+
+            {/* Totais */}
+            <div className="mt-2 space-y-0.5 border-t border-border pt-2 text-xs text-muted-foreground">
+              {Number(p.desconto) > 0 && (
+                <div className="flex justify-between"><span>Desconto</span><span>- {brl(Number(p.desconto))}</span></div>
+              )}
+              {Number(p.taxaEntrega) > 0 && (
+                <div className="flex justify-between"><span>Taxa de entrega</span><span>{brl(Number(p.taxaEntrega))}</span></div>
+              )}
+              <div className="flex justify-between text-sm font-bold text-foreground"><span>Total</span><span>{brl(Number(p.total))}</span></div>
             </div>
 
             {/* Ações (ícones) */}

@@ -30,6 +30,7 @@ import { VendasService } from '../vendas/vendas.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { OpenDeliveryService } from '../integracoes/open-delivery/open-delivery.service';
+import { CardapioWebService } from '../integracoes/cardapio-web/cardapio-web.service';
 import { adaptar, PedidoNormalizado } from './adapters';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -46,6 +47,9 @@ export class DeliveryService {
     @Optional()
     @Inject(forwardRef(() => OpenDeliveryService))
     private readonly openDelivery?: OpenDeliveryService,
+    @Optional()
+    @Inject(forwardRef(() => CardapioWebService))
+    private readonly cardapioWeb?: CardapioWebService,
   ) {}
 
   // Status back para marketplaces (hoje: Open Delivery). Best-effort.
@@ -56,6 +60,26 @@ export class DeliveryService {
       if (!ig) return;
       if (acao === 'dispatch') await this.openDelivery.despachar(ig, row.externalId);
       else await this.openDelivery.cancelar(ig, row.externalId, row.motivoCancelamento ?? undefined);
+    } catch {
+      /* nunca quebra o fluxo por causa do status back */
+    }
+  }
+
+  // Status back para o Cardápio Web (API Aberta) — confirm/ready/delivered/
+  // finalize/cancel. Cada transição do Regem reflete no CW. Best-effort.
+  private async statusBackCw(
+    tenantId: string,
+    row: any,
+    acao: 'confirm' | 'ready' | 'delivered' | 'finalize' | 'cancel',
+  ) {
+    if (!this.cardapioWeb || row?.canal !== 'cardapio_web' || !row?.externalId) return;
+    try {
+      await this.cardapioWeb.statusBack(
+        tenantId,
+        String(row.externalId),
+        acao,
+        row.motivoCancelamento ?? undefined,
+      );
     } catch {
       /* nunca quebra o fluxo por causa do status back */
     }
@@ -316,6 +340,7 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
+    void this.statusBackCw(tenantId, row, 'confirm');
     // Cashback: credita o retorno no saldo do cliente após a confirmação.
     void this.cashback
       .creditarPedido(tenantId, {
@@ -344,7 +369,9 @@ export class DeliveryService {
     const idx = FLUXO.indexOf(ped.status);
     if (idx < 0 || idx >= FLUXO.length - 1)
       throw new BadRequestException('Pedido já concluído.');
-    const novo = FLUXO[idx + 1];
+    const proximo = FLUXO[idx + 1];
+    // Retirada não passa por "despachado" (não há entregador): pronto → concluído.
+    const novo = ped.tipo === 'retirada' && proximo === 'despachado' ? 'concluido' : proximo;
     const patch: any = { status: novo };
     if (novo === 'pronto') patch.prontoEm = new Date();
     if (novo === 'despachado') {
@@ -370,6 +397,17 @@ export class DeliveryService {
     }
     void this.dispararWebhook(tenantId, row);
     if (novo === 'despachado') void this.statusBack(tenantId, row, 'dispatch');
+    // Cardápio Web — mapeamento por tipo, alinhado ao fluxo do CW:
+    //  retirada: pronto→ready (pronto p/ retirar), concluído→finalize
+    //  delivery: pronto→(sem mudança), despachado→ready (saiu p/ entrega/em rota),
+    //            concluído→delivered (entregue)
+    if (row.tipo === 'retirada') {
+      if (novo === 'pronto') void this.statusBackCw(tenantId, row, 'ready');
+      else if (novo === 'concluido') void this.statusBackCw(tenantId, row, 'finalize');
+    } else {
+      if (novo === 'despachado') void this.statusBackCw(tenantId, row, 'ready');
+      else if (novo === 'concluido') void this.statusBackCw(tenantId, row, 'delivered');
+    }
     return row;
   }
 
@@ -491,6 +529,7 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
+    void this.statusBackCw(tenantId, row, 'cancel');
     // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
     // Cashback GASTO só volta se a loja configurou (default true); o GANHO sempre sai.
     // Fidelidade é perda FIXA do ponto (+ rollback do prêmio gerado; devolve o consumido).
@@ -701,7 +740,7 @@ export class DeliveryService {
 
   // ===== Integrações (credenciais de apps externos) =====
   // Delivery/marketplaces + integração + gateways de PIX (mercadopago/iugu no fim).
-  private static readonly CANAIS_INTEGRACAO = ['ifood', 'rappi', '99food', 'anotaai', 'keeta', 'open_delivery', 'n8n', 'mercadopago', 'iugu'];
+  private static readonly CANAIS_INTEGRACAO = ['ifood', 'rappi', '99food', 'anotaai', 'keeta', 'cardapio_web', 'n8n', 'mercadopago', 'iugu'];
 
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
@@ -754,8 +793,10 @@ export class DeliveryService {
       return {
         canal,
         ativo: !!r?.ativo,
+        unidadeId: r?.unidadeId ?? null,
         merchantId: r?.merchantId ?? null,
         clientId: r?.clientId ?? null,
+        cor: r?.config?.cor ?? null, // cor de identificação no kanban
         temSecret: !!r?.clientSecret,
         temToken: !!r?.token,
         updatedAt: r?.updatedAt ?? null,
@@ -774,12 +815,21 @@ export class DeliveryService {
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, canal)));
     const secretNovo = typeof dto.clientSecret === 'string' && dto.clientSecret.trim() ? dto.clientSecret.trim() : undefined;
     const tokenNovo = typeof dto.token === 'string' && dto.token.trim() ? dto.token.trim() : undefined;
+    // Cor de identificação (kanban) — guardada no config jsonb, preservando o resto.
+    // dto.cor: string preenchida = definir; '' = usar padrão (limpar); ausente = manter.
+    const corDef = typeof dto.cor === 'string' ? dto.cor.trim() : undefined;
+    const config = { ...((atual as any)?.config ?? {}) };
+    if (corDef !== undefined) {
+      if (corDef) config.cor = corDef;
+      else delete config.cor;
+    }
     const vals: any = {
       ativo: dto.ativo != null ? !!dto.ativo : atual?.ativo ?? false,
       merchantId: dto.merchantId ?? atual?.merchantId ?? null,
       clientId: dto.clientId ?? atual?.clientId ?? null,
       clientSecret: secretNovo ?? atual?.clientSecret ?? null,
       token: tokenNovo ?? atual?.token ?? null,
+      config,
       updatedAt: new Date(),
     };
     if (atual) {
@@ -812,18 +862,26 @@ export class DeliveryService {
 
   // ===== Config =====
   private async configRaw(tenantId: string, unidadeId?: string | null) {
-    const [row] = await this.db
+    // Config por unidade COM herança da rede: usa a config específica da unidade
+    // quando existe; senão cai na config padrão da rede (unidade_id null). Sem
+    // isso, um pedido de uma unidade sem config própria não enxerga o
+    // "aceitar automático" ligado na rede.
+    const rows = await this.db
       .select()
       .from(deliveryConfig)
       .where(
         and(
           eq(deliveryConfig.tenantId, tenantId),
           unidadeId
-            ? eq(deliveryConfig.unidadeId, unidadeId)
+            ? or(eq(deliveryConfig.unidadeId, unidadeId), sql`unidade_id is null`)
             : sql`unidade_id is null`,
         ),
       );
-    return row;
+    return (
+      rows.find((r) => r.unidadeId === unidadeId) ??
+      rows.find((r) => r.unidadeId == null) ??
+      rows[0]
+    );
   }
 
   async getConfig(tenantId: string, unidadeId?: string | null) {
@@ -833,6 +891,7 @@ export class DeliveryService {
         ativo: false,
         autoAceitar: false,
         colunas: DeliveryService.COLUNAS_PADRAO,
+        cupomLayout: {},
         prepBalcaoMin: 15,
         prepBalcaoMax: 25,
         prepDeliveryMin: 45,
@@ -971,6 +1030,10 @@ export class DeliveryService {
     // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
     if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;
     if (dto.pausaMotivo !== undefined) vals.pausaMotivo = dto.pausaMotivo;
+    // Layout do cupom: mescla com o atual (só as chaves enviadas mudam).
+    if (dto.cupomLayout && typeof dto.cupomLayout === 'object') {
+      vals.cupomLayout = { ...((row?.cupomLayout as any) ?? {}), ...dto.cupomLayout };
+    }
     if (row) {
       await this.db
         .update(deliveryConfig)

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   mesa,
@@ -29,6 +29,7 @@ import {
   colaborador,
   equipamento,
   auditLog,
+  deliveryConfig,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
@@ -607,10 +608,25 @@ export class VendasService {
       .select({ nome: colaborador.nome })
       .from(colaborador)
       .where(eq(colaborador.id, atorId));
-    const conteudo = this.producao.renderViaCliente({
-      ...dados,
-      atendente: ator?.nome ?? null,
-    });
+    // Layout do cupom da loja (unidade → rede). Vazio = padrão.
+    const dcs = await this.db
+      .select({ unidadeId: deliveryConfig.unidadeId, cupomLayout: deliveryConfig.cupomLayout })
+      .from(deliveryConfig)
+      .where(
+        and(
+          eq(deliveryConfig.tenantId, tenantId),
+          unidadeId
+            ? or(eq(deliveryConfig.unidadeId, unidadeId), isNull(deliveryConfig.unidadeId))
+            : isNull(deliveryConfig.unidadeId),
+        ),
+      );
+    const layout =
+      (dcs.find((d) => d.unidadeId === unidadeId) ?? dcs.find((d) => d.unidadeId == null))
+        ?.cupomLayout ?? {};
+    const conteudo = this.producao.renderViaCliente(
+      { ...dados, atendente: ator?.nome ?? null },
+      layout,
+    );
     await this.producao.enfileirarViaCliente(
       tenantId,
       unidadeId,

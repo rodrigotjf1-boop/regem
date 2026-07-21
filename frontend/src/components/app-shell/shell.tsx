@@ -75,6 +75,7 @@ const NAV: NavNode[] = [
       { href: '/delivery', label: 'Painel', icon: Bike, perm: 'delivery' },
       { href: '/produtos', label: 'Gestão do cardápio', icon: Store, perm: 'delivery' },
       { href: '/pedidos', label: 'Pedidos · produção', icon: Flame, perm: 'pedidos' },
+      { href: '/delivery/configuracoes', label: 'Configurações', icon: Settings, perm: 'delivery' },
     ],
   },
   { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks, perm: 'meu_dia' },

@@ -576,6 +576,11 @@ export const api = {
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
+  // Cardápio Web (API Aberta) — modo chave X-API-KEY.
+  cardapioWebStatus: () => req('/integracoes/cardapio-web/status'),
+  cardapioWebSalvarChave: (body: Record<string, unknown>) =>
+    req('/integracoes/cardapio-web/chave', { method: 'POST', body: JSON.stringify(body) }),
+  cardapioWebPuxar: () => req('/integracoes/cardapio-web/puxar', { method: 'POST', body: '{}' }),
   // Revenda / frota (edge appliance)
   revendas: () => req('/revenda'),
   criarRevenda: (nome: string) => req('/revenda', { method: 'POST', body: JSON.stringify({ nome }) }),

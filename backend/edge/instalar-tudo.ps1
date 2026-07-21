@@ -1,4 +1,4 @@
-# Regem Edge - INSTALACAO AUTOMATICA (chamado pelo instalador .exe, elevado/Admin).
+﻿# Regem Edge - INSTALACAO AUTOMATICA (chamado pelo instalador .exe, elevado/Admin).
 #
 # Faz TUDO que e local, sem intervencao:
 #   - usa Postgres/Node EMBUTIDOS se existirem ao lado do app (senao, os do sistema)

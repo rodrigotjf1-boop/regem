@@ -1,4 +1,4 @@
-# Regem Edge — setup automático no PC da loja (não interativo).
+﻿# Regem Edge — setup automático no PC da loja (não interativo).
 # Pré: pasta do edge copiada, backend/.env.local JÁ preenchido, Node/Postgres/NSSM/OpenSSL instalados.
 # Uso (PowerShell como Administrador):
 #   .\edge\setup-edge.ps1 -Raiz "C:\regem-edge\backend" -PgSenha "SENHA" -IP "192.168.1.2"

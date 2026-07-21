@@ -1,4 +1,4 @@
-# Regem Edge — decifra blobs DPAPI (LocalMachine) no BOOT. Lê um arquivo com um
+﻿# Regem Edge — decifra blobs DPAPI (LocalMachine) no BOOT. Lê um arquivo com um
 # blob base64 por linha e imprime o texto decifrado, uma linha por blob (mesma ordem).
 # Usado por src/secure-env.ts. Só decifra NESTA máquina (a que cifrou com proteger-env.ps1).
 param([Parameter(Mandatory = $true)][string]$BlobFile)

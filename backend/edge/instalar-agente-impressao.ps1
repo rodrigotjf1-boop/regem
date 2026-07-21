@@ -1,4 +1,4 @@
-# Regem — instala o AGENTE DE IMPRESSÃO como serviço do Windows (RegemImpressoraAgente).
+﻿# Regem — instala o AGENTE DE IMPRESSÃO como serviço do Windows (RegemImpressoraAgente).
 # Para lojas em MODO NUVEM (sem o edge completo) que têm impressora local (USB/rede).
 # O agente puxa os jobs da nuvem e imprime na térmica local.
 #
