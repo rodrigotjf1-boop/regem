@@ -52,6 +52,28 @@ export function adaptarIfood(raw: any): PedidoNormalizado {
   };
 }
 
+// Retorna o INÍCIO da janela de entrega quando o pedido do iFood é AGENDADO
+// (orderTiming === 'SCHEDULED'); null se for imediato. Usado para NÃO despachar
+// antes da hora marcada (regra do iFood p/ pedidos agendados). Lê os vários
+// caminhos possíveis do payload (schedule.deliveryDateTimeStart etc.).
+export function agendamentoIfood(raw: any): Date | null {
+  const timing = String(raw?.orderTiming ?? raw?.timing ?? '').toUpperCase();
+  // O iFood expõe a janela do agendado em `schedule` e/ou `scheduling` (ex.:
+  // scheduling.from / .to). Só é agendado quando orderTiming === 'SCHEDULED'.
+  const sched = raw?.schedule ?? raw?.scheduling ?? raw?.scheduled ?? {};
+  const inicio =
+    sched?.deliveryDateTimeStart ??
+    sched?.deliveryDateTimeStartLocal ??
+    sched?.from ??
+    sched?.deliveryDateTime ??
+    raw?.delivery?.deliveryDateTime ??
+    null;
+  if (timing !== 'SCHEDULED') return null;
+  if (!inicio) return null;
+  const d = new Date(inicio);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 // Canal genérico: já recebe no formato interno (ou próximo dele).
 export function adaptarGenerico(raw: any): PedidoNormalizado {
   return {
@@ -151,9 +173,58 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
   };
 }
 
+// 99Food / DiDi Food (openapi.didi-food.com): mapeia o OrderModel da API própria
+// do DiDi → modelo interno. Preços vêm em CENTAVOS (int) → dividimos por 100.
+// De-para de item por `app_item_id` (o código PDV que subimos no menu do 99food).
+// O externalId vem como STRING (order_id 64-bit — nunca convertido a number).
+export function adaptarDidiFood(raw: any): PedidoNormalizado {
+  const itens = (raw?.order_items ?? []).map((it: any) => {
+    const subs = (it.sub_item_list ?? [])
+      .map((s: any) => (Number(s?.amount) > 1 ? `${s.amount}x ${s.name}` : s?.name))
+      .filter(Boolean);
+    const obs = [it.remark, ...subs].filter(Boolean).join(' · ') || undefined;
+    const qtd = Number(it.amount) || 1;
+    const unitCents = Number(it.sku_price ?? (Number(it.total_price) || 0) / qtd) || 0;
+    return {
+      codigo: it.app_item_id ?? undefined,
+      descricao: it.name ?? 'Item',
+      quantidade: qtd,
+      precoUnitario: unitCents / 100,
+      observacao: obs,
+    };
+  });
+  const addr = raw?.receive_address ?? {};
+  const endereco =
+    [addr.poi_address, addr.house_number, addr.city].filter(Boolean).join(', ') || undefined;
+  const tel = addr.phone
+    ? `${addr.calling_code ? '+' + addr.calling_code + ' ' : ''}${addr.phone}`
+    : undefined;
+  const totalCents =
+    Number(
+      raw?.price?.customer_need_paying_money ??
+        raw?.price?.real_pay_price ??
+        raw?.price?.real_price ??
+        raw?.price?.order_price,
+    ) || 0;
+  // pay_type: 1 online · 2 dinheiro · 3 pos(cartão) · 4 wallet(online).
+  const PAY: Record<number, string> = { 1: 'online', 2: 'dinheiro', 3: 'cartão', 4: 'online' };
+  return {
+    externalId: raw?.order_id != null ? String(raw.order_id) : undefined,
+    displayId: raw?.order_index != null ? String(raw.order_index) : undefined,
+    clienteNome: addr.name ?? addr.first_name,
+    clienteTelefone: tel,
+    tipo: 'entrega',
+    endereco,
+    itens,
+    total: totalCents / 100,
+    formaPagamento: PAY[Number(raw?.pay_type)] ?? 'online',
+  };
+}
+
 export function adaptar(canal: string, raw: any): PedidoNormalizado {
   if (canal === 'ifood') return adaptarIfood(raw);
   if (canal === 'open_delivery') return adaptarOpenDelivery(raw);
   if (canal === 'cardapio_web') return adaptarCardapioWeb(raw);
+  if (canal === '99food') return adaptarDidiFood(raw);
   return adaptarGenerico(raw);
 }

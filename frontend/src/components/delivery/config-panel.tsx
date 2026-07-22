@@ -27,7 +27,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
   {
     grupo: 'Cardápio digital',
     itens: [
-      { k: 'cardapio', label: 'Cardápio digital · QR' },
+      { k: 'cardapio', label: 'Cardápio Regem' },
       { k: 'horarios', label: 'Horários' },
       { k: 'tipos', label: 'Tipos de pedido' },
       { k: 'area', label: 'Área de atendimento' },
@@ -41,7 +41,6 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     grupo: 'Operação',
     itens: [
       { k: 'banners', label: 'Banners' },
-      { k: 'quadro', label: 'Colunas do quadro' },
       { k: 'impressoras', label: 'Impressoras e cupons' },
       { k: 'integracoes', label: 'Integrações' },
       { k: 'robo', label: 'Robô de atendimento' },
@@ -306,25 +305,7 @@ export function ConfigPanel({
               <p className="text-sm text-muted-foreground">Carregando…</p>
             ) : (
               <>
-                {/* QUADRO */}
-                {sec === 'quadro' && (
-                  <Secao dica="Escolha quais colunas ficam visíveis no quadro de entregas.">
-                    {COLUNAS_DEF.map((c) => (
-                      <label key={c.key} className={`flex items-center gap-2 rounded-lg border border-border p-2.5 text-sm ${isGestor ? '' : 'opacity-60'}`}>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-primary"
-                          disabled={somenteGestor}
-                          checked={deliveryCfg.colunas ? deliveryCfg.colunas[c.key] !== false : true}
-                          onChange={(e) => onDeliveryToggle({ colunas: { ...(deliveryCfg.colunas ?? {}), [c.key]: e.target.checked } })}
-                        />
-                        {c.label}
-                      </label>
-                    ))}
-                  </Secao>
-                )}
-
-                {/* CARDÁPIO DIGITAL · QR */}
+                {/* CARDÁPIO REGEM */}
                 {sec === 'cardapio' && (
                   <Secao dica="Ative o cardápio digital PRÓPRIO — para quando você não tem um cardápio externo (iFood etc.) para integrar. Gera um link e um QR para compartilhar.">
                     <label className="flex items-center gap-2 text-sm font-medium">
@@ -405,6 +386,24 @@ export function ConfigPanel({
                         </div>
                       </div>
                     )}
+                    {/* Colunas do quadro de entregas — agregado aqui, discreto. */}
+                    <div className="mt-2 rounded-lg border border-border p-3">
+                      <p className="mb-2 text-xs font-semibold text-muted-foreground">Colunas do quadro de entregas</p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                        {COLUNAS_DEF.map((c) => (
+                          <label key={c.key} className={`flex items-center gap-1.5 text-xs ${isGestor ? '' : 'opacity-60'}`}>
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 accent-primary"
+                              disabled={somenteGestor}
+                              checked={deliveryCfg.colunas ? deliveryCfg.colunas[c.key] !== false : true}
+                              onChange={(e) => onDeliveryToggle({ colunas: { ...(deliveryCfg.colunas ?? {}), [c.key]: e.target.checked } })}
+                            />
+                            {c.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   </Secao>
                 )}
 
@@ -1125,9 +1124,71 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const ehMp = it.canal === 'mercadopago';
   const ehGatewayPix = ehIugu || ehMp;
   const ehCw = it.canal === 'cardapio_web';
+  const ehFood99 = it.canal === '99food';
   const [ambiente, setAmbiente] = useState('producao');
   const [cwMsg, setCwMsg] = useState('');
   const [cwBusy, setCwBusy] = useState(false);
+  const [f99Order, setF99Order] = useState('');
+  const [f99Msg, setF99Msg] = useState('');
+  const [f99Busy, setF99Busy] = useState(false);
+  const [f99Token, setF99Token] = useState('');
+  async function cardapioTesteF99() {
+    setF99Busy(true);
+    setF99Msg('Subindo cardápio de teste (1 item)…');
+    try {
+      const r: any = await api.food99CardapioTeste();
+      if (r?.ok) setF99Msg(`Cardápio de teste subido. Use o APPitemID "${r.appItemId}" no Sandbox (Crie pedido). Aguarde ~1 min o 99Food processar.`);
+      else setF99Msg(`Falha ao subir cardápio (errno ${r?.errno ?? '?'}). Vou ver o log.`);
+    } catch (e: any) {
+      setF99Msg('Erro ao subir cardápio: ' + (e?.message ?? ''));
+    } finally {
+      setF99Busy(false);
+    }
+  }
+  async function buscarTokenF99() {
+    setF99Busy(true);
+    setF99Msg('Gerando token da loja…');
+    setF99Token('');
+    try {
+      const r: any = await api.food99Token();
+      if (r?.ok && r?.token) {
+        setF99Token(r.token);
+        setF99Msg(`Token gerado (auth OK). Expira em ${r.expiraEm ? new Date(r.expiraEm).toLocaleString('pt-BR') : '—'}. Cole na Ferramenta de Sandbox do 99Food.`);
+      } else {
+        setF99Msg('Não consegui gerar token — confira App ID / App Secret / App Shop ID e salve de novo.');
+      }
+    } catch (e: any) {
+      setF99Msg('Erro ao gerar token: ' + (e?.message ?? ''));
+    } finally {
+      setF99Busy(false);
+    }
+  }
+  async function salvarF99() {
+    setF99Busy(true);
+    setF99Msg('');
+    try {
+      await api.food99SalvarCredenciais({ appId: clientId, appSecret: clientSecret, appShopId: merchantId });
+      setF99Msg('Credenciais salvas. Registre o webhook no portal do 99Food e dispare um pedido no Sandbox.');
+      setClientSecret('');
+    } catch (e: any) {
+      setF99Msg('Erro ao salvar: ' + (e?.message ?? ''));
+    } finally {
+      setF99Busy(false);
+    }
+  }
+  async function puxarF99() {
+    if (!f99Order.trim()) { setF99Msg('Informe o order_id do pedido de teste.'); return; }
+    setF99Busy(true);
+    setF99Msg('Puxando pedido…');
+    try {
+      const r: any = await api.food99Puxar(f99Order.trim());
+      setF99Msg(r?.ok ? 'Pedido importado do 99Food.' : 'Pedido não encontrado (confira order_id e credenciais).');
+    } catch (e: any) {
+      setF99Msg('Erro ao puxar: ' + (e?.message ?? ''));
+    } finally {
+      setF99Busy(false);
+    }
+  }
   const [unidades, setUnidades] = useState<any[]>([]);
   const [unidadeSel, setUnidadeSel] = useState('');
   useEffect(() => {
@@ -1175,6 +1236,18 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setCwMsg(`${r?.ingeridos ?? 0} de ${r?.total ?? 0} pedido(s) importado(s) do Cardápio Web.`);
     } catch (e: any) {
       setCwMsg('Erro ao puxar: ' + (e?.message ?? ''));
+    } finally {
+      setCwBusy(false);
+    }
+  }
+  async function importarCatalogoCw() {
+    setCwBusy(true);
+    setCwMsg('Importando catálogo…');
+    try {
+      const r: any = await api.cardapioWebImportarCatalogo();
+      setCwMsg(`Catálogo importado: +${r?.produtos ?? 0} produtos, +${r?.categorias ?? 0} categorias, ${r?.atualizados ?? 0} atualizados.`);
+    } catch (e: any) {
+      setCwMsg('Erro ao importar: ' + (e?.message ?? ''));
     } finally {
       setCwBusy(false);
     }
@@ -1242,9 +1315,45 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           {cwMsg && <p className="text-[11px] text-muted-foreground">{cwMsg}</p>}
           {pode && (
             <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" size="sm" variant="ghost" disabled={cwBusy} onClick={importarCatalogoCw} title="Cria os produtos no Regem a partir do cardápio do Cardápio Web">Importar catálogo</Button>
               <Button type="button" size="sm" variant="outline" disabled={cwBusy} onClick={puxarCw}>Puxar pedidos agora</Button>
               <Button type="button" size="sm" disabled={cwBusy} onClick={salvarCw}>Salvar</Button>
             </div>
+          )}
+        </>
+      ) : ehFood99 ? (
+        <>
+          <p className="text-[11px] text-muted-foreground">API do <strong>99Food (DiDi Food)</strong>. No portal do desenvolvedor (<strong>developer-food.99app.com</strong> → Gerenciamento de aplicativo → detalhes do app) copie o <strong>APP ID</strong> e o <strong>Secret</strong>; o <strong>App Shop ID</strong> é o que você definiu ao criar a loja de teste (ex.: <code>regemteste01</code>). O 99Food <strong>empurra os pedidos</strong> para o webhook abaixo — cadastre-o no app.</p>
+          <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">Webhook a registrar no 99Food (campo "Endereço do webhook"): <code>https://api.dmsregem.com/api/v1/integracoes/99food/webhook</code></p>
+          <div className="grid gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Campo label="App ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="ex.: 5764607716243277863" className="h-8" disabled={!pode} /></Campo>
+              <Campo label="App Shop ID"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="ex.: regemteste01" className="h-8" disabled={!pode} /></Campo>
+            </div>
+            <Campo label={`App Secret${it.temSecret ? ' (salvo)' : ''}`}>
+              <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (deixe em branco p/ manter)' : 'cole o Secret do app'} className="h-8" disabled={!pode} />
+            </Campo>
+          </div>
+          {f99Msg && <p className="text-[11px] text-muted-foreground">{f99Msg}</p>}
+          {f99Token && (
+            <Campo label="Token da loja (cole na Ferramenta de Sandbox do 99Food)">
+              <Input value={f99Token} readOnly onFocus={(e) => e.currentTarget.select()} className="h-8 font-mono text-[11px]" />
+            </Campo>
+          )}
+          {pode && (
+            <>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={cardapioTesteF99} title="Sobe 1 item de teste no cardápio da loja (pré-requisito do Sandbox)">Subir cardápio de teste</Button>
+                <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={buscarTokenF99} title="Gera um auth_token fresco da loja para colar no Sandbox do portal">Buscar token da loja</Button>
+                <Button type="button" size="sm" disabled={f99Busy} onClick={salvarF99}>Salvar credenciais</Button>
+              </div>
+              <div className="flex flex-wrap items-end gap-2 border-t border-border pt-2">
+                <div className="flex-1 min-w-[10rem]">
+                  <Campo label="Testar por order_id (sem webhook)"><Input value={f99Order} onChange={(e) => setF99Order(e.target.value)} placeholder="cole o order_id de um pedido de teste" className="h-8" disabled={!pode} /></Campo>
+                </div>
+                <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={puxarF99}>Puxar pedido</Button>
+              </div>
+            </>
           )}
         </>
       ) : it.canal === 'open_delivery' ? (
@@ -1272,7 +1381,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </Campo>
       </div>
       )}
-      {pode && temCor && !ehCw && (
+      {pode && temCor && !ehCw && !ehFood99 && (
         <div className="flex items-center gap-2 border-t border-border pt-2">
           <span className="text-[11px] text-muted-foreground">Cor no quadro</span>
           <input type="color" aria-label="Cor de identificação no kanban" value={cor || '#888888'} onChange={(e) => setCor(e.target.value)} disabled={!pode} className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent p-0.5" />
@@ -1280,7 +1389,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <span className="ml-auto rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: cor || '#e5e7eb', color: cor ? '#fff' : '#666' }}>{CANAL_NOME[it.canal] ?? it.canal}</span>
         </div>
       )}
-      {pode && !ehCw && (
+      {pode && !ehCw && !ehFood99 && (
         <div className="flex justify-end">
           <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV, cor: cor || '' })}>Salvar</Button>
         </div>

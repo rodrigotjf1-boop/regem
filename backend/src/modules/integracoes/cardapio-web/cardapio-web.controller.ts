@@ -74,6 +74,14 @@ export class CardapioWebController {
     return this.service.puxarAgora(user.tenantId);
   }
 
+  // Importa o catálogo do Cardápio Web → cria os produtos no Regem (onboarding).
+  @Post('importar-catalogo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  importarCatalogo(@CurrentUser() user: AuthUser) {
+    return this.service.importarCatalogo(user.tenantId);
+  }
+
   @Get('status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('presidente', 'gerente')
