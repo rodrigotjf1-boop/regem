@@ -1087,24 +1087,116 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   );
 }
 
-const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', open_delivery: 'Open Delivery (Abrasel)', cardapio_web: 'Cardápio Web (API de integração)', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago (PIX online)', iugu: 'Iugu (PIX online)' };
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', delivery_direto: 'Delivery Direto', open_delivery: 'Open Delivery (Abrasel)', cardapio_web: 'Cardápio Web', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago', iugu: 'Iugu' };
 
 // Mercado Pago, Iugu e WhatsApp/n8n são recursos do CARDÁPIO DIGITAL do Regem —
 // só aparecem quando ele está ativo (senão a loja usa cardápio externo e o Regem
 // é só centralizador de pedidos).
 const CANAIS_DO_CARDAPIO = ['mercadopago', 'iugu', 'n8n'];
+
+// Metadados por plataforma: cor da marca (fundo do card, editável) + caminho do logo.
+// As imagens ficam em /public/integracoes/<arquivo> — se o arquivo não existir, o card
+// cai num fallback bonito (quadrado na cor da marca com as iniciais). Uso legítimo das
+// marcas numa tela de integração (igual todo PDV mostra as plataformas parceiras).
+const PLAT_META: Record<string, { cor: string; logo?: string }> = {
+  ifood: { cor: '#EA1D2C', logo: '/integracoes/ifood.svg' },
+  '99food': { cor: '#FFC800', logo: '/integracoes/99food.svg' },
+  delivery_direto: { cor: '#FF5A1F', logo: '/integracoes/delivery-direto.svg' },
+  cardapio_web: { cor: '#00A868', logo: '/integracoes/cardapio-web.svg' },
+  rappi: { cor: '#FF441F', logo: '/integracoes/rappi.svg' },
+  anotaai: { cor: '#6C2BD9', logo: '/integracoes/anotaai.svg' },
+  keeta: { cor: '#FFC800', logo: '/integracoes/keeta.svg' },
+  n8n: { cor: '#EA4B71', logo: '/integracoes/n8n.svg' },
+  mercadopago: { cor: '#009EE3', logo: '/integracoes/mercadopago.svg' },
+  iugu: { cor: '#00A5A5', logo: '/integracoes/iugu.svg' },
+};
+
+// Texto legível sobre a cor da marca (tinta escura em cores claras, branco em escuras).
+function textoContraste(hex: string): string {
+  const h = hex.replace('#', '');
+  if (h.length < 6) return '#0F2230';
+  const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? '#0F2230' : '#ffffff';
+}
+
+function LogoPlataforma({ canal, nome, cor, tam = 'md' }: { canal: string; nome: string; cor: string; tam?: 'sm' | 'md' }) {
+  const [erro, setErro] = useState(false);
+  const meta = PLAT_META[canal];
+  const box = tam === 'sm' ? 'h-9 w-9' : 'h-12 w-12';
+  if (meta?.logo && !erro) {
+    return <img src={meta.logo} alt={nome} onError={() => setErro(true)} className={`${box} rounded-lg object-contain`} />;
+  }
+  return (
+    <span className={`flex ${box} items-center justify-center rounded-lg font-display text-sm font-bold`} style={{ background: cor, color: textoContraste(cor) }}>
+      {nome.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase()}
+    </span>
+  );
+}
+
+function PlataformaCard({ it, onClick }: { it: any; onClick: () => void }) {
+  const nome = CANAL_NOME[it.canal] ?? it.canal;
+  const cor = it.cor || PLAT_META[it.canal]?.cor || '#64748b';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Configurar ${nome}`}
+      className="group flex w-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-2.5 text-center transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+    >
+      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${it.ativo ? 'bg-ok/15 text-ok' : 'bg-secondary text-muted-foreground'}`}>
+        <span className={`h-2 w-2 rounded-full ${it.ativo ? 'bg-ok' : 'bg-muted-foreground/40'}`} />
+        {it.ativo ? 'ativo' : 'off'}
+      </span>
+      <LogoPlataforma canal={it.canal} nome={nome} cor={cor} tam="sm" />
+      <span className="text-center text-[13px] font-semibold leading-tight">{nome}</span>
+    </button>
+  );
+}
+
+function ModalIntegracao({ it, onClose, children }: { it: any; onClose: () => void; children: any }) {
+  const nome = CANAL_NOME[it.canal] ?? it.canal;
+  const cor = it.cor || PLAT_META[it.canal]?.cor || '#64748b';
+  useEffect(() => {
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={`Configurar ${nome}`}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-border bg-card shadow-xl sm:rounded-2xl">
+        <div className="flex items-center gap-3 border-b border-border px-4 py-3" style={{ boxShadow: `inset 0 3px 0 ${cor}` }}>
+          <LogoPlataforma canal={it.canal} nome={nome} cor={cor} tam="sm" />
+          <div className="font-display text-base font-bold">{nome}</div>
+          <button type="button" onClick={onClose} className="ml-auto rounded-md p-1.5 text-muted-foreground hover:bg-secondary" aria-label="Fechar">✕</button>
+        </div>
+        <div className="overflow-y-auto p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function Integracoes({ lista, onSalvar, pode, cardapioAtivo }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean; cardapioAtivo: boolean }) {
   const visiveis = lista.filter((it) => cardapioAtivo || !CANAIS_DO_CARDAPIO.includes(it.canal));
+  const [aberto, setAberto] = useState<string | null>(null);
+  const itemAberto = visiveis.find((it) => it.canal === aberto);
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Credenciais dos apps de delivery externos. As chaves ficam guardadas com segurança e <strong>não são exibidas de volta</strong> — deixe o campo em branco para manter a atual.</p>
-      <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A ativação real (receber pedidos do app) roda no <strong>servidor local (edge)</strong> com essas credenciais. Aqui você só as cadastra.</p>
+      <p className="text-xs text-muted-foreground">Escolha uma plataforma para conectar. As chaves ficam guardadas com segurança e <strong>não são exibidas de volta</strong> — deixe o campo em branco para manter a atual.</p>
       {!cardapioAtivo && (
         <p className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground">Mercado Pago, Iugu e WhatsApp/n8n aparecem quando o <strong>cardápio digital do Regem</strong> está ativo — são recursos dele.</p>
       )}
-      {visiveis.map((it) => (
-        <IntegracaoCard key={it.canal} it={it} onSalvar={onSalvar} pode={pode} />
-      ))}
+      <div className="flex flex-wrap justify-center gap-3">
+        {visiveis.map((it) => (
+          <PlataformaCard key={it.canal} it={it} onClick={() => setAberto(it.canal)} />
+        ))}
+      </div>
+      {itemAberto && (
+        <ModalIntegracao it={itemAberto} onClose={() => setAberto(null)}>
+          <IntegracaoCard it={itemAberto} onSalvar={onSalvar} pode={pode} />
+        </ModalIntegracao>
+      )}
     </div>
   );
 }
@@ -1116,7 +1208,13 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const [clientSecret, setClientSecret] = useState('');
   const [tokenV, setTokenV] = useState('');
   const [cor, setCor] = useState(it.cor ?? '');
-  useEffect(() => { setAtivo(!!it.ativo); setMerchantId(it.merchantId ?? ''); setClientId(it.clientId ?? ''); setCor(it.cor ?? ''); }, [it]);
+  // Delivery Direto tem URL base fixa — pré-preenche quando ainda não há merchantId.
+  useEffect(() => {
+    setAtivo(!!it.ativo);
+    setMerchantId(it.merchantId ?? (it.canal === 'delivery_direto' ? 'https://deliverydireto.com.br/open-delivery-api/v1' : ''));
+    setClientId(it.clientId ?? '');
+    setCor(it.cor ?? '');
+  }, [it]);
   // Cor de identificação no kanban — só cardápios/marketplaces (não pagamento/robô).
   const temCor = !['n8n', 'iugu', 'mercadopago'].includes(it.canal);
   const ehN8n = it.canal === 'n8n';
@@ -1125,12 +1223,43 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const ehGatewayPix = ehIugu || ehMp;
   const ehCw = it.canal === 'cardapio_web';
   const ehFood99 = it.canal === '99food';
+  const ehDD = it.canal === 'delivery_direto';
+  const ehOD = it.canal === 'open_delivery' || ehDD;
+  const ehAnota = it.canal === 'anotaai';
+  const DD_BASE = 'https://deliverydireto.com.br/open-delivery-api/v1';
   const [ambiente, setAmbiente] = useState('producao');
   const [cwMsg, setCwMsg] = useState('');
   const [cwBusy, setCwBusy] = useState(false);
   const [f99Order, setF99Order] = useState('');
   const [f99Msg, setF99Msg] = useState('');
   const [f99Busy, setF99Busy] = useState(false);
+  const [anotaMsg, setAnotaMsg] = useState('');
+  const [anotaBusy, setAnotaBusy] = useState(false);
+  async function salvarAnota() {
+    setAnotaBusy(true);
+    setAnotaMsg('');
+    try {
+      await api.anotaaiSalvarCredenciais({ token: tokenV, lojaId: merchantId });
+      setAnotaMsg('Credenciais salvas. O Regem já começa a puxar os pedidos da Anota Aí.');
+      setTokenV('');
+    } catch (e: any) {
+      setAnotaMsg('Erro ao salvar: ' + (e?.message ?? ''));
+    } finally {
+      setAnotaBusy(false);
+    }
+  }
+  async function puxarAnota() {
+    setAnotaBusy(true);
+    setAnotaMsg('Puxando pedidos…');
+    try {
+      const r: any = await api.anotaaiPuxar();
+      setAnotaMsg(`${r?.ingeridos ?? 0} pedido(s) importado(s) da Anota Aí.`);
+    } catch (e: any) {
+      setAnotaMsg('Erro ao puxar: ' + (e?.message ?? ''));
+    } finally {
+      setAnotaBusy(false);
+    }
+  }
   const [f99Token, setF99Token] = useState('');
   async function cardapioTesteF99() {
     setF99Busy(true);
@@ -1255,7 +1384,6 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   return (
     <div className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
-        <span className="font-display text-sm font-bold">{CANAL_NOME[it.canal] ?? it.canal}</span>
         <label className="ml-auto flex items-center gap-1 text-xs">
           <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> ativo
         </label>
@@ -1356,11 +1484,36 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
             </>
           )}
         </>
-      ) : it.canal === 'open_delivery' ? (
+      ) : ehAnota ? (
         <>
-          <p className="text-[11px] text-muted-foreground">Padrão aberto da Abrasel. Cole a <strong>URL base da API Open Delivery</strong> do marketplace (ex.: no Cardápio Web em Configurações → Integrações → API Open Delivery) e as credenciais OAuth. O Regem faz o polling dos pedidos e devolve o status automaticamente.</p>
+          <p className="text-[11px] text-muted-foreground">Integração oficial da <strong>Anota Aí</strong>. No <strong>Portal de Integração</strong> da Anota Aí, adicione a loja e copie o <strong>Token da loja</strong> (e o ID da loja). O Regem puxa os pedidos automaticamente (polling) e os aceita — sem precisar de webhook público.</p>
           <div className="grid gap-2">
-            <Campo label="URL base da API Open Delivery"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="https://.../open-delivery-api/v1" className="h-8" disabled={!pode} /></Campo>
+            <Campo label={`Token da loja${it.temToken ? ' (salvo)' : ''}`}>
+              <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (deixe em branco p/ manter)' : 'cole o Token da loja (Authorization)'} className="h-8" disabled={!pode} />
+            </Campo>
+            <Campo label="ID da loja (Root)"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="ex.: 6351c5a7d42e6100121913…" className="h-8" disabled={!pode} /></Campo>
+          </div>
+          {anotaMsg && <p className="text-[11px] text-muted-foreground">{anotaMsg}</p>}
+          {pode && (
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" size="sm" variant="outline" disabled={anotaBusy} onClick={puxarAnota}>Puxar pedidos agora</Button>
+              <Button type="button" size="sm" disabled={anotaBusy} onClick={salvarAnota}>Salvar credenciais</Button>
+            </div>
+          )}
+        </>
+      ) : ehOD ? (
+        <>
+          {ehDD ? (
+            <p className="text-[11px] text-muted-foreground">Integração oficial do <strong>Delivery Direto</strong> (padrão Open Delivery). No painel do Delivery Direto, gere as <strong>credenciais de API</strong> (Client ID e Secret) e cole aqui. O Regem puxa os pedidos e devolve o status automaticamente.</p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground">Padrão aberto da Abrasel. Cole a <strong>URL base da API Open Delivery</strong> do marketplace e as credenciais OAuth. O Regem faz o polling dos pedidos e devolve o status automaticamente.</p>
+          )}
+          <div className="grid gap-2">
+            {ehDD ? (
+              <p className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground">Servidor: <code>{DD_BASE}</code> (padrão do Delivery Direto)</p>
+            ) : (
+              <Campo label="URL base da API Open Delivery"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="https://.../open-delivery-api/v1" className="h-8" disabled={!pode} /></Campo>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <Campo label="Client ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8" disabled={!pode} /></Campo>
               <Campo label={`Client Secret${it.temSecret ? ' (salvo)' : ''}`}>
@@ -1381,7 +1534,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </Campo>
       </div>
       )}
-      {pode && temCor && !ehCw && !ehFood99 && (
+      {pode && temCor && !ehCw && !ehFood99 && !ehAnota && (
         <div className="flex items-center gap-2 border-t border-border pt-2">
           <span className="text-[11px] text-muted-foreground">Cor no quadro</span>
           <input type="color" aria-label="Cor de identificação no kanban" value={cor || '#888888'} onChange={(e) => setCor(e.target.value)} disabled={!pode} className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent p-0.5" />
@@ -1389,7 +1542,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <span className="ml-auto rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: cor || '#e5e7eb', color: cor ? '#fff' : '#666' }}>{CANAL_NOME[it.canal] ?? it.canal}</span>
         </div>
       )}
-      {pode && !ehCw && !ehFood99 && (
+      {pode && !ehCw && !ehFood99 && !ehAnota && (
         <div className="flex justify-end">
           <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV, cor: cor || '' })}>Salvar</Button>
         </div>

@@ -1,18 +1,21 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Cliente da Open Delivery API (Abrasel). Cada marketplace expõe a mesma spec
-// numa base URL própria; guardamos por integração (canal 'open_delivery'):
+// Cliente da Open Delivery API (padrão Abrasel). Várias PLATAFORMAS expõem a mesma
+// spec numa base URL própria (ex.: Delivery Direto) — cada uma vira um canal
+// branded, mas todas usam este mesmo motor. Guardamos por integração:
 //   merchantId = baseUrl da API  ·  clientId/clientSecret = OAuth  ·  token = cache
-const CANAL = 'open_delivery';
+// Canais atendidos: 'open_delivery' (genérico) e 'delivery_direto' (plataforma).
+const CANAIS = ['open_delivery', 'delivery_direto'];
 
 export interface IntegOD {
   id: string;
   tenantId: string;
   unidadeId: string | null;
+  canal: string;
   baseUrl: string;
   clientId: string;
   clientSecret: string;
@@ -25,43 +28,38 @@ export class OpenDeliveryService {
   private readonly logger = new Logger('OpenDelivery');
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
-  // Integrações Open Delivery ativas (todas as lojas) — usado pelo poller.
-  async integracoesAtivas(): Promise<IntegOD[]> {
-    const rows = await this.db
-      .select()
-      .from(integracao)
-      .where(and(eq(integracao.canal, CANAL), eq(integracao.ativo, true)));
-    return rows
-      .filter((r) => r.merchantId && r.clientId && r.clientSecret)
-      .map((r) => ({
-        id: r.id,
-        tenantId: r.tenantId,
-        unidadeId: r.unidadeId ?? null,
-        baseUrl: (r.merchantId as string).replace(/\/+$/, ''),
-        clientId: r.clientId as string,
-        clientSecret: r.clientSecret as string,
-        token: r.token,
-        config: r.config ?? {},
-      }));
-  }
-
-  // Integração Open Delivery de um pedido (para o status back a partir do kanban).
-  async integracaoDoTenant(tenantId: string): Promise<IntegOD | null> {
-    const [r] = await this.db
-      .select()
-      .from(integracao)
-      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL), eq(integracao.ativo, true)));
+  private mapRow(r: any): IntegOD | null {
     if (!r || !r.merchantId || !r.clientId || !r.clientSecret) return null;
     return {
       id: r.id,
       tenantId: r.tenantId,
       unidadeId: r.unidadeId ?? null,
+      canal: r.canal,
       baseUrl: (r.merchantId as string).replace(/\/+$/, ''),
       clientId: r.clientId as string,
       clientSecret: r.clientSecret as string,
       token: r.token,
       config: r.config ?? {},
     };
+  }
+
+  // Integrações Open Delivery ativas (todas as lojas/plataformas) — usado pelo poller.
+  async integracoesAtivas(): Promise<IntegOD[]> {
+    const rows = await this.db
+      .select()
+      .from(integracao)
+      .where(and(inArray(integracao.canal, CANAIS), eq(integracao.ativo, true)));
+    return rows.map((r) => this.mapRow(r)).filter((x): x is IntegOD => !!x);
+  }
+
+  // Integração de um pedido (para o status back a partir do kanban). O `canal`
+  // vem do próprio pedido (open_delivery ou delivery_direto).
+  async integracaoDoTenant(tenantId: string, canal = 'open_delivery'): Promise<IntegOD | null> {
+    const [r] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, canal), eq(integracao.ativo, true)));
+    return this.mapRow(r);
   }
 
   // OAuth client_credentials → access_token (cacheado em integracao.token +

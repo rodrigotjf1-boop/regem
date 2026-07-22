@@ -45,7 +45,7 @@ export class OpenDeliveryPoller {
         const raw = await this.od.pedido(ig, ev.orderId);
         if (!raw) continue;
         const norm = adaptarOpenDelivery(raw);
-        const ped = await this.delivery.ingest(ig.tenantId, ig.unidadeId, 'open_delivery', raw, {
+        const ped = await this.delivery.ingest(ig.tenantId, ig.unidadeId, ig.canal, raw, {
           taxaEntrega: Number(raw?.total?.deliveryFee?.value ?? raw?.total?.deliveryFee) || 0,
         });
         // Auto-confirma no marketplace (loja aceita na hora, como o autoKds).

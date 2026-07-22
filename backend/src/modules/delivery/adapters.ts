@@ -221,9 +221,61 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
   };
 }
 
+// Anota Aí (api-parceiros.anota.ai): mapeia o Order Model → modelo interno. O objeto
+// pode vir dentro de `info` (PING - GET ORDER: { success, info: {...} }) ou já ser o
+// pedido. Preços em REAIS (não centavos). De-para de item por `externalId` (código PDV).
+export function adaptarAnotaAi(raw: any): PedidoNormalizado {
+  const o = raw?.info ?? raw ?? {};
+  const itens = (o.items ?? []).map((it: any) => {
+    const subs = (it.subItems ?? [])
+      .map((s: any) => (Number(s?.quantity) > 1 ? `${s.quantity}x ${s.name}` : s?.name))
+      .filter(Boolean);
+    const obs = subs.join(' · ') || undefined;
+    const qtd = Number(it.quantity) || 1;
+    return {
+      codigo: it.externalId ?? it.internalId ?? undefined,
+      descricao: it.name ?? 'Item',
+      quantidade: qtd,
+      precoUnitario: Number(it.price ?? (Number(it.total) || 0) / qtd) || 0,
+      observacao: obs,
+    };
+  });
+  // type: DELIVERY → entrega · TAKE (retirada no local) / LOCAL (consumo no local) → retirada
+  const tipo = String(o.type ?? 'DELIVERY').toUpperCase() === 'DELIVERY' ? 'entrega' : 'retirada';
+  const a = o.deliveryAddress ?? {};
+  const endereco =
+    a.formattedAddress ||
+    [a.streetName, a.streetNumber, a.neighborhood, a.city, a.state].filter(Boolean).join(', ') ||
+    undefined;
+  const pgto = (o.payments ?? [])[0] ?? {};
+  const eid = o._id ?? o.id;
+  return {
+    externalId: eid != null ? String(eid) : undefined,
+    displayId: o.shortReference != null ? String(o.shortReference) : undefined,
+    clienteNome: o.customer?.name,
+    clienteTelefone: o.customer?.phone,
+    tipo,
+    endereco,
+    itens,
+    total: Number(o.total) || 0,
+    formaPagamento: pgto.name ?? pgto.code ?? 'online',
+  };
+}
+
+// Início da janela de um pedido AGENDADO do Anota Aí (schedule_order.date, em UTC-0);
+// null se imediato. Usado p/ não despachar antes da hora (igual ao iFood agendado).
+export function agendamentoAnotaAi(raw: any): Date | null {
+  const o = raw?.info ?? raw ?? {};
+  const inicio = o?.schedule_order?.date;
+  if (!inicio) return null;
+  const d = new Date(inicio);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export function adaptar(canal: string, raw: any): PedidoNormalizado {
   if (canal === 'ifood') return adaptarIfood(raw);
-  if (canal === 'open_delivery') return adaptarOpenDelivery(raw);
+  if (canal === 'anotaai') return adaptarAnotaAi(raw);
+  if (canal === 'open_delivery' || canal === 'delivery_direto') return adaptarOpenDelivery(raw);
   if (canal === 'cardapio_web') return adaptarCardapioWeb(raw);
   if (canal === '99food') return adaptarDidiFood(raw);
   return adaptarGenerico(raw);

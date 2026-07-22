@@ -10,6 +10,9 @@ import { IfoodPoller } from './ifood/ifood.poller';
 import { Food99Service } from './food99/food99.service';
 import { Food99Controller } from './food99/food99.controller';
 import { Food99Poller } from './food99/food99.poller';
+import { AnotaAiService } from './anotaai/anotaai.service';
+import { AnotaAiController } from './anotaai/anotaai.controller';
+import { AnotaAiPoller } from './anotaai/anotaai.poller';
 
 // Integrações com marketplaces (Fase 1: Open Delivery / Cardápio Web).
 // O poller ingere pedidos via DeliveryService; o DeliveryService usa o
@@ -18,8 +21,8 @@ import { Food99Poller } from './food99/food99.poller';
 // controller); a ingestão de pedidos (webhook/adapter) entra na F2.
 @Module({
   imports: [forwardRef(() => DeliveryModule)],
-  controllers: [CardapioWebController, Food99Controller],
-  providers: [OpenDeliveryService, OpenDeliveryPoller, CardapioWebService, CardapioWebPoller, IfoodService, IfoodPoller, Food99Service, Food99Poller],
-  exports: [OpenDeliveryService, CardapioWebService, IfoodService, Food99Service],
+  controllers: [CardapioWebController, Food99Controller, AnotaAiController],
+  providers: [OpenDeliveryService, OpenDeliveryPoller, CardapioWebService, CardapioWebPoller, IfoodService, IfoodPoller, Food99Service, Food99Poller, AnotaAiService, AnotaAiPoller],
+  exports: [OpenDeliveryService, CardapioWebService, IfoodService, Food99Service, AnotaAiService],
 })
 export class IntegracoesModule {}
