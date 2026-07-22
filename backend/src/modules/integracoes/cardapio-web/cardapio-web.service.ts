@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { createHash, randomBytes } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
@@ -443,6 +443,56 @@ export class CardapioWebService {
       trocoPara: raw?.payments?.[0]?.change_for ?? undefined,
     });
     return { ok: true };
+  }
+
+  // ===== Importador de catálogo (onboarding) =====
+  private async setorPadrao(tenantId: string): Promise<string | null> {
+    const r: any = await this.db.execute(sql`
+      select id from setor where tenant_id = ${tenantId} and deleted_at is null
+      order by created_at asc limit 1`);
+    return (r?.rows ?? r)?.[0]?.id ?? null;
+  }
+
+  // Puxa o catálogo do Cardápio Web (GET /catalog) e cria/atualiza os produtos no
+  // Regem — categoria, preço, imagem e CÓDIGO (external_code || 'cw'+id, a mesma
+  // regra do adapter → os pedidos casam sozinhos). Idempotente por (tenant, código).
+  async importarCatalogo(tenantId: string): Promise<{ categorias: number; produtos: number; atualizados: number }> {
+    const ig = await this.doTenant(tenantId);
+    if (!this.autenticavel(ig)) throw new BadRequestException('Conecte o Cardápio Web primeiro (salve a chave).');
+    const res = await this.req(ig, '/api/partner/v1/catalog', { method: 'GET' });
+    if (!res.ok) throw new BadRequestException(`Falha ao buscar o catálogo do Cardápio Web (${res.status}).`);
+    const j: any = await res.json().catch(() => ({}));
+    const cats: any[] = j.categories ?? j.data ?? [];
+    const setor = await this.setorPadrao(tenantId);
+    let nCat = 0, nProd = 0, nUpd = 0;
+    for (let i = 0; i < cats.length; i++) {
+      const cat = cats[i];
+      const ex: any = await this.db.execute(sql`select id from categoria_produto where tenant_id=${tenantId} and nome=${cat.name} limit 1`);
+      let catId: string | null = (ex?.rows ?? ex)?.[0]?.id ?? null;
+      if (!catId) {
+        const ins: any = await this.db.execute(sql`insert into categoria_produto (tenant_id,nome,ordem,ativo,disponibilidade) values (${tenantId},${cat.name},${i},true,'{}'::jsonb) returning id`);
+        catId = (ins?.rows ?? ins)?.[0]?.id ?? null;
+        nCat++;
+      }
+      for (const it of cat.items ?? []) {
+        const codigo = it.external_code || `cw${it.id}`;
+        const preco = Number(it.price) || 0;
+        const img = it.image?.image_url ?? null;
+        const found: any = await this.db.execute(sql`select id from produto where tenant_id=${tenantId} and codigo=${codigo} and deleted_at is null`);
+        const foundId = (found?.rows ?? found)?.[0]?.id ?? null;
+        if (foundId) {
+          await this.db.execute(sql`update produto set nome=${it.name}, preco_venda=${preco}, categoria_id=${catId}, updated_at=now() where id=${foundId}`);
+          nUpd++;
+          continue;
+        }
+        await this.db.execute(sql`
+          insert into produto (tenant_id,nome,tipo,unidade_medida,preco_venda,controla_estoque,vai_para_producao,ativo,selos,disponivel_cardapio,destaque,disponivel_balcao,pausado_estoque,permite_negativo,categoria_id,codigo,setor_producao_id,descricao,imagem_ref,preco_custo)
+          values (${tenantId},${it.name},'simples',${(it.unit_type || 'un').toLowerCase()},${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},${it.description ?? null},${img},${Number(it.cost_price) || 0})`);
+        nProd++;
+      }
+    }
+    this.logger.log(`importarCatalogo tenant=${tenantId}: +${nCat} cat, +${nProd} prod, ${nUpd} atualizados`);
+    return { categorias: nCat, produtos: nProd, atualizados: nUpd };
   }
 
   // ===== Status / desconectar (tela do gestor) =====

@@ -581,6 +581,16 @@ export const api = {
   cardapioWebSalvarChave: (body: Record<string, unknown>) =>
     req('/integracoes/cardapio-web/chave', { method: 'POST', body: JSON.stringify(body) }),
   cardapioWebPuxar: () => req('/integracoes/cardapio-web/puxar', { method: 'POST', body: '{}' }),
+  cardapioWebImportarCatalogo: () =>
+    req('/integracoes/cardapio-web/importar-catalogo', { method: 'POST', body: '{}' }),
+  // 99Food / DiDi Food — app_id + app_secret + app_shop_id (webhook).
+  food99Status: () => req('/integracoes/99food/status'),
+  food99Token: () => req('/integracoes/99food/token'),
+  food99CardapioTeste: () => req('/integracoes/99food/cardapio-teste', { method: 'POST', body: '{}' }),
+  food99SalvarCredenciais: (body: Record<string, unknown>) =>
+    req('/integracoes/99food/credenciais', { method: 'POST', body: JSON.stringify(body) }),
+  food99Puxar: (orderId: string) =>
+    req('/integracoes/99food/puxar', { method: 'POST', body: JSON.stringify({ orderId }) }),
   // Revenda / frota (edge appliance)
   revendas: () => req('/revenda'),
   criarRevenda: (nome: string) => req('/revenda', { method: 'POST', body: JSON.stringify({ nome }) }),

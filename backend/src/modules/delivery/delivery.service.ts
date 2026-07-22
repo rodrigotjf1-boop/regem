@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
   Optional,
   forwardRef,
@@ -31,6 +32,8 @@ import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { OpenDeliveryService } from '../integracoes/open-delivery/open-delivery.service';
 import { CardapioWebService } from '../integracoes/cardapio-web/cardapio-web.service';
+import { IfoodService } from '../integracoes/ifood/ifood.service';
+import { Food99Service } from '../integracoes/food99/food99.service';
 import { adaptar, PedidoNormalizado } from './adapters';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -39,6 +42,7 @@ const FLUXO = ['confirmado', 'pronto', 'despachado', 'concluido'];
 
 @Injectable()
 export class DeliveryService {
+  private readonly logger = new Logger('Delivery');
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly vendas: VendasService,
@@ -50,6 +54,12 @@ export class DeliveryService {
     @Optional()
     @Inject(forwardRef(() => CardapioWebService))
     private readonly cardapioWeb?: CardapioWebService,
+    @Optional()
+    @Inject(forwardRef(() => IfoodService))
+    private readonly ifood?: IfoodService,
+    @Optional()
+    @Inject(forwardRef(() => Food99Service))
+    private readonly food99?: Food99Service,
   ) {}
 
   // Status back para marketplaces (hoje: Open Delivery). Best-effort.
@@ -83,6 +93,122 @@ export class DeliveryService {
     } catch {
       /* nunca quebra o fluxo por causa do status back */
     }
+  }
+
+  // Status back para o iFood — confirm/ready/dispatch/cancel. Best-effort.
+  private async statusBackIfood(
+    tenantId: string,
+    row: any,
+    acao: 'confirm' | 'ready' | 'dispatch' | 'cancel',
+  ) {
+    if (!this.ifood || row?.canal !== 'ifood' || !row?.externalId) return;
+    try {
+      const ig = await this.ifood.integracaoDoTenant(tenantId);
+      if (!ig) return;
+      const id = String(row.externalId);
+      if (acao === 'confirm') await this.ifood.confirmar(ig, id);
+      else if (acao === 'ready') await this.ifood.prontoRetirada(ig, id);
+      else if (acao === 'dispatch') {
+        // Pedido AGENDADO não pode ser despachado no iFood antes da janela marcada.
+        // Se ainda não chegou a hora, NÃO enviamos o dispatch agora (o kanban local
+        // segue operável; só a chamada ao iFood respeita o horário do cliente).
+        const janela = row?.agendamento ? new Date(row.agendamento) : null;
+        if (janela && !isNaN(janela.getTime()) && Date.now() < janela.getTime()) {
+          this.logger.warn(
+            `dispatch adiado ${id.slice(0, 8)}: pedido agendado para ${janela.toISOString()}`,
+          );
+          return;
+        }
+        await this.ifood.despachar(ig, id);
+      } else {
+        // Blindagem: enfileira + reenvia até o iFood aceitar (não fire-and-forget).
+        await this.ifood.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);
+      }
+    } catch {
+      /* nunca quebra o fluxo por causa do status back */
+    }
+  }
+
+  // Status back para o 99Food / DiDi Food — confirm/ready/delivered/cancel.
+  // O cancel usa a blindagem (reenvio pelo poller) — não repetir o fire-and-forget
+  // que reprovou a homologação do iFood. Best-effort nas demais transições.
+  private async statusBackFood99(
+    tenantId: string,
+    row: any,
+    acao: 'confirm' | 'ready' | 'delivered' | 'cancel',
+  ) {
+    if (!this.food99 || row?.canal !== '99food' || !row?.externalId) return;
+    try {
+      const id = String(row.externalId);
+      if (acao === 'cancel') {
+        // Blindagem: reenfileira até o 99food aceitar (não fire-and-forget).
+        await this.food99.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);
+        return;
+      }
+      const ig = await this.food99.integracaoDoTenant(tenantId);
+      if (!ig) return;
+      if (acao === 'confirm') await this.food99.confirmar(ig, id);
+      else if (acao === 'ready') await this.food99.pronto(ig, id);
+      else if (acao === 'delivered') await this.food99.entregue(ig, id);
+    } catch {
+      /* nunca quebra o fluxo por causa do status back */
+    }
+  }
+
+  // Reflete localmente uma mudança de status que veio DO canal (ex.: o iFood
+  // cancelou ou concluiu o pedido). NÃO dispara status-back — o evento já veio de
+  // lá. Idempotente e não regride estados terminais. Usado pelo poller do iFood.
+  async refletirStatusExterno(
+    tenantId: string,
+    canal: string,
+    externalId: string,
+    novoStatus: 'cancelado' | 'concluido',
+  ): Promise<void> {
+    const [row] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, tenantId),
+          eq(pedidoExterno.canal, canal),
+          eq(pedidoExterno.externalId, externalId),
+        ),
+      );
+    if (!row) return;
+    // Idempotente: já está no estado alvo ou já é terminal (não regride).
+    if (row.status === novoStatus) return;
+    if (row.status === 'cancelado' || row.status === 'concluido') return;
+    const patch: any = { status: novoStatus };
+    if (novoStatus === 'cancelado') {
+      patch.canceladoEm = new Date();
+      patch.motivoCancelamento = row.motivoCancelamento ?? 'Cancelado pelo iFood';
+    } else {
+      patch.concluidoEm = new Date();
+    }
+    const [upd] = await this.db
+      .update(pedidoExterno)
+      .set(patch)
+      .where(eq(pedidoExterno.id, row.id))
+      .returning();
+    // Conclusão baixa o estoque e concilia o dinheiro (igual ao avanço manual).
+    if (novoStatus === 'concluido' && upd.comandaId) {
+      await this.vendas.baixarEstoqueExterno(tenantId, upd.comandaId).catch(() => {});
+      await this.reconciliarDinheiro(tenantId, upd).catch(() => {});
+    }
+    this.logger.log(`reflexo ${canal} ${externalId.slice(0, 8)} → ${novoStatus}`);
+    void this.dispararWebhook(tenantId, upd);
+  }
+
+  // Unidade padrão do tenant (matriz) — usada quando o pedido externo chega sem
+  // unidade, senão fica com unidade_id null e some do painel filtrado por loja.
+  private async unidadePadrao(tenantId: string): Promise<string | null> {
+    const r: any = await this.db.execute(sql`
+      select id from unidade
+      where tenant_id = ${tenantId} and deleted_at is null
+      order by (tipo = 'matriz') desc, created_at asc
+      limit 1
+    `);
+    return (r?.rows ?? r)?.[0]?.id ?? null;
   }
 
   // A nuvem deve adiar a materialização deste pedido para o EDGE? Sim quando NÃO
@@ -125,6 +251,9 @@ export class DeliveryService {
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
+    // Sem unidade explícita → cai na matriz (senão o pedido some do painel/KDS
+    // filtrado por loja). Vale p/ iFood, Cardápio Web e demais marketplaces.
+    if (!unidadeId) unidadeId = await this.unidadePadrao(tenantId);
     // Idempotência do pedido público (retry do cliente): mesmo client_ref = mesmo pedido.
     if (extra?.clientRef) {
       const [ja] = await this.db
@@ -295,18 +424,29 @@ export class DeliveryService {
 
     const itens = (ped.itens as any[]) ?? [];
     const codigos = itens.map((i) => i.codigo).filter(Boolean);
-    const prods = codigos.length
-      ? await this.db
-          .select({ id: produto.id, codigo: produto.codigo })
-          .from(produto)
-          .where(
-            and(
-              eq(produto.tenantId, tenantId),
-              inArray(produto.codigo, codigos),
-            ),
-          )
-      : [];
-    const porCodigo = new Map(prods.map((p) => [p.codigo, p.id]));
+    const nomes = itens.map((i) => i.descricao).filter(Boolean);
+    const nomesLower = nomes.map((n) => String(n).trim().toLowerCase());
+    // Casa por CÓDIGO/SKU e, como reserva, por NOME (case-insensitive) — ajuda
+    // quando o marketplace não manda um código PDV estável (ex.: iFood).
+    const prods =
+      codigos.length || nomesLower.length
+        ? await this.db
+            .select({ id: produto.id, codigo: produto.codigo, nome: produto.nome })
+            .from(produto)
+            .where(
+              and(
+                eq(produto.tenantId, tenantId),
+                or(
+                  codigos.length ? inArray(produto.codigo, codigos) : undefined,
+                  nomesLower.length
+                    ? or(...nomesLower.map((n) => sql`lower(${produto.nome}) = ${n}`))
+                    : undefined,
+                ),
+              ),
+            )
+        : [];
+    const porCodigo = new Map(prods.filter((p) => p.codigo).map((p) => [p.codigo, p.id]));
+    const porNome = new Map(prods.map((p) => [String(p.nome).trim().toLowerCase(), p.id]));
 
     const PLAT: Record<string, string> = { cardapio: 'Cardápio', ifood: 'iFood', totem: 'Totem' };
     const cfg = await this.configRaw(tenantId, ped.unidadeId);
@@ -321,7 +461,11 @@ export class DeliveryService {
       plataforma: PLAT[ped.canal] ?? ped.canal,
       senhaPlataforma: ped.displayId ?? null,
       itens: itens.map((it) => ({
-        produtoId: it.produtoId ?? (it.codigo ? porCodigo.get(it.codigo) ?? null : null),
+        produtoId:
+          it.produtoId ??
+          (it.codigo ? porCodigo.get(it.codigo) : undefined) ??
+          porNome.get(String(it.descricao).trim().toLowerCase()) ??
+          null,
         descricao: it.descricao,
         quantidade: Number(it.quantidade) || 1,
         precoUnitario: Number(it.precoUnitario) || 0,
@@ -341,6 +485,8 @@ export class DeliveryService {
       .returning();
     void this.dispararWebhook(tenantId, row);
     void this.statusBackCw(tenantId, row, 'confirm');
+    void this.statusBackIfood(tenantId, row, 'confirm');
+    void this.statusBackFood99(tenantId, row, 'confirm');
     // Cashback: credita o retorno no saldo do cliente após a confirmação.
     void this.cashback
       .creditarPedido(tenantId, {
@@ -408,6 +554,12 @@ export class DeliveryService {
       if (novo === 'despachado') void this.statusBackCw(tenantId, row, 'ready');
       else if (novo === 'concluido') void this.statusBackCw(tenantId, row, 'delivered');
     }
+    // iFood: pronto → readyToPickup; despachado → dispatch.
+    if (novo === 'pronto') void this.statusBackIfood(tenantId, row, 'ready');
+    else if (novo === 'despachado') void this.statusBackIfood(tenantId, row, 'dispatch');
+    // 99food: pronto → ready; concluído → delivered (self-delivery).
+    if (novo === 'pronto') void this.statusBackFood99(tenantId, row, 'ready');
+    else if (novo === 'concluido') void this.statusBackFood99(tenantId, row, 'delivered');
     return row;
   }
 
@@ -530,6 +682,8 @@ export class DeliveryService {
       .returning();
     void this.dispararWebhook(tenantId, row);
     void this.statusBackCw(tenantId, row, 'cancel');
+    void this.statusBackIfood(tenantId, row, 'cancel');
+    void this.statusBackFood99(tenantId, row, 'cancel');
     // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
     // Cashback GASTO só volta se a loja configurou (default true); o GANHO sempre sai.
     // Fidelidade é perda FIXA do ponto (+ rollback do prêmio gerado; devolve o consumido).
