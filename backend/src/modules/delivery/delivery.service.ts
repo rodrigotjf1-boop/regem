@@ -34,6 +34,7 @@ import { OpenDeliveryService } from '../integracoes/open-delivery/open-delivery.
 import { CardapioWebService } from '../integracoes/cardapio-web/cardapio-web.service';
 import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { Food99Service } from '../integracoes/food99/food99.service';
+import { AnotaAiService } from '../integracoes/anotaai/anotaai.service';
 import { adaptar, PedidoNormalizado } from './adapters';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -60,13 +61,16 @@ export class DeliveryService {
     @Optional()
     @Inject(forwardRef(() => Food99Service))
     private readonly food99?: Food99Service,
+    @Optional()
+    @Inject(forwardRef(() => AnotaAiService))
+    private readonly anotaai?: AnotaAiService,
   ) {}
 
   // Status back para marketplaces (hoje: Open Delivery). Best-effort.
   private async statusBack(tenantId: string, row: any, acao: 'dispatch' | 'cancel') {
-    if (!this.openDelivery || row?.canal !== 'open_delivery' || !row?.externalId) return;
+    if (!this.openDelivery || !['open_delivery', 'delivery_direto'].includes(row?.canal) || !row?.externalId) return;
     try {
-      const ig = await this.openDelivery.integracaoDoTenant(tenantId);
+      const ig = await this.openDelivery.integracaoDoTenant(tenantId, row.canal);
       if (!ig) return;
       if (acao === 'dispatch') await this.openDelivery.despachar(ig, row.externalId);
       else await this.openDelivery.cancelar(ig, row.externalId, row.motivoCancelamento ?? undefined);
@@ -155,14 +159,32 @@ export class DeliveryService {
     }
   }
 
-  // Reflete localmente uma mudança de status que veio DO canal (ex.: o iFood
-  // cancelou ou concluiu o pedido). NÃO dispara status-back — o evento já veio de
-  // lá. Idempotente e não regride estados terminais. Usado pelo poller do iFood.
+  // Status back para a Anota Aí — pronto / finalizar / cancelar. (O aceite acontece
+  // no poller ao ingerir, então o "confirm" do kanban não reenvia.) Best-effort.
+  private async statusBackAnotaAi(tenantId: string, row: any, acao: 'ready' | 'finalizar' | 'cancel') {
+    if (!this.anotaai || row?.canal !== 'anotaai' || !row?.externalId) return;
+    try {
+      const ig = await this.anotaai.integracaoDoTenant(tenantId);
+      if (!ig) return;
+      const id = String(row.externalId);
+      if (acao === 'ready') await this.anotaai.pronto(ig, id);
+      else if (acao === 'finalizar') await this.anotaai.finalizar(ig, id);
+      else if (acao === 'cancel') await this.anotaai.cancelar(ig, id, row.motivoCancelamento ?? undefined);
+    } catch {
+      /* nunca quebra o fluxo por causa do status back */
+    }
+  }
+
+  // Reflete localmente uma mudança de status que veio DO canal (ex.: a Anota Aí/
+  // iFood avançou ou cancelou/concluiu o pedido). NÃO dispara status-back — o
+  // evento já veio de lá. Idempotente e SÓ AVANÇA (não regride): usa a ordem do
+  // fluxo pra impedir voltar um estado. `cancelado` é terminal (sempre aplica se
+  // ainda não terminal). Usado pelos pollers (iFood/99food/Anota Aí).
   async refletirStatusExterno(
     tenantId: string,
     canal: string,
     externalId: string,
-    novoStatus: 'cancelado' | 'concluido',
+    novoStatus: 'pronto' | 'despachado' | 'concluido' | 'cancelado',
   ): Promise<void> {
     const [row] = await this.db
       .select()
@@ -178,10 +200,20 @@ export class DeliveryService {
     // Idempotente: já está no estado alvo ou já é terminal (não regride).
     if (row.status === novoStatus) return;
     if (row.status === 'cancelado' || row.status === 'concluido') return;
+    // Não regride: só reflete se o alvo estiver ADIANTE do atual no fluxo
+    // (cancelado é exceção — sempre encerra). RANK: novo<confirmado<pronto<despachado<concluido.
+    if (novoStatus !== 'cancelado') {
+      const RANK: Record<string, number> = { novo: 0, confirmado: 1, pronto: 2, despachado: 3, concluido: 4 };
+      if ((RANK[novoStatus] ?? 0) <= (RANK[row.status] ?? 0)) return;
+    }
     const patch: any = { status: novoStatus };
     if (novoStatus === 'cancelado') {
       patch.canceladoEm = new Date();
-      patch.motivoCancelamento = row.motivoCancelamento ?? 'Cancelado pelo iFood';
+      patch.motivoCancelamento = row.motivoCancelamento ?? `Cancelado pelo ${canal}`;
+    } else if (novoStatus === 'pronto') {
+      patch.prontoEm = new Date();
+    } else if (novoStatus === 'despachado') {
+      patch.despachadoEm = new Date();
     } else {
       patch.concluidoEm = new Date();
     }
@@ -560,6 +592,9 @@ export class DeliveryService {
     // 99food: pronto → ready; concluído → delivered (self-delivery).
     if (novo === 'pronto') void this.statusBackFood99(tenantId, row, 'ready');
     else if (novo === 'concluido') void this.statusBackFood99(tenantId, row, 'delivered');
+    // Anota Aí: pronto → pronto; concluído → finalizar.
+    if (novo === 'pronto') void this.statusBackAnotaAi(tenantId, row, 'ready');
+    else if (novo === 'concluido') void this.statusBackAnotaAi(tenantId, row, 'finalizar');
     return row;
   }
 
@@ -684,6 +719,7 @@ export class DeliveryService {
     void this.statusBackCw(tenantId, row, 'cancel');
     void this.statusBackIfood(tenantId, row, 'cancel');
     void this.statusBackFood99(tenantId, row, 'cancel');
+    void this.statusBackAnotaAi(tenantId, row, 'cancel');
     // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
     // Cashback GASTO só volta se a loja configurou (default true); o GANHO sempre sai.
     // Fidelidade é perda FIXA do ponto (+ rollback do prêmio gerado; devolve o consumido).
@@ -894,7 +930,7 @@ export class DeliveryService {
 
   // ===== Integrações (credenciais de apps externos) =====
   // Delivery/marketplaces + integração + gateways de PIX (mercadopago/iugu no fim).
-  private static readonly CANAIS_INTEGRACAO = ['ifood', 'rappi', '99food', 'anotaai', 'keeta', 'cardapio_web', 'n8n', 'mercadopago', 'iugu'];
+  private static readonly CANAIS_INTEGRACAO = ['ifood', '99food', 'delivery_direto', 'cardapio_web', 'rappi', 'anotaai', 'keeta', 'n8n', 'mercadopago', 'iugu'];
 
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).

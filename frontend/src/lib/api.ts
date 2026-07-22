@@ -591,6 +591,11 @@ export const api = {
     req('/integracoes/99food/credenciais', { method: 'POST', body: JSON.stringify(body) }),
   food99Puxar: (orderId: string) =>
     req('/integracoes/99food/puxar', { method: 'POST', body: JSON.stringify({ orderId }) }),
+  // Anota Aí — token da loja + ID da loja (polling, sem webhook público).
+  anotaaiStatus: () => req('/integracoes/anotaai/status'),
+  anotaaiSalvarCredenciais: (body: Record<string, unknown>) =>
+    req('/integracoes/anotaai/credenciais', { method: 'POST', body: JSON.stringify(body) }),
+  anotaaiPuxar: () => req('/integracoes/anotaai/puxar', { method: 'POST', body: '{}' }),
   // Revenda / frota (edge appliance)
   revendas: () => req('/revenda'),
   criarRevenda: (nome: string) => req('/revenda', { method: 'POST', body: JSON.stringify({ nome }) }),
