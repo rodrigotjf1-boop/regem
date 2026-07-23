@@ -971,7 +971,7 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
   }
 
   async function vincular() {
-    if (!inst.trim()) { setErro('Informe o nome da instância (ex.: Mister.ia).'); return; }
+    if (!inst.trim()) { setErro('Informe o nome exato da conexão existente.'); return; }
     setBusy(true); setErro('');
     try {
       const r: any = await api.whatsappVincular(inst.trim());
@@ -1063,7 +1063,7 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
               )}
               <p className="text-[11px] text-muted-foreground">Migração/suporte: cole o <strong>nome exato</strong> de uma instância existente para reaproveitar os chats, sem escanear de novo.</p>
               <div className="flex gap-2">
-                <Input value={inst} onChange={(e) => setInst(e.target.value)} placeholder="ex.: Mister.ia" className="h-8" disabled={busy} />
+                <Input value={inst} onChange={(e) => setInst(e.target.value)} placeholder="nome exato da conexão" className="h-8" disabled={busy} />
                 <Button type="button" size="sm" variant="outline" disabled={busy} onClick={vincular}>Vincular</Button>
               </div>
             </div>

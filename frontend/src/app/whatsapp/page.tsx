@@ -21,6 +21,13 @@ const foneFmt = (f: string) => {
 };
 const inicial = (s: string) => (s ?? '?').trim().slice(0, 1).toUpperCase() || '?';
 const cid = (c: any) => c?.telefone || c?.jids?.[0] || '';
+// Mesmo cliente? Tolera o 55 e o 9º dígito comparando o final do número.
+const mesmoNumero = (a?: string, b?: string) => {
+  const x = String(a ?? '').replace(/\D/g, '');
+  const y = String(b ?? '').replace(/\D/g, '');
+  if (!x || !y) return false;
+  return x === y || x.endsWith(y) || y.endsWith(x) || x.slice(-8) === y.slice(-8);
+};
 
 function Avatar({ nome, telefone, foto, tam = 40 }: { nome?: string; telefone?: string; foto?: string; tam?: number }) {
   const [erro, setErro] = useState(false);
@@ -45,6 +52,8 @@ export default function WhatsappPage() {
   const [busca, setBusca] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [pausando, setPausando] = useState(false);
+  const [carregou, setCarregou] = useState(false);
+  const [alvo, setAlvo] = useState<string | null>(null); // ?numero= vindo do sino
   const fimRef = useRef<HTMLDivElement>(null);
 
   const conectado = status?.conectado;
@@ -56,6 +65,8 @@ export default function WhatsappPage() {
       setConversas(Array.isArray(c) ? c : []);
     } catch {
       /* silencioso */
+    } finally {
+      setCarregou(true);
     }
   }, []);
 
@@ -82,6 +93,22 @@ export default function WhatsappPage() {
     const t = setInterval(carregarConversas, 8000);
     return () => clearInterval(t);
   }, [conectado, carregarConversas]);
+
+  // Veio do sino de atendimento (?numero=...): abre direto a conversa do cliente.
+  useEffect(() => {
+    const n = new URLSearchParams(window.location.search).get('numero');
+    if (n) setAlvo(n.replace(/\D/g, ''));
+  }, []);
+
+  useEffect(() => {
+    if (!alvo || sel || !carregou) return;
+    const achou = conversas.find((c) => mesmoNumero(c.telefone, alvo));
+    // Sem conversa anterior com esse cliente, abre uma vazia — dá pra enviar assim mesmo.
+    setSel(
+      achou ?? { telefone: alvo, jids: [`${alvo}@s.whatsapp.net`], nome: null, foto: null, naoLidas: 0, pausada: false },
+    );
+    setAlvo(null); // uma vez só: não reabre quando o gestor voltar para a lista
+  }, [alvo, sel, carregou, conversas]);
 
   useEffect(() => {
     if (!selJids) return;
