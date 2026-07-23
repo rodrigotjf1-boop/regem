@@ -85,6 +85,19 @@ export class CreateProdutoDto {
   @IsInt()
   validadeDias?: number;
 
+  // Etiquetas de validade (mig 136)
+  @IsOptional()
+  @IsBoolean()
+  controlaValidade?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  validadeFechadoDias?: number;
+
+  @IsOptional()
+  @IsInt()
+  validadeAbertoDias?: number;
+
   @IsOptional()
   @IsBoolean()
   vaiParaProducao?: boolean;

@@ -63,6 +63,14 @@ export class Food99Controller {
     return this.service.tokenAtual(user.tenantId);
   }
 
+  // Exporta o cardápio do Regem PRA o 99Food (cria os itens lá).
+  @Post('exportar-catalogo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  exportarCatalogo(@CurrentUser() user: AuthUser) {
+    return this.service.exportarCatalogo(user.tenantId);
+  }
+
   // Sobe um cardápio mínimo (1 item) na loja de teste — pré-requisito do Sandbox.
   @Post('cardapio-teste')
   @UseGuards(JwtAuthGuard, RolesGuard)

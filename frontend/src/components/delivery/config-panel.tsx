@@ -1260,6 +1260,18 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setAnotaBusy(false);
     }
   }
+  async function importarCatalogoAnota() {
+    setAnotaBusy(true);
+    setAnotaMsg('Importando catálogo…');
+    try {
+      const r: any = await api.anotaaiImportarCatalogo();
+      setAnotaMsg(`Catálogo importado: +${r?.produtos ?? 0} produtos, +${r?.categorias ?? 0} categorias, ${r?.atualizados ?? 0} atualizados.`);
+    } catch (e: any) {
+      setAnotaMsg('Erro ao importar: ' + (e?.message ?? ''));
+    } finally {
+      setAnotaBusy(false);
+    }
+  }
   const [f99Token, setF99Token] = useState('');
   async function cardapioTesteF99() {
     setF99Busy(true);
@@ -1270,6 +1282,18 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       else setF99Msg(`Falha ao subir cardápio (errno ${r?.errno ?? '?'}). Vou ver o log.`);
     } catch (e: any) {
       setF99Msg('Erro ao subir cardápio: ' + (e?.message ?? ''));
+    } finally {
+      setF99Busy(false);
+    }
+  }
+  async function exportarCatalogoF99() {
+    setF99Busy(true);
+    setF99Msg('Exportando cardápio do Regem pro 99Food…');
+    try {
+      const r: any = await api.food99ExportarCatalogo();
+      setF99Msg(`Cardápio exportado: ${r?.produtos ?? 0} itens em ${r?.categorias ?? 0} categorias.`);
+    } catch (e: any) {
+      setF99Msg('Erro ao exportar: ' + (e?.message ?? ''));
     } finally {
       setF99Busy(false);
     }
@@ -1381,6 +1405,30 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setCwBusy(false);
     }
   }
+  async function exportarCatalogoCw() {
+    setCwBusy(true);
+    setCwMsg('Exportando cardápio do Regem pro Cardápio Web…');
+    try {
+      const r: any = await api.cardapioWebExportarCatalogo();
+      setCwMsg(`Cardápio exportado: +${r?.produtos ?? 0} itens, +${r?.categorias ?? 0} categorias${r?.erros ? `, ${r.erros} erro(s)` : ''}.`);
+    } catch (e: any) {
+      setCwMsg('Erro ao exportar: ' + (e?.message ?? ''));
+    } finally {
+      setCwBusy(false);
+    }
+  }
+  async function exportarTesteCw() {
+    setCwBusy(true);
+    setCwMsg('Enviando 1 item de teste pro Cardápio Web…');
+    try {
+      const r: any = await api.cardapioWebExportarTeste();
+      setCwMsg(r?.jaExistia ? 'Item de teste já existe no CW — a escrita está autorizada. ✅' : 'Item de teste criado no CW! A escrita está autorizada. ✅ (pode excluir lá)');
+    } catch (e: any) {
+      setCwMsg('Falha no item de teste: ' + (e?.message ?? '') + ' (se for 401/403, precisa da X-PARTNER-KEY / OAuth catalog)');
+    } finally {
+      setCwBusy(false);
+    }
+  }
   return (
     <div className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
@@ -1444,6 +1492,8 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           {pode && (
             <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" size="sm" variant="ghost" disabled={cwBusy} onClick={importarCatalogoCw} title="Cria os produtos no Regem a partir do cardápio do Cardápio Web">Importar catálogo</Button>
+              <Button type="button" size="sm" variant="ghost" disabled={cwBusy} onClick={exportarTesteCw} title="Cria só 1 item de teste no CW — valida a integração sem bagunçar o cardápio">Exportar 1 item (teste)</Button>
+              <Button type="button" size="sm" variant="ghost" disabled={cwBusy} onClick={exportarCatalogoCw} title="Cria TODAS as categorias/itens do Regem no Cardápio Web">Exportar catálogo</Button>
               <Button type="button" size="sm" variant="outline" disabled={cwBusy} onClick={puxarCw}>Puxar pedidos agora</Button>
               <Button type="button" size="sm" disabled={cwBusy} onClick={salvarCw}>Salvar</Button>
             </div>
@@ -1471,6 +1521,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           {pode && (
             <>
               <div className="flex flex-wrap justify-end gap-2">
+                <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={exportarCatalogoF99} title="Cria as categorias/itens do Regem no 99Food">Exportar catálogo</Button>
                 <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={cardapioTesteF99} title="Sobe 1 item de teste no cardápio da loja (pré-requisito do Sandbox)">Subir cardápio de teste</Button>
                 <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={buscarTokenF99} title="Gera um auth_token fresco da loja para colar no Sandbox do portal">Buscar token da loja</Button>
                 <Button type="button" size="sm" disabled={f99Busy} onClick={salvarF99}>Salvar credenciais</Button>
@@ -1496,6 +1547,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           {anotaMsg && <p className="text-[11px] text-muted-foreground">{anotaMsg}</p>}
           {pode && (
             <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" size="sm" variant="ghost" disabled={anotaBusy} onClick={importarCatalogoAnota} title="Cria os produtos no Regem a partir do cardápio da Anota Aí">Importar catálogo</Button>
               <Button type="button" size="sm" variant="outline" disabled={anotaBusy} onClick={puxarAnota}>Puxar pedidos agora</Button>
               <Button type="button" size="sm" disabled={anotaBusy} onClick={salvarAnota}>Salvar credenciais</Button>
             </div>

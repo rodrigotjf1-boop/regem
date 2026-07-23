@@ -25,7 +25,7 @@ export class CardapioWebPoller {
           const n = await this.cw.sincronizar(ig.tenantId);
           if (n) this.logger.log(`tenant ${ig.tenantId}: ${n} pedido(s) novo(s)`);
         } catch (e: any) {
-          this.logger.warn(`tenant ${ig.tenantId}: ${e?.message ?? e}`);
+          this.logger.error(`poller Cardápio Web tenant ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
         }
       }
     } finally {

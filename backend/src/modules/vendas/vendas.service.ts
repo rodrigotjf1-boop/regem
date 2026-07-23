@@ -1099,14 +1099,42 @@ export class VendasService {
   }
 
   // ===== Mesas (Fase F2) =====
+  // Sub-PDV salão (mig 133): se o terminal atuante for um ponto de salão (equipamento
+  // tipo='salao'), devolve { id, nome, pdvMainId }; senão null. Serve para exigir o
+  // caixa do PDV main aberto e carimbar o cabeçalho de emissão da cozinha.
+  private async pontoSalao(tenantId: string, terminalId?: string | null) {
+    if (!terminalId) return null;
+    const [e] = await this.db
+      .select({ id: equipamento.id, nome: equipamento.nome, tipo: equipamento.tipo, pdvMainId: equipamento.pdvMainId })
+      .from(equipamento)
+      .where(and(eq(equipamento.id, terminalId), eq(equipamento.tenantId, tenantId)));
+    if (!e || e.tipo !== 'salao') return null;
+    return { id: e.id, nome: e.nome, pdvMainId: e.pdvMainId };
+  }
+
+  // Terminal cujo caixa recebe o fechamento: o próprio PDV, ou — se for salão — o
+  // PDV main a que o ponto está atrelado (o valor cai no caixa principal).
+  private async terminalCaixa(tenantId: string, terminalId?: string | null) {
+    const salao = await this.pontoSalao(tenantId, terminalId);
+    return salao ? salao.pdvMainId ?? null : terminalId ?? null;
+  }
+
   // Abre a mesa (dono = quem abriu). Modo 'mesa' já cria 1 comanda; 'comandas' fica vazia.
+  // Sub-PDV salão só abre mesa com o turno do PDV main aberto.
   async abrirMesa(
     tenantId: string,
     atorId: string,
     dto: { numero: string; nome?: string; modo?: string; unidadeId?: string },
+    terminalId?: string | null,
   ) {
     if (!dto.numero?.trim())
       throw new BadRequestException('Informe o número/nome da mesa.');
+    const salao = await this.pontoSalao(tenantId, terminalId);
+    if (salao) {
+      const sessao = await this.sessaoAbertaId(this.db, tenantId, salao.pdvMainId);
+      if (!sessao)
+        throw new BadRequestException('Abra o caixa do PDV principal para abrir mesas no salão.');
+    }
     const modo = dto.modo === 'comandas' ? 'comandas' : 'mesa';
     const [m] = await this.db
       .insert(mesa)
@@ -1117,6 +1145,7 @@ export class VendasService {
         nome: dto.nome,
         modo,
         donoId: atorId,
+        equipamentoId: salao ? salao.id : null,
         abertaPorId: atorId,
       })
       .returning();
@@ -1127,6 +1156,7 @@ export class VendasService {
         mesaId: m.id,
         mesa: m.numero,
         status: 'aberta',
+        origemEquipamentoId: salao ? salao.id : null,
         abertaPorId: atorId,
       });
     }
@@ -1214,6 +1244,7 @@ export class VendasService {
     atorPerfil: string,
     mesaId: string,
     dto: { forma?: string; taxaServicoPct?: number },
+    terminalId?: string | null,
   ) {
     const [m] = await this.db
       .select()
@@ -1235,7 +1266,7 @@ export class VendasService {
       const n = Number((cnt.rows ?? cnt)[0].n);
       if (n > 0) {
         // reaproveita o fechamento por comanda (baixa + lançamento + auditoria).
-        const r = await this.fecharComanda(tenantId, atorId, atorPerfil, c.id, dto);
+        const r = await this.fecharComanda(tenantId, atorId, atorPerfil, c.id, dto, terminalId);
         cupons.push(r);
       } else {
         // Comanda vazia: fecha sem cupom (não gera lançamento).
@@ -1293,6 +1324,7 @@ export class VendasService {
       complementos?: string[];
       observacao?: string;
     },
+    terminalId?: string | null,
   ) {
     const [c] = await this.db
       .select()
@@ -1301,6 +1333,8 @@ export class VendasService {
     if (!c) throw new NotFoundException('Comanda não encontrada');
     if (c.status !== 'aberta')
       throw new BadRequestException('Comanda não está aberta');
+    // Sub-PDV salão: ponto que está lançando (carimba origem + cabeçalho cozinha).
+    const salao = await this.pontoSalao(tenantId, terminalId);
 
     const [p] = await this.db
       .select()
@@ -1341,6 +1375,7 @@ export class VendasService {
         quantidade: String(qtd),
         precoUnitario: String(preco),
         observacao: obs,
+        origemEquipamentoId: salao ? salao.id : null,
         criadoPorId: atorId,
       })
       .returning();
@@ -1370,6 +1405,7 @@ export class VendasService {
           senha: c.senha,
           origem: c.mesa ? 'mesa' : 'comanda',
           mesa: c.mesa,
+          emitidoDe: salao ? salao.nome : null,
         },
         [
           {
@@ -1469,7 +1505,10 @@ export class VendasService {
     atorPerfil: string,
     comandaId: string,
     dto: { forma?: string; taxaServicoPct?: number },
+    terminalId?: string | null,
   ) {
+    // Sub-PDV salão: o fechamento cai no caixa do PDV main (não no ponto do salão).
+    const caixaTerminalId = await this.terminalCaixa(tenantId, terminalId);
     const res = await this.db.transaction(async (tx) => {
       const [c] = await tx
         .select()
@@ -1479,7 +1518,7 @@ export class VendasService {
       if (c.status !== 'aberta')
         throw new BadRequestException('Comanda não está aberta');
 
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId, caixaTerminalId);
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para fechar a comanda.');
 
@@ -1715,13 +1754,16 @@ export class VendasService {
   // Cancela uma venda fechada: estorna estoque (entrada inversa) + caixa (lançamento
   // de estorno) e marca a comanda como cancelada. Reversível pois a baixa carrega
   // ref_tipo='venda'/ref_id=comanda.
+  // `reaproveitado` (mig 128/132): insumo já baixado da venda foi REUTILIZADO
+  // (volta ao estoque via estorno) ou virou PERDA (fica baixado). Default true.
   async cancelar(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     comandaId: string,
-    dto: { motivo?: string },
+    dto: { motivo?: string; reaproveitado?: boolean },
   ) {
+    const reaproveitado = dto.reaproveitado !== false;
     // Autorização: atendente só cancela se o presidente liberou; gerente+ sempre.
     if (atorPerfil === 'atendente' && !(await this.cancelamentoLivre(tenantId))) {
       throw new ForbiddenException(
@@ -1744,7 +1786,8 @@ export class VendasService {
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para cancelar a venda.');
 
-      // Estorna estoque: entrada inversa de cada saída da venda.
+      // Estorna estoque só se REUTILIZADO: entrada inversa de cada saída da venda.
+      // Perda (reaproveitado=false) → mantém a baixa (o insumo foi descartado).
       const saidas = await tx
         .select()
         .from(movimentoEstoque)
@@ -1755,18 +1798,20 @@ export class VendasService {
             eq(movimentoEstoque.refId, comandaId),
           ),
         );
-      for (const m of saidas) {
-        await tx.insert(movimentoEstoque).values({
-          tenantId,
-          itemId: m.itemId,
-          tipo: 'entrada',
-          quantidade: m.quantidade,
-          custoUnitario: m.custoUnitario ?? undefined,
-          motivo: 'estorno',
-          refTipo: 'estorno',
-          refId: comandaId,
-          data: hojeISO(),
-        });
+      if (reaproveitado) {
+        for (const m of saidas) {
+          await tx.insert(movimentoEstoque).values({
+            tenantId,
+            itemId: m.itemId,
+            tipo: 'entrada',
+            quantidade: m.quantidade,
+            custoUnitario: m.custoUnitario ?? undefined,
+            motivo: 'estorno',
+            refTipo: 'estorno',
+            refId: comandaId,
+            data: hojeISO(),
+          });
+        }
       }
 
       // Estorna caixa: saída de estorno referente ao lançamento da venda.
@@ -1803,6 +1848,8 @@ export class VendasService {
           canceladaEm: new Date(),
           canceladaPorId: atorId,
           motivoCancelamento: dto.motivo,
+          // Registra a decisão só quando houve baixa a estornar (senão n/a).
+          estoqueReaproveitado: saidas.length ? reaproveitado : null,
         })
         .where(eq(comanda.id, comandaId));
     });

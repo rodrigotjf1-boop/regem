@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { TIPO_LABEL } from '@/components/ponto/ponto-card';
 import { PontoGestao } from '@/components/ponto/ponto-gestao';
 import { AcessoSenhaCard } from '@/components/pessoas/acesso-senha-card';
+import { DesligamentoCard } from '@/components/pessoas/desligamento-card';
 
 const AJUSTE_LABEL: Record<string, string> = {
   abono: 'Abono',
@@ -118,8 +119,9 @@ export default function PessoasPage() {
       ) : (
         <>
           {podeGerir && (
-            <div className="mb-4">
+            <div className="mb-4 space-y-4">
               <AcessoSenhaCard />
+              <DesligamentoCard />
             </div>
           )}
           <div className="mb-4 rounded-lg border border-warn/30 bg-warn/10 px-4 py-2.5 text-xs text-warn">

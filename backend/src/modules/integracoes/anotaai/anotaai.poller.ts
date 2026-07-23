@@ -24,7 +24,7 @@ export class AnotaAiPoller {
         try {
           await this.anota.sincronizar(ig.tenantId);
         } catch (e: any) {
-          this.logger.warn(`tenant ${ig.tenantId}: ${e?.message ?? e}`);
+          this.logger.error(`poller Anota Aí tenant ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
         }
       }
     } finally {

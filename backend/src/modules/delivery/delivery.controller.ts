@@ -15,6 +15,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
+import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { DeliveryService } from './delivery.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -67,6 +68,35 @@ export class DeliveryController {
   @UseGuards(JwtAuthGuard)
   retornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.retornarProducao(user.tenantId, id);
+  }
+
+  // Hub "Retirada / Encomendas" (Fase 1): só pedidos de retirada/encomenda,
+  // agrupados por origem (regem/integrado/marketplace).
+  @Get('retirada')
+  @UseGuards(JwtAuthGuard)
+  retirada(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.listarRetirada(user.tenantId, atual);
+  }
+
+  // Entrega no balcão: conclui e cobra (a-pagar) no caixa do atendente.
+  @Post('pedidos/:id/entregar')
+  @UseGuards(JwtAuthGuard)
+  entregar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @TerminalAtual() terminalId: string | null,
+    @Body() dto: any,
+  ) {
+    return this.service.entregarBalcao(user.tenantId, user.colaboradorId, id, terminalId, {
+      forma: dto?.forma ?? null,
+    });
+  }
+
+  // Avisar pronto (robô / status-back do canal).
+  @Post('pedidos/:id/avisar-pronto')
+  @UseGuards(JwtAuthGuard)
+  avisarPronto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.avisarPronto(user.tenantId, id);
   }
 
   @Post('pedidos/:id/alterar')

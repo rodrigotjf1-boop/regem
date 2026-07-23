@@ -27,7 +27,7 @@ export class OpenDeliveryPoller {
         try {
           await this.processar(ig);
         } catch (e: any) {
-          this.logger.warn(`loja ${ig.tenantId}: ${e?.message ?? e}`);
+          this.logger.error(`poller Open Delivery loja ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
         }
       }
     } finally {

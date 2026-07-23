@@ -60,8 +60,12 @@ export class VendasController {
 
   @Post('mesas')
   @RequirePerm('mesas')
-  abrirMesa(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.abrirMesa(user.tenantId, user.colaboradorId, dto);
+  abrirMesa(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: any,
+    @TerminalAtual() terminalId: string | null,
+  ) {
+    return this.service.abrirMesa(user.tenantId, user.colaboradorId, dto, terminalId);
   }
 
   @Get('mesas/:id')
@@ -85,6 +89,7 @@ export class VendasController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: any,
+    @TerminalAtual() terminalId: string | null,
   ) {
     return this.service.fecharMesa(
       user.tenantId,
@@ -92,6 +97,7 @@ export class VendasController {
       user.categoria,
       id,
       dto,
+      terminalId,
     );
   }
 
@@ -119,8 +125,9 @@ export class VendasController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: any,
+    @TerminalAtual() terminalId: string | null,
   ) {
-    return this.service.adicionarItem(user.tenantId, user.colaboradorId, id, dto);
+    return this.service.adicionarItem(user.tenantId, user.colaboradorId, id, dto, terminalId);
   }
 
   @Delete('comandas/itens/:itemId')
@@ -161,6 +168,7 @@ export class VendasController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body() dto: any,
+    @TerminalAtual() terminalId: string | null,
   ) {
     return this.service.fecharComanda(
       user.tenantId,
@@ -168,6 +176,7 @@ export class VendasController {
       user.categoria,
       id,
       dto,
+      terminalId,
     );
   }
 

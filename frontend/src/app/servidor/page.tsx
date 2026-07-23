@@ -86,6 +86,42 @@ function RestaurarServidor() {
   );
 }
 
+// Suporte: envia o log recente do servidor local para a distribuição (sob demanda),
+// pra o técnico diagnosticar um problema. Só no edge.
+function SuporteServidor() {
+  const [enviando, setEnviando] = useState(false);
+  const [msg, setMsg] = useState('');
+  async function enviar() {
+    setEnviando(true);
+    setMsg('');
+    try {
+      const r: any = await api.edgeEnviarLogs();
+      setMsg(r?.ok ? 'Log recente enviado para o suporte. ✅' : 'Não consegui enviar o log agora.');
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Erro ao enviar o log');
+    } finally {
+      setEnviando(false);
+    }
+  }
+  return (
+    <Card className="p-6 lg:col-span-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold">Suporte / diagnóstico</h2>
+          <p className="max-w-prose text-sm text-muted-foreground">
+            Se pedirem, envie o <strong>log recente do servidor</strong> para a equipe do Regem
+            diagnosticar um problema. Nenhum dado pessoal do cliente é enviado (é redigido).
+          </p>
+        </div>
+        <Button type="button" variant="outline" onClick={enviar} disabled={enviando}>
+          {enviando ? 'Enviando…' : 'Enviar logs pro suporte'}
+        </Button>
+      </div>
+      {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+    </Card>
+  );
+}
+
 // Só aparece no app rodando NO edge (build com NEXT_PUBLIC_EDGE=1). Verifica na
 // nuvem se há versão nova e, se houver, deixa o gestor INSTALAR (a tarefa SYSTEM
 // do Windows faz a troca com backup + rollback). Na nuvem o card fica oculto.
@@ -337,6 +373,7 @@ export default function ServidorPage() {
       <div className="grid gap-4 lg:grid-cols-3">
         {process.env.NEXT_PUBLIC_EDGE === '1' && <AtualizacaoServidor />}
         {process.env.NEXT_PUBLIC_EDGE === '1' && <RestaurarServidor />}
+        {process.env.NEXT_PUBLIC_EDGE === '1' && <SuporteServidor />}
         <Card className="p-6 lg:col-span-2">
           <h2 className="font-display text-xl font-bold">Instale o Regem na sua loja</h2>
           <p className="mt-2 max-w-prose text-sm text-muted-foreground">

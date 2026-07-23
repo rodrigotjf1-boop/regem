@@ -120,6 +120,17 @@ export const colaborador = pgTable('colaborador', {
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
   dataConsentimento: date('data_consentimento'),
   uiPrefs: jsonb('ui_prefs').notNull().default({}), // prefs de UI (shell)
+  // Desligamento (mig 135) — status ganha 'desligado' quando efetivado
+  desligamentoTipo: text('desligamento_tipo'), // sem_justa_causa|justa_causa|pedido_demissao|acordo|experiencia
+  avisoInicio: date('aviso_inicio'), // início do aviso prévio trabalhado
+  avisoOpcao: text('aviso_opcao'), // '2h' | '7dias'
+  avisoFim: date('aviso_fim'), // fim do aviso (30d + proporcional, teto 90)
+  desligamentoData: date('desligamento_data'),
+  desligamentoMotivo: text('desligamento_motivo'),
+  desligamentoPorId: uuid('desligamento_por_id'),
+  desligadoEm: timestamp('desligado_em', { withTimezone: true }),
+  pontoEnviadoEm: timestamp('ponto_enviado_em', { withTimezone: true }),
+  pontoEnviadoContadorId: uuid('ponto_enviado_contador_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -756,6 +767,8 @@ export const equipamento = pgTable('equipamento', {
   imprimeNoStatus: text('imprime_no_status').notNull().default('pronto'),
   impressoraDestinoId: uuid('impressora_destino_id'),
 
+  pdvMainId: uuid('pdv_main_id'), // sub-PDV salão (tipo='salao'): caixa principal a que pertence (mig 133)
+
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1021,6 +1034,8 @@ export const fichaTecnica = pgTable('ficha_tecnica', {
   porcaoTamanho: numeric('porcao_tamanho'), // rende N porções = rendimento / porcaoTamanho (mig 130)
   porcaoUnidade: text('porcao_unidade'),
   validade: text('validade'),
+  validadeDias: integer('validade_dias'), // etiqueta: shelf-life do manipulado (mig 136)
+  validadeAbertoDias: integer('validade_aberto_dias'), // etiqueta: validade após aberto (mig 136)
   precoVenda: numeric('preco_venda'),
   metaCmv: numeric('meta_cmv').notNull().default('31.5'),
   ativo: boolean('ativo').notNull().default(true),
@@ -1126,6 +1141,10 @@ export const produto = pgTable('produto', {
   precoCusto: numeric('preco_custo'), // null = usa custo da ficha / custo médio
   controlaEstoque: boolean('controla_estoque').notNull().default(true),
   validadeDias: integer('validade_dias'),
+  // Etiquetas de validade (mig 136) — fonte do rótulo RDC 216
+  controlaValidade: boolean('controla_validade').notNull().default(false),
+  validadeFechadoDias: integer('validade_fechado_dias'), // shelf-life fechado
+  validadeAbertoDias: integer('validade_aberto_dias'), // validade após aberto (≤30)
   vaiParaProducao: boolean('vai_para_producao').notNull().default(true),
   setorProducaoId: uuid('setor_producao_id'), // roteamento KDS (fallback do setor)
   tempoPreparoMin: integer('tempo_preparo_min'), // p/ cores do KDS
@@ -1222,6 +1241,7 @@ export const mesa = pgTable('mesa', {
   status: text('status').notNull().default('aberta'), // aberta | fechada
   modo: text('modo').notNull().default('mesa'), // mesa (1 comanda) | comandas (por cliente)
   donoId: uuid('dono_id'), // PDV/colaborador que abriu (roteia o garçom)
+  equipamentoId: uuid('equipamento_id'), // ponto de salão (sub-PDV) que abriu a mesa (mig 133)
   abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
   abertaPorId: uuid('aberta_por_id'),
   fechadaEm: timestamp('fechada_em', { withTimezone: true }),
@@ -1249,6 +1269,7 @@ export const comanda = pgTable('comanda', {
   obs: text('obs'),
   total: numeric('total'), // snapshot do total (cupom)
   forma: text('forma'), // forma de pagamento (cupom)
+  origemEquipamentoId: uuid('origem_equipamento_id'), // ponto de salão que abriu (cabeçalho cozinha, mig 133)
   canceladaEm: timestamp('cancelada_em', { withTimezone: true }),
   canceladaPorId: uuid('cancelada_por_id'),
   motivoCancelamento: text('motivo_cancelamento'),
@@ -1272,6 +1293,7 @@ export const comandaItem = pgTable('comanda_item', {
   quantidade: numeric('quantidade').notNull().default('1'),
   precoUnitario: numeric('preco_unitario').notNull().default('0'),
   observacao: text('observacao'), // obs por item (Fase F4): "sem sal", "bem passado"
+  origemEquipamentoId: uuid('origem_equipamento_id'), // ponto de salão que lançou (cabeçalho cozinha, mig 133)
   criadoPorId: uuid('criado_por_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // LWW sync (mig 121; gatilho mig 095)
@@ -1887,6 +1909,13 @@ export const pedidoExterno = pgTable('pedido_externo', {
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ contrato do sync 'ambos' (mig 125); na prática só cancela por status
   estoqueReaproveitado: boolean('estoque_reaproveitado'), // cancelamento: null=n/a, true=reaproveitado (estorna baixa), false=perda (mig 128)
+  // Hub PDV "Retirada / Encomendas" (mig 132)
+  pagoOnline: boolean('pago_online').notNull().default(false), // já pago no online (só entregar)
+  retiradaTipo: text('retirada_tipo'), // retirada | encomenda | null(entrega/local)
+  caixaSessaoId: uuid('caixa_sessao_id'), // caixa (turno) onde o a-pagar entrou
+  atendenteId: uuid('atendente_id'), // quem cobrou/entregou no balcão
+  entregueEm: timestamp('entregue_em', { withTimezone: true }),
+  avisadoProntoEm: timestamp('avisado_pronto_em', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
@@ -2366,4 +2395,94 @@ export const cashbackVale = pgTable('cashback_vale', {
   status: text('status').notNull().default('disponivel'), // disponivel | usado
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   pedidoId: uuid('pedido_id'),
+});
+
+// ─── Pedidos de manutenção (mig 134) — equipamento com defeito / lâmpada etc. ───
+export const pedidoManutencao = pgTable('pedido_manutencao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  equipamentoId: uuid('equipamento_id'), // opcional: aponta p/ equipamento cadastrado
+  equipamentoRef: text('equipamento_ref'), // texto livre quando não há cadastro
+  titulo: text('titulo').notNull(),
+  descricao: text('descricao'),
+  fotos: jsonb('fotos').notNull().default('[]'), // refs de mídia (máx 3)
+  prioridade: text('prioridade').notNull().default('normal'), // baixa|normal|alta|critica
+  status: text('status').notNull().default('aberto'), // aberto|em_andamento|concluido_parcial|concluido|cancelado
+  criadoPorId: uuid('criado_por_id'),
+  responsavelId: uuid('responsavel_id'), // gerente delegado pelo C&O
+  delegadoEm: timestamp('delegado_em', { withTimezone: true }),
+  prazo15d: date('prazo_15d'), // criado + 15 dias
+  alerta15dEm: timestamp('alerta_15d_em', { withTimezone: true }),
+  decisao15d: text('decisao_15d'), // manter | concluir | excluir
+  resolvidoEm: timestamp('resolvido_em', { withTimezone: true }),
+  resolvidoPorId: uuid('resolvido_por_id'),
+  motivo: text('motivo'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// ─── Contador do tenant (mig 135) — destino do relatório de ponto no desligamento ─
+export const contador = pgTable('contador', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(),
+  whatsapp: text('whatsapp').notNull(),
+  email: text('email'),
+  ativo: boolean('ativo').notNull().default(true),
+  cadastradoPorId: uuid('cadastrado_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ─── Etiquetas de validade (mig 136) — RDC 216: manipulados/insumos abertos ───
+export const etiquetaTemplate = pgTable('etiqueta_template', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  nome: text('nome').notNull().default('Padrão'),
+  // [{campo:'produto',visivel:true,negrito:true}, ...]
+  // campos: loja, produto, unidade, fabricacao, compra, status, validade, responsavel, lote
+  campos: jsonb('campos').notNull().default('[]'),
+  tamanho: text('tamanho').notNull().default('40x40'), // 40x40 | 60x40 | 40x25 (mm)
+  codigoTipo: text('codigo_tipo').notNull().default('code128'), // nenhum | ean13 | code128 | qr
+  padrao: boolean('padrao').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const etiquetaValidade = pgTable('etiqueta_validade', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  produtoId: uuid('produto_id'),
+  fichaId: uuid('ficha_id'),
+  templateId: uuid('template_id'),
+  descricao: text('descricao').notNull(), // snapshot do nome
+  unidadeMedida: text('unidade_medida'),
+  tipo: text('tipo').notNull().default('novo'), // novo (fechado) | usado (aberto)
+  status: text('status').notNull().default('fechado'), // fechado | em_uso | baixado | vencido
+  fabricacao: date('fabricacao'),
+  compra: date('compra'),
+  abertura: timestamp('abertura', { withTimezone: true }),
+  validade: date('validade').notNull(),
+  codigo: text('codigo'), // payload do código de barras/QR
+  impressaEm: timestamp('impressa_em', { withTimezone: true }),
+  baixadoEm: timestamp('baixado_em', { withTimezone: true }),
+  baixadoPorId: uuid('baixado_por_id'),
+  virouPerda: boolean('virou_perda'),
+  desperdicioId: uuid('desperdicio_id'),
+  criadoPorId: uuid('criado_por_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 
 const TIPOS = [
   { value: 'pdv', label: 'Terminal de PDV (caixa)' },
+  { value: 'salao', label: 'Sub-PDV Salão (garçom)' },
   { value: 'terminal_ponto', label: 'Terminal de Ponto' },
   { value: 'kds', label: 'KDS (cozinha)' },
   { value: 'impressora', label: 'Impressora térmica' },
@@ -20,6 +21,7 @@ const TIPOS = [
 ];
 const TIPO_LABEL: Record<string, string> = {
   pdv: 'Terminal de PDV',
+  salao: 'Sub-PDV Salão',
   terminal_ponto: 'Terminal de Ponto',
   kds: 'KDS',
   impressora: 'Impressora',
@@ -49,6 +51,7 @@ export default function EquipamentosPage() {
   const [setoresAtendidos, setSetoresAtendidos] = useState<string[]>([]);
   const [padrao, setPadrao] = useState(false);
   const [impressoraPadraoId, setImpressoraPadraoId] = useState('');
+  const [pdvMainId, setPdvMainId] = useState(''); // sub-PDV salão → PDV main
   const [salvando, setSalvando] = useState(false);
   const [fila, setFila] = useState<any[] | null>(null);
   const [testando, setTestando] = useState<string | null>(null);
@@ -157,6 +160,7 @@ export default function EquipamentosPage() {
         padrao: tipo === 'impressora' ? padrao : undefined,
         impressoraPadraoId:
           tipo === 'pdv' && impressoraPadraoId ? impressoraPadraoId : undefined,
+        pdvMainId: tipo === 'salao' && pdvMainId ? pdvMainId : undefined,
       });
       setTokenNovo({ nome: novo.nome, token: novo.token });
       setCopiado(false);
@@ -358,6 +362,31 @@ export default function EquipamentosPage() {
               </div>
             )}
 
+            {/* Sub-PDV salão: atrela a um PDV main (caixa principal) */}
+            {tipo === 'salao' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="pdv-main">PDV principal (caixa)</Label>
+                <select
+                  id="pdv-main"
+                  value={pdvMainId}
+                  onChange={(e) => setPdvMainId(e.target.value)}
+                  className={selectCls}
+                  required
+                >
+                  <option value="">— escolha o PDV main —</option>
+                  {(lista ?? [])
+                    .filter((e: any) => e.tipo === 'pdv' && e.ativo)
+                    .map((p: any) => (
+                      <option key={p.id} value={p.id}>{p.nome}</option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  O garçom lança na mesa por este ponto; só abre/fecha mesa com o caixa
+                  do PDV principal aberto, e o fechamento cai no caixa dele.
+                </p>
+              </div>
+            )}
+
             {/* KDS/impressora: setor de produção */}
             {(tipo === 'kds' || tipo === 'impressora') && (
               <div className="space-y-1.5">
@@ -548,6 +577,9 @@ export default function EquipamentosPage() {
                       : ''}
                     {eq.tipo === 'impressora' && eq.padrao ? ' · padrão' : ''}
                     {eq.tipo === 'kds' && eq.escopo === 'avisos' ? ' · só avisos' : ''}
+                    {eq.tipo === 'salao' && eq.pdvMainId
+                      ? ` · main: ${(lista ?? []).find((x: any) => x.id === eq.pdvMainId)?.nome ?? '—'}`
+                      : ''}
                     {eq.ultimoPing
                       ? ` · último acesso ${new Date(eq.ultimoPing).toLocaleString('pt-BR')}`
                       : ' · nunca conectou'}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, CircleSlash, MinusCircle, Plus, X } from 'lucide-react';
+import { Check, CircleSlash, MinusCircle, Plus, Wrench, X } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -81,7 +81,7 @@ export default function MeuDiaPage() {
   return (
     <Shell
       eyebrow="Operação diária"
-      title="Meu Dia"
+      title="Tarefas"
       actions={
         <Button size="sm" onClick={() => setShow((v) => !v)}>
           {show ? (
@@ -107,6 +107,16 @@ export default function MeuDiaPage() {
         <PontoCard />
       </div>
 
+      {/* Atalhos das frentes de pedidos internos (mig 130 / 134). */}
+      <div className="mb-5 flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={() => router.push('/ordens-producao')}>
+          Pedidos de produção
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => router.push('/manutencao')}>
+          <Wrench className="h-4 w-4" /> Pedidos de manutenção
+        </Button>
+      </div>
+
       {show && (
         <div className="mb-5 max-w-xl">
           <NovaTarefaForm
@@ -126,14 +136,10 @@ export default function MeuDiaPage() {
         <Card className="max-w-xl p-8 text-center">
           <p className="font-display text-lg font-semibold">Nada por aqui ainda</p>
           <p className="mx-auto mt-1 max-w-xs text-sm text-muted-foreground">
-            Configure sua operação (unidade, equipe, turnos) para montar a escala
-            e as tarefas do dia.
+            Suas tarefas do dia aparecem aqui, montadas a partir da escala.
           </p>
           <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
-            <Button onClick={() => router.push('/inicio')}>
-              Configurar operação
-            </Button>
-            <Button variant="outline" onClick={() => setShow(true)}>
+            <Button onClick={() => setShow(true)}>
               <Plus className="h-4 w-4" /> Nova tarefa
             </Button>
           </div>

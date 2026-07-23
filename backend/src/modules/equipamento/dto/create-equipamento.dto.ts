@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 
 export class CreateEquipamentoDto {
-  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv'])
+  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv', 'salao'])
   tipo!: string;
 
   @IsString()
@@ -88,4 +88,9 @@ export class CreateEquipamentoDto {
   @IsOptional()
   @IsUUID()
   impressoraDestinoId?: string;
+
+  // Sub-PDV salão (mig 133): PDV main (caixa principal) a que o ponto se atrela.
+  @IsOptional()
+  @IsUUID()
+  pdvMainId?: string;
 }

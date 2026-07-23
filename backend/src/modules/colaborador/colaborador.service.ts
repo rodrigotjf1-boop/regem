@@ -32,6 +32,11 @@ const publicCols = {
   status: colaborador.status,
   perfilAcessoId: colaborador.perfilAcessoId,
   appHabilitado: colaborador.appHabilitado,
+  // Desligamento (mig 135) — para o UI mostrar/filtrar quem saiu ou está em aviso.
+  desligamentoTipo: colaborador.desligamentoTipo,
+  desligamentoData: colaborador.desligamentoData,
+  avisoFim: colaborador.avisoFim,
+  desligadoEm: colaborador.desligadoEm,
   createdAt: colaborador.createdAt,
   updatedAt: colaborador.updatedAt,
 };

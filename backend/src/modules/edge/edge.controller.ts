@@ -87,6 +87,24 @@ export class EdgeController {
     return this.service.registrarTelemetria(ctx.tenantId, body ?? {});
   }
 
+  // Telemetria do FRONTEND (erro no navegador do cliente). Público + rate-limit; no
+  // edge é encaminhado pra nuvem (tenant do sync token); na nuvem, registra se vier
+  // tenant. Assim a distribuição vê também os erros de tela, não só de API.
+  @Post('edge/telemetria-cliente')
+  @Throttle({ default: { ttl: 60000, limit: 30 } })
+  telemetriaCliente(@Body() body: any) {
+    return this.service.encaminharErroCliente(body ?? {});
+  }
+
+  // Envia o log recente do servidor local pra distribuição (sob demanda do gestor).
+  @Post('edge/enviar-logs')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  enviarLogs() {
+    return this.service.enviarLogs();
+  }
+
   // Comandos remotos (Fase 4): o daemon do edge busca os pendentes e confirma.
   @Get('edge/comandos')
   @UseGuards(SyncTokenGuard)

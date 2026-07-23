@@ -44,6 +44,14 @@ export class AnotaAiController {
     return this.service.puxarAgora(user.tenantId);
   }
 
+  // Importa o cardápio da Anota Aí → cria os produtos no Regem (onboarding).
+  @Post('importar-catalogo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  importarCatalogo(@CurrentUser() user: AuthUser) {
+    return this.service.importarCatalogo(user.tenantId);
+  }
+
   @Post('desconectar')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('presidente', 'gerente')

@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { createHmac } from 'crypto';
-import { and, desc, eq, gte, ilike, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   caixaSessao,
@@ -229,6 +229,20 @@ export class DeliveryService {
     }
     this.logger.log(`reflexo ${canal} ${externalId.slice(0, 8)} → ${novoStatus}`);
     void this.dispararWebhook(tenantId, upd);
+  }
+
+  // Lê o catálogo do Regem (categorias + produtos disponíveis no cardápio) para os
+  // conectores EXPORTAREM pro marketplace (99food/Cardápio Web). Só produtos com
+  // disponivel_cardapio=true. Retorna arrays crus (nome, codigo, preço, categoria).
+  async lerCatalogoParaExport(tenantId: string): Promise<{ categorias: any[]; produtos: any[] }> {
+    const c: any = await this.db.execute(sql`
+      select id, nome from categoria_produto
+      where tenant_id = ${tenantId} order by ordem asc nulls last, nome asc`);
+    const p: any = await this.db.execute(sql`
+      select id, nome, codigo, preco_venda, preco_custo, categoria_id, descricao
+      from produto
+      where tenant_id = ${tenantId} and deleted_at is null and disponivel_cardapio = true`);
+    return { categorias: (c?.rows ?? c) ?? [], produtos: (p?.rows ?? p) ?? [] };
   }
 
   // Unidade padrão do tenant (matriz) — usada quando o pedido externo chega sem
@@ -595,6 +609,126 @@ export class DeliveryService {
     // Anota Aí: pronto → pronto; concluído → finalizar.
     if (novo === 'pronto') void this.statusBackAnotaAi(tenantId, row, 'ready');
     else if (novo === 'concluido') void this.statusBackAnotaAi(tenantId, row, 'finalizar');
+    return row;
+  }
+
+  // ===== Hub "Retirada / Encomendas" (Fase 1, mig 132) =====
+  // Grupo de origem do pedido: 'regem' (cardápio próprio) | 'integrado' | 'marketplace'.
+  private static grupoCanal(canal: string): 'regem' | 'integrado' | 'marketplace' {
+    const c = String(canal || '').toLowerCase();
+    if (['ifood', '99food', 'keeta'].includes(c)) return 'marketplace';
+    if (['anotaai', 'cardapio_web', 'delivery_direto', 'rappi'].includes(c)) return 'integrado';
+    return 'regem'; // cardapio, manual, balcao, n8n…
+  }
+
+  // Lista só os pedidos de RETIRADA e ENCOMENDA, com o grupo de origem e o tipo
+  // (retirada = imediata; encomenda = agendada). O front agrupa pelos 3 grupos.
+  async listarRetirada(tenantId: string, atual: string | null = null) {
+    const rows = await this.listar(tenantId, atual);
+    return rows
+      .filter((r) => r.tipo === 'retirada' || r.agendamento != null)
+      .map((r) => ({
+        ...r,
+        grupoCanal: DeliveryService.grupoCanal(r.canal),
+        retiradaTipo: r.agendamento != null ? 'encomenda' : 'retirada',
+      }));
+  }
+
+  // Entrega no balcão: conclui um pedido de retirada/encomenda. Se for A-PAGAR
+  // (não pago online), joga o valor no caixa (turno) ABERTO do atendente (origem
+  // 'pdv' do terminal). Pago online → só conclui (não entra no caixa). mig 132.
+  async entregarBalcao(
+    tenantId: string,
+    atorId: string | null,
+    id: string,
+    terminalId: string | null,
+    dados?: { forma?: string | null },
+  ) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
+    if (ped.status === 'concluido') throw new BadRequestException('Pedido já concluído.');
+    if (ped.status === 'novo') throw new BadRequestException('Aceite o pedido antes de entregar.');
+
+    const agora = new Date();
+    const patch: any = {
+      status: 'concluido',
+      concluidoEm: agora,
+      entregueEm: agora,
+      atendenteId: atorId ?? null,
+    };
+    // A-pagar: precisa do caixa do atendente aberto para receber o valor.
+    let sessaoId: string | null = null;
+    if (!ped.pago) {
+      const [sessao] = await this.db
+        .select({ id: caixaSessao.id })
+        .from(caixaSessao)
+        .where(
+          and(
+            eq(caixaSessao.tenantId, tenantId),
+            eq(caixaSessao.status, 'aberta'),
+            eq(caixaSessao.origem, 'pdv'),
+            terminalId
+              ? eq(caixaSessao.terminalId, terminalId)
+              : isNull(caixaSessao.terminalId),
+          ),
+        );
+      if (!sessao)
+        throw new BadRequestException('Abra o caixa do PDV para cobrar a retirada.');
+      sessaoId = sessao.id;
+      patch.caixaSessaoId = sessaoId;
+      patch.pago = true;
+      patch.statusPagamento = 'aprovado';
+    } else {
+      patch.pagoOnline = true;
+    }
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set(patch)
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    // Baixa o estoque na conclusão (idempotente por ref do movimento).
+    if (row.comandaId)
+      await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
+    // Aponta o lançamento da venda para o caixa do atendente, com a forma cobrada.
+    if (sessaoId && row.comandaId) {
+      const forma = dados?.forma && String(dados.forma).trim() ? String(dados.forma).trim() : 'dinheiro';
+      await this.db
+        .update(lancamentoCaixa)
+        .set({ sessaoId, forma })
+        .where(
+          and(
+            eq(lancamentoCaixa.tenantId, tenantId),
+            eq(lancamentoCaixa.comandaId, row.comandaId),
+            eq(lancamentoCaixa.tipo, 'entrada'),
+            eq(lancamentoCaixa.categoria, 'venda'),
+          ),
+        );
+    }
+    // Status-back de conclusão aos canais.
+    void this.dispararWebhook(tenantId, row);
+    if (row.tipo === 'retirada') void this.statusBackCw(tenantId, row, 'finalize');
+    else void this.statusBackCw(tenantId, row, 'delivered');
+    void this.statusBackFood99(tenantId, row, 'delivered');
+    void this.statusBackAnotaAi(tenantId, row, 'finalizar');
+    return row;
+  }
+
+  // "Avisar pronto": marca o pedido como pronto (dispara os status-backs dos canais
+  // integrados) e, no cardápio próprio, notifica o cliente pelo robô (n8n). mig 132.
+  async avisarPronto(tenantId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status === 'cancelado' || ped.status === 'concluido')
+      throw new BadRequestException('Pedido não está em preparo.');
+    // Ainda em produção? avança para "pronto" (isso já dispara os canais).
+    if (ped.status === 'confirmado') await this.avancar(tenantId, id);
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({ avisadoProntoEm: new Date() })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    // Cardápio próprio (Regem): dispara a notificação ao cliente pelo robô.
+    if (DeliveryService.grupoCanal(row.canal) === 'regem')
+      void this.dispararWebhook(tenantId, row, 'pronto');
     return row;
   }
 

@@ -12,7 +12,7 @@ import { Bonjour } from 'bonjour-service';
 import { sql } from 'drizzle-orm';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -281,6 +281,76 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       }).catch(() => {});
     }
     return { ok: true };
+  }
+
+  // Erro do FRONTEND (navegador). No edge, encaminha pra nuvem com o sync token
+  // (tenant derivado lá); na nuvem, registra direto se vier tenantId. Dedup 5 min.
+  private static frontEnviados = new Map<string, number>();
+  async encaminharErroCliente(dto: any): Promise<{ ok: true }> {
+    const msg = String(dto?.mensagem ?? dto?.message ?? 'erro no navegador').slice(0, 800);
+    const hash = createHash('sha256').update(msg.replace(/\d+/g, '#')).digest('hex').slice(0, 16);
+    const agora = Date.now();
+    if (agora - (EdgeService.frontEnviados.get(hash) ?? 0) < 5 * 60 * 1000) return { ok: true };
+    EdgeService.frontEnviados.set(hash, agora);
+    const evento = {
+      origem: 'frontend',
+      nivel: 'error',
+      tipo: 'front',
+      mensagem: msg,
+      stack: dto?.stack ? String(dto.stack).slice(0, 4000) : null,
+      versao: dto?.versao ?? process.env.APP_VERSION ?? null,
+      contexto: { url: dto?.url ?? null, userAgent: dto?.userAgent ?? null },
+    };
+    const cloud = (process.env.CLOUD_API ?? '').replace(/\/$/, '');
+    const token = process.env.SYNC_TOKEN ?? '';
+    if (EdgeService.ehEdge && cloud && token) {
+      fetch(`${cloud}/edge/telemetria`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-sync-token': token },
+        body: JSON.stringify(evento),
+      }).catch(() => {});
+    } else if (dto?.tenantId) {
+      await this.registrarTelemetria(String(dto.tenantId), evento).catch(() => {});
+    } else {
+      this.logger.warn(`[front] ${msg}`);
+    }
+    return { ok: true };
+  }
+
+  // Envia o log RECENTE do servidor local (arquivos ./logs/*.log, cauda) pra
+  // distribuição, sob demanda do gestor. A PII é redigida na nuvem (registrarTelemetria).
+  async enviarLogs(): Promise<{ ok: boolean; tamanho: number }> {
+    this.garanteEdge();
+    const cloud = (process.env.CLOUD_API ?? '').replace(/\/$/, '');
+    const token = process.env.SYNC_TOKEN ?? '';
+    if (!cloud || !token)
+      throw new BadRequestException('Nuvem não configurada no servidor local (CLOUD_API/SYNC_TOKEN).');
+    const dir = join(process.cwd(), 'logs');
+    const arquivos = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.log')) : [];
+    let dump = '';
+    // Prioriza os .err.log (erros). Cauda de ~10KB por arquivo.
+    for (const f of [...arquivos].sort((a) => (a.includes('.err.') ? -1 : 1)).slice(0, 6)) {
+      try {
+        const c = readFileSync(join(dir, f), 'utf8');
+        dump += `\n===== ${f} (fim) =====\n${c.slice(-10000)}`;
+      } catch {
+        /* ignora arquivo ilegível */
+      }
+    }
+    if (!dump.trim()) throw new BadRequestException('Nenhum log encontrado em ./logs.');
+    const res = await fetch(`${cloud}/edge/telemetria`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-sync-token': token },
+      body: JSON.stringify({
+        origem: 'logdump',
+        nivel: 'warn',
+        tipo: 'log_recente',
+        mensagem: 'Log recente enviado sob demanda pelo gestor',
+        stack: dump.slice(0, 8000),
+        versao: process.env.APP_VERSION ?? null,
+      }),
+    }).catch(() => null);
+    return { ok: !!res && res.ok, tamanho: dump.length };
   }
 
   // ===== Comandos remotos (Fase 4) — o edge busca e confirma =====

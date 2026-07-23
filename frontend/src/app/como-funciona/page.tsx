@@ -99,6 +99,56 @@ const STEPS: Step[] = [
     t: 'Assine quando o teste acabar',
     p: 'Perto do fim dos 3 meses, um aviso aparece no topo. Em Planos, escolha o pacote (mensal, semestral ou anual) e pague com segurança. A operação continua sem interrupção.',
   },
+  {
+    t: 'PDV → Retirada / Encomendas',
+    tag: 'balcão',
+    p: 'No menu PDV · Balcão, a aba Retirada / Encomendas junta os pedidos externos por origem (seu cardápio, integrados e marketplaces) para o atendente entregar no balcão:',
+    ul: [
+      'Pago online: só “Entregar” e concluir — o valor não entra no caixa (já foi pago).',
+      'A pagar: “Cobrar e entregar” — escolha a forma; o valor cai no seu turno de caixa aberto.',
+      '“Avisar pronto” notifica o cliente (robô) ou marca pronto no canal integrado.',
+      'Ao cancelar, informe se os insumos já preparados foram reaproveitados ou viraram perda.',
+    ],
+  },
+  {
+    t: 'Sub-PDV Salão (garçom)',
+    tag: 'restaurante',
+    p: 'Para o salão, cadastre um ponto de garçom em Equipamentos (tipo “Sub-PDV Salão”) atrelado ao PDV principal. No ponto, o garçom lança na mesa sem andar com o caixa:',
+    ul: [
+      'Só abre/fecha mesa com o caixa do PDV principal aberto.',
+      'A comanda vai à cozinha com o cabeçalho de qual ponto do salão emitiu.',
+      'O fechamento cai no caixa do PDV principal.',
+    ],
+  },
+  {
+    t: 'Tarefas & Pedidos de manutenção',
+    p: 'O antigo “Meu Dia” virou o menu Tarefas, com Pedidos de produção e Pedidos de manutenção:',
+    ul: [
+      'Qualquer colaborador abre um pedido de manutenção (equipamento com defeito, lâmpada) com até 3 fotos.',
+      'O presidente/C&O acompanha, delega ao gerente e conclui (ou marca concluído parcial).',
+      'Sem conclusão em 15 dias, o sistema pergunta: manter, concluir ou excluir.',
+    ],
+  },
+  {
+    t: 'Desligamento de funcionário',
+    tag: 'CLT',
+    p: 'Em Pessoas & Ponto, o card Desligamento cuida da saída conforme a lei:',
+    ul: [
+      'Sem justa causa: escolha o aviso prévio (−2h por dia ou 7 dias corridos) — a escala se ajusta sozinha.',
+      'Justa causa / imediato: informe a data; o acesso é cortado na hora.',
+      'Opcional: envie o relatório de ponto ao contador cadastrado por WhatsApp.',
+    ],
+  },
+  {
+    t: 'Etiquetas de validade',
+    tag: 'Vigilância Sanitária',
+    p: 'Em Estoque → Etiquetas, imprima etiquetas de validade conforme a ANVISA (RDC 216):',
+    ul: [
+      'Ative “Controla validade” no produto (ou informe a validade na ficha) e defina os dias fechado e após aberto.',
+      'Gere a etiqueta escolhendo produto novo (fechado) ou usado (aberto) — a validade é calculada e a etiqueta sai na impressora.',
+      'Leia o código para dar baixa; itens a vencer e vencidos alertam o gerente e o C&O (usou → finalizar / venceu → perda).',
+    ],
+  },
 ];
 
 export default function ComoFuncionaPage() {

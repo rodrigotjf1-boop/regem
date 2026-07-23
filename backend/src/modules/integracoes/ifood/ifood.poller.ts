@@ -28,7 +28,7 @@ export class IfoodPoller {
         try {
           await this.processar(ig);
         } catch (e: any) {
-          this.logger.warn(`loja ${ig.tenantId}: ${e?.message ?? e}`);
+          this.logger.error(`poller iFood loja ${ig.tenantId}: ${e?.message ?? e}`, e?.stack);
         }
         // Blindagem: reenvia cancelamentos que não chegaram ao iFood (não perde o cancel).
         try {

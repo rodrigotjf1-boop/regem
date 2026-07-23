@@ -155,7 +155,8 @@ export default function LandingPage() {
           <span className="logo-mark">R</span> Regem
         </Link>
         <nav>
-          <a href="#produto">Produto</a>
+          <a href="#topo">Home</a>
+          <a href="#integracoes">Integrações</a>
           <a href="#perfis">Ramos</a>
           <a href="#precos">Preços</a>
           <Link href="/como-funciona">Como funciona</Link>
@@ -169,7 +170,7 @@ export default function LandingPage() {
       </header>
 
       {/* HERO */}
-      <div className="hero">
+      <div className="hero" id="topo">
         <div className="eyebrow">Bares · Restaurantes · e o que vier depois</div>
         <div className="free-badge">
           <span className="fdot" aria-hidden="true" />
@@ -510,6 +511,54 @@ export default function LandingPage() {
         </div>
         <div className="mod-note">
           O proprietário liga e desliga módulos por loja ou para a rede — com registro em auditoria.
+        </div>
+      </section>
+
+      {/* INTEGRAÇÕES — projetos que conversam com o Regem */}
+      <section id="integracoes">
+        <div className="sec-head">
+          <div className="eyebrow">Ecossistema Regem · conecta com mais</div>
+          <h2>Integrações que ampliam a sua operação.</h2>
+        </div>
+        <div className="mods">
+          <div className="mod">
+            <span className="mi">📹</span>
+            <div>
+              <h3>Farol</h3>
+              <p>
+                Monitoramento da loja por <strong>DVR local + IA</strong>: analisa os setores
+                conforme a sua configuração e <strong>alerta o gerente e o C&amp;O</strong> quando
+                algo foge do padrão.
+              </p>
+            </div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">🎯</span>
+            <div>
+              <h3>Metas L.T.D.A</h3>
+              <p>
+                Metas e <strong>assiduidade</strong>: pontua o colaborador (presença, tarefas,
+                sugestões) e vira <strong>recompensa</strong> em produtos ou em reais. Integra
+                com o Regem via <strong>API</strong>.
+              </p>
+            </div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+          <div className="mod">
+            <span className="mi">🔌</span>
+            <div>
+              <h3>API aberta</h3>
+              <p>
+                Delivery (iFood, 99Food, Anota Aí, Cardápio Web), pagamentos e os novos
+                endpoints do Regem — a base para conectar os seus próprios sistemas.
+              </p>
+            </div>
+            <span className="sw" aria-hidden="true" />
+          </div>
+        </div>
+        <div className="mod-note">
+          Projetos parceiros do ecossistema Regem — ative conforme a sua necessidade.
         </div>
       </section>
 
