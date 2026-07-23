@@ -127,9 +127,10 @@ export class WhatsappService {
     return { ok: true };
   }
 
-  // Diagnóstico da conexão com o Evolution — mostra se as variáveis estão setadas,
-  // se o servidor respondeu e LISTA as instâncias existentes (com nome + estado),
-  // para o gestor conferir sem abrir EasyPanel/n8n.
+  // Diagnóstico da conexão com o Evolution — variáveis setadas? servidor respondeu?
+  // a MINHA instância existe e em que estado? Para o gestor conferir sem abrir
+  // EasyPanel/n8n. Mostra só a instância DESTA loja: a lista completa do servidor
+  // revelaria os nomes das lojas dos outros clientes.
   async diagnostico(tenantId: string) {
     const url = (process.env.EVOLUTION_API_URL ?? '').replace(/\/+$/, '');
     const key = process.env.EVOLUTION_API_KEY ?? '';
@@ -140,6 +141,10 @@ export class WhatsappService {
       evolutionOk: false,
       instancias: [] as any[],
       instanciaVinculada: null as string | null,
+      // Sem N8N_BOT_WEBHOOK_URL no servidor, a instância nasce SEM webhook e o robô
+      // nunca recebe as mensagens. Só o sim/não — a URL do n8n não vai para o lojista.
+      webhookConfigurado: !!process.env.N8N_BOT_WEBHOOK_URL,
+      webhookAtivo: null as boolean | null,
       erro: null as string | null,
     };
     try {
@@ -161,13 +166,24 @@ export class WhatsappService {
       const j: any = await res.json().catch(() => []);
       const arr: any[] = Array.isArray(j) ? j : j?.instances ?? j?.data ?? [];
       out.evolutionOk = true;
-      out.instancias = arr.map((x: any) => {
-        const inst = x.instance ?? x;
-        return {
-          nome: inst.instanceName ?? inst.name ?? inst.instanceId ?? '?',
-          estado: inst.status ?? inst.state ?? inst.connectionStatus ?? '?',
-        };
-      });
+      const { instancia: minha } = await this.instanciaDe(tenantId).catch(() => ({ instancia: '' }) as any);
+      out.instancias = arr
+        .map((x: any) => {
+          const inst = x.instance ?? x;
+          return {
+            nome: inst.instanceName ?? inst.name ?? inst.instanceId ?? '?',
+            estado: inst.status ?? inst.state ?? inst.connectionStatus ?? '?',
+          };
+        })
+        .filter((i: any) => i.nome === minha || i.nome === out.instanciaVinculada);
+      // O robô só recebe mensagens se a instância tiver webhook apontado para o n8n.
+      if (out.instancias.length) {
+        const w = await this.req(`/webhook/find/${out.instancias[0].nome}`, { method: 'GET' }).catch(() => null);
+        if (w && w.ok) {
+          const wj: any = await w.json().catch(() => ({}));
+          out.webhookAtivo = !!(wj?.enabled ?? wj?.webhook?.enabled);
+        }
+      }
     } catch (e: any) {
       out.erro = `Não consegui falar com o Evolution: ${e?.message ?? e}`;
     }
