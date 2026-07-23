@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { api, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -582,10 +583,12 @@ function AtendimentoPanel({
 }) {
   const [cancelId, setCancelId] = useState<string | null>(null); // chamado expandido p/ aceitar
   const [senha, setSenha] = useState('');
-  const wpp = (tel?: string) => {
+  // Atender pelo NOSSO inbox (Delivery → WhatsApp), já na conversa de quem pediu —
+  // em vez de jogar o gestor pro WhatsApp Web externo.
+  const inbox = (tel?: string) => {
     const d = String(tel ?? '').replace(/\D/g, '');
     const num = d.length === 10 || d.length === 11 ? `55${d}` : d;
-    return num ? `https://wa.me/${num}` : '#';
+    return `/whatsapp?numero=${num}`;
   };
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onFechar}>
@@ -609,7 +612,7 @@ function AtendimentoPanel({
               {c.mensagem && <p className="mt-1.5 rounded bg-secondary px-2 py-1.5 text-sm">{c.mensagem}</p>}
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 {c.telefone && (
-                  <a href={wpp(c.telefone)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="rounded-md bg-ok/10 px-2.5 py-1 text-xs font-semibold text-ok hover:bg-ok/20">💬 Responder no WhatsApp</a>
+                  <Link href={inbox(c.telefone)} onClick={(e) => e.stopPropagation()} className="rounded-md bg-ok/10 px-2.5 py-1 text-xs font-semibold text-ok hover:bg-ok/20">💬 Responder no WhatsApp</Link>
                 )}
                 {c.tipo === 'cancelamento' ? (
                   <>

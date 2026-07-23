@@ -54,9 +54,22 @@ export class WhatsappService {
     return { cfg, instancia };
   }
 
+  // Isolamento multi-tenant: uma instância do Evolution pertence a UMA loja só.
+  // Sem isto, uma loja poderia "vincular" a instância de outra e ler as conversas
+  // dela. Vale tanto no vincular manual quanto na criação automática.
+  private async garantirInstanciaLivre(tenantId: string, instancia: string) {
+    const donos = await this.db
+      .select({ tenantId: cardapioConfig.tenantId })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.evolutionInstancia, instancia));
+    if (donos.some((d) => d.tenantId !== tenantId))
+      throw new BadRequestException('Esta conexão de WhatsApp já pertence a outra loja.');
+  }
+
   // Conecta (cria a instância se preciso, aponta o webhook pro n8n) e devolve o QR.
   async conectar(tenantId: string) {
     const { cfg, instancia } = await this.instanciaDe(tenantId);
+    await this.garantirInstanciaLivre(tenantId, instancia);
     const webhookUrl = process.env.N8N_BOT_WEBHOOK_URL ?? '';
 
     // Cria a instância (idempotente: se já existe, o Evolution devolve erro que ignoramos).
@@ -161,12 +174,13 @@ export class WhatsappService {
     return out;
   }
 
-  // Vincula uma instância JÁ EXISTENTE do Evolution (ex.: "Mister.ia", conectada
+  // Vincula uma instância JÁ EXISTENTE do Evolution (uma conexão antiga, criada
   // no manager do EasyPanel) sem criar uma nova — só grava o nome. Depois disso o
   // status/inbox passam a ler ESSA instância (com os chats já existentes).
   async vincular(tenantId: string, nome: string) {
     const instancia = String(nome ?? '').trim();
     if (!instancia) throw new BadRequestException('Informe o nome da instância do Evolution.');
+    await this.garantirInstanciaLivre(tenantId, instancia);
     const [cfg] = await this.db
       .select()
       .from(cardapioConfig)
