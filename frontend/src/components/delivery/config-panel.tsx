@@ -998,6 +998,19 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
     return () => clearInterval(t);
   }, [qr]);
 
+  // O código do WhatsApp expira em menos de 1 minuto. Sem renovar, o gestor aponta
+  // o celular para um QR morto e "não conecta". Renova sozinho enquanto está na tela.
+  useEffect(() => {
+    if (!qr || status?.conectado) return;
+    const t = setInterval(async () => {
+      try {
+        const r: any = await api.whatsappConectar();
+        if (r?.qr) setQr(r.qr);
+      } catch { /* ignore */ }
+    }, 30000);
+    return () => clearInterval(t);
+  }, [qr, status?.conectado]);
+
   async function conectar() {
     setBusy(true); setErro('');
     try {
@@ -1049,9 +1062,13 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
                   <p>{diag.evolutionOk ? '✅ Evolution respondeu' : '❌ Evolution não respondeu'}</p>
                   {diag.erro && <p className="mt-1 text-destructive">{diag.erro}</p>}
                   {diag.instanciaVinculada && <p className="mt-1">Instância vinculada: <strong>{diag.instanciaVinculada}</strong></p>}
+                  <p>
+                    {diag.webhookConfigurado ? '✅' : '❌'} Atendimento automático configurado no servidor
+                    {diag.webhookAtivo === false && <span className="text-destructive"> · esta conexão está sem o robô</span>}
+                  </p>
                   {diag.instancias?.length > 0 && (
                     <div className="mt-1">
-                      <p className="font-semibold">Instâncias no Evolution (clique p/ usar):</p>
+                      <p className="font-semibold">Esta loja no Evolution (clique p/ usar):</p>
                       {diag.instancias.map((x: any) => (
                         <button key={x.nome} type="button" onClick={() => setInst(x.nome)} className="mr-1 mt-1 rounded bg-card px-1.5 py-0.5 hover:bg-primary/10">
                           {x.nome} <span className="text-muted-foreground">· {x.estado}</span>
@@ -1075,6 +1092,7 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={qr} alt="QR do WhatsApp" className="h-56 w-56 rounded-lg border border-border" />
           <p className="text-xs text-muted-foreground">No celular da loja: WhatsApp → Aparelhos conectados → <strong>Conectar aparelho</strong> → aponte para o QR.</p>
+          <p className="text-[11px] text-muted-foreground">O código se renova sozinho a cada 30 segundos — deixe esta tela aberta.</p>
         </div>
       )}
       {erro && <p className="mt-2 text-xs text-destructive">{erro}</p>}
