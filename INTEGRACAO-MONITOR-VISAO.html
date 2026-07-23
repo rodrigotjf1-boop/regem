@@ -1,0 +1,274 @@
+<title>Integração Monitor de Visão ⇄ Regem</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --surface: #ffffff;
+    --ink: #0f2230;
+    --ink-soft: #47586a;
+    --line: #dbe2ea;
+    --gold: #E2A340;
+    --gold-ink: #8a5a10;
+    --green: #0E7C66;
+    --navy: #0F2230;
+    --danger: #b3341f;
+    --code-bg: #0f2230;
+    --code-ink: #e7edf3;
+    --chip: #eef2f6;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --display: "Archivo", var(--sans);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0b141c; --surface: #12212d; --ink: #e7edf3; --ink-soft: #9fb1c1;
+      --line: #223444; --chip: #1a2b39; --code-bg: #060d13; --code-ink: #d9e4ee;
+      --gold-ink: #f0c078; --danger: #ff7a5c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b141c; --surface: #12212d; --ink: #e7edf3; --ink-soft: #9fb1c1;
+    --line: #223444; --chip: #1a2b39; --code-bg: #060d13; --code-ink: #d9e4ee;
+    --gold-ink: #f0c078; --danger: #ff7a5c;
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f6f9; --surface: #ffffff; --ink: #0f2230; --ink-soft: #47586a;
+    --line: #dbe2ea; --chip: #eef2f6; --code-bg: #0f2230; --code-ink: #e7edf3;
+    --gold-ink: #8a5a10; --danger: #b3341f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: var(--sans); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  header.masthead {
+    border-left: 4px solid var(--gold); padding: .25rem 0 .25rem 1.1rem; margin-bottom: 2.5rem;
+  }
+  .eyebrow {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--gold-ink); font-weight: 600; margin: 0 0 .5rem;
+  }
+  h1 {
+    font-family: var(--display); font-weight: 800; font-size: clamp(1.7rem, 4vw, 2.5rem);
+    line-height: 1.1; margin: 0 0 .6rem; text-wrap: balance; letter-spacing: -.01em;
+  }
+  .sub { color: var(--ink-soft); font-size: 1.02rem; margin: 0; max-width: 60ch; }
+  .flow {
+    display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+    font-family: var(--mono); font-size: .8rem; margin-top: 1rem; color: var(--ink-soft);
+  }
+  .flow b { color: var(--ink); }
+  .flow .arw { color: var(--gold); }
+  h2 {
+    font-family: var(--display); font-weight: 700; font-size: 1.3rem; margin: 2.8rem 0 .3rem;
+    display: flex; align-items: baseline; gap: .6rem; letter-spacing: -.01em;
+  }
+  h2 .num {
+    font-family: var(--mono); font-size: .8rem; color: var(--gold-ink); font-weight: 600;
+    border: 1px solid var(--line); border-radius: 6px; padding: .1rem .45rem; flex: none;
+  }
+  h3 { font-family: var(--display); font-weight: 600; font-size: 1.02rem; margin: 1.6rem 0 .4rem; }
+  p { margin: .6rem 0; }
+  a { color: var(--gold-ink); }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 1.1rem 1.25rem; margin: 1rem 0;
+  }
+  .note {
+    border-left: 3px solid var(--gold); background: color-mix(in srgb, var(--gold) 9%, var(--surface));
+    border-radius: 0 10px 10px 0; padding: .85rem 1.1rem; margin: 1.1rem 0; font-size: .95rem;
+  }
+  .note.green { border-left-color: var(--green); background: color-mix(in srgb, var(--green) 9%, var(--surface)); }
+  .note.danger { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 9%, var(--surface)); }
+  .note strong { color: var(--ink); }
+  .tblwrap { overflow-x: auto; margin: 1rem 0; border: 1px solid var(--line); border-radius: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: .92rem; min-width: 460px; }
+  th, td { text-align: left; padding: .62rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--chip); font-family: var(--display); font-weight: 600; font-size: .82rem;
+       text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); }
+  tr:last-child td { border-bottom: none; }
+  td code, p code, li code { font-family: var(--mono); font-size: .85em; background: var(--chip);
+       padding: .08rem .35rem; border-radius: 5px; color: var(--gold-ink); }
+  pre {
+    background: var(--code-bg); color: var(--code-ink); border-radius: 12px;
+    padding: 1rem 1.1rem; overflow-x: auto; font-family: var(--mono); font-size: .82rem;
+    line-height: 1.55; margin: 1rem 0;
+  }
+  pre .c { color: #7f93a6; }
+  pre .k { color: var(--gold); }
+  pre .s { color: #86c98f; }
+  .chip {
+    display: inline-block; font-family: var(--mono); font-size: .72rem; font-weight: 600;
+    padding: .12rem .5rem; border-radius: 999px; letter-spacing: .02em;
+  }
+  .chip.kds { background: color-mix(in srgb, var(--danger) 16%, var(--surface)); color: var(--danger); }
+  .chip.ger { background: color-mix(in srgb, var(--gold) 20%, var(--surface)); color: var(--gold-ink); }
+  .chip.dir { background: color-mix(in srgb, var(--navy) 14%, var(--surface)); color: var(--ink); }
+  .chip.reg { background: var(--chip); color: var(--ink-soft); }
+  ul.check { list-style: none; padding: 0; margin: 1rem 0; }
+  ul.check li { padding: .4rem 0 .4rem 1.8rem; position: relative; border-bottom: 1px dashed var(--line); }
+  ul.check li:last-child { border-bottom: none; }
+  ul.check li::before {
+    content: "☐"; position: absolute; left: 0; top: .35rem; color: var(--gold); font-size: 1.1rem;
+  }
+  .resp { display: grid; gap: .75rem; grid-template-columns: 1fr; margin: 1rem 0; }
+  @media (min-width: 620px) { .resp { grid-template-columns: repeat(3, 1fr); } }
+  .resp .box { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: .9rem 1rem; }
+  .resp .box h4 { margin: 0 0 .35rem; font-family: var(--display); font-size: .95rem; }
+  .resp .box.mon h4 { color: var(--gold-ink); }
+  .resp .box.reg h4 { color: var(--green); }
+  .resp .box.emp h4 { color: var(--ink); }
+  .resp .box p { margin: 0; font-size: .86rem; color: var(--ink-soft); }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.2rem; border-top: 1px solid var(--line);
+    font-size: .82rem; color: var(--ink-soft); font-family: var(--mono);
+  }
+  .status { display: inline-block; background: color-mix(in srgb, var(--gold) 18%, var(--surface));
+    color: var(--gold-ink); font-family: var(--mono); font-size: .74rem; font-weight: 600;
+    padding: .2rem .6rem; border-radius: 6px; letter-spacing: .04em; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <p class="eyebrow">Contrato de integração · 20 jul 2026</p>
+    <h1>Monitor de Visão ⇄ Regem</h1>
+    <p class="sub">O que o Regem espera receber e o que vai chamar. Alinhamento de formatos antes de qualquer código — <strong>nada implementado ainda de nenhum lado</strong>.</p>
+    <div class="flow">
+      <b>Monitor</b> <span class="arw">→</span> POST evento <span class="arw">→</span> <b>Regem</b> <span class="arw">→</span> KDS · painel · registro
+    </div>
+  </header>
+
+  <div class="note green">
+    <strong>Princípio de acoplamento:</strong> o Regem é <em>cliente</em> do Monitor. A dependência é sempre Regem → API do Monitor. O Monitor continua produto autônomo — se o Regem cair, ele segue operando e notificando pelo n8n.
+  </div>
+
+  <h2><span class="num">01</span> Divisão de responsabilidades</h2>
+  <div class="resp">
+    <div class="box mon">
+      <h4>Monitor de Visão</h4>
+      <p>Captura, IA, decide <strong>tipo, urgência e destino</strong> do alerta (roteamento). Dono do WhatsApp (n8n).</p>
+    </div>
+    <div class="box reg">
+      <h4>Regem</h4>
+      <p><strong>Recebe, registra e exibe</strong> no destino que o evento indicar. <strong>Não</strong> dispara WhatsApp.</p>
+    </div>
+    <div class="box emp">
+      <h4>Empresa-cliente</h4>
+      <p>Responsável legal (LGPD): monitora setores e obtém autorização dos funcionários <strong>em contrato</strong>.</p>
+    </div>
+  </div>
+  <div class="note"><strong>Regra anti-dupla-notificação:</strong> WhatsApp = só n8n. Tela / KDS / registro = só Regem. Cada canal tem um dono único.</div>
+
+  <h2><span class="num">02</span> O que o Monitor envia ao Regem</h2>
+  <p>O Regem expõe um receiver. O Monitor faz um <code>POST</code> por evento.</p>
+<pre><span class="k">POST</span>  https://api.dmsregem.com/api/v1/monitor/eventos
+      <span class="c">(ou o servidor local da loja, se for on-premise)</span>
+
+<span class="k">Headers</span>
+  Content-Type: application/json
+  x-monitor-token: &lt;SECRET&gt;        <span class="c">← chave combinada, uma por loja</span>
+
+<span class="c"># Auth recomendada: secret no header + "loja.id" no corpo.</span>
+<span class="c"># O Regem resolve tenant + unidade a partir de (loja.id + secret).</span></pre>
+
+  <h3>Corpo do evento — o schema 2.0 de vocês + 1 campo novo</h3>
+<pre>{
+  <span class="k">"evento_id"</span>: <span class="s">"uuid"</span>,                  <span class="c">// OBRIGATÓRIO — idempotência</span>
+  <span class="k">"origem"</span>: <span class="s">"monitor-visao"</span>,
+  <span class="k">"versao_schema"</span>: <span class="s">"2.0"</span>,
+  <span class="k">"timestamp"</span>: <span class="s">"2026-07-20T17:26:37-03:00"</span>,
+  <span class="k">"loja"</span>: { <span class="k">"id"</span>: <span class="s">"loja-01"</span>, <span class="k">"nome"</span>: <span class="s">"Mister Burguer"</span> },
+  <span class="k">"setor"</span>: { <span class="k">"nome"</span>: <span class="s">"Chapa / Grelha"</span>, <span class="k">"canal"</span>: 5 },
+  <span class="k">"verificacao"</span>: { <span class="k">"nome"</span>: <span class="s">"EPI na chapa"</span>, <span class="k">"criterio"</span>: <span class="s">"..."</span> },
+  <span class="k">"resultado"</span>: {
+    <span class="k">"status"</span>: <span class="s">"nao_conforme"</span>,
+    <span class="k">"confianca"</span>: 0.85,
+    <span class="k">"observacao"</span>: <span class="s">"Funcionário sem touca."</span>
+  },
+  <span class="k">"urgencia_sugerida"</span>: <span class="s">"alta"</span>,
+  <span class="k">"destino"</span>: [<span class="s">"kds"</span>, <span class="s">"gerente"</span>],       <span class="c">// ← NOVO: onde o Regem exibe</span>
+  <span class="k">"snapshot_base64"</span>: <span class="s">"&lt;jpeg base64 ou null&gt;"</span>
+}</pre>
+
+  <div class="note">
+    <strong>O campo <code>destino</code> é a peça-chave do combinado.</strong> Como o roteamento é decidido por vocês (por tipo de alerta), o Monitor marca pra onde vai; o Regem só honra. Se vier ausente, o Regem aplica um padrão a partir da <code>urgencia_sugerida</code> (seção 3).
+  </div>
+  <div class="note">
+    <strong>Idempotência:</strong> o Regem deduplica por <code>evento_id</code>. Reenviar o mesmo id (retry/reconexão) não duplica — resposta <code>{ "duplicado": true }</code>. Mantenham o <code>evento_id</code> estável no retry.
+  </div>
+
+  <h3>Resposta do Regem</h3>
+<pre><span class="k">200</span> { <span class="k">"ok"</span>: true, <span class="k">"evento_id"</span>: <span class="s">"&lt;id interno&gt;"</span>, <span class="k">"duplicado"</span>: false }
+<span class="k">200</span> { <span class="k">"ok"</span>: true, <span class="k">"duplicado"</span>: true }            <span class="c">// já recebido</span>
+<span class="k">401</span> { <span class="k">"ok"</span>: false, <span class="k">"erro"</span>: <span class="s">"token inválido"</span> }
+<span class="k">422</span> { <span class="k">"ok"</span>: false, <span class="k">"erro"</span>: <span class="s">"loja/canal não mapeado"</span> }</pre>
+
+  <h2><span class="num">03</span> Catálogo de destinos do Regem</h2>
+  <p>Os locais definidos no Regem. O Monitor escolhe um ou mais por evento em <code>destino</code>:</p>
+  <div class="tblwrap">
+    <table>
+      <thead><tr><th>destino</th><th>Onde aparece</th><th>Comportamento</th><th>Bom para</th></tr></thead>
+      <tbody>
+        <tr><td><span class="chip kds">kds</span></td><td>Tela de cozinha (KDS)</td><td><strong>Tempo real</strong>, alerta no topo <strong>com bip</strong></td><td>Ação imediata (EPI, higiene)</td></tr>
+        <tr><td><span class="chip ger">gerente</span></td><td>Painel do gerente</td><td>Card de alerta</td><td>Correção pelo turno</td></tr>
+        <tr><td><span class="chip dir">diretoria</span></td><td>Visão C&amp;O (presidente)</td><td>Consolidado de rede</td><td>Tendência / recorrência</td></tr>
+        <tr><td><span class="chip reg">registro</span></td><td>Só grava</td><td><strong>Sem alertar</strong>, só histórico</td><td>Baixa urgência, evidência</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h3>Padrão se <code>destino</code> vier vazio (espelha o n8n de vocês)</h3>
+  <div class="tblwrap">
+    <table>
+      <thead><tr><th>urgencia_sugerida</th><th>destino aplicado</th></tr></thead>
+      <tbody>
+        <tr><td><code>alta</code></td><td><span class="chip kds">kds</span> <span class="chip ger">gerente</span> <span class="chip dir">diretoria</span></td></tr>
+        <tr><td><code>media</code></td><td><span class="chip ger">gerente</span></td></tr>
+        <tr><td><code>baixa</code></td><td><span class="chip reg">registro</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2><span class="num">04</span> O que o Regem vai chamar no Monitor</h2>
+  <p>Duas chamadas de saída, com <code>Authorization: Bearer &lt;API_KEY&gt;</code> (guardada em env var no Regem):</p>
+  <div class="card">
+    <h3 style="margin-top:0">4.1 · <code>POST /api/v1/assinaturas</code></h3>
+    <p>O Regem se inscreve uma vez apontando para o receiver da seção 2. Precisamos do formato do corpo (URL de destino, filtros, secret) e se dá para filtrar por loja/urgência.</p>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">4.2 · <code>PUT /api/v1/contexto/pico</code></h3>
+    <p>O Regem <strong>já tem</strong> as janelas de pico por loja. Vamos empurrar:</p>
+<pre><span class="k">PUT</span> /api/v1/contexto/pico
+{ <span class="k">"ativo"</span>: true, <span class="k">"janelas"</span>: [<span class="s">"11:30-14:00"</span>, <span class="s">"18:30-21:30"</span>] }</pre>
+    <p style="margin-bottom:0">Disparado por agendador diário <strong>e/ou</strong> ao editar a janela no painel. <strong>Dúvida:</strong> como o endpoint sabe de qual loja é? API-key por loja, ou <code>loja.id</code> no corpo?</p>
+  </div>
+
+  <h2><span class="num">05</span> LGPD &amp; snapshot</h2>
+  <div class="note danger">
+    A <strong>empresa-cliente</strong> é a responsável legal: deve ter em contrato de trabalho / política interna que <strong>monitora os setores internos</strong> e que os funcionários <strong>autorizam</strong>. O dever de identificação e proteção dos dados é dela; o Monitor emite avisos configuráveis deixando isso claro ao cliente.
+  </div>
+  <ul>
+    <li><strong>Por zona/setor, nunca por pessoa</strong> — mantido. O Regem não vincula o evento a um funcionário (só registra quem <em>resolveu</em> o alerta).</li>
+    <li><strong>Snapshot:</strong> com o consentimento contratual, o Regem <strong>pode armazenar</strong> a imagem — nunca em rota pública, sempre com token, e com <strong>expurgo automático</strong> (rotina que já existe para fotos de ponto/tarefa).</li>
+    <li>Se preferirem não enviar imagem, o Regem aceita <code>snapshot_base64: null</code> (só o texto do evento).</li>
+  </ul>
+
+  <h2><span class="num">06</span> O que precisamos de vocês para fechar</h2>
+  <ul class="check">
+    <li><strong>Auth:</strong> aceitam <code>x-monitor-token</code> (secret) + <code>loja.id</code> no corpo? Ou preferem HMAC?</li>
+    <li><strong>destino:</strong> ok incluir o campo <code>destino</code> no payload? Ou o Regem deriva só da <code>urgencia_sugerida</code>?</li>
+    <li><strong>POST /assinaturas:</strong> formato do corpo e filtros disponíveis.</li>
+    <li><strong>PUT /contexto/pico:</strong> escopo por loja (API-key por loja? <code>loja.id</code> no corpo?). Aceita <code>{ ativo, janelas: ["HH:MM-HH:MM"] }</code>?</li>
+    <li><strong>Alvo do push:</strong> Monitor posta na nuvem (<code>api.dmsregem.com</code>) ou no servidor local da loja?</li>
+    <li><strong>loja.id:</strong> é fixo por instalação? O Regem faz de-para <code>loja.id → unidade</code> e <code>canal → setor</code>.</li>
+    <li><strong>Volume esperado</strong> de eventos por hora (para dimensionar).</li>
+  </ul>
+
+  <h2><span class="num">07</span> Status</h2>
+  <p><span class="status">NADA IMPLEMENTADO — É O CONTRATO</span></p>
+  <p>Fechados os itens da seção 6, a implementação no Regem sai em fases pequenas: receiver + registro + KDS → de-para loja/canal + módulo ligável pelo presidente → push da janela de pico → (opcional) live nos dashboards. Do lado de vocês, o principal é confirmar <code>POST /assinaturas</code>, <code>PUT /contexto/pico</code> e aceitar o campo <code>destino</code>.</p>
+
+  <footer>
+    Regem — plataforma de gestão operacional · documento de handoff · gerado 20/07/2026
+  </footer>
+</div>

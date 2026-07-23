@@ -689,18 +689,31 @@ export class CardapioService {
     if (cfg.aberto === false) return false;
     const hs = (cfg.horarios ?? []) as any[];
     if (!Array.isArray(hs) || hs.length === 0) return true;
-    const agora = new Date(
-      new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }),
+    return !!this.janelaAtual(hs);
+  }
+
+  // Janela de funcionamento que cobre AGORA (ou null). Uma janela que vira a
+  // meia-noite (ex.: 18:00–02:00) pertence ao dia em que ABRE — então, depois da
+  // meia-noite, quem vale é a janela de ONTEM, não a de hoje.
+  private janelaAtual(hs: any[]): any | null {
+    const { dia, hhmm } = this.agoraSp();
+    const doDia = (d: number) => hs.filter((h) => Number(h.dia) === d && h.ativo && h.abre && h.fecha);
+    // Começou hoje: mesmo dia, ou o trecho antes da meia-noite de uma janela virada.
+    const hoje = doDia(dia).find((h) =>
+      h.fecha > h.abre ? hhmm >= h.abre && hhmm <= h.fecha : hhmm >= h.abre,
     );
-    const dia = agora.getDay(); // 0=Dom … 6=Sáb
-    const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
-    const doDia = hs.filter((h) => Number(h.dia) === dia && h.ativo && h.abre && h.fecha);
-    if (!doDia.length) return false;
-    return doDia.some((h) =>
-      h.fecha > h.abre
-        ? hhmm >= h.abre && hhmm <= h.fecha // mesmo dia
-        : hhmm >= h.abre || hhmm <= h.fecha, // vira a meia-noite (ex.: 18:00–02:00)
-    );
+    if (hoje) return hoje;
+    // Começou ontem e ainda não fechou (madrugada): só janelas que viram a meia-noite.
+    const ontem = (dia + 6) % 7;
+    return doDia(ontem).find((h) => h.fecha <= h.abre && hhmm <= h.fecha) ?? null;
+  }
+
+  private agoraSp(): { dia: number; hhmm: string } {
+    const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    return {
+      dia: agora.getDay(), // 0=Dom … 6=Sáb
+      hhmm: `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`,
+    };
   }
 
   // Rótulo de horário para o cabeçalho: "Aberta até 23:00" ou "Abre às 18:00"
@@ -709,15 +722,10 @@ export class CardapioService {
     if (cfg.aberto === false) return 'Fechada';
     const hs = (cfg.horarios ?? []) as any[];
     if (!Array.isArray(hs) || hs.length === 0) return null;
-    const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
-    const dia = agora.getDay();
-    const hhmm = `${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
+    const { dia, hhmm } = this.agoraSp();
     const DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
     if (this.estaAberta(cfg)) {
-      const doDia = hs.filter((h) => Number(h.dia) === dia && h.ativo && h.abre && h.fecha);
-      const win = doDia.find((h) =>
-        h.fecha > h.abre ? hhmm >= h.abre && hhmm <= h.fecha : hhmm >= h.abre || hhmm <= h.fecha,
-      );
+      const win = this.janelaAtual(hs);
       return win ? `Aberta até ${win.fecha}` : 'Aberta';
     }
     // Fechada: procura a próxima abertura (hoje mais tarde, senão próximos dias).

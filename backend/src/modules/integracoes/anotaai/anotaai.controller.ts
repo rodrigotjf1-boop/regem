@@ -26,6 +26,7 @@ export class AnotaAiController {
       (dto?.unidadeId ?? atual) || null,
       (dto?.token ?? '').trim(),
       (dto?.lojaId ?? '').trim() || null,
+      user.colaboradorId ?? null,
     );
   }
 

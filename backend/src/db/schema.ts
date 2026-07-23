@@ -1835,7 +1835,9 @@ export const deliveryConfig = pgTable('delivery_config', {
   // Visibilidade das colunas do kanban: { chegada, producao, rota, finalizado }.
   colunas: jsonb('colunas')
     .notNull()
-    .default('{"chegada":true,"producao":true,"rota":true,"finalizado":true}'),
+    .default('{"chegada":true,"producao":true,"pronto":true,"rota":true,"finalizado":true}'),
+  // Horas que um pedido finalizado (concluído/cancelado) fica visível no quadro (mig 137).
+  finalizadoHoras: integer('finalizado_horas').notNull().default(5),
   // Layout do cupom (via do cliente) nas térmicas — toggles + cabeçalho/rodapé.
   // Vazio = comportamento padrão. Ver renderViaCliente (mig 131).
   cupomLayout: jsonb('cupom_layout').notNull().default('{}'),
@@ -2125,6 +2127,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   roboAusencia: text('robo_ausencia'),
   roboPrompt: text('robo_prompt'), // base de conhecimento (futuro LLM)
   roboMensagens: jsonb('robo_mensagens').notNull().default('[]'), // [{gatilho, resposta}]
+  roboPausados: jsonb('robo_pausados').notNull().default('[]'), // números com robô pausado (humano assumiu) — mig 138
   evolutionInstancia: text('evolution_instancia'), // instância WhatsApp (chave do bot multi-tenant)
   evolutionNumero: text('evolution_numero'), // número conectado (quando pareado)
   // Regras de estorno/empilhamento de desconto (mig 125) — a loja configura.

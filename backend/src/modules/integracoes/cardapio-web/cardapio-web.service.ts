@@ -4,6 +4,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
+import { mapStatusExterno } from '../../delivery/adapters';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API Aberta do Cardápio Web (docs.cardapioweb.com).
@@ -369,6 +370,12 @@ export class CardapioWebService {
           trocoPara: raw?.payments?.[0]?.change_for ?? undefined,
         });
         // O confirm no CW sai do fluxo do Regem (delivery.aceitar → statusBack).
+        // Reflete o status ATUAL do CW: se o pedido já está pronto/em rota/entregue/
+        // cancelado lá, não deixa preso em "em produção" aqui. Lenient (PT/EN).
+        const bruto = o?.status ?? o?.order_status ?? raw?.status ?? raw?.order_status;
+        const st = mapStatusExterno(bruto);
+        this.logger.log(`CW pedido ${o.id} status='${bruto ?? ''}' → ${st ?? 'fluxo normal'}`);
+        if (st) await this.delivery.refletirStatusExterno(tenantId, 'cardapio_web', String(o.id), st).catch(() => {});
         n++;
       } catch (e: any) {
         this.logger.warn(`pedido ${o?.id}: ${e?.message ?? e}`);

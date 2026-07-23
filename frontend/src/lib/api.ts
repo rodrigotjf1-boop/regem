@@ -254,6 +254,10 @@ export const distApi = {
   releases: () => distReq('/distribuicao/releases'),
   publicarRelease: (dto: any) =>
     distReq('/distribuicao/releases', { method: 'POST', body: JSON.stringify(dto) }),
+  // Pedidos de integração (loja pede token → distribuição conecta no portal do canal)
+  pedidosIntegracao: () => distReq('/distribuicao/pedidos-integracao'),
+  resolverPedidoIntegracao: (id: string, acao: 'conectado' | 'recusado') =>
+    distReq(`/distribuicao/pedidos-integracao/${id}/resolver`, { method: 'POST', body: JSON.stringify({ acao }) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
@@ -552,6 +556,9 @@ export const api = {
     }),
   retornarDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/retornar`, { method: 'POST', body: '{}' }),
+  // "Voltar pedido" (coluna Finalizado) — exige senha de gestor.
+  voltarDelivery: (id: string, senha: string) =>
+    req(`/delivery/pedidos/${id}/voltar`, { method: 'POST', body: JSON.stringify({ senha }) }),
   // Etiquetas de validade (Fase 5, mig 136) — rota /etiquetas-validade (a /etiquetas
   // é o rótulo de escala, outro módulo).
   etiquetaTemplate: () => req('/etiquetas-validade/template'),
@@ -661,6 +668,16 @@ export const api = {
   whatsappConectar: () => req('/whatsapp/conectar', { method: 'POST', body: '{}' }),
   whatsappStatus: () => req('/whatsapp/status'),
   whatsappDesconectar: () => req('/whatsapp/desconectar', { method: 'DELETE' }),
+  whatsappVincular: (instancia: string) =>
+    req('/whatsapp/vincular', { method: 'POST', body: JSON.stringify({ instancia }) }),
+  whatsappDiagnostico: () => req('/whatsapp/diagnostico'),
+  // Inbox (sobre a instância Evolution do robô)
+  whatsappConversas: () => req('/whatsapp/conversas'),
+  whatsappMensagens: (jids: string) => req(`/whatsapp/mensagens?jids=${encodeURIComponent(jids)}`),
+  whatsappEnviar: (jid: string, texto: string) =>
+    req('/whatsapp/enviar', { method: 'POST', body: JSON.stringify({ jid, texto }) }),
+  whatsappPausarConversa: (numero: string, pausar: boolean) =>
+    req('/whatsapp/pausar-conversa', { method: 'POST', body: JSON.stringify({ numero, pausar }) }),
   criarPedidoDelivery: (body: Record<string, unknown>) =>
     req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
   nfDelivery: (id: string) =>

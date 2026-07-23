@@ -215,6 +215,41 @@ export class DistribuicaoService {
     return { ok: true };
   }
 
+  // ===== Pedidos de integração (loja pede → distribuição conecta no portal) =====
+  // A loja salva o token (ex.: Anota Aí); vira um "pedido de integração" no config
+  // da integração. A distribuição finaliza a conexão no Portal de Integração do canal.
+  async pedidosIntegracao() {
+    const r: any = await this.db.execute(sql`
+      select i.id as "integracaoId", i.tenant_id as "tenantId", i.canal, i.token,
+             e.nome as loja, e.cnpj,
+             i.config->'pedidoIntegracao'->>'status' as status,
+             i.config->'pedidoIntegracao'->>'solicitadoEm' as "solicitadoEm",
+             i.config->'pedidoIntegracao'->>'conectadoPor' as "conectadoPor",
+             i.config->'pedidoIntegracao'->>'conectadoEm' as "conectadoEm"
+      from integracao i join empresa e on e.id = i.tenant_id
+      where i.config ? 'pedidoIntegracao'
+      order by (i.config->'pedidoIntegracao'->>'status' = 'pendente') desc,
+               i.config->'pedidoIntegracao'->>'solicitadoEm' desc nulls last
+      limit 300`);
+    return r.rows ?? r;
+  }
+
+  // Marca o pedido como conectado (ou recusado). `acao`: 'conectado' | 'recusado'.
+  async resolverPedidoIntegracao(integracaoId: string, acao: 'conectado' | 'recusado', autor: any) {
+    const status = acao === 'recusado' ? 'recusado' : 'conectado';
+    await this.db.execute(sql`
+      update integracao set config = jsonb_set(
+        jsonb_set(
+          jsonb_set(config, '{pedidoIntegracao,status}', ${JSON.stringify(status)}::jsonb),
+          '{pedidoIntegracao,conectadoPor}', to_jsonb(${autor?.nome ?? null}::text)
+        ),
+        '{pedidoIntegracao,conectadoEm}', to_jsonb(now()::text)
+      )
+      where id = ${integracaoId} and config ? 'pedidoIntegracao'`);
+    await this.auditar(autor, `integracao_${status}`, integracaoId);
+    return { ok: true };
+  }
+
   // Auditoria imutável (append-only). Nunca deve quebrar a ação principal.
   async auditar(autor: any, acao: string, alvo?: string | null, detalhe: any = {}, ip?: string) {
     try {

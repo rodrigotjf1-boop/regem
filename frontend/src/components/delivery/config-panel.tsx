@@ -16,18 +16,12 @@ import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
-const COLUNAS_DEF = [
-  { key: 'chegada', label: 'Em análise' },
-  { key: 'producao', label: 'Em produção' },
-  { key: 'rota', label: 'Em rota' },
-  { key: 'finalizado', label: 'Finalizado' },
-];
 
 const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean }[] }[] = [
   {
     grupo: 'Cardápio digital',
     itens: [
-      { k: 'cardapio', label: 'Cardápio Regem' },
+      { k: 'cardapio', label: 'Cardápio' },
       { k: 'horarios', label: 'Horários' },
       { k: 'tipos', label: 'Tipos de pedido' },
       { k: 'area', label: 'Área de atendimento' },
@@ -386,24 +380,7 @@ export function ConfigPanel({
                         </div>
                       </div>
                     )}
-                    {/* Colunas do quadro de entregas — agregado aqui, discreto. */}
-                    <div className="mt-2 rounded-lg border border-border p-3">
-                      <p className="mb-2 text-xs font-semibold text-muted-foreground">Colunas do quadro de entregas</p>
-                      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                        {COLUNAS_DEF.map((c) => (
-                          <label key={c.key} className={`flex items-center gap-1.5 text-xs ${isGestor ? '' : 'opacity-60'}`}>
-                            <input
-                              type="checkbox"
-                              className="h-3.5 w-3.5 accent-primary"
-                              disabled={somenteGestor}
-                              checked={deliveryCfg.colunas ? deliveryCfg.colunas[c.key] !== false : true}
-                              onChange={(e) => onDeliveryToggle({ colunas: { ...(deliveryCfg.colunas ?? {}), [c.key]: e.target.checked } })}
-                            />
-                            {c.label}
-                          </label>
-                        ))}
-                      </div>
-                    </div>
+                    {/* "Colunas do quadro de entregas" saiu daqui → botão ⚙️ no painel de delivery. */}
                   </Secao>
                 )}
 
@@ -982,6 +959,27 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
   const [qr, setQr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [erro, setErro] = useState('');
+  const [inst, setInst] = useState('');
+  const [avancado, setAvancado] = useState(false);
+  const [diag, setDiag] = useState<any>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
+
+  async function testar() {
+    setDiagBusy(true); setErro('');
+    try { setDiag(await api.whatsappDiagnostico()); } catch (e) { setErro(e instanceof Error ? e.message : 'Erro no diagnóstico'); }
+    finally { setDiagBusy(false); }
+  }
+
+  async function vincular() {
+    if (!inst.trim()) { setErro('Informe o nome da instância (ex.: Mister.ia).'); return; }
+    setBusy(true); setErro('');
+    try {
+      const r: any = await api.whatsappVincular(inst.trim());
+      setStatus({ conectado: r?.conectado, estado: r?.estado, instancia: r?.instancia });
+      if (!r?.conectado) setErro(`Vinculado, mas a instância está "${r?.estado}". Confira se está Connected no Evolution.`);
+    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao vincular'); }
+    finally { setBusy(false); }
+  }
 
   async function carregarStatus() {
     try { setStatus(await api.whatsappStatus()); } catch { /* ignore */ }
@@ -1005,7 +1003,7 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
     try {
       const r: any = await api.whatsappConectar();
       setQr(r?.qr ?? null);
-      if (!r?.qr) setErro('Não veio QR. Verifique a configuração do Evolution no servidor.');
+      if (!r?.qr) setErro('Não foi possível gerar o QR agora. Tente novamente em instantes ou fale com o suporte.');
     } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao conectar'); }
     finally { setBusy(false); }
   }
@@ -1032,6 +1030,46 @@ function ConectarWhatsapp({ pode }: { pode: boolean }) {
             : <Button type="button" size="sm" onClick={conectar} disabled={busy}>{busy ? 'Gerando…' : (qr ? 'Gerar novo QR' : 'Conectar WhatsApp')}</Button>
         )}
       </div>
+      {pode && !conectado && (
+        <div className="mt-2">
+          <button type="button" className="text-[11px] text-muted-foreground underline" onClick={() => setAvancado((v) => !v)}>
+            {avancado ? 'ocultar avançado' : 'avançado — já tenho uma instância'}
+          </button>
+          {avancado && (
+            <div className="mt-1 space-y-2 rounded-lg border border-dashed border-border p-2">
+              <div>
+                <Button type="button" size="sm" variant="outline" disabled={diagBusy} onClick={testar}>
+                  {diagBusy ? 'Testando…' : 'Testar conexão'}
+                </Button>
+              </div>
+              {diag && (
+                <div className="rounded-md bg-secondary/60 p-2 text-[11px]">
+                  <p>{diag.urlSet ? '✅' : '❌'} URL configurada {diag.url ? <span className="text-muted-foreground">({diag.url})</span> : ''}</p>
+                  <p>{diag.keySet ? '✅' : '❌'} Chave configurada</p>
+                  <p>{diag.evolutionOk ? '✅ Evolution respondeu' : '❌ Evolution não respondeu'}</p>
+                  {diag.erro && <p className="mt-1 text-destructive">{diag.erro}</p>}
+                  {diag.instanciaVinculada && <p className="mt-1">Instância vinculada: <strong>{diag.instanciaVinculada}</strong></p>}
+                  {diag.instancias?.length > 0 && (
+                    <div className="mt-1">
+                      <p className="font-semibold">Instâncias no Evolution (clique p/ usar):</p>
+                      {diag.instancias.map((x: any) => (
+                        <button key={x.nome} type="button" onClick={() => setInst(x.nome)} className="mr-1 mt-1 rounded bg-card px-1.5 py-0.5 hover:bg-primary/10">
+                          {x.nome} <span className="text-muted-foreground">· {x.estado}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">Migração/suporte: cole o <strong>nome exato</strong> de uma instância existente para reaproveitar os chats, sem escanear de novo.</p>
+              <div className="flex gap-2">
+                <Input value={inst} onChange={(e) => setInst(e.target.value)} placeholder="ex.: Mister.ia" className="h-8" disabled={busy} />
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={vincular}>Vincular</Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {qr && !conectado && (
         <div className="mt-3 flex flex-col items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1099,16 +1137,16 @@ const CANAIS_DO_CARDAPIO = ['mercadopago', 'iugu', 'n8n'];
 // cai num fallback bonito (quadrado na cor da marca com as iniciais). Uso legítimo das
 // marcas numa tela de integração (igual todo PDV mostra as plataformas parceiras).
 const PLAT_META: Record<string, { cor: string; logo?: string }> = {
-  ifood: { cor: '#EA1D2C', logo: '/integracoes/ifood.svg' },
-  '99food': { cor: '#FFC800', logo: '/integracoes/99food.svg' },
-  delivery_direto: { cor: '#FF5A1F', logo: '/integracoes/delivery-direto.svg' },
-  cardapio_web: { cor: '#00A868', logo: '/integracoes/cardapio-web.svg' },
-  rappi: { cor: '#FF441F', logo: '/integracoes/rappi.svg' },
-  anotaai: { cor: '#6C2BD9', logo: '/integracoes/anotaai.svg' },
-  keeta: { cor: '#FFC800', logo: '/integracoes/keeta.svg' },
-  n8n: { cor: '#EA4B71', logo: '/integracoes/n8n.svg' },
-  mercadopago: { cor: '#009EE3', logo: '/integracoes/mercadopago.svg' },
-  iugu: { cor: '#00A5A5', logo: '/integracoes/iugu.svg' },
+  ifood: { cor: '#EA1D2C', logo: '/integracoes/ifood.png' },
+  '99food': { cor: '#FFC800', logo: '/integracoes/99food.png' },
+  delivery_direto: { cor: '#FF5A1F', logo: '/integracoes/delivery-direto.png' },
+  cardapio_web: { cor: '#00A868', logo: '/integracoes/cardapio-web.png' },
+  rappi: { cor: '#FF441F', logo: '/integracoes/rappi.png' },
+  anotaai: { cor: '#6C2BD9', logo: '/integracoes/anotaai.png' },
+  keeta: { cor: '#FFC800', logo: '/integracoes/keeta.png' },
+  n8n: { cor: '#EA4B71', logo: '/integracoes/n8n.png' },
+  mercadopago: { cor: '#009EE3', logo: '/integracoes/mercado-pago.png' },
+  iugu: { cor: '#00A5A5', logo: '/integracoes/iugu.png' },
 };
 
 // Texto legível sobre a cor da marca (tinta escura em cores claras, branco em escuras).
@@ -1178,7 +1216,10 @@ function ModalIntegracao({ it, onClose, children }: { it: any; onClose: () => vo
 }
 
 function Integracoes({ lista, onSalvar, pode, cardapioAtivo }: { lista: any[]; onSalvar: (dto: any) => void; pode: boolean; cardapioAtivo: boolean }) {
-  const visiveis = lista.filter((it) => cardapioAtivo || !CANAIS_DO_CARDAPIO.includes(it.canal));
+  // n8n é webhook puro (sem UI de card) — não precisa aparecer na lista de integrações.
+  const visiveis = lista.filter(
+    (it) => it.canal !== 'n8n' && (cardapioAtivo || !CANAIS_DO_CARDAPIO.includes(it.canal)),
+  );
   const [aberto, setAberto] = useState<string | null>(null);
   const itemAberto = visiveis.find((it) => it.canal === aberto);
   return (
@@ -1239,23 +1280,13 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
     setAnotaBusy(true);
     setAnotaMsg('');
     try {
-      await api.anotaaiSalvarCredenciais({ token: tokenV, lojaId: merchantId });
-      setAnotaMsg('Credenciais salvas. O Regem já começa a puxar os pedidos da Anota Aí.');
+      await api.anotaaiSalvarCredenciais({ token: tokenV });
+      // Persiste a cor do card (config.cor), sem tocar no token.
+      onSalvar({ canal: it.canal, cor: cor || '' });
+      setAnotaMsg('Token salvo. Enviamos o pedido de integração para a equipe Regem finalizar a conexão — avisamos quando ativar.');
       setTokenV('');
     } catch (e: any) {
       setAnotaMsg('Erro ao salvar: ' + (e?.message ?? ''));
-    } finally {
-      setAnotaBusy(false);
-    }
-  }
-  async function puxarAnota() {
-    setAnotaBusy(true);
-    setAnotaMsg('Puxando pedidos…');
-    try {
-      const r: any = await api.anotaaiPuxar();
-      setAnotaMsg(`${r?.ingeridos ?? 0} pedido(s) importado(s) da Anota Aí.`);
-    } catch (e: any) {
-      setAnotaMsg('Erro ao puxar: ' + (e?.message ?? ''));
     } finally {
       setAnotaBusy(false);
     }
@@ -1342,7 +1373,6 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setF99Busy(false);
     }
   }
-  const [unidades, setUnidades] = useState<any[]>([]);
   const [unidadeSel, setUnidadeSel] = useState('');
   useEffect(() => {
     if (!ehCw) return;
@@ -1350,7 +1380,6 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       .unidades()
       .then((u: any) => {
         const lista = (u as any[]) ?? [];
-        setUnidades(lista);
         setUnidadeSel(
           (prev) =>
             prev ||
@@ -1373,22 +1402,12 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         ambiente,
         unidadeId: unidadeSel || undefined,
       });
-      setCwMsg('Chave e unidade salvas. Já pode puxar os pedidos.');
+      // Persiste a cor do card (config.cor), sem tocar na chave/env.
+      onSalvar({ canal: it.canal, cor: cor || '' });
+      setCwMsg('Salvo. O Regem já puxa os pedidos do Cardápio Web.');
       setTokenV('');
     } catch (e: any) {
       setCwMsg('Erro ao salvar: ' + (e?.message ?? ''));
-    } finally {
-      setCwBusy(false);
-    }
-  }
-  async function puxarCw() {
-    setCwBusy(true);
-    setCwMsg('Puxando pedidos…');
-    try {
-      const r: any = await api.cardapioWebPuxar();
-      setCwMsg(`${r?.ingeridos ?? 0} de ${r?.total ?? 0} pedido(s) importado(s) do Cardápio Web.`);
-    } catch (e: any) {
-      setCwMsg('Erro ao puxar: ' + (e?.message ?? ''));
     } finally {
       setCwBusy(false);
     }
@@ -1401,30 +1420,6 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setCwMsg(`Catálogo importado: +${r?.produtos ?? 0} produtos, +${r?.categorias ?? 0} categorias, ${r?.atualizados ?? 0} atualizados.`);
     } catch (e: any) {
       setCwMsg('Erro ao importar: ' + (e?.message ?? ''));
-    } finally {
-      setCwBusy(false);
-    }
-  }
-  async function exportarCatalogoCw() {
-    setCwBusy(true);
-    setCwMsg('Exportando cardápio do Regem pro Cardápio Web…');
-    try {
-      const r: any = await api.cardapioWebExportarCatalogo();
-      setCwMsg(`Cardápio exportado: +${r?.produtos ?? 0} itens, +${r?.categorias ?? 0} categorias${r?.erros ? `, ${r.erros} erro(s)` : ''}.`);
-    } catch (e: any) {
-      setCwMsg('Erro ao exportar: ' + (e?.message ?? ''));
-    } finally {
-      setCwBusy(false);
-    }
-  }
-  async function exportarTesteCw() {
-    setCwBusy(true);
-    setCwMsg('Enviando 1 item de teste pro Cardápio Web…');
-    try {
-      const r: any = await api.cardapioWebExportarTeste();
-      setCwMsg(r?.jaExistia ? 'Item de teste já existe no CW — a escrita está autorizada. ✅' : 'Item de teste criado no CW! A escrita está autorizada. ✅ (pode excluir lá)');
-    } catch (e: any) {
-      setCwMsg('Falha no item de teste: ' + (e?.message ?? '') + ' (se for 401/403, precisa da X-PARTNER-KEY / OAuth catalog)');
     } finally {
       setCwBusy(false);
     }
@@ -1467,23 +1462,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         <>
           <p className="text-[11px] text-muted-foreground">API Aberta do Cardápio Web (modo chave). No painel do Cardápio Web em <strong>Configurações → Integrações → API de integração</strong>: copie o <strong>código da loja</strong> e clique <strong>gerar novo token</strong>. O Regem puxa os pedidos, joga no KDS e os <strong>aceita de volta</strong> automaticamente.</p>
           <div className="grid gap-2">
-            <Campo label="Unidade (loja) que recebe os pedidos">
-              <select aria-label="Unidade do Cardápio Web" value={unidadeSel} onChange={(e) => setUnidadeSel(e.target.value)} disabled={!pode} className="flex h-8 w-full rounded-md border border-input bg-card px-2 text-sm">
-                {unidades.length === 0 && <option value="">—</option>}
-                {unidades.map((u: any) => (
-                  <option key={u.id} value={u.id}>{u.nome}{u.tipo === 'matriz' ? ' (matriz)' : ''}</option>
-                ))}
-              </select>
-            </Campo>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Campo label="Ambiente">
-                <select aria-label="Ambiente do Cardápio Web" value={ambiente} onChange={(e) => setAmbiente(e.target.value)} disabled={!pode} className="flex h-8 w-full rounded-md border border-input bg-card px-2 text-sm">
-                  <option value="producao">Produção</option>
-                  <option value="sandbox">Sandbox</option>
-                </select>
-              </Campo>
-              <Campo label="Código da loja"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="ex.: 59412" className="h-8" disabled={!pode} /></Campo>
-            </div>
+            <Campo label="Código da loja"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="ex.: 59412" className="h-8" disabled={!pode} /></Campo>
             <Campo label={`Token (API Key)${it.temToken ? ' (salvo)' : ''}`}>
               <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (deixe em branco p/ manter)' : 'cole o token gerado no painel'} className="h-8" disabled={!pode} />
             </Campo>
@@ -1492,9 +1471,6 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           {pode && (
             <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" size="sm" variant="ghost" disabled={cwBusy} onClick={importarCatalogoCw} title="Cria os produtos no Regem a partir do cardápio do Cardápio Web">Importar catálogo</Button>
-              <Button type="button" size="sm" variant="ghost" disabled={cwBusy} onClick={exportarTesteCw} title="Cria só 1 item de teste no CW — valida a integração sem bagunçar o cardápio">Exportar 1 item (teste)</Button>
-              <Button type="button" size="sm" variant="ghost" disabled={cwBusy} onClick={exportarCatalogoCw} title="Cria TODAS as categorias/itens do Regem no Cardápio Web">Exportar catálogo</Button>
-              <Button type="button" size="sm" variant="outline" disabled={cwBusy} onClick={puxarCw}>Puxar pedidos agora</Button>
               <Button type="button" size="sm" disabled={cwBusy} onClick={salvarCw}>Salvar</Button>
             </div>
           )}
@@ -1537,19 +1513,17 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </>
       ) : ehAnota ? (
         <>
-          <p className="text-[11px] text-muted-foreground">Integração oficial da <strong>Anota Aí</strong>. No <strong>Portal de Integração</strong> da Anota Aí, adicione a loja e copie o <strong>Token da loja</strong> (e o ID da loja). O Regem puxa os pedidos automaticamente (polling) e os aceita — sem precisar de webhook público.</p>
+          <p className="text-[11px] text-muted-foreground">Integração oficial da <strong>Anota Aí</strong>. No painel da Anota Aí, copie o <strong>Token da loja</strong> e cole aqui. Ao salvar, a equipe Regem finaliza a conexão no Portal de Integração da Anota Aí — você recebe o aviso quando estiver ativa.</p>
           <div className="grid gap-2">
             <Campo label={`Token da loja${it.temToken ? ' (salvo)' : ''}`}>
               <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (deixe em branco p/ manter)' : 'cole o Token da loja (Authorization)'} className="h-8" disabled={!pode} />
             </Campo>
-            <Campo label="ID da loja (Root)"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="ex.: 6351c5a7d42e6100121913…" className="h-8" disabled={!pode} /></Campo>
           </div>
           {anotaMsg && <p className="text-[11px] text-muted-foreground">{anotaMsg}</p>}
           {pode && (
             <div className="flex flex-wrap justify-end gap-2">
               <Button type="button" size="sm" variant="ghost" disabled={anotaBusy} onClick={importarCatalogoAnota} title="Cria os produtos no Regem a partir do cardápio da Anota Aí">Importar catálogo</Button>
-              <Button type="button" size="sm" variant="outline" disabled={anotaBusy} onClick={puxarAnota}>Puxar pedidos agora</Button>
-              <Button type="button" size="sm" disabled={anotaBusy} onClick={salvarAnota}>Salvar credenciais</Button>
+              <Button type="button" size="sm" disabled={anotaBusy} onClick={salvarAnota}>Salvar token</Button>
             </div>
           )}
         </>
@@ -1586,7 +1560,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </Campo>
       </div>
       )}
-      {pode && temCor && !ehCw && !ehFood99 && !ehAnota && (
+      {pode && temCor && !ehFood99 && (
         <div className="flex items-center gap-2 border-t border-border pt-2">
           <span className="text-[11px] text-muted-foreground">Cor no quadro</span>
           <input type="color" aria-label="Cor de identificação no kanban" value={cor || '#888888'} onChange={(e) => setCor(e.target.value)} disabled={!pode} className="h-7 w-10 cursor-pointer rounded border border-border bg-transparent p-0.5" />

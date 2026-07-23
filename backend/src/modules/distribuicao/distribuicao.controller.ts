@@ -125,4 +125,20 @@ export class DistribuicaoController {
   auditoria() {
     return this.service.listarAuditoria();
   }
+
+  // Pedidos de integração — Diretoria + Técnico (quem conecta no portal do canal).
+  @Get('pedidos-integracao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  pedidosIntegracao() {
+    return this.service.pedidosIntegracao();
+  }
+
+  @Post('pedidos-integracao/:id/resolver')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  resolverPedidoIntegracao(@DistUser() u: DistCtx, @Param('id') id: string, @Body() dto: any) {
+    const acao = dto?.acao === 'recusado' ? 'recusado' : 'conectado';
+    return this.service.resolverPedidoIntegracao(id, acao, u);
+  }
 }
