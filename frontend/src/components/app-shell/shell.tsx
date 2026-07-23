@@ -24,6 +24,7 @@ import {
   type LucideIcon,
   Megaphone,
   Menu,
+  PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -33,6 +34,7 @@ import {
   Users,
   Wallet,
   Wand2,
+  Wrench,
 } from 'lucide-react';
 import { clearToken, getCategoria, getPermissoes, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -65,6 +67,7 @@ const NAV: NavNode[] = [
     label: 'PDV · Balcão', icon: ShoppingCart,
     children: [
       { href: '/pdv', label: 'Balcão', icon: ShoppingCart, perm: 'pdv' },
+      { href: '/pdv/retirada', label: 'Retirada / Encomendas', icon: PackageCheck, perm: 'pedidos' },
       { href: '/mesas', label: 'Mesas e comandas', icon: ClipboardList, perm: 'mesas' },
       { href: '/cupons', label: 'Cupons', icon: ReceiptText, perm: 'cupons' },
     ],
@@ -78,7 +81,14 @@ const NAV: NavNode[] = [
       { href: '/delivery/configuracoes', label: 'Configurações', icon: Settings, perm: 'delivery' },
     ],
   },
-  { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks, perm: 'meu_dia' },
+  {
+    label: 'Tarefas', icon: ListChecks,
+    children: [
+      { href: '/meu-dia', label: 'Minhas tarefas', icon: ListChecks, perm: 'meu_dia' },
+      { href: '/ordens-producao', label: 'Pedidos de produção', icon: Flame, perm: 'producao_kds' },
+      { href: '/manutencao', label: 'Pedidos de manutenção', icon: Wrench, perm: 'manutencao' },
+    ],
+  },
   { href: '/escala', label: 'Escalas', icon: CalendarDays, perm: 'escalas' },
   { href: '/operacao', label: 'Estoque', icon: Boxes, perm: 'estoque' },
   { href: '/docs', label: 'Checklist & registros', icon: ClipboardList, perm: 'checklist' },

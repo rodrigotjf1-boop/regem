@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Figtree, Archivo, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
+import TelemetriaCliente from '@/components/telemetria-cliente';
 
 // Fontes self-hosted via next/font (sem @import bloqueante). Cada uma liga na
 // variável CSS que o tailwind.config já consome (--font-sans/display/mono).
@@ -51,6 +52,7 @@ export default function RootLayout({
     >
       <body className="font-sans antialiased min-h-dvh bg-background text-foreground">
         {children}
+        <TelemetriaCliente />
         <Toaster />
       </body>
     </html>

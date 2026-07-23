@@ -13,6 +13,7 @@ import { InsumoForm } from '@/components/estoque/insumo-form';
 import { PainelSecao } from '@/components/estoque/painel-secao';
 import { ContagemSecao } from '@/components/estoque/contagem-secao';
 import { ComprasSecao } from '@/components/estoque/compras-secao';
+import { EtiquetasSecao } from '@/components/estoque/etiquetas-secao';
 import { RecebimentoForm } from '@/components/recebimento/recebimento-form';
 import { Shell } from '@/components/app-shell/shell';
 import { toast } from '@/lib/toast';
@@ -42,6 +43,7 @@ type Secao =
   | 'compras'
   | 'recebimento'
   | 'validades'
+  | 'etiquetas'
   | 'desperdicio'
   | 'vistorias';
 
@@ -54,6 +56,7 @@ const SECOES: { key: Secao | 'fichas'; label: string; href?: string }[] = [
   { key: 'compras', label: '🛒 Compras' },
   { key: 'recebimento', label: '🚚 Recebimento' },
   { key: 'validades', label: '🗓️ Validades' },
+  { key: 'etiquetas', label: '🏷️ Etiquetas' },
   { key: 'desperdicio', label: '♻️ Desperdício' },
   { key: 'vistorias', label: '✔️ Vistorias' },
 ];
@@ -392,6 +395,9 @@ export default function EstoquePage() {
             )}
           </section>
         )}
+
+        {/* ---------- ETIQUETAS DE VALIDADE ---------- */}
+        {secao === 'etiquetas' && <EtiquetasSecao />}
 
         {/* ---------- DESPERDÍCIO ---------- */}
         {secao === 'desperdicio' && (

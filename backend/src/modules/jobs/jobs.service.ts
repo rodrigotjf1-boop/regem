@@ -6,6 +6,8 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { MidiaService } from '../midia/midia.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
+import { PedidoManutencaoService } from '../pedido-manutencao/pedido-manutencao.service';
+import { EtiquetaValidadeService } from '../etiqueta-validade/etiqueta-validade.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Agendador de jobs do backend. (Instância única no EasyPanel — sem lock distribuído.)
@@ -18,8 +20,33 @@ export class JobsService {
     private readonly midia: MidiaService,
     private readonly estoque: EstoqueService,
     private readonly ordemProducao: OrdemProducaoService,
+    private readonly manutencao: PedidoManutencaoService,
+    private readonly etiquetas: EtiquetaValidadeService,
     private readonly events: EventEmitter2,
   ) {}
+
+  // Alertas de etiquetas de validade (a vencer / vencidas) ao C&O/gerente. Mig 136.
+  @Cron('15 6 * * *') // 06:15 todos os dias
+  async alertasEtiquetas() {
+    try {
+      const n = await this.etiquetas.alertasValidade();
+      if (n) this.log.log(`etiquetas a vencer/vencidas avaliadas: ${n}`);
+    } catch (e: any) {
+      this.log.error(`alertasEtiquetas: ${e?.message ?? e}`);
+    }
+  }
+
+  // Pedidos de manutenção abertos há mais de 15 dias perguntam ao C&O o que fazer
+  // (manter / concluir / excluir). Dispara o alerta uma vez por pedido. Mig 134.
+  @Cron('40 6 * * *') // 06:40 todos os dias
+  async promoverManutencaoAntiga() {
+    try {
+      const n = await this.manutencao.promoverAntigos();
+      if (n) this.log.log(`manutenção pendente > 15 dias: ${n}`);
+    } catch (e: any) {
+      this.log.error(`promoverManutencaoAntiga: ${e?.message ?? e}`);
+    }
+  }
 
   // Ordens de produção "aguardando lançamento" com data prevista > 1 dia viram
   // pendência crítica (sobem no painel do gerente/C&O; exigem desfecho). Mig 130.

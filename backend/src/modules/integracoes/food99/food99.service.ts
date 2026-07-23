@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
@@ -455,6 +455,48 @@ export class Food99Service {
     if (j?.errno === 0) this.logger.log(`cardápio de teste subido (item=${appItemId})`);
     else this.logger.warn(`upload cardápio errno=${j?.errno}: ${JSON.stringify(j).slice(0, 200)}`);
     return { ok: j?.errno === 0, appItemId, errno: Number(j?.errno ?? -1), resposta: j };
+  }
+
+  // Exporta o cardápio do Regem PRA o 99food (upload em bloco /v3/item/item/upload).
+  // Mapeia categorias+produtos disponíveis → menus/categories/items. app_item_id =
+  // codigo do produto (ou id) → o pedido de volta casa pelo mesmo código. Preços em
+  // CENTAVOS. Sem complementos por ora (modifier_groups: []).
+  async exportarCatalogo(tenantId: string): Promise<{ categorias: number; produtos: number }> {
+    const ig = await this.integracaoDoTenant(tenantId);
+    if (!ig) throw new BadRequestException('Conecte o 99Food primeiro (salve as credenciais).');
+    const tk = await this.authToken(ig);
+    if (!tk) throw new BadRequestException('Sem auth_token do 99Food.');
+    const { categorias, produtos } = await this.delivery.lerCatalogoParaExport(tenantId);
+    const prods = produtos.filter((p: any) => p.categoria_id && categorias.some((c: any) => c.id === p.categoria_id));
+    if (!prods.length) throw new BadRequestException('Nenhum produto (com categoria) disponível no cardápio pra exportar.');
+    const codItem = (p: any) => String(p.codigo || p.id);
+    const cats = categorias.filter((c: any) => prods.some((p: any) => p.categoria_id === c.id));
+    const menus = [{ app_menu_id: 'regem-menu', menu_name: 'Cardápio', app_category_ids: cats.map((c: any) => `cat-${c.id}`) }];
+    const categories = cats.map((c: any) => ({
+      app_category_id: `cat-${c.id}`,
+      category_name: String(c.nome).slice(0, 100),
+      app_item_ids: prods.filter((p: any) => p.categoria_id === c.id).map(codItem),
+    }));
+    const items = prods.map((p: any) => ({
+      app_item_id: codItem(p),
+      item_name: String(p.nome).slice(0, 50),
+      price: Math.round((Number(p.preco_venda) || 0) * 100),
+      is_sold_separately: true,
+      ...(p.descricao ? { short_desc: String(p.descricao).slice(0, 300) } : {}),
+    }));
+    const body = JSON.stringify({ auth_token: tk, menus, categories, items, modifier_groups: [] });
+    const res = await fetch(`${BASE}/v3/item/item/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).catch(() => null);
+    const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
+    if (j?.errno !== 0) {
+      this.logger.warn(`exportarCatalogo errno=${j?.errno}: ${JSON.stringify(j).slice(0, 200)}`);
+      throw new BadRequestException(`99Food recusou o upload (errno ${j?.errno}: ${String(j?.errmsg ?? '').slice(0, 120)})`);
+    }
+    this.logger.log(`exportarCatalogo tenant=${tenantId}: ${categories.length} cat, ${items.length} itens`);
+    return { categorias: categories.length, produtos: items.length };
   }
 
   async desconectar(tenantId: string): Promise<{ ok: boolean }> {

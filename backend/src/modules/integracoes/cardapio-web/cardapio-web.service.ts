@@ -495,6 +495,129 @@ export class CardapioWebService {
     return { categorias: nCat, produtos: nProd, atualizados: nUpd };
   }
 
+  // ===== Exportar cardápio (Regem → Cardápio Web) =====
+  // Cria as categorias/itens do Regem no CW (POST catalog/categories + catalog/items).
+  // Idempotente: reusa categoria existente por nome e pula item que já existe (nome
+  // único no CW). external_code = codigo do produto → o pedido de volta casa pelo
+  // mesmo código. ⚠️ As rotas de ESCRITA do CW podem exigir X-API-KEY + X-PARTNER-KEY
+  // (ou OAuth scope catalog); no modo chave (só X-API-KEY) pode dar 401/403.
+  async exportarCatalogo(tenantId: string): Promise<{ categorias: number; produtos: number; erros: number }> {
+    const ig = await this.doTenant(tenantId);
+    if (!this.autenticavel(ig)) throw new BadRequestException('Conecte o Cardápio Web primeiro (salve a chave).');
+    const { categorias, produtos } = await this.delivery.lerCatalogoParaExport(tenantId);
+    const prods = produtos.filter((p: any) => p.categoria_id && categorias.some((c: any) => c.id === p.categoria_id));
+    if (!prods.length) throw new BadRequestException('Nenhum produto (com categoria) disponível no cardápio pra exportar.');
+    // Catálogo atual do CW (idempotência).
+    let catsCW: any[] = [];
+    try {
+      const res = await this.req(ig, '/api/partner/v1/catalog', { method: 'GET' });
+      if (res.ok) {
+        const j: any = await res.json().catch(() => ({}));
+        catsCW = j.categories ?? j.data ?? [];
+      }
+    } catch {
+      /* segue sem o catálogo atual (menos idempotente, mas funciona) */
+    }
+    const mapaCat = new Map(catsCW.map((c: any) => [String(c.name ?? c.nome ?? '').toLowerCase(), c.id]));
+    const itensCW = new Set(catsCW.flatMap((c: any) => (c.items ?? c.itens ?? []).map((i: any) => String(i.name ?? i.nome ?? '').toLowerCase())));
+    const catsRegem = categorias.filter((c: any) => prods.some((p: any) => p.categoria_id === c.id));
+    let nCat = 0, nItem = 0, erros = 0;
+    for (let i = 0; i < catsRegem.length; i++) {
+      const c = catsRegem[i];
+      let catId = mapaCat.get(String(c.nome).toLowerCase());
+      if (!catId) {
+        const rc = await this.req(ig, '/api/partner/v1/catalog/categories', {
+          method: 'POST',
+          body: JSON.stringify({ name: c.nome, index: i, status: 'ACTIVE' }),
+        }).catch(() => null);
+        if (rc && rc.ok) {
+          const jc: any = await rc.json().catch(() => ({}));
+          catId = jc.id ?? jc.data?.id;
+          nCat++;
+        } else {
+          erros++;
+          this.logger.warn(`criar categoria "${c.nome}" ${rc?.status ?? 'ERR'}`);
+          continue;
+        }
+      }
+      if (catId == null) { erros++; continue; }
+      for (const p of prods.filter((x: any) => x.categoria_id === c.id)) {
+        if (itensCW.has(String(p.nome).toLowerCase())) continue; // já existe no CW
+        const ri = await this.req(ig, '/api/partner/v1/catalog/items', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: String(p.nome).slice(0, 500),
+            category_id: Number(catId),
+            price: Number(p.preco_venda) || 0,
+            unit_type: 'UN',
+            status: 'ACTIVE',
+            ...(p.codigo ? { external_code: String(p.codigo).slice(0, 50) } : {}),
+            ...(Number(p.preco_custo) ? { cost_price: Number(p.preco_custo) } : {}),
+            ...(p.descricao ? { description: String(p.descricao).slice(0, 5000) } : {}),
+          }),
+        }).catch(() => null);
+        if (ri && ri.ok) nItem++;
+        else { erros++; this.logger.warn(`criar item "${p.nome}" ${ri?.status ?? 'ERR'}`); }
+      }
+    }
+    this.logger.log(`exportarCatalogo tenant=${tenantId}: +${nCat} cat, +${nItem} itens, ${erros} erros`);
+    return { categorias: nCat, produtos: nItem, erros };
+  }
+
+  // Exporta APENAS 1 item de teste (1 categoria "Regem (teste)" + 1 item) — pra
+  // validar a auth/endpoint de ESCRITA sem despejar o cardápio inteiro. Idempotente
+  // (se já existir, não recria). A mensagem de erro traz o status (ex.: 401/403 =
+  // precisa de X-PARTNER-KEY / OAuth catalog).
+  async exportarItemTeste(tenantId: string): Promise<{ ok: boolean; jaExistia?: boolean }> {
+    const ig = await this.doTenant(tenantId);
+    if (!this.autenticavel(ig)) throw new BadRequestException('Conecte o Cardápio Web primeiro (salve a chave).');
+    const NOME_CAT = 'Regem (teste de integração)';
+    const NOME_ITEM = 'Item de teste — Regem';
+    let catId: any = null;
+    let itemExiste = false;
+    try {
+      const res = await this.req(ig, '/api/partner/v1/catalog', { method: 'GET' });
+      if (res.ok) {
+        const j: any = await res.json().catch(() => ({}));
+        const cats: any[] = j.categories ?? j.data ?? [];
+        catId = cats.find((c: any) => String(c.name ?? c.nome ?? '').toLowerCase() === NOME_CAT.toLowerCase())?.id ?? null;
+        itemExiste = cats.some((c: any) => (c.items ?? c.itens ?? []).some((i: any) => String(i.name ?? i.nome ?? '').toLowerCase() === NOME_ITEM.toLowerCase()));
+      }
+    } catch {
+      /* segue sem o catálogo atual */
+    }
+    if (itemExiste) return { ok: true, jaExistia: true };
+    if (catId == null) {
+      const rc = await this.req(ig, '/api/partner/v1/catalog/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name: NOME_CAT, status: 'ACTIVE' }),
+      }).catch(() => null);
+      if (!rc || !rc.ok) {
+        const t = rc ? await rc.text().catch(() => '') : '';
+        throw new BadRequestException(`Categoria de teste no CW falhou (${rc?.status ?? 'sem resposta'}): ${t.slice(0, 150)}`);
+      }
+      const jc: any = await rc.json().catch(() => ({}));
+      catId = jc.id ?? jc.data?.id;
+    }
+    const ri = await this.req(ig, '/api/partner/v1/catalog/items', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: NOME_ITEM,
+        category_id: Number(catId),
+        price: 1,
+        external_code: 'regem-teste',
+        unit_type: 'UN',
+        status: 'ACTIVE',
+        description: 'Criado pelo Regem para validar a integração — pode excluir.',
+      }),
+    }).catch(() => null);
+    if (!ri || !ri.ok) {
+      const t = ri ? await ri.text().catch(() => '') : '';
+      throw new BadRequestException(`Item de teste no CW falhou (${ri?.status ?? 'sem resposta'}): ${t.slice(0, 150)}`);
+    }
+    return { ok: true };
+  }
+
   // ===== Status / desconectar (tela do gestor) =====
   async status(tenantId: string) {
     const ig = await this.doTenant(tenantId);

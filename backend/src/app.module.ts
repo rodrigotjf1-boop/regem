@@ -46,6 +46,9 @@ import { ProdutoModule } from './modules/produto/produto.module';
 import { VendasModule } from './modules/vendas/vendas.module';
 import { ProducaoModule } from './modules/producao/producao.module';
 import { OrdemProducaoModule } from './modules/ordem-producao/ordem-producao.module';
+import { PedidoManutencaoModule } from './modules/pedido-manutencao/pedido-manutencao.module';
+import { DesligamentoModule } from './modules/desligamento/desligamento.module';
+import { EtiquetaValidadeModule } from './modules/etiqueta-validade/etiqueta-validade.module';
 import { ProducaoPedidoModule } from './modules/producao-pedido/producao-pedido.module';
 import { ImpressaoModule } from './modules/impressao/impressao.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
@@ -118,6 +121,9 @@ import { AuthModule } from './auth/auth.module';
     VendasModule,
     ProducaoModule,
     OrdemProducaoModule,
+    PedidoManutencaoModule,
+    DesligamentoModule,
+    EtiquetaValidadeModule,
     ProducaoPedidoModule,
     ImpressaoModule,
     FiscalModule,

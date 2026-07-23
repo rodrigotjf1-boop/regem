@@ -582,6 +582,9 @@ export class ProdutoService {
              p.unidade_medida as "unidadeMedida", p.preco_venda as "precoVenda",
              p.preco_custo as "precoCusto", p.controla_estoque as "controlaEstoque",
              p.validade_dias as "validadeDias", p.vai_para_producao as "vaiParaProducao",
+             p.controla_validade as "controlaValidade",
+             p.validade_fechado_dias as "validadeFechadoDias",
+             p.validade_aberto_dias as "validadeAbertoDias",
              p.disponivel_cardapio as "disponivelCardapio",
              p.pausado_estoque as "pausadoEstoque", p.pausa_motivo as "pausaMotivo",
              p.permite_negativo as "permiteNegativo",
@@ -859,6 +862,9 @@ export class ProdutoService {
           precoCusto: dto.precoCusto != null ? String(dto.precoCusto) : undefined,
           controlaEstoque: dto.controlaEstoque ?? true,
           validadeDias: dto.validadeDias,
+          controlaValidade: dto.controlaValidade ?? false,
+          validadeFechadoDias: dto.validadeFechadoDias,
+          validadeAbertoDias: dto.validadeAbertoDias,
           vaiParaProducao: dto.vaiParaProducao ?? true,
           setorProducaoId: dto.setorProducaoId,
           tempoPreparoMin: dto.tempoPreparoMin,
@@ -946,6 +952,9 @@ export class ProdutoService {
       patch.precoCusto = dto.precoCusto != null ? String(dto.precoCusto) : null;
     set('controlaEstoque', dto.controlaEstoque);
     set('validadeDias', dto.validadeDias);
+    set('controlaValidade', dto.controlaValidade);
+    set('validadeFechadoDias', dto.validadeFechadoDias);
+    set('validadeAbertoDias', dto.validadeAbertoDias);
     set('vaiParaProducao', dto.vaiParaProducao);
     set('setorProducaoId', dto.setorProducaoId);
     set('tempoPreparoMin', dto.tempoPreparoMin);

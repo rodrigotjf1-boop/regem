@@ -5,6 +5,7 @@ import helmet from 'helmet';
 import { readFileSync } from 'fs';
 import { AppModule } from './app.module';
 import { carregarEnvSeguro } from './secure-env';
+import { TelemetriaLogger } from './common/telemetria-logger';
 
 async function bootstrap() {
   // Fase 1 (proteção): decifra segredos do .env cifrados com DPAPI (enc:), se houver.
@@ -47,6 +48,10 @@ async function bootstrap() {
     rawBody: true,
     ...(httpsOptions ? { httpsOptions } : {}),
   });
+
+  // Logger que também ENVIA os erros (error/fatal) pra telemetria da nuvem no edge —
+  // captura falhas de background (pollers/jobs) além do HTTP 5xx do interceptor.
+  app.useLogger(new TelemetriaLogger());
 
   // Cabeçalhos de segurança.
   app.use(helmet());

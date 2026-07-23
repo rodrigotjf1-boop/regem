@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
@@ -15,6 +15,8 @@ import { agendamentoAnotaAi } from '../../delivery/adapters';
 //   clientId/clientSecret = credenciais da conta parceira (Portal) · config.seen = ids já ingeridos
 const CANAL = 'anotaai';
 const BASE = process.env.ANOTAAI_BASE_URL ?? 'https://api-parceiros.anota.ai/partnerauth';
+// O cardápio (menu) fica em OUTRO domínio (api-menu), não no de pedidos (api-parceiros).
+const MENU_BASE = process.env.ANOTAAI_MENU_URL ?? 'https://api-menu.anota.ai/partnerauth';
 
 // Rotas CONFIRMADAS na doc (anota-ai.stoplight.io, API de Pedidos v1):
 const EP_LIST = '/ping/list';
@@ -225,6 +227,62 @@ export class AnotaAiService {
   async status(tenantId: string) {
     const ig = await this.integracaoDoTenant(tenantId);
     return { conectado: !!ig, lojaId: ig?.lojaId ?? null };
+  }
+
+  // ===== Importador de cardápio (onboarding) =====
+  private async setorPadrao(tenantId: string): Promise<string | null> {
+    const r: any = await this.db.execute(sql`
+      select id from setor where tenant_id = ${tenantId} and deleted_at is null
+      order by created_at asc limit 1`);
+    return (r?.rows ?? r)?.[0]?.id ?? null;
+  }
+
+  // Puxa o cardápio da Anota Aí (GET simple-item/export/v2, em api-menu) e cria/
+  // atualiza os produtos no Regem — categoria, preço e CÓDIGO (external_id || id,
+  // a mesma regra do adapter → os pedidos casam sozinhos). Pula categorias de
+  // adicionais (is_additional). Idempotente por (tenant, código).
+  async importarCatalogo(tenantId: string): Promise<{ categorias: number; produtos: number; atualizados: number }> {
+    const ig = await this.integracaoDoTenant(tenantId);
+    if (!ig) throw new BadRequestException('Conecte a Anota Aí primeiro (salve o token da loja).');
+    const res = await fetch(`${MENU_BASE}/v2/nm-category/rest/simple-item/export/v2`, {
+      headers: { Authorization: ig.token, 'Content-Type': 'application/json' },
+    }).catch(() => null);
+    if (!res || !res.ok) throw new BadRequestException(`Falha ao buscar o cardápio da Anota Aí (${res?.status ?? 'sem resposta'}).`);
+    const j: any = await res.json().catch(() => ({}));
+    const cats: any[] = (j.categories ?? []).filter((c: any) => !c.is_additional);
+    const setor = await this.setorPadrao(tenantId);
+    let nCat = 0, nProd = 0, nUpd = 0;
+    for (let i = 0; i < cats.length; i++) {
+      const cat = cats[i];
+      const nome = cat.title ?? 'Categoria';
+      const ex: any = await this.db.execute(sql`select id from categoria_produto where tenant_id=${tenantId} and nome=${nome} limit 1`);
+      let catId: string | null = (ex?.rows ?? ex)?.[0]?.id ?? null;
+      if (!catId) {
+        const ins: any = await this.db.execute(sql`insert into categoria_produto (tenant_id,nome,ordem,ativo,disponibilidade) values (${tenantId},${nome},${i},true,'{}'::jsonb) returning id`);
+        catId = (ins?.rows ?? ins)?.[0]?.id ?? null;
+        nCat++;
+      }
+      for (const it of cat.itens ?? []) {
+        // De-para: external_id (código PDV) se a loja preencheu; senão o id interno
+        // do item — a mesma regra do adaptarAnotaAi, então o pedido casa sozinho.
+        const codigo = it.external_id || (it.id != null ? String(it.id) : undefined);
+        if (!codigo) continue;
+        const preco = Number(it.price) || 0;
+        const found: any = await this.db.execute(sql`select id from produto where tenant_id=${tenantId} and codigo=${codigo} and deleted_at is null`);
+        const foundId = (found?.rows ?? found)?.[0]?.id ?? null;
+        if (foundId) {
+          await this.db.execute(sql`update produto set nome=${it.title}, preco_venda=${preco}, categoria_id=${catId}, updated_at=now() where id=${foundId}`);
+          nUpd++;
+          continue;
+        }
+        await this.db.execute(sql`
+          insert into produto (tenant_id,nome,tipo,unidade_medida,preco_venda,controla_estoque,vai_para_producao,ativo,selos,disponivel_cardapio,destaque,disponivel_balcao,pausado_estoque,permite_negativo,categoria_id,codigo,setor_producao_id,descricao,imagem_ref,preco_custo)
+          values (${tenantId},${it.title},'simples','un',${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},null,null,0)`);
+        nProd++;
+      }
+    }
+    this.logger.log(`importarCatalogo tenant=${tenantId}: +${nCat} cat, +${nProd} prod, ${nUpd} atualizados`);
+    return { categorias: nCat, produtos: nProd, atualizados: nUpd };
   }
 
   async desconectar(tenantId: string): Promise<{ ok: boolean }> {

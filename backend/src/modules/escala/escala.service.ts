@@ -27,6 +27,15 @@ import {
   type Violacao,
 } from '../../common/regras-escala';
 
+// Subtrai 2h de um horário 'HH:MM[:SS]' (aviso prévio −2h/dia). Não cruza a meia-noite.
+function menosDuasHoras(hhmmss: string): string {
+  const [h, m, s] = String(hhmmss).split(':').map((n) => Number(n) || 0);
+  let total = h * 60 + m - 120;
+  if (total < 0) total = 0;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(Math.floor(total / 60))}:${pad(total % 60)}:${pad(s)}`;
+}
+
 @Injectable()
 export class EscalaService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
@@ -426,6 +435,94 @@ export class EscalaService {
       .where(and(eq(escalaAlocacao.tenantId, tenantId), alvo, isNull(escalaAlocacao.deletedAt)))
       .returning({ id: escalaAlocacao.id });
     return { ok: true, atualizadas: res.length };
+  }
+
+  // Aviso prévio trabalhado (Art. 488 CLT) — só em dispensa SEM justa causa.
+  // Recalcula a escala do colaborador no período do aviso:
+  //  - '2h'   : reduz 2h/dia (horaFimOverride = fim efetivo − 2h)
+  //  - '7dias': libera (soft-delete) os últimos 7 dias corridos do aviso
+  // E trunca a regra recorrente na data de desligamento (para de gerar depois).
+  async aplicarAvisoPrevio(
+    tenantId: string,
+    colaboradorId: string,
+    inicio: string, // YYYY-MM-DD
+    fim: string, // YYYY-MM-DD (data de desligamento)
+    opcao: '2h' | '7dias',
+  ) {
+    const alocs = await this.db
+      .select({
+        id: escalaAlocacao.id,
+        data: escalaAlocacao.data,
+        hfOverride: escalaAlocacao.horaFimOverride,
+        hf: turno.horaFim,
+      })
+      .from(escalaAlocacao)
+      .innerJoin(turno, eq(turno.id, escalaAlocacao.turnoId))
+      .where(
+        and(
+          eq(escalaAlocacao.tenantId, tenantId),
+          eq(escalaAlocacao.colaboradorId, colaboradorId),
+          gte(escalaAlocacao.data, inicio),
+          lte(escalaAlocacao.data, fim),
+          isNull(escalaAlocacao.deletedAt),
+        ),
+      );
+
+    if (opcao === '2h') {
+      for (const a of alocs) {
+        const efetivo = (a.hfOverride ?? a.hf) as string;
+        await this.db
+          .update(escalaAlocacao)
+          .set({ horaFimOverride: menosDuasHoras(efetivo), updatedAt: new Date() })
+          .where(eq(escalaAlocacao.id, a.id));
+      }
+    } else {
+      // Últimos 7 dias corridos do aviso (fim−6 … fim) viram folga.
+      const corte = new Date(fim);
+      corte.setDate(corte.getDate() - 6);
+      const corteISO = corte.toISOString().slice(0, 10);
+      await this.db
+        .update(escalaAlocacao)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(
+          and(
+            eq(escalaAlocacao.tenantId, tenantId),
+            eq(escalaAlocacao.colaboradorId, colaboradorId),
+            gte(escalaAlocacao.data, corteISO),
+            lte(escalaAlocacao.data, fim),
+            isNull(escalaAlocacao.deletedAt),
+          ),
+        );
+    }
+
+    // Encerra a escala recorrente na data de desligamento.
+    await this.db
+      .update(escalaRegra)
+      .set({ dataFim: fim, ativo: false, updatedAt: new Date() })
+      .where(and(eq(escalaRegra.tenantId, tenantId), eq(escalaRegra.colaboradorId, colaboradorId)));
+
+    return { alocacoes: alocs.length };
+  }
+
+  // Encerra a escala do colaborador a partir de uma data (justa causa / imediato):
+  // libera (soft-delete) as alocações futuras e desativa a regra recorrente.
+  async encerrarEscala(tenantId: string, colaboradorId: string, aPartir: string) {
+    await this.db
+      .update(escalaAlocacao)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(escalaAlocacao.tenantId, tenantId),
+          eq(escalaAlocacao.colaboradorId, colaboradorId),
+          gte(escalaAlocacao.data, aPartir),
+          isNull(escalaAlocacao.deletedAt),
+        ),
+      );
+    await this.db
+      .update(escalaRegra)
+      .set({ dataFim: aPartir, ativo: false, updatedAt: new Date() })
+      .where(and(eq(escalaRegra.tenantId, tenantId), eq(escalaRegra.colaboradorId, colaboradorId)));
+    return { ok: true };
   }
 
   // Marca a presença de uma alocação (presente / falta justificada+comprovante /

@@ -552,6 +552,47 @@ export const api = {
     }),
   retornarDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/retornar`, { method: 'POST', body: '{}' }),
+  // Etiquetas de validade (Fase 5, mig 136) — rota /etiquetas-validade (a /etiquetas
+  // é o rótulo de escala, outro módulo).
+  etiquetaTemplate: () => req('/etiquetas-validade/template'),
+  salvarEtiquetaTemplate: (body: Record<string, unknown>) =>
+    req('/etiquetas-validade/template', { method: 'PUT', body: JSON.stringify(body) }),
+  etiquetaFontes: () => req('/etiquetas-validade/fontes'),
+  etiquetasValidade: () => req('/etiquetas-validade'),
+  criarEtiqueta: (body: Record<string, unknown>) =>
+    req('/etiquetas-validade', { method: 'POST', body: JSON.stringify(body) }),
+  lerEtiqueta: (codigo: string) =>
+    req('/etiquetas-validade/ler', { method: 'POST', body: JSON.stringify({ codigo }) }),
+  finalizarEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/finalizar`, { method: 'POST', body: '{}' }),
+  perdaEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/perda`, { method: 'POST', body: '{}' }),
+  // Desligamento + contador (Fase 4, mig 135)
+  contadores: () => req('/contadores'),
+  salvarContador: (body: Record<string, unknown>) =>
+    req('/contadores', { method: 'PUT', body: JSON.stringify(body) }),
+  removerContador: (id: string) => req(`/contadores/${id}`, { method: 'DELETE' }),
+  desligarColaborador: (id: string, body: Record<string, unknown>) =>
+    req(`/colaboradores/${id}/desligar`, { method: 'POST', body: JSON.stringify(body) }),
+  // Pedidos de manutenção (Fase 3, mig 134)
+  manutencaoLista: () => req('/manutencao'),
+  manutencaoCriar: (body: Record<string, unknown>) =>
+    req('/manutencao', { method: 'POST', body: JSON.stringify(body) }),
+  manutencaoDelegar: (id: string, responsavelId: string) =>
+    req(`/manutencao/${id}/delegar`, { method: 'POST', body: JSON.stringify({ responsavelId }) }),
+  manutencaoStatus: (id: string, status: string, motivo?: string) =>
+    req(`/manutencao/${id}/status`, { method: 'POST', body: JSON.stringify({ status, motivo }) }),
+  manutencaoDecisao15d: (id: string, decisao: string) =>
+    req(`/manutencao/${id}/decisao-15d`, { method: 'POST', body: JSON.stringify({ decisao }) }),
+  manutencaoExcluir: (id: string, motivo: string) =>
+    req(`/manutencao/${id}/excluir`, { method: 'POST', body: JSON.stringify({ motivo }) }),
+  // Hub Retirada / Encomendas (Fase 1, mig 132)
+  retiradaPedidos: () => req('/delivery/retirada'),
+  entregarBalcao: (id: string, forma?: string) =>
+    req(`/delivery/pedidos/${id}/entregar`, {
+      method: 'POST',
+      body: JSON.stringify({ forma }),
+    }),
+  avisarProntoDelivery: (id: string) =>
+    req(`/delivery/pedidos/${id}/avisar-pronto`, { method: 'POST', body: '{}' }),
   alterarDelivery: (id: string, body: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/alterar`, { method: 'POST', body: JSON.stringify(body) }),
   reimprimirDelivery: (id: string) =>
@@ -583,10 +624,15 @@ export const api = {
   cardapioWebPuxar: () => req('/integracoes/cardapio-web/puxar', { method: 'POST', body: '{}' }),
   cardapioWebImportarCatalogo: () =>
     req('/integracoes/cardapio-web/importar-catalogo', { method: 'POST', body: '{}' }),
+  cardapioWebExportarCatalogo: () =>
+    req('/integracoes/cardapio-web/exportar-catalogo', { method: 'POST', body: '{}' }),
+  cardapioWebExportarTeste: () =>
+    req('/integracoes/cardapio-web/exportar-teste', { method: 'POST', body: '{}' }),
   // 99Food / DiDi Food — app_id + app_secret + app_shop_id (webhook).
   food99Status: () => req('/integracoes/99food/status'),
   food99Token: () => req('/integracoes/99food/token'),
   food99CardapioTeste: () => req('/integracoes/99food/cardapio-teste', { method: 'POST', body: '{}' }),
+  food99ExportarCatalogo: () => req('/integracoes/99food/exportar-catalogo', { method: 'POST', body: '{}' }),
   food99SalvarCredenciais: (body: Record<string, unknown>) =>
     req('/integracoes/99food/credenciais', { method: 'POST', body: JSON.stringify(body) }),
   food99Puxar: (orderId: string) =>
@@ -596,6 +642,11 @@ export const api = {
   anotaaiSalvarCredenciais: (body: Record<string, unknown>) =>
     req('/integracoes/anotaai/credenciais', { method: 'POST', body: JSON.stringify(body) }),
   anotaaiPuxar: () => req('/integracoes/anotaai/puxar', { method: 'POST', body: '{}' }),
+  anotaaiImportarCatalogo: () => req('/integracoes/anotaai/importar-catalogo', { method: 'POST', body: '{}' }),
+  // Telemetria do frontend (erro no navegador) — público; e envio de log sob demanda.
+  telemetriaCliente: (body: Record<string, unknown>) =>
+    req('/edge/telemetria-cliente', { method: 'POST', body: JSON.stringify(body) }),
+  edgeEnviarLogs: () => req('/edge/enviar-logs', { method: 'POST', body: '{}' }),
   // Revenda / frota (edge appliance)
   revendas: () => req('/revenda'),
   criarRevenda: (nome: string) => req('/revenda', { method: 'POST', body: JSON.stringify({ nome }) }),

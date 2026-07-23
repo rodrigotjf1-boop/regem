@@ -26,7 +26,7 @@ export class Food99Poller {
           const n = await this.food99.reconciliarCancels(ig);
           if (n) this.logger.log(`loja ${ig.appShopId}: ${n} cancelamento(s) reconciliado(s)`);
         } catch (e: any) {
-          this.logger.warn(`loja ${ig.appShopId}: ${e?.message ?? e}`);
+          this.logger.error(`poller 99food loja ${ig.appShopId}: ${e?.message ?? e}`, e?.stack);
         }
       }
     } finally {

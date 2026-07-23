@@ -25,6 +25,7 @@ export interface Permissoes {
   cashback?: boolean;
   // Rotina
   meu_dia?: boolean;
+  manutencao?: boolean; // pedidos de manutenção (mig 134)
   escalas?: boolean;
   checklist?: boolean;
   mural?: boolean;
@@ -95,7 +96,8 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'pedidos', rotulo: 'Pedidos · produção', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'fidelidade', rotulo: 'Fidelidade', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'cashback', rotulo: 'Cashback', grupo: 'Delivery', tipo: 'bool' },
-  { chave: 'meu_dia', rotulo: 'Meu Dia', grupo: 'Rotina', tipo: 'bool' },
+  { chave: 'meu_dia', rotulo: 'Tarefas', grupo: 'Rotina', tipo: 'bool' },
+  { chave: 'manutencao', rotulo: 'Pedidos de manutenção', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'escalas', rotulo: 'Escalas', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'estoque', rotulo: 'Estoque', grupo: 'Rotina', tipo: 'crud' },
   { chave: 'checklist', rotulo: 'Checklist & registros', grupo: 'Rotina', tipo: 'bool' },
@@ -155,7 +157,7 @@ export const PERFIS_PADRAO: {
     permissoes: {
       ...bools([
         'dashboard', 'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade',
-        'cashback', 'meu_dia', 'escalas', 'checklist', 'mural', 'cadastros', 'loja',
+        'cashback', 'meu_dia', 'manutencao', 'escalas', 'checklist', 'mural', 'cadastros', 'loja',
         'formas_pagamento', 'ponto_gerencial', 'producao_kds', 'servidor',
       ]),
       ponto: CRUD_ALL,
@@ -169,7 +171,7 @@ export const PERFIS_PADRAO: {
     permissoes: {
       ...bools([
         'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade', 'cashback',
-        'escalas', 'checklist', 'mural',
+        'escalas', 'checklist', 'mural', 'manutencao',
       ]),
       ponto: { ver: true, criar: false, editar: true, excluir: false },
       estoque: { ver: true, criar: false, editar: true, excluir: false },
@@ -180,7 +182,7 @@ export const PERFIS_PADRAO: {
     nivel: 'execucao',
     loginWeb: false,
     permissoes: {
-      ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'escalas', 'checklist', 'mural']),
+      ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'escalas', 'checklist', 'mural', 'manutencao']),
       ponto: CRUD_NONE,
       estoque: CRUD_NONE,
     },

@@ -21,7 +21,7 @@ type NavItem = {
 };
 
 const items: NavItem[] = [
-  { href: '/meu-dia', label: 'Meu Dia', icon: ListChecks },
+  { href: '/meu-dia', label: 'Tarefas', icon: ListChecks },
   { href: '/escala', label: 'Escala', icon: CalendarDays },
   { href: '/operacao', label: 'Operação', icon: Boxes },
   { href: '/docs', label: 'Docs', icon: FileText },

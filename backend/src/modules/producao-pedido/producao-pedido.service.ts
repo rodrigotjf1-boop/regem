@@ -186,6 +186,7 @@ export class ProducaoPedidoService {
       plataforma?: string | null;
       senhaPlataforma?: string | null;
       setorId?: string | null; // setor do card (ex.: setor do delivery)
+      emitidoDe?: string | null; // ponto de salão que emitiu (cabeçalho cozinha, mig 133)
     },
     itens: ItemProducao[],
   ): Promise<any[]> {
@@ -315,7 +316,10 @@ export class ProducaoPedidoService {
     const cab = ctx.mesa ? `MESA ${ctx.mesa}` : 'BALCAO';
     const l: string[] = ['*** PRODUCAO ***'];
     if (ctx.senha) l.push(`>>> SENHA ${ctx.senha} <<<`);
-    l.push(`${cab}${numero ? ` · #${numero}` : ''}`, linha);
+    l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
+    // Sub-PDV salão (mig 133): cabeçalho de onde o pedido foi emitido.
+    if (ctx.emitidoDe) l.push(`EMITIDO: ${ctx.emitidoDe}`);
+    l.push(linha);
     for (const it of its) {
       l.push(`${Number(it.quantidade)}x ${it.descricao}`);
       if (it.complementosTexto) l.push(`  >> ${it.complementosTexto}`);

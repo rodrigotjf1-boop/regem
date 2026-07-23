@@ -67,8 +67,67 @@ function estilo(linhaBruta) {
   return { align: 0, bold: false, size: 'normal' };
 }
 
+// ---- Código de barras / QR (etiquetas de validade, mig 136) ----
+// Code128 (m=73), code set B: GS k 73 n {B<dados>
+function barcode128(data) {
+  const d = '{B' + String(data);
+  const bytes = [...Buffer.from(ascii(d), 'ascii')];
+  return [GS, 0x48, 0x02, GS, 0x77, 0x02, GS, 0x68, 0x50, GS, 0x6b, 73, bytes.length, ...bytes];
+}
+// EAN-13 (m=67): 12 dígitos (dígito verificador calculado pela impressora).
+function barcodeEan13(data) {
+  const d = String(data).replace(/\D/g, '').slice(0, 12).padStart(12, '0');
+  const bytes = [...Buffer.from(d, 'ascii')];
+  return [GS, 0x48, 0x02, GS, 0x77, 0x03, GS, 0x68, 0x50, GS, 0x6b, 67, bytes.length, ...bytes];
+}
+// QR Code via GS ( k (modelo 2).
+function qrCode(data) {
+  const d = [...Buffer.from(ascii(data), 'ascii')];
+  const len = d.length + 3;
+  const pL = len & 0xff, pH = (len >> 8) & 0xff;
+  const model = [GS, 0x28, 0x6b, 4, 0, 0x31, 0x41, 0x32, 0x00];
+  const size = [GS, 0x28, 0x6b, 3, 0, 0x31, 0x43, 6];
+  const err = [GS, 0x28, 0x6b, 3, 0, 0x31, 0x45, 0x31];
+  const store = [GS, 0x28, 0x6b, pL, pH, 0x31, 0x50, 0x30, ...d];
+  const print = [GS, 0x28, 0x6b, 3, 0, 0x31, 0x51, 0x30];
+  return [...model, ...size, ...err, ...store, ...print];
+}
+
+// Renderiza uma ETIQUETA de validade (texto + código de barras/QR). O backend emite:
+//   '@ETIQUETA' (marcador), '@B<texto>' (negrito), texto puro,
+//   '@BARCODE:code128|ean13:<cod>', '@QR:<payload>'.
+function renderEtiqueta(conteudo, largura) {
+  const cols = colsDe(largura);
+  const out = [];
+  const push = (arr) => out.push(...arr);
+  const texto = (s) => push([...Buffer.from(ascii(s), 'ascii')]);
+  push(init());
+  push(align(1)); // etiqueta centralizada
+  for (const raw of String(conteudo ?? '').split(/\r?\n/)) {
+    if (raw === '@ETIQUETA') continue;
+    if (raw.startsWith('@QR:')) { push(qrCode(raw.slice(4))); push([0x0a]); continue; }
+    if (raw.startsWith('@BARCODE:')) {
+      const [, tipo, cod] = raw.split(':');
+      push(tipo === 'ean13' ? barcodeEan13(cod) : barcode128(cod));
+      push([0x0a]);
+      continue;
+    }
+    const bold = raw.startsWith('@B');
+    const linha = bold ? raw.slice(2) : raw;
+    if (bold) push(boldOn());
+    for (const parte of wrap(linha, cols)) { texto(parte); push([0x0a]); }
+    if (bold) push(boldOff());
+  }
+  push(sizeNormal()); push(boldOff()); push(align(0));
+  push(feed(2));
+  push(cut());
+  return Buffer.from(out);
+}
+
 // Monta o Buffer ESC/POS completo de um ticket a partir do texto do job.
 export function renderEscpos(conteudo, largura = 80) {
+  // Etiqueta de validade: caminho próprio (código de barras/QR).
+  if (String(conteudo ?? '').startsWith('@ETIQUETA')) return renderEtiqueta(conteudo, largura);
   const cols = colsDe(largura);
   const out = [];
   const push = (arr) => out.push(...arr);

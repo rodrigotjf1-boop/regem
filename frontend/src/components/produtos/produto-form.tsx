@@ -142,6 +142,41 @@ export function ProdutoForm({
           </label>
         </div>
 
+        {/* Controle de validade — fonte das etiquetas (RDC 216). */}
+        <div className="rounded-lg border border-border p-3">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input
+              type="checkbox"
+              checked={!!f.controlaValidade}
+              onChange={(e) => set({ controlaValidade: e.target.checked })}
+              className="h-4 w-4 accent-primary"
+            />
+            Controla validade (gera etiqueta)
+          </label>
+          {f.controlaValidade && (
+            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Validade fechado (dias)</Label>
+                <Input
+                  type="number"
+                  value={f.validadeFechadoDias ?? ''}
+                  onChange={(e) => set({ validadeFechadoDias: e.target.value })}
+                  placeholder="ex.: 90"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Validade após aberto (dias)</Label>
+                <Input
+                  type="number"
+                  value={f.validadeAbertoDias ?? ''}
+                  onChange={(e) => set({ validadeAbertoDias: e.target.value })}
+                  placeholder="RDC 216: até 30"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Canais de venda: onde o produto aparece. */}
         <div className="rounded-lg border border-border p-3">
           <p className="mb-2 text-xs font-bold text-muted-foreground">

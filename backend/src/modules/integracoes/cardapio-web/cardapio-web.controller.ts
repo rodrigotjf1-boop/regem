@@ -104,6 +104,22 @@ export class CardapioWebController {
     return this.service.processarWebhook(token, orderId).catch(() => ({ ok: false }));
   }
 
+  // Exporta o cardápio do Regem PRA o Cardápio Web (cria categorias/itens lá).
+  @Post('exportar-catalogo')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  exportarCatalogo(@CurrentUser() user: AuthUser) {
+    return this.service.exportarCatalogo(user.tenantId);
+  }
+
+  // Exporta só 1 item de teste (valida a auth/endpoint sem despejar o cardápio).
+  @Post('exportar-teste')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  exportarTeste(@CurrentUser() user: AuthUser) {
+    return this.service.exportarItemTeste(user.tenantId);
+  }
+
   @Post('desconectar')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('presidente', 'gerente')

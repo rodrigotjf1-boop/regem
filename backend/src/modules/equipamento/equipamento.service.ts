@@ -1,5 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { equipamento } from '../../db/schema';
@@ -51,6 +51,8 @@ export class EquipamentoService {
         padrao: dto.tipo === 'impressora' ? !!dto.padrao : undefined,
         impressoraPadraoId:
           dto.tipo === 'pdv' ? dto.impressoraPadraoId ?? null : undefined,
+        // Sub-PDV salão (mig 133): ponto de lançamento atrelado a um PDV main.
+        pdvMainId: dto.tipo === 'salao' ? dto.pdvMainId ?? null : undefined,
         // KDS — impressão guiada por etapa (mig 129).
         imprimeAoAvancar: dto.tipo === 'kds' ? !!dto.imprimeAoAvancar : undefined,
         imprimeNoStatus:
@@ -155,7 +157,8 @@ export class EquipamentoService {
         and(
           eq(equipamento.token, t),
           eq(equipamento.tenantId, tenantId),
-          eq(equipamento.tipo, 'pdv'),
+          // PDV de balcão OU ponto de salão (sub-PDV, mig 133).
+          inArray(equipamento.tipo, ['pdv', 'salao']),
           eq(equipamento.ativo, true),
         ),
       );
@@ -164,7 +167,7 @@ export class EquipamentoService {
         'Terminal não encontrado ou inativo. Confira o token com o gestor.',
       );
     await this.registrarPing(row.id);
-    return { id: row.id, nome: row.nome, unidadeId: row.unidadeId };
+    return { id: row.id, nome: row.nome, unidadeId: row.unidadeId, tipo: row.tipo, pdvMainId: row.pdvMainId ?? null };
   }
 
   // Resolve o terminal de PDV (ativo, do tenant) e devolve sua unidade — usado pelo
@@ -268,6 +271,7 @@ export class EquipamentoService {
       imprimeAoAvancar: !!r.imprimeAoAvancar,
       imprimeNoStatus: r.imprimeNoStatus ?? 'pronto',
       impressoraDestinoId: r.impressoraDestinoId ?? null,
+      pdvMainId: r.pdvMainId ?? null, // sub-PDV salão (mig 133)
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,
       createdAt: r.createdAt,
