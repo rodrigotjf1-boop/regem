@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { toast } from '@/lib/toast';
 
 type Opt = { value: string; label: string };
 
@@ -82,7 +83,9 @@ export function EntityForm({
         return n;
       });
     } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao salvar');
+      const msg = err instanceof Error ? err.message : 'Erro ao salvar';
+      setErro(msg);
+      toast.error(msg); // toda ação tem feedback, mesmo se o texto ficar fora da tela
     } finally {
       setSaving(false);
     }

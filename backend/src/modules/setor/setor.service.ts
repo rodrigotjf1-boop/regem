@@ -69,15 +69,25 @@ export class SetorService {
     // Guarda: não excluir setor com funções, turnos, etiquetas ou janelas ativas.
     const r: any = await this.db.execute(sql`
       select
-        (select count(*) from funcao where setor_id = ${id} and deleted_at is null)
-      + (select count(*) from turno where setor_id = ${id} and deleted_at is null)
-      + (select count(*) from etiqueta where setor_id = ${id} and deleted_at is null)
-      + (select count(*) from janela_pico where setor_id = ${id} and deleted_at is null)
-        as n
+        (select count(*) from funcao where setor_id = ${id} and deleted_at is null) as funcoes,
+        (select count(*) from turno where setor_id = ${id} and deleted_at is null) as turnos,
+        (select count(*) from etiqueta where setor_id = ${id} and deleted_at is null) as etiquetas,
+        (select count(*) from janela_pico where setor_id = ${id} and deleted_at is null) as janelas
     `);
-    if (Number((r.rows ?? r)[0]?.n ?? 0) > 0) {
+    const c = (r.rows ?? r)[0] ?? {};
+    // Diz EXATAMENTE o que está preso: "remova as funções e turnos" genérico não
+    // ajuda quem não sabe onde procurar.
+    const presos = [
+      [Number(c.funcoes) || 0, 'função', 'funções'],
+      [Number(c.turnos) || 0, 'turno', 'turnos'],
+      [Number(c.etiquetas) || 0, 'etiqueta', 'etiquetas'],
+      [Number(c.janelas) || 0, 'janela de pico', 'janelas de pico'],
+    ]
+      .filter(([n]) => (n as number) > 0)
+      .map(([n, sing, plur]) => `${n} ${n === 1 ? sing : plur}`);
+    if (presos.length) {
       throw new BadRequestException(
-        'Remova antes as funções, turnos, etiquetas e janelas deste setor.',
+        `Este setor ainda tem ${presos.join(' e ')}. Exclua esses itens antes de remover o setor.`,
       );
     }
     const [row] = await this.db

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ArrowLeft, Pencil, Trash2, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { toast } from '@/lib/toast';
 import { EntityForm, type FieldDef } from '@/components/cadastros/entity-form';
 import { type Secao } from '@/components/cadastros/build-secoes';
 
@@ -36,6 +37,7 @@ export function SecaoDetalhe({
 }) {
   const [editId, setEditId] = useState<string | null>(null);
   const [erro, setErro] = useState('');
+  const [excluindo, setExcluindo] = useState<string | null>(null);
   const rows: any[] = sec.rows ?? [];
   const label = sec.rowLabel ?? ((r: any) => r.nome ?? r.id);
   const podeEditar = !!sec.update;
@@ -47,11 +49,19 @@ export function SecaoDetalhe({
       return;
     }
     setErro('');
+    setExcluindo(r.id);
     try {
       await sec.remove(r.id);
       await reload();
+      toast.success(`"${label(r)}" excluído.`);
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao excluir');
+      const msg = e instanceof Error ? e.message : 'Erro ao excluir';
+      setErro(msg);
+      // Toast além do texto: o aviso fica acima da lista e passava despercebido
+      // quando o formulário empurrava a mensagem para fora da tela.
+      toast.error(msg);
+    } finally {
+      setExcluindo(null);
     }
   }
 
@@ -80,6 +90,7 @@ export function SecaoDetalhe({
           onSubmit={async (v) => {
             await sec.submit(v);
             await reload();
+            toast.success('Cadastro salvo.');
           }}
         />
       </Card>
@@ -121,6 +132,7 @@ export function SecaoDetalhe({
                         await sec.update!(r.id, v);
                         setEditId(null);
                         await reload();
+                        toast.success('Alterações salvas.');
                       }}
                     />
                   </div>
@@ -146,9 +158,14 @@ export function SecaoDetalhe({
                           variant="ghost"
                           size="icon"
                           aria-label="Excluir"
+                          disabled={excluindo === r.id}
                           onClick={() => excluir(r)}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          {excluindo === r.id ? (
+                            <span className="text-xs">…</span>
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
                         </Button>
                       )}
                     </div>
