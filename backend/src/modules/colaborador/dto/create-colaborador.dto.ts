@@ -61,4 +61,9 @@ export class CreateColaboradorDto {
   @IsOptional()
   @Matches(/^\d{4,6}$/, { message: 'PIN deve ter de 4 a 6 dígitos' })
   pin?: string;
+
+  // Loja do colaborador. Omitido = a loja em que o gestor está (ou a matriz).
+  @IsOptional()
+  @IsUUID()
+  unidadeId?: string;
 }

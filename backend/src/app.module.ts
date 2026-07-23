@@ -68,6 +68,7 @@ import { SyncModule } from './modules/sync/sync.module';
 import { EdgeFlashSyncModule } from './modules/sync/edge-flash-sync.service';
 import { EdgeModule } from './modules/edge/edge.module';
 import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
+import { UnidadeUnicaInterceptor } from './auth/unidade-unica.interceptor';
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
@@ -152,6 +153,8 @@ import { AuthModule } from './auth/auth.module';
     { provide: APP_INTERCEPTOR, useClass: LicenseInterceptor },
     // Telemetria de erro (Frente A) — só no edge; na nuvem é passthrough.
     { provide: APP_INTERCEPTOR, useClass: TelemetriaInterceptor },
+    // Loja única: desliga o filtro por unidade quando a rede tem só uma.
+    { provide: APP_INTERCEPTOR, useClass: UnidadeUnicaInterceptor },
   ],
 })
 export class AppModule {}

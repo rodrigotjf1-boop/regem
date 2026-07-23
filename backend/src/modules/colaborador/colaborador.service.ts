@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -13,9 +13,11 @@ import {
   colaboradorFuncao,
   funcao,
   perfilAcesso,
+  unidade,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
+import { NIL_UUID } from '../../auth/unidade-atual.decorator';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
 
 // Colunas públicas: nunca expõe senha_hash / pin_hash.
@@ -153,7 +155,47 @@ export class ColaboradorService {
     return row;
   }
 
-  async create(tenantId: string, dto: CreateColaboradorDto, atorCategoria = 'presidente') {
+  // Unidade padrão do tenant (matriz) — sem isto o colaborador nasce com
+  // unidade_id null e SOME da lista, que filtra por loja: parece que o cadastro
+  // não foi salvo (e o usuário cadastra de novo). Mesmo padrão do delivery.
+  private async unidadePadrao(tenantId: string): Promise<string | null> {
+    const r: any = await this.db.execute(sql`
+      select id from unidade
+      where tenant_id = ${tenantId} and deleted_at is null
+      order by (tipo = 'matriz') desc, created_at asc
+      limit 1
+    `);
+    return (r?.rows ?? r)?.[0]?.id ?? null;
+  }
+
+  // Em qual loja o novo colaborador entra: a informada (validada no tenant), a do
+  // gestor que está cadastrando, ou a matriz. Nunca null.
+  private async resolverUnidade(
+    tenantId: string,
+    pedida?: string | null,
+  ): Promise<string | null> {
+    if (pedida && pedida !== NIL_UUID) {
+      const [u] = await this.db
+        .select({ id: unidade.id })
+        .from(unidade)
+        .where(
+          and(
+            eq(unidade.id, pedida),
+            eq(unidade.tenantId, tenantId),
+            isNull(unidade.deletedAt),
+          ),
+        );
+      if (u) return u.id;
+    }
+    return this.unidadePadrao(tenantId);
+  }
+
+  async create(
+    tenantId: string,
+    dto: CreateColaboradorDto,
+    atorCategoria = 'presidente',
+    unidadeAtual?: string | null,
+  ) {
     const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 12) : undefined;
     const email = dto.email?.trim().toLowerCase() || undefined;
     if (email) await this.emailLivre(email);
@@ -219,6 +261,7 @@ export class ColaboradorService {
         nome: dto.nome,
         fotoRef: dto.fotoRef,
         funcaoId: principal,
+        unidadeId: await this.resolverUnidade(tenantId, dto.unidadeId ?? unidadeAtual),
         vinculo: dto.vinculo ?? 'clt',
         jornadaTipo: dto.jornadaTipo ?? 'outro',
         email,

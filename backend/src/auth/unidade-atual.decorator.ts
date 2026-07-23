@@ -18,6 +18,10 @@ export const UnidadeAtual = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext): string | null => {
     const req = ctx.switchToHttp().getRequest();
     const user = req.user as AuthUser | undefined;
+    // Rede com UMA unidade só: filtrar não separa nada e ainda esconde registros
+    // antigos sem unidade. `null` aqui = "todas", que nesse caso é a única loja.
+    // (marcado pelo UnidadeUnicaInterceptor)
+    if (req.unidadeUnica) return null;
     if (user?.unidadeId) return user.unidadeId; // travado na própria unidade
     if (user?.categoria === 'presidente') {
       const h = req.headers['x-unidade-id'];

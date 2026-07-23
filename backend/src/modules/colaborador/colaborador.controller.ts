@@ -24,8 +24,12 @@ export class ColaboradorController {
 
   @Post()
   @Roles('presidente', 'gerente')
-  create(@CurrentUser() user: AuthUser, @Body() dto: CreateColaboradorDto) {
-    return this.service.create(user.tenantId, dto, user.categoria);
+  create(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreateColaboradorDto,
+    @UnidadeAtual() unidadeId: string | null,
+  ) {
+    return this.service.create(user.tenantId, dto, user.categoria, unidadeId);
   }
 
   @Get()
