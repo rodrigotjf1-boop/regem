@@ -29,7 +29,8 @@ function statusLic(l: any): { k: string; label: string; cor: string } {
 export default function DistHome() {
   const router = useRouter();
   const [me, setMe] = useState<any>(null);
-  const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'atualizacoes' | 'auditoria' | 'usuarios'>('frota');
+  const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'atualizacoes' | 'integracoes' | 'auditoria' | 'usuarios'>('frota');
+  const [pedidosInteg, setPedidosInteg] = useState<any[] | null>(null);
   const [frota, setFrota] = useState<any[] | null>(null);
   const [telemetria, setTelemetria] = useState<any[] | null>(null);
   const [licencas, setLicencas] = useState<any[] | null>(null);
@@ -50,6 +51,7 @@ export default function DistHome() {
     distApi.licencas().then(setLicencas).catch(() => {});
     if (perfil === 'diretoria' || perfil === 'tecnico') distApi.telemetria().then(setTelemetria).catch(() => {});
     if (perfil === 'diretoria' || perfil === 'tecnico') distApi.releases().then(setReleases).catch(() => {});
+    if (perfil === 'diretoria' || perfil === 'tecnico') distApi.pedidosIntegracao().then(setPedidosInteg).catch(() => {});
     if (perfil === 'diretoria') distApi.usuarios().then(setUsuarios).catch(() => {});
     if (perfil === 'diretoria') distApi.auditoria().then(setAuditoria).catch(() => {});
   }, []);
@@ -87,6 +89,11 @@ export default function DistHome() {
       setUsuarios(await distApi.usuarios());
     } catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
   }
+  async function resolverInteg(id: string, acao: 'conectado' | 'recusado') {
+    setErro('');
+    try { await distApi.resolverPedidoIntegracao(id, acao); setPedidosInteg(await distApi.pedidosIntegracao()); }
+    catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
+  }
 
   if (!me) return <div className="grid min-h-screen place-items-center bg-slate-950 text-slate-400">Carregando…</div>;
   const podeTelemetria = me.perfil === 'diretoria' || me.perfil === 'tecnico';
@@ -97,6 +104,7 @@ export default function DistHome() {
     ...(podeTelemetria ? [{ k: 'telemetria', t: 'Telemetria' }] : []),
     { k: 'licencas', t: 'Licenças' },
     ...(podeTelemetria ? [{ k: 'atualizacoes', t: 'Atualizações' }] : []),
+    ...(podeTelemetria ? [{ k: 'integracoes', t: `Integrações${(pedidosInteg ?? []).filter((p) => p.status === 'pendente').length ? ` (${(pedidosInteg ?? []).filter((p) => p.status === 'pendente').length})` : ''}` }] : []),
     ...(ehDiretoria ? [{ k: 'auditoria', t: 'Auditoria' }] : []),
     ...(ehDiretoria ? [{ k: 'usuarios', t: 'Usuários' }] : []),
   ];
@@ -258,6 +266,53 @@ export default function DistHome() {
                     </tr>
                   ))}
                   {releases && releases.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-slate-500">Nenhum release publicado (usa o env do EasyPanel).</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {aba === 'integracoes' && podeTelemetria && (
+          <section className="space-y-3">
+            <p className="text-xs text-slate-400">
+              Pedidos de integração das lojas. A loja salva o token do canal (ex.: Anota Aí) e a
+              distribuição finaliza a conexão no Portal de Integração do canal — depois marque como conectado.
+            </p>
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr>
+                  <th className="p-3">Loja</th><th className="p-3">Canal</th><th className="p-3">Token</th>
+                  <th className="p-3">Status</th><th className="p-3">Solicitado</th><th className="p-3">Ação</th>
+                </tr></thead>
+                <tbody>
+                  {(pedidosInteg ?? []).map((p) => (
+                    <tr key={p.integracaoId} className="border-t border-slate-800/70">
+                      <td className="p-3">{p.loja}<div className="text-[11px] text-slate-500">{p.cnpj ?? ''}</div></td>
+                      <td className="p-3 uppercase text-slate-300">{p.canal}</td>
+                      <td className="p-3">
+                        <button
+                          onClick={() => { navigator.clipboard.writeText(p.token ?? ''); }}
+                          title="Copiar token"
+                          className="max-w-[180px] truncate rounded bg-slate-800 px-2 py-1 font-mono text-[11px] text-slate-300 hover:bg-slate-700"
+                        >{p.token ? `${String(p.token).slice(0, 10)}…  copiar` : '—'}</button>
+                      </td>
+                      <td className="p-3">
+                        <span className={`rounded px-1.5 py-0.5 text-[11px] ${p.status === 'pendente' ? 'bg-amber-500/15 text-amber-400' : p.status === 'conectado' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}>{p.status}</span>
+                      </td>
+                      <td className="p-3 text-xs text-slate-500">{quando(p.solicitadoEm)}</td>
+                      <td className="p-3">
+                        {p.status === 'pendente' ? (
+                          <div className="flex gap-1.5">
+                            <button onClick={() => resolverInteg(p.integracaoId, 'conectado')} className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-slate-950 hover:bg-emerald-400">Marcar conectado</button>
+                            <button onClick={() => resolverInteg(p.integracaoId, 'recusado')} className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800">Recusar</button>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-slate-500">{p.conectadoPor ? `por ${p.conectadoPor}` : ''} {p.conectadoEm ? quando(p.conectadoEm) : ''}</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {pedidosInteg && pedidosInteg.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">Nenhum pedido de integração ainda.</td></tr>}
                 </tbody>
               </table>
             </div>

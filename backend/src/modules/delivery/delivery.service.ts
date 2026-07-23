@@ -411,7 +411,11 @@ export class DeliveryService {
   // ===== Gestão (PDV) =====
   // Ativos (qualquer idade) + finalizados das últimas 24h (coluna Finalizado).
   async listar(tenantId: string, atual: string | null = null) {
-    const desde = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Janela de retenção dos finalizados (concluído/cancelado) no quadro — horas
+    // configuráveis (padrão 5h). Só afeta a coluna "Finalizado"; os ativos sempre aparecem.
+    const cfg = await this.getConfig(tenantId, atual);
+    const horas = Math.min(240, Math.max(1, Number(cfg?.finalizadoHoras) || 5));
+    const desde = new Date(Date.now() - horas * 60 * 60 * 1000);
     const rows = await this.db
       .select()
       .from(pedidoExterno)
@@ -746,6 +750,38 @@ export class DeliveryService {
         entregadorNome: null,
         entregadorTelefone: null,
       })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    void this.dispararWebhook(tenantId, row);
+    return row;
+  }
+
+  // "Voltar pedido" na coluna Finalizado: reabre um pedido concluído/cancelado,
+  // trazendo-o de volta uma etapa. Exige senha de gestor (presidente/C&O). A baixa
+  // de estoque feita na conclusão NÃO é estornada (o re-concluir é idempotente).
+  async voltarPedido(tenantId: string, atorId: string | null, id: string, senha?: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status !== 'concluido' && ped.status !== 'cancelado')
+      throw new BadRequestException('Só um pedido finalizado pode voltar.');
+    // Autorização de gestor (mesmo portão do cancelamento).
+    await this.autorizarPorSenha(tenantId, senha);
+    // Destino: cancelado → confirmado; concluído → em rota (entrega) ou pronto (retirada).
+    const destino =
+      ped.status === 'cancelado'
+        ? 'confirmado'
+        : ped.tipo === 'retirada'
+          ? 'pronto'
+          : 'despachado';
+    const patch: any = { status: destino, concluidoEm: null, canceladoEm: null, motivoCancelamento: null };
+    if (destino !== 'despachado') {
+      patch.despachadoEm = null;
+      patch.entregadorId = null;
+      patch.entregadorNome = null;
+      patch.entregadorTelefone = null;
+    }
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set(patch)
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
@@ -1221,6 +1257,7 @@ export class DeliveryService {
         prepDeliveryMin: 45,
         prepDeliveryMax: 55,
         setorId: null,
+        finalizadoHoras: 5,
         pausadoAte: null,
         pausaMotivo: null,
       };
@@ -1322,6 +1359,7 @@ export class DeliveryService {
   private static readonly COLUNAS_PADRAO = {
     chegada: true,
     producao: true,
+    pronto: true,
     rota: true,
     finalizado: true,
   };
@@ -1350,6 +1388,11 @@ export class DeliveryService {
       prepDeliveryMax: numOr(dto.prepDeliveryMax, row?.prepDeliveryMax, 55),
       setorId:
         dto.setorId !== undefined ? dto.setorId || null : row?.setorId ?? null,
+      // Horas na coluna "Finalizado" (1..240, padrão 5).
+      finalizadoHoras: Math.min(
+        240,
+        Math.max(1, numOr(dto.finalizadoHoras, row?.finalizadoHoras, 5)),
+      ),
     };
     // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
     if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;

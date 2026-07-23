@@ -70,6 +70,13 @@ export class DeliveryController {
     return this.service.retornarProducao(user.tenantId, id);
   }
 
+  // "Voltar pedido" (coluna Finalizado) — exige senha de gestor (presidente/C&O).
+  @Post('pedidos/:id/voltar')
+  @UseGuards(JwtAuthGuard)
+  voltar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.voltarPedido(user.tenantId, user.colaboradorId, id, dto?.senha);
+  }
+
   // Hub "Retirada / Encomendas" (Fase 1): só pedidos de retirada/encomenda,
   // agrupados por origem (regem/integrado/marketplace).
   @Get('retirada')

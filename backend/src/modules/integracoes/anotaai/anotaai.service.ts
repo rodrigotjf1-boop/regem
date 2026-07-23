@@ -1,7 +1,8 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
-import { integracao } from '../../../db/schema';
+import { integracao, pedidoExterno, atendimentoChamado } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { agendamentoAnotaAi } from '../../delivery/adapters';
 
@@ -42,6 +43,7 @@ export class AnotaAiService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     @Inject(forwardRef(() => DeliveryService))
     private readonly delivery: DeliveryService,
+    private readonly events: EventEmitter2,
   ) {}
 
   private mapRow(r: any): IntegAnota | null {
@@ -89,15 +91,29 @@ export class AnotaAiService {
 
   // PING - LIST ORDERS → [{ _id, check, from, ... }]. excludeIfood=1 (não traz
   // pedidos de origem iFood — esses vêm pelo conector iFood direto, evita duplicar).
-  async listar(ig: IntegAnota): Promise<any[]> {
-    const res = await this.req(ig, `${EP_LIST}?currentpage=1&excludeIfood=1`, { method: 'GET' }).catch(() => null);
-    if (!res || !res.ok) {
-      const body = res ? await res.text().catch(() => '') : '';
-      this.logger.warn(`listar ${res?.status ?? 'ERR'}: ${body.slice(0, 150)}`);
-      return [];
+  async listar(ig: IntegAnota, paginas = 4): Promise<any[]> {
+    // A LIST paginа (~25/página). Puxamos algumas páginas para reverificar também
+    // os pedidos ATIVOS mais antigos (não só os 25 recentes) — assim, ao reabrir o
+    // backend, o status de todo pedido ainda aberto na Anota Aí é reconciliado.
+    const todos: any[] = [];
+    const vistos = new Set<string>();
+    for (let p = 1; p <= paginas; p++) {
+      const res = await this.req(ig, `${EP_LIST}?currentpage=${p}&excludeIfood=1`, { method: 'GET' }).catch(() => null);
+      if (!res || !res.ok) {
+        const body = res ? await res.text().catch(() => '') : '';
+        this.logger.warn(`listar p${p} ${res?.status ?? 'ERR'}: ${body.slice(0, 150)}`);
+        break;
+      }
+      const j: any = await res.json().catch(() => ({}));
+      const docs: any[] = j?.info?.docs ?? [];
+      if (!docs.length) break; // acabaram as páginas
+      for (const d of docs) {
+        const id = String(d._id ?? d.id ?? '');
+        if (id && !vistos.has(id)) { vistos.add(id); todos.push(d); }
+      }
+      if (docs.length < 25) break; // última página (menos que o tamanho cheio)
     }
-    const j: any = await res.json().catch(() => ({}));
-    return j?.info?.docs ?? [];
+    return todos;
   }
 
   // ===== Status back (kanban → Anota Aí) — rotas confirmadas na doc. =====
@@ -149,8 +165,9 @@ export class AnotaAiService {
       try {
         // 1) Ingere se for NOVO. Aceita só quem está EM ANÁLISE (check 0) ou
         //    agendado (-2) — senão o accept dá 400 (pedido já avançado).
+        let raw: any = null;
         if (!seenSet.has(orderId)) {
-          const raw = await this.pedido(ig, orderId);
+          raw = await this.pedido(ig, orderId);
           if (raw) {
             seenSet.add(orderId); // marca ANTES de ingerir (evita re-GET/dup nos próximos ciclos)
             await this.delivery
@@ -163,11 +180,18 @@ export class AnotaAiService {
             n++;
           }
         }
-        // 2) Reflete a mudança de status vinda DA Anota Aí (bidirecional; vale p/ já
-        //    ingeridos). check: 2 pronto · 3 finalizado · 4/5 cancelado/negado.
-        if (check === 4 || check === 5) await this.delivery.refletirStatusExterno(tenantId, CANAL, orderId, 'cancelado');
-        else if (check === 3) await this.delivery.refletirStatusExterno(tenantId, CANAL, orderId, 'concluido');
-        else if (check === 2) await this.delivery.refletirStatusExterno(tenantId, CANAL, orderId, 'pronto');
+        // 2) Reflete o status vindo DA Anota Aí (bidirecional; vale p/ já ingeridos).
+        //    A Anota Aí só expõe o `check` numérico (a LIST não traz status textual) e
+        //    NÃO tem "em rota": 1 produção · 2 pronto · 3 finalizado · 4 cancelado ·
+        //    5 negado · 6 = CLIENTE PEDIU CANCELAMENTO (precisa da loja aprovar → sino).
+        let alvo: 'pronto' | 'concluido' | 'cancelado' | null = null;
+        if (check === 6) {
+          // Não auto-cancela: abre um chamado no sino p/ a loja aceitar/recusar.
+          await this.abrirChamadoCancelamento(tenantId, unidadeId, orderId).catch(() => {});
+        } else if (check === 4 || check === 5) alvo = 'cancelado';
+        else if (check === 3) alvo = 'concluido';
+        else if (check === 2) alvo = 'pronto';
+        if (alvo) await this.delivery.refletirStatusExterno(tenantId, CANAL, orderId, alvo);
       } catch (e: any) {
         this.logger.warn(`pedido ${orderId}: ${e?.message ?? e}`);
       }
@@ -182,6 +206,51 @@ export class AnotaAiService {
     return n;
   }
 
+  // Cliente pediu cancelamento na Anota Aí (check 6): abre um chamado no SINO
+  // (atendimento tipo 'cancelamento') com o telefone de quem pediu, para a loja
+  // aceitar (cancela de fato + status-back) ou recusar. Idempotente por pedido.
+  private async abrirChamadoCancelamento(tenantId: string, unidadeId: string | null, orderId: string) {
+    const [ped] = await this.db
+      .select({
+        id: pedidoExterno.id,
+        numero: pedidoExterno.numero,
+        clienteNome: pedidoExterno.clienteNome,
+        clienteTelefone: pedidoExterno.clienteTelefone,
+        status: pedidoExterno.status,
+      })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.canal, CANAL), eq(pedidoExterno.externalId, orderId)));
+    if (!ped || ped.status === 'cancelado' || ped.status === 'concluido') return;
+    // Já existe um chamado aberto para este pedido? Não duplica a cada poll.
+    const [ex] = await this.db
+      .select({ id: atendimentoChamado.id })
+      .from(atendimentoChamado)
+      .where(
+        and(
+          eq(atendimentoChamado.tenantId, tenantId),
+          eq(atendimentoChamado.pedidoId, ped.id),
+          eq(atendimentoChamado.tipo, 'cancelamento'),
+          eq(atendimentoChamado.status, 'aberto'),
+        ),
+      );
+    if (ex) return;
+    const [row] = await this.db
+      .insert(atendimentoChamado)
+      .values({
+        tenantId,
+        unidadeId: unidadeId ?? null,
+        tipo: 'cancelamento',
+        cliente: ped.clienteNome ?? null,
+        telefone: ped.clienteTelefone ?? null,
+        pedidoNumero: ped.numero != null ? String(ped.numero) : null,
+        pedidoId: ped.id,
+        mensagem: 'Cliente pediu cancelamento na Anota Aí',
+      })
+      .returning();
+    this.events.emit('atendimento.novo', { tenantId, chamado: row });
+    this.logger.log(`chamado de cancelamento (Anota Aí) aberto p/ pedido #${ped.numero ?? '?'}`);
+  }
+
   // Puxa agora (botão de teste).
   async puxarAgora(tenantId: string): Promise<{ ingeridos: number }> {
     return { ingeridos: await this.sincronizar(tenantId) };
@@ -193,12 +262,27 @@ export class AnotaAiService {
     unidadeId: string | null,
     token: string,
     lojaId: string | null,
+    solicitanteId?: string | null,
   ): Promise<{ ok: boolean }> {
     const [existente] = await this.db
       .select()
       .from(integracao)
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
     const tokenNovo = token && token.trim() ? token.trim() : undefined; // vazio mantém
+    // Um token NOVO gera um "pedido de integração": a distribuição finaliza a conexão
+    // no Portal de Integração da Anota Aí. Fica no config da integração (a distribuição
+    // lê cross-tenant). Não recria se já está pendente.
+    const cfgAtual: any = existente?.config ?? {};
+    const jaPendente = cfgAtual?.pedidoIntegracao?.status === 'pendente';
+    const criarPedido = !!tokenNovo && !jaPendente;
+    const pedido = criarPedido
+      ? {
+          status: 'pendente',
+          solicitadoEm: new Date().toISOString(),
+          solicitadoPorId: solicitanteId ?? null,
+        }
+      : cfgAtual.pedidoIntegracao;
+    const config = { ...cfgAtual, ...(pedido ? { pedidoIntegracao: pedido } : {}) };
     if (existente) {
       await this.db
         .update(integracao)
@@ -207,6 +291,7 @@ export class AnotaAiService {
           ativo: true,
           ...(unidadeId ? { unidadeId } : {}),
           ...(tokenNovo ? { token: tokenNovo } : {}),
+          config,
           updatedAt: new Date(),
         })
         .where(eq(integracao.id, existente.id));
@@ -218,10 +303,45 @@ export class AnotaAiService {
         ativo: true,
         merchantId: lojaId,
         token: tokenNovo ?? null,
-        config: {},
+        config,
       });
     }
+    // Alerta à distribuição (e-mail p/ diretoria + técnico via webhook) na 1ª solicitação.
+    if (criarPedido) void this.alertarPedidoIntegracao(tenantId, tokenNovo as string);
     return { ok: true };
+  }
+
+  // Avisa a distribuição de um novo pedido de integração da Anota Aí. Reaproveita o
+  // DIST_ALERT_WEBHOOK (n8n): manda a loja, o token e os e-mails da diretoria+técnico
+  // p/ o webhook disparar o e-mail. Best-effort — nunca quebra o salvamento.
+  private async alertarPedidoIntegracao(tenantId: string, token: string) {
+    try {
+      const hook = (process.env.DIST_ALERT_WEBHOOK ?? '').trim();
+      if (!hook) return;
+      const emp: any = await this.db.execute(
+        sql`select nome from empresa where id = ${tenantId} limit 1`,
+      );
+      const loja = (emp?.rows ?? emp)?.[0]?.nome ?? 'Loja';
+      const dst: any = await this.db.execute(
+        sql`select email from usuario_distribuicao where perfil in ('diretoria','tecnico') and ativo = true`,
+      );
+      const destinatarios = (dst?.rows ?? dst).map((x: any) => x.email).filter(Boolean);
+      await fetch(hook, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          evento: 'pedido_integracao',
+          canal: CANAL,
+          loja,
+          tenantId,
+          token,
+          destinatarios,
+          em: new Date().toISOString(),
+        }),
+      }).catch(() => {});
+    } catch {
+      /* nunca quebra o salvamento por causa do alerta */
+    }
   }
 
   async status(tenantId: string) {

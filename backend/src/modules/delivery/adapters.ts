@@ -272,6 +272,22 @@ export function agendamentoAnotaAi(raw: any): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// Mapeia um status EXTERNO (string livre, PT/EN, de qualquer plataforma) para o
+// estágio do fluxo do Regem. Lenient por palavra-chave — robusto a valores que a
+// doc não documenta. Retorna null quando é "novo/confirmado/em produção" (o pedido
+// segue o fluxo normal de ingestão) ou quando não reconhece.
+export function mapStatusExterno(
+  valor: unknown,
+): 'pronto' | 'despachado' | 'concluido' | 'cancelado' | null {
+  const s = String(valor ?? '').toLowerCase().trim();
+  if (!s) return null;
+  if (/cancel|reject|negad|denied|recus|declin/.test(s)) return 'cancelado';
+  if (/deliver(ed)?|conclu|finish|finaliz|complet|entreg|done/.test(s)) return 'concluido';
+  if (/rota|route|dispatch|transit|saiu|out.?for|shipping|a.?caminho|em.?entrega/.test(s)) return 'despachado';
+  if (/ready|pronto|prepared/.test(s)) return 'pronto';
+  return null; // pending | confirmed | production | preparo → fluxo normal
+}
+
 export function adaptar(canal: string, raw: any): PedidoNormalizado {
   if (canal === 'ifood') return adaptarIfood(raw);
   if (canal === 'anotaai') return adaptarAnotaAi(raw);

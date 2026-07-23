@@ -144,7 +144,7 @@ export function PedidoDetalhe({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
-      <Card className="w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+      <Card className="my-6 max-h-[90vh] w-full max-w-2xl overflow-y-auto p-5 sm:p-6" onClick={(e) => e.stopPropagation()}>
         {/* Cabeçalho */}
         <div className="flex items-center gap-2">
           <h3 className="font-display text-base font-bold">{p.displayId ?? 'Pedido'}</h3>

@@ -17,6 +17,13 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hora = (d?: string) =>
   d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+// Rótulo da forma de pagamento a-pagar: dinheiro sempre vira "Dinheiro".
+const formaLabel = (f?: string | null) => {
+  const s = String(f ?? '').trim();
+  if (!s) return '';
+  if (/dinheiro|cash|money|especie|espécie/i.test(s)) return 'Dinheiro';
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
 // Contador HH:MM:SS a partir de ms restantes (null quando estourou).
 const countdown = (ms: number) => {
   if (ms <= 0) return null;
@@ -51,23 +58,25 @@ const CANAL_ESTILO: Record<string, { bg: string; fg: string }> = {
 // Colunas do quadro. `status` = quais estados do pedido caem na coluna.
 const COLUNAS = [
   { key: 'chegada', titulo: 'Em análise', dica: 'aguardando aceite', cor: 'var(--info)', status: ['novo'] },
-  { key: 'producao', titulo: 'Produção', dica: 'preparando', cor: 'var(--warn)', status: ['confirmado', 'pronto'] },
+  { key: 'producao', titulo: 'Produção', dica: 'preparando', cor: 'var(--warn)', status: ['confirmado'] },
+  { key: 'pronto', titulo: 'Pronto', dica: 'pronto p/ sair/retirar', cor: 'var(--ok)', status: ['pronto'] },
   { key: 'rota', titulo: 'Em rota', dica: 'saiu para entrega', cor: 'var(--primary)', status: ['despachado'] },
-  { key: 'finalizado', titulo: 'Finalizar/pronto', dica: 'pronto p/ retirar · concluído', cor: 'var(--muted-foreground)', status: ['concluido', 'cancelado'] },
+  { key: 'finalizado', titulo: 'Finalizado', dica: 'entregue · concluído', cor: 'var(--muted-foreground)', status: ['concluido', 'cancelado'] },
 ] as const;
 
-const STATUS: Record<string, { label: string; cor: string }> = {
-  novo: { label: 'Novo', cor: 'bg-info/10 text-info' },
-  confirmado: { label: 'Em produção', cor: 'bg-warn/10 text-warn' },
-  pronto: { label: 'Pronto', cor: 'bg-ok/10 text-ok' },
-  despachado: { label: 'Em rota', cor: 'bg-primary/10 text-primary' },
-  concluido: { label: 'Concluído', cor: 'bg-secondary text-muted-foreground' },
-  cancelado: { label: 'Cancelado', cor: 'bg-destructive/10 text-destructive' },
+// Status com cores VIVAS (badge do card do kanban).
+const STATUS_VIVO: Record<string, { label: string; cls: string }> = {
+  novo: { label: 'Novo', cls: 'bg-sky-500 text-white' },
+  confirmado: { label: 'Em produção', cls: 'bg-amber-500 text-white' },
+  pronto: { label: 'Pronto', cls: 'bg-emerald-500 text-white' },
+  despachado: { label: 'Em rota', cls: 'bg-indigo-500 text-white' },
+  concluido: { label: 'Concluído', cls: 'bg-emerald-600 text-white' },
+  cancelado: { label: 'Cancelado', cls: 'bg-red-500 text-white' },
 };
 const AVANCAR: Record<string, string> = {
   confirmado: 'Marcar pronto',
   pronto: 'Despachar',
-  despachado: 'Concluir',
+  despachado: 'Finalizar',
 };
 // Label do botão de avanço por tipo: retirada não despacha — de "pronto" vai
 // direto p/ "Entregue" (conclui + baixa estoque).
@@ -93,7 +102,7 @@ export default function DeliveryPage() {
   const [cat, setCat] = useState<string | null>(null);
   const isGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
   const [pedidos, setPedidos] = useState<any[] | null>(null);
-  const [cfg, setCfg] = useState<any>({ ativo: false, autoAceitar: false, colunas: { chegada: true, producao: true, rota: true, finalizado: true } });
+  const [cfg, setCfg] = useState<any>({ ativo: false, autoAceitar: false, finalizadoHoras: 5, colunas: { chegada: true, producao: true, pronto: true, rota: true, finalizado: true } });
   const [caixa, setCaixa] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [filtros, setFiltros] = useState<Record<string, Filtro | null>>({});
@@ -104,6 +113,7 @@ export default function DeliveryPage() {
   const [tipoFiltro, setTipoFiltro] = useState<'todos' | 'entrega' | 'retirada'>('todos');
   const [novoPedido, setNovoPedido] = useState(false);
   const [pausarOpen, setPausarOpen] = useState(false);
+  const [colunasOpen, setColunasOpen] = useState(false);
   const [agora, setAgora] = useState(() => Date.now());
   // Alerta sonoro de pedido novo (o navegador exige um clique antes de tocar áudio).
   const [somAtivo, setSomAtivo] = useState(false);
@@ -247,6 +257,14 @@ export default function DeliveryPage() {
     acao(api.retornarDelivery(p.id), 'Pedido voltou para a produção.');
   }
 
+  // "Voltar pedido" (coluna Finalizado): reabre uma etapa. Exige senha de gestor.
+  function voltar(p: any) {
+    const senha = window.prompt('Reabrir este pedido finalizado exige senha de gestor (presidente/C&O):');
+    if (senha == null) return; // cancelou
+    if (!senha.trim()) return toast.error('Informe a senha de autorização.');
+    acao(api.voltarDelivery(p.id, senha), 'Pedido reaberto.');
+  }
+
   // Aplica o filtro da coluna a um pedido.
   function passaFiltro(p: any, f: Filtro | null) {
     if (!f || !f.valor.trim()) return true;
@@ -260,20 +278,21 @@ export default function DeliveryPage() {
   }
 
   const colunasVisiveis = useMemo(
-    () => COLUNAS.filter((c) => (cfg.colunas ? cfg.colunas[c.key] !== false : true)),
-    [cfg.colunas],
+    () =>
+      COLUNAS.filter((c) => {
+        // Com "aceitar automaticamente" ligado, não há etapa de análise: some a coluna.
+        if (c.key === 'chegada' && cfg.autoAceitar) return false;
+        return cfg.colunas ? cfg.colunas[c.key] !== false : true;
+      }),
+    [cfg.colunas, cfg.autoAceitar],
   );
 
   const porColuna = useMemo(() => {
     const map: Record<string, any[]> = {};
     for (const col of COLUNAS) {
       map[col.key] = (pedidos ?? [])
-        .filter((p) =>
-          // Retirada "pronto" vai pra "Finalizar/pronto"; delivery "pronto" fica em Produção.
-          p.status === 'pronto'
-            ? col.key === (p.tipo === 'retirada' ? 'finalizado' : 'producao')
-            : (col.status as readonly string[]).includes(p.status),
-        )
+        // Cada pedido cai na coluna cujo `status` casa com o dele (Pronto tem coluna própria).
+        .filter((p) => (col.status as readonly string[]).includes(p.status))
         .filter((p) => tipoFiltro === 'todos' || p.tipo === tipoFiltro)
         .filter((p) => passaFiltro(p, filtros[col.key] ?? null));
     }
@@ -295,7 +314,7 @@ export default function DeliveryPage() {
   }, [novosPendentes, somAtivo]);
 
   return (
-    <Shell eyebrow="Delivery · central de entregas" title="Delivery">
+    <Shell eyebrow="Delivery · central de entregas" eyebrowTone="ink">
       <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
@@ -410,10 +429,14 @@ export default function DeliveryPage() {
                 )}
               </div>
             )}
-            <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => router.push('/delivery/configuracoes')} title="Configurações do delivery">⚙️</Button>
+            <Button type="button" variant="outline" size="sm" className="h-8 px-2.5 text-sm" onClick={() => setColunasOpen(true)} title="Colunas do quadro de entregas">⚙️</Button>
           </div>
           </div>
         </Card>
+
+        {colunasOpen && (
+          <ColunasModal cfg={cfg} onToggle={toggleCfg} pode={isGestor} onClose={() => setColunasOpen(false)} />
+        )}
 
         {!pedidos ? (
           <p className="text-sm text-muted-foreground">Carregando…</p>
@@ -485,6 +508,7 @@ export default function DeliveryPage() {
                         onAceitar={() => acao(api.aceitarDelivery(p.id), 'Pedido aceito e enviado à produção.')}
                         onAvancar={() => avancar(p)}
                         onRetornar={() => retornar(p)}
+                        onVoltar={() => voltar(p)}
                         onNf={() => acao(api.nfDelivery(p.id), 'NF emitida.')}
                       />
                     ))}
@@ -743,6 +767,7 @@ function PedidoCard({
   onAceitar,
   onAvancar,
   onRetornar,
+  onVoltar,
   onNf,
 }: {
   p: any;
@@ -753,28 +778,23 @@ function PedidoCard({
   onAceitar: () => void;
   onAvancar: () => void;
   onRetornar: () => void;
+  onVoltar: () => void;
   onNf: () => void;
 }) {
   // Cor do badge do canal: cor salva na integração > cor padrão da marca > cinza.
   const bgCanal = corCanal ?? CANAL_ESTILO[p.canal]?.bg;
   const fgCanal = corCanal ? '#FFFFFF' : CANAL_ESTILO[p.canal]?.fg ?? '#FFFFFF';
-  const s = STATUS[p.status] ?? { label: p.status, cor: '' };
+  const sv = STATUS_VIVO[p.status] ?? { label: p.status, cls: 'bg-muted text-foreground' };
   const finalizado = p.status === 'concluido' || p.status === 'cancelado';
   const cancelado = p.status === 'cancelado';
-  const enderecoFmt = p.enderecoRua
-    ? `${p.enderecoRua}${p.enderecoNumero ? `, ${p.enderecoNumero}` : ''}${p.enderecoBairro ? ` · ${p.enderecoBairro}` : ''}`
-    : p.endereco;
   // Ações não devem abrir o detalhe.
   const stop = (fn: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); fn(); };
-  // Contador "prepare em até" (só enquanto em análise/produção).
+  // Contador decrescente "prepare em até" (só enquanto em análise/produção/pronto).
   const prepMax = p.tipo === 'retirada' ? cfg?.prepBalcaoMax ?? 25 : cfg?.prepDeliveryMax ?? 55;
   const emPreparo = ['novo', 'confirmado', 'pronto'].includes(p.status);
   const restanteMs = new Date(p.criadoEm).getTime() + prepMax * 60000 - agora;
   const cd = emPreparo ? countdown(restanteMs) : null;
   const atrasado = emPreparo && restanteMs <= 0;
-  const mapa = enderecoFmt
-    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${enderecoFmt} ${p.enderecoBairro ?? ''}`)}`
-    : null;
   return (
     <div
       role="button"
@@ -788,97 +808,76 @@ function PedidoCard({
           ⚠️ Falha no aceite automático — revise e aceite manualmente
         </p>
       )}
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
-        <span className={`font-semibold ${cancelado ? 'line-through opacity-70' : ''}`}>{p.displayId ?? 'Pedido'}</span>
-        <span className={`rounded px-1.5 py-0.5 text-[11px] ${s.cor}`}>{s.label}</span>
-        {p.alterado && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">ALTERADO</span>}
-        {bgCanal ? (
-          <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: bgCanal, color: fgCanal }}>
-            {CANAL_LABEL[p.canal] ?? p.canal}
-          </span>
-        ) : p.canal === 'cardapio' ? (
-          <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary">Cardápio</span>
-        ) : (
-          <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
-        )}
-        <span className="ml-auto font-mono text-[11px] text-muted-foreground">{hora(p.criadoEm)}</span>
-      </div>
-
-      {/* Contador de preparo */}
-      {emPreparo && (
-        <div className={`mt-1.5 rounded px-2 py-1 text-center text-xs font-bold ${atrasado ? 'bg-destructive/10 text-destructive' : 'bg-info/10 text-info'}`}>
-          {atrasado ? 'Atrasado — priorizar' : `Prepare em até ${cd}`}
-        </div>
-      )}
-
-      {/* Pagamento */}
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
-        {p.pago ? (
-          <span className="rounded bg-ok/10 px-1.5 py-0.5 font-bold text-ok">Pago</span>
-        ) : (
-          <span className="rounded bg-warn/10 px-1.5 py-0.5 font-bold text-warn">Paga na entrega</span>
-        )}
-        {p.formaPagamento && <span className="capitalize text-muted-foreground">{p.formaPagamento}</span>}
-        {p.trocoPara != null && Number(p.trocoPara) > 0 && (
-          <span className="text-muted-foreground">troco p/ {brl(Number(p.trocoPara))}</span>
-        )}
-        {Number(p.taxaEntrega) > 0 && <span className="text-muted-foreground">· taxa {brl(Number(p.taxaEntrega))}</span>}
-        <span className="ml-auto font-mono text-sm font-bold text-foreground">{brl(Number(p.total))}</span>
-      </div>
-
-      {/* Cliente + endereço */}
-      <div className="mt-1.5 flex items-start gap-1.5">
-        {p.numero != null && (
-          <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-secondary text-[10px] font-bold text-muted-foreground">{p.numero}</span>
-        )}
-        <div className={`min-w-0 flex-1 text-xs text-muted-foreground ${cancelado ? 'line-through' : ''}`}>
-          <span className="text-sm font-bold text-foreground">{p.clienteNome ?? 'Cliente'}</span>
-          {p.clientePedidosCount > 0 && (
-            <span
-              title={p.clientePedidosCount === 1 ? 'Primeiro pedido deste cliente' : 'Total de pedidos deste cliente'}
-              className={`ml-1.5 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 align-middle text-[10px] font-bold ${
-                p.clientePedidosCount === 1 ? 'bg-emerald-500 text-white' : 'bg-primary/10 text-primary'
-              }`}
-            >
-              🛍 {p.clientePedidosCount}
-            </span>
+      {/* Cabeçalho: #num · plataforma · modo · #displayId  |  countdown · status vivo */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <span className={`font-mono text-sm font-bold ${cancelado ? 'line-through opacity-70' : ''}`}>#{p.numero ?? '—'}</span>
+          {bgCanal ? (
+            <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: bgCanal, color: fgCanal }}>{CANAL_LABEL[p.canal] ?? p.canal}</span>
+          ) : p.canal === 'cardapio' ? (
+            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary">Cardápio</span>
+          ) : (
+            <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
           )}
-          {p.clienteTelefone ? <span className="ml-1">· {p.clienteTelefone}</span> : null}
-          {enderecoFmt ? <span className="block">{enderecoFmt}{p.enderecoReferencia ? ` (${p.enderecoReferencia})` : ''}</span> : null}
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">{p.tipo === 'retirada' ? '🏪 Retirada' : '🛵 Delivery'}</span>
+          {p.displayId && <span className="font-mono text-[11px] text-muted-foreground">#{p.displayId}</span>}
+          {p.alterado && <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-bold text-warn">ALTERADO</span>}
         </div>
-        {mapa && (
-          <a
-            href={mapa}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            title="Abrir no mapa"
-            className="mt-0.5 shrink-0 rounded-md bg-primary/10 px-1.5 py-1 text-primary hover:bg-primary/20"
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {cd && <span className={`font-mono text-[11px] font-bold ${atrasado ? 'text-destructive' : 'text-muted-foreground'}`}>{atrasado ? '⏱ atrasado' : `⏱ ${cd}`}</span>}
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>
+        </div>
+      </div>
+
+      {/* Cliente + contador de pedidos (1º pedido = círculo verde) */}
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className={`truncate text-sm font-bold ${cancelado ? 'line-through' : ''}`}>{p.clienteNome ?? 'Cliente'}</span>
+        {p.clientePedidosCount > 0 && (
+          <span
+            title={p.clientePedidosCount === 1 ? 'Primeiro pedido deste cliente' : `${p.clientePedidosCount} pedidos deste cliente`}
+            className={`inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+              p.clientePedidosCount === 1 ? 'bg-emerald-500 text-white' : 'bg-primary/10 text-primary'
+            }`}
           >
-            📍
-          </a>
+            {p.clientePedidosCount === 1 ? '1º' : p.clientePedidosCount}
+          </span>
         )}
       </div>
-      {p.entregadorNome && (
-        <div className="mt-0.5 text-xs font-medium">
-          🛵 {p.entregadorNome}{p.entregadorTelefone ? ` · 📞 ${p.entregadorTelefone}` : ''}
-        </div>
-      )}
-      {p.agendamento && <div className="mt-0.5 text-xs text-info">agendado p/ {hora(p.agendamento)}</div>}
+      {p.clienteTelefone && <p className="text-xs text-muted-foreground">{p.clienteTelefone}</p>}
 
-      {/* Itens */}
-      <div className="mt-1.5 space-y-0.5 border-t border-border pt-1.5">
-        {(p.itens ?? []).map((it: any, k: number) => (
-          <div key={k} className={`text-xs ${cancelado ? 'line-through opacity-70' : ''}`}>
-            <span className="font-medium">{Number(it.quantidade)}× {it.descricao}</span>
-            {it.observacao && <span className="text-muted-foreground"> · {it.observacao}</span>}
-          </div>
-        ))}
+      {/* Total [troco]  ·  forma de pagamento (direita) */}
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-1 text-xs">
+        <span>
+          <span className="font-mono text-sm font-bold">{brl(Number(p.total))}</span>
+          {p.trocoPara != null && Number(p.trocoPara) > 0 && <span className="ml-1.5 text-muted-foreground">troco p/ {brl(Number(p.trocoPara))}</span>}
+        </span>
+        <span className="flex items-center gap-1.5">
+          {p.pago ? (
+            <span className="rounded-full bg-ok/15 px-1.5 py-0.5 font-bold text-ok">Pago online</span>
+          ) : (
+            <>
+              <span className="rounded-full bg-warn/15 px-1.5 py-0.5 font-bold text-warn">A pagar</span>
+              {p.formaPagamento && <span className="text-muted-foreground">{formaLabel(p.formaPagamento)}</span>}
+            </>
+          )}
+        </span>
       </div>
+
+      {p.entregadorNome && <p className="mt-1 text-[11px] font-medium">🛵 {p.entregadorNome}</p>}
+      {p.agendamento && <p className="mt-0.5 text-[11px] text-info">agendado p/ {hora(p.agendamento)}</p>}
 
       {cancelado && p.motivoCancelamento && (
         <p className="mt-1 text-[11px] text-destructive">Cancelado — {p.motivoCancelamento}</p>
+      )}
+
+      {/* Finalizado: reabrir (voltar uma etapa) — exige senha de gestor. */}
+      {finalizado && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <Button type="button" size="sm" variant="ghost" onClick={stop(onVoltar)}>↩ Voltar pedido</Button>
+          {p.comandaId && (
+            <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={stop(onNf)} title="Emitir nota fiscal">NF</Button>
+          )}
+        </div>
       )}
 
       {/* Ações */}
@@ -891,13 +890,60 @@ function PedidoCard({
             <Button type="button" size="sm" variant="outline" onClick={stop(onAvancar)}>{labelAvancar(p)}</Button>
           )}
           {p.status === 'despachado' && (
-            <Button type="button" size="sm" variant="ghost" onClick={stop(onRetornar)}>↩ Retornar à produção</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={stop(onRetornar)}>↩ Retornar</Button>
           )}
           {p.comandaId && p.status !== 'novo' && (
             <Button type="button" size="sm" variant="ghost" className="ml-auto" onClick={stop(onNf)} title="Emitir nota fiscal">NF</Button>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---- Modal (toast) das colunas do quadro + tempo do finalizado ----
+function ColunasModal({ cfg, onToggle, pode, onClose }: { cfg: any; onToggle: (patch: any) => void; pode: boolean; onClose: () => void }) {
+  const finalOn = cfg.colunas ? cfg.colunas.finalizado !== false : true;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 sm:items-center sm:p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-t-2xl bg-background p-4 shadow-xl sm:rounded-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-base font-bold">Colunas do quadro de entregas</h3>
+          <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground">✕</button>
+        </div>
+        <div className="flex flex-col gap-2">
+          {COLUNAS.map((c) => (
+            <label key={c.key} className={`flex items-center gap-2 text-sm ${pode ? '' : 'opacity-60'}`}>
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-primary"
+                disabled={!pode}
+                checked={cfg.colunas ? cfg.colunas[c.key] !== false : true}
+                onChange={(e) => onToggle({ colunas: { ...(cfg.colunas ?? {}), [c.key]: e.target.checked } })}
+              />
+              {c.titulo}
+            </label>
+          ))}
+        </div>
+        {finalOn && (
+          <label className={`mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3 text-sm ${pode ? '' : 'opacity-60'}`}>
+            <span className="font-medium">Manter finalizados no quadro por</span>
+            <input
+              type="number"
+              min={1}
+              max={240}
+              disabled={!pode}
+              value={cfg.finalizadoHoras ?? 5}
+              onChange={(e) => onToggle({ finalizadoHoras: Number(e.target.value) || 5 })}
+              className="h-8 w-16 rounded-md border border-input bg-card px-2 text-sm"
+            />
+            <span>horas</span>
+          </label>
+        )}
+        <div className="mt-4 flex justify-end">
+          <Button type="button" size="sm" onClick={onClose}>Fechar</Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -114,8 +114,247 @@ export class WhatsappService {
     return { ok: true };
   }
 
+  // Diagnóstico da conexão com o Evolution — mostra se as variáveis estão setadas,
+  // se o servidor respondeu e LISTA as instâncias existentes (com nome + estado),
+  // para o gestor conferir sem abrir EasyPanel/n8n.
+  async diagnostico(tenantId: string) {
+    const url = (process.env.EVOLUTION_API_URL ?? '').replace(/\/+$/, '');
+    const key = process.env.EVOLUTION_API_KEY ?? '';
+    const out: any = {
+      urlSet: !!url,
+      keySet: !!key,
+      url: url ? url.replace(/^https?:\/\//, '') : null, // sem esquema (não vaza credencial)
+      evolutionOk: false,
+      instancias: [] as any[],
+      instanciaVinculada: null as string | null,
+      erro: null as string | null,
+    };
+    try {
+      const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
+      out.instanciaVinculada = cfg?.evolutionInstancia ?? null;
+    } catch {
+      /* segue */
+    }
+    if (!url || !key) {
+      out.erro = 'Faltam EVOLUTION_API_URL e/ou EVOLUTION_API_KEY no servidor (regem-api → Environment).';
+      return out;
+    }
+    try {
+      const res = await this.req('/instance/fetchInstances', { method: 'GET' });
+      if (!res.ok) {
+        out.erro = `O Evolution respondeu ${res.status} — confira a URL e a chave (a global AUTHENTICATION_API_KEY).`;
+        return out;
+      }
+      const j: any = await res.json().catch(() => []);
+      const arr: any[] = Array.isArray(j) ? j : j?.instances ?? j?.data ?? [];
+      out.evolutionOk = true;
+      out.instancias = arr.map((x: any) => {
+        const inst = x.instance ?? x;
+        return {
+          nome: inst.instanceName ?? inst.name ?? inst.instanceId ?? '?',
+          estado: inst.status ?? inst.state ?? inst.connectionStatus ?? '?',
+        };
+      });
+    } catch (e: any) {
+      out.erro = `Não consegui falar com o Evolution: ${e?.message ?? e}`;
+    }
+    return out;
+  }
+
+  // Vincula uma instância JÁ EXISTENTE do Evolution (ex.: "Mister.ia", conectada
+  // no manager do EasyPanel) sem criar uma nova — só grava o nome. Depois disso o
+  // status/inbox passam a ler ESSA instância (com os chats já existentes).
+  async vincular(tenantId: string, nome: string) {
+    const instancia = String(nome ?? '').trim();
+    if (!instancia) throw new BadRequestException('Informe o nome da instância do Evolution.');
+    const [cfg] = await this.db
+      .select()
+      .from(cardapioConfig)
+      .where(and(eq(cardapioConfig.tenantId, tenantId)));
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    await this.db
+      .update(cardapioConfig)
+      .set({ evolutionInstancia: instancia, updatedAt: new Date() })
+      .where(eq(cardapioConfig.id, cfg.id));
+    // Confere o estado da instância informada (valida o nome + a conexão).
+    const res = await this.req(`/instance/connectionState/${instancia}`, { method: 'GET' }).catch(() => null);
+    const j: any = res && res.ok ? await res.json().catch(() => ({})) : {};
+    const estado = j?.instance?.state ?? j?.state ?? 'desconhecido';
+    return { ok: true, instancia, conectado: estado === 'open', estado };
+  }
+
+  // ===== Inbox: caixa de entrada do WhatsApp sobre a mesma instância Evolution =====
+  // O WhatsApp Web NÃO pode ser embutido (iframe bloqueado); então lemos/enviamos
+  // mensagens pela API da Evolution e montamos a nossa própria tela de conversas.
+  // OBS: os formatos de resposta variam por versão da Evolution — parse defensivo
+  // + log de diagnóstico para ajustar contra a instância real.
+
+  // Pausa/retoma o robô SÓ para um número (o humano assume a conversa). O resolver
+  // do bot consulta e devolve `pausado` p/ o n8n pular a resposta automática.
+  async pausarConversa(tenantId: string, numero: string, pausar: boolean) {
+    const n = this.soNumero(numero);
+    if (!n) throw new BadRequestException('Número inválido.');
+    const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    const atual: string[] = Array.isArray(cfg.roboPausados) ? (cfg.roboPausados as any) : [];
+    const set = new Set(atual.map((x) => String(x).replace(/\D/g, '')));
+    if (pausar) set.add(n);
+    else set.delete(n);
+    await this.db
+      .update(cardapioConfig)
+      .set({ roboPausados: Array.from(set) as any, updatedAt: new Date() })
+      .where(eq(cardapioConfig.id, cfg.id));
+    return { ok: true, numero: n, pausado: pausar };
+  }
+
+  private pausadosSet(cfg: any): Set<string> {
+    const arr: string[] = Array.isArray(cfg?.roboPausados) ? cfg.roboPausados : [];
+    return new Set(arr.map((x) => this.soNumero(x)));
+  }
+
+  // Normaliza qualquer forma de "número" numa chave única: aceita telefone puro,
+  // jid completo (`5521...@s.whatsapp.net`) e jid com sufixo de aparelho
+  // (`5521...:12@s.whatsapp.net`) — sem isso o `:12` viraria dígito e não casava.
+  private soNumero(v: any): string {
+    return String(v ?? '')
+      .split('@')[0]
+      .split(':')[0]
+      .replace(/\D/g, '');
+  }
+
+  // Texto de uma mensagem (cobre os tipos mais comuns).
+  private textoMsg(m: any): string {
+    const msg = m?.message ?? {};
+    return (
+      msg.conversation ??
+      msg.extendedTextMessage?.text ??
+      msg.imageMessage?.caption ??
+      msg.videoMessage?.caption ??
+      msg.buttonsResponseMessage?.selectedDisplayText ??
+      msg.listResponseMessage?.title ??
+      m.body ??
+      m.text ??
+      (msg.imageMessage ? '📷 Imagem' : msg.audioMessage ? '🎤 Áudio' : msg.documentMessage ? '📄 Documento' : msg.stickerMessage ? '🏷️ Figurinha' : Object.keys(msg).length ? '[mídia]' : '')
+    );
+  }
+
+  // Lista as conversas. Um MESMO contato pode ter 2 chats (o do telefone
+  // `@s.whatsapp.net` com as mensagens que EU enviei, e o do `@lid` com as que o
+  // cliente enviou). Juntamos os dois pelo TELEFONE real — que vem no `remoteJidAlt`
+  // das mensagens do LID. Assim a conversa fica única e o número certo.
+  async listarConversas(tenantId: string) {
+    const { cfg, instancia } = await this.instanciaDe(tenantId);
+    const pausados = this.pausadosSet(cfg);
+    const res = await this.req(`/chat/findChats/${instancia}`, { method: 'POST', body: '{}' }).catch(() => null);
+    if (!res || !res.ok) {
+      this.logger.warn(`findChats ${res?.status ?? 'ERR'}`);
+      return [];
+    }
+    const j: any = await res.json().catch(() => []);
+    const arr: any[] = Array.isArray(j) ? j : j?.chats ?? j?.records ?? j?.data ?? [];
+
+    const grupos = new Map<string, any>();
+    for (const c of arr) {
+      const jid = String(c.remoteJid ?? c.id ?? c.jid ?? '');
+      if (!jid || jid.endsWith('@g.us') || jid.includes('broadcast') || jid.includes('status@')) continue;
+      const last = c.lastMessage ?? c.last_message ?? {};
+      // Telefone real: se for @lid, pega o remoteJidAlt (telefone) da última mensagem.
+      let phoneJid = jid;
+      if (jid.endsWith('@lid')) {
+        const alt = last?.key?.remoteJidAlt;
+        if (alt && String(alt).endsWith('@s.whatsapp.net')) phoneJid = String(alt);
+      }
+      const telefone = phoneJid.replace(/@.*/, '').replace(/\D/g, '');
+      const chave = telefone || jid; // sem telefone resolvido, agrupa pelo próprio jid
+      const g = grupos.get(chave) ?? {
+        telefone,
+        jids: new Set<string>(),
+        nome: null as string | null,
+        foto: null as string | null,
+        naoLidas: 0,
+        ultimaMensagem: null as string | null,
+        timestamp: 0,
+        pausada: !!telefone && pausados.has(telefone),
+      };
+      g.jids.add(jid);
+      const nomeC = c.pushName ?? c.name ?? c.contact?.pushName ?? c.verifiedName ?? null;
+      if (nomeC && !g.nome) g.nome = nomeC; // prefere o chat que trouxer o nome (LID)
+      if (!g.foto && c.profilePicUrl) g.foto = c.profilePicUrl;
+      g.naoLidas += Number(c.unreadCount ?? c.unreadMessages ?? c.unread ?? 0) || 0;
+      const ts =
+        Number(last?.messageTimestamp ?? last?.timestamp ?? 0) ||
+        (c.updatedAt ? Math.floor(new Date(c.updatedAt).getTime() / 1000) : 0);
+      const texto = this.textoMsg(last);
+      if (ts >= g.timestamp) {
+        g.timestamp = ts;
+        if (texto) g.ultimaMensagem = texto;
+      }
+      grupos.set(chave, g);
+    }
+    return Array.from(grupos.values())
+      .map((g) => ({ ...g, jids: Array.from(g.jids) }))
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  }
+
+  // Mensagens da conversa — busca em TODOS os jids do contato (telefone + LID) e
+  // junta em ordem cronológica. `jids` vem separado por vírgula.
+  async mensagens(tenantId: string, jids: string) {
+    const lista = String(jids ?? '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (!lista.length) return [];
+    const { instancia } = await this.instanciaDe(tenantId);
+    const todas: any[] = [];
+    const vistos = new Set<string>();
+    for (const jid of lista) {
+      const res = await this.req(`/chat/findMessages/${instancia}`, {
+        method: 'POST',
+        body: JSON.stringify({ where: { key: { remoteJid: jid } }, limit: 60 }),
+      }).catch(() => null);
+      if (!res || !res.ok) {
+        this.logger.warn(`findMessages ${res?.status ?? 'ERR'}`);
+        continue;
+      }
+      const j: any = await res.json().catch(() => []);
+      const arr: any[] = Array.isArray(j) ? j : j?.messages?.records ?? j?.records ?? j?.messages ?? j?.data ?? [];
+      for (const m of arr) {
+        const id = m.key?.id ?? m.id ?? String(m.messageTimestamp ?? '');
+        if (vistos.has(id)) continue;
+        vistos.add(id);
+        const texto = this.textoMsg(m);
+        if (!texto) continue;
+        todas.push({
+          id,
+          fromMe: !!(m.key?.fromMe ?? m.fromMe),
+          texto,
+          timestamp: Number(m.messageTimestamp ?? m.timestamp ?? 0) || 0,
+        });
+      }
+    }
+    return todas.sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  // Envia uma mensagem de texto (o humano assume a conversa do robô).
+  async enviar(tenantId: string, numero: string, texto: string) {
+    const t = String(texto ?? '').trim();
+    if (!t) throw new BadRequestException('Mensagem vazia.');
+    const { instancia } = await this.instanciaDe(tenantId);
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    const res = await this.req(`/message/sendText/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({ number, text: t }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true };
+  }
+
   // ===== Resolver multi-tenant (o n8n chama por instância; protegido por secret) =====
-  async resolver(instancia: string, secret: string) {
+  async resolver(instancia: string, secret: string, numero?: string) {
     const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
     if (!esperado || secret !== esperado) throw new BadRequestException('Não autorizado.');
     const [cfg] = await this.db
@@ -123,10 +362,15 @@ export class WhatsappService {
       .from(cardapioConfig)
       .where(eq(cardapioConfig.evolutionInstancia, instancia));
     if (!cfg) throw new NotFoundException('Instância não vinculada a uma loja.');
+    // Robô pausado para ESTE número? (o n8n manda &numero=... e pula a resposta se true)
+    // Aceita telefone puro OU o jid inteiro — o n8n não precisa acertar o formato.
+    const n = this.soNumero(numero);
+    const pausado = n ? this.pausadosSet(cfg).has(n) : false;
     return {
       tenantId: cfg.tenantId,
       cardapioToken: cfg.token,
       ativo: !!cfg.roboAtivo && !!cfg.ativo,
+      pausado, // true = humano assumiu esta conversa; n8n NÃO deve responder
       roboSaudacao: cfg.roboSaudacao ?? null,
       roboPrompt: cfg.roboPrompt ?? null,
       nome: cfg.nomePublico ?? null,

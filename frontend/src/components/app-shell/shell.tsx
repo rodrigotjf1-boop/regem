@@ -24,6 +24,7 @@ import {
   type LucideIcon,
   Megaphone,
   Menu,
+  MessageCircle,
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
@@ -76,6 +77,7 @@ const NAV: NavNode[] = [
     label: 'Delivery', icon: Bike,
     children: [
       { href: '/delivery', label: 'Painel', icon: Bike, perm: 'delivery' },
+      { href: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, perm: 'delivery' },
       { href: '/produtos', label: 'Gestão do cardápio', icon: Store, perm: 'delivery' },
       { href: '/pedidos', label: 'Pedidos · produção', icon: Flame, perm: 'pedidos' },
       { href: '/delivery/configuracoes', label: 'Configurações', icon: Settings, perm: 'delivery' },
@@ -142,11 +144,13 @@ function temPerm(perm: string | undefined, perms: any, isPres: boolean): boolean
 export function Shell({
   title,
   eyebrow,
+  eyebrowTone = 'primary',
   actions,
   children,
 }: {
-  title: string;
+  title?: string;
   eyebrow?: string;
+  eyebrowTone?: 'primary' | 'ink'; // 'ink' = cor do texto (preto), não o dourado
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -370,22 +374,24 @@ export function Shell({
       <div className="shell-content min-w-0">
         <LicencaAviso />
         <ServidorOfflineAviso />
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-5 py-3.5">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-5 py-2">
           {prefs.side === 'left' && burger}
           <div>
             {eyebrow && (
-              <p className="font-display text-[10px] font-bold uppercase tracking-[.18em] text-primary">
+              <p className={`font-display text-[10px] font-bold uppercase tracking-[.18em] ${eyebrowTone === 'ink' ? 'text-foreground' : 'text-primary'}`}>
                 {eyebrow}
               </p>
             )}
-            <h1 className="font-display text-xl font-extrabold tracking-tight">
-              {title}
-            </h1>
+            {title && (
+              <h1 className="font-display text-xl font-extrabold tracking-tight">
+                {title}
+              </h1>
+            )}
           </div>
-          <div className="ml-auto flex items-center gap-2.5">
+          <div className="ml-auto flex items-center gap-2">
             <UnidadeSeletor />
-            <ModoOperacao />
-            <span className="hidden items-center gap-2 rounded-md border border-border bg-card px-3 py-2 font-mono text-xs text-muted-foreground sm:inline-flex">
+            <ModoOperacao className="!py-1 !px-2" />
+            <span className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:inline-flex">
               <Clock className="h-3.5 w-3.5" /> {rel}
             </span>
             {actions}

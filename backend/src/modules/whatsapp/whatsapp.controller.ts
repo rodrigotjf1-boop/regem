@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -34,10 +34,61 @@ export class WhatsappController {
     return this.service.desconectar(user.tenantId);
   }
 
+  // Diagnóstico: vars setadas? Evolution respondeu? lista as instâncias.
+  @Get('whatsapp/diagnostico')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  diagnostico(@CurrentUser() user: AuthUser) {
+    return this.service.diagnostico(user.tenantId);
+  }
+
+  // Vincula uma instância existente do Evolution (sem criar/parear de novo).
+  @Post('whatsapp/vincular')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  vincular(@CurrentUser() user: AuthUser, @Body() dto: { instancia?: string }) {
+    return this.service.vincular(user.tenantId, dto?.instancia ?? '');
+  }
+
+  // ===== Inbox (caixa de entrada sobre a instância Evolution) =====
+  @Get('whatsapp/conversas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  conversas(@CurrentUser() user: AuthUser) {
+    return this.service.listarConversas(user.tenantId);
+  }
+
+  @Get('whatsapp/mensagens')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  mensagens(@CurrentUser() user: AuthUser, @Query('jids') jids: string, @Query('jid') jid: string) {
+    return this.service.mensagens(user.tenantId, jids || jid || '');
+  }
+
+  @Post('whatsapp/enviar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  enviar(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; jid?: string; texto?: string }) {
+    const numero = dto?.numero ?? (dto?.jid ?? '').split('@')[0];
+    return this.service.enviar(user.tenantId, numero ?? '', dto?.texto ?? '');
+  }
+
+  // Pausa/retoma o robô só nesta conversa (o humano assume).
+  @Post('whatsapp/pausar-conversa')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  pausarConversa(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; pausar?: boolean }) {
+    return this.service.pausarConversa(user.tenantId, dto?.numero ?? '', dto?.pausar !== false);
+  }
+
   // Resolver do bot multi-tenant: o n8n manda instância + secret e recebe a loja.
   @Get('publico/bot/resolver')
   @Throttle({ default: { ttl: 60000, limit: 120 } })
-  resolver(@Query('instancia') instancia: string, @Query('secret') secret: string) {
-    return this.service.resolver(instancia ?? '', secret ?? '');
+  resolver(
+    @Query('instancia') instancia: string,
+    @Query('secret') secret: string,
+    @Query('numero') numero?: string,
+  ) {
+    return this.service.resolver(instancia ?? '', secret ?? '', numero ?? '');
   }
 }
