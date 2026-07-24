@@ -61,6 +61,20 @@ console.log('  + node_modules (npm ci --omit=dev — baixa as deps uma vez, aqui
 execSync('npm ci --omit=dev --no-audit --no-fund', { cwd: out, stdio: 'inherit' });
 console.log('  + node_modules (embutido)');
 
+// O public/ do app pode trazer .md de documentação (ex.: integracoes/README) que
+// o build-web copia sem o filtro. Docs não vão para a loja — remove do bundle web
+// (fora de node_modules) antes do guard, para não falhar por um README inofensivo.
+function limparMd(dir) {
+  for (const nome of readdirSync(dir)) {
+    if (nome === 'node_modules') continue;
+    const p = join(dir, nome);
+    if (statSync(p).isDirectory()) limparMd(p);
+    else if (/\.md$/i.test(nome)) rmSync(p, { force: true });
+  }
+}
+const webDir = join(out, 'web');
+if (existsSync(webDir)) limparMd(webDir);
+
 // GUARD (Fase 1): falha o build se algum arquivo que VAZA LÓGICA escapou para o
 // pacote — nossos .md/.map/.d.ts, docs/, mockups/ ou CLAUDE.md. node_modules é
 // ignorado (READMEs de libs públicas). Impede regressão em updates futuros.
