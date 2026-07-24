@@ -8,7 +8,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Send, Bot, Play, FileText } from 'lucide-react';
+import { ArrowLeft, Send, Bot, Play, FileText, Image as ImageIcon, ImageOff } from 'lucide-react';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const hora = (ts: number) =>
@@ -28,6 +28,58 @@ const mesmoNumero = (a?: string, b?: string) => {
   if (!x || !y) return false;
   return x === y || x.endsWith(y) || y.endsWith(x) || x.slice(-8) === y.slice(-8);
 };
+
+// Miniatura de mídia no chat (igual ao WhatsApp): por padrão não baixa — mostra
+// um cartão clicável; com "carregar fotos" ligado, baixa sozinha. Cache por id
+// evita rebaixar ao rolar. `jid` = primeiro jid da conversa; a mídia é buscada
+// sob demanda pelo backend (Evolution getBase64FromMediaMessage).
+const midiaCache = new Map<string, string>();
+function MidiaMsg({ m, jid, auto }: { m: any; jid: string; auto: boolean }) {
+  const [src, setSrc] = useState<string | null>(midiaCache.get(m.id) ?? null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState(false);
+
+  const carregar = useCallback(async () => {
+    if (src || carregando) return;
+    setCarregando(true);
+    try {
+      const r: any = await api.whatsappMidia(m.midiaKey?.id ?? m.id, jid, !!m.fromMe);
+      if (r?.dataUrl) {
+        midiaCache.set(m.id, r.dataUrl);
+        setSrc(r.dataUrl);
+      } else setErro(true);
+    } catch {
+      setErro(true);
+    } finally {
+      setCarregando(false);
+    }
+  }, [src, carregando, m, jid]);
+
+  useEffect(() => {
+    if (auto && m.midia === 'imagem' && !src) carregar();
+  }, [auto, m.midia, src, carregar]);
+
+  // Vídeo/áudio/documento: não tem miniatura — mostra só o rótulo (texto já vem).
+  if (m.midia !== 'imagem' && m.midia !== 'figurinha') {
+    return <span className="whitespace-pre-wrap break-words">{m.texto || '[mídia]'}</span>;
+  }
+  if (src) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt="imagem" className="max-h-52 max-w-full rounded-md" />;
+  }
+  return (
+    <button
+      type="button"
+      onClick={carregar}
+      disabled={carregando}
+      className="flex items-center gap-2 rounded-md border border-current/20 px-3 py-2 text-xs"
+      title="Carregar imagem"
+    >
+      <FileText className="h-4 w-4" />
+      {erro ? 'Não consegui carregar' : carregando ? 'Carregando…' : `📷 ${m.midia === 'figurinha' ? 'Figurinha' : 'Toque para ver a imagem'}`}
+    </button>
+  );
+}
 
 function Avatar({ nome, telefone, foto, tam = 40 }: { nome?: string; telefone?: string; foto?: string; tam?: number }) {
   const [erro, setErro] = useState(false);
@@ -54,6 +106,19 @@ export default function WhatsappPage() {
   const [pausando, setPausando] = useState(false);
   const [enviandoCard, setEnviandoCard] = useState(false);
   const [escolherCard, setEscolherCard] = useState<any[] | null>(null);
+  // "Carregar fotos" (economia de dados, igual ao WhatsApp). Desligado por
+  // padrão: fotos só baixam ao clicar. A escolha fica guardada neste navegador.
+  const [autoFotos, setAutoFotos] = useState(false);
+  useEffect(() => {
+    setAutoFotos(localStorage.getItem('regem_wa_fotos') === '1');
+  }, []);
+  function toggleFotos() {
+    setAutoFotos((v) => {
+      const n = !v;
+      localStorage.setItem('regem_wa_fotos', n ? '1' : '0');
+      return n;
+    });
+  }
   const [carregou, setCarregou] = useState(false);
   const [alvo, setAlvo] = useState<string | null>(null); // ?numero= vindo do sino
   const fimRef = useRef<HTMLDivElement>(null);
@@ -270,6 +335,17 @@ export default function WhatsappPage() {
                   <Button
                     type="button"
                     size="sm"
+                    variant={autoFotos ? 'default' : 'outline'}
+                    className="shrink-0"
+                    onClick={toggleFotos}
+                    title={autoFotos ? 'Fotos carregando automaticamente' : 'Carregar fotos automaticamente'}
+                    aria-pressed={autoFotos}
+                  >
+                    {autoFotos ? <ImageIcon className="h-4 w-4" /> : <ImageOff className="h-4 w-4" />} Fotos
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
                     variant="outline"
                     className="shrink-0"
                     disabled={enviandoCard}
@@ -298,7 +374,11 @@ export default function WhatsappPage() {
                   {msgs.map((m) => (
                     <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[75%] rounded-lg px-2.5 py-1.5 text-sm ${m.fromMe ? 'bg-emerald-500 text-white' : 'border border-border bg-card'}`}>
-                        <span className="whitespace-pre-wrap break-words">{m.texto}</span>
+                        {m.midia ? (
+                          <MidiaMsg m={m} jid={sel.jids?.[0] ?? ''} auto={autoFotos} />
+                        ) : (
+                          <span className="whitespace-pre-wrap break-words">{m.texto}</span>
+                        )}
                         <span className={`ml-2 align-bottom text-[10px] ${m.fromMe ? 'text-white/70' : 'text-muted-foreground'}`}>{hora(m.timestamp)}</span>
                       </div>
                     </div>

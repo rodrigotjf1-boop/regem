@@ -25,23 +25,45 @@ const CINZA = '#6B7A88';
 const brl = (v: any) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-// Baixa uma imagem e devolve o buffer (ou null se falhar). Timeout curto para não
-// travar a geração por causa de uma foto lenta.
-async function baixarImagem(url?: string | null): Promise<Buffer | null> {
-  if (!url) return null;
+// Comprime a foto SEM dependência: usa o transform de imagem do próprio Supabase
+// (redimensiona/reencoda pela URL). Uma miniatura de ~160px pesa uma fração do
+// original — e é o que a foto ocupa no PDF (48pt). Só funciona nas URLs públicas
+// do Supabase Storage; para as demais, mantém a original.
+function urlMiniatura(url: string, lado: number): string {
+  const m = url.match(/^(https?:\/\/[^/]+)\/storage\/v1\/object\/public\/(.+)$/i);
+  if (!m) return url;
+  return `${m[1]}/storage/v1/render/image/public/${m[2]}?width=${lado}&height=${lado}&resize=cover&quality=60`;
+}
+
+// Teto de segurança: se o transform do Supabase não estiver ativo (cai na foto
+// original), não embutimos imagem gigante — melhor o item sem miniatura do que um
+// PDF de vários MB. Sem isto, um cardápio grande viraria um anexo pesado.
+const MAX_FOTO_BYTES = 400 * 1024;
+
+async function baixaBuf(url: string): Promise<{ buf: Buffer; ct: string } | null> {
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 6000);
     const res = await fetch(url, { signal: ctrl.signal });
     clearTimeout(t);
     if (!res.ok) return null;
-    const ct = res.headers.get('content-type') ?? '';
-    if (!/image\/(png|jpe?g|webp)/i.test(ct)) return null; // pdfkit só PNG/JPEG
-    if (/webp/i.test(ct)) return null; // pdfkit não lê webp
-    return Buffer.from(await res.arrayBuffer());
+    return { buf: Buffer.from(await res.arrayBuffer()), ct: res.headers.get('content-type') ?? '' };
   } catch {
     return null;
   }
+}
+
+// Baixa uma imagem já pequena (miniatura). Só PNG/JPEG (pdfkit não lê webp).
+async function baixarImagem(url?: string | null, lado = 160): Promise<Buffer | null> {
+  if (!url) return null;
+  // 1ª tentativa: versão redimensionada pelo Supabase.
+  let r = await baixaBuf(urlMiniatura(url, lado));
+  // Fallback: original (só se couber no teto).
+  if (!r) r = await baixaBuf(url);
+  if (!r) return null;
+  if (/webp/i.test(r.ct) || !/image\/(png|jpe?g)/i.test(r.ct)) return null;
+  if (r.buf.length > MAX_FOTO_BYTES) return null;
+  return r.buf;
 }
 
 function resumo(txt?: string | null, max = 90): string {
@@ -55,7 +77,7 @@ export async function gerarCardapioPdf(
 ): Promise<Buffer> {
   // Pré-baixa as imagens em paralelo (logo + fotos) — mais rápido que baixar
   // durante o desenho, e falha graciosa (item sem foto só não mostra a miniatura).
-  const logoBuf = await baixarImagem(loja.logoUrl);
+  const logoBuf = await baixarImagem(loja.logoUrl, 200);
   const fotos = new Map<string, Buffer | null>();
   await Promise.all(
     categorias.flatMap((c) =>

@@ -253,6 +253,17 @@ export class WhatsappService {
       .replace(/\D/g, '');
   }
 
+  // Tipo de mídia da mensagem (para o inbox mostrar miniatura). null = texto puro.
+  private tipoMidia(m: any): 'imagem' | 'video' | 'audio' | 'documento' | 'figurinha' | null {
+    const msg = m?.message ?? {};
+    if (msg.imageMessage) return 'imagem';
+    if (msg.stickerMessage) return 'figurinha';
+    if (msg.videoMessage) return 'video';
+    if (msg.audioMessage) return 'audio';
+    if (msg.documentMessage) return 'documento';
+    return null;
+  }
+
   // Texto de uma mensagem (cobre os tipos mais comuns).
   private textoMsg(m: any): string {
     const msg = m?.message ?? {};
@@ -354,11 +365,18 @@ export class WhatsappService {
         if (vistos.has(id)) continue;
         vistos.add(id);
         const texto = this.textoMsg(m);
-        if (!texto) continue;
+        const midia = this.tipoMidia(m);
+        if (!texto && !midia) continue;
         todas.push({
           id,
           fromMe: !!(m.key?.fromMe ?? m.fromMe),
           texto,
+          // Miniatura sob demanda no inbox: `midiaKey` reconstrói o pedido de
+          // base64 ao Evolution só quando o usuário decide carregar a foto.
+          midia,
+          midiaKey: midia
+            ? { id: m.key?.id ?? id, remoteJid: m.key?.remoteJid ?? jid, fromMe: !!(m.key?.fromMe ?? m.fromMe) }
+            : null,
           timestamp: Number(m.messageTimestamp ?? m.timestamp ?? 0) || 0,
         });
       }
@@ -382,6 +400,32 @@ export class WhatsappService {
       throw new BadRequestException(`Falha ao enviar (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
     }
     return { ok: true };
+  }
+
+  // Baixa a mídia de UMA mensagem sob demanda (miniatura no inbox). Usa o mesmo
+  // endpoint que o robô usa para áudio (getBase64FromMediaMessage). Devolve um
+  // data URL pronto para <img src>. Só quando o usuário decide carregar a foto —
+  // por padrão o inbox não baixa (economia de dados, igual ao WhatsApp).
+  async midia(tenantId: string, id: string, jid?: string, fromMe?: boolean) {
+    if (!id) throw new BadRequestException('Mídia inválida.');
+    const { instancia } = await this.instanciaDe(tenantId);
+    const body = JSON.stringify({
+      message: { key: { id, remoteJid: jid || undefined, fromMe: !!fromMe } },
+      convertToMp4: false,
+    });
+    const res = await this.req(`/chat/getBase64FromMediaMessage/${instancia}`, {
+      method: 'POST',
+      body,
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const t = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao baixar a mídia (${res?.status ?? 'sem resposta'}): ${t.slice(0, 120)}`);
+    }
+    const j: any = await res.json().catch(() => ({}));
+    const base64: string = j?.base64 ?? j?.media ?? '';
+    if (!base64) throw new BadRequestException('Mídia sem conteúdo.');
+    const mimetype: string = j?.mimetype ?? j?.mediaType ?? 'image/jpeg';
+    return { dataUrl: base64.startsWith('data:') ? base64 : `data:${mimetype};base64,${base64}` };
   }
 
   // ===== Enviar cardápio em PDF (botão do inbox) =====
