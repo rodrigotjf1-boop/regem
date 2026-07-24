@@ -321,7 +321,7 @@ export class ColaboradorService {
   // Edição geral (Cadastros): dados básicos + funções (N:N) + PIN opcional.
   async update(tenantId: string, id: string, dto: CreateColaboradorDto) {
     const [atual] = await this.db
-      .select({ id: colaborador.id })
+      .select({ id: colaborador.id, perfilAcessoId: colaborador.perfilAcessoId })
       .from(colaborador)
       .where(
         and(
@@ -368,6 +368,27 @@ export class ColaboradorService {
     }
     if (dto.senha) patch.senhaHash = await bcrypt.hash(dto.senha, 12);
     if (dto.pin) patch.pinHash = await bcrypt.hash(dto.pin, 12);
+
+    // O perfil de acesso segue a FUNÇÃO. Sem isto, editar a função de alguém
+    // deixava o perfil preso no antigo: uma gerente com função Gerente mas perfil
+    // "Supervisor" entrava como supervisão e não via Cadastros. Re-alinha ao
+    // perfil padrão da categoria da função quando os dois estão descasados.
+    if (principal) {
+      const [f] = await this.db
+        .select({ categoria: funcao.categoria })
+        .from(funcao)
+        .where(eq(funcao.id, principal));
+      const [pAtual] = atual.perfilAcessoId
+        ? await this.db
+            .select({ nivel: perfilAcesso.nivel })
+            .from(perfilAcesso)
+            .where(eq(perfilAcesso.id, atual.perfilAcessoId))
+        : [undefined as any];
+      if (f?.categoria && pAtual?.nivel !== f.categoria) {
+        const novo = await this.resolverPerfil(tenantId, undefined, principal);
+        if (novo) patch.perfilAcessoId = novo;
+      }
+    }
 
     const [row] = await this.db
       .update(colaborador)
