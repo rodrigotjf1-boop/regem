@@ -88,6 +88,25 @@ const CSS = `
 .lg .key.fn{font-family:var(--font-display);font-size:11px;letter-spacing:.08em;color:#5F7590}
 .lg .pin-terminal{display:flex;justify-content:center;gap:8px;margin-top:18px;font-family:var(--font-mono);font-size:10.5px;color:#5F7590}
 .lg .pin-terminal b{color:#2EBD85}
+/* ===== 2º passo: modal de login sobre o Regem desfocado ===== */
+.lg .lock{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px}
+.lg .lock-bg{position:absolute;inset:0;background:radial-gradient(1200px 800px at 25% 15%,#16294A 0%,#0D1A2B 62%);overflow:hidden}
+.lg .lock-bg::before{content:"";position:absolute;left:58%;top:48%;width:900px;height:900px;transform:translate(-50%,-50%);border:1px solid rgba(232,168,69,.10);border-radius:50%}
+.lg .lock-bg::after{content:"";position:absolute;left:58%;top:48%;width:1360px;height:1360px;transform:translate(-50%,-50%);border:1px solid rgba(159,178,200,.06);border-radius:50%}
+.lg .lock-glass{position:absolute;inset:0;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);background:rgba(9,18,31,.55)}
+.lg .lock-card{position:relative;z-index:2;width:100%;max-width:430px;background:rgba(18,35,58,.94);border:1px solid #26456A;border-radius:22px;padding:34px 30px 30px;box-shadow:0 34px 90px rgba(0,0,0,.55);animation:lockIn .5s cubic-bezier(.16,.84,.28,1) both}
+@keyframes lockIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
+.lg .lock-logo{display:flex;justify-content:center;margin-bottom:14px}
+.lg .lock-logo .logo-mark{width:56px;height:56px;font-size:24px;box-shadow:0 0 0 6px rgba(232,168,69,.10)}
+.lg .lock-empresa{font-family:var(--font-display);font-weight:800;font-size:clamp(22px,4vw,30px);line-height:1.1;letter-spacing:-.02em;text-align:center;color:#F2F5F9}
+.lg .lock-uni{display:block;text-align:center;font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#E8A845;margin-top:6px}
+.lg .lock-welcome{text-align:center;color:#9FB2C8;font-size:14px;margin:8px 0 22px}
+.lg .lock-unidades{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.lg .lock-uni-btn{padding:12px 14px;border-radius:12px;background:#12233A;border:1.5px solid #1A3050;color:#DCE7EE;font-size:14px;font-weight:600;text-align:left;transition:border-color .15s,background .15s}
+.lg .lock-uni-btn:hover{border-color:#E8A845}
+.lg .lock-uni-btn.on{border-color:#E8A845;background:rgba(232,168,69,.12);color:#F2F5F9}
+.lg .lock-uni-lab{display:block;font-size:12px;color:#9FB2C8;margin-bottom:8px;text-align:center}
+.lg .lock-troca{display:block;margin:16px auto 0;font-size:12.5px;color:#7A94AB;text-decoration:underline}
 `;
 
 const PHRASES = [
@@ -131,9 +150,10 @@ export default function LoginPage() {
   const [ws, setWs] = useState<Workspace | null>(null);
   const [emailEmpresa, setEmailEmpresa] = useState('');
   const [buscandoWs, setBuscandoWs] = useState(false);
-  // Uma etapa por vez na tela: identificar a loja → escolher a unidade → entrar.
-  // Sem isso os três formulários apareciam empilhados e a tela ficava confusa.
-  const [passo, setPasso] = useState<'loja' | 'unidade' | 'login'>('login');
+  // Dois estágios: 'empresa' identifica a loja pelo e-mail; 'entrar' é o modal de
+  // login (usuário+senha) sobre o Regem desfocado. A unidade, se houver mais de
+  // uma, é escolhida dentro do próprio modal.
+  const [passo, setPasso] = useState<'empresa' | 'entrar'>('empresa');
 
   useEffect(() => {
     // Já autenticado? Vai direto pro app (não mostra o login de novo).
@@ -141,7 +161,12 @@ export default function LoginPage() {
       router.replace(rotaInicial(getCategoria()));
       return;
     }
-    setWs(getWorkspace());
+    // Este PC já sabe qual empresa atende? Vai direto ao modal de login.
+    const w = getWorkspace();
+    if (w) {
+      setWs(w);
+      setPasso('entrar');
+    }
     setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
   }, [router]);
 
@@ -169,8 +194,7 @@ export default function LoginPage() {
       setWorkspace(novo);
       setWs(novo);
       setUnidades(r.unidades ?? []);
-      // Mais de uma loja: pergunta qual. Uma só: já vai para o login.
-      setPasso((r.unidades ?? []).length > 1 ? 'unidade' : 'login');
+      setPasso('entrar'); // a unidade (se >1) é escolhida dentro do modal
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não encontrei esse workspace.');
     } finally {
@@ -183,16 +207,16 @@ export default function LoginPage() {
     const novo = { ...(ws as Workspace), unidadeId: u.id, unidadeNome: u.nome };
     setWorkspace(novo);
     setWs(novo);
-    setUnidades([]);
-    setPasso('login');
   }
   function trocarWorkspace() {
     setWorkspace(null);
     setWs(null);
     setUnidades([]);
     setEmailEmpresa('');
+    setEmail('');
+    setSenha('');
     setErro('');
-    setPasso('loja');
+    setPasso('empresa');
   }
 
   useEffect(() => {
@@ -230,6 +254,118 @@ export default function LoginPage() {
     }
   }
 
+  // Com mais de uma unidade, escolher é obrigatório antes de entrar.
+  const precisaUnidade = unidades.length > 1 && !ws?.unidadeId;
+
+  // ===== 2º passo: modal de login sobre o Regem desfocado =====
+  if (passo === 'entrar') {
+    return (
+      <div className="lg">
+        <style dangerouslySetInnerHTML={{ __html: CSS }} />
+        <div className="lock">
+          <div className="lock-bg" aria-hidden="true">
+            <div className="lock-glass" />
+          </div>
+          <div className="lock-card" role="dialog" aria-modal="true" aria-label="Entrar no Regem">
+            <div className="lock-logo">
+              <span className="logo-mark">R</span>
+            </div>
+            <h1 className="lock-empresa">{ws?.nome || 'Regem'}</h1>
+            {ws?.unidadeNome && <span className="lock-uni">{ws.unidadeNome}</span>}
+            <p className="lock-welcome">Seja bem-vindo 👋 entre com o seu acesso</p>
+
+            {expirada && (
+              <div
+                role="status"
+                style={{ background: 'rgba(224,106,60,.12)', border: '1px solid rgba(224,106,60,.4)', color: '#E06A3C', borderRadius: 11, padding: '10px 14px', fontSize: 13, marginBottom: 18, textAlign: 'center' }}
+              >
+                Sua sessão expirou. Entre novamente para continuar.
+              </div>
+            )}
+
+            {/* Escolha da unidade — só quando a rede tem mais de uma. */}
+            {unidades.length > 1 && (
+              <div className="lock-unidades">
+                <span className="lock-uni-lab">Em qual unidade este computador está?</span>
+                {unidades.map((u: any) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    className={`lock-uni-btn${ws?.unidadeId === u.id ? ' on' : ''}`}
+                    onClick={() => escolherUnidade(u)}
+                  >
+                    {u.nome}
+                    {u.tipo === 'matriz' ? ' · matriz' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={onSubmit} noValidate>
+              <div className={`field${emailErr ? ' err' : ''}`}>
+                <label htmlFor="email">Usuário</label>
+                <div className="in-wrap">
+                  <input
+                    id="email"
+                    type="text"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="seu usuário (ou e-mail)"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={precisaUnidade}
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div className={`field-msg msg-err${emailErr ? ' show' : ''}`}>Informe o seu usuário ou e-mail.</div>
+              </div>
+              <div className={`field${erro ? ' err' : ''}`}>
+                <label htmlFor="pass">Senha</label>
+                <div className="in-wrap">
+                  <input
+                    id="pass"
+                    type={showPass ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    value={senha}
+                    onChange={(e) => setSenha(e.target.value)}
+                    onKeyUp={(e) => setCaps(e.getModifierState && e.getModifierState('CapsLock'))}
+                    disabled={precisaUnidade}
+                    required
+                  />
+                  <button type="button" className="eye" aria-label={showPass ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setShowPass((s) => !s)}>
+                    {showPass ? '🙈' : '👁'}
+                  </button>
+                </div>
+                <div className={`field-msg msg-warn${caps ? ' show' : ''}`}>⬆ Caps Lock está ativado.</div>
+                <div className={`field-msg msg-err${erro ? ' show' : ''}`} role="alert" aria-live="assertive">
+                  {erro || 'Usuário ou senha incorretos. Tente novamente.'}
+                </div>
+              </div>
+              <div className="row-between">
+                <label className="remember">
+                  <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} /> Manter conectado
+                </label>
+                <Link className="forgot" href="/recuperar-senha">Esqueci minha senha</Link>
+              </div>
+              <button type="submit" className={`btn-submit${loading ? ' loading' : ''}`} disabled={loading || precisaUnidade}>
+                <span className="spinner" />
+                <span>{precisaUnidade ? 'Escolha a unidade' : loading ? 'Entrando…' : 'Entrar'}</span>
+              </button>
+              <div className="audit-note">🔒 Todos os acessos ficam registrados no log de auditoria.</div>
+              <button type="button" className="lock-troca" onClick={trocarWorkspace}>
+                não é esta empresa? trocar
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== 1º passo: identificar a empresa =====
   return (
     <div className="lg">
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -278,207 +414,52 @@ export default function LoginPage() {
           <div className="brand-foot">DO BALCÃO AO BALANÇO</div>
         </aside>
 
-        {/* DIREITA: FORMULÁRIO */}
+        {/* DIREITA: IDENTIFICAR A EMPRESA */}
         <main className="form-side">
           <div className="form-card">
             <div className="form-logo">
-              <span className="logo-mark" style={{ width: 44, height: 44, fontSize: 19 }}>
-                R
-              </span>
+              <span className="logo-mark" style={{ width: 44, height: 44, fontSize: 19 }}>R</span>
             </div>
-            {passo === 'loja' ? (
-              <>
-                <h2 className="form-title">Qual é a sua loja?</h2>
-                <p className="form-sub">Identifique a empresa neste computador</p>
-              </>
-            ) : passo === 'unidade' ? (
-              <>
-                <h2 className="form-title">{ws?.nome}</h2>
-                <p className="form-sub">Em qual unidade este computador está?</p>
-              </>
-            ) : ws ? (
-              <>
-                <h2 className="form-title">{ws.nome}</h2>
-                <p className="form-sub">
-                  {ws.unidadeNome ? `${ws.unidadeNome} · ` : ''}entre com o seu acesso
-                  <br />
-                  <button
-                    type="button"
-                    onClick={trocarWorkspace}
-                    style={{ fontSize: 12, color: '#9FB2C8', textDecoration: 'underline' }}
-                  >
-                    não é esta loja?
-                  </button>
-                </p>
-              </>
-            ) : (
-              <>
-                <h2 className="form-title">Entre para gerenciar o seu dia</h2>
-                <p className="form-sub">
-                  Bem-vindo de volta 👋
-                  <br />
-                  <button
-                    type="button"
-                    onClick={() => setPasso('loja')}
-                    style={{ fontSize: 12, color: '#9FB2C8', textDecoration: 'underline' }}
-                  >
-                    é o computador da loja? identifique a empresa
-                  </button>
-                </p>
-              </>
-            )}
+            <h2 className="form-title">Qual é a sua empresa?</h2>
+            <p className="form-sub">Informe o e-mail da empresa para começar</p>
 
             {expirada && (
               <div
                 role="status"
-                style={{
-                  background: 'rgba(224,106,60,.12)',
-                  border: '1px solid rgba(224,106,60,.4)',
-                  color: '#E06A3C',
-                  borderRadius: 11,
-                  padding: '10px 14px',
-                  fontSize: 13,
-                  marginBottom: 18,
-                  textAlign: 'center',
-                }}
+                style={{ background: 'rgba(224,106,60,.12)', border: '1px solid rgba(224,106,60,.4)', color: '#E06A3C', borderRadius: 11, padding: '10px 14px', fontSize: 13, marginBottom: 18, textAlign: 'center' }}
               >
                 Sua sessão expirou. Entre novamente para continuar.
               </div>
             )}
 
-            {/* UM passo por vez. Identificar a loja é opcional: serve para o PC do
-                balcão, onde o atendente entra por apelido. O gestor com e-mail
-                pode ir direto ao login pelo atalho abaixo. */}
-            {passo === 'loja' && (
-              <form onSubmit={abrirWorkspace} noValidate>
-                <div className="field">
-                  <label htmlFor="emailEmpresa">E-mail da empresa</label>
-                  <div className="in-wrap">
-                    <input
-                      id="emailEmpresa"
-                      type="text"
-                      inputMode="email"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      placeholder="e-mail cadastrado da loja"
-                      value={emailEmpresa}
-                      onChange={(e) => setEmailEmpresa(e.target.value)}
-                      autoFocus
-                    />
-                  </div>
-                  <div className="field-msg" style={{ display: 'block', color: '#5F7590' }}>
-                    Só na primeira vez — este computador guarda a loja.
-                  </div>
+            <form onSubmit={abrirWorkspace} noValidate>
+              <div className="field">
+                <label htmlFor="emailEmpresa">E-mail da empresa</label>
+                <div className="in-wrap">
+                  <input
+                    id="emailEmpresa"
+                    type="text"
+                    inputMode="email"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="e-mail cadastrado da empresa"
+                    value={emailEmpresa}
+                    onChange={(e) => setEmailEmpresa(e.target.value)}
+                    autoFocus
+                  />
                 </div>
-                {erro && <p className="field-msg msg-err show" style={{ marginBottom: 12 }}>{erro}</p>}
-                <button type="submit" className="btn-submit" disabled={buscandoWs}>
-                  {buscandoWs ? 'Abrindo…' : 'Continuar'}
-                </button>
-                <p className="signup">
-                  <button type="button" onClick={() => setPasso('login')} style={{ color: '#E8A845', fontWeight: 600 }}>
-                    Entrar direto com meu e-mail
-                  </button>
-                </p>
-              </form>
-            )}
-
-            {/* Escolha da unidade — só quando a rede tem mais de uma loja. */}
-            {passo === 'unidade' && (
-              <div>
-                {unidades.map((u: any) => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={() => escolherUnidade(u)}
-                    className="btn-submit"
-                    style={{ marginBottom: 10, background: '#12233A', color: '#F2F5F9' }}
-                  >
-                    {u.nome}
-                    {u.tipo === 'matriz' ? ' · matriz' : ''}
-                  </button>
-                ))}
+                <div className="field-msg" style={{ display: 'block', color: '#5F7590' }}>
+                  Só na primeira vez — este computador guarda a empresa.
+                </div>
               </div>
-            )}
-
-            {passo === 'login' && (
-            <form onSubmit={onSubmit} noValidate>
-                <div className={`field${emailErr ? ' err' : ''}`}>
-                  <label htmlFor="email">E-mail ou usuário</label>
-                  <div className="in-wrap">
-                    <input
-                      id="email"
-                      type="text"
-                      inputMode="email"
-                      autoComplete="username"
-                      autoCapitalize="none"
-                      spellCheck={false}
-                      placeholder="voce@empresa.com.br ou maria.balcao"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className={`field-msg msg-err${emailErr ? ' show' : ''}`}>
-                    Informe um e-mail válido ou seu usuário de acesso.
-                  </div>
-                </div>
-                <div className={`field${erro ? ' err' : ''}`}>
-                  <label htmlFor="pass">Senha</label>
-                  <div className="in-wrap">
-                    <input
-                      id="pass"
-                      type={showPass ? 'text' : 'password'}
-                      autoComplete="current-password"
-                      placeholder="••••••••"
-                      value={senha}
-                      onChange={(e) => setSenha(e.target.value)}
-                      onKeyUp={(e) =>
-                        setCaps(
-                          e.getModifierState && e.getModifierState('CapsLock'),
-                        )
-                      }
-                      required
-                    />
-                    <button
-                      type="button"
-                      className="eye"
-                      aria-label={showPass ? 'Ocultar senha' : 'Mostrar senha'}
-                      onClick={() => setShowPass((s) => !s)}
-                    >
-                      {showPass ? '🙈' : '👁'}
-                    </button>
-                  </div>
-                  <div className={`field-msg msg-warn${caps ? ' show' : ''}`}>
-                    ⬆ Caps Lock está ativado.
-                  </div>
-                  <div className={`field-msg msg-err${erro ? ' show' : ''}`} role="alert" aria-live="assertive">
-                    {erro || 'Usuário ou senha incorretos. Tente novamente.'}
-                  </div>
-                </div>
-                <div className="row-between">
-                  <label className="remember">
-                    <input type="checkbox" checked={lembrar} onChange={(e) => setLembrar(e.target.checked)} /> Manter conectado
-                  </label>
-                  <Link className="forgot" href="/recuperar-senha">
-                    Esqueci minha senha
-                  </Link>
-                </div>
-                <button
-                  type="submit"
-                  className={`btn-submit${loading ? ' loading' : ''}`}
-                  disabled={loading}
-                >
-                  <span className="spinner" />
-                  <span>{loading ? 'Entrando…' : 'Entrar'}</span>
-                </button>
-                <div className="audit-note">
-                  🔒 Todos os acessos ficam registrados no log de auditoria.
-                </div>
-                <div className="signup">
-                  Não tem conta? <Link href="/criar-conta">Criar conta</Link>
-                </div>
-              </form>
-            )}
+              {erro && <p className="field-msg msg-err show" style={{ marginBottom: 12 }}>{erro}</p>}
+              <button type="submit" className="btn-submit" disabled={buscandoWs}>
+                {buscandoWs ? 'Abrindo…' : 'Continuar'}
+              </button>
+              <div className="signup">
+                Não tem conta? <Link href="/criar-conta">Criar conta</Link>
+              </div>
+            </form>
           </div>
         </main>
       </div>

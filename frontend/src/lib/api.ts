@@ -372,7 +372,9 @@ export const api = {
     empresaNome: string;
     nome: string;
     email: string;
+    usuario: string;
     senha: string;
+    cnpj?: string;
   }) => req('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),

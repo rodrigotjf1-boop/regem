@@ -135,6 +135,7 @@ export class AuthService {
           tenantId: emp.id,
           nome: dto.nome,
           email: dto.email,
+          usuario: dto.usuario.trim().toLowerCase(), // login do dono (presidente)
           senhaHash,
           funcaoId: fun.id,
           perfilAcessoId: perfilPres?.id,
@@ -145,6 +146,7 @@ export class AuthService {
         emp,
         colab,
         categoria: fun.categoria,
+        funcaoNome: fun.nome,
         permissoes: perfilPres?.permissoes as Permissoes,
       };
     });
@@ -154,6 +156,8 @@ export class AuthService {
       tenantId: result.emp.id,
       categoria: result.categoria,
       permissoes: result.permissoes,
+      nome: result.colab.nome,
+      funcaoNome: result.funcaoNome,
     });
   }
 
