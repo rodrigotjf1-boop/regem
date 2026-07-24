@@ -1,7 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
+import { gerarCardapioPdf } from './cardapio-pdf';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Onboarding do WhatsApp da loja via Evolution API (v2):
@@ -381,6 +382,92 @@ export class WhatsappService {
       throw new BadRequestException(`Falha ao enviar (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
     }
     return { ok: true };
+  }
+
+  // ===== Enviar cardápio em PDF (botão do inbox) =====
+  // Cardápios ativos do tenant. Normalmente um só; com mais de uma unidade pode
+  // haver vários — aí o inbox pergunta de qual antes de enviar.
+  async listarCardapios(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select cc.id, cc.nome_publico as "nome", u.nome as "unidadeNome"
+        from cardapio_config cc
+        left join unidade u on u.id = cc.unidade_id
+       where cc.tenant_id = ${tenantId} and coalesce(cc.ativo, true) = true
+       order by (cc.unidade_id is null) desc, u.nome
+    `);
+    return (r?.rows ?? r).map((x: any) => ({
+      id: x.id,
+      nome: x.nome || x.unidadeNome || 'Cardápio',
+      unidadeNome: x.unidadeNome ?? null,
+    }));
+  }
+
+  // Monta o PDF resumido (categorias × itens) e envia como documento pelo WhatsApp.
+  async enviarCardapio(tenantId: string, numero: string, cardapioId?: string) {
+    const { instancia } = await this.instanciaDe(tenantId);
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+
+    // A loja/cardápio: o escolhido (validado no tenant) ou o único ativo.
+    const cfgRow: any = await this.db.execute(sql`
+      select id, nome_publico as "nome", logo_ref as "logo"
+        from cardapio_config
+       where tenant_id = ${tenantId}
+         ${cardapioId ? sql`and id = ${cardapioId}` : sql``}
+       order by (unidade_id is null) desc
+       limit 1
+    `);
+    const cfg = (cfgRow?.rows ?? cfgRow)?.[0];
+    if (!cfg) throw new NotFoundException('Cardápio não encontrado.');
+
+    // Categorias ativas + itens do cardápio digital (nome/descrição/foto/preço).
+    const catRows: any = await this.db.execute(sql`
+      select id, nome from categoria_produto
+       where tenant_id = ${tenantId} and coalesce(ativo, true) = true and deleted_at is null
+       order by ordem, nome
+    `);
+    const categorias: any[] = [];
+    for (const c of catRows?.rows ?? catRows) {
+      const prods: any = await this.db.execute(sql`
+        select nome, descricao, preco_venda as "precoVenda",
+               preco_promocional as "precoPromocional", imagem_ref as "imagemUrl"
+          from produto
+         where tenant_id = ${tenantId} and categoria_id = ${c.id}
+           and coalesce(ativo, true) = true
+         order by nome
+      `);
+      const itens = (prods?.rows ?? prods).map((p: any) => ({ ...p }));
+      if (itens.length) categorias.push({ nome: c.nome, itens });
+    }
+    if (!categorias.length)
+      throw new BadRequestException('O cardápio não tem itens ativos para enviar.');
+
+    const pdf = await gerarCardapioPdf(
+      { nome: cfg.nome || 'Cardápio', logoUrl: cfg.logo },
+      categorias,
+    );
+    const base64 = pdf.toString('base64');
+    const arquivo = `cardapio-${(cfg.nome || 'loja').toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24)}.pdf`;
+
+    // Evolution v2: envia documento (base64). Alguns builds aceitam `fileName`,
+    // outros `filename` — mandamos os dois para não depender da versão.
+    const res = await this.req(`/message/sendMedia/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        number,
+        mediatype: 'document',
+        mimetype: 'application/pdf',
+        media: base64,
+        fileName: arquivo,
+        filename: arquivo,
+        caption: `Cardápio · ${cfg.nome || ''}`.trim(),
+      }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar o cardápio (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true, itens: categorias.reduce((n, c) => n + c.itens.length, 0) };
   }
 
   // ===== Resolver multi-tenant (o n8n chama por instância; protegido por secret) =====

@@ -73,6 +73,25 @@ export class WhatsappController {
     return this.service.enviar(user.tenantId, numero ?? '', dto?.texto ?? '');
   }
 
+  // Cardápios ativos (para o inbox perguntar de qual, se houver mais de um).
+  @Get('whatsapp/cardapios')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  cardapios(@CurrentUser() user: AuthUser) {
+    return this.service.listarCardapios(user.tenantId);
+  }
+
+  // Envia o cardápio em PDF para o número da conversa.
+  @Post('whatsapp/enviar-cardapio')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  enviarCardapio(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { numero?: string; cardapioId?: string },
+  ) {
+    return this.service.enviarCardapio(user.tenantId, dto?.numero ?? '', dto?.cardapioId);
+  }
+
   // Pausa/retoma o robô só nesta conversa (o humano assume).
   @Post('whatsapp/pausar-conversa')
   @UseGuards(JwtAuthGuard, RolesGuard)

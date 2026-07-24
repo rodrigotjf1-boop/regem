@@ -10,4 +10,7 @@ export interface AuthUser {
   unidadeId?: string | null;
   // RBAC configurável: pacote de permissões do perfil de acesso associado.
   permissoes?: Permissoes;
+  // Exibição (menu inferior): nome do responsável + rótulo da função.
+  nome?: string | null;
+  funcaoNome?: string | null;
 }

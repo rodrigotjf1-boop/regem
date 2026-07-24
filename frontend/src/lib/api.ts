@@ -134,6 +134,28 @@ export function getCategoria(): string | null {
   }
 }
 
+// Nome do responsável logado (menu inferior). Do JWT (`nome`).
+export function getNome(): string | null {
+  const t = getToken();
+  if (!t) return null;
+  try {
+    return JSON.parse(atob(t.split('.')[1] ?? '')).nome ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Rótulo da função do responsável (ex.: "Gerente"). Do JWT (`func`).
+export function getFuncaoNome(): string | null {
+  const t = getToken();
+  if (!t) return null;
+  try {
+    return JSON.parse(atob(t.split('.')[1] ?? '')).func ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Permissões do perfil de acesso (claim `perm` do JWT). Gates de UI apenas — a
 // trava real é no servidor. Ausente (token antigo) = objeto vazio.
@@ -720,6 +742,10 @@ export const api = {
     req('/whatsapp/enviar', { method: 'POST', body: JSON.stringify({ jid, texto }) }),
   whatsappPausarConversa: (numero: string, pausar: boolean) =>
     req('/whatsapp/pausar-conversa', { method: 'POST', body: JSON.stringify({ numero, pausar }) }),
+  // Cardápio em PDF pelo WhatsApp: lista os ativos (para escolher se >1) e envia.
+  whatsappCardapios: () => req('/whatsapp/cardapios'),
+  whatsappEnviarCardapio: (numero: string, cardapioId?: string) =>
+    req('/whatsapp/enviar-cardapio', { method: 'POST', body: JSON.stringify({ numero, cardapioId }) }),
   criarPedidoDelivery: (body: Record<string, unknown>) =>
     req('/delivery/pedidos', { method: 'POST', body: JSON.stringify(body) }),
   nfDelivery: (id: string) =>
