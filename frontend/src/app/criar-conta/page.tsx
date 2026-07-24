@@ -22,6 +22,7 @@ export default function CriarContaPage() {
   const [form, setForm] = useState({
     empresaNome: '',
     cnpj: '',
+    usuario: '',
     endereco: '',
     nome: '',
     email: '',
@@ -182,6 +183,24 @@ export default function CriarContaPage() {
                 required
                 autoComplete="email"
               />
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="usuario">
+                Usuário de acesso
+              </label>
+              <input
+                id="usuario"
+                className={inputCls}
+                value={form.usuario}
+                onChange={(e) => set('usuario', e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, ''))}
+                placeholder="ex.: rodrigo"
+                required
+                minLength={3}
+                autoComplete="username"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                É com este usuário que você entra no Regem (você já nasce como presidente).
+              </p>
             </div>
             <div>
               <label className={labelCls} htmlFor="senha">
