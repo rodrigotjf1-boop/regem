@@ -174,12 +174,14 @@ export class AuthService {
     const achados = await this.db
       .select({
         id: colaborador.id,
+        nome: colaborador.nome,
         tenantId: colaborador.tenantId,
         funcaoId: colaborador.funcaoId,
         unidadeId: colaborador.unidadeId,
         senhaHash: colaborador.senhaHash,
         status: colaborador.status,
         funcaoCategoria: funcao.categoria,
+        funcaoNome: funcao.nome,
         perfilNivel: perfilAcesso.nivel,
         loginWeb: perfilAcesso.loginWeb,
         permissoes: perfilAcesso.permissoes,
@@ -256,6 +258,8 @@ export class AuthService {
       // (sem unidade) continua null = vê/alterna a rede toda.
       unidadeId: row.unidadeId ?? esc.unidadeId,
       permissoes,
+      nome: row.nome,
+      funcaoNome: row.funcaoNome,
     });
   }
 
@@ -284,6 +288,7 @@ export class AuthService {
         pinHash: colaborador.pinHash,
         status: colaborador.status,
         funcaoCategoria: funcao.categoria,
+        funcaoNome: funcao.nome,
         perfilNivel: perfilAcesso.nivel,
         permissoes: perfilAcesso.permissoes,
         nome: colaborador.nome,
@@ -315,6 +320,8 @@ export class AuthService {
           setorId: esc.setorId,
           unidadeId: c.unidadeId ?? esc.unidadeId,
           permissoes,
+          nome: c.nome,
+          funcaoNome: c.funcaoNome,
         });
         return { ...base, nome: c.nome, matricula: c.matricula ?? null };
       }
@@ -387,6 +394,8 @@ export class AuthService {
       setor: user.setorId ?? null,
       uni: user.unidadeId ?? null,
       perm: user.permissoes ?? null,
+      nome: user.nome ?? null, // menu inferior: nome do responsável
+      func: user.funcaoNome ?? null, // e o rótulo da função (ex.: "Gerente")
     });
     return { access_token, user };
   }

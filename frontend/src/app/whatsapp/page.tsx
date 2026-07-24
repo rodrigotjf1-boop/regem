@@ -8,7 +8,7 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Send, Bot, Play } from 'lucide-react';
+import { ArrowLeft, Send, Bot, Play, FileText } from 'lucide-react';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const hora = (ts: number) =>
@@ -52,6 +52,8 @@ export default function WhatsappPage() {
   const [busca, setBusca] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [pausando, setPausando] = useState(false);
+  const [enviandoCard, setEnviandoCard] = useState(false);
+  const [escolherCard, setEscolherCard] = useState<any[] | null>(null);
   const [carregou, setCarregou] = useState(false);
   const [alvo, setAlvo] = useState<string | null>(null); // ?numero= vindo do sino
   const fimRef = useRef<HTMLDivElement>(null);
@@ -170,6 +172,30 @@ export default function WhatsappPage() {
     }
   }
 
+  // Envia o cardápio em PDF. Com mais de um cardápio ativo, abre o seletor.
+  async function enviarCardapio(cardapioId?: string) {
+    if (!sel?.telefone) return;
+    setEnviandoCard(true);
+    try {
+      if (!cardapioId) {
+        const lista: any[] = await api.whatsappCardapios();
+        if (Array.isArray(lista) && lista.length > 1) {
+          setEscolherCard(lista); // pergunta de qual
+          setEnviandoCard(false);
+          return;
+        }
+      }
+      const r: any = await api.whatsappEnviarCardapio(sel.telefone, cardapioId);
+      toast.success(`Cardápio enviado (${r?.itens ?? 0} itens).`);
+      setEscolherCard(null);
+      setTimeout(() => carregarMsgs(selJids), 800);
+    } catch (e: any) {
+      toast.error(e?.message || 'Falha ao enviar o cardápio.');
+    } finally {
+      setEnviandoCard(false);
+    }
+  }
+
   const nomeConversa = (c: any) => c?.nome || foneFmt(c?.telefone ?? '');
 
   return (
@@ -244,6 +270,17 @@ export default function WhatsappPage() {
                   <Button
                     type="button"
                     size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={enviandoCard}
+                    onClick={() => enviarCardapio()}
+                    title="Enviar o cardápio em PDF para este contato"
+                  >
+                    <FileText className="h-4 w-4" /> {enviandoCard ? 'Enviando…' : 'Enviar cardápio'}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
                     variant={sel.pausada ? 'default' : 'outline'}
                     className="shrink-0"
                     disabled={pausando}
@@ -281,6 +318,32 @@ export default function WhatsappPage() {
               </>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Seletor de cardápio: só aparece quando há mais de um ativo. */}
+      {escolherCard && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => setEscolherCard(null)}>
+          <Card className="w-full max-w-sm space-y-3 p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="font-display text-base font-bold">Qual cardápio enviar?</h3>
+              <button type="button" onClick={() => setEscolherCard(null)} className="text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+            </div>
+            <div className="space-y-2">
+              {escolherCard.map((c) => (
+                <Button
+                  key={c.id}
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start"
+                  disabled={enviandoCard}
+                  onClick={() => enviarCardapio(c.id)}
+                >
+                  {c.nome}{c.unidadeNome ? ` · ${c.unidadeNome}` : ''}
+                </Button>
+              ))}
+            </div>
+          </Card>
         </div>
       )}
     </Shell>

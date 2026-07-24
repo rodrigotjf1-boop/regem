@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { LogOut, Settings2, PanelLeft, PanelRight, Check, KeyRound } from 'lucide-react';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { cn } from '@/lib/utils';
+import { getNome, getFuncaoNome } from '@/lib/api';
 import type { UiPrefs } from '@/hooks/use-ui-prefs';
 
 export function AccountMenu({
@@ -20,6 +21,13 @@ export function AccountMenu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  // Nome + função vêm do JWT; só depois da montagem (evita mismatch de hidratação).
+  const [nome, setNome] = useState<string | null>(null);
+  const [func, setFunc] = useState<string | null>(null);
+  useEffect(() => {
+    setNome(getNome());
+    setFunc(getFuncaoNome());
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -51,10 +59,10 @@ export function AccountMenu({
         </span>
         <span className="shell-account-text min-w-0 flex-1">
           <span className="block truncate text-[13px] font-semibold text-white">
-            Minha conta
+            {nome || 'Minha conta'}
           </span>
-          <span className="block text-[11px] uppercase tracking-wide text-[#7A99AC]">
-            {cat || '—'}
+          <span className="block truncate text-[11px] uppercase tracking-wide text-[#7A99AC]">
+            {func || cat || '—'}
           </span>
         </span>
         <Settings2 className="shell-account-text h-4 w-4 flex-none text-[#7A99AC]" />
