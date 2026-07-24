@@ -44,6 +44,7 @@ import { BottomNav } from '@/components/app-shell/bottom-nav';
 import { LicencaAviso } from '@/components/licenca/licenca-aviso';
 import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
+import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 import { UnidadeSeletor } from './unidade-seletor';
@@ -400,6 +401,7 @@ export function Shell({
       <div className="shell-content min-w-0">
         <LicencaAviso />
         <ServidorOfflineAviso />
+        <AtualizacaoAviso />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-5 py-2">
           {prefs.side === 'left' && burger}
           <div>

@@ -7,7 +7,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { REQUIRE_PERM, type PermSpec } from './require-perm.decorator';
 import { AuthUser } from './auth-user';
-import { pode, type Permissoes } from './permissoes';
+import { pode, podeAcessar, type Permissoes } from './permissoes';
 
 // Aplica o RBAC configurável: checa a permissão exigida por @RequirePerm contra
 // o pacote de permissões do perfil (no JWT). Sem @RequirePerm → deixa passar
@@ -36,7 +36,10 @@ export class PermissoesGuard implements CanActivate {
     const ok =
       'acao' in spec
         ? pode(perm, spec.modulo, spec.acao)
-        : !!perm?.[spec.modulo as keyof Permissoes];
+        // String simples: `podeAcessar` trata chave CRUD como o `.ver`. Sem isto,
+        // uma permissão CRUD (ex.: escalas={ver:false}) passaria por ser objeto
+        // truthy — furo silencioso ao migrar um bool para CRUD.
+        : podeAcessar(perm, spec.modulo as keyof Permissoes);
 
     if (!ok) {
       throw new ForbiddenException(

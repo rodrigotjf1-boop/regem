@@ -26,7 +26,7 @@ export interface Permissoes {
   // Rotina
   meu_dia?: boolean;
   manutencao?: boolean; // pedidos de manutenção (mig 134)
-  escalas?: boolean;
+  escalas?: Partial<AcoesModulo>; // CRUD (mig 145): execução só `ver`
   checklist?: boolean;
   mural?: boolean;
   // Financeiro / Fiscal
@@ -98,7 +98,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'cashback', rotulo: 'Cashback', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'meu_dia', rotulo: 'Tarefas', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'manutencao', rotulo: 'Pedidos de manutenção', grupo: 'Rotina', tipo: 'bool' },
-  { chave: 'escalas', rotulo: 'Escalas', grupo: 'Rotina', tipo: 'bool' },
+  { chave: 'escalas', rotulo: 'Escalas', grupo: 'Rotina', tipo: 'crud' },
   { chave: 'estoque', rotulo: 'Estoque', grupo: 'Rotina', tipo: 'crud' },
   { chave: 'checklist', rotulo: 'Checklist & registros', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'mural', rotulo: 'Mural & clima', grupo: 'Rotina', tipo: 'bool' },
@@ -148,7 +148,7 @@ export const PERFIS_PADRAO: {
     nome: 'Presidente',
     nivel: 'presidente',
     loginWeb: true,
-    permissoes: { ...bools(TODAS_BOOL), ponto: CRUD_ALL, estoque: CRUD_ALL },
+    permissoes: { ...bools(TODAS_BOOL), ponto: CRUD_ALL, estoque: CRUD_ALL, escalas: CRUD_ALL },
   },
   {
     nome: 'Gerente',
@@ -157,11 +157,12 @@ export const PERFIS_PADRAO: {
     permissoes: {
       ...bools([
         'dashboard', 'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade',
-        'cashback', 'meu_dia', 'manutencao', 'escalas', 'checklist', 'mural', 'cadastros', 'loja',
+        'cashback', 'meu_dia', 'manutencao', 'checklist', 'mural', 'cadastros', 'loja',
         'formas_pagamento', 'ponto_gerencial', 'producao_kds', 'servidor',
       ]),
       ponto: CRUD_ALL,
       estoque: { ver: true, criar: true, editar: true, excluir: false },
+      escalas: CRUD_ALL,
     },
   },
   {
@@ -171,10 +172,11 @@ export const PERFIS_PADRAO: {
     permissoes: {
       ...bools([
         'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade', 'cashback',
-        'escalas', 'checklist', 'mural', 'manutencao',
+        'checklist', 'mural', 'manutencao',
       ]),
       ponto: { ver: true, criar: false, editar: true, excluir: false },
       estoque: { ver: true, criar: false, editar: true, excluir: false },
+      escalas: { ver: true, criar: false, editar: true, excluir: false },
     },
   },
   {
@@ -187,9 +189,12 @@ export const PERFIS_PADRAO: {
     // Continua editável por perfil: quem quiser um perfil só-terminal desmarca.
     loginWeb: true,
     permissoes: {
-      ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'escalas', 'checklist', 'mural', 'manutencao']),
+      ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'checklist', 'mural', 'manutencao']),
       ponto: CRUD_NONE,
       estoque: CRUD_NONE,
+      // Execução só VISUALIZA a escala (a escala é a fonte da verdade do dia dele);
+      // criar/editar/excluir fica com supervisão+.
+      escalas: { ver: true, criar: false, editar: false, excluir: false },
     },
   },
 ];

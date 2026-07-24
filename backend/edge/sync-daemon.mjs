@@ -366,9 +366,11 @@ async function ciclo() {
   }
   await licenca();
   await verificarComandos();
-  // Verificação de update SÓ nas janelas de abertura da loja (não aplica — só
-  // notifica; o gestor instala pelo botão do app).
+  // Verificação de update: nas janelas de abertura E a cada ~10 min (o gestor
+  // pediu aviso mais frequente). Não aplica sozinho — só marca `update_disponivel`
+  // em sync_state; o app mostra o aviso e o botão de baixar/instalar.
   await updateCheckSeJanela();
+  await updateCheckPeriodico();
   await heartbeat(p, u, erro);
 }
 
@@ -397,6 +399,22 @@ async function aberturaHojeMin(diaSemana) {
     /* sem tabela/linha → cai no padrão */
   }
   return 240; // 04:00
+}
+
+// Verificação periódica: a cada ~10 min pergunta à nuvem se há versão nova. O
+// daemon roda a cada INTERVAL (30s), então guardamos o último check em sync_state
+// e só refazemos passados 10 min. Assim o aviso de atualização aparece rápido no
+// app, sem depender só das janelas de abertura.
+const UPDATE_INTERVALO_MS = 10 * 60 * 1000;
+async function updateCheckPeriodico() {
+  try {
+    const ultimo = Number(await getState('upd_ultimo_check', '0')) || 0;
+    if (Date.now() - ultimo < UPDATE_INTERVALO_MS) return;
+    await setState('upd_ultimo_check', String(Date.now()));
+    await updateCheck();
+  } catch (e) {
+    console.warn(`  updateCheckPeriodico: ${e.message}`);
+  }
 }
 
 // Verifica no máx. 2x/dia: uma nos 10 primeiros minutos após abrir e outra ~30min

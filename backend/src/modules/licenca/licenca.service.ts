@@ -120,6 +120,11 @@ export class LicencaService {
         .where(eq(edgeHeartbeat.ativacaoId, a.id))
         .orderBy(desc(edgeHeartbeat.recebidoEm))
         .limit(1);
+      // Último login da loja: atividade visível mesmo sem edge (modo nuvem).
+      const ul: any = await this.db.execute(sql`
+        select max(created_at) as ult from audit_log
+        where tenant_id = ${a.tenantId} and acao = 'login'
+      `);
       out.push({
         id: a.id,
         tenantId: a.tenantId,
@@ -134,6 +139,7 @@ export class LicencaService {
         ultimoSync: hb?.ultimoSync ?? null,
         online: hb ? Date.now() - new Date(hb.recebidoEm).getTime() < 5 * 60000 : false,
         heartbeatEm: hb?.recebidoEm ?? null,
+        ultimoLogin: (ul?.rows ?? ul)?.[0]?.ult ?? null,
       });
     }
     return out;

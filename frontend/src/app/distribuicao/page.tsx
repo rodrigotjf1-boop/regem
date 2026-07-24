@@ -155,7 +155,7 @@ export default function DistHome() {
             {filtroBar(false)}
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
-                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último sinal</th>{podeTelemetria && <th className="p-3"></th>}</tr></thead>
+                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último login</th><th className="p-3">Último sinal</th>{podeTelemetria && <th className="p-3"></th>}</tr></thead>
                 <tbody>
                   {frota && filtrar(frota).map((l) => (
                     <tr key={l.id} className="border-t border-slate-800/70">
@@ -165,6 +165,7 @@ export default function DistHome() {
                       <td className="p-3">{l.clientes ?? '—'}</td>
                       <td className="p-3">{l.errosAbertos > 0 ? <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-400">{l.errosAbertos}</span> : <span className="text-slate-600">0</span>}</td>
                       <td className={`p-3 text-xs ${statusLic(l).cor}`}>{statusLic(l).label}</td>
+                      <td className="p-3 text-xs text-slate-500">{quando(l.ultimoLogin)}</td>
                       <td className="p-3 text-xs text-slate-500">{quando(l.ultimoHeartbeat)}</td>
                       {podeTelemetria && <td className="p-3">{l.edgeVersao && <button onClick={() => rollback(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-amber-400 hover:border-amber-500">Rollback</button>}</td>}
                     </tr>
