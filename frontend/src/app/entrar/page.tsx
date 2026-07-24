@@ -98,6 +98,7 @@ const CSS = `
 @keyframes lockIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
 .lg .lock-logo{display:flex;justify-content:center;margin-bottom:14px}
 .lg .lock-logo .logo-mark{width:56px;height:56px;font-size:24px;box-shadow:0 0 0 6px rgba(232,168,69,.10)}
+.lg .lock-logo-img{width:72px;height:72px;object-fit:contain;border-radius:14px;background:#fff;padding:6px;box-shadow:0 0 0 6px rgba(232,168,69,.10)}
 .lg .lock-empresa{font-family:var(--font-display);font-weight:800;font-size:clamp(22px,4vw,30px);line-height:1.1;letter-spacing:-.02em;text-align:center;color:#F2F5F9}
 .lg .lock-uni{display:block;text-align:center;font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#E8A845;margin-top:6px}
 .lg .lock-welcome{text-align:center;color:#9FB2C8;font-size:14px;margin:8px 0 22px}
@@ -161,14 +162,32 @@ export default function LoginPage() {
       router.replace(rotaInicial(getCategoria()));
       return;
     }
-    // Este PC já sabe qual empresa atende? Vai direto ao modal de login.
+    setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
+    // No EDGE a empresa/unidade já são fixas (instalação): não pergunta e-mail —
+    // abre direto no login com nome/logo da loja, resolvidos pela unidade local.
+    if (process.env.NEXT_PUBLIC_EDGE === '1') {
+      api
+        .workspaceLocal()
+        .then((r: any) => {
+          const uni = (r.unidades ?? [])[0] ?? null;
+          setWs({
+            tenantId: r.tenantId, nome: r.nome, logo: r.logo ?? null,
+            unidadeId: uni?.id ?? null, unidadeNome: uni?.nome ?? null, modulos: r.modulos ?? [],
+          });
+          setUnidades([]); // edge não escolhe unidade
+          setPasso('entrar');
+        })
+        .catch(() => setPasso('empresa')); // sem unidade local: cai no fluxo normal
+      return;
+    }
+    // Nuvem: este PC já sabe qual empresa atende? Vai direto ao modal de login.
     const w = getWorkspace();
     if (w) {
       setWs(w);
       setPasso('entrar');
     }
-    setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
   }, [router]);
+  const ehEdge = process.env.NEXT_PUBLIC_EDGE === '1';
 
   // Identifica a empresa pelo e-mail e guarda neste PC (uma vez só).
   async function abrirWorkspace(e: React.FormEvent) {
@@ -268,7 +287,12 @@ export default function LoginPage() {
           </div>
           <div className="lock-card" role="dialog" aria-modal="true" aria-label="Entrar no Regem">
             <div className="lock-logo">
-              <span className="logo-mark">R</span>
+              {ws?.logo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={ws.logo} alt={ws.nome} className="lock-logo-img" />
+              ) : (
+                <span className="logo-mark">R</span>
+              )}
             </div>
             <h1 className="lock-empresa">{ws?.nome || 'Regem'}</h1>
             {ws?.unidadeNome && <span className="lock-uni">{ws.unidadeNome}</span>}
@@ -355,9 +379,12 @@ export default function LoginPage() {
                 <span>{precisaUnidade ? 'Escolha a unidade' : loading ? 'Entrando…' : 'Entrar'}</span>
               </button>
               <div className="audit-note">🔒 Todos os acessos ficam registrados no log de auditoria.</div>
-              <button type="button" className="lock-troca" onClick={trocarWorkspace}>
-                não é esta empresa? trocar
-              </button>
+              {/* No edge a empresa é fixa (instalação) — não há o que trocar. */}
+              {!ehEdge && (
+                <button type="button" className="lock-troca" onClick={trocarWorkspace}>
+                  não é esta empresa? trocar
+                </button>
+              )}
             </form>
           </div>
         </div>
