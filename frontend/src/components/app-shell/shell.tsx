@@ -37,7 +37,7 @@ import {
   Wand2,
   Wrench,
 } from 'lucide-react';
-import { clearToken, getCategoria, getPermissoes, getToken } from '@/lib/api';
+import { api, clearToken, getCategoria, getPermissoes, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
@@ -48,14 +48,25 @@ import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 import { UnidadeSeletor } from './unidade-seletor';
 
-// Item de submenu (2º nível). `perm` = permissão do catálogo que libera o item.
-type NavSub = { href: string; label: string; icon: LucideIcon; perm: string; soPres?: boolean };
+// Item de submenu (2º nível). `perm` = permissão do catálogo que libera o item;
+// `modulo` = módulo que precisa estar CONTRATADO no plano (e ligado) para o item
+// existir. São coisas diferentes: `perm` é o que o perfil pode, `modulo` é o que
+// a loja comprou — por isso o módulo esconde o item até para o presidente.
+type NavSub = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  perm: string;
+  soPres?: boolean;
+  modulo?: string;
+};
 // Nó de 1º nível: pode ser um link direto (href) e/ou um grupo com `children`.
 type NavNode = {
   label: string;
   icon: LucideIcon;
   href?: string;
   perm?: string;
+  modulo?: string;
   children?: NavSub[];
 };
 
@@ -105,13 +116,13 @@ const NAV: NavNode[] = [
     ],
   },
   { href: '/cadastros', label: 'Cadastros', icon: Settings, perm: 'cadastros' },
-  { href: '/pessoas', label: 'Gerenciamento de ponto', icon: Users, perm: 'ponto_gerencial' },
+  { href: '/pessoas', label: 'Gerenciamento de ponto', icon: Users, perm: 'ponto_gerencial', modulo: 'terminal_ponto' },
   {
     label: 'Configurações', icon: Settings,
     children: [
       { href: '/loja', label: 'Loja', icon: Store, perm: 'loja', soPres: true },
       { href: '/unidades', label: 'Unidades', icon: Building2, perm: 'unidades' },
-      { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds' },
+      { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds', modulo: 'kds' },
       { href: '/direcionamento', label: 'Direcionamento do catálogo', icon: Flame, perm: 'producao_kds' },
       { href: '/ordens-producao', label: 'Ordens de produção', icon: Flame, perm: 'producao_kds' },
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
@@ -141,6 +152,15 @@ function temPerm(perm: string | undefined, perms: any, isPres: boolean): boolean
   return v && typeof v === 'object' ? !!v.ver : !!v;
 }
 
+// Visibilidade por MÓDULO: o que a loja não contratou (ou o presidente desligou)
+// não aparece para ninguém — nem para o presidente, porque não é questão de
+// permissão, é algo que a empresa não tem. Enquanto a lista não chegou (null),
+// não escondemos nada, para o menu não "piscar" no carregamento.
+function temModulo(modulo: string | undefined, modulos: Record<string, boolean> | null): boolean {
+  if (!modulo || !modulos) return true;
+  return modulos[modulo] !== false;
+}
+
 export function Shell({
   title,
   eyebrow,
@@ -161,6 +181,9 @@ export function Shell({
   const [rel, setRel] = useState('');
   const [cat, setCat] = useState('');
   const [gruposAbertos, setGruposAbertos] = useState<Record<string, boolean>>({}); // acordeão do menu
+  // Módulos do plano contratado ∩ liga/desliga do presidente. null = ainda não
+  // carregou (não escondemos nada até saber, para o menu não piscar).
+  const [modulos, setModulos] = useState<Record<string, boolean> | null>(null);
   const asideRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -169,6 +192,9 @@ export function Shell({
       return;
     }
     setCat(getCategoria() ?? '');
+    // Falha silenciosa de propósito: se não conseguir ler os módulos, o menu
+    // continua completo — melhor mostrar demais do que trancar o gestor fora.
+    api.modulosMeus().then(setModulos).catch(() => setModulos(null));
     const fmt = () =>
       setRel(
         new Date().toLocaleTimeString('pt-BR', {

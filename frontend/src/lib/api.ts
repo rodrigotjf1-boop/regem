@@ -1115,6 +1115,9 @@ export const api = {
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),
   parearTerminal: (token: string) =>
     req('/equipamento/parear', { method: 'POST', body: JSON.stringify({ token }) }),
+  // Módulos ativos para MIM (plano contratado ∩ liga/desliga do presidente).
+  // O menu usa isto para não oferecer o que a loja não tem.
+  modulosMeus: () => req('/modulos/meus'),
   // Acerto de contas do sub-PDV de salão (mig 143): a fila do caixa responsável.
   acertos: () => req('/vendas/acertos'),
   baixarAcerto: (id: string, body?: { recebidoCentavos?: number; observacao?: string }) =>

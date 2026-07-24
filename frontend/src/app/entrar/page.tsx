@@ -131,6 +131,9 @@ export default function LoginPage() {
   const [ws, setWs] = useState<Workspace | null>(null);
   const [emailEmpresa, setEmailEmpresa] = useState('');
   const [buscandoWs, setBuscandoWs] = useState(false);
+  // Uma etapa por vez na tela: identificar a loja → escolher a unidade → entrar.
+  // Sem isso os três formulários apareciam empilhados e a tela ficava confusa.
+  const [passo, setPasso] = useState<'loja' | 'unidade' | 'login'>('login');
 
   useEffect(() => {
     // Já autenticado? Vai direto pro app (não mostra o login de novo).
@@ -166,6 +169,8 @@ export default function LoginPage() {
       setWorkspace(novo);
       setWs(novo);
       setUnidades(r.unidades ?? []);
+      // Mais de uma loja: pergunta qual. Uma só: já vai para o login.
+      setPasso((r.unidades ?? []).length > 1 ? 'unidade' : 'login');
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Não encontrei esse workspace.');
     } finally {
@@ -179,12 +184,15 @@ export default function LoginPage() {
     setWorkspace(novo);
     setWs(novo);
     setUnidades([]);
+    setPasso('login');
   }
   function trocarWorkspace() {
     setWorkspace(null);
     setWs(null);
     setUnidades([]);
     setEmailEmpresa('');
+    setErro('');
+    setPasso('loja');
   }
 
   useEffect(() => {
@@ -278,7 +286,17 @@ export default function LoginPage() {
                 R
               </span>
             </div>
-            {ws ? (
+            {passo === 'loja' ? (
+              <>
+                <h2 className="form-title">Qual é a sua loja?</h2>
+                <p className="form-sub">Identifique a empresa neste computador</p>
+              </>
+            ) : passo === 'unidade' ? (
+              <>
+                <h2 className="form-title">{ws?.nome}</h2>
+                <p className="form-sub">Em qual unidade este computador está?</p>
+              </>
+            ) : ws ? (
               <>
                 <h2 className="form-title">{ws.nome}</h2>
                 <p className="form-sub">
@@ -296,7 +314,17 @@ export default function LoginPage() {
             ) : (
               <>
                 <h2 className="form-title">Entre para gerenciar o seu dia</h2>
-                <p className="form-sub">Bem-vindo de volta 👋</p>
+                <p className="form-sub">
+                  Bem-vindo de volta 👋
+                  <br />
+                  <button
+                    type="button"
+                    onClick={() => setPasso('loja')}
+                    style={{ fontSize: 12, color: '#9FB2C8', textDecoration: 'underline' }}
+                  >
+                    é o computador da loja? identifique a empresa
+                  </button>
+                </p>
               </>
             )}
 
@@ -318,10 +346,11 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Passo 1 — identificar a loja. Só aparece enquanto este PC não sabe
-                qual empresa atende; depois vai direto para o login. */}
-            {!ws && (
-              <form onSubmit={abrirWorkspace} noValidate style={{ marginBottom: 22 }}>
+            {/* UM passo por vez. Identificar a loja é opcional: serve para o PC do
+                balcão, onde o atendente entra por apelido. O gestor com e-mail
+                pode ir direto ao login pelo atalho abaixo. */}
+            {passo === 'loja' && (
+              <form onSubmit={abrirWorkspace} noValidate>
                 <div className="field">
                   <label htmlFor="emailEmpresa">E-mail da empresa</label>
                   <div className="in-wrap">
@@ -334,39 +363,45 @@ export default function LoginPage() {
                       placeholder="e-mail cadastrado da loja"
                       value={emailEmpresa}
                       onChange={(e) => setEmailEmpresa(e.target.value)}
+                      autoFocus
                     />
                   </div>
                   <div className="field-msg" style={{ display: 'block', color: '#5F7590' }}>
-                    Informe uma vez: este computador guarda a loja.
+                    Só na primeira vez — este computador guarda a loja.
                   </div>
                 </div>
+                {erro && <p className="field-msg msg-err show" style={{ marginBottom: 12 }}>{erro}</p>}
                 <button type="submit" className="btn-submit" disabled={buscandoWs}>
-                  {buscandoWs ? 'Abrindo…' : 'Abrir workspace da loja'}
+                  {buscandoWs ? 'Abrindo…' : 'Continuar'}
                 </button>
+                <p className="signup">
+                  <button type="button" onClick={() => setPasso('login')} style={{ color: '#E8A845', fontWeight: 600 }}>
+                    Entrar direto com meu e-mail
+                  </button>
+                </p>
               </form>
             )}
 
-            {/* Passo 2 — escolher a unidade. Só quando há mais de uma. */}
-            {ws && unidades.length > 1 && (
-              <div style={{ marginBottom: 20 }}>
-                <p className="form-sub" style={{ margin: '0 0 10px' }}>
-                  Em qual unidade este computador está?
-                </p>
+            {/* Escolha da unidade — só quando a rede tem mais de uma loja. */}
+            {passo === 'unidade' && (
+              <div>
                 {unidades.map((u: any) => (
                   <button
                     key={u.id}
                     type="button"
                     onClick={() => escolherUnidade(u)}
                     className="btn-submit"
-                    style={{ marginBottom: 8, background: '#12233A', color: '#F2F5F9' }}
+                    style={{ marginBottom: 10, background: '#12233A', color: '#F2F5F9' }}
                   >
-                    {u.nome} {u.tipo === 'matriz' ? '· matriz' : ''}
+                    {u.nome}
+                    {u.tipo === 'matriz' ? ' · matriz' : ''}
                   </button>
                 ))}
               </div>
             )}
 
-            <form onSubmit={onSubmit} noValidate style={{ display: ws && unidades.length > 1 ? 'none' : undefined }}>
+            {passo === 'login' && (
+            <form onSubmit={onSubmit} noValidate>
                 <div className={`field${emailErr ? ' err' : ''}`}>
                   <label htmlFor="email">E-mail ou usuário</label>
                   <div className="in-wrap">
@@ -443,6 +478,7 @@ export default function LoginPage() {
                   Não tem conta? <Link href="/criar-conta">Criar conta</Link>
                 </div>
               </form>
+            )}
           </div>
         </main>
       </div>

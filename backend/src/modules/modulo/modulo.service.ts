@@ -14,6 +14,16 @@ export const MODULOS = [
 ];
 const CHAVES = new Set(MODULOS.map((m) => m.chave));
 
+// Ponte entre o nome do módulo aqui e o do PLANO contratado (`ativacao.modulos`),
+// que usa 'ponto' onde aqui é 'terminal_ponto'. Sem isso o Terminal de Ponto
+// pareceria fora do plano em toda empresa.
+const NO_PLANO: Record<string, string> = {
+  app_colaborador: 'app_colaborador',
+  kds: 'kds',
+  terminal_ponto: 'ponto',
+  bot: 'bot',
+};
+
 @Injectable()
 export class ModuloService {
   constructor(
@@ -26,9 +36,27 @@ export class ModuloService {
     return r.rows ?? r;
   }
 
-  // Um módulo está ativo para uma unidade se: houver override da loja → usa ele;
-  // senão o padrão da rede; senão ligado (default). Trava real de acesso.
+  // Módulos que a empresa CONTRATOU (plano/licença). É o teto: o que não está no
+  // plano não pode ser ligado nem aparece no menu, nem para o presidente — não é
+  // restrição de perfil, é algo que a loja não comprou. Sem ativação registrada,
+  // não limitamos (instalações antigas e ambiente de teste seguem como antes).
+  private async doPlano(tenantId: string): Promise<Set<string> | null> {
+    const r: any = await this.db.execute(sql`
+      select modulos from ativacao
+      where tenant_id = ${tenantId} and status = 'ativado'
+      order by atualizado_em desc nulls last limit 1
+    `);
+    const mods = (r?.rows ?? r)?.[0]?.modulos;
+    if (!Array.isArray(mods) || !mods.length) return null;
+    return new Set(mods.map((m: any) => String(m)));
+  }
+
+  // Um módulo está ativo para uma unidade se: estiver no plano contratado E
+  // (houver override da loja → usa ele; senão o padrão da rede; senão ligado).
+  // Trava real de acesso.
   async ativo(tenantId: string, unidadeId: string | null, modulo: string): Promise<boolean> {
+    const plano = await this.doPlano(tenantId);
+    if (plano && !plano.has(NO_PLANO[modulo] ?? modulo)) return false;
     if (unidadeId) {
       const [loja] = await this.db
         .select({ ativo: moduloAtivacao.ativo })
@@ -91,6 +119,16 @@ export class ModuloService {
     dto: { unidadeId?: string | null; modulo: string; ativo: boolean },
   ) {
     if (!CHAVES.has(dto.modulo)) throw new BadRequestException('Módulo inválido.');
+    // Não dá para LIGAR o que não foi contratado — senão o toggle contornaria o
+    // plano. Desligar é sempre permitido.
+    if (dto.ativo) {
+      const plano = await this.doPlano(ator.tenantId);
+      if (plano && !plano.has(NO_PLANO[dto.modulo] ?? dto.modulo)) {
+        throw new BadRequestException(
+          'Este módulo não faz parte do plano contratado. Fale com o seu consultor para incluí-lo.',
+        );
+      }
+    }
     const unidadeId = dto.unidadeId ?? null;
 
     if (unidadeId) {
