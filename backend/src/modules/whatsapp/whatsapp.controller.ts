@@ -73,6 +73,19 @@ export class WhatsappController {
     return this.service.enviar(user.tenantId, numero ?? '', dto?.texto ?? '');
   }
 
+  // Baixa a mídia de uma mensagem sob demanda (miniatura no inbox).
+  @Get('whatsapp/midia')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  midia(
+    @CurrentUser() user: AuthUser,
+    @Query('id') id: string,
+    @Query('jid') jid: string,
+    @Query('fromMe') fromMe: string,
+  ) {
+    return this.service.midia(user.tenantId, id ?? '', jid ?? '', fromMe === 'true');
+  }
+
   // Cardápios ativos (para o inbox perguntar de qual, se houver mais de um).
   @Get('whatsapp/cardapios')
   @UseGuards(JwtAuthGuard, RolesGuard)

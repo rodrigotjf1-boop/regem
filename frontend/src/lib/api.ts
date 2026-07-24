@@ -742,6 +742,9 @@ export const api = {
     req('/whatsapp/enviar', { method: 'POST', body: JSON.stringify({ jid, texto }) }),
   whatsappPausarConversa: (numero: string, pausar: boolean) =>
     req('/whatsapp/pausar-conversa', { method: 'POST', body: JSON.stringify({ numero, pausar }) }),
+  // Mídia de uma mensagem sob demanda (miniatura no inbox). Devolve um data URL.
+  whatsappMidia: (id: string, jid: string, fromMe: boolean) =>
+    req(`/whatsapp/midia?id=${encodeURIComponent(id)}&jid=${encodeURIComponent(jid)}&fromMe=${fromMe ? 'true' : 'false'}`),
   // Cardápio em PDF pelo WhatsApp: lista os ativos (para escolher se >1) e envia.
   whatsappCardapios: () => req('/whatsapp/cardapios'),
   whatsappEnviarCardapio: (numero: string, cardapioId?: string) =>
