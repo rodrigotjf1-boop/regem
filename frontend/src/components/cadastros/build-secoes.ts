@@ -58,16 +58,9 @@ export function buildSecoes({
   const optFColab: Opt[] = L.funcoes
     .filter((f: any) => podeCriar(f.categoria))
     .map((f: any) => ({ value: f.id, label: `${f.nome} (${f.categoria})` }));
-  // Categoria por função (para decidir login por senha).
-  const funcCat: Record<string, string> = Object.fromEntries(
-    L.funcoes.map((f: any) => [f.id, f.categoria]),
-  );
-  // Alguma função selecionada é de gestão (presidente/gerente/supervisão)? → login por e-mail+senha.
-  const ehGestao = (v: Record<string, string>) =>
-    (v.funcaoIds ?? '')
-      .split(',')
-      .filter(Boolean)
-      .some((id) => ['presidente', 'gerente', 'supervisao'].includes(funcCat[id]));
+  // (mig 141) Não há mais campo condicionado ao nível: TODO colaborador tem
+  // usuário + senha; o e-mail virou contato. Quem acessa a web é decidido pelo
+  // perfil de acesso, não pela categoria da função.
   // Dias da semana sem a opção "todos" (para o intervalo do pico).
   const DIAS_SO = DIAS_SEMANA.filter((d) => d.value !== '');
   const base: Secao[] = [
@@ -171,20 +164,22 @@ export function buildSecoes({
           name: 'usuario',
           label: 'Usuário de acesso (apelido, sem espaço)',
           type: 'text',
+          required: true,
           placeholder: 'ex.: maria.balcao',
-        },
-        {
-          name: 'email',
-          label: 'E-mail de login (opcional)',
-          type: 'text',
-          placeholder: 'voce@empresa.com',
-          showIf: (v) => ehGestao(v),
         },
         {
           name: 'senha',
           label: 'Senha de acesso (mín. 6)',
           type: 'password',
           placeholder: '••••••',
+        },
+        // E-mail é só CONTATO — quem entra é o usuário acima. Continua servindo
+        // para login de quem já usava, mas nunca é obrigatório.
+        {
+          name: 'email',
+          label: 'E-mail (contato)',
+          type: 'email',
+          placeholder: 'contato@exemplo.com',
         },
         {
           name: 'vinculo',
@@ -455,6 +450,11 @@ export function buildSecoes({
       update: (id, v) =>
         api.patch(`/colaboradores/${id}`, {
           nome: v.nome,
+          // usuario/senha faltavam aqui: quem editava para ADICIONAR o login via
+          // silenciosamente o campo ser descartado (o formulário mostrava, mas o
+          // PATCH não mandava). String vazia = limpar; undefined = não mexer.
+          usuario: v.usuario ?? undefined,
+          senha: v.senha || undefined,
           email: v.email ?? undefined,
           fotoRef: v.fotoRef || undefined,
           funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
