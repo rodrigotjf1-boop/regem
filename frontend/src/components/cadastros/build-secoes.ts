@@ -164,21 +164,27 @@ export function buildSecoes({
           type: 'multiselect',
           options: optFColab,
         },
-        // Login por e-mail+senha só aparece quando a função é de gestão
-        // (presidente/gerente/supervisão). Execução acessa por PIN no terminal.
+        // Credencial de acesso (mig 141): TODO nível pode ter login — o atendente
+        // opera PDV/delivery o turno inteiro. Gestão costuma usar e-mail; quem não
+        // tem e-mail entra pelo usuário (apelido), único dentro da empresa.
+        {
+          name: 'usuario',
+          label: 'Usuário de acesso (apelido, sem espaço)',
+          type: 'text',
+          placeholder: 'ex.: maria.balcao',
+        },
         {
           name: 'email',
-          label: 'E-mail de login',
+          label: 'E-mail de login (opcional)',
           type: 'text',
           placeholder: 'voce@empresa.com',
           showIf: (v) => ehGestao(v),
         },
         {
           name: 'senha',
-          label: 'Senha de login (mín. 6)',
+          label: 'Senha de acesso (mín. 6)',
           type: 'password',
           placeholder: '••••••',
-          showIf: (v) => ehGestao(v),
         },
         {
           name: 'vinculo',
@@ -204,6 +210,7 @@ export function buildSecoes({
       submit: (v: any) =>
         api.post('/colaboradores', {
           nome: v.nome,
+          usuario: v.usuario || undefined,
           email: v.email || undefined,
           senha: v.senha || undefined,
           fotoRef: v.fotoRef || undefined,
@@ -330,7 +337,7 @@ export function buildSecoes({
           required: true,
           placeholder: 'Ex.: Distribuidora X',
         },
-        { name: 'cnpj', label: 'CNPJ', type: 'text', placeholder: '00.000.000/0000-00' },
+        { name: 'cnpj', label: 'CNPJ', type: 'cnpj', placeholder: '00.000.000/0000-00' },
         {
           name: 'contato',
           label: 'Contato',
@@ -340,13 +347,13 @@ export function buildSecoes({
         {
           name: 'telefone',
           label: 'Telefone',
-          type: 'text',
+          type: 'telefone',
           placeholder: '(00) 00000-0000',
         },
         {
           name: 'email',
           label: 'E-mail',
-          type: 'text',
+          type: 'email',
           placeholder: 'contato@fornecedor.com',
         },
         { name: 'obs', label: 'Observações', type: 'text' },

@@ -7,7 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { and, eq, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
 import {
@@ -158,7 +158,20 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const [row] = await this.db
+    // Aceita e-mail (gestão) OU usuário/apelido (mig 141 — quem não tem e-mail).
+    const ident = String(dto.identificador ?? dto.email ?? '').trim().toLowerCase();
+    if (!ident) throw new UnauthorizedException('Credenciais inválidas');
+    const porEmail = ident.includes('@');
+    // O usuário é único só DENTRO da empresa: fora de um workspace, um apelido
+    // repetido em duas lojas seria ambíguo — aí exigimos o tenant.
+    const alvo = porEmail
+      ? eq(sql`lower(${colaborador.email})`, ident)
+      : and(
+          eq(sql`lower(${colaborador.usuario})`, ident),
+          ...(dto.tenantId ? [eq(colaborador.tenantId, dto.tenantId)] : []),
+        );
+
+    const achados = await this.db
       .select({
         id: colaborador.id,
         tenantId: colaborador.tenantId,
@@ -174,7 +187,16 @@ export class AuthService {
       .from(colaborador)
       .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
       .leftJoin(perfilAcesso, eq(colaborador.perfilAcessoId, perfilAcesso.id))
-      .where(eq(colaborador.email, dto.email));
+      .where(and(alvo, isNull(colaborador.deletedAt)));
+
+    // Apelido repetido em empresas diferentes sem workspace informado: recusa em
+    // vez de escolher um por acaso (senão a senha de um testaria contra o outro).
+    if (!porEmail && achados.length > 1) {
+      throw new UnauthorizedException(
+        'Este usuário existe em mais de uma empresa. Entre pelo workspace da sua loja.',
+      );
+    }
+    const [row] = achados;
 
     // Nível + permissões do perfil (fallback pelo padrão se ainda sem perfil).
     const nivel = row?.perfilNivel ?? row?.funcaoCategoria ?? 'execucao';

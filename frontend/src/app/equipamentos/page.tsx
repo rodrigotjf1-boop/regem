@@ -56,6 +56,7 @@ export default function EquipamentosPage() {
   const [fila, setFila] = useState<any[] | null>(null);
   const [testando, setTestando] = useState<string | null>(null);
   const [aviso, setAviso] = useState('');
+  const [codigo, setCodigo] = useState<{ nome: string; codigo: string } | null>(null);
   const [tokenNovo, setTokenNovo] = useState<{ nome: string; token: string } | null>(
     null,
   );
@@ -183,6 +184,16 @@ export default function EquipamentosPage() {
     }
   }
 
+  // Código de 6 dígitos para o PC parear (mig 142) — fácil de ditar no suporte.
+  async function gerarCodigo(id: string, nome: string) {
+    try {
+      const r: any = await api.gerarCodigoTerminal(id);
+      setCodigo({ nome, codigo: r.codigo });
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar o código');
+    }
+  }
+
   // Salva a config de impressão por etapa do KDS (mig 129) e recarrega a lista.
   async function salvarImpressaoEtapa(eq: any, patch: Record<string, unknown>) {
     try {
@@ -250,6 +261,25 @@ export default function EquipamentosPage() {
           Registre os apps satélites (KDS e Terminal de Ponto) que se conectam ao
           Regem. Cada device recebe um token único usado no pareamento.
         </p>
+
+        {/* Código de pareamento do PC (mig 142) — curto, expira em 15 min */}
+        {codigo && (
+          <Card className="border-primary/40 bg-primary/5 p-4">
+            <h2 className="font-semibold">Código de “{codigo.nome}”</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              No computador do caixa, abra o PDV e digite este código. Vale por{' '}
+              <strong>15 minutos</strong> e só pode ser usado <strong>uma vez</strong>.
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <code className="rounded-md bg-secondary px-4 py-2 font-mono text-2xl tracking-[0.3em]">
+                {codigo.codigo}
+              </code>
+              <Button type="button" variant="outline" onClick={() => setCodigo(null)}>
+                Fechar
+              </Button>
+            </div>
+          </Card>
+        )}
 
         {/* Token recém-criado — exibido UMA vez */}
         {tokenNovo && (
@@ -664,6 +694,16 @@ export default function EquipamentosPage() {
                     onClick={() => imprimirTeste(eq.id)}
                   >
                     {testando === eq.id ? 'Enviando…' : 'Imprimir teste'}
+                  </Button>
+                )}
+                {eq.ativo && ['pdv', 'salao'].includes(eq.tipo) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => gerarCodigo(eq.id, eq.nome)}
+                  >
+                    Gerar código de pareamento
                   </Button>
                 )}
                 {eq.ativo && !eq.padrao && (

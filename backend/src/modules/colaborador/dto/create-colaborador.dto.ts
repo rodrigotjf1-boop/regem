@@ -66,4 +66,12 @@ export class CreateColaboradorDto {
   @IsOptional()
   @IsUUID()
   unidadeId?: string;
+
+  // Apelido de login (mig 141) — para quem não tem e-mail. Único na empresa.
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9._-]{3,32}$/, {
+    message: 'Usuário: 3 a 32 caracteres, sem espaço nem acento (letras, números, . _ -)',
+  })
+  usuario?: string;
 }

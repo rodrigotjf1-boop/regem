@@ -31,6 +31,7 @@ const publicCols = {
   vinculo: colaborador.vinculo,
   jornadaTipo: colaborador.jornadaTipo,
   email: colaborador.email,
+  usuario: colaborador.usuario, // apelido de login (mig 141)
   status: colaborador.status,
   perfilAcessoId: colaborador.perfilAcessoId,
   appHabilitado: colaborador.appHabilitado,
@@ -52,9 +53,9 @@ function podeCriarNivel(ator: string, alvo: string): boolean {
   if (alvo === 'presidente') return ator === 'presidente';
   return (NIVEL[ator] ?? 0) > (NIVEL[alvo] ?? 0);
 }
-// Níveis de gestão que acessam por e-mail+senha (login web). Execução usa o PIN
-// só no terminal de ponto.
-const NIVEIS_GESTAO = new Set(['presidente', 'gerente', 'supervisao']);
+// (mig 141) Não há mais restrição de nível para ter login: quem opera o Regem
+// precisa entrar com o próprio nome. Quem acessa a web é decidido pelo perfil
+// de acesso (`perfil_acesso.login_web`), não pela categoria da função.
 
 @Injectable()
 export class ColaboradorService {
@@ -72,6 +73,34 @@ export class ColaboradorService {
       .where(and(eq(colaborador.email, email), isNull(colaborador.deletedAt)));
     if (rows.some((r) => r.id !== exceptId))
       throw new BadRequestException('Este e-mail já está em uso por outro colaborador.');
+  }
+
+  // Apelido de login (mig 141): letras/números/._- , único DENTRO da empresa.
+  // Normaliza para minúsculas — "Joao" e "joao" são a mesma pessoa entrando.
+  private async usuarioLivre(
+    tenantId: string,
+    bruto?: string | null,
+    exceptId?: string,
+  ): Promise<string | undefined> {
+    const u = String(bruto ?? '').trim().toLowerCase();
+    if (!u) return undefined;
+    if (!/^[a-z0-9._-]{3,32}$/.test(u))
+      throw new BadRequestException(
+        'Usuário deve ter de 3 a 32 caracteres: letras, números, ponto, hífen ou sublinhado (sem espaço nem acento).',
+      );
+    const rows = await this.db
+      .select({ id: colaborador.id })
+      .from(colaborador)
+      .where(
+        and(
+          eq(colaborador.tenantId, tenantId),
+          eq(sql`lower(${colaborador.usuario})`, u),
+          isNull(colaborador.deletedAt),
+        ),
+      );
+    if (rows.some((r) => r.id !== exceptId))
+      throw new BadRequestException('Este usuário já está em uso nesta empresa.');
+    return u;
   }
 
   // Resolve o perfil de acesso: o informado (validado no tenant) ou o do nível
@@ -239,13 +268,15 @@ export class ColaboradorService {
       );
     }
 
-    // Senha (email+senha) só para gestão; execução acessa por PIN no terminal.
+    // Credencial de acesso (mig 141): QUALQUER nível pode ter login — o atendente
+    // opera o PDV/delivery o turno inteiro e precisa entrar com o próprio nome,
+    // senão tudo que ele faz fica registrado em quem abriu o navegador. Quem não
+    // tem e-mail entra pelo `usuario` (apelido), único dentro da empresa.
+    const usuario = await this.usuarioLivre(tenantId, dto.usuario);
     let senhaHash: string | undefined;
     if (dto.senha) {
-      if (!NIVEIS_GESTAO.has(alvoCategoria))
-        throw new BadRequestException('Senha de login só para presidente, gerente ou supervisão.');
-      if (!email)
-        throw new BadRequestException('Informe o e-mail para o login por senha.');
+      if (!email && !usuario)
+        throw new BadRequestException('Informe um usuário (apelido) ou e-mail para o login por senha.');
       senhaHash = await bcrypt.hash(dto.senha, 12);
     }
 
@@ -261,6 +292,7 @@ export class ColaboradorService {
         nome: dto.nome,
         fotoRef: dto.fotoRef,
         funcaoId: principal,
+        usuario,
         unidadeId: await this.resolverUnidade(tenantId, dto.unidadeId ?? unidadeAtual),
         vinculo: dto.vinculo ?? 'clt',
         jornadaTipo: dto.jornadaTipo ?? 'outro',
@@ -331,6 +363,10 @@ export class ColaboradorService {
       if (email) await this.emailLivre(email, id);
       patch.email = email;
     }
+    if (dto.usuario !== undefined) {
+      patch.usuario = (await this.usuarioLivre(tenantId, dto.usuario, id)) ?? null;
+    }
+    if (dto.senha) patch.senhaHash = await bcrypt.hash(dto.senha, 12);
     if (dto.pin) patch.pinHash = await bcrypt.hash(dto.pin, 12);
 
     const [row] = await this.db

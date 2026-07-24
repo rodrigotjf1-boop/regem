@@ -180,6 +180,37 @@ export class VendasController {
     );
   }
 
+  // ----- Acerto de contas do sub-PDV de salão (mig 143) -----
+  // A fila do caixa: mesas fechadas no salão cujo dinheiro ainda não chegou.
+  @Get('acertos')
+  @RequirePerm('mesas')
+  acertos(
+    @CurrentUser() user: AuthUser,
+    @TerminalAtual() terminalId: string | null,
+    @UnidadeAtual() unidadeId: string | null,
+  ) {
+    return this.service.listarAcertos(user.tenantId, terminalId, unidadeId);
+  }
+
+  // O caixa conferiu e recebeu: o valor entra na gaveta agora.
+  @Post('acertos/:id/baixar')
+  @RequirePerm('mesas')
+  baixarAcerto(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { recebidoCentavos?: number; observacao?: string },
+    @TerminalAtual() terminalId: string | null,
+  ) {
+    return this.service.baixarAcerto(
+      user.tenantId,
+      user.colaboradorId,
+      user.categoria,
+      id,
+      dto ?? {},
+      terminalId,
+    );
+  }
+
   // ----- Config do PDV (cancelamento configurável) -----
   @Get('config')
   config(@CurrentUser() user: AuthUser) {

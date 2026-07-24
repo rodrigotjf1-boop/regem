@@ -34,16 +34,27 @@ export function TerminalGate({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('regem:terminal', sync);
   }, []);
 
+  // Pareia por CÓDIGO de 6 dígitos (mig 142) — o gestor gera em Equipamentos e
+  // dita por telefone. O PC recebe um segredo que passa a identificá-lo. Um token
+  // longo colado ainda funciona, para quem já configurava assim.
   async function parear() {
-    if (!token.trim()) return toast.error('Cole o token do terminal.');
+    const v = token.trim();
+    if (!v) return toast.error('Digite o código de 6 dígitos do terminal.');
     setPareando(true);
     try {
-      const r: any = await api.parearTerminal(token.trim());
-      setTerminalAtual(r.id, r.nome);
+      const soDigitos = v.replace(/\D/g, '');
+      if (soDigitos.length === 6) {
+        const r: any = await api.parearPorCodigo(soDigitos);
+        setTerminalAtual(r.terminalId, r.nome, r.segredo);
+        toast.success(`Terminal "${r.nome}" pareado neste computador.`);
+      } else {
+        const r: any = await api.parearTerminal(v);
+        setTerminalAtual(r.id, r.nome);
+        toast.success(`Terminal "${r.nome}" pareado neste computador.`);
+      }
       setToken('');
-      toast.success(`Terminal "${r.nome}" pareado neste computador.`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Token inválido');
+      toast.error(e instanceof Error ? e.message : 'Código inválido ou expirado');
     } finally {
       setPareando(false);
     }
@@ -59,20 +70,24 @@ export function TerminalGate({ children }: { children: React.ReactNode }) {
           <div>
             <h2 className="font-display text-lg font-bold">Parear este terminal</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Este computador ainda não está identificado como um caixa. Cole o token do
-              terminal (gerado pelo gestor em <b>Configurações → Equipamentos</b>) para
-              liberar as vendas.
+              Este computador ainda não está identificado como um caixa. Peça ao gestor o
+              código de 6 dígitos em <b>Configurações → Equipamentos</b> e digite abaixo
+              para liberar as vendas.
             </p>
           </div>
           <div className="space-y-1.5 text-left">
-            <Label className="text-xs">Token do terminal</Label>
+            <Label className="text-xs">Código do terminal</Label>
             <Input
               value={token}
               onChange={(e) => setToken(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && parear()}
-              placeholder="cole o token aqui"
+              placeholder="000000"
+              inputMode="numeric"
               autoFocus
             />
+            <p className="text-[11px] text-muted-foreground">
+              O código vale por 15 minutos e só pode ser usado uma vez.
+            </p>
           </div>
           <Button type="button" onClick={parear} disabled={pareando} className="w-full">
             {pareando ? 'Pareando…' : 'Parear e liberar o caixa'}

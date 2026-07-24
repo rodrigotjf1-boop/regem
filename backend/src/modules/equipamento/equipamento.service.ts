@@ -1,6 +1,6 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes, randomInt } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { equipamento } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -17,6 +17,126 @@ export class EquipamentoService {
   private novoToken() {
     return randomBytes(24).toString('hex');
   }
+
+  // ===== Pareamento do PC (mig 142) =====
+  // O PC se identificava só pelo id no localStorage: qualquer usuário logado
+  // podia trocar o valor no navegador e assumir OUTRO terminal da empresa, com o
+  // caixa e a unidade dele. Agora o gestor gera um CÓDIGO curto de uso único, o
+  // PC troca esse código por um SEGREDO, e é o segredo que identifica dali em
+  // diante. Guardamos só o hash — o valor em claro aparece uma vez para o PC.
+  private hash(v: string) {
+    return createHash('sha256').update(v).digest('hex');
+  }
+
+  // Código de 6 dígitos, fácil de ditar por telefone no suporte.
+  async gerarCodigo(tenantId: string, id: string, atorId: string, atorPerfil: string) {
+    const [alvo] = await this.db
+      .select({ id: equipamento.id, nome: equipamento.nome })
+      .from(equipamento)
+      .where(and(eq(equipamento.id, id), eq(equipamento.tenantId, tenantId)));
+    if (!alvo) throw new NotFoundException('Equipamento não encontrado.');
+
+    // Evita 0 à esquerda sumindo e colisão com código já pendente de outro PC.
+    let codigo = '';
+    for (let i = 0; i < 5; i++) {
+      codigo = String(100000 + Math.floor(randomInt(900000)));
+      const [existe] = await this.db
+        .select({ id: equipamento.id })
+        .from(equipamento)
+        .where(eq(equipamento.pareamentoCodigo, codigo));
+      if (!existe) break;
+      codigo = '';
+    }
+    if (!codigo) throw new BadRequestException('Não consegui gerar um código agora. Tente de novo.');
+
+    const expira = new Date(Date.now() + 15 * 60 * 1000); // 15 min é bastante
+    await this.db
+      .update(equipamento)
+      .set({ pareamentoCodigo: codigo, pareamentoExpiraEm: expira })
+      .where(eq(equipamento.id, id));
+
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'config',
+      acao: 'terminal_codigo_gerado',
+      entidadeTipo: 'equipamento',
+      entidadeId: id,
+      detalhe: { nome: alvo.nome },
+    });
+    return { codigo, expiraEm: expira, nome: alvo.nome };
+  }
+
+  // O PC troca o código pelo segredo. Público (o PC ainda não tem credencial),
+  // por isso o código é curto, de uso único e expira. Convive com o `parear()`
+  // por token, que continua valendo para quem já configurou assim.
+  async parearPorCodigo(codigo: string) {
+    const c = String(codigo ?? '').replace(/\D/g, '');
+    if (!/^\d{6}$/.test(c)) throw new BadRequestException('Código inválido.');
+    const [row] = await this.db
+      .select()
+      .from(equipamento)
+      .where(eq(equipamento.pareamentoCodigo, c));
+    if (!row) throw new BadRequestException('Código não encontrado. Gere um novo no Regem.');
+    if (row.pareamentoExpiraEm && row.pareamentoExpiraEm.getTime() < Date.now())
+      throw new BadRequestException('Código expirado. Gere um novo no Regem.');
+    if (row.revogadoEm) throw new BadRequestException('Este equipamento foi revogado.');
+
+    const segredo = randomBytes(32).toString('hex');
+    await this.db
+      .update(equipamento)
+      .set({
+        segredoHash: this.hash(segredo),
+        pareadoEm: new Date(),
+        pareamentoCodigo: null, // uso único
+        pareamentoExpiraEm: null,
+      })
+      .where(eq(equipamento.id, row.id));
+
+    await this.auditoria.registrar({
+      tenantId: row.tenantId,
+      tipo: 'config',
+      acao: 'terminal_pareado',
+      entidadeTipo: 'equipamento',
+      entidadeId: row.id,
+      origem: 'terminal',
+      detalhe: { nome: row.nome },
+    });
+    return {
+      terminalId: row.id,
+      segredo, // única vez que sai em claro
+      nome: row.nome,
+      tipo: row.tipo,
+      unidadeId: row.unidadeId,
+    };
+  }
+
+  // Confere o segredo que o PC manda no header. Devolve o equipamento ou null.
+  async validarSegredo(tenantId: string, terminalId: string, segredo?: string | null) {
+    if (!terminalId) return null;
+    const [row] = await this.db
+      .select()
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.id, terminalId),
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.ativo, true),
+        ),
+      );
+    if (!row || row.revogadoEm) return null;
+    // Compatibilidade: PC pareado ANTES da mig 142 ainda não tem segredo — segue
+    // valendo até parear de novo, senão o cliente fica sem PDV no dia do deploy.
+    if (!row.segredoHash) return row;
+    if (!segredo || this.hash(segredo) !== row.segredoHash) return null;
+    await this.db
+      .update(equipamento)
+      .set({ ultimoUsoEm: new Date() })
+      .where(eq(equipamento.id, row.id));
+    return row;
+  }
+
 
   // Cadastra um device. O token é exibido UMA vez (não volta em listagens).
   async criar(
@@ -111,7 +231,9 @@ export class EquipamentoService {
   async revogar(tenantId: string, id: string, atorId: string, atorPerfil: string) {
     const [row] = await this.db
       .update(equipamento)
-      .set({ ativo: false })
+      // Também derruba o pareamento (mig 142): sem isso o PC revogado continuaria
+      // se identificando com o segredo que já tem guardado.
+      .set({ ativo: false, segredoHash: null, revogadoEm: new Date(), pareamentoCodigo: null })
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)))
       .returning();
     if (!row) throw new NotFoundException('Equipamento não encontrado');

@@ -24,6 +24,7 @@ import {
   itemEstoque,
   movimentoEstoque,
   lancamentoCaixa,
+  acertoSubpdv,
   caixaSessao,
   entitlement,
   colaborador,
@@ -1105,11 +1106,17 @@ export class VendasService {
   private async pontoSalao(tenantId: string, terminalId?: string | null) {
     if (!terminalId) return null;
     const [e] = await this.db
-      .select({ id: equipamento.id, nome: equipamento.nome, tipo: equipamento.tipo, pdvMainId: equipamento.pdvMainId })
+      .select({
+        id: equipamento.id,
+        nome: equipamento.nome,
+        tipo: equipamento.tipo,
+        pdvMainId: equipamento.pdvMainId,
+        unidadeId: equipamento.unidadeId,
+      })
       .from(equipamento)
       .where(and(eq(equipamento.id, terminalId), eq(equipamento.tenantId, tenantId)));
     if (!e || e.tipo !== 'salao') return null;
-    return { id: e.id, nome: e.nome, pdvMainId: e.pdvMainId };
+    return { id: e.id, nome: e.nome, pdvMainId: e.pdvMainId, unidadeId: e.unidadeId };
   }
 
   // Terminal cujo caixa recebe o fechamento: o próprio PDV, ou — se for salão — o
@@ -1499,6 +1506,99 @@ export class VendasService {
   }
 
   // Fecha a comanda: baixa por explosão de todos os itens + caixa. (Pedido já foi ao KDS.)
+  // ===== Acerto de contas do sub-PDV (mig 143) =====
+  // Fila do caixa: "o que ainda me devem prestar contas". Mostra quem fechou, a
+  // mesa, o valor e a forma — o operador confere contra o dinheiro na mão.
+  async listarAcertos(tenantId: string, terminalId?: string | null, unidadeId?: string | null) {
+    const r: any = await this.db.execute(sql`
+      select a.id, a.valor_centavos as "valorCentavos", a.forma, a.status,
+             a.fechado_em as "fechadoEm", a.mesa_id as "mesaId",
+             c.mesa, c.senha,
+             sub.nome as "subPdvNome",
+             col.nome as "fechadoPorNome"
+        from acerto_subpdv a
+        left join comanda c on c.id = a.comanda_id
+        left join equipamento sub on sub.id = a.sub_pdv_id
+        left join colaborador col on col.id = a.fechado_por_id
+       where a.tenant_id = ${tenantId}
+         and a.status = 'pendente'
+         ${terminalId ? sql`and a.caixa_destino_id = ${terminalId}` : sql``}
+         ${unidadeId ? sql`and a.unidade_id = ${unidadeId}` : sql``}
+       order by a.fechado_em asc
+    `);
+    return r?.rows ?? r;
+  }
+
+  // O caixa recebeu e conferiu: agora sim o valor entra na gaveta. `recebido`
+  // permite registrar diferença (quebra), no mesmo espírito do fechamento cego.
+  async baixarAcerto(
+    tenantId: string,
+    atorId: string,
+    atorPerfil: string,
+    id: string,
+    dto: { recebidoCentavos?: number; observacao?: string },
+    terminalId?: string | null,
+  ) {
+    const caixaTerminalId = await this.terminalCaixa(tenantId, terminalId);
+    const res = await this.db.transaction(async (tx) => {
+      const [a] = await tx
+        .select()
+        .from(acertoSubpdv)
+        .where(and(eq(acertoSubpdv.id, id), eq(acertoSubpdv.tenantId, tenantId)));
+      if (!a) throw new NotFoundException('Acerto não encontrado.');
+      if (a.status !== 'pendente')
+        throw new BadRequestException('Este acerto já foi baixado.');
+
+      // O dinheiro entra na sessão aberta AGORA (não na de quando fechou a mesa):
+      // é neste momento que ele fisicamente chega ao caixa.
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId, caixaTerminalId);
+      if (!sessaoId) throw new BadRequestException('Abra o caixa para dar baixa no acerto.');
+
+      const recebido = dto.recebidoCentavos ?? a.valorCentavos;
+      const dif = recebido - a.valorCentavos;
+
+      await tx.insert(lancamentoCaixa).values({
+        tenantId,
+        unidadeId: a.unidadeId,
+        sessaoId,
+        comandaId: a.comandaId,
+        tipo: 'entrada',
+        valor: String((recebido / 100).toFixed(2)),
+        data: hojeISO(),
+        categoria: 'venda',
+        forma: a.forma ?? undefined,
+        descricao: 'Acerto do salão',
+        criadoPorId: atorId,
+      });
+      await tx
+        .update(acertoSubpdv)
+        .set({
+          status: 'baixado',
+          recebidoCentavos: recebido,
+          diferencaCentavos: dif,
+          baixadoPorId: atorId,
+          baixadoEm: new Date(),
+          caixaSessaoId: sessaoId,
+          observacao: dto.observacao,
+          updatedAt: new Date(),
+        })
+        .where(eq(acertoSubpdv.id, id));
+      return { id, recebidoCentavos: recebido, diferencaCentavos: dif };
+    });
+
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'venda',
+      acao: 'baixou_acerto_salao',
+      entidadeTipo: 'acerto_subpdv',
+      entidadeId: id,
+      detalhe: res,
+    });
+    return res;
+  }
+
   async fecharComanda(
     tenantId: string,
     atorId: string,
@@ -1509,6 +1609,7 @@ export class VendasService {
   ) {
     // Sub-PDV salão: o fechamento cai no caixa do PDV main (não no ponto do salão).
     const caixaTerminalId = await this.terminalCaixa(tenantId, terminalId);
+    const salao = await this.pontoSalao(tenantId, terminalId);
     const res = await this.db.transaction(async (tx) => {
       const [c] = await tx
         .select()
@@ -1568,19 +1669,38 @@ export class VendasService {
           ? dto.taxaServicoPct
           : Number(c.taxaServicoPct) || 0;
       const totalComTaxa = total * (1 + taxa / 100);
-      await tx.insert(lancamentoCaixa).values({
-        tenantId,
-        unidadeId: c.unidadeId,
-        sessaoId,
-        comandaId,
-        tipo: 'entrada',
-        valor: String(totalComTaxa.toFixed(2)),
-        data: hojeISO(),
-        categoria: 'venda',
-        forma: dto.forma,
-        descricao: c.mesa ? `Comanda · mesa ${c.mesa}` : 'Comanda',
-        criadoPorId: atorId,
-      });
+      // Sub-PDV de salão (mig 143): o dinheiro fica com o garçom, então NÃO entra
+      // no caixa agora — vira pendência de acerto. O caixa responsável confere
+      // quando receber e só aí lança. Fechamento no próprio PDV entra direto.
+      if (salao) {
+        await tx.insert(acertoSubpdv).values({
+          tenantId,
+          // Nunca nulo: sem a loja, a pendência sumiria da fila filtrada por
+          // unidade e o caixa nunca saberia que tem dinheiro a receber.
+          unidadeId: c.unidadeId ?? salao.unidadeId,
+          comandaId,
+          mesaId: c.mesaId ?? null,
+          subPdvId: salao.id,
+          caixaDestinoId: caixaTerminalId,
+          valorCentavos: Math.round(totalComTaxa * 100),
+          forma: dto.forma,
+          fechadoPorId: atorId,
+        });
+      } else {
+        await tx.insert(lancamentoCaixa).values({
+          tenantId,
+          unidadeId: c.unidadeId,
+          sessaoId,
+          comandaId,
+          tipo: 'entrada',
+          valor: String(totalComTaxa.toFixed(2)),
+          data: hojeISO(),
+          categoria: 'venda',
+          forma: dto.forma,
+          descricao: c.mesa ? `Comanda · mesa ${c.mesa}` : 'Comanda',
+          criadoPorId: atorId,
+        });
+      }
       await tx
         .update(comanda)
         .set({

@@ -112,6 +112,9 @@ export const colaborador = pgTable('colaborador', {
   jornadaTipo: text('jornada_tipo').notNull().default('outro'), // 5x2|12x36|4x3|horista|outro
   pinHash: text('pin_hash'),
   email: text('email'),
+  // Apelido de login (mig 141): único DENTRO da empresa, então o atendente entra
+  // sem precisar de e-mail. O e-mail segue valendo para quem já usa.
+  usuario: text('usuario'),
   senhaHash: text('senha_hash'),
   status: text('status').notNull().default('ativo'), // ativo | bloqueado
   perfilAcessoId: uuid('perfil_acesso_id'), // perfil de acesso (RBAC configurável)
@@ -768,6 +771,14 @@ export const equipamento = pgTable('equipamento', {
   impressoraDestinoId: uuid('impressora_destino_id'),
 
   pdvMainId: uuid('pdv_main_id'), // sub-PDV salão (tipo='salao'): caixa principal a que pertence (mig 133)
+
+  // Pareamento do PC (mig 142): código de uso único → segredo do device.
+  pareamentoCodigo: text('pareamento_codigo'),
+  pareamentoExpiraEm: timestamp('pareamento_expira_em', { withTimezone: true }),
+  segredoHash: text('segredo_hash'), // só o hash; o valor sai uma vez para o PC
+  pareadoEm: timestamp('pareado_em', { withTimezone: true }),
+  ultimoUsoEm: timestamp('ultimo_uso_em', { withTimezone: true }),
+  revogadoEm: timestamp('revogado_em', { withTimezone: true }), // PC roubado/trocado
 
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -2488,4 +2499,32 @@ export const etiquetaValidade = pgTable('etiqueta_validade', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Acerto de contas do sub-PDV de salão (mig 143).
+// O sub-PDV funciona como app de garçom: abre a mesa, lança os itens (que já vão
+// para a produção) e recebe o pagamento ali. O valor NÃO entra sozinho no caixa —
+// fica pendente até o garçom levar o dinheiro ao caixa responsável, que confere e
+// dá baixa. Mesmo fluxo do entregador que volta com a comanda e o dinheiro.
+export const acertoSubpdv = pgTable('acerto_subpdv', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  unidadeId: uuid('unidade_id'),
+  comandaId: uuid('comanda_id'),
+  mesaId: uuid('mesa_id'),
+  subPdvId: uuid('sub_pdv_id'), // quem fechou (ponto de salão)
+  caixaDestinoId: uuid('caixa_destino_id'), // a quem deve prestar contas
+  valorCentavos: integer('valor_centavos').notNull().default(0),
+  forma: text('forma'),
+  recebidoCentavos: integer('recebido_centavos'), // o que o caixa conferiu
+  diferencaCentavos: integer('diferenca_centavos').notNull().default(0),
+  status: text('status').notNull().default('pendente'), // pendente | baixado | cancelado
+  fechadoPorId: uuid('fechado_por_id'),
+  fechadoEm: timestamp('fechado_em', { withTimezone: true }).notNull().defaultNow(),
+  baixadoPorId: uuid('baixado_por_id'),
+  baixadoEm: timestamp('baixado_em', { withTimezone: true }),
+  caixaSessaoId: uuid('caixa_sessao_id'),
+  observacao: text('observacao'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

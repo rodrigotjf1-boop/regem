@@ -59,10 +59,39 @@ export function setUnidadeAtual(id: string | null) {
   window.dispatchEvent(new Event('regem:unidade'));
 }
 
+// Workspace desta LOJA neste PC (Fase 2): qual empresa/unidade este computador
+// atende. Identidade da máquina, não dado de negócio — por isso localStorage.
+// Com ele a tela de entrada deixa de ser "o login de todas as empresas do
+// Regem" e passa a ser a da loja, com login por apelido para quem não tem e-mail.
+export type Workspace = {
+  tenantId: string;
+  nome: string;
+  unidadeId?: string | null;
+  unidadeNome?: string | null;
+  modulos?: string[];
+};
+const WORKSPACE_KEY = 'regem_workspace';
+export function getWorkspace(): Workspace | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return JSON.parse(localStorage.getItem(WORKSPACE_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+export function setWorkspace(w: Workspace | null) {
+  if (typeof window === 'undefined') return;
+  if (w) localStorage.setItem(WORKSPACE_KEY, JSON.stringify(w));
+  else localStorage.removeItem(WORKSPACE_KEY);
+  window.dispatchEvent(new Event('regem:workspace'));
+}
+
 // Terminal de PDV pareado NESTE PC (identidade da máquina, não dado de negócio).
-// Guarda { id, nome } no localStorage; o `req()` envia o id no header X-Terminal-Id.
+// Guarda { id, nome, segredo } no localStorage; o `req()` manda id + segredo nos
+// headers. O id diz QUEM é o PC, o segredo PROVA — sem ele qualquer usuário
+// logado trocaria o id no navegador e assumiria o caixa de outro terminal.
 const TERMINAL_KEY = 'regem_terminal';
-function lerTerminal(): { id: string; nome: string } | null {
+function lerTerminal(): { id: string; nome: string; segredo?: string } | null {
   if (typeof window === 'undefined') return null;
   try {
     return JSON.parse(localStorage.getItem(TERMINAL_KEY) || 'null');
@@ -76,9 +105,15 @@ export function getTerminalAtual(): string | null {
 export function getTerminalNome(): string | null {
   return lerTerminal()?.nome ?? null;
 }
-export function setTerminalAtual(id: string, nome: string) {
+export function getTerminalSegredo(): string | null {
+  return lerTerminal()?.segredo ?? null;
+}
+export function setTerminalAtual(id: string, nome: string, segredo?: string) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(TERMINAL_KEY, JSON.stringify({ id, nome }));
+  // Preserva o segredo já pareado quando a chamada só atualiza id/nome.
+  const atual = lerTerminal();
+  const seg = segredo ?? (atual?.id === id ? atual?.segredo : undefined);
+  localStorage.setItem(TERMINAL_KEY, JSON.stringify({ id, nome, segredo: seg }));
   window.dispatchEvent(new Event('regem:terminal'));
 }
 export function clearTerminal() {
@@ -162,6 +197,7 @@ async function req(path: string, options: RequestInit = {}) {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(getUnidadeAtual() ? { 'X-Unidade-Id': getUnidadeAtual() as string } : {}),
         ...(getTerminalAtual() ? { 'X-Terminal-Id': getTerminalAtual() as string } : {}),
+        ...(getTerminalSegredo() ? { 'X-Terminal-Secret': getTerminalSegredo() as string } : {}),
         ...(options.headers || {}),
       },
     });
@@ -294,10 +330,16 @@ export const api = {
   patch: (path: string, body: Record<string, unknown>) =>
     req(path, { method: 'PATCH', body: JSON.stringify(body) }),
   del: (path: string) => req(path, { method: 'DELETE' }),
-  login: (email: string, senha: string) =>
+  // Workspace da empresa: pelo e-mail da loja, devolve nome, unidades e os
+  // módulos do plano. É o passo anterior ao login (não exige sessão).
+  workspace: (email: string) =>
+    req(`/publico/workspace?email=${encodeURIComponent(email)}`),
+  // Aceita e-mail (gestão) ou usuário/apelido (quem não tem e-mail). O backend
+  // decide pelo formato; `tenantId` escopa o apelido no workspace da empresa.
+  login: (identificador: string, senha: string, tenantId?: string) =>
     req('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, senha }),
+      body: JSON.stringify({ identificador, senha, ...(tenantId ? { tenantId } : {}) }),
     }),
   pinLogin: (unidadeId: string, pin: string) =>
     req('/auth/pin', {
@@ -1073,6 +1115,15 @@ export const api = {
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),
   parearTerminal: (token: string) =>
     req('/equipamento/parear', { method: 'POST', body: JSON.stringify({ token }) }),
+  // Acerto de contas do sub-PDV de salão (mig 143): a fila do caixa responsável.
+  acertos: () => req('/vendas/acertos'),
+  baixarAcerto: (id: string, body?: { recebidoCentavos?: number; observacao?: string }) =>
+    req(`/vendas/acertos/${id}/baixar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+  // Pareamento por código (mig 142): o gestor gera, o PC troca por um segredo.
+  gerarCodigoTerminal: (id: string) =>
+    req(`/equipamento/${id}/codigo`, { method: 'POST' }),
+  parearPorCodigo: (codigo: string) =>
+    req('/publico/terminal/parear', { method: 'POST', body: JSON.stringify({ codigo }) }),
   setTerminalImpressora: (id: string, impressoraId: string | null) =>
     req(`/equipamento/${id}/impressora`, {
       method: 'PATCH',

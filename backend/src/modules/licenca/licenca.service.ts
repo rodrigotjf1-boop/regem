@@ -14,9 +14,18 @@ import * as bcrypt from 'bcryptjs';
 // stripe usa `export =` — com o tsconfig do projeto (sem esModuleInterop), o
 // `import Stripe from 'stripe'` compila para `stripe_1.default` e quebra em runtime.
 import Stripe = require('stripe');
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { ativacao, colaborador, edgeHeartbeat, empresa, equipamento, funcao, revenda } from '../../db/schema';
+import {
+  ativacao,
+  colaborador,
+  edgeHeartbeat,
+  empresa,
+  equipamento,
+  funcao,
+  revenda,
+  unidade,
+} from '../../db/schema';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease, licencaConfigurada } from './lease';
 import { PLANOS } from './planos';
@@ -181,6 +190,31 @@ export class LicencaService {
     }
     const tenantId = u.tenantId;
 
+    // Em qual LOJA este servidor local está sendo instalado (Fase 5)?
+    // Cada unidade tem cardápio, setores e configuração próprios — e o sincronismo
+    // é por unidade. Com uma só, resolve sozinho; com mais de uma, devolvemos a
+    // lista para o instalador perguntar, em vez de exigir que a pessoa saiba o
+    // UUID de cor.
+    const unidades = await this.db
+      .select({ id: unidade.id, nome: unidade.nome, tipo: unidade.tipo })
+      .from(unidade)
+      .where(and(eq(unidade.tenantId, tenantId), isNull(unidade.deletedAt)))
+      .orderBy(sql`(tipo = 'matriz') desc`, unidade.createdAt);
+    let unidadeId = dto.unidadeId ?? null;
+    if (unidadeId && !unidades.some((x) => x.id === unidadeId)) {
+      throw new BadRequestException('Esta unidade não pertence à sua empresa.');
+    }
+    if (!unidadeId) {
+      if (unidades.length > 1) {
+        throw new BadRequestException({
+          message: 'Escolha em qual unidade este servidor está sendo instalado.',
+          escolhaUnidade: true,
+          unidades,
+        });
+      }
+      unidadeId = unidades[0]?.id ?? null; // uma só: nem pergunta
+    }
+
     // Falha CEDO (antes de criar equipamento/ativação) se a nuvem não tem as
     // chaves de licença — senão a assinatura do lease estoura um 500 opaco. A
     // causa fica no LOG do servidor (p/ tratamento); o instalador recebe um erro
@@ -222,7 +256,7 @@ export class LicencaService {
       const novo: any = await this.equip.criar(tenantId, u.id, u.categoria ?? 'presidente', {
         tipo: 'servidor_local',
         nome: 'Servidor local',
-        unidadeId: dto.unidadeId,
+        unidadeId,
       } as any);
       syncToken = novo.token;
     }
@@ -268,7 +302,9 @@ export class LicencaService {
         .returning();
     }
 
-    return { syncToken, lease: this.leaseDe(row), ativo: true };
+    // Devolve a unidade resolvida: o instalador grava em EDGE_UNIDADE_ID, que é
+    // o escopo do sincronismo deste servidor local.
+    return { syncToken, unidadeId, lease: this.leaseDe(row), ativo: true };
   }
 
   // Renova o lease (o edge chama no sync). Suspenso/revogado → sem lease.
