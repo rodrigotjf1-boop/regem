@@ -1,4 +1,5 @@
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsCnpj, IsTelefoneBr } from '../../../common/validadores-br';
 
 export class CreateFornecedorDto {
   @IsString()
@@ -7,6 +8,7 @@ export class CreateFornecedorDto {
 
   @IsOptional()
   @IsString()
+  @IsCnpj()
   cnpj?: string;
 
   @IsOptional()
@@ -15,10 +17,11 @@ export class CreateFornecedorDto {
 
   @IsOptional()
   @IsString()
+  @IsTelefoneBr()
   telefone?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: 'E-mail inválido.' })
   email?: string;
 
   @IsOptional()

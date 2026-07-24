@@ -180,7 +180,12 @@ export const PERFIS_PADRAO: {
   {
     nome: 'Execução',
     nivel: 'execucao',
-    loginWeb: false,
+    // (mig 141) Passa a acessar pelo login: o atendente opera PDV/mesas/pedidos o
+    // turno inteiro — as permissões abaixo já diziam isso, só o acesso estava
+    // fechado. Sem isso ele trabalharia na sessão de outra pessoa e toda a
+    // auditoria de caixa ficaria no nome de quem abriu o navegador.
+    // Continua editável por perfil: quem quiser um perfil só-terminal desmarca.
+    loginWeb: true,
     permissoes: {
       ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'escalas', 'checklist', 'mural', 'manutencao']),
       ponto: CRUD_NONE,

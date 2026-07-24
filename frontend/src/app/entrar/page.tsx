@@ -3,7 +3,16 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, setToken, getToken, getCategoria, rotaInicial } from '@/lib/api';
+import {
+  api,
+  setToken,
+  getToken,
+  getCategoria,
+  rotaInicial,
+  getWorkspace,
+  setWorkspace,
+  type Workspace,
+} from '@/lib/api';
 
 // Login (split-screen). Porte fiel do mockup Fable "regem-login" — CSS escopado em .lg.
 const CSS = `
@@ -117,6 +126,11 @@ export default function LoginPage() {
   const [fade, setFade] = useState(false);
   const [expirada, setExpirada] = useState(false);
   const [lembrar, setLembrar] = useState(true);
+  // Workspace da loja (Fase 2): quando este PC já sabe qual empresa atende, a
+  // tela vira "a entrada daquela loja" e o apelido passa a ser aceito no login.
+  const [ws, setWs] = useState<Workspace | null>(null);
+  const [emailEmpresa, setEmailEmpresa] = useState('');
+  const [buscandoWs, setBuscandoWs] = useState(false);
 
   useEffect(() => {
     // Já autenticado? Vai direto pro app (não mostra o login de novo).
@@ -124,8 +138,54 @@ export default function LoginPage() {
       router.replace(rotaInicial(getCategoria()));
       return;
     }
+    setWs(getWorkspace());
     setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
   }, [router]);
+
+  // Identifica a empresa pelo e-mail e guarda neste PC (uma vez só).
+  async function abrirWorkspace(e: React.FormEvent) {
+    e.preventDefault();
+    const v = emailEmpresa.trim();
+    if (!/.+@.+\..+/.test(v)) {
+      setErro('Informe o e-mail da empresa.');
+      return;
+    }
+    setErro('');
+    setBuscandoWs(true);
+    try {
+      const r: any = await api.workspace(v);
+      // Com uma unidade só não há o que escolher — já entra resolvido.
+      const uni = (r.unidades ?? []).length === 1 ? r.unidades[0] : null;
+      const novo: Workspace = {
+        tenantId: r.tenantId,
+        nome: r.nome,
+        unidadeId: uni?.id ?? null,
+        unidadeNome: uni?.nome ?? null,
+        modulos: r.modulos ?? [],
+      };
+      setWorkspace(novo);
+      setWs(novo);
+      setUnidades(r.unidades ?? []);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não encontrei esse workspace.');
+    } finally {
+      setBuscandoWs(false);
+    }
+  }
+
+  const [unidades, setUnidades] = useState<any[]>([]);
+  function escolherUnidade(u: any) {
+    const novo = { ...(ws as Workspace), unidadeId: u.id, unidadeNome: u.nome };
+    setWorkspace(novo);
+    setWs(novo);
+    setUnidades([]);
+  }
+  function trocarWorkspace() {
+    setWorkspace(null);
+    setWs(null);
+    setUnidades([]);
+    setEmailEmpresa('');
+  }
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -140,18 +200,23 @@ export default function LoginPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const okEmail = /.+@.+\..+/.test(email);
-    setEmailErr(!okEmail);
-    if (!okEmail) return;
+    // Aceita e-mail (gestão) OU usuário/apelido (atendente, estoquista…): se tem
+    // "@" cobramos formato de e-mail; senão basta um apelido válido.
+    const v = email.trim();
+    const ok = v.includes('@') ? /.+@.+\..+/.test(v) : /^[A-Za-z0-9._-]{3,32}$/.test(v);
+    setEmailErr(!ok);
+    if (!ok) return;
     setErro('');
     setLoading(true);
     try {
-      const r = await api.login(email, senha);
+      // Com workspace aberto, o apelido é procurado só nesta empresa — é o que
+      // permite um "joao" em cada loja sem colidir.
+      const r = await api.login(email, senha, ws?.tenantId);
       setToken(r.access_token, lembrar);
       // Landing por perfil (só gestor tem dashboard). replace: não volta ao login.
       router.replace(rotaInicial(getCategoria()));
     } catch (err) {
-      setErro(err instanceof Error ? err.message : 'E-mail ou senha incorretos.');
+      setErro(err instanceof Error ? err.message : 'Usuário ou senha incorretos.');
     } finally {
       setLoading(false);
     }
@@ -213,8 +278,27 @@ export default function LoginPage() {
                 R
               </span>
             </div>
-            <h2 className="form-title">Entre para gerenciar o seu dia</h2>
-            <p className="form-sub">Bem-vindo de volta 👋</p>
+            {ws ? (
+              <>
+                <h2 className="form-title">{ws.nome}</h2>
+                <p className="form-sub">
+                  {ws.unidadeNome ? `${ws.unidadeNome} · ` : ''}entre com o seu acesso
+                  <br />
+                  <button
+                    type="button"
+                    onClick={trocarWorkspace}
+                    style={{ fontSize: 12, color: '#9FB2C8', textDecoration: 'underline' }}
+                  >
+                    não é esta loja?
+                  </button>
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="form-title">Entre para gerenciar o seu dia</h2>
+                <p className="form-sub">Bem-vindo de volta 👋</p>
+              </>
+            )}
 
             {expirada && (
               <div
@@ -234,22 +318,73 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form onSubmit={onSubmit} noValidate>
+            {/* Passo 1 — identificar a loja. Só aparece enquanto este PC não sabe
+                qual empresa atende; depois vai direto para o login. */}
+            {!ws && (
+              <form onSubmit={abrirWorkspace} noValidate style={{ marginBottom: 22 }}>
+                <div className="field">
+                  <label htmlFor="emailEmpresa">E-mail da empresa</label>
+                  <div className="in-wrap">
+                    <input
+                      id="emailEmpresa"
+                      type="text"
+                      inputMode="email"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      placeholder="e-mail cadastrado da loja"
+                      value={emailEmpresa}
+                      onChange={(e) => setEmailEmpresa(e.target.value)}
+                    />
+                  </div>
+                  <div className="field-msg" style={{ display: 'block', color: '#5F7590' }}>
+                    Informe uma vez: este computador guarda a loja.
+                  </div>
+                </div>
+                <button type="submit" className="btn-submit" disabled={buscandoWs}>
+                  {buscandoWs ? 'Abrindo…' : 'Abrir workspace da loja'}
+                </button>
+              </form>
+            )}
+
+            {/* Passo 2 — escolher a unidade. Só quando há mais de uma. */}
+            {ws && unidades.length > 1 && (
+              <div style={{ marginBottom: 20 }}>
+                <p className="form-sub" style={{ margin: '0 0 10px' }}>
+                  Em qual unidade este computador está?
+                </p>
+                {unidades.map((u: any) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => escolherUnidade(u)}
+                    className="btn-submit"
+                    style={{ marginBottom: 8, background: '#12233A', color: '#F2F5F9' }}
+                  >
+                    {u.nome} {u.tipo === 'matriz' ? '· matriz' : ''}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={onSubmit} noValidate style={{ display: ws && unidades.length > 1 ? 'none' : undefined }}>
                 <div className={`field${emailErr ? ' err' : ''}`}>
-                  <label htmlFor="email">E-mail</label>
+                  <label htmlFor="email">E-mail ou usuário</label>
                   <div className="in-wrap">
                     <input
                       id="email"
-                      type="email"
-                      autoComplete="email"
-                      placeholder="voce@empresa.com.br"
+                      type="text"
+                      inputMode="email"
+                      autoComplete="username"
+                      autoCapitalize="none"
+                      spellCheck={false}
+                      placeholder="voce@empresa.com.br ou maria.balcao"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       required
                     />
                   </div>
                   <div className={`field-msg msg-err${emailErr ? ' show' : ''}`}>
-                    Informe um e-mail válido.
+                    Informe um e-mail válido ou seu usuário de acesso.
                   </div>
                 </div>
                 <div className={`field${erro ? ' err' : ''}`}>
@@ -282,7 +417,7 @@ export default function LoginPage() {
                     ⬆ Caps Lock está ativado.
                   </div>
                   <div className={`field-msg msg-err${erro ? ' show' : ''}`} role="alert" aria-live="assertive">
-                    {erro || 'E-mail ou senha incorretos. Tente novamente.'}
+                    {erro || 'Usuário ou senha incorretos. Tente novamente.'}
                   </div>
                 </div>
                 <div className="row-between">

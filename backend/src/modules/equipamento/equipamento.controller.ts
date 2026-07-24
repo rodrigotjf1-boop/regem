@@ -65,6 +65,13 @@ export class EquipamentoController {
     return this.service.parear(user.tenantId, dto?.token ?? '');
   }
 
+  // Gestor gera um código de 6 dígitos (uso único, 15 min) para o PC parear.
+  @Post(':id/codigo')
+  @Roles('presidente', 'gerente')
+  gerarCodigo(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.gerarCodigo(user.tenantId, id, user.colaboradorId, user.categoria);
+  }
+
   // Terminal de PDV: amarra (ou limpa) a impressora de cupom do terminal.
   @Patch(':id/impressora')
   @Roles('presidente', 'gerente')

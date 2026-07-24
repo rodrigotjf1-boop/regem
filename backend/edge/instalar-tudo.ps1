@@ -198,10 +198,54 @@ if ($Email -and $Senha) {
     $r = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/instalar" -f $CloudApi.TrimEnd('/')) `
       -ContentType "application/json" -Body ($payload | ConvertTo-Json -Compress) -TimeoutSec 40
     $SyncToken = $r.syncToken
+    if ($r.unidadeId) { $UnidadeId = $r.unidadeId }
     Diga "Provisionado: sync token recebido e licenca ativada na nuvem."
   } catch {
-    throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+    # Rede com MAIS DE UMA loja: a nuvem devolve a lista para escolhermos aqui,
+    # em vez de exigir que a pessoa saiba o UUID da unidade de cor. Cada loja tem
+    # cardapio/setores proprios e o sincronismo e por unidade - por isso importa.
+    $escolha = $null
+    try {
+      $resp = $_.ErrorDetails.Message
+      if (-not $resp -and $_.Exception.Response) {
+        $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+        $resp = $sr.ReadToEnd()
+      }
+      if ($resp) { $escolha = $resp | ConvertFrom-Json }
+    } catch { }
+
+    if ($escolha -and $escolha.escolhaUnidade -and $escolha.unidades) {
+      Diga "Esta empresa tem mais de uma loja. Em qual delas este servidor esta sendo instalado?"
+      $i = 1
+      foreach ($u in $escolha.unidades) {
+        $marca = if ($u.tipo -eq 'matriz') { ' (matriz)' } else { '' }
+        Write-Host ("  [{0}] {1}{2}" -f $i, $u.nome, $marca)
+        $i++
+      }
+      $sel = 0
+      while ($sel -lt 1 -or $sel -gt $escolha.unidades.Count) {
+        $entrada = Read-Host ("Digite o numero da loja (1-{0})" -f $escolha.unidades.Count)
+        [int]::TryParse($entrada, [ref]$sel) | Out-Null
+      }
+      $UnidadeId = $escolha.unidades[$sel - 1].id
+      Diga ("Loja escolhida: {0}" -f $escolha.unidades[$sel - 1].nome)
+
+      $payload.unidadeId = $UnidadeId
+      try {
+        $r = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/instalar" -f $CloudApi.TrimEnd('/')) `
+          -ContentType "application/json" -Body ($payload | ConvertTo-Json -Compress) -TimeoutSec 40
+        $SyncToken = $r.syncToken
+        Diga "Provisionado: sync token recebido e licenca ativada na nuvem."
+      } catch {
+        throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+      }
+    } else {
+      throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+    }
   }
+}
+if (-not $UnidadeId) {
+  Diga "AVISO: instalando sem unidade definida. Ajuste EDGE_UNIDADE_ID no .env.local se a empresa tiver mais de uma loja."
 }
 if (-not $SyncToken) { throw "Sem SYNC_TOKEN. Use -Email/-Senha (self-service) ou -SyncToken (manual)." }
 

@@ -11,6 +11,7 @@ import { ServidorStatus } from '@/components/ui/servidor-status';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
+import { AcertosSalao } from '@/components/pdv/acertos-salao';
 import { TerminalGate } from '@/components/pdv/terminal-gate';
 import { BuscarCupom } from '@/components/pdv/buscar-cupom';
 
@@ -304,6 +305,8 @@ export default function PdvPage() {
             <BuscarCupom />
           </div>
         </div>
+        {/* A receber do salão (mig 143): some sozinho quando não há pendência. */}
+        <AcertosSalao />
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
