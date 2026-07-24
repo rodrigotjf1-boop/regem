@@ -37,21 +37,48 @@ export class WorkspaceController {
       .from(colaborador)
       .where(and(eq(sql`lower(${colaborador.email})`, e), isNull(colaborador.deletedAt)));
     if (!dono) throw new BadRequestException('Não encontrei um workspace com esse e-mail.');
+    return this.montar(dono.tenantId);
+  }
 
+  // No EDGE a empresa/unidade são fixas (definidas na instalação, EDGE_UNIDADE_ID):
+  // o app não pergunta e-mail — abre direto no login já com nome/logo da loja.
+  // Só responde quando roda no edge com a unidade configurada; na nuvem é 404.
+  @Get('local')
+  async local() {
+    const uniId = process.env.EDGE_UNIDADE_ID?.trim();
+    if (!uniId) throw new BadRequestException('Sem unidade local configurada.');
+    const [uni] = await this.db
+      .select({ tenantId: unidade.tenantId, id: unidade.id })
+      .from(unidade)
+      .where(and(eq(unidade.id, uniId), isNull(unidade.deletedAt)));
+    if (!uni) throw new BadRequestException('Unidade local não encontrada.');
+    // Fixa a unidade instalada (não deixa escolher outra no edge).
+    return this.montar(uni.tenantId, uni.id);
+  }
+
+  // Monta a identidade do workspace (nome, logo, unidades, plano). `fixarUnidade`
+  // trava numa unidade só (edge) — senão devolve todas para o app escolher.
+  private async montar(tenantId: string, fixarUnidade?: string) {
     const [emp] = await this.db
       .select({ id: empresa.id, nome: empresa.nome })
       .from(empresa)
-      .where(eq(empresa.id, dono.tenantId));
-    if (!emp) throw new BadRequestException('Não encontrei um workspace com esse e-mail.');
+      .where(eq(empresa.id, tenantId));
+    if (!emp) throw new BadRequestException('Empresa não encontrada.');
 
-    const unidades = await this.db
+    // Logo da loja (cardapio_config.logo_ref) — o modal mostra a marca da empresa.
+    const lg: any = await this.db.execute(sql`
+      select logo_ref as logo from cardapio_config
+      where tenant_id = ${emp.id} order by (unidade_id is null) desc limit 1
+    `);
+    const logo = (lg?.rows ?? lg)?.[0]?.logo ?? null;
+
+    const todas = await this.db
       .select({ id: unidade.id, nome: unidade.nome, tipo: unidade.tipo })
       .from(unidade)
       .where(and(eq(unidade.tenantId, emp.id), isNull(unidade.deletedAt)))
       .orderBy(sql`(tipo = 'matriz') desc`, unidade.createdAt);
+    const unidades = fixarUnidade ? todas.filter((u) => u.id === fixarUnidade) : todas;
 
-    // Módulos do plano contratado (a distribuição edita quando a loja troca de
-    // plano) — o workspace já abre sabendo o que essa empresa tem direito.
     const r: any = await this.db.execute(sql`
       select modulos, plano from ativacao
       where tenant_id = ${emp.id} and status = 'ativado'
@@ -62,9 +89,9 @@ export class WorkspaceController {
     return {
       tenantId: emp.id,
       nome: emp.nome,
+      logo,
       plano: at?.plano ?? null,
       modulos: Array.isArray(at?.modulos) ? at.modulos : [],
-      // Só pergunta a unidade quando há mais de uma — com uma só não há escolha.
       unidades: unidades.map((u) => ({ id: u.id, nome: u.nome, tipo: u.tipo })),
     };
   }

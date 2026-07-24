@@ -66,6 +66,7 @@ export function setUnidadeAtual(id: string | null) {
 export type Workspace = {
   tenantId: string;
   nome: string;
+  logo?: string | null;
   unidadeId?: string | null;
   unidadeNome?: string | null;
   modulos?: string[];
@@ -356,6 +357,8 @@ export const api = {
   // módulos do plano. É o passo anterior ao login (não exige sessão).
   workspace: (email: string) =>
     req(`/publico/workspace?email=${encodeURIComponent(email)}`),
+  // Edge: a empresa/unidade já são fixas na instalação — abre direto no login.
+  workspaceLocal: () => req('/publico/workspace/local'),
   // Aceita e-mail (gestão) ou usuário/apelido (quem não tem e-mail). O backend
   // decide pelo formato; `tenantId` escopa o apelido no workspace da empresa.
   login: (identificador: string, senha: string, tenantId?: string) =>
