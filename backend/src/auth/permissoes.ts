@@ -58,7 +58,7 @@ export interface Permissoes {
   estoque?: Partial<AcoesModulo>;
 }
 
-export type ModuloAcao = 'ponto' | 'estoque';
+export type ModuloAcao = 'ponto' | 'estoque' | 'escalas';
 
 // Checa uma ação de módulo (ex.: pode(perm, 'estoque', 'criar')).
 export function pode(

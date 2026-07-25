@@ -33,13 +33,16 @@ export class PermissoesGuard implements CanActivate {
 
     const perm: Permissoes | undefined = user?.permissoes;
 
-    const ok =
-      'acao' in spec
-        ? pode(perm, spec.modulo, spec.acao)
-        // String simples: `podeAcessar` trata chave CRUD como o `.ver`. Sem isto,
-        // uma permissão CRUD (ex.: escalas={ver:false}) passaria por ser objeto
-        // truthy — furo silencioso ao migrar um bool para CRUD.
-        : podeAcessar(perm, spec.modulo as keyof Permissoes);
+    // Checa o VALOR de `acao`, não a presença da chave: `@RequirePerm('escalas')`
+    // gera { modulo, acao: undefined }, e `'acao' in spec` seria true mesmo sem
+    // ação — caindo em pode(..., undefined) = sempre false (barrava a leitura).
+    const spc = spec as { modulo: string; acao?: 'ver' | 'criar' | 'editar' | 'excluir' };
+    const ok = spc.acao
+      ? pode(perm, spc.modulo as any, spc.acao)
+      // String simples: `podeAcessar` trata chave CRUD como o `.ver`. Sem isto,
+      // uma permissão CRUD (ex.: escalas={ver:false}) passaria por ser objeto
+      // truthy — furo silencioso ao migrar um bool para CRUD.
+      : podeAcessar(perm, spc.modulo as keyof Permissoes);
 
     if (!ok) {
       throw new ForbiddenException(

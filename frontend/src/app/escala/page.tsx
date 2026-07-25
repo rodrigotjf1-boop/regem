@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CalendarPlus, CalendarRange, ChevronLeft, ChevronRight, FileWarning, Plus, Trash2 } from 'lucide-react';
-import { api, getToken, getCategoria } from '@/lib/api';
+import { api, getToken, getCategoria, getPermissoes } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -101,6 +101,7 @@ export default function EscalaPage() {
   const [mesEsp, setMesEsp] = useState<any[]>([]);
   const [erro, setErro] = useState('');
   const [cat, setCat] = useState<string | null>(null);
+  const [permE, setPermE] = useState({ criar: false, editar: false, excluir: false });
   const [espModal, setEspModal] = useState<string | null>(null); // data inicial ou null
   const [gerarModal, setGerarModal] = useState<
     { data: string; etiquetaId?: string; colaboradorId?: string; colaboradoresDoDia?: string[] } | null
@@ -158,6 +159,11 @@ export default function EscalaPage() {
       return;
     }
     setCat(getCategoria());
+    // Permissão CRUD de escalas (presidente vê tudo). Governa os botões de gestão
+    // — antes era só por categoria; agora um perfil configurado com "criar" vê.
+    const p: any = getPermissoes()?.escalas ?? {};
+    const pres = getCategoria() === 'presidente';
+    setPermE({ criar: pres || !!p.criar, editar: pres || !!p.editar, excluir: pres || !!p.excluir });
     carregar();
   }, [carregar, router]);
 
@@ -270,7 +276,7 @@ export default function EscalaPage() {
       title="Escala da semana"
       actions={
         <div className="flex items-center gap-2">
-          {['presidente', 'gerente'].includes(cat ?? '') && (
+          {permE.criar && (
             <Button
               size="sm"
               variant="outline"
@@ -280,7 +286,7 @@ export default function EscalaPage() {
               <CalendarPlus className="h-4 w-4" /> Feriado / evento
             </Button>
           )}
-          {['presidente', 'gerente'].includes(cat ?? '') && (
+          {permE.criar && (
             <Button
               size="sm"
               variant="outline"

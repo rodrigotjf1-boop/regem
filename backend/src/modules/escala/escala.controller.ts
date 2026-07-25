@@ -32,7 +32,7 @@ export class EscalaController {
   ) {}
 
   @Post()
-  @Roles('presidente', 'gerente')
+  @RequirePerm('escalas', 'criar')
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateAlocacaoDto) {
     const res = await this.service.create(user.tenantId, dto);
     await this.auditoria.registrar({
@@ -56,7 +56,7 @@ export class EscalaController {
 
   // Geração recorrente: cria a regra + preenche o período (calendário).
   @Post('gerar')
-  @Roles('presidente', 'gerente')
+  @RequirePerm('escalas', 'criar')
   async gerar(@CurrentUser() user: AuthUser, @Body() dto: GerarEscalaDto) {
     const res = await this.service.gerarEscala(user.tenantId, dto);
     await this.auditoria.registrar({
@@ -91,7 +91,7 @@ export class EscalaController {
 
   // Marca a presença de uma alocação (presente / falta justificada / injustificada).
   @Patch(':id/presenca')
-  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('escalas', 'editar')
   async presenca(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -113,7 +113,7 @@ export class EscalaController {
 
   // Edita horário/pausa de um dia com escopo (dia | futuras | datas).
   @Patch(':id/horario')
-  @Roles('presidente', 'gerente')
+  @RequirePerm('escalas', 'editar')
   async editarHorario(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -142,7 +142,7 @@ export class EscalaController {
   }
 
   @Patch(':id')
-  @Roles('presidente', 'gerente')
+  @RequirePerm('escalas', 'editar')
   async alterar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -163,7 +163,7 @@ export class EscalaController {
   }
 
   @Delete(':id')
-  @Roles('presidente', 'gerente')
+  @RequirePerm('escalas', 'excluir')
   async remover(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const res = await this.service.remover(user.tenantId, id);
     await this.auditoria.registrar({

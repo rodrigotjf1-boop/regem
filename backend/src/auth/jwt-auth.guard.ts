@@ -9,7 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
 import { colaborador, funcao, perfilAcesso } from '../db/schema';
-import type { Permissoes } from './permissoes';
+import { perfilPadrao, type Permissoes } from './permissoes';
 
 // TTL do cache de revalidação: janela máxima entre uma mudança no banco
 // (bloqueio/rebaixamento/permissão) e ela valer nas requisições.
@@ -87,11 +87,16 @@ export class JwtAuthGuard implements CanActivate {
       .leftJoin(perfilAcesso, eq(colaborador.perfilAcessoId, perfilAcesso.id))
       .where(eq(colaborador.id, colaboradorId));
     if (!row) return null;
+    const categoria = (row.perfilNivel ?? row.funcaoCategoria ?? 'execucao') as string;
     const val = {
       exp: Date.now() + CACHE_MS,
       status: (row.status ?? 'ativo') as string,
-      categoria: (row.perfilNivel ?? row.funcaoCategoria ?? 'execucao') as string,
-      permissoes: (row.permissoes ?? undefined) as Permissoes | undefined,
+      categoria,
+      // Sem perfil associado (ex.: colaborador sem função ainda), usa o padrão do
+      // nível — MESMO fallback do login. Sem isto a revalidação zerava as
+      // permissões (undefined) e o colaborador era barrado em tudo, mesmo com o
+      // token trazendo o pacote certo.
+      permissoes: (row.permissoes ?? perfilPadrao(categoria).permissoes) as Permissoes,
     };
     this.cache.set(colaboradorId, val);
     return val;
