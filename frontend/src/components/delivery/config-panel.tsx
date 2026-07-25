@@ -747,6 +747,17 @@ function ToggleLinha({ label, desc, checked, onChange, pode }: { label: string; 
   );
 }
 
+// Duração da janela em minutos (trata a virada de meia-noite: fecha <= abre).
+function duracaoMin(abre?: string, fecha?: string): number {
+  const m = (t?: string) => {
+    const [h, mi] = String(t ?? '').split(':').map(Number);
+    return Number.isFinite(h) ? h * 60 + (mi || 0) : NaN;
+  };
+  const a = m(abre), f = m(fecha);
+  if (Number.isNaN(a) || Number.isNaN(f)) return 0;
+  return f > a ? f - a : 24 * 60 - a + f; // vira a meia-noite
+}
+
 function Horarios({ value, onChange, pode }: { value: any[]; onChange: (h: any[]) => void; pode: boolean }) {
   const byDia = (d: number) => value.find((h) => h.dia === d) ?? { dia: d, abre: '18:00', fecha: '23:00', ativo: false };
   function set(d: number, patch: any) {
@@ -757,15 +768,26 @@ function Horarios({ value, onChange, pode }: { value: any[]; onChange: (h: any[]
     <div className="space-y-1.5">
       {DIAS.map((nome, d) => {
         const h = byDia(d);
+        // Janela muito longa (>18h) quase sempre é erro de digitação (ex.: abre
+        // 04:00 e fecha 03:00 = 23h). Avisa sem bloquear.
+        const min = h.ativo ? duracaoMin(h.abre, h.fecha) : 0;
+        const longa = min > 18 * 60;
         return (
-          <div key={d} className="flex items-center gap-2 rounded-lg border border-border p-2 text-sm">
-            <label className="flex w-24 items-center gap-2">
-              <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={!!h.ativo} onChange={(e) => set(d, { ativo: e.target.checked })} />
-              <span className="font-medium">{nome}</span>
-            </label>
-            <Input type="time" value={h.abre ?? ''} disabled={!pode || !h.ativo} onChange={(e) => set(d, { abre: e.target.value })} className="h-8 w-28" />
-            <span className="text-muted-foreground">às</span>
-            <Input type="time" value={h.fecha ?? ''} disabled={!pode || !h.ativo} onChange={(e) => set(d, { fecha: e.target.value })} className="h-8 w-28" />
+          <div key={d} className="rounded-lg border border-border p-2 text-sm">
+            <div className="flex items-center gap-2">
+              <label className="flex w-24 items-center gap-2">
+                <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={!!h.ativo} onChange={(e) => set(d, { ativo: e.target.checked })} />
+                <span className="font-medium">{nome}</span>
+              </label>
+              <Input type="time" value={h.abre ?? ''} disabled={!pode || !h.ativo} onChange={(e) => set(d, { abre: e.target.value })} className="h-8 w-28" />
+              <span className="text-muted-foreground">às</span>
+              <Input type="time" value={h.fecha ?? ''} disabled={!pode || !h.ativo} onChange={(e) => set(d, { fecha: e.target.value })} className="h-8 w-28" />
+            </div>
+            {longa && (
+              <p className="mt-1.5 text-xs text-amber-600" role="alert">
+                ⚠ Janela de {(min / 60).toFixed(0)}h — confira se o horário está certo.
+              </p>
+            )}
           </div>
         );
       })}

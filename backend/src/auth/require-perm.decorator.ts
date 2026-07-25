@@ -6,10 +6,10 @@ import type { Permissoes } from './permissoes';
 //   @RequirePerm('ponto', 'criar')        → ação de módulo (ver/criar/editar/excluir)
 export const REQUIRE_PERM = 'require_perm';
 // Chaves booleanas do catálogo (tudo em Permissoes menos os módulos CRUD).
-export type PermBool = Exclude<keyof Permissoes, 'ponto' | 'estoque'>;
+export type PermBool = Exclude<keyof Permissoes, 'ponto' | 'estoque' | 'escalas'>;
 export type PermSpec =
   | { modulo: PermBool }
-  | { modulo: 'ponto' | 'estoque'; acao: 'ver' | 'criar' | 'editar' | 'excluir' };
+  | { modulo: 'ponto' | 'estoque' | 'escalas'; acao: 'ver' | 'criar' | 'editar' | 'excluir' };
 
 export const RequirePerm = (modulo: string, acao?: string) =>
   SetMetadata(REQUIRE_PERM, { modulo, acao } as PermSpec);

@@ -483,6 +483,22 @@ export class WhatsappService {
       const itens = (prods?.rows ?? prods).map((p: any) => ({ ...p }));
       if (itens.length) categorias.push({ nome: c.nome, itens });
     }
+    // Produtos SEM categoria (ou em categoria inativa) ficavam de fora — vão numa
+    // seção "Outros" no fim, para o cardápio não sair incompleto.
+    const semCat: any = await this.db.execute(sql`
+      select p.nome, p.descricao, p.preco_venda as "precoVenda",
+             p.preco_promocional as "precoPromocional", p.imagem_ref as "imagemUrl"
+        from produto p
+       where p.tenant_id = ${tenantId} and coalesce(p.ativo, true) = true
+         and (p.categoria_id is null or not exists (
+           select 1 from categoria_produto c
+            where c.id = p.categoria_id and coalesce(c.ativo, true) = true and c.deleted_at is null
+         ))
+       order by p.nome
+    `);
+    const outros = (semCat?.rows ?? semCat).map((p: any) => ({ ...p }));
+    if (outros.length) categorias.push({ nome: 'Outros', itens: outros });
+
     if (!categorias.length)
       throw new BadRequestException('O cardápio não tem itens ativos para enviar.');
 

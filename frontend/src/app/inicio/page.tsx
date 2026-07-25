@@ -317,14 +317,18 @@ export default function InicioPage() {
                 fields={
                   [
                     { name: 'nome', label: 'Nome', type: 'text', required: true, placeholder: 'Ex.: Maria' },
+                    { name: 'usuario', label: 'Usuário de acesso', type: 'text', required: true, placeholder: 'ex.: maria.balcao' },
                     { name: 'funcaoId', label: 'Função', type: 'select', options: withNone(optF), onCreate: criarFuncao },
-                    { name: 'pin', label: 'PIN de acesso (opcional)', type: 'text', placeholder: 'ex.: 1234' },
+                    { name: 'senha', label: 'Senha (opcional)', type: 'password', placeholder: 'mín. 6 — para entrar pelo sistema' },
+                    { name: 'pin', label: 'PIN do terminal (opcional)', type: 'text', placeholder: 'ex.: 1234' },
                   ] as FieldDef[]
                 }
                 onSubmit={async (v) => {
                   await api.post('/colaboradores', {
                     nome: v.nome,
+                    usuario: v.usuario || undefined,
                     funcaoId: v.funcaoId || undefined,
+                    senha: v.senha || undefined,
                     pin: v.pin || undefined,
                   });
                   await carregar();
