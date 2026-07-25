@@ -90,10 +90,22 @@ const CSS = `
 .lg .pin-terminal b{color:#2EBD85}
 /* ===== 2º passo: modal de login sobre o Regem desfocado ===== */
 .lg .lock{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px}
-.lg .lock-bg{position:absolute;inset:0;background:radial-gradient(1200px 800px at 25% 15%,#16294A 0%,#0D1A2B 62%);overflow:hidden}
-.lg .lock-bg::before{content:"";position:absolute;left:58%;top:48%;width:900px;height:900px;transform:translate(-50%,-50%);border:1px solid rgba(232,168,69,.10);border-radius:50%}
-.lg .lock-bg::after{content:"";position:absolute;left:58%;top:48%;width:1360px;height:1360px;transform:translate(-50%,-50%);border:1px solid rgba(159,178,200,.06);border-radius:50%}
-.lg .lock-glass{position:absolute;inset:0;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);background:rgba(9,18,31,.55)}
+.lg .lock-bg{position:absolute;inset:0;background:#0D1A2B;overflow:hidden}
+/* Réplica do painel do Regem ao fundo (levemente desfocada) — o app "atrás do vidro". */
+.lg .lock-mock{position:absolute;inset:-24px;display:flex;filter:blur(4px);opacity:.72;transform:scale(1.03)}
+.lg .lm-side{width:210px;flex:none;background:#0F2230;padding:20px 14px;display:flex;flex-direction:column;gap:10px}
+.lg .lm-logo{height:34px;width:120px;border-radius:8px;background:linear-gradient(90deg,#E8A845,rgba(232,168,69,.2));margin-bottom:14px}
+.lg .lm-row{height:34px;border-radius:9px;background:rgba(255,255,255,.05)}
+.lg .lm-row.on{background:rgba(232,168,69,.22)}
+.lg .lm-main{flex:1;padding:22px;display:flex;flex-direction:column;gap:16px;background:#EDF0F4}
+.lg .lm-top{height:40px;border-radius:10px;background:#fff;box-shadow:0 1px 3px rgba(15,34,48,.08)}
+.lg .lm-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.lg .lm-card{height:96px;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(15,34,48,.08);border-top:3px solid #E8A845}
+.lg .lm-card:nth-child(2){border-top-color:#0E7C66}
+.lg .lm-card:nth-child(3){border-top-color:#4AA8E0}
+.lg .lm-panel{flex:1;border-radius:16px;background:#fff;box-shadow:0 2px 8px rgba(15,34,48,.08);padding:18px;display:flex;align-items:flex-end;gap:12px}
+.lg .lm-bar{flex:1;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#4AA8E0,rgba(74,168,224,.35))}
+.lg .lock-glass{position:absolute;inset:0;backdrop-filter:saturate(1.1);background:linear-gradient(120deg,rgba(9,18,31,.42),rgba(13,26,43,.55))}
 .lg .lock-card{position:relative;z-index:2;width:100%;max-width:430px;background:rgba(18,35,58,.94);border:1px solid #26456A;border-radius:22px;padding:34px 30px 30px;box-shadow:0 34px 90px rgba(0,0,0,.55);animation:lockIn .5s cubic-bezier(.16,.84,.28,1) both}
 @keyframes lockIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
 .lg .lock-logo{display:flex;justify-content:center;margin-bottom:14px}
@@ -282,7 +294,33 @@ export default function LoginPage() {
       <div className="lg">
         <style dangerouslySetInnerHTML={{ __html: CSS }} />
         <div className="lock">
+          {/* Fundo: réplica do painel do Regem, levemente desfocada (o app "atrás
+              do vidro"). Puramente decorativo — sem dados reais (não há sessão). */}
           <div className="lock-bg" aria-hidden="true">
+            <div className="lock-mock">
+              <div className="lm-side">
+                <div className="lm-logo" />
+                <div className="lm-row on" />
+                <div className="lm-row" />
+                <div className="lm-row" />
+                <div className="lm-row" />
+                <div className="lm-row" />
+                <div className="lm-row" />
+              </div>
+              <div className="lm-main">
+                <div className="lm-top" />
+                <div className="lm-cards">
+                  <div className="lm-card" />
+                  <div className="lm-card" />
+                  <div className="lm-card" />
+                </div>
+                <div className="lm-panel">
+                  {[38, 62, 48, 80, 55, 70, 44, 88, 60].map((h, i) => (
+                    <div key={i} className="lm-bar" style={{ height: `${h}%` }} />
+                  ))}
+                </div>
+              </div>
+            </div>
             <div className="lock-glass" />
           </div>
           <div className="lock-card" role="dialog" aria-modal="true" aria-label="Entrar no Regem">

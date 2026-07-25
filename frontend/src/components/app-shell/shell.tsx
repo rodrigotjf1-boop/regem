@@ -185,6 +185,10 @@ export function Shell({
   // Módulos do plano contratado ∩ liga/desliga do presidente. null = ainda não
   // carregou (não escondemos nada até saber, para o menu não piscar).
   const [modulos, setModulos] = useState<Record<string, boolean> | null>(null);
+  // Permissões: lidas em estado (não no render). Ler o localStorage direto no
+  // corpo do render causava hydration mismatch — no SSR vinha null (menu vazio),
+  // no cliente vinha o pacote (menu cheio), e o HTML não batia.
+  const [perms, setPerms] = useState<any>(null);
   const asideRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -193,6 +197,7 @@ export function Shell({
       return;
     }
     setCat(getCategoria() ?? '');
+    setPerms(getPermissoes());
     // Falha silenciosa de propósito: se não conseguir ler os módulos, o menu
     // continua completo — melhor mostrar demais do que trancar o gestor fora.
     api.modulosMeus().then(setModulos).catch(() => setModulos(null));
@@ -303,7 +308,6 @@ export function Shell({
 
         <nav className="scroll-fino flex-1 overflow-y-auto p-2.5">
           {(() => {
-            const perms = getPermissoes();
             const isPres = cat === 'presidente';
             const Item = (it: NavSub | NavNode, sub?: boolean) => {
               const href = (it as NavSub).href;
