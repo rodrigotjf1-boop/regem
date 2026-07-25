@@ -39,6 +39,7 @@ import {
 } from '../producao-pedido/producao-pedido.service';
 import { FiscalService } from '../fiscal/fiscal.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
+import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function hojeISO() {
@@ -758,6 +759,233 @@ export class VendasService {
     this.producao.emitirNovos(res.producaoPayloads);
     await this.fiscal.emitirSeAtivo(tenantId, atorId, res.comandaId, dto.unidadeId ?? null);
     return res;
+  }
+
+  // L-VEN-1 — Venda de origem externa PAGA por código PDV (totem/autoatendimento).
+  // Autenticada por dispositivo (X-Sync-Token). Diferenças vs. venderExterno:
+  //  • itens vêm por `codigoPdv` (de-para) — o preço é resolvido no servidor;
+  //  • baixa de estoque IMEDIATA (a venda já foi concluída e paga no totem);
+  //  • pagamento pré-pago (TEF/PIX) → lançamento por forma, SEM sessão de caixa;
+  //  • idempotência pela chave do totem (reenvio nunca duplica venda/baixa/caixa).
+  async venderTotem(
+    tenantId: string,
+    ctx: { unidadeId: string | null; equipamentoId: string },
+    dto: VendaExternaPdvDto,
+  ) {
+    if (!dto.itens?.length) throw new BadRequestException('Pedido sem itens.');
+    if (!dto.pagamentos?.length)
+      throw new BadRequestException('Venda de totem é pré-paga: informe o pagamento.');
+    if (!dto.idempotencyKey?.trim())
+      throw new BadRequestException('idempotencyKey é obrigatória.');
+
+    const unidadeId = dto.unidadeId ?? ctx.unidadeId ?? null;
+
+    // Idempotência (chave do totem): mesma chave → devolve a venda já lançada.
+    const [existente] = await this.db
+      .select({ id: comanda.id })
+      .from(comanda)
+      .where(
+        and(
+          eq(comanda.tenantId, tenantId),
+          eq(comanda.idempotencyKey, dto.idempotencyKey),
+        ),
+      );
+    if (existente) return { comandaId: existente.id, idempotente: true };
+
+    // De-para: resolve produtos por codigo_pdv. Preço vem do banco (nunca do cliente).
+    const codigos = [
+      ...new Set(dto.itens.map((i) => (i.codigoPdv ?? '').trim()).filter(Boolean)),
+    ];
+    if (!codigos.length) throw new BadRequestException('Itens sem codigoPdv.');
+    const prods = await this.db
+      .select()
+      .from(produto)
+      .where(
+        and(
+          eq(produto.tenantId, tenantId),
+          inArray(produto.codigo, codigos),
+          isNull(produto.deletedAt),
+        ),
+      );
+    const porCodigo = new Map<string, any>(
+      prods.filter((p) => p.codigo).map((p) => [p.codigo as string, p]),
+    );
+    const faltando = codigos.filter((c) => !porCodigo.has(c));
+    if (faltando.length)
+      throw new BadRequestException(
+        `Código(s) PDV não encontrado(s) neste tenant: ${faltando.join(', ')}`,
+      );
+
+    let res: any;
+    try {
+      res = await this.db.transaction(async (tx) => {
+        const taxa = Number(dto.taxaServicoPct) || 0;
+        const senha = await this.producao.proximaSenha(tx, tenantId, unidadeId);
+        const formaResumo =
+          dto.pagamentos.length > 1 ? 'multiplo' : dto.pagamentos[0].forma;
+        const [cmd] = await tx
+          .insert(comanda)
+          .values({
+            tenantId,
+            unidadeId,
+            cliente: dto.cliente ?? null,
+            cpf: dto.cpf ?? null,
+            senha,
+            status: 'fechada',
+            idempotencyKey: dto.idempotencyKey,
+            taxaServicoPct: String(taxa),
+            forma: formaResumo,
+            origemEquipamentoId: ctx.equipamentoId,
+            fechadaEm: new Date(),
+          })
+          .returning();
+
+        let total = 0;
+        const itensProducao: ItemProducao[] = [];
+        const consumo = new Map<string, number>(); // baixa agregada por item
+
+        for (const it of dto.itens) {
+          const p = porCodigo.get((it.codigoPdv ?? '').trim());
+          const qtd = Number(it.quantidade) || 1;
+          const preco = Number(p.precoVenda);
+          total += preco * qtd;
+          const obs = it.observacao ?? null;
+          const [ci] = await tx
+            .insert(comandaItem)
+            .values({
+              tenantId,
+              comandaId: cmd.id,
+              produtoId: p.id,
+              fichaId: p.fichaId,
+              descricao: p.nome,
+              quantidade: String(qtd),
+              precoUnitario: String(preco),
+              observacao: obs,
+            })
+            .returning();
+          // v1: itens simples (sem complementos). Complementos por codigoPdv das
+          // opções são follow-up (L-VEN-1 v2).
+          await this.acumularProduto(tx, tenantId, p, 1, qtd, [], consumo);
+          if (p.vaiParaProducao)
+            itensProducao.push({
+              produto: p,
+              descricao: p.nome,
+              quantidade: qtd,
+              observacao: obs,
+              comandaItemId: ci.id,
+            });
+        }
+
+        // Totem: venda concluída e paga → baixa estoque IMEDIATA (difere do delivery).
+        await this.lancarSaidas(tx, tenantId, consumo, cmd.id);
+
+        const producaoPayloads = await this.producao.criarPedidos(
+          tx,
+          {
+            tenantId,
+            unidadeId,
+            comandaId: cmd.id,
+            origem: 'totem',
+            setorId: null,
+            mesa: null,
+            senha,
+            plataforma: dto.plataforma ?? 'Totem',
+            senhaPlataforma: dto.senhaPlataforma ?? null,
+          },
+          itensProducao,
+        );
+
+        const totalComTaxa = total * (1 + taxa / 100);
+        await tx
+          .update(comanda)
+          .set({ total: String(totalComTaxa.toFixed(2)) })
+          .where(eq(comanda.id, cmd.id));
+
+        // Pré-pago no totem (TEF/PIX): soma tem de bater; sem sessão de caixa.
+        const somaPag = dto.pagamentos.reduce(
+          (s, p) => s + (Number(p.valor) || 0),
+          0,
+        );
+        if (Math.abs(somaPag - totalComTaxa) > 0.05)
+          throw new BadRequestException(
+            `A soma dos pagamentos (${somaPag.toFixed(2)}) não bate com o total (${totalComTaxa.toFixed(2)}).`,
+          );
+        for (const pg of dto.pagamentos) {
+          await tx.insert(comandaPagamento).values({
+            tenantId,
+            comandaId: cmd.id,
+            forma: pg.forma,
+            formaPagamentoId: pg.formaPagamentoId ?? null,
+            valor: String(Number(pg.valor).toFixed(2)),
+          });
+          const ref = [
+            pg.nsu ? `NSU ${pg.nsu}` : null,
+            pg.autorizacao ? `aut ${pg.autorizacao}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          await tx.insert(lancamentoCaixa).values({
+            tenantId,
+            unidadeId,
+            comandaId: cmd.id,
+            tipo: 'entrada',
+            valor: String(Number(pg.valor).toFixed(2)),
+            data: hojeISO(),
+            categoria: 'venda',
+            forma: pg.forma,
+            descricao: ref ? `Venda totem · ${ref}` : 'Venda totem',
+          });
+        }
+
+        return {
+          comandaId: cmd.id,
+          senha,
+          subtotal: Number(total.toFixed(2)),
+          taxaServicoPct: taxa,
+          total: Number(totalComTaxa.toFixed(2)),
+          producaoPayloads,
+        };
+      });
+    } catch (e: any) {
+      // Corrida: outra requisição com a mesma chave inseriu primeiro (unique).
+      if (e?.code === '23505') {
+        const [ex] = await this.db
+          .select({ id: comanda.id })
+          .from(comanda)
+          .where(
+            and(
+              eq(comanda.tenantId, tenantId),
+              eq(comanda.idempotencyKey, dto.idempotencyKey),
+            ),
+          );
+        if (ex) return { comandaId: ex.id, idempotente: true };
+      }
+      throw e;
+    }
+
+    this.producao.emitirNovos(res.producaoPayloads);
+    const nfce = await this.fiscal.emitirSeAtivo(tenantId, null, res.comandaId, unidadeId);
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: null,
+      atorPerfil: 'servico',
+      tipo: 'venda',
+      acao: 'venda_totem',
+      entidadeTipo: 'comanda',
+      entidadeId: res.comandaId,
+      detalhe: {
+        total: res.total,
+        itens: dto.itens.length,
+        origem: 'totem',
+        equipamentoId: ctx.equipamentoId,
+      },
+    });
+    return {
+      ...res,
+      nfce: nfce
+        ? { status: (nfce as any).status, chave: (nfce as any).chave, numero: (nfce as any).numero }
+        : null,
+    };
   }
 
   // Estorna uma venda externa (delivery cancelado). Como não passa por caixa,
