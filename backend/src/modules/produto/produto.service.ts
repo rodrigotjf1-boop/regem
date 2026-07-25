@@ -601,6 +601,55 @@ export class ProdutoService {
     return res.rows ?? res;
   }
 
+  // L-CAT-2 — Snapshot de catálogo para integração externa autenticada por
+  // dispositivo (totem GoGeM), keyed por código PDV (produto.codigo) e
+  // codigoPdv da opção. Compõe leituras já existentes (listar/listarCategorias/
+  // complementosDe). Busca os grupos por produto (N+1) — aceitável num endpoint
+  // de importação. Somente leitura; tenant sempre do dispositivo.
+  async catalogoParaSync(tenantId: string, _unidadeId: string | null) {
+    const [categorias, produtos] = await Promise.all([
+      this.listarCategorias(tenantId),
+      this.listar(tenantId),
+    ]);
+    const itens = await Promise.all(
+      (produtos as any[]).map(async (p) => {
+        const grupos = await this.complementosDe(tenantId, p.id);
+        return {
+          id: p.id,
+          codigo: p.codigo,
+          nome: p.nome,
+          descricao: p.descricao,
+          precoVenda: p.precoVenda,
+          categoriaId: p.categoriaId,
+          disponivelCardapio: p.disponivelCardapio,
+          disponivelBalcao: p.disponivelBalcao,
+          ativo: p.ativo,
+          grupos: (grupos as any[]).map((g) => ({
+            id: g.id,
+            nome: g.nome,
+            tipo: g.tipo,
+            min: g.min,
+            max: g.max,
+            obrigatorio: g.obrigatorio,
+            ordem: g.ordem,
+            opcoes: (g.opcoes as any[]).map((o) => ({
+              id: o.id,
+              nome: o.nome,
+              precoDelta: o.precoDelta,
+              codigoPdv: o.codigoPdv,
+              ordem: o.ordem,
+            })),
+          })),
+        };
+      }),
+    );
+    return {
+      geradoEm: new Date().toISOString(),
+      categorias,
+      produtos: itens,
+    };
+  }
+
   async getOne(tenantId: string, id: string) {
     const [p] = await this.db
       .select()
