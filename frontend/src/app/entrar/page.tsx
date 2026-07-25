@@ -90,22 +90,49 @@ const CSS = `
 .lg .pin-terminal b{color:#2EBD85}
 /* ===== 2º passo: modal de login sobre o Regem desfocado ===== */
 .lg .lock{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px}
-.lg .lock-bg{position:absolute;inset:0;background:#0D1A2B;overflow:hidden}
-/* Réplica do painel do Regem ao fundo (levemente desfocada) — o app "atrás do vidro". */
-.lg .lock-mock{position:absolute;inset:-24px;display:flex;filter:blur(4px);opacity:.72;transform:scale(1.03)}
-.lg .lm-side{width:210px;flex:none;background:#0F2230;padding:20px 14px;display:flex;flex-direction:column;gap:10px}
-.lg .lm-logo{height:34px;width:120px;border-radius:8px;background:linear-gradient(90deg,#E8A845,rgba(232,168,69,.2));margin-bottom:14px}
-.lg .lm-row{height:34px;border-radius:9px;background:rgba(255,255,255,.05)}
-.lg .lm-row.on{background:rgba(232,168,69,.22)}
-.lg .lm-main{flex:1;padding:22px;display:flex;flex-direction:column;gap:16px;background:#EDF0F4}
-.lg .lm-top{height:40px;border-radius:10px;background:#fff;box-shadow:0 1px 3px rgba(15,34,48,.08)}
-.lg .lm-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.lg .lm-card{height:96px;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(15,34,48,.08);border-top:3px solid #E8A845}
-.lg .lm-card:nth-child(2){border-top-color:#0E7C66}
-.lg .lm-card:nth-child(3){border-top-color:#4AA8E0}
-.lg .lm-panel{flex:1;border-radius:16px;background:#fff;box-shadow:0 2px 8px rgba(15,34,48,.08);padding:18px;display:flex;align-items:flex-end;gap:12px}
-.lg .lm-bar{flex:1;border-radius:8px 8px 0 0;background:linear-gradient(180deg,#4AA8E0,rgba(74,168,224,.35))}
-.lg .lock-glass{position:absolute;inset:0;backdrop-filter:saturate(1.1);background:linear-gradient(120deg,rgba(9,18,31,.42),rgba(13,26,43,.55))}
+.lg .lock-bg{position:absolute;inset:0;background:#EDF0F4;overflow:hidden}
+/* Réplica do painel do Regem ao fundo (blur bem leve) — o app "atrás do vidro". */
+.lg .lock-mock{position:absolute;inset:0;display:flex;filter:blur(2.5px);transform:scale(1.02);font-family:var(--font-sans)}
+.lg .lm-side{width:196px;flex:none;background:#0F2230;padding:16px 12px;display:flex;flex-direction:column;color:#B9CBD7}
+.lg .lm-brand{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.lg .lm-brand i{width:30px;height:30px;border-radius:50%;border:2px solid #E8A845;color:#E8A845;font-style:normal;font-weight:800;display:grid;place-items:center;font-size:13px}
+.lg .lm-brand b{color:#fff;font-family:var(--font-display);font-weight:800;font-size:15px}
+.lg .lm-mi{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;font-size:12.5px;margin-bottom:2px}
+.lg .lm-mi::before{content:"";width:14px;height:14px;border-radius:4px;background:currentColor;opacity:.55}
+.lg .lm-mi.on{background:rgba(232,168,69,.9);color:#2A1D06;font-weight:700}
+.lg .lm-acc{margin-top:auto;display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.06);border-radius:10px;padding:9px}
+.lg .lm-acc i{width:30px;height:30px;border-radius:50%;background:#E8A845;flex:none}
+.lg .lm-acc b{color:#fff;font-size:12px;font-weight:700;display:block}
+.lg .lm-acc span{font-size:9px;color:#7A99AC;letter-spacing:.1em}
+.lg .lm-body{flex:1;display:flex;flex-direction:column}
+.lg .lm-banner{background:#F6EFDD;color:#9A7B2E;font-size:12px;font-weight:600;padding:9px 22px}
+.lg .lm-inner{padding:16px 22px;display:flex;flex-direction:column;gap:14px}
+.lg .lm-h{display:flex;align-items:center;justify-content:space-between}
+.lg .lm-h b{font-family:var(--font-display);font-weight:800;font-size:20px;color:#0F2230}
+.lg .lm-pill{display:flex;gap:8px}
+.lg .lm-pill span{background:#fff;border:1px solid #E1E7ED;border-radius:20px;padding:4px 12px;font-size:11px;color:#5F7590}
+.lg .lm-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.lg .lm-k{background:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 2px 8px rgba(15,34,48,.06);border-left:3px solid #0E7C66}
+.lg .lm-k:nth-child(2){border-left-color:#4AA8E0}.lg .lm-k:nth-child(3){border-left-color:#E8A845}
+.lg .lm-k:nth-child(4){border-left-color:#0E7C66}.lg .lm-k:nth-child(5){border-left-color:#E06A3C}
+.lg .lm-k small{display:block;font-size:9px;letter-spacing:.08em;color:#8194A3;text-transform:uppercase}
+.lg .lm-k b{display:block;font-family:var(--font-mono);font-size:22px;color:#0F2230;margin-top:4px}
+.lg .lm-k u{font-size:9px;color:#9FB0BD;text-decoration:none}
+/* Linha do tempo populada */
+.lg .lm-tl{background:#fff;border-radius:16px;box-shadow:0 2px 8px rgba(15,34,48,.06);padding:16px 18px}
+.lg .lm-tl-h{font-family:var(--font-display);font-weight:800;font-size:14px;color:#0F2230;margin-bottom:2px}
+.lg .lm-tl-sub{font-size:11px;color:#8194A3;margin-bottom:12px}
+.lg .lm-leg{display:flex;gap:14px;margin-bottom:12px;font-size:10px;color:#5F7590}
+.lg .lm-leg span{display:flex;align-items:center;gap:5px}
+.lg .lm-leg i{width:9px;height:9px;border-radius:50%}
+.lg .lm-trow{display:grid;grid-template-columns:72px 1fr;align-items:center;gap:10px;margin-bottom:7px}
+.lg .lm-sec{font-family:var(--font-display);font-size:10px;font-weight:700;color:#5F7590;letter-spacing:.06em}
+.lg .lm-track{position:relative;height:24px;background:#F1F4F7;border-radius:6px;overflow:hidden}
+.lg .lm-peak{position:absolute;top:0;bottom:0;background:rgba(232,168,69,.14);border-left:1px dashed rgba(232,168,69,.5);border-right:1px dashed rgba(232,168,69,.5)}
+.lg .lm-blk{position:absolute;top:4px;bottom:4px;border-radius:5px;display:flex;align-items:center;padding-left:7px;font-size:9px;color:#fff;font-weight:600;white-space:nowrap;overflow:hidden}
+.lg .lm-now{position:absolute;top:-3px;bottom:-3px;width:2px;background:#E05252;z-index:3}
+.lg .b-ok{background:#2EBD85}.lg .b-run{background:#4AA8E0}.lg .b-done{background:#9FB0BD}.lg .b-warn{background:#E06A3C}
+.lg .lock-glass{position:absolute;inset:0;background:linear-gradient(120deg,rgba(9,18,31,.34),rgba(13,26,43,.46))}
 .lg .lock-card{position:relative;z-index:2;width:100%;max-width:430px;background:rgba(18,35,58,.94);border:1px solid #26456A;border-radius:22px;padding:34px 30px 30px;box-shadow:0 34px 90px rgba(0,0,0,.55);animation:lockIn .5s cubic-bezier(.16,.84,.28,1) both}
 @keyframes lockIn{from{opacity:0;transform:translateY(16px) scale(.96)}to{opacity:1;transform:none}}
 .lg .lock-logo{display:flex;justify-content:center;margin-bottom:14px}
@@ -294,30 +321,55 @@ export default function LoginPage() {
       <div className="lg">
         <style dangerouslySetInnerHTML={{ __html: CSS }} />
         <div className="lock">
-          {/* Fundo: réplica do painel do Regem, levemente desfocada (o app "atrás
-              do vidro"). Puramente decorativo — sem dados reais (não há sessão). */}
+          {/* Fundo: réplica do painel do Regem (blur bem leve), com a linha do tempo
+              já POPULADA (setores, funcionários, tarefas, pico). O app "atrás do
+              vidro". Decorativo — sem dados reais (não há sessão antes do login). */}
           <div className="lock-bg" aria-hidden="true">
             <div className="lock-mock">
               <div className="lm-side">
-                <div className="lm-logo" />
-                <div className="lm-row on" />
-                <div className="lm-row" />
-                <div className="lm-row" />
-                <div className="lm-row" />
-                <div className="lm-row" />
-                <div className="lm-row" />
+                <div className="lm-brand"><i>R</i><b>Regem</b></div>
+                {['Dashboard', 'PDV · Balcão', 'Delivery', 'Tarefas', 'Escalas', 'Estoque', 'Checklist', 'Mural & clima', 'Financeiro', 'Cadastros', 'Ponto'].map((m, i) => (
+                  <div key={m} className={`lm-mi${i === 0 ? ' on' : ''}`}>{m}</div>
+                ))}
+                <div className="lm-acc"><i /><span><b>Luciana gerente</b><span>GERENTE</span></span></div>
               </div>
-              <div className="lm-main">
-                <div className="lm-top" />
-                <div className="lm-cards">
-                  <div className="lm-card" />
-                  <div className="lm-card" />
-                  <div className="lm-card" />
-                </div>
-                <div className="lm-panel">
-                  {[38, 62, 48, 80, 55, 70, 44, 88, 60].map((h, i) => (
-                    <div key={i} className="lm-bar" style={{ height: `${h}%` }} />
-                  ))}
+              <div className="lm-body">
+                <div className="lm-banner">✨ Teste grátis — sistema completo</div>
+                <div className="lm-inner">
+                  <div className="lm-h"><b>Dashboard</b><div className="lm-pill"><span>Modo nuvem</span><span>16:19 · sáb</span></div></div>
+                  <div className="lm-kpis">
+                    {[['Conclusão', '72%'], ['Escalados hoje', '8/10'], ['Vendas hoje', '34'], ['Produção hoje', '12'], ['Delivery aberto', '5']].map(([l, v]) => (
+                      <div key={l} className="lm-k"><small>{l}</small><b>{v}</b><u>hoje</u></div>
+                    ))}
+                  </div>
+                  <div className="lm-tl">
+                    <div className="lm-tl-h">Linha do tempo operacional</div>
+                    <div className="lm-tl-sub">Quem está escalado e o que deveria estar em execução agora, por setor</div>
+                    <div className="lm-leg">
+                      <span><i style={{ background: '#2EBD85' }} />em dia</span>
+                      <span><i style={{ background: '#4AA8E0' }} />em execução</span>
+                      <span><i style={{ background: '#9FB0BD' }} />concluído</span>
+                      <span><i style={{ background: '#E06A3C' }} />atenção</span>
+                      <span><i style={{ background: '#E05252' }} />agora · pico ⬛</span>
+                    </div>
+                    {[
+                      { sec: 'Cozinha', blocos: [['b-done', 6, 20, 'João'], ['b-run', 30, 26, 'Maria'], ['b-ok', 60, 32, 'Bruno']] },
+                      { sec: 'Salão', blocos: [['b-ok', 12, 22, 'Ana'], ['b-run', 40, 30, 'Pedro'], ['b-ok', 74, 20, 'Lia']] },
+                      { sec: 'Bar', blocos: [['b-done', 8, 16, 'Rita'], ['b-ok', 34, 40, 'Caio']] },
+                      { sec: 'Delivery', blocos: [['b-run', 20, 28, 'Rafa'], ['b-warn', 56, 34, 'sem resp.']] },
+                    ].map((r) => (
+                      <div key={r.sec} className="lm-trow">
+                        <span className="lm-sec">{r.sec}</span>
+                        <div className="lm-track">
+                          <div className="lm-peak" style={{ left: '70%', right: '2%' }} />
+                          {r.blocos.map(([cls, left, w, nome], i) => (
+                            <div key={i} className={`lm-blk ${cls}`} style={{ left: `${left}%`, width: `${w}%` }}>{nome}</div>
+                          ))}
+                          <div className="lm-now" style={{ left: '66%' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
