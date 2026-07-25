@@ -141,11 +141,19 @@ const CSS = `
 .lg .lock-empresa{font-family:var(--font-display);font-weight:800;font-size:clamp(22px,4vw,30px);line-height:1.1;letter-spacing:-.02em;text-align:center;color:#F2F5F9}
 .lg .lock-uni{display:block;text-align:center;font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:#E8A845;margin-top:6px}
 .lg .lock-welcome{text-align:center;color:#9FB2C8;font-size:14px;margin:8px 0 22px}
-.lg .lock-unidades{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
-.lg .lock-uni-btn{padding:12px 14px;border-radius:12px;background:#12233A;border:1.5px solid #1A3050;color:#DCE7EE;font-size:14px;font-weight:600;text-align:left;transition:border-color .15s,background .15s}
-.lg .lock-uni-btn:hover{border-color:#E8A845}
-.lg .lock-uni-btn.on{border-color:#E8A845;background:rgba(232,168,69,.12);color:#F2F5F9}
+.lg .lock-unidades{margin-bottom:20px}
 .lg .lock-uni-lab{display:block;font-size:12px;color:#9FB2C8;margin-bottom:8px;text-align:center}
+.lg .lock-uni-select{position:relative}
+.lg .lock-uni-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border-radius:12px;background:#12233A;border:1.5px solid #1A3050;color:#DCE7EE;font-size:14px;font-weight:600;text-align:left;transition:border-color .15s}
+.lg .lock-uni-trigger:hover,.lg .lock-uni-trigger[aria-expanded="true"]{border-color:#E8A845}
+.lg .lock-uni-trigger .ph{color:#7A94AB;font-weight:500}
+.lg .lock-uni-caret{color:#7A94AB;font-size:11px;transition:transform .18s}
+.lg .lock-uni-trigger[aria-expanded="true"] .lock-uni-caret{transform:rotate(180deg)}
+.lg .lock-uni-list{list-style:none;margin:6px 0 0;padding:5px;position:absolute;left:0;right:0;z-index:5;background:#12233A;border:1.5px solid #26456A;border-radius:12px;box-shadow:0 18px 44px rgba(0,0,0,.5);max-height:224px;overflow-y:auto;animation:lockIn .18s ease both}
+.lg .lock-uni-opt{width:100%;display:block;padding:11px 12px;border-radius:9px;color:#DCE7EE;font-size:14px;font-weight:600;text-align:left;transition:background .12s}
+.lg .lock-uni-opt:hover{background:rgba(232,168,69,.10)}
+.lg .lock-uni-opt.on{background:rgba(232,168,69,.16);color:#F2F5F9}
+.lg .lock-uni-opt .tag{font-family:var(--font-mono);font-size:9px;letter-spacing:.12em;color:#E8A845;margin-left:6px;text-transform:uppercase}
 .lg .lock-troca{display:block;margin:16px auto 0;font-size:12.5px;color:#7A94AB;text-decoration:underline}
 `;
 
@@ -261,6 +269,7 @@ export default function LoginPage() {
   }
 
   const [unidades, setUnidades] = useState<any[]>([]);
+  const [uniAberta, setUniAberta] = useState(false);
   function escolherUnidade(u: any) {
     const novo = { ...(ws as Workspace), unidadeId: u.id, unidadeNome: u.nome };
     setWorkspace(novo);
@@ -385,7 +394,9 @@ export default function LoginPage() {
               )}
             </div>
             <h1 className="lock-empresa">{ws?.nome || 'Regem'}</h1>
-            {ws?.unidadeNome && <span className="lock-uni">{ws.unidadeNome}</span>}
+            {/* Com uma única unidade, mostra o nome fixo aqui. Com mais de uma, o nome
+                não aparece — a escolha é feita no seletor abaixo (evita redundância). */}
+            {unidades.length <= 1 && ws?.unidadeNome && <span className="lock-uni">{ws.unidadeNome}</span>}
             <p className="lock-welcome">Seja bem-vindo 👋 entre com o seu acesso</p>
 
             {expirada && (
@@ -397,21 +408,44 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Escolha da unidade — só quando a rede tem mais de uma. */}
+            {/* Escolha da unidade — listview que só aparece quando a rede tem mais de
+                uma. Fechado por padrão: clica pra abrir a lista das unidades. */}
             {unidades.length > 1 && (
               <div className="lock-unidades">
                 <span className="lock-uni-lab">Em qual unidade este computador está?</span>
-                {unidades.map((u: any) => (
+                <div className="lock-uni-select">
                   <button
-                    key={u.id}
                     type="button"
-                    className={`lock-uni-btn${ws?.unidadeId === u.id ? ' on' : ''}`}
-                    onClick={() => escolherUnidade(u)}
+                    className="lock-uni-trigger"
+                    aria-haspopup="listbox"
+                    aria-expanded={uniAberta}
+                    onClick={() => setUniAberta((o) => !o)}
                   >
-                    {u.nome}
-                    {u.tipo === 'matriz' ? ' · matriz' : ''}
+                    <span className={ws?.unidadeNome ? '' : 'ph'}>
+                      {ws?.unidadeNome || 'Selecione a unidade'}
+                    </span>
+                    <span className="lock-uni-caret" aria-hidden="true">▾</span>
                   </button>
-                ))}
+                  {uniAberta && (
+                    <ul className="lock-uni-list" role="listbox" aria-label="Unidades cadastradas">
+                      {unidades.map((u: any) => (
+                        <li key={u.id} role="option" aria-selected={ws?.unidadeId === u.id}>
+                          <button
+                            type="button"
+                            className={`lock-uni-opt${ws?.unidadeId === u.id ? ' on' : ''}`}
+                            onClick={() => {
+                              escolherUnidade(u);
+                              setUniAberta(false);
+                            }}
+                          >
+                            {u.nome}
+                            {u.tipo === 'matriz' && <span className="tag">matriz</span>}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             )}
 
