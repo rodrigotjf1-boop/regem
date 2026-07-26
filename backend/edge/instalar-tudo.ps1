@@ -369,12 +369,16 @@ try {
     Diga "Atalho: $nome -> $url"
   }
   $baseLocal = "https://localhost:$PortaWeb"
-  Atalho "Regem (servidor local)" $baseLocal
+  # O atalho principal abre DIRETO no login (/entrar). No edge a empresa/unidade
+  # ja foram fixadas na instalacao, entao /entrar pula a etapa do e-mail e cai no
+  # usuario+senha (com nome/logo da loja); se ja estiver logado, salta pro app.
+  # Sem isso, a raiz "/" mostraria a landing de marketing pedindo um clique extra.
+  Atalho "Regem (servidor local)" "$baseLocal/entrar"
   Atalho "Regem PDV (local)"      "$baseLocal/pdv"
   Atalho "Regem KDS (local)"      "$baseLocal/kds"
   Atalho "Regem Ponto (local)"    "$baseLocal/terminal/ponto"
   Atalho "Regem Garcom (local)"   "$baseLocal/garcom"
-  Atalho "Regem (nuvem)"          "https://app.dmsregem.com"
+  Atalho "Regem (nuvem)"          "https://app.dmsregem.com/entrar"
 } catch { Diga "AVISO: nao consegui criar os atalhos na area de trabalho: $($_.Exception.Message)" }
 
 Diga ""
