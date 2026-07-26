@@ -127,9 +127,12 @@ export class DistribuicaoService {
   async telemetria() {
     const r: any = await this.db.execute(sql`
       select t.id, t.origem, t.nivel, t.tipo, t.mensagem, t.ocorrencias, t.versao,
+             t.stack, t.contexto, t.fingerprint,
              t.primeiro_em as "primeiroEm", t.ultimo_em as "ultimoEm", t.resolvido,
-             e.nome as "loja"
-      from telemetria_evento t left join empresa e on e.id = t.tenant_id
+             e.nome as "loja", u.nome as "unidade"
+      from telemetria_evento t
+      left join empresa e on e.id = t.tenant_id
+      left join unidade u on u.id = t.unidade_id
       order by t.resolvido asc, t.ultimo_em desc limit 300`);
     return r.rows ?? r;
   }

@@ -33,6 +33,7 @@ export default function DistHome() {
   const [pedidosInteg, setPedidosInteg] = useState<any[] | null>(null);
   const [frota, setFrota] = useState<any[] | null>(null);
   const [telemetria, setTelemetria] = useState<any[] | null>(null);
+  const [detErro, setDetErro] = useState<any>(null); // erro selecionado (modal de detalhe)
   const [licencas, setLicencas] = useState<any[] | null>(null);
   const [usuarios, setUsuarios] = useState<any[] | null>(null);
   const [busca, setBusca] = useState('');
@@ -183,7 +184,11 @@ export default function DistHome() {
               <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Nível</th><th className="p-3">Origem</th><th className="p-3">Mensagem</th><th className="p-3">Ocorr.</th><th className="p-3">Versão</th><th className="p-3">Última</th><th className="p-3"></th></tr></thead>
               <tbody>
                 {(telemetria ?? []).map((t) => (
-                  <tr key={t.id} className={`border-t border-slate-800/70 ${t.resolvido ? 'opacity-40' : ''}`}>
+                  <tr
+                    key={t.id}
+                    onClick={() => setDetErro(t)}
+                    className={`cursor-pointer border-t border-slate-800/70 hover:bg-slate-800/40 ${t.resolvido ? 'opacity-40' : ''}`}
+                  >
                     <td className="p-3">{t.loja ?? '—'}</td>
                     <td className={`p-3 font-semibold ${NIVEL_COR[t.nivel] ?? ''}`}>{t.nivel}</td>
                     <td className="p-3 text-xs text-slate-400">{t.origem}{t.tipo ? ` · ${t.tipo}` : ''}</td>
@@ -191,13 +196,80 @@ export default function DistHome() {
                     <td className="p-3">{t.ocorrencias}</td>
                     <td className="p-3 font-mono text-xs">{t.versao ?? '—'}</td>
                     <td className="p-3 text-xs text-slate-500">{quando(t.ultimoEm)}</td>
-                    <td className="p-3">{!t.resolvido && <button onClick={() => resolver(t.id)} className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-emerald-500 hover:text-emerald-400">Resolver</button>}</td>
+                    <td className="p-3">
+                      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                        <button onClick={() => setDetErro(t)} className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-sky-500 hover:text-sky-400">Ver</button>
+                        {!t.resolvido && <button onClick={() => resolver(t.id)} className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:border-emerald-500 hover:text-emerald-400">Resolver</button>}
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {telemetria && telemetria.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-slate-500">Nenhum erro reportado. 🎉</td></tr>}
               </tbody>
             </table>
           </section>
+        )}
+
+        {/* Detalhe do erro de telemetria: mensagem completa, stack e contexto. */}
+        {detErro && (
+          <button
+            type="button"
+            aria-label="Fechar detalhe"
+            onClick={() => setDetErro(null)}
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 py-10"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-2xl cursor-default rounded-2xl border border-slate-700 bg-slate-900 p-6 text-left shadow-2xl"
+            >
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div>
+                  <p className={`font-mono text-xs font-semibold uppercase ${NIVEL_COR[detErro.nivel] ?? ''}`}>
+                    {detErro.nivel} · {detErro.origem}{detErro.tipo ? ` · ${detErro.tipo}` : ''}
+                  </p>
+                  <h3 className="mt-1 font-semibold text-slate-100">{detErro.loja ?? '—'}{detErro.unidade ? ` · ${detErro.unidade}` : ''}</h3>
+                </div>
+                <button onClick={() => setDetErro(null)} className="rounded-lg border border-slate-700 px-3 py-1 text-sm text-slate-400 hover:text-slate-100">Fechar</button>
+              </div>
+
+              <dl className="mb-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+                <div><dt className="text-slate-500">Ocorrências</dt><dd className="text-slate-200">{detErro.ocorrencias}</dd></div>
+                <div><dt className="text-slate-500">Versão</dt><dd className="font-mono text-slate-200">{detErro.versao ?? '—'}</dd></div>
+                <div><dt className="text-slate-500">Primeira</dt><dd className="text-slate-200">{quando(detErro.primeiroEm)}</dd></div>
+                <div><dt className="text-slate-500">Última</dt><dd className="text-slate-200">{quando(detErro.ultimoEm)}</dd></div>
+              </dl>
+
+              <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Mensagem</p>
+              <p className="mb-4 whitespace-pre-wrap break-words rounded-lg bg-slate-950/60 p-3 text-sm text-slate-200">{detErro.mensagem}</p>
+
+              {detErro.stack && (
+                <>
+                  <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Stack</p>
+                  <pre className="mb-4 max-h-64 overflow-auto rounded-lg bg-slate-950/60 p-3 font-mono text-[11px] leading-relaxed text-slate-400">{detErro.stack}</pre>
+                </>
+              )}
+
+              {detErro.contexto && Object.keys(detErro.contexto).length > 0 && (
+                <>
+                  <p className="mb-1 text-xs uppercase tracking-wide text-slate-500">Contexto</p>
+                  <pre className="mb-2 max-h-56 overflow-auto rounded-lg bg-slate-950/60 p-3 font-mono text-[11px] leading-relaxed text-slate-400">{JSON.stringify(detErro.contexto, null, 2)}</pre>
+                </>
+              )}
+
+              {detErro.fingerprint && <p className="text-[11px] text-slate-600">fingerprint: <span className="font-mono">{detErro.fingerprint}</span></p>}
+
+              {!detErro.resolvido && (
+                <div className="mt-5 flex justify-end">
+                  <button
+                    onClick={() => { resolver(detErro.id); setDetErro(null); }}
+                    className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-emerald-500 hover:text-emerald-400"
+                  >
+                    Marcar como resolvido
+                  </button>
+                </div>
+              )}
+            </div>
+          </button>
         )}
 
         {aba === 'licencas' && (

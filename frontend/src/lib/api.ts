@@ -195,10 +195,51 @@ export function podePerm(modulo: string, acao?: string): boolean {
   return !!p;
 }
 
-// Rota inicial por perfil: só presidente/gerente têm dashboard (RBAC do
-// backend); os demais caem no Meu Dia (acessível a todos os autenticados).
+// Ordem das telas = ordem do menu (NAV em app-shell/shell.tsx). Cada rota tem a
+// permissão que a libera. Mantido em sincronia com o menu à mão — é a lista de
+// "aterrissagem": a rota inicial de quem não é gestor é a PRIMEIRA daqui que o
+// perfil pode ver. (Omite /loja por ser só-presidente — presidente já vai pro
+// painel — e os itens só de submenu de configuração, que não são aterrissagem.)
+const ROTAS_MENU: { href: string; perm: string }[] = [
+  { href: '/painel', perm: 'dashboard' },
+  { href: '/pdv', perm: 'pdv' },
+  { href: '/pdv/retirada', perm: 'pedidos' },
+  { href: '/mesas', perm: 'mesas' },
+  { href: '/cupons', perm: 'cupons' },
+  { href: '/delivery', perm: 'delivery' },
+  { href: '/pedidos', perm: 'pedidos' },
+  { href: '/meu-dia', perm: 'meu_dia' },
+  { href: '/ordens-producao', perm: 'producao_kds' },
+  { href: '/manutencao', perm: 'manutencao' },
+  { href: '/escala', perm: 'escalas' },
+  { href: '/operacao', perm: 'estoque' },
+  { href: '/docs', perm: 'checklist' },
+  { href: '/mural', perm: 'mural' },
+  { href: '/formas-pagamento', perm: 'formas_pagamento' },
+  { href: '/cadastros', perm: 'cadastros' },
+  { href: '/pessoas', perm: 'ponto_gerencial' },
+  { href: '/unidades', perm: 'unidades' },
+  { href: '/caixa/fechamentos', perm: 'turnos' },
+  { href: '/relatorios', perm: 'relatorios_vendas' },
+  { href: '/auditoria', perm: 'auditoria' },
+  { href: '/diretoria', perm: 'visao_co' },
+];
+
+// Permissão visível? Chaves CRUD (estoque/escalas/ponto) guardam objeto — vale o
+// `.ver`; chaves bool valem o próprio valor.
+function permVisivel(perm: string, perms: any): boolean {
+  const v = perms?.[perm];
+  return v && typeof v === 'object' ? !!v.ver : !!v;
+}
+
+// Rota inicial por perfil: presidente/gerente têm dashboard; os demais caem na
+// PRIMEIRA opção do menu que o perfil pode ver (ex.: atendente de execução → PDV).
+// Antes ia sempre pra /meu-dia, que execução nem tem permissão — dava tela de
+// erro (403 ao carregar as tarefas). Fallback final: /meu-dia.
 export function rotaInicial(cat?: string | null): string {
-  return cat === 'presidente' || cat === 'gerente' ? '/painel' : '/meu-dia';
+  if (cat === 'presidente' || cat === 'gerente') return '/painel';
+  const perms = getPermissoes();
+  return ROTAS_MENU.find((r) => permVisivel(r.perm, perms))?.href ?? '/meu-dia';
 }
 
 // Sessão expirada/inválida: limpa o token e manda pro login com aviso amigável.
