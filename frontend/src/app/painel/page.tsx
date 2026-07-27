@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertTriangle } from 'lucide-react';
-import { api, getCategoria, getToken } from '@/lib/api';
+import { api, getCategoria, getToken, rotaInicial } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,9 @@ export default function DashboardPage() {
   const [tarefaSel, setTarefaSel] = useState<any>(null);
   const [politica, setPolitica] = useState({ conclusao: false, parcial: false });
   const [politicaModal, setPoliticaModal] = useState(false);
+  // Categoria lida em estado (não no render): ler getCategoria() no corpo do
+  // render descasa o SSR (token nulo no servidor) do cliente — hydration mismatch.
+  const [cat, setCat] = useState('');
   const data = hoje();
 
   const carregar = useCallback(async () => {
@@ -65,10 +68,13 @@ export default function DashboardPage() {
       router.replace('/entrar');
       return;
     }
-    // Dashboard é só de gestor (RBAC do backend); demais perfis vão ao Meu Dia.
-    const cat = getCategoria();
-    if (cat !== 'presidente' && cat !== 'gerente') {
-      router.replace('/meu-dia');
+    // Dashboard é só de gestor (RBAC do backend); demais perfis vão para a 1ª
+    // tela que o perfil pode ver (rotaInicial) — nunca /meu-dia fixo, que
+    // execução não tem permissão e daria 403.
+    const c = getCategoria() ?? '';
+    setCat(c);
+    if (c !== 'presidente' && c !== 'gerente') {
+      router.replace(rotaInicial(c));
       return;
     }
     carregar();
@@ -214,7 +220,7 @@ export default function DashboardPage() {
               </p>
               <p className="text-xs text-muted-foreground">Em atraso ou atenção · puxadas da escala do dia</p>
             </div>
-            {getCategoria() === 'presidente' && (
+            {cat === 'presidente' && (
               <button
                 type="button"
                 onClick={() => setPoliticaModal(true)}
@@ -228,7 +234,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setNovaTarefa(true)}
-              className={`${getCategoria() === 'presidente' ? '' : 'ml-auto'} inline-flex h-8 w-8 flex-none items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary hover:text-primary`}
+              className={`${cat === 'presidente' ? '' : 'ml-auto'} inline-flex h-8 w-8 flex-none items-center justify-center rounded-md border border-border text-muted-foreground hover:border-primary hover:text-primary`}
               aria-label="Nova tarefa"
               title="Nova tarefa"
             >

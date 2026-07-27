@@ -193,7 +193,7 @@ export function CaixaPanel({
                 <h3 className="font-display font-semibold text-ok">Turno encerrado ✓</h3>
                 {resultado.alertou && (
                   <p className="mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs font-semibold text-destructive">
-                    Diferença acima do limite (R$ {brl(resultado.limite)}) — ocorrência registrada para a gestão.
+                    Diferença acima do limite ({brl(resultado.limite)}) — ocorrência registrada para a gestão.
                   </p>
                 )}
                 <div className="mt-3 overflow-x-auto">

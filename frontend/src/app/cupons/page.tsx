@@ -148,7 +148,7 @@ export default function CuponsPage() {
         )}
 
         <Card className="p-3">
-          <div className="flex items-end gap-2">
+          <div className="flex flex-wrap items-end gap-2">
             <div className="flex-1 space-y-1">
               <Label className="text-xs">Buscar por senha/nº</Label>
               <Input

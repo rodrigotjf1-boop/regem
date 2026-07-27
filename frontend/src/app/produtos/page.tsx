@@ -203,6 +203,14 @@ export default function ProdutosPage() {
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setErro('');
+    // Preço promocional ("por") tem de ser menor que o preço de venda ("de") —
+    // senão o cardápio mostraria "de R$20 por R$30" (promoção mais cara).
+    const pv = Number(String(f.precoVenda).replace(',', '.')) || 0;
+    const pp = f.precoPromocional !== '' ? Number(String(f.precoPromocional).replace(',', '.')) : null;
+    if (pp !== null && pp > 0 && pv > 0 && pp >= pv) {
+      setErro('O preço promocional deve ser menor que o preço de venda.');
+      return;
+    }
     setSalvando(true);
     try {
       const body: any = {

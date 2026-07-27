@@ -93,13 +93,21 @@ export function SeletorProduto({
     const obs = pickObs.trim() || undefined;
     if (partes.length) label += ` (${partes.join(' · ')})`;
     if (obs) label += ` · obs: ${obs}`;
+    // Preço = base (da variação escolhida, senão do produto) + deltas dos
+    // complementos marcados. Antes lia `v?.preco` (campo inexistente — a variação
+    // usa `precoVenda`) e ignorava os deltas, mostrando sempre o preço-base.
+    let preco = v ? Number(v.precoVenda) : Number(produto.precoVenda);
+    for (const id of pickOpc) {
+      const o = todas.find((x) => x.id === id);
+      if (o) preco += Number(o.precoDelta) || 0;
+    }
     onAdd({
       produtoId: produto.id,
       variacaoId: pickVar,
       complementos: pickOpc,
       observacao: obs,
       label,
-      preco: Number(v?.preco ?? produto.precoVenda) || 0,
+      preco: preco || 0,
     });
     setPicker(null);
   }

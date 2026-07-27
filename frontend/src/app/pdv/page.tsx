@@ -195,7 +195,13 @@ export default function PdvPage() {
     if (dividir)
       return pagamentos
         .filter((p) => Number(String(p.valor).replace(',', '.')) > 0)
-        .map((p) => ({ forma: p.forma, valor: Number(String(p.valor).replace(',', '.')) }));
+        .map((p) => ({
+          forma: p.forma,
+          valor: Number(String(p.valor).replace(',', '.')),
+          // Também vincula o id da forma (o split guarda só o nome) — mantém
+          // consistência com o pagamento único e preenche comanda_pagamento.
+          formaPagamentoId: formas.find((f) => f.nome === p.forma)?.id,
+        }));
     return [{ forma: formaSel?.nome ?? 'Dinheiro', valor: Number(total.toFixed(2)), formaPagamentoId: formaSel?.id }];
   }
 
