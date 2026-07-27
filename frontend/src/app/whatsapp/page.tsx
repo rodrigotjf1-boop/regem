@@ -137,9 +137,14 @@ export default function WhatsappPage() {
     }
   }, []);
 
+  // Guarda a conversa atualmente aberta para descartar respostas obsoletas:
+  // uma requisição em voo da conversa A não pode sobrescrever as mensagens de B
+  // se o usuário trocar de conversa antes de ela responder (race condition).
+  const selJidsRef = useRef('');
   const carregarMsgs = useCallback(async (jids: string) => {
     try {
       const m = await api.whatsappMensagens(jids);
+      if (selJidsRef.current !== jids) return; // conversa mudou durante a requisição
       setMsgs(Array.isArray(m) ? m : []);
     } catch {
       /* silencioso */
@@ -178,7 +183,15 @@ export default function WhatsappPage() {
   }, [alvo, sel, carregou, conversas]);
 
   useEffect(() => {
-    if (!selJids) return;
+    selJidsRef.current = selJids;
+    if (!selJids) {
+      setMsgs([]);
+      return;
+    }
+    // Troca de conversa: limpa as mensagens da anterior (não mostra histórico
+    // errado até a nova carregar) e zera o rascunho (não vaza texto entre conversas).
+    setMsgs([]);
+    setTexto('');
     carregarMsgs(selJids);
     const t = setInterval(() => carregarMsgs(selJids), 4000);
     return () => clearInterval(t);
@@ -323,8 +336,8 @@ export default function WhatsappPage() {
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-                  <button className="md:hidden" onClick={() => setSel(null)} title="Voltar"><ArrowLeft className="h-5 w-5" /></button>
+                <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+                  <button className="md:hidden" onClick={() => setSel(null)} title="Voltar" aria-label="Voltar para a lista"><ArrowLeft className="h-5 w-5" /></button>
                   <Avatar nome={sel.nome} telefone={sel.telefone} foto={sel.foto} tam={36} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{nomeConversa(sel)}</p>

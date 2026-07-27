@@ -299,11 +299,15 @@ function CobrarModal({
 }: {
   pedido: any; formas: any[]; temCaixa: boolean; onClose: () => void; onDone: () => void;
 }) {
-  const [forma, setForma] = useState<string>(pedido.formaPagamento || 'dinheiro');
   const [busy, setBusy] = useState(false);
   const opcoes = formas.length
     ? formas.map((f) => f.nome || f.tipo).filter(Boolean)
     : ['Dinheiro', 'Pix', 'Crédito', 'Débito'];
+  // Inicia numa opção que EXISTE no select (senão o value controlado não casa
+  // com nenhuma <option> e o estado envia algo diferente do que aparece).
+  const [forma, setForma] = useState<string>(
+    pedido.formaPagamento && opcoes.includes(pedido.formaPagamento) ? pedido.formaPagamento : opcoes[0],
+  );
 
   async function confirmar() {
     setBusy(true);
