@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Pencil, Trash2, GripVertical, Clock } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
-import { selectCls } from '@/components/produtos/types';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 
@@ -20,8 +20,6 @@ export function CategoriasCard({
   categorias,
   catNome,
   setCatNome,
-  catParent,
-  setCatParent,
   onAdd,
   catLabel,
   reload,
@@ -31,8 +29,6 @@ export function CategoriasCard({
   categorias: any[];
   catNome: string;
   setCatNome: (v: string) => void;
-  catParent: string;
-  setCatParent: (v: string) => void;
   onAdd: () => void;
   catLabel: (c: any) => string;
   reload: () => Promise<void> | void;
@@ -76,17 +72,17 @@ export function CategoriasCard({
   return (
     <Card className="p-4">
       <h2 className="mb-2 font-display text-sm font-bold">Categorias</h2>
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-40 flex-1 space-y-1">
-          <Label className="text-xs">Nova categoria / subcategoria</Label>
-          <Input value={catNome} onChange={(e) => setCatNome(e.target.value)} placeholder="Ex.: Bebidas" />
+      {/* Categorias planas (sem subcategoria): só nome + adicionar. */}
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1 space-y-1">
+          <Label className="text-xs">Nova categoria</Label>
+          <Input
+            value={catNome}
+            onChange={(e) => setCatNome(e.target.value)}
+            placeholder="Ex.: Bebidas"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAdd(); } }}
+          />
         </div>
-        <select className={`${selectCls} w-40`} aria-label="Categoria pai" value={catParent} onChange={(e) => setCatParent(e.target.value)}>
-          <option value="">— categoria raiz —</option>
-          {categorias.filter((c) => !c.parentId).map((c) => (
-            <option key={c.id} value={c.id}>sub de {c.nome}</option>
-          ))}
-        </select>
         <Button type="button" onClick={onAdd}>Adicionar</Button>
       </div>
 
@@ -94,46 +90,62 @@ export function CategoriasCard({
         <button
           type="button"
           onClick={() => onSelect('')}
-          className={`mt-3 w-full rounded-lg border px-2.5 py-2 text-left text-sm font-medium ${selected ? 'border-border' : 'border-primary bg-primary/5 text-primary'}`}
+          className={`mt-3 w-full rounded-lg border px-3 py-2 text-left text-sm font-semibold ${selected ? 'border-border text-foreground hover:bg-secondary' : 'border-primary bg-primary/5 text-primary'}`}
         >
           Todas as categorias
         </button>
       )}
-      {lista.length > 0 && (
-        <ul className="mt-1.5 space-y-1.5">
-          {lista.map((c, i) => (
-            <li
-              key={c.id}
-              draggable
-              onDragStart={() => setDrag(i)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => soltar(i)}
-              className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${drag === i ? 'opacity-50' : ''} ${selected === c.id ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
-            >
-              <span className="cursor-grab select-none text-muted-foreground" title="Arraste para reordenar" aria-hidden>⋮⋮</span>
-              {c.imagemRef ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={c.imagemRef} alt={c.nome} className="h-8 w-8 flex-none rounded-md object-cover" />
-              ) : (
-                <span className="grid h-8 w-8 flex-none place-items-center rounded-md bg-secondary text-xs text-muted-foreground">🍽</span>
-              )}
-              <button
-                type="button"
-                onClick={() => onSelect?.(c.id)}
-                className="min-w-0 flex-1 text-left"
-                disabled={!onSelect}
+      {lista.length > 0 ? (
+        <ul className="mt-1.5 space-y-1">
+          {lista.map((c, i) => {
+            const janelas = c.disponibilidade?.length ?? 0;
+            const ativa = selected === c.id;
+            return (
+              <li
+                key={c.id}
+                draggable
+                onDragStart={() => setDrag(i)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => soltar(i)}
+                className={`flex items-center gap-1.5 rounded-lg border px-2 py-1.5 ${drag === i ? 'opacity-50' : ''} ${ativa ? 'border-primary bg-primary/5' : 'border-border bg-card'}`}
               >
-                <p className="truncate text-sm font-medium">{catLabel(c)}</p>
-                <p className="truncate text-[11px] text-muted-foreground">
-                  {(c.disponibilidade?.length ?? 0) > 0 ? `${c.disponibilidade.length} janela(s) de horário` : 'Sempre visível'}
-                  {c.descricao ? ` · ${c.descricao}` : ''}
-                </p>
-              </button>
-              <button type="button" onClick={() => setEditar(c)} className="rounded px-2 py-1 text-xs font-semibold text-primary hover:bg-secondary">Editar</button>
-              <button type="button" onClick={() => excluir(c)} className="rounded px-2 py-1 text-xs text-destructive hover:bg-destructive/10">Excluir</button>
-            </li>
-          ))}
+                <span className="cursor-grab text-muted-foreground/50" title="Arraste para reordenar" aria-hidden>
+                  <GripVertical className="h-4 w-4" />
+                </span>
+                {c.imagemRef ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={c.imagemRef} alt="" className="h-7 w-7 flex-none rounded-md object-cover" />
+                ) : (
+                  <span className="grid h-7 w-7 flex-none place-items-center rounded-md bg-secondary text-xs text-muted-foreground">🍽</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onSelect?.(c.id)}
+                  className="min-w-0 flex-1 py-0.5 text-left"
+                  disabled={!onSelect}
+                  title={catLabel(c)}
+                >
+                  <span className={`block truncate text-sm font-medium leading-tight ${ativa ? 'text-primary' : ''}`}>{catLabel(c)}</span>
+                  {janelas > 0 && (
+                    <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                      <Clock className="h-3 w-3" /> {janelas} janela(s)
+                    </span>
+                  )}
+                </button>
+                <button type="button" onClick={() => setEditar(c)} aria-label={`Editar ${c.nome}`} title="Editar" className="flex-none rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onClick={() => excluir(c)} aria-label={`Excluir ${c.nome}`} title="Excluir" className="flex-none rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            );
+          })}
         </ul>
+      ) : (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Nenhuma categoria ainda. Crie a primeira acima (ex.: Combos, Bebidas).
+        </p>
       )}
 
       {editar && (

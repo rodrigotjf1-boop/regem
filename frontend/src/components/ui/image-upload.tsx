@@ -11,6 +11,7 @@ export function ImageUpload({
   id,
   alt = 'Imagem enviada',
   capture = false,
+  compact = false,
 }: {
   value?: string;
   onChange: (url: string) => void;
@@ -19,6 +20,8 @@ export function ImageUpload({
   // capture: abre a CÂMERA direto (sem galeria) — para comprovação tirada na hora.
   // No Android/iOS o navegador pede permissão e não oferece a galeria.
   capture?: boolean;
+  // compact: só a miniatura clicável (sem botão/texto) — para listas/linhas.
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
@@ -38,6 +41,48 @@ export function ImageUpload({
     } finally {
       setEnviando(false);
     }
+  }
+
+  const inputFile = (
+    <input
+      ref={inputRef}
+      id={id}
+      type="file"
+      aria-label={capture ? 'Tirar foto com a câmera' : 'Enviar imagem'}
+      accept={capture ? 'image/*' : 'image/png,image/jpeg,image/webp,image/gif'}
+      capture={capture ? 'environment' : undefined}
+      className="hidden"
+      onChange={selecionar}
+    />
+  );
+
+  // Modo compacto: só a miniatura clicável (para listas). Sem botão nem texto.
+  if (compact) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={enviando}
+          aria-label="Trocar imagem"
+          title="Trocar imagem"
+          className="group relative h-14 w-14 flex-none overflow-hidden rounded-lg border border-border"
+        >
+          {value ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={value} alt={alt} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full w-full place-items-center bg-muted/40 text-muted-foreground">
+              <ImagePlus className="h-5 w-5" />
+            </div>
+          )}
+          <div className="absolute inset-0 grid place-items-center bg-black/45 text-white opacity-0 transition-opacity group-hover:opacity-100">
+            {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+          </div>
+        </button>
+        {inputFile}
+      </>
+    );
   }
 
   return (
