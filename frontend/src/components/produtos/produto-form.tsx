@@ -188,60 +188,8 @@ export function ProdutoForm({
           </label>
         </div>
 
-        {/* Controle de validade — fonte das etiquetas (RDC 216). */}
-        <div className="rounded-lg border border-border p-3">
-          <label className="flex items-center gap-2 text-sm font-medium">
-            <input
-              type="checkbox"
-              checked={!!f.controlaValidade}
-              onChange={(e) => set({ controlaValidade: e.target.checked })}
-              className="h-4 w-4 accent-primary"
-            />
-            Controla validade (gera etiqueta)
-          </label>
-          {f.controlaValidade && (
-            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">Validade fechado (dias)</Label>
-                <Input
-                  type="number"
-                  value={f.validadeFechadoDias ?? ''}
-                  onChange={(e) => set({ validadeFechadoDias: e.target.value })}
-                  placeholder="ex.: 90"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Validade após aberto (dias)</Label>
-                <Input
-                  type="number"
-                  value={f.validadeAbertoDias ?? ''}
-                  onChange={(e) => set({ validadeAbertoDias: e.target.value })}
-                  placeholder="RDC 216: até 30"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Canais de venda: onde o produto aparece. */}
-        <div className="rounded-lg border border-border p-3">
-          <p className="mb-2 text-xs font-bold text-muted-foreground">
-            Canais de venda
-          </p>
-          <div className="flex flex-wrap gap-4">
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={f.disponivelBalcao} onChange={(e) => set({ disponivelBalcao: e.target.checked })} className="h-4 w-4 accent-primary" />
-              Vendas do balcão (PDV)
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
-              Vendas cardápio digital
-            </label>
-          </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Desmarque um canal para o produto não aparecer nele.
-          </p>
-        </div>
+        {/* Canais de venda e controle de validade agora ficam na aba
+            "Disponibilidade" do modal (produtos/page.tsx). */}
 
         <LojaFields f={f} set={set} />
 

@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Pencil, Copy, PauseCircle, PlayCircle, HelpCircle, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { KebabMenu } from '@/components/ui/kebab-menu';
 import { selectCls } from '@/components/produtos/types';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -25,28 +27,54 @@ export function OpcoesCard() {
   const [opcoes, setOpcoes] = useState<any[]>([]);
   const [fichas, setFichas] = useState<any[]>([]);
   const [itens, setItens] = useState<any[]>([]);
+  const [complementos, setComplementos] = useState<any[]>([]); // p/ "onde é usado"
   const [editar, setEditar] = useState<any>(null); // objeto opção ou {} para novo
   const [busca, setBusca] = useState('');
 
   const carregar = useCallback(async () => {
-    const [o, f, i] = await Promise.all([
+    const [o, f, i, c] = await Promise.all([
       api.opcoesCatalogo().catch(() => []),
       api.fichasLista().catch(() => []),
       api.estoqueItens().catch(() => []),
+      api.complementosCatalogo().catch(() => []),
     ]);
     setOpcoes(o as any[]);
     setFichas(f as any[]);
     setItens(i as any[]);
+    setComplementos(c as any[]);
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
   const filtradas = opcoes.filter((o) => o.nome.toLowerCase().includes(busca.trim().toLowerCase()));
+
+  // Complementos que usam esta opção (ligação por opcaoId nos itens do complemento).
+  const usosDe = (o: any) =>
+    complementos.filter((c) => (c.itens ?? []).some((i: any) => i.opcaoId === o.id)).map((c) => c.nome);
 
   async function toggleEsgotado(o: any) {
     try {
       await api.atualizarOpcaoCatalogo(o.id, { ...o, esgotado: !o.esgotado });
       await carregar();
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
+  }
+  async function duplicar(o: any) {
+    try {
+      await api.criarOpcaoCatalogo({
+        nome: `${o.nome} (cópia)`,
+        tipo: o.tipo,
+        precoCusto: o.precoCusto != null ? Number(o.precoCusto) : undefined,
+        imagemRef: o.imagemRef || undefined,
+        fichaId: o.fichaId || undefined,
+        itemId: o.itemId || undefined,
+      });
+      toast.success('Opção duplicada.');
+      await carregar();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao duplicar'); }
+  }
+  function ondeUsado(o: any) {
+    const nomes = usosDe(o);
+    if (!nomes.length) { toast.info?.(`"${o.nome}" ainda não é usada em nenhum complemento.`); return; }
+    toast.info?.(`"${o.nome}" usada em: ${nomes.join(', ')}`);
   }
   async function excluir(o: any) {
     if (!confirm(`Excluir a opção "${o.nome}"?`)) return;
@@ -68,22 +96,37 @@ export function OpcoesCard() {
         <p className="py-6 text-center text-sm text-muted-foreground">{opcoes.length === 0 ? 'Nenhuma opção ainda.' : 'Nada encontrado.'}</p>
       ) : (
         <ul className="grid gap-1.5 sm:grid-cols-2">
-          {filtradas.map((o) => (
-            <li key={o.id} className={`flex items-center gap-2.5 rounded-lg border border-border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''}`}>
-              {o.imagemRef ? (
-                <img src={o.imagemRef} alt={o.nome} className="h-9 w-9 flex-none rounded-md object-cover" />
-              ) : (
-                <span className="grid h-9 w-9 flex-none place-items-center rounded-md bg-secondary text-sm text-muted-foreground">🍽</span>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{o.nome} {o.esgotado && <span className="rounded bg-destructive/10 px-1 text-[10px] font-bold text-destructive">esgotado</span>}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}` : ''} · custo {brl(o.precoCusto)}</p>
-              </div>
-              <button type="button" onClick={() => toggleEsgotado(o)} className="rounded px-1.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-secondary" title="Alternar esgotado">{o.esgotado ? '↺' : '⏸'}</button>
-              <button type="button" onClick={() => setEditar(o)} className="rounded px-1.5 py-1 text-[11px] font-semibold text-primary hover:bg-secondary">Editar</button>
-              <button type="button" onClick={() => excluir(o)} className="rounded px-1.5 py-1 text-[11px] text-destructive hover:bg-destructive/10">✕</button>
-            </li>
-          ))}
+          {filtradas.map((o) => {
+            const usos = usosDe(o);
+            return (
+              <li key={o.id} className={`flex items-center gap-2.5 rounded-lg border border-border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''}`}>
+                {o.imagemRef ? (
+                  <img src={o.imagemRef} alt={o.nome} className="h-9 w-9 flex-none rounded-md object-cover" />
+                ) : (
+                  <span className="grid h-9 w-9 flex-none place-items-center rounded-md bg-secondary text-sm text-muted-foreground">🍽</span>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{o.nome} {o.esgotado && <span className="rounded bg-destructive/10 px-1 text-[10px] font-bold text-destructive">esgotado</span>}</p>
+                  <p className="truncate text-[11px] text-muted-foreground">{TIPO_LABEL[o.tipo] ?? o.tipo}{o.fichaNome ? ` · ${o.fichaNome}` : o.itemNome ? ` · ${o.itemNome}` : ''} · custo {brl(o.precoCusto)}</p>
+                  {usos.length > 0 && (
+                    <p className="truncate text-[10px] text-muted-foreground">Usado {usos.length}×: {usos.join(', ')}</p>
+                  )}
+                </div>
+                <KebabMenu
+                  label={`Ações de ${o.nome}`}
+                  items={[
+                    { label: 'Editar', icon: <Pencil className="h-4 w-4" />, onClick: () => setEditar(o) },
+                    o.esgotado
+                      ? { label: 'Repor (voltar)', icon: <PlayCircle className="h-4 w-4" />, onClick: () => toggleEsgotado(o) }
+                      : { label: 'Em falta', icon: <PauseCircle className="h-4 w-4" />, onClick: () => toggleEsgotado(o) },
+                    { label: 'Duplicar', icon: <Copy className="h-4 w-4" />, onClick: () => duplicar(o) },
+                    { label: 'Onde é usado?', icon: <HelpCircle className="h-4 w-4" />, onClick: () => ondeUsado(o) },
+                    { label: 'Excluir', icon: <Trash2 className="h-4 w-4" />, onClick: () => excluir(o), destructive: true },
+                  ]}
+                />
+              </li>
+            );
+          })}
         </ul>
       )}
 

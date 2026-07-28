@@ -188,6 +188,13 @@ export class ProdutoController {
     return this.service.remover(user.tenantId, id);
   }
 
+  // Duplica o produto (variações, combo, complementos, faixas e destinos).
+  @Post(':id/duplicar')
+  @Roles(...GESTOR)
+  duplicar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.duplicar(user.tenantId, id);
+  }
+
   // Reativar produto esgotado sem dar entrada (liga/desliga a contagem negativa).
   @Post(':id/permite-negativo')
   @Roles(...GESTOR)
