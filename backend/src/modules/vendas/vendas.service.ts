@@ -66,6 +66,9 @@ export class VendasService {
     multiplicador: number,
     consumo: Map<string, number>,
     remover: Set<string>,
+    // incluirDelivery: pedido externo (delivery) baixa também as linhas
+    // `somente_delivery` (embalagens); balcão/mesa/kiosk as ignora.
+    incluirDelivery = false,
     visitados: Set<string> = new Set(),
   ) {
     if (visitados.has(fichaId)) return;
@@ -82,13 +85,14 @@ export class VendasService {
     proximos.add(fichaId);
     for (const ing of ings) {
       if (remover.has(ing.id)) continue; // opcional removido ("sem alface")
+      if (ing.somenteDelivery && !incluirDelivery) continue; // custo só de delivery
       const c =
         ((Number(ing.quantidade) * Number(ing.fatorCorrecao)) / rendimento) *
         multiplicador;
       if (c <= 0) continue;
       if (ing.subFichaId) {
         // Sub-receita: remoção só vale no nível do produto → set vazio na recursão.
-        await this.acumularFicha(tx, tenantId, ing.subFichaId, c, consumo, new Set(), proximos);
+        await this.acumularFicha(tx, tenantId, ing.subFichaId, c, consumo, new Set(), incluirDelivery, proximos);
         continue;
       }
       if (!ing.itemId) continue;
@@ -131,6 +135,7 @@ export class VendasService {
     quantidade: number,
     complementos: any[],
     consumo: Map<string, number>,
+    incluirDelivery = false, // pedido externo (delivery) — baixa linhas somente_delivery
   ) {
     const remover = new Set<string>(
       complementos
@@ -157,6 +162,7 @@ export class VendasService {
               quantidade * fatorFicha * (Number(c.q) || 1),
               consumo,
               new Set(), // remoção não se aplica a itens de combo
+              incluirDelivery,
             );
         }
       } else if (p.fichaId) {
@@ -167,7 +173,12 @@ export class VendasService {
           quantidade * fatorFicha,
           consumo,
           remover,
+          incluirDelivery,
         );
+      } else if (p.itemId) {
+        // Revenda (industrializado): baixa direta do item de estoque vinculado.
+        const q = quantidade * fatorFicha;
+        if (q > 0) consumo.set(p.itemId, (consumo.get(p.itemId) ?? 0) + q);
       }
     }
     // Adicionais (extra bacon): item de estoque próprio → baixa sempre.
@@ -183,13 +194,14 @@ export class VendasService {
           id: produto.id,
           tipo: produto.tipo,
           fichaId: produto.fichaId,
+          itemId: produto.itemId,
           controlaEstoque: produto.controlaEstoque,
         })
         .from(produto)
         .where(and(eq(produto.tenantId, tenantId), eq(produto.id, c.produtoRefId)));
       if (!ref) continue;
       const q = (Number(c.quantidade) || 1) * quantidade;
-      await this.acumularProduto(tx, tenantId, ref, 1, q, [], consumo);
+      await this.acumularProduto(tx, tenantId, ref, 1, q, [], consumo, incluirDelivery);
     }
   }
 
@@ -1128,6 +1140,7 @@ export class VendasService {
             Number(it.quantidade) || 1,
             [],
             consumo,
+            true, // pedido externo → baixa também os custos/embalagens de delivery
           );
       }
       await this.lancarSaidas(tx, tenantId, consumo, comandaId);

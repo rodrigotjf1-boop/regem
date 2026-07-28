@@ -12,6 +12,14 @@ import { FiscalFields } from '@/components/produtos/fiscal-fields';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+const brl = (n: number) =>
+  Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const FONTE_LABEL: Record<string, string> = {
+  manual: 'override manual',
+  ficha: 'da ficha técnica',
+  estoque: 'custo médio do estoque',
+};
+
 export function ProdutoForm({
   f,
   set,
@@ -19,8 +27,10 @@ export function ProdutoForm({
   salvando,
   categorias,
   fichas,
+  insumos,
   setores,
   produtos,
+  verFin,
   catLabel,
   onSubmit,
   onCancel,
@@ -31,8 +41,10 @@ export function ProdutoForm({
   salvando: boolean;
   categorias: any[];
   fichas: any[];
+  insumos: any[];
   setores: any[];
   produtos: any[] | null;
+  verFin: boolean;
   catLabel: (c: any) => string;
   onSubmit: (e: React.FormEvent) => void;
   onCancel: () => void;
@@ -84,13 +96,23 @@ export function ProdutoForm({
             )}
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Ficha técnica (baixa de estoque)</Label>
-            <select className={selectCls} value={f.fichaId} onChange={(e) => set({ fichaId: e.target.value })}>
+            <Label className="text-xs">Ficha técnica (preparado)</Label>
+            <select className={selectCls} value={f.fichaId} onChange={(e) => set({ fichaId: e.target.value, itemId: e.target.value ? '' : f.itemId })}>
               <option value="">— sem ficha —</option>
               {fichas.map((fi) => (
                 <option key={fi.id} value={fi.id}>{fi.nome}</option>
               ))}
             </select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">Item de estoque (revenda)</Label>
+            <select className={selectCls} value={f.itemId || ''} onChange={(e) => set({ itemId: e.target.value, fichaId: e.target.value ? '' : f.fichaId })}>
+              <option value="">— não é revenda —</option>
+              {insumos.map((it) => (
+                <option key={it.id} value={it.id}>{it.nome}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-muted-foreground">Industrializado (ex.: lata): custo e baixa vêm do estoque.</p>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Tipo</Label>
@@ -108,10 +130,34 @@ export function ProdutoForm({
             <Label className="text-xs">Preço de venda (R$)</Label>
             <Input type="number" value={f.precoVenda} onChange={(e) => set({ precoVenda: e.target.value })} placeholder="0,00" required />
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Preço de custo (opcional)</Label>
-            <Input type="number" value={f.precoCusto} onChange={(e) => set({ precoCusto: e.target.value })} placeholder="herda da ficha" />
-          </div>
+          {/* Custo derivado (read-only) — só p/ quem vê financeiro (o servidor
+              nula o valor pros demais). A fonte segue a prioridade override→
+              ficha→estoque. O override manual fica como opção avançada. */}
+          {verFin && (
+            <div className="space-y-1">
+              <Label className="text-xs">Custo (calculado)</Label>
+              {f.custoEfetivo != null ? (
+                <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm">
+                  <span className="font-mono font-semibold">{brl(Number(f.custoEfetivo))}</span>
+                  <span className="ml-2 truncate text-xs text-muted-foreground">{FONTE_LABEL[f.custoFonte] ?? ''}</span>
+                </div>
+              ) : (
+                <div className="flex h-10 items-center rounded-md border border-dashed border-border px-3 text-xs text-muted-foreground">
+                  {f.fichaId || f.itemId ? 'Calculado ao salvar' : 'Vincule uma ficha ou item de estoque'}
+                </div>
+              )}
+              <details>
+                <summary className="cursor-pointer text-[11px] text-muted-foreground">Override manual (avançado)</summary>
+                <Input
+                  type="number"
+                  className="mt-1"
+                  value={f.precoCusto}
+                  onChange={(e) => set({ precoCusto: e.target.value })}
+                  placeholder="vazio = usa o custo calculado"
+                />
+              </details>
+            </div>
+          )}
           <div className="space-y-1">
             <Label className="text-xs">Validade (dias)</Label>
             <Input type="number" value={f.validadeDias} onChange={(e) => set({ validadeDias: e.target.value })} placeholder="opcional" />

@@ -102,6 +102,8 @@ export type IngredienteCusto = {
   fatorCorrecao: number;
   custoUnitario: number;
   subFichaId?: string | null;
+  // Linha de custo só contabilizada em pedido externo (delivery) — ex.: embalagem.
+  somenteDelivery?: boolean;
 };
 export type FichaCusto = {
   rendimento: number;
@@ -117,6 +119,8 @@ export type FichaCusto = {
 export function custoTotalFicha(
   fichaId: string,
   mapa: Record<string, FichaCusto>,
+  // Inclui as linhas `somenteDelivery`? false = custo balcão; true = custo delivery.
+  incluirDelivery = false,
   visitados: Set<string> = new Set(),
 ): number {
   if (visitados.has(fichaId)) return 0;
@@ -127,11 +131,13 @@ export function custoTotalFicha(
 
   let total = 0;
   for (const ing of ficha.ingredientes) {
+    // Linha só de delivery é ignorada no custo balcão.
+    if (ing.somenteDelivery && !incluirDelivery) continue;
     let custoUnit = Number(ing.custoUnitario) || 0;
     if (ing.subFichaId) {
       const sub = mapa[ing.subFichaId];
       const rendSub = sub && Number(sub.rendimento) > 0 ? Number(sub.rendimento) : 1;
-      custoUnit = custoTotalFicha(ing.subFichaId, mapa, proximos) / rendSub;
+      custoUnit = custoTotalFicha(ing.subFichaId, mapa, incluirDelivery, proximos) / rendSub;
     }
     total += Number(ing.quantidade) * Number(ing.fatorCorrecao) * custoUnit;
   }

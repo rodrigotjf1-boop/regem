@@ -139,6 +139,20 @@ describe('custoTotalFicha (ficha aninhada, custo recursivo)', () => {
     };
     expect(custoTotalFicha('a', ciclico)).toBe(0);
   });
+  it('custo delivery inclui a linha somenteDelivery; balcão a ignora', () => {
+    // burger (rend 1) = 8 de carne a 1 (balcão) + 1 embalagem a 1,5 (só delivery)
+    const comEmbalagem = {
+      burger: {
+        rendimento: 1,
+        ingredientes: [
+          { quantidade: 8, fatorCorrecao: 1, custoUnitario: 1 },
+          { quantidade: 1, fatorCorrecao: 1, custoUnitario: 1.5, somenteDelivery: true },
+        ],
+      },
+    };
+    expect(custoTotalFicha('burger', comEmbalagem)).toBe(8); // balcão: ignora embalagem
+    expect(custoTotalFicha('burger', comEmbalagem, true)).toBe(9.5); // delivery: 8 + 1,5
+  });
 });
 
 describe('fichaAlcancavel (detecção de ciclo em sub-fichas)', () => {
