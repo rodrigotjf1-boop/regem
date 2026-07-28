@@ -83,7 +83,13 @@ export function CategoriasCard({
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAdd(); } }}
           />
         </div>
-        <Button type="button" onClick={onAdd}>Adicionar</Button>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="mb-0.5 inline-flex flex-none items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
+        >
+          ＋ Adicionar
+        </button>
       </div>
 
       {onSelect && lista.length > 0 && (

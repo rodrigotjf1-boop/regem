@@ -593,6 +593,7 @@ export class ProdutoService {
              p.pausado_estoque as "pausadoEstoque", p.pausa_motivo as "pausaMotivo",
              p.permite_negativo as "permiteNegativo",
              p.disponivel_balcao as "disponivelBalcao",
+             p.canais_pausados as "canaisPausados",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
              p.item_id as "itemId",
              p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
@@ -670,6 +671,9 @@ export class ProdutoService {
           categoriaId: p.categoriaId,
           disponivelCardapio: p.disponivelCardapio,
           disponivelBalcao: p.disponivelBalcao,
+          // Canais de delivery pausados p/ este produto — o consumidor do sync
+          // (Orzuni→iFood, GoGeM) esconde/pausa o item no canal correspondente.
+          canaisPausados: p.canaisPausados ?? [],
           ativo: p.ativo,
           grupos: (grupos as any[]).map((g) => ({
             id: g.id,
@@ -1014,6 +1018,7 @@ export class ProdutoService {
           precoPromocional:
             dto.precoPromocional != null ? String(dto.precoPromocional) : undefined,
           selos: dto.selos ?? [],
+          canaisPausados: dto.canaisPausados ?? [],
           disponivelCardapio: dto.disponivelCardapio ?? true,
           disponivelBalcao: dto.disponivelBalcao ?? true,
           destaque: dto.destaque ?? false,
@@ -1106,6 +1111,7 @@ export class ProdutoService {
     if (dto.precoPromocional !== undefined)
       patch.precoPromocional = dto.precoPromocional != null ? String(dto.precoPromocional) : null;
     set('selos', dto.selos);
+    set('canaisPausados', dto.canaisPausados);
     set('disponivelCardapio', dto.disponivelCardapio);
     set('disponivelBalcao', dto.disponivelBalcao);
     set('destaque', dto.destaque);

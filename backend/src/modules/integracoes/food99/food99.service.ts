@@ -466,7 +466,7 @@ export class Food99Service {
     if (!ig) throw new BadRequestException('Conecte o 99Food primeiro (salve as credenciais).');
     const tk = await this.authToken(ig);
     if (!tk) throw new BadRequestException('Sem auth_token do 99Food.');
-    const { categorias, produtos } = await this.delivery.lerCatalogoParaExport(tenantId);
+    const { categorias, produtos } = await this.delivery.lerCatalogoParaExport(tenantId, '99food');
     const prods = produtos.filter((p: any) => p.categoria_id && categorias.some((c: any) => c.id === p.categoria_id));
     if (!prods.length) throw new BadRequestException('Nenhum produto (com categoria) disponível no cardápio pra exportar.');
     const codItem = (p: any) => String(p.codigo || p.id);

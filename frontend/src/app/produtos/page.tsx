@@ -23,6 +23,18 @@ import { ProdutosLista } from '@/components/produtos/produtos-lista';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+// Canais de delivery cujo catálogo pode ser pausado por produto ("Ativo no iFood").
+// Só marketplaces de cardápio — n8n/mercadopago/iugu não entram.
+const CANAL_LABEL: Record<string, string> = {
+  ifood: 'iFood',
+  '99food': '99food',
+  anotaai: 'Anota Aí',
+  delivery_direto: 'Delivery Direto',
+  cardapio_web: 'Cardápio Web',
+  rappi: 'Rappi',
+  keeta: 'Keeta',
+};
+
 export default function ProdutosPage() {
   const router = useRouter();
   const { produtos, categorias, fichas, setores, equipamentos, erro, setErro, reload } =
@@ -38,6 +50,7 @@ export default function ProdutosPage() {
   // Lido em estado (não no render) p/ não descasar o SSR — hydration mismatch.
   const [verFin, setVerFin] = useState(false);
   const [cardapio, setCardapio] = useState<any>(null); // token/base p/ "copiar link"
+  const [integracoes, setIntegracoes] = useState<any[]>([]); // canais de delivery (ativos)
 
   // categoria rápida
   const [catNome, setCatNome] = useState('');
@@ -60,12 +73,17 @@ export default function ProdutosPage() {
     }
     setVerFin(podeVerFinanceiro());
     api.cardapioConfig().then(setCardapio).catch(() => {});
+    api.integracoesDelivery().then((r: any) => setIntegracoes(Array.isArray(r) ? r : [])).catch(() => {});
     reload();
   }, [reload, router]);
 
   const set = (patch: any) => setF((s: any) => ({ ...s, ...patch }));
   // Categorias são planas (sem subcategoria) — o rótulo é só o nome.
   const catLabel = (c: any) => c.nome;
+  // Só os canais de delivery ATIVOS e em uso viram toggle no cadastro.
+  const canaisAtivos = integracoes
+    .filter((i) => i.ativo && CANAL_LABEL[i.canal])
+    .map((i) => ({ canal: i.canal, label: CANAL_LABEL[i.canal] }));
 
   function novo() {
     setEditId(null);
@@ -180,6 +198,7 @@ export default function ProdutosPage() {
         disponivelBalcao: p.disponivelBalcao ?? true,
         destaque: p.destaque ?? false,
         selos: p.selos ?? [],
+        canaisPausados: p.canaisPausados ?? [],
         sugestoes: p.sugestoes ?? [],
         duracaoMin: p.duracaoMin ?? '',
         vendaMultiplo: p.vendaMultiplo ?? '',
@@ -251,6 +270,7 @@ export default function ProdutosPage() {
         disponivelBalcao: f.disponivelBalcao,
         destaque: f.destaque,
         selos: f.selos,
+        canaisPausados: f.canaisPausados ?? [],
         sugestoes: f.sugestoes ?? [],
         duracaoMin: f.duracaoMin !== '' ? Number(f.duracaoMin) : undefined,
         vendaMultiplo: f.vendaMultiplo !== '' ? Number(f.vendaMultiplo) : undefined,
@@ -340,6 +360,20 @@ export default function ProdutosPage() {
     }
   }
 
+  // Duplicar o produto que está aberto no editor (botão do cabeçalho).
+  async function duplicarAtual() {
+    if (!editId) return;
+    try {
+      await api.duplicarProduto(editId);
+      toast.success('Produto duplicado.');
+      setFormAberto(false);
+      novo();
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao duplicar');
+    }
+  }
+
   // Ocultar/retomar = tira/devolve o produto dos dois canais (balcão + cardápio).
   async function pausar(p: any, ativar: boolean) {
     try {
@@ -418,183 +452,202 @@ export default function ProdutosPage() {
 
   return (
     <Shell eyebrow="Cadastros" title="Cardápio">
-      <div className="flex h-full min-h-0 max-w-6xl flex-col gap-4">
+      <div className="flex h-full min-h-0 w-full flex-col gap-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
-        {/* Abas do catálogo (Produtos & Catálogo) */}
-        <div className="flex gap-1 border-b border-border">
-          {([['produtos', 'Produtos'], ['complementos', 'Complementos'], ['opcoes', 'Opções']] as const).map(([k, label]) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setAba(k)}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${aba === k ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard /></div>}
-        {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
-
-        {aba === 'produtos' && (
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(240px,320px)_1fr]">
-          {/* Sidebar de categorias — rola sozinha (separada do corpo) */}
-          <div className="scroll-fino rounded-xl border border-border bg-card/40 p-1 lg:min-h-0 lg:overflow-y-auto">
-            <CategoriasCard
-              categorias={categorias}
-              catNome={catNome}
-              setCatNome={setCatNome}
-              onAdd={addCategoria}
-              catLabel={catLabel}
-              reload={reload}
-              selected={catSel}
-              onSelect={setCatSel}
-            />
-          </div>
-          {/* Grade de produtos — botão "Novo produto" enxuto fixo em cima; a lista rola */}
-          <div className="min-w-0 lg:flex lg:min-h-0 lg:flex-col">
-            <div className="mb-2 flex items-center justify-end">
-              <Button type="button" size="sm" onClick={abrirNovo}>＋ Novo produto</Button>
-            </div>
-            <div className="scroll-fino lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-              <ProdutosLista
-                produtos={produtosFiltrados}
-                onEditar={editar}
-                onRemover={remover}
-                onReativar={reativar}
-                onDuplicar={duplicar}
-                onPausar={pausar}
-                onCopiarLink={copiarLink}
-              />
-            </div>
-          </div>
-        </div>
-        )}
-
-        {/* Modal de cadastro/edição do produto (form + etapas/complementos/faixas/destinos) */}
-        {formAberto && (
-          <div className="scroll-fino fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6" onClick={fecharForm}>
-            <div className="mx-auto w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
-              {/* Abas do modal: Informações · Complementos · Disponibilidade
-                  (as duas últimas só ao editar um produto já salvo). */}
-              <div className="flex items-center gap-1 rounded-t-lg border border-b-0 border-border bg-card px-2 shadow-lg">
-                {([['info', 'Informações'], ['complementos', 'Complementos'], ['disponibilidade', 'Disponibilidade']] as const).map(([k, label]) => {
-                  const soEdit = k !== 'info';
-                  const bloqueado = soEdit && !editId;
-                  return (
-                    <button
-                      key={k}
-                      type="button"
-                      disabled={bloqueado}
-                      onClick={() => setModalAba(k)}
-                      title={bloqueado ? 'Salve o produto primeiro' : undefined}
-                      className={`-mb-px border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
-                        modalAba === k ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-                      } ${bloqueado ? 'cursor-not-allowed opacity-40' : ''}`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-                <button type="button" onClick={fecharForm} className="ml-auto px-2 py-2 text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+        {formAberto ? (
+          /* ---------- Editor em página cheia (substitui a lista, sem modal) ---------- */
+          <div className="flex min-h-0 flex-1 flex-col">
+            {/* Cabeçalho do editor: voltar · título · duplicar · salvar */}
+            <div className="mb-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={fecharForm}
+                aria-label="Voltar para a lista"
+                className="grid h-9 w-9 flex-none place-items-center rounded-lg border border-border bg-card text-lg transition-colors hover:border-primary hover:text-primary"
+              >
+                ←
+              </button>
+              <div className="min-w-0">
+                <p className="font-display text-[10px] font-bold uppercase tracking-wide text-primary/80">
+                  Cardápio · {editId ? 'editar' : 'novo'}
+                </p>
+                <h2 className="truncate font-display text-lg font-bold">
+                  {editId ? f.nome || 'Editar produto' : 'Novo produto'}
+                </h2>
               </div>
+              <div className="ml-auto flex gap-2">
+                {editId && (
+                  <Button type="button" variant="outline" size="sm" onClick={duplicarAtual}>
+                    Duplicar
+                  </Button>
+                )}
+                <Button type="button" size="sm" onClick={() => salvar()} disabled={salvando}>
+                  {salvando ? 'Salvando…' : 'Salvar'}
+                </Button>
+              </div>
+            </div>
 
-              <div className="rounded-b-lg border border-border bg-background">
-                {modalAba === 'info' && (
-                  <ProdutoForm
-                    f={f}
-                    set={set}
-                    editId={editId}
-                    salvando={salvando}
-                    categorias={categorias}
-                    fichas={fichas}
+            {/* Sub-abas: Informações · Complementos · Disponibilidade
+                (as duas últimas só ao editar um produto já salvo). */}
+            <div className="flex flex-wrap gap-1 border-b border-border">
+              {([['info', 'Informações'], ['complementos', 'Complementos'], ['disponibilidade', 'Disponibilidade']] as const).map(([k, label]) => {
+                const bloqueado = k !== 'info' && !editId;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    disabled={bloqueado}
+                    onClick={() => setModalAba(k)}
+                    title={bloqueado ? 'Salve o produto primeiro' : undefined}
+                    className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${
+                      modalAba === k ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                    } ${bloqueado ? 'cursor-not-allowed opacity-40' : ''}`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1 pt-4">
+              {modalAba === 'info' && (
+                <ProdutoForm
+                  f={f}
+                  set={set}
+                  editId={editId}
+                  salvando={salvando}
+                  categorias={categorias}
+                  fichas={fichas}
+                  insumos={insumos}
+                  setores={setores}
+                  produtos={produtos}
+                  verFin={verFin}
+                  catLabel={catLabel}
+                  canaisAtivos={canaisAtivos}
+                  onSubmit={salvar}
+                  onCancel={fecharForm}
+                />
+              )}
+
+              {modalAba === 'complementos' && editId && (
+                <div className="space-y-4">
+                  <ProdutoEtapasCard produtoId={editId} />
+                  <ComplementosCard
+                    comps={comps}
+                    fichaIngs={fichaIngs}
                     insumos={insumos}
-                    setores={setores}
-                    produtos={produtos}
-                    verFin={verFin}
-                    catLabel={catLabel}
-                    onSubmit={salvar}
-                    onCancel={fecharForm}
+                    produtos={produtos ?? []}
+                    novoGrupo={novoGrupo}
+                    setNovoGrupo={setNovoGrupo}
+                    onAddOpcao={addOpcao}
+                    onDelGrupo={delGrupo}
+                    onDelOpcao={delOpcao}
+                    onAddGrupo={addGrupo}
                   />
-                )}
+                  <FaixasCard faixas={faixas} setFaixas={setFaixas} onSalvar={salvarFaixas} />
+                </div>
+              )}
 
-                {modalAba === 'complementos' && editId && (
-                  <div className="space-y-4 p-4">
-                    <ProdutoEtapasCard produtoId={editId} />
-                    <ComplementosCard
-                      comps={comps}
-                      fichaIngs={fichaIngs}
-                      insumos={insumos}
-                      produtos={produtos ?? []}
-                      novoGrupo={novoGrupo}
-                      setNovoGrupo={setNovoGrupo}
-                      onAddOpcao={addOpcao}
-                      onDelGrupo={delGrupo}
-                      onDelOpcao={delOpcao}
-                      onAddGrupo={addGrupo}
-                    />
-                    <FaixasCard faixas={faixas} setFaixas={setFaixas} onSalvar={salvarFaixas} />
-                  </div>
-                )}
-
-                {modalAba === 'disponibilidade' && (
-                  <div className="space-y-4 p-4">
-                    {/* Canais de venda: onde o produto aparece. */}
-                    <Card className="p-4">
-                      <p className="mb-2 text-xs font-bold text-muted-foreground">Canais de venda</p>
-                      <div className="flex flex-wrap gap-4">
-                        <label className="flex items-center gap-2 text-sm">
-                          <input type="checkbox" checked={!!f.disponivelBalcao} onChange={(e) => set({ disponivelBalcao: e.target.checked })} className="h-4 w-4 accent-primary" />
-                          Vendas do balcão (PDV)
-                        </label>
-                        <label className="flex items-center gap-2 text-sm">
-                          <input type="checkbox" checked={!!f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
-                          Vendas cardápio digital
-                        </label>
-                      </div>
-                      <p className="mt-1.5 text-[11px] text-muted-foreground">Desmarque um canal para o produto não aparecer nele (equivale a "ocultar").</p>
-                    </Card>
-
-                    {/* Controle de validade — fonte das etiquetas (RDC 216). */}
-                    <Card className="p-4">
-                      <label className="flex items-center gap-2 text-sm font-medium">
-                        <input type="checkbox" checked={!!f.controlaValidade} onChange={(e) => set({ controlaValidade: e.target.checked })} className="h-4 w-4 accent-primary" />
-                        Controla validade (gera etiqueta)
-                      </label>
-                      {f.controlaValidade && (
-                        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Validade fechado (dias)</Label>
-                            <Input type="number" value={f.validadeFechadoDias ?? ''} onChange={(e) => set({ validadeFechadoDias: e.target.value })} placeholder="ex.: 90" />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Validade após aberto (dias)</Label>
-                            <Input type="number" value={f.validadeAbertoDias ?? ''} onChange={(e) => set({ validadeAbertoDias: e.target.value })} placeholder="RDC 216: até 30" />
-                          </div>
+              {modalAba === 'disponibilidade' && (
+                <div className="space-y-4">
+                  {/* Controle de validade — fonte das etiquetas (RDC 216).
+                      Os canais de venda ficam na aba Informações (coluna Status). */}
+                  <Card className="p-4">
+                    <label className="flex items-center gap-2 text-sm font-medium">
+                      <input type="checkbox" checked={!!f.controlaValidade} onChange={(e) => set({ controlaValidade: e.target.checked })} className="h-4 w-4 accent-primary" />
+                      Controla validade (gera etiqueta)
+                    </label>
+                    {f.controlaValidade && (
+                      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Validade fechado (dias)</Label>
+                          <Input type="number" value={f.validadeFechadoDias ?? ''} onChange={(e) => set({ validadeFechadoDias: e.target.value })} placeholder="ex.: 90" />
                         </div>
-                      )}
-                    </Card>
-
-                    {editId && (
-                      <DestinosCard
-                        equipamentos={equipamentos}
-                        destinosSel={destinosSel}
-                        toggleDestino={toggleDestino}
-                        salvandoDest={salvandoDest}
-                        onSalvar={salvarDestinos}
-                      />
+                        <div className="space-y-1">
+                          <Label className="text-xs">Validade após aberto (dias)</Label>
+                          <Input type="number" value={f.validadeAbertoDias ?? ''} onChange={(e) => set({ validadeAbertoDias: e.target.value })} placeholder="RDC 216: até 30" />
+                        </div>
+                      </div>
                     )}
+                  </Card>
 
-                    <Button type="button" onClick={() => salvar()} disabled={salvando}>
-                      {salvando ? 'Salvando…' : 'Salvar disponibilidade'}
-                    </Button>
-                  </div>
-                )}
-              </div>
+                  {editId && (
+                    <DestinosCard
+                      equipamentos={equipamentos}
+                      destinosSel={destinosSel}
+                      toggleDestino={toggleDestino}
+                      salvandoDest={salvandoDest}
+                      onSalvar={salvarDestinos}
+                    />
+                  )}
+
+                  <Button type="button" onClick={() => salvar()} disabled={salvando}>
+                    {salvando ? 'Salvando…' : 'Salvar disponibilidade'}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
+        ) : (
+          /* ---------- Lista / abas do catálogo ---------- */
+          <>
+            <div className="flex flex-wrap items-center gap-1 border-b border-border">
+              {([['produtos', 'Produtos'], ['complementos', 'Complementos'], ['opcoes', 'Opções']] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setAba(k)}
+                  className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${aba === k ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+                >
+                  {label}
+                </button>
+              ))}
+              {aba === 'produtos' && (
+                <button
+                  type="button"
+                  onClick={abrirNovo}
+                  className="mb-1 ml-auto inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:text-primary"
+                >
+                  ＋ Novo produto
+                </button>
+              )}
+            </div>
+
+            {aba === 'opcoes' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><OpcoesCard /></div>}
+            {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
+
+            {aba === 'produtos' && (
+              <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(240px,320px)_1fr]">
+                {/* Sidebar de categorias — rola sozinha (separada do corpo) */}
+                <div className="scroll-fino rounded-xl border border-border bg-card/40 p-1 lg:min-h-0 lg:overflow-y-auto">
+                  <CategoriasCard
+                    categorias={categorias}
+                    catNome={catNome}
+                    setCatNome={setCatNome}
+                    onAdd={addCategoria}
+                    catLabel={catLabel}
+                    reload={reload}
+                    selected={catSel}
+                    onSelect={setCatSel}
+                  />
+                </div>
+                {/* Lista de produtos agrupada por categoria — rola sozinha */}
+                <div className="scroll-fino min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
+                  <ProdutosLista
+                    produtos={produtosFiltrados}
+                    categorias={categorias}
+                    onEditar={editar}
+                    onRemover={remover}
+                    onReativar={reativar}
+                    onDuplicar={duplicar}
+                    onPausar={pausar}
+                    onCopiarLink={copiarLink}
+                  />
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </Shell>

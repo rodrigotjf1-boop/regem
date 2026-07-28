@@ -511,7 +511,7 @@ export class CardapioWebService {
   async exportarCatalogo(tenantId: string): Promise<{ categorias: number; produtos: number; erros: number }> {
     const ig = await this.doTenant(tenantId);
     if (!this.autenticavel(ig)) throw new BadRequestException('Conecte o Cardápio Web primeiro (salve a chave).');
-    const { categorias, produtos } = await this.delivery.lerCatalogoParaExport(tenantId);
+    const { categorias, produtos } = await this.delivery.lerCatalogoParaExport(tenantId, 'cardapio_web');
     const prods = produtos.filter((p: any) => p.categoria_id && categorias.some((c: any) => c.id === p.categoria_id));
     if (!prods.length) throw new BadRequestException('Nenhum produto (com categoria) disponível no cardápio pra exportar.');
     // Catálogo atual do CW (idempotência).
