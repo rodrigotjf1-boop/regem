@@ -34,6 +34,7 @@ export default function ProdutosPage() {
   const [salvando, setSalvando] = useState(false);
   // Lido em estado (não no render) p/ não descasar o SSR — hydration mismatch.
   const [verFin, setVerFin] = useState(false);
+  const [cardapio, setCardapio] = useState<any>(null); // token/base p/ "copiar link"
 
   // categoria rápida
   const [catNome, setCatNome] = useState('');
@@ -55,6 +56,7 @@ export default function ProdutosPage() {
       return;
     }
     setVerFin(podeVerFinanceiro());
+    api.cardapioConfig().then(setCardapio).catch(() => {});
     reload();
   }, [reload, router]);
 
@@ -323,6 +325,40 @@ export default function ProdutosPage() {
     }
   }
 
+  async function duplicar(p: any) {
+    try {
+      await api.duplicarProduto(p.id);
+      toast.success(`"${p.nome}" duplicado.`);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao duplicar');
+    }
+  }
+
+  // Ocultar/retomar = tira/devolve o produto dos dois canais (balcão + cardápio).
+  async function pausar(p: any, ativar: boolean) {
+    try {
+      await api.atualizarProduto(p.id, { disponivelBalcao: ativar, disponivelCardapio: ativar });
+      toast.success(ativar ? 'Produto retomado.' : 'Produto ocultado.');
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao alterar');
+    }
+  }
+
+  function copiarLink(p: any) {
+    const base = cardapio?.cardapioBaseUrl || (typeof window !== 'undefined' ? window.location.origin : '');
+    if (!cardapio?.token) {
+      toast.error('Configure o cardápio digital primeiro (Delivery → Configurações).');
+      return;
+    }
+    const link = `${base}/c/${cardapio.token}?p=${p.id}`;
+    navigator.clipboard?.writeText(link).then(
+      () => toast.success('Link do produto copiado.'),
+      () => toast.error('Não foi possível copiar.'),
+    );
+  }
+
   async function addCategoria() {
     if (!catNome.trim()) return;
     try {
@@ -418,7 +454,15 @@ export default function ProdutosPage() {
               <Button type="button" size="sm" onClick={abrirNovo}>＋ Novo produto</Button>
             </div>
             <div className="scroll-fino lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-              <ProdutosLista produtos={produtosFiltrados} onEditar={editar} onRemover={remover} onReativar={reativar} />
+              <ProdutosLista
+                produtos={produtosFiltrados}
+                onEditar={editar}
+                onRemover={remover}
+                onReativar={reativar}
+                onDuplicar={duplicar}
+                onPausar={pausar}
+                onCopiarLink={copiarLink}
+              />
             </div>
           </div>
         </div>

@@ -721,6 +721,44 @@ export class ProdutoService {
     return { ...p, variacoes, combo, complementos, faixas, sugestoes };
   }
 
+  // Duplica um produto: clona o registro + variações, combo, links de complemento,
+  // faixas de preço e destinos de produção. O código PDV é zerado (o usuário
+  // reatribui) e o nome ganha "(cópia)". Ficha/item de estoque são referências —
+  // apenas apontam para os mesmos, não duplicam a ficha nem o insumo.
+  async duplicar(tenantId: string, id: string) {
+    const [orig]: any = await this.db
+      .select()
+      .from(produto)
+      .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId), isNull(produto.deletedAt)));
+    if (!orig) throw new NotFoundException('Produto não encontrado');
+    /* eslint-disable @typescript-eslint/no-unused-vars */
+    const { id: _i, createdAt: _c, updatedAt: _u, deletedAt: _d, ...rest } = orig;
+    /* eslint-enable @typescript-eslint/no-unused-vars */
+    const [novo] = await this.db
+      .insert(produto)
+      .values({ ...rest, nome: `${orig.nome} (cópia)`, codigo: null })
+      .returning();
+
+    // `chave` = propriedade JS que aponta pro produto pai (a coluna Drizzle usa
+    // snake_case, mas o insert recebe a chave camelCase da linha selecionada).
+    const clonar = async (tabela: any, coluna: any, chave: string) => {
+      const linhas: any[] = await this.db.select().from(tabela).where(eq(coluna, id));
+      if (!linhas.length) return;
+      await this.db.insert(tabela).values(
+        linhas.map((l) => {
+          const { id: _x, ...r } = l;
+          return { ...r, [chave]: novo.id };
+        }),
+      );
+    };
+    await clonar(produtoVariacao, produtoVariacao.produtoId, 'produtoId');
+    await clonar(produtoComboItem, produtoComboItem.comboProdutoId, 'comboProdutoId');
+    await clonar(produtoComplemento, produtoComplemento.produtoId, 'produtoId');
+    await clonar(produtoFaixaPreco, produtoFaixaPreco.produtoId, 'produtoId');
+    await clonar(produtoDestinoProducao, produtoDestinoProducao.produtoId, 'produtoId');
+    return novo;
+  }
+
   // IDs dos produtos sugeridos ("Peça também") vinculados a este produto.
   // Reativa um produto esgotado SEM dar entrada no estoque: liga "permite negativo"
   // (não bloqueia mais por saldo — contagem negativa) e o tira da pausa. Desmarcar

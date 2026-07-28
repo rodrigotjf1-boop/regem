@@ -464,6 +464,8 @@ export const api = {
     req(`/produtos/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removerProduto: (id: string) =>
     req(`/produtos/${id}`, { method: 'DELETE' }),
+  duplicarProduto: (id: string) =>
+    req(`/produtos/${id}/duplicar`, { method: 'POST' }),
   produtoCategorias: () => req('/produtos/categorias'),
   criarCategoriaProduto: (body: Record<string, unknown>) =>
     req('/produtos/categorias', { method: 'POST', body: JSON.stringify(body) }),
