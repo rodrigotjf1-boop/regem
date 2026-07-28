@@ -105,43 +105,52 @@ export function CadastrosHub({
         })}
       </div>
 
-      {/* Produtos & Equipamentos (fora da cadeia de dependência) */}
-      <button
-        type="button"
-        onClick={() => onNavigate('/produtos')}
-        className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40"
-      >
-        <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-ok/10 text-lg">
-          🍔
-        </div>
-        <div>
-          <h3 className="font-display text-[15px] font-bold">
-            Cardápio
-          </h3>
-          <span className="text-sm text-muted-foreground">
+      {/* Produtos & Equipamentos (fora da cadeia de dependência) — cards quadrados
+          no mesmo padrão dos 8 acima. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => onNavigate('/produtos')}
+          className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40"
+        >
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-ok/10 text-lg">
+              🍔
+            </div>
+            <div>
+              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
+                Catálogo
+              </div>
+              <h3 className="font-display text-[15px] font-bold">Cardápio</h3>
+            </div>
+          </div>
+          <div className="text-xs leading-relaxed text-muted-foreground">
             Cadastro completo dos produtos vendidos no balcão (PDV) e no cardápio
             digital — cada produto escolhe onde aparece. Ligados às fichas técnicas.
-          </span>
-        </div>
-      </button>
+          </div>
+        </button>
 
-      <button
-        type="button"
-        onClick={() => onNavigate('/equipamentos')}
-        className="flex w-full items-center gap-3 rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40"
-      >
-        <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-info/10 text-lg">
-          🖥️
-        </div>
-        <div>
-          <h3 className="font-display text-[15px] font-bold">
-            Equipamentos & Apps
-          </h3>
-          <span className="text-sm text-muted-foreground">
-            Cadastrar KDS e Terminais de Ponto (device token)
-          </span>
-        </div>
-      </button>
+        <button
+          type="button"
+          onClick={() => onNavigate('/equipamentos')}
+          className="flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-primary/40"
+        >
+          <div className="flex items-start gap-3">
+            <div className="grid h-10 w-10 flex-none place-items-center rounded-xl bg-info/10 text-lg">
+              🖥️
+            </div>
+            <div>
+              <div className="font-mono text-[9.5px] uppercase tracking-[0.14em] text-muted-foreground">
+                Sistema
+              </div>
+              <h3 className="font-display text-[15px] font-bold">Equipamentos & Apps</h3>
+            </div>
+          </div>
+          <div className="text-xs leading-relaxed text-muted-foreground">
+            Cadastrar KDS e Terminais de Ponto (device token).
+          </div>
+        </button>
+      </div>
     </>
   );
 }

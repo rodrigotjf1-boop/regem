@@ -106,17 +106,17 @@ export default function CatalogoPage() {
       ) : filtrados.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nenhum produto no filtro.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Card className="divide-y divide-border p-0">
           {filtrados.map((p) => (
-            <ProdutoCard key={p.id} p={p} verFin={verFin} onPatch={patch} onPausa={alternarPausa} />
+            <ProdutoRow key={p.id} p={p} verFin={verFin} onPatch={patch} onPausa={alternarPausa} />
           ))}
-        </div>
+        </Card>
       )}
     </Shell>
   );
 }
 
-function ProdutoCard({
+function ProdutoRow({
   p,
   verFin,
   onPatch,
@@ -140,49 +140,39 @@ function ProdutoCard({
   }
 
   return (
-    <Card className={`flex gap-3 p-3 ${off ? 'opacity-60' : ''}`}>
-      <div className="w-20 flex-none">
-        <ImageUpload value={p.imagemRef || undefined} onChange={(url) => onPatch(p.id, { imagemRef: url })} alt={p.nome || 'produto'} />
-      </div>
+    <div className={`flex flex-wrap items-center gap-3 px-4 py-3 ${off ? 'opacity-60' : ''}`}>
+      <ImageUpload compact value={p.imagemRef || undefined} onChange={(url) => onPatch(p.id, { imagemRef: url })} alt={p.nome || 'produto'} />
       <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{p.nome}</p>
-            <p className="truncate text-xs text-muted-foreground">{p.categoriaNome ?? 'sem categoria'}</p>
-          </div>
-          {off && (
-            <span className="flex-none rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">pausado</span>
-          )}
-        </div>
-
-        <div className="mt-2 flex items-center gap-2">
-          {verFin ? (
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground">R$</span>
-              <Input
-                type="number"
-                inputMode="decimal"
-                value={preco}
-                onChange={(e) => setPreco(e.target.value)}
-                onBlur={salvarPreco}
-                className="h-8 w-24"
-                aria-label={`Preço de ${p.nome}`}
-              />
-            </div>
-          ) : (
-            <span className="font-mono text-sm font-semibold">{brl(Number(p.precoVenda))}</span>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            variant={off ? 'default' : 'outline'}
-            className="ml-auto"
-            onClick={() => onPausa(p)}
-          >
-            {off ? 'Retomar' : 'Pausar'}
-          </Button>
-        </div>
+        <p className="truncate text-sm font-semibold">
+          {p.nome}
+          {off && <span className="ml-2 rounded-md bg-warn/15 px-2 py-0.5 text-[11px] font-bold text-warn">pausado</span>}
+        </p>
+        <p className="truncate text-xs text-muted-foreground">{p.categoriaNome ?? 'sem categoria'}</p>
       </div>
-    </Card>
+      {verFin ? (
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-muted-foreground">R$</span>
+          <Input
+            type="number"
+            inputMode="decimal"
+            value={preco}
+            onChange={(e) => setPreco(e.target.value)}
+            onBlur={salvarPreco}
+            className="h-9 w-24"
+            aria-label={`Preço de ${p.nome}`}
+          />
+        </div>
+      ) : (
+        <span className="font-mono text-sm font-semibold">{brl(Number(p.precoVenda))}</span>
+      )}
+      <Button
+        type="button"
+        size="sm"
+        variant={off ? 'default' : 'outline'}
+        onClick={() => onPausa(p)}
+      >
+        {off ? 'Retomar' : 'Pausar'}
+      </Button>
+    </div>
   );
 }

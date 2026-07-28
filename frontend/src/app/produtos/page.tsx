@@ -37,7 +37,6 @@ export default function ProdutosPage() {
 
   // categoria rápida
   const [catNome, setCatNome] = useState('');
-  const [catParent, setCatParent] = useState('');
 
   // complementos (opcionais/adicionais) — só ao editar um produto salvo
   const [comps, setComps] = useState<any[]>([]);
@@ -60,11 +59,8 @@ export default function ProdutosPage() {
   }, [reload, router]);
 
   const set = (patch: any) => setF((s: any) => ({ ...s, ...patch }));
-  const catLabel = (c: any) => {
-    if (!c.parentId) return c.nome;
-    const pai = categorias.find((x) => x.id === c.parentId);
-    return `${pai?.nome ?? '—'} › ${c.nome}`;
-  };
+  // Categorias são planas (sem subcategoria) — o rótulo é só o nome.
+  const catLabel = (c: any) => c.nome;
 
   function novo() {
     setEditId(null);
@@ -330,12 +326,8 @@ export default function ProdutosPage() {
   async function addCategoria() {
     if (!catNome.trim()) return;
     try {
-      await api.criarCategoriaProduto({
-        nome: catNome.trim(),
-        parentId: catParent || undefined,
-      });
+      await api.criarCategoriaProduto({ nome: catNome.trim() });
       setCatNome('');
-      setCatParent('');
       await reload();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao criar categoria');
@@ -406,15 +398,13 @@ export default function ProdutosPage() {
         {aba === 'complementos' && <div className="scroll-fino min-h-0 flex-1 overflow-y-auto pr-1"><ComplementosCatalogoCard /></div>}
 
         {aba === 'produtos' && (
-        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(220px,280px)_1fr]">
+        <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(240px,320px)_1fr]">
           {/* Sidebar de categorias — rola sozinha (separada do corpo) */}
           <div className="scroll-fino rounded-xl border border-border bg-card/40 p-1 lg:min-h-0 lg:overflow-y-auto">
             <CategoriasCard
               categorias={categorias}
               catNome={catNome}
               setCatNome={setCatNome}
-              catParent={catParent}
-              setCatParent={setCatParent}
               onAdd={addCategoria}
               catLabel={catLabel}
               reload={reload}
