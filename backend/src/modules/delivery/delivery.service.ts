@@ -234,14 +234,24 @@ export class DeliveryService {
   // Lê o catálogo do Regem (categorias + produtos disponíveis no cardápio) para os
   // conectores EXPORTAREM pro marketplace (99food/Cardápio Web). Só produtos com
   // disponivel_cardapio=true. Retorna arrays crus (nome, codigo, preço, categoria).
-  async lerCatalogoParaExport(tenantId: string): Promise<{ categorias: any[]; produtos: any[] }> {
+  // canal: quando informado (ex.: '99food', 'cardapio_web'), exclui os produtos
+  // pausados NAQUELE canal (produto.canais_pausados). Assim o toggle "Ativo no X"
+  // do cadastro efetivamente tira o item do export daquela integração.
+  async lerCatalogoParaExport(
+    tenantId: string,
+    canal?: string,
+  ): Promise<{ categorias: any[]; produtos: any[] }> {
     const c: any = await this.db.execute(sql`
       select id, nome from categoria_produto
       where tenant_id = ${tenantId} order by ordem asc nulls last, nome asc`);
+    const filtroCanal = canal
+      ? sql`and (canais_pausados is null or not jsonb_exists(canais_pausados, ${canal}))`
+      : sql``;
     const p: any = await this.db.execute(sql`
-      select id, nome, codigo, preco_venda, preco_custo, categoria_id, descricao
+      select id, nome, codigo, preco_venda, preco_custo, categoria_id, descricao, canais_pausados
       from produto
-      where tenant_id = ${tenantId} and deleted_at is null and disponivel_cardapio = true`);
+      where tenant_id = ${tenantId} and deleted_at is null and disponivel_cardapio = true
+      ${filtroCanal}`);
     return { categorias: (c?.rows ?? c) ?? [], produtos: (p?.rows ?? p) ?? [] };
   }
 

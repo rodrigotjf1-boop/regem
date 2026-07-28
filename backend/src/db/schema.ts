@@ -1169,6 +1169,9 @@ export const produto = pgTable('produto', {
   // Loja / cardápio (Fase L1)
   precoPromocional: numeric('preco_promocional'),
   selos: jsonb('selos').notNull().default('[]'),
+  // Canais de integração (delivery) em que o produto está pausado/oculto (mig 150).
+  // Ex.: ['ifood','99food']. Vazio = disponível em todos os canais ativos.
+  canaisPausados: jsonb('canais_pausados').notNull().default('[]'),
   disponivelCardapio: boolean('disponivel_cardapio').notNull().default(true),
   pausadoEstoque: boolean('pausado_estoque').notNull().default(false), // auto-pausa por estoque
   pausaMotivo: text('pausa_motivo'), // motivo do "esgotado" (aparece no aviso geral)

@@ -118,6 +118,8 @@ export class CreateProdutoDto {
   // Loja / cardápio (Fase L1)
   @IsOptional() @IsNumber() precoPromocional?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) selos?: string[];
+  // Canais de integração (delivery) em que o produto está pausado (mig 150).
+  @IsOptional() @IsArray() @IsString({ each: true }) canaisPausados?: string[];
   @IsOptional() @IsBoolean() disponivelCardapio?: boolean;
   @IsOptional() @IsBoolean() disponivelBalcao?: boolean;
   @IsOptional() @IsBoolean() destaque?: boolean;

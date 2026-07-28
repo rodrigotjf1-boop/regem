@@ -85,73 +85,57 @@ export function ImageUpload({
     );
   }
 
+  // Padrão do projeto: só o quadrado clicável com "+" — sem botão de texto.
+  // Clicar (vazio ou preenchido) abre o seletor; o "×" no canto remove.
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center gap-3">
-        {value ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={value}
-            alt={alt}
-            className="h-16 w-16 rounded-lg border border-border object-cover"
-          />
-        ) : (
-          <div className="grid h-16 w-16 place-items-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground">
-            <ImagePlus className="h-5 w-5" />
-          </div>
-        )}
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            disabled={enviando}
+      <div className="relative h-28 w-28">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={enviando}
+          aria-label={value ? 'Trocar imagem' : capture ? 'Tirar foto' : 'Adicionar imagem'}
+          title={value ? 'Trocar imagem' : 'Adicionar imagem'}
+          className={cn(
+            'group relative grid h-full w-full place-items-center overflow-hidden rounded-xl border bg-muted/40 text-muted-foreground transition-colors hover:border-primary hover:text-primary',
+            value ? 'border-border' : 'border-dashed border-border',
+            enviando && 'opacity-70',
+          )}
+        >
+          {value ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={value} alt={alt} className="absolute inset-0 h-full w-full object-cover" />
+          ) : (
+            <span className="flex flex-col items-center gap-1">
+              <ImagePlus className="h-6 w-6" />
+              <span className="text-[11px] font-medium">{capture ? 'Tirar foto' : 'Adicionar'}</span>
+            </span>
+          )}
+          {/* Overlay: spinner enviando; ou "trocar" ao passar o mouse numa imagem já enviada. */}
+          <span
             className={cn(
-              'inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium transition-colors hover:border-primary hover:text-primary',
-              enviando && 'opacity-60',
+              'absolute inset-0 grid place-items-center bg-black/45 text-white transition-opacity',
+              enviando ? 'opacity-100' : value ? 'opacity-0 group-hover:opacity-100' : 'hidden',
             )}
           >
-            {enviando ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ImagePlus className="h-4 w-4" />
-            )}
-            {enviando
-              ? 'Enviando…'
-              : capture
-                ? value
-                  ? 'Tirar outra foto'
-                  : 'Tirar foto'
-                : value
-                  ? 'Trocar imagem'
-                  : 'Enviar imagem'}
-          </button>
+            {enviando ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImagePlus className="h-5 w-5" />}
+          </span>
+        </button>
 
-          {value && !enviando && (
-            <button
-              type="button"
-              onClick={() => onChange('')}
-              aria-label="Remover imagem"
-              className="inline-flex min-h-[40px] items-center rounded-lg border border-border bg-card px-2.5 text-muted-foreground transition-colors hover:border-destructive hover:text-destructive"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </div>
+        {value && !enviando && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            aria-label="Remover imagem"
+            title="Remover imagem"
+            className="absolute -right-2 -top-2 z-10 grid h-6 w-6 place-items-center rounded-full border border-border bg-card text-muted-foreground shadow transition-colors hover:border-destructive hover:text-destructive"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
-      <input
-        ref={inputRef}
-        id={id}
-        type="file"
-        aria-label={capture ? 'Tirar foto com a câmera' : 'Enviar imagem'}
-        // capture="environment" abre a câmera traseira direto (Android/iOS) e não
-        // oferece galeria — comprovação tirada na hora. accept precisa ser amplo.
-        accept={capture ? 'image/*' : 'image/png,image/jpeg,image/webp,image/gif'}
-        capture={capture ? 'environment' : undefined}
-        className="hidden"
-        onChange={selecionar}
-      />
+      {inputFile}
 
       {erro && <p className="text-sm text-destructive">{erro}</p>}
       <p className="text-xs text-muted-foreground">
