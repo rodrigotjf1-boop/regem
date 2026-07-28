@@ -6,6 +6,8 @@ import { api, getToken, podeVerFinanceiro } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Shell } from '@/components/app-shell/shell';
 import { vazio, type Variacao, type Combo } from '@/components/produtos/types';
 import { useProdutosData } from '@/components/produtos/use-produtos-data';
@@ -30,6 +32,7 @@ export default function ProdutosPage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [aba, setAba] = useState<'produtos' | 'complementos' | 'opcoes'>('produtos');
   const [formAberto, setFormAberto] = useState(false); // cadastro/edição em modal
+  const [modalAba, setModalAba] = useState<'info' | 'complementos' | 'disponibilidade'>('info');
   const [catSel, setCatSel] = useState<string>(''); // categoria selecionada (filtra a grade)
   const [salvando, setSalvando] = useState(false);
   // Lido em estado (não no render) p/ não descasar o SSR — hydration mismatch.
@@ -74,6 +77,7 @@ export default function ProdutosPage() {
   }
   function abrirNovo() {
     novo();
+    setModalAba('info');
     setFormAberto(true);
   }
   function fecharForm() {
@@ -143,6 +147,7 @@ export default function ProdutosPage() {
     try {
       const p: any = await api.produto(id);
       setEditId(id);
+      setModalAba('info');
       setFormAberto(true);
       await carregarComplementos(id, p.fichaId || undefined);
       setF({
@@ -207,8 +212,8 @@ export default function ProdutosPage() {
     }
   }
 
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
+  async function salvar(e?: React.FormEvent) {
+    e?.preventDefault();
     setErro('');
     // Preço promocional ("por") tem de ser menor que o preço de venda ("de") —
     // senão o cardápio mostraria "de R$20 por R$30" (promoção mais cara).
@@ -471,31 +476,52 @@ export default function ProdutosPage() {
         {/* Modal de cadastro/edição do produto (form + etapas/complementos/faixas/destinos) */}
         {formAberto && (
           <div className="scroll-fino fixed inset-0 z-50 overflow-y-auto bg-black/50 p-3 sm:p-6" onClick={fecharForm}>
-            <div className="mx-auto w-full max-w-5xl space-y-4" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 shadow-lg">
-                <h2 className="font-display text-base font-bold">{editId ? 'Editar produto' : 'Novo produto'}</h2>
-                <button type="button" onClick={fecharForm} className="ml-auto text-sm text-muted-foreground hover:underline">Fechar ✕</button>
+            <div className="mx-auto w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+              {/* Abas do modal: Informações · Complementos · Disponibilidade
+                  (as duas últimas só ao editar um produto já salvo). */}
+              <div className="flex items-center gap-1 rounded-t-lg border border-b-0 border-border bg-card px-2 shadow-lg">
+                {([['info', 'Informações'], ['complementos', 'Complementos'], ['disponibilidade', 'Disponibilidade']] as const).map(([k, label]) => {
+                  const soEdit = k !== 'info';
+                  const bloqueado = soEdit && !editId;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      disabled={bloqueado}
+                      onClick={() => setModalAba(k)}
+                      title={bloqueado ? 'Salve o produto primeiro' : undefined}
+                      className={`-mb-px border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors ${
+                        modalAba === k ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                      } ${bloqueado ? 'cursor-not-allowed opacity-40' : ''}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                <button type="button" onClick={fecharForm} className="ml-auto px-2 py-2 text-sm text-muted-foreground hover:underline">Fechar ✕</button>
               </div>
-              {/* Duas colunas no desktop ao editar: dados à esquerda, etapas/complementos
-                  à direita (usa a largura da tela). Ao criar, só os dados (largura cheia). */}
-              <div className={editId ? 'grid gap-4 lg:grid-cols-2 lg:items-start' : ''}>
-                <ProdutoForm
-                  f={f}
-                  set={set}
-                  editId={editId}
-                  salvando={salvando}
-                  categorias={categorias}
-                  fichas={fichas}
-                  insumos={insumos}
-                  setores={setores}
-                  produtos={produtos}
-                  verFin={verFin}
-                  catLabel={catLabel}
-                  onSubmit={salvar}
-                  onCancel={fecharForm}
-                />
-                {editId && (
-                  <div className="space-y-4">
+
+              <div className="rounded-b-lg border border-border bg-background">
+                {modalAba === 'info' && (
+                  <ProdutoForm
+                    f={f}
+                    set={set}
+                    editId={editId}
+                    salvando={salvando}
+                    categorias={categorias}
+                    fichas={fichas}
+                    insumos={insumos}
+                    setores={setores}
+                    produtos={produtos}
+                    verFin={verFin}
+                    catLabel={catLabel}
+                    onSubmit={salvar}
+                    onCancel={fecharForm}
+                  />
+                )}
+
+                {modalAba === 'complementos' && editId && (
+                  <div className="space-y-4 p-4">
                     <ProdutoEtapasCard produtoId={editId} />
                     <ComplementosCard
                       comps={comps}
@@ -510,13 +536,60 @@ export default function ProdutosPage() {
                       onAddGrupo={addGrupo}
                     />
                     <FaixasCard faixas={faixas} setFaixas={setFaixas} onSalvar={salvarFaixas} />
-                    <DestinosCard
-                      equipamentos={equipamentos}
-                      destinosSel={destinosSel}
-                      toggleDestino={toggleDestino}
-                      salvandoDest={salvandoDest}
-                      onSalvar={salvarDestinos}
-                    />
+                  </div>
+                )}
+
+                {modalAba === 'disponibilidade' && (
+                  <div className="space-y-4 p-4">
+                    {/* Canais de venda: onde o produto aparece. */}
+                    <Card className="p-4">
+                      <p className="mb-2 text-xs font-bold text-muted-foreground">Canais de venda</p>
+                      <div className="flex flex-wrap gap-4">
+                        <label className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={!!f.disponivelBalcao} onChange={(e) => set({ disponivelBalcao: e.target.checked })} className="h-4 w-4 accent-primary" />
+                          Vendas do balcão (PDV)
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={!!f.disponivelCardapio} onChange={(e) => set({ disponivelCardapio: e.target.checked })} className="h-4 w-4 accent-primary" />
+                          Vendas cardápio digital
+                        </label>
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-muted-foreground">Desmarque um canal para o produto não aparecer nele (equivale a "ocultar").</p>
+                    </Card>
+
+                    {/* Controle de validade — fonte das etiquetas (RDC 216). */}
+                    <Card className="p-4">
+                      <label className="flex items-center gap-2 text-sm font-medium">
+                        <input type="checkbox" checked={!!f.controlaValidade} onChange={(e) => set({ controlaValidade: e.target.checked })} className="h-4 w-4 accent-primary" />
+                        Controla validade (gera etiqueta)
+                      </label>
+                      {f.controlaValidade && (
+                        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Validade fechado (dias)</Label>
+                            <Input type="number" value={f.validadeFechadoDias ?? ''} onChange={(e) => set({ validadeFechadoDias: e.target.value })} placeholder="ex.: 90" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Validade após aberto (dias)</Label>
+                            <Input type="number" value={f.validadeAbertoDias ?? ''} onChange={(e) => set({ validadeAbertoDias: e.target.value })} placeholder="RDC 216: até 30" />
+                          </div>
+                        </div>
+                      )}
+                    </Card>
+
+                    {editId && (
+                      <DestinosCard
+                        equipamentos={equipamentos}
+                        destinosSel={destinosSel}
+                        toggleDestino={toggleDestino}
+                        salvandoDest={salvandoDest}
+                        onSalvar={salvarDestinos}
+                      />
+                    )}
+
+                    <Button type="button" onClick={() => salvar()} disabled={salvando}>
+                      {salvando ? 'Salvando…' : 'Salvar disponibilidade'}
+                    </Button>
                   </div>
                 )}
               </div>
