@@ -384,7 +384,7 @@ export default function ProdutosPage() {
   }
 
   return (
-    <Shell eyebrow="Gestão · catálogo" title="Produtos">
+    <Shell eyebrow="Cadastros" title="Cardápio">
       <div className="flex h-full min-h-0 max-w-6xl flex-col gap-4">
         {erro && <p className="text-destructive">{erro}</p>}
 

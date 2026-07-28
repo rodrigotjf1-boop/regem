@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Pencil, ArrowLeft } from 'lucide-react';
+import { Plus, Trash2, Pencil, Copy, ArrowLeft } from 'lucide-react';
 import { api, getToken } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
@@ -206,6 +206,14 @@ export default function FichasPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // Duplicar: carrega a ficha no formulário como NOVA (editId=null) com o sufixo
+  // "(cópia)" no nome — o usuário revisa/ajusta e salva. Reaproveita o `editar`.
+  function duplicar(f: any) {
+    editar(f);
+    setEditId(null);
+    setNome(`${f.nome ?? 'Ficha'} (cópia)`.trim());
   }
 
   async function excluir(id: string) {
@@ -502,6 +510,9 @@ export default function FichasPage() {
                   </p>
                 </div>
                 <div className="flex flex-none gap-0.5">
+                  <Button variant="ghost" size="icon" aria-label="Duplicar" title="Duplicar ficha" onClick={() => duplicar(f)}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
                   <Button variant="ghost" size="icon" aria-label="Editar" onClick={() => editar(f)}>
                     <Pencil className="h-4 w-4" />
                   </Button>
