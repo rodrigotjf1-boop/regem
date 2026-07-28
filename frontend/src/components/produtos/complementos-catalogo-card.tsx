@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Pencil, Copy, Trash2 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { KebabMenu } from '@/components/ui/kebab-menu';
 import { selectCls } from '@/components/produtos/types';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -45,6 +47,21 @@ export function ComplementosCatalogoCard() {
     try { await api.excluirComplementoCatalogo(c.id); toast.success('Complemento excluído.'); await carregar(); }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
   }
+  async function duplicar(c: any) {
+    try {
+      await api.criarComplementoCatalogo({
+        nome: `${c.nome} (cópia)`,
+        regra: c.regra,
+        obrigatorio: c.obrigatorio,
+        min: c.min,
+        max: c.max,
+        canais: c.canais ?? [],
+        itens: (c.itens ?? []).map((it: any, i: number) => ({ opcaoId: it.opcaoId, preco: it.preco ?? '', ordem: i })),
+      });
+      toast.success('Complemento duplicado.');
+      await carregar();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao duplicar'); }
+  }
 
   return (
     <Card className="p-4">
@@ -63,8 +80,14 @@ export function ComplementosCatalogoCard() {
             <li key={c.id} className="rounded-lg border border-border bg-card p-2.5">
               <div className="flex items-center gap-2">
                 <p className="min-w-0 flex-1 truncate text-sm font-medium">{c.nome}</p>
-                <button type="button" onClick={() => setEditar(c)} className="rounded px-1.5 py-1 text-[11px] font-semibold text-primary hover:bg-secondary">Editar</button>
-                <button type="button" onClick={() => excluir(c)} className="rounded px-1.5 py-1 text-[11px] text-destructive hover:bg-destructive/10">✕</button>
+                <KebabMenu
+                  label={`Ações de ${c.nome}`}
+                  items={[
+                    { label: 'Editar', icon: <Pencil className="h-4 w-4" />, onClick: () => setEditar(c) },
+                    { label: 'Duplicar', icon: <Copy className="h-4 w-4" />, onClick: () => duplicar(c) },
+                    { label: 'Excluir', icon: <Trash2 className="h-4 w-4" />, onClick: () => excluir(c), destructive: true },
+                  ]}
+                />
               </div>
               <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
                 {REGRA_LABEL[c.regra] ?? c.regra}{c.obrigatorio ? ' · obrigatório' : ''} · {(c.itens ?? []).length} opção(ões)
