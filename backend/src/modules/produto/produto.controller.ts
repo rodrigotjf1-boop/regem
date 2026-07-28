@@ -158,7 +158,7 @@ export class ProdutoController {
 
   @Get()
   listar(@CurrentUser() user: AuthUser) {
-    return this.service.listar(user.tenantId);
+    return this.service.listar(user.tenantId, !!user.permissoes?.ver_financeiro);
   }
 
   @Get(':id')

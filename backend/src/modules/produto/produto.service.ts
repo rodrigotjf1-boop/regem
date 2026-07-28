@@ -20,6 +20,7 @@ import {
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
+import { FichasService } from '../fichas/fichas.service';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 
@@ -30,6 +31,7 @@ export class ProdutoService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
     private readonly flash: EdgeFlashSyncService,
+    private readonly fichas: FichasService,
   ) {}
 
   // ----- Categorias (hierárquicas) -----
@@ -576,7 +578,9 @@ export class ProdutoService {
   }
 
   // ----- Produtos -----
-  async listar(tenantId: string) {
+  // verFin: o perfil pode ver valores financeiros? Só então o custo (custo efetivo
+  // derivado da ficha / item de estoque / override) é devolvido — senão vem null.
+  async listar(tenantId: string, verFin = false) {
     const res: any = await this.db.execute(sql`
       select p.id, p.codigo, p.nome, p.descricao, p.tipo,
              p.unidade_medida as "unidadeMedida", p.preco_venda as "precoVenda",
@@ -590,15 +594,58 @@ export class ProdutoService {
              p.permite_negativo as "permiteNegativo",
              p.disponivel_balcao as "disponivelBalcao",
              p.ativo, p.categoria_id as "categoriaId", p.ficha_id as "fichaId",
+             p.item_id as "itemId",
              p.setor_producao_id as "setorProducaoId", p.imagem_ref as "imagemRef",
-             c.nome as "categoriaNome", f.nome as "fichaNome"
+             c.nome as "categoriaNome", f.nome as "fichaNome",
+             ie.nome as "itemNome", ie.custo_medio as "itemCustoMedio"
       from produto p
       left join categoria_produto c on c.id = p.categoria_id
       left join ficha_tecnica f on f.id = p.ficha_id
+      left join item_estoque ie on ie.id = p.item_id
       where p.tenant_id = ${tenantId} and p.deleted_at is null
       order by p.nome
     `);
-    return res.rows ?? res;
+    const rows = (res.rows ?? res) as any[];
+    // Custo derivado: só quem pode ver financeiro recebe os valores.
+    if (!verFin) {
+      return rows.map((p) => ({
+        ...p,
+        precoCusto: null,
+        itemCustoMedio: null,
+        custoEfetivo: null,
+        custoEfetivoDelivery: null,
+        custoFonte: null,
+      }));
+    }
+    const fichaCusto = await this.fichas.custoPorPorcao(tenantId);
+    return rows.map((p) => {
+      const override = p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
+      const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
+      const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) : null;
+      // Prioridade: override manual → custo da ficha → custo médio do item de estoque.
+      let custo: number | null = null;
+      let custoDelivery: number | null = null;
+      let fonte: 'manual' | 'ficha' | 'estoque' | null = null;
+      if (override != null) {
+        custo = override;
+        custoDelivery = override;
+        fonte = 'manual';
+      } else if (fc) {
+        custo = fc.balcao;
+        custoDelivery = fc.delivery;
+        fonte = 'ficha';
+      } else if (itemMedio != null) {
+        custo = itemMedio;
+        custoDelivery = itemMedio; // industrializado não tem embalagem própria na ficha
+        fonte = 'estoque';
+      }
+      return {
+        ...p,
+        custoEfetivo: custo,
+        custoEfetivoDelivery: custoDelivery,
+        custoFonte: fonte,
+      };
+    });
   }
 
   // L-CAT-2 — Snapshot de catálogo para integração externa autenticada por
@@ -905,6 +952,7 @@ export class ProdutoService {
           descricao: dto.descricao,
           categoriaId: dto.categoriaId,
           fichaId: dto.fichaId,
+          itemId: dto.itemId, // item de estoque de revenda (fonte de custo)
           tipo: dto.tipo ?? 'simples',
           unidadeMedida: dto.unidadeMedida ?? 'un',
           precoVenda: String(dto.precoVenda),
@@ -994,6 +1042,7 @@ export class ProdutoService {
     set('descricao', dto.descricao);
     set('categoriaId', dto.categoriaId);
     set('fichaId', dto.fichaId);
+    set('itemId', dto.itemId); // item de estoque de revenda (fonte de custo)
     set('tipo', dto.tipo);
     set('unidadeMedida', dto.unidadeMedida);
     if (dto.precoVenda !== undefined) patch.precoVenda = String(dto.precoVenda);

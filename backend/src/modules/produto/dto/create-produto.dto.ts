@@ -62,6 +62,11 @@ export class CreateProdutoDto {
   @IsUUID()
   fichaId?: string;
 
+  // Item de estoque de revenda (industrializado): fonte de custo (custo médio).
+  @IsOptional()
+  @IsUUID()
+  itemId?: string;
+
   @IsOptional()
   @IsIn(['simples', 'variavel', 'combo'])
   tipo?: string;

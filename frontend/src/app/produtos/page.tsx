@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, podeVerFinanceiro } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -32,6 +32,8 @@ export default function ProdutosPage() {
   const [formAberto, setFormAberto] = useState(false); // cadastro/edição em modal
   const [catSel, setCatSel] = useState<string>(''); // categoria selecionada (filtra a grade)
   const [salvando, setSalvando] = useState(false);
+  // Lido em estado (não no render) p/ não descasar o SSR — hydration mismatch.
+  const [verFin, setVerFin] = useState(false);
 
   // categoria rápida
   const [catNome, setCatNome] = useState('');
@@ -53,6 +55,7 @@ export default function ProdutosPage() {
       router.replace('/entrar');
       return;
     }
+    setVerFin(podeVerFinanceiro());
     reload();
   }, [reload, router]);
 
@@ -150,10 +153,16 @@ export default function ProdutosPage() {
         descricao: p.descricao ?? '',
         categoriaId: p.categoriaId ?? '',
         fichaId: p.fichaId ?? '',
+        itemId: p.itemId ?? '',
         tipo: p.tipo ?? 'simples',
         unidadeMedida: p.unidadeMedida ?? 'un',
         precoVenda: p.precoVenda ?? '',
         precoCusto: p.precoCusto ?? '',
+        // Custo derivado (read-only, gateado no servidor por ver_financeiro).
+        custoEfetivo: p.custoEfetivo ?? null,
+        custoEfetivoDelivery: p.custoEfetivoDelivery ?? null,
+        custoFonte: p.custoFonte ?? null,
+        itemNome: p.itemNome ?? null,
         controlaEstoque: p.controlaEstoque ?? true,
         validadeDias: p.validadeDias ?? '',
         controlaValidade: p.controlaValidade ?? false,
@@ -219,6 +228,7 @@ export default function ProdutosPage() {
         descricao: f.descricao || undefined,
         categoriaId: f.categoriaId || undefined,
         fichaId: f.fichaId || undefined,
+        itemId: f.itemId || undefined,
         tipo: f.tipo,
         unidadeMedida: f.unidadeMedida || 'un',
         precoVenda: Number(String(f.precoVenda).replace(',', '.')) || 0,
@@ -442,8 +452,10 @@ export default function ProdutosPage() {
                   salvando={salvando}
                   categorias={categorias}
                   fichas={fichas}
+                  insumos={insumos}
                   setores={setores}
                   produtos={produtos}
+                  verFin={verFin}
                   catLabel={catLabel}
                   onSubmit={salvar}
                   onCancel={fecharForm}

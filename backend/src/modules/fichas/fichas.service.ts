@@ -45,6 +45,22 @@ function computar(f: any, custoTotal: number) {
   };
 }
 
+// Custo/CMV nos dois contextos: balcão (padrão, mantém os nomes atuais) e delivery
+// (balcão + linhas somente_delivery). `temCustoDelivery` = a ficha tem extras de
+// delivery (a UI mostra os dois valores quando true).
+function computarDois(f: any, custoBalcao: number, custoDelivery: number) {
+  const balcao = computar(f, custoBalcao);
+  const deliv = computar(f, custoDelivery);
+  return {
+    ...balcao,
+    custoTotalDelivery: deliv.custoTotal,
+    custoPorcaoDelivery: deliv.custoPorcao,
+    cmvDelivery: deliv.cmv,
+    margemDelivery: deliv.margem,
+    temCustoDelivery: custoDelivery > custoBalcao + 0.0001,
+  };
+}
+
 // Insumo de custo (pro cálculo recursivo) a partir da ficha + suas linhas.
 function fichaCustoDe(f: any, ings: any[]): FichaCusto {
   return {
@@ -54,6 +70,7 @@ function fichaCustoDe(f: any, ings: any[]): FichaCusto {
       fatorCorrecao: Number(i.fatorCorrecao),
       custoUnitario: Number(i.custoUnitario),
       subFichaId: i.subFichaId ?? null,
+      somenteDelivery: !!i.somenteDelivery,
     })),
   };
 }
@@ -109,6 +126,7 @@ export class FichasService {
             i.fatorCorrecao != null ? String(i.fatorCorrecao) : '1',
           custoUnitario:
             i.custoUnitario != null ? String(i.custoUnitario) : '0',
+          somenteDelivery: i.somenteDelivery ?? false,
           ordem: i.ordem ?? idx,
         })),
       );
@@ -148,17 +166,35 @@ export class FichasService {
     }));
   }
 
+  // Mapa fichaId → custo por porção (balcão e delivery). Usado por outros módulos
+  // (catálogo) p/ derivar o custo de um produto ligado a uma ficha.
+  async custoPorPorcao(
+    tenantId: string,
+  ): Promise<Record<string, { balcao: number; delivery: number }>> {
+    const { fichas, mapa } = await this.carregarTudo(tenantId);
+    const out: Record<string, { balcao: number; delivery: number }> = {};
+    for (const f of fichas) {
+      const rend = Number(f.rendimento) || 1;
+      out[f.id] = {
+        balcao: custoTotalFicha(f.id, mapa) / rend,
+        delivery: custoTotalFicha(f.id, mapa, true) / rend,
+      };
+    }
+    return out;
+  }
+
   async list(tenantId: string) {
     const { fichas, ings, mapa, nome } = await this.carregarTudo(tenantId);
     return fichas.map((f) => {
       const fi = ings
         .filter((i) => i.fichaId === f.id)
         .sort((a, b) => Number(a.ordem) - Number(b.ordem));
-      const custoTotal = custoTotalFicha(f.id, mapa);
+      const custoBalcao = custoTotalFicha(f.id, mapa);
+      const custoDelivery = custoTotalFicha(f.id, mapa, true);
       return {
         ...f,
         ingredientes: this.enriquecer(fi, nome),
-        ...computar(f, custoTotal),
+        ...computarDois(f, custoBalcao, custoDelivery),
       };
     });
   }
@@ -170,11 +206,12 @@ export class FichasService {
     const fi = ings
       .filter((i) => i.fichaId === id)
       .sort((a, b) => Number(a.ordem) - Number(b.ordem));
-    const custoTotal = custoTotalFicha(id, mapa);
+    const custoBalcao = custoTotalFicha(id, mapa);
+    const custoDelivery = custoTotalFicha(id, mapa, true);
     return {
       ...f,
       ingredientes: this.enriquecer(fi, nome),
-      ...computar(f, custoTotal),
+      ...computarDois(f, custoBalcao, custoDelivery),
     };
   }
 
@@ -232,6 +269,7 @@ export class FichasService {
             unidade: i.unidade,
             fatorCorrecao: i.fatorCorrecao != null ? String(i.fatorCorrecao) : '1',
             custoUnitario: i.custoUnitario != null ? String(i.custoUnitario) : '0',
+            somenteDelivery: i.somenteDelivery ?? false,
             ordem: i.ordem ?? idx,
           })),
         );
@@ -290,6 +328,7 @@ export class FichasService {
       unidade: dto.unidade,
       fatorCorrecao: dto.fatorCorrecao != null ? String(dto.fatorCorrecao) : '1',
       custoUnitario: dto.custoUnitario != null ? String(dto.custoUnitario) : '0',
+      somenteDelivery: dto.somenteDelivery ?? false,
       ordem: dto.ordem ?? 0,
     });
     return this.getOne(tenantId, fichaId);

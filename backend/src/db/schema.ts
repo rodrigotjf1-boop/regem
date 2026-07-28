@@ -1070,6 +1070,8 @@ export const fichaIngrediente = pgTable('ficha_ingrediente', {
   unidade: text('unidade'),
   fatorCorrecao: numeric('fator_correcao').notNull().default('1'),
   custoUnitario: numeric('custo_unitario').notNull().default('0'),
+  // Linha só contabilizada em pedido EXTERNO (delivery): embalagens etc. (mig 147).
+  somenteDelivery: boolean('somente_delivery').notNull().default(false),
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1146,9 +1148,13 @@ export const produto = pgTable('produto', {
   descricao: text('descricao'),
   categoriaId: uuid('categoria_id'),
   fichaId: uuid('ficha_id'), // baixa por explosão (null = sem baixa)
+  // Item de estoque de revenda (industrializado): fonte de custo (custo médio) e
+  // baixa direta na venda. null = não é revenda vinculada (mig 148).
+  itemId: uuid('item_id'),
   tipo: text('tipo').notNull().default('simples'), // simples | variavel | combo
   unidadeMedida: text('unidade_medida').notNull().default('un'),
   precoVenda: numeric('preco_venda').notNull().default('0'),
+  // Fonte de custo (prioridade): preco_custo (override) → ficha → item de estoque.
   precoCusto: numeric('preco_custo'), // null = usa custo da ficha / custo médio
   controlaEstoque: boolean('controla_estoque').notNull().default(true),
   validadeDias: integer('validade_dias'),

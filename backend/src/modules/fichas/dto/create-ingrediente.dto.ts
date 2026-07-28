@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsNumber,
   IsOptional,
   IsString,
@@ -38,4 +39,9 @@ export class CreateIngredienteDto {
   @IsOptional()
   @IsNumber()
   ordem?: number;
+
+  // Linha só contabilizada em pedido externo (delivery) — embalagens etc.
+  @IsOptional()
+  @IsBoolean()
+  somenteDelivery?: boolean;
 }
