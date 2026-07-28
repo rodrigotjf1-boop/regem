@@ -37,6 +37,7 @@ export class EstoqueService {
         categoria: dto.categoria,
         fornecedorId: dto.fornecedorId,
         categoriaItemId: dto.categoriaItemId,
+        validade: dto.validade || undefined,
       })
       .returning();
     await this.gravarConversoes(tenantId, row.id, dto.conversoes);
@@ -53,6 +54,7 @@ export class EstoqueService {
     if (dto.fornecedorId !== undefined) patch.fornecedorId = dto.fornecedorId || null;
     if (dto.categoriaItemId !== undefined)
       patch.categoriaItemId = dto.categoriaItemId || null;
+    if (dto.validade !== undefined) patch.validade = dto.validade || null;
     const [row] = await this.db
       .update(itemEstoque)
       .set(patch)
@@ -139,6 +141,7 @@ export class EstoqueService {
              i.custo_medio as "custoMedio",
              i.categoria_item_id as "categoriaItemId",
              i.fornecedor_id as "fornecedorId",
+             i.validade,
              cat.nome as "categoriaNome", cat.cor as "categoriaCor",
              f.nome as "fornecedorNome",
              coalesce(sum(case m.tipo

@@ -53,6 +53,8 @@ export function InsumoForm({
   const [estoqueMinimo, setEstoqueMinimo] = useState(
     item?.estoqueMinimo != null ? String(item.estoqueMinimo) : '',
   );
+  // Validade opcional (seletor nativo). A data vem como yyyy-mm-dd do backend.
+  const [validade, setValidade] = useState(item?.validade ? String(item.validade).slice(0, 10) : '');
   const [conversoes, setConversoes] = useState<Conversao[]>(
     (item?.conversoes ?? []).map((c: any) => ({
       unidadeDe: c.unidadeDe,
@@ -103,6 +105,7 @@ export function InsumoForm({
       nome: nome.trim(),
       unidadeMedida: unidade || undefined,
       estoqueMinimo: estoqueMinimo ? Number(estoqueMinimo) : undefined,
+      validade: validade || undefined,
       categoriaItemId: categoriaItemId || undefined,
       fornecedorId: fornecedorId || undefined,
       conversoes: conversoes
@@ -179,6 +182,11 @@ export function InsumoForm({
           <div className="space-y-1.5">
             <Label htmlFor="min">Estoque mínimo</Label>
             <Input id="min" type="number" inputMode="decimal" value={estoqueMinimo} onChange={(e) => setEstoqueMinimo(e.target.value)} placeholder="0" />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="val">Data de validade (opcional)</Label>
+            <Input id="val" type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
           </div>
         </div>
 

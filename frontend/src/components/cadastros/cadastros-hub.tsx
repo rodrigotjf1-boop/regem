@@ -116,11 +116,11 @@ export function CadastrosHub({
         </div>
         <div>
           <h3 className="font-display text-[15px] font-bold">
-            Produtos & Catálogo
+            Cardápio
           </h3>
           <span className="text-sm text-muted-foreground">
-            Produtos finais vendidos no balcão (PDV) e no cardápio digital — cada
-            produto escolhe onde aparece. Ligados às fichas técnicas.
+            Cadastro completo dos produtos vendidos no balcão (PDV) e no cardápio
+            digital — cada produto escolhe onde aparece. Ligados às fichas técnicas.
           </span>
         </div>
       </button>

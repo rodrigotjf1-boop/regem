@@ -546,6 +546,7 @@ export const itemEstoque = pgTable('item_estoque', {
   unidadeMedida: text('unidade_medida').notNull().default('un'),
   estoqueMinimo: numeric('estoque_minimo').notNull().default('0'),
   custoMedio: numeric('custo_medio').notNull().default('0'),
+  validade: date('validade'), // data de validade opcional do insumo (mig 149)
   diasSeguranca: integer('dias_seguranca').notNull().default(2),
   classeAbc: text('classe_abc'),
   categoria: text('categoria'), // texto livre (compat); ver categoriaItemId

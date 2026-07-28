@@ -50,6 +50,11 @@ export class CreateItemDto {
   @IsUUID()
   categoriaItemId?: string;
 
+  // Data de validade opcional (ISO yyyy-mm-dd do seletor nativo).
+  @IsOptional()
+  @IsString()
+  validade?: string;
+
   // Conversões personalizadas: 1 unidadeDe = fator unidadePara.
   @IsOptional()
   @IsArray()
