@@ -31,6 +31,9 @@ export default function DistHome() {
   const [me, setMe] = useState<any>(null);
   const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'atualizacoes' | 'integracoes' | 'auditoria' | 'usuarios'>('frota');
   const [pedidosInteg, setPedidosInteg] = useState<any[] | null>(null);
+  // Modal p/ finalizar a integração do iFood: a distribuição cola o Merchant ID
+  // (obtido no Portal do Desenvolvedor após o cliente autorizar) e ativa.
+  const [modalIfood, setModalIfood] = useState<{ id: string; loja: string; merchant: string } | null>(null);
   const [frota, setFrota] = useState<any[] | null>(null);
   const [telemetria, setTelemetria] = useState<any[] | null>(null);
   const [detErro, setDetErro] = useState<any>(null); // erro selecionado (modal de detalhe)
@@ -90,10 +93,13 @@ export default function DistHome() {
       setUsuarios(await distApi.usuarios());
     } catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
   }
-  async function resolverInteg(id: string, acao: 'conectado' | 'recusado') {
+  async function resolverInteg(id: string, acao: 'conectado' | 'recusado' | 'removido', merchantId?: string) {
     setErro('');
-    try { await distApi.resolverPedidoIntegracao(id, acao); setPedidosInteg(await distApi.pedidosIntegracao()); }
-    catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
+    try {
+      await distApi.resolverPedidoIntegracao(id, acao, merchantId ? { merchantId } : undefined);
+      setPedidosInteg(await distApi.pedidosIntegracao());
+      setModalIfood(null);
+    } catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
   }
 
   if (!me) return <div className="grid min-h-screen place-items-center bg-slate-950 text-slate-400">Carregando…</div>;
@@ -376,9 +382,15 @@ export default function DistHome() {
                       <td className="p-3">
                         {p.status === 'pendente' ? (
                           <div className="flex gap-1.5">
-                            <button onClick={() => resolverInteg(p.integracaoId, 'conectado')} className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-slate-950 hover:bg-emerald-400">Marcar conectado</button>
+                            {p.canal === 'ifood' ? (
+                              <button onClick={() => setModalIfood({ id: p.integracaoId, loja: p.loja, merchant: '' })} className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-slate-950 hover:bg-emerald-400">Preencher e conectar</button>
+                            ) : (
+                              <button onClick={() => resolverInteg(p.integracaoId, 'conectado')} className="rounded-lg bg-emerald-500 px-2.5 py-1 text-xs font-semibold text-slate-950 hover:bg-emerald-400">Marcar conectado</button>
+                            )}
                             <button onClick={() => resolverInteg(p.integracaoId, 'recusado')} className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800">Recusar</button>
                           </div>
+                        ) : p.status === 'pendente_remocao' ? (
+                          <button onClick={() => resolverInteg(p.integracaoId, 'removido')} className="rounded-lg border border-amber-600 px-2.5 py-1 text-xs font-semibold text-amber-400 hover:bg-amber-500/10">Confirmar remoção</button>
                         ) : (
                           <span className="text-[11px] text-slate-500">{p.conectadoPor ? `por ${p.conectadoPor}` : ''} {p.conectadoEm ? quando(p.conectadoEm) : ''}</span>
                         )}
@@ -389,6 +401,31 @@ export default function DistHome() {
                 </tbody>
               </table>
             </div>
+
+            {modalIfood && (
+              <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setModalIfood(null)}>
+                <div className="w-full max-w-md rounded-xl border border-slate-800 bg-slate-900 p-5" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="font-semibold text-slate-100">Finalizar integração iFood</h3>
+                  <p className="mt-1 text-xs text-slate-400">Loja: <strong className="text-slate-200">{modalIfood.loja}</strong>. Depois que o cliente autorizar a loja no Portal do Parceiro, pegue o <strong>Merchant ID</strong> (UUID da loja) no Portal do Desenvolvedor e cole abaixo. Client ID/Secret são globais da Regem (env).</p>
+                  <label className="mt-3 block text-[11px] text-slate-400">Merchant ID (ID da loja no iFood)</label>
+                  <input
+                    autoFocus
+                    value={modalIfood.merchant}
+                    onChange={(e) => setModalIfood((m) => (m ? { ...m, merchant: e.target.value } : m))}
+                    placeholder="ex.: 1a2b3c4d-5e6f-..."
+                    className="mt-1 h-9 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 font-mono text-sm outline-none focus:border-emerald-500"
+                  />
+                  <div className="mt-4 flex justify-end gap-2">
+                    <button onClick={() => setModalIfood(null)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800">Cancelar</button>
+                    <button
+                      disabled={!modalIfood.merchant.trim()}
+                      onClick={() => resolverInteg(modalIfood.id, 'conectado', modalIfood.merchant.trim())}
+                      className="rounded-lg bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-40"
+                    >Conectar e ativar</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </section>
         )}
 

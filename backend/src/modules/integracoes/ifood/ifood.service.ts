@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 
@@ -29,14 +29,20 @@ export class IfoodService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   private mapRow(r: any): IntegIfood | null {
-    if (!r || !r.merchantId || !r.clientId || !r.clientSecret) return null;
+    // Client ID/Secret são do APP PARCEIRO da Regem — globais (env), iguais p/ todas
+    // as lojas. Só o merchantId é por loja. Fallback para credenciais na própria
+    // linha mantém retrocompat com integrações antigas (preenchidas no card).
+    if (!r || !r.merchantId) return null;
+    const clientId = ((r.clientId as string) || process.env.IFOOD_CLIENT_ID || '').trim();
+    const clientSecret = ((r.clientSecret as string) || process.env.IFOOD_CLIENT_SECRET || '').trim();
+    if (!clientId || !clientSecret) return null;
     return {
       id: r.id,
       tenantId: r.tenantId,
       unidadeId: r.unidadeId ?? null,
       merchantId: (r.merchantId as string).trim(),
-      clientId: (r.clientId as string).trim(),
-      clientSecret: (r.clientSecret as string).trim(),
+      clientId,
+      clientSecret,
       token: r.token,
       config: r.config ?? {},
     };
@@ -58,6 +64,99 @@ export class IfoodService {
       .from(integracao)
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL), eq(integracao.ativo, true)));
     return this.mapRow(r);
+  }
+
+  // ===== Fluxo de integração (modelo parceiro) =====
+  // Client ID/Secret são GLOBAIS da Regem (env) — a loja não os informa. A loja só
+  // DISPARA o pedido; a distribuição pede a autorização do merchant no Portal do
+  // Desenvolvedor e finaliza com o Merchant ID. Até lá a integração fica ativo=false
+  // (o poller ignora — integracoesAtivas filtra por ativo=true).
+  async solicitarIntegracao(tenantId: string, unidadeId: string | null, solicitanteId?: string | null) {
+    const [existente] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
+    const cfgAtual: any = existente?.config ?? {};
+    const jaPendente = cfgAtual?.pedidoIntegracao?.status === 'pendente';
+    const pedido = jaPendente
+      ? cfgAtual.pedidoIntegracao
+      : { status: 'pendente', solicitadoEm: new Date().toISOString(), solicitadoPorId: solicitanteId ?? null };
+    const config = { ...cfgAtual, pedidoIntegracao: pedido };
+    if (existente) {
+      await this.db
+        .update(integracao)
+        .set({ ativo: false, ...(unidadeId ? { unidadeId } : {}), config, updatedAt: new Date() })
+        .where(eq(integracao.id, existente.id));
+    } else {
+      await this.db.insert(integracao).values({ tenantId, unidadeId, canal: CANAL, ativo: false, config });
+    }
+    if (!jaPendente) void this.alertarDistribuicao(tenantId, 'pedido_integracao');
+    return { ok: true };
+  }
+
+  // A loja desativa: o iFood não tem revoke self-service confiável, então marcamos
+  // "pendente_remocao" e avisamos a distribuição para tirar a loja do app no portal.
+  async desativarIntegracao(tenantId: string) {
+    const [existente] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
+    if (!existente) return { ok: true };
+    const cfgAtual: any = existente.config ?? {};
+    const pedido = {
+      ...(cfgAtual.pedidoIntegracao ?? {}),
+      status: 'pendente_remocao',
+      removidoSolicitadoEm: new Date().toISOString(),
+    };
+    await this.db
+      .update(integracao)
+      .set({ ativo: false, config: { ...cfgAtual, pedidoIntegracao: pedido }, updatedAt: new Date() })
+      .where(eq(integracao.id, existente.id));
+    void this.alertarDistribuicao(tenantId, 'remocao_integracao');
+    return { ok: true };
+  }
+
+  async statusIntegracao(tenantId: string) {
+    const [r] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
+    const cfg: any = r?.config ?? {};
+    return {
+      ativo: !!r?.ativo,
+      pedidoStatus: cfg?.pedidoIntegracao?.status ?? null,
+      temMerchant: !!r?.merchantId,
+    };
+  }
+
+  // Avisa a distribuição de um pedido/remoção (e-mail via DIST_ALERT_WEBHOOK/n8n).
+  // Best-effort — nunca quebra a ação principal.
+  private async alertarDistribuicao(tenantId: string, evento: string) {
+    try {
+      const hook = (process.env.DIST_ALERT_WEBHOOK ?? '').trim();
+      if (!hook) return;
+      const emp: any = await this.db.execute(sql`select nome, cnpj from empresa where id = ${tenantId} limit 1`);
+      const row = (emp?.rows ?? emp)?.[0] ?? {};
+      const dst: any = await this.db.execute(
+        sql`select email from usuario_distribuicao where perfil in ('diretoria','tecnico') and ativo = true`,
+      );
+      const destinatarios = (dst?.rows ?? dst).map((x: any) => x.email).filter(Boolean);
+      await fetch(hook, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          evento,
+          canal: CANAL,
+          loja: row.nome ?? 'Loja',
+          cnpj: row.cnpj ?? null,
+          tenantId,
+          destinatarios,
+          em: new Date().toISOString(),
+        }),
+      }).catch(() => {});
+    } catch {
+      /* best-effort */
+    }
   }
 
   // OAuth client_credentials → accessToken (cache em token + config.tokenExp).

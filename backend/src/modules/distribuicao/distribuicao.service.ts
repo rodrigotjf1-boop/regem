@@ -240,9 +240,17 @@ export class DistribuicaoService {
     return r.rows ?? r;
   }
 
-  // Marca o pedido como conectado (ou recusado). `acao`: 'conectado' | 'recusado'.
-  async resolverPedidoIntegracao(integracaoId: string, acao: 'conectado' | 'recusado', autor: any) {
-    const status = acao === 'recusado' ? 'recusado' : 'conectado';
+  // Marca o pedido como conectado / recusado / removido. Para o iFood, ao conectar,
+  // a distribuição informa o `merchantId` (obtido no portal após o cliente autorizar)
+  // — gravamos na integração e ativamos (ativo=true) p/ o poller começar. "removido"
+  // confirma a desativação (o cliente pediu remoção; ativo=false).
+  async resolverPedidoIntegracao(
+    integracaoId: string,
+    acao: 'conectado' | 'recusado' | 'removido',
+    autor: any,
+    dados?: { merchantId?: string },
+  ) {
+    const status = acao === 'recusado' ? 'recusado' : acao === 'removido' ? 'removido' : 'conectado';
     await this.db.execute(sql`
       update integracao set config = jsonb_set(
         jsonb_set(
@@ -250,8 +258,19 @@ export class DistribuicaoService {
           '{pedidoIntegracao,conectadoPor}', to_jsonb(${autor?.nome ?? null}::text)
         ),
         '{pedidoIntegracao,conectadoEm}', to_jsonb(now()::text)
-      )
+      ), updated_at = now()
       where id = ${integracaoId} and config ? 'pedidoIntegracao'`);
+    const merchant = dados?.merchantId?.trim();
+    if (acao === 'conectado' && merchant) {
+      await this.db.execute(
+        sql`update integracao set merchant_id = ${merchant}, ativo = true, updated_at = now() where id = ${integracaoId}`,
+      );
+    }
+    if (acao === 'removido') {
+      await this.db.execute(
+        sql`update integracao set ativo = false, updated_at = now() where id = ${integracaoId}`,
+      );
+    }
     await this.auditar(autor, `integracao_${status}`, integracaoId);
     return { ok: true };
   }

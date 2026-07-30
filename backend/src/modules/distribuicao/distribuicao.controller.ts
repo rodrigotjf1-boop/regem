@@ -138,7 +138,8 @@ export class DistribuicaoController {
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
   @PerfilDist('diretoria', 'tecnico')
   resolverPedidoIntegracao(@DistUser() u: DistCtx, @Param('id') id: string, @Body() dto: any) {
-    const acao = dto?.acao === 'recusado' ? 'recusado' : 'conectado';
-    return this.service.resolverPedidoIntegracao(id, acao, u);
+    const acao =
+      dto?.acao === 'recusado' ? 'recusado' : dto?.acao === 'removido' ? 'removido' : 'conectado';
+    return this.service.resolverPedidoIntegracao(id, acao, u, { merchantId: dto?.merchantId });
   }
 }

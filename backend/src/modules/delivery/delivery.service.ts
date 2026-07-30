@@ -1169,6 +1169,9 @@ export class DeliveryService {
         cor: r?.config?.cor ?? null, // cor de identificação no kanban
         temSecret: !!r?.clientSecret,
         temToken: !!r?.token,
+        // Estado do pedido de integração (Anota Aí/iFood): pendente | conectado |
+        // recusado | pendente_remocao | removido — usado pelo card do cliente.
+        pedidoStatus: r?.config?.pedidoIntegracao?.status ?? null,
         updatedAt: r?.updatedAt ?? null,
       };
     });
