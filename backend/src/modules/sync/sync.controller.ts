@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query, UseGuards } from '@nestjs/common';
 import { SyncService } from './sync.service';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from './sync-token.guard';
 import { SyncPushDto } from './dto/push.dto';
@@ -22,7 +22,13 @@ export class SyncController {
   }
 
   @Post('push')
-  push(@SyncCtx() ctx: SyncCtxData, @Body() dto: SyncPushDto) {
-    return this.service.push(ctx.tenantId, dto.lotes);
+  push(
+    @SyncCtx() ctx: SyncCtxData,
+    @Body() dto: SyncPushDto,
+    @Headers('x-sync-seq') seq?: string,
+    @Headers('x-sync-ts') ts?: string,
+    @Headers('x-sync-sig') sig?: string,
+  ) {
+    return this.service.push(ctx, dto.lotes, { seq, ts, sig });
   }
 }

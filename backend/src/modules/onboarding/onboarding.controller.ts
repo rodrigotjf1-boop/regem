@@ -2,6 +2,8 @@ import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { OnboardingService } from './onboarding.service';
@@ -10,7 +12,7 @@ import { AplicarTemplateDto } from './dto/aplicar-template.dto';
 import { AplicarWizardDto } from './dto/aplicar-wizard.dto';
 
 @Controller('onboarding')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class OnboardingController {
   constructor(
     private readonly service: OnboardingService,
@@ -25,6 +27,7 @@ export class OnboardingController {
   // Progresso do cadastro (para gate do wizard e barras de setup).
   @Get('progresso')
   @Roles('presidente', 'gerente')
+  @RequirePerm('config_ramo')
   progresso(@CurrentUser() user: AuthUser) {
     return this.service.progresso(user.tenantId);
   }
@@ -32,18 +35,21 @@ export class OnboardingController {
   // Wizard rico (mockup "Configuração por ramo") — só presidente/C&O.
   @Get('ramos-detalhes')
   @Roles('presidente')
+  @RequirePerm('config_ramo')
   ramosDetalhes() {
     return this.service.ramosDetalhados();
   }
 
   @Get('blueprint')
   @Roles('presidente')
+  @RequirePerm('config_ramo')
   blueprint(@Query('ramo') ramo: string) {
     return this.service.blueprint(ramo);
   }
 
   @Post('wizard')
   @Roles('presidente')
+  @RequirePerm('config_ramo')
   async wizard(@CurrentUser() user: AuthUser, @Body() dto: AplicarWizardDto) {
     const res = await this.service.aplicarWizard(user.tenantId, dto);
     await this.auditoria.registrar({
@@ -60,6 +66,7 @@ export class OnboardingController {
 
   @Post('template')
   @Roles('presidente', 'gerente')
+  @RequirePerm('config_ramo')
   async aplicar(@CurrentUser() user: AuthUser, @Body() dto: AplicarTemplateDto) {
     const res = await this.service.aplicarTemplate(user.tenantId, dto);
     await this.auditoria.registrar({

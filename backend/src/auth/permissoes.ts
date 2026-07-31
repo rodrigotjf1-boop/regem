@@ -29,6 +29,9 @@ export interface Permissoes {
   escalas?: Partial<AcoesModulo>; // CRUD (mig 145): execução só `ver`
   checklist?: boolean;
   mural?: boolean;
+  guias?: boolean; // POP & guias + documentos/ciência
+  vistoria?: boolean; // vistorias (Operação)
+  desempenho?: boolean; // ocorrências / gamificação / ranking
   // Financeiro / Fiscal
   ver_financeiro?: boolean; // mostra valores em R$
   financeiro?: boolean; // módulo Financeiro (DRE / fluxo)
@@ -38,6 +41,9 @@ export interface Permissoes {
   fiscal_config?: boolean; // configuração fiscal
   // Gestão
   cadastros?: boolean;
+  fichas?: boolean; // fichas técnicas (CMV)
+  bot?: boolean; // Bot de suporte + inbox do WhatsApp
+  desligamento?: boolean; // desligamento CLT (RH)
   loja?: boolean; // Configurações → Loja (perfil do estabelecimento)
   unidades?: boolean; // Configurações → Unidades (cadastro/edição de lojas da rede)
   ponto_gerencial?: boolean; // Gerenciamento de ponto (gerencial)
@@ -102,6 +108,9 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'estoque', rotulo: 'Estoque', grupo: 'Rotina', tipo: 'crud' },
   { chave: 'checklist', rotulo: 'Checklist & registros', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'mural', rotulo: 'Mural & clima', grupo: 'Rotina', tipo: 'bool' },
+  { chave: 'guias', rotulo: 'POP & guias', grupo: 'Rotina', tipo: 'bool' },
+  { chave: 'vistoria', rotulo: 'Vistorias', grupo: 'Rotina', tipo: 'bool' },
+  { chave: 'desempenho', rotulo: 'Desempenho & ocorrências', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'ver_financeiro', rotulo: 'Ver valores em R$', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'financeiro', rotulo: 'Financeiro (DRE)', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'formas_pagamento', rotulo: 'Formas de pagamento', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
@@ -109,6 +118,9 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'tef', rotulo: 'TEF / maquininha', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'fiscal_config', rotulo: 'Configuração fiscal', grupo: 'Financeiro / Fiscal', tipo: 'bool' },
   { chave: 'cadastros', rotulo: 'Cadastros', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'fichas', rotulo: 'Fichas técnicas', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'bot', rotulo: 'Bot & WhatsApp', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'desligamento', rotulo: 'Desligamento (RH)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'loja', rotulo: 'Loja (perfil)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'unidades', rotulo: 'Unidades (lojas da rede)', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'ponto_gerencial', rotulo: 'Gerenciamento de ponto', grupo: 'Gestão', tipo: 'bool' },
@@ -159,6 +171,7 @@ export const PERFIS_PADRAO: {
         'dashboard', 'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade',
         'cashback', 'meu_dia', 'manutencao', 'checklist', 'mural', 'cadastros', 'loja',
         'formas_pagamento', 'ponto_gerencial', 'producao_kds', 'servidor',
+        'fichas', 'bot', 'desligamento', 'guias', 'vistoria', 'desempenho',
       ]),
       ponto: CRUD_ALL,
       estoque: { ver: true, criar: true, editar: true, excluir: false },
@@ -172,7 +185,7 @@ export const PERFIS_PADRAO: {
     permissoes: {
       ...bools([
         'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade', 'cashback',
-        'checklist', 'mural', 'manutencao',
+        'checklist', 'mural', 'manutencao', 'fichas', 'guias', 'vistoria', 'desempenho',
       ]),
       ponto: { ver: true, criar: false, editar: true, excluir: false },
       estoque: { ver: true, criar: false, editar: true, excluir: false },
@@ -189,7 +202,7 @@ export const PERFIS_PADRAO: {
     // Continua editável por perfil: quem quiser um perfil só-terminal desmarca.
     loginWeb: true,
     permissoes: {
-      ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'checklist', 'mural', 'manutencao']),
+      ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'checklist', 'mural', 'manutencao', 'guias', 'vistoria']),
       ponto: CRUD_NONE,
       estoque: CRUD_NONE,
       // Execução só VISUALIZA a escala (a escala é a fonte da verdade do dia dele);

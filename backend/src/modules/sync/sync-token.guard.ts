@@ -11,6 +11,7 @@ export type SyncCtxData = {
   tenantId: string;
   unidadeId: string | null;
   equipamentoId: string;
+  token: string; // usado p/ derivar a chave HMAC da assinatura de push
 };
 
 // Autentica o SERVIDOR LOCAL por token de dispositivo (menor privilégio, revogável),
@@ -33,6 +34,7 @@ export class SyncTokenGuard implements CanActivate {
       tenantId: dev.tenantId,
       unidadeId: dev.unidadeId ?? null,
       equipamentoId: dev.id,
+      token: String(token),
     } satisfies SyncCtxData;
     return true;
   }

@@ -30,4 +30,11 @@ export class AuditoriaController {
       ate: ate || undefined,
     });
   }
+
+  // Verifica a integridade da cadeia (hash-chain) da auditoria do tenant.
+  @Get('verificar')
+  @Roles('presidente')
+  verificar(@CurrentUser() user: AuthUser) {
+    return this.service.verificarCadeia(user.tenantId);
+  }
 }

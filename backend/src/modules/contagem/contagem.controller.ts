@@ -10,6 +10,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -19,17 +21,19 @@ import { CreateContagemListaDto } from './dto/create-contagem-lista.dto';
 // Contagem de estoque — listar/iniciar/salvar = qualquer autenticado (o
 // executor pode ser o colaborador delegado); criar/remover lista = gestão.
 @Controller('contagem')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class ContagemController {
   constructor(private readonly service: ContagemService) {}
 
   @Get('listas')
+  @RequirePerm('estoque', 'ver')
   listListas(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     return this.service.listListas(user.tenantId, atual);
   }
 
   @Post('listas')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'criar')
   createLista(
     @CurrentUser() user: AuthUser,
     @UnidadeAtual() atual: string | null,
@@ -40,21 +44,25 @@ export class ContagemController {
 
   @Delete('listas/:id')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'excluir')
   removerLista(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
     return this.service.removerLista(user.tenantId, id, atual);
   }
 
   @Post('listas/:id/iniciar')
+  @RequirePerm('estoque', 'editar')
   iniciar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
     return this.service.iniciarExecucao(user.tenantId, id, user.colaboradorId, atual);
   }
 
   @Get('execucoes/:id')
+  @RequirePerm('estoque', 'ver')
   execucao(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.getExecucao(user.tenantId, id);
   }
 
   @Post('execucoes/:id/salvar')
+  @RequirePerm('estoque', 'editar')
   salvar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

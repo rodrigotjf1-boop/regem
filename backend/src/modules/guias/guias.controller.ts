@@ -11,6 +11,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { GuiasService } from './guias.service';
@@ -19,7 +21,7 @@ import { UpdateGuiaDto } from './dto/update-guia.dto';
 import { CreatePassoDto } from './dto/create-passo.dto';
 
 @Controller('guias')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class GuiasController {
   constructor(private readonly service: GuiasService) {}
 
@@ -41,12 +43,14 @@ export class GuiasController {
 
   @Post()
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('guias')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateGuiaDto) {
     return this.service.create(user.tenantId, dto);
   }
 
   @Patch(':id')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('guias')
   update(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -57,12 +61,14 @@ export class GuiasController {
 
   @Delete(':id')
   @Roles('presidente', 'gerente')
+  @RequirePerm('guias')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.remove(user.tenantId, id);
   }
 
   @Post(':id/passos')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('guias')
   addPasso(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -73,6 +79,7 @@ export class GuiasController {
 
   @Delete('passos/:id')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('guias')
   removePasso(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.removePasso(user.tenantId, id);
   }

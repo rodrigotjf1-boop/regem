@@ -3,6 +3,8 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { WhatsappService } from './whatsapp.service';
@@ -14,60 +16,68 @@ export class WhatsappController {
   constructor(private readonly service: WhatsappService) {}
 
   @Post('whatsapp/conectar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
   conectar(@CurrentUser() user: AuthUser) {
     return this.service.conectar(user.tenantId);
   }
 
   @Get('whatsapp/status')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   status(@CurrentUser() user: AuthUser) {
     return this.service.status(user.tenantId);
   }
 
   @Delete('whatsapp/desconectar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
   desconectar(@CurrentUser() user: AuthUser) {
     return this.service.desconectar(user.tenantId);
   }
 
   // Diagnóstico: vars setadas? Evolution respondeu? lista as instâncias.
   @Get('whatsapp/diagnostico')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
   diagnostico(@CurrentUser() user: AuthUser) {
     return this.service.diagnostico(user.tenantId);
   }
 
   // Vincula uma instância existente do Evolution (sem criar/parear de novo).
   @Post('whatsapp/vincular')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
   vincular(@CurrentUser() user: AuthUser, @Body() dto: { instancia?: string }) {
     return this.service.vincular(user.tenantId, dto?.instancia ?? '');
   }
 
   // ===== Inbox (caixa de entrada sobre a instância Evolution) =====
   @Get('whatsapp/conversas')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   conversas(@CurrentUser() user: AuthUser) {
     return this.service.listarConversas(user.tenantId);
   }
 
   @Get('whatsapp/mensagens')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   mensagens(@CurrentUser() user: AuthUser, @Query('jids') jids: string, @Query('jid') jid: string) {
     return this.service.mensagens(user.tenantId, jids || jid || '');
   }
 
   @Post('whatsapp/enviar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   enviar(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; jid?: string; texto?: string }) {
     const numero = dto?.numero ?? (dto?.jid ?? '').split('@')[0];
     return this.service.enviar(user.tenantId, numero ?? '', dto?.texto ?? '');
@@ -75,8 +85,9 @@ export class WhatsappController {
 
   // Baixa a mídia de uma mensagem sob demanda (miniatura no inbox).
   @Get('whatsapp/midia')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   midia(
     @CurrentUser() user: AuthUser,
     @Query('id') id: string,
@@ -88,16 +99,18 @@ export class WhatsappController {
 
   // Cardápios ativos (para o inbox perguntar de qual, se houver mais de um).
   @Get('whatsapp/cardapios')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   cardapios(@CurrentUser() user: AuthUser) {
     return this.service.listarCardapios(user.tenantId);
   }
 
   // Envia o cardápio em PDF para o número da conversa.
   @Post('whatsapp/enviar-cardapio')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   enviarCardapio(
     @CurrentUser() user: AuthUser,
     @Body() dto: { numero?: string; cardapioId?: string },
@@ -107,8 +120,9 @@ export class WhatsappController {
 
   // Pausa/retoma o robô só nesta conversa (o humano assume).
   @Post('whatsapp/pausar-conversa')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
   pausarConversa(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; pausar?: boolean }) {
     return this.service.pausarConversa(user.tenantId, dto?.numero ?? '', dto?.pausar !== false);
   }

@@ -1,13 +1,64 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { TABELAS_PULL, TABELAS_RESTORE, TabelaSync, modoPush, REDIGIR } from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
+import { assinarSync } from './sync-sig';
+import type { SyncCtxData } from './sync-token.guard';
 
 @Injectable()
 export class SyncService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  private readonly logger = new Logger('Sync');
   private colunasCache = new Map<string, Set<string>>();
+
+  // Verifica a ASSINATURA do push (integridade/autenticidade) + a JANELA de tempo
+  // (anti-replay) + a SEQUÊNCIA por dispositivo (anti-omissão). A chave HMAC é
+  // derivada do token do dispositivo. Tolerante por padrão (só alerta se faltar) até
+  // todos os edges enviarem — `SYNC_REQUIRE_SIG=true` passa a EXIGIR. A sig/ts REJEITAM;
+  // o seq só ALERTA (gap/regressão) p/ não quebrar retry/restauração legítimos.
+  private async verificarAssinatura(
+    ctx: SyncCtxData,
+    lotes: unknown,
+    assin: { seq?: string; ts?: string; sig?: string },
+  ) {
+    const exigir = String(process.env.SYNC_REQUIRE_SIG ?? '').toLowerCase() === 'true';
+    const dev = ctx.equipamentoId.slice(0, 8);
+    const { seq, ts, sig } = assin;
+    if (!sig || !seq || !ts) {
+      if (exigir) throw new UnauthorizedException('Push sem assinatura.');
+      this.logger.warn(`push sem assinatura (dev ${dev}) — tolerado`);
+      return;
+    }
+    // Janela de tempo (anti-replay). Tolerância larga p/ absorver skew de relógio.
+    const skew = Math.abs(Date.now() - new Date(ts).getTime());
+    if (isNaN(skew) || skew > 15 * 60 * 1000) {
+      throw new UnauthorizedException('Push fora da janela de tempo.');
+    }
+    // Assinatura HMAC (integridade + posse do token).
+    const esperado = assinarSync(ctx.token, seq, ts, lotes);
+    if (sig.length !== esperado.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(esperado))) {
+      throw new UnauthorizedException('Assinatura de push inválida.');
+    }
+    // Sequência monotônica por dispositivo — só ALERTA (não rejeita).
+    const r: any = await this.db.execute(
+      sql`select last_push_seq as s from equipamento where id = ${ctx.equipamentoId}`,
+    );
+    const last = Number((r.rows ?? r)[0]?.s) || 0;
+    const n = Number(seq);
+    if (n > last + 1) this.logger.warn(`GAP de sync (dev ${dev}): seq ${last} → ${n} — lotes omitidos?`);
+    else if (n < last) this.logger.warn(`REGRESSÃO de seq (dev ${dev}): ${n} < ${last} — restauração/duplicata?`);
+    if (n > last) {
+      await this.db.execute(sql`update equipamento set last_push_seq = ${n} where id = ${ctx.equipamentoId}`);
+    }
+  }
 
   // Colunas reais da tabela (whitelist por introspecção — nada de coluna arbitrária).
   private async colunasDe(tabela: string): Promise<Set<string>> {
@@ -99,7 +150,13 @@ export class SyncService {
   // - só colunas reais (introspecção); jsonb serializado;
   // - append: on conflict (id) do nothing (idempotente);
   // - lww: on conflict (id) do update SÓ se a recebida for mais nova, e SÓ do mesmo tenant.
-  async push(tenantId: string, lotes: LoteSyncDto[]) {
+  async push(
+    ctx: SyncCtxData,
+    lotes: LoteSyncDto[],
+    assin: { seq?: string; ts?: string; sig?: string } = {},
+  ) {
+    await this.verificarAssinatura(ctx, lotes, assin);
+    const tenantId = ctx.tenantId;
     const resultado: Record<string, { aplicadas: number; ignoradas: number }> = {};
 
     for (const lote of lotes) {

@@ -13,6 +13,8 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CardapioService } from './cardapio.service';
@@ -149,68 +151,79 @@ export class CardapioPublicoController {
 
 // Gestão (JWT).
 @Controller('cardapio')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class CardapioController {
   constructor(private readonly service: CardapioService) {}
 
   @Get('config')
+  @RequirePerm('loja')
   config(@CurrentUser() user: AuthUser) {
     return this.service.getConfig(user.tenantId, null);
   }
 
   @Put('config')
   @Roles('presidente', 'gerente')
+  @RequirePerm('loja')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto, user.categoria);
   }
 
   // Auto-pausa por esgotamento de estoque (gestão do cardápio).
   @Get('auto-pausa')
+  @RequirePerm('loja')
   autoPausa(@CurrentUser() user: AuthUser) {
     return this.service.autoPausaConfig(user.tenantId);
   }
 
   @Post('auto-pausa')
   @Roles('presidente', 'gerente')
+  @RequirePerm('loja')
   setAutoPausa(@CurrentUser() user: AuthUser, @Body() dto: { ativo?: boolean }) {
     return this.service.setAutoPausa(user.tenantId, !!dto?.ativo);
   }
 
   @Get('bairros')
+  @RequirePerm('loja')
   bairros(@CurrentUser() user: AuthUser) {
     return this.service.listarBairros(user.tenantId, null);
   }
 
   @Put('bairros')
   @Roles('presidente', 'gerente')
+  @RequirePerm('loja')
   setBairros(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setBairros(user.tenantId, dto?.unidadeId ?? null, dto?.bairros ?? []);
   }
 
   @Get('banners')
+  @RequirePerm('loja')
   banners(@CurrentUser() user: AuthUser) {
     return this.service.listarBanners(user.tenantId);
   }
 
   @Put('banners')
   @Roles('presidente', 'gerente')
+  @RequirePerm('loja')
   setBanners(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setBanners(user.tenantId, dto?.unidadeId ?? null, dto?.banners ?? []);
   }
 
   @Get('cupons')
+  @RequirePerm('cupons')
   cupons(@CurrentUser() user: AuthUser) {
     return this.service.listarCupons(user.tenantId);
   }
 
   @Post('cupons')
   @Roles('presidente', 'gerente')
+  @RequirePerm('cupons')
   criarCupom(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.criarCupom(user.tenantId, dto?.unidadeId ?? null, dto);
   }
 
   @Delete('cupons/:id')
   @Roles('presidente', 'gerente')
+  @RequirePerm('cupons')
   removerCupom(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.removerCupom(user.tenantId, id);
   }

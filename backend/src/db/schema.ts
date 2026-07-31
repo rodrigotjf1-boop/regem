@@ -754,6 +754,7 @@ export const equipamento = pgTable('equipamento', {
   mac: text('mac'),
   padrao: boolean('padrao').notNull().default(false),
   ativo: boolean('ativo').notNull().default(true),
+  lastPushSeq: integer('last_push_seq'), // último seq de push aceito (anti-omissão de sync, mig 154)
   escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
   papel: text('papel'), // impressora: producao | cupom (via do cliente)
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
@@ -1380,6 +1381,12 @@ export const auditLog = pgTable('audit_log', {
   detalhe: jsonb('detalhe'),
   origem: text('origem').notNull().default('web'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // Cadeia à prova de adulteração (mig 153): seq monotônico por tenant + hash
+  // encadeado (hash = sha256(prev_hash | registro canônico)). Remover/alterar um
+  // registro quebra a cadeia — detectável por `verificarCadeia`.
+  seq: integer('seq'),
+  prevHash: text('prev_hash'),
+  hash: text('hash'),
 });
 
 // ── Mural & Clima (migration 026) ────────────────────────────────────────────

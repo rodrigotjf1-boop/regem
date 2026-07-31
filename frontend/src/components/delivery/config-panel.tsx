@@ -1307,7 +1307,40 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const ehDD = it.canal === 'delivery_direto';
   const ehOD = it.canal === 'open_delivery' || ehDD;
   const ehAnota = it.canal === 'anotaai';
+  const ehIfood = it.canal === 'ifood';
   const DD_BASE = 'https://deliverydireto.com.br/open-delivery-api/v1';
+  const [ifoodMsg, setIfoodMsg] = useState('');
+  const [ifoodBusy, setIfoodBusy] = useState(false);
+  // Estado do pedido de integração do iFood (vem do listarIntegracoes.pedidoStatus).
+  const ifoodStatus: string | null = it.pedidoStatus ?? null;
+  const ifoodPendente = ifoodStatus === 'pendente';
+  const ifoodConectado = !!it.ativo && ifoodStatus === 'conectado';
+  async function solicitarIfood() {
+    setIfoodBusy(true);
+    setIfoodMsg('');
+    try {
+      await api.ifoodSolicitar();
+      onSalvar({ canal: it.canal, cor: cor || '' }); // persiste só a cor (não mexe em credencial)
+      setIfoodMsg('Solicitação enviada. A equipe Regem vai pedir a autorização da sua loja no iFood — autorize no seu Portal do Parceiro (Integrações) e ativamos.');
+    } catch (e: any) {
+      setIfoodMsg('Erro ao solicitar: ' + (e?.message ?? ''));
+    } finally {
+      setIfoodBusy(false);
+    }
+  }
+  async function desativarIfood() {
+    if (!confirm('Desativar a integração com o iFood? A equipe Regem será avisada para remover a sua loja do aplicativo no portal.')) return;
+    setIfoodBusy(true);
+    setIfoodMsg('');
+    try {
+      await api.ifoodDesativar();
+      setIfoodMsg('Desativação solicitada. Avisamos a distribuição para remover a loja do app no portal.');
+    } catch (e: any) {
+      setIfoodMsg('Erro ao desativar: ' + (e?.message ?? ''));
+    } finally {
+      setIfoodBusy(false);
+    }
+  }
   const [ambiente, setAmbiente] = useState('producao');
   const [cwMsg, setCwMsg] = useState('');
   const [cwBusy, setCwBusy] = useState(false);
@@ -1467,11 +1500,35 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   return (
     <div className="space-y-2 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
-        <label className="ml-auto flex items-center gap-1 text-xs">
-          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> ativo
-        </label>
+        {/* iFood ativa pelo fluxo de solicitação (abaixo), não pelo checkbox. */}
+        {!ehIfood && (
+          <label className="ml-auto flex items-center gap-1 text-xs">
+            <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!pode} checked={ativo} onChange={(e) => setAtivo(e.target.checked)} /> ativo
+          </label>
+        )}
       </div>
-      {ehN8n ? (
+      {ehIfood ? (
+        <>
+          <p className="text-[11px] text-muted-foreground">Integração oficial do <strong>iFood</strong>. Você <strong>não precisa preencher nada</strong> — a Regem é parceira técnica do iFood. Ao solicitar, nossa equipe pede a <strong>autorização da sua loja</strong> no iFood; você recebe o pedido no seu <strong>Portal do Parceiro → Integrações</strong>. Assim que autorizar, a integração é ativada automaticamente.</p>
+          {ifoodConectado ? (
+            <p className="rounded bg-ok/10 px-2 py-1 text-[11px] font-semibold text-ok">✓ Conectado ao iFood — pedidos entram automaticamente.</p>
+          ) : ifoodPendente ? (
+            <p className="rounded bg-warn/10 px-2 py-1 text-[11px] font-semibold text-warn">⏳ Solicitação enviada — aguardando a equipe Regem finalizar a conexão (após você autorizar no Portal do Parceiro).</p>
+          ) : ifoodStatus === 'pendente_remocao' ? (
+            <p className="rounded bg-warn/10 px-2 py-1 text-[11px] font-semibold text-warn">Remoção solicitada — aguardando a distribuição tirar a loja do app.</p>
+          ) : null}
+          {ifoodMsg && <p className="text-[11px] text-muted-foreground">{ifoodMsg}</p>}
+          {pode && (
+            <div className="flex flex-wrap justify-end gap-2">
+              {ifoodConectado || ifoodPendente ? (
+                <Button type="button" size="sm" variant="outline" disabled={ifoodBusy} onClick={desativarIfood}>Desativar</Button>
+              ) : (
+                <Button type="button" size="sm" disabled={ifoodBusy} onClick={solicitarIfood}>Solicitar integração</Button>
+              )}
+            </div>
+          )}
+        </>
+      ) : ehN8n ? (
         <>
           <p className="text-[11px] text-muted-foreground">O Regem avisa esta URL quando o pedido muda de status <strong>e para enviar o código OTP</strong> do cliente (o robô notifica no WhatsApp). O campo <code>evento</code> do corpo diz o que é: <code>status</code> ou <code>otp</code> — trate os dois no seu fluxo. O segredo assina a chamada (cabeçalho <code>X-Regem-Signature</code>).</p>
           <div className="grid gap-2">
@@ -1608,7 +1665,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <span className="ml-auto rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: cor || '#e5e7eb', color: cor ? '#fff' : '#666' }}>{CANAL_NOME[it.canal] ?? it.canal}</span>
         </div>
       )}
-      {pode && !ehCw && !ehFood99 && !ehAnota && (
+      {pode && !ehCw && !ehFood99 && !ehAnota && !ehIfood && (
         <div className="flex justify-end">
           <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV, cor: cor || '' })}>Salvar</Button>
         </div>

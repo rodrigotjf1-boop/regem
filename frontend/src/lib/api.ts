@@ -356,8 +356,15 @@ export const distApi = {
     distReq('/distribuicao/releases', { method: 'POST', body: JSON.stringify(dto) }),
   // Pedidos de integração (loja pede token → distribuição conecta no portal do canal)
   pedidosIntegracao: () => distReq('/distribuicao/pedidos-integracao'),
-  resolverPedidoIntegracao: (id: string, acao: 'conectado' | 'recusado') =>
-    distReq(`/distribuicao/pedidos-integracao/${id}/resolver`, { method: 'POST', body: JSON.stringify({ acao }) }),
+  resolverPedidoIntegracao: (
+    id: string,
+    acao: 'conectado' | 'recusado' | 'removido',
+    dados?: { merchantId?: string },
+  ) =>
+    distReq(`/distribuicao/pedidos-integracao/${id}/resolver`, {
+      method: 'POST',
+      body: JSON.stringify({ acao, ...(dados ?? {}) }),
+    }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
@@ -757,6 +764,9 @@ export const api = {
   food99Puxar: (orderId: string) =>
     req('/integracoes/99food/puxar', { method: 'POST', body: JSON.stringify({ orderId }) }),
   // Anota Aí — token da loja + ID da loja (polling, sem webhook público).
+  ifoodSolicitar: () => req('/integracoes/ifood/solicitar', { method: 'POST', body: '{}' }),
+  ifoodDesativar: () => req('/integracoes/ifood/desativar', { method: 'POST', body: '{}' }),
+  ifoodStatus: () => req('/integracoes/ifood/status'),
   anotaaiStatus: () => req('/integracoes/anotaai/status'),
   anotaaiSalvarCredenciais: (body: Record<string, unknown>) =>
     req('/integracoes/anotaai/credenciais', { method: 'POST', body: JSON.stringify(body) }),

@@ -9,6 +9,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
@@ -46,24 +48,27 @@ export class ImpressaoController {
 
   // Fila recente para o painel (status + impressora). Gestor logado.
   @Get('fila')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('producao_kds')
   fila(@CurrentUser() user: AuthUser) {
     return this.service.filaRecente(user.tenantId);
   }
 
   // Página de teste para uma impressora (gestor logado).
   @Post('impressoras/:id/teste')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('producao_kds')
   teste(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.enfileirarTeste(user.tenantId, id);
   }
 
   // Reimprimir (gestor logado) — reenfileira um job com erro.
   @Post(':id/reimprimir')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('producao_kds')
   reimprimir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.reimprimir(user.tenantId, id);
   }

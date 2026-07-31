@@ -6,6 +6,7 @@ import { CardapioWebService } from './cardapio-web/cardapio-web.service';
 import { CardapioWebController } from './cardapio-web/cardapio-web.controller';
 import { CardapioWebPoller } from './cardapio-web/cardapio-web.poller';
 import { IfoodService } from './ifood/ifood.service';
+import { IfoodController } from './ifood/ifood.controller';
 import { IfoodPoller } from './ifood/ifood.poller';
 import { Food99Service } from './food99/food99.service';
 import { Food99Controller } from './food99/food99.controller';
@@ -21,7 +22,7 @@ import { AnotaAiPoller } from './anotaai/anotaai.poller';
 // controller); a ingestão de pedidos (webhook/adapter) entra na F2.
 @Module({
   imports: [forwardRef(() => DeliveryModule)],
-  controllers: [CardapioWebController, Food99Controller, AnotaAiController],
+  controllers: [CardapioWebController, Food99Controller, AnotaAiController, IfoodController],
   providers: [OpenDeliveryService, OpenDeliveryPoller, CardapioWebService, CardapioWebPoller, IfoodService, IfoodPoller, Food99Service, Food99Poller, AnotaAiService, AnotaAiPoller],
   exports: [OpenDeliveryService, CardapioWebService, IfoodService, Food99Service, AnotaAiService],
 })

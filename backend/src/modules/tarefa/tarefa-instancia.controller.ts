@@ -12,6 +12,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { TarefaInstanciaService } from './tarefa-instancia.service';
@@ -22,7 +24,7 @@ import { ConcluirTarefaDto } from './dto/concluir-tarefa.dto';
 import { ForbiddenException } from '@nestjs/common';
 
 @Controller('tarefas-instancias')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class TarefaInstanciaController {
   constructor(
     private readonly service: TarefaInstanciaService,
@@ -40,11 +42,13 @@ export class TarefaInstanciaController {
 
   @Post('instanciar')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('checklist')
   instanciar(@CurrentUser() user: AuthUser, @Body() dto: InstanciarTarefaDto) {
     return this.service.instanciar(user.tenantId, dto);
   }
 
   @Get()
+  @RequirePerm('meu_dia')
   async findAll(@CurrentUser() user: AuthUser, @Query('data') data?: string) {
     await this.exigeAppColaborador(user);
     return this.service.findAll(user.tenantId, data);
@@ -53,6 +57,7 @@ export class TarefaInstanciaController {
   // Escalados de uma função (+setor) numa data, para escolher o responsável.
   @Get('responsaveis')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('checklist')
   responsaveis(
     @CurrentUser() user: AuthUser,
     @Query('data') data: string,
@@ -65,6 +70,7 @@ export class TarefaInstanciaController {
 
   @Patch(':id/estado')
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
+  @RequirePerm('meu_dia')
   async concluir(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -93,12 +99,14 @@ export class TarefaInstanciaController {
   // Política de foto (presidente/C&O): exigir foto na conclusão e/ou na parcial.
   @Get('politica-foto')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('checklist')
   politicaFoto(@CurrentUser() user: AuthUser) {
     return this.service.politicaFoto(user.tenantId);
   }
 
   @Post('politica-foto')
   @Roles('presidente')
+  @RequirePerm('checklist')
   setPoliticaFoto(@CurrentUser() user: AuthUser, @Body() dto: { conclusao?: boolean; parcial?: boolean }) {
     return this.service.setPoliticaFoto(user.tenantId, dto);
   }
@@ -106,6 +114,7 @@ export class TarefaInstanciaController {
   // Editar a tarefa (título/horário/setor/função/responsável) — gestão.
   @Patch(':id')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('checklist')
   async editar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     const res = await this.service.editar(user.tenantId, id, dto);
     await this.auditoria.registrar({
@@ -124,6 +133,7 @@ export class TarefaInstanciaController {
   // Excluir a tarefa (soft-delete) exigindo motivo — gestão.
   @Delete(':id')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('checklist')
   async excluir(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { motivo?: string }) {
     const res = await this.service.excluir(user.tenantId, id, dto?.motivo ?? '');
     await this.auditoria.registrar({
