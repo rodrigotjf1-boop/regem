@@ -52,5 +52,29 @@ de produção. **NÃO** envia `docs/`, `mockups/`, `CLAUDE.md`.
 - Ofuscação foi **descartada** (quebra a DI do NestJS por depender de nomes de classe).
 
 ## Ordem no build de release (não quebrar updates)
-`npm run build` (comments off) → `node edge/package.mjs` (filtro + guard) → zipar sem
-`node_modules` (`publicar.ps1`). No install: ACL sempre; `-ProtegerSegredos` p/ DPAPI.
+`npm run build` (comments off) → `node edge/package.mjs` (filtro + guard + **dist-manifest.json**) → zipar sem
+`node_modules` (`publicar.ps1`). No install: ACL sempre; **DPAPI por padrão** (desliga só com `-SemProteger`).
+
+## Fase 2 — proteção de código/segredos (implementado)
+- **DPAPI por PADRÃO** no instalador (`instalar-tudo.ps1`): segredos do `.env.local`
+  cifrados em repouso; blob só decifra nesta máquina. Opt-out `-SemProteger`.
+- **Integridade do bundle**: `edge/package.mjs` gera `dist-manifest.json` (sha256 de
+  cada `.js` do `dist`); o app confere no boot (`src/integridade.ts`, tolerante) e
+  registra divergência = adulteração naive do código no PC.
+- **Fonte**: strip de `.map/.d.ts/.md` + guard (Fase 1) mantidos.
+
+## Fase 2 — runbook operacional (fora do código)
+- **Cripto em repouso do VOLUME (BitLocker)** — recomendado no Servidor (onde vive o
+  Postgres/PII). `manage-bde -on C: -EncryptionMethod XtsAes256` (ou GPO/Intune).
+  Cobre tudo em disco de uma vez; é o primário. Coluna-a-coluna (abaixo) é defesa extra.
+- **Authenticode (assinar o `.exe`)** — quando houver certificado de code-signing:
+  `signtool sign /fd SHA256 /tr <timestamp> /td SHA256 /a regem-edge-setup.exe`.
+  Dá integridade + confiança do SmartScreen. (Precisa do cert — pendente.)
+
+## Ainda fora de escopo (fases seguintes / decisão)
+- **Bytecode (bytenode)** no `dist` — proteção forte da lógica (substitui a ofuscação,
+  que foi descartada por quebrar a DI). Fase própria; exige testar boot com V8 cache.
+- **Cripto de COLUNA sensível** (PII/custo) com chave DPAPI — grande e transversal
+  (toca leitura/escrita + sync edge↔nuvem). Decisão à parte; BitLocker cobre o essencial antes.
+- **Electron hardening** (contextIsolation/sandbox/CSP/no-DevTools) — só quando a casca
+  Electron existir (Fase 6).

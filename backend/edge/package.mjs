@@ -1,9 +1,10 @@
 // Monta a pasta distribuível do Regem Edge (para copiar ao PC da loja).
 // Uso (na pasta backend/): npm run build && node edge/package.mjs
 // Saída: ../regem-edge-dist/  → copie para o PC da loja e siga edge/INSTALL-WINDOWS.md
-import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync } from 'fs';
+import { cpSync, mkdirSync, rmSync, existsSync, readdirSync, statSync, readFileSync, writeFileSync } from 'fs';
 import { execSync } from 'child_process';
-import { join } from 'path';
+import { join, relative } from 'path';
+import { createHash } from 'node:crypto';
 
 const raiz = process.cwd(); // backend/
 const out = join(raiz, '..', 'regem-edge-dist');
@@ -29,8 +30,29 @@ const copiar = (rel) => {
   console.log(`  + ${rel}`);
 };
 
+// Fase 2 — manifesto de integridade: sha256 de cada .js do dist copiado. O app
+// confere no boot (src/integridade.ts) e detecta adulteração do código no PC da loja.
+function gerarManifesto() {
+  const distOut = join(out, 'dist');
+  const man = {};
+  const walk = (dir) => {
+    for (const nome of readdirSync(dir)) {
+      const p = join(dir, nome);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.js$/i.test(nome)) {
+        const rel = relative(out, p).replace(/\\/g, '/'); // ex.: dist/main.js
+        man[rel] = createHash('sha256').update(readFileSync(p)).digest('hex');
+      }
+    }
+  };
+  if (existsSync(distOut)) walk(distOut);
+  writeFileSync(join(out, 'dist-manifest.json'), JSON.stringify(man));
+  console.log(`  + dist-manifest.json (${Object.keys(man).length} arquivos)`);
+}
+
 console.log('Montando regem-edge-dist/…');
 copiar('dist');                 // backend compilado (rode `npm run build` antes)
+gerarManifesto();               // manifesto de integridade do dist recém-copiado
 copiar('package.json');
 copiar('package-lock.json');
 copiar('edge');                 // daemon, gen-cert, scripts de serviço, .env.example
