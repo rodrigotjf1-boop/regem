@@ -842,6 +842,7 @@ export class VendasService {
             unidadeId,
             cliente: dto.cliente ?? null,
             cpf: dto.cpf ?? null,
+            consumo: dto.consumo ?? null,
             senha,
             status: 'fechada',
             idempotencyKey: dto.idempotencyKey,

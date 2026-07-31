@@ -1284,6 +1284,7 @@ export const comanda = pgTable('comanda', {
   status: text('status').notNull().default('aberta'), // aberta|fechada|cancelada
   idempotencyKey: text('idempotency_key'), // dedup de venda balcão (offline-first)
   cpf: text('cpf'), // CPF na nota (venda de totem/externa — L-VEN-1)
+  consumo: text('consumo'), // 'local' (comer aqui) | 'viagem' — totem/externa (mig 151)
   taxaServicoPct: numeric('taxa_servico_pct').notNull().default('0'),
   abertaEm: timestamp('aberta_em', { withTimezone: true }).notNull().defaultNow(),
   fechadaEm: timestamp('fechada_em', { withTimezone: true }),
