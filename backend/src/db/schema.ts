@@ -754,6 +754,7 @@ export const equipamento = pgTable('equipamento', {
   mac: text('mac'),
   padrao: boolean('padrao').notNull().default(false),
   ativo: boolean('ativo').notNull().default(true),
+  fingerprint: text('fingerprint'), // impressão da máquina do dispositivo (anti-clone, mig 155)
   lastPushSeq: integer('last_push_seq'), // último seq de push aceito (anti-omissão de sync, mig 154)
   escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
   papel: text('papel'), // impressora: producao | cupom (via do cliente)

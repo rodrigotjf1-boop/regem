@@ -19,8 +19,10 @@ import { BotService } from './bot.service';
 import { CreateRegraDto } from './dto/create-regra.dto';
 import { UpdateRegraDto } from './dto/update-regra.dto';
 import { PerguntarDto } from './dto/perguntar.dto';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 @Controller('bot')
+@CloudOnly()
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class BotController {
   constructor(private readonly service: BotService) {}

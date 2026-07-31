@@ -17,6 +17,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { DeliveryService } from './delivery.service';
 
@@ -166,6 +167,7 @@ export class DeliveryController {
   }
 
   // Integrações (credenciais) — secrets nunca voltam no GET.
+  @CloudOnly()
   @Get('integracoes')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
@@ -174,6 +176,7 @@ export class DeliveryController {
     return this.service.listarIntegracoes(user.tenantId);
   }
 
+  @CloudOnly()
   @Put('integracoes')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
@@ -253,6 +256,7 @@ export class DeliveryController {
 
   // Simulador (teste): injeta um pedido iFood de exemplo — como se o edge tivesse
   // recebido. Facilita validar o fluxo sem credenciais reais.
+  @CloudOnly()
   @Post('simular')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles(...GESTOR)

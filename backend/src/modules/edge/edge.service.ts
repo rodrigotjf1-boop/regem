@@ -16,6 +16,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { MIN_CLIENT_VERSION, MIN_SERVER_VERSION } from './versao';
 
 const pExecFile = promisify(execFile);
 
@@ -387,6 +388,16 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       versao: process.env.APP_VERSION ?? '1',
       unidadeId: process.env.EDGE_UNIDADE_ID ?? null,
       ts: new Date().toISOString(),
+    };
+  }
+
+  // Handshake de compatibilidade (Fase 1.3): versão do servidor + faixas aceitas.
+  handshake() {
+    return {
+      server: process.env.APP_VERSION ?? '0.0.0',
+      minClient: MIN_CLIENT_VERSION, // cliente mais antigo aceito por este servidor
+      minServer: MIN_SERVER_VERSION, // servidor mais antigo que o cliente deve aceitar
+      api: 'v1',
     };
   }
 

@@ -4,8 +4,12 @@ import { ClienteService } from './cliente.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente do cardápio (público, sem login) — identidade por "link mágico".
+import { CloudOnly } from '../../common/cloud-only.decorator';
+
 // O clienteToken vai no corpo (POST) ou como query (GET/DELETE).
+// Identidade do cliente do cardápio online = nuvem → não roda no edge.
 @Controller('publico/cardapio')
+@CloudOnly()
 export class ClientePublicoController {
   constructor(private readonly service: ClienteService) {}
 

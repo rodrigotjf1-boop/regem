@@ -8,10 +8,12 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { WhatsappService } from './whatsapp.service';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Onboarding do WhatsApp da loja (gestor). O resolver é público (com secret).
 @Controller()
+@CloudOnly()
 export class WhatsappController {
   constructor(private readonly service: WhatsappService) {}
 

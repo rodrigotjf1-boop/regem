@@ -6,10 +6,12 @@ import { CurrentUser } from '../../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../../auth/auth-user';
 import { AnotaAiService } from './anotaai.service';
+import { CloudOnly } from '../../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Anota Aí — recebe pedidos por polling (não precisa de webhook público). Só gestor.
 @Controller('integracoes/anotaai')
+@CloudOnly()
 export class AnotaAiController {
   constructor(private readonly service: AnotaAiService) {}
 

@@ -2,11 +2,13 @@ import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@ne
 import { Throttle } from '@nestjs/throttler';
 import { DistribuicaoService } from './distribuicao.service';
 import { DistCtx, DistUser, DistribuicaoGuard, PerfilDist, PerfilDistGuard } from './distribuicao.guard';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Console da distribuição (Fase 1). Realm próprio: login, perfil, auditoria.
 @Controller('distribuicao')
+@CloudOnly()
 export class DistribuicaoController {
   constructor(private readonly service: DistribuicaoService) {}
 

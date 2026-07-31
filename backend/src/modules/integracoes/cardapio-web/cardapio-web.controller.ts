@@ -8,10 +8,12 @@ import { CurrentUser } from '../../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../../auth/auth-user';
 import { CardapioWebService } from './cardapio-web.service';
+import { CloudOnly } from '../../../common/cloud-only.decorator';
 
 // Onboarding OAuth do Cardápio Web (API Aberta). O callback é PÚBLICO (redirect
 // do navegador vindo do portal do CW) — a segurança está no `state` + PKCE.
 @Controller('integracoes/cardapio-web')
+@CloudOnly()
 export class CardapioWebController {
   constructor(private readonly service: CardapioWebService) {}
 

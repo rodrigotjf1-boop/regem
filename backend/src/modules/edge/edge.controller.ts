@@ -21,6 +21,14 @@ export class EdgeController {
     return this.service.info();
   }
 
+  // Handshake de compatibilidade cliente↔servidor (Fase 1.3). Público (LAN): o
+  // cliente magro checa se sua versão ≥ minClient e se o servidor ≥ seu minServer,
+  // recusando combinações incompatíveis antes de operar.
+  @Get('edge/handshake')
+  handshake() {
+    return this.service.handshake();
+  }
+
   // O edge consulta se há versão nova publicada (Fase E-D). Só informa versão +
   // url/sha do pacote — nada sensível, por isso público.
   @Get('edge/update-check')

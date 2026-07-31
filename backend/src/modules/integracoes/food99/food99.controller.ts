@@ -9,11 +9,13 @@ import { CurrentUser } from '../../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../../auth/auth-user';
 import { Food99Service } from './food99.service';
+import { CloudOnly } from '../../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Integração 99Food / DiDi Food. O webhook é PÚBLICO (o 99food chama de fora, no
 // callback registrado no portal). Exige URL pública → roda na nuvem.
 @Controller('integracoes/99food')
+@CloudOnly()
 export class Food99Controller {
   constructor(private readonly service: Food99Service) {}
 
