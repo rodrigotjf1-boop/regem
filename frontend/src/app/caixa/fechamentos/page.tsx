@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken, getCategoria } from '@/lib/api';
+import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,24 @@ export default function FechamentosPage() {
   const [loading, setLoading] = useState(true);
   const [inicio, setInicio] = useState('');
   const [fim, setFim] = useState('');
+  const [reconc, setReconc] = useState('');
+  const ehPresidente = getCategoria() === 'presidente';
+
+  const reconciliar = useCallback(async (id: string) => {
+    setReconc(id);
+    try {
+      const r: any = await api.reconciliarCaixa(id);
+      if (r?.ok) toast.success('Reconciliação OK — o caixa bate com o histórico do dinheiro.');
+      else
+        toast.error(
+          `Divergência de ${brl(r?.totalDivergencia)} entre o histórico e o fechamento. Registrado na auditoria.`,
+        );
+    } catch {
+      toast.error('Não consegui reconciliar agora. Tente de novo.');
+    } finally {
+      setReconc('');
+    }
+  }, []);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -96,6 +115,28 @@ export default function FechamentosPage() {
         );
       },
     },
+    // Verificador (P3): só o presidente confere se o ledger ainda bate com o fechamento.
+    ...(ehPresidente
+      ? [
+          {
+            key: 'reconciliar',
+            header: '',
+            align: 'right' as const,
+            render: (r: any) => (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={reconc === r.id}
+                onClick={() => reconciliar(r.id)}
+                title="Recalcula o esperado pelo histórico do dinheiro e compara com o fechamento"
+              >
+                {reconc === r.id ? '…' : 'Reconciliar'}
+              </Button>
+            ),
+          } as Column<any>,
+        ]
+      : []),
   ];
 
   return (

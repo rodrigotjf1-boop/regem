@@ -121,8 +121,12 @@ export class LicencaController {
   // ===== Edge (token de dispositivo servidor_local) =====
   @Get('edge/lease')
   @UseGuards(SyncTokenGuard)
-  lease(@SyncCtx() ctx: SyncCtxData, @Headers('x-sync-fp') fp?: string) {
-    return this.service.renovarLease(ctx.tenantId, fp);
+  lease(
+    @SyncCtx() ctx: SyncCtxData,
+    @Headers('x-sync-fp') fp?: string,
+    @Headers('x-sync-fp-legacy') fpLegacy?: string,
+  ) {
+    return this.service.renovarLease(ctx.tenantId, fp, fpLegacy);
   }
 
   @Post('edge/heartbeat')

@@ -875,4 +875,85 @@ export class FinanceiroService {
       .orderBy(desc(caixaSessao.fechadaEm))
       .limit(300);
   }
+
+  // ===== Verificador de reconciliação (P3) =====
+  // NÃO recalcula nem corrige o fechamento — apenas RECOMPUTA o esperado por forma
+  // a partir do ledger imutável (lancamento_caixa, append-only) e COMPARA com o que
+  // ficou gravado na sessão no fechamento. Divergência = ledger foi mexido depois,
+  // linha sumiu no sync, ou bug de cálculo. Se divergir, registra alerta em auditoria
+  // (append-only). Só leitura + alerta; jamais muta a sessão. Presidente/C&O dispara.
+  async reconciliarSessao(tenantId: string, sessaoId: string, atorId: string) {
+    const [s] = await this.db
+      .select()
+      .from(caixaSessao)
+      .where(and(eq(caixaSessao.id, sessaoId), eq(caixaSessao.tenantId, tenantId)));
+    if (!s) throw new BadRequestException('Sessão de caixa não encontrada.');
+    if (s.status !== 'fechada')
+      throw new BadRequestException('Só é possível reconciliar uma sessão já fechada.');
+
+    // Recompute idêntico ao fecharSessao: (entrada − saída) por forma + abertura em dinheiro.
+    const rf: any = await this.db.execute(sql`
+      select coalesce(forma,'dinheiro') as forma,
+             coalesce(sum(case when tipo='entrada' then valor else -valor end),0) as mov
+      from lancamento_caixa where sessao_id=${s.id}
+      group by coalesce(forma,'dinheiro')`);
+    const recalcCent: Record<string, number> = {};
+    for (const x of rf.rows ?? rf) recalcCent[x.forma] = paraCentavos(x.mov);
+    recalcCent['dinheiro'] = somarCentavos(recalcCent['dinheiro'] ?? 0, paraCentavos(s.valorAbertura));
+
+    // Gravado no fechamento (jsonb por forma; fallback legado = só dinheiro).
+    const gravado: Record<string, number> =
+      (s.esperadoPorForma as Record<string, number>) ??
+      (s.valorEsperado != null ? { dinheiro: Number(s.valorEsperado) } : {});
+    const gravadoCent: Record<string, number> = {};
+    for (const [f, v] of Object.entries(gravado)) gravadoCent[f] = paraCentavos(v);
+
+    const formas = Array.from(new Set([...Object.keys(recalcCent), ...Object.keys(gravadoCent)])).sort();
+    const porForma = formas.map((f) => {
+      const rec = recalcCent[f] ?? 0;
+      const grv = gravadoCent[f] ?? 0;
+      const div = somarCentavos(rec, -grv);
+      return {
+        forma: f,
+        gravado: paraReais(grv),
+        recalculado: paraReais(rec),
+        divergencia: paraReais(div),
+        divergeCent: div,
+      };
+    });
+    const totalDivCent = porForma.reduce((s2, p) => s2 + Math.abs(p.divergeCent), 0);
+    const divergentes = porForma.filter((p) => p.divergeCent !== 0);
+    const ok = divergentes.length === 0;
+
+    if (!ok) {
+      // Alerta append-only — não bloqueia nada, só deixa rastro para auditoria.
+      await this.auditoria
+        .registrar({
+          tenantId,
+          atorId,
+          atorPerfil: '',
+          tipo: 'financeiro',
+          acao: 'reconciliacao_divergente',
+          entidadeTipo: 'caixa_sessao',
+          entidadeId: s.id,
+          detalhe: {
+            totalDivergencia: paraReais(totalDivCent),
+            porForma: divergentes.map((p) => ({
+              forma: p.forma,
+              gravado: p.gravado,
+              recalculado: p.recalculado,
+              divergencia: p.divergencia,
+            })),
+          },
+        })
+        .catch(() => undefined);
+    }
+
+    return {
+      ok,
+      sessaoId: s.id,
+      totalDivergencia: paraReais(totalDivCent),
+      porForma: porForma.map(({ divergeCent, ...p }) => p),
+    };
+  }
 }

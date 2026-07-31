@@ -41,7 +41,12 @@ param(
   [int]$PgPorta = 5432,
   # Fase 2 (proteção): cifra os segredos do .env em repouso com DPAPI (LocalMachine)
   # por PADRÃO — o blob não abre em outra máquina. Use -SemProteger só p/ depurar.
-  [switch]$SemProteger
+  [switch]$SemProteger,
+  # P2 (restore assistido): servidor queimou/PC novo. Depois de instalar, marca o
+  # pedido de restauração no estado local — o sync-daemon puxa TODO o estado da
+  # nuvem (push do que houver → pull full via /sync/restore) no proximo ciclo.
+  # Aditivo (upsert por id): nao apaga nada; so preenche o banco local vazio.
+  [switch]$Restaurar
 )
 
 $ErrorActionPreference = "Stop"
@@ -56,6 +61,19 @@ Start-Transcript -Path $log -Force -ErrorAction SilentlyContinue | Out-Null
 trap { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null }
 function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 function Rand($n) { -join ((48..57) + (65..90) + (97..122) | Get-Random -Count $n | ForEach-Object { [char]$_ }) }
+# Fingerprint FORTE (P1): sha256 do MachineGuid (uppercase). MESMO calculo do
+# sync-daemon.mjs (node) -> a nuvem casa os dois. Fallback = nome do PC (legado).
+function FingerprintForte {
+  try {
+    $mg = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid -ErrorAction Stop).MachineGuid
+    if ($mg) {
+      $sha = [System.Security.Cryptography.SHA256]::Create()
+      $h = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($mg.ToUpper()))
+      return (([BitConverter]::ToString($h)) -replace '-', '').ToLower()
+    }
+  } catch { }
+  return $env:COMPUTERNAME
+}
 
 Diga ("=== Regem Edge - instalacao automatica (modo: {0}) ===" -f $Modo)
 
@@ -247,7 +265,7 @@ Diga "IP da LAN detectado: $ip"
 
 # Self-service (G-4b): com e-mail/senha do C&O, a nuvem cria/reusa o equipamento
 # servidor_local + ativa a licenca e devolve o SYNC_TOKEN. Sem token manual.
-$fingerprint = $env:COMPUTERNAME
+$fingerprint = FingerprintForte
 if ($Email -and $Senha) {
   Diga "Provisionando pela conta C&O (self-service)..."
   $payload = @{ email = $Email; senha = $Senha; fingerprint = $fingerprint }
@@ -355,6 +373,38 @@ Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; if ($LAST
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
 Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
 
+# ---- 3.5) restore assistido (-Restaurar): marca o pedido no estado local ----
+# So grava a flag; quem faz o trabalho pesado (2 tempos: push pendente -> pull full
+# da nuvem via /sync/restore, upsert por id) e o sync-daemon no proximo ciclo. Aqui
+# tambem zeramos os cursores para forcar um pull COMPLETO (maquina nova = banco vazio).
+if ($Restaurar) {
+  Diga "Restore assistido: marcando pedido de restauracao (o servidor puxa a nuvem no proximo ciclo)..."
+  $jsRestore = @'
+const { Client } = require('pg');
+(async () => {
+  const c = new Client({ connectionString: process.argv[1] });
+  await c.connect();
+  await c.query('create table if not exists sync_state (chave text primary key, valor text)');
+  const up = (k, v) => c.query(
+    'insert into sync_state(chave,valor) values($1,$2) on conflict(chave) do update set valor=$2',
+    [k, v]);
+  await up('restaurar_solicitado', '1');
+  await up('restaurando', '0');
+  await up('pull_cursor', '1970-01-01T00:00:00Z');
+  await up('restore_cursor', '1970-01-01T00:00:00Z');
+  await c.query("delete from sync_state where chave='restaurado_em'");
+  await c.end();
+})().catch(e => { console.error(e.message); process.exit(1); });
+'@
+  $restoreFile = Join-Path $env:TEMP ("regem-restore-{0}.js" -f (Get-Random))
+  Set-Content -Path $restoreFile -Value $jsRestore -Encoding ascii
+  try {
+    & $node $restoreFile $dbLocal
+    if ($LASTEXITCODE -eq 0) { Diga "OK - restauracao solicitada. Acompanhe em /servidor (status da restauracao)." }
+    else { Diga "AVISO: nao consegui marcar a restauracao. Dispare depois pelo app: /servidor -> Restaurar." }
+  } finally { Remove-Item $restoreFile -ErrorAction SilentlyContinue }
+}
+
 # ---- 4) confiar o ca.pem NESTA maquina ----
 $ca = Join-Path $certDir "ca.pem"
 if (Test-Path $ca) {
@@ -389,7 +439,7 @@ if ($okWeb) { Diga "OK - app no ar (porta $PortaWeb)." } else { Diga "AVISO: app
 if ($AtivacaoToken -and -not ($Email -and $Senha)) {
   Diga "Ativando licenca..."
   try {
-    $body = @{ token = $AtivacaoToken; fingerprint = $env:COMPUTERNAME } | ConvertTo-Json -Compress
+    $body = @{ token = $AtivacaoToken; fingerprint = (FingerprintForte) } | ConvertTo-Json -Compress
     $r = Invoke-RestMethod -Method Post -Uri ("https://localhost:{0}/api/v1/provisionamento/ativar" -f $Porta) -ContentType "application/json" -Body $body -TimeoutSec 20
     Diga "Licenca ativada (lease recebido)."
   } catch { Diga "AVISO: nao consegui ativar a licenca agora: $($_.Exception.Message). Ative depois pelo /frota." }

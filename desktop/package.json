@@ -1,0 +1,30 @@
+{
+  "name": "regem-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Casca nativa (Electron) do Regem — modo único local-first, sensação de app.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.dmsregem.desktop",
+    "productName": "Regem",
+    "directories": { "output": "dist" },
+    "win": {
+      "target": ["nsis"],
+      "signingHashAlgorithms": ["sha256"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true
+    }
+  }
+}

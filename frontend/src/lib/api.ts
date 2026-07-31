@@ -1114,6 +1114,9 @@ export const api = {
     const q = p.toString();
     return req(`/financeiro/caixa/fechamentos${q ? `?${q}` : ''}`);
   },
+  // P3: recomputa o esperado do ledger imutável e compara com o gravado (verificador).
+  reconciliarCaixa: (id: string) =>
+    req(`/financeiro/caixa/${id}/reconciliar`, { method: 'POST', body: '{}' }),
   financeiroDre: (inicio?: string, fim?: string) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
