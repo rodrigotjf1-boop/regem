@@ -26,59 +26,57 @@ npm install
 npm run dist    # electron-builder --win → dist\Regem Setup.exe (NSIS)
 ```
 
-## Assinatura (Authenticode) — pendente de certificado
+## Assinatura (Authenticode)
 
-> ⚠️ **Mudou em 2023/2024.** (1) A chave privada de QUALQUER cert de code-signing
-> (OV **e** EV) tem que viver em hardware FIPS 140-2 (token USB ou HSM na nuvem) —
-> **não existe mais o `.pfx` exportável** que o fluxo antigo `CSC_LINK`/`CSC_KEY_PASSWORD`
-> usava. (2) O EV **deixou de furar o SmartScreen na 1ª execução**; OV e EV agora
-> constroem reputação do mesmo jeito. Ou seja: **OV basta** pro nosso caso (appliance
-> distribuído a clientes conhecidos, não download público em massa).
+**Rota escolhida: CA interna do Regem (custo zero/ano).** Como a distribuição controla
+as máquinas e o instalador já planta+confia um CA local, emitimos nosso próprio
+certificado de code-signing e o confiamos em cada máquina (Root + TrustedPublisher).
+Por ser cert **interno**, a regra de HSM de 2023 **não** se aplica — o `.pfx` comum vale.
 
-### Provedor recomendado (empresa BR): Certum (nuvem SimplySign)
-O **Azure Trusted Signing** (mais barato, US$ 9,99/mês) só atende **EUA/Canadá/UE/Reino
-Unido** — CNPJ brasileiro **não** é elegível. Para o Brasil, o padrão indie/PME é a
-**Certum** (Polônia, emite mundialmente, cloud HSM SimplySign): OV ~US$ 99/ano,
-EV ~US$ 299/ano. Alternativa: **SSL.com** com o **eSigner CKA** (adaptador que expõe o
-cert da nuvem ao repositório de certificados do Windows).
+### Passo 1 — gerar a CA de assinatura (UMA vez, na máquina da distribuição)
+```
+cd backend && node edge/gerar-ca-assinatura.mjs --cn="DMS Regem"
+```
+Produz:
+- `backend/edge/code-signing-ca.pem` — **público**, commitar (o instalador o confia).
+- `desktop/signing/code-signing.pfx` — **segredo** (chave privada), fica **só** com a
+  distribuição, num cofre. Já está no `.gitignore`; nunca vai pro repo nem pro edge.
+- imprime a **senha do .pfx** (guardar na hora — não é recuperável).
 
-### Como plugar no build (electron-builder ^24 = cert no repositório do Windows)
-1. Comprar o cert OV na Certum (validação da empresa: CNPJ + comprovante; ~1-5 dias úteis).
-2. Instalar o **proCertum SimplySign Desktop** — ele carrega o cert da nuvem no
-   repositório *Pessoal* do Windows (com o token 2FA da Certum no celular).
-3. Descobrir o nome exato do titular (CN) do cert:
-   ```
-   powershell -Command "Get-ChildItem Cert:\CurrentUser\My -CodeSigningCert | Select-Object Subject,Thumbprint"
-   ```
-4. No `desktop/package.json`, dentro de `build.win`, apontar pro cert do repositório
-   (nada de `.pfx`/senha em env) e usar timestamp RFC-3161:
-   ```json
-   "win": {
-     "target": ["nsis"],
-     "signingHashAlgorithms": ["sha256"],
-     "certificateSubjectName": "DMS Regem <CN exato do passo 3>",
-     "rfc3161TimeStampServer": "http://time.certum.pl"
-   }
-   ```
-   (Alternativa determinística: `"certificateSha1": "<thumbprint do passo 3>"`.)
-5. `npm run dist` — com o SimplySign Desktop aberto/logado, o electron-builder assina o
-   `Regem Setup.exe` sozinho. Assinatura manual de emergência:
-   `signtool sign /fd SHA256 /tr http://time.certum.pl /td SHA256 /sha1 <thumbprint> "dist\Regem Setup.exe"`.
+### Passo 2 — build assinado (na máquina da distribuição)
+As envs de assinatura são o padrão do electron-builder (ausentes = build sem
+assinatura, sem erro — bom p/ CI/dev):
+```
+cd desktop
+setx CSC_LINK "C:\...\Regen\desktop\signing\code-signing.pfx"
+setx CSC_KEY_PASSWORD "<senha do passo 1>"
+npm install && npm run dist   # -> dist\Regem Setup.exe assinado
+```
+O timestamp RFC-3161 já está no `package.json` (`rfc3161TimeStampServer`) — a assinatura
+continua válida mesmo depois do cert expirar.
 
-### Validar
+### Passo 3 — validar
 ```
 signtool verify /pa /v "dist\Regem Setup.exe"
 ```
-Deve mostrar a cadeia até a CA e o carimbo de tempo. No Explorer: botão direito →
-Propriedades → aba **Assinaturas digitais** → o titular certo aparece.
+Numa máquina que rodou o instalador (logo confia a CA), o Explorer mostra o publisher
+em Propriedades → **Assinaturas digitais**, sem "editor desconhecido".
 
-### Se um dia houver entidade elegível ao Azure Trusted Signing (US/CA/UE/UK)
-Subir o `electron-builder` pra **^25** e trocar o bloco acima por `win.azureSignOptions`
-(`endpoint`, `codeSigningAccountName`, `certificateProfileName`, `publisherName` = CN
-exato). É a opção mais barata e sem token físico — mas só com a entidade elegível.
+### ⚠️ A 1ª execução do instalador numa máquina VIRGEM
+O próprio instalador é o 1º `.exe` — roda **antes** de a CA ser confiada. Então, só nessa
+primeira vez, o Windows ainda mostra "editor desconhecido" (o **SmartScreen** é por
+reputação online e pode alertar em `.exe` baixado da web, independente da cadeia). Depois
+que o instalador roda (confia a CA), **app, updates e re-execuções ficam limpos**.
+Contornos para a 1ª vez: o técnico da distribuição clica **"executar assim mesmo"** uma
+vez; **ou** entregar por **pendrive** (sem "marca da web" → o SmartScreen normalmente nem
+dispara); **ou** pré-plantar a `code-signing-ca.pem` por **GPO** em frota gerenciada.
 
-Enquanto não houver cert, o instalador sobe **sem assinatura** e o SmartScreen alerta na
-1ª execução — adquirir o cert (Certum OV) é o único passo que falta pra fechar a Fase 6.
+### Alternativa futura — CA pública (selo "publisher verificado" p/ download na internet)
+Se um dia houver download público em massa, a rota interna não basta (SmartScreen é por
+reputação). Aí compra-se **Certum OV** (~US$ 99/ano, atende BR, nuvem SimplySign) e
+troca-se o `.pfx` interno pelo cert da Certum (mesmo `CSC_LINK`, ou `win.certificateSubjectName`
+com o cert no repositório do Windows). O **Azure Trusted Signing** (US$ 9,99/mês) é mais
+barato, mas só US/CA/UE/UK — CNPJ BR fora.
 
 ## Auto-update (futuro)
 `electron-updater` sobre o mesmo canal de release assinado (Ed25519) da Fase 3 —

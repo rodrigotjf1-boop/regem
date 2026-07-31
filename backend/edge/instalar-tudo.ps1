@@ -75,7 +75,27 @@ function FingerprintForte {
   return $env:COMPUTERNAME
 }
 
+# Assinatura de codigo (rota interna): confia a CA de ASSINATURA do Regem em Root +
+# TrustedPublisher, para o app/instalador assinado NAO cair em "editor desconhecido".
+# O .pem e PUBLICO (so o certificado); a chave privada (.pfx) fica so com a
+# distribuicao. Se o pacote veio SEM assinatura, o arquivo nao existe e pulamos.
+function Confia-AssinaturaCA {
+  $pem = Join-Path $PSScriptRoot 'code-signing-ca.pem'
+  if (-not (Test-Path $pem)) { return }
+  foreach ($store in @('Root', 'TrustedPublisher')) {
+    try {
+      Import-Certificate -FilePath $pem -CertStoreLocation ("Cert:\LocalMachine\{0}" -f $store) -ErrorAction Stop | Out-Null
+    } catch {
+      Diga ("Aviso: nao consegui confiar a CA de assinatura em {0}: {1}" -f $store, $_.Exception.Message)
+    }
+  }
+  Diga "CA de assinatura do Regem confiada (publisher verificado nesta maquina)."
+}
+
 Diga ("=== Regem Edge - instalacao automatica (modo: {0}) ===" -f $Modo)
+
+# Roda nos DOIS modos (servidor e cliente): ambos abrem o app desktop assinado.
+Confia-AssinaturaCA
 
 # ---------------------------------------------------------------------------
 # MODO CLIENTE (magro): nao instala Postgres/edge/sync/servicos. So configura a

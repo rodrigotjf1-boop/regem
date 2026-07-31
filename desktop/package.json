@@ -18,7 +18,8 @@
     "directories": { "output": "dist" },
     "win": {
       "target": ["nsis"],
-      "signingHashAlgorithms": ["sha256"]
+      "signingHashAlgorithms": ["sha256"],
+      "rfc3161TimeStampServer": "http://timestamp.digicert.com"
     },
     "nsis": {
       "oneClick": false,
