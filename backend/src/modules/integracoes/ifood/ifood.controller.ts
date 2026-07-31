@@ -6,12 +6,14 @@ import { CurrentUser } from '../../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../../auth/auth-user';
 import { IfoodService } from './ifood.service';
+import { CloudOnly } from '../../../common/cloud-only.decorator';
 
 // iFood — modelo PARCEIRO: as credenciais do app (Client ID/Secret) são globais da
 // Regem (env), a loja não as informa. A loja apenas SOLICITA a integração; a
 // distribuição pede a autorização do merchant no Portal do Desenvolvedor e finaliza
 // com o Merchant ID (em /distribuicao → Integrações). Só gestor.
 @Controller('integracoes/ifood')
+@CloudOnly()
 export class IfoodController {
   constructor(private readonly service: IfoodService) {}
 

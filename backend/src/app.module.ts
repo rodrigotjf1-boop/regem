@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { CloudOnlyGuard } from './common/cloud-only.guard';
 import { LicenseInterceptor } from './modules/licenca/license.interceptor';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
@@ -150,6 +151,9 @@ import { AuthModule } from './auth/auth.module';
   controllers: [AppController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Barra endpoints @CloudOnly quando EDGE_MODE=true (defesa em profundidade
+    // da fronteira cloud-only×edge — ver edge-manifest.ts).
+    { provide: APP_GUARD, useClass: CloudOnlyGuard },
     // Bloqueio duro por licença/trial (G-1) — só na nuvem, só escrita.
     { provide: APP_INTERCEPTOR, useClass: LicenseInterceptor },
     // Telemetria de erro (Frente A) — só no edge; na nuvem é passthrough.

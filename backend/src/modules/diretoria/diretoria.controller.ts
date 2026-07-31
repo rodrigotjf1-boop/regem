@@ -7,8 +7,10 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { DiretoriaService } from './diretoria.service';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 @Controller('diretoria')
+@CloudOnly()
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @RequirePerm('visao_co')
 export class DiretoriaController {

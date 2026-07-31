@@ -9,9 +9,11 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { LicencaService } from './licenca.service';
 import { PLANOS } from './planos';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Controller()
+@CloudOnly()
 export class LicencaController {
   constructor(private readonly service: LicencaService) {}
 
