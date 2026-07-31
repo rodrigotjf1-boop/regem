@@ -11,6 +11,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { PerfilService } from './perfil.service';
@@ -18,8 +20,9 @@ import type { Permissoes } from '../../auth/permissoes';
 
 // Perfis de acesso — só o presidente/C&O configura os perfis e suas permissões.
 @Controller('perfis')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @Roles('presidente')
+@RequirePerm('acessos')
 export class PerfilController {
   constructor(private readonly service: PerfilService) {}
 

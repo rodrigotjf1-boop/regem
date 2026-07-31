@@ -11,6 +11,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -18,7 +20,8 @@ import { TurnoService } from './turno.service';
 import { CreateTurnoDto } from './dto/create-turno.dto';
 
 @Controller('turnos')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@RequirePerm('turnos')
 export class TurnoController {
   constructor(private readonly service: TurnoService) {}
 

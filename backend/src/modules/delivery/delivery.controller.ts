@@ -11,6 +11,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -39,19 +41,22 @@ export class DeliveryController {
 
   // ----- Gestão (PDV) -----
   @Get('pedidos')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   pedidos(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     return this.service.listar(user.tenantId, atual);
   }
 
   @Post('pedidos/:id/aceitar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   aceitar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.aceitar(user.tenantId, user.colaboradorId, id);
   }
 
   @Post('pedidos/:id/avancar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   avancar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -65,14 +70,16 @@ export class DeliveryController {
   }
 
   @Post('pedidos/:id/retornar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   retornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.retornarProducao(user.tenantId, id);
   }
 
   // "Voltar pedido" (coluna Finalizado) — exige senha de gestor (presidente/C&O).
   @Post('pedidos/:id/voltar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   voltar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.voltarPedido(user.tenantId, user.colaboradorId, id, dto?.senha);
   }
@@ -80,14 +87,16 @@ export class DeliveryController {
   // Hub "Retirada / Encomendas" (Fase 1): só pedidos de retirada/encomenda,
   // agrupados por origem (regem/integrado/marketplace).
   @Get('retirada')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   retirada(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     return this.service.listarRetirada(user.tenantId, atual);
   }
 
   // Entrega no balcão: conclui e cobra (a-pagar) no caixa do atendente.
   @Post('pedidos/:id/entregar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   entregar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -101,13 +110,15 @@ export class DeliveryController {
 
   // Avisar pronto (robô / status-back do canal).
   @Post('pedidos/:id/avisar-pronto')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   avisarPronto(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.avisarPronto(user.tenantId, id);
   }
 
   @Post('pedidos/:id/alterar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   alterar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.alterar(user.tenantId, user.colaboradorId, id, {
       adicionar: dto?.adicionar ?? [],
@@ -117,25 +128,29 @@ export class DeliveryController {
   }
 
   @Post('pedidos/:id/reimprimir')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   reimprimir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.reimprimir(user.tenantId, user.colaboradorId, id);
   }
 
   @Get('pedidos/:id/itens')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   itens(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.itensComanda(user.tenantId, id);
   }
 
   @Get('entregadores')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   entregadores(@CurrentUser() user: AuthUser) {
     return this.service.listarEntregadores(user.tenantId);
   }
 
   @Get('bairros')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   bairros(@CurrentUser() user: AuthUser) {
     return this.service.listarBairros(user.tenantId);
   }
@@ -143,23 +158,26 @@ export class DeliveryController {
   // Mapa de calor de entregas por bairro (gestão) — só presidente/gerente.
   // RBAC no servidor: supervisão/execução não recebem o payload.
   @Get('mapa-calor')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
   mapaCalor(@CurrentUser() user: AuthUser, @Query('dias') dias?: string) {
     return this.service.mapaCalorBairros(user.tenantId, Number(dias) || 30);
   }
 
   // Integrações (credenciais) — secrets nunca voltam no GET.
   @Get('integracoes')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
   integracoes(@CurrentUser() user: AuthUser) {
     return this.service.listarIntegracoes(user.tenantId);
   }
 
   @Put('integracoes')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
   salvarIntegracao(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.salvarIntegracao(user.tenantId, dto);
   }
@@ -167,7 +185,8 @@ export class DeliveryController {
   // Cancelamento é liberado pela senha de um gestor (a trava está no service),
   // então um atendente também pode cancelar informando a senha autorizadora.
   @Post('pedidos/:id/cancelar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   cancelar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -188,40 +207,46 @@ export class DeliveryController {
 
   // Novo pedido manual (delivery ou retirada) — atendente também pode lançar.
   @Post('pedidos')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   criarManual(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.criarManual(user.tenantId, dto?.unidadeId ?? null, dto);
   }
 
   @Post('pedidos/:id/nf')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   nf(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.emitirNf(user.tenantId, user.colaboradorId, id);
   }
 
   @Post('pausar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles(...GESTOR)
+  @RequirePerm('delivery')
   pausar(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.pausar(user.tenantId, Number(dto?.minutos) || 30, dto?.motivo);
   }
 
   @Post('despausar')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles(...GESTOR)
+  @RequirePerm('delivery')
   despausar(@CurrentUser() user: AuthUser) {
     return this.service.despausar(user.tenantId);
   }
 
   @Get('config')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
   config(@CurrentUser() user: AuthUser) {
     return this.service.getConfig(user.tenantId, null);
   }
 
   @Put('config')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto);
   }
@@ -229,8 +254,9 @@ export class DeliveryController {
   // Simulador (teste): injeta um pedido iFood de exemplo — como se o edge tivesse
   // recebido. Facilita validar o fluxo sem credenciais reais.
   @Post('simular')
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles(...GESTOR)
+  @RequirePerm('delivery')
   simular(@CurrentUser() user: AuthUser, @Body() dto: any) {
     const exemplo = {
       id: 'SIM-' + Date.now(),

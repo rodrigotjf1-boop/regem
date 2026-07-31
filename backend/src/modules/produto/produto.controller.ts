@@ -12,6 +12,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ProdutoService } from './produto.service';
@@ -21,7 +23,8 @@ import { CreateCategoriaDto } from './dto/create-categoria.dto';
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
 
 @Controller('produtos')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@RequirePerm('loja')
 export class ProdutoController {
   constructor(private readonly service: ProdutoService) {}
 

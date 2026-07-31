@@ -8,18 +8,21 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ModuloService } from './modulo.service';
 
 @Controller('modulos')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class ModuloController {
   constructor(private readonly service: ModuloService) {}
 
   // Estado dos toggles (rede + por loja) — só presidente/C&O gerencia.
   @Get()
   @Roles('presidente')
+  @RequirePerm('visao_co')
   estado(@CurrentUser() user: AuthUser) {
     return this.service.estado(user.tenantId);
   }
@@ -32,6 +35,7 @@ export class ModuloController {
 
   @Post()
   @Roles('presidente')
+  @RequirePerm('visao_co')
   setar(
     @CurrentUser() user: AuthUser,
     @Body() dto: { unidadeId?: string | null; modulo: string; ativo: boolean },
