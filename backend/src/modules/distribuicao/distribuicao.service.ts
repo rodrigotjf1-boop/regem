@@ -228,19 +228,26 @@ export class DistribuicaoService {
   // ===== Pedidos de integração (loja pede → distribuição conecta no portal) =====
   // A loja salva o token (ex.: Anota Aí); vira um "pedido de integração" no config
   // da integração. A distribuição finaliza a conexão no Portal de Integração do canal.
+  // Lista integrações para a distribuição gerenciar: as que têm pedido formal
+  // (pendente/conectado/…) E as que já estão ATIVAS por fora (ex.: iFood conectado
+  // direto) — senão uma integração no ar ficaria invisível aqui. Status derivado:
+  // usa o do pedido; na falta, 'conectado' se ativa. O front filtra por loja/canal/status.
   async pedidosIntegracao() {
+    const statusExpr = sql`coalesce(i.config->'pedidoIntegracao'->>'status', case when i.ativo then 'conectado' else null end)`;
     const r: any = await this.db.execute(sql`
       select i.id as "integracaoId", i.tenant_id as "tenantId", i.canal, i.token,
+             i.ativo, i.merchant_id as "merchantId",
              e.nome as loja, e.cnpj,
-             i.config->'pedidoIntegracao'->>'status' as status,
+             ${statusExpr} as status,
              i.config->'pedidoIntegracao'->>'solicitadoEm' as "solicitadoEm",
              i.config->'pedidoIntegracao'->>'conectadoPor' as "conectadoPor",
              i.config->'pedidoIntegracao'->>'conectadoEm' as "conectadoEm"
       from integracao i join empresa e on e.id = i.tenant_id
       where i.config ? 'pedidoIntegracao'
-      order by (i.config->'pedidoIntegracao'->>'status' = 'pendente') desc,
+         or (i.ativo = true and i.canal not in ('n8n', 'mercadopago', 'iugu'))
+      order by (${statusExpr} = 'pendente') desc,
                i.config->'pedidoIntegracao'->>'solicitadoEm' desc nulls last
-      limit 300`);
+      limit 500`);
     return r.rows ?? r;
   }
 

@@ -1171,7 +1171,11 @@ export class DeliveryService {
         temToken: !!r?.token,
         // Estado do pedido de integração (Anota Aí/iFood): pendente | conectado |
         // recusado | pendente_remocao | removido — usado pelo card do cliente.
-        pedidoStatus: r?.config?.pedidoIntegracao?.status ?? null,
+        // iFood ativo com merchant, mas sem pedido formal (conectado "por fora"),
+        // conta como 'conectado' — senão o card mostra "Solicitar" com a integração no ar.
+        pedidoStatus:
+          r?.config?.pedidoIntegracao?.status ??
+          (canal === 'ifood' && r?.ativo && r?.merchantId ? 'conectado' : null),
         updatedAt: r?.updatedAt ?? null,
       };
     });
@@ -1196,12 +1200,21 @@ export class DeliveryService {
       if (corDef) config.cor = corDef;
       else delete config.cor;
     }
+    // iFood tem fluxo PRÓPRIO (parceiro): ativação/merchant só via
+    // /integracoes/ifood/solicitar + /distribuicao/.../resolver. Pela rota genérica
+    // só deixamos ajustar campos benignos (ex.: cor no kanban) — ativar por fora
+    // deixaria a integração invisível na distribuição (sem pedidoIntegracao).
+    const fluxoProprio = canal === 'ifood';
     const vals: any = {
-      ativo: dto.ativo != null ? !!dto.ativo : atual?.ativo ?? false,
-      merchantId: dto.merchantId ?? atual?.merchantId ?? null,
-      clientId: dto.clientId ?? atual?.clientId ?? null,
-      clientSecret: secretNovo ?? atual?.clientSecret ?? null,
-      token: tokenNovo ?? atual?.token ?? null,
+      ativo: fluxoProprio
+        ? atual?.ativo ?? false
+        : dto.ativo != null
+          ? !!dto.ativo
+          : atual?.ativo ?? false,
+      merchantId: fluxoProprio ? atual?.merchantId ?? null : dto.merchantId ?? atual?.merchantId ?? null,
+      clientId: fluxoProprio ? atual?.clientId ?? null : dto.clientId ?? atual?.clientId ?? null,
+      clientSecret: fluxoProprio ? atual?.clientSecret ?? null : secretNovo ?? atual?.clientSecret ?? null,
+      token: fluxoProprio ? atual?.token ?? null : tokenNovo ?? atual?.token ?? null,
       config,
       updatedAt: new Date(),
     };

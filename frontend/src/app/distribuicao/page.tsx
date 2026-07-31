@@ -31,6 +31,10 @@ export default function DistHome() {
   const [me, setMe] = useState<any>(null);
   const [aba, setAba] = useState<'frota' | 'telemetria' | 'licencas' | 'atualizacoes' | 'integracoes' | 'auditoria' | 'usuarios'>('frota');
   const [pedidosInteg, setPedidosInteg] = useState<any[] | null>(null);
+  // Filtros da aba Integrações (escala: muitos clientes) — por loja/CNPJ, canal e status.
+  const [buscaInteg, setBuscaInteg] = useState('');
+  const [fCanal, setFCanal] = useState('todos');
+  const [fStatusInteg, setFStatusInteg] = useState('todos');
   // Modal p/ finalizar a integração do iFood: a distribuição cola o Merchant ID
   // (obtido no Portal do Desenvolvedor após o cliente autorizar) e ativa.
   const [modalIfood, setModalIfood] = useState<{ id: string; loja: string; merchant: string } | null>(null);
@@ -352,12 +356,41 @@ export default function DistHome() {
           </section>
         )}
 
-        {aba === 'integracoes' && podeTelemetria && (
+        {aba === 'integracoes' && podeTelemetria && (() => {
+          const canaisPresentes = Array.from(new Set((pedidosInteg ?? []).map((p) => p.canal))).sort();
+          const statusPossiveis = ['pendente', 'conectado', 'recusado', 'pendente_remocao', 'removido'];
+          const pedidosFiltrados = (pedidosInteg ?? [])
+            .filter((p) => fCanal === 'todos' || p.canal === fCanal)
+            .filter((p) => fStatusInteg === 'todos' || (p.status ?? '') === fStatusInteg)
+            .filter(
+              (p) =>
+                !buscaInteg ||
+                String(p.loja ?? '').toLowerCase().includes(buscaInteg.toLowerCase()) ||
+                String(p.cnpj ?? '').includes(buscaInteg),
+            );
+          return (
           <section className="space-y-3">
             <p className="text-xs text-slate-400">
-              Pedidos de integração das lojas. A loja salva o token do canal (ex.: Anota Aí) e a
-              distribuição finaliza a conexão no Portal de Integração do canal — depois marque como conectado.
+              Integrações das lojas — pedidos a conectar e as já ativas. A loja solicita (ex.: iFood) e a
+              distribuição finaliza no Portal de Integração do canal; depois marque como conectado.
             </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={buscaInteg}
+                onChange={(e) => setBuscaInteg(e.target.value)}
+                placeholder="Buscar loja ou CNPJ"
+                className="w-full max-w-[220px] rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-200 placeholder:text-slate-500"
+              />
+              <select value={fCanal} onChange={(e) => setFCanal(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200">
+                <option value="todos">Todos os canais</option>
+                {canaisPresentes.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={fStatusInteg} onChange={(e) => setFStatusInteg(e.target.value)} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-slate-200">
+                <option value="todos">Todos os status</option>
+                {statusPossiveis.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <span className="text-xs text-slate-500">{pedidosFiltrados.length} de {(pedidosInteg ?? []).length}</span>
+            </div>
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
                 <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr>
@@ -365,7 +398,7 @@ export default function DistHome() {
                   <th className="p-3">Status</th><th className="p-3">Solicitado</th><th className="p-3">Ação</th>
                 </tr></thead>
                 <tbody>
-                  {(pedidosInteg ?? []).map((p) => (
+                  {pedidosFiltrados.map((p) => (
                     <tr key={p.integracaoId} className="border-t border-slate-800/70">
                       <td className="p-3">{p.loja}<div className="text-[11px] text-slate-500">{p.cnpj ?? ''}</div></td>
                       <td className="p-3 uppercase text-slate-300">{p.canal}</td>
@@ -398,7 +431,7 @@ export default function DistHome() {
                       </td>
                     </tr>
                   ))}
-                  {pedidosInteg && pedidosInteg.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">Nenhum pedido de integração ainda.</td></tr>}
+                  {pedidosInteg && pedidosFiltrados.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">{(pedidosInteg.length ? 'Nenhuma integração para esse filtro.' : 'Nenhuma integração ainda.')}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -428,7 +461,8 @@ export default function DistHome() {
               </div>
             )}
           </section>
-        )}
+          );
+        })()}
 
         {aba === 'auditoria' && ehDiretoria && (
           <section className="overflow-x-auto rounded-xl border border-slate-800">
