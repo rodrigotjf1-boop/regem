@@ -315,7 +315,7 @@ export class LicencaService {
 
   // Renova o lease (o edge chama no sync, mandando o fingerprint). Suspenso/revogado,
   // conta BLOQUEADA pela distribuição, expirada ou fingerprint divergente → sem lease.
-  async renovarLease(tenantId: string, fingerprint?: string) {
+  async renovarLease(tenantId: string, fingerprint?: string, fingerprintLegacy?: string) {
     // Revogação central da distribuição (empresa bloqueada) corta o lease do edge —
     // o servidor local para depois da janela de graça. É o "clone inerte" definitivo.
     const emp: any = await this.db.execute(sql`select status from empresa where id = ${tenantId} limit 1`);
@@ -327,11 +327,20 @@ export class LicencaService {
       .limit(1);
     if (!a) return { ativo: false, motivo: 'sem_licenca_ativa' };
     if (a.validadeAte && new Date(a.validadeAte) < new Date()) return { ativo: false, motivo: 'expirada' };
-    // Anti-clonagem NA RENOVAÇÃO: o fingerprint apresentado tem que casar com o preso
-    // na ativação. Copiar o token+disco para outra máquina → fingerprint diverge → nega.
-    const fp = String(fingerprint ?? '').trim();
-    if (a.deviceFingerprint && fp && a.deviceFingerprint.toLowerCase() !== fp.toLowerCase()) {
-      return { ativo: false, motivo: 'fingerprint_divergente' };
+    // Anti-clonagem NA RENOVAÇÃO: o fingerprint tem que casar com o preso na ativação.
+    // Migração transparente do esquema fraco (COMPUTERNAME) p/ o forte (hash do
+    // MachineGuid): aceita o NOVO ou o LEGADO; se casou pelo legado, RE-VINCULA no forte.
+    const novo = String(fingerprint ?? '').trim();
+    const legacy = String(fingerprintLegacy ?? '').trim();
+    const bound = a.deviceFingerprint ?? '';
+    if (bound && (novo || legacy)) {
+      const casaNovo = !!novo && bound.toLowerCase() === novo.toLowerCase();
+      const casaLegacy = !!legacy && bound.toLowerCase() === legacy.toLowerCase();
+      if (!casaNovo && !casaLegacy) return { ativo: false, motivo: 'fingerprint_divergente' };
+      if (casaLegacy && !casaNovo && novo) {
+        await this.db.update(ativacao).set({ deviceFingerprint: novo }).where(eq(ativacao.id, a.id));
+        (a as any).deviceFingerprint = novo;
+      }
     }
     return { ativo: true, lease: this.leaseDe(a) };
   }

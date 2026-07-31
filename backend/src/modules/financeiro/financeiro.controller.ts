@@ -226,4 +226,14 @@ export class FinanceiroController {
   ) {
     return this.service.fechamentos(user.tenantId, inicio, fim, atual);
   }
+
+  // Verificador de reconciliação (P3): recomputa o esperado do ledger imutável e
+  // compara com o gravado no fechamento; divergência gera alerta em auditoria.
+  // Só leitura — não corrige nada. Dado financeiro sensível → só presidente/C&O.
+  @Post('caixa/:id/reconciliar')
+  @Roles('presidente')
+  @RequirePerm('turnos')
+  reconciliarCaixa(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.reconciliarSessao(user.tenantId, id, user.colaboradorId);
+  }
 }

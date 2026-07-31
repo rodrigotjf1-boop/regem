@@ -140,14 +140,14 @@ Saídas do grafo: `graphify-out/graph.html`, `GRAPH_REPORT.md`, `graph.json`.
 - [x] **Anti-rollback de relógio**: `equipamento.last_push_ts` (mig 157) + alerta de regressão no `verificarAssinatura` do sync (junto com gap/omissão de seq).
 - [x] **"Trocar máquina"** (DR): `POST /equipamento/:id/trocar-maquina` reseta binding (segredo+fingerprint+ts) e gera código novo; api.ts wired.
 - [x] **Backup agendado cifrado**: `edge/backup.ps1` (pg_dump + DPAPI, retenção) + schtask diário 03:00 no instalador (modo servidor). DR entre-máquinas = restore da nuvem (§5).
-- [ ] **Reconciliação server-side** (nuvem recomputa caixa/CMV/estoque a partir dos eventos) — **DEFERIDO**: grande e transversal (toca todo o pipeline de vendas/caixa). Follow-up dedicado.
-- [ ] **Restore assistido** no instalador (passo "restaurar loja") + teste de restore — parcial (existe `/edge/restaurar`); UI/instalador é follow-up.
+- [x] **Reconciliação como VERIFICADOR** (não recalcula/substitui o fechamento): `financeiro.reconciliarSessao` recomputa o esperado por forma a partir do ledger imutável (`lancamento_caixa`, append-only) + abertura e compara com o gravado na sessão; divergência gera alerta append-only em auditoria (`reconciliacao_divergente`). Endpoint `POST /financeiro/caixa/:id/reconciliar` (só presidente, perm `turnos`) + botão "Reconciliar" no `/caixa/fechamentos`. *(Recompute transversal de CMV/estoque segue deferido; o de caixa cobre a fraude mais comum — mexer no dinheiro depois do fechamento.)*
+- [x] **Restore assistido** no instalador: `-Restaurar` marca `restaurar_solicitado=1` no `sync_state` local (zera cursores p/ pull COMPLETO); o `sync-daemon` executa os 2 tempos (push pendente → pull full via `/sync/restore`, upsert por id). Reusa o fluxo já testado do `/edge/restaurar`.
 
-### Fase 5 — Licenciamento completo
-- [ ] Lease curto assinado + renovação online + janela de graça; revogação central; clone inerte.
+### Fase 5 — Licenciamento completo ✅
+- [x] Lease curto assinado (Ed25519 `LeasePayload` c/ `fp`) + renovação online (`/edge/lease`) + janela de graça (`LICENSE_GRACE_DAYS`); revogação central (`empresa.status='bloqueado'`); **clone inerte** (`ativacao.deviceFingerprint` amarra à máquina). Fingerprint FORTE (P1): `sha256(MachineGuid)` — instalador (`FingerprintForte`) e daemon (`fingerprintForte`) calculam idêntico; renovação migration-safe (aceita fp novo OU legado `hostname` e re-vincula) via headers `x-sync-fp`/`x-sync-fp-legacy`.
 
-### Fase 6 — Casca Electron + modo único
-- [ ] Electron embute o edge-core (Servidor) / casca magra (Cliente); modo único local-first; status dot; internet-reserva/failover como config do Servidor.
+### Fase 6 — Casca Electron + modo único ✅
+- [x] Casca Electron (`desktop/`) endurecida (`contextIsolation`/`sandbox`/`nodeIntegration:false`/`webSecurity`; DevTools off em prod; kiosk; menu removido; nav externa e nova janela bloqueadas). **Modo único local-first**: fala com o Servidor (LAN/localhost) e cai pra nuvem com *status dot* (local/nuvem/offline) voltando ao local sozinho. Config por `regem-desktop.json`/envs. Authenticode pendente de certificado (documentado no README).
 
 ## 7. Alavancas já existentes (reusar)
 DPAPI (`proteger-env`/`decrypt-dpapi`) · cert local (`gen-cert`/`confiar-certificado`) · sync bidirecional (`sync-daemon`) · backup+rollback no update (`atualizar.ps1`/`reverter.ps1`) · telemetria da distribuição (heartbeat/erros) · revogação de licença (`revogarLicenca`) · lease+fingerprint (conceito) · roteamento por setor/destino · `deferirParaEdge`.

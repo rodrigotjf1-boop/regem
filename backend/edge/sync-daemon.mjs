@@ -48,6 +48,20 @@ function assinarSync(token, seq, ts, lotes) {
   return createHmac('sha256', chaveSync(token)).update(`${seq}.${ts}.${stableSync(lotes)}`).digest('hex');
 }
 
+// Fingerprint FORTE (P1): hash do MachineGuid do Windows (estável por instalação,
+// bem mais forte que o nome do PC). MESMO cálculo do instalador (instalar-tudo.ps1).
+// Fallback = hostname (esquema legado); a nuvem migra transparente (x-sync-fp-legacy).
+import { execSync } from 'child_process';
+import { hostname } from 'os';
+function fingerprintForte() {
+  try {
+    const out = execSync('reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid', { encoding: 'utf8', windowsHide: true });
+    const mg = (out.match(/MachineGuid\s+REG_SZ\s+([\w-]+)/i) || [])[1];
+    if (mg) return createHash('sha256').update(mg.toUpperCase()).digest('hex');
+  } catch { /* fallback abaixo */ }
+  return hostname();
+}
+
 // Operacional que sobe (espelha as tabelas 'sobe' do sync-config da nuvem).
 // v2: transacionais primeiro (pais antes dos filhos p/ FK) por updated_at (LWW).
 const PUSH_TABLES = [
@@ -226,10 +240,11 @@ const GRACE_MS = (Number(process.env.LICENSE_GRACE_DAYS) || 30) * 86400000;
 // vencer o grace) e detecta rollback de relógio (não pode voltar no tempo).
 async function licenca() {
   try {
-    // x-sync-fp: fingerprint da máquina (mesmo esquema do instalador = nome do PC).
-    // A nuvem nega renovar se divergir do preso na ativação (anti-clone).
+    // x-sync-fp = fingerprint FORTE (hash do MachineGuid); x-sync-fp-legacy = nome do PC.
+    // A nuvem nega renovar se divergir do preso na ativação (anti-clone) e migra do
+    // legado pro forte de forma transparente.
     const res = await fetch(`${CLOUD}/edge/lease`, {
-      headers: { 'x-sync-token': TOKEN, 'x-sync-fp': (await import('os')).hostname() },
+      headers: { 'x-sync-token': TOKEN, 'x-sync-fp': fingerprintForte(), 'x-sync-fp-legacy': hostname() },
     });
     if (res.ok) {
       const j = await res.json();
