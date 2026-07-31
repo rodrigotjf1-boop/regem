@@ -60,8 +60,34 @@ $info = Invoke-RestMethod -Uri ("{0}/edge/update-check?versao={1}" -f $cloud, $v
 if (-not $info.atualizar -and -not $Forcar) { Diga "Ja esta na ultima versao ($($info.ultima)). Nada a fazer."; return }
 if (-not $info.url)    { throw "A nuvem nao informou EDGE_UPDATE_URL - nao ha pacote para baixar." }
 if (-not $info.sha256) { throw "A nuvem nao informou EDGE_UPDATE_SHA256 - recusando por seguranca." }
-Diga "Nova versao: $($info.ultima). Baixando $($info.url)"
 $script:versaoNova = $info.ultima
+
+# ---- Fase 3: anti-downgrade (recusa versao MENOR, mesmo com -Forcar) ----
+function VerNum($v) { ,@(($v -split '\.') | ForEach-Object { [int]($_ -replace '\D', '') }) }
+$vn = VerNum $info.ultima; $va = VerNum $versaoAtual
+for ($i = 0; $i -lt [Math]::Max($vn.Count, $va.Count); $i++) {
+  $x = if ($i -lt $vn.Count) { $vn[$i] } else { 0 }
+  $y = if ($i -lt $va.Count) { $va[$i] } else { 0 }
+  if ($x -lt $y) { throw "Downgrade BLOQUEADO: nova ($($info.ultima)) < instalada ($versaoAtual)." }
+  if ($x -gt $y) { break }
+}
+
+# ---- Fase 3: verificacao da ASSINATURA (Ed25519) via helper node ----
+$edgeBaseV = Split-Path $Raiz -Parent
+$nodeV = if (Test-Path (Join-Path $edgeBaseV 'node\node.exe')) { Join-Path $edgeBaseV 'node\node.exe' } else { 'node' }
+$reqSig = ($cfg.EDGE_REQUIRE_SIGNED_UPDATE -eq 'true')
+if ($info.assinatura) {
+  & $nodeV (Join-Path $Raiz 'edge\verify-update.mjs') $info.ultima $info.sha256 $info.url $info.assinatura
+  $rc = $LASTEXITCODE
+  if ($rc -eq 1) { throw "Assinatura do release INVALIDA - recusando (possivel adulteracao do canal de release)." }
+  elseif ($rc -eq 0) { Diga "Assinatura do release confere (Ed25519)." }
+  elseif ($reqSig) { throw "Nao consegui verificar a assinatura (sem chave publica) e EDGE_REQUIRE_SIGNED_UPDATE=true." }
+  else { Diga "(aviso) assinatura nao verificada (sem chave publica) - tolerando." }
+}
+elseif ($reqSig) { throw "Release SEM assinatura e EDGE_REQUIRE_SIGNED_UPDATE=true - recusando." }
+else { Diga "(aviso) release sem assinatura - tolerando (defina EDGE_REQUIRE_SIGNED_UPDATE=true p/ exigir)." }
+
+Diga "Nova versao: $($info.ultima). Baixando $($info.url)"
 Prog "baixando" 15
 
 # ---- 2) baixa e confere o SHA-256 ANTES de tocar em nada ----

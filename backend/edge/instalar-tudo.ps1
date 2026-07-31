@@ -439,6 +439,18 @@ try {
   Atalho "Regem (nuvem)"          "https://app.dmsregem.com/entrar"
 } catch { Diga "AVISO: nao consegui criar os atalhos na area de trabalho: $($_.Exception.Message)" }
 
+# Fase 4: backup diario cifrado (DPAPI) do banco local, com retencao. Tarefa agendada
+# como SYSTEM as 03:00. Restauracao local; DR entre-maquinas usa a nuvem (ver roadmap §5).
+try {
+  $bkScript = Join-Path $root 'edge\backup.ps1'
+  if (Test-Path $bkScript) {
+    $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -Raiz "{1}"' -f $bkScript, $root)
+    $trg = New-ScheduledTaskTrigger -Daily -At 3am
+    Register-ScheduledTask -TaskName 'RegemEdgeBackup' -Action $act -Trigger $trg -RunLevel Highest -User 'SYSTEM' -Force | Out-Null
+    Diga "Backup diario cifrado registrado (RegemEdgeBackup, 03:00)."
+  }
+} catch { Diga "(aviso) nao registrei o backup agendado: $($_.Exception.Message)" }
+
 Diga ""
 Diga "==================== CONCLUIDO ===================="
 Diga "App (abra aqui): https://${ip}:$PortaWeb  (ou https://regem.local:$PortaWeb)"

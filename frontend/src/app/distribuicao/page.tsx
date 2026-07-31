@@ -46,7 +46,7 @@ export default function DistHome() {
   const [auditoria, setAuditoria] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [novo, setNovo] = useState({ nome: '', email: '', senha: '', perfil: 'tecnico' });
-  const [rel, setRel] = useState({ versao: '', url: '', sha256: '', notas: '' });
+  const [rel, setRel] = useState({ versao: '', url: '', sha256: '', assinatura: '', notas: '' });
 
   const sair = useCallback(() => { clearDistToken(); router.replace('/distribuicao/login'); }, [router]);
 
@@ -62,7 +62,7 @@ export default function DistHome() {
 
   async function publicar(e: React.FormEvent) {
     e.preventDefault(); setErro('');
-    try { await distApi.publicarRelease(rel); setRel({ versao: '', url: '', sha256: '', notas: '' }); setReleases(await distApi.releases()); }
+    try { await distApi.publicarRelease(rel); setRel({ versao: '', url: '', sha256: '', assinatura: '', notas: '' }); setReleases(await distApi.releases()); }
     catch (err) { setErro(err instanceof Error ? err.message : 'Erro ao publicar.'); }
   }
   async function rollback(id: string, nome: string) {
@@ -327,6 +327,7 @@ export default function DistHome() {
                   <input required placeholder="Versão (ex.: 1.1.6)" value={rel.versao} onChange={(e) => setRel({ ...rel, versao: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm" />
                   <input required placeholder="SHA-256 do .zip" value={rel.sha256} onChange={(e) => setRel({ ...rel, sha256: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono" />
                   <input required placeholder="URL do .zip (https)" value={rel.url} onChange={(e) => setRel({ ...rel, url: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm sm:col-span-2" />
+                  <input placeholder="Assinatura Ed25519 (base64, opcional) — assine versao|sha256|url offline" value={rel.assinatura} onChange={(e) => setRel({ ...rel, assinatura: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono sm:col-span-2" />
                   <input placeholder="Notas (o que muda)" value={rel.notas} onChange={(e) => setRel({ ...rel, notas: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm sm:col-span-2" />
                 </div>
                 <button type="submit" className="mt-3 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400">Publicar release</button>
