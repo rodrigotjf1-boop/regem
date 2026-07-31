@@ -5,12 +5,15 @@ import helmet from 'helmet';
 import { readFileSync } from 'fs';
 import { AppModule } from './app.module';
 import { carregarEnvSeguro } from './secure-env';
+import { verificarIntegridade } from './integridade';
 import { TelemetriaLogger } from './common/telemetria-logger';
 
 async function bootstrap() {
   // Fase 1 (proteção): decifra segredos do .env cifrados com DPAPI (enc:), se houver.
   // No-op quando não há criptografia (nuvem/edge padrão) — seguro rodar sempre.
   carregarEnvSeguro();
+  // Fase 2: confere a integridade do bundle contra o manifesto (só no edge empacotado).
+  verificarIntegridade();
 
   // Fail-fast de segurança: sem segredo forte / sem CORS em produção, o app NÃO sobe
   // (melhor recusar a subir do que rodar com segredo indefinido ou CORS aberto).
