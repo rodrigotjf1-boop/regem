@@ -67,6 +67,7 @@ import { MuralModule } from './modules/mural/mural.module';
 import { BotModule } from './modules/bot/bot.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { EdgeFlashSyncModule } from './modules/sync/edge-flash-sync.service';
+import { GogemModule } from './modules/gogem/gogem.module';
 import { EdgeModule } from './modules/edge/edge.module';
 import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
 import { UnidadeUnicaInterceptor } from './auth/unidade-unica.interceptor';
@@ -155,6 +156,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     MuralModule,
     SyncModule,
     EdgeFlashSyncModule,
+    GogemModule,
     EdgeModule,
     LicencaModule,
     // CLOUD_ONLY não instanciados no edge (ver edge-manifest.ts). Licença e
