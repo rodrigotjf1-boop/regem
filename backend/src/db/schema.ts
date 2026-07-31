@@ -1379,6 +1379,12 @@ export const auditLog = pgTable('audit_log', {
   detalhe: jsonb('detalhe'),
   origem: text('origem').notNull().default('web'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // Cadeia à prova de adulteração (mig 153): seq monotônico por tenant + hash
+  // encadeado (hash = sha256(prev_hash | registro canônico)). Remover/alterar um
+  // registro quebra a cadeia — detectável por `verificarCadeia`.
+  seq: integer('seq'),
+  prevHash: text('prev_hash'),
+  hash: text('hash'),
 });
 
 // ── Mural & Clima (migration 026) ────────────────────────────────────────────
