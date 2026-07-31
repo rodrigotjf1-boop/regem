@@ -313,8 +313,13 @@ export class LicencaService {
     return { syncToken, unidadeId, lease: this.leaseDe(row), ativo: true };
   }
 
-  // Renova o lease (o edge chama no sync). Suspenso/revogado → sem lease.
-  async renovarLease(tenantId: string) {
+  // Renova o lease (o edge chama no sync, mandando o fingerprint). Suspenso/revogado,
+  // conta BLOQUEADA pela distribuição, expirada ou fingerprint divergente → sem lease.
+  async renovarLease(tenantId: string, fingerprint?: string) {
+    // Revogação central da distribuição (empresa bloqueada) corta o lease do edge —
+    // o servidor local para depois da janela de graça. É o "clone inerte" definitivo.
+    const emp: any = await this.db.execute(sql`select status from empresa where id = ${tenantId} limit 1`);
+    if ((emp.rows ?? emp)[0]?.status === 'bloqueado') return { ativo: false, motivo: 'revogada' };
     const [a] = await this.db
       .select()
       .from(ativacao)
@@ -322,6 +327,12 @@ export class LicencaService {
       .limit(1);
     if (!a) return { ativo: false, motivo: 'sem_licenca_ativa' };
     if (a.validadeAte && new Date(a.validadeAte) < new Date()) return { ativo: false, motivo: 'expirada' };
+    // Anti-clonagem NA RENOVAÇÃO: o fingerprint apresentado tem que casar com o preso
+    // na ativação. Copiar o token+disco para outra máquina → fingerprint diverge → nega.
+    const fp = String(fingerprint ?? '').trim();
+    if (a.deviceFingerprint && fp && a.deviceFingerprint.toLowerCase() !== fp.toLowerCase()) {
+      return { ativo: false, motivo: 'fingerprint_divergente' };
+    }
     return { ativo: true, lease: this.leaseDe(a) };
   }
 
@@ -332,6 +343,7 @@ export class LicencaService {
       plano: a.plano,
       modulos: (a.modulos as string[]) ?? [],
       exp: a.validadeAte ? new Date(a.validadeAte).getTime() : null,
+      fp: a.deviceFingerprint ?? null,
     });
   }
 
