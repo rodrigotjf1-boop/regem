@@ -37,3 +37,7 @@ uploads/
 # Só o code-signing-ca.pem (público) é versionado; o .pfx fica só com a distribuição.
 desktop/signing/
 *.pfx
+
+# Assinatura de update (Ed25519, Fase 3): a chave PRIVADA nunca vai pro git.
+# Só o update-pub.pem (público) é versionado; update-priv.pem fica só com a distribuição.
+backend/edge/update-priv.pem
