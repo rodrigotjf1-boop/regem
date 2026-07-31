@@ -194,12 +194,16 @@ export class DistribuicaoService {
     const url = String(dto?.url ?? '').trim();
     const sha256 = String(dto?.sha256 ?? '').trim().toLowerCase();
     const notas = dto?.notas ? String(dto.notas).slice(0, 1000) : null;
+    // Assinatura Ed25519 de "versao|sha256|url" (base64), gerada OFFLINE com a chave
+    // privada da distribuição. Opcional enquanto a assinatura é adotada (o edge é
+    // tolerante até EDGE_REQUIRE_SIGNED_UPDATE).
+    const assinatura = dto?.assinatura ? String(dto.assinatura).trim().slice(0, 200) : null;
     if (!versao || !/^https?:\/\//.test(url) || !/^[0-9a-f]{64}$/.test(sha256)) {
       throw new BadRequestException('Informe versão, URL (https) e SHA-256 válidos.');
     }
     await this.db.execute(sql`
-      insert into edge_release (versao, url, sha256, notas, publicado_por)
-      values (${versao}, ${url}, ${sha256}, ${notas}, ${autor?.nome ?? null})`);
+      insert into edge_release (versao, url, sha256, assinatura, notas, publicado_por)
+      values (${versao}, ${url}, ${sha256}, ${assinatura}, ${notas}, ${autor?.nome ?? null})`);
     await this.auditar(autor, 'publicou_release', versao, { url });
     return { ok: true, versao };
   }

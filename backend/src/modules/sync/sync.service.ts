@@ -47,16 +47,26 @@ export class SyncService {
     if (sig.length !== esperado.length || !timingSafeEqual(Buffer.from(sig), Buffer.from(esperado))) {
       throw new UnauthorizedException('Assinatura de push inválida.');
     }
-    // Sequência monotônica por dispositivo — só ALERTA (não rejeita).
+    // Sequência monotônica + anti-rollback de relógio por dispositivo — só ALERTAM.
     const r: any = await this.db.execute(
-      sql`select last_push_seq as s from equipamento where id = ${ctx.equipamentoId}`,
+      sql`select last_push_seq as s, last_push_ts as t from equipamento where id = ${ctx.equipamentoId}`,
     );
-    const last = Number((r.rows ?? r)[0]?.s) || 0;
+    const row0 = (r.rows ?? r)[0] ?? {};
+    const last = Number(row0.s) || 0;
     const n = Number(seq);
     if (n > last + 1) this.logger.warn(`GAP de sync (dev ${dev}): seq ${last} → ${n} — lotes omitidos?`);
     else if (n < last) this.logger.warn(`REGRESSÃO de seq (dev ${dev}): ${n} < ${last} — restauração/duplicata?`);
-    if (n > last) {
-      await this.db.execute(sql`update equipamento set last_push_seq = ${n} where id = ${ctx.equipamentoId}`);
+    // Anti-rollback de relógio: o ts do push nunca deveria retroceder.
+    const tsAtual = new Date(ts).getTime();
+    const tsMax = row0.t ? new Date(row0.t).getTime() : 0;
+    if (tsAtual < tsMax) {
+      this.logger.warn(`RELÓGIO retrocedeu (dev ${dev}): ${new Date(ts).toISOString()} < ${new Date(tsMax).toISOString()} — possível backdating.`);
+    }
+    if (n > last || tsAtual > tsMax) {
+      await this.db.execute(sql`update equipamento set
+        last_push_seq = ${Math.max(n, last)},
+        last_push_ts = ${new Date(Math.max(tsAtual, tsMax)).toISOString()}
+        where id = ${ctx.equipamentoId}`);
     }
   }
 

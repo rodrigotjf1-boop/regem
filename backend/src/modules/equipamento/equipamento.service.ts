@@ -71,6 +71,51 @@ export class EquipamentoService {
   // O PC troca o código pelo segredo. Público (o PC ainda não tem credencial),
   // por isso o código é curto, de uso único e expira. Convive com o `parear()`
   // por token, que continua valendo para quem já configurou assim.
+  // "Trocar máquina" (Fase 4/DR): reseta o binding do dispositivo — segredo,
+  // fingerprint e anti-rollback — e gera um NOVO código de pareamento. A máquina
+  // nova pareia do zero; a antiga fica inerte (segredo revogado).
+  async trocarMaquina(tenantId: string, id: string, atorId: string, atorPerfil: string) {
+    const [alvo] = await this.db
+      .select({ id: equipamento.id, nome: equipamento.nome })
+      .from(equipamento)
+      .where(and(eq(equipamento.id, id), eq(equipamento.tenantId, tenantId)));
+    if (!alvo) throw new NotFoundException('Equipamento não encontrado.');
+    let codigo = '';
+    for (let i = 0; i < 5; i++) {
+      codigo = String(100000 + Math.floor(randomInt(900000)));
+      const [existe] = await this.db
+        .select({ id: equipamento.id })
+        .from(equipamento)
+        .where(eq(equipamento.pareamentoCodigo, codigo));
+      if (!existe) break;
+      codigo = '';
+    }
+    if (!codigo) throw new BadRequestException('Não consegui gerar um código agora. Tente de novo.');
+    await this.db
+      .update(equipamento)
+      .set({
+        segredoHash: null,
+        fingerprint: null,
+        lastPushTs: null,
+        pareadoEm: null,
+        revogadoEm: null,
+        pareamentoCodigo: codigo,
+        pareamentoExpiraEm: new Date(Date.now() + 15 * 60 * 1000),
+      })
+      .where(eq(equipamento.id, id));
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'config',
+      acao: 'terminal_trocado',
+      entidadeTipo: 'equipamento',
+      entidadeId: id,
+      detalhe: { nome: alvo.nome },
+    });
+    return { ok: true, codigo, nome: alvo.nome };
+  }
+
   async parearPorCodigo(codigo: string, fingerprint?: string) {
     const c = String(codigo ?? '').replace(/\D/g, '');
     if (!/^\d{6}$/.test(c)) throw new BadRequestException('Código inválido.');

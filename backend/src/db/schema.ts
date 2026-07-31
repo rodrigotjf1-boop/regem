@@ -756,6 +756,7 @@ export const equipamento = pgTable('equipamento', {
   ativo: boolean('ativo').notNull().default(true),
   fingerprint: text('fingerprint'), // impressão da máquina do dispositivo (anti-clone, mig 155)
   lastPushSeq: integer('last_push_seq'), // último seq de push aceito (anti-omissão de sync, mig 154)
+  lastPushTs: timestamp('last_push_ts', { withTimezone: true }), // maior ts de push visto (anti-rollback de relógio, mig 157)
   escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
   papel: text('papel'), // impressora: producao | cupom (via do cliente)
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção

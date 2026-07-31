@@ -422,7 +422,7 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     let rel: any = null;
     try {
       const r: any = await this.db.execute(
-        sql`select versao, url, sha256, notas from edge_release order by publicado_em desc limit 1`,
+        sql`select versao, url, sha256, assinatura, notas from edge_release order by publicado_em desc limit 1`,
       );
       rel = (r.rows ?? r)[0] ?? null;
     } catch {
@@ -436,6 +436,9 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       atualizar: EdgeService.maior(ultima, atual),
       url: rel?.url ?? process.env.EDGE_UPDATE_URL ?? null,
       sha256: rel?.sha256 ?? process.env.EDGE_UPDATE_SHA256 ?? null,
+      // Assinatura Ed25519 de "versao|sha256|url" (Fase 3). O atualizar.ps1 verifica
+      // com a chave pública embutida antes de aplicar. Null = release não assinado.
+      assinatura: rel?.assinatura ?? process.env.EDGE_UPDATE_SIG ?? null,
       notas: rel?.notas ?? process.env.EDGE_UPDATE_NOTAS ?? null,
       ts: new Date().toISOString(),
     };

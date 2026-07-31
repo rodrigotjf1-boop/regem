@@ -1212,6 +1212,9 @@ export const api = {
   // Pareamento por código (mig 142): o gestor gera, o PC troca por um segredo.
   gerarCodigoTerminal: (id: string) =>
     req(`/equipamento/${id}/codigo`, { method: 'POST' }),
+  // "Trocar máquina" (DR): reseta o binding e gera um código novo p/ a máquina nova.
+  trocarMaquinaTerminal: (id: string) =>
+    req(`/equipamento/${id}/trocar-maquina`, { method: 'POST' }),
   parearPorCodigo: (codigo: string) =>
     req('/publico/terminal/parear', { method: 'POST', body: JSON.stringify({ codigo }) }),
   setTerminalImpressora: (id: string, impressoraId: string | null) =>

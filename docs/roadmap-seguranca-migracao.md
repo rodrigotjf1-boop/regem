@@ -132,12 +132,16 @@ Saídas do grafo: `graphify-out/graph.html`, `GRAPH_REPORT.md`, `graph.json`.
 - [ ] Strip/minify/ofuscar; Electron hardening; Authenticode; DPAPI; integridade do `.asar`.
 - [ ] Cripto em repouso (BitLocker + coluna sensível).
 
-### Fase 3 — Atualização segura
-- [ ] Updates **assinados** (hash+assinatura); anti-downgrade; rollback verificado; rollout escalonado.
+### Fase 3 — Atualização segura ✅
+- [x] Updates **assinados** (Ed25519 de `versao|sha256|url`): `edge_release.assinatura` (mig 156), `edge/verify-update.mjs` (helper node), verificado no `atualizar.ps1` antes de aplicar; tolerante c/ flag `EDGE_REQUIRE_SIGNED_UPDATE`. **Anti-downgrade** (recusa versão < instalada, mesmo com -Forcar). Rollback verificado já existia (`reverter.ps1`).
+- [ ] Rollout escalonado (canary %) — P2, futuro.
 
-### Fase 4 — Antifraude + reconciliação + Backup/DR
-- [ ] Nuvem recomputa caixa/CMV/estoque dos eventos; anti-rollback de relógio; anomalias na telemetria.
-- [ ] **Backup agendado cifrado** + off-site; **restore assistido**; ação **"trocar máquina"**; teste de restore.
+### Fase 4 — Antifraude + reconciliação + Backup/DR (parcial)
+- [x] **Anti-rollback de relógio**: `equipamento.last_push_ts` (mig 157) + alerta de regressão no `verificarAssinatura` do sync (junto com gap/omissão de seq).
+- [x] **"Trocar máquina"** (DR): `POST /equipamento/:id/trocar-maquina` reseta binding (segredo+fingerprint+ts) e gera código novo; api.ts wired.
+- [x] **Backup agendado cifrado**: `edge/backup.ps1` (pg_dump + DPAPI, retenção) + schtask diário 03:00 no instalador (modo servidor). DR entre-máquinas = restore da nuvem (§5).
+- [ ] **Reconciliação server-side** (nuvem recomputa caixa/CMV/estoque a partir dos eventos) — **DEFERIDO**: grande e transversal (toca todo o pipeline de vendas/caixa). Follow-up dedicado.
+- [ ] **Restore assistido** no instalador (passo "restaurar loja") + teste de restore — parcial (existe `/edge/restaurar`); UI/instalador é follow-up.
 
 ### Fase 5 — Licenciamento completo
 - [ ] Lease curto assinado + renovação online + janela de graça; revogação central; clone inerte.

@@ -86,6 +86,16 @@ export class EquipamentoController {
     return this.service.gerarCodigo(user.tenantId, id, user.colaboradorId, user.categoria);
   }
 
+  // "Trocar máquina" (DR): reseta o binding (segredo + fingerprint + anti-rollback)
+  // e gera um código novo — a máquina NOVA pareia do zero, a antiga fica inerte.
+  @Post(':id/trocar-maquina')
+  @UseGuards(PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  trocarMaquina(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.trocarMaquina(user.tenantId, id, user.colaboradorId, user.categoria);
+  }
+
   // Terminal de PDV: amarra (ou limpa) a impressora de cupom do terminal.
   @Patch(':id/impressora')
   @UseGuards(PermissoesGuard)
