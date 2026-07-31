@@ -21,8 +21,12 @@ import { CardapioService } from './cardapio.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+import { CloudOnly } from '../../common/cloud-only.decorator';
+
 // Público (sem login): o token na URL identifica o cardápio/loja.
+// Cardápio ONLINE = sempre nuvem (cardapioBaseUrl) → não roda no edge.
 @Controller('publico/cardapio')
+@CloudOnly()
 export class CardapioPublicoController {
   constructor(private readonly service: CardapioService) {}
 

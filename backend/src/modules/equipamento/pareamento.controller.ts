@@ -12,7 +12,7 @@ export class PareamentoController {
 
   @Post('parear')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
-  parear(@Body() dto: { codigo?: string }) {
-    return this.service.parearPorCodigo(dto?.codigo ?? '');
+  parear(@Body() dto: { codigo?: string; fingerprint?: string }) {
+    return this.service.parearPorCodigo(dto?.codigo ?? '', dto?.fingerprint);
   }
 }

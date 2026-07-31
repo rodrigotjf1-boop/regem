@@ -71,7 +71,7 @@ export class EquipamentoService {
   // O PC troca o código pelo segredo. Público (o PC ainda não tem credencial),
   // por isso o código é curto, de uso único e expira. Convive com o `parear()`
   // por token, que continua valendo para quem já configurou assim.
-  async parearPorCodigo(codigo: string) {
+  async parearPorCodigo(codigo: string, fingerprint?: string) {
     const c = String(codigo ?? '').replace(/\D/g, '');
     if (!/^\d{6}$/.test(c)) throw new BadRequestException('Código inválido.');
     const [row] = await this.db
@@ -91,6 +91,9 @@ export class EquipamentoService {
         pareadoEm: new Date(),
         pareamentoCodigo: null, // uso único
         pareamentoExpiraEm: null,
+        // Amarra o token ao hardware que pareou (anti-clone). Enforcement por
+        // requisição fica p/ 1.3b; aqui capturamos o binding.
+        fingerprint: fingerprint ? String(fingerprint).slice(0, 200) : row.fingerprint,
       })
       .where(eq(equipamento.id, row.id));
 

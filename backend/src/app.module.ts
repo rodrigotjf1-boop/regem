@@ -75,6 +75,23 @@ import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
 
+// Split de build (Fase 1.4): no EDGE_MODE, os módulos CLOUD_ONLY não são
+// instanciados (o processo do edge não roda distribuição/bot/whatsapp/diretoria/
+// onboarding/cardápio-online/cliente). Licença e Integrações ficam sempre (ver
+// comentário no array). Fonte da classificação: src/edge-manifest.ts.
+const IS_EDGE = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+const CLOUD_ONLY_IMPORTS = IS_EDGE
+  ? []
+  : [
+      OnboardingModule,
+      DiretoriaModule,
+      CardapioModule,
+      WhatsappModule,
+      ClienteModule,
+      BotModule,
+      DistribuicaoModule,
+    ];
+
 @Module({
   imports: [
     // .env.local (servidor edge/dev, gitignored) tem prioridade; cai no .env (nuvem).
@@ -106,9 +123,7 @@ import { AuthModule } from './auth/auth.module';
     EstoqueModule,
     DashboardModule,
     OcorrenciaModule,
-    OnboardingModule,
     FichasModule,
-    DiretoriaModule,
     GuiasModule,
     AuditoriaModule,
     MidiaModule,
@@ -132,21 +147,20 @@ import { AuthModule } from './auth/auth.module';
     FiscalModule,
     DeliveryModule,
     TefModule,
-    CardapioModule,
     FidelidadeModule,
     CashbackModule,
     IntegracoesModule,
-    WhatsappModule,
-    ClienteModule,
     AtendimentoModule,
     RelatoriosModule,
     MuralModule,
-    BotModule,
     SyncModule,
     EdgeFlashSyncModule,
     EdgeModule,
-    DistribuicaoModule,
     LicencaModule,
+    // CLOUD_ONLY não instanciados no edge (ver edge-manifest.ts). Licença e
+    // Integrações ficam sempre (interceptor global de licença / acoplamento do
+    // Delivery) — inertes no edge via @CloudOnly + EDGE_MODE.
+    ...CLOUD_ONLY_IMPORTS,
   ],
   controllers: [AppController],
   providers: [

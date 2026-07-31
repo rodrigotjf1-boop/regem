@@ -17,6 +17,11 @@
 #   .\edge\instalar-tudo.ps1 -Raiz "C:\regem-edge\backend" -UnidadeId "<uuid>" -SyncToken "<token>" `
 #       -LicensePublicKey "<b64>" -AtivacaoToken "<token-licenca>"
 param(
+  # Fase 1.5 — modo de instalacao escolhido no wizard:
+  #   servidor = full (Postgres + edge + sync + servicos) — o "cerebro" da loja.
+  #   cliente  = magro (so aponta pro Servidor na LAN; sem Postgres/sync/servicos).
+  [ValidateSet('servidor','cliente')][string]$Modo = 'servidor',
+  [string]$ServidorHost = "",   # (modo cliente) IP/host do Servidor Regem na LAN
   [string]$Raiz = "C:\regem-edge\backend",
   [string]$UnidadeId = "",
   # Self-service (recomendado): a conta C&O provisiona sozinha.
@@ -52,7 +57,60 @@ trap { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null }
 function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 function Rand($n) { -join ((48..57) + (65..90) + (97..122) | Get-Random -Count $n | ForEach-Object { [char]$_ }) }
 
-Diga "=== Regem Edge - instalacao automatica ==="
+Diga ("=== Regem Edge - instalacao automatica (modo: {0}) ===" -f $Modo)
+
+# ---------------------------------------------------------------------------
+# MODO CLIENTE (magro): nao instala Postgres/edge/sync/servicos. So configura a
+# maquina para abrir o app do SERVIDOR na LAN em tela cheia (sensacao de app) e
+# confia o certificado do Servidor. Toda a operacao roda no Servidor; este PC e
+# so uma "casca". Pareamento (X-Terminal) e feito na 1a abertura, pelo codigo.
+# ---------------------------------------------------------------------------
+if ($Modo -eq 'cliente') {
+  if (-not $ServidorHost) { throw "Modo cliente exige -ServidorHost <IP do Servidor Regem na LAN> (ex.: 192.168.0.10)" }
+  $urlApp = "https://{0}:{1}" -f $ServidorHost, $PortaWeb
+  Diga ("Servidor: {0}" -f $urlApp)
+
+  # 1) Confia o certificado do Servidor (o edge serve o ca.pem em /ca.pem).
+  try {
+    $ca = Join-Path $env:TEMP "regem-ca.pem"
+    Invoke-WebRequest -Uri ("{0}/ca.pem" -f $urlApp) -OutFile $ca -SkipCertificateCheck -TimeoutSec 10 -UseBasicParsing
+    Import-Certificate -FilePath $ca -CertStoreLocation Cert:\LocalMachine\Root -ErrorAction Stop | Out-Null
+    Diga "Certificado do Servidor confiado (LocalMachine\Root)."
+  } catch {
+    Diga ("Aviso: nao consegui baixar/confiar o ca.pem do Servidor ({0}). Confie manualmente se o navegador reclamar." -f $_.Exception.Message)
+  }
+
+  # 2) Atalho em tela cheia apontando pro Servidor (sensacao de app).
+  #    Usa Edge/Chrome em modo --app --start-fullscreen. A casca Electron dedicada
+  #    entra na Fase 6; ate la, o modo app do navegador ja da a experiencia.
+  $browser = $null
+  foreach ($c in @(
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+  )) { if (Test-Path $c) { $browser = $c; break } }
+
+  if ($browser) {
+    $desktop = [Environment]::GetFolderPath('CommonDesktopDirectory')
+    $lnk = Join-Path $desktop "Regem.lnk"
+    $ws = New-Object -ComObject WScript.Shell
+    $s = $ws.CreateShortcut($lnk)
+    $s.TargetPath = $browser
+    $s.Arguments = ('--app="{0}" --start-fullscreen --no-first-run' -f $urlApp)
+    $s.IconLocation = $browser
+    $s.Description = "Regem (cliente) - $ServidorHost"
+    $s.Save()
+    Diga ("Atalho 'Regem' criado na area de trabalho -> {0}" -f $urlApp)
+  } else {
+    Diga "Aviso: Edge/Chrome nao encontrado. Instale um navegador e crie o atalho manualmente para $urlApp"
+  }
+
+  Diga "=== Cliente configurado. Abra o atalho 'Regem'. O pareamento e feito na 1a abertura (codigo de 6 digitos gerado no Servidor). ==="
+  Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+  return
+}
+
 
 # ---- 0.0) Credenciais via arquivo temporario (o instalador as escreve fora da
 # linha de comando p/ NAO vazarem no log/transcript). Le e apaga imediatamente. ----
