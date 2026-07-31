@@ -116,11 +116,12 @@ Saídas do grafo: `graphify-out/graph.html`, `GRAPH_REPORT.md`, `graph.json`.
 
 > `[x]` já existe · `[ ]` a fazer. Fases 0–1 são o alicerce; sem elas, o Electron só espalha o problema.
 
-### Fase 0 — Fundação de confiança (nuvem, antes do Electron)
-- [ ] Definir a **fronteira cloud-only × edge** (cloud-only: `DrizzleDB` completo, integrações+segredos, distribuição/licença, financeiro/reconciliação/antifraude).
-- [ ] Centralizar **tenant-isolation** + fechar **`@RequirePerm`** (~18 chaves faltando) fail-closed.
-- [ ] **Assinatura de payload de sync** (HMAC por-dispositivo) + **sequência monotônica**.
-- [ ] **Auditoria/logs hash-chain** append-only → telemetria da distribuição.
+### Fase 0 — Fundação de confiança (nuvem, antes do Electron) ✅ CONCLUÍDA
+- [x] **Fronteira cloud-only × edge** definida (§8) — commit `c9dd538`.
+- [x] **`@RequirePerm` fail-closed** em todos os controllers (18→44) + catálogo completo (6 chaves novas, mig 152) — commits `eaf184f`, `30ebb0c`. *(tenant-isolation centralizado no DB fica como refino contínuo.)*
+- [x] **Assinatura de payload de sync** (HMAC derivado do token) + **seq anti-omissão** (mig 154, tolerante c/ flag `SYNC_REQUIRE_SIG`) — commit `e61853c`.
+- [x] **Auditoria hash-chain** append-only + `verificarCadeia` (mig 153; trigger de banco já bloqueava UPDATE/DELETE) — commit `5ebd7cd`.
+- Pendências de rollout: aplicar migs 152–154 na nuvem no deploy; ligar `SYNC_REQUIRE_SIG=true` só após todos os edges atualizarem; wire de `verificarCadeia`→telemetria da distribuição (follow-up).
 
 ### Fase 1 — Split do runtime (edge-core mínimo) + servidor de clientes
 - [ ] Extrair **edge-core** (só operacional: comandas/PDV/KDS/fila offline) — **não** integrações/distribuição/financeiro.
