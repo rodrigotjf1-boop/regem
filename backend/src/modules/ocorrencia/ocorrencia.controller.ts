@@ -10,6 +10,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { OcorrenciaService } from './ocorrencia.service';
@@ -18,7 +20,8 @@ import { CreateTipoOcorrenciaDto } from './dto/create-tipo.dto';
 import { CreateOcorrenciaDto } from './dto/create-ocorrencia.dto';
 
 @Controller()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+@RequirePerm('desempenho')
 export class OcorrenciaController {
   constructor(
     private readonly service: OcorrenciaService,

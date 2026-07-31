@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nes
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { DesligamentoService } from './desligamento.service';
@@ -9,8 +11,9 @@ import { DesligamentoService } from './desligamento.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Desligamento e cadastro do contador são atos de gestão (presidente/gerente).
 @Controller()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @Roles('presidente', 'gerente')
+@RequirePerm('desligamento')
 export class DesligamentoController {
   constructor(private readonly service: DesligamentoService) {}
 

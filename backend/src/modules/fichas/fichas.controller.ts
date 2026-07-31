@@ -11,6 +11,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { FichasService } from './fichas.service';
@@ -19,7 +21,7 @@ import { UpdateFichaDto } from './dto/update-ficha.dto';
 import { CreateIngredienteDto } from './dto/create-ingrediente.dto';
 
 @Controller('fichas')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 export class FichasController {
   constructor(private readonly service: FichasService) {}
 
@@ -35,12 +37,14 @@ export class FichasController {
 
   @Post()
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('fichas')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateFichaDto) {
     return this.service.create(user.tenantId, dto);
   }
 
   @Patch(':id')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('fichas')
   update(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -51,12 +55,14 @@ export class FichasController {
 
   @Delete(':id')
   @Roles('presidente', 'gerente')
+  @RequirePerm('fichas')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.remove(user.tenantId, id);
   }
 
   @Post(':id/ingredientes')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('fichas')
   addIngrediente(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -67,6 +73,7 @@ export class FichasController {
 
   @Delete('ingredientes/:id')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('fichas')
   removeIngrediente(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.removeIngrediente(user.tenantId, id);
   }

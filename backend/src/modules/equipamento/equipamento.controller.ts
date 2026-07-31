@@ -12,6 +12,8 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { EquipamentoService } from './equipamento.service';
@@ -24,13 +26,17 @@ export class EquipamentoController {
   constructor(private readonly service: EquipamentoService) {}
 
   @Get()
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);
   }
 
   @Post()
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   criar(@CurrentUser() user: AuthUser, @Body() dto: CreateEquipamentoDto) {
     return this.service.criar(
       user.tenantId,
@@ -42,19 +48,25 @@ export class EquipamentoController {
 
   // ----- Impressoras (cadastro manual: direcionamento + vias) -----
   @Get('impressoras')
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   impressoras(@CurrentUser() user: AuthUser) {
     return this.service.listarImpressoras(user.tenantId);
   }
 
   @Put('impressoras')
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   salvarImpressora(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.salvarImpressora(user.tenantId, dto);
   }
 
   @Delete('impressoras/:id')
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   removerImpressora(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.removerImpressora(user.tenantId, id);
   }
@@ -67,14 +79,18 @@ export class EquipamentoController {
 
   // Gestor gera um código de 6 dígitos (uso único, 15 min) para o PC parear.
   @Post(':id/codigo')
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   gerarCodigo(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.gerarCodigo(user.tenantId, id, user.colaboradorId, user.categoria);
   }
 
   // Terminal de PDV: amarra (ou limpa) a impressora de cupom do terminal.
   @Patch(':id/impressora')
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   setImpressora(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -89,13 +105,17 @@ export class EquipamentoController {
 
   // KDS: impressão guiada por etapa (mig 129).
   @Patch(':id/impressao-etapa')
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   setImpressaoEtapa(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.setImpressaoEtapa(user.tenantId, id, dto ?? {});
   }
 
   @Patch(':id/revogar')
+  @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   revogar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.revogar(
       user.tenantId,
