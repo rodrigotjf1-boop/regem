@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -77,6 +78,10 @@ export class VendaExternaPdvDto {
   @IsOptional()
   @IsString()
   cliente?: string;
+
+  @IsOptional()
+  @IsIn(['local', 'viagem'])
+  consumo?: string; // 'local' (comer aqui) | 'viagem' — afeta cozinha/embalagem
 
   @IsOptional()
   @IsUUID()
