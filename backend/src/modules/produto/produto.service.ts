@@ -674,6 +674,8 @@ export class ProdutoService {
           // Canais de delivery pausados p/ este produto — o consumidor do sync
           // (Orzuni→iFood, GoGeM) esconde/pausa o item no canal correspondente.
           canaisPausados: p.canaisPausados ?? [],
+          // Pausado por estoque (esgotado) — o GoGeM reflete como indisponível.
+          pausadoEstoque: p.pausadoEstoque ?? false,
           ativo: p.ativo,
           grupos: (grupos as any[]).map((g) => ({
             id: g.id,
@@ -699,6 +701,44 @@ export class ProdutoService {
       categorias,
       produtos: itens,
     };
+  }
+
+  /**
+   * Pausa/despausa um produto para um CANAL (ex.: 'gogem'/'totem'), casando por
+   * `codigo` (de-para PDV). Usado pela integração de totem (GoGeM→Regem) via
+   * X-Sync-Token: pausar no GoGeM adiciona o canal em `canais_pausados`, e some
+   * do totem; despausar remove. Não mexe em `disponivel_cardapio` (não afeta os
+   * outros canais). Flash-sync reflete no cardápio online.
+   */
+  async pausarCanalPorCodigo(
+    tenantId: string,
+    codigo: string,
+    canal: string,
+    pausar: boolean,
+  ) {
+    const [p] = await this.db
+      .select({ id: produto.id, canaisPausados: produto.canaisPausados })
+      .from(produto)
+      .where(and(eq(produto.tenantId, tenantId), eq(produto.codigo, codigo)));
+    if (!p)
+      throw new NotFoundException(
+        `Produto com código "${codigo}" não encontrado.`,
+      );
+
+    const atuais: string[] = Array.isArray(p.canaisPausados)
+      ? (p.canaisPausados as string[]).map(String)
+      : [];
+    const set = new Set(atuais);
+    if (pausar) set.add(canal);
+    else set.delete(canal);
+    const canaisPausados = [...set];
+
+    await this.db
+      .update(produto)
+      .set({ canaisPausados })
+      .where(and(eq(produto.id, p.id), eq(produto.tenantId, tenantId)));
+    void this.flash.flashProdutos([p.id]);
+    return { codigo, canal, pausado: pausar, canaisPausados };
   }
 
   async getOne(tenantId: string, id: string) {
