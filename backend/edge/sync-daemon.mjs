@@ -14,6 +14,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { createHash, createHmac } from 'node:crypto';
 
 const pExecFile = promisify(execFile);
 
@@ -31,6 +32,21 @@ const EDGE_DB = req('EDGE_DATABASE_URL');
 const CLOUD = req('CLOUD_API').replace(/\/$/, '');
 const TOKEN = req('SYNC_TOKEN');
 const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 30000);
+
+// Assinatura do push (espelha backend/src/modules/sync/sync-sig.ts — MANTER IGUAL).
+// A chave HMAC é derivada do token do dispositivo. Qualquer mudança aqui tem que ser
+// refletida no TS, senão a nuvem rejeita a assinatura.
+function stableSync(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(stableSync).join(',') + ']';
+  return '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + stableSync(v[k])).join(',') + '}';
+}
+function chaveSync(token) {
+  return createHash('sha256').update('regem-sync-v1|' + token).digest('hex');
+}
+function assinarSync(token, seq, ts, lotes) {
+  return createHmac('sha256', chaveSync(token)).update(`${seq}.${ts}.${stableSync(lotes)}`).digest('hex');
+}
 
 // Operacional que sobe (espelha as tabelas 'sobe' do sync-config da nuvem).
 // v2: transacionais primeiro (pais antes dos filhos p/ FK) por updated_at (LWW).
@@ -175,12 +191,25 @@ async function push() {
     }
   }
   if (!lotes.length) return 0;
+  // Normaliza via JSON round-trip ANTES de assinar E enviar: assim a nuvem (que
+  // recebe o JSON já parseado) assina exatamente a mesma representação (Date→ISO etc.).
+  const lotesN = JSON.parse(JSON.stringify(lotes));
+  const seq = (Number(await getState('push_seq', '0')) || 0) + 1;
+  const ts = new Date().toISOString();
+  const sig = assinarSync(TOKEN, seq, ts, lotesN);
   const res = await fetch(`${CLOUD}/sync/push`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
-    body: JSON.stringify({ lotes }),
+    headers: {
+      'content-type': 'application/json',
+      'x-sync-token': TOKEN,
+      'x-sync-seq': String(seq),
+      'x-sync-ts': ts,
+      'x-sync-sig': sig,
+    },
+    body: JSON.stringify({ lotes: lotesN }),
   });
   if (!res.ok) throw new Error(`push HTTP ${res.status}: ${await res.text()}`);
+  await setState('push_seq', String(seq)); // só avança o seq após sucesso
   for (const [tabela, a] of Object.entries(avanco)) {
     const max = a.rows.reduce(
       (m, row) => (new Date(row[a.cursor]) > new Date(m) ? row[a.cursor] : m),

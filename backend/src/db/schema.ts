@@ -754,6 +754,7 @@ export const equipamento = pgTable('equipamento', {
   mac: text('mac'),
   padrao: boolean('padrao').notNull().default(false),
   ativo: boolean('ativo').notNull().default(true),
+  lastPushSeq: integer('last_push_seq'), // último seq de push aceito (anti-omissão de sync, mig 154)
   escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
   papel: text('papel'), // impressora: producao | cupom (via do cliente)
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
