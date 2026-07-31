@@ -1553,7 +1553,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </>
       ) : ehAnota ? (
         <>
-          <p className="text-[11px] text-muted-foreground">Integração oficial da <strong>Anota Aí</strong>. No painel da Anota Aí, copie o <strong>Token da loja</strong> e cole aqui. Ao salvar, a equipe Regem finaliza a conexão no Portal de Integração da Anota Aí — você recebe o aviso quando estiver ativa.</p>
+          <p className="text-[11px] text-muted-foreground">Integração oficial da <strong>Anota Aí</strong>. ⚠️ Use o token do <strong>Portal de Integração</strong> (integracao.anota.ai → sua loja → “Token da sua loja”) — <strong>não</strong> o do app/painel da loja, que dá erro de autenticação. Cole aqui e salve; a distribuição finaliza a conexão e você recebe o aviso quando estiver ativa.</p>
           <div className="grid gap-2">
             <Campo label={`Token da loja${it.temToken ? ' (salvo)' : ''}`}>
               <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (deixe em branco p/ manter)' : 'cole o Token da loja (Authorization)'} className="h-8" disabled={!pode} />
