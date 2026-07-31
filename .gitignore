@@ -32,3 +32,8 @@ backend/edge/Output/
 # Mídia gravada em disco no modo local/offline (não versionar uploads de teste)
 backend/uploads/
 uploads/
+
+# Assinatura de código (rota interna): a CHAVE PRIVADA nunca vai pro git.
+# Só o code-signing-ca.pem (público) é versionado; o .pfx fica só com a distribuição.
+desktop/signing/
+*.pfx
