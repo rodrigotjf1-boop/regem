@@ -226,7 +226,11 @@ const GRACE_MS = (Number(process.env.LICENSE_GRACE_DAYS) || 30) * 86400000;
 // vencer o grace) e detecta rollback de relógio (não pode voltar no tempo).
 async function licenca() {
   try {
-    const res = await fetch(`${CLOUD}/edge/lease`, { headers: { 'x-sync-token': TOKEN } });
+    // x-sync-fp: fingerprint da máquina (mesmo esquema do instalador = nome do PC).
+    // A nuvem nega renovar se divergir do preso na ativação (anti-clone).
+    const res = await fetch(`${CLOUD}/edge/lease`, {
+      headers: { 'x-sync-token': TOKEN, 'x-sync-fp': (await import('os')).hostname() },
+    });
     if (res.ok) {
       const j = await res.json();
       if (j.ativo && j.lease) {

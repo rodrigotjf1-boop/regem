@@ -62,6 +62,7 @@ export interface LeasePayload {
   plano: string;
   modulos: string[];
   exp: number | null; // epoch ms; null = sem prazo
+  fp: string | null; // fingerprint do device (anti-clone: o edge confere com o local)
   iat: number; // epoch ms (emissão)
   srv: number; // epoch ms do servidor (anti-rollback de relógio no edge)
 }
