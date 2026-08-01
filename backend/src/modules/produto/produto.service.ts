@@ -667,6 +667,9 @@ export class ProdutoService {
           codigo: p.codigo,
           nome: p.nome,
           descricao: p.descricao,
+          // URL pública da foto (Supabase) — o `imagem_ref` já é reescrito para a
+          // URL pública pelo reconcile de mídia; o GoGeM grava direto em imagemUrl.
+          imagem: p.imagemRef ?? null,
           precoVenda: p.precoVenda,
           categoriaId: p.categoriaId,
           disponivelCardapio: p.disponivelCardapio,
