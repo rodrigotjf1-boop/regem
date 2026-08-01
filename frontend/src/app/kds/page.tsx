@@ -42,12 +42,6 @@ function corTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: numb
   if (min <= cores.amareloAteMin) return '#FFB13D';
   return '#FF5A4E';
 }
-// Fundo do card por tempo: verde leve → amarelo leve → vermelho leve (fora do prazo).
-function bgTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: number }) {
-  if (min <= cores.verdeAteMin) return '#E4F7F0';
-  if (min <= cores.amareloAteMin) return '#FCF1DA';
-  return '#FBE3E1';
-}
 const proximaLabel = (status: string) =>
   status === 'recebido' ? 'Iniciar' : status === 'preparo' ? 'Pronto' : 'Entregar';
 
@@ -137,7 +131,7 @@ export default function KdsPage() {
   const [setorSel, setSetorSel] = useState('');
   const [kdsList, setKdsList] = useState<any[]>([]); // Fase E — KDS da loja p/ o seletor
   const [kdsSel, setKdsSel] = useState(''); // qual KDS este aparelho opera (cadeia)
-  const [canal, setCanal] = useState<'balcao' | 'delivery'>('balcao');
+  const [canal, setCanal] = useState<'balcao' | 'delivery' | 'todos'>('balcao');
   // Fase C — filtros de sub-origem, um por canal (no modal de config).
   const [subDelivery, setSubDelivery] = useState('todos');
   const [subBalcao, setSubBalcao] = useState('todos');
@@ -189,6 +183,8 @@ export default function KdsPage() {
   const kdsRef = useRef(kdsSel);
   kdsRef.current = kdsSel;
   const senhaRef = useRef<HTMLInputElement | null>(null); // Fase F — campo de senha (foco)
+  const senhaDigitadaRef = useRef('');
+  senhaDigitadaRef.current = senhaDigitada;
 
   const bip = useCallback(() => {
     if (mudoRef.current) return;
@@ -243,6 +239,8 @@ export default function KdsPage() {
       try {
         const s = localStorage.getItem('kds-equip');
         if (s) setKdsSel(s);
+        const c = localStorage.getItem('kds-canal');
+        if (c === 'balcao' || c === 'delivery' || c === 'todos') setCanal(c);
       } catch { /* ignora */ }
     }
   }, []);
@@ -396,16 +394,19 @@ export default function KdsPage() {
   const nowMs = now ? now.getTime() : Date.now();
 
   // Fase C — cards filtrados pela sub-origem do canal ativo (client-side).
-  const subAtivo = canal === 'delivery' ? subDelivery : subBalcao;
+  // canal 'todos' (KDS único) não aplica sub-filtro.
+  const subAtivo = canal === 'delivery' ? subDelivery : canal === 'balcao' ? subBalcao : 'todos';
   const pedidosFiltrados =
-    subAtivo === 'todos' ? pedidos : pedidos.filter((p) => grupoPedido(p, canal) === subAtivo);
+    canal === 'todos' || subAtivo === 'todos'
+      ? pedidos
+      : pedidos.filter((p) => grupoPedido(p, canal as 'delivery' | 'balcao') === subAtivo);
 
   // Fase F — teclado numérico FÍSICO do equipamento: o campo fica com foco aguardando
   // a digitação; Enter avança o card daquela senha. Sem botões na tela.
   function avancarPorSenha() {
-    const s = senhaDigitada.trim();
+    const s = senhaDigitadaRef.current.trim();
     if (!s) return;
-    const alvo = pedidos.find((p) => String(p.senha ?? '') === s && p.status !== 'cancelado');
+    const alvo = pedidosRef.current.find((p) => String(p.senha ?? '') === s && p.status !== 'cancelado');
     if (!alvo) {
       setSenhaErro(true);
       return;
@@ -414,6 +415,24 @@ export default function KdsPage() {
     void avancar(alvo.id);
     senhaRef.current?.focus();
   }
+
+  // Teclado numérico FÍSICO do equipamento: captura dígitos/Enter/Backspace mesmo se o
+  // campo perder o foco (o "às vezes não funciona"). Ignora quando a config está aberta
+  // ou o foco está em outro input (aí o próprio campo trata).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (cfgAberta || pedirTelaCheia) return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // campo trata
+      if (/^[0-9]$/.test(e.key)) { setSenhaErro(false); setSenhaDigitada((v) => (v.length < 6 ? v + e.key : v)); }
+      else if (e.key === 'Enter') avancarPorSenha();
+      else if (e.key === 'Backspace') setSenhaDigitada((v) => v.slice(0, -1));
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfgAberta, pedirTelaCheia]);
 
   // Limpa a tela: avança TODOS os cards (vão para o próximo KDS ou concluem). Pede
   // confirmação antes. Faz alguns passes até esvaziar (cada avanço = uma etapa).
@@ -472,11 +491,12 @@ export default function KdsPage() {
           {([
             ['balcao', 'Balcão / Salão'],
             ['delivery', 'Delivery'],
+            ['todos', 'Tudo'],
           ] as const).map(([c, rotulo]) => (
             <button
               key={c}
               type="button"
-              onClick={() => setCanal(c)}
+              onClick={() => { setCanal(c); try { localStorage.setItem('kds-canal', c); } catch { /* */ } }}
               className="px-3 py-2 text-[13px] font-semibold"
               style={{
                 background: canal === c ? '#E2A340' : T.panel2,
@@ -519,11 +539,9 @@ export default function KdsPage() {
           </select>
         )}
 
-        {/* Senha (Fase F): foco automático; o teclado numérico físico digita e Enter avança. */}
-        <div
-          className="ml-1 flex items-center gap-2 rounded-lg border px-2.5 py-1.5"
-          style={{ background: senhaErro ? 'rgba(255,90,78,.18)' : T.panel2, borderColor: senhaErro ? '#FF5A4E' : T.border }}
-        >
+        {/* Senha (Fase F): rótulo FORA; a caixa só recebe o número (teclado físico ou
+            captura global). Enter avança o card daquela senha. */}
+        <div className="ml-1 flex items-center gap-1.5">
           <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: T.muted }}>Senha</span>
           <input
             ref={senhaRef}
@@ -534,8 +552,13 @@ export default function KdsPage() {
             onKeyDown={(e) => { if (e.key === 'Enter') avancarPorSenha(); }}
             placeholder="—"
             aria-label="Senha do pedido (Enter avança)"
-            className="w-16 bg-transparent text-center text-[20px] font-bold tabular-nums outline-none"
-            style={{ color: T.text, fontFamily: 'JetBrains Mono, monospace' }}
+            className="w-20 rounded-lg border py-1.5 text-center text-[22px] font-bold tabular-nums outline-none"
+            style={{
+              background: senhaErro ? 'rgba(255,90,78,.18)' : T.panel2,
+              borderColor: senhaErro ? '#FF5A4E' : T.border,
+              color: T.text,
+              fontFamily: 'JetBrains Mono, monospace',
+            }}
           />
         </div>
 
@@ -761,10 +784,11 @@ export default function KdsPage() {
                   key={p.id}
                   className="flex flex-col rounded-[14px]"
                   style={{
-                    // Fundo por tempo (verde/amarelo/vermelho leve) + contorno fino preto.
-                    background: cancelado ? '#F4DDDD' : bgTempo(min, cores),
-                    border: '1px solid #0F2230',
-                    color: '#14202B',
+                    // Fundo neutro por tema (branco no claro, escuro no escuro) + contorno
+                    // fino. A cor do TEMPO fica no selo de minutos e no botão de avanço.
+                    background: cancelado ? (claro ? '#F7E4E4' : '#2A1416') : T.panel,
+                    border: `1px solid ${claro ? '#0F2230' : T.border}`,
+                    color: T.text,
                     padding: Math.round(16 * esc),
                   }}
                 >
@@ -842,7 +866,8 @@ export default function KdsPage() {
                         type="button"
                         onClick={() => avancar(p.id)}
                         className="rounded-[10px] px-4 py-2 text-[13px] font-extrabold uppercase tracking-[0.08em]"
-                        style={{ background: '#19C08F', color: '#04241A' }}
+                        // Cor do botão acompanha o selo de tempo (verde→amarelo→vermelho).
+                        style={{ background: cor, color: '#04241A' }}
                       >
                         {proximaLabel(p.status)}
                       </button>

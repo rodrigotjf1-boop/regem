@@ -771,12 +771,14 @@ export class ProducaoPedidoService {
       eq(producaoPedido.destinoTipo, 'kds'),
     ];
     if (opts.unidadeId) conds.push(eq(producaoPedido.unidadeId, opts.unidadeId));
-    // Canal
+    // Canal: delivery (courier) | balcao (local/retirada) | todos (KDS único — mescla
+    // balcão + delivery, p/ cozinhas menores).
     if (opts.canal === 'delivery') {
       conds.push(eq(producaoPedido.origem, 'delivery'));
-    } else {
+    } else if (opts.canal === 'balcao') {
       conds.push(sql`origem <> 'delivery'` as any);
     }
+    // 'todos' (ou vazio) → sem filtro de origem.
     if (opts.equipamentoId) {
       // Fase E: o KDS operado filtra pela CADEIA — cards roteados para ele (destino)
       // OU ainda não roteados (destino null) do seu setor (entrada). Ignora setorId.

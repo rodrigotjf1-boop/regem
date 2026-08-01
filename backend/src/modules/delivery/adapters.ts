@@ -16,7 +16,8 @@ export interface PedidoNormalizado {
     descricao: string;
     quantidade: number;
     precoUnitario: number;
-    observacao?: string;
+    observacao?: string; // observação REAL do cliente ("sem cebola")
+    complementos?: string; // complementos escolhidos (batata, bebida…) — NÃO é observação
   }[];
   total: number;
   formaPagamento?: string;
@@ -51,13 +52,13 @@ export function formaPtBr(v: any): string {
 export function adaptarIfood(raw: any): PedidoNormalizado {
   const itens = (raw?.items ?? []).map((it: any) => {
     const opts = (it.options ?? []).map((o: any) => o.name).filter(Boolean);
-    const obs = [it.observations, ...opts].filter(Boolean).join(' · ') || undefined;
     return {
       codigo: it.externalCode ?? it.uniqueId ?? undefined,
       descricao: it.name ?? 'Item',
       quantidade: Number(it.quantity) || 1,
       precoUnitario: Number(it.unitPrice ?? it.price) || 0,
-      observacao: obs,
+      observacao: it.observations || undefined, // observação real do cliente
+      complementos: opts.join(' · ') || undefined, // complementos (não é observação)
     };
   });
   const tipo =
@@ -139,13 +140,13 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
       .flatMap((g: any) => (g?.options ? g.options : [g]))
       .map((o: any) => o?.name)
       .filter(Boolean);
-    const obs = [it.observation ?? it.observations, ...opts].filter(Boolean).join(' · ') || undefined;
     return {
       codigo: it.externalCode ?? it.sku ?? undefined,
       descricao: it.name ?? 'Item',
       quantidade: Number(it.quantity) || 1,
       precoUnitario: Number(it.unitPrice?.value ?? it.unitPrice ?? it.price) || 0,
-      observacao: obs,
+      observacao: (it.observation ?? it.observations) || undefined,
+      complementos: opts.join(' · ') || undefined,
     };
   });
   const tipoRaw = String(raw?.type ?? raw?.orderType ?? 'DELIVERY').toUpperCase();
@@ -182,7 +183,6 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
     const opts = (it.options ?? [])
       .map((o: any) => (o?.quantity > 1 ? `${o.quantity}x ${o.name}` : o?.name))
       .filter(Boolean);
-    const obs = [it.observation, ...opts].filter(Boolean).join(' · ') || undefined;
     return {
       // De-para: código PDV (external_code) se a loja preencheu; senão o item_id
       // do Cardápio Web prefixado com "cw" — o importador de catálogo usa a mesma
@@ -191,7 +191,8 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
       descricao: it.name ?? 'Item',
       quantidade: Number(it.quantity) || 1,
       precoUnitario: Number(it.unit_price ?? it.total_price) || 0,
-      observacao: obs,
+      observacao: it.observation || undefined,
+      complementos: opts.join(' · ') || undefined,
     };
   });
   const t = String(raw?.order_type ?? 'delivery').toLowerCase();
@@ -223,7 +224,6 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
     const subs = (it.sub_item_list ?? [])
       .map((s: any) => (Number(s?.amount) > 1 ? `${s.amount}x ${s.name}` : s?.name))
       .filter(Boolean);
-    const obs = [it.remark, ...subs].filter(Boolean).join(' · ') || undefined;
     const qtd = Number(it.amount) || 1;
     const unitCents = Number(it.sku_price ?? (Number(it.total_price) || 0) / qtd) || 0;
     return {
@@ -231,7 +231,8 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
       descricao: it.name ?? 'Item',
       quantidade: qtd,
       precoUnitario: unitCents / 100,
-      observacao: obs,
+      observacao: it.remark || undefined,
+      complementos: subs.join(' · ') || undefined,
     };
   });
   const addr = raw?.receive_address ?? {};
@@ -273,14 +274,14 @@ export function adaptarAnotaAi(raw: any): PedidoNormalizado {
     const subs = (it.subItems ?? [])
       .map((s: any) => (Number(s?.quantity) > 1 ? `${s.quantity}x ${s.name}` : s?.name))
       .filter(Boolean);
-    const obs = subs.join(' · ') || undefined;
     const qtd = Number(it.quantity) || 1;
     return {
       codigo: it.externalId ?? it.internalId ?? undefined,
       descricao: it.name ?? 'Item',
       quantidade: qtd,
       precoUnitario: Number(it.price ?? (Number(it.total) || 0) / qtd) || 0,
-      observacao: obs,
+      observacao: (it.observation ?? it.obs ?? it.note ?? it.comment) || undefined,
+      complementos: subs.join(' · ') || undefined,
     };
   });
   // type: DELIVERY → entrega · TAKE (retirada no local) / LOCAL (consumo no local) → retirada

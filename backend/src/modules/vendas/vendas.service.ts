@@ -727,6 +727,7 @@ export class VendasService {
               descricao: it.descricao,
               quantidade: qtd,
               observacao: it.observacao ?? null,
+              complementosTexto: (it as any).complementosTexto ?? null,
               comandaItemId: ci.id,
             });
         }
