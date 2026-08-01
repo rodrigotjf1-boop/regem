@@ -1490,7 +1490,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
     setCwMsg('Importando catálogo…');
     try {
       const r: any = await api.cardapioWebImportarCatalogo();
-      setCwMsg(`Catálogo importado: +${r?.produtos ?? 0} produtos, +${r?.categorias ?? 0} categorias, ${r?.atualizados ?? 0} atualizados.`);
+      setCwMsg(`Catálogo importado: +${r?.produtos ?? 0} produtos, +${r?.categorias ?? 0} categorias, +${r?.complementos ?? 0} opções de complemento, ${r?.atualizados ?? 0} atualizados.`);
     } catch (e: any) {
       setCwMsg('Erro ao importar: ' + (e?.message ?? ''));
     } finally {

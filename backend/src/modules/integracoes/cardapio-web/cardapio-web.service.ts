@@ -463,15 +463,21 @@ export class CardapioWebService {
   // Puxa o catálogo do Cardápio Web (GET /catalog) e cria/atualiza os produtos no
   // Regem — categoria, preço, imagem e CÓDIGO (external_code || 'cw'+id, a mesma
   // regra do adapter → os pedidos casam sozinhos). Idempotente por (tenant, código).
-  async importarCatalogo(tenantId: string): Promise<{ categorias: number; produtos: number; atualizados: number }> {
+  async importarCatalogo(
+    tenantId: string,
+  ): Promise<{ categorias: number; produtos: number; atualizados: number; complementos: number }> {
     const ig = await this.doTenant(tenantId);
     if (!this.autenticavel(ig)) throw new BadRequestException('Conecte o Cardápio Web primeiro (salve a chave).');
     const res = await this.req(ig, '/api/partner/v1/catalog', { method: 'GET' });
     if (!res.ok) throw new BadRequestException(`Falha ao buscar o catálogo do Cardápio Web (${res.status}).`);
     const j: any = await res.json().catch(() => ({}));
     const cats: any[] = j.categories ?? j.data ?? [];
+    // Diagnóstico: as chaves de UM item revelam onde vêm os complementos (o nome do
+    // campo varia por plataforma). Ajuda a ajustar `extrairGruposCW` se preciso.
+    const amostra = cats.find((c: any) => (c.items ?? c.itens ?? []).length)?.[('items' as any)]?.[0];
+    if (amostra) this.logger.log(`importarCatalogo: campos de um item = ${Object.keys(amostra).join(', ')}`);
     const setor = await this.setorPadrao(tenantId);
-    let nCat = 0, nProd = 0, nUpd = 0;
+    let nCat = 0, nProd = 0, nUpd = 0, nComp = 0;
     for (let i = 0; i < cats.length; i++) {
       const cat = cats[i];
       const ex: any = await this.db.execute(sql`select id from categoria_produto where tenant_id=${tenantId} and nome=${cat.name} limit 1`);
@@ -486,20 +492,82 @@ export class CardapioWebService {
         const preco = Number(it.price) || 0;
         const img = it.image?.image_url ?? null;
         const found: any = await this.db.execute(sql`select id from produto where tenant_id=${tenantId} and codigo=${codigo} and deleted_at is null`);
-        const foundId = (found?.rows ?? found)?.[0]?.id ?? null;
-        if (foundId) {
-          await this.db.execute(sql`update produto set nome=${it.name}, preco_venda=${preco}, categoria_id=${catId}, updated_at=now() where id=${foundId}`);
+        let prodId: string | null = (found?.rows ?? found)?.[0]?.id ?? null;
+        if (prodId) {
+          await this.db.execute(sql`update produto set nome=${it.name}, preco_venda=${preco}, categoria_id=${catId}, updated_at=now() where id=${prodId}`);
           nUpd++;
-          continue;
+        } else {
+          const ins: any = await this.db.execute(sql`
+            insert into produto (tenant_id,nome,tipo,unidade_medida,preco_venda,controla_estoque,vai_para_producao,ativo,selos,disponivel_cardapio,destaque,disponivel_balcao,pausado_estoque,permite_negativo,categoria_id,codigo,setor_producao_id,descricao,imagem_ref,preco_custo)
+            values (${tenantId},${it.name},'simples',${(it.unit_type || 'un').toLowerCase()},${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},${it.description ?? null},${img},${Number(it.cost_price) || 0})
+            returning id`);
+          prodId = (ins?.rows ?? ins)?.[0]?.id ?? null;
+          nProd++;
         }
-        await this.db.execute(sql`
-          insert into produto (tenant_id,nome,tipo,unidade_medida,preco_venda,controla_estoque,vai_para_producao,ativo,selos,disponivel_cardapio,destaque,disponivel_balcao,pausado_estoque,permite_negativo,categoria_id,codigo,setor_producao_id,descricao,imagem_ref,preco_custo)
-          values (${tenantId},${it.name},'simples',${(it.unit_type || 'un').toLowerCase()},${preco},false,true,true,'[]'::jsonb,true,false,true,false,false,${catId},${codigo},${setor},${it.description ?? null},${img},${Number(it.cost_price) || 0})`);
-        nProd++;
+        // Complementos/opções (etapas) — materializados em complemento_grupo/opcao,
+        // que é o que o motor (PDV/cardápio) lê. Idempotente: só cria se o produto
+        // ainda não tem grupos.
+        if (prodId) nComp += await this.importarComplementosCW(tenantId, prodId, codigo, it);
       }
     }
-    this.logger.log(`importarCatalogo tenant=${tenantId}: +${nCat} cat, +${nProd} prod, ${nUpd} atualizados`);
-    return { categorias: nCat, produtos: nProd, atualizados: nUpd };
+    this.logger.log(`importarCatalogo tenant=${tenantId}: +${nCat} cat, +${nProd} prod, ${nUpd} atualizados, +${nComp} complementos(opções)`);
+    return { categorias: nCat, produtos: nProd, atualizados: nUpd, complementos: nComp };
+  }
+
+  // Extrai os grupos de complemento de um item do Cardápio Web, tolerando os nomes
+  // de campo mais comuns (a doc varia). Se nenhum casar, devolve [] (import sem
+  // complemento, sem erro) — o log das chaves do item mostra o campo real.
+  private extrairGruposCW(it: any): any[] {
+    const g =
+      it.complement_categories ?? it.complementCategories ?? it.complement_groups ?? it.complementGroups ??
+      it.option_groups ?? it.optionGroups ?? it.complements ?? it.modifiers ?? it.groups ?? it.complementos ?? [];
+    return Array.isArray(g) ? g : [];
+  }
+
+  private extrairOpcoesCW(g: any): any[] {
+    const o =
+      g.complements ?? g.options ?? g.items ?? g.complement_items ?? g.optionItems ?? g.opcoes ?? g.itens ?? [];
+    return Array.isArray(o) ? o : [];
+  }
+
+  // Cria complemento_grupo + complemento_opcao a partir de um item do CW. Idempotente
+  // (não duplica se o produto já tem grupos). Devolve o nº de OPÇÕES criadas.
+  private async importarComplementosCW(tenantId: string, produtoId: string, codigoBase: string, it: any): Promise<number> {
+    const grupos = this.extrairGruposCW(it);
+    if (!grupos.length) return 0;
+    const jaTem: any = await this.db.execute(sql`select 1 from complemento_grupo where produto_id=${produtoId} and deleted_at is null limit 1`);
+    if ((jaTem?.rows ?? jaTem)?.length) return 0; // já materializado — não duplica
+    let n = 0;
+    for (let gi = 0; gi < grupos.length; gi++) {
+      const g = grupos[gi];
+      const opcoes = this.extrairOpcoesCW(g);
+      if (!opcoes.length) continue;
+      const nome = String(g.name ?? g.nome ?? g.title ?? 'Complemento').slice(0, 200);
+      const min = Number(g.min ?? g.min_quantity ?? g.minimum ?? 0) || 0;
+      const maxRaw = g.max ?? g.max_quantity ?? g.maximum ?? null;
+      const max = maxRaw != null && Number(maxRaw) ? Number(maxRaw) : null;
+      const obrig = Boolean(g.required ?? g.obrigatorio ?? g.mandatory ?? min > 0);
+      const insG: any = await this.db.execute(sql`
+        insert into complemento_grupo (tenant_id, produto_id, nome, tipo, min, max, obrigatorio, ordem)
+        values (${tenantId}, ${produtoId}, ${nome}, 'adicionar', ${min}, ${max}, ${obrig}, ${gi})
+        returning id`);
+      const grupoId = (insG?.rows ?? insG)?.[0]?.id;
+      if (!grupoId) continue;
+      for (let oi = 0; oi < opcoes.length; oi++) {
+        const o = opcoes[oi];
+        const onome = String(o.name ?? o.nome ?? o.title ?? '').slice(0, 200);
+        if (!onome) continue;
+        const preco = Number(o.price ?? o.preco ?? o.additional_price ?? o.value ?? o.preco_delta ?? 0) || 0;
+        // codigo_pdv presente = opção "real" (carrega preço/estoque); ausente =
+        // informativa (mig 126). Sintetiza um código estável p/ a opção valer preço.
+        const cod = o.external_code || o.code || o.codigo || `${codigoBase}c${gi}o${oi}`;
+        await this.db.execute(sql`
+          insert into complemento_opcao (tenant_id, grupo_id, nome, preco_delta, codigo_pdv, ordem)
+          values (${tenantId}, ${grupoId}, ${onome}, ${preco}, ${String(cod).slice(0, 60)}, ${oi})`);
+        n++;
+      }
+    }
+    return n;
   }
 
   // ===== Exportar cardápio (Regem → Cardápio Web) =====
