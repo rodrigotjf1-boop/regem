@@ -210,6 +210,7 @@ const ROTAS_MENU: { href: string; perm: string }[] = [
   { href: '/pedidos', perm: 'pedidos' },
   { href: '/meu-dia', perm: 'meu_dia' },
   { href: '/ordens-producao', perm: 'producao_kds' },
+  { href: '/kds/alertas', perm: 'producao_kds' },
   { href: '/manutencao', perm: 'manutencao' },
   { href: '/escala', perm: 'escalas' },
   { href: '/operacao', perm: 'estoque' },
@@ -574,6 +575,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ escopo }),
     }),
+  // Motor de alertas do KDS (Fase B) — cadastro + disparo manual.
+  kdsAlertas: () => req('/kds/alertas'),
+  kdsAlertaCriar: (body: Record<string, unknown>) =>
+    req('/kds/alertas', { method: 'POST', body: JSON.stringify(body) }),
+  kdsAlertaAtualizar: (id: string, body: Record<string, unknown>) =>
+    req(`/kds/alertas/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  kdsAlertaRemover: (id: string) => req(`/kds/alertas/${id}`, { method: 'DELETE' }),
+  kdsAlertaDisparar: (body: Record<string, unknown>) =>
+    req('/kds/alertas/disparar', { method: 'POST', body: JSON.stringify(body) }),
   senhaConfig: (unidadeId?: string) =>
     req(`/producao/senha/config${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   setSenhaPeriodo: (periodo: string, unidadeId?: string) =>

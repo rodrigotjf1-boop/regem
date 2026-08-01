@@ -1787,6 +1787,28 @@ export const kdsCorConfig = pgTable('kds_cor_config', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Motor de alertas do KDS (mig 158) — cadastrados pelo presidente/C&O/gerente,
+// exibidos no RODAPÉ do KDS. tipo=agendado (horários+dias) | condicional (limiar).
+export const kdsAlertaConfig = pgTable('kds_alerta_config', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  titulo: text('titulo').notNull(),
+  detalhe: text('detalhe'),
+  prioridade: text('prioridade').notNull().default('alta'), // danger|alta|info|ok
+  tipo: text('tipo').notNull().default('agendado'), // agendado | condicional
+  horarios: jsonb('horarios').notNull().default('[]'), // ["11:00","15:00"]
+  diasSemana: jsonb('dias_semana').notNull().default('[0,1,2,3,4,5,6]'), // 0=dom..6=sáb
+  condicao: jsonb('condicao'), // { fonte, operador, limiar }
+  duracaoSeg: integer('duracao_seg').notNull().default(60),
+  ativo: boolean('ativo').notNull().default(true),
+  criadoPor: uuid('criado_por'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Contador central de senha por unidade (Fase F4) — atômico, com reset.
 export const senhaContador = pgTable('senha_contador', {
   id: uuid('id').primaryKey().defaultRandom(),

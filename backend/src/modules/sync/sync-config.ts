@@ -20,6 +20,7 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'colaborador', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'turno', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'etiqueta', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'kds_alerta_config', direcao: 'desce', cursor: 'updated_at' }, // motor de alertas KDS (nuvem → edge)
   // Categoria: BIDIRECIONAL (P3 completo) — editada no edge, espelha na nuvem.
   { tabela: 'categoria_produto', direcao: 'ambos', cursor: 'updated_at' },
   // Produto é BIDIRECIONAL: no modo híbrido (local prioritário) o catálogo é editado
