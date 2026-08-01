@@ -45,6 +45,62 @@ function corTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: numb
 const proximaLabel = (status: string) =>
   status === 'recebido' ? 'Iniciar' : status === 'preparo' ? 'Pronto' : 'Entregar';
 
+// ── Fase C: filtros ricos (aninhados por canal) ──────────────────────────────
+// Delivery agrupa a plataforma; Balcão/Salão agrupa origem + plataforma (Totem).
+const SUBFILTROS: Record<'delivery' | 'balcao', { key: string; label: string }[]> = {
+  delivery: [
+    { key: 'todos', label: 'Todos' },
+    { key: 'marketplace', label: 'Marketplaces' }, // iFood · 99Food · Keeta
+    { key: 'digital', label: 'Cardápios digitais' }, // Anota Aí · Cardápio Web · Regem
+  ],
+  balcao: [
+    { key: 'todos', label: 'Todos' },
+    { key: 'pdv', label: 'PDV / Balcão' },
+    { key: 'mesa', label: 'Mesas / Comandas' },
+    { key: 'totem', label: 'Totens' },
+    { key: 'garcom', label: 'Garçom' },
+  ],
+};
+function grupoPedido(p: any, canal: 'delivery' | 'balcao'): string {
+  const plat = String(p.plataforma ?? '').toLowerCase();
+  if (canal === 'delivery') {
+    if (/ifood|99\s*food|keeta|rappi|uber/.test(plat)) return 'marketplace';
+    return 'digital'; // anota aí, cardápio web, cardápio (regem), outros
+  }
+  if (/totem|kiosk|quiosque/.test(plat)) return 'totem';
+  const o = String(p.origem ?? 'balcao');
+  if (o === 'mesa' || o === 'comanda') return 'mesa';
+  if (o === 'garcom') return 'garcom';
+  return 'pdv';
+}
+
+// ── Fase D: config de exibição do card (por aparelho, no localStorage) ────────
+type ViewCfg = {
+  escala: number; // multiplicador de fonte/espaçamento (0.85 .. 1.5)
+  corSenha: string; // cor da fonte da senha ('' = tema)
+  corProduto: string; // cor da fonte do produto ('' = tema)
+  corObs: string; // cor da fonte das observações
+  agregar: boolean; // agregar itens iguais (soma quantidade) vs. mostrar separados
+};
+const VIEW_PADRAO: ViewCfg = {
+  escala: 1,
+  corSenha: '#E2A340',
+  corProduto: '',
+  corObs: '#FF3B30',
+  agregar: false,
+};
+// Agrega itens iguais (mesma descrição + complementos + obs) somando a quantidade.
+function agregarItens(itens: any[]): any[] {
+  const mapa = new Map<string, any>();
+  for (const it of itens ?? []) {
+    const chave = `${it.descricao}|${it.complementosTexto ?? ''}|${it.observacao ?? ''}`;
+    const ex = mapa.get(chave);
+    if (ex) ex.quantidade = Number(ex.quantidade) + Number(it.quantidade);
+    else mapa.set(chave, { ...it, quantidade: Number(it.quantidade) });
+  }
+  return [...mapa.values()];
+}
+
 // Temas do KDS (só o "chrome" muda; verde/amarelo/vermelho/dourado são semânticos).
 const TEMAS = {
   escuro: {
@@ -73,8 +129,30 @@ export default function KdsPage() {
   const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10 });
   const [setores, setSetores] = useState<any[]>([]);
   const [setorSel, setSetorSel] = useState('');
+  const [kdsList, setKdsList] = useState<any[]>([]); // Fase E — KDS da loja p/ o seletor
+  const [kdsSel, setKdsSel] = useState(''); // qual KDS este aparelho opera (cadeia)
   const [canal, setCanal] = useState<'balcao' | 'delivery'>('balcao');
+  const [subFiltro, setSubFiltro] = useState('todos'); // Fase C — sub-origem
+  const [senhaDigitada, setSenhaDigitada] = useState(''); // Fase F — teclado de senha
+  const [senhaErro, setSenhaErro] = useState(false);
   const [mudo, setMudo] = useState(false);
+  // Fase D — config de exibição do card (por aparelho; guardada no localStorage).
+  const [view, setView] = useState<ViewCfg>(VIEW_PADRAO);
+  const [cfgAberta, setCfgAberta] = useState(false);
+  useEffect(() => {
+    try {
+      const s = localStorage.getItem('kds-view');
+      if (s) setView({ ...VIEW_PADRAO, ...JSON.parse(s) });
+    } catch { /* ignora */ }
+  }, []);
+  function setViewCfg(patch: Partial<ViewCfg>) {
+    setView((v) => {
+      const novo = { ...v, ...patch };
+      try { localStorage.setItem('kds-view', JSON.stringify(novo)); } catch { /* ignora */ }
+      return novo;
+    });
+  }
+  const esc = view.escala; // multiplicador de fonte/espaço
   // Tema do KDS (preferência do aparelho — UI, não dado de negócio).
   const [claro, setClaro] = useState(false);
   useEffect(() => {
@@ -99,6 +177,8 @@ export default function KdsPage() {
   setorRef.current = setorSel;
   const canalRef = useRef(canal);
   canalRef.current = canal;
+  const kdsRef = useRef(kdsSel);
+  kdsRef.current = kdsSel;
 
   const bip = useCallback(() => {
     if (mudoRef.current) return;
@@ -128,6 +208,7 @@ export default function KdsPage() {
         setorRef.current || undefined,
         undefined,
         canalRef.current,
+        kdsRef.current || undefined,
       );
       setPedidos(r.pedidos ?? []);
       if (r.cores) setCores(r.cores);
@@ -145,13 +226,28 @@ export default function KdsPage() {
   useEffect(() => {
     if (getToken()) {
       api.setores().then(setSetores).catch(() => {});
+      // Fase E — KDS da loja (p/ o seletor de cadeia). Restaura a última escolha.
+      api.equipamentos()
+        .then((eqs: any) => setKdsList((eqs as any[]).filter((e) => e.tipo === 'kds' && e.ativo)))
+        .catch(() => {});
+      try {
+        const s = localStorage.getItem('kds-equip');
+        if (s) setKdsSel(s);
+      } catch { /* ignora */ }
     }
   }, []);
 
-  // Recarrega quando muda o setor ou o canal (balcão/delivery).
+  function escolherKds(id: string) {
+    setKdsSel(id);
+    try { localStorage.setItem('kds-equip', id); } catch { /* ignora */ }
+  }
+  const kdsAtual = kdsList.find((k) => k.id === kdsSel) || null;
+  const modoEntrega = kdsAtual?.escopo === 'entrega'; // Fase E3 — board só-senha
+
+  // Recarrega quando muda o setor, o canal ou o KDS operado.
   useEffect(() => {
     carregarFila();
-  }, [setorSel, canal, carregarFila]);
+  }, [setorSel, canal, kdsSel, carregarFila]);
 
   useEffect(() => {
     // Device real: ?token=… (um KDS físico abre app.dmsregem.com/kds?token=…).
@@ -224,7 +320,8 @@ export default function KdsPage() {
   async function avancar(id: string) {
     try {
       // Board único por canal → permite concluir (entregue) no próprio KDS.
-      await api.producaoAvancar(id, 'entrega');
+      // Passa o KDS operado p/ o roteamento entre KDS (Fase E).
+      await api.producaoAvancar(id, 'entrega', kdsSel || undefined);
       await carregarFila();
     } catch {
       /* concorrência: outra tela avançou — o refetch corrige */
@@ -250,6 +347,29 @@ export default function KdsPage() {
 
   const mostrado = escolherAlerta(alertas);
   const nowMs = now ? now.getTime() : Date.now();
+
+  // Fase C — cards filtrados pela sub-origem escolhida (client-side).
+  const pedidosFiltrados =
+    subFiltro === 'todos' ? pedidos : pedidos.filter((p) => grupoPedido(p, canal) === subFiltro);
+
+  // Fase F — digita a senha no teclado e o card com essa senha avança uma etapa.
+  function teclaSenha(t: string) {
+    setSenhaErro(false);
+    if (t === 'del') setSenhaDigitada((s) => s.slice(0, -1));
+    else if (t === 'ok') avancarPorSenha();
+    else setSenhaDigitada((s) => (s.length < 6 ? s + t : s));
+  }
+  function avancarPorSenha() {
+    const s = senhaDigitada.trim();
+    if (!s) return;
+    const alvo = pedidos.find((p) => String(p.senha ?? '') === s && p.status !== 'cancelado');
+    if (!alvo) {
+      setSenhaErro(true);
+      return;
+    }
+    setSenhaDigitada('');
+    void avancar(alvo.id);
+  }
 
   return (
     <main
@@ -296,7 +416,7 @@ export default function KdsPage() {
             <button
               key={c}
               type="button"
-              onClick={() => setCanal(c)}
+              onClick={() => { setCanal(c); setSubFiltro('todos'); }}
               className="px-3 py-2 text-[13px] font-semibold"
               style={{
                 background: canal === c ? '#E2A340' : T.panel2,
@@ -319,6 +439,22 @@ export default function KdsPage() {
             <option value="">Todos os setores</option>
             {setores.map((s) => (
               <option key={s.id} value={s.id}>{s.nome}</option>
+            ))}
+          </select>
+        )}
+
+        {kdsList.length > 0 && (
+          <select
+            aria-label="Este KDS"
+            value={kdsSel}
+            onChange={(e) => escolherKds(e.target.value)}
+            className="rounded-lg border px-3 py-2 text-[13px] font-semibold"
+            style={{ background: T.panel2, borderColor: T.border, color: T.text }}
+            title="Qual KDS este aparelho opera (para a cadeia de produção)"
+          >
+            <option value="">KDS: todos (por setor)</option>
+            {kdsList.map((k) => (
+              <option key={k.id} value={k.id}>KDS: {k.nome}{k.escopo === 'entrega' ? ' (entrega)' : ''}</option>
             ))}
           </select>
         )}
@@ -360,6 +496,17 @@ export default function KdsPage() {
 
         <button
           type="button"
+          onClick={() => setCfgAberta((v) => !v)}
+          aria-pressed={cfgAberta}
+          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
+          style={{ background: T.panel2, borderColor: T.border }}
+          title="Exibição dos cards"
+        >
+          ⚙️
+        </button>
+
+        <button
+          type="button"
           onClick={alternarTema}
           aria-pressed={claro}
           className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
@@ -370,9 +517,140 @@ export default function KdsPage() {
         </button>
       </header>
 
+      {/* Fase D — painel de exibição dos cards (por aparelho). */}
+      {cfgAberta && (
+        <div
+          className="fixed right-4 top-[74px] z-30 w-[300px] rounded-[14px] border p-4 shadow-2xl"
+          style={{ background: T.panel, borderColor: T.border, color: T.text }}
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Exibição dos cards</span>
+            <button type="button" onClick={() => setCfgAberta(false)} style={{ color: T.muted }}>✕</button>
+          </div>
+
+          <label className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>
+            Tamanho ({Math.round(esc * 100)}%)
+          </label>
+          <input
+            type="range" min={0.85} max={1.5} step={0.05} value={esc}
+            onChange={(e) => setViewCfg({ escala: Number(e.target.value) })}
+            className="mb-3 w-full"
+          />
+
+          {([
+            ['corSenha', 'Cor da senha'],
+            ['corProduto', 'Cor do produto'],
+            ['corObs', 'Cor da observação'],
+          ] as const).map(([k, rotulo]) => (
+            <div key={k} className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[12.5px]">{rotulo}</span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="color"
+                  value={(view[k] as string) || (k === 'corProduto' ? (claro ? '#0F2230' : '#EAF1F5') : '#E2A340')}
+                  onChange={(e) => setViewCfg({ [k]: e.target.value } as any)}
+                  className="h-7 w-9 cursor-pointer rounded border-0 bg-transparent p-0"
+                />
+                <button type="button" onClick={() => setViewCfg({ [k]: '' } as any)} className="text-[11px]" style={{ color: T.muted }} title="Usar a cor do tema">padrão</button>
+              </div>
+            </div>
+          ))}
+
+          <label className="mt-2 flex items-center gap-2 text-[13px]">
+            <input type="checkbox" checked={view.agregar} onChange={(e) => setViewCfg({ agregar: e.target.checked })} />
+            Agregar itens iguais (somar quantidade)
+          </label>
+
+          <button
+            type="button"
+            onClick={() => setViewCfg(VIEW_PADRAO)}
+            className="mt-3 w-full rounded-[10px] py-2 text-[12px] font-bold"
+            style={{ background: T.panel2, color: T.muted }}
+          >
+            Restaurar padrão
+          </button>
+        </div>
+      )}
+
+      {/* Sub-barra: filtros por sub-origem (Fase C) + teclado de senha (Fase F) */}
+      <div
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-6 py-2"
+        style={{ background: T.panel2, borderColor: T.border }}
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>
+            {canal === 'delivery' ? 'Delivery' : 'Balcão / Salão'}
+          </span>
+          {SUBFILTROS[canal].map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              onClick={() => setSubFiltro(s.key)}
+              aria-pressed={subFiltro === s.key}
+              className="rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold"
+              style={{
+                background: subFiltro === s.key ? '#E2A340' : T.panel,
+                color: subFiltro === s.key ? '#0B141B' : T.muted,
+                border: `1px solid ${T.border}`,
+              }}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Teclado de senha — digita o nº da senha e o card avança uma etapa */}
+        <div className="ml-auto flex items-center gap-1.5">
+          <div
+            className="flex h-9 w-24 items-center justify-end rounded-md px-3 text-[18px] font-bold tabular-nums"
+            style={{
+              background: senhaErro ? 'rgba(255,90,78,.25)' : T.panel,
+              border: `1px solid ${senhaErro ? '#FF5A4E' : T.border}`,
+              color: T.text,
+              fontFamily: 'JetBrains Mono, monospace',
+            }}
+          >
+            {senhaDigitada || <span style={{ color: T.muted, fontSize: 12 }}>Senha</span>}
+          </div>
+          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => teclaSenha(d)}
+              className="h-9 w-9 rounded-md text-[15px] font-bold"
+              style={{ background: T.panel, border: `1px solid ${T.border}`, color: T.text }}
+            >
+              {d}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => teclaSenha('del')}
+            className="h-9 w-9 rounded-md text-[15px] font-bold"
+            style={{ background: T.panel, border: `1px solid ${T.border}`, color: T.muted }}
+            title="Apagar"
+          >
+            ⌫
+          </button>
+          <button
+            type="button"
+            onClick={() => teclaSenha('ok')}
+            disabled={!senhaDigitada}
+            className="h-9 rounded-md px-4 text-[13px] font-extrabold uppercase disabled:opacity-40"
+            style={{ background: '#19C08F', color: '#04241A' }}
+            title="Avançar o pedido dessa senha"
+          >
+            OK
+          </button>
+        </div>
+      </div>
+
       {/* Corpo full-width — os alertas foram para o RODAPÉ fixo (abaixo). */}
       <div className="mx-auto max-w-[1600px] px-6 py-6" style={{ paddingBottom: mostrado ? 96 : 24 }}>
-        {/* Pedidos de produção — cards coloridos por tempo */}
+        {modoEntrega ? (
+          <EntregaBoard pedidos={pedidosFiltrados} onEntregar={avancar} T={T} esc={esc} />
+        ) : (
+        /* Pedidos de produção — cards coloridos por tempo */
         <section>
           <div className="mb-3 flex items-center justify-between">
             <span
@@ -385,7 +663,7 @@ export default function KdsPage() {
               className="text-[13px] font-bold"
               style={{ color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}
             >
-              {pedidos.length} na fila
+              {pedidosFiltrados.length}{subFiltro !== 'todos' ? ` de ${pedidos.length}` : ''} na fila
             </span>
           </div>
 
@@ -405,7 +683,7 @@ export default function KdsPage() {
             </div>
           )}
 
-          {temSessao !== null && pedidos.length === 0 && (
+          {temSessao !== null && pedidosFiltrados.length === 0 && (
             <div
               className="rounded-2xl border border-dashed px-6 py-14 text-center text-sm"
               style={{ borderColor: T.border, color: T.muted }}
@@ -415,7 +693,7 @@ export default function KdsPage() {
           )}
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {pedidos.map((p) => {
+            {pedidosFiltrados.map((p) => {
               const min = Math.max(
                 0,
                 Math.floor((nowMs - new Date(p.criadoEm).getTime()) / 60000),
@@ -427,17 +705,18 @@ export default function KdsPage() {
               return (
                 <div
                   key={p.id}
-                  className="flex flex-col rounded-[14px] border p-4"
+                  className="flex flex-col rounded-[14px] border"
                   style={{
                     background: cancelado ? '#2A1416' : T.panel,
                     borderColor: cancelado ? '#8A2B2B' : T.border,
                     borderTop: `6px solid ${cancelado ? '#E05252' : cor}`,
+                    padding: Math.round(16 * esc),
                   }}
                 >
                   <div className="mb-2 flex items-center justify-between">
                     <span
-                      className="text-[16px] font-bold"
-                      style={{ fontFamily: 'Archivo, sans-serif', textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.7 : 1 }}
+                      className="font-bold"
+                      style={{ fontFamily: 'Archivo, sans-serif', fontSize: Math.round(17 * esc), color: view.corSenha || undefined, textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.7 : 1 }}
                     >
                       {p.senha
                         ? `Senha ${p.senha}`
@@ -471,23 +750,23 @@ export default function KdsPage() {
                     </div>
                   )}
                   <div className="mb-3 flex-1 space-y-1">
-                    {(p.itens ?? []).map((it: any) => (
-                      <div key={it.id} className="text-[14px]" style={{ textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.65 : 1 }}>
-                        <span className="font-semibold">
+                    {(view.agregar ? agregarItens(p.itens ?? []) : (p.itens ?? [])).map((it: any, ix: number) => (
+                      <div key={it.id ?? ix} style={{ fontSize: Math.round(14 * esc), textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.65 : 1 }}>
+                        <span className="font-semibold" style={{ color: view.corProduto || undefined }}>
                           {Number(it.quantidade)}× {it.descricao}
                         </span>
                         {it.complementosTexto && (
                           <div
-                            className="mt-0.5 rounded px-1.5 py-0.5 text-[12px] font-semibold"
-                            style={{ background: 'rgba(226,163,64,.18)', color: '#F4C578' }}
+                            className="mt-0.5 rounded px-1.5 py-0.5 font-semibold"
+                            style={{ background: 'rgba(226,163,64,.18)', color: '#F4C578', fontSize: Math.round(12 * esc) }}
                           >
                             {it.complementosTexto}
                           </div>
                         )}
                         {it.observacao && (
                           <div
-                            className="mt-0.5 rounded px-1.5 py-0.5 text-[12px] font-bold"
-                            style={{ background: 'rgba(255,90,78,.18)', color: '#FF8A80' }}
+                            className="mt-0.5 rounded px-1.5 py-0.5 font-bold"
+                            style={{ background: 'rgba(255,59,48,.16)', color: view.corObs || '#FF3B30', fontSize: Math.round(12 * esc) }}
                           >
                             OBS: {it.observacao}
                           </div>
@@ -519,6 +798,7 @@ export default function KdsPage() {
             })}
           </div>
         </section>
+        )}
       </div>
 
       {/* RODAPÉ de alertas — barra full-width, texto rolando da direita p/ esquerda,
@@ -581,5 +861,69 @@ export default function KdsPage() {
         </div>
       )}
     </main>
+  );
+}
+
+// Fase E3 — KDS de ENTREGA (só senha): duas colunas Preparando / Pronto. O pedido
+// entra em "Preparando" (recebido/preparo) e chega em "Pronto"; tocar numa senha
+// pronta conclui (entrega). Tela limpa, senhas gigantes p/ o balcão de retirada.
+function EntregaBoard({
+  pedidos,
+  onEntregar,
+  T,
+  esc,
+}: {
+  pedidos: any[];
+  onEntregar: (id: string) => void;
+  T: { panel: string; panel2: string; border: string; text: string; muted: string };
+  esc: number;
+}) {
+  const rotulo = (p: any) => (p.senha ? p.senha : p.mesa ? p.mesa : p.numero ? `#${p.numero}` : '—');
+  const preparando = pedidos.filter((p) => p.status === 'recebido' || p.status === 'preparo');
+  const pronto = pedidos.filter((p) => p.status === 'pronto');
+  const Coluna = ({ titulo, itens, cor, tocavel }: { titulo: string; itens: any[]; cor: string; tocavel?: boolean }) => (
+    <section className="min-w-0">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="inline-block h-3 w-3 rounded-full" style={{ background: cor }} />
+        <span className="text-[15px] font-bold uppercase tracking-wider" style={{ color: T.muted, fontFamily: 'Archivo, sans-serif' }}>
+          {titulo}
+        </span>
+        <span className="text-[15px] font-bold" style={{ color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}>{itens.length}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        {itens.length === 0 && (
+          <div className="col-span-full rounded-2xl border border-dashed px-6 py-10 text-center text-sm" style={{ borderColor: T.border, color: T.muted }}>
+            Vazio
+          </div>
+        )}
+        {itens.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            disabled={!tocavel}
+            onClick={() => tocavel && onEntregar(p.id)}
+            className="grid place-items-center rounded-[16px] border font-extrabold tabular-nums disabled:cursor-default"
+            style={{
+              background: tocavel ? cor : T.panel,
+              color: tocavel ? '#04241A' : T.text,
+              borderColor: T.border,
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: Math.round(48 * esc),
+              padding: Math.round(22 * esc),
+              minHeight: Math.round(96 * esc),
+            }}
+            title={tocavel ? 'Entregar (concluir)' : undefined}
+          >
+            {rotulo(p)}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+  return (
+    <div className="grid gap-8 lg:grid-cols-2">
+      <Coluna titulo="Preparando" itens={preparando} cor="#FFB13D" />
+      <Coluna titulo="Pronto — chamar / entregar" itens={pronto} cor="#19C08F" tocavel />
+    </div>
   );
 }

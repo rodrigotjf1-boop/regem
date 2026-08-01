@@ -122,6 +122,15 @@ export class EquipamentoController {
     return this.service.setImpressaoEtapa(user.tenantId, id, dto ?? {});
   }
 
+  // KDS: próximo KDS da cadeia — ao avançar, o card migra p/ ele (mig 159, Fase E).
+  @Patch(':id/proximo-kds')
+  @UseGuards(PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
+  setProximoKds(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setProximoKds(user.tenantId, id, dto?.proximoKdsId ?? null);
+  }
+
   @Patch(':id/revogar')
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')

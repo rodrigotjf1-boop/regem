@@ -763,7 +763,7 @@ export class ProducaoPedidoService {
   // (recebido/preparo/pronto) + cancelados recentes (riscados por um tempo).
   async filaKds(
     tenantId: string,
-    opts: { setorId?: string; unidadeId?: string; canal?: string } = {},
+    opts: { setorId?: string; unidadeId?: string; canal?: string; equipamentoId?: string } = {},
   ) {
     const cores = await this.getCores(tenantId, opts.unidadeId);
     const conds = [
@@ -777,7 +777,22 @@ export class ProducaoPedidoService {
     } else {
       conds.push(sql`origem <> 'delivery'` as any);
     }
-    if (opts.setorId) conds.push(eq(producaoPedido.setorId, opts.setorId));
+    if (opts.equipamentoId) {
+      // Fase E: o KDS operado filtra pela CADEIA — cards roteados para ele (destino)
+      // OU ainda não roteados (destino null) do seu setor (entrada). Ignora setorId.
+      const [ekds] = await this.db
+        .select({ setorId: equipamento.setorId })
+        .from(equipamento)
+        .where(and(eq(equipamento.id, opts.equipamentoId), eq(equipamento.tenantId, tenantId)));
+      const setorKds = ekds?.setorId ?? null;
+      conds.push(
+        sql`(destino_equipamento_id = ${opts.equipamentoId} or (destino_equipamento_id is null ${
+          setorKds ? sql`and setor_id = ${setorKds}` : sql``
+        }))` as any,
+      );
+    } else if (opts.setorId) {
+      conds.push(eq(producaoPedido.setorId, opts.setorId));
+    }
     // Ativos + cancelados recentes.
     conds.push(
       sql`(status in ('recebido','preparo','pronto')
@@ -857,6 +872,7 @@ export class ProducaoPedidoService {
     atorId: string,
     pedidoId: string,
     escopo?: string,
+    equipamentoId?: string, // KDS que operou o avanço (Fase E — roteamento p/ o próximo)
   ) {
     const p = await this.carregar(tenantId, pedidoId);
     if (p.status === 'cancelado')
@@ -877,6 +893,15 @@ export class ProducaoPedidoService {
     if (novo === 'preparo') patch.iniciadoEm = new Date();
     if (novo === 'pronto') patch.prontoEm = new Date();
     if (novo === 'entregue') patch.entregueEm = new Date();
+    // Fase E — roteamento entre KDS: se o KDS que avançou tem "próximo KDS", o card
+    // migra para lá (aparece na fila do próximo). Opt-in: sem proximo_kds, nada muda.
+    if (equipamentoId && novo !== 'entregue') {
+      const [ekds] = await this.db
+        .select({ proximo: equipamento.proximoKdsId })
+        .from(equipamento)
+        .where(and(eq(equipamento.id, equipamentoId), eq(equipamento.tenantId, tenantId)));
+      if (ekds?.proximo) patch.destinoEquipamentoId = ekds.proximo;
+    }
     await this.db
       .update(producaoPedido)
       .set(patch)

@@ -417,6 +417,18 @@ export class EquipamentoService {
     return this.publico(row);
   }
 
+  // Fase E — próximo KDS da cadeia (ao avançar o card migra para ele). null = fim.
+  async setProximoKds(tenantId: string, id: string, proximoKdsId: string | null) {
+    if (proximoKdsId === id) throw new BadRequestException('Um KDS não pode apontar para si mesmo.');
+    const [row] = await this.db
+      .update(equipamento)
+      .set({ proximoKdsId: proximoKdsId || null })
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.tipo, 'kds')))
+      .returning();
+    if (!row) throw new NotFoundException('KDS não encontrado.');
+    return this.publico(row);
+  }
+
   private publico(r: any) {
     return {
       id: r.id,
@@ -441,6 +453,7 @@ export class EquipamentoService {
       imprimeAoAvancar: !!r.imprimeAoAvancar,
       imprimeNoStatus: r.imprimeNoStatus ?? 'pronto',
       impressoraDestinoId: r.impressoraDestinoId ?? null,
+      proximoKdsId: r.proximoKdsId ?? null, // KDS — próximo na cadeia (mig 159)
       pdvMainId: r.pdvMainId ?? null, // sub-PDV salão (mig 133)
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,
