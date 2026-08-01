@@ -562,6 +562,9 @@ export class DeliveryService {
         quantidade: Number(it.quantidade) || 1,
         precoUnitario: Number(it.precoUnitario) || 0,
         observacao: it.observacao ?? null,
+        // Complementos (batata/bebida) NÃO são observação — vão para o campo próprio,
+        // que o KDS mostra em dourado (não no vermelho de OBS).
+        complementosTexto: (it as any).complementos ?? null,
       })),
     });
 
