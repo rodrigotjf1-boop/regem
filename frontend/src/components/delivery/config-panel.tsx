@@ -1369,7 +1369,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
     setAnotaMsg('Importando catálogo…');
     try {
       const r: any = await api.anotaaiImportarCatalogo();
-      setAnotaMsg(`Catálogo importado: +${r?.produtos ?? 0} produtos, +${r?.categorias ?? 0} categorias, ${r?.atualizados ?? 0} atualizados.`);
+      setAnotaMsg(`Catálogo importado: +${r?.produtos ?? 0} produtos, +${r?.categorias ?? 0} categorias, +${r?.complementos ?? 0} opções de complemento, ${r?.atualizados ?? 0} atualizados.`);
     } catch (e: any) {
       setAnotaMsg('Erro ao importar: ' + (e?.message ?? ''));
     } finally {
