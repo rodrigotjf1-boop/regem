@@ -55,6 +55,16 @@ const CANAL_ESTILO: Record<string, { bg: string; fg: string }> = {
   rappi: { bg: '#FF4E1B', fg: '#FFFFFF' },
   '99food': { bg: '#FFD400', fg: '#0B141B' },
 };
+// Emblema (logo) do canal em public/integracoes/. Sem arquivo (cardapio/n8n) = sem logo.
+const CANAL_LOGO: Record<string, string> = {
+  ifood: '/integracoes/ifood.png',
+  anotaai: '/integracoes/anotaai.png',
+  '99food': '/integracoes/99food.png',
+  cardapio_web: '/integracoes/cardapio-web.png',
+  delivery_direto: '/integracoes/delivery-direto.png',
+  rappi: '/integracoes/rappi.jpg',
+  keeta: '/integracoes/keeta.png',
+};
 
 // Colunas do quadro. `status` = quais estados do pedido caem na coluna.
 const COLUNAS = [
@@ -816,11 +826,25 @@ function PedidoCard({
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className={`font-mono text-sm font-bold ${cancelado ? 'line-through opacity-70' : ''}`}>#{p.numero ?? '—'}</span>
           {bgCanal ? (
-            <span className="rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: bgCanal, color: fgCanal }}>{CANAL_LABEL[p.canal] ?? p.canal}</span>
+            <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold" style={{ background: bgCanal, color: fgCanal }}>
+              {CANAL_LOGO[p.canal] && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={CANAL_LOGO[p.canal]} alt="" className="h-3.5 w-3.5 rounded-[3px] object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+              )}
+              {CANAL_LABEL[p.canal] ?? p.canal}
+            </span>
           ) : p.canal === 'cardapio' ? (
             <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[11px] font-bold text-primary">Cardápio</span>
           ) : (
-            <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{CANAL_LABEL[p.canal] ?? p.canal}</span>
+            <span className="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              {CANAL_LOGO[p.canal] && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={CANAL_LOGO[p.canal]} alt="" className="h-3.5 w-3.5 rounded-[3px] object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+              )}
+              {CANAL_LABEL[p.canal] ?? p.canal}
+            </span>
           )}
           <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">{p.tipo === 'retirada' ? '🏪 Retirada' : '🛵 Delivery'}</span>
           {p.displayId && <span className="font-mono text-[11px] text-muted-foreground">#{p.displayId}</span>}

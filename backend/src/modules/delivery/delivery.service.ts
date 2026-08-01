@@ -26,7 +26,7 @@ import {
   edgeHeartbeat,
   produto,
 } from '../../db/schema';
-import { condUnidade } from '../../common/filtro-unidade';
+import { condUnidadeOuRede } from '../../common/filtro-unidade';
 import { VendasService } from '../vendas/vendas.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
@@ -438,7 +438,10 @@ export class DeliveryService {
       .where(
         and(
           eq(pedidoExterno.tenantId, tenantId),
-          condUnidade(pedidoExterno.unidadeId, atual),
+          // Pedidos de marketplace (iFood/Anota) podem chegar SEM unidade (unidade_id
+          // null = "rede"). condUnidadeOuRede inclui os null → não somem do quadro
+          // quando há uma unidade selecionada no topo (bug: apareciam no KDS, não aqui).
+          condUnidadeOuRede(pedidoExterno.unidadeId, atual),
           or(
             inArray(pedidoExterno.status, [
               'novo',

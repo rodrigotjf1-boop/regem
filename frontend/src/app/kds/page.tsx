@@ -36,11 +36,17 @@ function bgAlerta(p: Alerta['prioridade']) {
   return '#B7791F';
 }
 
-// Cor pelo tempo decorrido vs. limiares configurados pelo gerente.
+// Cor pelo tempo decorrido vs. limiares configurados pelo gerente (usada no selo de min).
 function corTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: number }) {
   if (min <= cores.verdeAteMin) return '#19C08F';
   if (min <= cores.amareloAteMin) return '#FFB13D';
   return '#FF5A4E';
+}
+// Fundo do card por tempo: verde leve → amarelo leve → vermelho leve (fora do prazo).
+function bgTempo(min: number, cores: { verdeAteMin: number; amareloAteMin: number }) {
+  if (min <= cores.verdeAteMin) return '#E4F7F0';
+  if (min <= cores.amareloAteMin) return '#FCF1DA';
+  return '#FBE3E1';
 }
 const proximaLabel = (status: string) =>
   status === 'recebido' ? 'Iniciar' : status === 'preparo' ? 'Pronto' : 'Entregar';
@@ -132,7 +138,9 @@ export default function KdsPage() {
   const [kdsList, setKdsList] = useState<any[]>([]); // Fase E — KDS da loja p/ o seletor
   const [kdsSel, setKdsSel] = useState(''); // qual KDS este aparelho opera (cadeia)
   const [canal, setCanal] = useState<'balcao' | 'delivery'>('balcao');
-  const [subFiltro, setSubFiltro] = useState('todos'); // Fase C — sub-origem
+  // Fase C — filtros de sub-origem, um por canal (no modal de config).
+  const [subDelivery, setSubDelivery] = useState('todos');
+  const [subBalcao, setSubBalcao] = useState('todos');
   const [senhaDigitada, setSenhaDigitada] = useState(''); // Fase F — teclado de senha
   const [senhaErro, setSenhaErro] = useState(false);
   const [mudo, setMudo] = useState(false);
@@ -153,10 +161,11 @@ export default function KdsPage() {
     });
   }
   const esc = view.escala; // multiplicador de fonte/espaço
-  // Tema do KDS (preferência do aparelho — UI, não dado de negócio).
-  const [claro, setClaro] = useState(false);
+  const [pedirTelaCheia, setPedirTelaCheia] = useState(false);
+  // Tema do KDS (preferência do aparelho — UI, não dado de negócio). CLARO por padrão.
+  const [claro, setClaro] = useState(true);
   useEffect(() => {
-    setClaro(localStorage.getItem('kds-tema') === 'claro');
+    setClaro(localStorage.getItem('kds-tema') !== 'escuro');
   }, []);
   const T = claro ? TEMAS.claro : TEMAS.escuro;
   function alternarTema() {
@@ -179,6 +188,7 @@ export default function KdsPage() {
   canalRef.current = canal;
   const kdsRef = useRef(kdsSel);
   kdsRef.current = kdsSel;
+  const senhaRef = useRef<HTMLInputElement | null>(null); // Fase F — campo de senha (foco)
 
   const bip = useCallback(() => {
     if (mudoRef.current) return;
@@ -241,6 +251,43 @@ export default function KdsPage() {
     setKdsSel(id);
     try { localStorage.setItem('kds-equip', id); } catch { /* ignora */ }
   }
+
+  // Atalho: um .url que carrega o KDS já com a config atual + tela cheia. O usuário
+  // salva na área de trabalho; ao abrir, o KDS lê `?cfg=` e aplica tudo.
+  function criarAtalho() {
+    const cfg = {
+      view, tema: claro ? 'claro' : 'escuro', canal, setor: setorSel,
+      kds: kdsSel, subDelivery, subBalcao, mudo,
+    };
+    const enc = btoa(encodeURIComponent(JSON.stringify(cfg)));
+    const url = `${window.location.origin}/kds?cfg=${enc}&full=1`;
+    const blob = new Blob([`[InternetShortcut]\r\nURL=${url}\r\n`], { type: 'application/x-mswinurl' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `KDS Regem${kdsAtual?.nome ? ' - ' + kdsAtual.nome : ''}.url`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // Ao abrir por um atalho (?cfg=…), aplica a config; ?full=1 oferece tela cheia.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const cfg = params.get('cfg');
+    if (cfg) {
+      try {
+        const c = JSON.parse(decodeURIComponent(atob(cfg)));
+        if (c.view) setView({ ...VIEW_PADRAO, ...c.view });
+        if (c.tema) setClaro(c.tema !== 'escuro');
+        if (c.canal) setCanal(c.canal);
+        if (c.setor != null) setSetorSel(c.setor);
+        if (c.kds != null) setKdsSel(c.kds);
+        if (c.subDelivery) setSubDelivery(c.subDelivery);
+        if (c.subBalcao) setSubBalcao(c.subBalcao);
+        if (c.mudo != null) setMudo(!!c.mudo);
+      } catch { /* ignora cfg inválida */ }
+    }
+    if (params.get('full') === '1') setPedirTelaCheia(true);
+  }, []);
   const kdsAtual = kdsList.find((k) => k.id === kdsSel) || null;
   const modoEntrega = kdsAtual?.escopo === 'entrega'; // Fase E3 — board só-senha
 
@@ -348,17 +395,13 @@ export default function KdsPage() {
   const mostrado = escolherAlerta(alertas);
   const nowMs = now ? now.getTime() : Date.now();
 
-  // Fase C — cards filtrados pela sub-origem escolhida (client-side).
+  // Fase C — cards filtrados pela sub-origem do canal ativo (client-side).
+  const subAtivo = canal === 'delivery' ? subDelivery : subBalcao;
   const pedidosFiltrados =
-    subFiltro === 'todos' ? pedidos : pedidos.filter((p) => grupoPedido(p, canal) === subFiltro);
+    subAtivo === 'todos' ? pedidos : pedidos.filter((p) => grupoPedido(p, canal) === subAtivo);
 
-  // Fase F — digita a senha no teclado e o card com essa senha avança uma etapa.
-  function teclaSenha(t: string) {
-    setSenhaErro(false);
-    if (t === 'del') setSenhaDigitada((s) => s.slice(0, -1));
-    else if (t === 'ok') avancarPorSenha();
-    else setSenhaDigitada((s) => (s.length < 6 ? s + t : s));
-  }
+  // Fase F — teclado numérico FÍSICO do equipamento: o campo fica com foco aguardando
+  // a digitação; Enter avança o card daquela senha. Sem botões na tela.
   function avancarPorSenha() {
     const s = senhaDigitada.trim();
     if (!s) return;
@@ -369,6 +412,23 @@ export default function KdsPage() {
     }
     setSenhaDigitada('');
     void avancar(alvo.id);
+    senhaRef.current?.focus();
+  }
+
+  // Limpa a tela: avança TODOS os cards (vão para o próximo KDS ou concluem). Pede
+  // confirmação antes. Faz alguns passes até esvaziar (cada avanço = uma etapa).
+  async function limparCards() {
+    const ativos = pedidos.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
+    if (!ativos.length) return;
+    if (!confirm(`Finalizar todos os ${ativos.length} pedido(s) da tela? Eles vão avançar (próximo KDS ou concluir).`)) return;
+    for (let passe = 0; passe < 4; passe++) {
+      const atual = pedidosRef.current.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
+      if (!atual.length) break;
+      for (const p of atual) {
+        try { await api.producaoAvancar(p.id, 'entrega', kdsSel || undefined); } catch { /* segue */ }
+      }
+      await carregarFila();
+    }
   }
 
   return (
@@ -416,7 +476,7 @@ export default function KdsPage() {
             <button
               key={c}
               type="button"
-              onClick={() => { setCanal(c); setSubFiltro('todos'); }}
+              onClick={() => setCanal(c)}
               className="px-3 py-2 text-[13px] font-semibold"
               style={{
                 background: canal === c ? '#E2A340' : T.panel2,
@@ -459,19 +519,57 @@ export default function KdsPage() {
           </select>
         )}
 
+        {/* Senha (Fase F): foco automático; o teclado numérico físico digita e Enter avança. */}
         <div
-          className="ml-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px] font-semibold"
+          className="ml-1 flex items-center gap-2 rounded-lg border px-2.5 py-1.5"
+          style={{ background: senhaErro ? 'rgba(255,90,78,.18)' : T.panel2, borderColor: senhaErro ? '#FF5A4E' : T.border }}
+        >
+          <span className="text-[11px] font-bold uppercase tracking-wide" style={{ color: T.muted }}>Senha</span>
+          <input
+            ref={senhaRef}
+            autoFocus
+            inputMode="numeric"
+            value={senhaDigitada}
+            onChange={(e) => { setSenhaErro(false); setSenhaDigitada(e.target.value.replace(/\D/g, '').slice(0, 6)); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') avancarPorSenha(); }}
+            placeholder="—"
+            aria-label="Senha do pedido (Enter avança)"
+            className="w-16 bg-transparent text-center text-[20px] font-bold tabular-nums outline-none"
+            style={{ color: T.text, fontFamily: 'JetBrains Mono, monospace' }}
+          />
+        </div>
+
+        <div
+          className="rounded-lg border px-3 py-2 text-[12.5px] font-bold tabular-nums"
+          style={{ background: T.panel2, borderColor: T.border, color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}
+          title="Cards na fila"
+        >
+          {pedidosFiltrados.length} na fila
+        </div>
+
+        <button
+          type="button"
+          onClick={limparCards}
+          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
+          style={{ background: T.panel2, borderColor: T.border }}
+          title="Finalizar/avançar todos os cards da tela"
+        >
+          🧹
+        </button>
+
+        <div
+          className="ml-auto flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px] font-semibold"
           style={{ background: T.panel2, borderColor: T.border, color: T.muted }}
         >
           <span
             className="inline-block h-2.5 w-2.5 rounded-full"
             style={{ background: conectado ? '#19C08F' : '#FF5A4E' }}
           />
-          {conectado ? 'Servidor online' : 'Servidor offline'}
+          {conectado ? 'online' : 'offline'}
         </div>
 
         <div
-          className="ml-auto text-[26px] font-bold tabular-nums"
+          className="text-[26px] font-bold tabular-nums"
           style={{ fontFamily: 'JetBrains Mono, monospace' }}
         >
           {now
@@ -517,16 +615,46 @@ export default function KdsPage() {
         </button>
       </header>
 
-      {/* Fase D — painel de exibição dos cards (por aparelho). */}
+      {/* Modal de configuração (exibição + filtros + atalho). */}
       {cfgAberta && (
         <div
-          className="fixed right-4 top-[74px] z-30 w-[300px] rounded-[14px] border p-4 shadow-2xl"
+          className="fixed right-4 top-[74px] z-30 max-h-[calc(100dvh-90px)] w-[340px] overflow-y-auto rounded-[14px] border p-4 shadow-2xl"
           style={{ background: T.panel, borderColor: T.border, color: T.text }}
         >
           <div className="mb-3 flex items-center justify-between">
-            <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Exibição dos cards</span>
+            <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Configuração</span>
             <button type="button" onClick={() => setCfgAberta(false)} style={{ color: T.muted }}>✕</button>
           </div>
+
+          {/* Filtros (Fase C) — um conjunto para delivery, outro para o balcão. */}
+          {([
+            ['Filtrar delivery', 'delivery', subDelivery, setSubDelivery],
+            ['Filtrar balcão / salão', 'balcao', subBalcao, setSubBalcao],
+          ] as const).map(([rotulo, cnl, valor, setar]) => (
+            <div key={cnl} className="mb-3">
+              <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>{rotulo}</span>
+              <div className="flex flex-wrap gap-1.5">
+                {SUBFILTROS[cnl].map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    onClick={() => setar(s.key)}
+                    className="rounded-md px-2.5 py-1 text-[12px] font-semibold"
+                    style={{
+                      background: valor === s.key ? '#E2A340' : T.panel2,
+                      color: valor === s.key ? '#0B141B' : T.muted,
+                      border: `1px solid ${T.border}`,
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div className="my-3 border-t" style={{ borderColor: T.border }} />
+          <span className="mb-2 block text-[12px] font-semibold" style={{ color: T.muted }}>Exibição dos cards</span>
 
           <label className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>
             Tamanho ({Math.round(esc * 100)}%)
@@ -569,104 +697,30 @@ export default function KdsPage() {
           >
             Restaurar padrão
           </button>
+
+          <div className="my-3 border-t" style={{ borderColor: T.border }} />
+          <button
+            type="button"
+            onClick={criarAtalho}
+            className="w-full rounded-[10px] py-2.5 text-[13px] font-bold"
+            style={{ background: '#E2A340', color: '#0B141B' }}
+          >
+            🔗 Criar atalho na área de trabalho
+          </button>
+          <p className="mt-1.5 text-[11px]" style={{ color: T.muted }}>
+            Baixa um atalho que abre este KDS já com estas configurações, em tela cheia.
+            Arraste o arquivo para a área de trabalho.
+          </p>
         </div>
       )}
-
-      {/* Sub-barra: filtros por sub-origem (Fase C) + teclado de senha (Fase F) */}
-      <div
-        className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b px-6 py-2"
-        style={{ background: T.panel2, borderColor: T.border }}
-      >
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-[11px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>
-            {canal === 'delivery' ? 'Delivery' : 'Balcão / Salão'}
-          </span>
-          {SUBFILTROS[canal].map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              onClick={() => setSubFiltro(s.key)}
-              aria-pressed={subFiltro === s.key}
-              className="rounded-md px-2.5 py-1.5 text-[12.5px] font-semibold"
-              style={{
-                background: subFiltro === s.key ? '#E2A340' : T.panel,
-                color: subFiltro === s.key ? '#0B141B' : T.muted,
-                border: `1px solid ${T.border}`,
-              }}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Teclado de senha — digita o nº da senha e o card avança uma etapa */}
-        <div className="ml-auto flex items-center gap-1.5">
-          <div
-            className="flex h-9 w-24 items-center justify-end rounded-md px-3 text-[18px] font-bold tabular-nums"
-            style={{
-              background: senhaErro ? 'rgba(255,90,78,.25)' : T.panel,
-              border: `1px solid ${senhaErro ? '#FF5A4E' : T.border}`,
-              color: T.text,
-              fontFamily: 'JetBrains Mono, monospace',
-            }}
-          >
-            {senhaDigitada || <span style={{ color: T.muted, fontSize: 12 }}>Senha</span>}
-          </div>
-          {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => teclaSenha(d)}
-              className="h-9 w-9 rounded-md text-[15px] font-bold"
-              style={{ background: T.panel, border: `1px solid ${T.border}`, color: T.text }}
-            >
-              {d}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => teclaSenha('del')}
-            className="h-9 w-9 rounded-md text-[15px] font-bold"
-            style={{ background: T.panel, border: `1px solid ${T.border}`, color: T.muted }}
-            title="Apagar"
-          >
-            ⌫
-          </button>
-          <button
-            type="button"
-            onClick={() => teclaSenha('ok')}
-            disabled={!senhaDigitada}
-            className="h-9 rounded-md px-4 text-[13px] font-extrabold uppercase disabled:opacity-40"
-            style={{ background: '#19C08F', color: '#04241A' }}
-            title="Avançar o pedido dessa senha"
-          >
-            OK
-          </button>
-        </div>
-      </div>
 
       {/* Corpo full-width — os alertas foram para o RODAPÉ fixo (abaixo). */}
       <div className="mx-auto max-w-[1600px] px-6 py-6" style={{ paddingBottom: mostrado ? 96 : 24 }}>
         {modoEntrega ? (
           <EntregaBoard pedidos={pedidosFiltrados} onEntregar={avancar} T={T} esc={esc} />
         ) : (
-        /* Pedidos de produção — cards coloridos por tempo */
+        /* Cards de produção — coloridos por tempo. */
         <section>
-          <div className="mb-3 flex items-center justify-between">
-            <span
-              className="text-[13px] font-bold uppercase tracking-[0.16em]"
-              style={{ color: T.muted, fontFamily: 'Archivo, sans-serif' }}
-            >
-              Pedidos em produção
-            </span>
-            <span
-              className="text-[13px] font-bold"
-              style={{ color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}
-            >
-              {pedidosFiltrados.length}{subFiltro !== 'todos' ? ` de ${pedidos.length}` : ''} na fila
-            </span>
-          </div>
-
           {temSessao === null && (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -705,11 +759,12 @@ export default function KdsPage() {
               return (
                 <div
                   key={p.id}
-                  className="flex flex-col rounded-[14px] border"
+                  className="flex flex-col rounded-[14px]"
                   style={{
-                    background: cancelado ? '#2A1416' : T.panel,
-                    borderColor: cancelado ? '#8A2B2B' : T.border,
-                    borderTop: `6px solid ${cancelado ? '#E05252' : cor}`,
+                    // Fundo por tempo (verde/amarelo/vermelho leve) + contorno fino preto.
+                    background: cancelado ? '#F4DDDD' : bgTempo(min, cores),
+                    border: '1px solid #0F2230',
+                    color: '#14202B',
                     padding: Math.round(16 * esc),
                   }}
                 >
@@ -842,6 +897,24 @@ export default function KdsPage() {
           100% { transform: translateX(-100%); }
         }
       `}</style>
+
+      {/* Atalho abriu com ?full=1 → oferece tela cheia (o navegador exige um clique). */}
+      {pedirTelaCheia && (
+        <button
+          type="button"
+          onClick={() => {
+            document.documentElement.requestFullscreen?.().catch(() => {});
+            setPedirTelaCheia(false);
+            senhaRef.current?.focus();
+          }}
+          className="fixed inset-0 z-40 grid place-items-center"
+          style={{ background: 'rgba(11,20,27,.92)', color: '#fff' }}
+        >
+          <span className="rounded-full px-8 py-4 text-lg font-bold" style={{ background: '#E2A340', color: '#0B141B' }}>
+            Toque para entrar em tela cheia
+          </span>
+        </button>
+      )}
 
       {temSessao === false && (
         <div
