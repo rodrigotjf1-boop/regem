@@ -210,6 +210,16 @@ export default function EquipamentosPage() {
     }
   }
 
+  // Fase E — define o próximo KDS da cadeia (ao avançar o card migra para ele).
+  async function salvarProximoKds(eq: any, proximoKdsId: string | null) {
+    try {
+      await api.setProximoKds(eq.id, proximoKdsId);
+      await reload();
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar o próximo KDS');
+    }
+  }
+
   async function bindImpressora(id: string, impressoraId: string) {
     setErro('');
     try {
@@ -705,6 +715,24 @@ export default function EquipamentosPage() {
                           </select>
                         </>
                       )}
+                    </div>
+                  )}
+                  {eq.tipo === 'kds' && eq.ativo && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="text-muted-foreground">Próximo KDS ao avançar:</span>
+                      <select
+                        aria-label={`Próximo KDS da cadeia após o ${eq.nome}`}
+                        value={eq.proximoKdsId ?? ''}
+                        onChange={(e) => salvarProximoKds(eq, e.target.value || null)}
+                        className="h-8 rounded-md border border-input bg-card px-2 text-xs"
+                      >
+                        <option value="">— nenhum (etapa final) —</option>
+                        {(lista ?? [])
+                          .filter((k: any) => k.tipo === 'kds' && k.ativo && k.id !== eq.id)
+                          .map((k: any) => (
+                            <option key={k.id} value={k.id}>{k.nome}</option>
+                          ))}
+                      </select>
                     </div>
                   )}
                 </div>

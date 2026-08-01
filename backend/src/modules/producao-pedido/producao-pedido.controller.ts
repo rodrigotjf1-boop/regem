@@ -39,12 +39,14 @@ export class ProducaoPedidoController {
     @Query('setorId') setorId?: string,
     @Query('unidadeId') unidadeId?: string,
     @Query('canal') canal?: string,
+    @Query('equipamentoId') equipamentoId?: string,
   ) {
     return this.service.filaKds(user.tenantId, {
       setorId: setorId || undefined,
       // Só o presidente pode escolher a unidade via query; os demais ficam na sua.
       unidadeId: (user.categoria === 'presidente' ? unidadeId || unidadeAtual : unidadeAtual) || undefined,
       canal: canal || undefined,
+      equipamentoId: equipamentoId || undefined,
     });
   }
 
@@ -54,7 +56,7 @@ export class ProducaoPedidoController {
     @Param('id') id: string,
     @Body() dto: any,
   ) {
-    return this.service.avancar(user.tenantId, user.colaboradorId, id, dto?.escopo);
+    return this.service.avancar(user.tenantId, user.colaboradorId, id, dto?.escopo, dto?.equipamentoId);
   }
 
   // ----- PDV (atendente é dono): consultar + cancelar em produção -----

@@ -562,19 +562,23 @@ export const api = {
   removerEstoqueCategoria: (id: string) =>
     req(`/estoque/categorias-item/${id}`, { method: 'DELETE' }),
   // Produção (Fase F1)
-  producaoFila: (setorId?: string, unidadeId?: string, canal?: string) => {
+  producaoFila: (setorId?: string, unidadeId?: string, canal?: string, equipamentoId?: string) => {
     const p = new URLSearchParams();
     if (setorId) p.set('setorId', setorId);
     if (unidadeId) p.set('unidadeId', unidadeId);
     if (canal) p.set('canal', canal);
+    if (equipamentoId) p.set('equipamentoId', equipamentoId);
     const q = p.toString();
     return req(`/producao/fila${q ? `?${q}` : ''}`);
   },
-  producaoAvancar: (id: string, escopo?: string) =>
+  producaoAvancar: (id: string, escopo?: string, equipamentoId?: string) =>
     req(`/producao/pedidos/${id}/avancar`, {
       method: 'POST',
-      body: JSON.stringify({ escopo }),
+      body: JSON.stringify({ escopo, equipamentoId }),
     }),
+  // Fase E — roteamento: define o próximo KDS da cadeia (ao avançar o card migra).
+  setProximoKds: (id: string, proximoKdsId: string | null) =>
+    req(`/equipamento/${id}/proximo-kds`, { method: 'PATCH', body: JSON.stringify({ proximoKdsId }) }),
   // Motor de alertas do KDS (Fase B) — cadastro + disparo manual.
   kdsAlertas: () => req('/kds/alertas'),
   kdsAlertaCriar: (body: Record<string, unknown>) =>

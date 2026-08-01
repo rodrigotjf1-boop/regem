@@ -773,6 +773,7 @@ export const equipamento = pgTable('equipamento', {
   imprimeAoAvancar: boolean('imprime_ao_avancar').notNull().default(false),
   imprimeNoStatus: text('imprime_no_status').notNull().default('pronto'),
   impressoraDestinoId: uuid('impressora_destino_id'),
+  proximoKdsId: uuid('proximo_kds_id'), // roteamento entre KDS ao avançar (mig 159, Fase E)
 
   pdvMainId: uuid('pdv_main_id'), // sub-PDV salão (tipo='salao'): caixa principal a que pertence (mig 133)
 
