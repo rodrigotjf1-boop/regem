@@ -59,20 +59,27 @@ export class IfoodPoller {
             // Pedido agendado: guarda a janela p/ não despachar antes da hora.
             agendamento: agendamentoIfood(raw) ?? undefined,
           });
+        } else if (code === 'CFM' || code === 'CONFIRMED') {
+          // iFood confirmou (aceite feito no app/tablet do iFood, fora do kanban do
+          // Regem) → materializa localmente, senão o pedido não vira produção/KDS.
+          await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
         } else if (code === 'RTP' || code === 'READY_TO_PICKUP') {
-          // iFood marcou pronto p/ retirada → move pra "Pronto".
+          // iFood marcou pronto p/ retirada → garante produção e move pra "Pronto".
+          await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
           await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'pronto');
         } else if (code === 'DSP' || code === 'DISPATCHED') {
-          // iFood despachou (saiu para entrega) → move pra "Em rota".
+          // iFood despachou (saiu para entrega) → garante produção e move pra "Em rota".
+          await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
           await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'despachado');
         } else if (code === 'CAN' || code === 'CANCELLED') {
           // iFood cancelou o pedido → reflete localmente (sem status-back de volta).
           await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'cancelado');
         } else if (code === 'CON' || code === 'CONCLUDED') {
-          // iFood concluiu (ex.: envio imediato) → reflete localmente.
+          // iFood concluiu (ex.: envio imediato) → garante produção e reflete localmente.
+          await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
           await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'concluido');
         }
-        // Demais códigos (CFM/…) apenas reconhecemos abaixo.
+        // Demais códigos apenas reconhecemos abaixo.
       } catch (e: any) {
         this.logger.warn(`evento ${code} ${ev.orderId}: ${e?.message ?? e}`);
       }

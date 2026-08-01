@@ -234,6 +234,29 @@ export class DeliveryService {
     void this.dispararWebhook(tenantId, upd);
   }
 
+  // Materializa (aceita) um pedido externo se ainda estiver 'novo'. Usado pelos pollers
+  // (iFood/Anota) quando a plataforma CONFIRMA/avança o pedido por fora do kanban do
+  // Regem — senão ele nunca vira produção e não aparece no KDS. Idempotente (só 'novo').
+  async materializarSeNovoExterno(tenantId: string, canal: string, externalId: string) {
+    const [row] = await this.db
+      .select({ id: pedidoExterno.id, status: pedidoExterno.status })
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, tenantId),
+          eq(pedidoExterno.canal, canal),
+          eq(pedidoExterno.externalId, externalId),
+        ),
+      );
+    if (row && row.status === 'novo') {
+      try {
+        await this.aceitar(tenantId, null, row.id);
+      } catch (e: any) {
+        this.logger.warn(`materializar ${canal} ${externalId.slice(0, 8)}: ${e?.message ?? e}`);
+      }
+    }
+  }
+
   // Lê o catálogo do Regem (categorias + produtos disponíveis no cardápio) para os
   // conectores EXPORTAREM pro marketplace (99food/Cardápio Web). Só produtos com
   // disponivel_cardapio=true. Retorna arrays crus (nome, codigo, preço, categoria).
