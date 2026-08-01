@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
+import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -47,6 +48,7 @@ export default function RetiradaPage() {
   const [carregando, setCarregando] = useState(true);
   const [cobrar, setCobrar] = useState<any>(null); // pedido a-pagar em cobrança
   const [cancelar, setCancelar] = useState<any>(null); // pedido em cancelamento
+  const [detalhe, setDetalhe] = useState<any>(null); // pedido aberto no painel de detalhe
   const [busy, setBusy] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -166,6 +168,7 @@ export default function RetiradaPage() {
                     key={p.id}
                     p={p}
                     busy={busy === p.id}
+                    onAbrir={() => setDetalhe(p)}
                     onAceitar={() => aceitar(p)}
                     onAvisar={() => avisarPronto(p)}
                     onEntregar={() => entregar(p)}
@@ -200,6 +203,16 @@ export default function RetiradaPage() {
           }}
         />
       )}
+      {detalhe && (
+        <PedidoDetalhe
+          pedido={detalhe}
+          onClose={() => setDetalhe(null)}
+          onChanged={async () => {
+            setDetalhe(null);
+            await reload();
+          }}
+        />
+      )}
     </Shell>
   );
 }
@@ -217,15 +230,23 @@ function ChipCanal({ canal }: { canal: string }) {
 }
 
 function PedidoCard({
-  p, busy, onAceitar, onAvisar, onEntregar, onCancelar,
+  p, busy, onAbrir, onAceitar, onAvisar, onEntregar, onCancelar,
 }: {
   p: any; busy: boolean;
+  onAbrir: () => void;
   onAceitar: () => void; onAvisar: () => void; onEntregar: () => void; onCancelar: () => void;
 }) {
   const itens: any[] = Array.isArray(p.itens) ? p.itens : [];
   const st = STATUS_LABEL[p.status] ?? { txt: p.status, cls: 'bg-muted text-muted-foreground' };
   return (
-    <Card className="p-3">
+    <Card
+      className="cursor-pointer p-3 transition-colors hover:bg-secondary/40"
+      role="button"
+      tabIndex={0}
+      onClick={onAbrir}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbrir(); } }}
+      title="Ver detalhes do pedido"
+    >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -271,7 +292,7 @@ function PedidoCard({
       )}
 
       {p.status !== 'concluido' && p.status !== 'cancelado' && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-3 flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
           {p.status === 'novo' ? (
             <Button size="sm" onClick={onAceitar} disabled={busy}>Aceitar</Button>
           ) : (

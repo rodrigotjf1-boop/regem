@@ -16,14 +16,24 @@ type Alerta = {
   detalhe: string;
   prioridade: 'danger' | 'alta' | 'info' | 'ok';
   em: string;
-  ack?: boolean;
+  restanteSeg: number; // tempo que ainda deve ficar no rodapé
 };
 
-function borderFor(p: Alerta['prioridade']) {
-  if (p === 'danger') return '#FF5A4E';
-  if (p === 'info') return '#3BA7E8';
-  if (p === 'ok') return '#19C08F';
-  return '#FFB13D';
+// Prioridade → rank (o rodapé mostra o de maior rank; empate = mais recente). Só o
+// alerta EXIBIDO conta o tempo → um urgente curto sobrepõe o longo, que "congela" e
+// volta a contar quando o urgente sai (override + retomada do ciclo).
+const RANK: Record<Alerta['prioridade'], number> = { danger: 3, alta: 2, info: 1, ok: 0 };
+function escolherAlerta(as: Alerta[]): Alerta | null {
+  if (!as.length) return null;
+  return [...as].sort(
+    (a, b) => RANK[b.prioridade] - RANK[a.prioridade] || new Date(b.em).getTime() - new Date(a.em).getTime(),
+  )[0];
+}
+function bgAlerta(p: Alerta['prioridade']) {
+  if (p === 'danger') return '#B4231C';
+  if (p === 'info') return '#1E6FA8';
+  if (p === 'ok') return '#0E7C66';
+  return '#B7791F';
 }
 
 // Cor pelo tempo decorrido vs. limiares configurados pelo gerente.
@@ -169,8 +179,9 @@ export default function KdsPage() {
           detalhe: a.detalhe,
           prioridade: a.prioridade ?? 'alta',
           em: a.em,
+          restanteSeg: Number(a.duracaoSeg) > 0 ? Number(a.duracaoSeg) : 60,
         },
-        ...prev,
+        ...prev.filter((x) => x.id !== a.id),
       ]);
       if (a.som !== false) bip();
     });
@@ -194,8 +205,9 @@ export default function KdsPage() {
             detalhe: 'Não preparar / descartar o que já saiu.',
             prioridade: 'danger',
             em: p.em,
+            restanteSeg: 25,
           },
-          ...prev,
+          ...prev.filter((x) => x.id !== `canc-${p.pedidoId}`),
         ]);
         bip();
       }
@@ -209,15 +221,6 @@ export default function KdsPage() {
     };
   }, [bip, carregarFila]);
 
-  function dispararTeste() {
-    socketRef.current?.emit('kds:alerta', {
-      titulo: 'Pedido atrasado — Mesa 12',
-      detalhe: 'Aguardando há mais de 15 min. Priorizar no preparo.',
-      prioridade: 'danger',
-      som: true,
-    });
-  }
-
   async function avancar(id: string) {
     try {
       // Board único por canal → permite concluir (entregue) no próprio KDS.
@@ -229,13 +232,23 @@ export default function KdsPage() {
     }
   }
 
-  function ack(id: string) {
-    setAlertas((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, ack: true } : a)),
-    );
-  }
+  // Ticker do rodapé: só o alerta EXIBIDO conta o tempo; ao zerar, sai e o próximo
+  // (por prioridade/recência) assume — se um urgente entrou, o longo "congelou" e
+  // volta a contar de onde parou.
+  useEffect(() => {
+    const t = setInterval(() => {
+      setAlertas((prev) => {
+        const exibido = escolherAlerta(prev);
+        if (!exibido) return prev;
+        return prev
+          .map((a) => (a.id === exibido.id ? { ...a, restanteSeg: a.restanteSeg - 1 } : a))
+          .filter((a) => a.restanteSeg > 0);
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  const pendentes = alertas.filter((a) => !a.ack).length;
+  const mostrado = escolherAlerta(alertas);
   const nowMs = now ? now.getTime() : Date.now();
 
   return (
@@ -357,7 +370,8 @@ export default function KdsPage() {
         </button>
       </header>
 
-      <div className="mx-auto grid max-w-7xl gap-5 px-6 py-6 lg:grid-cols-[1fr_320px]">
+      {/* Corpo full-width — os alertas foram para o RODAPÉ fixo (abaixo). */}
+      <div className="mx-auto max-w-[1600px] px-6 py-6" style={{ paddingBottom: mostrado ? 96 : 24 }}>
         {/* Pedidos de produção — cards coloridos por tempo */}
         <section>
           <div className="mb-3 flex items-center justify-between">
@@ -400,7 +414,7 @@ export default function KdsPage() {
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
             {pedidos.map((p) => {
               const min = Math.max(
                 0,
@@ -505,78 +519,49 @@ export default function KdsPage() {
             })}
           </div>
         </section>
-
-        {/* Lateral: alertas + teste */}
-        <aside>
-          <button
-            type="button"
-            onClick={dispararTeste}
-            disabled={!conectado}
-            className="mb-4 w-full rounded-[12px] px-4 py-3 text-sm font-bold disabled:opacity-40"
-            style={{ background: '#E2A340', color: '#0B141B' }}
-          >
-            Disparar alerta de teste
-          </button>
-
-          <div className="mb-3 flex items-center justify-between">
-            <span
-              className="text-[12px] font-bold uppercase tracking-[0.16em]"
-              style={{ color: T.muted, fontFamily: 'Archivo, sans-serif' }}
-            >
-              Alertas
-            </span>
-            <span className="text-[12px] font-bold" style={{ color: '#FFB13D' }}>
-              {pendentes} pend.
-            </span>
-          </div>
-
-          {alertas.length === 0 && (
-            <div
-              className="rounded-[14px] border border-dashed px-4 py-8 text-center text-[13px]"
-              style={{ borderColor: T.border, color: T.muted }}
-            >
-              Tarefas, picos e avisos aparecem aqui.
-            </div>
-          )}
-
-          {alertas.map((a) => (
-            <div
-              key={a.id}
-              className="mb-3 flex items-start gap-3 rounded-[12px] border p-3.5"
-              style={{
-                background: T.panel,
-                borderColor: T.border,
-                borderLeft: `6px solid ${borderFor(a.prioridade)}`,
-                opacity: a.ack ? 0.5 : 1,
-              }}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-[15px] font-bold leading-tight" style={{ fontFamily: 'Archivo, sans-serif' }}>
-                  {a.titulo}
-                </div>
-                {a.detalhe && (
-                  <div className="mt-1 text-[12.5px]" style={{ color: T.muted }}>
-                    {a.detalhe}
-                  </div>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => ack(a.id)}
-                disabled={a.ack}
-                className="rounded-[10px] px-3 py-2 text-[12px] font-extrabold uppercase"
-                style={
-                  a.ack
-                    ? { background: T.panel2, color: T.muted }
-                    : { background: '#19C08F', color: '#04241A' }
-                }
-              >
-                {a.ack ? 'Feito' : 'OK'}
-              </button>
-            </div>
-          ))}
-        </aside>
       </div>
+
+      {/* RODAPÉ de alertas — barra full-width, texto rolando da direita p/ esquerda,
+          cor vibrante por prioridade. Mostra o alerta de maior prioridade/recência;
+          o urgente sobrepõe o longo e o ciclo do longo retoma quando o urgente sai. */}
+      {mostrado && (
+        <footer
+          className="fixed inset-x-0 bottom-0 z-20 flex items-center overflow-hidden border-t"
+          style={{ background: bgAlerta(mostrado.prioridade), borderColor: 'rgba(0,0,0,.25)', height: 64 }}
+        >
+          <div
+            className="grid h-full place-items-center px-4 text-[13px] font-extrabold uppercase tracking-wider"
+            style={{ background: 'rgba(0,0,0,.22)', color: '#fff', minWidth: 120 }}
+          >
+            {mostrado.prioridade === 'danger' ? '⚠ Urgente' : mostrado.prioridade === 'ok' ? '✓ Aviso' : '● Aviso'}
+          </div>
+          <div className="relative min-w-0 flex-1 overflow-hidden">
+            <div
+              key={mostrado.id}
+              className="whitespace-nowrap py-3 text-[26px] font-extrabold text-white"
+              style={{ fontFamily: 'Archivo, sans-serif', animation: 'kdsMarquee 16s linear infinite' }}
+            >
+              {mostrado.titulo}
+              {mostrado.detalhe ? ` — ${mostrado.detalhe}` : ''}
+              <span className="mx-16 opacity-70">•</span>
+              {mostrado.titulo}
+              {mostrado.detalhe ? ` — ${mostrado.detalhe}` : ''}
+            </div>
+          </div>
+          <div
+            className="grid h-full place-items-center px-4 text-[15px] font-bold tabular-nums text-white"
+            style={{ background: 'rgba(0,0,0,.22)', fontFamily: 'JetBrains Mono, monospace', minWidth: 64 }}
+          >
+            {mostrado.restanteSeg}s
+          </div>
+        </footer>
+      )}
+      <style jsx global>{`
+        @keyframes kdsMarquee {
+          0% { transform: translateX(60%); }
+          100% { transform: translateX(-100%); }
+        }
+      `}</style>
 
       {temSessao === false && (
         <div

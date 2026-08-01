@@ -184,6 +184,7 @@ export class AnotaAiService {
         //    A Anota Aí só expõe o `check` numérico (a LIST não traz status textual) e
         //    NÃO tem "em rota": 1 produção · 2 pronto · 3 finalizado · 4 cancelado ·
         //    5 negado · 6 = CLIENTE PEDIU CANCELAMENTO (precisa da loja aprovar → sino).
+        //    check 1 = EM PRODUÇÃO. O Anota Aí não tem status textual nem "em rota".
         let alvo: 'pronto' | 'concluido' | 'cancelado' | null = null;
         if (check === 6) {
           // Não auto-cancela: abre um chamado no sino p/ a loja aceitar/recusar.
@@ -191,6 +192,10 @@ export class AnotaAiService {
         } else if (check === 4 || check === 5) alvo = 'cancelado';
         else if (check === 3) alvo = 'concluido';
         else if (check === 2) alvo = 'pronto';
+        // A partir de "aceito na Anota Aí" (check ≥ 1), garante que o pedido está
+        // MATERIALIZADO localmente (vira 'confirmado' = coluna Produção). Sem isso o
+        // pedido fica preso em "Em análise" e parece que "não atualiza".
+        if (check >= 1 && check <= 3) await this.materializarSeNovo(tenantId, orderId).catch(() => {});
         if (alvo) await this.delivery.refletirStatusExterno(tenantId, CANAL, orderId, alvo);
       } catch (e: any) {
         this.logger.warn(`pedido ${orderId}: ${e?.message ?? e}`);
@@ -204,6 +209,22 @@ export class AnotaAiService {
       .where(eq(integracao.id, ig.id));
     if (n) this.logger.log(`tenant ${tenantId}: ${n} pedido(s) novo(s)`);
     return n;
+  }
+
+  // Materializa (aceita) o pedido localmente se ainda estiver 'novo' — o Anota Aí já
+  // aceitou do lado dele, então aqui só criamos a venda + produção e movemos para
+  // 'confirmado' (Produção). `aceitar` não manda status-back p/ Anota Aí (só CW/iFood/
+  // Food99), então não há risco de duplo-aceite. Idempotente (só age em 'novo').
+  private async materializarSeNovo(tenantId: string, orderId: string) {
+    const [ped] = await this.db
+      .select({ id: pedidoExterno.id, status: pedidoExterno.status })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.canal, CANAL), eq(pedidoExterno.externalId, orderId)));
+    if (!ped) {
+      this.logger.warn(`materializar: pedido ${orderId.slice(0, 8)} não encontrado (externalId?)`);
+      return;
+    }
+    if (ped.status === 'novo') await this.delivery.aceitar(tenantId, null, ped.id);
   }
 
   // Cliente pediu cancelamento na Anota Aí (check 6): abre um chamado no SINO

@@ -124,6 +124,7 @@ const NAV: NavNode[] = [
       { href: '/loja', label: 'Loja', icon: Store, perm: 'loja', soPres: true },
       { href: '/unidades', label: 'Unidades', icon: Building2, perm: 'unidades' },
       { href: '/producao-config', label: 'Produção & KDS', icon: Flame, perm: 'producao_kds', modulo: 'kds' },
+      { href: '/kds/alertas', label: 'Alertas do KDS', icon: Flame, perm: 'producao_kds', modulo: 'kds' },
       { href: '/direcionamento', label: 'Direcionamento do catálogo', icon: Flame, perm: 'producao_kds' },
       { href: '/ordens-producao', label: 'Ordens de produção', icon: Flame, perm: 'producao_kds' },
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },

@@ -196,7 +196,10 @@ export class DeliveryService {
           eq(pedidoExterno.externalId, externalId),
         ),
       );
-    if (!row) return;
+    if (!row) {
+      this.logger.warn(`reflexo ${canal} → ${novoStatus}: pedido ${externalId.slice(0, 10)} não encontrado (externalId?)`);
+      return;
+    }
     // Idempotente: já está no estado alvo ou já é terminal (não regride).
     if (row.status === novoStatus) return;
     if (row.status === 'cancelado' || row.status === 'concluido') return;
@@ -367,7 +370,10 @@ export class DeliveryService {
         cupom: extra?.cupom ?? null,
         desconto: String(Number(extra?.desconto ?? 0).toFixed(2)),
         trocoPara: extra?.trocoPara != null ? String(extra.trocoPara) : null,
-        statusPagamento: extra?.statusPagamento ?? 'na_entrega',
+        // Pago online (PIX/cartão/carteira) NÃO é "a pagar". extra.statusPagamento
+        // (cardápio/gateway) tem precedência; senão usa o `pago` detectado no adapter.
+        pago: extra?.statusPagamento === 'aprovado' ? true : norm.pago ?? false,
+        statusPagamento: extra?.statusPagamento ?? (norm.pago ? 'aprovado' : 'na_entrega'),
         agendamento: extra?.agendamento ? new Date(extra.agendamento) : null,
         profissional: extra?.profissional ?? null,
         cnpj: extra?.cnpj ?? null,

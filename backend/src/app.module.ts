@@ -46,6 +46,7 @@ import { JobsModule } from './modules/jobs/jobs.module';
 import { ProdutoModule } from './modules/produto/produto.module';
 import { VendasModule } from './modules/vendas/vendas.module';
 import { ProducaoModule } from './modules/producao/producao.module';
+import { KdsModule } from './modules/kds/kds.module';
 import { OrdemProducaoModule } from './modules/ordem-producao/ordem-producao.module';
 import { PedidoManutencaoModule } from './modules/pedido-manutencao/pedido-manutencao.module';
 import { DesligamentoModule } from './modules/desligamento/desligamento.module';
@@ -139,6 +140,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     ProdutoModule,
     VendasModule,
     ProducaoModule,
+    KdsModule,
     OrdemProducaoModule,
     PedidoManutencaoModule,
     DesligamentoModule,

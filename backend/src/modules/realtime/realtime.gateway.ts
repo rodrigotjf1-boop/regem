@@ -133,6 +133,7 @@ export class RealtimeGateway
     titulo: string;
     detalhe?: string;
     prioridade?: string;
+    duracaoSeg?: number; // quanto tempo fica no rodapé do KDS (motor de alertas, Fase B)
   }) {
     if (!this.server) return;
     this.server.to(`tenant:${p.tenantId}`).emit('kds:alerta', {
@@ -140,6 +141,7 @@ export class RealtimeGateway
       titulo: p.titulo,
       detalhe: p.detalhe ?? '',
       prioridade: p.prioridade ?? 'alta',
+      duracaoSeg: Number(p.duracaoSeg) > 0 ? Number(p.duracaoSeg) : 60,
       som: true,
       em: new Date().toISOString(),
     });

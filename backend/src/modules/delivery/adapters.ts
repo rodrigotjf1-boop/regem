@@ -20,6 +20,31 @@ export interface PedidoNormalizado {
   }[];
   total: number;
   formaPagamento?: string;
+  // true = pago online/antecipado (PIX online, cartão online, carteira) → NÃO é "a
+  // pagar". Quando indefinido, o ingest assume pagamento na entrega (dinheiro).
+  pago?: boolean;
+}
+
+// Normaliza a forma de pagamento de cada canal para pt-BR (é o que o card mostra).
+// Aceita os códigos crus das plataformas ("money", "credit"…) e devolve rótulo pt-BR.
+const FORMA_PT: Record<string, string> = {
+  money: 'Dinheiro', cash: 'Dinheiro', dinheiro: 'Dinheiro',
+  credit: 'Cartão de crédito', credit_card: 'Cartão de crédito', creditcard: 'Cartão de crédito',
+  cartao_credito: 'Cartão de crédito', 'crédito': 'Cartão de crédito',
+  debit: 'Cartão de débito', debit_card: 'Cartão de débito', cartao_debito: 'Cartão de débito',
+  'débito': 'Cartão de débito',
+  cartao: 'Cartão', 'cartão': 'Cartão', card: 'Cartão', pos: 'Cartão (maquininha)',
+  pix: 'Pix',
+  meal_voucher: 'Vale-refeição', food_voucher: 'Vale-alimentação', voucher: 'Vale',
+  vr: 'Vale-refeição', va: 'Vale-alimentação',
+  online: 'Pago online', prepaid: 'Pago online', wallet: 'Pago online', digital_wallet: 'Pago online',
+};
+export function formaPtBr(v: any): string {
+  const k = String(v ?? '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (!k) return 'Não informado';
+  if (FORMA_PT[k]) return FORMA_PT[k];
+  const s = String(v).trim();
+  return s.charAt(0).toUpperCase() + s.slice(1); // fallback: capitaliza o rótulo cru
 }
 
 // Mapeia um pedido do iFood (payload da API de pedidos) para o modelo interno.
@@ -39,6 +64,14 @@ export function adaptarIfood(raw: any): PedidoNormalizado {
     String(raw?.orderType ?? 'DELIVERY').toUpperCase() === 'TAKEOUT'
       ? 'retirada'
       : 'entrega';
+  // Pagamento iFood: payments.pending = valor a receber na entrega (dinheiro);
+  // methods[].type = PREPAID/ONLINE (pago no app) vs OFFLINE/PENDING (na entrega).
+  const pay: any = raw?.payments ?? {};
+  const metodo: any = pay?.methods?.[0] ?? (Array.isArray(pay) ? pay[0] : {}) ?? {};
+  const pendente = pay?.pending ?? pay?.pendingAmount;
+  const tipoPg = String(metodo?.type ?? '').toUpperCase();
+  const pago =
+    pendente != null ? Number(pendente) <= 0 : tipoPg === 'PREPAID' || tipoPg === 'ONLINE';
   return {
     externalId: raw?.id ? String(raw.id) : undefined,
     displayId: raw?.displayId ? String(raw.displayId) : undefined,
@@ -48,7 +81,8 @@ export function adaptarIfood(raw: any): PedidoNormalizado {
     endereco: raw?.delivery?.deliveryAddress?.formattedAddress,
     itens,
     total: Number(raw?.total?.orderAmount ?? raw?.totalAmount) || 0,
-    formaPagamento: raw?.payments?.methods?.[0]?.method ?? 'online',
+    formaPagamento: formaPtBr(metodo?.method ?? (pago ? 'online' : 'money')),
+    pago,
   };
 }
 
@@ -92,7 +126,8 @@ export function adaptarGenerico(raw: any): PedidoNormalizado {
       observacao: it.observacao,
     })),
     total: Number(raw?.total) || 0,
-    formaPagamento: raw?.formaPagamento ?? 'online',
+    formaPagamento: formaPtBr(raw?.formaPagamento ?? (raw?.pago ? 'online' : 'money')),
+    pago: raw?.pago != null ? Boolean(raw.pago) : undefined,
   };
 }
 
@@ -129,7 +164,12 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
     endereco,
     itens,
     total: Number(raw?.total?.orderAmount?.value ?? raw?.total?.orderAmount ?? raw?.totalAmount) || 0,
-    formaPagamento: raw?.payments?.methods?.[0]?.method ?? raw?.payments?.[0]?.method ?? 'online',
+    ...(() => {
+      const m: any = raw?.payments?.methods?.[0] ?? raw?.payments?.[0] ?? {};
+      const t = String(m?.type ?? m?.prepaid ?? '').toUpperCase();
+      const pago = m?.prepaid === true || t === 'PREPAID' || t === 'ONLINE' || t === 'TRUE';
+      return { formaPagamento: formaPtBr(m?.method ?? (pago ? 'online' : 'money')), pago };
+    })(),
   };
 }
 
@@ -169,7 +209,8 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
     endereco,
     itens,
     total: Number(raw?.total) || 0,
-    formaPagamento: pgto.payment_method ?? 'online',
+    formaPagamento: formaPtBr(pgto.payment_method ?? (pgto.prepaid || pgto.paid || pgto.online ? 'online' : 'money')),
+    pago: Boolean(pgto.prepaid ?? pgto.paid ?? pgto.online ?? (String(pgto.type ?? '').toUpperCase() === 'PREPAID')),
   };
 }
 
@@ -207,7 +248,8 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
         raw?.price?.order_price,
     ) || 0;
   // pay_type: 1 online · 2 dinheiro · 3 pos(cartão) · 4 wallet(online).
-  const PAY: Record<number, string> = { 1: 'online', 2: 'dinheiro', 3: 'cartão', 4: 'online' };
+  const PAY: Record<number, string> = { 1: 'online', 2: 'money', 3: 'cartao', 4: 'online' };
+  const payType = Number(raw?.pay_type);
   return {
     externalId: raw?.order_id != null ? String(raw.order_id) : undefined,
     displayId: raw?.order_index != null ? String(raw.order_index) : undefined,
@@ -217,7 +259,8 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
     endereco,
     itens,
     total: totalCents / 100,
-    formaPagamento: PAY[Number(raw?.pay_type)] ?? 'online',
+    formaPagamento: formaPtBr(PAY[payType] ?? 'online'),
+    pago: payType === 1 || payType === 4, // online/wallet = pago; dinheiro/pos = na entrega
   };
 }
 
@@ -249,6 +292,11 @@ export function adaptarAnotaAi(raw: any): PedidoNormalizado {
     undefined;
   const pgto = (o.payments ?? [])[0] ?? {};
   const eid = o._id ?? o.id;
+  // Anota Aí: pagamento online quando o pedido já vem pago (flag online/prepaid) ou
+  // quando o método é PIX/cartão online. Dinheiro = na entrega.
+  const online = Boolean(
+    pgto.online ?? pgto.prepaid ?? pgto.paid ?? o.paidOnline ?? o.isPaid ?? o.online,
+  );
   return {
     externalId: eid != null ? String(eid) : undefined,
     displayId: o.shortReference != null ? String(o.shortReference) : undefined,
@@ -258,7 +306,8 @@ export function adaptarAnotaAi(raw: any): PedidoNormalizado {
     endereco,
     itens,
     total: Number(o.total) || 0,
-    formaPagamento: pgto.name ?? pgto.code ?? 'online',
+    formaPagamento: formaPtBr(pgto.name ?? pgto.code ?? (online ? 'online' : 'money')),
+    pago: online,
   };
 }
 
