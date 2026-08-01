@@ -56,6 +56,7 @@ export default function EquipamentosPage() {
   const [fila, setFila] = useState<any[] | null>(null);
   const [testando, setTestando] = useState<string | null>(null);
   const [aviso, setAviso] = useState('');
+  const [publicando, setPublicando] = useState(false);
   const [codigo, setCodigo] = useState<{ nome: string; codigo: string } | null>(null);
   const [tokenNovo, setTokenNovo] = useState<{ nome: string; token: string } | null>(
     null,
@@ -246,6 +247,24 @@ export default function EquipamentosPage() {
     }
   }
 
+  async function publicarGogem() {
+    setAviso('');
+    setErro('');
+    setPublicando(true);
+    try {
+      const r: any = await api.post('/integracoes/gogem/publicar', {});
+      setAviso(
+        r?.alterados != null
+          ? `Publicado no GoGeM: ${r.alterados} produto(s) sincronizado(s).`
+          : 'Publicado no GoGeM.',
+      );
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao publicar no GoGeM');
+    } finally {
+      setPublicando(false);
+    }
+  }
+
   const toggleSetor = (id: string) =>
     setSetoresAtendidos((prev) =>
       prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id],
@@ -261,6 +280,20 @@ export default function EquipamentosPage() {
           Registre os apps satélites (KDS e Terminal de Ponto) que se conectam ao
           Regem. Cada device recebe um token único usado no pareamento.
         </p>
+
+        {/* Integração GoGeM (autoatendimento): empurra pausas/edições na hora */}
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <h2 className="font-semibold">Integração GoGeM (autoatendimento)</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Pausou ou editou um produto? Publique para o GoGeM refletir na hora
+              (preço, nome e disponibilidade dos itens linkados).
+            </p>
+          </div>
+          <Button type="button" onClick={publicarGogem} disabled={publicando}>
+            {publicando ? 'Publicando…' : 'Publicar no GoGeM'}
+          </Button>
+        </Card>
 
         {/* Código de pareamento do PC (mig 142) — curto, expira em 15 min */}
         {codigo && (
