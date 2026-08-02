@@ -842,6 +842,9 @@ export const api = {
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Perfis de cupom efetivos (padrão + override) — Fase 1 do construtor de cupons.
+  // Salvar = setDeliveryConfig({ cupomPerfis: { caixa: { campos: [...] }, ... } }).
+  cupomPerfis: () => req('/delivery/cupom-perfis'),
   // TEF (Fase I)
   tefConfig: () => req('/tef/config'),
   setTefConfig: (body: Record<string, unknown>) =>

@@ -1896,6 +1896,10 @@ export const deliveryConfig = pgTable('delivery_config', {
   // Layout do cupom (via do cliente) nas térmicas — toggles + cabeçalho/rodapé.
   // Vazio = comportamento padrão. Ver renderViaCliente (mig 131).
   cupomLayout: jsonb('cupom_layout').notNull().default('{}'),
+  // Perfis de cupom (mig 161, Fase 1): overrides por perfil (caixa/entregador/producao)
+  // — { caixa: { campos: [{key,visivel,negrito,alinhamento}...] }, ... }. Vazio = padrão
+  // (CUPOM_PERFIS_PADRAO). Cabeçalho/rodapé continuam livres (cupom_layout).
+  cupomPerfis: jsonb('cupom_perfis').notNull().default('{}'),
   // Pausa temporária (reativa sozinha ao passar de pausado_ate).
   pausadoAte: timestamp('pausado_ate', { withTimezone: true }),
   pausaMotivo: text('pausa_motivo'),

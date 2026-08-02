@@ -254,6 +254,14 @@ export class DeliveryController {
     return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto);
   }
 
+  // Perfis de cupom efetivos (padrão + override) — Fase 1 do construtor de cupons.
+  @Get('cupom-perfis')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  cupomPerfis(@CurrentUser() user: AuthUser) {
+    return this.service.getCupomPerfis(user.tenantId, null);
+  }
+
   // Simulador (teste): injeta um pedido iFood de exemplo — como se o edge tivesse
   // recebido. Facilita validar o fluxo sem credenciais reais.
   @CloudOnly()

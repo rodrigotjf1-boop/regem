@@ -27,6 +27,7 @@ import {
   produto,
 } from '../../db/schema';
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
+import { CUPOM_PERFIS_PADRAO, perfilEfetivo, type PerfilCupom } from './cupom-perfis';
 import { VendasService } from '../vendas/vendas.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
@@ -1327,6 +1328,17 @@ export class DeliveryService {
     return { ...base, pausado, pausadoAte: pausado ? base.pausadoAte : null };
   }
 
+  // Perfis de cupom EFETIVOS (padrão + override salvo). Fase 1 — o editor (Fase 2)
+  // consome isto para montar a UI e a pré-visualização.
+  async getCupomPerfis(tenantId: string, unidadeId?: string | null): Promise<{ perfis: PerfilCupom[] }> {
+    const cfg = await this.getConfig(tenantId, unidadeId);
+    const ov = ((cfg?.cupomPerfis as any) ?? {}) as Record<string, any>;
+    const perfis = (Object.keys(CUPOM_PERFIS_PADRAO) as PerfilCupom['id'][]).map((id) =>
+      perfilEfetivo(id, ov[id]),
+    );
+    return { perfis };
+  }
+
   // ===== Pausa temporária da loja =====
   async pausar(tenantId: string, minutos: number, motivo?: string) {
     const m = [30, 60, 720].includes(Number(minutos)) ? Number(minutos) : 30;
@@ -1461,6 +1473,10 @@ export class DeliveryService {
     // Layout do cupom: mescla com o atual (só as chaves enviadas mudam).
     if (dto.cupomLayout && typeof dto.cupomLayout === 'object') {
       vals.cupomLayout = { ...((row?.cupomLayout as any) ?? {}), ...dto.cupomLayout };
+    }
+    // Perfis de cupom (Fase 1): mescla por perfil (caixa/entregador/producao).
+    if (dto.cupomPerfis && typeof dto.cupomPerfis === 'object') {
+      vals.cupomPerfis = { ...((row?.cupomPerfis as any) ?? {}), ...dto.cupomPerfis };
     }
     if (row) {
       await this.db
