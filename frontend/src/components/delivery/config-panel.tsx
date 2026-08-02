@@ -1689,6 +1689,23 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <Button type="button" size="sm" onClick={() => onSalvar({ canal: it.canal, ativo, merchantId, clientId, clientSecret, token: tokenV, cor: cor || '' })}>Salvar</Button>
         </div>
       )}
+
+      {/* Desativar — vale para QUALQUER integração ativa (o iFood tem o próprio fluxo
+          de solicitar remoção à distribuição, logo acima). */}
+      {pode && it.ativo && !ehIfood && (
+        <div className="mt-3 flex justify-end border-t border-border pt-3">
+          <button
+            type="button"
+            className="text-xs font-semibold text-destructive hover:underline"
+            onClick={() => {
+              if (!confirm(`Desativar a integração ${CANAL_NOME[it.canal] ?? it.canal}? Você pode reativar depois.`)) return;
+              onSalvar({ canal: it.canal, ativo: false });
+            }}
+          >
+            Desativar integração
+          </button>
+        </div>
+      )}
     </div>
   );
 }
