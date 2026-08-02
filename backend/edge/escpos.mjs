@@ -135,16 +135,37 @@ export function renderEscpos(conteudo, largura = 80) {
 
   push(init());
   const linhas = String(conteudo ?? '').split(/\r?\n/);
-  for (const linha of linhas) {
+  for (const linhaRaw of linhas) {
+    // QR do cupom por perfil (Fase 3): '@QR:<dados>' vira um QR centralizado.
+    if (linhaRaw.startsWith('@QR:')) {
+      push(align(1)); push(qrCode(linhaRaw.slice(4))); push([0x0a]); push(align(0));
+      continue;
+    }
+    // Marcadores LIMPOS do cupom por perfil (removidos do texto): @C centro, @R
+    // direita, @B negrito — combináveis (@CB, @RB). Sem prefixo, cai no estilo()
+    // legado (mantém '*** ***'/'** OBS' funcionando).
+    let linha = linhaRaw;
+    let alignForce = null;
+    let boldForce = false;
+    const pm = linha.match(/^@([CRB]{1,3})(?: |\b)/);
+    if (pm) {
+      const f = pm[1];
+      if (f.includes('C')) alignForce = 1;
+      if (f.includes('R')) alignForce = 2;
+      if (f.includes('B')) boldForce = true;
+      linha = linha.slice(pm[0].length);
+    }
     const st = estilo(linha);
-    push(align(st.align));
+    const al = alignForce != null ? alignForce : st.align;
+    const bold = boldForce || st.bold;
+    push(align(al));
     push(st.size === 'double' ? sizeDouble() : sizeNormal());
-    if (st.bold) push(boldOn());
+    if (bold) push(boldOn());
     for (const parte of wrap(linha, st.size === 'double' ? Math.floor(cols / 2) : cols)) {
       texto(parte);
       push([0x0a]); // LF
     }
-    if (st.bold) push(boldOff());
+    if (bold) push(boldOff());
   }
   // rodape: reseta estilo, avanca, bipa e corta
   push(sizeNormal());
