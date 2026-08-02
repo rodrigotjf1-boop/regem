@@ -2174,8 +2174,11 @@ export const cardapioConfig = pgTable('cardapio_config', {
   tipoDelivery: boolean('tipo_delivery').notNull().default(true),
   tipoRetirada: boolean('tipo_retirada').notNull().default(false),
   tipoLocal: boolean('tipo_local').notNull().default(false),
-  // Horários de funcionamento (jsonb)
+  // Horários de funcionamento (jsonb). horarioUnico=true: `horarios` vale p/ os dois
+  // tipos; false: retirada/local usa `horariosRetirada` (mig 160).
   horarios: jsonb('horarios').notNull().default('[]'),
+  horariosRetirada: jsonb('horarios_retirada').notNull().default('[]'),
+  horarioUnico: boolean('horario_unico').notNull().default(true),
   // Robô de auto atendimento (mensagens; IA depois)
   roboAtivo: boolean('robo_ativo').notNull().default(false),
   roboSaudacao: text('robo_saudacao'),

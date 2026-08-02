@@ -539,8 +539,27 @@ export function ConfigPanel({
 
                 {/* HORÁRIOS */}
                 {sec === 'horarios' && (
-                  <Secao dica="Horário de funcionamento do delivery por dia da semana.">
-                    <Horarios value={loja.horarios ?? []} onChange={(h) => up({ horarios: h })} pode={isGestor} />
+                  <Secao dica="Horário de funcionamento por dia da semana. Delivery e retirada/consumo no local podem ter horários diferentes.">
+                    <label className="mb-3 flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!isGestor}
+                        checked={loja.horarioUnico !== false}
+                        onChange={(e) => up({ horarioUnico: e.target.checked })} />
+                      Mesmo horário para delivery e retirada/consumo no local
+                    </label>
+                    {loja.horarioUnico !== false ? (
+                      <Horarios value={loja.horarios ?? []} onChange={(h) => up({ horarios: h })} pode={isGestor} />
+                    ) : (
+                      <div className="space-y-4">
+                        <div>
+                          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">🛵 Delivery</p>
+                          <Horarios value={loja.horarios ?? []} onChange={(h) => up({ horarios: h })} pode={isGestor} />
+                        </div>
+                        <div>
+                          <p className="mb-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">🏪 Retirada / consumo no local</p>
+                          <Horarios value={loja.horariosRetirada ?? []} onChange={(h) => up({ horariosRetirada: h })} pode={isGestor} />
+                        </div>
+                      </div>
+                    )}
                     <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                   </Secao>
                 )}
