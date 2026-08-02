@@ -98,7 +98,8 @@ const NAV: NavNode[] = [
   {
     label: 'Tarefas', icon: ListChecks,
     children: [
-      { href: '/meu-dia', label: 'Minhas tarefas', icon: ListChecks, perm: 'meu_dia' },
+      { href: '/meu-ponto', label: 'Meu ponto', icon: Clock, perm: 'meu_dia' },
+      { href: '/meu-dia', label: 'Tarefas', icon: ListChecks, perm: 'meu_dia' },
       { href: '/ordens-producao', label: 'Pedidos de produção', icon: Flame, perm: 'producao_kds' },
       { href: '/manutencao', label: 'Pedidos de manutenção', icon: Wrench, perm: 'manutencao' },
     ],

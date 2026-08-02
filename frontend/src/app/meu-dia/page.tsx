@@ -9,7 +9,6 @@ import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Shell } from '@/components/app-shell/shell';
 import { NovaTarefaForm } from '@/components/tarefa/nova-tarefa-form';
-import { PontoCard } from '@/components/ponto/ponto-card';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Tarefa = {
@@ -102,10 +101,6 @@ export default function MeuDiaPage() {
           {erro}
         </p>
       )}
-
-      <div className="mb-5 max-w-2xl">
-        <PontoCard />
-      </div>
 
       {/* Atalhos das frentes de pedidos internos (mig 130 / 134). */}
       <div className="mb-5 flex flex-wrap gap-2">
