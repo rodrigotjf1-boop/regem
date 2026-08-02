@@ -434,20 +434,20 @@ export default function KdsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfgAberta, pedirTelaCheia]);
 
-  // Limpa a tela: avança TODOS os cards (vão para o próximo KDS ou concluem). Pede
-  // confirmação antes. Faz alguns passes até esvaziar (cada avanço = uma etapa).
+  // Limpa a tela: o SERVIDOR avança todos os cards num único request (vão para o próximo
+  // KDS ou concluem). Assim não dispara um POST por card (o que estourava o 429).
   async function limparCards() {
     const ativos = pedidos.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
     if (!ativos.length) return;
     if (!confirm(`Finalizar todos os ${ativos.length} pedido(s) da tela? Eles vão avançar (próximo KDS ou concluir).`)) return;
-    for (let passe = 0; passe < 4; passe++) {
-      const atual = pedidosRef.current.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
-      if (!atual.length) break;
-      for (const p of atual) {
-        try { await api.producaoAvancar(p.id, 'entrega', kdsSel || undefined); } catch { /* segue */ }
-      }
-      await carregarFila();
-    }
+    try {
+      await api.producaoLimparFila({
+        canal,
+        setorId: setorSel || undefined,
+        equipamentoId: kdsSel || undefined,
+      });
+    } catch { /* ignora — o refetch abaixo mostra o que sobrou */ }
+    await carregarFila();
   }
 
   return (

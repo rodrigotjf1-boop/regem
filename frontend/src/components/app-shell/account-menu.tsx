@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { LogOut, Settings2, PanelLeft, PanelRight, Check, KeyRound } from 'lucide-react';
+import { LogOut, Settings2, PanelLeft, PanelRight, KeyRound } from 'lucide-react';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { cn } from '@/lib/utils';
 import { getNome, getFuncaoNome } from '@/lib/api';
@@ -104,32 +104,7 @@ export function AccountMenu({
             </div>
           </div>
 
-          {/* Recolher */}
-          <button
-            type="button"
-            role="menuitemcheckbox"
-            aria-checked={prefs.sidebar === 'collapsed' ? 'true' : 'false'}
-            onClick={() =>
-              onSet({
-                sidebar: prefs.sidebar === 'collapsed' ? 'expanded' : 'collapsed',
-              })
-            }
-            className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm hover:bg-white/5"
-          >
-            <span
-              className={cn(
-                'grid h-4 w-4 place-items-center rounded border',
-                prefs.sidebar === 'collapsed'
-                  ? 'border-primary bg-primary text-[#0F2230]'
-                  : 'border-white/25',
-              )}
-            >
-              {prefs.sidebar === 'collapsed' && <Check className="h-3 w-3" />}
-            </span>
-            Recolher menu <span className="ml-auto text-[11px] text-[#7A99AC]">[</span>
-          </button>
-
-          <div className="my-1 border-t border-white/10" />
+          {/* "Recolher menu" foi removido daqui — já existe o botão no rodapé do menu. */}
           <Link
             href="/trocar-senha"
             role="menuitem"
