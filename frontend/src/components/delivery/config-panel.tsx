@@ -598,6 +598,7 @@ export function ConfigPanel({
                 {sec === 'impressoras' && (
                   <div className="space-y-4">
                     <CupomLayoutEditor cfg={deliveryCfg} onSave={onDeliveryToggle} pode={isGestor} />
+                    <CupomPerfilEditor onSave={onDeliveryToggle} pode={isGestor} />
                     <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
                   </div>
                 )}
@@ -1771,6 +1772,140 @@ function CupomLayoutEditor({ cfg, onSave, pode }: { cfg: any; onSave: (p: any) =
       {pode && (
         <div className="mt-3 flex justify-end">
           <Button type="button" size="sm" onClick={() => onSave({ cupomLayout: local })}>Salvar layout</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Fase 2 — editor de PERFIS de cupom (caixa/entregador/produção) com prévia ────
+const CUPOM_LARGURA = 32; // colunas da bobina térmica (58mm ≈ 32)
+function alinharCupom(t: string, al: string): string {
+  const s = t.length > CUPOM_LARGURA ? t.slice(0, CUPOM_LARGURA) : t;
+  if (al === 'centro') return ' '.repeat(Math.max(0, Math.floor((CUPOM_LARGURA - s.length) / 2))) + s;
+  if (al === 'direita') return ' '.repeat(Math.max(0, CUPOM_LARGURA - s.length)) + s;
+  return s;
+}
+// Valores fictícios por campo, só para a prévia.
+const CUPOM_MOCK: Record<string, string[]> = {
+  senha: ['>>> SENHA 12 <<<'],
+  tipoFiscal: ['*** NAO FISCAL ***'],
+  nomeLoja: ['REGEM'],
+  dataHora: ['02/08/2026 20:15'],
+  ticket: ['Ticket #A1B2'],
+  vendaBalcao: ['Venda balcao'],
+  operador: ['Operador: Ana'],
+  itens: ['1x X-Burger', '   + bacon extra', '   OBS: sem cebola'],
+  subtotal: ['Subtotal: R$ 28,00'],
+  desconto: ['Desconto: -R$ 2,00'],
+  totalGeral: ['TOTAL: R$ 32,00'],
+  pagamento: ['Pagamento: Dinheiro', 'Troco para R$ 50,00'],
+  avisoFiscal: ['Sem valor fiscal'],
+  plataforma: ['iFood - pedido #4521'],
+  pedidoRegem: ['Pedido Regem #101'],
+  cliente: ['Joao Silva'],
+  endereco: ['Rua X, 123 - Centro', 'Ap 42 - perto da praca'],
+  telefone: ['(11) 90000-0000'],
+  taxaEntrega: ['Entrega: R$ 6,00'],
+  cobrarCliente: ['COBRAR R$ 32,00'],
+  bandeiras: ['Bandeira: Visa'],
+  qrcode: ['[   QR CODE   ]'],
+};
+
+function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: boolean }) {
+  const [perfis, setPerfis] = useState<any[]>([]);
+  const [sel, setSel] = useState<'caixa' | 'entregador' | 'producao'>('caixa');
+  const [salvo, setSalvo] = useState(true);
+  useEffect(() => {
+    api.cupomPerfis().then((r: any) => setPerfis(r?.perfis ?? [])).catch(() => {});
+  }, []);
+  const perfil = perfis.find((p) => p.id === sel);
+  function mudarCampo(idx: number, patch: any) {
+    setPerfis((ps) => ps.map((p) => (p.id !== sel ? p : { ...p, campos: p.campos.map((c: any, i: number) => (i === idx ? { ...c, ...patch } : c)) })));
+    setSalvo(false);
+  }
+  function mover(idx: number, dir: number) {
+    setPerfis((ps) => ps.map((p) => {
+      if (p.id !== sel) return p;
+      const campos = [...p.campos];
+      const j = idx + dir;
+      if (j < 0 || j >= campos.length) return p;
+      [campos[idx], campos[j]] = [campos[j], campos[idx]];
+      return { ...p, campos };
+    }));
+    setSalvo(false);
+  }
+  function salvar() {
+    const overrides = Object.fromEntries(
+      perfis.map((p) => [p.id, { campos: p.campos.map((c: any) => ({ key: c.key, visivel: c.visivel, negrito: c.negrito, alinhamento: c.alinhamento })) }]),
+    );
+    onSave({ cupomPerfis: overrides });
+    setSalvo(true);
+  }
+  const linhasPreview = !perfil
+    ? []
+    : perfil.campos
+        .filter((c: any) => c.visivel)
+        .flatMap((c: any) => (CUPOM_MOCK[c.key] ?? [c.label]).map((t: string) => ({ txt: alinharCupom(t, c.alinhamento), bold: c.negrito })));
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <p className="font-display text-sm font-bold">Perfis de cupom</p>
+      <p className="mb-3 text-[11px] text-muted-foreground">Escolha o que aparece em cada cupom, a ordem, o alinhamento e o negrito. Cabeçalho e rodapé ficam no editor acima.</p>
+
+      {/* Abas de perfil */}
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        {perfis.map((p) => (
+          <button key={p.id} type="button" onClick={() => setSel(p.id)}
+            className={`rounded-md px-2.5 py-1 text-xs font-semibold ${sel === p.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
+            {p.nome}
+          </button>
+        ))}
+      </div>
+      {perfil?.descricao && <p className="mb-2 text-[11px] text-muted-foreground">{perfil.descricao}</p>}
+
+      <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
+        {/* Editor de campos */}
+        <div className="space-y-1.5">
+          {(perfil?.campos ?? []).map((c: any, i: number) => (
+            <div key={c.key} className={`flex flex-wrap items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs ${c.visivel ? '' : 'opacity-50'}`}>
+              <label className="flex items-center gap-1" title="Mostrar no cupom">
+                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={c.visivel} disabled={!pode || c.fixo}
+                  onChange={(e) => mudarCampo(i, { visivel: e.target.checked })} />
+              </label>
+              <span className="min-w-0 flex-1 truncate">{c.label}{c.fixo && <span className="ml-1 text-[10px] text-muted-foreground">(sempre)</span>}</span>
+              <button type="button" title="Negrito" disabled={!pode} onClick={() => mudarCampo(i, { negrito: !c.negrito })}
+                className={`h-6 w-6 rounded border font-bold ${c.negrito ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>N</button>
+              <select aria-label="Alinhamento" disabled={!pode} value={c.alinhamento} onChange={(e) => mudarCampo(i, { alinhamento: e.target.value })}
+                className="h-6 rounded border border-input bg-card px-1 text-[11px]">
+                <option value="esquerda">⟵ Esq</option>
+                <option value="centro">↔ Centro</option>
+                <option value="direita">Dir ⟶</option>
+              </select>
+              <div className="flex">
+                <button type="button" disabled={!pode || i === 0} onClick={() => mover(i, -1)} className="rounded border border-border px-1 disabled:opacity-30">↑</button>
+                <button type="button" disabled={!pode || i === (perfil?.campos.length ?? 0) - 1} onClick={() => mover(i, 1)} className="rounded border border-border px-1 disabled:opacity-30">↓</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Prévia ao vivo */}
+        <div>
+          <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Prévia</p>
+          <div className="rounded-md border border-border bg-white p-2 font-mono text-[11px] leading-tight text-black">
+            {linhasPreview.map((l: any, i: number) => (
+              <div key={i} className="whitespace-pre" style={{ fontWeight: l.bold ? 700 : 400 }}>{l.txt || ' '}</div>
+            ))}
+            {linhasPreview.length === 0 && <div className="text-muted-foreground">—</div>}
+          </div>
+        </div>
+      </div>
+
+      {pode && (
+        <div className="mt-3 flex items-center justify-end gap-2">
+          {!salvo && <span className="text-[11px] text-warn">alterações não salvas</span>}
+          <Button type="button" size="sm" onClick={salvar}>Salvar perfis</Button>
         </div>
       )}
     </div>
