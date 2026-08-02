@@ -1908,6 +1908,10 @@ function Banners({ banners, intervalo, onSalvar, salvando, pode }: { banners: an
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">Imagens que passam no topo do cardápio digital (máximo 3). Defina para onde cada banner leva ao tocar.</p>
+      <p className="rounded-md bg-secondary/60 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+        📐 Tamanho ideal: <strong>1200 × 480 px</strong> (proporção 5:2, otimizado para celular). Fotos de
+        outros tamanhos são <strong>centralizadas e enquadradas</strong> automaticamente no espaço do banner.
+      </p>
       <label className="flex items-center gap-2 text-sm">
         <span className="text-muted-foreground">Trocar de banner a cada</span>
         <Input type="number" min={1} value={seg} onChange={(e) => setSeg(Math.max(1, Number(e.target.value) || 2))} className="h-8 w-20" disabled={!pode} />
