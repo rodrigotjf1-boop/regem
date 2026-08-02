@@ -59,6 +59,24 @@ export class ProducaoPedidoController {
     return this.service.avancar(user.tenantId, user.colaboradorId, id, dto?.escopo, dto?.equipamentoId);
   }
 
+  // Limpa a tela do KDS: avança TODOS os cards ativos num só request (evita o 429 do
+  // loop cliente). Mesmos filtros da fila (canal/setor/KDS).
+  @Post('fila/limpar')
+  @RequireModulo('kds')
+  limpar(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Body() dto: any,
+  ) {
+    return this.service.limparFila(user.tenantId, user.colaboradorId, {
+      canal: dto?.canal || undefined,
+      setorId: dto?.setorId || undefined,
+      equipamentoId: dto?.equipamentoId || undefined,
+      unidadeId:
+        (user.categoria === 'presidente' ? dto?.unidadeId || unidadeAtual : unidadeAtual) || undefined,
+    });
+  }
+
   // ----- PDV (atendente é dono): consultar + cancelar em produção -----
   @Get('pedidos')
   pedidos(

@@ -923,6 +923,38 @@ export class ProducaoPedidoService {
     return { ok: true, status: novo };
   }
 
+  // Limpa a fila do KDS: avança TODOS os cards ativos até saírem (concluir ou migrar
+  // para o próximo KDS). Faz o loop NO SERVIDOR (uma requisição só) — o KDS não dispara
+  // um POST por card (o que estourava o rate-limit com 429).
+  async limparFila(
+    tenantId: string,
+    atorId: string,
+    opts: { setorId?: string; unidadeId?: string; canal?: string; equipamentoId?: string } = {},
+  ) {
+    const { pedidos } = await this.filaKds(tenantId, opts);
+    let avancados = 0;
+    for (const p of pedidos as any[]) {
+      if (p.status === 'cancelado' || p.status === 'entregue') continue;
+      // Avança até o card sair desta fila (entregue/cancelado, ou roteado p/ outro KDS).
+      for (let i = 0; i < 6; i++) {
+        try {
+          await this.avancar(tenantId, atorId, p.id, 'entrega', opts.equipamentoId);
+          avancados++;
+        } catch {
+          break; // já concluído ou não avança mais
+        }
+        const [atual] = await this.db
+          .select({ status: producaoPedido.status, destino: producaoPedido.destinoEquipamentoId })
+          .from(producaoPedido)
+          .where(eq(producaoPedido.id, p.id));
+        if (!atual || atual.status === 'entregue' || atual.status === 'cancelado') break;
+        // Roteou para outro KDS (destino diferente do KDS operado) → saiu desta fila.
+        if (opts.equipamentoId && atual.destino && atual.destino !== opts.equipamentoId) break;
+      }
+    }
+    return { ok: true, avancados };
+  }
+
   // Enfileira o ticket quando o pedido AVANÇA para a etapa configurada no KDS.
   // O KDS pode ser o destino explícito do pedido ou, no legado (sem equipamento),
   // qualquer KDS ativo do mesmo setor com a regra ligada.
