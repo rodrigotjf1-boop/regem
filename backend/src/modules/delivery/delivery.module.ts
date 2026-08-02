@@ -7,6 +7,7 @@ import { CloudFallbackProcessor } from './cloud-fallback.processor';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { VendasModule } from '../vendas/vendas.module';
+import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module';
 import { CashbackModule } from '../cashback/cashback.module';
 import { FidelidadeModule } from '../fidelidade/fidelidade.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
@@ -15,6 +16,7 @@ import { IntegracoesModule } from '../integracoes/integracoes.module';
   imports: [
     EquipamentoModule,
     VendasModule,
+    ProducaoPedidoModule,
     CashbackModule,
     FidelidadeModule,
     forwardRef(() => IntegracoesModule),

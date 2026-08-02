@@ -29,6 +29,7 @@ import {
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
 import { CUPOM_PERFIS_PADRAO, perfilEfetivo, type PerfilCupom } from './cupom-perfis';
 import { VendasService } from '../vendas/vendas.service';
+import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { OpenDeliveryService } from '../integracoes/open-delivery/open-delivery.service';
@@ -48,6 +49,7 @@ export class DeliveryService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly vendas: VendasService,
+    private readonly producao: ProducaoPedidoService,
     private readonly cashback: CashbackService,
     private readonly fidelidade: FidelidadeService,
     @Optional()
@@ -1389,7 +1391,7 @@ export class DeliveryService {
   // token e monta o QR {base público}/e/{token}. Base pública (celular do entregador
   // escaneia fora da LAN) = sempre a nuvem.
   async imprimirCupomEntregador(tenantId: string, unidadeId: string | null, pedidoId: string, terminalId?: string | null) {
-    const ped = await this.carregar(tenantId, pedidoId);
+    const ped: any = await this.carregar(tenantId, pedidoId);
     if (ped.tipo === 'retirada') throw new BadRequestException('Retirada não tem cupom de entregador.');
     const token = await this.tokenDespacho(tenantId, pedidoId);
     const cfg: any = await this.getConfig(tenantId, unidadeId);
