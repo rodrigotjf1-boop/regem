@@ -8,6 +8,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { perfilEfetivo } from '../delivery/cupom-perfis';
 import {
   mesa,
   comanda,
@@ -622,9 +623,9 @@ export class VendasService {
       .select({ nome: colaborador.nome })
       .from(colaborador)
       .where(eq(colaborador.id, atorId));
-    // Layout do cupom da loja (unidade → rede). Vazio = padrão.
+    // Layout + perfis do cupom da loja (unidade → rede). Vazio = padrão.
     const dcs = await this.db
-      .select({ unidadeId: deliveryConfig.unidadeId, cupomLayout: deliveryConfig.cupomLayout })
+      .select({ unidadeId: deliveryConfig.unidadeId, cupomLayout: deliveryConfig.cupomLayout, cupomPerfis: deliveryConfig.cupomPerfis })
       .from(deliveryConfig)
       .where(
         and(
@@ -634,12 +635,14 @@ export class VendasService {
             : isNull(deliveryConfig.unidadeId),
         ),
       );
-    const layout =
-      (dcs.find((d) => d.unidadeId === unidadeId) ?? dcs.find((d) => d.unidadeId == null))
-        ?.cupomLayout ?? {};
+    const linhaCfg = dcs.find((d) => d.unidadeId === unidadeId) ?? dcs.find((d) => d.unidadeId == null);
+    const layout = (linhaCfg?.cupomLayout as any) ?? {};
+    // Fase 3 — perfil "caixa" efetivo (padrão + override) para o render por perfil.
+    const perfilCaixa = perfilEfetivo('caixa', ((linhaCfg?.cupomPerfis as any) ?? {})?.caixa);
     const conteudo = this.producao.renderViaCliente(
       { ...dados, atendente: ator?.nome ?? null },
       layout,
+      perfilCaixa,
     );
     await this.producao.enfileirarViaCliente(
       tenantId,

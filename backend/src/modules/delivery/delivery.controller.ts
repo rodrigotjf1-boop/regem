@@ -77,6 +77,14 @@ export class DeliveryController {
     return this.service.retornarProducao(user.tenantId, id);
   }
 
+  // Imprime o cupom do entregador (com o QR de despacho) — Fase 4.
+  @Post('pedidos/:id/cupom-entregador')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  cupomEntregador(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.imprimirCupomEntregador(user.tenantId, atual, id);
+  }
+
   // "Voltar pedido" (coluna Finalizado) — exige senha de gestor (presidente/C&O).
   @Post('pedidos/:id/voltar')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
@@ -252,6 +260,14 @@ export class DeliveryController {
   @RequirePerm('delivery')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto);
+  }
+
+  // Perfis de cupom efetivos (padrão + override) — Fase 1 do construtor de cupons.
+  @Get('cupom-perfis')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  cupomPerfis(@CurrentUser() user: AuthUser) {
+    return this.service.getCupomPerfis(user.tenantId, null);
   }
 
   // Simulador (teste): injeta um pedido iFood de exemplo — como se o edge tivesse

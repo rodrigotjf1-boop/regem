@@ -46,7 +46,7 @@ describe('pedido público — idempotência por client_ref', () => {
 
   it('duas chamadas com o mesmo client_ref geram UM pedido', async () => {
     const db = fakeDb();
-    const svc = new DeliveryService(db as any, {} as any, {} as any, {} as any);
+    const svc = new DeliveryService(db as any, {} as any, {} as any, {} as any, {} as any);
     const a: any = await svc.ingest('t1', null, 'cardapio', raw, { clientRef: 'ref-1' });
     const b: any = await svc.ingest('t1', null, 'cardapio', raw, { clientRef: 'ref-1' });
     expect(db.store.length).toBe(1); // não duplicou
@@ -55,7 +55,7 @@ describe('pedido público — idempotência por client_ref', () => {
 
   it('sem client_ref, cada chamada cria um pedido (comportamento atual preservado)', async () => {
     const db = fakeDb();
-    const svc = new DeliveryService(db as any, {} as any, {} as any, {} as any);
+    const svc = new DeliveryService(db as any, {} as any, {} as any, {} as any, {} as any);
     await svc.ingest('t1', null, 'cardapio', raw); // sem extra.clientRef
     await svc.ingest('t1', null, 'cardapio', raw);
     expect(db.store.length).toBe(2);

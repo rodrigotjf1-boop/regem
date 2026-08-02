@@ -842,6 +842,15 @@ export const api = {
   deliveryConfig: () => req('/delivery/config'),
   setDeliveryConfig: (body: Record<string, unknown>) =>
     req('/delivery/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Perfis de cupom efetivos (padrão + override) — Fase 1 do construtor de cupons.
+  // Salvar = setDeliveryConfig({ cupomPerfis: { caixa: { campos: [...] }, ... } }).
+  cupomPerfis: () => req('/delivery/cupom-perfis'),
+  // QR do entregador (Fase 4) — PÚBLICO (sem login), só pelo token do QR.
+  despachoInfo: (token: string) => req(`/publico/despacho/${token}`),
+  despachoConfirmar: (token: string, body: { entregadorId?: string; entregadorNome?: string }) =>
+    req(`/publico/despacho/${token}`, { method: 'POST', body: JSON.stringify(body) }),
+  imprimirCupomEntregador: (id: string) =>
+    req(`/delivery/pedidos/${id}/cupom-entregador`, { method: 'POST', body: '{}' }),
   // TEF (Fase I)
   tefConfig: () => req('/tef/config'),
   setTefConfig: (body: Record<string, unknown>) =>

@@ -344,8 +344,30 @@ export class ProducaoPedidoService {
       atendente?: string | null;
     },
     layout?: any,
+    perfilCaixa?: { campos: any[] } | null,
   ): string {
     const L = layout ?? {};
+    // Fase 3 — se houver perfil (caixa), o cupom sai por perfil (ordem/alinhamento/
+    // negrito). O nome da loja usa o cabeçalho configurado; o rodapé vai no fim.
+    if (perfilCaixa?.campos?.length) {
+      return this.renderCupomPerfil(
+        perfilCaixa,
+        {
+          senha: dados.senha,
+          itens: dados.itens,
+          subtotal: dados.total,
+          totalGeral: dados.total,
+          pagamento: dados.forma,
+          operador: dados.atendente,
+          dataHora: new Date().toLocaleString('pt-BR'),
+          nomeLoja: (typeof L.cabecalho === 'string' && L.cabecalho.trim()) || undefined,
+          mostrarValoresItem: L.mostrarValoresItem !== false,
+          fiscal: false,
+        },
+        undefined,
+        typeof L.rodape === 'string' ? L.rodape : undefined,
+      );
+    }
     const on = (k: string) => L[k] !== false; // default ligado
     const linha = '--------------------------------';
     const money = (n: number) =>
@@ -372,6 +394,76 @@ export class ProducaoPedidoService {
       l.push(L.rodape.trim());
     }
     return l.join('\n');
+  }
+
+  // Fase 3 — render por PERFIL de cupom (caixa/entregador/produção): honra ordem,
+  // visibilidade, alinhamento (@C/@R) e negrito (@B) de cada campo. Cabeçalho/rodapé
+  // do cupom_layout entram centralizados. QR do entregador vira '@QR:<dados>'.
+  renderCupomPerfil(
+    perfil: { campos: { key: string; visivel: boolean; negrito: boolean; alinhamento: string }[] },
+    dados: any,
+    cabecalho?: string,
+    rodape?: string,
+  ): string {
+    const money = (n: any) =>
+      Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const sep = '--------------------------------';
+    // Texto (uma ou mais linhas) de cada campo a partir dos dados. [] = não imprime.
+    const CAMPO: Record<string, () => string[]> = {
+      senha: () => (dados.senha != null ? [`SENHA ${dados.senha}`] : []),
+      tipoFiscal: () => [dados.fiscal ? 'CUPOM FISCAL' : 'CUPOM NAO FISCAL'],
+      nomeLoja: () => (dados.nomeLoja ? [String(dados.nomeLoja)] : []),
+      dataHora: () => [dados.dataHora ?? new Date().toLocaleString('pt-BR')],
+      ticket: () => (dados.ticket ? [`Ticket ${dados.ticket}`] : []),
+      vendaBalcao: () => ['Venda balcao'],
+      operador: () => (dados.operador ? [`Operador: ${dados.operador}`] : []),
+      itens: () =>
+        (dados.itens ?? []).flatMap((it: any) => {
+          const ls = [`${Number(it.quantidade)}x ${it.descricao}`];
+          if (it.complementosTexto) ls.push(`   ${it.complementosTexto}`);
+          if (it.observacao) ls.push(`   OBS: ${it.observacao}`);
+          if (dados.mostrarValoresItem) ls.push(`   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
+          return ls;
+        }),
+      subtotal: () => (dados.subtotal != null ? [`Subtotal: ${money(dados.subtotal)}`] : []),
+      desconto: () => (dados.desconto ? [`Desconto: -${money(dados.desconto)}`] : []),
+      totalGeral: () => (dados.totalGeral != null ? [`TOTAL: ${money(dados.totalGeral)}`] : []),
+      pagamento: () => {
+        const ls: string[] = [];
+        if (dados.pagamento) ls.push(`Pagamento: ${dados.pagamento}`);
+        if (dados.troco) ls.push(`Troco para ${money(dados.troco)}`);
+        return ls;
+      },
+      avisoFiscal: () => (dados.fiscal ? [] : ['Este documento nao tem valor fiscal']),
+      plataforma: () => (dados.plataforma ? [String(dados.plataforma)] : []),
+      pedidoRegem: () => (dados.pedidoRegem ? [`Pedido Regem ${dados.pedidoRegem}`] : []),
+      cliente: () => (dados.cliente ? [String(dados.cliente)] : []),
+      endereco: () => (dados.endereco ? String(dados.endereco).split('\n') : []),
+      telefone: () => (dados.telefone ? [String(dados.telefone)] : []),
+      taxaEntrega: () => (dados.taxaEntrega != null ? [`Entrega: ${money(dados.taxaEntrega)}`] : []),
+      cobrarCliente: () => (dados.cobrarCliente != null ? [`COBRAR ${money(dados.cobrarCliente)}`] : []),
+      bandeiras: () => (dados.bandeiras ? [`Bandeira: ${dados.bandeiras}`] : []),
+      qrcode: () => (dados.qrData ? [`@QR:${dados.qrData}`] : []),
+    };
+    const out: string[] = [];
+    if (cabecalho && String(cabecalho).trim()) out.push(`@C ${String(cabecalho).trim()}`);
+    for (const c of perfil.campos) {
+      if (!c.visivel) continue;
+      const linhas = CAMPO[c.key]?.() ?? [];
+      if (!linhas.length) continue;
+      if (c.key === 'itens') out.push(sep);
+      const flags = (c.alinhamento === 'centro' ? 'C' : c.alinhamento === 'direita' ? 'R' : '') + (c.negrito ? 'B' : '');
+      for (const t of linhas) {
+        if (t.startsWith('@QR:')) out.push(t); // QR: linha própria (o escpos centraliza)
+        else out.push(flags ? `@${flags} ${t}` : t);
+      }
+      if (c.key === 'itens') out.push(sep);
+    }
+    if (rodape && String(rodape).trim()) {
+      out.push(sep);
+      out.push(`@C ${String(rodape).trim()}`);
+    }
+    return out.join('\n');
   }
 
   // Enfileira a via do cliente (cupom). Prioridade:

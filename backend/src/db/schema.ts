@@ -1896,6 +1896,10 @@ export const deliveryConfig = pgTable('delivery_config', {
   // Layout do cupom (via do cliente) nas térmicas — toggles + cabeçalho/rodapé.
   // Vazio = comportamento padrão. Ver renderViaCliente (mig 131).
   cupomLayout: jsonb('cupom_layout').notNull().default('{}'),
+  // Perfis de cupom (mig 161, Fase 1): overrides por perfil (caixa/entregador/producao)
+  // — { caixa: { campos: [{key,visivel,negrito,alinhamento}...] }, ... }. Vazio = padrão
+  // (CUPOM_PERFIS_PADRAO). Cabeçalho/rodapé continuam livres (cupom_layout).
+  cupomPerfis: jsonb('cupom_perfis').notNull().default('{}'),
   // Pausa temporária (reativa sozinha ao passar de pausado_ate).
   pausadoAte: timestamp('pausado_ate', { withTimezone: true }),
   pausaMotivo: text('pausa_motivo'),
@@ -1961,6 +1965,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   entregadorId: uuid('entregador_id'), // atribuído no despacho
   entregadorNome: text('entregador_nome'),
   entregadorTelefone: text('entregador_telefone'), // snapshot no despacho
+  despachoToken: text('despacho_token'), // QR do entregador (mig 162, Fase 4)
   autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
   alterado: boolean('alterado').notNull().default(false),
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
@@ -2174,8 +2179,11 @@ export const cardapioConfig = pgTable('cardapio_config', {
   tipoDelivery: boolean('tipo_delivery').notNull().default(true),
   tipoRetirada: boolean('tipo_retirada').notNull().default(false),
   tipoLocal: boolean('tipo_local').notNull().default(false),
-  // Horários de funcionamento (jsonb)
+  // Horários de funcionamento (jsonb). horarioUnico=true: `horarios` vale p/ os dois
+  // tipos; false: retirada/local usa `horariosRetirada` (mig 160).
   horarios: jsonb('horarios').notNull().default('[]'),
+  horariosRetirada: jsonb('horarios_retirada').notNull().default('[]'),
+  horarioUnico: boolean('horario_unico').notNull().default(true),
   // Robô de auto atendimento (mensagens; IA depois)
   roboAtivo: boolean('robo_ativo').notNull().default(false),
   roboSaudacao: text('robo_saudacao'),

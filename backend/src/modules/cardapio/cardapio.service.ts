@@ -319,6 +319,8 @@ export class CardapioService {
       tipoLocal: dto.tipoLocal != null ? !!dto.tipoLocal : row?.tipoLocal ?? false,
       // Horários
       horarios: Array.isArray(dto.horarios) ? dto.horarios : row?.horarios ?? [],
+      horariosRetirada: Array.isArray(dto.horariosRetirada) ? dto.horariosRetirada : row?.horariosRetirada ?? [],
+      horarioUnico: dto.horarioUnico != null ? !!dto.horarioUnico : row?.horarioUnico ?? true,
       // Robô de auto atendimento
       roboAtivo: dto.roboAtivo != null ? !!dto.roboAtivo : row?.roboAtivo ?? false,
       roboSaudacao: dto.roboSaudacao ?? row?.roboSaudacao ?? null,
@@ -685,9 +687,18 @@ export class CardapioService {
   // complementos (grupos min/max) + variações. Preço sempre do banco.
   // A loja está aberta AGORA? Respeita o toggle manual (aberto) e os horários
   // por dia da semana (fuso SP). Sem horários cadastrados = sempre aberta.
-  private estaAberta(cfg: any): boolean {
+  // Conjunto de horários do tipo do pedido: retirada/local usa `horariosRetirada`
+  // quando o horário NÃO é único; senão (e p/ delivery) usa `horarios`.
+  private horariosDoTipo(cfg: any, tipo?: string): any[] {
+    if ((tipo === 'retirada' || tipo === 'local') && cfg.horarioUnico === false) {
+      return (cfg.horariosRetirada ?? []) as any[];
+    }
+    return (cfg.horarios ?? []) as any[];
+  }
+
+  private estaAberta(cfg: any, tipo?: string): boolean {
     if (cfg.aberto === false) return false;
-    const hs = (cfg.horarios ?? []) as any[];
+    const hs = this.horariosDoTipo(cfg, tipo);
     if (!Array.isArray(hs) || hs.length === 0) return true;
     return !!this.janelaAtual(hs);
   }
@@ -1449,8 +1460,8 @@ export class CardapioService {
       if (ja) return this.respostaPedido(cfg, ja);
     }
     if (!dto.itens?.length) throw new BadRequestException('Pedido vazio.');
-    // Loja fechada: bloqueia (pedidos agendados passam).
-    if (!dto.agendamento && !this.estaAberta(cfg))
+    // Loja fechada (para o TIPO do pedido): bloqueia (pedidos agendados passam).
+    if (!dto.agendamento && !this.estaAberta(cfg, dto.tipo))
       throw new BadRequestException('A loja está fechada no momento. Volte no horário de funcionamento.');
     const ids = [...new Set(dto.itens.map((i) => i.produtoId))];
     const prods = await this.db
