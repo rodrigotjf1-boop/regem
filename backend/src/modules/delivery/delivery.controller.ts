@@ -77,6 +77,14 @@ export class DeliveryController {
     return this.service.retornarProducao(user.tenantId, id);
   }
 
+  // Imprime o cupom do entregador (com o QR de despacho) — Fase 4.
+  @Post('pedidos/:id/cupom-entregador')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  cupomEntregador(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Param('id') id: string) {
+    return this.service.imprimirCupomEntregador(user.tenantId, atual, id);
+  }
+
   // "Voltar pedido" (coluna Finalizado) — exige senha de gestor (presidente/C&O).
   @Post('pedidos/:id/voltar')
   @UseGuards(JwtAuthGuard, PermissoesGuard)

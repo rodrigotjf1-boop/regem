@@ -9,7 +9,7 @@ import {
   forwardRef,
 } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
-import { createHmac } from 'crypto';
+import { createHmac, randomBytes } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -1326,6 +1326,103 @@ export class DeliveryService {
     // Pausa reativa sozinha: 'pausado' é computado (janela ainda válida?).
     const pausado = !!base.pausadoAte && new Date(base.pausadoAte) > new Date();
     return { ...base, pausado, pausadoAte: pausado ? base.pausadoAte : null };
+  }
+
+  // ===== QR do entregador (Fase 4) — despacho self-service pelo cupom =====
+  // Garante o token de despacho do pedido (curto). O QR do cupom do entregador leva
+  // {base}/e/{token}. Idempotente.
+  async tokenDespacho(tenantId: string, pedidoId: string): Promise<string> {
+    const [row] = await this.db
+      .select({ token: pedidoExterno.despachoToken })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (row?.token) return row.token;
+    const token = randomBytes(6).toString('hex'); // 12 chars — curto, imprime bem no QR
+    await this.db.update(pedidoExterno).set({ despachoToken: token }).where(eq(pedidoExterno.id, pedidoId));
+    return token;
+  }
+
+  // Público (só pelo token do QR): dados do pedido + entregadores da loja p/ a tela.
+  async despachoInfo(token: string) {
+    const [ped] = await this.db.select().from(pedidoExterno).where(eq(pedidoExterno.despachoToken, token));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    const endereco = [ped.endereco, ped.enderecoNumero, ped.enderecoBairro, ped.enderecoReferencia]
+      .filter(Boolean)
+      .join(', ');
+    const entregadores = await this.listarEntregadores(ped.tenantId).catch(() => []);
+    return {
+      numero: ped.numero,
+      cliente: ped.clienteNome,
+      telefone: ped.clienteTelefone,
+      endereco: endereco || null,
+      itens: ped.itens ?? [],
+      status: ped.status,
+      jaDespachado: ['despachado', 'concluido'].includes(String(ped.status)),
+      cancelado: ped.status === 'cancelado',
+      entregadorNome: ped.entregadorNome,
+      entregadores,
+    };
+  }
+
+  // Público (token): o entregador se identifica e o pedido sai para entrega (despachado),
+  // atrelado a ele. Idempotente (se já saiu, devolve ok).
+  async despachoConfirmar(token: string, dados: { entregadorId?: string; entregadorNome?: string }) {
+    const [ped] = await this.db.select().from(pedidoExterno).where(eq(pedidoExterno.despachoToken, token));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (['despachado', 'concluido'].includes(String(ped.status)))
+      return { ok: true, status: ped.status, jaFeito: true };
+    if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
+    if (ped.status !== 'pronto')
+      throw new BadRequestException('O pedido ainda não está pronto para sair.');
+    let nome = (dados.entregadorNome ?? '').trim();
+    const id = dados.entregadorId || null;
+    if (id) {
+      const e = (await this.listarEntregadores(ped.tenantId).catch(() => [])).find((x: any) => x.id === id);
+      if (e) nome = e.nome;
+    }
+    if (!nome) throw new BadRequestException('Informe o entregador.');
+    await this.avancar(ped.tenantId, ped.id, { entregadorId: id, entregadorNome: nome });
+    return { ok: true, status: 'despachado' };
+  }
+
+  // Imprime o CUPOM DO ENTREGADOR (perfil 'entregador') com o QR de despacho. Gera o
+  // token e monta o QR {base público}/e/{token}. Base pública (celular do entregador
+  // escaneia fora da LAN) = sempre a nuvem.
+  async imprimirCupomEntregador(tenantId: string, unidadeId: string | null, pedidoId: string, terminalId?: string | null) {
+    const ped = await this.carregar(tenantId, pedidoId);
+    if (ped.tipo === 'retirada') throw new BadRequestException('Retirada não tem cupom de entregador.');
+    const token = await this.tokenDespacho(tenantId, pedidoId);
+    const cfg: any = await this.getConfig(tenantId, unidadeId);
+    const perfil = perfilEfetivo('entregador', (cfg?.cupomPerfis ?? {})?.entregador);
+    const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
+    const endereco = [ped.endereco, ped.enderecoNumero, ped.enderecoBairro, ped.enderecoReferencia].filter(Boolean).join('\n');
+    const total = Number(ped.total) || 0;
+    const conteudo = this.producao.renderCupomPerfil(
+      perfil,
+      {
+        nomeLoja: (typeof cfg?.cupomLayout?.cabecalho === 'string' && cfg.cupomLayout.cabecalho.trim()) || undefined,
+        dataHora: new Date().toLocaleString('pt-BR'),
+        ticket: ped.numero != null ? String(ped.numero) : undefined,
+        plataforma: `${ped.canal}${ped.displayId ? ' #' + ped.displayId : ''}`,
+        pedidoRegem: ped.numero != null ? `#${ped.numero}` : undefined,
+        cliente: ped.clienteNome,
+        endereco: endereco || undefined,
+        telefone: ped.clienteTelefone,
+        itens: ped.itens ?? [],
+        subtotal: total,
+        taxaEntrega: ped.taxaEntrega != null ? Number(ped.taxaEntrega) : undefined,
+        desconto: ped.desconto != null ? Number(ped.desconto) : undefined,
+        totalGeral: total,
+        cobrarCliente: ped.pago ? 0 : total, // pago online = cobrar 0
+        pagamento: ped.formaPagamento,
+        bandeiras: (ped as any).bandeira ?? undefined,
+        qrData: `${base}/e/${token}`,
+      },
+      undefined,
+      typeof cfg?.cupomLayout?.rodape === 'string' ? cfg.cupomLayout.rodape : undefined,
+    );
+    await this.producao.enfileirarViaCliente(tenantId, unidadeId, ped.comandaId, conteudo, terminalId);
+    return { ok: true, token };
   }
 
   // Perfis de cupom EFETIVOS (padrão + override salvo). Fase 1 — o editor (Fase 2)

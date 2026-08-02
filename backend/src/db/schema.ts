@@ -1965,6 +1965,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   entregadorId: uuid('entregador_id'), // atribuído no despacho
   entregadorNome: text('entregador_nome'),
   entregadorTelefone: text('entregador_telefone'), // snapshot no despacho
+  despachoToken: text('despacho_token'), // QR do entregador (mig 162, Fase 4)
   autoAceiteFalhou: boolean('auto_aceite_falhou').notNull().default(false),
   alterado: boolean('alterado').notNull().default(false),
   alteradoEm: timestamp('alterado_em', { withTimezone: true }),
