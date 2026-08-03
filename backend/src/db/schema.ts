@@ -830,6 +830,28 @@ export const pontoAjuste = pgTable('ponto_ajuste', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Fechamento mensal de ponto (Épico #2 / espelho de ponto — RH). Um registro por
+// (tenant, competência = 1º dia do mês fechado). O job mensal detecta pendências
+// (batida faltando/incompleta) e materializa aqui; alimenta o alerta em
+// Gerenciamento de ponto e o encaminhamento do espelho ao contador. Mig 164.
+export const pontoFechamento = pgTable('ponto_fechamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  competencia: date('competencia').notNull(), // 1º dia do mês fechado
+  status: text('status').notNull().default('pendente'), // pendente|ok|enviado
+  totalColaboradores: integer('total_colaboradores').notNull().default(0),
+  totalPendencias: integer('total_pendencias').notNull().default(0),
+  pendencias: jsonb('pendencias').notNull().default('[]'), // [{colaboradorId,nome,dias:[{data,motivo}]}]
+  pdfRef: text('pdf_ref'),
+  enviadoEm: timestamp('enviado_em', { withTimezone: true }),
+  enviadoContadorId: uuid('enviado_contador_id'),
+  enviadoPorId: uuid('enviado_por_id'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Título financeiro (a pagar/receber) — obrigação/direito com vencimento.
 export const tituloFinanceiro = pgTable('titulo_financeiro', {
   id: uuid('id').primaryKey().defaultRandom(),

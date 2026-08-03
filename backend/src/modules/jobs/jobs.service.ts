@@ -8,6 +8,7 @@ import { EstoqueService } from '../estoque/estoque.service';
 import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
 import { PedidoManutencaoService } from '../pedido-manutencao/pedido-manutencao.service';
 import { EtiquetaValidadeService } from '../etiqueta-validade/etiqueta-validade.service';
+import { PontoService, competenciaMesAnterior } from '../ponto/ponto.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Agendador de jobs do backend. (Instância única no EasyPanel — sem lock distribuído.)
@@ -22,8 +23,39 @@ export class JobsService {
     private readonly ordemProducao: OrdemProducaoService,
     private readonly manutencao: PedidoManutencaoService,
     private readonly etiquetas: EtiquetaValidadeService,
+    private readonly ponto: PontoService,
     private readonly events: EventEmitter2,
   ) {}
+
+  // Épico #2 — Fechamento mensal de ponto. No 1º dia do mês, para cada tenant,
+  // detecta pendências do mês anterior e materializa o fechamento; se houver
+  // pendências, alerta o gestor (Gerenciamento de ponto).
+  @Cron('0 6 1 * *') // 06:00 do dia 1 de cada mês
+  async fecharPontoMensal() {
+    const competencia = competenciaMesAnterior();
+    const [ano, mes] = competencia.split('-');
+    for (const tenantId of await this.tenantsAtivos()) {
+      try {
+        const f = await this.ponto.gerarFechamento(tenantId, competencia);
+        const pend = Number(f.totalPendencias) || 0;
+        if (pend > 0) {
+          const titulo = `Fechamento de ponto ${mes}/${ano}: ${pend} pendência(s)`;
+          const detalhe = 'Corrija as batidas faltantes em Gerenciamento de ponto e encaminhe o espelho ao RH.';
+          this.events.emit('kds.alerta.sistema', {
+            tenantId,
+            titulo,
+            detalhe,
+            prioridade: 'alta',
+          });
+        }
+        this.log.log(
+          `fechamento de ponto ${competencia} (${tenantId}): ${pend} pendência(s)`,
+        );
+      } catch (e: any) {
+        this.log.error(`fecharPontoMensal[${tenantId}]: ${e?.message ?? e}`);
+      }
+    }
+  }
 
   // Alertas de etiquetas de validade (a vencer / vencidas) ao C&O/gerente. Mig 136.
   @Cron('15 6 * * *') // 06:15 todos os dias

@@ -13,6 +13,7 @@ import { TIPO_LABEL } from '@/components/ponto/ponto-card';
 import { PontoGestao } from '@/components/ponto/ponto-gestao';
 import { AcessoSenhaCard } from '@/components/pessoas/acesso-senha-card';
 import { DesligamentoCard } from '@/components/pessoas/desligamento-card';
+import { FechamentoPontoCard } from '@/components/pessoas/fechamento-ponto-card';
 
 const AJUSTE_LABEL: Record<string, string> = {
   abono: 'Abono',
@@ -118,6 +119,11 @@ export default function PessoasPage() {
         </Card>
       ) : (
         <>
+          <div className="mb-4">
+            <FechamentoPontoCard
+              onAbrirColaborador={(id, nome) => abrirEspelho(id, nome)}
+            />
+          </div>
           {podeGerir && (
             <div className="mb-4 space-y-4">
               <AcessoSenhaCard />
