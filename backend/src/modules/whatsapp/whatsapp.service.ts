@@ -530,6 +530,39 @@ export class WhatsappService {
     return { ok: true, itens: categorias.reduce((n, c) => n + c.itens.length, 0) };
   }
 
+  // Envia um documento (PDF) já montado por WhatsApp. Reuso genérico do sendMedia
+  // (ex.: espelho de ponto para o RH — Épico #2).
+  async enviarDocumento(
+    tenantId: string,
+    numero: string,
+    base64: string,
+    fileName: string,
+    caption = '',
+  ) {
+    const { instancia } = await this.instanciaDe(tenantId);
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    const res = await this.req(`/message/sendMedia/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        number,
+        mediatype: 'document',
+        mimetype: 'application/pdf',
+        media: base64,
+        fileName,
+        filename: fileName,
+        caption,
+      }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(
+        `Falha ao enviar o documento (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`,
+      );
+    }
+    return { ok: true };
+  }
+
   // ===== Resolver multi-tenant (o n8n chama por instância; protegido por secret) =====
   async resolver(instancia: string, secret: string, numero?: string) {
     const esperado = process.env.BOT_RESOLVER_SECRET ?? '';

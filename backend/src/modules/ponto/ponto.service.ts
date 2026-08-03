@@ -17,6 +17,8 @@ import { CriarAjusteDto } from './dto/criar-ajuste.dto';
 import { sqlUnidade } from '../../common/filtro-unidade';
 import { ModuloService } from '../modulo/modulo.service';
 import { ForbiddenException } from '@nestjs/common';
+import { gerarEspelhoPontoPdf } from './espelho-pdf';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const RETENCAO_FOTO_DIAS = 90; // LGPD: retenção da foto do ponto até o expurgo.
@@ -73,6 +75,27 @@ function turnoMin(inicio: string, fim: string): number {
   return d;
 }
 
+// ---- Fechamento mensal de ponto (Épico #2) ----
+// Competência = 1º dia do mês (YYYY-MM-01). Último dia do mês da competência.
+function fimDoMes(competencia: string): string {
+  const [y, m] = competencia.split('-').map(Number);
+  const ultimo = new Date(Date.UTC(y, m, 0)).getUTCDate(); // dia 0 do mês seguinte = último
+  return `${competencia.slice(0, 7)}-${String(ultimo).padStart(2, '0')}`;
+}
+// Competência do mês ANTERIOR ao de hoje (BRT), como YYYY-MM-01.
+function competenciaAnterior(): string {
+  const hojeBrt = new Date().toLocaleDateString('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+  }); // YYYY-MM-DD
+  const [y, m] = hojeBrt.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1, 1));
+  d.setUTCMonth(d.getUTCMonth() - 1);
+  return d.toISOString().slice(0, 10);
+}
+export function competenciaMesAnterior(): string {
+  return competenciaAnterior();
+}
+
 @Injectable()
 export class PontoService {
   constructor(
@@ -81,6 +104,7 @@ export class PontoService {
     private readonly equipamentos: EquipamentoService,
     private readonly events: EventEmitter2,
     private readonly modulos: ModuloService,
+    private readonly whatsapp: WhatsappService,
   ) {}
 
   // Grava uma marcação com NSR sequencial POR EQUIPAMENTO (Portaria 671).
@@ -483,5 +507,216 @@ export class PontoService {
         };
       })
       .sort((a: any, b: any) => a.nome.localeCompare(b.nome));
+  }
+
+  // ---- Fechamento mensal de ponto (Épico #2 / espelho — RH) ----
+
+  // Colaboradores que tiveram ESCALA no período (a escala é a fonte da verdade).
+  private async colaboradoresEscalados(
+    tenantId: string,
+    inicio: string,
+    fim: string,
+  ): Promise<{ colaboradorId: string; nome: string }[]> {
+    const r: any = await this.db.execute(sql`
+      select distinct ea.colaborador_id as "colaboradorId", c.nome
+      from escala_alocacao ea
+      join colaborador c on c.id = ea.colaborador_id
+      where ea.tenant_id = ${tenantId} and ea.deleted_at is null
+        and c.deleted_at is null
+        and ea.data between ${inicio} and ${fim}
+      order by c.nome
+    `);
+    return r.rows ?? r;
+  }
+
+  // Detecta pendências de ponto no mês por colaborador escalado. Pendência =
+  // dia escalado sem NENHUMA marcação e sem abono/atestado/justificativa, OU
+  // dia com nº ÍMPAR de marcações válidas (batida faltando). Reusa espelho().
+  async detectarPendenciasMes(tenantId: string, competencia: string) {
+    const inicio = competencia;
+    const fim = fimDoMes(competencia);
+    const colabs = await this.colaboradoresEscalados(tenantId, inicio, fim);
+    const pendencias: {
+      colaboradorId: string;
+      nome: string;
+      dias: { data: string; motivo: string }[];
+    }[] = [];
+    for (const c of colabs) {
+      const esp = await this.espelho(tenantId, c.colaboradorId, inicio, fim, null);
+      const dias: { data: string; motivo: string }[] = [];
+      for (const d of esp.dias) {
+        const validas = d.marcacoes.filter((m: any) => !m.desconsiderada);
+        const abonado = d.ajustes.some((a: any) =>
+          ['abono', 'atestado', 'justificativa'].includes(a.tipo),
+        );
+        if (d.esperadoMin > 0 && validas.length === 0 && !abonado) {
+          dias.push({ data: d.data, motivo: 'sem marcação em dia escalado' });
+        } else if (validas.length % 2 !== 0) {
+          dias.push({ data: d.data, motivo: 'batida incompleta' });
+        }
+      }
+      if (dias.length)
+        pendencias.push({ colaboradorId: c.colaboradorId, nome: c.nome, dias });
+    }
+    return { totalColaboradores: colabs.length, pendencias };
+  }
+
+  // Materializa/atualiza o fechamento do mês (idempotente por tenant+competência).
+  // Preserva 'enviado'; senão status = 'pendente' (há pendência) ou 'ok'.
+  async gerarFechamento(tenantId: string, competencia?: string) {
+    const comp = competencia || competenciaAnterior();
+    const { totalColaboradores, pendencias } = await this.detectarPendenciasMes(
+      tenantId,
+      comp,
+    );
+    const totalPend = pendencias.reduce((s, p) => s + p.dias.length, 0);
+    const r: any = await this.db.execute(sql`
+      insert into ponto_fechamento
+        (tenant_id, competencia, status, total_colaboradores, total_pendencias, pendencias, updated_at)
+      values (${tenantId}, ${comp},
+        ${totalPend > 0 ? 'pendente' : 'ok'}, ${totalColaboradores}, ${totalPend},
+        ${JSON.stringify(pendencias)}::jsonb, now())
+      on conflict (tenant_id, competencia) do update set
+        total_colaboradores = excluded.total_colaboradores,
+        total_pendencias = excluded.total_pendencias,
+        pendencias = excluded.pendencias,
+        status = case
+          when ponto_fechamento.status = 'enviado' then 'enviado'
+          when excluded.total_pendencias > 0 then 'pendente'
+          else 'ok' end,
+        updated_at = now()
+      returning id, competencia::text as competencia, status,
+        total_colaboradores as "totalColaboradores",
+        total_pendencias as "totalPendencias"
+    `);
+    return (r.rows ?? r)[0];
+  }
+
+  // Fechamentos recentes (para o alerta em Gerenciamento de ponto).
+  async listarFechamentos(tenantId: string, limit = 6) {
+    const r: any = await this.db.execute(sql`
+      select id, competencia::text as competencia, status,
+        total_colaboradores as "totalColaboradores",
+        total_pendencias as "totalPendencias", pendencias, pdf_ref as "pdfRef",
+        enviado_em as "enviadoEm", enviado_contador_id as "enviadoContadorId",
+        criado_em as "criadoEm"
+      from ponto_fechamento
+      where tenant_id = ${tenantId}
+      order by competencia desc
+      limit ${limit}
+    `);
+    return r.rows ?? r;
+  }
+
+  // Espelho de ponto mensal CONSOLIDADO (todos os colaboradores cadastrados) → PDF.
+  // Retorna o Buffer para download ou envio ao RH.
+  async gerarEspelhoMensalPdf(
+    tenantId: string,
+    competencia?: string,
+  ): Promise<{ buffer: Buffer; competencia: string; nomeArquivo: string }> {
+    const comp = competencia || competenciaAnterior();
+    const inicio = comp;
+    const fim = fimDoMes(comp);
+    const emp: any = await this.db.execute(
+      sql`select nome from empresa where id = ${tenantId}`,
+    );
+    const empresaNome = (emp.rows ?? emp)[0]?.nome ?? 'Empresa';
+    const cs: any = await this.db.execute(sql`
+      select c.id, c.nome, c.matricula, f.nome as "funcao"
+      from colaborador c
+      left join funcao f on f.id = c.funcao_id
+      where c.tenant_id = ${tenantId} and c.deleted_at is null
+      order by c.nome
+    `);
+    const colaboradores: any[] = [];
+    for (const c of cs.rows ?? cs) {
+      const espelho = await this.espelho(tenantId, c.id, inicio, fim, null);
+      colaboradores.push({
+        nome: c.nome,
+        matricula: c.matricula,
+        funcao: c.funcao,
+        espelho,
+      });
+    }
+    const buffer = await gerarEspelhoPontoPdf({
+      empresa: empresaNome,
+      competencia: comp,
+      colaboradores,
+    });
+    const nomeArquivo = `espelho-ponto-${comp.slice(0, 7)}.pdf`;
+    return { buffer, competencia: comp, nomeArquivo };
+  }
+
+  // Encaminha o espelho do mês (PDF) ao responsável do RH (contador) por WhatsApp.
+  // Sem contador ativo e sem nome/telefone informados → pede o responsável ao front.
+  // Com nome+telefone → cadastra o contador e envia. Marca o fechamento como enviado.
+  async enviarEspelhoContador(
+    tenantId: string,
+    atorId: string,
+    competencia: string,
+    opts: { contadorId?: string; nome?: string; telefone?: string } = {},
+  ) {
+    const comp = competencia || competenciaAnterior();
+    // Destino: contador informado > novo (nome+telefone) > contador ativo cadastrado.
+    let contadorId = opts.contadorId ?? null;
+    let telefone = '';
+    if (opts.nome && opts.telefone) {
+      const r: any = await this.db.execute(sql`
+        insert into contador (tenant_id, nome, whatsapp, cadastrado_por_id)
+        values (${tenantId}, ${opts.nome}, ${opts.telefone}, ${atorId})
+        returning id, whatsapp
+      `);
+      const row = (r.rows ?? r)[0];
+      contadorId = row.id;
+      telefone = row.whatsapp;
+    } else {
+      const r: any = await this.db.execute(sql`
+        select id, whatsapp from contador
+        where tenant_id = ${tenantId} and ativo = true
+          ${contadorId ? sql`and id = ${contadorId}` : sql``}
+        order by created_at desc limit 1
+      `);
+      const row = (r.rows ?? r)[0];
+      if (!row) return { precisaResponsavel: true };
+      contadorId = row.id;
+      telefone = row.whatsapp;
+    }
+
+    const { buffer, nomeArquivo } = await this.gerarEspelhoMensalPdf(tenantId, comp);
+    const [ano, mes] = comp.split('-');
+    await this.whatsapp.enviarDocumento(
+      tenantId,
+      telefone,
+      buffer.toString('base64'),
+      nomeArquivo,
+      `Espelho de ponto ${mes}/${ano}`,
+    );
+
+    // Garante o registro do fechamento e marca como enviado.
+    await this.gerarFechamento(tenantId, comp);
+    await this.db.execute(sql`
+      update ponto_fechamento
+        set status = 'enviado', enviado_em = now(),
+            enviado_contador_id = ${contadorId}, enviado_por_id = ${atorId},
+            updated_at = now()
+      where tenant_id = ${tenantId} and competencia = ${comp}
+    `);
+    // Carimba "ponto enviado" nos colaboradores (rastro por colaborador).
+    await this.db.execute(sql`
+      update colaborador
+        set ponto_enviado_em = now(), ponto_enviado_contador_id = ${contadorId}
+      where tenant_id = ${tenantId} and deleted_at is null
+    `);
+
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil: 'gestor',
+      tipo: 'ponto',
+      acao: 'enviou_espelho_rh',
+      entidadeTipo: 'ponto_fechamento',
+      detalhe: { competencia: comp, contadorId },
+    });
+    return { ok: true, competencia: comp };
   }
 }

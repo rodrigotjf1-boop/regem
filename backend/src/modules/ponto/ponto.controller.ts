@@ -3,10 +3,13 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Param,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -122,6 +125,63 @@ export class PontoController {
       user.colaboradorId,
       user.categoria,
       dto,
+    );
+  }
+
+  // ---- Fechamento mensal / espelho de ponto (Épico #2) ----
+
+  // Fechamentos recentes (alerta de pendências em Gerenciamento de ponto).
+  @Get('fechamentos')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('ponto_gerencial')
+  fechamentos(@CurrentUser() user: AuthUser) {
+    return this.service.listarFechamentos(user.tenantId);
+  }
+
+  // Gera/recalcula o fechamento do mês (sem competência = mês anterior). Idempotente.
+  @Post('fechamentos/gerar')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('ponto_gerencial')
+  gerarFechamento(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { competencia?: string },
+  ) {
+    return this.service.gerarFechamento(user.tenantId, dto?.competencia);
+  }
+
+  // PDF consolidado do espelho de ponto do mês (todos os colaboradores).
+  @Get('fechamentos/:competencia/pdf')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('ponto_gerencial')
+  async espelhoPdf(
+    @CurrentUser() user: AuthUser,
+    @Param('competencia') competencia: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, nomeArquivo } = await this.service.gerarEspelhoMensalPdf(
+      user.tenantId,
+      competencia,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${nomeArquivo}"`);
+    res.send(buffer);
+  }
+
+  // Encaminha o espelho do mês ao RH (contador) por WhatsApp. Sem responsável
+  // cadastrado e sem nome/telefone no corpo → responde { precisaResponsavel: true }.
+  @Post('fechamentos/:competencia/enviar')
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('ponto_gerencial')
+  enviarEspelho(
+    @CurrentUser() user: AuthUser,
+    @Param('competencia') competencia: string,
+    @Body() dto: { contadorId?: string; nome?: string; telefone?: string },
+  ) {
+    return this.service.enviarEspelhoContador(
+      user.tenantId,
+      user.colaboradorId,
+      competencia,
+      dto ?? {},
     );
   }
 }

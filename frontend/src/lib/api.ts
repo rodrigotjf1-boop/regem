@@ -1095,6 +1095,38 @@ export const api = {
     req('/ponto/marcacao-manual', { method: 'POST', body: JSON.stringify(body) }),
   criarAjustePonto: (body: Record<string, unknown>) =>
     req('/ponto/ajuste', { method: 'POST', body: JSON.stringify(body) }),
+  // Fechamento mensal de ponto / espelho (Épico #2)
+  pontoFechamentos: () => req('/ponto/fechamentos'),
+  gerarFechamentoPonto: (competencia?: string) =>
+    req('/ponto/fechamentos/gerar', {
+      method: 'POST',
+      body: JSON.stringify(competencia ? { competencia } : {}),
+    }),
+  // Baixa o PDF consolidado do espelho (com auth) e devolve um object URL p/ abrir.
+  pontoEspelhoPdfUrl: async (competencia: string): Promise<string> => {
+    const token = getToken();
+    const res = await fetch(
+      `${apiBase()}/ponto/fechamentos/${competencia}/pdf`,
+      {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(getUnidadeAtual()
+            ? { 'X-Unidade-Id': getUnidadeAtual() as string }
+            : {}),
+        },
+      },
+    );
+    if (!res.ok) throw new Error(`Erro ${res.status} ao gerar o PDF`);
+    return URL.createObjectURL(await res.blob());
+  },
+  enviarEspelhoPonto: (
+    competencia: string,
+    resp?: { nome?: string; telefone?: string; contadorId?: string },
+  ) =>
+    req(`/ponto/fechamentos/${competencia}/enviar`, {
+      method: 'POST',
+      body: JSON.stringify(resp ?? {}),
+    }),
   financeiroTitulos: (tipo?: string, status?: string) => {
     const p = new URLSearchParams();
     if (tipo) p.set('tipo', tipo);
