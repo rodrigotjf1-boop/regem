@@ -1922,6 +1922,9 @@ export const deliveryConfig = pgTable('delivery_config', {
   // — { caixa: { campos: [{key,visivel,negrito,alinhamento}...] }, ... }. Vazio = padrão
   // (CUPOM_PERFIS_PADRAO). Cabeçalho/rodapé continuam livres (cupom_layout).
   cupomPerfis: jsonb('cupom_perfis').notNull().default('{}'),
+  // QR de despacho: ligado, o entregador lê o QR do cupom e despacha sozinho;
+  // desligado, o AVANÇAR abre o modal de seleção de entregador (mig 165).
+  qrDespacho: boolean('qr_despacho').notNull().default(false),
   // Pausa temporária (reativa sozinha ao passar de pausado_ate).
   pausadoAte: timestamp('pausado_ate', { withTimezone: true }),
   pausaMotivo: text('pausa_motivo'),

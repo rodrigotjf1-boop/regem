@@ -213,6 +213,22 @@
   overflow-y: auto; /* só o conteúdo rola; o cabeçalho acima fica fixo */
   padding-bottom: calc(4rem + env(safe-area-inset-bottom));
 }
+/* Modo "fill" (Painel de controle): a página ocupa 100% da altura e NÃO rola —
+   o scroll fica só nas áreas internas (listviews). Desktop apenas. */
+.shell-content > main.main-fill {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0.35rem 0.6rem;
+}
+@media (max-width: 859px) {
+  /* No mobile volta ao fluxo normal (rola a página) + espaço p/ a BottomNav. */
+  .shell-content > main.main-fill {
+    overflow-y: auto;
+    display: block;
+    padding-bottom: calc(4rem + env(safe-area-inset-bottom));
+  }
+}
 @media (max-width: 859px) {
   .shell[data-side='left'] .shell-aside {
     padding-left: env(safe-area-inset-left);

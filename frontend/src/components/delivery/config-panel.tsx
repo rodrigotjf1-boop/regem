@@ -23,7 +23,6 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     itens: [
       { k: 'cardapio', label: 'Cardápio' },
       { k: 'horarios', label: 'Horários' },
-      { k: 'tipos', label: 'Tipos de pedido' },
       { k: 'area', label: 'Área de atendimento' },
       { k: 'cupons', label: 'Cupons' },
       { k: 'fidelidade', label: 'Plano de fidelidade' },
@@ -564,15 +563,8 @@ export function ConfigPanel({
                   </Secao>
                 )}
 
-                {/* TIPOS */}
-                {sec === 'tipos' && (
-                  <Secao dica="O que o cliente pode escolher no cardápio digital.">
-                    <ToggleLinha label="Delivery (entrega)" desc="Cliente pede para receber em casa." checked={loja.tipoDelivery !== false} onChange={(v) => up({ tipoDelivery: v })} pode={isGestor} />
-                    <ToggleLinha label="Retirar na loja" desc="Cliente busca o pedido no balcão." checked={!!loja.tipoRetirada} onChange={(v) => up({ tipoRetirada: v })} pode={isGestor} />
-                    <ToggleLinha label="Consumir no local" desc="Para lojas com salão." checked={!!loja.tipoLocal} onChange={(v) => up({ tipoLocal: v })} pode={isGestor} />
-                    <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
-                  </Secao>
-                )}
+                {/* Tipos de pedido: movido para o modal do ⚙️ no Painel de delivery
+                    (menu Delivery → Painel → ⚙️), como "Tipos de delivery". */}
 
                 {/* ÁREA DE ATENDIMENTO */}
                 {sec === 'area' && (

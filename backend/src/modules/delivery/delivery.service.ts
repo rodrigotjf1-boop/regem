@@ -11,6 +11,7 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { createHmac, randomBytes } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { OnEvent } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   caixaSessao,
@@ -662,6 +663,129 @@ export class DeliveryService {
     if (novo === 'pronto') void this.statusBackAnotaAi(tenantId, row, 'ready');
     else if (novo === 'concluido') void this.statusBackAnotaAi(tenantId, row, 'finalizar');
     return row;
+  }
+
+  // Despacha DIRETO para "em rota" (Painel de controle): confirmado|pronto →
+  // despachado, pulando a etapa 'pronto' do AVANÇAR (o 'pronto' fica só no botão
+  // PRONTO e no reflexo do KDS). Só entrega (retirada não vai para rota).
+  async despachar(
+    tenantId: string,
+    id: string,
+    dados?: {
+      entregadorId?: string | null;
+      entregadorNome?: string | null;
+      entregadorTelefone?: string | null;
+    },
+  ) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.tipo === 'retirada')
+      throw new BadRequestException('Pedido de retirada não vai para entrega.');
+    if (!['confirmado', 'pronto'].includes(ped.status))
+      throw new BadRequestException('Só é possível despachar um pedido em produção ou pronto.');
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({
+        status: 'despachado',
+        despachadoEm: new Date(),
+        entregadorNome:
+          dados?.entregadorNome != null ? dados.entregadorNome || null : ped.entregadorNome,
+        entregadorId:
+          dados?.entregadorId != null ? dados.entregadorId || null : ped.entregadorId,
+        entregadorTelefone:
+          dados?.entregadorTelefone != null
+            ? dados.entregadorTelefone || null
+            : ped.entregadorTelefone,
+      })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    void this.dispararWebhook(tenantId, row);
+    void this.statusBack(tenantId, row, 'dispatch');
+    void this.statusBackCw(tenantId, row, 'ready'); // CW: saiu para entrega
+    void this.statusBackIfood(tenantId, row, 'dispatch');
+    return row;
+  }
+
+  // Reflexo do KDS: quando a produção da comanda fica 'pronto', o pedido de delivery
+  // ligado sobe para 'pronto' no Painel (só se ainda estiver 'confirmado'). Idempotente
+  // e best-effort — nunca derruba o avanço do KDS.
+  @OnEvent('producao.pronto')
+  async aoProducaoPronto(payload: { tenantId: string; comandaId?: string | null }) {
+    const tenantId = payload?.tenantId;
+    const comandaId = payload?.comandaId;
+    if (!tenantId || !comandaId) return;
+    try {
+      const [ped] = await this.db
+        .select({ id: pedidoExterno.id, status: pedidoExterno.status })
+        .from(pedidoExterno)
+        .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.comandaId, comandaId)));
+      if (ped && ped.status === 'confirmado') {
+        await this.avancar(tenantId, ped.id); // confirmado → pronto (+ status-back ready)
+      }
+    } catch {
+      // silencioso
+    }
+  }
+
+  // Finaliza a entrega (Painel de controle, Fase 5). Pago online conclui direto;
+  // a-receber exige a CONFERÊNCIA (forma recebida) e registra o valor no caixa de
+  // entregas (turno 'delivery' aberto) antes de concluir. Sem forma no a-receber,
+  // devolve { precisaConferencia } para o front abrir o modal.
+  async finalizar(
+    tenantId: string,
+    atorId: string,
+    id: string,
+    opts: { forma?: string; valorRecebido?: number } = {},
+  ) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status === 'concluido') return ped;
+    if (ped.status !== 'despachado')
+      throw new BadRequestException('Só é possível finalizar um pedido em rota.');
+    // Pago online (ou já quitado): conclui direto, sem conferência.
+    if (ped.pago) return this.avancar(tenantId, id);
+    // A-receber: precisa da forma recebida (conferência).
+    const forma = String(opts.forma ?? '').trim().toLowerCase();
+    if (!forma) return { precisaConferencia: true };
+    // Registra o recebimento no caixa de entregas aberto.
+    const [sessao] = await this.db
+      .select({ id: caixaSessao.id })
+      .from(caixaSessao)
+      .where(
+        and(
+          eq(caixaSessao.tenantId, tenantId),
+          eq(caixaSessao.status, 'aberta'),
+          eq(caixaSessao.origem, 'delivery'),
+        ),
+      );
+    if (!sessao)
+      throw new BadRequestException(
+        'Abra o caixa de entregas para registrar o recebimento do entregador.',
+      );
+    await this.db
+      .update(pedidoExterno)
+      .set({
+        pago: true,
+        statusPagamento: 'aprovado',
+        formaPagamento: forma,
+        caixaSessaoId: sessao.id,
+      })
+      .where(eq(pedidoExterno.id, id));
+    // Re-aponta o lançamento da venda para o caixa de entregas com a forma recebida.
+    if (ped.comandaId) {
+      await this.db
+        .update(lancamentoCaixa)
+        .set({ sessaoId: sessao.id, forma })
+        .where(
+          and(
+            eq(lancamentoCaixa.tenantId, tenantId),
+            eq(lancamentoCaixa.comandaId, ped.comandaId),
+            eq(lancamentoCaixa.tipo, 'entrada'),
+            eq(lancamentoCaixa.categoria, 'venda'),
+          ),
+        );
+    }
+    // Conclui (baixa estoque + webhooks/status-back). Como pago=true, o
+    // reconciliarDinheiro interno vira no-op (já registramos acima).
+    return this.avancar(tenantId, id);
   }
 
   // ===== Hub "Retirada / Encomendas" (Fase 1, mig 132) =====
@@ -1322,6 +1446,7 @@ export class DeliveryService {
         prepDeliveryMax: 55,
         setorId: null,
         finalizadoHoras: 5,
+        qrDespacho: false,
         pausadoAte: null,
         pausaMotivo: null,
       };
@@ -1565,6 +1690,8 @@ export class DeliveryService {
         240,
         Math.max(1, numOr(dto.finalizadoHoras, row?.finalizadoHoras, 5)),
       ),
+      qrDespacho:
+        dto.qrDespacho != null ? !!dto.qrDespacho : row?.qrDespacho ?? false,
     };
     // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
     if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;
