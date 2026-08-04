@@ -70,11 +70,41 @@ export class DeliveryController {
     });
   }
 
+  // Despacha direto para "em rota" (AVANÇAR do Painel: pula 'pronto').
+  @Post('pedidos/:id/despachar')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  despachar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.despachar(user.tenantId, id, {
+      entregadorId: dto?.entregadorId ?? null,
+      entregadorNome: dto?.entregadorNome ?? null,
+      entregadorTelefone: dto?.entregadorTelefone ?? null,
+    });
+  }
+
   @Post('pedidos/:id/retornar')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')
   retornar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.retornarProducao(user.tenantId, id);
+  }
+
+  // Finaliza a entrega. Pago online → conclui direto. A-receber (sem forma no corpo)
+  // → responde { precisaConferencia: true } para o front abrir a conferência; com
+  // { forma } → registra o recebimento no caixa de entregas e conclui.
+  @Post('pedidos/:id/finalizar')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  finalizar(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { forma?: string; valorRecebido?: number },
+  ) {
+    return this.service.finalizar(user.tenantId, user.colaboradorId, id, dto ?? {});
   }
 
   // Imprime o cupom do entregador (com o QR de despacho) — Fase 4.

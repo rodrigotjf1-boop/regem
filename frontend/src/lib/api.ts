@@ -740,6 +740,10 @@ export const api = {
     req(`/delivery/pedidos/${id}/alterar`, { method: 'POST', body: JSON.stringify(body) }),
   reimprimirDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: '{}' }),
+  despacharDelivery: (id: string, body?: Record<string, unknown>) =>
+    req(`/delivery/pedidos/${id}/despachar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+  finalizarDelivery: (id: string, body?: { forma?: string; valorRecebido?: number }) =>
+    req(`/delivery/pedidos/${id}/finalizar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
   bairrosDelivery: () => req('/delivery/bairros'),

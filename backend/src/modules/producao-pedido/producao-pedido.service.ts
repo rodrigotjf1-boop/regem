@@ -1012,6 +1012,12 @@ export class ProducaoPedidoService {
       tipo: 'status',
       status: novo,
     });
+    // Reflexo no Painel de delivery: quando a produção fica 'pronto', o pedido de
+    // delivery ligado à mesma comanda sobe para 'pronto' no listview (ouvido no
+    // DeliveryService). Idempotente lá (só se ainda estiver 'confirmado').
+    if (novo === 'pronto' && p.comandaId) {
+      this.events?.emit('producao.pronto', { tenantId, comandaId: p.comandaId });
+    }
     return { ok: true, status: novo };
   }
 

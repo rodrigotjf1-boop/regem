@@ -170,12 +170,17 @@ export function Shell({
   eyebrowTone = 'primary',
   actions,
   children,
+  fill = false,
 }: {
   title?: string;
   eyebrow?: string;
   eyebrowTone?: 'primary' | 'ink'; // 'ink' = cor do texto (preto), não o dourado
   actions?: React.ReactNode;
   children: React.ReactNode;
+  // fill: tela sem topbar, ocupando 100% da altura (a própria página controla o
+  // scroll interno). Usado no Painel de controle do Delivery. No mobile, o menu
+  // fica acessível por um hambúrguer flutuante.
+  fill?: boolean;
 }) {
   const path = usePathname();
   const router = useRouter();
@@ -408,31 +413,40 @@ export function Shell({
         <LicencaAviso />
         <ServidorOfflineAviso />
         <AtualizacaoAviso />
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-5 py-2">
-          {prefs.side === 'left' && burger}
-          <div>
-            {eyebrow && (
-              <p className={`font-display text-[10px] font-bold uppercase tracking-[.18em] ${eyebrowTone === 'ink' ? 'text-foreground' : 'text-primary'}`}>
-                {eyebrow}
-              </p>
-            )}
-            {title && (
-              <h1 className="font-display text-xl font-extrabold tracking-tight">
-                {title}
-              </h1>
-            )}
+        {!fill && (
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-5 py-2">
+            {prefs.side === 'left' && burger}
+            <div>
+              {eyebrow && (
+                <p className={`font-display text-[10px] font-bold uppercase tracking-[.18em] ${eyebrowTone === 'ink' ? 'text-foreground' : 'text-primary'}`}>
+                  {eyebrow}
+                </p>
+              )}
+              {title && (
+                <h1 className="font-display text-xl font-extrabold tracking-tight">
+                  {title}
+                </h1>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <UnidadeSeletor />
+              <ModoOperacao className="!py-1 !px-2" />
+              <span className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:inline-flex">
+                <Clock className="h-3.5 w-3.5" /> {rel}
+              </span>
+              {actions}
+              {prefs.side === 'right' && burger}
+            </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <UnidadeSeletor />
-            <ModoOperacao className="!py-1 !px-2" />
-            <span className="hidden items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 font-mono text-xs text-muted-foreground sm:inline-flex">
-              <Clock className="h-3.5 w-3.5" /> {rel}
-            </span>
-            {actions}
-            {prefs.side === 'right' && burger}
+        )}
+        {/* Modo fill (sem topbar): hambúrguer flutuante p/ o menu no mobile
+            (some no desktop via .shell-burger). */}
+        {fill && (
+          <div className="pointer-events-none fixed left-2 top-2 z-40 [&>*]:pointer-events-auto">
+            {burger}
           </div>
-        </div>
-        <main className="px-5 py-5 pb-16">{children}</main>
+        )}
+        <main className={fill ? 'main-fill' : 'px-5 py-5 pb-16'}>{children}</main>
       </div>
 
       {/* Navegação-topo no rodapé (Material 3) — só no mobile (<860px);
