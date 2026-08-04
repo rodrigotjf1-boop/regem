@@ -204,6 +204,10 @@ export class DeliveryService {
       this.logger.warn(`reflexo ${canal} → ${novoStatus}: pedido ${externalId.slice(0, 10)} não encontrado (externalId?)`);
       return;
     }
+    // Retirada não tem "em rota" (não há entregador). Um reflexo de 'despachado'
+    // (ex.: "Prontos para entrega" da Anota, que acumula retirada pronta + delivery
+    // em rota) vira 'pronto' quando o pedido é retirada — aguardando o cliente buscar.
+    if (novoStatus === 'despachado' && row.tipo === 'retirada') novoStatus = 'pronto';
     // Idempotente: já está no estado alvo ou já é terminal (não regride).
     if (row.status === novoStatus) return;
     if (row.status === 'cancelado' || row.status === 'concluido') return;

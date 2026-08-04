@@ -181,17 +181,18 @@ export class AnotaAiService {
           }
         }
         // 2) Reflete o status vindo DA Anota Aí (bidirecional; vale p/ já ingeridos).
-        //    A Anota Aí só expõe o `check` numérico (a LIST não traz status textual) e
-        //    NÃO tem "em rota": 1 produção · 2 pronto · 3 finalizado · 4 cancelado ·
-        //    5 negado · 6 = CLIENTE PEDIU CANCELAMENTO (precisa da loja aprovar → sino).
-        //    check 1 = EM PRODUÇÃO. O Anota Aí não tem status textual nem "em rota".
-        let alvo: 'pronto' | 'concluido' | 'cancelado' | null = null;
+        //    A Anota Aí só expõe o `check` numérico (a LIST não traz status textual):
+        //    1 = EM PRODUÇÃO · 2 = "PRONTOS PARA ENTREGA" (na operação da loja = EM ROTA,
+        //    é o último passo antes de finalizar) · 3 = finalizado · 4 = cancelado ·
+        //    5 = negado · 6 = CLIENTE PEDIU CANCELAMENTO (loja aprova → sino).
+        //    Por isso check 2 → 'despachado' (Entregas em andamento), não 'pronto'.
+        let alvo: 'pronto' | 'despachado' | 'concluido' | 'cancelado' | null = null;
         if (check === 6) {
           // Não auto-cancela: abre um chamado no sino p/ a loja aceitar/recusar.
           await this.abrirChamadoCancelamento(tenantId, unidadeId, orderId).catch(() => {});
         } else if (check === 4 || check === 5) alvo = 'cancelado';
         else if (check === 3) alvo = 'concluido';
-        else if (check === 2) alvo = 'pronto';
+        else if (check === 2) alvo = 'despachado';
         // A partir de "aceito na Anota Aí" (check ≥ 1), garante que o pedido está
         // MATERIALIZADO localmente (vira 'confirmado' = coluna Produção). Sem isso o
         // pedido fica preso em "Em análise" e parece que "não atualiza".
