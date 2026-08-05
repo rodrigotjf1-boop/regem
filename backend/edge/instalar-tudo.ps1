@@ -482,19 +482,25 @@ try {
     if (Test-Path $c) { $navegador = $c; break }
   }
   $wshell = New-Object -ComObject WScript.Shell
+  # Cria em DOIS lugares: area de trabalho publica + pasta "Regem" no Menu Iniciar
+  # (assim aparece na busca/Iniciar do Windows, com cara de app instalado).
+  $startDir = Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Regem'
+  New-Item -ItemType Directory -Path $startDir -Force -ErrorAction SilentlyContinue | Out-Null
   function Atalho($nome, $url) {
-    if ($navegador) {
-      $p = Join-Path $desktop ($nome + ".lnk")
-      $sc = $wshell.CreateShortcut($p)
-      $sc.TargetPath = $navegador
-      $sc.Arguments  = "--app=$url --start-fullscreen"
-      $sc.IconLocation = $navegador
-      $sc.Save()
-    } else {
-      $p = Join-Path $desktop ($nome + ".url")
-      Set-Content -Path $p -Encoding ascii -Value "[InternetShortcut]`r`nURL=$url`r`nIconIndex=0"
+    foreach ($dir in @($desktop, $startDir)) {
+      if ($navegador) {
+        $p = Join-Path $dir ($nome + ".lnk")
+        $sc = $wshell.CreateShortcut($p)
+        $sc.TargetPath = $navegador
+        $sc.Arguments  = "--app=$url --start-fullscreen"
+        $sc.IconLocation = $navegador
+        $sc.Save()
+      } else {
+        $p = Join-Path $dir ($nome + ".url")
+        Set-Content -Path $p -Encoding ascii -Value "[InternetShortcut]`r`nURL=$url`r`nIconIndex=0"
+      }
     }
-    Diga "Atalho: $nome -> $url"
+    Diga "Atalho: $nome -> $url (Area de trabalho + Menu Iniciar)"
   }
   $baseLocal = "https://localhost:$PortaWeb"
   # O atalho principal abre DIRETO no login (/entrar). No edge a empresa/unidade

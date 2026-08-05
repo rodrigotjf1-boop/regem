@@ -65,7 +65,7 @@ export default function NotasPage() {
 
   return (
     <Shell eyebrow="Fiscal · NFC-e" title="Notas fiscais">
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
         <Card className="p-4">
           <p className="mb-3 text-sm font-medium text-muted-foreground">

@@ -129,7 +129,7 @@ export default function EstoquePage() {
   if (!pronto) {
     return (
       <Shell eyebrow="Insumos & produção" title="Estoque">
-        <div className="max-w-3xl">
+        <div>
           <SkeletonList rows={6} />
         </div>
       </Shell>
@@ -170,7 +170,7 @@ export default function EstoquePage() {
         </div>
       }
     >
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         {/* Config global: pausa automática no cardápio ao esgotar o estoque */}
         <Card className="p-3">
           <label className="flex items-center justify-between gap-3">

@@ -60,7 +60,7 @@ export default function LojaPage() {
 
   return (
     <Shell eyebrow="Configurações" title="Loja">
-      <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         {/* Identidade */}
         <Card className="space-y-4 p-5">
           <h2 className="font-display text-base font-bold">Identidade</h2>
@@ -143,7 +143,7 @@ export default function LojaPage() {
         </Card>
       </div>
 
-      <div className="sticky bottom-0 mt-4 flex max-w-5xl justify-end border-t border-border bg-background/80 py-3 backdrop-blur">
+      <div className="sticky bottom-0 mt-4 flex justify-end border-t border-border bg-background/80 py-3 backdrop-blur">
         <Button type="button" onClick={salvar} disabled={salvando}>
           {salvando ? 'Salvando…' : 'Salvar loja'}
         </Button>

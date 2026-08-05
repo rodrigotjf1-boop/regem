@@ -10,10 +10,19 @@ export class RelatoriosService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   private periodo(inicio?: string, fim?: string) {
+    // ini/f agora filtram por TIMESTAMP (a coluna não é mais truncada com ::date),
+    // então o filtro honra hora inicial/final vinda do front (ex.: "2026-08-05 14:30:00").
+    // Se vier só a data (sem hora) ou nada, completamos o dia inteiro para não excluir
+    // o próprio dia — mantendo o comportamento antigo de filtro só-por-data.
     const hoje = new Date().toISOString().slice(0, 10);
+    const comHoraIni = (d?: string) =>
+      !d ? null : d.length <= 10 ? `${d} 00:00:00` : d;
+    const comHoraFim = (d?: string) =>
+      !d ? null : d.length <= 10 ? `${d} 23:59:59` : d;
     const ini =
-      inicio || new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10);
-    return { ini, fim: fim || hoje };
+      comHoraIni(inicio) ||
+      `${new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10)} 00:00:00`;
+    return { ini, fim: comHoraFim(fim) || `${hoje} 23:59:59` };
   }
   private async rows(q: any): Promise<any[]> {
     const r: any = await this.db.execute(q);
@@ -32,7 +41,7 @@ export class RelatoriosService {
     const base = sql`from comanda c
       where c.tenant_id = ${tenantId}
         and c.status = 'fechada'
-        and c.fechada_em::date between ${ini} and ${f}`;
+        and c.fechada_em between ${ini} and ${f}`;
 
     const [resumo] = await this.rows(sql`
       select count(*)::int as vendas,
@@ -42,7 +51,7 @@ export class RelatoriosService {
     const [{ canceladas }] = await this.rows(sql`
       select count(*)::int as canceladas from comanda c
       where c.tenant_id = ${tenantId} and c.status='cancelada'
-        and c.cancelada_em::date between ${ini} and ${f}`);
+        and c.cancelada_em between ${ini} and ${f}`);
 
     const porForma = await this.rows(sql`
       select coalesce(c.forma,'—') as forma, count(*)::int as qtd, coalesce(sum(c.total),0) as total
@@ -87,7 +96,7 @@ export class RelatoriosService {
       from comanda_item ci
       join comanda c on c.id = ci.comanda_id
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em::date between ${ini} and ${f}
+        and c.fechada_em between ${ini} and ${f}
       group by ci.descricao
       order by faturamento desc`);
     const total = rows.reduce((s, r) => s + Number(r.faturamento), 0) || 1;
@@ -125,7 +134,7 @@ export class RelatoriosService {
       from comanda c
       left join colaborador col on col.id = c.aberta_por_id
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em::date between ${ini} and ${f}
+        and c.fechada_em between ${ini} and ${f}
       group by col.nome
       order by total desc`);
     return {
@@ -154,7 +163,7 @@ export class RelatoriosService {
       from comanda c
       left join colaborador col on col.id = c.cancelada_por_id
       where c.tenant_id = ${tenantId} and c.status = 'cancelada'
-        and c.created_at::date between ${ini} and ${f}
+        and c.created_at between ${ini} and ${f}
       group by col.nome order by qtd desc`);
 
     // Sangrias e suprimentos: lançamentos de caixa por operador.
@@ -204,7 +213,7 @@ export class RelatoriosService {
              coalesce(sum(c.total),0) as total, count(*)::int as vendas
       from comanda c
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em::date between ${ini} and ${f}
+        and c.fechada_em between ${ini} and ${f}
       group by 1 order by 1`);
     const porMes = rows.map((r) => ({
       ym: r.ym as string,
@@ -249,7 +258,7 @@ export class RelatoriosService {
       : sql`and not exists (select 1 from pedido_externo pe where pe.comanda_id = c.id and pe.status not in ('novo','cancelado'))`;
     const base = sql`from comanda c
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em::date between ${ini} and ${f} ${cond}`;
+        and c.fechada_em between ${ini} and ${f} ${cond}`;
     const [resumo] = await this.rows(sql`
       select count(*)::int as vendas, coalesce(sum(c.total),0) as faturado,
              coalesce(avg(c.total),0) as ticket_medio ${base}`);
@@ -264,7 +273,7 @@ export class RelatoriosService {
              coalesce(sum(ci.quantidade * ci.preco_unitario),0) as fat
       from comanda_item ci join comanda c on c.id = ci.comanda_id
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em::date between ${ini} and ${f} ${cond}
+        and c.fechada_em between ${ini} and ${f} ${cond}
       group by ci.descricao order by qtd desc limit 20`);
     let porRegiao: any[] = [];
     let porPlataforma: any[] = [];
@@ -272,7 +281,7 @@ export class RelatoriosService {
       const baseD = sql`from comanda c
         join pedido_externo pe on pe.comanda_id = c.id
         where c.tenant_id = ${tenantId} and c.status = 'fechada'
-          and c.fechada_em::date between ${ini} and ${f}
+          and c.fechada_em between ${ini} and ${f}
           and pe.status not in ('novo','cancelado')`;
       porRegiao = await this.rows(sql`
         select coalesce(nullif(pe.endereco_bairro,''),'—') as regiao,
@@ -316,7 +325,7 @@ export class RelatoriosService {
           where pe.comanda_id = c.id and pe.status not in ('novo','cancelado')) as is_deliv
       ) d on true
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em::date between ${ini} and ${f}
+        and c.fechada_em between ${ini} and ${f}
       group by ci.descricao order by qtd desc limit 30`);
     return {
       periodo: { inicio: ini, fim: f },
@@ -350,7 +359,7 @@ export class RelatoriosService {
       from caixa_sessao s
       left join colaborador ab on ab.id = s.aberta_por_id
       left join colaborador fe on fe.id = s.fechada_por_id
-      where s.tenant_id = ${tenantId} and s.aberta_em::date between ${ini} and ${f}
+      where s.tenant_id = ${tenantId} and s.aberta_em between ${ini} and ${f}
       order by s.aberta_em desc`);
     return {
       periodo: { inicio: ini, fim: f },
@@ -433,7 +442,7 @@ export class RelatoriosService {
     const base = sql`from pedido_externo pe
       where pe.tenant_id = ${tenantId}
         and pe.status not in ('novo','cancelado')
-        and pe.criado_em::date between ${ini} and ${f}`;
+        and pe.criado_em between ${ini} and ${f}`;
     const porPlataforma = await this.rows(sql`
       select pe.canal as plataforma, count(*)::int as pedidos,
              coalesce(sum(pe.total),0) as total,
@@ -487,7 +496,7 @@ export class RelatoriosService {
       left join ficha_tecnica ft on ft.id = a.entidade_id
       where a.tenant_id = ${tenantId}
         and a.acao = 'produziu_ficha'
-        and a.created_at::date between ${ini} and ${f}`;
+        and a.created_at between ${ini} and ${f}`;
     const qtd = sql`coalesce((a.detalhe->>'quantidade')::numeric, 0)`;
     const custo = sql`coalesce((a.detalhe->>'custoTotal')::numeric, 0)`;
 
