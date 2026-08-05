@@ -689,7 +689,7 @@ export default function CardapioPublicoPage() {
       setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setCheckout(false);
       if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
-      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null, pixErro, avisos: Array.isArray(r.avisos) ? r.avisos : [] });
+      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', statusPagamento: pixResp?.statusPagamento ?? (r.pagamentoOnline ? 'aguardando' : null), pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null, pixErro, avisos: Array.isArray(r.avisos) ? r.avisos : [] });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -740,8 +740,14 @@ export default function CardapioPublicoPage() {
   // ---- pedido enviado: timeline ----
   if (ped) {
     const passos = ['novo', 'confirmado', 'pronto', 'despachado', 'concluido'];
-    const rot: Record<string, string> = { novo: 'Pedido recebido', confirmado: 'Em preparo', pronto: 'Pronto', despachado: chk.tipo === 'entrega' ? 'Saiu para entrega' : 'Aguardando retirada', concluido: 'Concluído' };
+    // Pago online ainda não confirmado: o pedido fica "aguardando pagamento" e só
+    // entra em produção após o PIX cair (o servidor não aceita antes → sem desperdício).
+    const aguardandoPag = ped.statusPagamento === 'aguardando';
+    const rot: Record<string, string> = { novo: aguardandoPag ? 'Aguardando pagamento' : 'Pedido recebido', confirmado: 'Em preparo', pronto: 'Pronto', despachado: chk.tipo === 'entrega' ? 'Saiu para entrega' : 'Aguardando retirada', concluido: 'Concluído' };
     const idx = ped.modo === 'mesa' ? 0 : Math.max(0, passos.indexOf(ped.status ?? 'novo'));
+    // Falar no WhatsApp só depois de pago (ou quando não é pagamento online).
+    const podeWhats = !aguardandoPag;
+    const msgWhats = encodeURIComponent(`Olá, acabei de fazer o pedido Nº ${ped.displayId ?? ''} e queria saber sobre o pedido.`);
     return (
       <main className="min-h-dvh bg-neutral-50 p-6 text-neutral-900">
         <div className="mx-auto max-w-md text-center">
@@ -750,8 +756,12 @@ export default function CardapioPublicoPage() {
           {ped.modo === 'mesa'
             ? <p className="mt-1 text-neutral-600">Foi para a cozinha (mesa {ped.mesa}).</p>
             : <p className="mt-1 text-neutral-600">Senha {ped.displayId} · total {brl(ped.total ?? totalFinal)}</p>}
-          {/* PIX (Mercado Pago): QR + copia-e-cola. O status atualiza pelo webhook. */}
-          {ped.pix?.qrCode && (
+          {/* Pagamento confirmado (online) — some o QR e libera o acompanhamento. */}
+          {ped.pix?.qrCode && !aguardandoPag && ped.status !== 'cancelado' && (
+            <div className="mt-4 rounded-2xl border-2 border-ok/40 bg-ok/10 p-3 text-sm font-semibold text-ok">✓ Pagamento confirmado</div>
+          )}
+          {/* PIX: QR + copia-e-cola enquanto aguarda o pagamento. O status atualiza pelo webhook. */}
+          {ped.pix?.qrCode && aguardandoPag && (
             <div className="mt-5 rounded-2xl border-2 p-4 text-center" style={{ borderColor: accent }}>
               <p className="text-sm font-semibold">Pague com PIX para confirmar</p>
               {ped.pix.qrCodeBase64 && (
@@ -788,7 +798,7 @@ export default function CardapioPublicoPage() {
               ))}
             </div>
           )}
-          {ped.status === 'cancelado' && <p className="mt-4 text-red-600">Pedido cancelado.</p>}
+          {ped.status === 'cancelado' && <p className="mt-4 text-red-600">{aguardandoPag ? 'Pedido cancelado — pagamento não recebido no prazo.' : 'Pedido cancelado.'}</p>}
           {ped.orcamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Orçamento solicitado — em breve retornamos com a proposta.</p>}
           {ped.agendamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Agendado para {new Date(ped.agendamento).toLocaleString('pt-BR')}.</p>}
           {ped.pontos != null && <p className="mt-3 text-sm font-semibold" style={{ color: accent }}>⭐ Você tem {ped.pontos} pontos de fidelidade.</p>}
@@ -806,8 +816,12 @@ export default function CardapioPublicoPage() {
               🔗 Acompanhar pedido (salve este link)
             </a>
           )}
-          {loja.whatsapp && (
-            <a href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}`} className="mt-4 inline-block rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-white">💬 Falar no WhatsApp</a>
+          {loja.whatsapp && ped.status !== 'cancelado' && (
+            podeWhats ? (
+              <a href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}?text=${msgWhats}`} className="mt-4 inline-block rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-white">💬 Falar no WhatsApp</a>
+            ) : (
+              <span title="Disponível após a confirmação do pagamento" className="mt-4 inline-block cursor-not-allowed rounded-xl bg-neutral-200 px-5 py-3 font-semibold text-neutral-400">💬 Falar no WhatsApp (após o pagamento)</span>
+            )
           )}
           <button type="button" onClick={() => { setPed(null); setCupomOk(null); }} className="mt-6 block w-full rounded-xl px-5 py-3 font-semibold text-white" style={{ background: accent }}>Fazer outro pedido</button>
         </div>

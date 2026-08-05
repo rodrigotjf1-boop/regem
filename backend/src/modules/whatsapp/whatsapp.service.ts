@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { cardapioConfig } from '../../db/schema';
+import { cardapioConfig, pedidoExterno } from '../../db/schema';
 import { gerarCardapioPdf } from './cardapio-pdf';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -564,6 +564,63 @@ export class WhatsappService {
   }
 
   // ===== Resolver multi-tenant (o n8n chama por instância; protegido por secret) =====
+  // Texto legível do status de um pedido (o robô repassa ao cliente).
+  private textoStatusPedido(p: { status: string; statusPagamento: string | null; tipo: string | null }): string {
+    const entrega = p.tipo === 'entrega';
+    if (p.status === 'cancelado')
+      return `Seu pedido foi cancelado${p.statusPagamento === 'aguardando' ? ' por falta de pagamento no prazo' : ''}.`;
+    if (p.status === 'novo')
+      return p.statusPagamento === 'aguardando'
+        ? 'Seu pedido está aguardando a confirmação do pagamento PIX. Assim que o pagamento cair, ele entra em preparo.'
+        : 'Recebemos seu pedido! Ele entra em preparo já já.';
+    if (p.status === 'confirmado') return 'Seu pedido está EM PRODUÇÃO. 👨‍🍳';
+    if (p.status === 'pronto')
+      return entrega ? 'Seu pedido está PRONTO e logo sai para entrega.' : 'Seu pedido está PRONTO para retirada. 🎉';
+    if (p.status === 'despachado')
+      return entrega ? 'Seu pedido SAIU PARA ENTREGA. 🛵' : 'Seu pedido está aguardando retirada no balcão.';
+    if (p.status === 'concluido')
+      return entrega ? 'Seu pedido foi ENTREGUE. Bom apetite! 😋' : 'Seu pedido foi CONCLUÍDO. Bom apetite! 😋';
+    return 'Seu pedido está em andamento.';
+  }
+
+  // Robô: status de um pedido por NÚMERO (senha) + telefone. Autentica igual ao
+  // resolver (instância + BOT_RESOLVER_SECRET). Devolve um texto pronto pro cliente.
+  async statusPedidoBot(instancia: string, secret: string, telefone?: string, numero?: string) {
+    const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
+    if (!esperado || secret !== esperado) throw new BadRequestException('Não autorizado.');
+    const [cfg] = await this.db
+      .select({ tenantId: cardapioConfig.tenantId })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.evolutionInstancia, instancia));
+    if (!cfg) throw new NotFoundException('Instância não vinculada a uma loja.');
+    const num = String(numero ?? '').replace(/\D/g, '');
+    if (!num)
+      return { encontrado: false, texto: 'Não identifiquei o número do pedido. Pode me informar o número da senha?' };
+    const rows = await this.db
+      .select({
+        status: pedidoExterno.status,
+        statusPagamento: pedidoExterno.statusPagamento,
+        tipo: pedidoExterno.tipo,
+        telefone: pedidoExterno.clienteTelefone,
+      })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, cfg.tenantId), eq(pedidoExterno.displayId, num)))
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(5);
+    // Telefone (se veio) desempata quando a mesma senha se repete entre dias.
+    const tel = this.soNumero(telefone);
+    const alvo = (tel && rows.find((r) => this.soNumero(r.telefone ?? '') === tel)) || rows[0];
+    if (!alvo)
+      return { encontrado: false, texto: `Não achei o pedido Nº ${num}. Confere o número da senha?` };
+    return {
+      encontrado: true,
+      numero: num,
+      status: alvo.status,
+      statusPagamento: alvo.statusPagamento,
+      texto: this.textoStatusPedido(alvo),
+    };
+  }
+
   async resolver(instancia: string, secret: string, numero?: string) {
     const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
     if (!esperado || secret !== esperado) throw new BadRequestException('Não autorizado.');

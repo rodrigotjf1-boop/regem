@@ -28,6 +28,8 @@ import {
   produto,
 } from '../../db/schema';
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
+import { validarTokenMP } from '../../common/mercadopago';
+import { validarTokenIugu } from '../../common/iugu';
 import { CUPOM_PERFIS_PADRAO, perfilEfetivo, type PerfilCupom } from './cupom-perfis';
 import { VendasService } from '../vendas/vendas.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
@@ -1098,6 +1100,33 @@ export class DeliveryService {
     };
   }
 
+  // Cancelamento automático pelo SISTEMA (cron de expiração de PIX) — sem senha de
+  // gestor. O pedido está em 'novo' (nunca aceito → sem comanda/estoque a estornar).
+  // Estorna cupom/cashback/fidelidade e avisa os canais. Idempotente.
+  async cancelarSistema(tenantId: string, id: string, motivo: string) {
+    const [ped] = await this.db
+      .select({ status: pedidoExterno.status })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, id)));
+    if (!ped || ped.status === 'cancelado' || ped.status === 'concluido') return { ok: false };
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({ status: 'cancelado', canceladoEm: new Date(), motivoCancelamento: motivo })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    void this.dispararWebhook(tenantId, row);
+    const [cfgLoja] = await this.db
+      .select({ estorna: cardapioConfig.cancelamentoEstornaCashback })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId))
+      .limit(1);
+    void this.cashback
+      .estornarPedido(tenantId, id, row.clienteTelefone ?? undefined, cfgLoja?.estorna !== false)
+      .catch(() => {});
+    void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
+    return { ok: true, id: row.id };
+  }
+
   // ===== Alterar / reimprimir / entregadores =====
   // Bairros com taxa cadastrados (para o editor de endereço escolher).
   listarBairros(tenantId: string) {
@@ -1397,6 +1426,29 @@ export class DeliveryService {
       await this.db.insert(integracao).values({ tenantId, unidadeId: dto.unidadeId ?? null, canal, ...vals });
     }
     return { ok: true };
+  }
+
+  // Testa a conexão de um gateway de PIX validando o token na API do provedor.
+  // Usa o token do corpo (o que está no campo, ainda não salvo) ou, se vazio, o salvo.
+  async testarGatewayPix(tenantId: string, canal: string, tokenBody?: string) {
+    if (canal !== 'mercadopago' && canal !== 'iugu')
+      throw new BadRequestException('Canal inválido para teste de PIX.');
+    let token = String(tokenBody ?? '').trim();
+    if (!token) {
+      const [row] = await this.db
+        .select({ token: integracao.token })
+        .from(integracao)
+        .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, canal)));
+      token = row?.token ?? '';
+    }
+    if (!token)
+      throw new BadRequestException('Cole o token no campo antes de testar (ou salve-o primeiro).');
+    try {
+      const r = canal === 'mercadopago' ? await validarTokenMP(token) : await validarTokenIugu(token);
+      return { ok: true as const, conta: r.conta ?? null };
+    } catch (e) {
+      throw new BadRequestException(e instanceof Error ? e.message : 'Token inválido');
+    }
   }
 
   // Entregadores = colaboradores ativos com função cujo nome contém "entregador".

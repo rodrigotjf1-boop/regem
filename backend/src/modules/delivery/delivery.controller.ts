@@ -224,6 +224,17 @@ export class DeliveryController {
     return this.service.salvarIntegracao(user.tenantId, dto);
   }
 
+  // Testa a conexão de um gateway de PIX (Mercado Pago / Iugu): valida o token na
+  // API do provedor. Usa o token do corpo (o que está no campo) ou, se vazio, o salvo.
+  @CloudOnly()
+  @Post('integracoes/:canal/testar-pix')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  testarPix(@CurrentUser() user: AuthUser, @Param('canal') canal: string, @Body() dto: any) {
+    return this.service.testarGatewayPix(user.tenantId, canal, dto?.token);
+  }
+
   // Cancelamento é liberado pela senha de um gestor (a trava está no service),
   // então um atendente também pode cancelar informando a senha autorizadora.
   @Post('pedidos/:id/cancelar')

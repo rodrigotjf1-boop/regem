@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
@@ -55,9 +55,10 @@ import {
   entitlement,
   alertaEstoque,
 } from '../../db/schema';
-import { criarPixMP, consultarPagamentoMP } from '../../common/mercadopago';
-import { criarPixIugu, consultarFaturaIugu } from '../../common/iugu';
+import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP } from '../../common/mercadopago';
+import { criarPixIugu, consultarFaturaIugu, cancelarFaturaIugu } from '../../common/iugu';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { Cron } from '@nestjs/schedule';
 import { VendasService } from '../vendas/vendas.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
@@ -1154,6 +1155,7 @@ export class CardapioService {
         .update(pedidoExterno)
         .set({ pago: true, statusPagamento: 'aprovado' })
         .where(eq(pedidoExterno.id, pedidoId));
+      await this.aoConfirmarPagamento(cfg.tenantId, pedidoId);
       return { ok: true, statusPagamento: 'aprovado', mock: true };
     }
 
@@ -1220,9 +1222,32 @@ export class CardapioService {
         .update(pedidoExterno)
         .set({ pago: true, statusPagamento: 'aprovado' })
         .where(eq(pedidoExterno.id, p.id));
+      await this.aoConfirmarPagamento(p.tenantId, p.id);
       return { ok: true, aprovado: true };
     }
     return { ok: true, status: st.status };
+  }
+
+  // Pagamento online confirmado → agora sim entra em produção (o pedido esperava em
+  // 'novo'). Respeita autoKds e o modo edge (lá o edge processa o pedido já pago).
+  private async aoConfirmarPagamento(tenantId: string, pedidoId: string) {
+    try {
+      const [row] = await this.db
+        .select({ status: pedidoExterno.status })
+        .from(pedidoExterno)
+        .where(eq(pedidoExterno.id, pedidoId));
+      if (!row || row.status !== 'novo') return; // já aceito/cancelado
+      const [cfg] = await this.db
+        .select({ autoKds: cardapioConfig.autoKds })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId))
+        .limit(1);
+      if (cfg?.autoKds === false) return; // loja aceita manualmente
+      if (!ehEdge() && (await this.lojaComEdgeAtivo(tenantId))) return; // edge processa
+      await this.delivery.aceitar(tenantId, null, pedidoId);
+    } catch {
+      /* pagamento confirmado nunca falha por causa da produção */
+    }
   }
 
   // Webhook da Iugu (invoice.status_changed). Correlaciona pelo gateway_payment_id
@@ -1243,9 +1268,50 @@ export class CardapioService {
         .update(pedidoExterno)
         .set({ pago: true, statusPagamento: 'aprovado' })
         .where(eq(pedidoExterno.id, p.id));
+      await this.aoConfirmarPagamento(p.tenantId, p.id);
       return { ok: true, aprovado: true };
     }
     return { ok: true, status: st.status };
+  }
+
+  // A cada 2 min: cancela pedidos de pagamento ONLINE que passaram do prazo (10 min)
+  // sem pagar — evita produção/desperdício. Só na NUVEM (onde os webhooks chegam) e
+  // cancela também a cobrança no gateway (impede pagamento tardio).
+  @Cron('*/2 * * * *')
+  async expirarPixNaoPagos() {
+    if (ehEdge()) return;
+    const limite = new Date(Date.now() - 10 * 60 * 1000);
+    const vencidos = await this.db
+      .select({
+        id: pedidoExterno.id,
+        tenantId: pedidoExterno.tenantId,
+        gatewayProvider: pedidoExterno.gatewayProvider,
+        gatewayPaymentId: pedidoExterno.gatewayPaymentId,
+      })
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.status, 'novo'),
+          eq(pedidoExterno.statusPagamento, 'aguardando'),
+          lt(pedidoExterno.criadoEm, limite),
+        ),
+      );
+    for (const v of vencidos) {
+      try {
+        if (v.gatewayPaymentId && v.gatewayProvider === 'mercadopago') {
+          const t = await this.resolveMpToken(v.tenantId);
+          if (t) await cancelarPagamentoMP(t, v.gatewayPaymentId);
+        } else if (v.gatewayPaymentId && v.gatewayProvider === 'iugu') {
+          const t = await this.resolveIuguToken(v.tenantId);
+          if (t) await cancelarFaturaIugu(t, v.gatewayPaymentId);
+        }
+      } catch {
+        /* segue e cancela o pedido de qualquer forma */
+      }
+      await this.delivery
+        .cancelarSistema(v.tenantId, v.id, 'Pagamento PIX não recebido no prazo (10 min)')
+        .catch(() => {});
+    }
   }
 
   // Resolve as opções escolhidas (por id) para UM produto. Preço SEMPRE do banco.
@@ -1764,8 +1830,11 @@ export class CardapioService {
     // P1: se a loja tem servidor EDGE ativo (modo local), a NUVEM NÃO materializa —
     // deixa o pedido em 'novo' para DESCER pelo sync e o edge processá-lo localmente
     // (o processador do edge chama aceitar lá). No próprio edge (EDGE_MODE) sempre aceita.
+    // Pagamento ONLINE (pix/cartão): NÃO entra em produção agora — fica 'novo'
+    // aguardando a confirmação do pagamento (webhook). Sem isso, produzia antes de
+    // pagar (desperdício). O webhook chama aoConfirmarPagamento() → aceita aí.
     const deferirParaEdge = !ehEdge() && (await this.lojaComEdgeAtivo(cfg.tenantId));
-    if (cfg.autoKds !== false && !orcamento && (ped as any)?.status === 'novo' && !deferirParaEdge) {
+    if (cfg.autoKds !== false && !orcamento && !online && (ped as any)?.status === 'novo' && !deferirParaEdge) {
       try {
         await this.delivery.aceitar(cfg.tenantId, null, ped.id);
       } catch {
