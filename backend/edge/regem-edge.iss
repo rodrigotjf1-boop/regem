@@ -16,7 +16,7 @@
 ; Veja edge\COMPILAR-INSTALADOR.md para o passo a passo.
 
 #define AppName "Regem Edge"
-#define AppVer  "1.1.9"
+#define AppVer  "1.2.0"
 ; ==== EDITE ESTES 2 VALORES ANTES DE COMPILAR ====
 #define MyCloudApi     "https://api.dmsregem.com/api/v1"
 #define MyLicensePubKey "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQW9SY2phUGJjb0ZQYjk2dFBiSExFcHUzVmNDUjY1TlpwUFRuNWJWQmgwZ289Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo"   ; (nao e segredo — a mesma para todas as lojas)
@@ -31,6 +31,10 @@ OutputBaseFilename=RegemEdgeSetup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; So instala em Windows 64-bit (os binarios embutidos Postgres/Node sao x64) e roda o
+; instalador em modo 64-bit (sem redirecionamento WOW64 -> {sys} = System32 real).
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Files]
 ; App (gerado por edge/package.mjs) -> {app}\backend
@@ -56,7 +60,7 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
 ; 2) Roda o orquestrador. As credenciais NAO vao na linha de comando (o transcript
 ;    do PowerShell gravaria a senha no log) — vao num arquivo temporario que o
 ;    [Code] escreve antes e o script le e apaga. So o CAMINHO aparece aqui.
-Filename: "powershell.exe"; \
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
   Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Modo ""{code:GetModo}"" -ServidorHost ""{code:GetServidorHost}"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
   StatusMsg: "Instalando o Regem Edge…"; \
   Flags: waituntilterminated
@@ -155,13 +159,30 @@ begin Result := Trim(PgConta.Values[2]); end;
 // Escreve as credenciais num arquivo temporario (fora da linha de comando) logo
 // antes do [Run]. O {tmp} e apagado pelo Inno no fim; o script tambem remove o
 // arquivo assim que le. Evita que a senha do C&O apareca no transcript/log.
+// Reinstalacao: para os servicos do Regem ANTES de copiar os arquivos — senao os
+// executaveis/scripts em uso (RegemEdgeApi/Web/Sync/Pg...) travam a substituicao e a
+// instalacao fica incompleta (arquivos faltando). net stop de servico inexistente e no-op.
+procedure PararServicosRegem;
+var rc, i: Integer; nomes: array[0..4] of string;
+begin
+  nomes[0] := 'RegemEdgeWeb'; nomes[1] := 'RegemEdgeApi'; nomes[2] := 'RegemEdgeSync';
+  nomes[3] := 'RegemEdgeImpressao'; nomes[4] := 'RegemEdgePg';
+  for i := 0 to 4 do
+    Exec(ExpandConstant('{sys}\net.exe'), 'stop ' + nomes[i] + ' /y', '', SW_HIDE, ewWaitUntilTerminated, rc);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var s: string;
 begin
-  // So o Servidor grava a credencial C&O (o Cliente nao provisiona).
-  if (CurStep = ssInstall) and (not EhCliente) then
+  if CurStep = ssInstall then
   begin
-    s := Trim(PgConta.Values[0]) + #13#10 + PgConta.Values[1] + #13#10 + Trim(PgConta.Values[2]);
-    SaveStringToFile(ExpandConstant('{tmp}\regem-cred.txt'), s, False);
+    // 1) Libera os arquivos travados (reinstalacao) ANTES da copia.
+    PararServicosRegem;
+    // 2) So o Servidor grava a credencial C&O (o Cliente nao provisiona).
+    if not EhCliente then
+    begin
+      s := Trim(PgConta.Values[0]) + #13#10 + PgConta.Values[1] + #13#10 + Trim(PgConta.Values[2]);
+      SaveStringToFile(ExpandConstant('{tmp}\regem-cred.txt'), s, False);
+    end;
   end;
 end;

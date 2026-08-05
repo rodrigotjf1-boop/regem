@@ -49,6 +49,24 @@ param(
   [switch]$Restaurar
 )
 
+# ---- FASE 0.0: garante PowerShell 64-bit ----
+# Se o Windows e 64-bit mas este processo e 32-bit (Inno/WOW64), RE-LANCA o script no
+# PowerShell 64-bit (sysnative) e sai. Sem isto, leituras de registro caem no
+# WOW6432Node (ex.: MachineGuid inexistente) e o Postgres/Node x64 podem confundir.
+if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProcess) {
+  $ps64 = Join-Path $env:WINDIR 'sysnative\WindowsPowerShell\v1.0\powershell.exe'
+  if (Test-Path $ps64) {
+    $relArgs = @('-ExecutionPolicy', 'Bypass', '-NoProfile', '-File', $PSCommandPath)
+    foreach ($k in $PSBoundParameters.Keys) {
+      $v = $PSBoundParameters[$k]
+      if ($v -is [switch]) { if ($v.IsPresent) { $relArgs += "-$k" } }
+      else { $relArgs += "-$k"; $relArgs += [string]$v }
+    }
+    & $ps64 @relArgs
+    exit $LASTEXITCODE
+  }
+}
+
 $ErrorActionPreference = "Stop"
 $root = $Raiz
 $base = Split-Path $root -Parent          # C:\regem-edge
@@ -111,6 +129,37 @@ function Confia-AssinaturaCA {
 }
 
 Diga ("=== Regem Edge - instalacao automatica (modo: {0}) ===" -f $Modo)
+
+# ---- FASE 0: verificacoes do ambiente + modo reinstalacao ----
+# Torna a instalacao resiliente a estados anteriores (versao velha, install com erro,
+# servicos rodando que travam os arquivos). Roda ELEVADO (o .iss tirou o runascurrentuser).
+Diga "Fase 0: verificando o ambiente..."
+$ehAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $ehAdmin) { throw "Rode como Administrador (o instalador deveria elevar sozinho)." }
+Diga ("  Windows {0} | PowerShell {1} | processo {2}-bit | 64-bit OS: {3}" -f `
+  [Environment]::OSVersion.Version, $PSVersionTable.PSVersion, $(if ([Environment]::Is64BitProcess) { 64 } else { 32 }), [Environment]::Is64BitOperatingSystem)
+if (-not [Environment]::Is64BitOperatingSystem) {
+  throw "Windows 32-bit nao e suportado (Postgres/Node embutidos sao x64). Use um Windows 64-bit."
+}
+# Instalacao anterior? (servicos ou pgdata) -> modo reinstalacao.
+$svcRegem = @('RegemEdgeApi', 'RegemEdgeSync', 'RegemEdgeImpressao', 'RegemEdgeWeb', 'RegemEdgePg')
+$reinstalacao = (Test-Path (Join-Path $base 'pgdata'))
+foreach ($s in $svcRegem) { if (Get-Service -Name $s -ErrorAction SilentlyContinue) { $reinstalacao = $true } }
+if ($reinstalacao) {
+  Diga "  Instalacao anterior detectada -> MODO REINSTALACAO."
+  # Para os servicos para liberar os arquivos travados (dist/main.js, node_modules, edge-web.mjs...).
+  $parar = Join-Path $root 'edge\parar-servicos.ps1'
+  if (Test-Path $parar) {
+    try { & powershell -ExecutionPolicy Bypass -NoProfile -File $parar | Out-Null; Diga "  Servicos parados (arquivos liberados)." }
+    catch { Diga "  (aviso) nao consegui parar todos os servicos: $($_.Exception.Message)" }
+  }
+  # Destrava o .env.local de uma versao anterior (ACL restrita) para poder reescrever.
+  $envAntigo = Join-Path $root '.env.local'
+  if (Test-Path $envAntigo) {
+    try { & icacls $envAntigo /reset | Out-Null } catch {}
+    try { & attrib -R $envAntigo 2>$null } catch {}
+  }
+}
 
 # Roda nos DOIS modos (servidor e cliente): ambos abrem o app desktop assinado.
 Confia-AssinaturaCA
