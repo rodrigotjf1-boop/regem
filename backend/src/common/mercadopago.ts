@@ -27,13 +27,16 @@ export async function criarPixMP(
     referenciaExterna: string; // = pedidoId (correlação)
     notificationUrl?: string;
     idempotencia: string;
+    expiraEm?: Date; // date_of_expiration: o MP recusa pagamento após esse instante
   },
 ): Promise<PixCriado> {
   // O MP valida o formato do e-mail do pagador (rejeita TLD .local, vazio, etc.).
   // O cardápio coleta nome+telefone, não e-mail → usa o informado só se for válido,
   // senão um fallback com domínio real. Sem e-mail válido o PIX volta 400.
   const emailValido = (e?: string) => !!e && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
-  const body = {
+  // MP exige ISO 8601 COM offset (não aceita 'Z'). Usamos UTC como +00:00.
+  const isoOffset = (d: Date) => d.toISOString().replace('Z', '+00:00');
+  const body: Record<string, unknown> = {
     transaction_amount: Math.round(Number(dados.valor) * 100) / 100,
     description: dados.descricao,
     payment_method_id: 'pix',
@@ -44,15 +47,25 @@ export async function criarPixMP(
       first_name: dados.nome || 'Cliente',
     },
   };
-  const res = await fetch(`${API}/v1/payments`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'X-Idempotency-Key': dados.idempotencia,
-    },
-    body: JSON.stringify(body),
-  });
+  if (dados.expiraEm) body.date_of_expiration = isoOffset(dados.expiraEm);
+  const postar = (b: Record<string, unknown>) =>
+    fetch(`${API}/v1/payments`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-Idempotency-Key': dados.idempotencia,
+      },
+      body: JSON.stringify(b),
+    });
+  let res = await postar(body);
+  // Se o MP recusar E havia date_of_expiration, tenta SEM ela (o mínimo de expiração
+  // do MP varia) — não vale quebrar o PIX por causa disso; o cron cancela em 10 min.
+  if (!res.ok && body.date_of_expiration) {
+    const semExp = { ...body };
+    delete semExp.date_of_expiration;
+    res = await postar(semExp);
+  }
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
     throw new Error(`Mercado Pago ${res.status}: ${txt.slice(0, 200)}`);

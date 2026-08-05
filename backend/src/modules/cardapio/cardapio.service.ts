@@ -1184,6 +1184,9 @@ export class CardapioService {
               referenciaExterna: p.id,
               notificationUrl: base ? `${base}/api/v1/publico/cardapio/pagamento/mercadopago/webhook` : undefined,
               idempotencia: `pedido-${p.id}`,
+              // Expira em 10 min: o MP recusa pagamento após isso (alinha com o cron
+              // que cancela o pedido não pago). Sem isto o QR ficaria pagável ~24h.
+              expiraEm: new Date(Date.now() + 10 * 60 * 1000),
             });
       await this.db
         .update(pedidoExterno)
