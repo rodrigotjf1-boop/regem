@@ -493,6 +493,9 @@ export const api = {
     req(`/produtos/opcoes/${id}`, { method: 'DELETE' }),
   // Complementos reutilizáveis do catálogo (Fase 3)
   complementosCatalogo: () => req('/produtos/complementos-catalogo'),
+  // Sobe complementos importados (motor) para o catálogo reutilizável, dedup idêntico.
+  sincronizarComplementosCatalogo: () =>
+    req('/produtos/complementos-catalogo/sincronizar', { method: 'POST' }),
   criarComplementoCatalogo: (body: Record<string, unknown>) =>
     req('/produtos/complementos-catalogo', { method: 'POST', body: JSON.stringify(body) }),
   atualizarComplementoCatalogo: (id: string, body: Record<string, unknown>) =>

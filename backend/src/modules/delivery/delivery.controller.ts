@@ -45,7 +45,8 @@ export class DeliveryController {
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')
   pedidos(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
-    return this.service.listar(user.tenantId, atual);
+    // Painel de Delivery exclui retirada (tem o hub "Balcão retirada / encomendas").
+    return this.service.listar(user.tenantId, atual, { excluirRetirada: true });
   }
 
   @Post('pedidos/:id/aceitar')

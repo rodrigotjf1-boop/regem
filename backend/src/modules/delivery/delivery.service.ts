@@ -457,7 +457,11 @@ export class DeliveryService {
 
   // ===== Gestão (PDV) =====
   // Ativos (qualquer idade) + finalizados das últimas 24h (coluna Finalizado).
-  async listar(tenantId: string, atual: string | null = null) {
+  async listar(
+    tenantId: string,
+    atual: string | null = null,
+    opts?: { excluirRetirada?: boolean },
+  ) {
     // Janela de retenção dos finalizados (concluído/cancelado) no quadro — horas
     // configuráveis (padrão 5h). Só afeta a coluna "Finalizado"; os ativos sempre aparecem.
     const cfg = await this.getConfig(tenantId, atual);
@@ -501,7 +505,10 @@ export class DeliveryService {
       `);
       for (const x of c?.rows ?? c) counts.set(String(x.tel), Number(x.n));
     }
-    return rows.map((r) => ({
+    // Painel de Delivery: retirada (imediata) tem hub próprio ("Balcão retirada /
+    // encomendas") — não deve aparecer aqui. Encomenda de ENTREGA continua no painel.
+    const base = opts?.excluirRetirada ? rows.filter((r) => r.tipo !== 'retirada') : rows;
+    return base.map((r) => ({
       ...r,
       clientePedidosCount: r.clienteTelefone ? counts.get(r.clienteTelefone) ?? 1 : 1,
     }));

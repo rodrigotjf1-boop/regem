@@ -47,6 +47,18 @@ export function ComplementosCatalogoCard() {
     try { await api.excluirComplementoCatalogo(c.id); toast.success('Complemento excluído.'); await carregar(); }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
   }
+  const [sinc, setSinc] = useState(false);
+  async function sincronizar() {
+    setSinc(true);
+    try {
+      const r: any = await api.sincronizarComplementosCatalogo();
+      const criados = r?.complementosCriados ?? 0;
+      const reus = r?.complementosReusados ?? 0;
+      toast.success(criados || reus ? `Sincronizado: ${criados} novo(s), ${reus} reaproveitado(s).` : 'Nada novo para sincronizar.');
+      await carregar();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao sincronizar'); }
+    finally { setSinc(false); }
+  }
   async function duplicar(c: any) {
     try {
       await api.criarComplementoCatalogo({
@@ -68,9 +80,12 @@ export function ComplementosCatalogoCard() {
       <div className="mb-2 flex items-center gap-2">
         <h2 className="font-display text-sm font-bold">Complementos (etapas)</h2>
         <span className="font-mono text-xs text-muted-foreground">{lista.length}</span>
-        <Button type="button" size="sm" className="ml-auto" onClick={() => setEditar({})}>＋ Novo complemento</Button>
+        <Button type="button" size="sm" variant="outline" className="ml-auto" onClick={sincronizar} disabled={sinc}>
+          {sinc ? 'Sincronizando…' : 'Sincronizar do cardápio'}
+        </Button>
+        <Button type="button" size="sm" onClick={() => setEditar({})}>＋ Novo complemento</Button>
       </div>
-      <p className="mb-3 text-[11px] text-muted-foreground">Etapa reutilizável (ex.: “Escolha a bebida”, “Adicionais”). Junta opções e vira etapa nos produtos.</p>
+      <p className="mb-3 text-[11px] text-muted-foreground">Etapa reutilizável (ex.: “Escolha a bebida”, “Adicionais”). Junta opções e vira etapa nos produtos. Importou o cardápio? Use <strong>Sincronizar do cardápio</strong> para trazer os grupos dos produtos para cá.</p>
 
       {lista.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Nenhum complemento ainda.</p>
