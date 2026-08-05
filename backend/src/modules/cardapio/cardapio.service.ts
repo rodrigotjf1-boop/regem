@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { and, desc, eq, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -79,6 +80,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 @Injectable()
 export class CardapioService {
+  private readonly logger = new Logger(CardapioService.name);
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly vendas: VendasService,
@@ -1172,6 +1174,11 @@ export class CardapioService {
               valor: Number(p.total),
               descricao,
               nome: p.clienteNome ?? undefined,
+              // Cardápio não coleta e-mail: deriva um válido do telefone (o MP exige
+              // e-mail do pagador para PIX). Sem telefone, o helper usa o fallback.
+              email: p.clienteTelefone
+                ? `cliente-${String(p.clienteTelefone).replace(/\D/g, '')}@dmsregem.com`
+                : undefined,
               referenciaExterna: p.id,
               notificationUrl: base ? `${base}/api/v1/publico/cardapio/pagamento/mercadopago/webhook` : undefined,
               idempotencia: `pedido-${p.id}`,
@@ -1186,9 +1193,12 @@ export class CardapioService {
         pix: { qrCode: pix.qrCode, qrCodeBase64: pix.qrCodeBase64, ticketUrl: pix.ticketUrl },
       };
     } catch (e) {
-      throw new BadRequestException(
-        `Não foi possível gerar o PIX: ${e instanceof Error ? e.message : 'erro no gateway'}`,
-      );
+      const motivo = e instanceof Error ? e.message : 'erro no gateway';
+      // Loga como ERRO (não é 5xx, então o TelemetriaInterceptor não pegaria): a
+      // TelemetriaLogger captura logger.error e leva a falha de pagamento para a
+      // telemetria da distribuição, que antes não via cobrança online quebrada.
+      this.logger.error(`PIX ${gw.provider} falhou (pedido ${p.id}, tenant ${cfg.tenantId}): ${motivo}`);
+      throw new BadRequestException(`Não foi possível gerar o PIX: ${motivo}`);
     }
   }
 

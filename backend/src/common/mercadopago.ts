@@ -29,6 +29,10 @@ export async function criarPixMP(
     idempotencia: string;
   },
 ): Promise<PixCriado> {
+  // O MP valida o formato do e-mail do pagador (rejeita TLD .local, vazio, etc.).
+  // O cardápio coleta nome+telefone, não e-mail → usa o informado só se for válido,
+  // senão um fallback com domínio real. Sem e-mail válido o PIX volta 400.
+  const emailValido = (e?: string) => !!e && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
   const body = {
     transaction_amount: Math.round(Number(dados.valor) * 100) / 100,
     description: dados.descricao,
@@ -36,7 +40,7 @@ export async function criarPixMP(
     external_reference: dados.referenciaExterna,
     notification_url: dados.notificationUrl,
     payer: {
-      email: dados.email || 'cliente@regem.local',
+      email: emailValido(dados.email) ? dados.email : 'no-reply@dmsregem.com',
       first_name: dados.nome || 'Cliente',
     },
   };

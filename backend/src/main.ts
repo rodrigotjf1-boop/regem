@@ -1,4 +1,4 @@
-import { NestFactory } from '@nestjs/core';
+import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -7,6 +7,7 @@ import { AppModule } from './app.module';
 import { carregarEnvSeguro } from './secure-env';
 import { verificarIntegridade } from './integridade';
 import { TelemetriaLogger } from './common/telemetria-logger';
+import { TelemetriaExceptionFilter } from './common/telemetria-exception.filter';
 
 async function bootstrap() {
   // Fase 1 (proteção): decifra segredos do .env cifrados com DPAPI (enc:), se houver.
@@ -55,6 +56,12 @@ async function bootstrap() {
   // Logger que também ENVIA os erros (error/fatal) pra telemetria da nuvem no edge —
   // captura falhas de background (pollers/jobs) além do HTTP 5xx do interceptor.
   app.useLogger(new TelemetriaLogger());
+
+  // Filtro global: mantém a resposta padrão do Nest e, além disso, reporta 5xx e
+  // exceções não tratadas à telemetria da distribuição (na nuvem, via o sink armado
+  // no boot). 4xx de rotina não entram (não afogam o console).
+  const { httpAdapter } = app.get(HttpAdapterHost);
+  app.useGlobalFilters(new TelemetriaExceptionFilter(httpAdapter));
 
   // Cabeçalhos de segurança.
   app.use(helmet());
