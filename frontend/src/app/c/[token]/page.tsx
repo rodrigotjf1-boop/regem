@@ -60,6 +60,7 @@ export default function CardapioPublicoPage() {
   const [enviando, setEnviando] = useState(false);
   const [checkout, setCheckout] = useState(false);
   const [ped, setPed] = useState<any>(null);
+  const [verificando, setVerificando] = useState(false);
   const [chk, setChk] = useState<any>(CHK_INICIAL);
   const [cupomOk, setCupomOk] = useState<any>(null);
   const [mostrarCliente, setMostrarCliente] = useState(false);
@@ -710,6 +711,17 @@ export default function CardapioPublicoPage() {
     return () => clearInterval(t);
   }, [ped?.pedidoId, token]);
 
+  // Enquanto aguarda o PIX, consulta o pagamento no gateway (não depende do webhook
+  // do Mercado Pago chegar). Se aprovado, o backend marca pago + aceita; o poll de
+  // status acima pega a mudança e a tela sai de "Aguardando pagamento".
+  useEffect(() => {
+    if (!ped?.pedidoId || ped.statusPagamento !== 'aguardando') return;
+    const t = setInterval(() => {
+      api.cardapioVerificarPagamento(token, ped.pedidoId).catch(() => {});
+    }, 7000);
+    return () => clearInterval(t);
+  }, [ped?.pedidoId, ped?.statusPagamento, token]);
+
   if (erro && !menu)
     return <main className="grid min-h-dvh place-items-center bg-neutral-50 p-6 text-center text-neutral-600">{erro}</main>;
   // Skeleton no formato do conteúdo (hero + categorias + cards de item).
@@ -780,6 +792,22 @@ export default function CardapioPublicoPage() {
                 </button>
               </div>
               <p className="mt-2 text-xs text-neutral-500">Após pagar, o status atualiza automaticamente.</p>
+              <button
+                type="button"
+                disabled={verificando}
+                onClick={async () => {
+                  setVerificando(true);
+                  try {
+                    const r: any = await api.cardapioVerificarPagamento(token, ped.pedidoId);
+                    const s: any = await api.cardapioStatus(token, ped.pedidoId).catch(() => ({}));
+                    setPed((p: any) => ({ ...p, ...s, ...r }));
+                  } catch { /* segue aguardando */ } finally { setVerificando(false); }
+                }}
+                className="mt-2 w-full rounded-lg border-2 px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                style={{ borderColor: accent, color: accent }}
+              >
+                {verificando ? 'Verificando…' : 'Já paguei — verificar pagamento'}
+              </button>
             </div>
           )}
           {/* Falha/indisponibilidade do pagamento online — antes ficava silencioso. */}

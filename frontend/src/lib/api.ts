@@ -988,6 +988,8 @@ export const api = {
     pub(`/publico/cardapio/${token}/pedido/${id}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`),
   cardapioPagar: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
+  cardapioVerificarPagamento: (token: string, id: string) =>
+    pub(`/publico/cardapio/${token}/pedido/${id}/verificar-pagamento`, { method: 'POST', body: '{}' }),
   cardapioPontos: (token: string, telefone: string) =>
     pub(`/publico/cardapio/${token}/pontos?telefone=${encodeURIComponent(telefone)}`),
   cardapioPromos: (token: string) => pub(`/publico/cardapio/${token}/promos`),
