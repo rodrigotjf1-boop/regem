@@ -1353,6 +1353,20 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setIfoodBusy(false);
     }
   }
+  const [pixTestBusy, setPixTestBusy] = useState(false);
+  const [pixTestMsg, setPixTestMsg] = useState<{ ok: boolean; txt: string } | null>(null);
+  async function testarPix() {
+    setPixTestBusy(true);
+    setPixTestMsg(null);
+    try {
+      const r: any = await api.testarGatewayPix(it.canal, tokenV || undefined);
+      setPixTestMsg({ ok: true, txt: r?.conta ? `Conectado ✓ — ${r.conta}` : 'Conexão OK ✓' });
+    } catch (e: any) {
+      setPixTestMsg({ ok: false, txt: 'Falhou: ' + (e?.message ?? 'token inválido') });
+    } finally {
+      setPixTestBusy(false);
+    }
+  }
   const [ambiente, setAmbiente] = useState('producao');
   const [cwMsg, setCwMsg] = useState('');
   const [cwBusy, setCwBusy] = useState(false);
@@ -1566,6 +1580,18 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           <Campo label={`${ehIugu ? 'Live API Token' : 'Access Token'}${it.temToken ? ' (salvo)' : ''}`}>
             <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehIugu ? 'cole a Live API Token da Iugu' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
           </Campo>
+          {pode && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {pixTestMsg ? (
+                <p className={`min-w-0 flex-1 truncate text-[11px] ${pixTestMsg.ok ? 'text-ok' : 'text-destructive'}`}>{pixTestMsg.txt}</p>
+              ) : (
+                <span className="min-w-0 flex-1 text-[11px] text-muted-foreground">Valida o token na API do provedor (usa o do campo, ou o salvo se vazio).</span>
+              )}
+              <Button type="button" size="sm" variant="outline" disabled={pixTestBusy} onClick={testarPix}>
+                {pixTestBusy ? 'Testando…' : 'Testar conexão'}
+              </Button>
+            </div>
+          )}
         </>
       ) : ehCw ? (
         <>

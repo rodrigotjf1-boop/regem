@@ -139,4 +139,17 @@ export class WhatsappController {
   ) {
     return this.service.resolver(instancia ?? '', secret ?? '', numero ?? '');
   }
+
+  // Status de um pedido por NÚMERO (senha), para o robô responder o cliente.
+  // O n8n manda instância + secret + telefone + numero e recebe um texto pronto.
+  @Get('publico/bot/pedido-status')
+  @Throttle({ default: { ttl: 60000, limit: 120 } })
+  statusPedidoBot(
+    @Query('instancia') instancia: string,
+    @Query('secret') secret: string,
+    @Query('numero') numero?: string,
+    @Query('telefone') telefone?: string,
+  ) {
+    return this.service.statusPedidoBot(instancia ?? '', secret ?? '', telefone ?? '', numero ?? '');
+  }
 }

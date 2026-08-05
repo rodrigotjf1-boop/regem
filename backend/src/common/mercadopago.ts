@@ -68,6 +68,30 @@ export async function criarPixMP(
   };
 }
 
+// Valida o Access Token: /users/me responde 200 com a conta se o token for válido.
+// Usado pelo botão "Testar conexão" das Integrações.
+export async function validarTokenMP(token: string): Promise<{ ok: true; conta?: string }> {
+  const res = await fetch(`${API}/users/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Mercado Pago ${res.status}: ${txt.slice(0, 160)}`);
+  }
+  const j: any = await res.json();
+  return { ok: true, conta: j?.nickname || j?.email || (j?.id ? `conta ${j.id}` : undefined) };
+}
+
+// Cancela um pagamento PIX pendente (expirou sem pagar) — impede pagamento tardio
+// depois de o pedido ter sido cancelado por falta de pagamento. Best-effort.
+export async function cancelarPagamentoMP(token: string, paymentId: string): Promise<void> {
+  await fetch(`${API}/v1/payments/${paymentId}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'cancelled' }),
+  }).catch(() => {});
+}
+
 // Consulta o status de um pagamento (usado pelo webhook).
 export async function consultarPagamentoMP(
   token: string,

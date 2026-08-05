@@ -31,12 +31,12 @@ export async function criarPixIugu(
 ): Promise<PixCriado> {
   const hoje = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const body = {
-    email: dados.email || 'cliente@regem.local',
+    email: dados.email || 'no-reply@dmsregem.com',
     due_date: hoje,
     ensure_workday_due_date: false,
     payable_with: ['pix'],
     external_reference: dados.referenciaExterna,
-    payer: { name: dados.nome || 'Cliente', email: dados.email || 'cliente@regem.local' },
+    payer: { name: dados.nome || 'Cliente', email: dados.email || 'no-reply@dmsregem.com' },
     items: [
       {
         description: dados.descricao,
@@ -69,6 +69,28 @@ export async function criarPixIugu(
     qrCodeBase64: pix.qrcode ?? null,
     ticketUrl: j.secure_url ?? j.secure_payment_url ?? null,
   };
+}
+
+// Valida a Live API Token: um GET autenticado leve (lista 1 cliente) responde 200
+// se o token for válido; 401/403 se não. Usado pelo botão "Testar conexão".
+export async function validarTokenIugu(token: string): Promise<{ ok: true; conta?: string }> {
+  const res = await fetch(`${API}/v1/customers?limit=1`, {
+    headers: { Authorization: authHeader(token), Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Iugu ${res.status}: ${txt.slice(0, 160)}`);
+  }
+  return { ok: true };
+}
+
+// Cancela uma fatura PIX pendente (expirou sem pagar) — impede pagamento tardio.
+// Best-effort.
+export async function cancelarFaturaIugu(token: string, invoiceId: string): Promise<void> {
+  await fetch(`${API}/v1/invoices/${invoiceId}/cancel`, {
+    method: 'PUT',
+    headers: { Authorization: authHeader(token), Accept: 'application/json' },
+  }).catch(() => {});
 }
 
 // Consulta a fatura (usado pelo webhook). Status 'paid' = confirmado.

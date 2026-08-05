@@ -54,10 +54,16 @@ export function ProdutosLista({
   // (campo `ordem`, reordenável por arraste); os sem categoria vão por último.
   const ordenadas = [...categorias].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
   const ordem = [...ordenadas, { id: SEM_CAT, nome: 'Sem categoria' }];
+  // Produto vai para "Sem categoria" quando categoriaId é nulo OU aponta para uma
+  // categoria que não existe mais (deletada) — senão ele sumiria da tela (não casa
+  // com nenhum grupo) mesmo aparecendo no cardápio. Assim dá para editá-lo.
+  const idsConhecidos = new Set(ordenadas.map((c) => c.id));
+  const grupoDoProduto = (p: any) =>
+    p.categoriaId && idsConhecidos.has(p.categoriaId) ? p.categoriaId : SEM_CAT;
   const grupos = ordem
     .map((c) => ({
       cat: c,
-      itens: produtos.filter((p) => (p.categoriaId || SEM_CAT) === c.id),
+      itens: produtos.filter((p) => grupoDoProduto(p) === c.id),
     }))
     .filter((g) => g.itens.length > 0);
 
