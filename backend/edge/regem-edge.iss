@@ -16,7 +16,7 @@
 ; Veja edge\COMPILAR-INSTALADOR.md para o passo a passo.
 
 #define AppName "Regem Edge"
-#define AppVer  "1.1.8"
+#define AppVer  "1.1.9"
 ; ==== EDITE ESTES 2 VALORES ANTES DE COMPILAR ====
 #define MyCloudApi     "https://api.dmsregem.com/api/v1"
 #define MyLicensePubKey "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQW9SY2phUGJjb0ZQYjk2dFBiSExFcHUzVmNDUjY1TlpwUFRuNWJWQmgwZ289Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo"   ; (nao e segredo — a mesma para todas as lojas)
@@ -59,7 +59,7 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
 Filename: "powershell.exe"; \
   Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Modo ""{code:GetModo}"" -ServidorHost ""{code:GetServidorHost}"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
   StatusMsg: "Instalando o Regem Edge…"; \
-  Flags: runascurrentuser waituntilterminated
+  Flags: waituntilterminated
 
 [Messages]
 WelcomeLabel2=Este assistente instala o Regem local e configura tudo automaticamente. Na proxima tela voce escolhe se este PC e o Servidor (cerebro da loja) ou um Cliente (so abre o app apontando pro Servidor).
