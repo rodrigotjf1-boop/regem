@@ -16,7 +16,7 @@
 ; Veja edge\COMPILAR-INSTALADOR.md para o passo a passo.
 
 #define AppName "Regem Edge"
-#define AppVer  "1.1.6"
+#define AppVer  "1.1.7"
 ; ==== EDITE ESTES 2 VALORES ANTES DE COMPILAR ====
 #define MyCloudApi     "https://api.dmsregem.com/api/v1"
 #define MyLicensePubKey "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQW9SY2phUGJjb0ZQYjk2dFBiSExFcHUzVmNDUjY1TlpwUFRuNWJWQmgwZ289Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo"   ; (nao e segredo — a mesma para todas as lojas)
@@ -57,32 +57,69 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
 ;    do PowerShell gravaria a senha no log) — vao num arquivo temporario que o
 ;    [Code] escreve antes e o script le e apaga. So o CAMINHO aparece aqui.
 Filename: "powershell.exe"; \
-  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
-  StatusMsg: "Instalando o Regem Edge (Postgres, banco, certificado, servicos)…"; \
+  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Modo ""{code:GetModo}"" -ServidorHost ""{code:GetServidorHost}"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
+  StatusMsg: "Instalando o Regem Edge…"; \
   Flags: runascurrentuser waituntilterminated
 
 [Messages]
-WelcomeLabel2=Este assistente instala o servidor local do Regem e configura tudo automaticamente. Voce so precisa entrar com a conta do C&O (a mesma do app) na proxima tela.
+WelcomeLabel2=Este assistente instala o Regem local e configura tudo automaticamente. Na proxima tela voce escolhe se este PC e o Servidor (cerebro da loja) ou um Cliente (so abre o app apontando pro Servidor).
 
 [Code]
 var
-  PgConta: TInputQueryWizardPage;
+  PgModo: TInputOptionWizardPage;     // Servidor x Cliente
+  PgConta: TInputQueryWizardPage;     // conta C&O (so no Servidor)
+  PgServidor: TInputQueryWizardPage;  // IP do Servidor (so no Cliente)
+
+function EhCliente: Boolean;
+begin
+  Result := (PgModo.SelectedValueIndex = 1);
+end;
 
 procedure InitializeWizard;
 begin
-  PgConta := CreateInputQueryPage(wpWelcome,
+  // Tipo de instalacao: Servidor (cerebro da loja) ou Cliente (casca que aponta pro
+  // Servidor na LAN). Um Servidor por loja; os demais PCs sao Clientes.
+  PgModo := CreateInputOptionPage(wpWelcome,
+    'Tipo de instalacao',
+    'Este computador e o Servidor ou um Cliente?',
+    'O SERVIDOR e o cerebro da loja (banco de dados + servicos) — instale em UM computador. Os demais sao CLIENTES: so abrem o app apontando para o Servidor na rede.',
+    True, False);
+  PgModo.Add('Servidor (cerebro da loja) — instalar tudo aqui');
+  PgModo.Add('Cliente (so abre o app apontando pro Servidor)');
+  PgModo.SelectedValueIndex := 0;
+
+  // Conta C&O — so o Servidor provisiona/ativa a licenca.
+  PgConta := CreateInputQueryPage(PgModo.ID,
     'Entrar com a conta C&O',
     'Use o e-mail e a senha da conta do Regem (a mesma do app).',
     'A ativacao e feita automaticamente pela nuvem. O ID da unidade e opcional (so preencha se a empresa tiver mais de uma loja).');
   PgConta.Add('E-mail do C&O:', False);
   PgConta.Add('Senha:', True);
   PgConta.Add('ID da unidade (opcional):', False);
+
+  // Endereco do Servidor — so o Cliente precisa. Aceita NOME (regem.local, via mDNS)
+  // ou IP. Vem pre-preenchido com regem.local: assim o operador nao lida com IP e
+  // sobrevive a troca de IP pelo roteador. Se a rede nao resolver o nome, digita o IP.
+  PgServidor := CreateInputQueryPage(PgConta.ID,
+    'Endereco do Servidor',
+    'Nome ou IP do Servidor Regem na rede local.',
+    'Padrao "regem.local" (o Servidor se anuncia na rede). Se a rede nao encontrar por esse nome, troque pelo IP do PC Servidor (ex.: 192.168.0.10).');
+  PgServidor.Add('Servidor (nome ou IP):', False);
+  PgServidor.Values[0] := 'regem.local';
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  // Cliente nao usa a conta C&O; Servidor nao usa o IP do servidor.
+  if PageID = PgConta.ID then Result := EhCliente;
+  if PageID = PgServidor.ID then Result := not EhCliente;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if CurPageID = PgConta.ID then
+  if (CurPageID = PgConta.ID) and (not EhCliente) then
   begin
     if Trim(PgConta.Values[0]) = '' then
     begin
@@ -93,8 +130,21 @@ begin
       MsgBox('Informe a senha.', mbError, MB_OK); Result := False; Exit;
     end;
   end;
+  if (CurPageID = PgServidor.ID) and EhCliente then
+  begin
+    if Trim(PgServidor.Values[0]) = '' then
+    begin
+      MsgBox('Informe o IP do Servidor Regem na rede.', mbError, MB_OK); Result := False; Exit;
+    end;
+  end;
 end;
 
+function GetModo(Param: string): string;
+begin
+  if EhCliente then Result := 'cliente' else Result := 'servidor';
+end;
+function GetServidorHost(Param: string): string;
+begin Result := Trim(PgServidor.Values[0]); end;
 function GetEmail(Param: string): string;
 begin Result := Trim(PgConta.Values[0]); end;
 function GetSenha(Param: string): string;
@@ -108,7 +158,8 @@ begin Result := Trim(PgConta.Values[2]); end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var s: string;
 begin
-  if CurStep = ssInstall then
+  // So o Servidor grava a credencial C&O (o Cliente nao provisiona).
+  if (CurStep = ssInstall) and (not EhCliente) then
   begin
     s := Trim(PgConta.Values[0]) + #13#10 + PgConta.Values[1] + #13#10 + Trim(PgConta.Values[2]);
     SaveStringToFile(ExpandConstant('{tmp}\regem-cred.txt'), s, False);

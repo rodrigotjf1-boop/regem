@@ -58,17 +58,35 @@ $log = Join-Path $logDir ("instalar-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmm
 # Grava TODA a saida (inclusive erros de npm/node/initdb/postgres) no log — o
 # arquivo fica em logs\instalar-*.log para enviar ao suporte quando algo falhar.
 Start-Transcript -Path $log -Force -ErrorAction SilentlyContinue | Out-Null
-trap { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null }
+trap {
+  # Falha terminante: encerra o transcript e AVISA a nuvem (telemetria de instalacao)
+  # com o fim do log — assim a distribuicao ve a falha sem depender do operador enviar
+  # o arquivo. Best-effort; nunca mascara o erro original.
+  $errMsg = "$($_.Exception.Message)"
+  Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+  try {
+    $tail = ''
+    if ($log -and (Test-Path $log)) { $tail = ((Get-Content $log -Tail 80 -ErrorAction SilentlyContinue) -join "`n") }
+    $fp = try { FingerprintForte } catch { $env:COMPUTERNAME }
+    $body = @{ tipo = 'install_falha'; erro = $errMsg; logTail = $tail; fingerprint = $fp; modo = $Modo } | ConvertTo-Json -Compress
+    Invoke-RestMethod -Method Post -Uri ("{0}/edge/telemetria/erro" -f $CloudApi.TrimEnd('/')) -ContentType 'application/json' -Body $body -TimeoutSec 15 | Out-Null
+  } catch { }
+}
 function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 function Rand($n) { -join ((48..57) + (65..90) + (97..122) | Get-Random -Count $n | ForEach-Object { [char]$_ }) }
 # Fingerprint FORTE (P1): sha256 do MachineGuid (uppercase). MESMO calculo do
 # sync-daemon.mjs (node) -> a nuvem casa os dois. Fallback = nome do PC (legado).
 function FingerprintForte {
   try {
-    $mg = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Cryptography' -Name MachineGuid -ErrorAction Stop).MachineGuid
+    # Le SEMPRE a visao 64-bit do registro. Se o instalador roda em PowerShell 32-bit
+    # (Inno chama o powershell.exe redirecionado), 'HKLM:\SOFTWARE\...' cai no
+    # WOW6432Node, onde MachineGuid NAO existe -> erro. OpenBaseKey(Registry64) evita.
+    $base = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    $key = $base.OpenSubKey('SOFTWARE\Microsoft\Cryptography')
+    $mg = if ($key) { $key.GetValue('MachineGuid') } else { $null }
     if ($mg) {
       $sha = [System.Security.Cryptography.SHA256]::Create()
-      $h = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($mg.ToUpper()))
+      $h = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($mg.ToString().ToUpper()))
       return (([BitConverter]::ToString($h)) -replace '-', '').ToLower()
     }
   } catch { }
@@ -348,6 +366,13 @@ if (-not $SyncToken) { throw "Sem SYNC_TOKEN. Use -Email/-Senha (self-service) o
 $dbLocal = "postgresql://postgres:$pgSenha@localhost:$PgPorta/regem_local"
 $certDir = Join-Path $root "edge\certs"
 $envLocal = Join-Path $root ".env.local"
+# Reinstalacao: uma versao anterior podia ter deixado o .env.local com ACL so-leitura
+# (SYSTEM/Admin (R) + heranca removida). Sem isto, o Set-Content abaixo da "acesso
+# negado" e a instalacao aborta ANTES do atalho/telemetria. Libera a escrita primeiro.
+if (Test-Path $envLocal) {
+  try { & icacls $envLocal /grant:r "*S-1-5-32-544:(F)" "SYSTEM:(F)" | Out-Null } catch {}
+  try { & attrib -R $envLocal 2>$null } catch {}
+}
 @"
 # Gerado automaticamente pelo instalador do Regem Edge - nao editar a mao sem necessidade.
 DATABASE_URL=$dbLocal
@@ -374,7 +399,9 @@ Diga ".env.local escrito."
 # PROTEÇÃO (Fase 1): trava a ACL do .env.local — só SYSTEM e Administradores leem
 # (os serviços rodam como SYSTEM). Remove herança para nenhum usuário comum ler.
 try {
-  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(R)" "*S-1-5-32-544:(R)" | Out-Null
+  # Full para SYSTEM (serviços) e Administradores (permite reinstalar/cifrar depois);
+  # a heranca removida (/inheritance:r) tira os Usuarios comuns — que e a real protecao.
+  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" | Out-Null
   Diga "ACL do .env.local restrita (SYSTEM + Administradores)."
 } catch { Diga "(aviso) nao consegui restringir a ACL do .env.local: $($_.Exception.Message)" }
 

@@ -129,24 +129,24 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   // NUVEM. Não é do edge (sem garanteEdge). Registra o erro + fim do log e, se
   // DIST_ALERT_WEBHOOK estiver configurado, encaminha p/ a distribuição (n8n/etc.).
   async telemetriaErro(dto: any): Promise<{ ok: true }> {
-    const tenantId = dto?.tenantId ?? 'desconhecido';
-    const versao = dto?.versaoNova ?? dto?.versaoAtual ?? '?';
-    this.logger.error(
-      `[telemetria] ${dto?.tipo ?? 'erro'} tenant=${tenantId} versao=${versao}: ${dto?.erro ?? ''}`,
+    // Falha de instalação/atualização do edge (postada por instalar-tudo.ps1 /
+    // atualizar.ps1). PERSISTE no store da telemetria (aparece no console da
+    // distribuição) e dispara o alerta — reusa registrarTelemetria, que também redige
+    // PII. tenantId só entra se for um UUID válido; senão NULL (erro global da nuvem).
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const tenantId =
+      typeof dto?.tenantId === 'string' && uuidRe.test(dto.tenantId) ? dto.tenantId : null;
+    await this.registrarTelemetria(tenantId, {
+      origem: 'update',
+      nivel: dto?.tipo === 'install_falha' ? 'fatal' : 'error',
+      tipo: dto?.tipo ?? 'erro',
+      mensagem: dto?.erro ?? 'erro',
+      stack: dto?.logTail ?? null,
+      versao: dto?.versaoNova ?? dto?.versaoAtual ?? null,
+      contexto: { fingerprint: dto?.fingerprint ?? null, modo: dto?.modo ?? null },
+    }).catch((e: any) =>
+      this.logger.warn(`telemetriaErro: falha ao persistir: ${e?.message ?? e}`),
     );
-    if (dto?.logTail) this.logger.error(`[telemetria] log:\n${String(dto.logTail).slice(0, 4000)}`);
-    const hook = (process.env.DIST_ALERT_WEBHOOK ?? '').trim();
-    if (hook) {
-      try {
-        await fetch(hook, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ origem: 'regem-edge', ...dto, recebidoEm: new Date().toISOString() }),
-        });
-      } catch (e: any) {
-        this.logger.warn(`telemetria: falha ao encaminhar p/ distribuição: ${e?.message ?? e}`);
-      }
-    }
     return { ok: true };
   }
 
