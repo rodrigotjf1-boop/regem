@@ -17,6 +17,7 @@ import { join } from 'path';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { MIN_CLIENT_VERSION, MIN_SERVER_VERSION } from './versao';
+import { TelemetriaBridge } from '../../common/telemetria-bridge';
 
 const pExecFile = promisify(execFile);
 
@@ -236,7 +237,7 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   // Telemetria de erro do edge (Frente A). Roda na NUVEM: persiste com DEDUP por
   // hash (mesmo erro só soma ocorrências), alerta a distribuição (DIST_ALERT_WEBHOOK)
   // na 1ª ocorrência ou em `fatal`. tenantId vem do sync token (rota autenticada).
-  async registrarTelemetria(tenantId: string, dto: any): Promise<{ ok: true }> {
+  async registrarTelemetria(tenantId: string | null, dto: any): Promise<{ ok: true }> {
     const origem = String(dto?.origem ?? 'outro').slice(0, 20);
     const tipo = dto?.tipo ? String(dto.tipo).slice(0, 60) : null;
     const nivel = ['warn', 'error', 'fatal'].includes(dto?.nivel) ? dto.nivel : 'error';
@@ -262,8 +263,8 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       const r: any = await this.db.execute(sql`
         insert into telemetria_evento (tenant_id, unidade_id, origem, nivel, tipo, mensagem, hash, stack, contexto, versao, fingerprint)
-        values (${tenantId}, ${unidadeId}, ${origem}, ${nivel}, ${tipo}, ${mensagem}, ${hash}, ${stack}, ${JSON.stringify(contexto)}::jsonb, ${versao}, ${fingerprint})
-        on conflict (tenant_id, hash) do update
+        values (${tenantId ?? null}, ${unidadeId}, ${origem}, ${nivel}, ${tipo}, ${mensagem}, ${hash}, ${stack}, ${JSON.stringify(contexto)}::jsonb, ${versao}, ${fingerprint})
+        on conflict (coalesce(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), hash) do update
           set ocorrencias = telemetria_evento.ocorrencias + 1, ultimo_em = now(), resolvido = false,
               versao = coalesce(excluded.versao, telemetria_evento.versao),
               stack = coalesce(excluded.stack, telemetria_evento.stack)
@@ -445,7 +446,15 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   onApplicationBootstrap() {
-    if (!EdgeService.ehEdge) return; // nuvem não anuncia
+    if (!EdgeService.ehEdge) {
+      // Nuvem: arma o sink da telemetria — o logger e o filtro global de exceção
+      // (criados antes do DI) passam a gravar os erros DIRETO no store, sem HTTP.
+      // Assim a distribuição vê também as falhas da NUVEM (não só as do edge).
+      TelemetriaBridge.registrar((tenantId, dto) => {
+        void this.registrarTelemetria(tenantId, dto).catch(() => {});
+      });
+      return; // nuvem não anuncia mDNS
+    }
     try {
       const porta = Number(process.env.PORT) || 3001;
       this.bonjour = new Bonjour();
