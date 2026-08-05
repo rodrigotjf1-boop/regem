@@ -285,7 +285,7 @@ export default function EquipamentosPage() {
 
   return (
     <Shell eyebrow="Gestão" title="Equipamentos & Apps">
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         <p className="text-sm text-muted-foreground">
           Registre os apps satélites (KDS e Terminal de Ponto) que se conectam ao
           Regem. Cada device recebe um token único usado no pareamento.

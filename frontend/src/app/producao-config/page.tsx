@@ -116,7 +116,7 @@ export default function ProducaoConfigPage() {
 
   return (
     <Shell eyebrow="Gestão · produção" title="Produção & KDS">
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
         {/* Cores do KDS */}

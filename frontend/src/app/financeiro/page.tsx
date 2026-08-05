@@ -166,7 +166,7 @@ export default function FinanceiroPage() {
 
   return (
     <Shell eyebrow="Gestão · financeiro" title="Financeiro">
-      <div className="max-w-4xl space-y-5">
+      <div className="space-y-5">
         <FormasPagamentoCard />
 
         {!isPresidente && (

@@ -105,7 +105,7 @@ export default function DocsPage() {
 
   return (
     <Shell eyebrow="Qualidade" title="Documentos">
-      <div className="max-w-3xl space-y-8">
+      <div className="space-y-8">
         {erro && (
           <p role="alert" className="text-destructive">
             {erro}

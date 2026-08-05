@@ -321,7 +321,7 @@ export default function MesasPage() {
   // ---- Lista de mesas ----
   return (
     <Shell eyebrow="PDV · mesas" title="Mesas e comandas">
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
         <QrMesaCard />

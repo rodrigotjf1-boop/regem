@@ -91,7 +91,7 @@ export default function PedidosPage() {
 
   return (
     <Shell eyebrow="Produção · supervisão" title="Painel de produção">
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
         <p className="text-sm text-muted-foreground">
           Visão do gestor de tudo que está na produção — por setor, com atrasos e o vínculo à venda.

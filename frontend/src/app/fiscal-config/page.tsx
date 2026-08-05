@@ -105,7 +105,7 @@ export default function FiscalConfigPage() {
 
   return (
     <Shell eyebrow="Fiscal · NFC-e" title="Configuração fiscal">
-      <div className="max-w-2xl space-y-4">
+      <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
         <Card className="border-warn/40 bg-warn/5 p-4 text-sm">

@@ -42,7 +42,7 @@ export default function UnidadesPage() {
 
   return (
     <Shell eyebrow="Configurações" title="Unidades">
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
             As lojas da sua rede. Cada colaborador, setor, turno e venda pertence a uma unidade.

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken, getCategoria, podeVerFinanceiro } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
@@ -68,6 +68,12 @@ export default function RelatoriosPage() {
   const verFin = podeFinanceiro(); // presidente/C&O vê valores em R$
   const [inicio, setInicio] = useState(diasAtras(29));
   const [fim, setFim] = useState(hoje());
+  const [horaIni, setHoraIni] = useState('00:00');
+  const [horaFim, setHoraFim] = useState('23:59');
+  // Timestamps (data + hora) enviados às consultas. Sem hora = dia inteiro (00:00–23:59),
+  // então o padrão bate com o filtro só-data anterior.
+  const iniTs = useMemo(() => `${inicio} ${horaIni || '00:00'}:00`, [inicio, horaIni]);
+  const fimTs = useMemo(() => `${fim} ${horaFim || '23:59'}:59`, [fim, horaFim]);
   const [vendas, setVendas] = useState<any>(null);
   const [produtos, setProdutos] = useState<any>(null);
   const [atendentes, setAtendentes] = useState<any>(null);
@@ -88,9 +94,9 @@ export default function RelatoriosPage() {
     setErro('');
     try {
       const [v, p, a] = await Promise.all([
-        api.relatorioVendas(inicio, fim),
-        api.relatorioProdutos(inicio, fim),
-        api.relatorioAtendentes(inicio, fim),
+        api.relatorioVendas(iniTs, fimTs),
+        api.relatorioProdutos(iniTs, fimTs),
+        api.relatorioAtendentes(iniTs, fimTs),
       ]);
       setVendas(v);
       setProdutos(p);
@@ -98,80 +104,80 @@ export default function RelatoriosPage() {
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim]);
+  }, [iniTs, fimTs]);
 
   const reloadFin = useCallback(async () => {
     setErro('');
     try {
       const [fa, fd] = await Promise.all([
-        api.relatorioFaturamento(inicio, fim),
-        api.relatorioFaturamentoDelivery(inicio, fim),
+        api.relatorioFaturamento(iniTs, fimTs),
+        api.relatorioFaturamentoDelivery(iniTs, fimTs),
       ]);
       setFatAnual(fa);
       setFatDelivery(fd);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim]);
+  }, [iniTs, fimTs]);
 
   const reloadBalcao = useCallback(async () => {
     setErro('');
     try {
       const [b, r] = await Promise.all([
-        api.relatorioBalcao(inicio, fim),
-        api.relatorioRanking(inicio, fim),
+        api.relatorioBalcao(iniTs, fimTs),
+        api.relatorioRanking(iniTs, fimTs),
       ]);
       setBalcao(b);
       setRanking(r);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim]);
+  }, [iniTs, fimTs]);
 
   const reloadDelivery = useCallback(async () => {
     setErro('');
     try {
-      setDelivery(await api.relatorioDelivery(inicio, fim));
+      setDelivery(await api.relatorioDelivery(iniTs, fimTs));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim]);
+  }, [iniTs, fimTs]);
 
   const reloadTurnos = useCallback(async () => {
     setErro('');
     try {
-      setTurnos(await api.relatorioTurnos(inicio, fim));
+      setTurnos(await api.relatorioTurnos(iniTs, fimTs));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim]);
+  }, [iniTs, fimTs]);
 
   const reloadEstoque = useCallback(async () => {
     setErro('');
     try {
-      setEstoque(await api.estoqueInteligencia(inicio, fim));
+      setEstoque(await api.estoqueInteligencia(iniTs, fimTs));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim]);
+  }, [iniTs, fimTs]);
 
   const reloadProducao = useCallback(async () => {
     setErro('');
     try {
-      setProducao(await api.relatorioProducao(inicio, fim, agrupProd));
+      setProducao(await api.relatorioProducao(iniTs, fimTs, agrupProd));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim, agrupProd]);
+  }, [iniTs, fimTs, agrupProd]);
 
   const reloadCaixa = useCallback(async () => {
     setErro('');
     try {
-      setCaixaOps(await api.relatorioOperacoesCaixa(inicio, fim));
+      setCaixaOps(await api.relatorioOperacoesCaixa(iniTs, fimTs));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
-  }, [inicio, fim]);
+  }, [iniTs, fimTs]);
 
   // Seletor de mês → ajusta o período De/Até para o mês inteiro.
   function escolherMes(ym: string) {
@@ -213,36 +219,34 @@ export default function RelatoriosPage() {
   const maxCanal = Math.max(1, ...(vendas?.porCanal ?? []).map((x: any) => x.total));
   const maxHora = Math.max(1, ...(vendas?.porHora ?? []).map((x: any) => x.qtd));
 
-  return (
-    <Shell eyebrow="Gestão · relatórios" title="Relatórios de venda">
-      <div className="max-w-4xl space-y-4">
-        {erro && <p className="text-destructive">{erro}</p>}
+  const atualizarAba = () => {
+    if (aba === 'financeiro') reloadFin();
+    else if (aba === 'balcao') reloadBalcao();
+    else if (aba === 'delivery') reloadDelivery();
+    else if (aba === 'turnos') reloadTurnos();
+    else if (aba === 'caixa') reloadCaixa();
+    else if (aba === 'estoque') reloadEstoque();
+    else if (aba === 'producao') reloadProducao();
+    else reload();
+  };
 
-        <Card className="flex flex-wrap items-end gap-3 p-4">
-          <div className="space-y-1">
-            <Label className="text-xs">De</Label>
-            <Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} className="w-40" />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Até</Label>
-            <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} className="w-40" />
-          </div>
-          <Button
-            type="button"
-            onClick={() => {
-              if (aba === 'financeiro') reloadFin();
-              else if (aba === 'balcao') reloadBalcao();
-              else if (aba === 'delivery') reloadDelivery();
-              else if (aba === 'turnos') reloadTurnos();
-              else if (aba === 'caixa') reloadCaixa();
-              else if (aba === 'estoque') reloadEstoque();
-              else if (aba === 'producao') reloadProducao();
-              else reload();
-            }}
-          >
-            Atualizar
-          </Button>
-        </Card>
+  return (
+    <Shell
+      eyebrow="Gestão · relatórios"
+      title="Relatórios de venda"
+      actions={
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} aria-label="Data inicial" className="h-8 w-[8.5rem] text-xs" />
+          <Input type="time" value={horaIni} onChange={(e) => setHoraIni(e.target.value)} aria-label="Hora inicial" className="h-8 w-[5.5rem] text-xs" />
+          <span className="text-xs text-muted-foreground">→</span>
+          <Input type="date" value={fim} onChange={(e) => setFim(e.target.value)} aria-label="Data final" className="h-8 w-[8.5rem] text-xs" />
+          <Input type="time" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} aria-label="Hora final" className="h-8 w-[5.5rem] text-xs" />
+          <Button type="button" size="sm" className="h-8" onClick={atualizarAba}>Atualizar</Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {erro && <p className="text-destructive">{erro}</p>}
 
         {/* Abas por módulo */}
         <div className="flex flex-wrap gap-2">
@@ -620,13 +624,24 @@ function BarChart({ pontos, label }: { pontos: { k: string; v: number; t: string
       {pontos.length === 0 ? (
         <p className="text-sm text-muted-foreground">Sem dados no período.</p>
       ) : (
-        <div className="flex items-end gap-1" style={{ height: 120 }}>
-          {pontos.map((p) => (
-            <div key={p.k} className="flex flex-1 flex-col items-center justify-end" title={p.t}>
-              <div className="w-full rounded-t bg-primary" style={{ height: `${(p.v / mx) * 100}%` }} />
-              <span className="mt-1 text-[9px] text-muted-foreground">{p.k}</span>
-            </div>
-          ))}
+        <div>
+          {/* Barras: filhas diretas do container de altura fixa, então o height:% resolve. */}
+          <div className="flex items-end gap-1" style={{ height: 120 }}>
+            {pontos.map((p) => (
+              <div
+                key={p.k}
+                title={p.t}
+                className="min-h-[2px] flex-1 rounded-t bg-primary transition-[height]"
+                style={{ height: `${Math.max(1, (p.v / mx) * 100)}%` }}
+              />
+            ))}
+          </div>
+          {/* Rótulos numa linha própria, alinhados às barras pelo flex-1. */}
+          <div className="mt-1 flex gap-1">
+            {pontos.map((p) => (
+              <span key={p.k} className="flex-1 truncate text-center text-[9px] text-muted-foreground">{p.k}</span>
+            ))}
+          </div>
         </div>
       )}
     </Card>

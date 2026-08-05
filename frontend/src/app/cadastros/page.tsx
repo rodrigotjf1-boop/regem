@@ -56,7 +56,7 @@ export default function CadastrosPage() {
 
   return (
     <Shell eyebrow="Gestão" title="Cadastros">
-      <div className="max-w-5xl space-y-5">
+      <div className="space-y-5">
         {secAtual ? (
           <SecaoDetalhe
             sec={secAtual}

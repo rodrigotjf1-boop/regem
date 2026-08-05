@@ -125,7 +125,7 @@ export default function CuponsPage() {
 
   return (
     <Shell eyebrow="PDV · vendas" title="Cupons">
-      <div className="max-w-3xl space-y-4">
+      <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
 
         {isPresidente && (

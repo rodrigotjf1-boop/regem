@@ -176,7 +176,7 @@ export default function AcessosPage() {
 
   return (
     <Shell eyebrow="Configuração · segurança" title="Acessos & perfis">
-      <div className="max-w-4xl space-y-6">
+      <div className="space-y-6">
         {erro && <p className="text-destructive">{erro}</p>}
 
         {/* ── Perfis de acesso ── */}
