@@ -159,6 +159,140 @@ export class ProdutoService {
     return res.rows ?? res;
   }
 
+  // Fingerprint de um grupo p/ dedup "idêntico": nome + min/max/obrig + conjunto de
+  // opções (nome:preço:código), ordenado → insensível à ordem das opções.
+  private fpGrupo(
+    nome: string,
+    min: number | null,
+    max: number | null,
+    obrig: boolean,
+    ops: { nome: any; codigo: any; preco: any }[],
+  ) {
+    const n = (s: any) => String(s ?? '').trim().toLowerCase();
+    const opsFp = ops
+      .map((o) => `${n(o.nome)}:${(Number(o.preco) || 0).toFixed(2)}:${n(o.codigo)}`)
+      .sort()
+      .join('|');
+    return `${n(nome)}#${min ?? 0}#${max ?? ''}#${obrig ? 1 : 0}#${opsFp}`;
+  }
+
+  // Sobe os complementos que vieram DIRETO no motor (complemento_grupo com
+  // origem_complemento_id nulo — imports Anota Aí/Cardápio Web e o editor antigo do
+  // produto) para o CATÁLOGO reutilizável (complemento/opcao/complemento_item), com
+  // dedup por conteúdo idêntico, e "adota" o grupo do motor (carimba a origem) para
+  // que apareça na aba Complementos e vire reutilizável — sem duplicar pro cliente.
+  // Idempotente: rodar 2× não recria nada (os já adotados saem do filtro origem-nula).
+  async promoverComplementosParaCatalogo(tenantId: string) {
+    const n = (s: any) => String(s ?? '').trim().toLowerCase();
+    const opcaoKey = (nome: any, codigo: any) => `${n(nome)}|${n(codigo)}`;
+
+    // dedup de opção (aba Opções) por (nome, código) — pré-carrega o catálogo atual.
+    const opcaoMap = new Map<string, string>();
+    for (const o of await this.db
+      .select({ id: opcao.id, nome: opcao.nome, codigoPdv: opcao.codigoPdv })
+      .from(opcao)
+      .where(and(eq(opcao.tenantId, tenantId), isNull(opcao.deletedAt)))) {
+      opcaoMap.set(opcaoKey(o.nome, o.codigoPdv), o.id);
+    }
+
+    // dedup de complemento (grupo) por fingerprint — pré-carrega o catálogo atual.
+    const compMap = new Map<string, string>();
+    const catComps = await this.db
+      .select()
+      .from(complemento)
+      .where(and(eq(complemento.tenantId, tenantId), isNull(complemento.deletedAt)));
+    for (const c of catComps) {
+      const its = await this.db
+        .select({ nome: opcao.nome, codigoPdv: opcao.codigoPdv, preco: complementoItem.preco })
+        .from(complementoItem)
+        .innerJoin(opcao, eq(opcao.id, complementoItem.opcaoId))
+        .where(and(eq(complementoItem.complementoId, c.id), isNull(complementoItem.deletedAt)));
+      const fp = this.fpGrupo(c.nome, c.min, c.max, c.obrigatorio, its.map((x) => ({ nome: x.nome, codigo: x.codigoPdv, preco: x.preco })));
+      if (!compMap.has(fp)) compMap.set(fp, c.id);
+    }
+
+    // grupos do motor ainda "soltos" (não materializados de nenhum complemento).
+    const grupos = await this.db
+      .select()
+      .from(complementoGrupo)
+      .where(and(eq(complementoGrupo.tenantId, tenantId), isNull(complementoGrupo.origemComplementoId), isNull(complementoGrupo.deletedAt)))
+      .orderBy(complementoGrupo.produtoId, complementoGrupo.ordem);
+
+    let criados = 0;
+    let reusados = 0;
+    let vinculados = 0;
+    for (const g of grupos) {
+      const ops = await this.db
+        .select()
+        .from(complementoOpcao)
+        .where(and(eq(complementoOpcao.grupoId, g.id), isNull(complementoOpcao.deletedAt)))
+        .orderBy(complementoOpcao.ordem);
+      const fp = this.fpGrupo(g.nome, g.min, g.max, g.obrigatorio, ops.map((o) => ({ nome: o.nome, codigo: o.codigoPdv, preco: o.precoDelta })));
+
+      let compId = compMap.get(fp);
+      if (!compId) {
+        const regra = g.max === 1 ? 'uma' : 'varias_sem_repeticao';
+        const [novo] = await this.db
+          .insert(complemento)
+          .values({ tenantId, nome: g.nome, regra, obrigatorio: g.obrigatorio, min: g.min ?? 0, max: g.max ?? null })
+          .returning();
+        compId = novo.id;
+        for (const [i, o] of ops.entries()) {
+          const k = opcaoKey(o.nome, o.codigoPdv);
+          let opId = opcaoMap.get(k);
+          if (!opId) {
+            const [no] = await this.db
+              .insert(opcao)
+              .values({
+                tenantId,
+                nome: o.nome,
+                codigoPdv: o.codigoPdv ?? null,
+                controlaEstoque: o.controlaEstoque ?? false,
+                itemId: o.itemId ?? null,
+                produtoRefId: o.produtoRefId ?? null,
+                padraoMarcada: o.padraoMarcada ?? false,
+              })
+              .returning();
+            opId = no.id;
+            opcaoMap.set(k, opId);
+          }
+          await this.db.insert(complementoItem).values({
+            tenantId,
+            complementoId: compId,
+            opcaoId: opId,
+            preco: String(o.precoDelta ?? '0'),
+            padraoMarcada: o.padraoMarcada ?? false,
+            ordem: i,
+          });
+        }
+        compMap.set(fp, compId);
+        criados++;
+      } else {
+        reusados++;
+      }
+
+      // vincula produto ↔ complemento (se ainda não vinculado).
+      const jaLig = await this.db
+        .select({ id: produtoComplemento.id })
+        .from(produtoComplemento)
+        .where(and(eq(produtoComplemento.tenantId, tenantId), eq(produtoComplemento.produtoId, g.produtoId), eq(produtoComplemento.complementoId, compId), isNull(produtoComplemento.deletedAt)));
+      if (!jaLig.length) {
+        await this.db.insert(produtoComplemento).values({ tenantId, produtoId: g.produtoId, complementoId: compId, ordem: g.ordem ?? 0 });
+        vinculados++;
+      }
+
+      // adota o grupo do motor: agora é a materialização deste complemento (evita
+      // recriar/duplicar) e carimba a origem nas opções p/ re-materialização coerente.
+      const agora = new Date();
+      await this.db.update(complementoGrupo).set({ origemComplementoId: compId, updatedAt: agora }).where(eq(complementoGrupo.id, g.id));
+      for (const o of ops) {
+        const opId = opcaoMap.get(opcaoKey(o.nome, o.codigoPdv));
+        if (opId) await this.db.update(complementoOpcao).set({ origemOpcaoId: opId, updatedAt: agora }).where(eq(complementoOpcao.id, o.id));
+      }
+    }
+    return { gruposProcessados: grupos.length, complementosCriados: criados, complementosReusados: reusados, produtosVinculados: vinculados };
+  }
+
   private complementoVals(dto: any) {
     const regra = ['uma', 'varias_sem_repeticao', 'varias_com_repeticao'].includes(dto?.regra) ? dto.regra : 'uma';
     const obrigatorio = !!dto?.obrigatorio;

@@ -655,11 +655,24 @@ export default function CardapioPublicoPage() {
           observacao: i.obs || undefined,
         })),
       });
-      // Pagamento online: com Mercado Pago configurado, retorna o PIX (QR +
-      // copia-e-cola) para exibir; sem gateway, aprova na hora (mock).
+      // Pagamento online: com Mercado Pago/Iugu configurado, retorna o PIX (QR +
+      // copia-e-cola) para exibir; sem gateway ATIVO, o backend aprova no modo mock
+      // (sem PIX). Não engolir o erro: se falhar, mostrar o motivo (antes ficava
+      // "nada aconteceu"). E se voltar sem PIX (mock), avisar que o online está inativo.
       let pixResp: any = null;
-      if (r.pagamentoOnline && r.pedidoId)
-        pixResp = await api.cardapioPagar(token, r.pedidoId).catch(() => null);
+      let pixErro: string | null = null;
+      if (r.pagamentoOnline && r.pedidoId) {
+        try {
+          pixResp = await api.cardapioPagar(token, r.pedidoId);
+          if (!pixResp?.pix?.qrCode)
+            pixErro =
+              'Pagamento online indisponível: o Mercado Pago/Iugu não está ativo. ' +
+              'Ative em Delivery · Integrações (cole o Access Token e ligue a chave). ' +
+              'O pedido foi registrado.';
+        } catch (e) {
+          pixErro = e instanceof Error ? e.message : 'Não foi possível gerar o PIX.';
+        }
+      }
       // Identidade do cliente (token aleatório) criada/confirmada no 1º pedido.
       if (r.clienteToken) setClienteToken(token, r.clienteToken);
       // Lembra o cliente neste aparelho para o próximo pedido.
@@ -676,7 +689,7 @@ export default function CardapioPublicoPage() {
       setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setCheckout(false);
       if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
-      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null, avisos: Array.isArray(r.avisos) ? r.avisos : [] });
+      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null, pixErro, avisos: Array.isArray(r.avisos) ? r.avisos : [] });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -757,6 +770,12 @@ export default function CardapioPublicoPage() {
                 </button>
               </div>
               <p className="mt-2 text-xs text-neutral-500">Após pagar, o status atualiza automaticamente.</p>
+            </div>
+          )}
+          {/* Falha/indisponibilidade do pagamento online — antes ficava silencioso. */}
+          {!ped.pix?.qrCode && ped.pixErro && (
+            <div className="mt-4 rounded-2xl border-2 border-warn/40 bg-warn/10 p-3 text-left text-xs text-warn">
+              {ped.pixErro}
             </div>
           )}
           {ped.pedidoId && ped.status !== 'cancelado' && (

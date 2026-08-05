@@ -123,6 +123,14 @@ export class ProdutoController {
     return this.service.criarComplemento(user.tenantId, dto);
   }
 
+  // Sobe os complementos que vieram direto no motor (imports Anota Aí/Cardápio Web e
+  // editor antigo) para o catálogo reutilizável — dedup por conteúdo idêntico.
+  @Post('complementos-catalogo/sincronizar')
+  @Roles(...GESTOR)
+  sincronizarComplementos(@CurrentUser() user: AuthUser) {
+    return this.service.promoverComplementosParaCatalogo(user.tenantId);
+  }
+
   @Patch('complementos-catalogo/:id')
   @Roles(...GESTOR)
   atualizarComplementoCatalogo(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
