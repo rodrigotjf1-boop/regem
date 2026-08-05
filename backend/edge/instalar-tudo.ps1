@@ -396,6 +396,19 @@ EDGE_CLIENTES=0
 "@ | Set-Content -Path $envLocal -Encoding ascii
 Diga ".env.local escrito."
 
+# Fase 2 (padrão): cifra os segredos em repouso com DPAPI (blob não abre em outra
+# máquina). O app decifra no boot. Desligar só p/ depurar com -SemProteger.
+# IMPORTANTE: cifrar ANTES de trancar a ACL — o proteger-env REGRAVA o .env.local, e o
+# processo do instalador (runascurrentuser) pode nao estar elevado; com a ACL ja
+# restrita a Admin/SYSTEM ele levaria "acesso negado" (era o erro do proteger-env).
+if (-not $SemProteger) {
+  $proteger = Join-Path $root "edge\proteger-env.ps1"
+  if (Test-Path $proteger) {
+    try { & powershell -ExecutionPolicy Bypass -NoProfile -File $proteger -EnvFile $envLocal; Diga "Segredos do .env cifrados em repouso (DPAPI)." }
+    catch { Diga "(aviso) nao consegui cifrar os segredos: $($_.Exception.Message)" }
+  }
+}
+
 # PROTEÇÃO (Fase 1): trava a ACL do .env.local — só SYSTEM e Administradores leem
 # (os serviços rodam como SYSTEM). Remove herança para nenhum usuário comum ler.
 try {
@@ -404,16 +417,6 @@ try {
   & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" | Out-Null
   Diga "ACL do .env.local restrita (SYSTEM + Administradores)."
 } catch { Diga "(aviso) nao consegui restringir a ACL do .env.local: $($_.Exception.Message)" }
-
-# Fase 2 (padrão): cifra os segredos em repouso com DPAPI (blob não abre em outra
-# máquina). O app decifra no boot. Desligar só p/ depurar com -SemProteger.
-if (-not $SemProteger) {
-  $proteger = Join-Path $root "edge\proteger-env.ps1"
-  if (Test-Path $proteger) {
-    try { & powershell -ExecutionPolicy Bypass -NoProfile -File $proteger -EnvFile $envLocal; Diga "Segredos do .env cifrados em repouso (DPAPI)." }
-    catch { Diga "(aviso) nao consegui cifrar os segredos: $($_.Exception.Message)" }
-  }
-}
 
 # ---- 3) migrations + certificado + servicos ----
 Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; if ($LASTEXITCODE -ne 0) { throw "migrations falharam." }

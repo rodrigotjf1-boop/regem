@@ -77,6 +77,14 @@ export class CardapioPublicoController {
     return this.service.pagarPedidoPublico(token, id);
   }
 
+  // Verifica o pagamento sob demanda (consulta o gateway) — o cliente clica
+  // "Verificar pagamento" e a página faz polling disto (não depende do webhook).
+  @Post(':token/pedido/:id/verificar-pagamento')
+  @Throttle({ default: { ttl: 60000, limit: 40 } })
+  verificarPagamento(@Param('token') token: string, @Param('id') id: string) {
+    return this.service.verificarPagamentoPublico(token, id);
+  }
+
   // Webhook do Mercado Pago (confirmação de PIX). Sem token de loja: correlaciona
   // pelo gateway_payment_id do pedido. Aceita o id no body (data.id) ou na query.
   @Post('pagamento/mercadopago/webhook')

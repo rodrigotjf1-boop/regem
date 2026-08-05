@@ -1204,6 +1204,43 @@ export class CardapioService {
     }
   }
 
+  // Público: verifica o pagamento SOB DEMANDA (consulta o gateway), sem depender do
+  // webhook — o cliente clica "Verificar pagamento" e a página faz polling disto.
+  // Se aprovado: marca pago + aceita (entra em produção). Robusto quando o webhook do
+  // MP não chega (ex.: PUBLIC_API_URL não configurada / notificação atrasada).
+  async verificarPagamentoPublico(token: string, pedidoId: string) {
+    const cfg = await this.resolver(token);
+    const [p] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, cfg.tenantId)));
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    if (p.pago) return { pago: true, statusPagamento: 'aprovado', status: p.status };
+    if (p.statusPagamento !== 'aguardando' || !p.gatewayPaymentId)
+      return { pago: false, statusPagamento: p.statusPagamento, status: p.status };
+    try {
+      let aprovado = false;
+      if (p.gatewayProvider === 'iugu') {
+        const t = await this.resolveIuguToken(cfg.tenantId);
+        if (t) aprovado = (await consultarFaturaIugu(t, p.gatewayPaymentId)).status === 'paid';
+      } else {
+        const t = await this.resolveMpToken(cfg.tenantId);
+        if (t) aprovado = (await consultarPagamentoMP(t, p.gatewayPaymentId)).status === 'approved';
+      }
+      if (aprovado) {
+        await this.db
+          .update(pedidoExterno)
+          .set({ pago: true, statusPagamento: 'aprovado' })
+          .where(eq(pedidoExterno.id, p.id));
+        await this.aoConfirmarPagamento(cfg.tenantId, p.id);
+        return { pago: true, statusPagamento: 'aprovado', status: 'confirmado' };
+      }
+    } catch {
+      /* consulta ao gateway falhou; segue aguardando */
+    }
+    return { pago: false, statusPagamento: 'aguardando', status: p.status };
+  }
+
   // Webhook do Mercado Pago: confirma o pagamento. Descobre o tenant pelo pedido
   // correlacionado (gateway_payment_id) e consulta o status real no MP.
   async webhookMercadoPago(paymentId: string) {
