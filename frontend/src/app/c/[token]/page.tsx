@@ -61,6 +61,7 @@ export default function CardapioPublicoPage() {
   const [checkout, setCheckout] = useState(false);
   const [ped, setPed] = useState<any>(null);
   const [verificando, setVerificando] = useState(false);
+  const [agora, setAgora] = useState<number>(() => Date.now());
   const [chk, setChk] = useState<any>(CHK_INICIAL);
   const [cupomOk, setCupomOk] = useState<any>(null);
   const [mostrarCliente, setMostrarCliente] = useState(false);
@@ -690,7 +691,7 @@ export default function CardapioPublicoPage() {
       setClientRef(''); // pedido concluído: próximo carrinho recebe um novo ref
       setCheckout(false);
       if (r.modo === 'mesa') setPed({ mesa: r.mesa, modo: 'mesa' });
-      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', statusPagamento: pixResp?.statusPagamento ?? (r.pagamentoOnline ? 'aguardando' : null), pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null, pixErro, avisos: Array.isArray(r.avisos) ? r.avisos : [] });
+      else setPed({ pedidoId: r.pedidoId, displayId: r.displayId, status: 'novo', statusPagamento: pixResp?.statusPagamento ?? (r.pagamentoOnline ? 'aguardando' : null), pontos: r.pontos, orcamento: r.orcamento, agendamento: r.agendamento, total: r.total, ref, pix: pixResp?.pix ?? null, pixErro, pixExpira: pixResp?.pix?.qrCode ? Date.now() + 10 * 60 * 1000 : null, avisos: Array.isArray(r.avisos) ? r.avisos : [] });
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao enviar');
     } finally {
@@ -721,6 +722,13 @@ export default function CardapioPublicoPage() {
     }, 7000);
     return () => clearInterval(t);
   }, [ped?.pedidoId, ped?.statusPagamento, token]);
+
+  // Relógio de 1s para o cronômetro de expiração do PIX (só enquanto aguarda).
+  useEffect(() => {
+    if (ped?.statusPagamento !== 'aguardando') return;
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [ped?.statusPagamento]);
 
   if (erro && !menu)
     return <main className="grid min-h-dvh place-items-center bg-neutral-50 p-6 text-center text-neutral-600">{erro}</main>;
@@ -760,6 +768,13 @@ export default function CardapioPublicoPage() {
     // Falar no WhatsApp só depois de pago (ou quando não é pagamento online).
     const podeWhats = !aguardandoPag;
     const msgWhats = encodeURIComponent(`Olá, acabei de fazer o pedido Nº ${ped.displayId ?? ''} e queria saber sobre o pedido.`);
+    // Cronômetro de expiração do PIX (10 min). Expirado = cron cancelou (status) OU o
+    // relógio zerou. Enquanto aguarda, a timeline de produção NÃO aparece (só o PIX).
+    const restanteMs = aguardandoPag && ped.pixExpira ? Math.max(0, ped.pixExpira - agora) : null;
+    const expirado = aguardandoPag && (ped.status === 'cancelado' || (restanteMs !== null && restanteMs <= 0));
+    const mmss = restanteMs != null
+      ? `${String(Math.floor(restanteMs / 60000)).padStart(2, '0')}:${String(Math.floor((restanteMs % 60000) / 1000)).padStart(2, '0')}`
+      : '';
     return (
       <main className="min-h-dvh bg-neutral-50 p-6 text-neutral-900">
         <div className="mx-auto max-w-md text-center">
@@ -772,10 +787,11 @@ export default function CardapioPublicoPage() {
           {ped.pix?.qrCode && !aguardandoPag && ped.status !== 'cancelado' && (
             <div className="mt-4 rounded-2xl border-2 border-ok/40 bg-ok/10 p-3 text-sm font-semibold text-ok">✓ Pagamento confirmado</div>
           )}
-          {/* PIX: QR + copia-e-cola enquanto aguarda o pagamento. O status atualiza pelo webhook. */}
-          {ped.pix?.qrCode && aguardandoPag && (
+          {/* PIX: QR + copia-e-cola enquanto aguarda o pagamento (e não expirou). */}
+          {ped.pix?.qrCode && aguardandoPag && !expirado && (
             <div className="mt-5 rounded-2xl border-2 p-4 text-center" style={{ borderColor: accent }}>
               <p className="text-sm font-semibold">Pague com PIX para confirmar</p>
+              <p className="mt-1 text-xs font-semibold" style={{ color: accent }}>⏱ Expira em {mmss}</p>
               {ped.pix.qrCodeBase64 && (
                 <img src={`data:image/png;base64,${ped.pix.qrCodeBase64}`} alt="QR Code PIX" className="mx-auto my-3 h-48 w-48" />
               )}
@@ -810,13 +826,22 @@ export default function CardapioPublicoPage() {
               </button>
             </div>
           )}
+          {/* Tempo esgotado: o PIX de 10 min expirou (cron cancelou / relógio zerou). */}
+          {expirado && (
+            <div className="mt-5 rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-center text-red-700">
+              <p className="text-2xl">⏱</p>
+              <p className="mt-1 font-bold">Tempo esgotado</p>
+              <p className="mt-1 text-sm">O prazo de 10 minutos para pagar o PIX acabou e o pedido foi cancelado. Faça um novo pedido — você pode escolher outra forma de pagamento (ex.: pagar na retirada/entrega).</p>
+              <button type="button" onClick={() => { setPed(null); setCupomOk(null); }} className="mt-4 w-full rounded-xl px-5 py-3 font-semibold text-white" style={{ background: accent }}>Fazer novo pedido</button>
+            </div>
+          )}
           {/* Falha/indisponibilidade do pagamento online — antes ficava silencioso. */}
           {!ped.pix?.qrCode && ped.pixErro && (
             <div className="mt-4 rounded-2xl border-2 border-warn/40 bg-warn/10 p-3 text-left text-xs text-warn">
               {ped.pixErro}
             </div>
           )}
-          {ped.pedidoId && ped.status !== 'cancelado' && (
+          {ped.pedidoId && ped.status !== 'cancelado' && !aguardandoPag && (
             <div className="mt-6 text-left">
               {passos.map((s, i) => (
                 <div key={s} className="flex items-center gap-3 pb-4">
@@ -826,7 +851,7 @@ export default function CardapioPublicoPage() {
               ))}
             </div>
           )}
-          {ped.status === 'cancelado' && <p className="mt-4 text-red-600">{aguardandoPag ? 'Pedido cancelado — pagamento não recebido no prazo.' : 'Pedido cancelado.'}</p>}
+          {ped.status === 'cancelado' && !aguardandoPag && <p className="mt-4 text-red-600">Pedido cancelado.</p>}
           {ped.orcamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Orçamento solicitado — em breve retornamos com a proposta.</p>}
           {ped.agendamento && <p className="mt-3 rounded-xl bg-neutral-100 px-3 py-2 text-sm text-neutral-600">Agendado para {new Date(ped.agendamento).toLocaleString('pt-BR')}.</p>}
           {ped.pontos != null && <p className="mt-3 text-sm font-semibold" style={{ color: accent }}>⭐ Você tem {ped.pontos} pontos de fidelidade.</p>}
@@ -835,7 +860,7 @@ export default function CardapioPublicoPage() {
               {ped.avisos.map((a: string, i: number) => <p key={i}>ℹ️ {a}</p>)}
             </div>
           )}
-          {ped.pedidoId && ped.status !== 'cancelado' && (
+          {ped.pedidoId && ped.status !== 'cancelado' && !expirado && (
             <a
               href={`/c/${token}/pedido/${ped.pedidoId}${ped.ref ? `?ref=${encodeURIComponent(ped.ref)}` : ''}`}
               className="mt-4 block rounded-xl border-2 px-5 py-3 font-semibold"
