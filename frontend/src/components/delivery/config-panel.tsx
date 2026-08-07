@@ -1824,6 +1824,15 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
   }
   const mudarCampo = (idx: number, patch: any) =>
     mudarPerfil((p) => ({ ...p, campos: p.campos.map((c: any, i: number) => (i === idx ? { ...c, ...patch } : c)) }));
+  // Estilo de sublinha do campo "itens" (complementos/observação). Ao mexer pela 1ª
+  // vez, herda o estilo do campo e aplica o patch.
+  const mudarSub = (idx: number, which: 'comp' | 'obs', patch: any) =>
+    mudarPerfil((p) => ({
+      ...p,
+      campos: p.campos.map((c: any, i: number) =>
+        i === idx ? { ...c, [which]: { ...(c[which] ?? { negrito: c.negrito, escala: c.escala, mini: c.mini }), ...patch } } : c,
+      ),
+    }));
   // Reordenar arrastando pela alça (igual às categorias do catálogo). A ordem só
   // persiste no "Salvar perfis" — aqui é estado local.
   function soltar(destino: number) {
@@ -1857,10 +1866,13 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
     const cat = campos.find((c) => c.key === key); if (!cat) return;
     mudarPerfil((p) => ({ ...p, campos: [...p.campos, { key, label: cat.label, visivel: true, negrito: false, alinhamento: 'esquerda' }] }));
   };
-  // Fase 4 — inserir elemento de layout (linha em branco / tracejada) em qualquer perfil.
+  // Fase 4 — inserir elemento de layout (linha em branco / linha divisória) em qualquer perfil.
   const addPseudo = (key: '_espaco' | '_tracejado') => {
-    const label = key === '_espaco' ? 'Linha em branco' : 'Linha tracejada';
-    mudarPerfil((p) => ({ ...p, campos: [...p.campos, { key, label, visivel: true, negrito: false, alinhamento: 'esquerda' }] }));
+    const espaco = key === '_espaco';
+    mudarPerfil((p) => ({
+      ...p,
+      campos: [...p.campos, { key, label: espaco ? 'Linha em branco' : 'Linha divisória', visivel: true, negrito: false, alinhamento: espaco ? 'esquerda' : 'centro' }],
+    }));
   };
   const removerCampo = (idx: number) => mudarPerfil((p) => ({ ...p, campos: p.campos.filter((_: any, i: number) => i !== idx) }));
 
@@ -1873,6 +1885,8 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
           key: c.key, visivel: c.visivel, negrito: c.negrito, alinhamento: c.alinhamento,
           ...(n.escala >= 2 ? { escala: n.escala } : {}),
           ...(n.mini ? { mini: true } : {}),
+          ...(c.comp ? { comp: c.comp } : {}),
+          ...(c.obs ? { obs: c.obs } : {}),
           ...(c.agrupado ? { agrupado: true } : {}),
         };
       });
@@ -1891,8 +1905,17 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
       if (!c.visivel) continue;
       let mock: string[];
       if (c.key === '_espaco') mock = [''];
-      else if (c.key === '_tracejado') mock = ['-'.repeat(CUPOM_LARGURA)];
+      else if (c.key === '_tracejado') mock = ['-'.repeat(24)];
       else mock = CUPOM_MOCK[c.key] ?? [c.label];
+      // Itens: complemento/observação podem ter estilo próprio (herda o campo se não).
+      if (c.key === 'itens') {
+        const est = (s: any) => s ?? { negrito: c.negrito, escala: c.escala, mini: c.mini };
+        for (const t of mock) {
+          const s = t.startsWith('   OBS:') ? est(c.obs) : t.startsWith('   ') ? est(c.comp) : { negrito: c.negrito, escala: c.escala, mini: c.mini };
+          out.push({ txt: t, bold: !!s.negrito, lvl: nivelDe(s), align: c.alinhamento });
+        }
+        continue;
+      }
       // Agrupar: junta com a linha anterior (esq | dir) — vira flex na prévia.
       if (c.agrupado && out.length && mock.length === 1) {
         const p = out[out.length - 1];
@@ -1974,7 +1997,7 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
               <div key={i} onDragOver={(e) => e.preventDefault()} onDrop={() => soltar(i)}
                 className={`flex items-center gap-2 rounded-md border border-dashed border-border px-2 py-1.5 text-xs italic text-muted-foreground ${drag === i ? 'opacity-50' : ''}`}>
                 {alca}
-                <span className="flex-1">— {c.key === '_espaco' ? 'linha em branco' : 'linha tracejada'} —</span>
+                <span className="flex-1">— {c.key === '_espaco' ? 'linha em branco' : 'linha divisória'} —</span>
                 {podeRemover && <button type="button" title="Remover" onClick={() => removerCampo(i)} className="rounded border border-destructive/40 px-1 text-destructive">✕</button>}
               </div>
             );
@@ -2002,13 +2025,34 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
                   <option value="direita">Dir ⟶</option>
                 </select>
                 {podeRemover && <button type="button" title="Remover campo" onClick={() => removerCampo(i)} className="rounded border border-destructive/40 px-1 text-destructive">✕</button>}
+                {/* Itens: estilo próprio de complementos e observação (destaque na cozinha) */}
+                {c.key === 'itens' && (
+                  <div className="mt-1.5 w-full space-y-1 border-t border-border/60 pt-1.5">
+                    {(['comp', 'obs'] as const).map((which) => {
+                      const est = c[which] ?? { negrito: c.negrito, escala: c.escala, mini: c.mini };
+                      const nvS = nivelDe(est);
+                      return (
+                        <div key={which} className="flex items-center gap-1.5">
+                          <span className="w-24 text-[11px] text-muted-foreground">{which === 'comp' ? 'Complementos' : 'Observação'}</span>
+                          <button type="button" title="Negrito" disabled={!pode} onClick={() => mudarSub(i, which, { negrito: !est.negrito })}
+                            className={`h-5 w-5 rounded border text-[10px] font-bold ${est.negrito ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>N</button>
+                          <select aria-label={`Tamanho ${which === 'comp' ? 'dos complementos' : 'da observação'}`} disabled={!pode} value={nvS}
+                            onChange={(e) => { const n = NIVEIS_FONTE[Number(e.target.value)]; mudarSub(i, which, { mini: n.mini || undefined, escala: n.escala }); }}
+                            className={`h-5 rounded border px-1 text-[11px] ${nvS !== 1 ? 'border-primary bg-primary/15 font-semibold text-primary' : 'border-input bg-card'}`}>
+                            {NIVEIS_FONTE.map((n) => <option key={n.i} value={n.i}>{n.label} ({n.pt})</option>)}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
           {pode && (
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
               <button type="button" onClick={() => addPseudo('_espaco')} className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground">＋ linha em branco</button>
-              <button type="button" onClick={() => addPseudo('_tracejado')} className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground">＋ linha tracejada</button>
+              <button type="button" onClick={() => addPseudo('_tracejado')} className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground">＋ linha divisória</button>
               {ehCustom && (
                 <select aria-label="Adicionar campo" value="" onChange={(e) => { if (e.target.value) addCampo(e.target.value); }}
                   className="h-7 flex-1 rounded border border-input bg-card px-2 text-[11px]">

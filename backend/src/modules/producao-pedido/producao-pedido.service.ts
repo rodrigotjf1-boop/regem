@@ -612,6 +612,8 @@ export class ProducaoPedidoService {
         tamanho?: string; // legado: 'grande' == escala 2
         escala?: number; // magnificação 1..4 (1 = normal)
         mini?: boolean; // fonte pequena (Font B) — régua "Pequena"/"Média"
+        comp?: { negrito?: boolean; escala?: number; mini?: boolean }; // estilo dos complementos (só em itens)
+        obs?: { negrito?: boolean; escala?: number; mini?: boolean }; // estilo da observação (só em itens)
         agrupado?: boolean;
       }[];
     },
@@ -631,14 +633,7 @@ export class ProducaoPedidoService {
       ticket: () => (dados.ticket ? [`Ticket ${dados.ticket}`] : []),
       vendaBalcao: () => ['Venda balcao'],
       operador: () => (dados.operador ? [`Operador: ${dados.operador}`] : []),
-      itens: () =>
-        (dados.itens ?? []).flatMap((it: any) => {
-          const ls = [`${Number(it.quantidade)}x ${it.descricao}`];
-          if (it.complementosTexto) ls.push(`   ${it.complementosTexto}`);
-          if (it.observacao) ls.push(`   OBS: ${it.observacao}`);
-          if (dados.mostrarValoresItem) ls.push(`   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
-          return ls;
-        }),
+      // itens é tratado à parte no loop (estilo por linha: nome/complemento/obs/valor).
       subtotal: () => (dados.subtotal != null ? [`Subtotal: ${money(dados.subtotal)}`] : []),
       desconto: () => (dados.desconto ? [`Desconto: -${money(dados.desconto)}`] : []),
       totalGeral: () => (dados.totalGeral != null ? [`TOTAL: ${money(dados.totalGeral)}`] : []),
@@ -682,12 +677,43 @@ export class ProducaoPedidoService {
     if (cabecalho && String(cabecalho).trim()) out.push(`@C ${String(cabecalho).trim()}`);
     // Fase 4 — pseudo-campos de layout (_espaco/_tracejado), fonte grande (@D) e
     // agrupar dois campos na mesma linha (esq | dir, via token @LR).
+    // Escala 1..4 de um estilo (compat: tamanho 'grande' == 2).
+    const escOf = (o: any): number =>
+      o?.escala && o.escala >= 2 ? Math.min(4, Math.floor(o.escala)) : o?.tamanho === 'grande' ? 2 : 1;
+    // Monta o token de flags (@C/@R/@B/@S/@D…) de um estilo. @D=2× (edges antigos
+    // entendem); @D3/@D4 = 3×/4× (requer escpos atualizado). @S = fonte pequena.
+    const flagStr = (align: string, negrito: boolean, mini: boolean, esc: number): string =>
+      (align === 'centro' ? 'C' : align === 'direita' ? 'R' : '') +
+      (negrito ? 'B' : '') +
+      (mini ? 'S' : '') +
+      (esc >= 3 ? `D${esc}` : esc === 2 ? 'D' : '');
     let prev: { idx: number; text: string } | null = null;
     for (const c of perfil.campos) {
       if (!c.visivel) continue;
+
+      // ITENS: cada linha tem estilo próprio — complementos e observação podem ficar
+      // maiores/negrito para não passarem batidos na cozinha (c.comp / c.obs).
+      if (c.key === 'itens') {
+        if (!(dados.itens ?? []).length) continue;
+        const fNome = flagStr(c.alinhamento, !!c.negrito, !!c.mini, escOf(c));
+        const fComp = c.comp ? flagStr(c.alinhamento, !!c.comp.negrito, !!c.comp.mini, escOf(c.comp)) : fNome;
+        const fObs = c.obs ? flagStr(c.alinhamento, !!c.obs.negrito, !!c.obs.mini, escOf(c.obs)) : fNome;
+        const put = (f: string, t: string) => out.push(f ? `@${f} ${t}` : t);
+        out.push(sep);
+        for (const it of dados.itens ?? []) {
+          put(fNome, `${Number(it.quantidade)}x ${it.descricao}`);
+          if (it.complementosTexto) put(fComp, `   ${it.complementosTexto}`);
+          if (it.observacao) put(fObs, `   OBS: ${it.observacao}`);
+          if (dados.mostrarValoresItem) put(fNome, `   ${money(Number(it.precoUnitario) * Number(it.quantidade))}`);
+        }
+        out.push(sep);
+        prev = null;
+        continue;
+      }
+
       let linhas: string[];
       if (c.key === '_espaco') linhas = [''];
-      else if (c.key === '_tracejado') linhas = [sep];
+      else if (c.key === '_tracejado') linhas = ['-'.repeat(24)]; // linha divisória (centralizável)
       else {
         linhas = CAMPO[c.key]?.() ?? [];
         if (!linhas.length) continue;
@@ -698,22 +724,12 @@ export class ProducaoPedidoService {
         prev = null;
         continue;
       }
-      // Fonte: escala numérica 1..4 (compat: tamanho 'grande' == 2). @D=2× (edges
-      // antigos entendem); @D3/@D4 para 3×/4× (requer escpos atualizado).
-      const esc =
-        c.escala && c.escala >= 2 ? Math.min(4, Math.floor(c.escala)) : c.tamanho === 'grande' ? 2 : 1;
-      const flags =
-        (c.alinhamento === 'centro' ? 'C' : c.alinhamento === 'direita' ? 'R' : '') +
-        (c.negrito ? 'B' : '') +
-        (c.mini ? 'S' : '') +
-        (esc >= 3 ? `D${esc}` : esc === 2 ? 'D' : '');
-      if (c.key === 'itens') out.push(sep);
+      const flags = flagStr(c.alinhamento, !!c.negrito, !!c.mini, escOf(c));
       for (const t of linhas) {
         if (t.startsWith('@QR:')) out.push(t); // QR: linha própria (o escpos centraliza)
         else out.push(flags ? `@${flags} ${t}` : t);
       }
-      if (c.key === 'itens') out.push(sep);
-      prev = simples && c.key !== 'itens' ? { idx: out.length - 1, text: linhas[0] } : null;
+      prev = simples ? { idx: out.length - 1, text: linhas[0] } : null;
     }
     if (rodape && String(rodape).trim()) {
       out.push(sep);
