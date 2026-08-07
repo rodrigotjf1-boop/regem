@@ -65,6 +65,7 @@ export default function EquipamentosPage() {
   );
   const [copiado, setCopiado] = useState(false);
   const [retarget, setRetarget] = useState<Record<string, string>>({}); // job → impressora escolhida (override)
+  const [edgeOn, setEdgeOn] = useState(false); // F10 — loja tem servidor local ativo
   // Impressora só tem "alvo" imprimível: rede → tem IP; local → tem nome no Windows.
   const alvoValido = (e: any) => (e.conexao === 'local' ? !!e.dispositivo : !!e.host);
 
@@ -80,6 +81,7 @@ export default function EquipamentosPage() {
       setUnidades(unis);
       setSetores(sets as any[]);
       setFila(f as any[]);
+      api.edgeAtivo().then((r: any) => setEdgeOn(!!r?.ativo)).catch(() => {});
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -246,8 +248,9 @@ export default function EquipamentosPage() {
     setErro('');
     setTestando(id);
     try {
-      await api.impressoraTeste(id);
-      setAviso('Página de teste enviada. Se o servidor local estiver ativo, sai em segundos.');
+      const r: any = await api.impressoraTeste(id);
+      if (r?.edge) setAviso(r.aviso || 'Impressão gerenciada pelo servidor local.');
+      else setAviso('Página de teste enviada. Se o servidor local estiver ativo, sai em segundos.');
       const f = await api.impressaoFila().catch(() => []);
       setFila(f as any[]);
     } catch (err) {
@@ -260,7 +263,8 @@ export default function EquipamentosPage() {
   async function reimprimir(id: string, equipamentoId?: string | null) {
     setErro('');
     try {
-      await api.reimprimir(id, equipamentoId ?? null);
+      const r: any = await api.reimprimir(id, equipamentoId ?? null);
+      if (r?.edge) setAviso(r.aviso || 'Reimpressão feita no servidor local.');
       const f = await api.impressaoFila().catch(() => []);
       setFila(f as any[]);
     } catch (err) {
@@ -297,6 +301,12 @@ export default function EquipamentosPage() {
   return (
     <Shell eyebrow="Gestão" title="Equipamentos & Apps">
       <div className="space-y-4">
+        {edgeOn && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
+            <span aria-hidden>🖥️</span>
+            <span>Esta loja tem <strong>servidor local (edge) ativo</strong> — a configuração de impressão é gerenciada por ele. Aqui na nuvem a config fica <strong>somente leitura</strong>; edite as impressoras/KDS e teste no servidor local da loja.</span>
+          </div>
+        )}
         <p className="text-sm text-muted-foreground">
           Registre os apps satélites (KDS e Terminal de Ponto) que se conectam ao
           Regem. Cada device recebe um token único usado no pareamento.

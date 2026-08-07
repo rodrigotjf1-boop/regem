@@ -1284,6 +1284,8 @@ export const api = {
   removerImpressora: (id: string) =>
     req(`/equipamento/impressoras/${id}`, { method: 'DELETE' }),
   equipamentos: () => req('/equipamento'),
+  // F10 — loja tem edge ativo? (config de impressão fica somente-leitura na nuvem)
+  edgeAtivo: () => req('/equipamento/edge-ativo'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),
   // F9 — acesso de suporte (presidente vê/revoga)

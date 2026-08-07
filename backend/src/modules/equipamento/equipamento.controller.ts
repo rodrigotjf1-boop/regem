@@ -33,6 +33,13 @@ export class EquipamentoController {
     return this.service.listar(user.tenantId);
   }
 
+  // F10 — a loja tem servidor local (edge) ativo? Se sim, a config de impressão é
+  // gerenciada lá; o front mostra a tela em modo somente-leitura.
+  @Get('edge-ativo')
+  edgeAtivo(@CurrentUser() user: AuthUser) {
+    return this.service.edgeAtivo(user.tenantId);
+  }
+
   @Post()
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
