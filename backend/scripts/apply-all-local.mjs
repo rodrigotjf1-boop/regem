@@ -57,8 +57,11 @@ try {
     BENIGNOS.has(e.code) || /already exists|já existe|does already/i.test(e.message ?? '');
   for (const f of arquivos) {
     const sql = readFileSync(path.join(dir, f), 'utf8');
-    // Distribuição-only: não cria no banco da LOJA (edge).
-    if (ehEdge && /@cloud-only/i.test(sql)) {
+    // Distribuição-only: não cria no banco da LOJA (edge). O marcador é uma DIRETIVA
+    // no início de uma linha de comentário (`-- @cloud-only`). Ancorar evita o falso
+    // positivo de migrations que só MENCIONAM "NÃO é @cloud-only" num comentário (ex.:
+    // 167/168/169) — que precisam rodar no edge e antes eram puladas por engano.
+    if (ehEdge && /^\s*--\s*@cloud-only\b/im.test(sql)) {
       console.log('PULA', f, '(cloud-only — só na nuvem)');
       puladas++;
       continue;
