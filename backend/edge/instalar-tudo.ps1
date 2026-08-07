@@ -72,6 +72,11 @@ $root = $Raiz
 $base = Split-Path $root -Parent          # C:\regem-edge
 Set-Location $root                        # cwd = raiz do backend (resolve node_modules + caminhos relativos)
 $logDir = Join-Path $root "logs"; New-Item -ItemType Directory -Force $logDir | Out-Null
+# Marcadores de resultado que o INSTALADOR (Inno) lê no fim: a presença de
+# ULTIMO-ERRO.txt = falhou; INSTALOU-OK.flag = concluiu. Limpa os antigos no início
+# para o resultado refletir SÓ esta execução.
+Remove-Item (Join-Path $logDir 'ULTIMO-ERRO.txt') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $logDir 'INSTALOU-OK.flag') -Force -ErrorAction SilentlyContinue
 $log = Join-Path $logDir ("instalar-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 # Grava TODA a saida (inclusive erros de npm/node/initdb/postgres) no log — o
 # arquivo fica em logs\instalar-*.log para enviar ao suporte quando algo falhar.
@@ -219,6 +224,7 @@ if ($Modo -eq 'cliente') {
   }
 
   Diga "=== Cliente configurado. Abra o atalho 'Regem'. O pareamento e feito na 1a abertura (codigo de 6 digitos gerado no Servidor). ==="
+  Set-Content -Path (Join-Path $logDir 'INSTALOU-OK.flag') -Value 'ok' -Encoding ascii -ErrorAction SilentlyContinue
   Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
   return
 }
@@ -619,4 +625,5 @@ Diga "App (abra aqui): https://${ip}:$PortaWeb  (ou https://regem.local:$PortaWe
 Diga "API (interna):   https://${ip}:$Porta"
 Diga "Nos aparelhos clientes (KDS/PDV/Ponto): confie o arquivo $ca e aponte o navegador para o endereco do app acima."
 Diga "Log completo: $log"
+Set-Content -Path (Join-Path $logDir 'INSTALOU-OK.flag') -Value 'ok' -Encoding ascii -ErrorAction SilentlyContinue
 Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
