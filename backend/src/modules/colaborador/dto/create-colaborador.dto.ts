@@ -55,7 +55,7 @@ export class CreateColaboradorDto {
   vinculo?: string;
 
   @IsOptional()
-  @IsIn(['5x2', '12x36', '4x3', 'horista', 'outro'])
+  @IsIn(['5x2', '6x1', '5x1', '12x36', '4x3', 'horista', 'outro'])
   jornadaTipo?: string;
 
   @IsOptional()
