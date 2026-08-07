@@ -194,7 +194,7 @@ export function ItemSheet({
                   ) : null;
                   // Miniatura da opção (centralizada; object-contain reduz a alta sem cortar).
                   const thumb = o.imagemRef ? (
-                    <img src={o.imagemRef} alt="" className="h-10 w-10 flex-none rounded-md border border-neutral-200 bg-neutral-50 object-contain" />
+                    <img src={o.imagemRef} alt="" className="h-14 w-14 flex-none rounded-md border border-neutral-200 bg-neutral-50 object-contain" />
                   ) : null;
                   // Grupo com repetição: contador (− n +) por opção.
                   if (rep) {
