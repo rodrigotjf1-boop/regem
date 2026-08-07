@@ -337,7 +337,20 @@ if ($embutido.pg) {
     Start-Sleep -Seconds 2
     Diga "Postgres embutido: servico iniciado como Servico de rede (porta $PgPorta)."
   } else {
-    Diga "pgdata ja existe - reaproveitando. (Se nao souber a senha, apague $pgData para reinicializar.)"
+    # Reinstalacao: o pgdata ja existe. O instalador PARA o servico antes de copiar,
+    # entao aqui garantimos que ele exista e esteja RODANDO de novo (antes so imprimia
+    # uma mensagem -> Postgres ficava parado -> "Postgres nao respondeu").
+    Diga "pgdata ja existe - reaproveitando o banco."
+    if (-not (Get-Service -Name RegemEdgePg -ErrorAction SilentlyContinue)) {
+      $pgArgs = '-D "' + $pgData + '" -p ' + $PgPorta
+      & $nssm install RegemEdgePg (Join-Path $pgDir "bin\postgres.exe") $pgArgs | Out-Null
+      & $nssm set RegemEdgePg ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
+      & $nssm set RegemEdgePg Start SERVICE_AUTO_START | Out-Null
+      & $nssm set RegemEdgePg AppStderr "$logDir\RegemEdgePg.err.log" | Out-Null
+    }
+    & $nssm start RegemEdgePg 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+    Diga "Postgres embutido: servico (re)iniciado (porta $PgPorta)."
   }
 } else {
   # Postgres do sistema: precisa da senha do superusuario. Tenta 'postgres' padrao;
@@ -351,6 +364,40 @@ $okPg = $false
 foreach ($i in 1..15) {
   try { & $node -e "const{Client}=require('pg');new Client({connectionString:process.argv[1]}).connect().then(c=>c.end()).then(()=>process.exit(0)).catch(()=>process.exit(1))" $connPg; if ($LASTEXITCODE -eq 0) { $okPg = $true; break } } catch {}
   Start-Sleep -Seconds 2
+}
+# DEFENSIVO: havia pgdata mas NAO conecta (senha perdida/cifrada de uma instalacao
+# incompleta anterior, ou banco corrompido). Os dados estao inacessiveis de qualquer
+# jeito -> recomeca o banco do zero. NAO afeta um banco que FUNCIONA (esse conectaria).
+# Evita exigir apagar C:\regem-edge na mao numa reinstalacao apos falha.
+if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSION"))) {
+  Diga "Banco anterior inacessivel (instalacao incompleta / senha perdida) - recomecando do zero."
+  try { & $nssm stop RegemEdgePg 2>$null | Out-Null } catch {}
+  try { & $nssm remove RegemEdgePg confirm 2>$null | Out-Null } catch {}
+  try { Get-CimInstance Win32_Process -Filter "name='postgres.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$pgData*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch {}
+  Start-Sleep -Seconds 2
+  Remove-Item -Recurse -Force $pgData -ErrorAction SilentlyContinue
+  $pgSenha = Rand 24
+  $connPg = "postgresql://postgres:$pgSenha@localhost:$PgPorta/postgres"
+  $pwfile = Join-Path $env:TEMP ("pgpw-{0}.txt" -f (Get-Random))
+  Set-Content -Path $pwfile -Value $pgSenha -NoNewline -Encoding ascii
+  & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -D $pgData | Out-Null
+  Remove-Item $pwfile -Force
+  icacls $pgData /setowner "*S-1-5-20" /T /C /Q | Out-Null
+  icacls $pgData /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q | Out-Null
+  icacls $pgDir  /grant "*S-1-5-20:(OI)(CI)RX" /T /C /Q | Out-Null
+  if (-not (Get-Service -Name RegemEdgePg -ErrorAction SilentlyContinue)) {
+    $pgArgs = '-D "' + $pgData + '" -p ' + $PgPorta
+    & $nssm install RegemEdgePg (Join-Path $pgDir "bin\postgres.exe") $pgArgs | Out-Null
+    & $nssm set RegemEdgePg ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
+    & $nssm set RegemEdgePg Start SERVICE_AUTO_START | Out-Null
+    & $nssm set RegemEdgePg AppStderr "$logDir\RegemEdgePg.err.log" | Out-Null
+  }
+  & $nssm start RegemEdgePg 2>$null | Out-Null
+  Start-Sleep -Seconds 2
+  foreach ($i in 1..15) {
+    try { & $node -e "const{Client}=require('pg');new Client({connectionString:process.argv[1]}).connect().then(c=>c.end()).then(()=>process.exit(0)).catch(()=>process.exit(1))" $connPg; if ($LASTEXITCODE -eq 0) { $okPg = $true; break } } catch {}
+    Start-Sleep -Seconds 2
+  }
 }
 if (-not $okPg) { throw "Postgres nao respondeu em localhost:$PgPorta. Verifique a instalacao/senha." }
 
