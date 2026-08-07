@@ -19,14 +19,11 @@ import { createHash, createHmac } from 'node:crypto';
 const pExecFile = promisify(execFile);
 
 // Rodando como servico do Windows nao ha shell que exporte as envs. A API usa
-// @nestjs/config para ler o .env.local; este daemon carrega por conta propria.
-const _envFile = fileURLToPath(new URL('../.env.local', import.meta.url));
-if (existsSync(_envFile)) {
-  for (const _l of readFileSync(_envFile, 'utf8').split(/\r?\n/)) {
-    const _m = _l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
-    if (_m && !process.env[_m[1]]) process.env[_m[1]] = _m[2].trim();
-  }
-}
+// @nestjs/config + secure-env; este daemon faz o equivalente E DECIFRA os enc:
+// DPAPI — senao a EDGE_DATABASE_URL fica cifrada e o pg conecta como a conta da
+// maquina (28P01 "password authentication failed for user <MAQUINA>$").
+import { carregarEnvLocal } from './decifrar-env.mjs';
+carregarEnvLocal(import.meta.url);
 
 const EDGE_DB = req('EDGE_DATABASE_URL');
 const CLOUD = req('CLOUD_API').replace(/\/$/, '');
