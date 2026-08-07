@@ -1114,9 +1114,10 @@ export class CardapioService {
     return (await this.tokenCanal(tenantId, 'mercadopago')) || process.env.MP_ACCESS_TOKEN || null;
   }
 
-  // Token do PagBank/PagSeguro: por tenant (canal 'pagseguro') ou env.
+  // Token do PagBank/PagSeguro: SÓ por tenant (canal 'pagseguro'), BYO puro. Modo
+  // distribuição — cada loja cola o token na integração; sem env/cadastro na API.
   private async resolvePagseguroToken(tenantId: string): Promise<string | null> {
-    return (await this.tokenCanal(tenantId, 'pagseguro')) || process.env.PAGBANK_TOKEN || null;
+    return (await this.tokenCanal(tenantId, 'pagseguro')) || null;
   }
 
   // Provedores de PIX ATIVOS do tenant, ORDENADOS por prioridade (primário → fallback).

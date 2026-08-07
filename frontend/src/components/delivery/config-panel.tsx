@@ -35,7 +35,6 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     grupo: 'Operação',
     itens: [
       { k: 'banners', label: 'Banners' },
-      { k: 'impressoras', label: 'Impressoras e cupons' },
       { k: 'integracoes', label: 'Integrações' },
       { k: 'robo', label: 'Robô de atendimento' },
     ],
@@ -43,14 +42,10 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
 ];
 
 export function ConfigPanel({
-  deliveryCfg,
-  onDeliveryToggle,
   isGestor,
   onClose,
   pagina = false,
 }: {
-  deliveryCfg: any;
-  onDeliveryToggle: (patch: any) => void;
   isGestor: boolean;
   onClose: () => void;
   pagina?: boolean;
@@ -59,8 +54,6 @@ export function ConfigPanel({
   const [loja, setLoja] = useState<any>(null);
   const [bairros, setBairros] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
-  const [impressoras, setImpressoras] = useState<any[]>([]);
-  const [setores, setSetores] = useState<any[]>([]);
   const [integracoes, setIntegracoes] = useState<any[]>([]);
   const [cupons, setCupons] = useState<any[]>([]);
   const [novoCupom, setNovoCupom] = useState({
@@ -83,8 +76,6 @@ export function ConfigPanel({
     api.cardapioBanners().then((b: any) => setBanners((b as any[]) ?? [])).catch(() => {});
     api.cardapioCupons().then((c: any) => setCupons((c as any[]) ?? [])).catch(() => {});
     if (isGestor) {
-      api.impressoras().then((p: any) => setImpressoras((p as any[]) ?? [])).catch(() => {});
-      api.setores().then((s: any) => setSetores((s as any[]) ?? [])).catch(() => {});
       api.integracoesDelivery().then((i: any) => setIntegracoes((i as any[]) ?? [])).catch(() => {});
     }
   }, [isGestor]);
@@ -96,25 +87,6 @@ export function ConfigPanel({
       toast.success('Integração salva.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-    }
-  }
-
-  async function salvarImpressora(row: any) {
-    try {
-      const r = await api.salvarImpressora(row);
-      setImpressoras(await api.impressoras() as any[]);
-      toast.success('Impressora salva.');
-      return r;
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
-    }
-  }
-  async function removerImpressora(id: string) {
-    try {
-      await api.removerImpressora(id);
-      setImpressoras((l) => l.filter((x) => x.id !== id));
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Erro ao remover');
     }
   }
 
@@ -585,25 +557,6 @@ export function ConfigPanel({
                 {/* BANNERS */}
                 {sec === 'banners' && (
                   <Banners banners={banners} intervalo={loja?.temaConfig?.bannerIntervalo ?? 2} onSalvar={salvarBanners} salvando={salvando} pode={isGestor} />
-                )}
-
-                {/* IMPRESSORAS */}
-                {sec === 'impressoras' && (
-                  <div className="space-y-4">
-                    <div className="rounded-lg border border-border p-3">
-                      <label className="flex items-start gap-2 text-sm">
-                        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" disabled={!isGestor}
-                          checked={!!deliveryCfg?.adiarProducaoAteKds}
-                          onChange={(e) => onDeliveryToggle({ adiarProducaoAteKds: e.target.checked })} />
-                        <span>Imprimir a produção só ao avançar no KDS
-                          <span className="block text-[11px] text-muted-foreground">Por padrão a via de produção sai ao registrar o pedido. Ligado, ela sai apenas quando o pedido avança no KDS que imprime na etapa (ex.: só no despacho). Se nenhum KDS estiver com “imprimir ao avançar”, a via sai no registro mesmo (não perde o ticket).</span>
-                        </span>
-                      </label>
-                    </div>
-                    <CupomLayoutEditor cfg={deliveryCfg} onSave={onDeliveryToggle} pode={isGestor} />
-                    <CupomPerfilEditor onSave={onDeliveryToggle} pode={isGestor} />
-                    <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
-                  </div>
                 )}
 
                 {/* INTEGRAÇÕES */}
@@ -1761,67 +1714,25 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   );
 }
 
-// Prévia do cupom conforme os toggles (espelha renderViaCliente do backend).
-function previewCupom(L: any): string {
-  const on = (k: string) => L[k] !== false;
-  const lines: string[] = [L.cabecalho?.trim() || 'REGEM', 'Cupom - via do cliente'];
-  if (on('mostrarSenha')) lines.push('>>> SENHA 12 <<<');
-  lines.push('--------------------------------');
-  if (on('mostrarItens')) {
-    lines.push('1x X-Burger');
-    if (on('mostrarComplementos')) lines.push('   sem cebola · bacon extra');
-    if (on('mostrarValoresItem')) lines.push('   R$ 28,00');
-    lines.push('--------------------------------');
-  }
-  if (on('mostrarTotal')) lines.push('TOTAL: R$ 28,00');
-  if (on('mostrarPagamento')) lines.push('Pagamento: dinheiro');
-  if (on('mostrarAtendente')) lines.push('Atendente: Ana');
-  if (on('mostrarData')) lines.push('21/07/2026 20:00');
-  if (L.rodape?.trim()) { lines.push('--------------------------------'); lines.push(L.rodape.trim()); }
-  return lines.join('\n');
-}
-
-const CUPOM_TOGGLES = [
-  { k: 'mostrarSenha', label: 'Senha' },
-  { k: 'mostrarItens', label: 'Itens' },
-  { k: 'mostrarComplementos', label: 'Complementos / observação' },
-  { k: 'mostrarValoresItem', label: 'Valor por item' },
-  { k: 'mostrarTotal', label: 'Total' },
-  { k: 'mostrarPagamento', label: 'Forma de pagamento' },
-  { k: 'mostrarAtendente', label: 'Atendente' },
-  { k: 'mostrarData', label: 'Data e hora' },
-];
-
-// Editor de layout do cupom (via do cliente) — o que sai na térmica. Ajuda
-// produções sem KDS. Salva em delivery_config.cupomLayout (mig 131).
-function CupomLayoutEditor({ cfg, onSave, pode }: { cfg: any; onSave: (p: any) => void; pode: boolean }) {
+// Cabeçalho e rodapé do cupom — o único conteúdo de texto livre; o resto (quais
+// campos, ordem, tamanho, alinhamento) fica no editor de PERFIS abaixo. Salva em
+// delivery_config.cupomLayout (mig 131). Os campos do perfil usam o cabeçalho como
+// nome da loja e o rodapé é impresso no fim.
+export function CupomLayoutEditor({ cfg, onSave, pode }: { cfg: any; onSave: (p: any) => void; pode: boolean }) {
   const [local, setLocal] = useState<any>(cfg?.cupomLayout ?? {});
   useEffect(() => { setLocal(cfg?.cupomLayout ?? {}); }, [cfg?.cupomLayout]);
-  const on = (k: string) => local[k] !== false;
   const set = (patch: any) => setLocal((s: any) => ({ ...s, ...patch }));
   return (
     <div className="rounded-lg border border-border p-3">
-      <p className="font-display text-sm font-bold">Layout do cupom (via do cliente)</p>
-      <p className="mb-3 text-[11px] text-muted-foreground">Como o cupom sai nas impressoras térmicas — útil para produções sem KDS.</p>
+      <p className="font-display text-sm font-bold">Cabeçalho e rodapé do cupom</p>
+      <p className="mb-3 text-[11px] text-muted-foreground">Texto do topo (nome da loja) e do rodapé (mensagem final). O conteúdo e o tamanho de cada linha ficam nos perfis abaixo.</p>
       <div className="grid gap-2 sm:grid-cols-2">
         <Campo label="Cabeçalho"><Input value={local.cabecalho ?? ''} onChange={(e) => set({ cabecalho: e.target.value })} placeholder="REGEM" className="h-8" disabled={!pode} /></Campo>
         <Campo label="Rodapé (mensagem final)"><Input value={local.rodape ?? ''} onChange={(e) => set({ rodape: e.target.value })} placeholder="Obrigado pela preferência!" className="h-8" disabled={!pode} /></Campo>
       </div>
-      <div className="mt-3 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-        {CUPOM_TOGGLES.map((t) => (
-          <label key={t.k} className="flex items-center gap-2 text-sm">
-            <input type="checkbox" className="h-4 w-4 accent-primary" checked={on(t.k)} onChange={(e) => set({ [t.k]: e.target.checked })} disabled={!pode} />
-            {t.label}
-          </label>
-        ))}
-      </div>
-      <div className="mt-3">
-        <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Prévia</p>
-        <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border bg-secondary/40 p-2 font-mono text-[11px] leading-tight">{previewCupom(local)}</pre>
-      </div>
       {pode && (
         <div className="mt-3 flex justify-end">
-          <Button type="button" size="sm" onClick={() => onSave({ cupomLayout: local })}>Salvar layout</Button>
+          <Button type="button" size="sm" onClick={() => onSave({ cupomLayout: local })}>Salvar</Button>
         </div>
       )}
     </div>
@@ -1830,15 +1741,28 @@ function CupomLayoutEditor({ cfg, onSave, pode }: { cfg: any; onSave: (p: any) =
 
 // ── Fase 2 — editor de PERFIS de cupom (caixa/entregador/produção) com prévia ────
 const CUPOM_LARGURA = 32; // colunas da bobina térmica (58mm ≈ 32)
-function alinharCupom(t: string, al: string): string {
-  const s = t.length > CUPOM_LARGURA ? t.slice(0, CUPOM_LARGURA) : t;
-  if (al === 'centro') return ' '.repeat(Math.max(0, Math.floor((CUPOM_LARGURA - s.length) / 2))) + s;
-  if (al === 'direita') return ' '.repeat(Math.max(0, CUPOM_LARGURA - s.length)) + s;
-  return s;
+
+// Régua de tamanhos REAIS da térmica (a impressora só amplia em passos inteiros;
+// não há pt livre). Combina a fonte pequena embutida (Font B = `mini`) com a
+// ampliação (`escala`). `pt` é aproximado (rótulo); `px` é o tamanho na prévia.
+const NIVEIS_FONTE = [
+  { i: 0, label: 'Pequena', pt: 9, mini: true, escala: 1, px: 11 },
+  { i: 1, label: 'Normal', pt: 12, mini: false, escala: 1, px: 13 },
+  { i: 2, label: 'Média', pt: 18, mini: true, escala: 2, px: 18 },
+  { i: 3, label: 'Grande', pt: 24, mini: false, escala: 2, px: 24 },
+  { i: 4, label: 'Enorme', pt: 36, mini: false, escala: 3, px: 34 },
+];
+// Índice do nível a partir do campo (aceita o legado tamanho='grande' == 2×).
+function nivelDe(c: any): number {
+  const mag = c?.escala >= 3 ? 3 : c?.escala >= 2 ? 2 : c?.tamanho === 'grande' ? 2 : 1;
+  const mini = !!c?.mini;
+  const m = NIVEIS_FONTE.find((n) => n.mini === mini && n.escala === mag);
+  return m ? m.i : mag >= 3 ? 4 : mag === 2 ? (mini ? 2 : 3) : mini ? 0 : 1;
 }
+
 // Valores fictícios por campo, só para a prévia.
 const CUPOM_MOCK: Record<string, string[]> = {
-  senha: ['>>> SENHA 12 <<<'],
+  senha: ['SENHA 12'],
   tipoFiscal: ['*** NAO FISCAL ***'],
   nomeLoja: ['REGEM'],
   dataHora: ['02/08/2026 20:15'],
@@ -1882,7 +1806,7 @@ const CUPOM_MOCK: Record<string, string[]> = {
 
 const GRUPO_LABEL: Record<string, string> = { cliente: 'Cliente', producao: 'Produção', caixa: 'Caixa', custom: 'Personalizados' };
 
-function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: boolean }) {
+export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: boolean }) {
   const [perfis, setPerfis] = useState<any[]>([]);
   const [campos, setCampos] = useState<{ key: string; label: string; grupo: string }[]>([]);
   const [sel, setSel] = useState<string>('caixa');
@@ -1912,9 +1836,6 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
     });
     setDrag(null);
   }
-  // Fonte: escala inteira 1..4 (térmica só faz múltiplos). Lê o legado tamanho='grande'.
-  const escOf = (c: any): number =>
-    c?.escala && c.escala >= 2 ? Math.min(4, Math.floor(c.escala)) : c?.tamanho === 'grande' ? 2 : 1;
   // ── Custom: criar / duplicar / renomear / excluir / add-remove campo ──────────
   function novoId() { return 'custom_' + Date.now().toString(36); }
   function criarCustom() {
@@ -1946,11 +1867,15 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
   function salvar() {
     const overrides: any = {}; const custom: any[] = [];
     for (const p of perfis) {
-      const cs = p.campos.map((c: any) => ({
-        key: c.key, visivel: c.visivel, negrito: c.negrito, alinhamento: c.alinhamento,
-        ...(escOf(c) >= 2 ? { escala: escOf(c) } : {}),
-        ...(c.agrupado ? { agrupado: true } : {}),
-      }));
+      const cs = p.campos.map((c: any) => {
+        const n = NIVEIS_FONTE[nivelDe(c)];
+        return {
+          key: c.key, visivel: c.visivel, negrito: c.negrito, alinhamento: c.alinhamento,
+          ...(n.escala >= 2 ? { escala: n.escala } : {}),
+          ...(n.mini ? { mini: true } : {}),
+          ...(c.agrupado ? { agrupado: true } : {}),
+        };
+      });
       if (p.custom) custom.push({ id: p.id, nome: p.nome, descricao: p.descricao, grupo: p.grupo, campos: cs });
       else overrides[p.id] = { campos: cs };
     }
@@ -1959,24 +1884,23 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
   }
 
   const linhasPreview = (() => {
-    const out: { txt: string; bold: boolean; esc: number; raw?: string }[] = [];
+    // Cada linha guarda o texto cru + estilo; alinhamento e quebra ficam no CSS da
+    // prévia (não mais por espaços), então o centro funciona em qualquer tamanho.
+    const out: { txt: string; bold: boolean; lvl: number; align: string; dir?: string }[] = [];
     for (const c of perfil?.campos ?? []) {
       if (!c.visivel) continue;
       let mock: string[];
       if (c.key === '_espaco') mock = [''];
       else if (c.key === '_tracejado') mock = ['-'.repeat(CUPOM_LARGURA)];
       else mock = CUPOM_MOCK[c.key] ?? [c.label];
-      // Agrupar: junta com a linha anterior (esq | dir).
+      // Agrupar: junta com a linha anterior (esq | dir) — vira flex na prévia.
       if (c.agrupado && out.length && mock.length === 1) {
         const p = out[out.length - 1];
-        const left = p.raw ?? p.txt; const right = mock[0];
-        p.txt = left.length + right.length >= CUPOM_LARGURA
-          ? `${left} ${right}`.slice(0, CUPOM_LARGURA)
-          : left + ' '.repeat(CUPOM_LARGURA - left.length - right.length) + right;
-        p.bold = p.bold || c.negrito; p.esc = 1; p.raw = undefined;
+        p.dir = mock[0];
+        p.bold = p.bold || c.negrito;
         continue;
       }
-      for (const t of mock) out.push({ txt: alinharCupom(t, c.alinhamento), raw: t, bold: c.negrito, esc: escOf(c) });
+      for (const t of mock) out.push({ txt: t, bold: c.negrito, lvl: nivelDe(c), align: c.alinhamento });
     }
     return out;
   })();
@@ -1996,7 +1920,7 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
           </div>
         )}
       </div>
-      <p className="mb-3 text-[11px] text-muted-foreground">Escolha o que aparece em cada cupom; <strong>arraste pela alça</strong> à esquerda para ordenar e ajuste alinhamento, negrito e <strong>tamanho (1×–4×)</strong>. Perfis personalizados podem puxar qualquer campo. Cabeçalho e rodapé ficam no editor acima.</p>
+      <p className="mb-3 text-[11px] text-muted-foreground">Escolha o que aparece em cada cupom; <strong>arraste pela alça</strong> à esquerda para ordenar e ajuste alinhamento, negrito e <strong>tamanho</strong> (Pequena → Enorme). Perfis personalizados podem puxar qualquer campo. Cabeçalho e rodapé ficam no editor acima.</p>
 
       {/* Abas por grupo */}
       <div className="mb-3 space-y-1.5">
@@ -2030,13 +1954,13 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
         perfil?.descricao && <p className="mb-2 text-[11px] text-muted-foreground">{perfil.descricao}</p>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
+      <div className="grid items-start gap-3 lg:grid-cols-[1fr_360px]">
         {/* Editor de campos */}
         <div className="space-y-1.5">
           {(perfil?.campos ?? []).map((c: any, i: number) => {
             const pseudo = c.key === '_espaco' || c.key === '_tracejado';
             const podeRemover = pode && (ehCustom || pseudo);
-            const esc = escOf(c);
+            const nv = nivelDe(c);
             // Alça de arrastar (lado esquerdo) — só arrasta pela alça, sem atrapalhar
             // o select/checkbox da linha.
             const alca = (
@@ -2063,16 +1987,12 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
                 <span className="min-w-0 flex-1 truncate">{c.label}{c.fixo && <span className="ml-1 text-[10px] text-muted-foreground">(sempre)</span>}</span>
                 <button type="button" title="Negrito" disabled={!pode} onClick={() => mudarCampo(i, { negrito: !c.negrito })}
                   className={`h-6 w-6 rounded border font-bold ${c.negrito ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>N</button>
-                {/* Tamanho da fonte: escala 1×–4× (térmica só faz múltiplos inteiros) */}
-                <div className="flex h-6 items-stretch overflow-hidden rounded border border-border" title="Tamanho da fonte (1×–4×)">
-                  <button type="button" aria-label="Diminuir fonte" disabled={!pode || esc <= 1}
-                    onClick={() => mudarCampo(i, { escala: Math.max(1, esc - 1), tamanho: undefined })}
-                    className="px-1.5 font-bold text-muted-foreground disabled:opacity-30">A−</button>
-                  <span className={`grid w-7 place-items-center border-x border-border tabular-nums ${esc > 1 ? 'bg-primary/15 font-bold text-primary' : 'text-muted-foreground'}`}>{esc}×</span>
-                  <button type="button" aria-label="Aumentar fonte" disabled={!pode || esc >= 4}
-                    onClick={() => mudarCampo(i, { escala: Math.min(4, esc + 1), tamanho: undefined })}
-                    className="px-1.5 font-bold text-muted-foreground disabled:opacity-30">A＋</button>
-                </div>
+                {/* Tamanho da fonte: régua de tamanhos reais da térmica */}
+                <select aria-label="Tamanho da fonte" title="Tamanho da fonte" disabled={!pode} value={nv}
+                  onChange={(e) => { const n = NIVEIS_FONTE[Number(e.target.value)]; mudarCampo(i, { mini: n.mini || undefined, escala: n.escala, tamanho: undefined }); }}
+                  className={`h-6 rounded border px-1 text-[11px] ${nv !== 1 ? 'border-primary bg-primary/15 font-semibold text-primary' : 'border-input bg-card'}`}>
+                  {NIVEIS_FONTE.map((n) => <option key={n.i} value={n.i}>{n.label} ({n.pt})</option>)}
+                </select>
                 <button type="button" title="Juntar com a linha de cima (esquerda | direita)" disabled={!pode || i === 0} onClick={() => mudarCampo(i, { agrupado: !c.agrupado })}
                   className={`h-6 rounded border px-1 ${c.agrupado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'} disabled:opacity-30`}>⊟</button>
                 <select aria-label="Alinhamento" disabled={!pode} value={c.alinhamento} onChange={(e) => mudarCampo(i, { alinhamento: e.target.value })}
@@ -2101,13 +2021,23 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
           {(perfil?.campos ?? []).length === 0 && <p className="text-[11px] text-muted-foreground">Nenhum campo — adicione abaixo.</p>}
         </div>
 
-        {/* Prévia ao vivo */}
-        <div>
+        {/* Prévia ao vivo — largura de bobina; alinhamento por CSS e quebra de linha
+            como o papel (sem rolagem horizontal). */}
+        <div className="lg:sticky lg:top-2 lg:self-start">
           <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Prévia</p>
-          <div className="overflow-x-auto rounded-md border border-border bg-white p-2 font-mono text-[11px] leading-tight text-black">
-            {linhasPreview.map((l: any, i: number) => (
-              <div key={i} className="whitespace-pre" style={{ fontWeight: l.bold ? 700 : 400, fontSize: l.esc > 1 ? `${l.esc}em` : undefined, lineHeight: l.esc > 1 ? 1.1 : undefined }}>{l.txt || ' '}</div>
-            ))}
+          <div className="min-h-[300px] rounded-md border border-border bg-white p-3 font-mono text-[13px] leading-snug text-black">
+            {linhasPreview.map((l: any, i: number) => {
+              const fs = (NIVEIS_FONTE[l.lvl]?.px ?? 13) + 'px';
+              const peso = l.bold ? 700 : 400;
+              if (l.dir !== undefined) return (
+                <div key={i} className="flex justify-between gap-3" style={{ fontWeight: peso, fontSize: fs }}>
+                  <span className="whitespace-pre-wrap break-words">{l.txt}</span>
+                  <span className="whitespace-pre-wrap break-words text-right">{l.dir}</span>
+                </div>
+              );
+              const ta = l.align === 'centro' ? 'center' : l.align === 'direita' ? 'right' : 'left';
+              return <div key={i} className="whitespace-pre-wrap break-words" style={{ fontWeight: peso, fontSize: fs, textAlign: ta as any }}>{l.txt || ' '}</div>;
+            })}
             {linhasPreview.length === 0 && <div className="text-muted-foreground">—</div>}
           </div>
         </div>
@@ -2123,7 +2053,7 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
   );
 }
 
-function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any[]; setores: any[]; onSalvar: (r: any) => Promise<any>; onRemover: (id: string) => void; pode: boolean }) {
+export function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any[]; setores: any[]; onSalvar: (r: any) => Promise<any>; onRemover: (id: string) => void; pode: boolean }) {
   const [rows, setRows] = useState<any[]>(lista);
   useEffect(() => { setRows(lista); }, [lista]);
   function up(i: number, patch: any) { setRows((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }

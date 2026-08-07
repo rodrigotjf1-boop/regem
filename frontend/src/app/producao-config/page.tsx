@@ -19,19 +19,22 @@ export default function ProducaoConfigPage() {
   const [destinosPorSetor, setDestinosPorSetor] = useState<Record<string, string[]>>({});
   const [cores, setCores] = useState({ verdeAteMin: 5, amareloAteMin: 10, usaPreparo: true, usaEntregue: true });
   const [senhaPeriodo, setSenhaPeriodo] = useState('diario');
+  const [dcfg, setDcfg] = useState<any>({});
   const [erro, setErro] = useState('');
   const [salvando, setSalvando] = useState('');
 
   const reload = useCallback(async () => {
     setErro('');
     try {
-      const [ss, eq, cor, sc] = await Promise.all([
+      const [ss, eq, cor, sc, dc] = await Promise.all([
         api.setores(),
         api.equipamentos().catch(() => []),
         api.kdsCores().catch(() => ({})),
         api.senhaConfig().catch(() => ({ periodo: 'diario' })),
+        api.deliveryConfig().catch(() => ({})),
       ]);
       setSetores(ss as any[]);
+      setDcfg(dc ?? {});
       setEquipamentos(
         (eq as any[]).filter((e) => e.tipo === 'kds' || e.tipo === 'impressora'),
       );
@@ -110,6 +113,19 @@ export default function ProducaoConfigPage() {
       await api.setSenhaPeriodo(periodo);
       toast.success('Reset de senha atualizado.');
     } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
+
+  async function salvarAdiar(v: boolean) {
+    const prev = dcfg;
+    setDcfg((d: any) => ({ ...d, adiarProducaoAteKds: v }));
+    try {
+      const c = await api.setDeliveryConfig({ ...dcfg, adiarProducaoAteKds: v });
+      setDcfg(c);
+      toast.success('Configuração do KDS salva.');
+    } catch (e) {
+      setDcfg(prev);
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
     }
   }
@@ -211,6 +227,19 @@ export default function ProducaoConfigPage() {
               </button>
             ))}
           </div>
+        </Card>
+
+        {/* Impressão da produção (movido de Delivery → Impressoras e cupons) */}
+        <Card className="p-4">
+          <h2 className="font-display text-lg font-semibold">Impressão da produção</h2>
+          <label className="mt-2 flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary"
+              checked={!!dcfg?.adiarProducaoAteKds}
+              onChange={(e) => salvarAdiar(e.target.checked)} />
+            <span>Imprimir a produção só ao avançar no KDS
+              <span className="block text-[11px] text-muted-foreground">Por padrão a via de produção sai ao registrar o pedido. Ligado, ela sai apenas quando o pedido avança no KDS que imprime na etapa (ex.: só no despacho). Se nenhum KDS estiver com “imprimir ao avançar”, a via sai no registro mesmo (não perde o ticket).</span>
+            </span>
+          </label>
         </Card>
 
         {/* Direcionamento por setor */}
