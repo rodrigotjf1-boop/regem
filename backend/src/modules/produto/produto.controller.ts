@@ -100,6 +100,19 @@ export class ProdutoController {
     return this.service.excluirOpcao(user.tenantId, id);
   }
 
+  // Ações em MASSA (path de 3 segmentos p/ não colidir com opcoes/:id).
+  @Post('opcoes/massa/excluir')
+  @Roles(...GESTOR)
+  excluirOpcoesMassa(@CurrentUser() user: AuthUser, @Body() dto: { ids?: string[] }) {
+    return this.service.excluirOpcoesMassa(user.tenantId, dto?.ids ?? []);
+  }
+
+  @Patch('opcoes/massa/preco')
+  @Roles(...GESTOR)
+  precoCustoOpcoesMassa(@CurrentUser() user: AuthUser, @Body() dto: { ids?: string[]; precoCusto?: number }) {
+    return this.service.precoCustoOpcoesMassa(user.tenantId, dto?.ids ?? [], Number(dto?.precoCusto) || 0);
+  }
+
   // Destino de produção PRÓPRIO da opção (mig 127). Vazio = herda do produto.
   @Get('opcoes/:id/destinos')
   opcaoDestinos(@CurrentUser() user: AuthUser, @Param('id') id: string) {
