@@ -82,6 +82,13 @@ trap {
   # o arquivo. Best-effort; nunca mascara o erro original.
   $errMsg = "$($_.Exception.Message)"
   Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+  # Deixa o motivo num arquivo estavel (suporte) e MOSTRA um popup claro ao operador —
+  # senao o erro so piscava no console e o Inno seguia pra tela de "concluido".
+  try { Set-Content -Path (Join-Path $logDir 'ULTIMO-ERRO.txt') -Value $errMsg -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+  try {
+    $wsh = New-Object -ComObject WScript.Shell
+    $wsh.Popup(("Nao foi possivel concluir a instalacao do Regem Edge:`n`n{0}`n`nNada foi instalado. Corrija e rode o instalador de novo." -f $errMsg), 0, 'Regem Edge - instalacao', 0x10) | Out-Null
+  } catch { }
   try {
     $tail = ''
     if ($log -and (Test-Path $log)) { $tail = ((Get-Content $log -Tail 80 -ErrorAction SilentlyContinue) -join "`n") }
