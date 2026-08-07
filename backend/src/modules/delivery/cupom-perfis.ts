@@ -24,13 +24,16 @@ export interface CampoCupom {
   tamanho?: 'normal' | 'grande'; // legado (Fase 4) — 'grande' == escala 2; lido como fallback
   escala?: number; // magnificação da fonte 1..4 (1 = normal); térmica só faz múltiplos inteiros
   mini?: boolean; // fonte pequena embutida (Font B) — régua "Pequena"/"Média"
+  // Estilo próprio das sublinhas do campo "itens" (destacar na cozinha). Ausente = herda o do campo.
+  comp?: { negrito?: boolean; escala?: number; mini?: boolean }; // complementos
+  obs?: { negrito?: boolean; escala?: number; mini?: boolean }; // observação
   agrupado?: boolean; // Fase 4 — junta com o campo ANTERIOR na mesma linha (esq | dir)
 }
 
 // Pseudo-campos de LAYOUT (Fase 4): não são dados, são elementos de espaçamento.
 export const PSEUDO_CAMPOS: Record<string, string> = {
   _espaco: 'Linha em branco',
-  _tracejado: 'Linha tracejada',
+  _tracejado: 'Linha divisória',
 };
 
 // Grupo do perfil (organiza as abas do editor e ajuda a escolher a base do custom).
@@ -54,6 +57,17 @@ export function escalaFonte(o: { escala?: any; tamanho?: any }): number | undefi
   return undefined;
 }
 
+// Sanea um subestilo (complementos/observação): negrito + escala 2..4 + mini.
+export function subEstilo(x: any): { negrito?: boolean; escala?: number; mini?: boolean } | undefined {
+  if (!x || typeof x !== 'object') return undefined;
+  const out: { negrito?: boolean; escala?: number; mini?: boolean } = {};
+  if (x.negrito) out.negrito = true;
+  const e = Number(x.escala);
+  if (Number.isFinite(e) && e >= 2) out.escala = Math.min(4, Math.floor(e));
+  if (x.mini) out.mini = true;
+  return Object.keys(out).length ? out : undefined;
+}
+
 const C = (
   key: string,
   label: string,
@@ -67,6 +81,8 @@ const C = (
   ...(o.fixo ? { fixo: true } : {}),
   ...(escalaFonte(o) ? { escala: escalaFonte(o)! } : {}),
   ...(o.mini ? { mini: true } : {}),
+  ...(subEstilo(o.comp) ? { comp: subEstilo(o.comp) } : {}),
+  ...(subEstilo(o.obs) ? { obs: subEstilo(o.obs) } : {}),
   ...(o.agrupado ? { agrupado: true } : {}),
 });
 
@@ -358,6 +374,8 @@ export function perfilEfetivo(
     vistos.add(b.key);
     const escM = escalaFonte(o) ?? escalaFonte(b); // override vence; senão base
     const miniM = o.mini != null ? !!o.mini : !!b.mini; // override vence; senão base
+    const compM = subEstilo(o.comp) ?? subEstilo(b.comp); // override vence; senão base
+    const obsM = subEstilo(o.obs) ?? subEstilo(b.obs);
     campos.push({
       ...b,
       visivel: b.fixo ? true : o.visivel ?? b.visivel, // itens não somem
@@ -366,6 +384,8 @@ export function perfilEfetivo(
       tamanho: undefined, // normaliza p/ escala (source of truth)
       ...(escM ? { escala: escM } : {}),
       ...(miniM ? { mini: true } : {}),
+      ...(compM ? { comp: compM } : {}),
+      ...(obsM ? { obs: obsM } : {}),
       ...(o.agrupado != null ? { agrupado: !!o.agrupado } : b.agrupado ? { agrupado: true } : {}),
     });
   }
@@ -388,6 +408,8 @@ export function perfilCustom(def: any): PerfilCupom | null {
             alinhamento: (['esquerda', 'centro', 'direita'].includes(c.alinhamento) ? c.alinhamento : 'esquerda') as AlinhamentoCupom,
             escala: escalaFonte(c),
             mini: !!c.mini,
+            comp: subEstilo(c.comp),
+            obs: subEstilo(c.obs),
             agrupado: !!c.agrupado,
           }),
         )
