@@ -38,8 +38,10 @@ import {
   produtoSugestao,
   produtoVariacao,
   categoriaProduto,
+  complemento,
   complementoGrupo,
   complementoOpcao,
+  opcao,
   cardapioBairro,
   banner,
   cupom,
@@ -803,6 +805,28 @@ export class CardapioService {
           .where(and(eq(complementoOpcao.tenantId, cfg.tenantId), isNull(complementoOpcao.deletedAt)))
           .orderBy(complementoOpcao.ordem)
       : [];
+    // Regra de cada grupo (uma / várias sem / várias COM repetição) — vem do
+    // complemento reutilizável de origem (o grupo materializado não a guarda).
+    const origemIds = [...new Set((grupos as any[]).map((g) => g.origemComplementoId).filter(Boolean))] as string[];
+    const compRegras = origemIds.length
+      ? await this.db
+          .select({ id: complemento.id, regra: complemento.regra })
+          .from(complemento)
+          .where(and(eq(complemento.tenantId, cfg.tenantId), inArray(complemento.id, origemIds)))
+      : [];
+    const regraPorOrigem = new Map(compRegras.map((c) => [c.id, c.regra]));
+    const regraDoGrupo = (g: any) =>
+      (g.origemComplementoId && regraPorOrigem.get(g.origemComplementoId)) || (g.max === 1 ? 'uma' : 'varias_sem_repeticao');
+    // Imagem da opção (para exibir no cardápio) — vem da opção reutilizável de origem
+    // (o complemento_opcao materializado não guarda imagem).
+    const opcaoOrigemIds = [...new Set((opcoes as any[]).map((o) => o.origemOpcaoId).filter(Boolean))] as string[];
+    const imgs = opcaoOrigemIds.length
+      ? await this.db
+          .select({ id: opcao.id, imagemRef: opcao.imagemRef })
+          .from(opcao)
+          .where(and(eq(opcao.tenantId, cfg.tenantId), inArray(opcao.id, opcaoOrigemIds)))
+      : [];
+    const imgPorOrigem = new Map(imgs.map((o) => [o.id, o.imagemRef]));
     const variacoes = ids.length
       ? await this.db
           .select()
@@ -948,6 +972,7 @@ export class CardapioService {
               min: g.min,
               max: g.max,
               obrigatorio: g.obrigatorio,
+              regra: regraDoGrupo(g),
               opcoes: opcoes
                 .filter((o) => o.grupoId === g.id)
                 .map((o) => ({
@@ -958,6 +983,7 @@ export class CardapioService {
                   // "ponto de carne", "talheres"): não soma preço nem baixa estoque.
                   informativa: !(o.codigoPdv ?? '').trim(),
                   padraoMarcada: !!o.padraoMarcada, // já vem pré-selecionada
+                  imagemRef: (o.origemOpcaoId && imgPorOrigem.get(o.origemOpcaoId)) || null,
                 })),
             })),
         };
@@ -1372,7 +1398,11 @@ export class CardapioService {
   //   • min/max/obrigatório de cada etapa são respeitados.
   // Opção INFORMATIVA (sem código PDV) entra como observação: não soma preço.
   private async resolverOpcoes(tenantId: string, produtoId: string, opcaoIds: string[]) {
-    const escolhidas = [...new Set((opcaoIds ?? []).filter(Boolean))];
+    // MANTÉM repetições: a mesma opção pode vir N vezes quando o grupo é
+    // 'varias_com_repeticao' (ex.: 3× Bacon). Onde a regra não permite, a
+    // quantidade é travada em 1 mais abaixo.
+    const brutas = (opcaoIds ?? []).filter(Boolean);
+    const distintas = [...new Set(brutas)];
     // Etapas do produto + opções (o motor materializado é a fonte da verdade).
     const grupos = await this.db
       .select({
@@ -1381,6 +1411,7 @@ export class CardapioService {
         min: complementoGrupo.min,
         max: complementoGrupo.max,
         obrigatorio: complementoGrupo.obrigatorio,
+        origemComplementoId: complementoGrupo.origemComplementoId,
       })
       .from(complementoGrupo)
       .where(
@@ -1413,13 +1444,41 @@ export class CardapioService {
       : [];
     const porId = new Map(ops.map((o) => [o.id, o]));
 
+    // Regra por grupo: `complemento_grupo` não guarda `regra` — vem do complemento
+    // reutilizável de origem (materializado). Sem origem, deriva do max.
+    const origemIds = [...new Set(grupos.map((g) => g.origemComplementoId).filter(Boolean))] as string[];
+    const compRegras = origemIds.length
+      ? await this.db
+          .select({ id: complemento.id, regra: complemento.regra })
+          .from(complemento)
+          .where(and(eq(complemento.tenantId, tenantId), inArray(complemento.id, origemIds)))
+      : [];
+    const regraPorOrigem = new Map(compRegras.map((c) => [c.id, c.regra]));
+    const regraDoGrupoId = new Map(
+      grupos.map((g) => [
+        g.id,
+        (g.origemComplementoId && regraPorOrigem.get(g.origemComplementoId)) || (g.max === 1 ? 'uma' : 'varias_sem_repeticao'),
+      ]),
+    );
+    const regraDe = (id: string) => regraDoGrupoId.get(porId.get(id)?.grupoId ?? '');
+
     // 1) Pertencimento: toda opção escolhida tem de ser deste produto.
-    const invalida = escolhidas.find((id) => !porId.has(id));
+    const invalida = distintas.find((id) => !porId.has(id));
     if (invalida) throw new BadRequestException('Opção inválida para este produto.');
 
-    // 2) Obrigatoriedade por etapa (min/max/obrigatório).
+    // Quantidade por opção (conta repetições). Fora de 'varias_com_repeticao' a
+    // quantidade é travada em 1 — repetição só vale onde a loja liberou.
+    const qtdPorOpcao = new Map<string, number>();
+    for (const id of brutas) qtdPorOpcao.set(id, (qtdPorOpcao.get(id) ?? 0) + 1);
+    for (const [id, q] of qtdPorOpcao) {
+      if (q > 1 && regraDe(id) !== 'varias_com_repeticao') qtdPorOpcao.set(id, 1);
+    }
+
+    // 2) Obrigatoriedade por etapa (min/max = SOMA das quantidades no grupo).
     for (const g of grupos) {
-      const n = escolhidas.filter((id) => porId.get(id)!.grupoId === g.id).length;
+      const n = [...qtdPorOpcao.entries()]
+        .filter(([id]) => porId.get(id)!.grupoId === g.id)
+        .reduce((s, [, q]) => s + q, 0);
       const min = g.obrigatorio ? Math.max(1, g.min ?? 1) : g.min ?? 0;
       if (n < min) {
         throw new BadRequestException(
@@ -1431,15 +1490,15 @@ export class CardapioService {
       }
     }
 
-    const sel = escolhidas.map((id) => porId.get(id)!);
-    return {
+    let precoDelta = 0;
+    const labels: string[] = [];
+    for (const [id, q] of qtdPorOpcao) {
+      const o = porId.get(id)!;
       // Informativa (sem código PDV) não altera o preço.
-      precoDelta: sel.reduce(
-        (s, o) => s + ((o.codigoPdv ?? '').trim() ? Number(o.precoDelta) : 0),
-        0,
-      ),
-      labels: sel.map((o) => o.nome),
-    };
+      if ((o.codigoPdv ?? '').trim()) precoDelta += Number(o.precoDelta) * q;
+      labels.push(q > 1 ? `${q}x ${o.nome}` : o.nome);
+    }
+    return { precoDelta, labels };
   }
 
   // Recebe o pedido do cliente. Preço/complementos vêm SEMPRE do banco.

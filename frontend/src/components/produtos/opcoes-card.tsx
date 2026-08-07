@@ -265,7 +265,7 @@ function OpcaoModal({ opcao, fichas, itens, onFechar, onSalvo }: { opcao: any; f
         </div>
 
         <div className="flex gap-3">
-          <ImageUpload value={f.imagemRef} onChange={(url) => up({ imagemRef: url })} id={`opcao-${opcao.id ?? 'novo'}`} alt="Opção" />
+          <ImageUpload value={f.imagemRef} onChange={(url) => up({ imagemRef: url })} id={`opcao-${opcao.id ?? 'novo'}`} alt="Opção" maxDim={512} accept="image/png,image/jpeg" />
           <div className="min-w-0 flex-1 space-y-2">
             <div className="space-y-1"><Label className="text-xs">Nome</Label><Input value={f.nome} onChange={(e) => up({ nome: e.target.value })} placeholder="Ex.: Coca-Cola Lata" /></div>
             <div className="flex gap-2">
