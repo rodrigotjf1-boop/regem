@@ -17,6 +17,8 @@ const init = () => [ESC, 0x40]; // ESC @  (reset)
 const boldOn = () => [ESC, 0x45, 1]; // ESC E 1
 const boldOff = () => [ESC, 0x45, 0]; // ESC E 0
 const align = (n) => [ESC, 0x61, n]; // 0=esq 1=centro 2=dir
+const fontA = () => [ESC, 0x4d, 0]; // ESC M 0 (fonte normal ~12x24)
+const fontB = () => [ESC, 0x4d, 1]; // ESC M 1 (fonte pequena/condensada ~9x17)
 const sizeNormal = () => [GS, 0x21, 0x00]; // GS ! 0
 const sizeDouble = () => [GS, 0x21, 0x11]; // GS ! (dupla largura+altura)
 // Magnificacao inteira 1..4 (GS ! n = (w-1)<<4 | (h-1)); 1=normal, 2=dupla.
@@ -157,7 +159,7 @@ export function renderEscpos(conteudo, largura = 80) {
         left.length + right.length >= cols
           ? `${left} ${right}`.slice(0, cols)
           : left + ' '.repeat(cols - left.length - right.length) + right;
-      push(align(0)); push(sizeNormal()); texto(combined); push([0x0a]);
+      push(align(0)); push(fontA()); push(sizeNormal()); texto(combined); push([0x0a]);
       continue;
     }
     // Marcadores LIMPOS do cupom por perfil (removidos do texto): @C centro, @R
@@ -167,14 +169,17 @@ export function renderEscpos(conteudo, largura = 80) {
     let alignForce = null;
     let boldForce = false;
     let sizeForce = null; // magnificacao 2..4, ou null
-    // Flags: C centro, R direita, B negrito, D fonte grande. D sozinho = 2x
-    // (compat.); D3/D4 = 3x/4x. Combinaveis (@CBD3). Digito so vem depois do D.
-    const pm = linha.match(/^@((?:[CRB]|D[2-4]?)+)(?: |\b)/);
+    let smallForce = false; // Font B (fonte pequena embutida)
+    // Flags: C centro, R direita, B negrito, S fonte pequena (Font B), D fonte
+    // grande. D sozinho = 2x (compat.); D3/D4 = 3x/4x. Combinaveis (@CBSD3).
+    // Digito so vem depois do D.
+    const pm = linha.match(/^@((?:[CRBS]|D[2-4]?)+)(?: |\b)/);
     if (pm) {
       const f = pm[1];
       if (f.includes('C')) alignForce = 1;
       if (f.includes('R')) alignForce = 2;
       if (f.includes('B')) boldForce = true;
+      if (f.includes('S')) smallForce = true;
       if (f.includes('D')) { const md = f.match(/D([2-4])/); sizeForce = md ? Number(md[1]) : 2; }
       linha = linha.slice(pm[0].length);
     }
@@ -184,9 +189,12 @@ export function renderEscpos(conteudo, largura = 80) {
     // Normaliza tamanho para magnificacao numerica (estilo() legado usa 'double').
     const mag = sizeForce != null ? sizeForce : st.size === 'double' ? 2 : 1;
     push(align(al));
+    push(smallForce ? fontB() : fontA());
     push(sizeMag(mag));
     if (bold) push(boldOn());
-    for (const parte of wrap(linha, Math.floor(cols / mag))) {
+    // Font B (~2/3 da largura) cabe mais coluna por linha.
+    const colsFonte = smallForce ? Math.floor((cols * 4) / 3) : cols;
+    for (const parte of wrap(linha, Math.floor(colsFonte / mag))) {
       texto(parte);
       push([0x0a]); // LF
     }
@@ -194,6 +202,7 @@ export function renderEscpos(conteudo, largura = 80) {
   }
   // rodape: reseta estilo, avanca, bipa e corta
   push(sizeNormal());
+  push(fontA());
   push(boldOff());
   push(align(0));
   push(feed(3));

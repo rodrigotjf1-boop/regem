@@ -1,7 +1,8 @@
 // Integração PagBank / PagSeguro — pagamento PIX pela API de Pedidos (Orders).
-// REST direto (sem SDK). O token vem por tenant (tabela integracao canal
-// 'pagseguro') ou do env PAGBANK_TOKEN. Ambiente por env PAGBANK_API_BASE
-// (produção https://api.pagseguro.com; sandbox https://sandbox.api.pagseguro.com).
+// REST direto (sem SDK). Modo distribuição: o token é BYO puro, SÓ por tenant
+// (tabela integracao canal 'pagseguro'), colado na tela de integração — sem env
+// nem cadastro na API. O ambiente é produção por padrão; PAGBANK_API_BASE só serve
+// pra apontar sandbox (https://sandbox.api.pagseguro.com) no dev/homologação.
 // Docs: https://developer.pagbank.com.br/reference/criar-pedido-pedido-com-qr-code
 //
 // Fluxo PIX: cria um "order" com qr_codes → devolve o EMV copia-e-cola (qr_codes[0].text)

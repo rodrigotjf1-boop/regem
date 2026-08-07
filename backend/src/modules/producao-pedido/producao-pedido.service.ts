@@ -611,6 +611,7 @@ export class ProducaoPedidoService {
         alinhamento: string;
         tamanho?: string; // legado: 'grande' == escala 2
         escala?: number; // magnificação 1..4 (1 = normal)
+        mini?: boolean; // fonte pequena (Font B) — régua "Pequena"/"Média"
         agrupado?: boolean;
       }[];
     },
@@ -704,6 +705,7 @@ export class ProducaoPedidoService {
       const flags =
         (c.alinhamento === 'centro' ? 'C' : c.alinhamento === 'direita' ? 'R' : '') +
         (c.negrito ? 'B' : '') +
+        (c.mini ? 'S' : '') +
         (esc >= 3 ? `D${esc}` : esc === 2 ? 'D' : '');
       if (c.key === 'itens') out.push(sep);
       for (const t of linhas) {

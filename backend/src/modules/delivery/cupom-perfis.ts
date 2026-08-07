@@ -23,6 +23,7 @@ export interface CampoCupom {
   fixo?: boolean; // não pode ser ocultado (ex.: itens do corpo)
   tamanho?: 'normal' | 'grande'; // legado (Fase 4) — 'grande' == escala 2; lido como fallback
   escala?: number; // magnificação da fonte 1..4 (1 = normal); térmica só faz múltiplos inteiros
+  mini?: boolean; // fonte pequena embutida (Font B) — régua "Pequena"/"Média"
   agrupado?: boolean; // Fase 4 — junta com o campo ANTERIOR na mesma linha (esq | dir)
 }
 
@@ -65,6 +66,7 @@ const C = (
   alinhamento: o.alinhamento ?? 'esquerda',
   ...(o.fixo ? { fixo: true } : {}),
   ...(escalaFonte(o) ? { escala: escalaFonte(o)! } : {}),
+  ...(o.mini ? { mini: true } : {}),
   ...(o.agrupado ? { agrupado: true } : {}),
 });
 
@@ -345,6 +347,7 @@ export function perfilEfetivo(
           alinhamento: o.alinhamento,
           negrito: o.negrito,
           escala: escalaFonte(o),
+          mini: o.mini as any,
           agrupado: o.agrupado as any,
         }),
       );
@@ -354,6 +357,7 @@ export function perfilEfetivo(
     if (!b) continue; // override de campo inexistente — ignora
     vistos.add(b.key);
     const escM = escalaFonte(o) ?? escalaFonte(b); // override vence; senão base
+    const miniM = o.mini != null ? !!o.mini : !!b.mini; // override vence; senão base
     campos.push({
       ...b,
       visivel: b.fixo ? true : o.visivel ?? b.visivel, // itens não somem
@@ -361,6 +365,7 @@ export function perfilEfetivo(
       alinhamento: o.alinhamento ?? b.alinhamento,
       tamanho: undefined, // normaliza p/ escala (source of truth)
       ...(escM ? { escala: escM } : {}),
+      ...(miniM ? { mini: true } : {}),
       ...(o.agrupado != null ? { agrupado: !!o.agrupado } : b.agrupado ? { agrupado: true } : {}),
     });
   }
@@ -382,6 +387,7 @@ export function perfilCustom(def: any): PerfilCupom | null {
             negrito: !!c.negrito,
             alinhamento: (['esquerda', 'centro', 'direita'].includes(c.alinhamento) ? c.alinhamento : 'esquerda') as AlinhamentoCupom,
             escala: escalaFonte(c),
+            mini: !!c.mini,
             agrupado: !!c.agrupado,
           }),
         )
