@@ -56,7 +56,7 @@ import {
   alertaEstoque,
 } from '../../db/schema';
 import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP } from '../../common/mercadopago';
-import { criarPixIugu, consultarFaturaIugu, cancelarFaturaIugu } from '../../common/iugu';
+import { criarPixPagBank, consultarPagamentoPagBank } from '../../common/pagbank';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import { VendasService } from '../vendas/vendas.service';
@@ -1114,21 +1114,32 @@ export class CardapioService {
     return (await this.tokenCanal(tenantId, 'mercadopago')) || process.env.MP_ACCESS_TOKEN || null;
   }
 
-  // Live API Token da Iugu: por tenant (canal 'iugu') ou env IUGU_API_TOKEN.
-  private async resolveIuguToken(tenantId: string): Promise<string | null> {
-    return (await this.tokenCanal(tenantId, 'iugu')) || process.env.IUGU_API_TOKEN || null;
+  // Token do PagBank/PagSeguro: por tenant (canal 'pagseguro') ou env.
+  private async resolvePagseguroToken(tenantId: string): Promise<string | null> {
+    return (await this.tokenCanal(tenantId, 'pagseguro')) || process.env.PAGBANK_TOKEN || null;
   }
 
-  // Escolhe o provedor de PIX ativo do tenant. Prioridade: Iugu → Mercado Pago →
-  // null (mock). Assim quem já usa MP não quebra, e Iugu ganha quando configurada.
-  private async resolveGateway(
+  // Provedores de PIX ATIVOS do tenant, ORDENADOS por prioridade (primário → fallback).
+  // A loja pode ter os dois configurados: `pix_gateway_prioritario` diz quem tenta
+  // primeiro; o outro entra se o primário falhar ao gerar o QR. Vazio = [] (mock).
+  private async resolveGateways(
     tenantId: string,
-  ): Promise<{ provider: 'iugu' | 'mercadopago'; token: string } | null> {
-    const iugu = await this.resolveIuguToken(tenantId);
-    if (iugu) return { provider: 'iugu', token: iugu };
-    const mp = await this.resolveMpToken(tenantId);
-    if (mp) return { provider: 'mercadopago', token: mp };
-    return null;
+  ): Promise<{ provider: 'mercadopago' | 'pagseguro'; token: string }[]> {
+    const [mp, ps] = await Promise.all([
+      this.resolveMpToken(tenantId),
+      this.resolvePagseguroToken(tenantId),
+    ]);
+    const disp: { provider: 'mercadopago' | 'pagseguro'; token: string }[] = [];
+    if (mp) disp.push({ provider: 'mercadopago', token: mp });
+    if (ps) disp.push({ provider: 'pagseguro', token: ps });
+    // Primário conforme a config (null = mercadopago, incumbente).
+    const [cfg] = await this.db
+      .select({ prio: cardapioConfig.pixGatewayPrioritario })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId))
+      .limit(1);
+    const prim = cfg?.prio === 'pagseguro' ? 'pagseguro' : 'mercadopago';
+    return disp.sort((a, b) => (a.provider === prim ? -1 : 0) - (b.provider === prim ? -1 : 0));
   }
 
   // Público: pagamento online. Com Mercado Pago configurado → gera PIX (QR +
@@ -1148,8 +1159,8 @@ export class CardapioService {
     if (!p) throw new NotFoundException('Pedido não encontrado.');
     if (p.pago) return { ok: true, jaPago: true, statusPagamento: 'aprovado' };
 
-    const gw = await this.resolveGateway(cfg.tenantId);
-    if (!gw) {
+    const gws = await this.resolveGateways(cfg.tenantId);
+    if (!gws.length) {
       // Fallback mock (sem gateway): aprova imediatamente.
       await this.db
         .update(pedidoExterno)
@@ -1159,52 +1170,54 @@ export class CardapioService {
       return { ok: true, statusPagamento: 'aprovado', mock: true };
     }
 
-    // Gera a cobrança PIX real no provedor ativo (Iugu ou Mercado Pago).
+    // Gera a cobrança PIX no gateway PRIMÁRIO; se falhar, cai no SECUNDÁRIO (fallback).
     const base = process.env.PUBLIC_API_URL || '';
     const descricao = `Pedido #${p.numero ?? ''} · ${cfg.nomePublico ?? 'Loja'}`;
-    try {
-      const pix =
-        gw.provider === 'iugu'
-          ? await criarPixIugu(gw.token, {
-              valor: Number(p.total),
-              descricao,
-              nome: p.clienteNome ?? undefined,
-              referenciaExterna: p.id,
-              idempotencia: `pedido-${p.id}`,
-            })
-          : await criarPixMP(gw.token, {
-              valor: Number(p.total),
-              descricao,
-              nome: p.clienteNome ?? undefined,
-              // Cardápio não coleta e-mail: deriva um válido do telefone (o MP exige
-              // e-mail do pagador para PIX). Sem telefone, o helper usa o fallback.
-              email: p.clienteTelefone
-                ? `cliente-${String(p.clienteTelefone).replace(/\D/g, '')}@dmsregem.com`
-                : undefined,
-              referenciaExterna: p.id,
-              notificationUrl: base ? `${base}/api/v1/publico/cardapio/pagamento/mercadopago/webhook` : undefined,
-              idempotencia: `pedido-${p.id}`,
-              // Expira em 10 min: o MP recusa pagamento após isso (alinha com o cron
-              // que cancela o pedido não pago). Sem isto o QR ficaria pagável ~24h.
-              expiraEm: new Date(Date.now() + 10 * 60 * 1000),
-            });
-      await this.db
-        .update(pedidoExterno)
-        .set({ gatewayPaymentId: pix.id, gatewayProvider: gw.provider, statusPagamento: 'aguardando' })
-        .where(eq(pedidoExterno.id, pedidoId));
-      return {
-        ok: true,
-        statusPagamento: 'aguardando',
-        pix: { qrCode: pix.qrCode, qrCodeBase64: pix.qrCodeBase64, ticketUrl: pix.ticketUrl },
-      };
-    } catch (e) {
-      const motivo = e instanceof Error ? e.message : 'erro no gateway';
-      // Loga como ERRO (não é 5xx, então o TelemetriaInterceptor não pegaria): a
-      // TelemetriaLogger captura logger.error e leva a falha de pagamento para a
-      // telemetria da distribuição, que antes não via cobrança online quebrada.
-      this.logger.error(`PIX ${gw.provider} falhou (pedido ${p.id}, tenant ${cfg.tenantId}): ${motivo}`);
-      throw new BadRequestException(`Não foi possível gerar o PIX: ${motivo}`);
+    // Cardápio não coleta e-mail: deriva um válido do telefone (os gateways exigem
+    // e-mail do pagador). Sem telefone, o helper usa o fallback interno.
+    const email = p.clienteTelefone
+      ? `cliente-${String(p.clienteTelefone).replace(/\D/g, '')}@dmsregem.com`
+      : undefined;
+    // Expira em 10 min (alinha com o cron que cancela o não pago).
+    const expiraEm = new Date(Date.now() + 10 * 60 * 1000);
+    const erros: string[] = [];
+    for (const gw of gws) {
+      try {
+        const rota = gw.provider === 'pagseguro' ? 'pagbank' : 'mercadopago';
+        const notificationUrl = base ? `${base}/api/v1/publico/cardapio/pagamento/${rota}/webhook` : undefined;
+        const args = {
+          valor: Number(p.total),
+          descricao,
+          nome: p.clienteNome ?? undefined,
+          email,
+          referenciaExterna: p.id,
+          notificationUrl,
+          idempotencia: `pedido-${p.id}`,
+          expiraEm,
+        };
+        const pix =
+          gw.provider === 'pagseguro'
+            ? await criarPixPagBank(gw.token, args)
+            : await criarPixMP(gw.token, args);
+        await this.db
+          .update(pedidoExterno)
+          .set({ gatewayPaymentId: pix.id, gatewayProvider: gw.provider, statusPagamento: 'aguardando' })
+          .where(eq(pedidoExterno.id, pedidoId));
+        return {
+          ok: true,
+          statusPagamento: 'aguardando',
+          gateway: gw.provider,
+          pix: { qrCode: pix.qrCode, qrCodeBase64: pix.qrCodeBase64, ticketUrl: pix.ticketUrl },
+        };
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message : 'erro no gateway';
+        // logger.error → TelemetriaLogger leva a falha de cobrança para a distribuição.
+        this.logger.error(`PIX ${gw.provider} falhou (pedido ${p.id}, tenant ${cfg.tenantId}): ${motivo}`);
+        erros.push(`${gw.provider}: ${motivo}`);
+        // segue para o próximo gateway (fallback).
+      }
     }
+    throw new BadRequestException(`Não foi possível gerar o PIX: ${erros.join(' | ')}`);
   }
 
   // Público: verifica o pagamento SOB DEMANDA (consulta o gateway), sem depender do
@@ -1222,10 +1235,11 @@ export class CardapioService {
     if (p.statusPagamento !== 'aguardando' || !p.gatewayPaymentId)
       return { pago: false, statusPagamento: p.statusPagamento, status: p.status };
     try {
+      // Consulta no gateway que GEROU o QR (é onde o pagamento cai).
       let aprovado = false;
-      if (p.gatewayProvider === 'iugu') {
-        const t = await this.resolveIuguToken(cfg.tenantId);
-        if (t) aprovado = (await consultarFaturaIugu(t, p.gatewayPaymentId)).status === 'paid';
+      if (p.gatewayProvider === 'pagseguro') {
+        const t = await this.resolvePagseguroToken(cfg.tenantId);
+        if (t) aprovado = (await consultarPagamentoPagBank(t, p.gatewayPaymentId)).status === 'paid';
       } else {
         const t = await this.resolveMpToken(cfg.tenantId);
         if (t) aprovado = (await consultarPagamentoMP(t, p.gatewayPaymentId)).status === 'approved';
@@ -1268,6 +1282,30 @@ export class CardapioService {
     return { ok: true, status: st.status };
   }
 
+  // Webhook do PagBank (Orders): correlaciona pelo gateway_payment_id (= id do pedido
+  // PagBank) e RE-CONSULTA o pedido na API ('PAID' = aprovado). Não confia no corpo.
+  async webhookPagBank(orderId: string) {
+    if (!orderId) return { ok: true, ignorado: true };
+    const [p] = await this.db
+      .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, pago: pedidoExterno.pago })
+      .from(pedidoExterno)
+      .where(eq(pedidoExterno.gatewayPaymentId, String(orderId)));
+    if (!p) return { ok: true, naoCorrelacionado: true };
+    if (p.pago) return { ok: true, jaPago: true };
+    const token = await this.resolvePagseguroToken(p.tenantId);
+    if (!token) return { ok: true, semToken: true };
+    const st = await consultarPagamentoPagBank(token, String(orderId));
+    if (st.status === 'paid') {
+      await this.db
+        .update(pedidoExterno)
+        .set({ pago: true, statusPagamento: 'aprovado' })
+        .where(eq(pedidoExterno.id, p.id));
+      await this.aoConfirmarPagamento(p.tenantId, p.id);
+      return { ok: true, aprovado: true };
+    }
+    return { ok: true, status: st.status };
+  }
+
   // Pagamento online confirmado → agora sim entra em produção (o pedido esperava em
   // 'novo'). Respeita autoKds e o modo edge (lá o edge processa o pedido já pago).
   private async aoConfirmarPagamento(tenantId: string, pedidoId: string) {
@@ -1288,30 +1326,6 @@ export class CardapioService {
     } catch {
       /* pagamento confirmado nunca falha por causa da produção */
     }
-  }
-
-  // Webhook da Iugu (invoice.status_changed). Correlaciona pelo gateway_payment_id
-  // e RE-CONSULTA a fatura na API (não confia no corpo do webhook). 'paid' = aprovado.
-  async webhookIugu(invoiceId: string) {
-    if (!invoiceId) return { ok: true, ignorado: true };
-    const [p] = await this.db
-      .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, pago: pedidoExterno.pago })
-      .from(pedidoExterno)
-      .where(eq(pedidoExterno.gatewayPaymentId, String(invoiceId)));
-    if (!p) return { ok: true, naoCorrelacionado: true };
-    if (p.pago) return { ok: true, jaPago: true };
-    const token = await this.resolveIuguToken(p.tenantId);
-    if (!token) return { ok: true, semToken: true };
-    const st = await consultarFaturaIugu(token, String(invoiceId));
-    if (st.status === 'paid') {
-      await this.db
-        .update(pedidoExterno)
-        .set({ pago: true, statusPagamento: 'aprovado' })
-        .where(eq(pedidoExterno.id, p.id));
-      await this.aoConfirmarPagamento(p.tenantId, p.id);
-      return { ok: true, aprovado: true };
-    }
-    return { ok: true, status: st.status };
   }
 
   // A cada 2 min: cancela pedidos de pagamento ONLINE que passaram do prazo (10 min)
@@ -1341,9 +1355,6 @@ export class CardapioService {
         if (v.gatewayPaymentId && v.gatewayProvider === 'mercadopago') {
           const t = await this.resolveMpToken(v.tenantId);
           if (t) await cancelarPagamentoMP(t, v.gatewayPaymentId);
-        } else if (v.gatewayPaymentId && v.gatewayProvider === 'iugu') {
-          const t = await this.resolveIuguToken(v.tenantId);
-          if (t) await cancelarFaturaIugu(t, v.gatewayPaymentId);
         }
       } catch {
         /* segue e cancela o pedido de qualquer forma */

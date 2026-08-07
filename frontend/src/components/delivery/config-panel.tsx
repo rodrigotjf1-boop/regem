@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { GripVertical } from 'lucide-react';
 import QRCode from 'qrcode';
 import { api, getUnidadeAtual } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -1187,12 +1188,12 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
   );
 }
 
-const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', delivery_direto: 'Delivery Direto', open_delivery: 'Open Delivery (Abrasel)', cardapio_web: 'Cardápio Web', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago', iugu: 'Iugu' };
+const CANAL_NOME: Record<string, string> = { ifood: 'iFood', rappi: 'Rappi', '99food': '99Food', anotaai: 'Anota Aí', keeta: 'Keeta', delivery_direto: 'Delivery Direto', open_delivery: 'Open Delivery (Abrasel)', cardapio_web: 'Cardápio Web', n8n: 'WhatsApp / n8n', mercadopago: 'Mercado Pago', pagseguro: 'PagBank / PagSeguro' };
 
-// Mercado Pago, Iugu e WhatsApp/n8n são recursos do CARDÁPIO DIGITAL do Regem —
-// só aparecem quando ele está ativo (senão a loja usa cardápio externo e o Regem
-// é só centralizador de pedidos).
-const CANAIS_DO_CARDAPIO = ['mercadopago', 'iugu', 'n8n'];
+// Gateways de PIX (Mercado Pago, PagBank) e WhatsApp/n8n são recursos do CARDÁPIO
+// DIGITAL do Regem — só aparecem quando ele está ativo (senão a loja usa cardápio
+// externo e o Regem é só centralizador de pedidos).
+const CANAIS_DO_CARDAPIO = ['mercadopago', 'pagseguro', 'n8n'];
 
 // Metadados por plataforma: cor da marca (fundo do card, editável) + caminho do logo.
 // As imagens ficam em /public/integracoes/<arquivo> — se o arquivo não existir, o card
@@ -1208,7 +1209,7 @@ const PLAT_META: Record<string, { cor: string; logo?: string }> = {
   keeta: { cor: '#FFC800', logo: '/integracoes/keeta.png' },
   n8n: { cor: '#EA4B71', logo: '/integracoes/n8n.png' },
   mercadopago: { cor: '#009EE3', logo: '/integracoes/mercado-pago.png' },
-  iugu: { cor: '#00A5A5', logo: '/integracoes/iugu.png' },
+  pagseguro: { cor: '#F9C846', logo: '/integracoes/pagbank.png' },
 };
 
 // Texto legível sobre a cor da marca (tinta escura em cores claras, branco em escuras).
@@ -1284,11 +1285,32 @@ function Integracoes({ lista, onSalvar, pode, cardapioAtivo }: { lista: any[]; o
   );
   const [aberto, setAberto] = useState<string | null>(null);
   const itemAberto = visiveis.find((it) => it.canal === aberto);
+  // Gateway de PIX primário (só relevante quando os DOIS estão configurados).
+  const [pixPrio, setPixPrio] = useState<string>('mercadopago');
+  useEffect(() => {
+    if (cardapioAtivo) api.getPixPrioritario().then((r: any) => setPixPrio(r?.gateway || 'mercadopago')).catch(() => {});
+  }, [cardapioAtivo]);
+  const gatewaysComToken = visiveis.filter((it) => (it.canal === 'mercadopago' || it.canal === 'pagseguro') && it.temToken);
+  async function mudarPrio(g: string) {
+    setPixPrio(g);
+    try { await api.setPixPrioritario(g); } catch { /* ignore */ }
+  }
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">Escolha uma plataforma para conectar. As chaves ficam guardadas com segurança e <strong>não são exibidas de volta</strong> — deixe o campo em branco para manter a atual.</p>
       {!cardapioAtivo && (
-        <p className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground">Mercado Pago, Iugu e WhatsApp/n8n aparecem quando o <strong>cardápio digital do Regem</strong> está ativo — são recursos dele.</p>
+        <p className="rounded bg-secondary px-2 py-1 text-[11px] text-muted-foreground">Mercado Pago e WhatsApp/n8n aparecem quando o <strong>cardápio digital do Regem</strong> está ativo — são recursos dele.</p>
+      )}
+      {gatewaysComToken.length === 2 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2 text-[11px]">
+          <span className="font-semibold">Gateway de PIX primário:</span>
+          <select value={pixPrio} onChange={(e) => mudarPrio(e.target.value)} disabled={!pode}
+            className="h-7 rounded border border-input bg-card px-2">
+            <option value="mercadopago">Mercado Pago</option>
+            <option value="pagseguro">PagBank / PagSeguro</option>
+          </select>
+          <span className="text-muted-foreground">o outro entra como <strong>fallback</strong> se o primário falhar ao gerar o QR.</span>
+        </div>
       )}
       <div className="flex flex-wrap justify-center gap-3">
         {visiveis.map((it) => (
@@ -1319,11 +1341,11 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
     setCor(it.cor ?? '');
   }, [it]);
   // Cor de identificação no kanban — só cardápios/marketplaces (não pagamento/robô).
-  const temCor = !['n8n', 'iugu', 'mercadopago'].includes(it.canal);
+  const temCor = !['n8n', 'mercadopago', 'pagseguro'].includes(it.canal);
   const ehN8n = it.canal === 'n8n';
-  const ehIugu = it.canal === 'iugu';
   const ehMp = it.canal === 'mercadopago';
-  const ehGatewayPix = ehIugu || ehMp;
+  const ehPs = it.canal === 'pagseguro';
+  const ehGatewayPix = ehMp || ehPs;
   const ehCw = it.canal === 'cardapio_web';
   const ehFood99 = it.canal === '99food';
   const ehDD = it.canal === 'delivery_direto';
@@ -1576,19 +1598,19 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </>
       ) : ehGatewayPix ? (
         <>
-          {ehIugu ? (
+          {ehPs ? (
             <>
-              <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta Iugu</strong> — o dinheiro cai em você, o Regem não toca no valor. Cole a <strong>Live API Token</strong> (Iugu → Configurações → Contas → API Tokens → copiar a <em>Live</em>). Quando ativa, tem prioridade sobre o Mercado Pago no cardápio.</p>
-              <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">Cadastre o webhook na sua Iugu (Configurações → Gatilhos), evento <strong>invoice.status_changed</strong>, URL: <code>https://api.dmsregem.com/api/v1/publico/cardapio/pagamento/iugu/webhook</code></p>
+              <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta PagBank</strong> — o dinheiro cai em você. Precisa de uma <strong>chave PIX ativa</strong> na conta. Cole o <strong>token</strong> de produção (PagBank → Perfis de integração → Vendedor → Credenciais / Gerar Token).</p>
+              <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O webhook do PagBank é automático (o Regem informa a URL na cobrança). Requer conta de produção (homologada).</p>
             </>
           ) : (
             <>
-              <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta Mercado Pago</strong> — o dinheiro cai em você. Cole o <strong>Access Token</strong> de produção (Mercado Pago → Seus negócios → Configurações → Credenciais de produção → <em>Access Token</em>). A Iugu, se ativa, tem prioridade sobre este.</p>
+              <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta Mercado Pago</strong> — o dinheiro cai em você. Cole o <strong>Access Token</strong> de produção (Mercado Pago → Seus negócios → Configurações → Credenciais de produção → <em>Access Token</em>).</p>
               <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O webhook do Mercado Pago é automático (o Regem informa a URL na cobrança). Nada a cadastrar no painel do MP.</p>
             </>
           )}
-          <Campo label={`${ehIugu ? 'Live API Token' : 'Access Token'}${it.temToken ? ' (salvo)' : ''}`}>
-            <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehIugu ? 'cole a Live API Token da Iugu' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
+          <Campo label={`${ehPs ? 'Token PagBank' : 'Access Token'}${it.temToken ? ' (salvo)' : ''}`}>
+            <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehPs ? 'cole o token de produção do PagBank' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
           </Campo>
           {pode && (
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1865,6 +1887,7 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
   const [campos, setCampos] = useState<{ key: string; label: string; grupo: string }[]>([]);
   const [sel, setSel] = useState<string>('caixa');
   const [salvo, setSalvo] = useState(true);
+  const [drag, setDrag] = useState<number | null>(null);
   useEffect(() => {
     api.cupomPerfis().then((r: any) => { setPerfis(r?.perfis ?? []); setCampos(r?.campos ?? []); }).catch(() => {});
   }, []);
@@ -1877,14 +1900,21 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
   }
   const mudarCampo = (idx: number, patch: any) =>
     mudarPerfil((p) => ({ ...p, campos: p.campos.map((c: any, i: number) => (i === idx ? { ...c, ...patch } : c)) }));
-  function mover(idx: number, dir: number) {
+  // Reordenar arrastando pela alça (igual às categorias do catálogo). A ordem só
+  // persiste no "Salvar perfis" — aqui é estado local.
+  function soltar(destino: number) {
+    if (drag === null || drag === destino) { setDrag(null); return; }
     mudarPerfil((p) => {
-      const cs = [...p.campos]; const j = idx + dir;
-      if (j < 0 || j >= cs.length) return p;
-      [cs[idx], cs[j]] = [cs[j], cs[idx]];
+      const cs = [...p.campos];
+      const [item] = cs.splice(drag, 1);
+      cs.splice(destino, 0, item);
       return { ...p, campos: cs };
     });
+    setDrag(null);
   }
+  // Fonte: escala inteira 1..4 (térmica só faz múltiplos). Lê o legado tamanho='grande'.
+  const escOf = (c: any): number =>
+    c?.escala && c.escala >= 2 ? Math.min(4, Math.floor(c.escala)) : c?.tamanho === 'grande' ? 2 : 1;
   // ── Custom: criar / duplicar / renomear / excluir / add-remove campo ──────────
   function novoId() { return 'custom_' + Date.now().toString(36); }
   function criarCustom() {
@@ -1918,7 +1948,7 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
     for (const p of perfis) {
       const cs = p.campos.map((c: any) => ({
         key: c.key, visivel: c.visivel, negrito: c.negrito, alinhamento: c.alinhamento,
-        ...(c.tamanho === 'grande' ? { tamanho: 'grande' } : {}),
+        ...(escOf(c) >= 2 ? { escala: escOf(c) } : {}),
         ...(c.agrupado ? { agrupado: true } : {}),
       }));
       if (p.custom) custom.push({ id: p.id, nome: p.nome, descricao: p.descricao, grupo: p.grupo, campos: cs });
@@ -1929,7 +1959,7 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
   }
 
   const linhasPreview = (() => {
-    const out: { txt: string; bold: boolean; grande: boolean; raw?: string }[] = [];
+    const out: { txt: string; bold: boolean; esc: number; raw?: string }[] = [];
     for (const c of perfil?.campos ?? []) {
       if (!c.visivel) continue;
       let mock: string[];
@@ -1943,10 +1973,10 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
         p.txt = left.length + right.length >= CUPOM_LARGURA
           ? `${left} ${right}`.slice(0, CUPOM_LARGURA)
           : left + ' '.repeat(CUPOM_LARGURA - left.length - right.length) + right;
-        p.bold = p.bold || c.negrito; p.grande = false; p.raw = undefined;
+        p.bold = p.bold || c.negrito; p.esc = 1; p.raw = undefined;
         continue;
       }
-      for (const t of mock) out.push({ txt: alinharCupom(t, c.alinhamento), raw: t, bold: c.negrito, grande: c.tamanho === 'grande' });
+      for (const t of mock) out.push({ txt: alinharCupom(t, c.alinhamento), raw: t, bold: c.negrito, esc: escOf(c) });
     }
     return out;
   })();
@@ -1966,7 +1996,7 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
           </div>
         )}
       </div>
-      <p className="mb-3 text-[11px] text-muted-foreground">Escolha o que aparece em cada cupom, a ordem, o alinhamento e o negrito. Perfis personalizados podem puxar qualquer campo. Cabeçalho e rodapé ficam no editor acima.</p>
+      <p className="mb-3 text-[11px] text-muted-foreground">Escolha o que aparece em cada cupom; <strong>arraste pela alça</strong> à esquerda para ordenar e ajuste alinhamento, negrito e <strong>tamanho (1×–4×)</strong>. Perfis personalizados podem puxar qualquer campo. Cabeçalho e rodapé ficam no editor acima.</p>
 
       {/* Abas por grupo */}
       <div className="mb-3 space-y-1.5">
@@ -2006,29 +2036,43 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
           {(perfil?.campos ?? []).map((c: any, i: number) => {
             const pseudo = c.key === '_espaco' || c.key === '_tracejado';
             const podeRemover = pode && (ehCustom || pseudo);
-            const ultimo = i === (perfil?.campos.length ?? 0) - 1;
-            const setas = (
-              <div className="flex">
-                <button type="button" disabled={!pode || i === 0} onClick={() => mover(i, -1)} className="rounded border border-border px-1 disabled:opacity-30">↑</button>
-                <button type="button" disabled={!pode || ultimo} onClick={() => mover(i, 1)} className="rounded border border-border px-1 disabled:opacity-30">↓</button>
-              </div>
+            const esc = escOf(c);
+            // Alça de arrastar (lado esquerdo) — só arrasta pela alça, sem atrapalhar
+            // o select/checkbox da linha.
+            const alca = (
+              <span draggable={pode} onDragStart={() => setDrag(i)} onDragEnd={() => setDrag(null)}
+                className={`flex-none ${pode ? 'cursor-grab text-muted-foreground/50' : 'opacity-20'}`}
+                title="Arraste para reordenar" aria-hidden>
+                <GripVertical className="h-4 w-4" />
+              </span>
             );
             if (pseudo) return (
-              <div key={i} className="flex items-center gap-2 rounded-md border border-dashed border-border px-2 py-1.5 text-xs italic text-muted-foreground">
+              <div key={i} onDragOver={(e) => e.preventDefault()} onDrop={() => soltar(i)}
+                className={`flex items-center gap-2 rounded-md border border-dashed border-border px-2 py-1.5 text-xs italic text-muted-foreground ${drag === i ? 'opacity-50' : ''}`}>
+                {alca}
                 <span className="flex-1">— {c.key === '_espaco' ? 'linha em branco' : 'linha tracejada'} —</span>
-                {setas}
                 {podeRemover && <button type="button" title="Remover" onClick={() => removerCampo(i)} className="rounded border border-destructive/40 px-1 text-destructive">✕</button>}
               </div>
             );
             return (
-              <div key={i} className={`flex flex-wrap items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs ${c.visivel ? '' : 'opacity-50'}`}>
+              <div key={i} onDragOver={(e) => e.preventDefault()} onDrop={() => soltar(i)}
+                className={`flex flex-wrap items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs ${c.visivel ? '' : 'opacity-50'} ${drag === i ? 'opacity-50' : ''}`}>
+                {alca}
                 <input type="checkbox" className="h-3.5 w-3.5 accent-primary" title="Mostrar no cupom" checked={c.visivel} disabled={!pode || c.fixo}
                   onChange={(e) => mudarCampo(i, { visivel: e.target.checked })} />
                 <span className="min-w-0 flex-1 truncate">{c.label}{c.fixo && <span className="ml-1 text-[10px] text-muted-foreground">(sempre)</span>}</span>
                 <button type="button" title="Negrito" disabled={!pode} onClick={() => mudarCampo(i, { negrito: !c.negrito })}
                   className={`h-6 w-6 rounded border font-bold ${c.negrito ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>N</button>
-                <button type="button" title="Fonte grande" disabled={!pode} onClick={() => mudarCampo(i, { tamanho: c.tamanho === 'grande' ? 'normal' : 'grande' })}
-                  className={`h-6 rounded border px-1 font-bold ${c.tamanho === 'grande' ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>A⁺</button>
+                {/* Tamanho da fonte: escala 1×–4× (térmica só faz múltiplos inteiros) */}
+                <div className="flex h-6 items-stretch overflow-hidden rounded border border-border" title="Tamanho da fonte (1×–4×)">
+                  <button type="button" aria-label="Diminuir fonte" disabled={!pode || esc <= 1}
+                    onClick={() => mudarCampo(i, { escala: Math.max(1, esc - 1), tamanho: undefined })}
+                    className="px-1.5 font-bold text-muted-foreground disabled:opacity-30">A−</button>
+                  <span className={`grid w-7 place-items-center border-x border-border tabular-nums ${esc > 1 ? 'bg-primary/15 font-bold text-primary' : 'text-muted-foreground'}`}>{esc}×</span>
+                  <button type="button" aria-label="Aumentar fonte" disabled={!pode || esc >= 4}
+                    onClick={() => mudarCampo(i, { escala: Math.min(4, esc + 1), tamanho: undefined })}
+                    className="px-1.5 font-bold text-muted-foreground disabled:opacity-30">A＋</button>
+                </div>
                 <button type="button" title="Juntar com a linha de cima (esquerda | direita)" disabled={!pode || i === 0} onClick={() => mudarCampo(i, { agrupado: !c.agrupado })}
                   className={`h-6 rounded border px-1 ${c.agrupado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'} disabled:opacity-30`}>⊟</button>
                 <select aria-label="Alinhamento" disabled={!pode} value={c.alinhamento} onChange={(e) => mudarCampo(i, { alinhamento: e.target.value })}
@@ -2037,7 +2081,6 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
                   <option value="centro">↔ Centro</option>
                   <option value="direita">Dir ⟶</option>
                 </select>
-                {setas}
                 {podeRemover && <button type="button" title="Remover campo" onClick={() => removerCampo(i)} className="rounded border border-destructive/40 px-1 text-destructive">✕</button>}
               </div>
             );
@@ -2061,9 +2104,9 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
         {/* Prévia ao vivo */}
         <div>
           <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Prévia</p>
-          <div className="rounded-md border border-border bg-white p-2 font-mono text-[11px] leading-tight text-black">
+          <div className="overflow-x-auto rounded-md border border-border bg-white p-2 font-mono text-[11px] leading-tight text-black">
             {linhasPreview.map((l: any, i: number) => (
-              <div key={i} className="whitespace-pre" style={{ fontWeight: l.bold ? 700 : 400, fontSize: l.grande ? '1.5em' : undefined, lineHeight: l.grande ? 1.1 : undefined }}>{l.txt || ' '}</div>
+              <div key={i} className="whitespace-pre" style={{ fontWeight: l.bold ? 700 : 400, fontSize: l.esc > 1 ? `${l.esc}em` : undefined, lineHeight: l.esc > 1 ? 1.1 : undefined }}>{l.txt || ' '}</div>
             ))}
             {linhasPreview.length === 0 && <div className="text-muted-foreground">—</div>}
           </div>

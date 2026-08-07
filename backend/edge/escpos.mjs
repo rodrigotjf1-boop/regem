@@ -19,6 +19,11 @@ const boldOff = () => [ESC, 0x45, 0]; // ESC E 0
 const align = (n) => [ESC, 0x61, n]; // 0=esq 1=centro 2=dir
 const sizeNormal = () => [GS, 0x21, 0x00]; // GS ! 0
 const sizeDouble = () => [GS, 0x21, 0x11]; // GS ! (dupla largura+altura)
+// Magnificacao inteira 1..4 (GS ! n = (w-1)<<4 | (h-1)); 1=normal, 2=dupla.
+const sizeMag = (n) => {
+  const m = Math.max(0, Math.min(3, (Number(n) || 1) - 1));
+  return [GS, 0x21, (m << 4) | m];
+};
 const feed = (n) => [ESC, 0x64, n]; // ESC d n  (avanca n linhas)
 const beep = (n = 2, t = 3) => [ESC, 0x42, n, t]; // ESC B n t  (bipe)
 // Corte parcial com avanco (compat. Epson/genericas): GS V 66 n
@@ -161,25 +166,27 @@ export function renderEscpos(conteudo, largura = 80) {
     let linha = linhaRaw;
     let alignForce = null;
     let boldForce = false;
-    let sizeForce = null;
-    // Flags: C centro, R direita, B negrito, D fonte grande (dupla) — combináveis.
-    const pm = linha.match(/^@([CRBD]{1,4})(?: |\b)/);
+    let sizeForce = null; // magnificacao 2..4, ou null
+    // Flags: C centro, R direita, B negrito, D fonte grande. D sozinho = 2x
+    // (compat.); D3/D4 = 3x/4x. Combinaveis (@CBD3). Digito so vem depois do D.
+    const pm = linha.match(/^@((?:[CRB]|D[2-4]?)+)(?: |\b)/);
     if (pm) {
       const f = pm[1];
       if (f.includes('C')) alignForce = 1;
       if (f.includes('R')) alignForce = 2;
       if (f.includes('B')) boldForce = true;
-      if (f.includes('D')) sizeForce = 'double';
+      if (f.includes('D')) { const md = f.match(/D([2-4])/); sizeForce = md ? Number(md[1]) : 2; }
       linha = linha.slice(pm[0].length);
     }
     const st = estilo(linha);
     const al = alignForce != null ? alignForce : st.align;
     const bold = boldForce || st.bold;
-    const size = sizeForce || st.size;
+    // Normaliza tamanho para magnificacao numerica (estilo() legado usa 'double').
+    const mag = sizeForce != null ? sizeForce : st.size === 'double' ? 2 : 1;
     push(align(al));
-    push(size === 'double' ? sizeDouble() : sizeNormal());
+    push(sizeMag(mag));
     if (bold) push(boldOn());
-    for (const parte of wrap(linha, size === 'double' ? Math.floor(cols / 2) : cols)) {
+    for (const parte of wrap(linha, Math.floor(cols / mag))) {
       texto(parte);
       push([0x0a]); // LF
     }

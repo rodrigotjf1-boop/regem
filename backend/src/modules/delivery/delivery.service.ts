@@ -29,7 +29,7 @@ import {
 } from '../../db/schema';
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
 import { validarTokenMP } from '../../common/mercadopago';
-import { validarTokenIugu } from '../../common/iugu';
+import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
 import { VendasService } from '../vendas/vendas.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
@@ -1314,8 +1314,8 @@ export class DeliveryService {
   }
 
   // ===== Integrações (credenciais de apps externos) =====
-  // Delivery/marketplaces + integração + gateways de PIX (mercadopago/iugu no fim).
-  private static readonly CANAIS_INTEGRACAO = ['ifood', '99food', 'delivery_direto', 'cardapio_web', 'rappi', 'anotaai', 'keeta', 'n8n', 'mercadopago', 'iugu'];
+  // Delivery/marketplaces + integração + gateways de PIX (mercadopago/pagseguro no fim).
+  private static readonly CANAIS_INTEGRACAO = ['ifood', '99food', 'delivery_direto', 'cardapio_web', 'rappi', 'anotaai', 'keeta', 'n8n', 'mercadopago', 'pagseguro'];
 
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
@@ -1434,7 +1434,7 @@ export class DeliveryService {
   // Testa a conexão de um gateway de PIX validando o token na API do provedor.
   // Usa o token do corpo (o que está no campo, ainda não salvo) ou, se vazio, o salvo.
   async testarGatewayPix(tenantId: string, canal: string, tokenBody?: string) {
-    if (canal !== 'mercadopago' && canal !== 'iugu')
+    if (canal !== 'mercadopago' && canal !== 'pagseguro')
       throw new BadRequestException('Canal inválido para teste de PIX.');
     let token = String(tokenBody ?? '').trim();
     if (!token) {
@@ -1447,11 +1447,30 @@ export class DeliveryService {
     if (!token)
       throw new BadRequestException('Cole o token no campo antes de testar (ou salve-o primeiro).');
     try {
-      const r = canal === 'mercadopago' ? await validarTokenMP(token) : await validarTokenIugu(token);
+      const r = canal === 'pagseguro' ? await validarTokenPagBank(token) : await validarTokenMP(token);
       return { ok: true as const, conta: r.conta ?? null };
     } catch (e) {
       throw new BadRequestException(e instanceof Error ? e.message : 'Token inválido');
     }
+  }
+
+  // Gateway de PIX primário (o outro é fallback). null = mercadopago (incumbente).
+  async getPixPrioritario(tenantId: string) {
+    const [row] = await this.db
+      .select({ prio: cardapioConfig.pixGatewayPrioritario })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId))
+      .limit(1);
+    return { gateway: row?.prio === 'pagseguro' ? 'pagseguro' : 'mercadopago' };
+  }
+
+  async setPixPrioritario(tenantId: string, gateway: string) {
+    const g = gateway === 'pagseguro' ? 'pagseguro' : 'mercadopago';
+    await this.db
+      .update(cardapioConfig)
+      .set({ pixGatewayPrioritario: g })
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    return { gateway: g };
   }
 
   // Entregadores = colaboradores ativos com função cujo nome contém "entregador".

@@ -21,7 +21,8 @@ export interface CampoCupom {
   negrito: boolean;
   alinhamento: AlinhamentoCupom;
   fixo?: boolean; // não pode ser ocultado (ex.: itens do corpo)
-  tamanho?: 'normal' | 'grande'; // Fase 4 — fonte dupla quando 'grande'
+  tamanho?: 'normal' | 'grande'; // legado (Fase 4) — 'grande' == escala 2; lido como fallback
+  escala?: number; // magnificação da fonte 1..4 (1 = normal); térmica só faz múltiplos inteiros
   agrupado?: boolean; // Fase 4 — junta com o campo ANTERIOR na mesma linha (esq | dir)
 }
 
@@ -43,6 +44,15 @@ export interface PerfilCupom {
   campos: CampoCupom[];
 }
 
+// Normaliza a fonte para uma escala inteira 1..4 (source of truth), aceitando o
+// legado `tamanho: 'grande'` (== 2). Devolve undefined quando é a fonte normal.
+export function escalaFonte(o: { escala?: any; tamanho?: any }): number | undefined {
+  const n = Number(o?.escala);
+  if (Number.isFinite(n) && n >= 2) return Math.min(4, Math.floor(n));
+  if (o?.tamanho === 'grande') return 2;
+  return undefined;
+}
+
 const C = (
   key: string,
   label: string,
@@ -54,7 +64,7 @@ const C = (
   negrito: o.negrito ?? false,
   alinhamento: o.alinhamento ?? 'esquerda',
   ...(o.fixo ? { fixo: true } : {}),
-  ...(o.tamanho ? { tamanho: o.tamanho } : {}),
+  ...(escalaFonte(o) ? { escala: escalaFonte(o)! } : {}),
   ...(o.agrupado ? { agrupado: true } : {}),
 });
 
@@ -334,7 +344,7 @@ export function perfilEfetivo(
         C(o.key, PSEUDO_CAMPOS[o.key], {
           alinhamento: o.alinhamento,
           negrito: o.negrito,
-          tamanho: o.tamanho as any,
+          escala: escalaFonte(o),
           agrupado: o.agrupado as any,
         }),
       );
@@ -343,12 +353,14 @@ export function perfilEfetivo(
     const b = o.key ? porKey.get(o.key) : undefined;
     if (!b) continue; // override de campo inexistente — ignora
     vistos.add(b.key);
+    const escM = escalaFonte(o) ?? escalaFonte(b); // override vence; senão base
     campos.push({
       ...b,
       visivel: b.fixo ? true : o.visivel ?? b.visivel, // itens não somem
       negrito: o.negrito ?? b.negrito,
       alinhamento: o.alinhamento ?? b.alinhamento,
-      ...(o.tamanho ? { tamanho: o.tamanho as any } : b.tamanho ? { tamanho: b.tamanho } : {}),
+      tamanho: undefined, // normaliza p/ escala (source of truth)
+      ...(escM ? { escala: escM } : {}),
       ...(o.agrupado != null ? { agrupado: !!o.agrupado } : b.agrupado ? { agrupado: true } : {}),
     });
   }
@@ -369,7 +381,7 @@ export function perfilCustom(def: any): PerfilCupom | null {
             visivel: c.visivel !== false,
             negrito: !!c.negrito,
             alinhamento: (['esquerda', 'centro', 'direita'].includes(c.alinhamento) ? c.alinhamento : 'esquerda') as AlinhamentoCupom,
-            tamanho: c.tamanho === 'grande' ? 'grande' : undefined,
+            escala: escalaFonte(c),
             agrupado: !!c.agrupado,
           }),
         )

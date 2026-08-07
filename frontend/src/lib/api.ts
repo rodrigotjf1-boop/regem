@@ -776,10 +776,14 @@ export const api = {
   integracoesDelivery: () => req('/delivery/integracoes'),
   salvarIntegracao: (body: Record<string, unknown>) =>
     req('/delivery/integracoes', { method: 'PUT', body: JSON.stringify(body) }),
-  // Testa a conexão de um gateway de PIX (mercadopago | iugu). token opcional: se
+  // Testa a conexão do gateway de PIX (mercadopago). token opcional: se
   // vazio, o servidor usa o token salvo.
   testarGatewayPix: (canal: string, token?: string) =>
     req(`/delivery/integracoes/${canal}/testar-pix`, { method: 'POST', body: JSON.stringify({ token: token || undefined }) }),
+  // Gateway de PIX primário (o outro é fallback)
+  getPixPrioritario: () => req('/delivery/pix-prioritario'),
+  setPixPrioritario: (gateway: string) =>
+    req('/delivery/pix-prioritario', { method: 'PATCH', body: JSON.stringify({ gateway }) }),
   // Cardápio Web (API Aberta) — modo chave X-API-KEY.
   cardapioWebStatus: () => req('/integracoes/cardapio-web/status'),
   cardapioWebSalvarChave: (body: Record<string, unknown>) =>

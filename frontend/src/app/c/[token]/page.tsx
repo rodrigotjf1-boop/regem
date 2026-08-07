@@ -657,7 +657,7 @@ export default function CardapioPublicoPage() {
           observacao: i.obs || undefined,
         })),
       });
-      // Pagamento online: com Mercado Pago/Iugu configurado, retorna o PIX (QR +
+      // Pagamento online: com Mercado Pago configurado, retorna o PIX (QR +
       // copia-e-cola) para exibir; sem gateway ATIVO, o backend aprova no modo mock
       // (sem PIX). Não engolir o erro: se falhar, mostrar o motivo (antes ficava
       // "nada aconteceu"). E se voltar sem PIX (mock), avisar que o online está inativo.
@@ -668,7 +668,7 @@ export default function CardapioPublicoPage() {
           pixResp = await api.cardapioPagar(token, r.pedidoId);
           if (!pixResp?.pix?.qrCode)
             pixErro =
-              'Pagamento online indisponível: o Mercado Pago/Iugu não está ativo. ' +
+              'Pagamento online indisponível: o Mercado Pago não está ativo. ' +
               'Ative em Delivery · Integrações (cole o Access Token e ligue a chave). ' +
               'O pedido foi registrado.';
         } catch (e) {
@@ -792,9 +792,12 @@ export default function CardapioPublicoPage() {
             <div className="mt-5 rounded-2xl border-2 p-4 text-center" style={{ borderColor: accent }}>
               <p className="text-sm font-semibold">Pague com PIX para confirmar</p>
               <p className="mt-1 text-xs font-semibold" style={{ color: accent }}>⏱ Expira em {mmss}</p>
-              {ped.pix.qrCodeBase64 && (
+              {ped.pix.qrCodeBase64 ? (
                 <img src={`data:image/png;base64,${ped.pix.qrCodeBase64}`} alt="QR Code PIX" className="mx-auto my-3 h-48 w-48" />
-              )}
+              ) : ped.pix.ticketUrl ? (
+                // PagBank devolve o QR como link PNG (não base64).
+                <img src={ped.pix.ticketUrl} alt="QR Code PIX" className="mx-auto my-3 h-48 w-48" />
+              ) : null}
               <p className="mb-1 text-left text-xs text-neutral-500">Copia e cola:</p>
               <div className="flex items-center gap-2">
                 <input readOnly aria-label="Código PIX copia e cola" value={ped.pix.qrCode} className="min-w-0 flex-1 truncate rounded-lg border px-2 py-1.5 text-xs" />

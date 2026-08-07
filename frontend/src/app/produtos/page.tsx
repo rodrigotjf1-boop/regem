@@ -24,7 +24,7 @@ import { ProdutosLista } from '@/components/produtos/produtos-lista';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Canais de delivery cujo catálogo pode ser pausado por produto ("Ativo no iFood").
-// Só marketplaces de cardápio — n8n/mercadopago/iugu não entram.
+// Só marketplaces de cardápio — n8n/mercadopago não entram.
 const CANAL_LABEL: Record<string, string> = {
   ifood: 'iFood',
   '99food': '99food',

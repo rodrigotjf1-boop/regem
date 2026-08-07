@@ -2004,8 +2004,8 @@ export const pedidoExterno = pgTable('pedido_externo', {
   trocoPara: numeric('troco_para'),
   pago: boolean('pago').notNull().default(false),
   statusPagamento: text('status_pagamento').notNull().default('na_entrega'), // na_entrega|aguardando|aprovado|orcamento
-  gatewayPaymentId: text('gateway_payment_id'), // id do pagamento no gateway (MP/Iugu) p/ webhook
-  gatewayProvider: text('gateway_provider'), // 'iugu' | 'mercadopago' | null — qual API o webhook consulta
+  gatewayPaymentId: text('gateway_payment_id'), // id do pagamento no gateway (Mercado Pago) p/ webhook
+  gatewayProvider: text('gateway_provider'), // 'mercadopago' | null — qual API o webhook consulta
 
   agendamento: timestamp('agendamento', { withTimezone: true }), // serviços (L4)
   profissional: text('profissional'),
@@ -2198,6 +2198,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   avaliacao: numeric('avaliacao'),
   freteGratisAcima: numeric('frete_gratis_acima'),
   pagamentos: jsonb('pagamentos').notNull().default('[]'),
+  // PIX: gateway primário (o outro é fallback). null = mercadopago (mig 173).
+  pixGatewayPrioritario: text('pix_gateway_prioritario'), // 'mercadopago' | 'pagseguro' | null
   fidelidadeAtiva: boolean('fidelidade_ativa').notNull().default(false),
   whatsapp: text('whatsapp'),
   parcelasMax: integer('parcelas_max'), // varejo (L4)
