@@ -18,6 +18,7 @@ export interface PedidoNormalizado {
     precoUnitario: number;
     observacao?: string; // observação REAL do cliente ("sem cebola")
     complementos?: string; // complementos escolhidos (batata, bebida…) — NÃO é observação
+    opcaoIds?: string[]; // ids das opções escolhidas (só origem interna: cardápio Regem/totem) — roteamento por opção/etapa (Fase 1). Marketplaces não mandam nossos ids.
   }[];
   total: number;
   formaPagamento?: string;
@@ -125,6 +126,7 @@ export function adaptarGenerico(raw: any): PedidoNormalizado {
       quantidade: Number(it.quantidade) || 1,
       precoUnitario: Number(it.precoUnitario ?? it.preco) || 0,
       observacao: it.observacao,
+      opcaoIds: Array.isArray(it.opcaoIds) ? it.opcaoIds : undefined, // origem interna (cardápio/totem)
     })),
     total: Number(raw?.total) || 0,
     formaPagamento: formaPtBr(raw?.formaPagamento ?? (raw?.pago ? 'online' : 'money')),

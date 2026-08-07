@@ -15,7 +15,20 @@ export class DistribuicaoController {
   @Post('login')
   @Throttle({ default: { ttl: 60000, limit: 10 } })
   login(@Body() dto: any, @Req() req: any) {
-    return this.service.login(dto?.email, dto?.senha, req?.ip);
+    return this.service.login(dto?.email, dto?.senha, dto?.codigo, req?.ip);
+  }
+
+  // MFA (F9.5) — cadastro do 2º fator (usuário logado da distribuição).
+  @Post('mfa/iniciar')
+  @UseGuards(DistribuicaoGuard)
+  mfaIniciar(@DistUser() u: DistCtx) {
+    return this.service.mfaIniciar(u);
+  }
+
+  @Post('mfa/confirmar')
+  @UseGuards(DistribuicaoGuard)
+  mfaConfirmar(@DistUser() u: DistCtx, @Body() dto: any) {
+    return this.service.mfaConfirmar(u, dto?.codigo);
   }
 
   // Cria o 1º usuário (diretoria) com a tabela vazia. Header x-bootstrap-secret =
@@ -52,6 +65,23 @@ export class DistribuicaoController {
   @UseGuards(DistribuicaoGuard)
   frota() {
     return this.service.frota();
+  }
+
+  // F9 — Acesso de SUPORTE a uma loja (Diretoria + Técnico). Emite um token curto,
+  // escopado (só config, cat='suporte') e AUDITADO na trilha da própria loja.
+  @Post('suporte/iniciar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  iniciarSuporte(@DistUser() u: DistCtx, @Body() dto: any, @Req() req: any) {
+    return this.service.iniciarSuporte(u, dto?.tenantId, dto?.motivo, req?.ip);
+  }
+
+  @Post('suporte/encerrar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  encerrarSuporte(@DistUser() u: DistCtx, @Body() dto: any) {
+    return this.service.encerrarSuporte(u, dto?.sessaoId);
   }
 
   // Telemetria — Diretoria + Técnico (Financeiro não vê logs técnicos).

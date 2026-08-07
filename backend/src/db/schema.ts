@@ -17,6 +17,21 @@ import {
 // Espelha as tabelas das migrations (Fase 0). Cresce por fatia,
 // conforme cada módulo passa a ser implementado.
 
+// Sessão de SUPORTE (F9, mig 170): técnico da distribuição acessa uma loja por
+// tempo limitado, escopado e auditado. Cloud-only.
+export const suporteSessao = pgTable('suporte_sessao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  tecnicoId: uuid('tecnico_id').notNull(), // usuario_distribuicao.id
+  tecnicoNome: text('tecnico_nome'),
+  motivo: text('motivo'),
+  ip: text('ip'),
+  iniciadaEm: timestamp('iniciada_em', { withTimezone: true }).notNull().defaultNow(),
+  expiraEm: timestamp('expira_em', { withTimezone: true }).notNull(),
+  encerradaEm: timestamp('encerrada_em', { withTimezone: true }),
+  encerradaPor: text('encerrada_por'), // 'expirou' | 'tecnico' | 'loja'
+});
+
 export const empresa = pgTable('empresa', {
   id: uuid('id').primaryKey().defaultRandom(),
   nome: text('nome').notNull(),
@@ -28,6 +43,8 @@ export const empresa = pgTable('empresa', {
   trialAte: timestamp('trial_ate', { withTimezone: true }),
   // Distribuidor (DMS/revenda): só true acessa o /frota (emitir licença/ativação).
   isDistribuidor: boolean('is_distribuidor').notNull().default(false),
+  // Consentimento de suporte (F9): true = a loja BLOQUEIA acesso de técnico (mig 170).
+  suporteBloqueado: boolean('suporte_bloqueado').notNull().default(false),
   // Assinatura Stripe (G-6b). O "válido até" fica no trial_ate (fim do período pago).
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
@@ -758,7 +775,9 @@ export const equipamento = pgTable('equipamento', {
   lastPushSeq: integer('last_push_seq'), // último seq de push aceito (anti-omissão de sync, mig 154)
   lastPushTs: timestamp('last_push_ts', { withTimezone: true }), // maior ts de push visto (anti-rollback de relógio, mig 157)
   escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
-  papel: text('papel'), // impressora: producao | cupom (via do cliente)
+  papel: text('papel'), // impressora: producao | cupom (compat; roteamento usa os flags abaixo — mig 167)
+  fazCupom: boolean('faz_cupom').notNull().default(false), // imprime a via do cliente (cupom) — mig 167
+  fazProducao: boolean('faz_producao').notNull().default(false), // imprime produção (cozinha/setores) — mig 167
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
   conexao: text('conexao').notNull().default('rede'), // impressora: 'rede' (IP:porta) | 'local' (USB/Windows)
   host: text('host'), // IP da impressora de rede (conexao='rede')
@@ -766,7 +785,9 @@ export const equipamento = pgTable('equipamento', {
   dispositivo: text('dispositivo'), // nome da impressora no Windows (conexao='local')
   largura: integer('largura').notNull().default(80), // 58 | 80 (mm) — impressora
   setoresAtendidos: jsonb('setores_atendidos').notNull().default('[]'), // [setor_id,...] (impressora)
-  vias: integer('vias').notNull().default(1), // nº de vias (impressora)
+  vias: integer('vias').notNull().default(1), // nº de vias (impressora) — legado/fallback
+  viasCliente: integer('vias_cliente'), // nº de vias do cupom do cliente (mig 168); null = herda `vias`
+  viasProducao: integer('vias_producao'), // nº de vias da produção (mig 168); null = herda `vias`
   impressoraPadraoId: uuid('impressora_padrao_id'), // terminal PDV: impressora de cupom amarrada
   // KDS — impressão guiada por etapa (mig 129): o ticket só sai quando o pedido
   // AVANÇA para `imprimeNoStatus` neste KDS, indo para `impressoraDestinoId`.
@@ -1577,6 +1598,7 @@ export const complemento = pgTable('complemento', {
   max: integer('max'),
   canais: jsonb('canais').notNull().default('["delivery","balcao","mesa_publico","mesa_interno"]'),
   ativo: boolean('ativo').notNull().default(true),
+  imprimeEtiqueta: boolean('imprime_etiqueta').notNull().default(false), // gera etiqueta do item (mig 168, Fase 5)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }), // soft-delete p/ sync (P3)
@@ -1922,6 +1944,9 @@ export const deliveryConfig = pgTable('delivery_config', {
   // — { caixa: { campos: [{key,visivel,negrito,alinhamento}...] }, ... }. Vazio = padrão
   // (CUPOM_PERFIS_PADRAO). Cabeçalho/rodapé continuam livres (cupom_layout).
   cupomPerfis: jsonb('cupom_perfis').notNull().default('{}'),
+  // Adiar a via de produção até o pedido avançar no KDS (mig 169, Fase 6): em vez
+  // de imprimir no registro, imprime só ao avançar num KDS com imprime_ao_avancar.
+  adiarProducaoAteKds: boolean('adiar_producao_ate_kds').notNull().default(false),
   // QR de despacho: ligado, o entregador lê o QR do cupom e despacha sozinho;
   // desligado, o AVANÇAR abre o modal de seleção de entregador (mig 165).
   qrDespacho: boolean('qr_despacho').notNull().default(false),

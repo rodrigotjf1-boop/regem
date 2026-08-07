@@ -205,6 +205,16 @@ export class EquipamentoService {
         mac: dto.mac,
         escopo: dto.escopo ?? 'producao',
         papel: dto.papel,
+        // Papel múltiplo (mig 167): usa os flags se vierem; senão deriva do papel
+        // (compat com clientes antigos que só mandam `papel`).
+        fazCupom:
+          dto.tipo === 'impressora'
+            ? (dto.fazCupom ?? dto.papel === 'cupom')
+            : undefined,
+        fazProducao:
+          dto.tipo === 'impressora'
+            ? (dto.fazProducao ?? (dto.papel === 'producao' || dto.papel == null))
+            : undefined,
         setorId: dto.setorId,
         // Impressora: conexão rede (IP:porta) ou local (USB/Windows por nome).
         conexao: dto.tipo === 'impressora' ? (dto.conexao === 'local' ? 'local' : 'rede') : undefined,
@@ -429,6 +439,31 @@ export class EquipamentoService {
     return this.publico(row);
   }
 
+  // Papel múltiplo da impressora (mig 167): só liga/desliga cupom/produção.
+  async setPapeisImpressora(
+    tenantId: string,
+    id: string,
+    dto: { fazCupom?: boolean; fazProducao?: boolean },
+  ) {
+    const set: { fazCupom?: boolean; fazProducao?: boolean } = {};
+    if (dto.fazCupom != null) set.fazCupom = !!dto.fazCupom;
+    if (dto.fazProducao != null) set.fazProducao = !!dto.fazProducao;
+    if (!Object.keys(set).length) throw new BadRequestException('Nada para alterar.');
+    const [row] = await this.db
+      .update(equipamento)
+      .set(set)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.id, id),
+          eq(equipamento.tipo, 'impressora'),
+        ),
+      )
+      .returning();
+    if (!row) throw new NotFoundException('Impressora não encontrada.');
+    return this.publico(row);
+  }
+
   private publico(r: any) {
     return {
       id: r.id,
@@ -439,6 +474,8 @@ export class EquipamentoService {
       mac: r.mac,
       escopo: r.escopo,
       papel: r.papel,
+      fazCupom: !!r.fazCupom, // papel múltiplo (mig 167)
+      fazProducao: !!r.fazProducao,
       conexao: r.conexao ?? 'rede',
       host: r.host,
       porta: r.porta,
@@ -447,6 +484,8 @@ export class EquipamentoService {
       largura: r.largura,
       setoresAtendidos: r.setoresAtendidos ?? [],
       vias: r.vias,
+      viasCliente: r.viasCliente ?? null, // vias por tipo (mig 168)
+      viasProducao: r.viasProducao ?? null,
       padrao: r.padrao,
       impressoraPadraoId: r.impressoraPadraoId ?? null,
       // KDS — impressão guiada por etapa (mig 129).
@@ -474,9 +513,15 @@ export class EquipamentoService {
   // Cria ou edita uma impressora. papel: 'cupom' (caixa) | 'producao' (cozinha).
   async salvarImpressora(tenantId: string, dto: any) {
     const local = dto.conexao === 'local';
+    // Papel múltiplo (mig 167): usa os flags; se não vierem, deriva do papel legado.
+    const fazCupom = dto.fazCupom != null ? !!dto.fazCupom : dto.papel !== 'producao';
+    const fazProducao = dto.fazProducao != null ? !!dto.fazProducao : dto.papel === 'producao';
     const vals = {
       nome: (dto.nome ?? '').trim() || 'Impressora',
-      papel: dto.papel === 'producao' ? 'producao' : 'cupom',
+      // `papel` só por compat/exibição; o roteamento lê fazCupom/fazProducao.
+      papel: fazProducao && !fazCupom ? 'producao' : 'cupom',
+      fazCupom,
+      fazProducao,
       setorId: dto.setorId || null,
       conexao: local ? 'local' : 'rede',
       // Rede → host:porta; Local → nome da impressora no Windows (limpa o outro par).
@@ -487,6 +532,9 @@ export class EquipamentoService {
       setoresAtendidos: Array.isArray(dto.setoresAtendidos) ? dto.setoresAtendidos : [],
       padrao: !!dto.padrao,
       vias: Math.max(1, Number(dto.vias) || 1),
+      // Vias por tipo (mig 168): null = herda `vias`. Só grava se veio número > 0.
+      viasCliente: dto.viasCliente != null && Number(dto.viasCliente) > 0 ? Number(dto.viasCliente) : null,
+      viasProducao: dto.viasProducao != null && Number(dto.viasProducao) > 0 ? Number(dto.viasProducao) : null,
       ativo: dto.ativo != null ? !!dto.ativo : true,
     };
     if (dto.id) {

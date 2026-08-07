@@ -13,4 +13,6 @@ export interface AuthUser {
   // Exibição (menu inferior): nome do responsável + rótulo da função.
   nome?: string | null;
   funcaoNome?: string | null;
+  // Sessão de suporte (F9): presente só quando categoria='suporte' (técnico da distribuição).
+  suporte?: { sessaoId: string; tecnicoId: string; nome?: string | null };
 }

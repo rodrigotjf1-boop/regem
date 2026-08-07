@@ -589,6 +589,16 @@ export function ConfigPanel({
                 {/* IMPRESSORAS */}
                 {sec === 'impressoras' && (
                   <div className="space-y-4">
+                    <div className="rounded-lg border border-border p-3">
+                      <label className="flex items-start gap-2 text-sm">
+                        <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" disabled={!isGestor}
+                          checked={!!deliveryCfg?.adiarProducaoAteKds}
+                          onChange={(e) => onDeliveryToggle({ adiarProducaoAteKds: e.target.checked })} />
+                        <span>Imprimir a produção só ao avançar no KDS
+                          <span className="block text-[11px] text-muted-foreground">Por padrão a via de produção sai ao registrar o pedido. Ligado, ela sai apenas quando o pedido avança no KDS que imprime na etapa (ex.: só no despacho). Se nenhum KDS estiver com “imprimir ao avançar”, a via sai no registro mesmo (não perde o ticket).</span>
+                        </span>
+                      </label>
+                    </div>
                     <CupomLayoutEditor cfg={deliveryCfg} onSave={onDeliveryToggle} pode={isGestor} />
                     <CupomPerfilEditor onSave={onDeliveryToggle} pode={isGestor} />
                     <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
@@ -1828,84 +1838,224 @@ const CUPOM_MOCK: Record<string, string[]> = {
   cobrarCliente: ['COBRAR R$ 32,00'],
   bandeiras: ['Bandeira: Visa'],
   qrcode: ['[   QR CODE   ]'],
+  // Fase 3a — campos de produção / totem / caixa
+  origemPedido: ['Totem - autoatendimento'],
+  mesa: ['MESA 4'],
+  emitidoDe: ['Emitido: Salao 2'],
+  tipoMovimento: ['*** SANGRIA ***'],
+  valorMovimento: ['Valor: R$ 100,00'],
+  motivo: ['Motivo: troco'],
+  autorizadoPor: ['Autorizado: Gerente'],
+  turno: ['Turno 1'],
+  terminal: ['PDV Caixa 1'],
+  aberturaValor: ['Abertura: R$ 150,00'],
+  totalPorForma: ['Dinheiro: R$ 500,00', 'Cartao: R$ 800,00', 'Pix: R$ 300,00'],
+  sangriasTotal: ['Sangrias: -R$ 200,00'],
+  suprimentosTotal: ['Suprimentos: +R$ 50,00'],
+  esperado: ['Esperado: R$ 1.300,00'],
+  informado: ['Informado: R$ 1.290,00'],
+  diferenca: ['Diferenca: -R$ 10,00'],
+  assinatura: ['______________________'],
 };
+
+const GRUPO_LABEL: Record<string, string> = { cliente: 'Cliente', producao: 'Produção', caixa: 'Caixa', custom: 'Personalizados' };
 
 function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: boolean }) {
   const [perfis, setPerfis] = useState<any[]>([]);
-  const [sel, setSel] = useState<'caixa' | 'entregador' | 'producao'>('caixa');
+  const [campos, setCampos] = useState<{ key: string; label: string; grupo: string }[]>([]);
+  const [sel, setSel] = useState<string>('caixa');
   const [salvo, setSalvo] = useState(true);
   useEffect(() => {
-    api.cupomPerfis().then((r: any) => setPerfis(r?.perfis ?? [])).catch(() => {});
+    api.cupomPerfis().then((r: any) => { setPerfis(r?.perfis ?? []); setCampos(r?.campos ?? []); }).catch(() => {});
   }, []);
   const perfil = perfis.find((p) => p.id === sel);
-  function mudarCampo(idx: number, patch: any) {
-    setPerfis((ps) => ps.map((p) => (p.id !== sel ? p : { ...p, campos: p.campos.map((c: any, i: number) => (i === idx ? { ...c, ...patch } : c)) })));
+  const ehCustom = !!perfil?.custom;
+
+  function mudarPerfil(fn: (p: any) => any) {
+    setPerfis((ps) => ps.map((p) => (p.id !== sel ? p : fn(p))));
     setSalvo(false);
   }
+  const mudarCampo = (idx: number, patch: any) =>
+    mudarPerfil((p) => ({ ...p, campos: p.campos.map((c: any, i: number) => (i === idx ? { ...c, ...patch } : c)) }));
   function mover(idx: number, dir: number) {
-    setPerfis((ps) => ps.map((p) => {
-      if (p.id !== sel) return p;
-      const campos = [...p.campos];
-      const j = idx + dir;
-      if (j < 0 || j >= campos.length) return p;
-      [campos[idx], campos[j]] = [campos[j], campos[idx]];
-      return { ...p, campos };
-    }));
-    setSalvo(false);
+    mudarPerfil((p) => {
+      const cs = [...p.campos]; const j = idx + dir;
+      if (j < 0 || j >= cs.length) return p;
+      [cs[idx], cs[j]] = [cs[j], cs[idx]];
+      return { ...p, campos: cs };
+    });
   }
+  // ── Custom: criar / duplicar / renomear / excluir / add-remove campo ──────────
+  function novoId() { return 'custom_' + Date.now().toString(36); }
+  function criarCustom() {
+    const id = novoId();
+    const novo = { id, nome: 'Novo perfil', descricao: 'Cupom personalizado', grupo: 'cliente', custom: true, campos: [] };
+    setPerfis((ps) => [...ps, novo]); setSel(id); setSalvo(false);
+  }
+  function duplicar() {
+    if (!perfil) return;
+    const id = novoId();
+    const novo = { id, nome: `${perfil.nome} (cópia)`, descricao: perfil.descricao, grupo: perfil.grupo, custom: true, campos: perfil.campos.map((c: any) => ({ ...c, fixo: false })) };
+    setPerfis((ps) => [...ps, novo]); setSel(id); setSalvo(false);
+  }
+  function excluir() {
+    if (!ehCustom) return;
+    setPerfis((ps) => ps.filter((p) => p.id !== sel)); setSel('caixa'); setSalvo(false);
+  }
+  const addCampo = (key: string) => {
+    const cat = campos.find((c) => c.key === key); if (!cat) return;
+    mudarPerfil((p) => ({ ...p, campos: [...p.campos, { key, label: cat.label, visivel: true, negrito: false, alinhamento: 'esquerda' }] }));
+  };
+  // Fase 4 — inserir elemento de layout (linha em branco / tracejada) em qualquer perfil.
+  const addPseudo = (key: '_espaco' | '_tracejado') => {
+    const label = key === '_espaco' ? 'Linha em branco' : 'Linha tracejada';
+    mudarPerfil((p) => ({ ...p, campos: [...p.campos, { key, label, visivel: true, negrito: false, alinhamento: 'esquerda' }] }));
+  };
+  const removerCampo = (idx: number) => mudarPerfil((p) => ({ ...p, campos: p.campos.filter((_: any, i: number) => i !== idx) }));
+
   function salvar() {
-    const overrides = Object.fromEntries(
-      perfis.map((p) => [p.id, { campos: p.campos.map((c: any) => ({ key: c.key, visivel: c.visivel, negrito: c.negrito, alinhamento: c.alinhamento })) }]),
-    );
-    onSave({ cupomPerfis: overrides });
+    const overrides: any = {}; const custom: any[] = [];
+    for (const p of perfis) {
+      const cs = p.campos.map((c: any) => ({
+        key: c.key, visivel: c.visivel, negrito: c.negrito, alinhamento: c.alinhamento,
+        ...(c.tamanho === 'grande' ? { tamanho: 'grande' } : {}),
+        ...(c.agrupado ? { agrupado: true } : {}),
+      }));
+      if (p.custom) custom.push({ id: p.id, nome: p.nome, descricao: p.descricao, grupo: p.grupo, campos: cs });
+      else overrides[p.id] = { campos: cs };
+    }
+    onSave({ cupomPerfis: { ...overrides, _custom: custom } });
     setSalvo(true);
   }
-  const linhasPreview = !perfil
-    ? []
-    : perfil.campos
-        .filter((c: any) => c.visivel)
-        .flatMap((c: any) => (CUPOM_MOCK[c.key] ?? [c.label]).map((t: string) => ({ txt: alinharCupom(t, c.alinhamento), bold: c.negrito })));
+
+  const linhasPreview = (() => {
+    const out: { txt: string; bold: boolean; grande: boolean; raw?: string }[] = [];
+    for (const c of perfil?.campos ?? []) {
+      if (!c.visivel) continue;
+      let mock: string[];
+      if (c.key === '_espaco') mock = [''];
+      else if (c.key === '_tracejado') mock = ['-'.repeat(CUPOM_LARGURA)];
+      else mock = CUPOM_MOCK[c.key] ?? [c.label];
+      // Agrupar: junta com a linha anterior (esq | dir).
+      if (c.agrupado && out.length && mock.length === 1) {
+        const p = out[out.length - 1];
+        const left = p.raw ?? p.txt; const right = mock[0];
+        p.txt = left.length + right.length >= CUPOM_LARGURA
+          ? `${left} ${right}`.slice(0, CUPOM_LARGURA)
+          : left + ' '.repeat(CUPOM_LARGURA - left.length - right.length) + right;
+        p.bold = p.bold || c.negrito; p.grande = false; p.raw = undefined;
+        continue;
+      }
+      for (const t of mock) out.push({ txt: alinharCupom(t, c.alinhamento), raw: t, bold: c.negrito, grande: c.tamanho === 'grande' });
+    }
+    return out;
+  })();
+  const camposDisponiveis = campos.filter((c) => !(perfil?.campos ?? []).some((x: any) => x.key === c.key));
+  // Agrupa as abas por grupo (custom por último).
+  const grupos = ['cliente', 'producao', 'caixa', 'custom'] as const;
+  const porGrupo = (g: string) => perfis.filter((p) => (p.custom ? 'custom' : p.grupo) === g);
 
   return (
     <div className="rounded-lg border border-border p-3">
-      <p className="font-display text-sm font-bold">Perfis de cupom</p>
-      <p className="mb-3 text-[11px] text-muted-foreground">Escolha o que aparece em cada cupom, a ordem, o alinhamento e o negrito. Cabeçalho e rodapé ficam no editor acima.</p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-display text-sm font-bold">Perfis de cupom</p>
+        {pode && (
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={duplicar} disabled={!perfil} className="rounded-md border border-border px-2 py-1 text-[11px] disabled:opacity-40">Duplicar</button>
+            <button type="button" onClick={criarCustom} className="rounded-md border border-primary bg-primary/10 px-2 py-1 text-[11px] text-primary">＋ Novo perfil</button>
+          </div>
+        )}
+      </div>
+      <p className="mb-3 text-[11px] text-muted-foreground">Escolha o que aparece em cada cupom, a ordem, o alinhamento e o negrito. Perfis personalizados podem puxar qualquer campo. Cabeçalho e rodapé ficam no editor acima.</p>
 
-      {/* Abas de perfil */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {perfis.map((p) => (
-          <button key={p.id} type="button" onClick={() => setSel(p.id)}
-            className={`rounded-md px-2.5 py-1 text-xs font-semibold ${sel === p.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
-            {p.nome}
-          </button>
+      {/* Abas por grupo */}
+      <div className="mb-3 space-y-1.5">
+        {grupos.map((g) => porGrupo(g).length === 0 ? null : (
+          <div key={g} className="flex flex-wrap items-center gap-1.5">
+            <span className="w-16 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{GRUPO_LABEL[g]}</span>
+            {porGrupo(g).map((p) => (
+              <button key={p.id} type="button" onClick={() => setSel(p.id)}
+                className={`rounded-md px-2.5 py-1 text-xs font-semibold ${sel === p.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'}`}>
+                {p.nome}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
-      {perfil?.descricao && <p className="mb-2 text-[11px] text-muted-foreground">{perfil.descricao}</p>}
+
+      {/* Cabeçalho do perfil selecionado (nome editável se custom) */}
+      {ehCustom && pode ? (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <input value={perfil.nome} onChange={(e) => mudarPerfil((p) => ({ ...p, nome: e.target.value }))}
+            className="h-7 rounded border border-input bg-card px-2 text-xs" aria-label="Nome do perfil" maxLength={40} />
+          <select value={perfil.grupo} onChange={(e) => mudarPerfil((p) => ({ ...p, grupo: e.target.value }))}
+            className="h-7 rounded border border-input bg-card px-1 text-[11px]" aria-label="Grupo">
+            <option value="cliente">Cliente</option>
+            <option value="producao">Produção</option>
+            <option value="caixa">Caixa</option>
+          </select>
+          <button type="button" onClick={excluir} className="ml-auto rounded border border-destructive/40 px-2 py-1 text-[11px] text-destructive">Excluir</button>
+        </div>
+      ) : (
+        perfil?.descricao && <p className="mb-2 text-[11px] text-muted-foreground">{perfil.descricao}</p>
+      )}
 
       <div className="grid gap-3 lg:grid-cols-[1fr_260px]">
         {/* Editor de campos */}
         <div className="space-y-1.5">
-          {(perfil?.campos ?? []).map((c: any, i: number) => (
-            <div key={c.key} className={`flex flex-wrap items-center gap-2 rounded-md border border-border px-2 py-1.5 text-xs ${c.visivel ? '' : 'opacity-50'}`}>
-              <label className="flex items-center gap-1" title="Mostrar no cupom">
-                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={c.visivel} disabled={!pode || c.fixo}
-                  onChange={(e) => mudarCampo(i, { visivel: e.target.checked })} />
-              </label>
-              <span className="min-w-0 flex-1 truncate">{c.label}{c.fixo && <span className="ml-1 text-[10px] text-muted-foreground">(sempre)</span>}</span>
-              <button type="button" title="Negrito" disabled={!pode} onClick={() => mudarCampo(i, { negrito: !c.negrito })}
-                className={`h-6 w-6 rounded border font-bold ${c.negrito ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>N</button>
-              <select aria-label="Alinhamento" disabled={!pode} value={c.alinhamento} onChange={(e) => mudarCampo(i, { alinhamento: e.target.value })}
-                className="h-6 rounded border border-input bg-card px-1 text-[11px]">
-                <option value="esquerda">⟵ Esq</option>
-                <option value="centro">↔ Centro</option>
-                <option value="direita">Dir ⟶</option>
-              </select>
+          {(perfil?.campos ?? []).map((c: any, i: number) => {
+            const pseudo = c.key === '_espaco' || c.key === '_tracejado';
+            const podeRemover = pode && (ehCustom || pseudo);
+            const ultimo = i === (perfil?.campos.length ?? 0) - 1;
+            const setas = (
               <div className="flex">
                 <button type="button" disabled={!pode || i === 0} onClick={() => mover(i, -1)} className="rounded border border-border px-1 disabled:opacity-30">↑</button>
-                <button type="button" disabled={!pode || i === (perfil?.campos.length ?? 0) - 1} onClick={() => mover(i, 1)} className="rounded border border-border px-1 disabled:opacity-30">↓</button>
+                <button type="button" disabled={!pode || ultimo} onClick={() => mover(i, 1)} className="rounded border border-border px-1 disabled:opacity-30">↓</button>
               </div>
+            );
+            if (pseudo) return (
+              <div key={i} className="flex items-center gap-2 rounded-md border border-dashed border-border px-2 py-1.5 text-xs italic text-muted-foreground">
+                <span className="flex-1">— {c.key === '_espaco' ? 'linha em branco' : 'linha tracejada'} —</span>
+                {setas}
+                {podeRemover && <button type="button" title="Remover" onClick={() => removerCampo(i)} className="rounded border border-destructive/40 px-1 text-destructive">✕</button>}
+              </div>
+            );
+            return (
+              <div key={i} className={`flex flex-wrap items-center gap-1.5 rounded-md border border-border px-2 py-1.5 text-xs ${c.visivel ? '' : 'opacity-50'}`}>
+                <input type="checkbox" className="h-3.5 w-3.5 accent-primary" title="Mostrar no cupom" checked={c.visivel} disabled={!pode || c.fixo}
+                  onChange={(e) => mudarCampo(i, { visivel: e.target.checked })} />
+                <span className="min-w-0 flex-1 truncate">{c.label}{c.fixo && <span className="ml-1 text-[10px] text-muted-foreground">(sempre)</span>}</span>
+                <button type="button" title="Negrito" disabled={!pode} onClick={() => mudarCampo(i, { negrito: !c.negrito })}
+                  className={`h-6 w-6 rounded border font-bold ${c.negrito ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>N</button>
+                <button type="button" title="Fonte grande" disabled={!pode} onClick={() => mudarCampo(i, { tamanho: c.tamanho === 'grande' ? 'normal' : 'grande' })}
+                  className={`h-6 rounded border px-1 font-bold ${c.tamanho === 'grande' ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'}`}>A⁺</button>
+                <button type="button" title="Juntar com a linha de cima (esquerda | direita)" disabled={!pode || i === 0} onClick={() => mudarCampo(i, { agrupado: !c.agrupado })}
+                  className={`h-6 rounded border px-1 ${c.agrupado ? 'border-primary bg-primary/15 text-primary' : 'border-border text-muted-foreground'} disabled:opacity-30`}>⊟</button>
+                <select aria-label="Alinhamento" disabled={!pode} value={c.alinhamento} onChange={(e) => mudarCampo(i, { alinhamento: e.target.value })}
+                  className="h-6 rounded border border-input bg-card px-1 text-[11px]">
+                  <option value="esquerda">⟵ Esq</option>
+                  <option value="centro">↔ Centro</option>
+                  <option value="direita">Dir ⟶</option>
+                </select>
+                {setas}
+                {podeRemover && <button type="button" title="Remover campo" onClick={() => removerCampo(i)} className="rounded border border-destructive/40 px-1 text-destructive">✕</button>}
+              </div>
+            );
+          })}
+          {pode && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+              <button type="button" onClick={() => addPseudo('_espaco')} className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground">＋ linha em branco</button>
+              <button type="button" onClick={() => addPseudo('_tracejado')} className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground">＋ linha tracejada</button>
+              {ehCustom && (
+                <select aria-label="Adicionar campo" value="" onChange={(e) => { if (e.target.value) addCampo(e.target.value); }}
+                  className="h-7 flex-1 rounded border border-input bg-card px-2 text-[11px]">
+                  <option value="">＋ adicionar campo…</option>
+                  {camposDisponiveis.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                </select>
+              )}
             </div>
-          ))}
+          )}
+          {(perfil?.campos ?? []).length === 0 && <p className="text-[11px] text-muted-foreground">Nenhum campo — adicione abaixo.</p>}
         </div>
 
         {/* Prévia ao vivo */}
@@ -1913,7 +2063,7 @@ function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: b
           <p className="mb-1 text-[11px] font-semibold text-muted-foreground">Prévia</p>
           <div className="rounded-md border border-border bg-white p-2 font-mono text-[11px] leading-tight text-black">
             {linhasPreview.map((l: any, i: number) => (
-              <div key={i} className="whitespace-pre" style={{ fontWeight: l.bold ? 700 : 400 }}>{l.txt || ' '}</div>
+              <div key={i} className="whitespace-pre" style={{ fontWeight: l.bold ? 700 : 400, fontSize: l.grande ? '1.5em' : undefined, lineHeight: l.grande ? 1.1 : undefined }}>{l.txt || ' '}</div>
             ))}
             {linhasPreview.length === 0 && <div className="text-muted-foreground">—</div>}
           </div>
@@ -1944,7 +2094,10 @@ function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any
       conexao: r.conexao ?? 'rede',
       host: local ? null : r.host, porta: local ? null : r.porta,
       dispositivo: local ? r.dispositivo || null : null,
-      vias: r.vias, ativo: r.ativo,
+      vias: r.vias,
+      viasCliente: r.viasCliente === '' || r.viasCliente == null ? null : Number(r.viasCliente),
+      viasProducao: r.viasProducao === '' || r.viasProducao == null ? null : Number(r.viasProducao),
+      ativo: r.ativo,
     });
   }
   return (
@@ -1997,8 +2150,12 @@ function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lista: any
               </div>
             )}
             <div>
-              <Label className="text-[11px]">Vias</Label>
-              <Input inputMode="numeric" value={r.vias ?? 1} onChange={(e) => up(i, { vias: e.target.value })} className="h-8 w-20" disabled={!pode} />
+              <Label className="text-[11px]">Vias — cupom / produção</Label>
+              <div className="flex items-center gap-1">
+                <Input inputMode="numeric" value={r.viasCliente ?? ''} onChange={(e) => up(i, { viasCliente: e.target.value })} placeholder="cupom" title="Vias do cupom do cliente (vazio = padrão)" className="h-8 w-16" disabled={!pode} />
+                <span className="text-muted-foreground">/</span>
+                <Input inputMode="numeric" value={r.viasProducao ?? ''} onChange={(e) => up(i, { viasProducao: e.target.value })} placeholder="prod." title="Vias da produção (vazio = padrão)" className="h-8 w-16" disabled={!pode} />
+              </div>
             </div>
           </div>
           {pode && (

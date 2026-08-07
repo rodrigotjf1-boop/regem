@@ -66,6 +66,7 @@ export class ProdutoController {
 
   @Put('direcionamento')
   @Roles(...GESTOR)
+  @RequirePerm('direcionamento_impressao')
   setDirecionamento(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setDirecionamentoLote(
       user.tenantId,

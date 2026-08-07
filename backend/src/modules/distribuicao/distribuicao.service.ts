@@ -10,6 +10,8 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { gerarSegredoBase32, verificarTotp, otpauthUri } from './totp';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -24,20 +26,27 @@ export class DistribuicaoService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly jwt: JwtService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   private segredo(): string {
     return process.env.DIST_JWT_SECRET || process.env.JWT_SECRET || '';
   }
 
-  async login(email: string, senha: string, ip?: string) {
+  async login(email: string, senha: string, codigo?: string, ip?: string) {
     const e = String(email ?? '').trim().toLowerCase();
     const r: any = await this.db.execute(sql`
-      select id, nome, email, senha_hash as "senhaHash", perfil, ativo
+      select id, nome, email, senha_hash as "senhaHash", perfil, ativo,
+             totp_secret as "totpSecret", totp_ativo as "totpAtivo"
       from usuario_distribuicao where lower(email) = ${e} limit 1`);
     const u = (r.rows ?? r)[0];
     if (!u || !u.ativo || !(await bcrypt.compare(String(senha ?? ''), u.senhaHash))) {
       throw new UnauthorizedException('Credenciais inválidas.');
+    }
+    // MFA (F9.5): se o 2º fator está ativo, exige o código TOTP.
+    if (u.totpAtivo) {
+      if (!codigo) return { mfaRequerido: true };
+      if (!verificarTotp(u.totpSecret, codigo)) throw new UnauthorizedException('Código de verificação inválido.');
     }
     const access_token = this.jwt.sign(
       { sub: u.id, escopo: 'distribuicao', perfil: u.perfil, nome: u.nome },
@@ -45,6 +54,31 @@ export class DistribuicaoService {
     );
     await this.auditar(u, 'login', null, {}, ip);
     return { access_token, usuario: { id: u.id, nome: u.nome, email: u.email, perfil: u.perfil } };
+  }
+
+  // MFA (F9.5) — inicia o cadastro do 2º fator: gera um segredo (inativo até
+  // confirmar) e devolve o otpauth:// para o QR + o segredo p/ digitação manual.
+  async mfaIniciar(distUser: any) {
+    const r: any = await this.db.execute(sql`
+      select nome, email, totp_secret as "totpSecret", totp_ativo as "totpAtivo"
+      from usuario_distribuicao where id = ${distUser.sub} limit 1`);
+    const u = (r.rows ?? r)[0];
+    if (u?.totpAtivo) return { ja: true };
+    const secret = gerarSegredoBase32();
+    await this.db.execute(sql`update usuario_distribuicao set totp_secret = ${secret}, totp_ativo = false where id = ${distUser.sub}`);
+    return { ja: false, secret, uri: otpauthUri(secret, u?.email || u?.nome || distUser.sub) };
+  }
+
+  // Confirma o código do app autenticador e ATIVA o MFA.
+  async mfaConfirmar(distUser: any, codigo: string) {
+    const r: any = await this.db.execute(sql`
+      select totp_secret as "totpSecret" from usuario_distribuicao where id = ${distUser.sub} limit 1`);
+    const secret = (r.rows ?? r)[0]?.totpSecret;
+    if (!secret) throw new BadRequestException('Inicie a configuração do MFA primeiro.');
+    if (!verificarTotp(secret, codigo)) throw new BadRequestException('Código inválido — confira o app e tente de novo.');
+    await this.db.execute(sql`update usuario_distribuicao set totp_ativo = true where id = ${distUser.sub}`);
+    await this.auditar(distUser, 'mfa_ativado', distUser.sub, {}, undefined);
+    return { ok: true };
   }
 
   async porId(id: string) {
@@ -283,6 +317,62 @@ export class DistribuicaoService {
       );
     }
     await this.auditar(autor, `integracao_${status}`, integracaoId);
+    return { ok: true };
+  }
+
+  // ===== F9 — Sessão de SUPORTE (impersonação escopada e auditada) =====
+  private static readonly SUPORTE_TTL_MIN = 30;
+
+  // Inicia uma sessão de suporte numa loja: valida consentimento, cria a sessão,
+  // AUDITA NA LOJA (trilha imutável que o presidente vê) e emite um token de suporte
+  // curto assinado com o SECRET DA LOJA (JwtAuthGuard aceita), cat='suporte'.
+  async iniciarSuporte(distUser: any, tenantId: string, motivo?: string, ip?: string) {
+    if (!tenantId) throw new BadRequestException('Informe a loja.');
+    const empRes: any = await this.db.execute(sql`
+      select id, nome, status, suporte_bloqueado as "bloq" from empresa where id = ${tenantId} limit 1`);
+    const loja = (empRes.rows ?? empRes)[0];
+    if (!loja) throw new BadRequestException('Loja não encontrada.');
+    if (loja.bloq) throw new ForbiddenException('Esta loja bloqueou o acesso de suporte.');
+
+    const ins: any = await this.db.execute(sql`
+      insert into suporte_sessao (tenant_id, tecnico_id, tecnico_nome, motivo, ip, expira_em)
+      values (${tenantId}, ${distUser.sub}, ${distUser.nome ?? null}, ${motivo ?? null}, ${ip ?? null},
+              now() + make_interval(mins => ${DistribuicaoService.SUPORTE_TTL_MIN}))
+      returning id, expira_em as "expiraEm"`);
+    const sessao = (ins.rows ?? ins)[0];
+
+    // Auditoria NA LOJA (hash-chain, actor_tipo='suporte') + na distribuição.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: distUser.sub,
+      atorPerfil: distUser.perfil,
+      atorTipo: 'suporte',
+      tipo: 'acessos',
+      acao: 'suporte_iniciado',
+      origem: 'suporte',
+      detalhe: { tecnico: distUser.nome, motivo: motivo ?? null, sessao: sessao.id },
+    });
+    await this.auditar(distUser, 'suporte_iniciado', tenantId, { sessao: sessao.id, motivo }, ip);
+
+    const token = this.jwt.sign(
+      { sub: `sup:${distUser.sub}`, tenant: tenantId, cat: 'suporte', sessao: sessao.id, impBy: distUser.sub, nome: distUser.nome ?? 'Suporte' },
+      { secret: process.env.JWT_SECRET || '', expiresIn: `${DistribuicaoService.SUPORTE_TTL_MIN}m` },
+    );
+    return { token, sessaoId: sessao.id, expiraEm: sessao.expiraEm, loja: { id: loja.id, nome: loja.nome } };
+  }
+
+  // Encerra a sessão (técnico saiu / expirou / loja revogou).
+  async encerrarSuporte(distUser: any, sessaoId: string, por = 'tecnico') {
+    const r: any = await this.db.execute(sql`
+      update suporte_sessao set encerrada_em = now(), encerrada_por = ${por}
+      where id = ${sessaoId} and encerrada_em is null returning tenant_id as "tenantId"`);
+    const row = (r.rows ?? r)[0];
+    if (row) {
+      await this.auditoria.registrar({
+        tenantId: row.tenantId, atorId: distUser?.sub, atorPerfil: distUser?.perfil, atorTipo: 'suporte',
+        tipo: 'acessos', acao: 'suporte_encerrado', origem: 'suporte', detalhe: { sessao: sessaoId, por },
+      }).catch(() => undefined);
+    }
     return { ok: true };
   }
 

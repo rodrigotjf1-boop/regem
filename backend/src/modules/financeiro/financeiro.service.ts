@@ -21,6 +21,7 @@ import {
   tipoOcorrencia,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { proximaData } from '../../common/regras-negocio';
 import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
@@ -37,7 +38,25 @@ export class FinanceiroService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    private readonly producao: ProducaoPedidoService,
   ) {}
+
+  // Nome do operador e do terminal (para os cupons de caixa). Best-effort.
+  private async dadosOperadorTerminal(atorId: string, terminalId?: string | null) {
+    const [op] = await this.db
+      .select({ nome: colaborador.nome })
+      .from(colaborador)
+      .where(eq(colaborador.id, atorId));
+    let terminal: string | undefined;
+    if (terminalId) {
+      const [t] = await this.db
+        .select({ nome: equipamento.nome })
+        .from(equipamento)
+        .where(eq(equipamento.id, terminalId));
+      terminal = t?.nome;
+    }
+    return { operador: op?.nome, terminal };
+  }
 
   async listar(tenantId: string, tipo?: string, status?: string, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
@@ -670,6 +689,21 @@ export class FinanceiroService {
       descricao: dto.descricao,
       criadoPorId: atorId,
     });
+    // Cupom de sangria/suprimento (Fase 3) — best-effort: não quebra a operação.
+    try {
+      const { operador, terminal } = await this.dadosOperadorTerminal(atorId, dto.terminalId);
+      await this.producao.imprimirCupomCaixa(tenantId, s.unidadeId, dto.terminalId ?? null, dto.tipo, {
+        tipoMovimento: dto.tipo === 'sangria' ? 'SANGRIA' : 'SUPRIMENTO',
+        valorMovimento: Number(dto.valor),
+        motivo: dto.descricao,
+        operador,
+        terminal,
+        turno: (s as any).turnoNumero,
+        dataHora: new Date().toLocaleString('pt-BR'),
+      });
+    } catch {
+      /* impressão é best-effort */
+    }
     return { ok: true };
   }
 
@@ -783,6 +817,33 @@ export class FinanceiroService {
       await this.gerarOcorrenciaDiferenca(tenantId, atorId, {
         esperado, informado, diferenca, diferencaPorForma, limite: paraReais(limiteCent),
       }).catch(() => undefined);
+    }
+
+    // Cupom de fechamento (Fase 3) — best-effort.
+    try {
+      const { operador, terminal } = await this.dadosOperadorTerminal(atorId, dto.terminalId);
+      const mov: any = await this.db.execute(sql`
+        select coalesce(sum(case when categoria='sangria' then valor else 0 end),0) as sangrias,
+               coalesce(sum(case when categoria='suprimento' then valor else 0 end),0) as suprimentos
+        from lancamento_caixa where sessao_id=${s.id}`);
+      const mr = (mov.rows ?? mov)[0] ?? {};
+      const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      await this.producao.imprimirCupomCaixa(tenantId, s.unidadeId, dto.terminalId ?? null, 'fechamento', {
+        tipoMovimento: 'FECHAMENTO DE CAIXA',
+        operador,
+        terminal,
+        turno: (s as any).turnoNumero,
+        aberturaValor: Number(s.valorAbertura),
+        totalPorForma: formas.map((f) => `${f}: ${brl(esperadoPorForma[f] ?? 0)}`),
+        sangriasTotal: Number(mr.sangrias) || 0,
+        suprimentosTotal: Number(mr.suprimentos) || 0,
+        esperado,
+        informado,
+        diferenca,
+        dataHora: new Date().toLocaleString('pt-BR'),
+      });
+    } catch {
+      /* impressão é best-effort */
     }
 
     return {

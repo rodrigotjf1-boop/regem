@@ -9,6 +9,8 @@ export default function DistLoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [codigo, setCodigo] = useState('');
+  const [mfaModo, setMfaModo] = useState(false);
   const [erro, setErro] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -21,7 +23,12 @@ export default function DistLoginPage() {
     setErro('');
     setLoading(true);
     try {
-      const r: any = await distApi.login(email.trim(), senha);
+      const r: any = await distApi.login(email.trim(), senha, mfaModo ? codigo.trim() : undefined);
+      if (r?.mfaRequerido) {
+        setMfaModo(true);
+        setErro('');
+        return; // pede o código do app autenticador
+      }
       setDistToken(r.access_token);
       router.replace('/distribuicao');
     } catch (err) {
@@ -55,12 +62,23 @@ export default function DistLoginPage() {
             autoComplete="current-password"
           />
         </div>
+        {mfaModo && (
+          <div className="space-y-1.5">
+            <label htmlFor="codigo" className="text-sm text-slate-300">Código de verificação (app autenticador)</label>
+            <input
+              id="codigo" inputMode="numeric" autoFocus required value={codigo}
+              onChange={(e) => setCodigo(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-center text-lg tracking-[0.4em] outline-none focus:border-amber-500"
+              placeholder="000000" autoComplete="one-time-code"
+            />
+          </div>
+        )}
         {erro && <p className="text-sm text-red-400">{erro}</p>}
         <button
           type="submit" disabled={loading}
           className="h-11 w-full rounded-lg bg-amber-500 font-semibold text-slate-950 transition hover:bg-amber-400 disabled:opacity-60"
         >
-          {loading ? 'Entrando…' : 'Entrar'}
+          {loading ? 'Entrando…' : mfaModo ? 'Verificar' : 'Entrar'}
         </button>
       </form>
     </div>

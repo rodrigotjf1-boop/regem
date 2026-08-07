@@ -245,8 +245,12 @@ export class VendasController {
   // Reimprime a 2ª via do comprovante (via do cliente) na impressora 'cupom'.
   @Post('cupons/:id/reimprimir')
   @RequirePerm('cupons')
-  reimprimirCupom(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.reimprimirCupom(user.tenantId, user.colaboradorId, id);
+  reimprimirCupom(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.reimprimirCupom(user.tenantId, user.colaboradorId, id, dto?.equipamentoId ?? null);
   }
 
   @Post('comandas/:id/cancelar')

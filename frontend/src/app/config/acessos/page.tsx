@@ -65,6 +65,73 @@ function Linha({
 
 const ACOES = ['ver', 'criar', 'editar', 'excluir'] as const;
 
+// F9 — Acesso de suporte da distribuição: o presidente vê as sessões e pode
+// bloquear/liberar (bloquear encerra as ativas na hora).
+function SuporteCard() {
+  const [est, setEst] = useState<any>(null);
+  const [sessoes, setSessoes] = useState<any[]>([]);
+  const [busy, setBusy] = useState(false);
+  const carregar = useCallback(async () => {
+    try {
+      const [e, s]: any = await Promise.all([api.suporteEstado(), api.suporteSessoes().catch(() => [])]);
+      setEst(e); setSessoes(Array.isArray(s) ? s : []);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => { carregar(); }, [carregar]);
+  async function alternar(bloquear: boolean) {
+    setBusy(true);
+    try { const e: any = await api.suporteBloquear(bloquear); setEst(e); await carregar(); toast.success(bloquear ? 'Acesso de suporte bloqueado.' : 'Acesso de suporte liberado.'); }
+    catch (err) { toast.error(err instanceof Error ? err.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
+  const dt = (v: any) => (v ? new Date(v).toLocaleString('pt-BR') : '—');
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-display text-base font-bold">Acesso de suporte</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Técnicos da distribuição podem acessar <strong>apenas as configurações</strong> (impressão, KDS,
+            direcionamento, cupom) — nunca financeiro, dados de clientes ou vendas. Toda ação fica na sua
+            auditoria. Você pode bloquear a qualquer momento.
+          </p>
+        </div>
+        <label className="flex flex-none items-center gap-2 text-sm">
+          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={busy}
+            checked={!!est?.bloqueado} onChange={(e) => alternar(e.target.checked)} />
+          Bloquear acesso de suporte
+        </label>
+      </div>
+      {est?.sessoesAtivas?.length > 0 && (
+        <p className="mt-2 rounded bg-amber-500/15 px-2 py-1 text-xs text-amber-700">
+          🛠️ Suporte ativo agora: {est.sessoesAtivas.map((x: any) => x.tecnicoNome || 'técnico').join(', ')}.
+        </p>
+      )}
+      {sessoes.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[520px] text-xs">
+            <caption className="sr-only">Histórico de acessos de suporte</caption>
+            <thead><tr className="border-b border-border text-left text-muted-foreground">
+              <th className="py-1 pr-2 font-medium">Técnico</th><th className="py-1 pr-2 font-medium">Início</th>
+              <th className="py-1 pr-2 font-medium">Fim</th><th className="py-1 font-medium">Motivo</th>
+            </tr></thead>
+            <tbody>
+              {sessoes.slice(0, 10).map((s) => (
+                <tr key={s.id} className="border-b border-border/60">
+                  <td className="py-1 pr-2">{s.tecnicoNome || '—'}</td>
+                  <td className="py-1 pr-2">{dt(s.iniciadaEm)}</td>
+                  <td className="py-1 pr-2">{s.encerradaEm ? `${dt(s.encerradaEm)} (${s.encerradaPor})` : 'ativo'}</td>
+                  <td className="py-1">{s.motivo || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export default function AcessosPage() {
   const router = useRouter();
   const [perfis, setPerfis] = useState<any[]>([]);
@@ -178,6 +245,9 @@ export default function AcessosPage() {
     <Shell eyebrow="Configuração · segurança" title="Acessos & perfis">
       <div className="space-y-6">
         {erro && <p className="text-destructive">{erro}</p>}
+
+        {/* ── Acesso de suporte (F9) ── */}
+        <SuporteCard />
 
         {/* ── Perfis de acesso ── */}
         <section className="space-y-3">

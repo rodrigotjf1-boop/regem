@@ -199,8 +199,16 @@ export default function DeliveryPage() {
 
   async function acao(fn: Promise<any>, ok: string) {
     try {
-      await fn;
-      toast.success(ok);
+      const res = await fn;
+      // Impressão: o backend devolve { enfileirados, aviso }. 0 = nenhuma impressora
+      // com alvo válido (erro); aviso com fallback = info; senão sucesso normal.
+      if (res && typeof res === 'object' && 'enfileirados' in res && res.enfileirados === 0) {
+        toast.error(res.aviso || 'Nenhuma impressora disponível.');
+      } else if (res && typeof res === 'object' && res.aviso) {
+        toast.info(res.aviso);
+      } else {
+        toast.success(ok);
+      }
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro');

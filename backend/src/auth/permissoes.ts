@@ -48,6 +48,12 @@ export interface Permissoes {
   unidades?: boolean; // Configurações → Unidades (cadastro/edição de lojas da rede)
   ponto_gerencial?: boolean; // Gerenciamento de ponto (gerencial)
   producao_kds?: boolean;
+  // RBAC fino de impressão/KDS (Fase 8). Ausência herda `producao_kds` (ver
+  // PERM_FALLBACK) — compat com perfis salvos antes destas chaves.
+  impressoras?: boolean; // cadastro/edição de impressoras
+  kds?: boolean; // cadastro/config de KDS (etapa, cadeia, cores)
+  direcionamento_impressao?: boolean; // direcionar produtos/opções → KDS/impressora
+  cupom_layout?: boolean; // editor de layout/perfis de cupom
   config_ramo?: boolean; // config por ramo (wizard)
   planos?: boolean; // planos & assinatura
   acessos?: boolean; // acessos & perfis
@@ -66,6 +72,21 @@ export interface Permissoes {
 
 export type ModuloAcao = 'ponto' | 'estoque' | 'escalas';
 
+// PACOTE FIXO da sessão de SUPORTE (F9) — imposto pelo SERVIDOR, nunca vem do token.
+// Least privilege: só CONFIG (impressão/KDS/direcionamento/cupom) + visão geral.
+// NÃO inclui financeiro (R$), PII de cliente (delivery/pedidos mostram nome/telefone),
+// vendas, cadastro de pessoas, ponto, estoque, relatórios, auditoria, acessos.
+export const PACOTE_SUPORTE: Permissoes = {
+  impressoras: true,
+  kds: true,
+  direcionamento_impressao: true,
+  cupom_layout: true,
+  producao_kds: true,
+  servidor: true,
+  loja: true, // Configurações → Loja/config técnica (perfil do estabelecimento; sem PII de cliente)
+  dashboard: true, // visão geral, sem detalhe financeiro (governado por ver_financeiro=false)
+};
+
 // Checa uma ação de módulo (ex.: pode(perm, 'estoque', 'criar')).
 export function pode(
   perm: Permissoes | undefined | null,
@@ -75,6 +96,16 @@ export function pode(
   return !!perm?.[modulo]?.[acao];
 }
 
+// Chaves finas (Fase 8) que, quando AUSENTES do perfil salvo, herdam a permissão
+// da chave-pai — mantém compat com perfis criados antes destas chaves existirem.
+// (Se a chave existir e for `false`, respeita o `false` — o presidente desligou.)
+export const PERM_FALLBACK: Partial<Record<keyof Permissoes, (keyof Permissoes)[]>> = {
+  impressoras: ['producao_kds', 'servidor'],
+  kds: ['producao_kds', 'servidor'],
+  direcionamento_impressao: ['producao_kds', 'servidor', 'loja'],
+  cupom_layout: ['producao_kds', 'loja', 'delivery'],
+};
+
 // Checa um toggle booleano do catálogo (ex.: podeAcessar(perm, 'financeiro')).
 // Para chaves CRUD (ponto/estoque) considera o `ver`.
 export function podeAcessar(
@@ -82,6 +113,9 @@ export function podeAcessar(
   chave: keyof Permissoes,
 ): boolean {
   const v = perm?.[chave];
+  // Chave fina AUSENTE → herda de qualquer uma das chaves-pai (compat, Fase 8).
+  // Se a chave existir (mesmo `false`), respeita — o presidente desligou de propósito.
+  if (v === undefined && PERM_FALLBACK[chave]) return PERM_FALLBACK[chave]!.some((p) => podeAcessar(perm, p));
   return typeof v === 'object' ? !!(v as Partial<AcoesModulo>).ver : !!v;
 }
 
@@ -126,6 +160,10 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'ponto_gerencial', rotulo: 'Gerenciamento de ponto', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'ponto', rotulo: 'Ponto (ações)', grupo: 'Gestão', tipo: 'crud' },
   { chave: 'producao_kds', rotulo: 'Produção & KDS', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'impressoras', rotulo: 'Impressoras (cadastro)', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'kds', rotulo: 'KDS (config)', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'direcionamento_impressao', rotulo: 'Direcionamento de impressão', grupo: 'Gestão', tipo: 'bool' },
+  { chave: 'cupom_layout', rotulo: 'Layout/perfis de cupom', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'config_ramo', rotulo: 'Config. por ramo', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'planos', rotulo: 'Planos & assinatura', grupo: 'Gestão', tipo: 'bool' },
   { chave: 'acessos', rotulo: 'Acessos & perfis', grupo: 'Gestão', tipo: 'bool' },
@@ -171,6 +209,7 @@ export const PERFIS_PADRAO: {
         'dashboard', 'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade',
         'cashback', 'meu_dia', 'manutencao', 'checklist', 'mural', 'cadastros', 'loja',
         'formas_pagamento', 'ponto_gerencial', 'producao_kds', 'servidor',
+        'impressoras', 'kds', 'direcionamento_impressao', 'cupom_layout',
         'fichas', 'bot', 'desligamento', 'guias', 'vistoria', 'desempenho',
       ]),
       ponto: CRUD_ALL,

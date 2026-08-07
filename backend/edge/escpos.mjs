@@ -141,27 +141,45 @@ export function renderEscpos(conteudo, largura = 80) {
       push(align(1)); push(qrCode(linhaRaw.slice(4))); push([0x0a]); push(align(0));
       continue;
     }
+    // Duas colunas (Fase 4): '@LR<esq>|<dir>' — esquerda + direita alinhada,
+    // preenchendo a largura da bobina. Se não couber, corta.
+    if (linhaRaw.startsWith('@LR')) {
+      const body = linhaRaw.slice(3);
+      const bar = body.indexOf('|');
+      const left = ascii(bar >= 0 ? body.slice(0, bar) : body);
+      const right = ascii(bar >= 0 ? body.slice(bar + 1) : '');
+      const combined =
+        left.length + right.length >= cols
+          ? `${left} ${right}`.slice(0, cols)
+          : left + ' '.repeat(cols - left.length - right.length) + right;
+      push(align(0)); push(sizeNormal()); texto(combined); push([0x0a]);
+      continue;
+    }
     // Marcadores LIMPOS do cupom por perfil (removidos do texto): @C centro, @R
     // direita, @B negrito — combináveis (@CB, @RB). Sem prefixo, cai no estilo()
     // legado (mantém '*** ***'/'** OBS' funcionando).
     let linha = linhaRaw;
     let alignForce = null;
     let boldForce = false;
-    const pm = linha.match(/^@([CRB]{1,3})(?: |\b)/);
+    let sizeForce = null;
+    // Flags: C centro, R direita, B negrito, D fonte grande (dupla) — combináveis.
+    const pm = linha.match(/^@([CRBD]{1,4})(?: |\b)/);
     if (pm) {
       const f = pm[1];
       if (f.includes('C')) alignForce = 1;
       if (f.includes('R')) alignForce = 2;
       if (f.includes('B')) boldForce = true;
+      if (f.includes('D')) sizeForce = 'double';
       linha = linha.slice(pm[0].length);
     }
     const st = estilo(linha);
     const al = alignForce != null ? alignForce : st.align;
     const bold = boldForce || st.bold;
+    const size = sizeForce || st.size;
     push(align(al));
-    push(st.size === 'double' ? sizeDouble() : sizeNormal());
+    push(size === 'double' ? sizeDouble() : sizeNormal());
     if (bold) push(boldOn());
-    for (const parte of wrap(linha, st.size === 'double' ? Math.floor(cols / 2) : cols)) {
+    for (const parte of wrap(linha, size === 'double' ? Math.floor(cols / 2) : cols)) {
       texto(parte);
       push([0x0a]); // LF
     }

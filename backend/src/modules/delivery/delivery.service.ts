@@ -30,7 +30,7 @@ import {
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenIugu } from '../../common/iugu';
-import { CUPOM_PERFIS_PADRAO, perfilEfetivo, type PerfilCupom } from './cupom-perfis';
+import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
 import { VendasService } from '../vendas/vendas.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { CashbackService } from '../cashback/cashback.service';
@@ -582,6 +582,9 @@ export class DeliveryService {
         // Complementos (batata/bebida) NÃO são observação — vão para o campo próprio,
         // que o KDS mostra em dourado (não no vermelho de OBS).
         complementosTexto: (it as any).complementos ?? null,
+        // Ids das opções escolhidas (só origem interna: cardápio/totem) → roteamento
+        // por opção/etapa no criarPedidos (Fase 1). Marketplaces não mandam nossos ids.
+        complementos: (it as any).opcaoIds ?? [],
       })),
     });
 
@@ -1303,11 +1306,11 @@ export class DeliveryService {
       );
   }
 
-  async reimprimir(tenantId: string, atorId: string, id: string) {
+  async reimprimir(tenantId: string, atorId: string, id: string, alvoPreferido?: string | null) {
     const ped = await this.carregar(tenantId, id);
     if (!ped.comandaId)
       throw new BadRequestException('Pedido ainda não aceito (sem via para imprimir).');
-    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId);
+    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId, alvoPreferido);
   }
 
   // ===== Integrações (credenciais de apps externos) =====
@@ -1510,6 +1513,7 @@ export class DeliveryService {
         setorId: null,
         finalizadoHoras: 5,
         qrDespacho: false,
+        adiarProducaoAteKds: false,
         pausadoAte: null,
         pausaMotivo: null,
       };
@@ -1617,13 +1621,14 @@ export class DeliveryService {
 
   // Perfis de cupom EFETIVOS (padrão + override salvo). Fase 1 — o editor (Fase 2)
   // consome isto para montar a UI e a pré-visualização.
-  async getCupomPerfis(tenantId: string, unidadeId?: string | null): Promise<{ perfis: PerfilCupom[] }> {
+  async getCupomPerfis(
+    tenantId: string,
+    unidadeId?: string | null,
+  ): Promise<{ perfis: PerfilCupom[]; campos: typeof CAMPOS_CATALOGO }> {
     const cfg = await this.getConfig(tenantId, unidadeId);
     const ov = ((cfg?.cupomPerfis as any) ?? {}) as Record<string, any>;
-    const perfis = (Object.keys(CUPOM_PERFIS_PADRAO) as PerfilCupom['id'][]).map((id) =>
-      perfilEfetivo(id, ov[id]),
-    );
-    return { perfis };
+    // Padrão (com override) + perfis personalizados da loja (Fase 3a).
+    return { perfis: listarPerfis(ov), campos: CAMPOS_CATALOGO };
   }
 
   // ===== Pausa temporária da loja =====
@@ -1755,6 +1760,8 @@ export class DeliveryService {
       ),
       qrDespacho:
         dto.qrDespacho != null ? !!dto.qrDespacho : row?.qrDespacho ?? false,
+      adiarProducaoAteKds:
+        dto.adiarProducaoAteKds != null ? !!dto.adiarProducaoAteKds : row?.adiarProducaoAteKds ?? false,
     };
     // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
     if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;

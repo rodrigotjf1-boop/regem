@@ -69,7 +69,11 @@ export class ImpressaoController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('producao_kds')
-  reimprimir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.reimprimir(user.tenantId, id);
+  reimprimir(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.reimprimir(user.tenantId, id, dto?.equipamentoId ?? null);
   }
 }

@@ -14,6 +14,9 @@ import {
   setorDestinoProducao,
   complementoDestinoProducao,
   opcaoDestinoProducao,
+  complementoOpcao,
+  complementoGrupo,
+  complemento,
   producaoPedido,
   producaoPedidoItem,
   impressaoJob,
@@ -21,8 +24,10 @@ import {
   senhaContador,
   setor,
   comanda,
+  deliveryConfig,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { perfilEfetivo } from '../delivery/cupom-perfis';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -34,6 +39,7 @@ export interface ItemProducao {
   complementosTexto?: string | null;
   observacao?: string | null;
   comandaItemId?: string | null;
+  opcaoIds?: string[]; // opções/complementos escolhidos (roteamento por opção/etapa — mig 127/Fase 1)
 }
 
 // Um destino resolvido para um produto.
@@ -128,42 +134,69 @@ export class ProducaoPedidoService {
     return [{ equipamentoId: null, tipo: 'kds', setorId: null }];
   }
 
-  // Destinos PRÓPRIOS de uma opção escolhida (mig 127). Vazio = herda do produto.
-  // Precedência: destino da opção → destino do complemento (etapa) → [] (herda).
-  async destinosDaOpcao(
+  // Destinos PRÓPRIOS das opções/complementos escolhidos num item (mig 127). A
+  // partir dos `opcaoIds` resolve DOIS níveis, de forma ADITIVA e deduplicada:
+  //   (1) destino da OPÇÃO (opcao_destino_producao.opcaoId = complemento_opcao.id);
+  //   (2) destino da ETAPA/complemento reutilizável — opção → grupo →
+  //       origem_complemento_id → complemento_destino_producao.complementoId.
+  // Vazio = o item herda o roteamento do produto (comportamento atual). NÃO remove
+  // o destino do produto: os destinos daqui SOMAM (a cozinha do produto continua,
+  // e a impressora específica da opção/etapa também recebe). Roda na tx da venda.
+  private async destinosPorOpcoes(
+    tx: any,
     tenantId: string,
-    origemOpcaoId?: string | null,
-    origemComplementoId?: string | null,
+    opcaoIds: string[] | undefined,
   ): Promise<Destino[]> {
-    if (origemOpcaoId) {
-      const daOpcao = await this.db
+    const ids = [...new Set((opcaoIds ?? []).filter(Boolean))];
+    if (!ids.length) return [];
+    const out: Destino[] = [];
+    const seen = new Set<string>();
+    const push = (rows: any[]) => {
+      for (const d of rows.map(this.normalizaDestino)) {
+        const k = `${d.equipamentoId}|${d.tipo}`;
+        if (d.equipamentoId && !seen.has(k)) {
+          seen.add(k);
+          out.push(d);
+        }
+      }
+    };
+    // (1) destino da OPÇÃO escolhida. Atenção: opcao_destino_producao.opcao_id
+    // referencia a OPÇÃO REUTILIZÁVEL do catálogo (`opcao.id`), não a
+    // complemento_opcao materializada — ligam por complemento_opcao.origem_opcao_id.
+    push(
+      await tx
         .select({ equipamentoId: equipamento.id, tipo: equipamento.tipo, setorId: equipamento.setorId })
-        .from(opcaoDestinoProducao)
+        .from(complementoOpcao)
+        .innerJoin(opcaoDestinoProducao, eq(opcaoDestinoProducao.opcaoId, complementoOpcao.origemOpcaoId))
         .innerJoin(equipamento, eq(equipamento.id, opcaoDestinoProducao.equipamentoId))
         .where(
           and(
-            eq(opcaoDestinoProducao.tenantId, tenantId),
-            eq(opcaoDestinoProducao.opcaoId, origemOpcaoId),
+            eq(complementoOpcao.tenantId, tenantId),
+            inArray(complementoOpcao.id, ids),
             eq(equipamento.ativo, true),
           ),
-        );
-      if (daOpcao.length) return daOpcao.map(this.normalizaDestino);
-    }
-    if (origemComplementoId) {
-      const daEtapa = await this.db
+        ),
+    );
+    // (2) destino da ETAPA/complemento reutilizável (via grupo → origem_complemento_id)
+    push(
+      await tx
         .select({ equipamentoId: equipamento.id, tipo: equipamento.tipo, setorId: equipamento.setorId })
-        .from(complementoDestinoProducao)
+        .from(complementoOpcao)
+        .innerJoin(complementoGrupo, eq(complementoGrupo.id, complementoOpcao.grupoId))
+        .innerJoin(
+          complementoDestinoProducao,
+          eq(complementoDestinoProducao.complementoId, complementoGrupo.origemComplementoId),
+        )
         .innerJoin(equipamento, eq(equipamento.id, complementoDestinoProducao.equipamentoId))
         .where(
           and(
-            eq(complementoDestinoProducao.tenantId, tenantId),
-            eq(complementoDestinoProducao.complementoId, origemComplementoId),
+            eq(complementoOpcao.tenantId, tenantId),
+            inArray(complementoOpcao.id, ids),
             eq(equipamento.ativo, true),
           ),
-        );
-      if (daEtapa.length) return daEtapa.map(this.normalizaDestino);
-    }
-    return []; // herda do produto
+        ),
+    );
+    return out;
   }
 
   private normalizaDestino = (d: any): Destino => ({
@@ -211,7 +244,7 @@ export class ProducaoPedidoService {
           eq(equipamento.tenantId, ctx.tenantId),
           eq(equipamento.tipo, 'impressora'),
           eq(equipamento.ativo, true),
-          or(isNull(equipamento.papel), eq(equipamento.papel, 'producao')),
+          eq(equipamento.fazProducao, true), // mig 167 (antes: papel null|'producao')
           ctx.unidadeId ? eq(equipamento.unidadeId, ctx.unidadeId) : sql`true`,
         ),
       );
@@ -228,6 +261,16 @@ export class ProducaoPedidoService {
       // (a) destinos explícitos do produto/setor → equipamento (como já existia)
       const destinos = await this.resolverDestinos(tx, ctx.tenantId, it.produto);
       for (const d of destinos) {
+        if (d.tipo === 'impressora' && d.equipamentoId) {
+          addImp(d.equipamentoId, it);
+          roteado = true;
+        }
+      }
+      // (a2) destinos próprios das OPÇÕES/COMPLEMENTOS escolhidos (mig 127/Fase 1):
+      // impressora específica de uma opção/etapa SOMA ao destino do produto — assim
+      // um adicional direcionado (ex.: bebida → bar) também recebe a via.
+      const destinosOpcoes = await this.destinosPorOpcoes(tx, ctx.tenantId, it.opcaoIds);
+      for (const d of destinosOpcoes) {
         if (d.tipo === 'impressora' && d.equipamentoId) {
           addImp(d.equipamentoId, it);
           roteado = true;
@@ -285,16 +328,85 @@ export class ProducaoPedidoService {
         observacao: it.observacao ?? null,
       });
     }
+    // Config de cupom da loja: perfil de produção (Fase 3b) + política de adiar (Fase 6).
+    const cfgCupom = await this.carregarConfigCupom(tx, ctx.tenantId, ctx.unidadeId ?? null);
+    const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
+    const ppProd = cfgCupom.override[idProd]
+      ? { perfil: perfilEfetivo(idProd, cfgCupom.override[idProd]), cabecalho: cfgCupom.cabecalho, rodape: cfgCupom.rodape }
+      : null;
+    // Fase 6 — adiar a via de produção até o KDS? Só adia se houver KDS "armado"
+    // (imprime_ao_avancar) ativo na unidade — senão imprime no registro (não perde o ticket).
+    let emitirProducaoAgora = true;
+    if (cfgCupom.adiarProducao) {
+      const armados = await tx
+        .select({ id: equipamento.id })
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.tenantId, ctx.tenantId),
+            eq(equipamento.tipo, 'kds'),
+            eq(equipamento.ativo, true),
+            eq(equipamento.imprimeAoAvancar, true),
+            ctx.unidadeId
+              ? or(eq(equipamento.unidadeId, ctx.unidadeId), isNull(equipamento.unidadeId))!
+              : sql`true`,
+          ),
+        )
+        .limit(1);
+      if (armados.length) emitirProducaoAgora = false;
+    }
     // Vias de produção por impressora (uma por equipamento), quando houver.
-    for (const [equipamentoId, its] of impressoras) {
-      await tx.insert(impressaoJob).values({
-        tenantId: ctx.tenantId,
-        unidadeId: ctx.unidadeId ?? null,
-        equipamentoId,
-        pedidoId: ped.id,
-        via: 'producao',
-        conteudo: this.renderTicket(ctx, Array.from(its), numero),
-      });
+    if (emitirProducaoAgora) {
+      for (const [equipamentoId, its] of impressoras) {
+        await tx.insert(impressaoJob).values({
+          tenantId: ctx.tenantId,
+          unidadeId: ctx.unidadeId ?? null,
+          equipamentoId,
+          pedidoId: ped.id,
+          via: 'producao',
+          conteudo: this.renderTicket(ctx, Array.from(its), numero, ppProd),
+        });
+      }
+    }
+
+    // Fase 5 — ETIQUETA de produto personalizado: quando o item tem opção de uma
+    // etapa marcada "gera etiqueta" (imprime_etiqueta), sai uma etiqueta extra
+    // (senha/nº + item + complemento/obs) para colar no produto. Roteada pela
+    // impressora da etapa (mig 127/Fase 1); sem destino próprio, cai nas impressoras
+    // de produção do item; por último, na padrão.
+    for (const it of daProducao) {
+      if (!it.opcaoIds?.length) continue;
+      const flagged = await tx
+        .select({ id: complementoOpcao.id })
+        .from(complementoOpcao)
+        .innerJoin(complementoGrupo, eq(complementoGrupo.id, complementoOpcao.grupoId))
+        .innerJoin(complemento, eq(complemento.id, complementoGrupo.origemComplementoId))
+        .where(
+          and(
+            eq(complementoOpcao.tenantId, ctx.tenantId),
+            inArray(complementoOpcao.id, it.opcaoIds),
+            eq(complemento.imprimeEtiqueta, true),
+          ),
+        );
+      if (!flagged.length) continue;
+      let alvos = (await this.destinosPorOpcoes(tx, ctx.tenantId, flagged.map((f) => f.id)))
+        .filter((d) => d.tipo === 'impressora' && d.equipamentoId)
+        .map((d) => d.equipamentoId as string);
+      if (!alvos.length)
+        alvos = [...impressoras.entries()].filter(([, s]) => s.has(it)).map(([eqId]) => eqId);
+      if (!alvos.length && padraoId) alvos = [padraoId];
+      if (!alvos.length) continue;
+      const conteudo = this.renderEtiquetaItem(ctx, it, numero);
+      for (const eqId of [...new Set(alvos)]) {
+        await tx.insert(impressaoJob).values({
+          tenantId: ctx.tenantId,
+          unidadeId: ctx.unidadeId ?? null,
+          equipamentoId: eqId,
+          pedidoId: ped.id,
+          via: 'etiqueta',
+          conteudo,
+        });
+      }
     }
     return [
       {
@@ -311,7 +423,97 @@ export class ProducaoPedidoService {
 
   // VIA DE PRODUÇÃO (cozinha) — sem valores; senha e observações/adicionais em
   // destaque. O worker do edge converte para ESC/POS.
-  private renderTicket(ctx: any, its: any[], numero?: number | null): string {
+  // Config de cupom da loja (override dos perfis + cabeçalho/rodapé do layout).
+  private async carregarConfigCupom(
+    db: any,
+    tenantId: string,
+    unidadeId: string | null,
+  ): Promise<{ override: Record<string, any>; cabecalho?: string; rodape?: string; adiarProducao: boolean }> {
+    const rows = await db
+      .select({
+        unidadeId: deliveryConfig.unidadeId,
+        cupomPerfis: deliveryConfig.cupomPerfis,
+        cupomLayout: deliveryConfig.cupomLayout,
+        adiar: deliveryConfig.adiarProducaoAteKds,
+      })
+      .from(deliveryConfig)
+      .where(
+        and(
+          eq(deliveryConfig.tenantId, tenantId),
+          unidadeId
+            ? or(eq(deliveryConfig.unidadeId, unidadeId), isNull(deliveryConfig.unidadeId))
+            : isNull(deliveryConfig.unidadeId),
+        ),
+      );
+    const cfg = rows.find((r: any) => r.unidadeId === unidadeId) ?? rows.find((r: any) => r.unidadeId == null);
+    const layout = (cfg?.cupomLayout as any) ?? {};
+    return {
+      override: ((cfg?.cupomPerfis as any) ?? {}) as Record<string, any>,
+      cabecalho: typeof layout.cabecalho === 'string' ? layout.cabecalho : undefined,
+      rodape: typeof layout.rodape === 'string' ? layout.rodape : undefined,
+      adiarProducao: !!cfg?.adiar,
+    };
+  }
+
+  // Perfil de produção EFETIVO (Fase 3b). Gated por OVERRIDE: só devolve perfil
+  // quando a loja customizou `producao_balcao`/`producao_delivery` — senão null, e
+  // a via de produção mantém o layout legado (zero impacto em produção).
+  private async carregarPerfilProducao(
+    db: any,
+    tenantId: string,
+    unidadeId: string | null,
+    origem?: string | null,
+  ): Promise<{ perfil: any; cabecalho?: string; rodape?: string } | null> {
+    const id = origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
+    const cfg = await this.carregarConfigCupom(db, tenantId, unidadeId);
+    if (!cfg.override[id]) return null; // não customizado → mantém o legado
+    return { perfil: perfilEfetivo(id, cfg.override[id]), cabecalho: cfg.cabecalho, rodape: cfg.rodape };
+  }
+
+  // Cupom de operação de CAIXA (sangria/suprimento/fechamento) — Fase 3. Renderiza
+  // pelo perfil da loja (padrão se não customizado) e enfileira na impressora de
+  // cupom do terminal. Best-effort: quem chama trata falha sem quebrar a operação.
+  async imprimirCupomCaixa(
+    tenantId: string,
+    unidadeId: string | null,
+    terminalId: string | null,
+    perfilId: 'sangria' | 'suprimento' | 'fechamento',
+    dados: any,
+  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    const cfg = await this.carregarConfigCupom(this.db, tenantId, unidadeId);
+    const perfil = perfilEfetivo(perfilId, cfg.override[perfilId]);
+    // O nome da loja sai pelo campo `nomeLoja` do perfil (não repetir no cabeçalho).
+    const conteudo = this.renderCupomPerfil(perfil, { nomeLoja: cfg.cabecalho, ...dados }, undefined, cfg.rodape);
+    return this.enfileirarViaCliente(tenantId, unidadeId, null, conteudo, terminalId, null, 'caixa');
+  }
+
+  private renderTicket(
+    ctx: any,
+    its: any[],
+    numero?: number | null,
+    pp?: { perfil: any; cabecalho?: string; rodape?: string } | null,
+  ): string {
+    // Fase 3b — via de produção por PERFIL (quando a loja customizou). Sem valores.
+    if (pp?.perfil) {
+      return this.renderCupomPerfil(
+        pp.perfil,
+        {
+          senha: ctx.senha,
+          mesa: ctx.mesa,
+          dataHora: new Date().toLocaleString('pt-BR'),
+          ticket: numero ? `#${numero}` : undefined,
+          pedidoRegem: numero || undefined,
+          plataforma: ctx.plataforma
+            ? `${ctx.plataforma}${ctx.senhaPlataforma ? ` #${ctx.senhaPlataforma}` : ''}`
+            : undefined,
+          emitidoDe: ctx.emitidoDe ?? undefined,
+          itens: its,
+          // Produção NÃO mostra valores (mostrarValoresItem fica desligado).
+        },
+        pp.cabecalho,
+        pp.rodape,
+      );
+    }
     const linha = '--------------------------------';
     const cab = ctx.mesa ? `MESA ${ctx.mesa}` : 'BALCAO';
     const l: string[] = ['*** PRODUCAO ***'];
@@ -400,7 +602,16 @@ export class ProducaoPedidoService {
   // visibilidade, alinhamento (@C/@R) e negrito (@B) de cada campo. Cabeçalho/rodapé
   // do cupom_layout entram centralizados. QR do entregador vira '@QR:<dados>'.
   renderCupomPerfil(
-    perfil: { campos: { key: string; visivel: boolean; negrito: boolean; alinhamento: string }[] },
+    perfil: {
+      campos: {
+        key: string;
+        visivel: boolean;
+        negrito: boolean;
+        alinhamento: string;
+        tamanho?: string;
+        agrupado?: boolean;
+      }[];
+    },
     dados: any,
     cabecalho?: string,
     rodape?: string,
@@ -437,6 +648,10 @@ export class ProducaoPedidoService {
       avisoFiscal: () => (dados.fiscal ? [] : ['Este documento nao tem valor fiscal']),
       plataforma: () => (dados.plataforma ? [String(dados.plataforma)] : []),
       pedidoRegem: () => (dados.pedidoRegem ? [`Pedido Regem ${dados.pedidoRegem}`] : []),
+      // Produção (Fase 3b): mesa/balcão, origem e sub-PDV emissor.
+      mesa: () => [dados.mesa ? `MESA ${dados.mesa}` : 'BALCAO'],
+      emitidoDe: () => (dados.emitidoDe ? [`Emitido: ${dados.emitidoDe}`] : []),
+      origemPedido: () => (dados.origemPedido ? [String(dados.origemPedido)] : []),
       cliente: () => (dados.cliente ? [String(dados.cliente)] : []),
       endereco: () => (dados.endereco ? String(dados.endereco).split('\n') : []),
       telefone: () => (dados.telefone ? [String(dados.telefone)] : []),
@@ -444,20 +659,53 @@ export class ProducaoPedidoService {
       cobrarCliente: () => (dados.cobrarCliente != null ? [`COBRAR ${money(dados.cobrarCliente)}`] : []),
       bandeiras: () => (dados.bandeiras ? [`Bandeira: ${dados.bandeiras}`] : []),
       qrcode: () => (dados.qrData ? [`@QR:${dados.qrData}`] : []),
+      // Movimentos de caixa (Fase 3 — sangria/suprimento/fechamento)
+      tipoMovimento: () => (dados.tipoMovimento ? [String(dados.tipoMovimento)] : []),
+      valorMovimento: () => (dados.valorMovimento != null ? [`Valor: ${money(dados.valorMovimento)}`] : []),
+      motivo: () => (dados.motivo ? [`Motivo: ${dados.motivo}`] : []),
+      autorizadoPor: () => (dados.autorizadoPor ? [`Autorizado: ${dados.autorizadoPor}`] : []),
+      turno: () => (dados.turno != null ? [`Turno ${dados.turno}`] : []),
+      terminal: () => (dados.terminal ? [`Terminal: ${dados.terminal}`] : []),
+      aberturaValor: () => (dados.aberturaValor != null ? [`Abertura: ${money(dados.aberturaValor)}`] : []),
+      totalPorForma: () => (Array.isArray(dados.totalPorForma) ? dados.totalPorForma : []),
+      sangriasTotal: () => (dados.sangriasTotal != null ? [`Sangrias: -${money(dados.sangriasTotal)}`] : []),
+      suprimentosTotal: () => (dados.suprimentosTotal != null ? [`Suprimentos: +${money(dados.suprimentosTotal)}`] : []),
+      esperado: () => (dados.esperado != null ? [`Esperado: ${money(dados.esperado)}`] : []),
+      informado: () => (dados.informado != null ? [`Informado: ${money(dados.informado)}`] : []),
+      diferenca: () => (dados.diferenca != null ? [`Diferenca: ${money(dados.diferenca)}`] : []),
+      assinatura: () => ['', '______________________', 'Assinatura'],
     };
     const out: string[] = [];
     if (cabecalho && String(cabecalho).trim()) out.push(`@C ${String(cabecalho).trim()}`);
+    // Fase 4 — pseudo-campos de layout (_espaco/_tracejado), fonte grande (@D) e
+    // agrupar dois campos na mesma linha (esq | dir, via token @LR).
+    let prev: { idx: number; text: string } | null = null;
     for (const c of perfil.campos) {
       if (!c.visivel) continue;
-      const linhas = CAMPO[c.key]?.() ?? [];
-      if (!linhas.length) continue;
+      let linhas: string[];
+      if (c.key === '_espaco') linhas = [''];
+      else if (c.key === '_tracejado') linhas = [sep];
+      else {
+        linhas = CAMPO[c.key]?.() ?? [];
+        if (!linhas.length) continue;
+      }
+      const simples = linhas.length === 1 && !linhas[0].startsWith('@QR:');
+      if (c.agrupado && prev && simples) {
+        out[prev.idx] = `@LR${prev.text}|${linhas[0]}`; // junta com a linha anterior
+        prev = null;
+        continue;
+      }
+      const flags =
+        (c.alinhamento === 'centro' ? 'C' : c.alinhamento === 'direita' ? 'R' : '') +
+        (c.negrito ? 'B' : '') +
+        (c.tamanho === 'grande' ? 'D' : '');
       if (c.key === 'itens') out.push(sep);
-      const flags = (c.alinhamento === 'centro' ? 'C' : c.alinhamento === 'direita' ? 'R' : '') + (c.negrito ? 'B' : '');
       for (const t of linhas) {
         if (t.startsWith('@QR:')) out.push(t); // QR: linha própria (o escpos centraliza)
         else out.push(flags ? `@${flags} ${t}` : t);
       }
       if (c.key === 'itens') out.push(sep);
+      prev = simples && c.key !== 'itens' ? { idx: out.length - 1, text: linhas[0] } : null;
     }
     if (rodape && String(rodape).trim()) {
       out.push(sep);
@@ -466,21 +714,69 @@ export class ProducaoPedidoService {
     return out.join('\n');
   }
 
+  // ETIQUETA de produto personalizado (Fase 5) — sai numa impressora térmica de
+  // bobina (não é a etiquetadora de estoque): senha/nº + item + complemento/obs,
+  // para colar no produto. Usa os tokens legados (*** *** / >>> <<<) que o escpos
+  // já destaca (centralizado, negrito, fonte dupla).
+  private renderEtiquetaItem(ctx: any, it: any, numero?: number | null): string {
+    const l: string[] = ['*** COLAR NO PRODUTO ***'];
+    if (ctx.senha) l.push(`>>> SENHA ${ctx.senha} <<<`);
+    else if (numero) l.push(`>>> #${numero} <<<`);
+    l.push(`${Number(it.quantidade)}x ${it.descricao}`);
+    if (it.complementosTexto) l.push(String(it.complementosTexto));
+    if (it.observacao) l.push(`OBS: ${it.observacao}`);
+    return l.join('\n');
+  }
+
+  // Uma impressora só tem "alvo" imprimível se: rede → tem IP (host); local → tem
+  // nome no Windows (dispositivo). Sem isso, o job nasceria fadado ao erro.
+  private alvoValido(p: { conexao?: string | null; host?: string | null; dispositivo?: string | null }) {
+    return p.conexao === 'local' ? !!p.dispositivo : !!p.host;
+  }
+
   // Enfileira a via do cliente (cupom). Prioridade:
+  //  0) alvo preferido explícito (reimprimir "Imprimir em…");
   //  1) impressora amarrada ao terminal de PDV (impressora_padrao_id);
-  //  2) impressoras 'cupom' da UNIDADE (ou de rede, unidade nula).
-  // Antes imprimia em TODAS as 'cupom' do tenant (errado em multi-balcão/multi-loja).
+  //  2) impressoras de CUPOM (faz_cupom) da UNIDADE (ou de rede, unidade nula);
+  //  3) fallback: qualquer impressora ativa com alvo válido (nunca deixa sem sair).
+  // Só enfileira em impressoras com ALVO VÁLIDO — nunca cria job fadado ao erro
+  // (mig 167). Devolve { enfileirados, aviso } para o front sinalizar config faltando.
   async enfileirarViaCliente(
     tenantId: string,
     unidadeId: string | null,
-    comandaId: string,
+    comandaId: string | null,
     conteudo: string,
     terminalId?: string | null,
-  ) {
-    let cupomPrinters: { id: string }[] = [];
+    alvoPreferido?: string | null,
+    via: string = 'cliente',
+  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    const cols = {
+      id: equipamento.id,
+      conexao: equipamento.conexao,
+      host: equipamento.host,
+      dispositivo: equipamento.dispositivo,
+    };
+    type Imp = { id: string; conexao: string | null; host: string | null; dispositivo: string | null };
+    let printers: Imp[] = [];
 
-    // (1) impressora do terminal, se configurada e válida (ativa, tipo impressora).
-    if (terminalId) {
+    // (0) alvo preferido explícito (override do reimprimir).
+    if (alvoPreferido) {
+      const [imp] = await this.db
+        .select(cols)
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.id, alvoPreferido),
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'impressora'),
+            eq(equipamento.ativo, true),
+          ),
+        );
+      if (imp) printers = [imp];
+    }
+
+    // (1) impressora do terminal, se configurada e válida.
+    if (!printers.length && terminalId) {
       const [term] = await this.db
         .select({ imp: equipamento.impressoraPadraoId })
         .from(equipamento)
@@ -494,7 +790,7 @@ export class ProducaoPedidoService {
         );
       if (term?.imp) {
         const [imp] = await this.db
-          .select({ id: equipamento.id })
+          .select(cols)
           .from(equipamento)
           .where(
             and(
@@ -504,39 +800,68 @@ export class ProducaoPedidoService {
               eq(equipamento.ativo, true),
             ),
           );
-        if (imp) cupomPrinters = [{ id: imp.id }];
+        if (imp) printers = [imp];
       }
     }
 
-    // (2) fallback: impressoras 'cupom' da unidade (ou de rede, unidade nula).
-    if (cupomPrinters.length === 0) {
+    // (2) impressoras de cupom (faz_cupom) da unidade (ou de rede, unidade nula).
+    if (!printers.length) {
       const conds = [
         eq(equipamento.tenantId, tenantId),
         eq(equipamento.tipo, 'impressora'),
-        eq(equipamento.papel, 'cupom'),
+        eq(equipamento.fazCupom, true),
         eq(equipamento.ativo, true),
       ];
       if (unidadeId)
         conds.push(
           or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))!,
         );
-      cupomPrinters = await this.db
-        .select({ id: equipamento.id })
-        .from(equipamento)
-        .where(and(...conds));
+      printers = await this.db.select(cols).from(equipamento).where(and(...conds));
     }
 
-    for (const p of cupomPrinters) {
+    // Só as com alvo imprimível.
+    let validos = printers.filter((p) => this.alvoValido(p));
+    let aviso: string | null = null;
+
+    // (3) fallback: nenhuma cupom válida → usa a 1ª impressora ativa com alvo
+    // válido (prefere local/USB). Evita "não sai nada" quando o cupom não foi
+    // configurado, e avisa o gestor para arrumar depois.
+    if (!validos.length) {
+      const conds = [
+        eq(equipamento.tenantId, tenantId),
+        eq(equipamento.tipo, 'impressora'),
+        eq(equipamento.ativo, true),
+      ];
+      if (unidadeId)
+        conds.push(
+          or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))!,
+        );
+      const todas: Imp[] = await this.db.select(cols).from(equipamento).where(and(...conds));
+      const disponiveis = todas
+        .filter((p) => this.alvoValido(p))
+        .sort((a, b) => (a.conexao === 'local' ? -1 : 0) - (b.conexao === 'local' ? -1 : 0));
+      if (disponiveis.length) {
+        validos = [disponiveis[0]];
+        aviso = 'Nenhuma impressora de cupom configurada — usei a primeira impressora disponível.';
+      } else {
+        return {
+          enfileirados: 0,
+          aviso: 'Nenhuma impressora com alvo válido — configure o IP (rede) ou o nome no Windows (local) da impressora de cupom.',
+        };
+      }
+    }
+
+    for (const p of validos) {
       await this.db.insert(impressaoJob).values({
         tenantId,
         unidadeId,
         equipamentoId: p.id,
         pedidoId: null,
-        via: 'cliente',
+        via,
         conteudo,
       });
     }
-    return cupomPrinters.length;
+    return { enfileirados: validos.length, aviso };
   }
 
   // ===== Fila de impressão (worker do edge; auth por token servidor_local) =====
@@ -555,7 +880,11 @@ export class ProducaoPedidoService {
         porta: equipamento.porta,
         dispositivo: equipamento.dispositivo, // nome no Windows (conexao='local')
         largura: equipamento.largura,
-        vias: equipamento.vias,
+        // Vias por tipo (mig 168): cupom do cliente vs produção; null herda `vias`.
+        vias: sql<number>`case
+          when ${impressaoJob.via} = 'cliente' then coalesce(${equipamento.viasCliente}, ${equipamento.vias})
+          when ${impressaoJob.via} = 'producao' then coalesce(${equipamento.viasProducao}, ${equipamento.vias})
+          else ${equipamento.vias} end`,
         impressora: equipamento.nome,
       })
       .from(impressaoJob)
@@ -653,14 +982,34 @@ export class ProducaoPedidoService {
     return { ok: true, jobId: job.id };
   }
 
-  // Reenfileira um job com erro (gestor).
-  async reimprimir(tenantId: string, jobId: string) {
+  // Reenfileira um job com erro (gestor). `equipamentoId` opcional ("Imprimir em…")
+  // reroteia o job para outra impressora com alvo válido (mig 167).
+  async reimprimir(tenantId: string, jobId: string, equipamentoId?: string | null) {
+    const set: { status: string; erro: null; equipamentoId?: string } = {
+      status: 'pendente',
+      erro: null,
+    };
+    if (equipamentoId) {
+      const [imp] = await this.db
+        .select({ id: equipamento.id, conexao: equipamento.conexao, host: equipamento.host, dispositivo: equipamento.dispositivo })
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.id, equipamentoId),
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'impressora'),
+            eq(equipamento.ativo, true),
+          ),
+        );
+      if (!imp) throw new NotFoundException('Impressora não encontrada');
+      if (!this.alvoValido(imp))
+        throw new BadRequestException('Impressora sem alvo — configure o IP (rede) ou o nome no Windows (local).');
+      set.equipamentoId = imp.id;
+    }
     await this.db
       .update(impressaoJob)
-      .set({ status: 'pendente', erro: null })
-      .where(
-        and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
-      );
+      .set(set)
+      .where(and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)));
     return { ok: true };
   }
 
@@ -670,6 +1019,12 @@ export class ProducaoPedidoService {
     tenantId: string,
     unidadeId?: string | null,
   ): Promise<number> {
+    // Fase 7 — trava por (tenant, unidade) na transação: sem isto, dois PDVs/canais
+    // registrando ao mesmo tempo leem o mesmo max(numero) e DUPLICAM o número do card.
+    // O advisory lock serializa só esta chave; libera no fim da transação da venda.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${`pnum:${tenantId}:${unidadeId ?? ''}`})::bigint)`,
+    );
     const r: any = await tx.execute(sql`
       select coalesce(max(numero), 0) + 1 as n
       from producao_pedido
@@ -1088,6 +1443,7 @@ export class ProducaoPedidoService {
       senhaPlataforma: p.senhaPlataforma,
       mesa: p.mesa,
     };
+    const ppEtapa = await this.carregarPerfilProducao(this.db, tenantId, p.unidadeId, p.origem);
     const conteudo = this.renderTicket(
       ctx,
       itens.map((i) => ({
@@ -1097,6 +1453,7 @@ export class ProducaoPedidoService {
         observacao: i.observacao ?? undefined,
       })),
       p.numero ?? 0,
+      ppEtapa,
     );
     for (const k of kdss) {
       // Sem impressora explícita, cai na padrão do setor do pedido.
