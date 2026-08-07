@@ -5,6 +5,8 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { equipamento } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateEquipamentoDto } from './dto/create-equipamento.dto';
+import { edgeAtivo } from '../../common/edge-ativo';
+import { ForbiddenException } from '@nestjs/common';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -13,6 +15,21 @@ export class EquipamentoService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
   ) {}
+
+  // F10 — com edge ATIVO, o servidor local é a fonte da verdade da config de
+  // impressão: a nuvem não sobrescreve (impressora/roteamento/KDS). Edite no edge.
+  private async garantirConfigLocal(tenantId: string) {
+    if (await edgeAtivo(this.db, tenantId)) {
+      throw new ForbiddenException(
+        'Configuração de impressão gerenciada pelo servidor local (edge) desta loja. Edite direto no servidor local.',
+      );
+    }
+  }
+
+  // Consulta simples p/ o front decidir se mostra a config em modo somente-leitura.
+  edgeAtivo(tenantId: string) {
+    return edgeAtivo(this.db, tenantId).then((ativo) => ({ ativo }));
+  }
 
   private novoToken() {
     return randomBytes(24).toString('hex');
@@ -193,6 +210,8 @@ export class EquipamentoService {
     atorPerfil: string,
     dto: CreateEquipamentoDto,
   ) {
+    // F10 — impressora/KDS são config de impressão: com edge ativo, cria no edge.
+    if (dto.tipo === 'impressora' || dto.tipo === 'kds') await this.garantirConfigLocal(tenantId);
     const token = this.novoToken();
     const [row] = await this.db
       .insert(equipamento)
@@ -405,6 +424,7 @@ export class EquipamentoService {
     id: string,
     dto: { imprimeAoAvancar?: boolean; imprimeNoStatus?: string; impressoraDestinoId?: string | null },
   ) {
+    await this.garantirConfigLocal(tenantId);
     const status = ['recebido', 'preparo', 'pronto', 'entregue'].includes(dto?.imprimeNoStatus ?? '')
       ? (dto.imprimeNoStatus as string)
       : 'pronto';
@@ -429,6 +449,7 @@ export class EquipamentoService {
 
   // Fase E — próximo KDS da cadeia (ao avançar o card migra para ele). null = fim.
   async setProximoKds(tenantId: string, id: string, proximoKdsId: string | null) {
+    await this.garantirConfigLocal(tenantId);
     if (proximoKdsId === id) throw new BadRequestException('Um KDS não pode apontar para si mesmo.');
     const [row] = await this.db
       .update(equipamento)
@@ -445,6 +466,7 @@ export class EquipamentoService {
     id: string,
     dto: { fazCupom?: boolean; fazProducao?: boolean },
   ) {
+    await this.garantirConfigLocal(tenantId);
     const set: { fazCupom?: boolean; fazProducao?: boolean } = {};
     if (dto.fazCupom != null) set.fazCupom = !!dto.fazCupom;
     if (dto.fazProducao != null) set.fazProducao = !!dto.fazProducao;
@@ -512,6 +534,7 @@ export class EquipamentoService {
 
   // Cria ou edita uma impressora. papel: 'cupom' (caixa) | 'producao' (cozinha).
   async salvarImpressora(tenantId: string, dto: any) {
+    await this.garantirConfigLocal(tenantId);
     const local = dto.conexao === 'local';
     // Papel múltiplo (mig 167): usa os flags; se não vierem, deriva do papel legado.
     const fazCupom = dto.fazCupom != null ? !!dto.fazCupom : dto.papel !== 'producao';
@@ -554,6 +577,7 @@ export class EquipamentoService {
   }
 
   async removerImpressora(tenantId: string, id: string) {
+    await this.garantirConfigLocal(tenantId);
     const [row] = await this.db
       .delete(equipamento)
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id), eq(equipamento.tipo, 'impressora')))

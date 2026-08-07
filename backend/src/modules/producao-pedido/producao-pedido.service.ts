@@ -28,6 +28,7 @@ import {
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { perfilEfetivo } from '../delivery/cupom-perfis';
+import { edgeAtivo } from '../../common/edge-ativo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -946,6 +947,11 @@ export class ProducaoPedidoService {
   // Enfileira uma página de teste para a impressora (botão do painel). O worker
   // do edge converte o texto em ESC/POS e imprime — valida IP/porta/papel na hora.
   async enfileirarTeste(tenantId: string, equipamentoId: string) {
+    // F10 — com edge ativo, a impressão é do servidor local; a nuvem não gera job
+    // órfão. Orienta o usuário a testar pelo servidor local.
+    if (await edgeAtivo(this.db, tenantId)) {
+      return { ok: false, edge: true, aviso: 'Esta loja usa servidor local (edge). Faça o teste de impressão no servidor local — a nuvem não imprime direto nas impressoras da LAN.' };
+    }
     const [imp] = await this.db
       .select()
       .from(equipamento)
@@ -985,6 +991,10 @@ export class ProducaoPedidoService {
   // Reenfileira um job com erro (gestor). `equipamentoId` opcional ("Imprimir em…")
   // reroteia o job para outra impressora com alvo válido (mig 167).
   async reimprimir(tenantId: string, jobId: string, equipamentoId?: string | null) {
+    // F10 — com edge ativo, reimpressão é feita pelo servidor local (evita job órfão).
+    if (await edgeAtivo(this.db, tenantId)) {
+      return { ok: false, edge: true, aviso: 'Esta loja usa servidor local (edge). Reimprima pelo servidor local.' };
+    }
     const set: { status: string; erro: null; equipamentoId?: string } = {
       status: 'pendente',
       erro: null,
