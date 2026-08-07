@@ -278,7 +278,7 @@ export class DistribuicaoService {
              i.config->'pedidoIntegracao'->>'conectadoEm' as "conectadoEm"
       from integracao i join empresa e on e.id = i.tenant_id
       where i.config ? 'pedidoIntegracao'
-         or (i.ativo = true and i.canal not in ('n8n', 'mercadopago', 'iugu'))
+         or (i.ativo = true and i.canal not in ('n8n', 'mercadopago', 'pagseguro'))
       order by (${statusExpr} = 'pendente') desc,
                i.config->'pedidoIntegracao'->>'solicitadoEm' desc nulls last
       limit 500`);

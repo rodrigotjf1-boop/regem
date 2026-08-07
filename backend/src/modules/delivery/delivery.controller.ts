@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -229,7 +230,7 @@ export class DeliveryController {
     return this.service.salvarIntegracao(user.tenantId, dto);
   }
 
-  // Testa a conexão de um gateway de PIX (Mercado Pago / Iugu): valida o token na
+  // Testa a conexão do gateway de PIX (Mercado Pago): valida o token na
   // API do provedor. Usa o token do corpo (o que está no campo) ou, se vazio, o salvo.
   @CloudOnly()
   @Post('integracoes/:canal/testar-pix')
@@ -238,6 +239,23 @@ export class DeliveryController {
   @RequirePerm('delivery')
   testarPix(@CurrentUser() user: AuthUser, @Param('canal') canal: string, @Body() dto: any) {
     return this.service.testarGatewayPix(user.tenantId, canal, dto?.token);
+  }
+
+  // Gateway de PIX PRIMÁRIO (o outro vira fallback). GET lê, PATCH define.
+  @CloudOnly()
+  @Get('pix-prioritario')
+  @UseGuards(JwtAuthGuard)
+  getPixPrioritario(@CurrentUser() user: AuthUser) {
+    return this.service.getPixPrioritario(user.tenantId);
+  }
+
+  @CloudOnly()
+  @Patch('pix-prioritario')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  setPixPrioritario(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setPixPrioritario(user.tenantId, dto?.gateway);
   }
 
   // Cancelamento é liberado pela senha de um gestor (a trava está no service),

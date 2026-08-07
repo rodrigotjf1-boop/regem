@@ -609,7 +609,8 @@ export class ProducaoPedidoService {
         visivel: boolean;
         negrito: boolean;
         alinhamento: string;
-        tamanho?: string;
+        tamanho?: string; // legado: 'grande' == escala 2
+        escala?: number; // magnificação 1..4 (1 = normal)
         agrupado?: boolean;
       }[];
     },
@@ -696,10 +697,14 @@ export class ProducaoPedidoService {
         prev = null;
         continue;
       }
+      // Fonte: escala numérica 1..4 (compat: tamanho 'grande' == 2). @D=2× (edges
+      // antigos entendem); @D3/@D4 para 3×/4× (requer escpos atualizado).
+      const esc =
+        c.escala && c.escala >= 2 ? Math.min(4, Math.floor(c.escala)) : c.tamanho === 'grande' ? 2 : 1;
       const flags =
         (c.alinhamento === 'centro' ? 'C' : c.alinhamento === 'direita' ? 'R' : '') +
         (c.negrito ? 'B' : '') +
-        (c.tamanho === 'grande' ? 'D' : '');
+        (esc >= 3 ? `D${esc}` : esc === 2 ? 'D' : '');
       if (c.key === 'itens') out.push(sep);
       for (const t of linhas) {
         if (t.startsWith('@QR:')) out.push(t); // QR: linha própria (o escpos centraliza)
