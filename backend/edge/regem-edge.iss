@@ -121,7 +121,39 @@ begin
   if PageID = PgServidor.ID then Result := not EhCliente;
 end;
 
+// Escapa aspas/barra para montar o JSON do corpo com seguranca.
+function EscapaJson(const s: string): string;
+begin
+  Result := s;
+  StringChangeEx(Result, '\', '\\', True);
+  StringChangeEx(Result, '"', '\"', True);
+end;
+
+// Valida o login C&O na nuvem AQUI (no Avancar da tela de conta), ANTES de copiar
+// qualquer arquivo — falha rapido, sem instalar nada. '' = ok; senao a mensagem.
+function ValidaLoginNuvem(const email, senha: string): string;
+var http: Variant; body: string; st: Integer;
+begin
+  Result := '';
+  try
+    http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    http.SetTimeouts(8000, 8000, 8000, 15000); // resolve, connect, send, receive (ms)
+    http.Open('POST', '{#MyCloudApi}/auth/login', False);
+    http.SetRequestHeader('Content-Type', 'application/json');
+    body := '{"email":"' + EscapaJson(email) + '","senha":"' + EscapaJson(senha) + '"}';
+    http.Send(body);
+    st := http.Status;
+    if st = 401 then
+      Result := 'E-mail ou senha invalidos. Confira os dados do C&O e tente de novo.'
+    else if (st < 200) or (st >= 300) then
+      Result := 'Nao consegui validar o login (codigo ' + IntToStr(st) + '). Tente de novo.';
+  except
+    Result := 'Nao consegui validar o login na nuvem. A loja esta com internet? Detalhe: ' + GetExceptionMessage;
+  end;
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
+var erro: string;
 begin
   Result := True;
   if (CurPageID = PgConta.ID) and (not EhCliente) then
@@ -133,6 +165,13 @@ begin
     if PgConta.Values[1] = '' then
     begin
       MsgBox('Informe a senha.', mbError, MB_OK); Result := False; Exit;
+    end;
+    // Autorização ANTES de avançar: sem login válido, não instala nada.
+    WizardForm.Update;
+    erro := ValidaLoginNuvem(Trim(PgConta.Values[0]), PgConta.Values[1]);
+    if erro <> '' then
+    begin
+      MsgBox(erro, mbError, MB_OK); Result := False; Exit;
     end;
   end;
   if (CurPageID = PgServidor.ID) and EhCliente then
