@@ -20,14 +20,10 @@ import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { renderEscpos } from './escpos.mjs';
 
-// Servico do Windows nao tem shell que exporte envs: carrega o .env.local na mao.
-const _envFile = fileURLToPath(new URL('../.env.local', import.meta.url));
-if (existsSync(_envFile)) {
-  for (const _l of readFileSync(_envFile, 'utf8').split(/\r?\n/)) {
-    const _m = _l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)$/);
-    if (_m && !process.env[_m[1]]) process.env[_m[1]] = _m[2].trim();
-  }
-}
+// Servico do Windows nao tem shell que exporte envs: carrega o .env.local na mao
+// e DECIFRA os enc: DPAPI (senao a EDGE_DATABASE_URL fica cifrada -> pg 28P01).
+import { carregarEnvLocal } from './decifrar-env.mjs';
+carregarEnvLocal(import.meta.url);
 
 function req(k) {
   const v = process.env[k];
