@@ -54,6 +54,10 @@ export function ItemSheet({
       return n >= (g.min || 1);
     });
 
+  // Repetição: a mesma opção pode entrar N vezes (regra 'varias_com_repeticao').
+  const permiteRepetir = (g: any) => g.regra === 'varias_com_repeticao';
+  const qtdNoGrupo = (s: string[], g: any) => s.filter((x) => (g.opcoes ?? []).some((o: any) => o.id === x)).length;
+
   function toggleOpc(g: any, id: string) {
     setPickOpc((s) => {
       if (s.includes(id)) return s.filter((x) => x !== id);
@@ -61,9 +65,20 @@ export function ItemSheet({
         const outros = (g.opcoes ?? []).map((o: any) => o.id);
         return [...s.filter((x) => !outros.includes(x)), id];
       }
-      const noGrupo = s.filter((x) => (g.opcoes ?? []).some((o: any) => o.id === x));
-      if (g.max && noGrupo.length >= g.max) return s;
+      if (g.max && qtdNoGrupo(s, g) >= g.max) return s;
       return [...s, id];
+    });
+  }
+  function addOpc(g: any, id: string) {
+    setPickOpc((s) => (g.max && qtdNoGrupo(s, g) >= g.max ? s : [...s, id]));
+  }
+  function removeOpc(id: string) {
+    setPickOpc((s) => {
+      const i = s.indexOf(id);
+      if (i < 0) return s;
+      const n = [...s];
+      n.splice(i, 1);
+      return n;
     });
   }
 
@@ -71,10 +86,12 @@ export function ItemSheet({
     if (!valido) return;
     const partes: string[] = [];
     if (variacao) partes.push(variacao.nome);
-    pickOpc.forEach((id) => {
+    const contagem = new Map<string, number>();
+    pickOpc.forEach((id) => contagem.set(id, (contagem.get(id) ?? 0) + 1));
+    for (const [id, q] of contagem) {
       const o = opcoes.find((x: any) => x.id === id);
-      if (o) partes.push(o.nome);
-    });
+      if (o) partes.push(q > 1 ? `${q}x ${o.nome}` : o.nome);
+    }
     const key = `${sel.id}:${pickVar ?? ''}:${[...pickOpc].sort().join(',')}:${obs}`;
     onAdd({
       key,
@@ -133,7 +150,8 @@ export function ItemSheet({
 
           {(sel.grupos ?? []).map((g: any) => {
             const radio = g.max === 1;
-            const selNoGrupo = (g.opcoes ?? []).filter((o: any) => pickOpc.includes(o.id)).length;
+            const rep = permiteRepetir(g);
+            const selNoGrupo = qtdNoGrupo(pickOpc, g);
             const meta = g.max || g.min || 1;
             const obrig = !!(g.obrigatorio || g.min);
             const ok = obrig ? selNoGrupo >= (g.min || 1) : selNoGrupo > 0;
@@ -145,7 +163,7 @@ export function ItemSheet({
                     <div className="min-w-0">
                       <p className="truncate text-sm font-bold">{g.nome}</p>
                       <p className="text-[11px] font-semibold" style={{ color: accent }}>
-                        {radio ? 'Escolha 1 item' : obrig ? `Escolha ${g.min || 1}${g.max ? ` a ${g.max}` : '+'}` : g.max ? `Escolha até ${g.max}` : 'Opcional'}
+                        {radio ? (obrig ? 'Obrigatório 1 item' : 'Escolha 1 item') : obrig ? `Escolha ${g.min || 1}${g.max ? ` a ${g.max}` : '+'}` : g.max ? `Escolha até ${g.max}` : 'Opcional'}
                       </p>
                     </div>
                     <span
@@ -167,7 +185,37 @@ export function ItemSheet({
                   </p>
                 )}
                 {(g.opcoes ?? []).map((o: any) => {
-                  const on = pickOpc.includes(o.id);
+                  const cnt = pickOpc.filter((x) => x === o.id).length;
+                  const on = cnt > 0;
+                  const preco = o.precoDelta > 0 ? (
+                    <span className="font-mono text-xs text-neutral-500">+ {brl(o.precoDelta)}</span>
+                  ) : o.informativa ? (
+                    <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500">obs</span>
+                  ) : null;
+                  // Miniatura da opção (centralizada; object-contain reduz a alta sem cortar).
+                  const thumb = o.imagemRef ? (
+                    <img src={o.imagemRef} alt="" className="h-10 w-10 flex-none rounded-md border border-neutral-200 bg-neutral-50 object-contain" />
+                  ) : null;
+                  // Grupo com repetição: contador (− n +) por opção.
+                  if (rep) {
+                    const podeMais = !g.max || selNoGrupo < g.max;
+                    return (
+                      <div
+                        key={o.id}
+                        className="mb-1.5 flex w-full items-center gap-3 rounded-xl border p-3"
+                        style={on ? { borderColor: accent } : { borderColor: '#e5e5e5' }}
+                      >
+                        {thumb}
+                        <span className="flex-1 text-sm">{o.nome}</span>
+                        {preco}
+                        <div className="flex flex-none items-center overflow-hidden rounded-lg border" style={{ borderColor: '#e5e5e5' }}>
+                          <button type="button" onClick={() => removeOpc(o.id)} disabled={cnt === 0} className="h-8 w-8 text-lg font-bold disabled:opacity-30" style={{ color: accent }} aria-label={`Remover ${o.nome}`}>−</button>
+                          <span className="w-7 text-center font-mono text-sm font-bold">{cnt}</span>
+                          <button type="button" onClick={() => addOpc(g, o.id)} disabled={!podeMais} className="h-8 w-8 text-lg font-bold disabled:opacity-30" style={{ color: accent }} aria-label={`Adicionar ${o.nome}`}>+</button>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
                     <button
                       key={o.id}
@@ -182,13 +230,9 @@ export function ItemSheet({
                       >
                         {on ? '✓' : ''}
                       </span>
+                      {thumb}
                       <span className="flex-1 text-sm">{o.nome}</span>
-                      {o.precoDelta > 0 ? (
-                        <span className="font-mono text-xs text-neutral-500">+ {brl(o.precoDelta)}</span>
-                      ) : o.informativa ? (
-                        // Opção informativa (sem código PDV): só observação de preparo.
-                        <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-500">obs</span>
-                      ) : null}
+                      {preco}
                     </button>
                   );
                 })}

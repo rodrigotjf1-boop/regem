@@ -5,6 +5,34 @@ import { ImagePlus, Loader2, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
+// Reduz a imagem no cliente (canvas) para não pesar o storage — usado só em
+// complementos/opções (miniaturas), NÃO no produto principal. PNG mantém PNG
+// (transparência); o resto vira JPEG comprimido. Falha → devolve o original.
+async function reduzirImagem(file: File, maxDim: number): Promise<File> {
+  try {
+    const bmp = await createImageBitmap(file);
+    const escala = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+    // Já pequeno o bastante: não reprocessa.
+    if (escala >= 1 && file.size < 300_000) { bmp.close?.(); return file; }
+    const w = Math.max(1, Math.round(bmp.width * escala));
+    const h = Math.max(1, Math.round(bmp.height * escala));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bmp.close?.(); return file; }
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close?.();
+    const png = file.type === 'image/png';
+    const blob: Blob | null = await new Promise((res) =>
+      canvas.toBlob(res, png ? 'image/png' : 'image/jpeg', png ? undefined : 0.82),
+    );
+    if (!blob) return file;
+    return new File([blob], file.name.replace(/\.\w+$/, png ? '.png' : '.jpg'), { type: png ? 'image/png' : 'image/jpeg' });
+  } catch {
+    return file;
+  }
+}
+
 export function ImageUpload({
   value,
   onChange,
@@ -12,6 +40,8 @@ export function ImageUpload({
   alt = 'Imagem enviada',
   capture = false,
   compact = false,
+  maxDim,
+  accept,
 }: {
   value?: string;
   onChange: (url: string) => void;
@@ -22,6 +52,11 @@ export function ImageUpload({
   capture?: boolean;
   // compact: só a miniatura clicável (sem botão/texto) — para listas/linhas.
   compact?: boolean;
+  // maxDim: reduz a imagem (maior lado ≤ maxDim) antes de subir — só complementos/
+  // opções (miniaturas), para não pesar o storage. Produto principal NÃO passa isso.
+  maxDim?: number;
+  // accept: restringe os formatos (ex.: 'image/png,image/jpeg' nos complementos).
+  accept?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [enviando, setEnviando] = useState(false);
@@ -32,9 +67,15 @@ export function ImageUpload({
     e.target.value = ''; // permite reenviar o mesmo arquivo
     if (!file) return;
     setErro('');
+    // Validação de formato (quando restrito, ex.: complementos = PNG/JPEG).
+    if (accept && !accept.split(',').map((t) => t.trim()).includes(file.type)) {
+      setErro('Use apenas PNG ou JPEG.');
+      return;
+    }
     setEnviando(true);
     try {
-      const res = await api.upload(file);
+      const enviar = maxDim ? await reduzirImagem(file, maxDim) : file;
+      const res = await api.upload(enviar);
       onChange(res.url);
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha no upload');
@@ -49,7 +90,7 @@ export function ImageUpload({
       id={id}
       type="file"
       aria-label={capture ? 'Tirar foto com a câmera' : 'Enviar imagem'}
-      accept={capture ? 'image/*' : 'image/png,image/jpeg,image/webp,image/gif'}
+      accept={capture ? 'image/*' : accept ?? 'image/png,image/jpeg,image/webp,image/gif'}
       capture={capture ? 'environment' : undefined}
       className="hidden"
       onChange={selecionar}
@@ -139,7 +180,11 @@ export function ImageUpload({
 
       {erro && <p className="text-sm text-destructive">{erro}</p>}
       <p className="text-xs text-muted-foreground">
-        {capture ? 'Foto tirada na hora, pela câmera.' : 'JPG, PNG, WEBP ou GIF · até 5 MB.'}
+        {capture
+          ? 'Foto tirada na hora, pela câmera.'
+          : accept
+            ? 'JPG ou PNG · reduzido automaticamente (miniatura).'
+            : 'JPG, PNG, WEBP ou GIF · até 5 MB.'}
       </p>
     </div>
   );
