@@ -73,6 +73,7 @@ var
   PgModo: TInputOptionWizardPage;     // Servidor x Cliente
   PgConta: TInputQueryWizardPage;     // conta C&O (so no Servidor)
   PgServidor: TInputQueryWizardPage;  // IP do Servidor (so no Cliente)
+  gFalhou: Boolean;                   // o script terminou SEM o flag de sucesso?
 
 function EhCliente: Boolean;
 begin
@@ -172,7 +173,7 @@ begin
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
-var s: string;
+var s: string; err: AnsiString;
 begin
   if CurStep = ssInstall then
   begin
@@ -184,5 +185,27 @@ begin
       s := Trim(PgConta.Values[0]) + #13#10 + PgConta.Values[1] + #13#10 + Trim(PgConta.Values[2]);
       SaveStringToFile(ExpandConstant('{tmp}\regem-cred.txt'), s, False);
     end;
+  end;
+  // Depois do script: SEM o flag de sucesso = falhou (login errado, sem internet,
+  // Postgres, migrations...). Avisa claro e marca para a tela final refletir.
+  if CurStep = ssPostInstall then
+  begin
+    if not FileExists(ExpandConstant('{app}\backend\logs\INSTALOU-OK.flag')) then
+    begin
+      gFalhou := True;
+      if not LoadStringFromFile(ExpandConstant('{app}\backend\logs\ULTIMO-ERRO.txt'), err) then
+        err := 'A instalacao nao foi concluida. Veja o log em {app}\backend\logs.';
+      MsgBox('A instalacao NAO foi concluida:' + #13#10#13#10 + String(err) + #13#10#13#10 + 'Nada ficou configurado. Corrija e rode o instalador de novo.', mbCriticalError, MB_OK);
+    end;
+  end;
+end;
+
+// Tela final reflete a falha (o Inno mostraria "concluido" mesmo assim).
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if (CurPageID = wpFinished) and gFalhou then
+  begin
+    WizardForm.FinishedHeadingLabel.Caption := 'Instalacao NAO concluida';
+    WizardForm.FinishedLabel.Caption := 'Houve um erro e o Regem Edge NAO foi instalado (veja a mensagem que apareceu). Corrija os dados e rode o instalador de novo.';
   end;
 end;
