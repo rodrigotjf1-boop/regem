@@ -6,19 +6,26 @@ import path from 'node:path';
 import pg from 'pg';
 
 const cwd = process.cwd();
-const env = readFileSync(path.join(cwd, '.env.local'), 'utf8');
-const line = env.split(/\r?\n/).find((l) => l.startsWith('DATABASE_URL='));
-if (!line) {
-  console.error('DATABASE_URL ausente no .env.local');
+const env = existsSync(path.join(cwd, '.env.local')) ? readFileSync(path.join(cwd, '.env.local'), 'utf8') : '';
+// A conexão vem PRIMEIRO da env var: o instalador a passa em texto puro, porque a
+// .env.local pode estar cifrada em repouso (DPAPI) neste ponto — ilegível para este
+// script (conectaria como usuário do Windows → "password authentication failed").
+// Fallback: lê do arquivo (execução manual/dev, com o arquivo em texto puro).
+let connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  const line = env.split(/\r?\n/).find((l) => l.startsWith('DATABASE_URL='));
+  if (line) connectionString = line.slice('DATABASE_URL='.length).trim();
+}
+if (!connectionString) {
+  console.error('DATABASE_URL ausente (nem na env nem no .env.local)');
   process.exit(1);
 }
-const connectionString = line.slice('DATABASE_URL='.length).trim();
 
 // No EDGE (EDGE_MODE=true no .env.local) pulamos migrations marcadas `@cloud-only`
 // no topo — são tabelas SÓ da distribuição (ex.: telemetria, frota), que vivem na
 // NUVEM e o edge nunca escreve. Em dev/nuvem (sem EDGE_MODE) aplica tudo.
 // Tolerante a aspas e comentário na linha: EDGE_MODE=true, ="true", ='true', + # ...
-const ehEdge = /^\s*EDGE_MODE\s*=\s*["']?true["']?\s*(#.*)?$/im.test(env);
+const ehEdge = /^\s*EDGE_MODE\s*=\s*["']?true["']?\s*(#.*)?$/im.test(env) || String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
 
 // Em dev (monorepo) as migrations ficam em ../database/migrations; no edge
 // empacotado elas vao para ./database/migrations (dentro de backend/). Aceita os dois.
