@@ -528,7 +528,14 @@ try {
 } catch { Diga "(aviso) nao consegui restringir a ACL do .env.local: $($_.Exception.Message)" }
 
 # ---- 3) migrations + certificado + servicos ----
-Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; if ($LASTEXITCODE -ne 0) { throw "migrations falharam." }
+# Passa a conexao em TEXTO PURO por env var — neste ponto a .env.local JA foi cifrada
+# (DPAPI), e o apply-all-local leria a DATABASE_URL ilegivel, conectando como usuario do
+# Windows -> "password authentication failed for user". Assim independe da cifragem/ordem.
+$env:DATABASE_URL = $dbLocal
+$env:EDGE_MODE = 'true'
+Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; $mig = $LASTEXITCODE
+Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
+if ($mig -ne 0) { throw "migrations falharam." }
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
 Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
 
