@@ -126,7 +126,7 @@ export const colaborador = pgTable('colaborador', {
   funcaoId: uuid('funcao_id').references(() => funcao.id),
   telefone: text('telefone'), // contato (ex.: entregador em rota)
   vinculo: text('vinculo').notNull().default('clt'),
-  jornadaTipo: text('jornada_tipo').notNull().default('outro'), // 5x2|12x36|4x3|horista|outro
+  jornadaTipo: text('jornada_tipo').notNull().default('outro'), // 5x2|6x1|5x1|12x36|4x3|horista|outro
   pinHash: text('pin_hash'),
   email: text('email'),
   // Apelido de login (mig 141): único DENTRO da empresa, então o atendente entra
