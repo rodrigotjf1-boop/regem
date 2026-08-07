@@ -1647,6 +1647,7 @@ export class CardapioService {
         quantidade: qtd,
         precoUnitario: preco,
         observacao: it.observacao,
+        opcaoIds: it.complementos ?? [], // ids das opções → roteamento por opção/etapa (Fase 1)
       });
     }
     // Subtotal em reais (fronteira) — usado nos serviços de cupom/prêmio/cashback.

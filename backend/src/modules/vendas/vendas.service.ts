@@ -466,6 +466,7 @@ export class VendasService {
             complementosTexto: compTexto,
             observacao: obs,
             comandaItemId: ci.id,
+            opcaoIds: snapshots.map((s: any) => s.opcaoId), // roteamento por opção/etapa (Fase 1)
           });
       }
 
@@ -618,6 +619,7 @@ export class VendasService {
     atorId: string,
     dados: { senha?: number | null; mesa?: string | null; itens: any[]; total: number; forma?: string | null },
     terminalId?: string | null,
+    alvoPreferido?: string | null,
   ) {
     const [ator] = await this.db
       .select({ nome: colaborador.nome })
@@ -644,12 +646,13 @@ export class VendasService {
       layout,
       perfilCaixa,
     );
-    await this.producao.enfileirarViaCliente(
+    return this.producao.enfileirarViaCliente(
       tenantId,
       unidadeId,
       comandaId,
       conteudo,
       terminalId,
+      alvoPreferido,
     );
   }
 
@@ -673,6 +676,7 @@ export class VendasService {
         quantidade: number;
         precoUnitario: number;
         observacao?: string | null;
+        complementos?: string[] | null; // opcaoIds escolhidos (roteamento por opção/etapa — Fase 1)
       }[];
     },
   ) {
@@ -732,6 +736,7 @@ export class VendasService {
               observacao: it.observacao ?? null,
               complementosTexto: (it as any).complementosTexto ?? null,
               comandaItemId: ci.id,
+              opcaoIds: (it as any).complementos ?? [], // roteamento por opção/etapa (Fase 1)
             });
         }
       }
@@ -1157,6 +1162,7 @@ export class VendasService {
     tenantId: string,
     atorId: string,
     comandaId: string,
+    alvoPreferido?: string | null,
   ) {
     const [c] = await this.db
       .select()
@@ -1172,25 +1178,33 @@ export class VendasService {
           eq(comandaItem.comandaId, comandaId),
         ),
       );
-    await this.imprimirViaCliente(tenantId, comandaId, c.unidadeId, atorId, {
-      senha: c.senha,
-      mesa: c.mesa,
-      itens: itens.map((it) => ({
-        quantidade: Number(it.quantidade),
-        descricao: it.descricao,
-        precoUnitario: Number(it.precoUnitario),
-        complementosTexto: null,
-      })),
-      total: Number(c.total),
-      forma: c.forma,
-    });
-    return { ok: true };
+    const res = await this.imprimirViaCliente(
+      tenantId,
+      comandaId,
+      c.unidadeId,
+      atorId,
+      {
+        senha: c.senha,
+        mesa: c.mesa,
+        itens: itens.map((it) => ({
+          quantidade: Number(it.quantidade),
+          descricao: it.descricao,
+          precoUnitario: Number(it.precoUnitario),
+          complementosTexto: null,
+        })),
+        total: Number(c.total),
+        forma: c.forma,
+      },
+      null,
+      alvoPreferido,
+    );
+    return { ok: (res?.enfileirados ?? 0) > 0, ...res };
   }
 
   // Reimprime a 2ª via do comprovante de um cupom (balcão/mesa/delivery).
   // Reaproveita a via do cliente a partir do estado atual da comanda.
-  reimprimirCupom(tenantId: string, atorId: string, comandaId: string) {
-    return this.reimprimirViasExterno(tenantId, atorId, comandaId);
+  reimprimirCupom(tenantId: string, atorId: string, comandaId: string, alvoPreferido?: string | null) {
+    return this.reimprimirViasExterno(tenantId, atorId, comandaId, alvoPreferido);
   }
 
   // Altera os itens de um delivery (comanda 'fechada'): adiciona/remove itens,
@@ -1671,6 +1685,7 @@ export class VendasService {
                 .join(' · ') || null,
             observacao: obs,
             comandaItemId: item.id,
+            opcaoIds: snapshots.map((s: any) => s.opcaoId), // roteamento por opção/etapa (Fase 1)
           },
         ],
       );

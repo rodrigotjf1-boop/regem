@@ -170,8 +170,13 @@ export class DeliveryController {
   @Post('pedidos/:id/reimprimir')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
   @RequirePerm('delivery')
-  reimprimir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.reimprimir(user.tenantId, user.colaboradorId, id);
+  reimprimir(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    // dto.equipamentoId (opcional): "Imprimir em…" — override da impressora.
+    return this.service.reimprimir(user.tenantId, user.colaboradorId, id, dto?.equipamentoId ?? null);
   }
 
   @Get('pedidos/:id/itens')

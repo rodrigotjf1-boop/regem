@@ -73,8 +73,14 @@ export function PedidoDetalhe({
   async function reimprimir() {
     setBusy(true);
     try {
-      await api.reimprimirDelivery(p.id);
-      toast.success('Vias reenviadas para impressão.');
+      const res: any = await api.reimprimirDelivery(p.id);
+      if (res && typeof res === 'object' && res.enfileirados === 0) {
+        toast.error(res.aviso || 'Nenhuma impressora disponível.');
+      } else if (res?.aviso) {
+        toast.info(res.aviso);
+      } else {
+        toast.success('Vias reenviadas para impressão.');
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao reimprimir');
     } finally {

@@ -41,7 +41,9 @@ export default function EquipamentosPage() {
   const [unidadeId, setUnidadeId] = useState('');
   const [setorId, setSetorId] = useState('');
   const [escopo, setEscopo] = useState('producao');
-  const [papel, setPapel] = useState('producao');
+  // Papel múltiplo (mig 167): a impressora pode servir cupom E/OU produção.
+  const [fazCupom, setFazCupom] = useState(false);
+  const [fazProducao, setFazProducao] = useState(true);
   const [conexao, setConexao] = useState('rede'); // 'rede' | 'local' (USB/Windows)
   const [host, setHost] = useState('');
   const [porta, setPorta] = useState('9100');
@@ -62,6 +64,9 @@ export default function EquipamentosPage() {
     null,
   );
   const [copiado, setCopiado] = useState(false);
+  const [retarget, setRetarget] = useState<Record<string, string>>({}); // job → impressora escolhida (override)
+  // Impressora só tem "alvo" imprimível: rede → tem IP; local → tem nome no Windows.
+  const alvoValido = (e: any) => (e.conexao === 'local' ? !!e.dispositivo : !!e.host);
 
   const reload = useCallback(async () => {
     try {
@@ -97,6 +102,8 @@ export default function EquipamentosPage() {
     setPorta('9100');
     setDispositivo('');
     setLargura('80');
+    setFazCupom(false);
+    setFazProducao(true);
     setEditandoId(null);
   }
 
@@ -107,7 +114,9 @@ export default function EquipamentosPage() {
     setNome(eq.nome ?? '');
     setUnidadeId(eq.unidadeId ?? '');
     setSetorId(eq.setorId ?? '');
-    setPapel(eq.papel ?? 'producao');
+    // Papel múltiplo (mig 167): usa os flags; se vierem vazios (registro antigo), deriva do papel.
+    setFazCupom(eq.fazCupom ?? eq.papel === 'cupom');
+    setFazProducao(eq.fazProducao ?? (eq.papel === 'producao' || eq.papel == null));
     setConexao(eq.conexao ?? 'rede');
     setHost(eq.host ?? '');
     setPorta(String(eq.porta ?? 9100));
@@ -130,7 +139,8 @@ export default function EquipamentosPage() {
         await api.salvarImpressora({
           id: editandoId,
           nome,
-          papel,
+          fazCupom,
+          fazProducao,
           setorId: setorId || null,
           conexao,
           host: local ? null : host || null,
@@ -151,7 +161,8 @@ export default function EquipamentosPage() {
         unidadeId: unidadeId || undefined,
         setorId: (tipo === 'kds' || tipo === 'impressora') && setorId ? setorId : undefined,
         escopo: tipo === 'kds' ? escopo : undefined,
-        papel: tipo === 'impressora' ? papel : undefined,
+        fazCupom: tipo === 'impressora' ? fazCupom : undefined,
+        fazProducao: tipo === 'impressora' ? fazProducao : undefined,
         conexao: tipo === 'impressora' ? conexao : undefined,
         host: tipo === 'impressora' && !local && host ? host : undefined,
         porta: tipo === 'impressora' && !local && porta ? Number(porta) : undefined,
@@ -246,10 +257,10 @@ export default function EquipamentosPage() {
     }
   }
 
-  async function reimprimir(id: string) {
+  async function reimprimir(id: string, equipamentoId?: string | null) {
     setErro('');
     try {
-      await api.reimprimir(id);
+      await api.reimprimir(id, equipamentoId ?? null);
       const f = await api.impressaoFila().catch(() => []);
       setFila(f as any[]);
     } catch (err) {
@@ -424,7 +435,7 @@ export default function EquipamentosPage() {
                 >
                   <option value="">— definir depois —</option>
                   {(lista ?? [])
-                    .filter((e: any) => e.tipo === 'impressora' && e.papel === 'cupom' && e.ativo)
+                    .filter((e: any) => e.tipo === 'impressora' && e.fazCupom && e.ativo)
                     .map((imp: any) => (
                       <option key={imp.id} value={imp.id}>{imp.nome}</option>
                     ))}
@@ -489,11 +500,30 @@ export default function EquipamentosPage() {
             {tipo === 'impressora' && (
               <>
                 <div className="space-y-1.5">
-                  <Label htmlFor="papel">Papel da impressora</Label>
-                  <select id="papel" value={papel} onChange={(e) => setPapel(e.target.value)} className={selectCls}>
-                    <option value="producao">Produção (cozinha/bar — sem valores)</option>
-                    <option value="cupom">Cupom (via do cliente — com valores)</option>
-                  </select>
+                  <Label>O que esta impressora imprime</Label>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-primary"
+                        checked={fazCupom}
+                        onChange={(e) => setFazCupom(e.target.checked)}
+                      />
+                      <span>Cupom do cliente <span className="text-muted-foreground">(com valores)</span></span>
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-primary"
+                        checked={fazProducao}
+                        onChange={(e) => setFazProducao(e.target.checked)}
+                      />
+                      <span>Produção <span className="text-muted-foreground">(cozinha/bar — sem valores)</span></span>
+                    </label>
+                  </div>
+                  {!fazCupom && !fazProducao && (
+                    <p className="text-xs text-destructive">Marque ao menos um — senão nada será roteado para ela.</p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="conexao">Conexão</Label>
@@ -541,7 +571,7 @@ export default function EquipamentosPage() {
                   </div>
                 )}
                 {/* Produção: setores que a impressora atende (cozinha, bar…) */}
-                {papel === 'producao' && (
+                {fazProducao && (
                   <div className="space-y-1.5">
                     <Label>Setores atendidos</Label>
                     <p className="text-xs text-muted-foreground">
@@ -668,7 +698,7 @@ export default function EquipamentosPage() {
                       >
                         <option value="">— nenhuma —</option>
                         {(lista ?? [])
-                          .filter((p: any) => p.tipo === 'impressora' && p.papel === 'cupom' && p.ativo)
+                          .filter((p: any) => p.tipo === 'impressora' && p.fazCupom && p.ativo)
                           .map((p: any) => (
                             <option key={p.id} value={p.id}>{p.nome}</option>
                           ))}
@@ -838,9 +868,30 @@ export default function EquipamentosPage() {
                   </div>
                 </div>
                 {j.status === 'erro' && (
-                  <Button type="button" variant="outline" size="sm" onClick={() => reimprimir(j.id)}>
-                    Reimprimir
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <select
+                      aria-label="Imprimir em (outra impressora)"
+                      value={retarget[j.id] ?? ''}
+                      onChange={(e) => setRetarget((r) => ({ ...r, [j.id]: e.target.value }))}
+                      className="h-8 rounded-md border border-input bg-card px-2 text-xs"
+                      title="Imprimir em outra impressora"
+                    >
+                      <option value="">mesma impressora</option>
+                      {(lista ?? [])
+                        .filter((e: any) => e.tipo === 'impressora' && e.ativo && alvoValido(e))
+                        .map((e: any) => (
+                          <option key={e.id} value={e.id}>{e.nome}</option>
+                        ))}
+                    </select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => reimprimir(j.id, retarget[j.id] || null)}
+                    >
+                      Reimprimir
+                    </Button>
+                  </div>
                 )}
               </div>
             ))}

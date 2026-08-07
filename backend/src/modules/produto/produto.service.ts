@@ -143,6 +143,7 @@ export class ProdutoService {
   async listarComplementos(tenantId: string) {
     const res: any = await this.db.execute(sql`
       select c.id, c.nome, c.regra, c.obrigatorio, c.min, c.max, c.canais, c.ativo,
+             c.imprime_etiqueta as "imprimeEtiqueta",
              coalesce(json_agg(
                json_build_object('opcaoId', ci.opcao_id, 'preco', ci.preco, 'ordem', ci.ordem,
                                  'padraoMarcada', ci.padrao_marcada, 'nome', o.nome,
@@ -309,6 +310,7 @@ export class ProdutoService {
       max,
       canais,
       ativo: dto?.ativo != null ? !!dto.ativo : true,
+      imprimeEtiqueta: !!dto?.imprimeEtiqueta, // gera etiqueta do item (mig 168, Fase 5)
     };
   }
 

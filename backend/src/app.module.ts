@@ -74,6 +74,7 @@ import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
 import { UnidadeUnicaInterceptor } from './auth/unidade-unica.interceptor';
 import { TerminalSegredoInterceptor } from './auth/terminal-segredo.interceptor';
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
+import { SuporteModule } from './modules/suporte/suporte.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
 
@@ -92,6 +93,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       ClienteModule,
       BotModule,
       DistribuicaoModule,
+      SuporteModule,
     ];
 
 @Module({

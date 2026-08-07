@@ -16,22 +16,29 @@ function stable(v: any): string {
 // Forma canônica de um registro (SEM created_at — a integridade do relógio é
 // controle separado; o seq já dá a ordem). hash = sha256(prev_hash | canônico).
 function canonico(r: {
-  tenantId: string; seq: number; unidadeId?: any; atorId?: any; atorPerfil?: any;
+  tenantId: string; seq: number; unidadeId?: any; atorId?: any; atorPerfil?: any; atorTipo?: any;
   tipo?: any; acao?: any; entidadeTipo?: any; entidadeId?: any; detalhe?: any; origem?: any;
 }): string {
-  return stable({
+  const base: Record<string, any> = {
     t: r.tenantId, s: r.seq, u: r.unidadeId ?? null,
     ai: r.atorId ?? null, ap: r.atorPerfil ?? null,
     ti: r.tipo ?? null, ac: r.acao ?? null,
     et: r.entidadeTipo ?? null, ei: r.entidadeId ?? null,
     d: r.detalhe ?? null, o: r.origem ?? 'web',
-  });
+  };
+  // `at` (actor_tipo) só entra na forma canônica quando NÃO é o default 'usuario'
+  // — assim os registros ANTIGOS (todos 'usuario') continuam hasheando igual e a
+  // cadeia existente permanece válida (F9.0).
+  const at = r.atorTipo ?? 'usuario';
+  if (at !== 'usuario') base.at = at;
+  return stable(base);
 }
 
 export type AuditEntry = {
   tenantId: string;
   atorId?: string | null;
   atorPerfil?: string | null;
+  atorTipo?: string | null; // 'usuario' (default) | 'suporte' | 'distribuicao' (F9.0)
   tipo: string;
   acao: string;
   detalhe?: any;
@@ -68,6 +75,7 @@ export class AuditoriaService {
           unidadeId: e.unidadeId ?? undefined,
           actorId: e.atorId ?? undefined,
           actorPerfil: e.atorPerfil ?? undefined,
+          actorTipo: e.atorTipo ?? undefined, // default 'usuario' no schema (F9.0)
           tipo: e.tipo,
           acao: e.acao,
           detalhe: e.detalhe ?? undefined,
@@ -89,7 +97,7 @@ export class AuditoriaService {
   async verificarCadeia(tenantId: string): Promise<{ ok: boolean; total: number; quebras: any[] }> {
     const res: any = await this.db.execute(sql`
       select seq, prev_hash as "prevHash", hash, tenant_id as "tenantId", unidade_id as "unidadeId",
-             actor_id as "atorId", actor_perfil as "atorPerfil", tipo, acao,
+             actor_id as "atorId", actor_perfil as "atorPerfil", actor_tipo as "atorTipo", tipo, acao,
              entidade_tipo as "entidadeTipo", entidade_id as "entidadeId", detalhe, origem
       from audit_log where tenant_id = ${tenantId} and seq is not null order by seq asc`);
     const rows = res.rows ?? res;

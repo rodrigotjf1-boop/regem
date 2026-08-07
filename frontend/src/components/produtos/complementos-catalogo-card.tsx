@@ -127,6 +127,7 @@ function ComplementoModal({ complemento, opcoes, onFechar, onSalvo }: { compleme
   const [nome, setNome] = useState(complemento.nome ?? '');
   const [regra, setRegra] = useState(complemento.regra ?? 'uma');
   const [obrigatorio, setObrigatorio] = useState(complemento.obrigatorio ?? false);
+  const [imprimeEtiqueta, setImprimeEtiqueta] = useState(complemento.imprimeEtiqueta ?? false);
   const [min, setMin] = useState<any>(complemento.min ?? 0);
   const [max, setMax] = useState<any>(complemento.max ?? '');
   const [canais, setCanais] = useState<string[]>(complemento.canais ?? CANAIS.map((c) => c.v));
@@ -150,7 +151,7 @@ function ComplementoModal({ complemento, opcoes, onFechar, onSalvo }: { compleme
   async function salvar() {
     if (!nome.trim()) { toast.error('Informe o nome.'); return; }
     setBusy(true);
-    const body = { nome: nome.trim(), regra, obrigatorio, min, max, canais, itens: itens.map((it, i) => ({ ...it, ordem: i })) };
+    const body = { nome: nome.trim(), regra, obrigatorio, imprimeEtiqueta, min, max, canais, itens: itens.map((it, i) => ({ ...it, ordem: i })) };
     try {
       if (novo) await api.criarComplementoCatalogo(body);
       else await api.atualizarComplementoCatalogo(complemento.id, body);
@@ -193,6 +194,13 @@ function ComplementoModal({ complemento, opcoes, onFechar, onSalvo }: { compleme
             </div>
           )}
         </div>
+
+        <label className="mt-2 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" checked={imprimeEtiqueta} onChange={(e) => setImprimeEtiqueta(e.target.checked)} />
+          <span>Gera etiqueta para colar no produto
+            <span className="block text-[11px] text-muted-foreground">Ao escolher uma opção desta etapa, sai uma etiqueta extra (senha + item + complemento/obs) na impressora direcionada — para não esquecer o item personalizado.</span>
+          </span>
+        </label>
 
         <div className="mt-3">
           <Label className="text-xs">Disponível em</Label>

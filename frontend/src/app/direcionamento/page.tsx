@@ -98,6 +98,28 @@ export default function DirecionamentoPage() {
   const toggle = (lista: string[], set: (v: string[]) => void, id: string) =>
     set(lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id]);
 
+  // Impressoras de cupom (via do cliente). Uma impressora só tem "alvo" imprimível
+  // se: rede → tem IP; local → tem nome no Windows.
+  const impressoras = useMemo(
+    () => equipamentos.filter((e) => e.tipo === 'impressora'),
+    [equipamentos],
+  );
+  const alvoValido = (e: any) => (e.conexao === 'local' ? !!e.dispositivo : !!e.host);
+
+  async function toggleCupom(imp: any) {
+    try {
+      const novo: any = await api.setPapeisImpressora(imp.id, { fazCupom: !imp.fazCupom });
+      setEquipamentos((prev) => prev.map((e) => (e.id === imp.id ? { ...e, ...novo } : e)));
+      toast.success(
+        novo.fazCupom
+          ? `${imp.nome} passa a imprimir o cupom do cliente.`
+          : `${imp.nome} não imprime mais o cupom.`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar');
+    }
+  }
+
   async function confirmar() {
     if (!selProdutos.length) return toast.error('Selecione ao menos um produto.');
     setSalvando(true);
@@ -126,6 +148,50 @@ export default function DirecionamentoPage() {
           <strong>impressoras</strong>. Produto sem destino herda o padrão do setor — e se a loja tiver
           só uma impressora, ela é usada automaticamente.
         </p>
+
+        {/* Cupom do cliente — via com valores (reimprimir/aceitar pedido) */}
+        <Card className="p-3">
+          <h2 className="font-display font-semibold">Cupom do cliente</h2>
+          <p className="mb-2 mt-0.5 text-sm text-muted-foreground">
+            Marque quais impressoras imprimem o <strong>cupom do cliente</strong> (via com valores). É o que sai
+            ao aceitar/reimprimir um pedido. A produção da cozinha usa o direcionamento por produto abaixo.
+          </p>
+          {impressoras.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma impressora cadastrada. Cadastre em Cadastros → Equipamentos.
+            </p>
+          ) : (
+            <div className="space-y-1">
+              {impressoras.map((e) => {
+                const ok = alvoValido(e);
+                return (
+                  <label
+                    key={e.id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-sm ${e.fazCupom ? 'border-primary bg-primary/10' : 'border-border'}`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-primary"
+                      checked={!!e.fazCupom}
+                      onChange={() => toggleCupom(e)}
+                    />
+                    <span className="flex-1">
+                      {e.nome}
+                      <span className="ml-1.5 text-xs text-muted-foreground">
+                        {e.conexao === 'local' ? `USB: ${e.dispositivo || '(sem nome)'}` : `rede: ${e.host || '(sem IP)'}`}
+                      </span>
+                    </span>
+                    {e.fazCupom && !ok && (
+                      <span className="rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
+                        sem alvo — configure em Equipamentos
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </Card>
 
         {/* Filtros */}
         <Card className="p-3">

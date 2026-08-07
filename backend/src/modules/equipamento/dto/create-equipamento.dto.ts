@@ -33,6 +33,15 @@ export class CreateEquipamentoDto {
   @IsIn(['producao', 'cupom'])
   papel?: string;
 
+  // Papel MÚLTIPLO (mig 167): uma impressora pode servir cupom E/OU produção.
+  @IsOptional()
+  @IsBoolean()
+  fazCupom?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  fazProducao?: boolean;
+
   @IsOptional()
   @IsUUID()
   setorId?: string;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { clearDistToken, distApi, getDistToken } from '@/lib/api';
+import { clearDistToken, distApi, getDistToken, setToken } from '@/lib/api';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -54,6 +54,22 @@ export default function DistHome() {
 
   const sair = useCallback(() => { clearDistToken(); router.replace('/distribuicao/login'); }, [router]);
 
+  // F9.5 — ativar o 2º fator (TOTP) na conta da distribuição.
+  async function ativarMfa() {
+    try {
+      const r: any = await distApi.mfaIniciar();
+      if (r.ja) { alert('O 2FA já está ativo nesta conta.'); return; }
+      const code = window.prompt(
+        `Configure o 2FA no seu app autenticador (Google Authenticator / Authy).\n\n` +
+        `Chave (digite manualmente): ${r.secret}\n\n` +
+        `Depois informe o código de 6 dígitos gerado pelo app:`,
+      );
+      if (!code) return;
+      await distApi.mfaConfirmar(code.trim());
+      alert('2FA ativado! Nos próximos logins será pedido o código do app.');
+    } catch (e) { alert(e instanceof Error ? e.message : 'Erro ao ativar 2FA'); }
+  }
+
   const carregar = useCallback((perfil: string) => {
     distApi.frota().then(setFrota).catch(() => {});
     distApi.licencas().then(setLicencas).catch(() => {});
@@ -73,6 +89,21 @@ export default function DistHome() {
     if (!confirm(`Disparar ROLLBACK remoto no edge de "${nome}"?\nO servidor reverte à versão anterior no próximo ciclo (reinicia serviços). Use só se a última atualização causou problema.`)) return;
     try { await distApi.rollbackRemoto(id); setErro(''); alert('Rollback solicitado. O edge executa no próximo ciclo de sync.'); }
     catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
+  }
+
+  // F9 — acessar as CONFIGURAÇÕES da loja em modo suporte (escopado + auditado).
+  async function acessarSuporte(id: string, nome: string) {
+    const motivo = window.prompt(`Acessar "${nome}" em MODO SUPORTE (só configurações, tudo auditado).\nMotivo do acesso:`);
+    if (motivo === null) return; // cancelou
+    try {
+      const r: any = await distApi.suporteIniciar(id, motivo || undefined);
+      // O token de suporte é um JWT da LOJA — abre o app da loja numa nova aba em modo suporte.
+      setToken(r.token);
+      window.open('/painel', '_blank');
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao iniciar suporte');
+      alert(err instanceof Error ? err.message : 'Erro ao iniciar suporte');
+    }
   }
 
   useEffect(() => {
@@ -149,6 +180,7 @@ export default function DistHome() {
         </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="text-slate-300">{me.nome} · <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-amber-300">{PERFIL_LABEL[me.perfil] ?? me.perfil}</span></span>
+          <button onClick={ativarMfa} className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-emerald-500" title="Ativar verificação em 2 fatores">🔒 2FA</button>
           <button onClick={sair} className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:border-slate-500">Sair</button>
         </div>
       </header>
@@ -178,7 +210,10 @@ export default function DistHome() {
                       <td className={`p-3 text-xs ${statusLic(l).cor}`}>{statusLic(l).label}</td>
                       <td className="p-3 text-xs text-slate-500">{quando(l.ultimoLogin)}</td>
                       <td className="p-3 text-xs text-slate-500">{quando(l.ultimoHeartbeat)}</td>
-                      {podeTelemetria && <td className="p-3">{l.edgeVersao && <button onClick={() => rollback(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-amber-400 hover:border-amber-500">Rollback</button>}</td>}
+                      {podeTelemetria && <td className="p-3"><div className="flex gap-1.5">
+                        <button onClick={() => acessarSuporte(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-sky-400 hover:border-sky-500">Suporte</button>
+                        {l.edgeVersao && <button onClick={() => rollback(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-amber-400 hover:border-amber-500">Rollback</button>}
+                      </div></td>}
                     </tr>
                   ))}
                   {frota && filtrar(frota).length === 0 && <tr><td colSpan={podeTelemetria ? 8 : 7} className="p-6 text-center text-slate-500">Nenhuma loja no filtro.</td></tr>}

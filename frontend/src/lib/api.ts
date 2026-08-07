@@ -332,14 +332,23 @@ async function distReq(path: string, options: RequestInit = {}) {
   return res.status === 204 ? null : res.json();
 }
 export const distApi = {
-  login: (email: string, senha: string) =>
-    distReq('/distribuicao/login', { method: 'POST', body: JSON.stringify({ email, senha }) }),
+  login: (email: string, senha: string, codigo?: string) =>
+    distReq('/distribuicao/login', { method: 'POST', body: JSON.stringify({ email, senha, codigo }) }),
+  // MFA (F9.5)
+  mfaIniciar: () => distReq('/distribuicao/mfa/iniciar', { method: 'POST', body: '{}' }),
+  mfaConfirmar: (codigo: string) =>
+    distReq('/distribuicao/mfa/confirmar', { method: 'POST', body: JSON.stringify({ codigo }) }),
   me: () => distReq('/distribuicao/me'),
   usuarios: () => distReq('/distribuicao/usuarios'),
   criarUsuario: (dto: any) =>
     distReq('/distribuicao/usuarios', { method: 'POST', body: JSON.stringify(dto) }),
   auditoria: () => distReq('/distribuicao/auditoria'),
   frota: () => distReq('/distribuicao/frota'),
+  // F9 — inicia/encerra acesso de suporte a uma loja (retorna o token de suporte).
+  suporteIniciar: (tenantId: string, motivo?: string) =>
+    distReq('/distribuicao/suporte/iniciar', { method: 'POST', body: JSON.stringify({ tenantId, motivo }) }),
+  suporteEncerrar: (sessaoId: string) =>
+    distReq('/distribuicao/suporte/encerrar', { method: 'POST', body: JSON.stringify({ sessaoId }) }),
   telemetria: () => distReq('/distribuicao/telemetria'),
   resolverTelemetria: (id: string) =>
     distReq(`/distribuicao/telemetria/${id}/resolver`, { method: 'POST', body: '{}' }),
@@ -655,8 +664,8 @@ export const api = {
   vendasCupom: (id: string) => req(`/vendas/cupons/${id}`),
   buscarCupomSenha: (senha: string | number) =>
     req(`/vendas/cupons/busca?senha=${encodeURIComponent(String(senha))}`),
-  reimprimirCupom: (id: string) =>
-    req(`/vendas/cupons/${id}/reimprimir`, { method: 'POST', body: '{}' }),
+  reimprimirCupom: (id: string, equipamentoId?: string | null) =>
+    req(`/vendas/cupons/${id}/reimprimir`, { method: 'POST', body: JSON.stringify({ equipamentoId: equipamentoId ?? null }) }),
   cancelarVenda: (id: string, body: Record<string, unknown>) =>
     req(`/vendas/comandas/${id}/cancelar`, {
       method: 'POST',
@@ -741,8 +750,8 @@ export const api = {
     req(`/delivery/pedidos/${id}/avisar-pronto`, { method: 'POST', body: '{}' }),
   alterarDelivery: (id: string, body: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/alterar`, { method: 'POST', body: JSON.stringify(body) }),
-  reimprimirDelivery: (id: string) =>
-    req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: '{}' }),
+  reimprimirDelivery: (id: string, equipamentoId?: string | null) =>
+    req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: JSON.stringify({ equipamentoId: equipamentoId ?? null }) }),
   despacharDelivery: (id: string, body?: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/despachar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   finalizarDelivery: (id: string, body?: { forma?: string; valorRecebido?: number }) =>
@@ -1167,8 +1176,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ ativo }),
     }),
-  reimprimir: (id: string) =>
-    req(`/impressao/${id}/reimprimir`, { method: 'POST', body: '{}' }),
+  reimprimir: (id: string, equipamentoId?: string | null) =>
+    req(`/impressao/${id}/reimprimir`, { method: 'POST', body: JSON.stringify({ equipamentoId: equipamentoId ?? null }) }),
   impressaoFila: () => req('/impressao/fila'),
   impressoraTeste: (id: string) =>
     req(`/impressao/impressoras/${id}/teste`, { method: 'POST', body: '{}' }),
@@ -1269,11 +1278,19 @@ export const api = {
   impressoras: () => req('/equipamento/impressoras'),
   salvarImpressora: (body: Record<string, unknown>) =>
     req('/equipamento/impressoras', { method: 'PUT', body: JSON.stringify(body) }),
+  // Papel múltiplo (mig 167): liga/desliga cupom/produção sem clobber.
+  setPapeisImpressora: (id: string, body: { fazCupom?: boolean; fazProducao?: boolean }) =>
+    req(`/equipamento/${id}/papeis`, { method: 'PATCH', body: JSON.stringify(body) }),
   removerImpressora: (id: string) =>
     req(`/equipamento/impressoras/${id}`, { method: 'DELETE' }),
   equipamentos: () => req('/equipamento'),
   criarEquipamento: (body: Record<string, unknown>) =>
     req('/equipamento', { method: 'POST', body: JSON.stringify(body) }),
+  // F9 — acesso de suporte (presidente vê/revoga)
+  suporteEstado: () => req('/suporte/estado'),
+  suporteSessoes: () => req('/suporte/sessoes'),
+  suporteBloquear: (bloquear: boolean) =>
+    req('/suporte/bloquear', { method: 'PATCH', body: JSON.stringify({ bloquear }) }),
   parearTerminal: (token: string) =>
     req('/equipamento/parear', { method: 'POST', body: JSON.stringify({ token }) }),
   // Módulos ativos para MIM (plano contratado ∩ liga/desliga do presidente).

@@ -50,7 +50,7 @@ export class EquipamentoController {
   @Get('impressoras')
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
-  @RequirePerm('servidor')
+  @RequirePerm('impressoras')
   impressoras(@CurrentUser() user: AuthUser) {
     return this.service.listarImpressoras(user.tenantId);
   }
@@ -58,7 +58,7 @@ export class EquipamentoController {
   @Put('impressoras')
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
-  @RequirePerm('servidor')
+  @RequirePerm('impressoras')
   salvarImpressora(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.salvarImpressora(user.tenantId, dto);
   }
@@ -66,7 +66,7 @@ export class EquipamentoController {
   @Delete('impressoras/:id')
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
-  @RequirePerm('servidor')
+  @RequirePerm('impressoras')
   removerImpressora(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.removerImpressora(user.tenantId, id);
   }
@@ -113,11 +113,21 @@ export class EquipamentoController {
     );
   }
 
+  // Impressora: papel múltiplo (mig 167) — liga/desliga cupom e produção sem
+  // clobber dos demais campos (usado no card "Cupom do cliente" do Direcionamento).
+  @Patch(':id/papeis')
+  @UseGuards(PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('direcionamento_impressao')
+  setPapeis(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.setPapeisImpressora(user.tenantId, id, dto ?? {});
+  }
+
   // KDS: impressão guiada por etapa (mig 129).
   @Patch(':id/impressao-etapa')
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
-  @RequirePerm('servidor')
+  @RequirePerm('kds')
   setImpressaoEtapa(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.setImpressaoEtapa(user.tenantId, id, dto ?? {});
   }
@@ -126,7 +136,7 @@ export class EquipamentoController {
   @Patch(':id/proximo-kds')
   @UseGuards(PermissoesGuard)
   @Roles('presidente', 'gerente')
-  @RequirePerm('servidor')
+  @RequirePerm('kds')
   setProximoKds(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.setProximoKds(user.tenantId, id, dto?.proximoKdsId ?? null);
   }
