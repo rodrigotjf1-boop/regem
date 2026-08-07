@@ -30,6 +30,10 @@ export function OpcoesCard() {
   const [complementos, setComplementos] = useState<any[]>([]); // p/ "onde é usado"
   const [editar, setEditar] = useState<any>(null); // objeto opção ou {} para novo
   const [busca, setBusca] = useState('');
+  const [filtro, setFiltro] = useState('todas'); // todas | em_uso | sem_uso | valor(ordena)
+  const [sel, setSel] = useState<Set<string>>(new Set()); // seleção em massa
+  const [bulkValor, setBulkValor] = useState(''); // novo preço de custo em massa
+  const [aplicando, setAplicando] = useState(false);
 
   const carregar = useCallback(async () => {
     const [o, f, i, c] = await Promise.all([
@@ -45,11 +49,23 @@ export function OpcoesCard() {
   }, []);
   useEffect(() => { carregar(); }, [carregar]);
 
-  const filtradas = opcoes.filter((o) => o.nome.toLowerCase().includes(busca.trim().toLowerCase()));
-
   // Complementos que usam esta opção (ligação por opcaoId nos itens do complemento).
   const usosDe = (o: any) =>
     complementos.filter((c) => (c.itens ?? []).some((i: any) => i.opcaoId === o.id)).map((c) => c.nome);
+
+  const filtradas = opcoes
+    .filter((o) => o.nome.toLowerCase().includes(busca.trim().toLowerCase()))
+    .filter((o) => (filtro === 'em_uso' ? usosDe(o).length > 0 : filtro === 'sem_uso' ? usosDe(o).length === 0 : true))
+    .sort((a, b) => (filtro === 'valor' ? Number(b.precoCusto ?? 0) - Number(a.precoCusto ?? 0) : 0));
+
+  // Seleção em massa (opera sobre as filtradas).
+  const idsFiltrados = filtradas.map((o) => o.id);
+  const todasSel = idsFiltrados.length > 0 && idsFiltrados.every((id) => sel.has(id));
+  const toggleSel = (id: string) =>
+    setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleTodas = () =>
+    setSel((s) => { const n = new Set(s); if (todasSel) idsFiltrados.forEach((id) => n.delete(id)); else idsFiltrados.forEach((id) => n.add(id)); return n; });
+  const limparSel = () => setSel(new Set());
 
   async function toggleEsgotado(o: any) {
     try {
@@ -81,6 +97,37 @@ export function OpcoesCard() {
     try { await api.excluirOpcaoCatalogo(o.id); toast.success('Opção excluída.'); await carregar(); }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
   }
+  // Massa: exclui as selecionadas (sequencial p/ não tomar 429).
+  async function excluirSel() {
+    const alvos = opcoes.filter((o) => sel.has(o.id));
+    if (!alvos.length) return;
+    if (!confirm(`Excluir ${alvos.length} opção(ões) selecionada(s)? Não dá pra desfazer.`)) return;
+    setAplicando(true);
+    let ok = 0; const falhas: string[] = [];
+    for (const o of alvos) {
+      try { await api.excluirOpcaoCatalogo(o.id); ok++; }
+      catch { falhas.push(o.nome); }
+    }
+    setAplicando(false); limparSel(); await carregar();
+    if (falhas.length) toast.error(`${ok} excluída(s); ${falhas.length} falhou(aram) (em uso?): ${falhas.slice(0, 5).join(', ')}`);
+    else toast.success(`${ok} opção(ões) excluída(s).`);
+  }
+  // Massa: aplica o preço de custo às selecionadas (mantém o resto da opção).
+  async function aplicarValorSel() {
+    const alvos = opcoes.filter((o) => sel.has(o.id));
+    if (!alvos.length) return;
+    const v = Number(String(bulkValor).replace(',', '.'));
+    if (!Number.isFinite(v) || v < 0) { toast.error('Informe um preço de custo válido.'); return; }
+    setAplicando(true);
+    let ok = 0; const falhas: string[] = [];
+    for (const o of alvos) {
+      try { await api.atualizarOpcaoCatalogo(o.id, { ...o, precoCusto: v }); ok++; }
+      catch { falhas.push(o.nome); }
+    }
+    setAplicando(false); setBulkValor(''); limparSel(); await carregar();
+    if (falhas.length) toast.error(`${ok} atualizada(s); ${falhas.length} falhou(aram): ${falhas.slice(0, 5).join(', ')}`);
+    else toast.success(`Preço de custo aplicado a ${ok} opção(ões).`);
+  }
 
   return (
     <Card className="p-4">
@@ -88,18 +135,44 @@ export function OpcoesCard() {
         <h2 className="font-display text-sm font-bold">Opções</h2>
         <span className="font-mono text-xs text-muted-foreground">{opcoes.length}</span>
         <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar opção…" className="h-8 w-40" />
+        <select aria-label="Filtro" value={filtro} onChange={(e) => setFiltro(e.target.value)}
+          className="h-8 rounded-md border border-input bg-card px-2 text-xs">
+          <option value="todas">Todas</option>
+          <option value="em_uso">Em uso (algum complemento)</option>
+          <option value="sem_uso">Sem uso</option>
+          <option value="valor">Ordenar por valor</option>
+        </select>
         <Button type="button" size="sm" className="ml-auto" onClick={() => setEditar({})}>＋ Nova opção</Button>
       </div>
       <p className="mb-3 text-[11px] text-muted-foreground">Item reutilizável (bebida, adicional, acompanhamento…). Depois é usado nos complementos/etapas dos produtos.</p>
 
+      {/* Barra de ações em massa (aparece com seleção) */}
+      {sel.size > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2 text-xs">
+          <span className="font-semibold">{sel.size} selecionada(s)</span>
+          <button type="button" onClick={limparSel} className="text-muted-foreground underline">limpar</button>
+          <div className="ml-auto flex flex-wrap items-center gap-1.5">
+            <Input type="number" inputMode="decimal" value={bulkValor} onChange={(e) => setBulkValor(e.target.value)} placeholder="preço de custo" className="h-8 w-28" />
+            <Button type="button" size="sm" variant="outline" disabled={aplicando} onClick={aplicarValorSel}>Aplicar preço</Button>
+            <button type="button" disabled={aplicando} onClick={excluirSel} className="rounded-md border border-destructive/50 px-2.5 py-1.5 font-semibold text-destructive disabled:opacity-40">Excluir</button>
+          </div>
+        </div>
+      )}
+
       {filtradas.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">{opcoes.length === 0 ? 'Nenhuma opção ainda.' : 'Nada encontrado.'}</p>
       ) : (
+        <>
+        <label className="mb-1.5 flex w-fit items-center gap-1.5 text-[11px] text-muted-foreground">
+          <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={todasSel} onChange={toggleTodas} />
+          Selecionar todas ({filtradas.length})
+        </label>
         <ul className="grid gap-1.5 sm:grid-cols-2">
           {filtradas.map((o) => {
             const usos = usosDe(o);
             return (
-              <li key={o.id} className={`flex items-center gap-2.5 rounded-lg border border-border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''}`}>
+              <li key={o.id} className={`flex items-center gap-2.5 rounded-lg border bg-card p-2 ${o.ativo === false ? 'opacity-50' : ''} ${sel.has(o.id) ? 'border-primary bg-primary/5' : 'border-border'}`}>
+                <input type="checkbox" className="h-4 w-4 flex-none accent-primary" checked={sel.has(o.id)} onChange={() => toggleSel(o.id)} aria-label={`Selecionar ${o.nome}`} />
                 {o.imagemRef ? (
                   <img src={o.imagemRef} alt={o.nome} className="h-9 w-9 flex-none rounded-md object-cover" />
                 ) : (
@@ -128,6 +201,7 @@ export function OpcoesCard() {
             );
           })}
         </ul>
+        </>
       )}
 
       {editar && (
