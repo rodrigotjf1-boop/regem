@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   complemento,
@@ -711,6 +711,46 @@ export class ProdutoService {
       .where(and(eq(opcao.id, id), eq(opcao.tenantId, tenantId)));
     await this.reMaterializarPorOpcao(tenantId, id);
     return { ok: true };
+  }
+
+  // Coleta os complementos que usam qualquer uma das opções (para rematerializar
+  // UMA vez por complemento, não uma vez por opção).
+  private async complementosDeOpcoes(tenantId: string, ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const comps = await this.db
+      .select({ complementoId: complementoItem.complementoId })
+      .from(complementoItem)
+      .where(and(eq(complementoItem.tenantId, tenantId), inArray(complementoItem.opcaoId, ids), isNull(complementoItem.deletedAt)));
+    return [...new Set(comps.map((c) => c.complementoId))];
+  }
+
+  // Exclusão em MASSA: um único UPDATE (soft-delete) + rematerializa os complementos
+  // afetados uma vez cada. Evita centenas de requisições/queries do delete 1-a-1.
+  async excluirOpcoesMassa(tenantId: string, ids: string[]) {
+    const alvo = [...new Set((ids ?? []).filter(Boolean))].slice(0, 5000);
+    if (!alvo.length) return { ok: true, excluidas: 0 };
+    const comps = await this.complementosDeOpcoes(tenantId, alvo); // antes de apagar
+    const res = await this.db
+      .update(opcao)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(opcao.tenantId, tenantId), inArray(opcao.id, alvo), isNull(opcao.deletedAt)))
+      .returning({ id: opcao.id });
+    for (const cid of comps) await this.reMaterializarPorComplemento(tenantId, cid);
+    return { ok: true, excluidas: res.length };
+  }
+
+  // Preço de custo em MASSA: um único UPDATE + rematerializa os afetados.
+  async precoCustoOpcoesMassa(tenantId: string, ids: string[], precoCusto: number) {
+    const alvo = [...new Set((ids ?? []).filter(Boolean))].slice(0, 5000);
+    if (!alvo.length) return { ok: true, atualizadas: 0 };
+    const valor = String(Number.isFinite(precoCusto) && precoCusto >= 0 ? precoCusto : 0);
+    const res = await this.db
+      .update(opcao)
+      .set({ precoCusto: valor, updatedAt: new Date() })
+      .where(and(eq(opcao.tenantId, tenantId), inArray(opcao.id, alvo), isNull(opcao.deletedAt)))
+      .returning({ id: opcao.id });
+    for (const cid of await this.complementosDeOpcoes(tenantId, alvo)) await this.reMaterializarPorComplemento(tenantId, cid);
+    return { ok: true, atualizadas: res.length };
   }
 
   // ----- Produtos -----

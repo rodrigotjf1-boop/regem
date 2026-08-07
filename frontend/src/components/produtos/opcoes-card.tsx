@@ -97,36 +97,33 @@ export function OpcoesCard() {
     try { await api.excluirOpcaoCatalogo(o.id); toast.success('Opção excluída.'); await carregar(); }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
   }
-  // Massa: exclui as selecionadas (sequencial p/ não tomar 429).
+  const idsSelecionados = () => opcoes.filter((o) => sel.has(o.id)).map((o) => o.id);
+  // Massa: UMA requisição (o backend faz um único UPDATE + rematerializa 1× cada
+  // complemento afetado). Nada de excluir 1-a-1.
   async function excluirSel() {
-    const alvos = opcoes.filter((o) => sel.has(o.id));
-    if (!alvos.length) return;
-    if (!confirm(`Excluir ${alvos.length} opção(ões) selecionada(s)? Não dá pra desfazer.`)) return;
+    const ids = idsSelecionados();
+    if (!ids.length) return;
+    if (!confirm(`Excluir ${ids.length} opção(ões) selecionada(s)? Não dá pra desfazer.`)) return;
     setAplicando(true);
-    let ok = 0; const falhas: string[] = [];
-    for (const o of alvos) {
-      try { await api.excluirOpcaoCatalogo(o.id); ok++; }
-      catch { falhas.push(o.nome); }
-    }
-    setAplicando(false); limparSel(); await carregar();
-    if (falhas.length) toast.error(`${ok} excluída(s); ${falhas.length} falhou(aram) (em uso?): ${falhas.slice(0, 5).join(', ')}`);
-    else toast.success(`${ok} opção(ões) excluída(s).`);
+    try {
+      const r: any = await api.excluirOpcoesMassa(ids);
+      toast.success(`${r?.excluidas ?? ids.length} opção(ões) excluída(s).`);
+      limparSel(); await carregar();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao excluir'); }
+    finally { setAplicando(false); }
   }
-  // Massa: aplica o preço de custo às selecionadas (mantém o resto da opção).
   async function aplicarValorSel() {
-    const alvos = opcoes.filter((o) => sel.has(o.id));
-    if (!alvos.length) return;
+    const ids = idsSelecionados();
+    if (!ids.length) return;
     const v = Number(String(bulkValor).replace(',', '.'));
     if (!Number.isFinite(v) || v < 0) { toast.error('Informe um preço de custo válido.'); return; }
     setAplicando(true);
-    let ok = 0; const falhas: string[] = [];
-    for (const o of alvos) {
-      try { await api.atualizarOpcaoCatalogo(o.id, { ...o, precoCusto: v }); ok++; }
-      catch { falhas.push(o.nome); }
-    }
-    setAplicando(false); setBulkValor(''); limparSel(); await carregar();
-    if (falhas.length) toast.error(`${ok} atualizada(s); ${falhas.length} falhou(aram): ${falhas.slice(0, 5).join(', ')}`);
-    else toast.success(`Preço de custo aplicado a ${ok} opção(ões).`);
+    try {
+      const r: any = await api.precoCustoOpcoesMassa(ids, v);
+      toast.success(`Preço de custo aplicado a ${r?.atualizadas ?? ids.length} opção(ões).`);
+      setBulkValor(''); limparSel(); await carregar();
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro ao aplicar'); }
+    finally { setAplicando(false); }
   }
 
   return (

@@ -1410,33 +1410,45 @@ export class ProducaoPedidoService {
   }
 
   // Limpa a fila do KDS: avança TODOS os cards ativos até saírem (concluir ou migrar
-  // para o próximo KDS). Faz o loop NO SERVIDOR (uma requisição só) — o KDS não dispara
-  // um POST por card (o que estourava o rate-limit com 429).
+  // para o próximo KDS). Uma requisição só (o KDS não dispara um POST por card).
+  // `avancar` tem efeito por card (roteia p/ próximo KDS, imprime na etapa, reflete no
+  // delivery) — não dá pra bulkar cru; então rodamos os cards em PARALELO com limite
+  // de concorrência (era sequencial: 150 cards × até 6 passos × ~5 queries em série
+  // estourava o timeout do proxy e limpava parcial).
   async limparFila(
     tenantId: string,
     atorId: string,
     opts: { setorId?: string; unidadeId?: string; canal?: string; equipamentoId?: string } = {},
   ) {
     const { pedidos } = await this.filaKds(tenantId, opts);
+    const ativos = (pedidos as any[]).filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
     let avancados = 0;
-    for (const p of pedidos as any[]) {
-      if (p.status === 'cancelado' || p.status === 'entregue') continue;
-      // Avança até o card sair desta fila (entregue/cancelado, ou roteado p/ outro KDS).
+    // Avança um card até ele sair desta fila (concluído/cancelado ou roteado p/ outro KDS).
+    const finalizarUm = async (p: any) => {
       for (let i = 0; i < 6; i++) {
+        let novo: string;
         try {
-          await this.avancar(tenantId, atorId, p.id, 'entrega', opts.equipamentoId);
-          avancados++;
+          const r = await this.avancar(tenantId, atorId, p.id, 'entrega', opts.equipamentoId);
+          novo = (r as any)?.status;
+          avancados++; // JS single-thread: ++ é seguro mesmo com Promise.all
         } catch {
           break; // já concluído ou não avança mais
         }
-        const [atual] = await this.db
-          .select({ status: producaoPedido.status, destino: producaoPedido.destinoEquipamentoId })
-          .from(producaoPedido)
-          .where(eq(producaoPedido.id, p.id));
-        if (!atual || atual.status === 'entregue' || atual.status === 'cancelado') break;
-        // Roteou para outro KDS (destino diferente do KDS operado) → saiu desta fila.
-        if (opts.equipamentoId && atual.destino && atual.destino !== opts.equipamentoId) break;
+        if (novo === 'entregue' || novo === 'cancelado') break;
+        // Roteou para outro KDS? (destino diferente do KDS operado → saiu desta fila).
+        if (opts.equipamentoId) {
+          const [atual] = await this.db
+            .select({ destino: producaoPedido.destinoEquipamentoId })
+            .from(producaoPedido)
+            .where(eq(producaoPedido.id, p.id));
+          if (atual?.destino && atual.destino !== opts.equipamentoId) break;
+        }
       }
+    };
+    // Lotes concorrentes (limite < pool de conexões p/ não esgotar).
+    const CONC = 8;
+    for (let i = 0; i < ativos.length; i += CONC) {
+      await Promise.all(ativos.slice(i, i + CONC).map(finalizarUm));
     }
     return { ok: true, avancados };
   }

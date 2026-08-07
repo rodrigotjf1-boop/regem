@@ -500,6 +500,10 @@ export const api = {
     req(`/produtos/opcoes/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   excluirOpcaoCatalogo: (id: string) =>
     req(`/produtos/opcoes/${id}`, { method: 'DELETE' }),
+  excluirOpcoesMassa: (ids: string[]) =>
+    req('/produtos/opcoes/massa/excluir', { method: 'POST', body: JSON.stringify({ ids }) }),
+  precoCustoOpcoesMassa: (ids: string[], precoCusto: number) =>
+    req('/produtos/opcoes/massa/preco', { method: 'PATCH', body: JSON.stringify({ ids, precoCusto }) }),
   // Complementos reutilizáveis do catálogo (Fase 3)
   complementosCatalogo: () => req('/produtos/complementos-catalogo'),
   // Sobe complementos importados (motor) para o catálogo reutilizável, dedup idêntico.
