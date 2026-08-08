@@ -1170,6 +1170,10 @@ export const api = {
   caixaAberta: (origem?: string) =>
     req(`/financeiro/caixa${origem ? `?origem=${origem}` : ''}`),
   formasPagamento: () => req('/financeiro/formas-pagamento'),
+  // Empresa do token (própria) + config do presidente (janela de espelho do edge).
+  empresaMinha: () => req('/empresas'),
+  atualizarConfigEmpresa: (body: { mirrorDias: number }) =>
+    req('/empresas/config', { method: 'PATCH', body: JSON.stringify(body) }),
   criarFormaPagamento: (body: Record<string, unknown>) =>
     req('/financeiro/formas-pagamento', { method: 'POST', body: JSON.stringify(body) }),
   atualizarFormaPagamento: (id: string, body: Record<string, unknown>) =>

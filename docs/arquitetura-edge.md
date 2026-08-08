@@ -26,7 +26,13 @@
 
 ## 2. Sync **direcional** (o que torna viável)
 
-Não é espelhar tudo. Cada dado tem um dono e uma direção:
+> ⚠️ **Evoluído em 2026‑08‑08** (ver `sync-espelho-e-modos.md`): a decisão passou a ser
+> **espelhar o máximo possível** (inicial completo + deltas bidirecionais, prioridade LOCAL,
+> nuvem = presidente). O transacional (`comanda(_item)`, `caixa_sessao`, `producao_pedido(_item)`,
+> `lancamento_caixa`, `movimento_estoque`) deixa de ser "só sobe" e passa a **descer também**.
+> A tabela abaixo é o estado v1; o alvo é o do doc de espelho.
+
+Não é espelhar tudo (v1). Cada dado tem um dono e uma direção:
 
 | Classe | Tabelas (ex.) | Direção | Conflito |
 |---|---|---|---|
@@ -71,3 +77,4 @@ linhas novas desde um **cursor** — sem duplicar (upsert idempotente por PK).
 | 2026-07-04 | Arquitetura edge definida; substitui "satélites nativos/mDNS". Início pelo núcleo do sync (config + `venceLWW` + `GET /sync/pull`), sem migration. |
 | 2026-07-04 | Slice 2: `POST /sync/push` seguro (token de dispositivo `servidor_local`, tenant forçado, whitelist tabela+coluna, idempotente) + redação de segredos no pull. Slice 3: LWW-update para tabelas `ambos`. |
 | 2026-07-04 | Slice 4: **soft-deletes propagam no pull** (delta considera `deleted_at` por introspecção — sem trigger). **DECISÃO DE SEGURANÇA:** sequência monotônica + tombstones de **hard-delete** exigem **triggers nas tabelas centrais** — NÃO deployar sem ambiente de teste (uma trigger com erro derruba todos os writes). **Adiado para a Fase 2**, que terá Postgres local para validar o CDC antes. |
+| 2026-08-08 | **Sync espelhado + modos Local/Nuvem** (ver `sync-espelho-e-modos.md`): transacional vira `ambos`/desce, pull inicial completo, deltas bidirecionais a 60s, LWW com exceção (estado terminal local vence delta velho), RBAC de login por modo (`colaborador.pode_nuvem`), impressão nuvem→edge resolvida no edge. Prioridade LOCAL; nuvem = presidente. |

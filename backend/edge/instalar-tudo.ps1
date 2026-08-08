@@ -500,7 +500,7 @@ LICENSE_KID=k1
 LICENSE_GRACE_DAYS=30
 CLOUD_API=$CloudApi
 SYNC_TOKEN=$SyncToken
-SYNC_INTERVAL_MS=30000
+SYNC_INTERVAL_MS=60000
 EDGE_CLIENTES=0
 "@ | Set-Content -Path $envLocal -Encoding ascii
 Diga ".env.local escrito."

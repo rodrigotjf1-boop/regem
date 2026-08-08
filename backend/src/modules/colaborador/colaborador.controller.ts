@@ -81,7 +81,13 @@ export class ColaboradorController {
   atualizarAcesso(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body() dto: { perfilAcessoId?: string; appHabilitado?: boolean; status?: string },
+    @Body()
+    dto: {
+      perfilAcessoId?: string;
+      appHabilitado?: boolean;
+      status?: string;
+      podeNuvem?: boolean;
+    },
   ) {
     return this.service.atualizarAcesso(user, id, dto);
   }

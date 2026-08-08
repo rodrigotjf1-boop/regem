@@ -358,8 +358,9 @@ export default function AcessosPage() {
           <div>
             <h2 className="font-display text-lg font-semibold">Colaboradores & acesso</h2>
             <p className="text-sm text-muted-foreground">
-              Associe o perfil de cada colaborador, libere o app e bloqueie o acesso
-              quando precisar.
+              Associe o perfil de cada colaborador, libere o app, autorize o acesso
+              online (nuvem) e bloqueie o acesso quando precisar. Por padrão, só o
+              presidente entra pela nuvem — os demais operam no servidor local da loja.
             </p>
           </div>
 
@@ -370,6 +371,9 @@ export default function AcessosPage() {
               )}
               {pessoas.map((c) => {
                 const bloqueado = c.status === 'bloqueado';
+                // Presidente/C&O é dono: acessa a nuvem sempre (toggle travado ligado).
+                const ehPres =
+                  perfis.find((p) => p.id === c.perfilAcessoId)?.nivel === 'presidente';
                 return (
                   <div key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
                     <div className="min-w-0 flex-1">
@@ -402,6 +406,19 @@ export default function AcessosPage() {
                     <label className="flex items-center gap-1.5 text-xs" title="Libera o PIN do app do colaborador">
                       App
                       <Toggle label={`app de ${c.nome}`} on={!!c.appHabilitado} onChange={(v) => salvarAcesso(c.id, { appHabilitado: v })} />
+                    </label>
+
+                    <label
+                      className="flex items-center gap-1.5 text-xs"
+                      title="Deixa entrar pelo app ONLINE (nuvem). Desligado = só no servidor local da loja. Presidente/C&O acessa sempre."
+                    >
+                      Nuvem
+                      <Toggle
+                        label={`acesso online de ${c.nome}`}
+                        on={ehPres || !!c.podeNuvem}
+                        disabled={ehPres}
+                        onChange={(v) => salvarAcesso(c.id, { podeNuvem: v })}
+                      />
                     </label>
 
                     <label className="flex items-center gap-1.5 text-xs">
