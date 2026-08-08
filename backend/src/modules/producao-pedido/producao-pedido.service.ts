@@ -687,7 +687,7 @@ export class ProducaoPedidoService {
     const perfil = perfilEfetivo(perfilId, cfg.override[perfilId]);
     // O nome da loja sai pelo campo `nomeLoja` do perfil (não repetir no cabeçalho).
     const conteudo = this.renderCupomPerfil(perfil, { nomeLoja: cfg.cabecalho, ...dados }, undefined, cfg.rodape);
-    return this.enfileirarViaCliente(tenantId, unidadeId, null, conteudo, terminalId, null, 'caixa');
+    return this.enfileirarViaCliente(tenantId, unidadeId, null, conteudo, terminalId, null, 'caixa', perfil.impressoras);
   }
 
   private renderTicket(
@@ -975,6 +975,7 @@ export class ProducaoPedidoService {
     terminalId?: string | null,
     alvoPreferido?: string | null,
     via: string = 'cliente',
+    impressorasPerfil?: string[] | null, // S5 — impressoras direcionadas ao perfil deste cupom
   ): Promise<{ enfileirados: number; aviso: string | null }> {
     const cols = {
       id: equipamento.id,
@@ -999,6 +1000,23 @@ export class ProducaoPedidoService {
           ),
         );
       if (imp) printers = [imp];
+    }
+
+    // (0.5) impressoras DIRECIONADAS ao perfil deste cupom (S5). Quando o perfil tem
+    // impressoras associadas, elas mandam — o fallback abaixo (terminal/faz_cupom) só
+    // entra se nenhuma for válida (config trocada). Vias saem de cada impressora.
+    if (!printers.length && impressorasPerfil?.length) {
+      printers = await this.db
+        .select(cols)
+        .from(equipamento)
+        .where(
+          and(
+            inArray(equipamento.id, impressorasPerfil),
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'impressora'),
+            eq(equipamento.ativo, true),
+          ),
+        );
     }
 
     // (1) impressora do terminal, se configurada e válida.

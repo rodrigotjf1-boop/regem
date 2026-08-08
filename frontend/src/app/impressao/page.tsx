@@ -73,7 +73,7 @@ export default function ImpressaoPage() {
     <Shell eyebrow="Configurações" title="Impressoras e cupons">
       <div className="space-y-4">
         <CupomLayoutEditor cfg={cfg} onSave={toggleCfg} pode={isGestor} />
-        <CupomPerfilEditor onSave={toggleCfg} pode={isGestor} />
+        <CupomPerfilEditor onSave={toggleCfg} pode={isGestor} impressoras={impressoras} />
         <Impressoras lista={impressoras} setores={setores} onSalvar={salvarImpressora} onRemover={removerImpressora} pode={isGestor} />
       </div>
     </Shell>

@@ -46,6 +46,9 @@ export interface PerfilCupom {
   grupo: GrupoPerfil;
   custom?: boolean; // true = perfil criado pelo lojista
   campos: CampoCupom[];
+  // S5 — impressoras (equipamento.id) DIRECIONADAS a este perfil. Vazio/ausente =
+  // roteamento padrão (impressoras com faz_cupom). As vias saem de cada impressora.
+  impressoras?: string[];
 }
 
 // Normaliza a fonte para uma escala inteira 1..4 (source of truth), aceitando o
@@ -346,12 +349,16 @@ const KEYS_VALIDAS = new Set(CAMPOS_CATALOGO.map((c) => c.key));
 // override são ignorados; campos novos do padrão entram no fim.
 export function perfilEfetivo(
   id: string,
-  override?: { campos?: Partial<CampoCupom>[] } | null,
+  override?: { campos?: Partial<CampoCupom>[]; impressoras?: string[] } | null,
 ): PerfilCupom {
   const base = CUPOM_PERFIS_PADRAO[id];
   if (!base) throw new Error(`Perfil de cupom desconhecido: ${id}`);
+  // S5 — impressoras direcionadas ao perfil (sobrepõe o roteamento padrão faz_cupom).
+  const imprs = Array.isArray(override?.impressoras)
+    ? override!.impressoras!.filter((x): x is string => typeof x === 'string')
+    : undefined;
   const ov = Array.isArray(override?.campos) ? override!.campos! : null;
-  if (!ov) return base;
+  if (!ov) return imprs ? { ...base, impressoras: imprs } : base;
   const porKey = new Map(base.campos.map((c) => [c.key, c]));
   const vistos = new Set<string>();
   const campos: CampoCupom[] = [];
@@ -390,7 +397,7 @@ export function perfilEfetivo(
     });
   }
   for (const b of base.campos) if (!vistos.has(b.key)) campos.push(b);
-  return { ...base, campos };
+  return { ...base, campos, ...(imprs ? { impressoras: imprs } : {}) };
 }
 
 // Normaliza a definição de um perfil CUSTOM salvo (saneia campos/labels/ids).
@@ -421,6 +428,9 @@ export function perfilCustom(def: any): PerfilCupom | null {
     grupo: (['cliente', 'producao', 'caixa'].includes(def.grupo) ? def.grupo : 'cliente') as GrupoPerfil,
     custom: true,
     campos,
+    ...(Array.isArray(def.impressoras)
+      ? { impressoras: def.impressoras.filter((x: any) => typeof x === 'string') }
+      : {}),
   };
 }
 

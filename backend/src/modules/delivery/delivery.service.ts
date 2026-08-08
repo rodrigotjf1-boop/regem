@@ -718,6 +718,11 @@ export class DeliveryService {
     void this.statusBack(tenantId, row, 'dispatch');
     void this.statusBackCw(tenantId, row, 'ready'); // CW: saiu para entrega
     void this.statusBackIfood(tenantId, row, 'dispatch');
+    // Consistência de canal (S4): o despacho pula 'pronto', mas 99food/Anota Aí não
+    // têm etapa de "despacho" — avisamos 'ready' para todos os canais receberem o
+    // mesmo tratamento que o AVANÇAR daria (senão o pedido "some" da plataforma).
+    void this.statusBackFood99(tenantId, row, 'ready');
+    void this.statusBackAnotaAi(tenantId, row, 'ready');
     return row;
   }
 

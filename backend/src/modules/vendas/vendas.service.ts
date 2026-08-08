@@ -677,6 +677,8 @@ export class VendasService {
       conteudo,
       terminalId,
       alvoPreferido,
+      'cliente',
+      perfilCaixa.impressoras, // S5 — impressoras direcionadas ao perfil "caixa"
     );
   }
 

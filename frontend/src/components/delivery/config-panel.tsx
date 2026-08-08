@@ -1806,7 +1806,7 @@ const CUPOM_MOCK: Record<string, string[]> = {
 
 const GRUPO_LABEL: Record<string, string> = { cliente: 'Cliente', producao: 'Produção', caixa: 'Caixa', custom: 'Personalizados' };
 
-export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; pode: boolean }) {
+export function CupomPerfilEditor({ onSave, pode, impressoras = [] }: { onSave: (p: any) => void; pode: boolean; impressoras?: any[] }) {
   const [perfis, setPerfis] = useState<any[]>([]);
   const [campos, setCampos] = useState<{ key: string; label: string; grupo: string }[]>([]);
   const [sel, setSel] = useState<string>('caixa');
@@ -1890,8 +1890,11 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
           ...(c.agrupado ? { agrupado: true } : {}),
         };
       });
-      if (p.custom) custom.push({ id: p.id, nome: p.nome, descricao: p.descricao, grupo: p.grupo, campos: cs });
-      else overrides[p.id] = { campos: cs };
+      // S5 — impressoras direcionadas ao perfil (só envia quando há alguma marcada;
+      // vazio = limpa a associação e volta ao roteamento padrão faz_cupom).
+      const imprs = Array.isArray(p.impressoras) && p.impressoras.length ? { impressoras: p.impressoras } : {};
+      if (p.custom) custom.push({ id: p.id, nome: p.nome, descricao: p.descricao, grupo: p.grupo, campos: cs, ...imprs });
+      else overrides[p.id] = { campos: cs, ...imprs };
     }
     onSave({ cupomPerfis: { ...overrides, _custom: custom } });
     setSalvo(true);
@@ -1975,6 +1978,46 @@ export function CupomPerfilEditor({ onSave, pode }: { onSave: (p: any) => void; 
         </div>
       ) : (
         perfil?.descricao && <p className="mb-2 text-[11px] text-muted-foreground">{perfil.descricao}</p>
+      )}
+
+      {/* S5 — impressoras direcionadas a ESTE perfil de cupom (senão usa faz_cupom). */}
+      {perfil && impressoras.length > 0 && (
+        <div className="mb-3 rounded-md border border-border bg-secondary/30 p-2.5">
+          <p className="text-[11px] font-semibold">Impressoras deste cupom</p>
+          <p className="mb-2 text-[10px] text-muted-foreground">
+            Marque em quais impressoras este cupom sai. Nenhuma marcada = usa as impressoras
+            de cupom padrão. As vias saem da configuração de cada impressora.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {impressoras.map((imp: any) => {
+              const on = (perfil?.impressoras ?? []).includes(imp.id);
+              const vias = imp.viasCliente ?? imp.vias;
+              return (
+                <button
+                  key={imp.id}
+                  type="button"
+                  disabled={!pode}
+                  aria-pressed={on}
+                  onClick={() =>
+                    mudarPerfil((p) => {
+                      const cur: string[] = Array.isArray(p.impressoras) ? p.impressoras : [];
+                      const next = cur.includes(imp.id)
+                        ? cur.filter((x) => x !== imp.id)
+                        : [...cur, imp.id];
+                      return { ...p, impressoras: next };
+                    })
+                  }
+                  title={imp.conexao === 'local' ? `Local: ${imp.dispositivo || '—'}` : `Rede: ${imp.host || '—'}`}
+                  className={`rounded-md border px-2 py-1 text-[11px] ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground'} ${!pode ? 'opacity-50' : ''}`}
+                >
+                  {on ? '✓ ' : ''}
+                  {imp.nome}
+                  {vias ? <span className="ml-1 opacity-70">({vias}×)</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       <div className="grid items-start gap-3 lg:grid-cols-[1fr_360px]">
