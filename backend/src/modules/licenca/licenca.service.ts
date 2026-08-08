@@ -258,6 +258,20 @@ export class LicencaService {
       .limit(1);
     if (eqExiste?.token) {
       syncToken = eqExiste.token;
+      // Reativa o equipamento reusado. Se ele estiver inativo/revogado (ex.: revogado
+      // antes, ou sobra de uma instalação anterior), o SyncTokenGuard exige ativo=true e
+      // rejeita o token com 401 "Token de sync inválido" — o provisionamento "dava certo"
+      // e devolvia um token MORTO, então o edge nunca sincronizava e o login local (que
+      // depende do pull) ficava sem usuários. Reinstalar tem que curar isso.
+      await this.db
+        .update(equipamento)
+        .set({ ativo: true, revogadoEm: null })
+        .where(
+          and(
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'servidor_local'),
+          ),
+        );
     } else {
       const novo: any = await this.equip.criar(tenantId, u.id, u.categoria ?? 'presidente', {
         tipo: 'servidor_local',
