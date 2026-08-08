@@ -1,4 +1,5 @@
 import { HttpAdapterHost, NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
@@ -48,10 +49,17 @@ async function bootstrap() {
 
   // rawBody: true mantém o corpo cru (req.rawBody) — necessário para verificar
   // a assinatura do webhook do Stripe.
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     rawBody: true,
     ...(httpsOptions ? { httpsOptions } : {}),
   });
+
+  // Limite de corpo: o default do Express é 100kb, o que estourava 413 no /sync/push
+  // quando o edge acumulava muitas linhas. Sobe para SYNC ep. (o edge já fatia em
+  // páginas de ~200 linhas — este é a rede de segurança). rawBody (Stripe) é preservado.
+  const bodyLimit = process.env.BODY_LIMIT || '10mb';
+  app.useBodyParser('json', { limit: bodyLimit });
+  app.useBodyParser('urlencoded', { limit: bodyLimit, extended: true });
 
   // Logger que também ENVIA os erros (error/fatal) pra telemetria da nuvem no edge —
   // captura falhas de background (pollers/jobs) além do HTTP 5xx do interceptor.

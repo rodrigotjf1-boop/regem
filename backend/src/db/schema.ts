@@ -49,6 +49,9 @@ export const empresa = pgTable('empresa', {
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
   assinaturaStatus: text('assinatura_status'), // active|trialing|past_due|canceled|null
+  // Janela (dias) que o SERVIDOR LOCAL puxa das transacionais pesadas da nuvem no sync
+  // espelhado (mig 175). Config no Financeiro (presidente). Nuvem mantém histórico integral.
+  mirrorDias: integer('mirror_dias').notNull().default(60),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -136,6 +139,9 @@ export const colaborador = pgTable('colaborador', {
   status: text('status').notNull().default('ativo'), // ativo | bloqueado
   perfilAcessoId: uuid('perfil_acesso_id'), // perfil de acesso (RBAC configurável)
   appHabilitado: boolean('app_habilitado').notNull().default(false), // libera o PIN do app do colaborador
+  // RBAC de modo (mig 176): pode logar no MODO NUVEM (app online). No edge todos
+  // entram; a nuvem é uso do presidente, que libera quem mais pode acessar online.
+  podeNuvem: boolean('pode_nuvem').notNull().default(false),
   matricula: text('matricula'),
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
   dataConsentimento: date('data_consentimento'),
@@ -1808,6 +1814,7 @@ export const impressaoJob = pgTable('impressao_job', {
   unidadeId: uuid('unidade_id'),
   equipamentoId: uuid('equipamento_id'),
   pedidoId: uuid('pedido_id'),
+  comandaId: uuid('comanda_id'), // venda de origem (mig 177) — idempotência do materializador do edge
   via: text('via').notNull().default('producao'), // producao | conferencia
   conteudo: text('conteudo').notNull(),
   status: text('status').notNull().default('pendente'), // pendente | impresso | erro
@@ -1815,6 +1822,13 @@ export const impressaoJob = pgTable('impressao_job', {
   erro: text('erro'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   impressoEm: timestamp('impresso_em', { withTimezone: true }),
+});
+
+// Marcador edge-local (mig 177): comandas que o materializador de impressão do edge
+// já processou — evita reimprimir a cada ciclo. NÃO entra no sync (edge-only).
+export const impressaoEdgeFeito = pgTable('impressao_edge_feito', {
+  comandaId: uuid('comanda_id').primaryKey(),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Limiares de cor do KDS por unidade (minutos): <=verde, <=amarelo, acima=vermelho.

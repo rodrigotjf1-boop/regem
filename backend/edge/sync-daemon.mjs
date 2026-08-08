@@ -8,7 +8,7 @@
 //   EDGE_DATABASE_URL   banco do servidor local (fonte da verdade da LAN)
 //   CLOUD_API           base da API da nuvem, ex.: https://api.dmsregem.com/api/v1
 //   SYNC_TOKEN          token do equipamento 'servidor_local' (header x-sync-token)
-//   SYNC_INTERVAL_MS    intervalo entre ciclos (default 30000)
+//   SYNC_INTERVAL_MS    intervalo entre ciclos (default 60000 = 1 min)
 import pg from 'pg';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -28,7 +28,7 @@ carregarEnvLocal(import.meta.url);
 const EDGE_DB = req('EDGE_DATABASE_URL');
 const CLOUD = req('CLOUD_API').replace(/\/$/, '');
 const TOKEN = req('SYNC_TOKEN');
-const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 30000);
+const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 60000);
 
 // Assinatura do push (espelha backend/src/modules/sync/sync-sig.ts — MANTER IGUAL).
 // A chave HMAC é derivada do token do dispositivo. Qualquer mudança aqui tem que ser
@@ -131,19 +131,46 @@ async function setState(k, v) {
   );
 }
 
+// Estados TERMINAIS que o pull NUNCA deve reverter por uma linha mais velha da
+// nuvem (exceção do LWW — prioridade LOCAL): uma comanda fechada/cancelada no
+// edge não volta pra 'aberta' por um delta atrasado/materialização tardia da nuvem.
+const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'] };
+
 async function upsertLocal(tabela, row) {
   const cols = await colunas(tabela);
   const keys = Object.keys(row).filter((k) => cols.has(k));
   if (!keys.includes('id')) return;
   const setCols = keys.filter((k) => k !== 'id');
   const ph = keys.map((_, i) => `$${i + 1}`);
-  const setSql = setCols.length
-    ? `do update set ${setCols.map((k) => `${q(k)}=excluded.${q(k)}`).join(',')}`
-    : 'do nothing';
+  const vals = keys.map((k) => coerce(row[k]));
+  // Append puro (sem colunas mutáveis) → insere ou ignora.
+  if (!setCols.length) {
+    await pool.query(
+      `insert into ${q(tabela)} (${keys.map(q).join(',')}) values (${ph.join(',')})
+       on conflict (id) do nothing`,
+      vals,
+    );
+    return;
+  }
+  const setSql = `do update set ${setCols.map((k) => `${q(k)}=excluded.${q(k)}`).join(',')}`;
+  // LWW no PULL: só sobrescreve o local se a linha da nuvem for ESTRITAMENTE mais
+  // nova (updated_at). Antes o update era incondicional → uma linha velha da nuvem
+  // apagava um estado mais recente do edge (causa do dashboard/espelho inconsistente).
+  const cond = [];
+  if (cols.has('updated_at')) {
+    cond.push(`${q(tabela)}.updated_at < excluded.updated_at`);
+  }
+  // Exceção: não reabrir comanda em estado terminal local por linha da nuvem não-terminal.
+  const terminais = ESTADOS_TERMINAIS[tabela];
+  if (terminais && cols.has('status')) {
+    const lst = terminais.map((s) => `'${s}'`).join(',');
+    cond.push(`not (${q(tabela)}.status in (${lst}) and excluded.status not in (${lst}))`);
+  }
+  const whereSql = cond.length ? ` where ${cond.join(' and ')}` : '';
   await pool.query(
     `insert into ${q(tabela)} (${keys.map(q).join(',')}) values (${ph.join(',')})
-     on conflict (id) ${setSql}`,
-    keys.map((k) => coerce(row[k])),
+     on conflict (id) ${setSql}${whereSql}`,
+    vals,
   );
 }
 
@@ -186,25 +213,12 @@ async function pull() {
   return aplicadas;
 }
 
-async function push() {
-  const lotes = [];
-  const avanco = {};
-  for (const t of PUSH_TABLES) {
-    if (!(await colunas(t.tabela)).size) continue;
-    const cur = await getState(`push_${t.tabela}`, '1970-01-01T00:00:00Z');
-    const r = await pool.query(
-      `select * from ${q(t.tabela)} where ${q(t.cursor)} > $1 order by ${q(t.cursor)} asc limit 500`,
-      [cur],
-    );
-    if (r.rows.length) {
-      lotes.push({ tabela: t.tabela, linhas: r.rows });
-      avanco[t.tabela] = { cursor: t.cursor, rows: r.rows };
-    }
-  }
-  if (!lotes.length) return 0;
+// Envia UM request de push (assina + POST). Isolado p/ o push mandar em páginas
+// menores (evita 413 "request entity too large" quando há muita linha acumulada).
+async function enviarLote(lote) {
   // Normaliza via JSON round-trip ANTES de assinar E enviar: assim a nuvem (que
   // recebe o JSON já parseado) assina exatamente a mesma representação (Date→ISO etc.).
-  const lotesN = JSON.parse(JSON.stringify(lotes));
+  const lotesN = JSON.parse(JSON.stringify([lote]));
   const seq = (Number(await getState('push_seq', '0')) || 0) + 1;
   const ts = new Date().toISOString();
   const sig = assinarSync(TOKEN, seq, ts, lotesN);
@@ -221,14 +235,35 @@ async function push() {
   });
   if (!res.ok) throw new Error(`push HTTP ${res.status}: ${await res.text()}`);
   await setState('push_seq', String(seq)); // só avança o seq após sucesso
-  for (const [tabela, a] of Object.entries(avanco)) {
-    const max = a.rows.reduce(
-      (m, row) => (new Date(row[a.cursor]) > new Date(m) ? row[a.cursor] : m),
-      await getState(`push_${tabela}`, '1970-01-01T00:00:00Z'),
-    );
-    await setState(`push_${tabela}`, new Date(max).toISOString());
+}
+
+async function push() {
+  // Páginas pequenas: cada tabela sobe em blocos de PUSH_MAX linhas, UM request por
+  // bloco. Menos chance de 413 e progresso persistido (o cursor só avança após o
+  // request do bloco dar certo — se cair no meio, retoma de onde parou).
+  const PUSH_MAX = Number(process.env.SYNC_PUSH_MAX_LINHAS || 200);
+  let total = 0;
+  for (const t of PUSH_TABLES) {
+    if (!(await colunas(t.tabela)).size) continue;
+    let cur = await getState(`push_${t.tabela}`, '1970-01-01T00:00:00Z');
+    for (let pagina = 0; pagina < 10000; pagina++) {
+      const r = await pool.query(
+        `select * from ${q(t.tabela)} where ${q(t.cursor)} > $1 order by ${q(t.cursor)} asc limit $2`,
+        [cur, PUSH_MAX],
+      );
+      if (!r.rows.length) break;
+      await enviarLote({ tabela: t.tabela, linhas: r.rows });
+      const max = r.rows.reduce(
+        (m, row) => (new Date(row[t.cursor]) > new Date(m) ? row[t.cursor] : m),
+        cur,
+      );
+      cur = new Date(max).toISOString();
+      await setState(`push_${t.tabela}`, cur);
+      total += r.rows.length;
+      if (r.rows.length < PUSH_MAX) break; // última página desta tabela
+    }
   }
-  return lotes.reduce((s, l) => s + l.linhas.length, 0);
+  return total;
 }
 
 const GRACE_MS = (Number(process.env.LICENSE_GRACE_DAYS) || 30) * 86400000;

@@ -108,9 +108,10 @@ export class VendasService {
     tx: any,
     tenantId: string,
     terminalId?: string | null,
+    ator?: { id: string; categoria: string } | null,
   ): Promise<string | null> {
     const [s] = await tx
-      .select({ id: caixaSessao.id })
+      .select({ id: caixaSessao.id, abertaPorId: caixaSessao.abertaPorId })
       .from(caixaSessao)
       .where(
         and(
@@ -122,7 +123,23 @@ export class VendasService {
             : isNull(caixaSessao.terminalId),
         ),
       );
-    return s?.id ?? null;
+    if (!s) return null;
+    // S2c (RBAC de modo): na NUVEM, registrar/alterar no turno aberto por OUTRA
+    // pessoa é exclusivo do presidente (dono). No SERVIDOR LOCAL (edge) não há
+    // restrição — a operação de balcão é compartilhada no terminal. Só vale quando
+    // o chamador passa `ator` (fluxos de venda); aberturas/leituras internas não.
+    if (
+      ator &&
+      process.env.EDGE_MODE !== 'true' &&
+      ator.categoria !== 'presidente' &&
+      s.abertaPorId &&
+      s.abertaPorId !== ator.id
+    ) {
+      throw new ForbiddenException(
+        'Na nuvem, só o presidente pode registrar ou alterar no turno aberto por outra pessoa. Faça pelo servidor local da loja.',
+      );
+    }
+    return s.id;
   }
 
   // ACUMULA o consumo por item de um produto vendido (simples/variável/combo)
@@ -349,7 +366,10 @@ export class VendasService {
     try {
       res = await this.db.transaction(async (tx) => {
       // Fase A: venda exige caixa aberto (deste terminal).
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId, terminalId);
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId, terminalId, {
+        id: atorId,
+        categoria: atorPerfil,
+      });
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para registrar vendas.');
 
@@ -616,15 +636,19 @@ export class VendasService {
     tenantId: string,
     comandaId: string,
     unidadeId: string | null,
-    atorId: string,
+    atorId: string | null,
     dados: { senha?: number | null; mesa?: string | null; itens: any[]; total: number; forma?: string | null },
     terminalId?: string | null,
     alvoPreferido?: string | null,
   ) {
-    const [ator] = await this.db
-      .select({ nome: colaborador.nome })
-      .from(colaborador)
-      .where(eq(colaborador.id, atorId));
+    // atorId pode ser nulo (materialização no edge de uma venda que desceu) — sem
+    // ator o cupom sai sem "atendente"; evita consultar colaborador com id inválido.
+    const [ator] = atorId
+      ? await this.db
+          .select({ nome: colaborador.nome })
+          .from(colaborador)
+          .where(eq(colaborador.id, atorId))
+      : [undefined as { nome: string } | undefined];
     // Layout + perfis do cupom da loja (unidade → rede). Vazio = padrão.
     const dcs = await this.db
       .select({ unidadeId: deliveryConfig.unidadeId, cupomLayout: deliveryConfig.cupomLayout, cupomPerfis: deliveryConfig.cupomPerfis })
@@ -654,6 +678,75 @@ export class VendasService {
       terminalId,
       alvoPreferido,
     );
+  }
+
+  // ===== S3 — Materialização de impressão no EDGE =====
+  // Uma venda registrada no MODO NUVEM (presidente) desce pelo sync (S1), mas a
+  // impressora do caixa é LOCAL — a nuvem não a alcança. No edge, reconstruímos a
+  // via do cliente (cupom) a partir da comanda que desceu e enfileiramos na
+  // impressora de cupom LOCAL. Chamado pelo processador do edge (idempotência lá).
+  // Best-effort: quem chama trata a falha (não derruba o ciclo).
+  async materializarImpressaoLocal(
+    tenantId: string,
+    comandaId: string,
+  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    const [c] = await this.db
+      .select()
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+    if (!c || c.status !== 'fechada') return { enfileirados: 0, aviso: 'comanda não fechada' };
+
+    const itens = await this.db
+      .select()
+      .from(comandaItem)
+      .where(eq(comandaItem.comandaId, comandaId));
+
+    const viaClienteItens: any[] = [];
+    for (const it of itens) {
+      const comps = await this.db
+        .select({ tipo: comandaItemComplemento.tipo, nome: comandaItemComplemento.nome })
+        .from(comandaItemComplemento)
+        .where(eq(comandaItemComplemento.comandaItemId, it.id));
+      const compTexto =
+        comps.map((s) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`).join(' · ') || null;
+      viaClienteItens.push({
+        quantidade: Number(it.quantidade),
+        descricao: it.descricao,
+        precoUnitario: Number(it.precoUnitario),
+        complementosTexto: compTexto,
+        observacao: it.observacao,
+      });
+    }
+
+    // Cupom (via do cliente) — sem terminal → resolve pela impressora de cupom
+    // (faz_cupom) da unidade/rede.
+    const cupom = await this.imprimirViaCliente(
+      tenantId,
+      comandaId,
+      c.unidadeId ?? null,
+      c.abertaPorId ?? null,
+      {
+        senha: c.senha,
+        mesa: c.mesa,
+        itens: viaClienteItens,
+        total: Number(c.total),
+        forma: c.forma ?? null,
+      },
+      null,
+    );
+
+    // Vias de PRODUÇÃO (cozinha/setores) — best-effort, não derruba o cupom.
+    let producao = 0;
+    try {
+      producao = await this.producao.materializarProducaoLocal(tenantId, comandaId);
+    } catch {
+      /* produção é best-effort; o cupom já saiu */
+    }
+
+    return {
+      enfileirados: (cupom.enfileirados || 0) + producao,
+      aviso: cupom.aviso,
+    };
   }
 
   // Venda por canal externo (delivery). Sem caixa: baixa estoque, cria produção
@@ -1812,7 +1905,10 @@ export class VendasService {
 
       // O dinheiro entra na sessão aberta AGORA (não na de quando fechou a mesa):
       // é neste momento que ele fisicamente chega ao caixa.
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId, caixaTerminalId);
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId, caixaTerminalId, {
+        id: atorId,
+        categoria: atorPerfil,
+      });
       if (!sessaoId) throw new BadRequestException('Abra o caixa para dar baixa no acerto.');
 
       const recebido = dto.recebidoCentavos ?? a.valorCentavos;
@@ -1880,7 +1976,10 @@ export class VendasService {
       if (c.status !== 'aberta')
         throw new BadRequestException('Comanda não está aberta');
 
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId, caixaTerminalId);
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId, caixaTerminalId, {
+        id: atorId,
+        categoria: atorPerfil,
+      });
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para fechar a comanda.');
 
@@ -2163,7 +2262,10 @@ export class VendasService {
           c.status === 'cancelada' ? 'Já cancelado.' : 'Só cancela venda fechada.',
         );
 
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId);
+      const sessaoId = await this.sessaoAbertaId(tx, tenantId, null, {
+        id: atorId,
+        categoria: atorPerfil,
+      });
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para cancelar a venda.');
 

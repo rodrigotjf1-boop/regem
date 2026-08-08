@@ -8,7 +8,14 @@ import {
 import { timingSafeEqual } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { TABELAS_PULL, TABELAS_RESTORE, TabelaSync, modoPush, REDIGIR } from './sync-config';
+import {
+  TABELAS_PULL,
+  TABELAS_RESTORE,
+  TABELAS_JANELA_MIRROR,
+  TabelaSync,
+  modoPush,
+  REDIGIR,
+} from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
 import { assinarSync } from './sync-sig';
 import type { SyncCtxData } from './sync-token.guard';
@@ -96,6 +103,20 @@ export class SyncService {
     return this.deltas(tenantId, TABELAS_RESTORE, desde);
   }
 
+  // Janela de espelho (mirror_dias) da empresa — quantos dias de transacional pesado
+  // o EDGE puxa. Defensivo: se a coluna ainda não foi migrada na nuvem, cai em 60.
+  private async mirrorDias(tenantId: string): Promise<number> {
+    try {
+      const r: any = await this.db.execute(
+        sql`select mirror_dias from empresa where id = ${tenantId}`,
+      );
+      const v = Number((r.rows ?? r)[0]?.mirror_dias);
+      return Number.isFinite(v) && v > 0 ? v : 60;
+    } catch {
+      return 60;
+    }
+  }
+
   // Núcleo do delta por cursor, reutilizado por pull e restore.
   private async deltas(tenantId: string, lista: TabelaSync[], desde?: string) {
     const desdeTs = desde || '1970-01-01T00:00:00Z';
@@ -104,6 +125,9 @@ export class SyncService {
     const avancar = (v: any) => {
       if (v && new Date(v) > new Date(maxCursor)) maxCursor = v;
     };
+    // Só consulta a janela se alguma tabela da lista for transacional pesada.
+    const usaJanela = lista.some((t) => TABELAS_JANELA_MIRROR.has(t.tabela));
+    const mirrorDias = usaJanela ? await this.mirrorDias(tenantId) : 60;
 
     for (const t of lista) {
       // Defensivo: se o cursor configurado não existir na tabela real (drift de
@@ -123,10 +147,17 @@ export class SyncService {
       const cond = temDel
         ? sql`(${sql.identifier(cursor)} > ${desdeTs} or deleted_at > ${desdeTs})`
         : sql`${sql.identifier(cursor)} > ${desdeTs}`;
+      // Janela de espelho: transacional pesado só desce dos últimos `mirror_dias`
+      // (por created_at quando existe — "N dias de vendas"; senão pelo cursor). A
+      // nuvem guarda tudo; isto só limita o que o edge puxa. Controle/catálogo = sem janela.
+      const janelaCol = colunas.has('created_at') ? 'created_at' : cursor;
+      const janela = TABELAS_JANELA_MIRROR.has(t.tabela)
+        ? sql` and ${sql.identifier(janelaCol)} >= now() - (${mirrorDias} * interval '1 day')`
+        : sql``;
       const escopo = t.escopo ?? 'tenant_id';
       const r: any = await this.db.execute(sql`
         select * from ${sql.identifier(t.tabela)}
-        where ${sql.identifier(escopo)} = ${tenantId} and ${cond}
+        where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}
         order by ${sql.identifier(cursor)} asc
         limit 1000
       `);

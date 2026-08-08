@@ -45,22 +45,28 @@ export default function FinanceiroPage() {
   const [erro, setErro] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [editVals, setEditVals] = useState<any>(null);
+  // Config: janela de espelho que o servidor local puxa da nuvem (empresa.mirror_dias).
+  const [mirrorDias, setMirrorDias] = useState<number>(60);
+  const [savingMirror, setSavingMirror] = useState(false);
+  const [mirrorMsg, setMirrorMsg] = useState('');
 
   const carregar = useCallback(async (f: string) => {
     // Gerente não acessa dados financeiros — só as formas de pagamento (card próprio).
     if (!isPresidente) return;
     setErro('');
     try {
-      const [res, forn, flx, dr] = await Promise.all([
+      const [res, forn, flx, dr, emp] = await Promise.all([
         api.financeiroResumo(),
         api.fornecedores(),
         api.financeiroFluxo(30),
         api.financeiroDre(),
+        api.empresaMinha(),
       ]);
       setResumo(res);
       setFornecedores(forn);
       setFluxo(flx);
       setDre(dr);
+      setMirrorDias(Number((emp as any)?.mirrorDias) || 60);
       const t =
         f === 'pago'
           ? await api.financeiroTitulos(undefined, 'pago')
@@ -125,6 +131,18 @@ export default function FinanceiroPage() {
       await carregar(filtro);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao excluir');
+    }
+  }
+  async function salvarMirror() {
+    setSavingMirror(true);
+    setMirrorMsg('');
+    try {
+      await api.atualizarConfigEmpresa({ mirrorDias });
+      setMirrorMsg('Salvo. Vale no próximo sync do servidor local.');
+    } catch (e) {
+      setMirrorMsg(e instanceof Error ? e.message : 'Erro ao salvar');
+    } finally {
+      setSavingMirror(false);
     }
   }
 
@@ -392,6 +410,46 @@ export default function FinanceiroPage() {
             </Card>
           ))}
         </div>
+
+        {/* Sincronização com a nuvem — janela do servidor local (empresa.mirror_dias) */}
+        <Card className="p-5">
+          <h2 className="font-display text-lg font-semibold">Sincronização com a nuvem</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Período que o <strong className="text-foreground">servidor local da loja</strong>{' '}
+            puxa da nuvem — vendas, caixa, pedidos e movimentações de estoque dos últimos
+            dias. Dados mais antigos continuam disponíveis para consulta{' '}
+            <strong className="text-foreground">na nuvem</strong>; o servidor local guarda só
+            esta janela, para operar rápido e offline. Aumentar o período usa mais espaço no
+            computador da loja.
+          </p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="block w-full sm:w-auto">
+              <span className="mb-1 block font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                Janela do servidor local
+              </span>
+              <select
+                value={mirrorDias}
+                onChange={(e) => setMirrorDias(Number(e.target.value))}
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm sm:w-56"
+              >
+                {([15, 30, 60, 90, 180, 365].includes(mirrorDias)
+                  ? [15, 30, 60, 90, 180, 365]
+                  : [...[15, 30, 60, 90, 180, 365], mirrorDias].sort((a, b) => a - b)
+                ).map((d) => (
+                  <option key={d} value={d}>
+                    {d} dias{d === 60 ? ' (padrão)' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button type="button" onClick={salvarMirror} disabled={savingMirror}>
+              {savingMirror ? 'Salvando…' : 'Salvar'}
+            </Button>
+            {mirrorMsg && (
+              <span className="text-sm text-muted-foreground">{mirrorMsg}</span>
+            )}
+          </div>
+        </Card>
         </>
         )}
       </div>

@@ -52,27 +52,54 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'item_estoque', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'fornecedor', direcao: 'ambos', cursor: 'updated_at' },
   // Operacional (local → nuvem) — usadas no push (slice 2); cursor por criação.
+  // movimento_estoque e lancamento_caixa TAMBÉM DESCEM (espelho — ver TABELAS_PULL_APPEND),
+  // mas continuam 'sobe' aqui p/ o push tratar como append puro (do-nothing, imutáveis).
   { tabela: 'movimento_estoque', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'ponto_marcacao', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'audit_log', direcao: 'sobe', cursor: 'created_at' },
-  // v2: transacionais SOBEM por LWW (mudam de estado) — cursor por updated_at
-  // (bumpado por gatilho da mig 095). O push aplica update-se-mais-nova na nuvem.
-  { tabela: 'caixa_sessao', direcao: 'sobe', cursor: 'updated_at' },
-  { tabela: 'comanda', direcao: 'sobe', cursor: 'updated_at' },
-  { tabela: 'comanda_item', direcao: 'sobe', cursor: 'updated_at' },
-  { tabela: 'producao_pedido', direcao: 'sobe', cursor: 'updated_at' },
-  { tabela: 'producao_pedido_item', direcao: 'sobe', cursor: 'updated_at' },
+  // ESPELHO (S1, ago/2026): transacionais viram BIDIRECIONAIS (antes só 'sobe').
+  // Descem também p/ o edge espelhar o que o presidente faz na nuvem e o que a nuvem
+  // materializou (pedido online → comanda). LWW por updated_at (gatilho da mig 095); o
+  // edge aplica update-se-mais-nova no pull, com exceção p/ comanda em estado terminal.
+  { tabela: 'caixa_sessao', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'comanda', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'comanda_item', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'producao_pedido', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'producao_pedido_item', direcao: 'ambos', cursor: 'updated_at' },
   // Pedido externo é BIDIRECIONAL (P1): pedidos ONLINE nascem na nuvem (cardápio/
   // marketplaces) e precisam DESCER para o edge processá-los localmente (KDS/garçom);
   // pedidos locais SOBEM. LWW por updated_at resolve conflito de estado.
   { tabela: 'pedido_externo', direcao: 'ambos', cursor: 'updated_at' },
 ];
 
-// O servidor local PUXA o que a nuvem manda pra baixo (desce/ambos).
-export const TABELAS_PULL = TABELAS_SYNC.filter(
-  (t) => t.direcao === 'desce' || t.direcao === 'ambos',
-);
+// Append-only que TAMBÉM DESCEM no espelho (S1). Ficam 'sobe' no push (imutáveis),
+// mas o pull precisa trazê-las p/ o dashboard/relatórios locais baterem com a nuvem.
+// O upsert por id é aditivo e idempotente (sem updated_at → sem LWW, e não têm conflito).
+export const TABELAS_PULL_APPEND: TabelaSync[] = [
+  { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' },
+  { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' },
+];
+
+// O servidor local PUXA o que a nuvem manda pra baixo (desce/ambos) + os append-que-descem.
+export const TABELAS_PULL: TabelaSync[] = [
+  ...TABELAS_SYNC.filter((t) => t.direcao === 'desce' || t.direcao === 'ambos'),
+  ...TABELAS_PULL_APPEND,
+];
+
+// Janela de espelho (mirror_dias): tabelas TRANSACIONAIS pesadas que o edge puxa só
+// dos últimos N dias (default 60, config no Financeiro via empresa.mirror_dias). A NUVEM
+// mantém histórico integral; a janela afeta só o que DESCE. Controle/catálogo = integral.
+export const TABELAS_JANELA_MIRROR = new Set<string>([
+  'comanda',
+  'comanda_item',
+  'caixa_sessao',
+  'producao_pedido',
+  'producao_pedido_item',
+  'lancamento_caixa',
+  'movimento_estoque',
+  'pedido_externo',
+]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
 // sido criadas na NUVEM enquanto o edge esteve fora (operação no modo nuvem). Ao

@@ -139,6 +139,7 @@ export class AuthService {
           senhaHash,
           funcaoId: fun.id,
           perfilAcessoId: perfilPres?.id,
+          podeNuvem: true, // o dono (presidente) acessa a nuvem desde o cadastro
         })
         .returning();
 
@@ -184,6 +185,7 @@ export class AuthService {
         unidadeId: colaborador.unidadeId,
         senhaHash: colaborador.senhaHash,
         status: colaborador.status,
+        podeNuvem: colaborador.podeNuvem,
         funcaoCategoria: funcao.categoria,
         funcaoNome: funcao.nome,
         perfilNivel: perfilAcesso.nivel,
@@ -238,6 +240,26 @@ export class AuthService {
     if (!loginWeb) {
       throw new ForbiddenException(
         'Este perfil não acessa pelo e-mail/senha — use o PIN no terminal/app.',
+      );
+    }
+
+    // RBAC de modo (S2): o MODO NUVEM (app online) só recebe quem o presidente
+    // liberou (`pode_nuvem`). No SERVIDOR LOCAL (edge, EDGE_MODE=true) qualquer
+    // perfil entra — a operação da loja é local. O presidente sempre passa (dono).
+    const isEdge = process.env.EDGE_MODE === 'true';
+    if (!isEdge && nivel !== 'presidente' && !row.podeNuvem) {
+      await this.auditoria.registrar({
+        tenantId: row.tenantId,
+        atorId: row.id,
+        atorPerfil: nivel,
+        tipo: 'auth',
+        acao: 'login_bloqueado_nuvem',
+        entidadeTipo: 'colaborador',
+        entidadeId: row.id,
+        origem: 'web',
+      });
+      throw new ForbiddenException(
+        'Seu acesso é pelo servidor local da loja. Peça ao presidente para liberar o acesso online.',
       );
     }
 

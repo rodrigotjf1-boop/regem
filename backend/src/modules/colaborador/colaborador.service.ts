@@ -35,6 +35,7 @@ const publicCols = {
   status: colaborador.status,
   perfilAcessoId: colaborador.perfilAcessoId,
   appHabilitado: colaborador.appHabilitado,
+  podeNuvem: colaborador.podeNuvem, // RBAC de modo: acessa o app online?
   // Desligamento (mig 135) — para o UI mostrar/filtrar quem saiu ou está em aviso.
   desligamentoTipo: colaborador.desligamentoTipo,
   desligamentoData: colaborador.desligamentoData,
@@ -137,7 +138,12 @@ export class ColaboradorService {
   async atualizarAcesso(
     ator: AuthUser,
     id: string,
-    dto: { perfilAcessoId?: string; appHabilitado?: boolean; status?: string },
+    dto: {
+      perfilAcessoId?: string;
+      appHabilitado?: boolean;
+      status?: string;
+      podeNuvem?: boolean;
+    },
   ) {
     const [alvo] = await this.db
       .select({ id: colaborador.id })
@@ -159,6 +165,7 @@ export class ColaboradorService {
       patch.perfilAcessoId = await this.resolverPerfil(ator.tenantId, dto.perfilAcessoId);
     }
     if (dto.appHabilitado !== undefined) patch.appHabilitado = !!dto.appHabilitado;
+    if (dto.podeNuvem !== undefined) patch.podeNuvem = !!dto.podeNuvem;
     if (dto.status !== undefined) {
       if (!['ativo', 'bloqueado'].includes(dto.status))
         throw new BadRequestException('Status inválido (ativo | bloqueado).');
@@ -179,7 +186,12 @@ export class ColaboradorService {
       acao: 'acesso_atualizado',
       entidadeTipo: 'colaborador',
       entidadeId: id,
-      detalhe: { perfilAcessoId: dto.perfilAcessoId, status: dto.status, appHabilitado: dto.appHabilitado },
+      detalhe: {
+        perfilAcessoId: dto.perfilAcessoId,
+        status: dto.status,
+        appHabilitado: dto.appHabilitado,
+        podeNuvem: dto.podeNuvem,
+      },
     });
     return row;
   }
@@ -300,6 +312,9 @@ export class ColaboradorService {
         pinHash,
         senhaHash,
         perfilAcessoId,
+        // RBAC de modo: presidente/C&O já nasce liberado pra nuvem; os demais entram
+        // só no local por padrão e o presidente libera depois (Config → Acessos).
+        podeNuvem: alvoCategoria === 'presidente',
       })
       .returning(publicCols);
 

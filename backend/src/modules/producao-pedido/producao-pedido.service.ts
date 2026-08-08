@@ -24,6 +24,9 @@ import {
   senhaContador,
   setor,
   comanda,
+  comandaItem,
+  comandaItemComplemento,
+  produto,
   deliveryConfig,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -364,6 +367,7 @@ export class ProducaoPedidoService {
           unidadeId: ctx.unidadeId ?? null,
           equipamentoId,
           pedidoId: ped.id,
+          comandaId: ctx.comandaId, // liga à venda (idempotência do materializador do edge)
           via: 'producao',
           conteudo: this.renderTicket(ctx, Array.from(its), numero, ppProd),
         });
@@ -404,6 +408,7 @@ export class ProducaoPedidoService {
           unidadeId: ctx.unidadeId ?? null,
           equipamentoId: eqId,
           pedidoId: ped.id,
+          comandaId: ctx.comandaId, // liga à venda (idempotência do materializador do edge)
           via: 'etiqueta',
           conteudo,
         });
@@ -420,6 +425,203 @@ export class ProducaoPedidoService {
         tipo: 'novo',
       },
     ];
+  }
+
+  // ===== S3b — Materializa as VIAS DE PRODUÇÃO no EDGE =====
+  // Uma venda registrada no MODO NUVEM desce com o `producao_pedido` (KDS), mas as
+  // vias de produção (cozinha/setores) não saem: as impressoras são LOCAIS do edge.
+  // Aqui, no edge, reconstruímos os itens de produção a partir da comanda que desceu
+  // e enfileiramos as vias na(s) impressora(s) local(is) — ESPELHANDO o roteamento de
+  // `criarPedidos` (mantê-los em sincronia). O pedido de produção NÃO é recriado (já
+  // desceu). O job leva `comandaId` → o processador do edge não reprocessa.
+  async materializarProducaoLocal(tenantId: string, comandaId: string): Promise<number> {
+    const [ped] = await this.db
+      .select()
+      .from(producaoPedido)
+      .where(and(eq(producaoPedido.comandaId, comandaId), eq(producaoPedido.tenantId, tenantId)))
+      .limit(1);
+    if (!ped) return 0;
+
+    // Reconstrói os ItemProducao a partir da comanda (produto + complementos que desceram).
+    const cis = await this.db
+      .select()
+      .from(comandaItem)
+      .where(eq(comandaItem.comandaId, comandaId));
+    const daProducao: ItemProducao[] = [];
+    for (const ci of cis) {
+      if (!ci.produtoId) continue;
+      const [p] = await this.db
+        .select()
+        .from(produto)
+        .where(and(eq(produto.id, ci.produtoId), eq(produto.tenantId, tenantId)));
+      if (!p || !p.vaiParaProducao) continue;
+      const comps = await this.db
+        .select({
+          opcaoId: comandaItemComplemento.opcaoId,
+          tipo: comandaItemComplemento.tipo,
+          nome: comandaItemComplemento.nome,
+        })
+        .from(comandaItemComplemento)
+        .where(eq(comandaItemComplemento.comandaItemId, ci.id));
+      const compTexto =
+        comps.map((s) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`).join(' · ') || null;
+      daProducao.push({
+        produto: p,
+        descricao: ci.descricao,
+        quantidade: Number(ci.quantidade),
+        complementosTexto: compTexto,
+        observacao: ci.observacao,
+        comandaItemId: ci.id,
+        opcaoIds: comps.map((s) => s.opcaoId).filter(Boolean) as string[],
+      });
+    }
+    if (!daProducao.length) return 0;
+
+    const ctx: any = {
+      tenantId,
+      unidadeId: ped.unidadeId ?? null,
+      comandaId,
+      origem: ped.origem,
+      mesa: ped.mesa ?? null,
+      senha: ped.senha ?? null,
+      plataforma: ped.plataforma ?? null,
+      senhaPlataforma: ped.senhaPlataforma ?? null,
+      setorId: ped.setorId ?? null,
+    };
+    const numero = ped.numero ?? null;
+    const db = this.db;
+
+    // Impressoras de PRODUÇÃO locais + roteamento (idêntico a criarPedidos).
+    const printers: any[] = await db
+      .select({
+        id: equipamento.id,
+        setoresAtendidos: equipamento.setoresAtendidos,
+        padrao: equipamento.padrao,
+      })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'impressora'),
+          eq(equipamento.ativo, true),
+          eq(equipamento.fazProducao, true),
+          ctx.unidadeId ? eq(equipamento.unidadeId, ctx.unidadeId) : sql`true`,
+        ),
+      );
+    const padraoId: string | null = printers.find((p) => p.padrao)?.id ?? null;
+
+    const impressoras = new Map<string, Set<ItemProducao>>();
+    const addImp = (eqId: string, it: ItemProducao) => {
+      const s = impressoras.get(eqId) ?? new Set<ItemProducao>();
+      s.add(it);
+      impressoras.set(eqId, s);
+    };
+    for (const it of daProducao) {
+      let roteado = false;
+      const destinos = await this.resolverDestinos(db, tenantId, it.produto);
+      for (const d of destinos)
+        if (d.tipo === 'impressora' && d.equipamentoId) {
+          addImp(d.equipamentoId, it);
+          roteado = true;
+        }
+      const destinosOpcoes = await this.destinosPorOpcoes(db, tenantId, it.opcaoIds);
+      for (const d of destinosOpcoes)
+        if (d.tipo === 'impressora' && d.equipamentoId) {
+          addImp(d.equipamentoId, it);
+          roteado = true;
+        }
+      const setorP = it.produto?.setorProducaoId;
+      if (setorP)
+        for (const pr of printers) {
+          const sa = Array.isArray(pr.setoresAtendidos) ? pr.setoresAtendidos : [];
+          if (sa.includes(setorP)) {
+            addImp(pr.id, it);
+            roteado = true;
+          }
+        }
+      if (!roteado && !setorP && padraoId) addImp(padraoId, it);
+    }
+
+    const cfgCupom = await this.carregarConfigCupom(db, tenantId, ctx.unidadeId ?? null);
+    const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
+    const ppProd = cfgCupom.override[idProd]
+      ? { perfil: perfilEfetivo(idProd, cfgCupom.override[idProd]), cabecalho: cfgCupom.cabecalho, rodape: cfgCupom.rodape }
+      : null;
+    // Adiar até o KDS? Só se houver KDS armado (imprime_ao_avancar) — igual a criarPedidos.
+    let emitirProducaoAgora = true;
+    if (cfgCupom.adiarProducao) {
+      const armados = await db
+        .select({ id: equipamento.id })
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'kds'),
+            eq(equipamento.ativo, true),
+            eq(equipamento.imprimeAoAvancar, true),
+            ctx.unidadeId
+              ? or(eq(equipamento.unidadeId, ctx.unidadeId), isNull(equipamento.unidadeId))!
+              : sql`true`,
+          ),
+        )
+        .limit(1);
+      if (armados.length) emitirProducaoAgora = false;
+    }
+
+    let enfileirados = 0;
+    if (emitirProducaoAgora) {
+      for (const [equipamentoId, its] of impressoras) {
+        await db.insert(impressaoJob).values({
+          tenantId,
+          unidadeId: ctx.unidadeId ?? null,
+          equipamentoId,
+          pedidoId: ped.id,
+          comandaId,
+          via: 'producao',
+          conteudo: this.renderTicket(ctx, Array.from(its), numero, ppProd),
+        });
+        enfileirados++;
+      }
+    }
+
+    // Etiquetas de produto personalizado (mesma regra da venda local).
+    for (const it of daProducao) {
+      if (!it.opcaoIds?.length) continue;
+      const flagged = await db
+        .select({ id: complementoOpcao.id })
+        .from(complementoOpcao)
+        .innerJoin(complementoGrupo, eq(complementoGrupo.id, complementoOpcao.grupoId))
+        .innerJoin(complemento, eq(complemento.id, complementoGrupo.origemComplementoId))
+        .where(
+          and(
+            eq(complementoOpcao.tenantId, tenantId),
+            inArray(complementoOpcao.id, it.opcaoIds),
+            eq(complemento.imprimeEtiqueta, true),
+          ),
+        );
+      if (!flagged.length) continue;
+      let alvos = (await this.destinosPorOpcoes(db, tenantId, flagged.map((f) => f.id)))
+        .filter((d) => d.tipo === 'impressora' && d.equipamentoId)
+        .map((d) => d.equipamentoId as string);
+      if (!alvos.length)
+        alvos = [...impressoras.entries()].filter(([, s]) => s.has(it)).map(([eqId]) => eqId);
+      if (!alvos.length && padraoId) alvos = [padraoId];
+      if (!alvos.length) continue;
+      const conteudo = this.renderEtiquetaItem(ctx, it, numero);
+      for (const eqId of [...new Set(alvos)]) {
+        await db.insert(impressaoJob).values({
+          tenantId,
+          unidadeId: ctx.unidadeId ?? null,
+          equipamentoId: eqId,
+          pedidoId: ped.id,
+          comandaId,
+          via: 'etiqueta',
+          conteudo,
+        });
+        enfileirados++;
+      }
+    }
+    return enfileirados;
   }
 
   // VIA DE PRODUÇÃO (cozinha) — sem valores; senha e observações/adicionais em
@@ -881,6 +1083,7 @@ export class ProducaoPedidoService {
         unidadeId,
         equipamentoId: p.id,
         pedidoId: null,
+        comandaId: comandaId ?? null, // liga à venda (idempotência do materializador do edge)
         via,
         conteudo,
       });
