@@ -5,13 +5,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, gte, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   etiquetaTemplate,
   etiquetaValidade,
   produto,
   fichaTecnica,
+  itemEstoque,
   empresa,
   impressaoJob,
   equipamento,
@@ -108,11 +109,22 @@ export class EtiquetaValidadeService {
       .from(fichaTecnica)
       .where(and(eq(fichaTecnica.tenantId, tenantId), eq(fichaTecnica.ativo, true), isNull(fichaTecnica.deletedAt)))
       .orderBy(fichaTecnica.nome);
+    // Insumos (item_estoque) com validade cadastrada — a validade é uma DATA
+    // absoluta (não dias fechado/aberto), então entram como fonte direta.
+    const itens = await this.db
+      .select({
+        id: itemEstoque.id, nome: itemEstoque.nome,
+        unidade: itemEstoque.unidadeMedida, validade: itemEstoque.validade,
+      })
+      .from(itemEstoque)
+      .where(and(eq(itemEstoque.tenantId, tenantId), isNotNull(itemEstoque.validade), isNull(itemEstoque.deletedAt)))
+      .orderBy(itemEstoque.nome);
     return {
       produtos: prods.map((p) => ({ tipo: 'produto', ...p })),
       fichas: fichas
         .filter((f) => f.fechado != null || f.aberto != null)
         .map((f) => ({ tipo: 'ficha', ...f })),
+      itens: itens.map((i) => ({ tipo: 'item', ...i })),
     };
   }
 
@@ -123,6 +135,7 @@ export class EtiquetaValidadeService {
     dto: {
       produtoId?: string;
       fichaId?: string;
+      itemId?: string; // insumo (item_estoque) — validade absoluta
       tipoUso?: 'novo' | 'usado';
       quantidade?: number;
       fabricacao?: string;
@@ -132,38 +145,49 @@ export class EtiquetaValidadeService {
     },
     atual: string | null = null,
   ) {
-    if (!dto.produtoId && !dto.fichaId)
-      throw new BadRequestException('Escolha um produto ou ficha.');
+    if (!dto.produtoId && !dto.fichaId && !dto.itemId)
+      throw new BadRequestException('Escolha um produto, ficha ou insumo.');
     const usado = dto.tipoUso === 'usado';
     const fabricacao = dto.fabricacao || hojeISO();
 
-    // Nome + dias de validade da fonte.
+    // Nome + validade da fonte. Produto/ficha usam DIAS (fechado/aberto); insumo
+    // (item_estoque) tem uma DATA de validade absoluta cadastrada.
     let descricao = 'Produto';
     let unidadeMedida: string | null = null;
-    let diasFechado: number | null = null;
-    let diasAberto: number | null = null;
-    if (dto.produtoId) {
-      const [p] = await this.db.select().from(produto).where(and(eq(produto.id, dto.produtoId), eq(produto.tenantId, tenantId)));
-      if (!p) throw new NotFoundException('Produto não encontrado.');
-      descricao = p.nome;
-      unidadeMedida = p.unidadeMedida;
-      diasFechado = p.validadeFechadoDias ?? p.validadeDias ?? null;
-      diasAberto = p.validadeAbertoDias ?? null;
+    let validade: string;
+    if (dto.itemId) {
+      const [it] = await this.db.select().from(itemEstoque).where(and(eq(itemEstoque.id, dto.itemId), eq(itemEstoque.tenantId, tenantId)));
+      if (!it) throw new NotFoundException('Insumo não encontrado.');
+      if (!it.validade)
+        throw new BadRequestException('Cadastre a validade do insumo antes de gerar a etiqueta.');
+      descricao = it.nome;
+      unidadeMedida = it.unidadeMedida;
+      validade = String(it.validade).slice(0, 10);
     } else {
-      const [f] = await this.db.select().from(fichaTecnica).where(and(eq(fichaTecnica.id, dto.fichaId as string), eq(fichaTecnica.tenantId, tenantId)));
-      if (!f) throw new NotFoundException('Ficha não encontrada.');
-      descricao = f.nome;
-      unidadeMedida = f.rendimentoUnidade;
-      diasFechado = f.validadeDias ?? null;
-      diasAberto = f.validadeAbertoDias ?? null;
+      let diasFechado: number | null = null;
+      let diasAberto: number | null = null;
+      if (dto.produtoId) {
+        const [p] = await this.db.select().from(produto).where(and(eq(produto.id, dto.produtoId), eq(produto.tenantId, tenantId)));
+        if (!p) throw new NotFoundException('Produto não encontrado.');
+        descricao = p.nome;
+        unidadeMedida = p.unidadeMedida;
+        diasFechado = p.validadeFechadoDias ?? p.validadeDias ?? null;
+        diasAberto = p.validadeAbertoDias ?? null;
+      } else {
+        const [f] = await this.db.select().from(fichaTecnica).where(and(eq(fichaTecnica.id, dto.fichaId as string), eq(fichaTecnica.tenantId, tenantId)));
+        if (!f) throw new NotFoundException('Ficha não encontrada.');
+        descricao = f.nome;
+        unidadeMedida = f.rendimentoUnidade;
+        diasFechado = f.validadeDias ?? null;
+        diasAberto = f.validadeAbertoDias ?? null;
+      }
+      const dias = usado ? diasAberto : diasFechado;
+      if (dias == null)
+        throw new BadRequestException(
+          usado ? 'Cadastre a validade após aberto no produto/ficha.' : 'Cadastre a validade fechado no produto/ficha.',
+        );
+      validade = addDias(usado ? hojeISO() : fabricacao, dias);
     }
-
-    const dias = usado ? diasAberto : diasFechado;
-    if (dias == null)
-      throw new BadRequestException(
-        usado ? 'Cadastre a validade após aberto no produto/ficha.' : 'Cadastre a validade fechado no produto/ficha.',
-      );
-    const validade = addDias(usado ? hojeISO() : fabricacao, dias);
     const qtd = Math.max(1, Math.min(50, Number(dto.quantidade) || 1));
 
     const template = await this.getTemplate(tenantId);

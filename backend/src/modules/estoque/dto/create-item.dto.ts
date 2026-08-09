@@ -46,9 +46,20 @@ export class CreateItemDto {
   @IsUUID()
   fornecedorId?: string;
 
+  // Múltiplos fornecedores (N:N). Quando enviado, substitui a lista; o 1º vira o principal.
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  fornecedorIds?: string[];
+
   @IsOptional()
   @IsUUID()
   categoriaItemId?: string;
+
+  // Setor de estoque onde o insumo fica guardado (mig 178).
+  @IsOptional()
+  @IsUUID()
+  setorId?: string;
 
   // Data de validade opcional (ISO yyyy-mm-dd do seletor nativo).
   @IsOptional()
