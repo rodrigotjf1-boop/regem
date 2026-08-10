@@ -154,10 +154,13 @@ export class SyncService {
       const janela = TABELAS_JANELA_MIRROR.has(t.tabela)
         ? sql` and ${sql.identifier(janelaCol)} >= now() - (${mirrorDias} * interval '1 day')`
         : sql``;
+      // Filtro FIXO por tabela (constante do sync-config, nunca do usuário): ex.:
+      // equipamento só sincroniza impressora/pdv/salao (nunca servidor_local).
+      const filtro = t.filtroSql ? sql` and (${sql.raw(t.filtroSql)})` : sql``;
       const escopo = t.escopo ?? 'tenant_id';
       const r: any = await this.db.execute(sql`
         select * from ${sql.identifier(t.tabela)}
-        where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}
+        where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}${filtro}
         order by ${sql.identifier(cursor)} asc
         limit 1000
       `);

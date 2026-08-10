@@ -6,6 +6,11 @@ export type TabelaSync = {
   direcao: Direcao;
   cursor: 'created_at' | 'updated_at' | 'criado_em';
   escopo?: 'tenant_id' | 'id'; // coluna que amarra ao tenant (empresa usa 'id')
+  // Filtro SQL FIXO (constante do código, nunca entrada do usuário) que restringe as
+  // linhas sincronizadas. Ex.: equipamento só sincroniza impressora/pdv/salao — nunca
+  // 'servidor_local' (o device de auth/licença; sincronizá-lo deixaria o edge
+  // sobrescrever uma revogação da nuvem por LWW).
+  filtroSql?: string;
 };
 
 // v1: apenas tabelas com `tenant_id` direto + cursor confiável.
@@ -21,6 +26,17 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'turno', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'etiqueta', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'kds_alerta_config', direcao: 'desce', cursor: 'updated_at' }, // motor de alertas KDS (nuvem → edge)
+  // CONFIGS ESPELHADAS (mig 181, P1): impressoras/terminais e cupom/perfis sincronizam
+  // cloud↔edge — config feita na nuvem desce pro edge ativo, e a feita no local sobe
+  // (backup) e volta num banco novo/reinstalado. equipamento é FILTRADO: só impressora/
+  // pdv/salao (NUNCA servidor_local — anti auto-reativação por LWW).
+  {
+    tabela: 'equipamento',
+    direcao: 'ambos',
+    cursor: 'updated_at',
+    filtroSql: "tipo in ('impressora','pdv','salao')",
+  },
+  { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Categoria: BIDIRECIONAL (P3 completo) — editada no edge, espelha na nuvem.
   { tabela: 'categoria_produto', direcao: 'ambos', cursor: 'updated_at' },
   // Produto é BIDIRECIONAL: no modo híbrido (local prioritário) o catálogo é editado
