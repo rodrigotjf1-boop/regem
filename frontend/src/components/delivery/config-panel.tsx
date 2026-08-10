@@ -2162,7 +2162,7 @@ export function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lis
   }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente) ou <strong>Cozinha</strong> (produção, por setor). A conexão pode ser <strong>Rede</strong> (impressora com IP) ou <strong>Local</strong> (USB/instalada no Windows do PDV).</p>
+      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente), <strong>Cozinha</strong> (produção, por setor) ou <strong>Etiqueta</strong> (etiquetas de validade). A conexão pode ser <strong>Rede</strong> (impressora com IP) ou <strong>Local</strong> (USB/instalada no Windows do PDV).</p>
       <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn"><strong>Local (USB/Windows)</strong>: informe o <strong>nome exato</strong> da impressora como aparece no Windows (Painel de Controle → Dispositivos e Impressoras). A impressão local roda no <strong>servidor local (edge)</strong> — sem edge instalado, use uma impressora de rede.</p>
       {rows.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma impressora cadastrada.</p>}
       {rows.map((r, i) => (
@@ -2177,6 +2177,7 @@ export function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lis
               <select value={r.papel} onChange={(e) => up(i, { papel: e.target.value })} aria-label="Direcionamento" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
                 <option value="cupom">Caixa (cupom)</option>
                 <option value="producao">Cozinha (produção)</option>
+                <option value="etiqueta">Etiqueta (validade)</option>
               </select>
             </div>
             {r.papel === 'producao' && (

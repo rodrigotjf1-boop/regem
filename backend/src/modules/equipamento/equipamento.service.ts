@@ -498,6 +498,7 @@ export class EquipamentoService {
       papel: r.papel,
       fazCupom: !!r.fazCupom, // papel múltiplo (mig 167)
       fazProducao: !!r.fazProducao,
+      fazEtiqueta: !!r.fazEtiqueta, // impressora de etiqueta de validade (mig 179)
       conexao: r.conexao ?? 'rede',
       host: r.host,
       porta: r.porta,
@@ -536,15 +537,19 @@ export class EquipamentoService {
   async salvarImpressora(tenantId: string, dto: any) {
     await this.garantirConfigLocal(tenantId);
     const local = dto.conexao === 'local';
-    // Papel múltiplo (mig 167): usa os flags; se não vierem, deriva do papel legado.
-    const fazCupom = dto.fazCupom != null ? !!dto.fazCupom : dto.papel !== 'producao';
-    const fazProducao = dto.fazProducao != null ? !!dto.fazProducao : dto.papel === 'producao';
+    // Papel múltiplo (mig 167/179): usa os flags; se não vierem, deriva do papel legado.
+    // 'etiqueta' (mig 179) é exclusivo — a impressora de etiqueta não faz cupom/produção.
+    const isEtiq = dto.fazEtiqueta != null ? !!dto.fazEtiqueta : dto.papel === 'etiqueta';
+    const fazEtiqueta = isEtiq;
+    const fazCupom = dto.fazCupom != null ? !!dto.fazCupom : !isEtiq && dto.papel !== 'producao';
+    const fazProducao = dto.fazProducao != null ? !!dto.fazProducao : !isEtiq && dto.papel === 'producao';
     const vals = {
       nome: (dto.nome ?? '').trim() || 'Impressora',
-      // `papel` só por compat/exibição; o roteamento lê fazCupom/fazProducao.
-      papel: fazProducao && !fazCupom ? 'producao' : 'cupom',
+      // `papel` só por compat/exibição; o roteamento lê os flags faz*.
+      papel: fazEtiqueta ? 'etiqueta' : fazProducao && !fazCupom ? 'producao' : 'cupom',
       fazCupom,
       fazProducao,
+      fazEtiqueta,
       setorId: dto.setorId || null,
       conexao: local ? 'local' : 'rede',
       // Rede → host:porta; Local → nome da impressora no Windows (limpa o outro par).
