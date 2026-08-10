@@ -67,6 +67,10 @@ const PUSH_TABLES = [
   { tabela: 'categoria_produto', cursor: 'updated_at' },
   { tabela: 'produto', cursor: 'updated_at' },
   { tabela: 'cardapio_config', cursor: 'updated_at' },
+  // Configs espelhadas (P1, mig 181): impressoras/terminais e cupom/perfis sobem
+  // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.
+  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao')" },
+  { tabela: 'delivery_config', cursor: 'updated_at' },
   { tabela: 'opcao', cursor: 'updated_at' },
   { tabela: 'complemento', cursor: 'updated_at' },
   { tabela: 'complemento_item', cursor: 'updated_at' },
@@ -247,8 +251,9 @@ async function push() {
     if (!(await colunas(t.tabela)).size) continue;
     let cur = await getState(`push_${t.tabela}`, '1970-01-01T00:00:00Z');
     for (let pagina = 0; pagina < 10000; pagina++) {
+      const filtro = t.filtro ? ` and (${t.filtro})` : ''; // constante do PUSH_TABLES, não é entrada de usuário
       const r = await pool.query(
-        `select * from ${q(t.tabela)} where ${q(t.cursor)} > $1 order by ${q(t.cursor)} asc limit $2`,
+        `select * from ${q(t.tabela)} where ${q(t.cursor)} > $1${filtro} order by ${q(t.cursor)} asc limit $2`,
         [cur, PUSH_MAX],
       );
       if (!r.rows.length) break;
