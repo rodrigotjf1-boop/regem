@@ -369,8 +369,56 @@ foreach ($i in 1..15) {
 # incompleta anterior, ou banco corrompido). Os dados estao inacessiveis de qualquer
 # jeito -> recomeca o banco do zero. NAO afeta um banco que FUNCIONA (esse conectaria).
 # Evita exigir apagar C:\regem-edge na mao numa reinstalacao apos falha.
+# --- P0: banco local existe mas nao conectou. NAO apaga de cara: tenta RESETAR a
+# senha PRESERVANDO os dados (pg_hba trust temporario). Senha perdida NAO torna o
+# dado inacessivel. So recomeca do zero se ate isto falhar (banco corrompido). ---
 if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSION"))) {
-  Diga "Banco anterior inacessivel (instalacao incompleta / senha perdida) - recomecando do zero."
+  Diga "Banco local existe mas nao conectou - tentando resetar a senha SEM apagar os dados."
+  try { & $nssm stop RegemEdgePg 2>$null | Out-Null } catch {}
+  try { Get-CimInstance Win32_Process -Filter "name='postgres.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$pgData*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch {}
+  Start-Sleep -Seconds 2
+  $hba = Join-Path $pgData "pg_hba.conf"
+  $hbaBak = "$hba.regembak"
+  $novaSenha = Rand 24
+  $resetOk = $false
+  try {
+    icacls $pgData /setowner "*S-1-5-20" /T /C /Q | Out-Null
+    icacls $pgData /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q | Out-Null
+    if (Test-Path $hba) { Copy-Item $hba $hbaBak -Force }
+    Set-Content -Path $hba -Encoding ascii -Value @('local all all trust', 'host all all 127.0.0.1/32 trust', 'host all all ::1/128 trust')
+    & (Join-Path $pgDir "bin\pg_ctl.exe") -D "$pgData" -o "-p $PgPorta" -w -t 30 start | Out-Null
+    Start-Sleep -Seconds 2
+    & $node -e "const{Client}=require('pg');const c=new Client('postgresql://postgres@localhost:'+process.argv[1]+'/postgres');c.connect().then(()=>c.query('ALTER USER postgres PASSWORD '+String.fromCharCode(39)+process.argv[2]+String.fromCharCode(39))).then(()=>c.end()).then(()=>process.exit(0)).catch(()=>process.exit(1))" $PgPorta $novaSenha
+    if ($LASTEXITCODE -eq 0) { $resetOk = $true }
+    & (Join-Path $pgDir "bin\pg_ctl.exe") -D "$pgData" -w -t 30 stop | Out-Null
+    Start-Sleep -Seconds 1
+  } catch {}
+  if (Test-Path $hbaBak) { Move-Item $hbaBak $hba -Force }
+  if ($resetOk) {
+    Diga "Senha do Postgres resetada - DADOS PRESERVADOS."
+    icacls $pgData /setowner "*S-1-5-20" /T /C /Q | Out-Null
+    icacls $pgData /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q | Out-Null
+    $pgSenha = $novaSenha
+    $connPg = "postgresql://postgres:$pgSenha@localhost:$PgPorta/postgres"
+    if (-not (Get-Service -Name RegemEdgePg -ErrorAction SilentlyContinue)) {
+      $pgArgs = '-D "' + $pgData + '" -p ' + $PgPorta
+      & $nssm install RegemEdgePg (Join-Path $pgDir "bin\postgres.exe") $pgArgs | Out-Null
+      & $nssm set RegemEdgePg ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
+      & $nssm set RegemEdgePg Start SERVICE_AUTO_START | Out-Null
+      & $nssm set RegemEdgePg AppStderr "$logDir\RegemEdgePg.err.log" | Out-Null
+    }
+    & $nssm start RegemEdgePg 2>$null | Out-Null
+    Start-Sleep -Seconds 2
+    foreach ($i in 1..15) {
+      try { & $node -e "const{Client}=require('pg');new Client({connectionString:process.argv[1]}).connect().then(c=>c.end()).then(()=>process.exit(0)).catch(()=>process.exit(1))" $connPg; if ($LASTEXITCODE -eq 0) { $okPg = $true; break } } catch {}
+      Start-Sleep -Seconds 2
+    }
+  }
+}
+
+# Ultimo recurso: o reset preservador FALHOU (banco realmente corrompido) -> zera.
+if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSION"))) {
+  Diga "Reset falhou - banco inacessivel/corrompido, recomecando do zero."
   try { & $nssm stop RegemEdgePg 2>$null | Out-Null } catch {}
   try { & $nssm remove RegemEdgePg confirm 2>$null | Out-Null } catch {}
   try { Get-CimInstance Win32_Process -Filter "name='postgres.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$pgData*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch {}
