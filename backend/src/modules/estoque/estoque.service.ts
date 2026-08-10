@@ -8,6 +8,7 @@ import { and, eq, isNull, desc, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   itemEstoque,
+  itemFornecedor,
   movimentoEstoque,
   alertaEstoque,
   categoriaItem,
@@ -23,6 +24,8 @@ export class EstoqueService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
   async createItem(tenantId: string, dto: CreateItemDto, atual: string | null = null) {
+    // Fornecedor principal: 1º da lista N:N, ou o campo legado.
+    const principal = dto.fornecedorIds?.length ? dto.fornecedorIds[0] : dto.fornecedorId;
     const [row] = await this.db
       .insert(itemEstoque)
       .values({
@@ -35,13 +38,35 @@ export class EstoqueService {
         estoqueMinimo:
           dto.estoqueMinimo != null ? String(dto.estoqueMinimo) : undefined,
         categoria: dto.categoria,
-        fornecedorId: dto.fornecedorId,
+        fornecedorId: principal,
         categoriaItemId: dto.categoriaItemId,
+        setorId: dto.setorId || undefined,
         validade: dto.validade || undefined,
       })
       .returning();
     await this.gravarConversoes(tenantId, row.id, dto.conversoes);
+    await this.gravarFornecedores(tenantId, row.id, dto.fornecedorIds, dto.fornecedorId);
     return row;
+  }
+
+  // Replace-all dos fornecedores (N:N) de um insumo. Aceita a lista nova (fornecedorIds)
+  // ou, na ausência, o campo legado (fornecedorId). Só grava quando algum é informado.
+  private async gravarFornecedores(
+    tenantId: string,
+    itemId: string,
+    fornecedorIds?: string[],
+    legado?: string,
+  ) {
+    if (fornecedorIds === undefined && legado === undefined) return; // nada a mexer
+    const ids = [...new Set((fornecedorIds ?? (legado ? [legado] : [])).filter(Boolean))];
+    await this.db
+      .delete(itemFornecedor)
+      .where(and(eq(itemFornecedor.tenantId, tenantId), eq(itemFornecedor.itemId, itemId)));
+    if (ids.length)
+      await this.db
+        .insert(itemFornecedor)
+        .values(ids.map((fornecedorId) => ({ tenantId, itemId, fornecedorId })))
+        .onConflictDoNothing();
   }
 
   // Edita um insumo (campos + conversões replace-all).
@@ -51,9 +76,12 @@ export class EstoqueService {
     if (dto.unidadeMedida !== undefined) patch.unidadeMedida = dto.unidadeMedida;
     if (dto.estoqueMinimo != null) patch.estoqueMinimo = String(dto.estoqueMinimo);
     if (dto.categoria !== undefined) patch.categoria = dto.categoria;
-    if (dto.fornecedorId !== undefined) patch.fornecedorId = dto.fornecedorId || null;
+    // Fornecedor principal segue o 1º da lista N:N (quando enviada); senão o campo legado.
+    if (dto.fornecedorIds !== undefined) patch.fornecedorId = dto.fornecedorIds[0] ?? null;
+    else if (dto.fornecedorId !== undefined) patch.fornecedorId = dto.fornecedorId || null;
     if (dto.categoriaItemId !== undefined)
       patch.categoriaItemId = dto.categoriaItemId || null;
+    if (dto.setorId !== undefined) patch.setorId = dto.setorId || null;
     if (dto.validade !== undefined) patch.validade = dto.validade || null;
     const [row] = await this.db
       .update(itemEstoque)
@@ -69,6 +97,8 @@ export class EstoqueService {
       .returning();
     if (!row) throw new NotFoundException('Item não encontrado');
     if (dto.conversoes) await this.gravarConversoes(tenantId, id, dto.conversoes);
+    if (dto.fornecedorIds !== undefined || dto.fornecedorId !== undefined)
+      await this.gravarFornecedores(tenantId, id, dto.fornecedorIds, dto.fornecedorId);
     return row;
   }
 
@@ -141,9 +171,11 @@ export class EstoqueService {
              i.custo_medio as "custoMedio",
              i.categoria_item_id as "categoriaItemId",
              i.fornecedor_id as "fornecedorId",
+             i.setor_id as "setorId",
              i.validade,
              cat.nome as "categoriaNome", cat.cor as "categoriaCor",
              f.nome as "fornecedorNome",
+             st.nome as "setorNome",
              coalesce(sum(case m.tipo
                when 'entrada' then m.quantidade
                when 'saida'   then -m.quantidade
@@ -152,8 +184,9 @@ export class EstoqueService {
       left join movimento_estoque m on m.item_id = i.id
       left join categoria_item cat on cat.id = i.categoria_item_id
       left join fornecedor f on f.id = i.fornecedor_id
+      left join setor st on st.id = i.setor_id
       where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
-      group by i.id, cat.nome, cat.cor, f.nome
+      group by i.id, cat.nome, cat.cor, f.nome, st.nome
       order by i.nome
     `);
     const rows = res.rows ?? res;
@@ -168,6 +201,17 @@ export class EstoqueService {
       arr.push({ unidadeDe: c.unidadeDe, fator: Number(c.fator), unidadePara: c.unidadePara });
       porItem.set(c.itemId, arr);
     }
+    // Fornecedores (N:N) por item (anexados em memória).
+    const fs = await this.db
+      .select({ itemId: itemFornecedor.itemId, fornecedorId: itemFornecedor.fornecedorId })
+      .from(itemFornecedor)
+      .where(eq(itemFornecedor.tenantId, tenantId));
+    const fornPorItem = new Map<string, string[]>();
+    for (const x of fs) {
+      const arr = fornPorItem.get(x.itemId) ?? [];
+      arr.push(x.fornecedorId);
+      fornPorItem.set(x.itemId, arr);
+    }
     // Valor em estoque = saldo × custo médio (derivado, nunca armazenado).
     // Valores em R$ (custo médio e valor) são financeiros → só presidente/C&O.
     return rows.map((r: any) => ({
@@ -175,6 +219,8 @@ export class EstoqueService {
       custoMedio: verFin ? r.custoMedio : null,
       valorEstoque: verFin ? Number(r.saldo) * Number(r.custoMedio ?? 0) : null,
       conversoes: porItem.get(r.id) ?? [],
+      // Lista completa de fornecedores; cai no principal quando ainda não há N:N.
+      fornecedorIds: fornPorItem.get(r.id) ?? (r.fornecedorId ? [r.fornecedorId] : []),
     }));
   }
 

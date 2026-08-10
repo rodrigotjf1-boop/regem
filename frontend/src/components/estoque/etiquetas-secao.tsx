@@ -24,13 +24,13 @@ const STATUS_LABEL: Record<string, { txt: string; cls: string }> = {
 
 export function EtiquetasSecao() {
   const [aba, setAba] = useState<'gerar' | 'ativas' | 'template'>('gerar');
-  const [fontes, setFontes] = useState<{ produtos: any[]; fichas: any[] }>({ produtos: [], fichas: [] });
+  const [fontes, setFontes] = useState<{ produtos: any[]; fichas: any[]; itens: any[] }>({ produtos: [], fichas: [], itens: [] });
   const [lista, setLista] = useState<any[]>([]);
   const [template, setTemplate] = useState<any>(null);
 
   const reload = useCallback(async () => {
     const [f, l, t] = await Promise.all([
-      api.etiquetaFontes().catch(() => ({ produtos: [], fichas: [] })),
+      api.etiquetaFontes().catch(() => ({ produtos: [], fichas: [], itens: [] })),
       api.etiquetasValidade().catch(() => []),
       api.etiquetaTemplate().catch(() => null),
     ]);
@@ -77,18 +77,20 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
   const opcoes = useMemo(() => {
     const p = (fontes.produtos ?? []).map((x: any) => ({ ...x, key: `produto:${x.id}` }));
     const f = (fontes.fichas ?? []).map((x: any) => ({ ...x, key: `ficha:${x.id}` }));
-    return [...p, ...f];
+    const it = (fontes.itens ?? []).map((x: any) => ({ ...x, key: `item:${x.id}` }));
+    return [...p, ...f, ...it];
   }, [fontes]);
 
   async function gerar(e: React.FormEvent) {
     e.preventDefault();
-    if (!fonteKey) return toast.error('Escolha o produto ou ficha.');
+    if (!fonteKey) return toast.error('Escolha o produto, ficha ou insumo.');
     const [tipo, id] = fonteKey.split(':');
     setBusy(true);
     try {
       const r: any = await api.criarEtiqueta({
         produtoId: tipo === 'produto' ? id : undefined,
         fichaId: tipo === 'ficha' ? id : undefined,
+        itemId: tipo === 'item' ? id : undefined,
         tipoUso,
         quantidade: Number(quantidade) || 1,
         fabricacao,
@@ -105,7 +107,7 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
   if (opcoes.length === 0)
     return (
       <Card className="p-6 text-center text-sm text-muted-foreground">
-        Nenhuma fonte com validade. Ative “Controla validade” em um produto ou informe a validade numa ficha.
+        Nenhuma fonte com validade. Ative “Controla validade” num produto, informe a validade numa ficha ou cadastre a validade num insumo.
       </Card>
     );
 
@@ -124,6 +126,11 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
             <optgroup label="Fichas técnicas">
               {(fontes.fichas ?? []).map((f: any) => (
                 <option key={f.id} value={`ficha:${f.id}`}>{f.nome}</option>
+              ))}
+            </optgroup>
+            <optgroup label="Insumos">
+              {(fontes.itens ?? []).map((i: any) => (
+                <option key={i.id} value={`item:${i.id}`}>{i.nome}</option>
               ))}
             </optgroup>
           </select>

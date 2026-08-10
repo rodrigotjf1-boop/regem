@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
@@ -48,13 +48,26 @@ export function InsumoForm({
 }) {
   const [nome, setNome] = useState(item?.nome ?? '');
   const [categoriaItemId, setCategoriaItemId] = useState(item?.categoriaItemId ?? '');
-  const [fornecedorId, setFornecedorId] = useState(item?.fornecedorId ?? '');
+  // Múltiplos fornecedores (N:N). Prefere a lista; cai no legado quando só há 1.
+  const [fornecedorIds, setFornecedorIds] = useState<string[]>(
+    Array.isArray(item?.fornecedorIds) && item.fornecedorIds.length
+      ? item.fornecedorIds
+      : item?.fornecedorId
+        ? [item.fornecedorId]
+        : [],
+  );
+  // Setor de estoque onde o insumo fica guardado (setores já cadastrados).
+  const [setorId, setSetorId] = useState(item?.setorId ?? '');
+  const [setores, setSetores] = useState<Opt[]>([]);
   const [unidade, setUnidade] = useState<string>(item?.unidadeMedida ?? 'unidade');
   const [estoqueMinimo, setEstoqueMinimo] = useState(
     item?.estoqueMinimo != null ? String(item.estoqueMinimo) : '',
   );
   // Validade opcional (seletor nativo). A data vem como yyyy-mm-dd do backend.
   const [validade, setValidade] = useState(item?.validade ? String(item.validade).slice(0, 10) : '');
+  // Imprimir etiquetas de validade ao salvar (RDC 216). Só faz sentido com validade.
+  const [imprimirEtiq, setImprimirEtiq] = useState(false);
+  const [qtdEtiq, setQtdEtiq] = useState('1');
   const [conversoes, setConversoes] = useState<Conversao[]>(
     (item?.conversoes ?? []).map((c: any) => ({
       unidadeDe: c.unidadeDe,
@@ -68,6 +81,14 @@ export function InsumoForm({
   const [novoForn, setNovoForn] = useState('');
   const [erro, setErro] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Setores já cadastrados (para escolher o setor de estoque do insumo).
+  useEffect(() => {
+    api.setores().then((s: any) => setSetores(Array.isArray(s) ? s : [])).catch(() => {});
+  }, []);
+
+  const toggleFornecedor = (id: string) =>
+    setFornecedorIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
 
   async function criarCategoria() {
     if (!novaCat.trim()) return;
@@ -86,7 +107,7 @@ export function InsumoForm({
     try {
       const f: any = await api.post('/fornecedores', { nome: novoForn.trim() });
       setForns((l) => [...l, { id: f.id, nome: f.nome }]);
-      setFornecedorId(f.id);
+      setFornecedorIds((l) => [...l, f.id]);
       setNovoForn('');
       onReload();
     } catch (e) {
@@ -107,7 +128,8 @@ export function InsumoForm({
       estoqueMinimo: estoqueMinimo ? Number(estoqueMinimo) : undefined,
       validade: validade || undefined,
       categoriaItemId: categoriaItemId || undefined,
-      fornecedorId: fornecedorId || undefined,
+      setorId: setorId || undefined,
+      fornecedorIds, // lista N:N (o backend deriva o principal do 1º)
       conversoes: conversoes
         .filter((c) => c.unidadeDe && c.unidadePara && Number(c.fator) > 0)
         .map((c) => ({
@@ -117,9 +139,24 @@ export function InsumoForm({
         })),
     };
     try {
-      if (item?.id) await api.atualizarItem(item.id, body);
-      else await api.post('/estoque/itens', body);
+      const salvo: any = item?.id
+        ? await api.atualizarItem(item.id, body)
+        : await api.post('/estoque/itens', body);
       toast.success(item?.id ? 'Insumo atualizado.' : 'Insumo cadastrado.');
+      // Imprime as etiquetas de validade do insumo, se pedido (best-effort).
+      const insumoId = salvo?.id ?? item?.id;
+      if (imprimirEtiq && validade && insumoId) {
+        try {
+          const r: any = await api.criarEtiqueta({
+            itemId: insumoId,
+            quantidade: Number(qtdEtiq) || 1,
+            fabricacao: new Date().toISOString().slice(0, 10),
+          });
+          toast.success(`${r?.criadas ?? 1} etiqueta(s) enviada(s) à impressão.`);
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Insumo salvo, mas falhou ao imprimir etiquetas.');
+        }
+      }
       onSaved();
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar');
@@ -152,19 +189,46 @@ export function InsumoForm({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label htmlFor="forn">Fornecedor</Label>
-            <Select id="forn" value={fornecedorId} onChange={(e) => setFornecedorId(e.target.value)}>
-              <option value="">— sem fornecedor —</option>
-              {forns.map((f) => (
-                <option key={f.id} value={f.id}>{f.nome}</option>
-              ))}
-            </Select>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Fornecedores</Label>
+            <p className="text-[11px] text-muted-foreground">Marque um ou mais. O 1º selecionado vira o fornecedor principal.</p>
+            {forns.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum fornecedor cadastrado ainda — crie abaixo.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {forns.map((f) => {
+                  const on = fornecedorIds.includes(f.id);
+                  const principal = on && fornecedorIds[0] === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => toggleFornecedor(f.id)}
+                      className={`rounded-full border px-2.5 py-1 text-xs font-medium ${on ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}
+                    >
+                      {on ? '✓ ' : ''}{f.nome}{principal ? ' · principal' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
             <div className="flex gap-1.5">
               <Input value={novoForn} onChange={(e) => setNovoForn(e.target.value)} placeholder="＋ novo fornecedor" className="h-9 text-sm"
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); criarFornecedor(); } }} />
               <Button type="button" variant="outline" size="sm" onClick={criarFornecedor}>Criar</Button>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="setor">Setor de estoque</Label>
+            <Select id="setor" value={setorId} onChange={(e) => setSetorId(e.target.value)}>
+              <option value="">— sem setor —</option>
+              {setores.map((s) => (
+                <option key={s.id} value={s.id}>{s.nome}</option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-muted-foreground">Onde o insumo fica guardado. Use os setores já cadastrados.</p>
           </div>
 
           <div className="space-y-1.5">
@@ -188,6 +252,40 @@ export function InsumoForm({
             <Label htmlFor="val">Data de validade (opcional)</Label>
             <Input id="val" type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
           </div>
+
+          {/* Impressão de etiquetas de validade (RDC 216) — só com validade cadastrada. */}
+          {validade && (
+            <div className="space-y-1.5 rounded-lg border border-border bg-secondary/30 p-3 sm:col-span-2">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary"
+                  checked={imprimirEtiq}
+                  onChange={(e) => setImprimirEtiq(e.target.checked)}
+                />
+                Imprimir etiquetas de validade ao salvar
+              </label>
+              {imprimirEtiq && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="qtdEtiq" className="text-xs">Quantidade de etiquetas</Label>
+                    <Input
+                      id="qtdEtiq"
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={qtdEtiq}
+                      onChange={(e) => setQtdEtiq(e.target.value)}
+                      className="h-9 w-28"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Saem na impressora de etiquetas com a data de validade cadastrada.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Conversões personalizadas */}

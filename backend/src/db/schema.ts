@@ -573,11 +573,28 @@ export const itemEstoque = pgTable('item_estoque', {
   diasSeguranca: integer('dias_seguranca').notNull().default(2),
   classeAbc: text('classe_abc'),
   categoria: text('categoria'), // texto livre (compat); ver categoriaItemId
+  // Fornecedor PRINCIPAL (compat). A lista completa fica em item_fornecedor (mig 178).
   fornecedorId: uuid('fornecedor_id').references(() => fornecedor.id),
   categoriaItemId: uuid('categoria_item_id').references(() => categoriaItem.id),
+  setorId: uuid('setor_id'), // setor de estoque onde o insumo fica guardado (mig 178)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
+// Fornecedores de um insumo (N:N — mig 178). item_estoque.fornecedor_id segue como principal.
+export const itemFornecedor = pgTable('item_fornecedor', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  fornecedorId: uuid('fornecedor_id')
+    .notNull()
+    .references(() => fornecedor.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Categoria de insumo (cadastro próprio). Usada p/ filtro/agrupamento no estoque.
