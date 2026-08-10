@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { and, desc, eq, gte, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   etiquetaTemplate,
@@ -250,13 +250,27 @@ export class EtiquetaValidadeService {
   ) {
     let equipamentoId = impressoraId ?? null;
     if (!equipamentoId) {
-      // Escolhe uma impressora do tenant (preferência: papel 'cupom' / padrão).
-      const [imp] = await this.db
-        .select({ id: equipamento.id })
-        .from(equipamento)
-        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'impressora'), eq(equipamento.ativo, true)))
-        .limit(1);
-      equipamentoId = imp?.id ?? null;
+      // (1) impressora designada como ETIQUETA (faz_etiqueta) da unidade/rede — mig 179.
+      const conds = [
+        eq(equipamento.tenantId, tenantId),
+        eq(equipamento.tipo, 'impressora'),
+        eq(equipamento.fazEtiqueta, true),
+        eq(equipamento.ativo, true),
+      ];
+      if (unidadeId)
+        conds.push(or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))!);
+      const [etiq] = await this.db.select({ id: equipamento.id }).from(equipamento).where(and(...conds)).limit(1);
+      equipamentoId = etiq?.id ?? null;
+      // (2) fallback: nenhuma impressora de etiqueta designada → 1ª ativa qualquer
+      // (não perde a impressão; o ideal é marcar uma impressora como "Etiqueta").
+      if (!equipamentoId) {
+        const [imp] = await this.db
+          .select({ id: equipamento.id })
+          .from(equipamento)
+          .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'impressora'), eq(equipamento.ativo, true)))
+          .limit(1);
+        equipamentoId = imp?.id ?? null;
+      }
     }
     if (!equipamentoId) return; // sem impressora cadastrada: etiqueta fica só no sistema
     const conteudo = this.renderEtiqueta(template, dados);
@@ -278,7 +292,9 @@ export class EtiquetaValidadeService {
       validade: `VALIDADE: ${this.brDate(d.validade)}`,
       responsavel: '',
     };
-    const linhas: string[] = ['@ETIQUETA'];
+    // Header carrega o TAMANHO (mm) do modelo — o worker do edge aplica nas
+    // etiquetadoras ZPL/EPL (a linguagem vem da impressora). Ex.: '@ETIQUETA:40x40'.
+    const linhas: string[] = [`@ETIQUETA:${template?.tamanho ?? '40x40'}`];
     for (const c of campos) {
       if (c.visivel === false) continue;
       const texto = val[c.campo];

@@ -2144,13 +2144,14 @@ export function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lis
   const [rows, setRows] = useState<any[]>(lista);
   useEffect(() => { setRows(lista); }, [lista]);
   function up(i: number, patch: any) { setRows((l) => l.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
-  function add() { setRows((l) => [...l, { nome: '', papel: 'cupom', setorId: '', conexao: 'rede', host: '', porta: 9100, dispositivo: '', vias: 1, ativo: true, _novo: true }]); }
+  function add() { setRows((l) => [...l, { nome: '', papel: 'cupom', setorId: '', linguagemEtiqueta: 'escpos', conexao: 'rede', host: '', porta: 9100, dispositivo: '', vias: 1, ativo: true, _novo: true }]); }
   async function salvar(i: number) {
     const r = rows[i];
     const local = r.conexao === 'local';
     await onSalvar({
       id: r.id, nome: r.nome, papel: r.papel,
       setorId: r.papel === 'producao' ? r.setorId || null : null,
+      linguagemEtiqueta: r.papel === 'etiqueta' ? r.linguagemEtiqueta || 'escpos' : 'escpos',
       conexao: r.conexao ?? 'rede',
       host: local ? null : r.host, porta: local ? null : r.porta,
       dispositivo: local ? r.dispositivo || null : null,
@@ -2162,7 +2163,7 @@ export function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lis
   }
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente) ou <strong>Cozinha</strong> (produção, por setor). A conexão pode ser <strong>Rede</strong> (impressora com IP) ou <strong>Local</strong> (USB/instalada no Windows do PDV).</p>
+      <p className="text-xs text-muted-foreground">Direcione a impressão: <strong>Caixa</strong> (cupom do cliente), <strong>Cozinha</strong> (produção, por setor) ou <strong>Etiqueta</strong> (etiquetas de validade). A conexão pode ser <strong>Rede</strong> (impressora com IP) ou <strong>Local</strong> (USB/instalada no Windows do PDV).</p>
       <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn"><strong>Local (USB/Windows)</strong>: informe o <strong>nome exato</strong> da impressora como aparece no Windows (Painel de Controle → Dispositivos e Impressoras). A impressão local roda no <strong>servidor local (edge)</strong> — sem edge instalado, use uma impressora de rede.</p>
       {rows.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma impressora cadastrada.</p>}
       {rows.map((r, i) => (
@@ -2177,6 +2178,7 @@ export function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lis
               <select value={r.papel} onChange={(e) => up(i, { papel: e.target.value })} aria-label="Direcionamento" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
                 <option value="cupom">Caixa (cupom)</option>
                 <option value="producao">Cozinha (produção)</option>
+                <option value="etiqueta">Etiqueta (validade)</option>
               </select>
             </div>
             {r.papel === 'producao' && (
@@ -2186,6 +2188,17 @@ export function Impressoras({ lista, setores, onSalvar, onRemover, pode }: { lis
                   <option value="">Todos / geral</option>
                   {setores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
                 </select>
+              </div>
+            )}
+            {r.papel === 'etiqueta' && (
+              <div>
+                <Label className="text-[11px]">Modelo da etiquetadora</Label>
+                <select value={r.linguagemEtiqueta ?? 'escpos'} onChange={(e) => up(i, { linguagemEtiqueta: e.target.value })} aria-label="Modelo da etiquetadora" className="h-8 w-full rounded-md border border-border bg-background px-2 text-sm" disabled={!pode}>
+                  <option value="zpl">Etiquetadora ZPL (Zebra · Elgin L42 · Argox)</option>
+                  <option value="epl">Etiquetadora EPL / PPLB</option>
+                  <option value="escpos">Térmica de bobina (58/80mm)</option>
+                </select>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">O tamanho vem do modelo (aba Etiquetas → Modelo). Elgin L42Pro: ZPL (ou EPL).</p>
               </div>
             )}
             <div>

@@ -111,7 +111,7 @@ function renderEtiqueta(conteudo, largura) {
   push(init());
   push(align(1)); // etiqueta centralizada
   for (const raw of String(conteudo ?? '').split(/\r?\n/)) {
-    if (raw === '@ETIQUETA') continue;
+    if (raw.startsWith('@ETIQUETA')) continue; // header (@ETIQUETA:LxA) — bobina ignora o tamanho
     if (raw.startsWith('@QR:')) { push(qrCode(raw.slice(4))); push([0x0a]); continue; }
     if (raw.startsWith('@BARCODE:')) {
       const [, tipo, cod] = raw.split(':');
@@ -131,10 +131,18 @@ function renderEtiqueta(conteudo, largura) {
   return Buffer.from(out);
 }
 
-// Monta o Buffer ESC/POS completo de um ticket a partir do texto do job.
-export function renderEscpos(conteudo, largura = 80) {
-  // Etiqueta de validade: caminho próprio (código de barras/QR).
-  if (String(conteudo ?? '').startsWith('@ETIQUETA')) return renderEtiqueta(conteudo, largura);
+// Monta o Buffer completo de um ticket a partir do texto do job.
+// `linguagem` (mig 180) roteia a ETIQUETA por modelo de impressora:
+//   'zpl' (Zebra/Elgin L42/Argox) | 'epl' (EPL2/PPLB) | 'escpos'/undefined (bobina).
+export function renderEscpos(conteudo, largura = 80, linguagem) {
+  const s = String(conteudo ?? '');
+  // Etiqueta de validade: caminho próprio por MODELO da impressora.
+  if (s.startsWith('@ETIQUETA')) {
+    const lang = String(linguagem || 'escpos').toLowerCase();
+    if (lang === 'zpl') return renderEtiquetaZpl(s);
+    if (lang === 'epl') return renderEtiquetaEpl(s);
+    return renderEtiqueta(s, largura); // térmica de bobina (ESC/POS)
+  }
   const cols = colsDe(largura);
   const out = [];
   const push = (arr) => out.push(...arr);
@@ -209,6 +217,81 @@ export function renderEscpos(conteudo, largura = 80) {
   push(beep(2, 3));
   push(cut());
   return Buffer.from(out);
+}
+
+// ---- Etiquetadoras (ZPL / EPL) — mig 180 ----
+// Interpreta o MESMO texto do job da etiqueta (@ETIQUETA:LxA, @B<texto>, texto,
+// @BARCODE:tipo:cod, @QR:cod) e gera a linguagem da etiquetadora, usando o TAMANHO
+// (mm) do header. 203 dpi = 8 dots/mm (padrão Elgin L42/Zebra desktop).
+const DPMM = 8;
+function parseEtiqueta(conteudo) {
+  const linhas = String(conteudo ?? '').split(/\r?\n/);
+  let tamanho = '40x40';
+  const textos = []; // { texto, bold }
+  let code = null; // { tipo:'code128'|'ean13'|'qr'|'plain', valor }
+  for (const raw of linhas) {
+    if (raw.startsWith('@ETIQUETA')) {
+      const m = raw.match(/(\d+)\s*x\s*(\d+)/i);
+      if (m) tamanho = `${m[1]}x${m[2]}`;
+      continue;
+    }
+    if (raw.startsWith('@QR:')) { code = { tipo: 'qr', valor: raw.slice(4) }; continue; }
+    if (raw.startsWith('@BARCODE:')) {
+      const [, tipo, cod] = raw.split(':');
+      code = { tipo: tipo || 'code128', valor: cod ?? '' };
+      continue;
+    }
+    const bold = raw.startsWith('@B');
+    const texto = bold ? raw.slice(2) : raw;
+    if (texto.trim()) textos.push({ texto, bold });
+    else if (!code && /^\d{6,}$/.test(raw.trim())) code = { tipo: 'plain', valor: raw.trim() };
+  }
+  const [w, h] = tamanho.split('x').map((x) => Number(x) || 40);
+  return { textos, code, wMm: w, hMm: h };
+}
+const digits = (s) => String(s ?? '').replace(/\D/g, '').slice(0, 12).padStart(12, '0');
+const zplEsc = (s) => ascii(s).replace(/[\^~]/g, ' '); // ^ e ~ são prefixos de comando ZPL
+const eplEsc = (s) => ascii(s).replace(/"/g, "'"); // aspas fecham o dado EPL
+
+function renderEtiquetaZpl(conteudo) {
+  const { textos, code, wMm, hMm } = parseEtiqueta(conteudo);
+  const W = Math.round(wMm * DPMM);
+  const L = Math.round(hMm * DPMM);
+  const out = ['^XA', '^CI28', `^PW${W}`, `^LL${L}`, '^LH0,0'];
+  let y = 12;
+  for (const t of textos) {
+    const fh = t.bold ? 32 : 26;
+    out.push(`^FO14,${y}^A0N,${fh},${fh}^FD${zplEsc(t.texto)}^FS`);
+    y += fh + 6;
+  }
+  if (code) {
+    y += 6;
+    if (code.tipo === 'qr') out.push(`^FO14,${y}^BQN,2,5^FDLA,${zplEsc(code.valor)}^FS`);
+    else if (code.tipo === 'ean13') out.push(`^FO14,${y}^BY2^BEN,60,Y,N^FD${digits(code.valor)}^FS`);
+    else out.push(`^FO14,${y}^BY2^BCN,60,Y,N,N^FD${zplEsc(code.valor)}^FS`);
+  }
+  out.push('^XZ');
+  return Buffer.from(out.join('\n') + '\n', 'utf8');
+}
+
+function renderEtiquetaEpl(conteudo) {
+  const { textos, code, wMm, hMm } = parseEtiqueta(conteudo);
+  const W = Math.round(wMm * DPMM);
+  const L = Math.round(hMm * DPMM);
+  // N=limpa buffer; q=largura; Q=altura,gap(~3mm). A=texto; B=código; P1=imprime 1.
+  const out = ['', 'N', `q${W}`, `Q${L},24`];
+  let y = 12;
+  for (const t of textos) {
+    out.push(`A14,${y},0,3,1,1,N,"${eplEsc(t.texto)}"`);
+    y += 30;
+  }
+  if (code) {
+    y += 8;
+    if (code.tipo === 'ean13') out.push(`B14,${y},0,E30,2,4,60,N,"${digits(code.valor)}"`);
+    else out.push(`B14,${y},0,1,2,4,60,N,"${eplEsc(code.valor)}"`); // Code128 (QR/plain caem aqui)
+  }
+  out.push('P1');
+  return Buffer.from(out.join('\n') + '\n', 'ascii');
 }
 
 // Pagina de teste (botao "imprimir teste" do painel).

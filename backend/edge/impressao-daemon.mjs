@@ -128,7 +128,7 @@ async function imprimirJob(job) {
     return false;
   }
   const vias = Math.max(1, Number(job.vias) || 1);
-  const buffer = renderEscpos(job.conteudo, job.largura || 80);
+  const buffer = renderEscpos(job.conteudo, job.largura || 80, job.linguagem);
   const enviar = local
     ? () => enviarWindows(job.dispositivo, buffer)
     : () => enviarTcp(job.host, job.porta, buffer);
@@ -154,7 +154,8 @@ async function imprimirJob(job) {
 async function pendentes() {
   const r = await pool.query(`
     select j.id, j.conteudo, j.tentativas,
-           e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.vias, e.nome as impressora
+           e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.vias, e.nome as impressora,
+           e.linguagem_etiqueta as linguagem
     from impressao_job j
     left join equipamento e on e.id = j.equipamento_id
     where j.status = 'pendente'
