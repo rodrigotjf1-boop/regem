@@ -499,6 +499,7 @@ export class EquipamentoService {
       fazCupom: !!r.fazCupom, // papel múltiplo (mig 167)
       fazProducao: !!r.fazProducao,
       fazEtiqueta: !!r.fazEtiqueta, // impressora de etiqueta de validade (mig 179)
+      linguagemEtiqueta: r.linguagemEtiqueta ?? 'escpos', // escpos | zpl | epl (mig 180)
       conexao: r.conexao ?? 'rede',
       host: r.host,
       porta: r.porta,
@@ -550,6 +551,10 @@ export class EquipamentoService {
       fazCupom,
       fazProducao,
       fazEtiqueta,
+      // Modelo/linguagem da etiquetadora (mig 180). Só relevante quando fazEtiqueta.
+      linguagemEtiqueta: ['zpl', 'epl', 'escpos'].includes(dto.linguagemEtiqueta)
+        ? dto.linguagemEtiqueta
+        : 'escpos',
       setorId: dto.setorId || null,
       conexao: local ? 'local' : 'rede',
       // Rede → host:porta; Local → nome da impressora no Windows (limpa o outro par).

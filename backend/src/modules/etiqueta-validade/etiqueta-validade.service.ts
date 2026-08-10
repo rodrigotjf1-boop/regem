@@ -292,7 +292,9 @@ export class EtiquetaValidadeService {
       validade: `VALIDADE: ${this.brDate(d.validade)}`,
       responsavel: '',
     };
-    const linhas: string[] = ['@ETIQUETA'];
+    // Header carrega o TAMANHO (mm) do modelo — o worker do edge aplica nas
+    // etiquetadoras ZPL/EPL (a linguagem vem da impressora). Ex.: '@ETIQUETA:40x40'.
+    const linhas: string[] = [`@ETIQUETA:${template?.tamanho ?? '40x40'}`];
     for (const c of campos) {
       if (c.visivel === false) continue;
       const texto = val[c.campo];

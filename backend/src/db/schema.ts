@@ -802,6 +802,7 @@ export const equipamento = pgTable('equipamento', {
   fazCupom: boolean('faz_cupom').notNull().default(false), // imprime a via do cliente (cupom) — mig 167
   fazProducao: boolean('faz_producao').notNull().default(false), // imprime produção (cozinha/setores) — mig 167
   fazEtiqueta: boolean('faz_etiqueta').notNull().default(false), // imprime etiquetas de validade (RDC 216) — mig 179
+  linguagemEtiqueta: text('linguagem_etiqueta').notNull().default('escpos'), // escpos | zpl | epl (etiquetadora) — mig 180
   setorId: uuid('setor_id'), // KDS/impressora vinculado a um setor de produção
   conexao: text('conexao').notNull().default('rede'), // impressora: 'rede' (IP:porta) | 'local' (USB/Windows)
   host: text('host'), // IP da impressora de rede (conexao='rede')
