@@ -65,6 +65,10 @@ export function InsumoForm({
   );
   // Validade opcional (seletor nativo). A data vem como yyyy-mm-dd do backend.
   const [validade, setValidade] = useState(item?.validade ? String(item.validade).slice(0, 10) : '');
+  // Validade após aberto (dias) — ao abrir a etiqueta, se encurtar, reimprime (E2).
+  const [validadeAbertoDias, setValidadeAbertoDias] = useState(
+    item?.validadeAbertoDias != null ? String(item.validadeAbertoDias) : '',
+  );
   // Imprimir etiquetas de validade ao salvar (RDC 216). Só faz sentido com validade.
   const [imprimirEtiq, setImprimirEtiq] = useState(false);
   const [qtdEtiq, setQtdEtiq] = useState('1');
@@ -127,6 +131,7 @@ export function InsumoForm({
       unidadeMedida: unidade || undefined,
       estoqueMinimo: estoqueMinimo ? Number(estoqueMinimo) : undefined,
       validade: validade || undefined,
+      validadeAbertoDias: validadeAbertoDias ? Number(validadeAbertoDias) : undefined,
       categoriaItemId: categoriaItemId || undefined,
       setorId: setorId || undefined,
       fornecedorIds, // lista N:N (o backend deriva o principal do 1º)
@@ -251,6 +256,12 @@ export function InsumoForm({
           <div className="space-y-1.5">
             <Label htmlFor="val">Data de validade (opcional)</Label>
             <Input id="val" type="date" value={validade} onChange={(e) => setValidade(e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="valAb">Validade após aberto (dias)</Label>
+            <Input id="valAb" type="number" min={0} inputMode="numeric" value={validadeAbertoDias} onChange={(e) => setValidadeAbertoDias(e.target.value)} placeholder="ex.: 3" />
+            <p className="text-[11px] text-muted-foreground">Ao <b>abrir</b> a etiqueta, se a validade encurtar, reimprime automático. Vazio = abrir não muda.</p>
           </div>
 
           {/* Impressão de etiquetas de validade (RDC 216) — só com validade cadastrada. */}

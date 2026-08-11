@@ -220,6 +220,7 @@ export class EtiquetaValidadeService {
           unidadeId: atual ?? dto.unidadeId ?? null,
           produtoId: dto.produtoId ?? null,
           fichaId: dto.fichaId ?? null,
+          itemId: dto.itemId ?? null,
           templateId: (template as any).id ?? null,
           descricao,
           unidadeMedida,
@@ -361,27 +362,76 @@ export class EtiquetaValidadeService {
     return e;
   }
 
-  // Leitura do código: fechado → em uso (recalcula validade após aberto) → baixado.
+  // Núcleo de ABRIR (fechado → em uso). Recalcula a validade após aberto pela fonte
+  // (produto/ficha/INSUMO). SÓ reimprime uma nova via se a validade ENCURTAR — se não
+  // muda, a etiqueta física continua válida e não precisa gerar outra (E2).
+  private async abrirEtiquetaRow(e: any, atorId: string | null) {
+    let diasAberto: number | null = null;
+    if (e.produtoId) {
+      const [p] = await this.db.select({ ab: produto.validadeAbertoDias }).from(produto).where(eq(produto.id, e.produtoId));
+      diasAberto = p?.ab ?? null;
+    } else if (e.fichaId) {
+      const [f] = await this.db.select({ ab: fichaTecnica.validadeAbertoDias }).from(fichaTecnica).where(eq(fichaTecnica.id, e.fichaId));
+      diasAberto = f?.ab ?? null;
+    } else if (e.itemId) {
+      const [it] = await this.db.select({ ab: itemEstoque.validadeAbertoDias }).from(itemEstoque).where(eq(itemEstoque.id, e.itemId));
+      diasAberto = it?.ab ?? null;
+    }
+    let novaValidade = e.validade;
+    let reimprimir = false;
+    if (diasAberto != null) {
+      const cand = addDias(hojeISO(), diasAberto);
+      if (cand < String(e.validade).slice(0, 10)) {
+        novaValidade = cand;
+        reimprimir = true;
+      }
+    }
+    const [row] = await this.db
+      .update(etiquetaValidade)
+      .set({ status: 'em_uso', tipo: 'usado', abertura: new Date(), validade: novaValidade, baixadoPorId: atorId, updatedAt: new Date() })
+      .where(eq(etiquetaValidade.id, e.id))
+      .returning();
+    if (reimprimir) await this.reimprimirEtiqueta(row).catch(() => {});
+    return { acao: 'aberto', reimpresso: reimprimir, etiqueta: row };
+  }
+
+  // Reimprime uma nova via física de uma etiqueta existente (dados atuais dela).
+  private async reimprimirEtiqueta(e: any) {
+    const template = await this.getTemplate(e.tenantId);
+    const [emp] = await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, e.tenantId));
+    const cfgs = await this.db
+      .select({ unidadeId: cardapioConfig.unidadeId, nomePublico: cardapioConfig.nomePublico })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, e.tenantId));
+    const cfg = cfgs.find((c) => c.unidadeId === e.unidadeId) ?? cfgs.find((c) => c.unidadeId == null) ?? cfgs[0];
+    const nomeLoja = cfg?.nomePublico?.trim() || emp?.nome || 'Regem';
+    await this.enfileirarImpressao(e.tenantId, e.unidadeId ?? null, undefined, template, {
+      loja: nomeLoja,
+      descricao: e.descricao,
+      unidadeMedida: e.unidadeMedida,
+      tipoUso: e.status === 'em_uso' ? 'EM USO' : 'FECHADO',
+      fabricacao: e.fabricacao,
+      compra: e.compra ?? null,
+      validade: e.validade,
+      codigo: e.codigo,
+    });
+  }
+
+  // Abrir por ID (botão "Abrir" na aba Ativas). Baixa direta = finalizar(id).
+  async abrir(tenantId: string, atorId: string | null, id: string) {
+    const e = await this.carregar(tenantId, id);
+    if (e.status !== 'fechado') return { acao: 'ja_aberto', reimpresso: false, etiqueta: e };
+    return this.abrirEtiquetaRow(e, atorId);
+  }
+
+  // Leitura do código: fechado → em uso (recalcula/reimprime) → baixado.
   async lerCodigo(tenantId: string, atorId: string | null, codigo: string) {
     const [e] = await this.db
       .select()
       .from(etiquetaValidade)
       .where(and(eq(etiquetaValidade.tenantId, tenantId), eq(etiquetaValidade.codigo, codigo), isNull(etiquetaValidade.deletedAt)));
     if (!e) throw new NotFoundException('Código não encontrado.');
-    if (e.status === 'fechado') {
-      // Abriu agora: vira "em uso" e, se houver validade após aberto no produto, recalcula.
-      let novaValidade = e.validade;
-      if (e.produtoId) {
-        const [p] = await this.db.select({ ab: produto.validadeAbertoDias }).from(produto).where(eq(produto.id, e.produtoId));
-        if (p?.ab != null) novaValidade = addDias(hojeISO(), p.ab);
-      }
-      const [row] = await this.db
-        .update(etiquetaValidade)
-        .set({ status: 'em_uso', tipo: 'usado', abertura: new Date(), validade: novaValidade, baixadoPorId: atorId, updatedAt: new Date() })
-        .where(eq(etiquetaValidade.id, e.id))
-        .returning();
-      return { acao: 'aberto', etiqueta: row };
-    }
+    if (e.status === 'fechado') return this.abrirEtiquetaRow(e, atorId);
     // Já em uso → baixa (consumido).
     const [row] = await this.db
       .update(etiquetaValidade)

@@ -722,6 +722,7 @@ export const api = {
     req('/etiquetas-validade', { method: 'POST', body: JSON.stringify(body) }),
   lerEtiqueta: (codigo: string) =>
     req('/etiquetas-validade/ler', { method: 'POST', body: JSON.stringify({ codigo }) }),
+  abrirEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/abrir`, { method: 'POST', body: '{}' }),
   finalizarEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/finalizar`, { method: 'POST', body: '{}' }),
   perdaEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/perda`, { method: 'POST', body: '{}' }),
   // Desligamento + contador (Fase 4, mig 135)

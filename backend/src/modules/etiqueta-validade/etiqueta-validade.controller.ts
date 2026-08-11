@@ -47,6 +47,12 @@ export class EtiquetaValidadeController {
     return this.service.lerCodigo(user.tenantId, user.colaboradorId, dto?.codigo);
   }
 
+  // Abrir por id (fechado → em uso; reimprime se a validade após aberto encurtar).
+  @Post(':id/abrir')
+  abrir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.abrir(user.tenantId, user.colaboradorId, id);
+  }
+
   @Post(':id/finalizar')
   finalizar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.finalizar(user.tenantId, user.colaboradorId, id);

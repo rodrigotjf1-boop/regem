@@ -570,6 +570,7 @@ export const itemEstoque = pgTable('item_estoque', {
   estoqueMinimo: numeric('estoque_minimo').notNull().default('0'),
   custoMedio: numeric('custo_medio').notNull().default('0'),
   validade: date('validade'), // data de validade opcional do insumo (mig 149)
+  validadeAbertoDias: integer('validade_aberto_dias'), // dias de validade após aberto (mig 182)
   diasSeguranca: integer('dias_seguranca').notNull().default(2),
   classeAbc: text('classe_abc'),
   categoria: text('categoria'), // texto livre (compat); ver categoriaItemId
@@ -2617,6 +2618,7 @@ export const etiquetaValidade = pgTable('etiqueta_validade', {
   unidadeId: uuid('unidade_id'),
   produtoId: uuid('produto_id'),
   fichaId: uuid('ficha_id'),
+  itemId: uuid('item_id'), // insumo de origem (mig 182) — p/ recalcular validade ao abrir
   templateId: uuid('template_id'),
   descricao: text('descricao').notNull(), // snapshot do nome
   unidadeMedida: text('unidade_medida'),

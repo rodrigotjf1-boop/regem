@@ -42,6 +42,7 @@ export class EstoqueService {
         categoriaItemId: dto.categoriaItemId,
         setorId: dto.setorId || undefined,
         validade: dto.validade || undefined,
+        validadeAbertoDias: dto.validadeAbertoDias ?? undefined,
       })
       .returning();
     await this.gravarConversoes(tenantId, row.id, dto.conversoes);
@@ -83,6 +84,7 @@ export class EstoqueService {
       patch.categoriaItemId = dto.categoriaItemId || null;
     if (dto.setorId !== undefined) patch.setorId = dto.setorId || null;
     if (dto.validade !== undefined) patch.validade = dto.validade || null;
+    if (dto.validadeAbertoDias !== undefined) patch.validadeAbertoDias = dto.validadeAbertoDias ?? null;
     const [row] = await this.db
       .update(itemEstoque)
       .set(patch)
@@ -172,7 +174,7 @@ export class EstoqueService {
              i.categoria_item_id as "categoriaItemId",
              i.fornecedor_id as "fornecedorId",
              i.setor_id as "setorId",
-             i.validade,
+             i.validade, i.validade_aberto_dias as "validadeAbertoDias",
              cat.nome as "categoriaNome", cat.cor as "categoriaCor",
              f.nome as "fornecedorNome",
              st.nome as "setorNome",
