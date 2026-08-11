@@ -248,11 +248,28 @@ function Ativas({ lista, onChange }: { lista: any[]; onChange: () => void }) {
   );
 }
 
+// Tamanhos comuns de etiqueta térmica (mm) — desktop Argox/Elgin/Zebra, food/RDC 216.
+const TAMANHOS = ['33x22', '40x25', '50x30', '60x30', '60x40', '40x40', '80x40', '100x50'];
+// Valores de exemplo p/ a prévia (espelham renderEtiqueta do backend).
+const CAMPO_EXEMPLO: Record<string, string> = {
+  loja: 'Minha Loja', produto: 'Tomate', unidade: 'Unid.: kg',
+  fabricacao: 'Fabricacao: 11/08/2026', compra: 'Compra: 09/08/2026',
+  status: 'Status: FECHADO', validade: 'VALIDADE: 13/08/2026', responsavel: 'Resp.: Rodrigo',
+};
+
 function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => void }) {
   const [campos, setCampos] = useState<any[]>(template.campos ?? []);
-  const [tamanho, setTamanho] = useState(template.tamanho ?? '40x40');
+  const [tamanho, setTamanho] = useState<string>(template.tamanho ?? '40x40');
   const [codigoTipo, setCodigoTipo] = useState(template.codigoTipo ?? 'code128');
   const [busy, setBusy] = useState(false);
+
+  const isCustom = !TAMANHOS.includes(tamanho);
+  const [cw, ch] = (/^\d+x\d+$/.test(tamanho) ? tamanho.split('x') : ['40', '40']).map(Number);
+  const setDim = (l: number, a: number) => {
+    const L = Math.max(10, Math.min(200, Math.round(l) || 40));
+    const A = Math.max(10, Math.min(200, Math.round(a) || 40));
+    setTamanho(`${L}x${A}`);
+  };
 
   function toggle(i: number, key: 'visivel' | 'negrito') {
     setCampos((prev) => prev.map((c, idx) => (idx === i ? { ...c, [key]: !c[key] } : c)));
@@ -271,46 +288,94 @@ function TemplateEditor({ template, onSaved }: { template: any; onSaved: () => v
     }
   }
 
+  // Prévia: caixa proporcional ao tamanho (mm). s = px por mm (limita p/ caber).
+  const s = Math.min(3.4, 250 / Math.max(cw, ch));
+  const visiveis = campos.filter((c) => c.visivel !== false);
+
   return (
     <Card className="p-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>Tamanho (mm)</Label>
-          <select className={selectCls} value={tamanho} onChange={(e) => setTamanho(e.target.value)}>
-            <option value="40x40">40 × 40</option>
-            <option value="60x40">60 × 40</option>
-            <option value="40x25">40 × 25</option>
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>Código</Label>
-          <select className={selectCls} value={codigoTipo} onChange={(e) => setCodigoTipo(e.target.value)}>
-            <option value="code128">Barras (Code128)</option>
-            <option value="ean13">Barras (EAN-13)</option>
-            <option value="qr">Mini-QR</option>
-            <option value="nenhum">Sem código</option>
-          </select>
-        </div>
-      </div>
-      <p className="mt-4 mb-2 text-sm font-medium">Campos da etiqueta</p>
-      <div className="space-y-1.5">
-        {campos.map((c, i) => (
-          <div key={c.campo} className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2 text-sm">
-            <span>{CAMPO_LABEL[c.campo] ?? c.campo}</span>
-            <span className="flex gap-3 text-xs">
-              <label className="flex items-center gap-1.5">
-                <input type="checkbox" checked={c.visivel !== false} onChange={() => toggle(i, 'visivel')} className="h-4 w-4 accent-primary" />
-                visível
-              </label>
-              <label className="flex items-center gap-1.5">
-                <input type="checkbox" checked={!!c.negrito} onChange={() => toggle(i, 'negrito')} className="h-4 w-4 accent-primary" />
-                negrito
-              </label>
-            </span>
+      <div className="grid gap-4 lg:grid-cols-2">
+        {/* Editor */}
+        <div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label>Tamanho (mm)</Label>
+              <select
+                className={selectCls}
+                value={isCustom ? 'custom' : tamanho}
+                onChange={(e) => { if (e.target.value !== 'custom') setTamanho(e.target.value); else if (!isCustom) setTamanho(`${cw}x${ch}`); }}
+              >
+                {TAMANHOS.map((t) => (<option key={t} value={t}>{t.replace('x', ' × ')}</option>))}
+                <option value="custom">Personalizado…</option>
+              </select>
+              {isCustom && (
+                <div className="flex items-center gap-1.5 pt-1">
+                  <Input type="number" min={10} max={200} value={cw} onChange={(e) => setDim(Number(e.target.value), ch)} className="h-9 w-20" aria-label="Largura em mm" />
+                  <span className="text-sm text-muted-foreground">×</span>
+                  <Input type="number" min={10} max={200} value={ch} onChange={(e) => setDim(cw, Number(e.target.value))} className="h-9 w-20" aria-label="Altura em mm" />
+                  <span className="text-xs text-muted-foreground">mm</span>
+                </div>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <Label>Código</Label>
+              <select className={selectCls} value={codigoTipo} onChange={(e) => setCodigoTipo(e.target.value)}>
+                <option value="code128">Barras (Code128)</option>
+                <option value="ean13">Barras (EAN-13)</option>
+                <option value="qr">Mini-QR</option>
+                <option value="nenhum">Sem código</option>
+              </select>
+            </div>
           </div>
-        ))}
+          <p className="mt-4 mb-2 text-sm font-medium">Campos da etiqueta</p>
+          <div className="space-y-1.5">
+            {campos.map((c, i) => (
+              <div key={c.campo} className="flex items-center justify-between gap-2 rounded border border-border px-3 py-2 text-sm">
+                <span>{CAMPO_LABEL[c.campo] ?? c.campo}</span>
+                <span className="flex gap-3 text-xs">
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={c.visivel !== false} onChange={() => toggle(i, 'visivel')} className="h-4 w-4 accent-primary" />
+                    visível
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={!!c.negrito} onChange={() => toggle(i, 'negrito')} className="h-4 w-4 accent-primary" />
+                    negrito
+                  </label>
+                </span>
+              </div>
+            ))}
+          </div>
+          <Button className="mt-4" onClick={salvar} disabled={busy}>{busy ? 'Salvando…' : 'Salvar modelo'}</Button>
+        </div>
+
+        {/* Prévia (E5) */}
+        <div className="space-y-1.5">
+          <Label>Prévia — {cw} × {ch} mm</Label>
+          <div className="flex justify-center rounded-lg border border-dashed border-border bg-secondary/30 p-4">
+            <div
+              className="flex flex-col overflow-hidden bg-white text-black shadow-sm"
+              style={{ width: cw * s, height: ch * s, padding: Math.max(3, 4 * (s / 3)), fontSize: Math.max(7, 3.2 * s), lineHeight: 1.15 }}
+            >
+              {visiveis.length === 0 && <span className="text-[10px] text-gray-400">nenhum campo visível</span>}
+              {visiveis.map((c, i) => (
+                <div key={i} style={{ fontWeight: c.negrito ? 700 : 400, fontSize: c.campo === 'validade' ? '1.2em' : undefined }}>
+                  {CAMPO_EXEMPLO[c.campo] ?? c.campo}
+                </div>
+              ))}
+              {codigoTipo !== 'nenhum' && (
+                <div className="mt-auto pt-1">
+                  {codigoTipo === 'qr' ? (
+                    <div style={{ width: 13 * s, height: 13 * s, background: 'conic-gradient(#000 25%, #fff 0 50%, #000 0 75%, #fff 0)', backgroundSize: '3px 3px' }} aria-label="QR (exemplo)" />
+                  ) : (
+                    <div style={{ height: 8 * s, width: '75%', background: 'repeating-linear-gradient(90deg,#000 0 2px,#fff 2px 5px)' }} aria-label="código de barras (exemplo)" />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground">Prévia aproximada. O <b>nome da loja</b> real vem de Configurações → Loja (“Nome do estabelecimento”).</p>
+        </div>
       </div>
-      <Button className="mt-4" onClick={salvar} disabled={busy}>{busy ? 'Salvando…' : 'Salvar modelo'}</Button>
     </Card>
   );
 }
