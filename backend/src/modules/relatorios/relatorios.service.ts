@@ -1,6 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
+
+// Re-agrupa linhas {forma,qtd,total} pelo rótulo UNIFICADO (dinheiro/pix/crédito/…)
+// — os canais gravavam N nomes p/ o mesmo método. '—' (sem forma) fica separado.
+function agruparPorForma(rows: any[]): { forma: string; qtd: number; total: number }[] {
+  const m = new Map<string, { qtd: number; total: number }>();
+  for (const r of rows) {
+    const label = !r.forma || r.forma === '—' ? '—' : normalizarFormaPagamento(r.forma).label;
+    const g = m.get(label) ?? { qtd: 0, total: 0 };
+    g.qtd += Number(r.qtd) || 0;
+    g.total += Number(r.total) || 0;
+    m.set(label, g);
+  }
+  return [...m.entries()]
+    .map(([forma, v]) => ({ forma, qtd: v.qtd, total: v.total }))
+    .sort((a, b) => b.total - a.total);
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Relatórios de venda — camada de LEITURA sobre comanda/comanda_item (vendas
@@ -78,7 +95,7 @@ export class RelatoriosService {
         ticketMedio: m(Number(resumo.ticket_medio).toFixed(2)),
         canceladas: Number(canceladas),
       },
-      porForma: porForma.map((r) => ({ forma: r.forma, qtd: Number(r.qtd), total: m(r.total) })),
+      porForma: agruparPorForma(porForma).map((r) => ({ forma: r.forma, qtd: r.qtd, total: m(r.total) })),
       porCanal: porCanal.map((r) => ({ canal: r.canal, qtd: Number(r.qtd), total: m(r.total) })),
       porDia: porDia.map((r) => ({ dia: r.dia, qtd: Number(r.qtd), total: m(r.total) })),
       porHora: porHora.map((r) => ({ hora: Number(r.hora), qtd: Number(r.qtd), total: m(r.total) })),
@@ -424,7 +441,7 @@ export class RelatoriosService {
         diferenca: s.diferenca != null ? m(s.diferenca) : null,
       },
       verFinanceiro: verFin,
-      porForma: porForma.map((r) => ({ forma: r.forma, qtd: Number(r.qtd), total: m(r.total) })),
+      porForma: agruparPorForma(porForma).map((r) => ({ forma: r.forma, qtd: r.qtd, total: m(r.total) })),
       movimentos: movimentos.map((r) => ({
         categoria: r.categoria,
         tipo: r.tipo,
