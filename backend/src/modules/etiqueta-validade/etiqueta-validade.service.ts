@@ -220,6 +220,7 @@ export class EtiquetaValidadeService {
           unidadeId: atual ?? dto.unidadeId ?? null,
           produtoId: dto.produtoId ?? null,
           fichaId: dto.fichaId ?? null,
+          itemId: dto.itemId ?? null,
           templateId: (template as any).id ?? null,
           descricao,
           unidadeMedida,
@@ -361,34 +362,137 @@ export class EtiquetaValidadeService {
     return e;
   }
 
-  // Leitura do código: fechado → em uso (recalcula validade após aberto) → baixado.
+  // Núcleo de ABRIR (fechado → em uso). Recalcula a validade após aberto pela fonte
+  // (produto/ficha/INSUMO). SÓ reimprime uma nova via se a validade ENCURTAR — se não
+  // muda, a etiqueta física continua válida e não precisa gerar outra (E2).
+  private async abrirEtiquetaRow(e: any, atorId: string | null) {
+    let diasAberto: number | null = null;
+    if (e.produtoId) {
+      const [p] = await this.db.select({ ab: produto.validadeAbertoDias }).from(produto).where(eq(produto.id, e.produtoId));
+      diasAberto = p?.ab ?? null;
+    } else if (e.fichaId) {
+      const [f] = await this.db.select({ ab: fichaTecnica.validadeAbertoDias }).from(fichaTecnica).where(eq(fichaTecnica.id, e.fichaId));
+      diasAberto = f?.ab ?? null;
+    } else if (e.itemId) {
+      const [it] = await this.db.select({ ab: itemEstoque.validadeAbertoDias }).from(itemEstoque).where(eq(itemEstoque.id, e.itemId));
+      diasAberto = it?.ab ?? null;
+    }
+    const cand = diasAberto != null ? addDias(hojeISO(), diasAberto) : null;
+    // Encurtou a validade ao abrir → ANULA a antiga (status 'substituida') e CRIA uma
+    // NOVA etiqueta (novo QR) que a sobrepõe. Assim o QR antigo passa a ser inválido.
+    if (cand && cand < String(e.validade).slice(0, 10)) {
+      const codigo = this.gerarCodigo();
+      const [nova] = await this.db
+        .insert(etiquetaValidade)
+        .values({
+          tenantId: e.tenantId,
+          unidadeId: e.unidadeId ?? null,
+          produtoId: e.produtoId ?? null,
+          fichaId: e.fichaId ?? null,
+          itemId: e.itemId ?? null,
+          templateId: e.templateId ?? null,
+          descricao: e.descricao,
+          unidadeMedida: e.unidadeMedida,
+          tipo: 'usado',
+          status: 'em_uso',
+          fabricacao: e.fabricacao,
+          compra: e.compra ?? null,
+          abertura: new Date(),
+          validade: cand,
+          codigo,
+          impressaEm: new Date(),
+          criadoPorId: atorId,
+        })
+        .returning();
+      await this.db
+        .update(etiquetaValidade)
+        .set({ status: 'substituida', substituidaPorId: nova.id, baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
+        .where(eq(etiquetaValidade.id, e.id));
+      await this.reimprimirEtiqueta(nova).catch(() => {});
+      return { acao: 'aberto', reimpresso: true, substituida: true, etiqueta: nova, anteriorId: e.id };
+    }
+    // Não encurta → só abre a MESMA etiqueta (a via física continua válida).
+    const [row] = await this.db
+      .update(etiquetaValidade)
+      .set({ status: 'em_uso', tipo: 'usado', abertura: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
+      .where(eq(etiquetaValidade.id, e.id))
+      .returning();
+    return { acao: 'aberto', reimpresso: false, substituida: false, etiqueta: row };
+  }
+
+  // Busca a etiqueta pelo código (read-only) — o ponto de baixa lê, mostra e decide
+  // a ação (baixar/abrir) conforme o modo. Não muta nada.
+  async buscarPorCodigo(tenantId: string, codigo: string) {
+    const cod = String(codigo ?? '').trim();
+    if (!cod) throw new NotFoundException('Código vazio.');
+    const [e] = await this.db
+      .select()
+      .from(etiquetaValidade)
+      .where(and(eq(etiquetaValidade.tenantId, tenantId), eq(etiquetaValidade.codigo, cod), isNull(etiquetaValidade.deletedAt)));
+    if (!e) throw new NotFoundException('Etiqueta não encontrada.');
+    const hoje = hojeISO();
+    const diasRestantes = Math.round(
+      (new Date(e.validade + 'T00:00:00').getTime() - new Date(hoje + 'T00:00:00').getTime()) / 86400000,
+    );
+    let substituta: any = null;
+    if (e.status === 'substituida' && e.substituidaPorId) {
+      const [n] = await this.db
+        .select({ id: etiquetaValidade.id, codigo: etiquetaValidade.codigo, validade: etiquetaValidade.validade })
+        .from(etiquetaValidade)
+        .where(eq(etiquetaValidade.id, e.substituidaPorId));
+      substituta = n ?? null;
+    }
+    return { ...e, diasRestantes, vencida: diasRestantes < 0, substituta };
+  }
+
+  // Reimprime uma nova via física de uma etiqueta existente (dados atuais dela).
+  private async reimprimirEtiqueta(e: any) {
+    const template = await this.getTemplate(e.tenantId);
+    const [emp] = await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, e.tenantId));
+    const cfgs = await this.db
+      .select({ unidadeId: cardapioConfig.unidadeId, nomePublico: cardapioConfig.nomePublico })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, e.tenantId));
+    const cfg = cfgs.find((c) => c.unidadeId === e.unidadeId) ?? cfgs.find((c) => c.unidadeId == null) ?? cfgs[0];
+    const nomeLoja = cfg?.nomePublico?.trim() || emp?.nome || 'Regem';
+    await this.enfileirarImpressao(e.tenantId, e.unidadeId ?? null, undefined, template, {
+      loja: nomeLoja,
+      descricao: e.descricao,
+      unidadeMedida: e.unidadeMedida,
+      tipoUso: e.status === 'em_uso' ? 'EM USO' : 'FECHADO',
+      fabricacao: e.fabricacao,
+      compra: e.compra ?? null,
+      validade: e.validade,
+      codigo: e.codigo,
+    });
+  }
+
+  // Abrir por ID (botão "Abrir" na aba Ativas). Baixa direta = finalizar(id).
+  async abrir(tenantId: string, atorId: string | null, id: string) {
+    const e = await this.carregar(tenantId, id);
+    if (e.status !== 'fechado') return { acao: 'ja_aberto', reimpresso: false, etiqueta: e };
+    return this.abrirEtiquetaRow(e, atorId);
+  }
+
+  // Leitura do código: fechado → em uso (recalcula/reimprime) → baixado.
   async lerCodigo(tenantId: string, atorId: string | null, codigo: string) {
     const [e] = await this.db
       .select()
       .from(etiquetaValidade)
       .where(and(eq(etiquetaValidade.tenantId, tenantId), eq(etiquetaValidade.codigo, codigo), isNull(etiquetaValidade.deletedAt)));
     if (!e) throw new NotFoundException('Código não encontrado.');
-    if (e.status === 'fechado') {
-      // Abriu agora: vira "em uso" e, se houver validade após aberto no produto, recalcula.
-      let novaValidade = e.validade;
-      if (e.produtoId) {
-        const [p] = await this.db.select({ ab: produto.validadeAbertoDias }).from(produto).where(eq(produto.id, e.produtoId));
-        if (p?.ab != null) novaValidade = addDias(hojeISO(), p.ab);
-      }
+    if (e.status === 'fechado') return this.abrirEtiquetaRow(e, atorId);
+    if (e.status === 'em_uso') {
+      // Já aberta → baixa (consumido).
       const [row] = await this.db
         .update(etiquetaValidade)
-        .set({ status: 'em_uso', tipo: 'usado', abertura: new Date(), validade: novaValidade, baixadoPorId: atorId, updatedAt: new Date() })
+        .set({ status: 'baixado', baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
         .where(eq(etiquetaValidade.id, e.id))
         .returning();
-      return { acao: 'aberto', etiqueta: row };
+      return { acao: 'baixado', etiqueta: row };
     }
-    // Já em uso → baixa (consumido).
-    const [row] = await this.db
-      .update(etiquetaValidade)
-      .set({ status: 'baixado', baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
-      .where(eq(etiquetaValidade.id, e.id))
-      .returning();
-    return { acao: 'baixado', etiqueta: row };
+    // substituida / baixado / vencido → não muta; informa (o QR já não vale).
+    return { acao: 'informativo', status: e.status, etiqueta: e };
   }
 
   // Vencida usada até o fim → finaliza (sem perda).

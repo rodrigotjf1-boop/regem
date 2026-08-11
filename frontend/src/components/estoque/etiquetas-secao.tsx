@@ -239,6 +239,33 @@ function Ativas({ lista, onChange }: { lista: any[]; onChange: () => void }) {
                   </div>
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${st.cls}`}>{st.txt}</span>
                 </div>
+                {/* E2 — escolher: Abrir (depois fechar) ou Baixar direto (usou já). */}
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {e.status === 'fechado' && (
+                    <button
+                      type="button"
+                      className="rounded border border-border px-2.5 py-1 text-xs font-semibold hover:bg-secondary"
+                      onClick={async () => {
+                        try {
+                          const r: any = await api.abrirEtiqueta(e.id);
+                          toast.success(r?.reimpresso ? 'Aberta — nova via impressa (validade encurtou).' : 'Aberta (em uso).');
+                          onChange();
+                        } catch (err: any) {
+                          toast.error(err?.message || 'Falha ao abrir.');
+                        }
+                      }}
+                    >
+                      Abrir
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="rounded border border-border px-2.5 py-1 text-xs font-semibold text-ok hover:bg-secondary"
+                    onClick={() => acao(() => api.finalizarEtiqueta(e.id), 'Baixada (usada).')}
+                  >
+                    Baixar
+                  </button>
+                </div>
               </Card>
             );
           })}

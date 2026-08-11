@@ -66,6 +66,11 @@ export class CreateItemDto {
   @IsString()
   validade?: string;
 
+  // Validade após aberto, em DIAS (mig 182). Vazio = abrir não muda a validade.
+  @IsOptional()
+  @IsNumber()
+  validadeAbertoDias?: number;
+
   // Conversões personalizadas: 1 unidadeDe = fator unidadePara.
   @IsOptional()
   @IsArray()
