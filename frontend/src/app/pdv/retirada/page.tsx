@@ -282,6 +282,9 @@ function PedidoCard({
         ) : (
           <span className="rounded-full bg-warn/10 px-2 py-0.5 font-semibold text-warn">A pagar</span>
         )}
+        {p.formaPagamentoLabel && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{p.formaPagamentoLabel}</span>
+        )}
         {p.agendamento && (
           <span className="text-muted-foreground">🕒 {hora(p.agendamento)}</span>
         )}
@@ -326,8 +329,10 @@ function CobrarModal({
     : ['Dinheiro', 'Pix', 'Crédito', 'Débito'];
   // Inicia numa opção que EXISTE no select (senão o value controlado não casa
   // com nenhuma <option> e o estado envia algo diferente do que aparece).
+  // Pré-seleciona pela forma UNIFICADA (Dinheiro/Pix/Cartão…) que casa com as opções.
+  const sugerida = pedido.formaPagamentoLabel || pedido.formaPagamento;
   const [forma, setForma] = useState<string>(
-    pedido.formaPagamento && opcoes.includes(pedido.formaPagamento) ? pedido.formaPagamento : opcoes[0],
+    sugerida && opcoes.includes(sugerida) ? sugerida : opcoes[0],
   );
 
   async function confirmar() {
