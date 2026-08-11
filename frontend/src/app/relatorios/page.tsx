@@ -76,6 +76,7 @@ export default function RelatoriosPage() {
   const fimTs = useMemo(() => `${fim} ${horaFim || '23:59'}:59`, [fim, horaFim]);
   const [vendas, setVendas] = useState<any>(null);
   const [produtos, setProdutos] = useState<any>(null);
+  const [ordemAbc, setOrdemAbc] = useState<'valor' | 'qtd' | 'produto'>('valor');
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'caixa' | 'estoque' | 'producao' | 'fidelidade' | 'cashback' | 'financeiro'>('vendas');
@@ -319,19 +320,60 @@ export default function RelatoriosPage() {
 
         {/* Curva ABC */}
         <Card className="p-4">
-          <h2 className="mb-3 font-display text-sm font-bold">Curva ABC de produtos</h2>
-          {(produtos?.itens ?? []).length === 0 && <p className="text-sm text-muted-foreground">Sem vendas no período.</p>}
-          <div className="space-y-1">
-            {(produtos?.itens ?? []).slice(0, 20).map((p: any, i: number) => (
-              <div key={i} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
-                <span className={`w-5 rounded text-center text-xs font-bold ${CLASSE[p.classe] ?? ''}`}>{p.classe}</span>
-                <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
-                <span className="w-10 text-right text-xs text-muted-foreground">{p.qtd}x</span>
-                <span className="w-24 text-right font-mono">{rs(p.faturamento)}</span>
-                <span className="w-12 text-right text-xs text-muted-foreground">{p.pct}%</span>
-              </div>
-            ))}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-sm font-bold">Curva ABC de produtos</h2>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-[11px] text-muted-foreground">ordenar por</span>
+              {([['valor', 'Valor'], ['qtd', 'Quantidade'], ['produto', 'Produto']] as const).map(([v, txt]) => (
+                <button key={v} type="button" onClick={() => setOrdemAbc(v)}
+                  className={`rounded-md border px-2 py-1 text-xs font-medium ${ordemAbc === v ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'}`}>
+                  {txt}
+                </button>
+              ))}
+            </div>
           </div>
+          {(produtos?.itens ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Sem vendas no período.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="min-w-[560px]">
+                <div className="flex items-center gap-2 border-b border-border pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                  <span className="w-5">ABC</span>
+                  <span className="min-w-0 flex-1">Produto</span>
+                  <span className="w-10 text-right">Qtd</span>
+                  <span className="w-24 text-right">Faturamento</span>
+                  <span className="w-24 text-right">Custo</span>
+                  <span className="w-28 text-right">Lucro</span>
+                  <span className="w-12 text-right">%</span>
+                </div>
+                <div className="space-y-1 pt-1">
+                  {[...(produtos?.itens ?? [])]
+                    .sort((a: any, b: any) =>
+                      ordemAbc === 'qtd'
+                        ? Number(b.qtd) - Number(a.qtd)
+                        : ordemAbc === 'produto'
+                          ? String(a.descricao).localeCompare(String(b.descricao))
+                          : Number(b.faturamento || 0) - Number(a.faturamento || 0),
+                    )
+                    .slice(0, 30)
+                    .map((p: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2 border-b border-border/50 py-1.5 text-sm last:border-0">
+                        <span className={`w-5 rounded text-center text-xs font-bold ${CLASSE[p.classe] ?? ''}`}>{p.classe}</span>
+                        <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
+                        <span className="w-10 text-right text-xs text-muted-foreground">{p.qtd}x</span>
+                        <span className="w-24 text-right font-mono">{rs(p.faturamento)}</span>
+                        <span className="w-24 text-right font-mono text-muted-foreground">{p.custo != null ? rs(p.custo) : '—'}</span>
+                        <span className={`w-28 text-right font-mono ${p.lucro != null && Number(p.lucro) < 0 ? 'text-danger' : p.lucro != null ? 'text-ok' : ''}`}>
+                          {p.lucro != null ? rs(p.lucro) : '—'}
+                          {p.margemPct != null && <span className="ml-1 text-[10px] text-muted-foreground">{p.margemPct}%</span>}
+                        </span>
+                        <span className="w-12 text-right text-xs text-muted-foreground">{p.pct}%</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          )}
         </Card>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
