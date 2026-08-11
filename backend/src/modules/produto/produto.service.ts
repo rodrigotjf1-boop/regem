@@ -825,6 +825,30 @@ export class ProdutoService {
     });
   }
 
+  // Mapa produtoId → custo EFETIVO (balcão), pela MESMA prioridade do listar
+  // (override manual → custo da ficha → custo médio do item de estoque). Reusado
+  // pelos relatórios (curva ABC com colunas de custo e lucro).
+  async custoEfetivoMapa(tenantId: string): Promise<Record<string, number>> {
+    const res: any = await this.db.execute(sql`
+      select p.id, p.preco_custo as "precoCusto", p.ficha_id as "fichaId",
+             ie.custo_medio as "itemCustoMedio"
+      from produto p
+      left join item_estoque ie on ie.id = p.item_id
+      where p.tenant_id = ${tenantId} and p.deleted_at is null
+    `);
+    const rows = (res.rows ?? res) as any[];
+    const fichaCusto = await this.fichas.custoPorPorcao(tenantId);
+    const out: Record<string, number> = {};
+    for (const p of rows) {
+      const override = p.precoCusto != null && p.precoCusto !== '' ? Number(p.precoCusto) : null;
+      const fc = p.fichaId ? fichaCusto[p.fichaId] : null;
+      const itemMedio = p.itemCustoMedio != null ? Number(p.itemCustoMedio) : null;
+      const custo = override != null ? override : fc ? fc.balcao : itemMedio;
+      if (custo != null && Number.isFinite(custo)) out[p.id] = custo;
+    }
+    return out;
+  }
+
   // L-CAT-2 — Snapshot de catálogo para integração externa autenticada por
   // dispositivo (totem GoGeM), keyed por código PDV (produto.codigo) e
   // codigoPdv da opção. Compõe leituras já existentes (listar/listarCategorias/

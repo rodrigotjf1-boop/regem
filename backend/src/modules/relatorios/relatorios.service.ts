@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
+import { ProdutoService } from '../produto/produto.service';
 
 // Re-agrupa linhas {forma,qtd,total} pelo rótulo UNIFICADO (dinheiro/pix/crédito/…)
 // — os canais gravavam N nomes p/ o mesmo método. '—' (sem forma) fica separado.
@@ -24,7 +25,10 @@ function agruparPorForma(rows: any[]): { forma: string; qtd: number; total: numb
 // fechadas). Canal é derivado (mesa / delivery-app / balcão) sem coluna nova.
 @Injectable()
 export class RelatoriosService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly produtoSvc: ProdutoService,
+  ) {}
 
   private periodo(inicio?: string, fim?: string) {
     // ini/f agora filtram por TIMESTAMP (a coluna não é mais truncada com ::date),
@@ -108,6 +112,7 @@ export class RelatoriosService {
     const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
       select ci.descricao,
+             max(ci.produto_id::text) as produto_id,
              coalesce(sum(ci.quantidade),0) as qtd,
              coalesce(sum(ci.quantidade * ci.preco_unitario),0) as faturamento
       from comanda_item ci
@@ -117,6 +122,9 @@ export class RelatoriosService {
       group by ci.descricao
       order by faturamento desc`);
     const total = rows.reduce((s, r) => s + Number(r.faturamento), 0) || 1;
+    // Custo efetivo por produto (override → ficha → item de estoque) — só p/ quem vê
+    // financeiro (evita expor custo/lucro e a explosão de ficha a perfis sem permissão).
+    const custoMapa = verFin ? await this.produtoSvc.custoEfetivoMapa(tenantId) : {};
     let acum = 0;
     return {
       periodo: { inicio: ini, fim: f },
@@ -127,10 +135,17 @@ export class RelatoriosService {
         acum += fat;
         const pctAcum = (acum / total) * 100;
         const classe = pctAcum <= 80 ? 'A' : pctAcum <= 95 ? 'B' : 'C';
+        const pid = r.produto_id as string | null;
+        const custoUnit = pid && custoMapa[pid] != null ? custoMapa[pid] : null;
+        const custoTotal = custoUnit != null ? custoUnit * Number(r.qtd) : null;
+        const lucro = custoTotal != null ? fat - custoTotal : null;
         return {
           descricao: r.descricao,
           qtd: Number(r.qtd),
           faturamento: m(fat.toFixed(2)),
+          custo: custoTotal != null ? m(custoTotal.toFixed(2)) : null,
+          lucro: lucro != null ? m(lucro.toFixed(2)) : null,
+          margemPct: custoTotal != null && fat > 0 ? Number(((lucro! / fat) * 100).toFixed(1)) : null,
           pct: Number(((fat / total) * 100).toFixed(1)),
           pctAcum: Number(pctAcum.toFixed(1)),
           classe,
