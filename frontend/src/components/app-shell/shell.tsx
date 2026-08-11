@@ -8,6 +8,7 @@ import {
   Bike,
   Boxes,
   Building2,
+  ScanLine,
   CalendarDays,
   ChevronDown,
   ClipboardList,
@@ -107,6 +108,7 @@ const NAV: NavNode[] = [
   },
   { href: '/escala', label: 'Escalas', icon: CalendarDays, perm: 'escalas' },
   { href: '/operacao', label: 'Estoque', icon: Boxes, perm: 'estoque' },
+  { href: '/ponto-baixa', label: 'Ponto de baixa (QR)', icon: ScanLine, perm: 'estoque' },
   { href: '/docs', label: 'Checklist & registros', icon: ClipboardList, perm: 'checklist' },
   { href: '/mural', label: 'Mural & clima', icon: Megaphone, perm: 'mural' },
   {
