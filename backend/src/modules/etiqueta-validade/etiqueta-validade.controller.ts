@@ -47,6 +47,12 @@ export class EtiquetaValidadeController {
     return this.service.lerCodigo(user.tenantId, user.colaboradorId, dto?.codigo);
   }
 
+  // Busca por código (read-only) — o Ponto de baixa lê, mostra e decide a ação.
+  @Post('buscar')
+  buscar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.buscarPorCodigo(user.tenantId, dto?.codigo);
+  }
+
   // Abrir por id (fechado → em uso; reimprime se a validade após aberto encurtar).
   @Post(':id/abrir')
   abrir(@CurrentUser() user: AuthUser, @Param('id') id: string) {

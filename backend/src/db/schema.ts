@@ -2619,6 +2619,7 @@ export const etiquetaValidade = pgTable('etiqueta_validade', {
   produtoId: uuid('produto_id'),
   fichaId: uuid('ficha_id'),
   itemId: uuid('item_id'), // insumo de origem (mig 182) — p/ recalcular validade ao abrir
+  substituidaPorId: uuid('substituida_por_id'), // etiqueta nova que a sobrepôs (mig 183)
   templateId: uuid('template_id'),
   descricao: text('descricao').notNull(), // snapshot do nome
   unidadeMedida: text('unidade_medida'),
