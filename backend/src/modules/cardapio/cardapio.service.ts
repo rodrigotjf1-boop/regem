@@ -1851,7 +1851,9 @@ export class CardapioService {
     const desconto = paraReais(descontoCent); // reais na fronteira (gravação/resposta)
     // Indústria (B2B): pedido é ORÇAMENTO — sem cobrança online, fatura por CNPJ.
     const orcamento = cfg.ramo === 'industria';
-    const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'entrega';
+    // Sem forma escolhida = "pagar na entrega, a combinar" (NÃO 'entrega', que é o
+    // tipo de entrega e vazava no campo de pagamento).
+    const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'a_combinar';
     const online = !orcamento && (forma === 'pix' || forma === 'cartao');
     const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 

@@ -28,6 +28,7 @@ import {
   produto,
 } from '../../db/schema';
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
+import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
@@ -513,6 +514,8 @@ export class DeliveryService {
     return base.map((r) => ({
       ...r,
       clientePedidosCount: r.clienteTelefone ? counts.get(r.clienteTelefone) ?? 1 : 1,
+      // Forma de pagamento unificada (rótulo do Regem) — o campo cru fica em formaPagamento.
+      formaPagamentoLabel: normalizarFormaPagamento(r.formaPagamento, r.raw).label,
     }));
   }
 
@@ -564,7 +567,9 @@ export class DeliveryService {
     const venda = await this.vendas.venderExterno(tenantId, atorId, {
       unidadeId: ped.unidadeId,
       cliente: ped.clienteNome,
-      forma: ped.formaPagamento ?? 'online',
+      // Normaliza a forma crua do canal → rótulo unificado do Regem (dinheiro/pix/
+      // crédito/débito/VR/online), casando com as formas já cadastradas.
+      forma: normalizarFormaPagamento(ped.formaPagamento, ped.raw).label,
       origem: ped.tipo === 'retirada' ? 'balcao' : 'delivery',
       setorId: (cfg as any)?.setorId ?? null,
       plataforma: PLAT[ped.canal] ?? ped.canal,
