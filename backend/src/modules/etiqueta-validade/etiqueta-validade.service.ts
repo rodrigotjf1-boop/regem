@@ -14,6 +14,7 @@ import {
   fichaTecnica,
   itemEstoque,
   empresa,
+  cardapioConfig,
   impressaoJob,
   equipamento,
   desperdicio,
@@ -69,7 +70,13 @@ export class EtiquetaValidadeService {
 
   async salvarTemplate(tenantId: string, dto: any) {
     const campos = Array.isArray(dto?.campos) && dto.campos.length ? dto.campos : CAMPOS_PADRAO;
-    const tamanho = ['40x40', '60x40', '40x25'].includes(dto?.tamanho) ? dto.tamanho : '40x40';
+    // Tamanho LxA em mm: aceita qualquer valor são (10–200mm) — presets ou personalizado.
+    const tRaw = String(dto?.tamanho ?? '').trim().toLowerCase().replace(/\s/g, '');
+    const mT = tRaw.match(/^(\d{1,3})x(\d{1,3})$/);
+    const tamanho =
+      mT && +mT[1] >= 10 && +mT[1] <= 200 && +mT[2] >= 10 && +mT[2] <= 200
+        ? `${+mT[1]}x${+mT[2]}`
+        : '40x40';
     const codigoTipo = ['nenhum', 'ean13', 'code128', 'qr'].includes(dto?.codigoTipo) ? dto.codigoTipo : 'code128';
     const [existente] = await this.db
       .select({ id: etiquetaTemplate.id })
@@ -192,6 +199,17 @@ export class EtiquetaValidadeService {
 
     const template = await this.getTemplate(tenantId);
     const [emp] = await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, tenantId));
+    // Nome que sai na etiqueta = "Nome do estabelecimento" (Configurações → Loja =
+    // cardapio_config.nomePublico); prefere a unidade atual, cai no nome da empresa.
+    const cfgsLoja = await this.db
+      .select({ unidadeId: cardapioConfig.unidadeId, nomePublico: cardapioConfig.nomePublico })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const cfgLoja =
+      cfgsLoja.find((c) => c.unidadeId === atual) ??
+      cfgsLoja.find((c) => c.unidadeId == null) ??
+      cfgsLoja[0];
+    const nomeLoja = cfgLoja?.nomePublico?.trim() || emp?.nome || 'Regem';
     const criadas: any[] = [];
     for (let i = 0; i < qtd; i++) {
       const codigo = this.gerarCodigo();
@@ -219,7 +237,7 @@ export class EtiquetaValidadeService {
       criadas.push(row);
       // Imprime (fila do edge). Sem impressora → só registra a etiqueta.
       await this.enfileirarImpressao(tenantId, atual, dto.impressoraId, template, {
-        loja: emp?.nome ?? 'Regem',
+        loja: nomeLoja,
         descricao, unidadeMedida, tipoUso: usado ? 'EM USO' : 'FECHADO',
         fabricacao, compra: dto.compra ?? null, validade, codigo,
       }).catch(() => {});
