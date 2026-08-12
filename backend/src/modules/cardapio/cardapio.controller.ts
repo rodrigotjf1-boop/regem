@@ -77,6 +77,35 @@ export class CardapioPublicoController {
     return this.service.pagarPedidoPublico(token, id);
   }
 
+  // Público: o cliente cancela a própria encomenda (com estorno do sinal dentro do
+  // prazo). `ref` = client_ref do pedido (prova de dono). mig 188/S3.
+  @Post(':token/pedido/:id/cancelar')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  cancelarEncomenda(
+    @Param('token') token: string,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    return this.service.cancelarEncomendaPublico(token, id, body?.clienteToken, body?.ref);
+  }
+
+  // Público: recorrências de encomenda do cliente + pausar/retomar/cancelar. mig 190/S5.
+  @Get(':token/recorrencias')
+  recorrencias(@Param('token') token: string, @Query('ct') ct?: string) {
+    return this.service.recorrenciasDoCliente(token, ct);
+  }
+
+  @Post(':token/recorrencias/:id/:acao')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  alterarRecorrencia(
+    @Param('token') token: string,
+    @Param('id') id: string,
+    @Param('acao') acao: 'pausar' | 'retomar' | 'cancelar',
+    @Body() body: any,
+  ) {
+    return this.service.alterarRecorrenciaCliente(token, id, body?.clienteToken, acao);
+  }
+
   // Verifica o pagamento sob demanda (consulta o gateway) — o cliente clica
   // "Verificar pagamento" e a página faz polling disto (não depende do webhook).
   @Post(':token/pedido/:id/verificar-pagamento')
@@ -178,6 +207,20 @@ export class CardapioController {
   @RequirePerm('loja')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto, user.categoria);
+  }
+
+  // Regras de sinal da encomenda por faixa de quantidade (mig 187).
+  @Get('encomenda/regras-sinal')
+  @RequirePerm('loja')
+  regrasSinal(@CurrentUser() user: AuthUser) {
+    return this.service.regrasSinalDe(user.tenantId, null);
+  }
+
+  @Put('encomenda/regras-sinal')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('loja')
+  setRegrasSinal(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setRegrasSinal(user.tenantId, dto?.unidadeId ?? null, dto?.regras ?? []);
   }
 
   // Auto-pausa por esgotamento de estoque (gestão do cardápio).

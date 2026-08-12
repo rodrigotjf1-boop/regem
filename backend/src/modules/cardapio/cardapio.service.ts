@@ -57,10 +57,12 @@ import {
   entitlement,
   alertaEstoque,
   produtoFaixaPreco,
+  encomendaRegraSinal,
+  encomendaRecorrencia,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
-import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP } from '../../common/mercadopago';
-import { criarPixPagBank, consultarPagamentoPagBank } from '../../common/pagbank';
+import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP, reembolsarPagamentoMP } from '../../common/mercadopago';
+import { criarPixPagBank, consultarPagamentoPagBank, reembolsarPagamentoPagBank } from '../../common/pagbank';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import { VendasService } from '../vendas/vendas.service';
@@ -307,6 +309,21 @@ export class CardapioService {
               ? null
               : Math.floor(Number(dto.encomendaCapacidadeDia)))
           : row?.encomendaCapacidadeDia ?? null,
+      // Sinal da encomenda — regra base (mig 187).
+      encomendaExigeSinal:
+        dto.encomendaExigeSinal != null ? !!dto.encomendaExigeSinal : row?.encomendaExigeSinal ?? false,
+      encomendaSinalPct:
+        'encomendaSinalPct' in dto
+          ? (dto.encomendaSinalPct == null || dto.encomendaSinalPct === ''
+              ? null
+              : String(Math.min(Math.max(Number(dto.encomendaSinalPct) || 0, 0), 100)))
+          : row?.encomendaSinalPct ?? null,
+      encomendaCancelHoras:
+        'encomendaCancelHoras' in dto
+          ? (dto.encomendaCancelHoras == null || dto.encomendaCancelHoras === '' || Number(dto.encomendaCancelHoras) < 0
+              ? null
+              : Math.floor(Number(dto.encomendaCancelHoras)))
+          : row?.encomendaCancelHoras ?? null,
       whatsapp: dto.whatsapp ?? row?.whatsapp ?? null,
       parcelasMax:
         dto.parcelasMax != null ? Number(dto.parcelasMax) || null : row?.parcelasMax ?? null,
@@ -824,6 +841,91 @@ export class CardapioService {
     };
   }
 
+  // ===== Sinal da encomenda (mig 187): regra base (config) + faixas por qtd =====
+
+  // Regras por faixa de quantidade, ordenadas por min_itens.
+  regrasSinalDe(tenantId: string, unidadeId?: string | null) {
+    return this.db
+      .select()
+      .from(encomendaRegraSinal)
+      .where(
+        and(
+          eq(encomendaRegraSinal.tenantId, tenantId),
+          ...(unidadeId ? [eq(encomendaRegraSinal.unidadeId, unidadeId)] : []),
+        ),
+      )
+      .orderBy(encomendaRegraSinal.minItens);
+  }
+
+  // Replace-all das faixas de sinal (por unidade quando informada).
+  async setRegrasSinal(
+    tenantId: string,
+    unidadeId: string | null,
+    regras: {
+      minItens: number;
+      maxItens?: number | null;
+      exigeSinal?: boolean;
+      sinalPct?: number;
+      cancelHoras?: number | null;
+    }[],
+  ) {
+    await this.db
+      .delete(encomendaRegraSinal)
+      .where(
+        and(
+          eq(encomendaRegraSinal.tenantId, tenantId),
+          ...(unidadeId ? [eq(encomendaRegraSinal.unidadeId, unidadeId)] : [isNull(encomendaRegraSinal.unidadeId)]),
+        ),
+      );
+    const limpos = (regras ?? [])
+      .filter((r) => Number(r.minItens) > 0)
+      .map((r, i) => ({
+        tenantId,
+        unidadeId: unidadeId ?? null,
+        minItens: Math.floor(Number(r.minItens)),
+        maxItens:
+          r.maxItens == null || r.maxItens === ('' as any) || Number(r.maxItens) <= 0
+            ? null
+            : Math.floor(Number(r.maxItens)),
+        exigeSinal: r.exigeSinal !== false,
+        sinalPct: String(Math.min(Math.max(Number(r.sinalPct) || 0, 0), 100)),
+        cancelHoras:
+          r.cancelHoras == null || r.cancelHoras === ('' as any) || Number(r.cancelHoras) < 0
+            ? null
+            : Math.floor(Number(r.cancelHoras)),
+        ordem: i,
+      }));
+    if (limpos.length) await this.db.insert(encomendaRegraSinal).values(limpos);
+    return this.regrasSinalDe(tenantId, unidadeId);
+  }
+
+  // Resolve o sinal aplicável a uma encomenda com `qtdItens` itens: vale a faixa
+  // de MAIOR min_itens que contém a quantidade; senão, a regra base da config.
+  private resolverSinal(cfg: any, regras: any[], qtdItens: number) {
+    const cand = (regras ?? [])
+      .filter((r) => {
+        const min = Number(r.minItens) || 0;
+        const max = r.maxItens == null ? Infinity : Number(r.maxItens);
+        return qtdItens >= min && qtdItens <= max;
+      })
+      .sort((a, b) => (Number(b.minItens) || 0) - (Number(a.minItens) || 0));
+    const r = cand[0];
+    if (r) {
+      return {
+        exigeSinal: r.exigeSinal !== false,
+        sinalPct: Number(r.sinalPct) || 0,
+        cancelHoras: r.cancelHoras == null ? null : Number(r.cancelHoras),
+        origem: 'faixa' as const,
+      };
+    }
+    return {
+      exigeSinal: cfg?.encomendaExigeSinal === true,
+      sinalPct: Number(cfg?.encomendaSinalPct) || 0,
+      cancelHoras: cfg?.encomendaCancelHoras == null ? null : Number(cfg.encomendaCancelHoras),
+      origem: 'base' as const,
+    };
+  }
+
   // Quantas encomendas (não canceladas) já existem para uma data (fuso SP).
   private async contarEncomendasNaData(
     tenantId: string,
@@ -867,6 +969,10 @@ export class CardapioService {
     const ids = lista.map((p) => p.id);
     // Faixas de atacado (mig 184) para exibir "a partir de N un, -X%" no cardápio.
     const faixasAtacado = await this.faixasAtacadoPorProduto(cfg.tenantId, ids);
+    // Regras de sinal da encomenda (mig 187) — o checkout mostra o aviso pela qtd.
+    const sinalRegras = cfg.encomendaAtiva
+      ? await this.regrasSinalDe(cfg.tenantId, cfg.unidadeId)
+      : [];
 
     // Esgotado automático pelo ledger: produto que controla estoque e cujo
     // insumo (item) tem saldo <= 0 fica marcado como esgotado no cardápio.
@@ -965,7 +1071,26 @@ export class CardapioService {
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
         // Modo Encomenda (mig 186): regras p/ o checkout oferecer data futura.
-        encomenda: this.regrasEncomenda(cfg),
+        encomenda: {
+          ...this.regrasEncomenda(cfg),
+          // Sinal (mig 187): base + faixas por qtd; o checkout resolve pela qtd do carrinho.
+          sinal: cfg.encomendaAtiva
+            ? {
+                base: {
+                  exige: cfg.encomendaExigeSinal === true,
+                  pct: Number(cfg.encomendaSinalPct) || 0,
+                  cancelHoras: cfg.encomendaCancelHoras ?? null,
+                },
+                regras: (sinalRegras as any[]).map((r) => ({
+                  minItens: r.minItens,
+                  maxItens: r.maxItens,
+                  exige: r.exigeSinal !== false,
+                  pct: Number(r.sinalPct) || 0,
+                  cancelHoras: r.cancelHoras ?? null,
+                })),
+              }
+            : null,
+        },
         avaliacao: cfg.avaliacao != null ? Number(cfg.avaliacao) : null,
         freteGratisAcima:
           cfg.freteGratisAcima != null ? Number(cfg.freteGratisAcima) : null,
@@ -1215,6 +1340,17 @@ export class CardapioService {
       taxaEntrega: Number(p.taxaEntrega),
       desconto: Number(p.desconto),
       itens: p.itens,
+      agendamento: p.agendamento ? new Date(p.agendamento).toISOString() : null,
+      // Sinal da encomenda (mig 188).
+      sinal:
+        p.sinalStatus && p.sinalStatus !== 'nao'
+          ? {
+              status: p.sinalStatus,
+              valor: p.sinalValor != null ? Number(p.sinalValor) : null,
+              pct: p.sinalPct != null ? Number(p.sinalPct) : null,
+              cancelavelAte: p.cancelavelAte ? new Date(p.cancelavelAte).toISOString() : null,
+            }
+          : null,
       criadoEm: p.criadoEm,
     };
   }
@@ -1278,16 +1414,19 @@ export class CardapioService {
       );
     if (!p) throw new NotFoundException('Pedido não encontrado.');
     if (p.pago) return { ok: true, jaPago: true, statusPagamento: 'aprovado' };
+    if (p.sinalStatus === 'pago') return { ok: true, jaPago: true, sinalPago: true, statusPagamento: 'sinal_pago' };
+
+    // Encomenda com sinal pendente: cobra SÓ o valor do sinal (resto na entrega).
+    const ehSinal = p.sinalStatus === 'pendente' && p.sinalValor != null;
+    const aCobrar = ehSinal ? Number(p.sinalValor) : Number(p.total);
 
     const gws = await this.resolveGateways(cfg.tenantId);
     if (!gws.length) {
       // Fallback mock (sem gateway): aprova imediatamente.
-      await this.db
-        .update(pedidoExterno)
-        .set({ pago: true, statusPagamento: 'aprovado' })
-        .where(eq(pedidoExterno.id, pedidoId));
-      await this.aoConfirmarPagamento(cfg.tenantId, pedidoId);
-      return { ok: true, statusPagamento: 'aprovado', mock: true };
+      const r = await this.aprovarPagamento(cfg.tenantId, pedidoId);
+      return r.tipo === 'sinal'
+        ? { ok: true, sinalPago: true, statusPagamento: 'sinal_pago', mock: true }
+        : { ok: true, statusPagamento: 'aprovado', mock: true };
     }
 
     // Gera a cobrança PIX no gateway PRIMÁRIO; se falhar, cai no SECUNDÁRIO (fallback).
@@ -1306,13 +1445,13 @@ export class CardapioService {
         const rota = gw.provider === 'pagseguro' ? 'pagbank' : 'mercadopago';
         const notificationUrl = base ? `${base}/api/v1/publico/cardapio/pagamento/${rota}/webhook` : undefined;
         const args = {
-          valor: Number(p.total),
-          descricao,
+          valor: aCobrar, // sinal (encomenda) ou total
+          descricao: ehSinal ? `Sinal · ${descricao}` : descricao,
           nome: p.clienteNome ?? undefined,
           email,
           referenciaExterna: p.id,
           notificationUrl,
-          idempotencia: `pedido-${p.id}`,
+          idempotencia: ehSinal ? `sinal-${p.id}` : `pedido-${p.id}`,
           expiraEm,
         };
         const pix =
@@ -1327,6 +1466,7 @@ export class CardapioService {
           ok: true,
           statusPagamento: 'aguardando',
           gateway: gw.provider,
+          sinal: ehSinal ? { valor: aCobrar } : undefined,
           pix: { qrCode: pix.qrCode, qrCodeBase64: pix.qrCodeBase64, ticketUrl: pix.ticketUrl },
         };
       } catch (e) {
@@ -1365,12 +1505,10 @@ export class CardapioService {
         if (t) aprovado = (await consultarPagamentoMP(t, p.gatewayPaymentId)).status === 'approved';
       }
       if (aprovado) {
-        await this.db
-          .update(pedidoExterno)
-          .set({ pago: true, statusPagamento: 'aprovado' })
-          .where(eq(pedidoExterno.id, p.id));
-        await this.aoConfirmarPagamento(cfg.tenantId, p.id);
-        return { pago: true, statusPagamento: 'aprovado', status: 'confirmado' };
+        const r = await this.aprovarPagamento(cfg.tenantId, p.id);
+        return r.tipo === 'sinal'
+          ? { pago: false, sinalPago: true, statusPagamento: 'sinal_pago', status: 'confirmado' }
+          : { pago: true, statusPagamento: 'aprovado', status: 'confirmado' };
       }
     } catch {
       /* consulta ao gateway falhou; segue aguardando */
@@ -1392,11 +1530,7 @@ export class CardapioService {
     if (!mpToken) return { ok: true, semToken: true };
     const st = await consultarPagamentoMP(mpToken, String(paymentId));
     if (st.status === 'approved') {
-      await this.db
-        .update(pedidoExterno)
-        .set({ pago: true, statusPagamento: 'aprovado' })
-        .where(eq(pedidoExterno.id, p.id));
-      await this.aoConfirmarPagamento(p.tenantId, p.id);
+      await this.aprovarPagamento(p.tenantId, p.id);
       return { ok: true, aprovado: true };
     }
     return { ok: true, status: st.status };
@@ -1416,14 +1550,398 @@ export class CardapioService {
     if (!token) return { ok: true, semToken: true };
     const st = await consultarPagamentoPagBank(token, String(orderId));
     if (st.status === 'paid') {
-      await this.db
-        .update(pedidoExterno)
-        .set({ pago: true, statusPagamento: 'aprovado' })
-        .where(eq(pedidoExterno.id, p.id));
-      await this.aoConfirmarPagamento(p.tenantId, p.id);
+      await this.aprovarPagamento(p.tenantId, p.id);
       return { ok: true, aprovado: true };
     }
     return { ok: true, status: st.status };
+  }
+
+  // ===== Reembolso do sinal (S3) =====
+
+  // Estorna o sinal PAGO de uma encomenda cancelada. Idempotente pelo status:
+  // só age quando sinal_status='pago'. Sucesso → 'reembolsado'; falha do gateway
+  // (ou sem token) → 'reembolso_pendente' (fallback manual do lojista).
+  async reembolsarSinal(tenantId: string, pedidoId: string): Promise<{ ok: boolean; manual?: boolean }> {
+    const [p] = await this.db
+      .select({
+        sinalStatus: pedidoExterno.sinalStatus,
+        sinalValor: pedidoExterno.sinalValor,
+        gatewayPaymentId: pedidoExterno.gatewayPaymentId,
+        gatewayProvider: pedidoExterno.gatewayProvider,
+      })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, tenantId)));
+    if (!p || p.sinalStatus !== 'pago') return { ok: false };
+    const valor = p.sinalValor != null ? Number(p.sinalValor) : undefined;
+    try {
+      if (!p.gatewayPaymentId) throw new Error('sem id de pagamento do sinal');
+      if (p.gatewayProvider === 'pagseguro') {
+        const t = await this.resolvePagseguroToken(tenantId);
+        if (!t) throw new Error('sem token PagBank');
+        await reembolsarPagamentoPagBank(t, p.gatewayPaymentId, valor);
+      } else {
+        const t = await this.resolveMpToken(tenantId);
+        if (!t) throw new Error('sem token Mercado Pago');
+        await reembolsarPagamentoMP(t, p.gatewayPaymentId, valor);
+      }
+      await this.db
+        .update(pedidoExterno)
+        .set({ sinalStatus: 'reembolsado' })
+        .where(eq(pedidoExterno.id, pedidoId));
+      return { ok: true };
+    } catch (e) {
+      // Fallback manual: marca pendente e leva a falha para a distribuição.
+      await this.db
+        .update(pedidoExterno)
+        .set({ sinalStatus: 'reembolso_pendente' })
+        .where(eq(pedidoExterno.id, pedidoId));
+      this.logger.error(
+        `Reembolso do sinal falhou (pedido ${pedidoId}, tenant ${tenantId}): ${e instanceof Error ? e.message : e}`,
+      );
+      return { ok: false, manual: true };
+    }
+  }
+
+  // Cancelamento da loja (delivery.cancelar) dispara este evento → estorna o sinal.
+  @OnEvent('encomenda.sinal.reembolsar')
+  async onReembolsarSinal(payload: { tenantId: string; pedidoId: string }) {
+    if (!payload?.tenantId || !payload?.pedidoId) return;
+    await this.reembolsarSinal(payload.tenantId, payload.pedidoId).catch(() => {});
+  }
+
+  // Público: o CLIENTE cancela a própria encomenda. Com sinal pago, só dentro do
+  // prazo (cancelavel_ate) e com estorno; fora do prazo, bloqueia (sinal não volta).
+  // Prova de dono: `clienteToken` (assinado) casando o cliente do pedido; na falta,
+  // o `ref` (client_ref). Sem prova → 404 (não vaza/permite cancelar de terceiros).
+  async cancelarEncomendaPublico(
+    token: string,
+    pedidoId: string,
+    clienteToken?: string,
+    ref?: string,
+  ) {
+    const cfg = await this.resolver(token);
+    const [p] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.tenantId, cfg.tenantId)));
+    if (!p) throw new NotFoundException('Pedido não encontrado.');
+    // Autorização: cliente do token bate com o dono do pedido, OU o client_ref bate.
+    const cli = verificarCliente(clienteToken);
+    const donoPorToken = !!(cli && cli.tenant === cfg.tenantId && p.clienteId && cli.cli === p.clienteId);
+    const donoPorRef = !!(ref && p.clientRef && ref === p.clientRef);
+    if (!donoPorToken && !donoPorRef)
+      throw new NotFoundException('Pedido não encontrado.');
+    if (p.status === 'cancelado') return { ok: true, jaCancelado: true };
+    if (p.status === 'concluido')
+      throw new BadRequestException('Pedido já concluído não pode ser cancelado.');
+    if (!p.agendamento)
+      throw new BadRequestException('Só encomendas podem ser canceladas por aqui.');
+    const temSinalPago = p.sinalStatus === 'pago';
+    if (temSinalPago && p.cancelavelAte && Date.now() > new Date(p.cancelavelAte).getTime())
+      throw new BadRequestException(
+        'O prazo para cancelar com reembolso já passou. Fale com a loja.',
+      );
+    // Estorna o sinal ANTES de cancelar (para devolver o resultado ao cliente).
+    const reembolso = temSinalPago ? await this.reembolsarSinal(cfg.tenantId, pedidoId) : null;
+    await this.delivery.cancelarSistema(cfg.tenantId, pedidoId, 'Cancelado pelo cliente (encomenda)');
+    return {
+      ok: true,
+      reembolso: reembolso
+        ? reembolso.ok
+          ? 'estornado'
+          : 'estorno_pendente'
+        : null,
+    };
+  }
+
+  // ===== Notificações de encomenda via n8n (S4) =====
+
+  private fmtDataBR(d: Date | string | null | undefined): string {
+    if (!d) return '';
+    return new Date(d).toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  private brlTxt(n: any): string {
+    return `R$ ${Number(n || 0).toFixed(2).replace('.', ',')}`;
+  }
+
+  // Aviso ao cliente (via webhook n8n → WhatsApp da loja) quando o SINAL é pago:
+  // confirma a encomenda e informa o prazo de cancelamento com reembolso.
+  private async avisarSinalPago(tenantId: string, pedidoId: string) {
+    try {
+      const [p] = await this.db
+        .select({
+          numero: pedidoExterno.numero,
+          clienteNome: pedidoExterno.clienteNome,
+          clienteTelefone: pedidoExterno.clienteTelefone,
+          agendamento: pedidoExterno.agendamento,
+          sinalValor: pedidoExterno.sinalValor,
+          cancelavelAte: pedidoExterno.cancelavelAte,
+          total: pedidoExterno.total,
+        })
+        .from(pedidoExterno)
+        .where(eq(pedidoExterno.id, pedidoId));
+      if (!p || !p.clienteTelefone) return;
+      const data = this.fmtDataBR(p.agendamento);
+      const prazo = this.fmtDataBR(p.cancelavelAte);
+      const texto =
+        `✅ Encomenda confirmada${data ? ` para ${data}` : ''}! Recebemos seu sinal de ${this.brlTxt(p.sinalValor)}.` +
+        (prazo ? ` Você pode cancelar com reembolso até ${prazo}; depois disso o sinal não é reembolsado.` : '');
+      await this.delivery.notificarN8n(tenantId, {
+        evento: 'encomenda_sinal_pago',
+        pedidoId,
+        numero: p.numero,
+        telefone: p.clienteTelefone,
+        cliente: p.clienteNome,
+        agendamento: p.agendamento ? new Date(p.agendamento).toISOString() : null,
+        sinalValor: p.sinalValor != null ? Number(p.sinalValor) : null,
+        cancelavelAte: p.cancelavelAte ? new Date(p.cancelavelAte).toISOString() : null,
+        total: Number(p.total),
+        texto,
+      });
+    } catch {
+      /* aviso nunca quebra o fluxo */
+    }
+  }
+
+  // Lembrete de prazo de cancelamento (S4): avisa o cliente quando faltam <= 6h para
+  // o `cancelavel_ate` de uma encomenda com sinal PAGO. Idempotente por
+  // `avisado_cancelamento_em`. Roda só na nuvem (instância única, sem lock).
+  @Cron('*/15 * * * *')
+  async lembrarCancelamentoEncomenda() {
+    if (ehEdge()) return;
+    const agora = new Date();
+    const limite = new Date(agora.getTime() + 6 * 3600 * 1000);
+    const rows = await this.db
+      .select({
+        id: pedidoExterno.id,
+        tenantId: pedidoExterno.tenantId,
+        numero: pedidoExterno.numero,
+        clienteNome: pedidoExterno.clienteNome,
+        clienteTelefone: pedidoExterno.clienteTelefone,
+        agendamento: pedidoExterno.agendamento,
+        cancelavelAte: pedidoExterno.cancelavelAte,
+        status: pedidoExterno.status,
+      })
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.sinalStatus, 'pago'),
+          isNull(pedidoExterno.avisadoCancelamentoEm),
+          gte(pedidoExterno.cancelavelAte, agora),
+          lt(pedidoExterno.cancelavelAte, limite),
+        ),
+      );
+    for (const p of rows) {
+      // Marca como avisado ANTES (evita reenvio se o webhook demorar/repetir a rodada).
+      await this.db
+        .update(pedidoExterno)
+        .set({ avisadoCancelamentoEm: new Date() })
+        .where(eq(pedidoExterno.id, p.id));
+      if (p.status === 'cancelado' || p.status === 'concluido' || !p.clienteTelefone) continue;
+      const data = this.fmtDataBR(p.agendamento);
+      const prazo = this.fmtDataBR(p.cancelavelAte);
+      const texto =
+        `⏰ Lembrete: sua encomenda${data ? ` de ${data}` : ''}. O prazo para cancelar com reembolso é ${prazo}. ` +
+        `Depois disso o sinal não é reembolsável e o pedido não pode ser cancelado.`;
+      await this.delivery.notificarN8n(p.tenantId, {
+        evento: 'encomenda_lembrete_cancelamento',
+        pedidoId: p.id,
+        numero: p.numero,
+        telefone: p.clienteTelefone,
+        cliente: p.clienteNome,
+        agendamento: p.agendamento ? new Date(p.agendamento).toISOString() : null,
+        cancelavelAte: p.cancelavelAte ? new Date(p.cancelavelAte).toISOString() : null,
+        texto,
+      });
+    }
+  }
+
+  // ===== Recorrência leve de encomenda (S5, mig 190) =====
+
+  // Gera a ocorrência de cada recorrência ativa `antecedencia_dias` à frente,
+  // reaproveitando o receberPedido (preço + sinal + cliente). Manda o LINK do sinal
+  // por WhatsApp (n8n). Idempotente por (recorrencia_id, data). Só na nuvem.
+  @Cron('40 5 * * *')
+  async gerarEncomendasRecorrentes() {
+    if (ehEdge()) return;
+    const recs = await this.db
+      .select()
+      .from(encomendaRecorrencia)
+      .where(eq(encomendaRecorrencia.status, 'ativa'));
+    for (const rec of recs) {
+      try {
+        const antec = Math.max(0, Number(rec.antecedenciaDias) || 2);
+        const alvo = new Date();
+        alvo.setDate(alvo.getDate() + antec);
+        const alvoISO = alvo.toISOString().slice(0, 10);
+        const dias = Array.isArray(rec.dias) ? (rec.dias as any[]).map(Number) : [];
+        if (!dias.includes(alvo.getDay())) continue;
+        if (rec.inicio && alvoISO < String(rec.inicio)) continue;
+        if (rec.fim && alvoISO > String(rec.fim)) continue;
+        // Já gerada para esta data? (idempotência)
+        const ex: any = await this.db.execute(sql`
+          select 1 from pedido_externo
+          where recorrencia_id = ${rec.id}
+            and (agendamento at time zone 'America/Sao_Paulo')::date = ${alvoISO}::date
+            and status <> 'cancelado' limit 1`);
+        if ((ex.rows ?? ex).length) continue;
+        const [cfgRow] = await this.db
+          .select({ token: cardapioConfig.token })
+          .from(cardapioConfig)
+          .where(eq(cardapioConfig.tenantId, rec.tenantId))
+          .limit(1);
+        if (!cfgRow?.token) continue;
+        let clienteNome: string | null = null;
+        let clienteTel: string | null = null;
+        let clienteToken: string | undefined;
+        if (rec.clienteId) {
+          const [cli] = await this.db
+            .select({ nome: cliente.nome, telefone: cliente.telefone })
+            .from(cliente)
+            .where(eq(cliente.id, rec.clienteId));
+          clienteNome = cli?.nome ?? null;
+          clienteTel = cli?.telefone ?? null;
+          clienteToken = assinarCliente(rec.clienteId, rec.tenantId);
+        }
+        const end: any = rec.endereco ?? {};
+        const dto: any = {
+          _sistema: true,
+          itens: rec.itens,
+          tipo: rec.tipo,
+          agendamento: `${alvoISO}T${rec.hora || '12:00'}`,
+          cliente: clienteNome ?? undefined,
+          telefone: clienteTel ?? undefined,
+          clienteToken,
+          formaPagamento: rec.formaPagamento ?? undefined,
+          ...(rec.tipo === 'entrega'
+            ? { rua: end.rua, numero: end.numero, referencia: end.referencia, bairroId: end.bairroId }
+            : {}),
+        };
+        const r: any = await this.receberPedido(cfgRow.token, dto).catch((e) => {
+          this.logger.error(`Recorrência ${rec.id}: falha ao gerar ${alvoISO}: ${e?.message ?? e}`);
+          return null;
+        });
+        if (!r?.pedidoId) continue;
+        await this.db
+          .update(pedidoExterno)
+          .set({ recorrenciaId: rec.id })
+          .where(eq(pedidoExterno.id, r.pedidoId));
+        // Exige sinal → gera o PIX e manda o LINK por WhatsApp (n8n).
+        if (r.sinal?.status === 'pendente' && clienteTel) {
+          try {
+            const pay: any = await this.pagarPedidoPublico(cfgRow.token, r.pedidoId);
+            const link = pay?.pix?.ticketUrl || pay?.pix?.qrCode || null;
+            const data = this.fmtDataBR(dto.agendamento);
+            const texto =
+              `🔔 Sua encomenda recorrente de ${data} está reservada! Para confirmar, pague o sinal de ` +
+              `${this.brlTxt(r.sinal.valor)}${link ? `: ${link}` : ' pelo app'}.`;
+            await this.delivery.notificarN8n(rec.tenantId, {
+              evento: 'encomenda_sinal_link',
+              pedidoId: r.pedidoId,
+              telefone: clienteTel,
+              cliente: clienteNome,
+              agendamento: dto.agendamento,
+              sinalValor: r.sinal.valor,
+              ticketUrl: link,
+              texto,
+            });
+          } catch (e) {
+            this.logger.error(`Recorrência ${rec.id}: falha ao cobrar sinal: ${e instanceof Error ? e.message : e}`);
+          }
+        }
+      } catch (e) {
+        this.logger.error(`Recorrência ${rec.id}: erro geral: ${e instanceof Error ? e.message : e}`);
+      }
+    }
+  }
+
+  // Público: recorrências do cliente (para listar/gerenciar no app do cardápio).
+  async recorrenciasDoCliente(token: string, clienteToken?: string) {
+    const cfg = await this.resolver(token);
+    const cli = verificarCliente(clienteToken);
+    if (!cli || cli.tenant !== cfg.tenantId) return [];
+    const rows = await this.db
+      .select()
+      .from(encomendaRecorrencia)
+      .where(and(eq(encomendaRecorrencia.tenantId, cfg.tenantId), eq(encomendaRecorrencia.clienteId, cli.cli)))
+      .orderBy(desc(encomendaRecorrencia.createdAt));
+    return rows
+      .filter((r) => r.status !== 'cancelada')
+      .map((r) => ({
+        id: r.id,
+        tipo: r.tipo,
+        dias: r.dias,
+        hora: r.hora,
+        status: r.status,
+        itens: Array.isArray(r.itens) ? (r.itens as any[]).length : 0,
+        fim: r.fim,
+      }));
+  }
+
+  // Público: cliente pausa/retoma/cancela a própria recorrência.
+  async alterarRecorrenciaCliente(
+    token: string,
+    id: string,
+    clienteToken: string | undefined,
+    acao: 'pausar' | 'retomar' | 'cancelar',
+  ) {
+    const cfg = await this.resolver(token);
+    const cli = verificarCliente(clienteToken);
+    const [rec] = await this.db
+      .select()
+      .from(encomendaRecorrencia)
+      .where(and(eq(encomendaRecorrencia.id, id), eq(encomendaRecorrencia.tenantId, cfg.tenantId)));
+    if (!rec) throw new NotFoundException('Recorrência não encontrada.');
+    if (!cli || cli.tenant !== cfg.tenantId || rec.clienteId !== cli.cli)
+      throw new NotFoundException('Recorrência não encontrada.');
+    const novo =
+      acao === 'pausar' ? 'pausada' : acao === 'retomar' ? 'ativa' : acao === 'cancelar' ? 'cancelada' : rec.status;
+    await this.db
+      .update(encomendaRecorrencia)
+      .set({ status: novo })
+      .where(eq(encomendaRecorrencia.id, id));
+    return { ok: true, status: novo };
+  }
+
+  // Pagamento aprovado no gateway (mock/verificar/webhook) → decide se foi o SINAL
+  // (encomenda: confirma e deixa o restante p/ a entrega) ou o pagamento TOTAL.
+  // Idempotente: sinal já pago não vira pagamento total. Sempre confirma o pedido.
+  private async aprovarPagamento(
+    tenantId: string,
+    pedidoId: string,
+  ): Promise<{ tipo: 'sinal' | 'total' | 'nada' }> {
+    const [p] = await this.db
+      .select({ sinalStatus: pedidoExterno.sinalStatus, pago: pedidoExterno.pago })
+      .from(pedidoExterno)
+      .where(eq(pedidoExterno.id, pedidoId));
+    if (!p) return { tipo: 'nada' };
+    if (p.sinalStatus === 'pago') return { tipo: 'nada' }; // já confirmado via sinal
+    let tipo: 'sinal' | 'total' | 'nada';
+    if (p.sinalStatus === 'pendente') {
+      await this.db
+        .update(pedidoExterno)
+        .set({ sinalStatus: 'pago', statusPagamento: 'sinal_pago' })
+        .where(eq(pedidoExterno.id, pedidoId));
+      tipo = 'sinal';
+      // Confirma ao cliente por WhatsApp (n8n) — sinal pago + prazo de cancelamento.
+      void this.avisarSinalPago(tenantId, pedidoId);
+    } else if (!p.pago) {
+      await this.db
+        .update(pedidoExterno)
+        .set({ pago: true, statusPagamento: 'aprovado' })
+        .where(eq(pedidoExterno.id, pedidoId));
+      tipo = 'total';
+    } else {
+      return { tipo: 'nada' };
+    }
+    await this.aoConfirmarPagamento(tenantId, pedidoId);
+    return { tipo };
   }
 
   // Pagamento online confirmado → agora sim entra em produção (o pedido esperava em
@@ -1676,6 +2194,16 @@ export class CardapioService {
       pagamentoOnline: row.statusPagamento === 'aguardando',
       orcamento: row.statusPagamento === 'orcamento',
       agendamento: row.agendamento ? new Date(row.agendamento).toISOString() : null,
+      // Sinal da encomenda (mig 188): o front mostra "pague o sinal" + o prazo.
+      sinal:
+        row.sinalStatus && row.sinalStatus !== 'nao'
+          ? {
+              status: row.sinalStatus,
+              valor: row.sinalValor != null ? Number(row.sinalValor) : null,
+              pct: row.sinalPct != null ? Number(row.sinalPct) : null,
+              cancelavelAte: row.cancelavelAte ? new Date(row.cancelavelAte).toISOString() : null,
+            }
+          : null,
       clienteToken: row.clienteId ? assinarCliente(row.clienteId, cfg.tenantId) : undefined,
       reenvio: true, // sinaliza ao front que é o mesmo pedido (não duplicou)
     };
@@ -1720,6 +2248,9 @@ export class CardapioService {
       agendamento?: string; // serviços: data/hora
       profissional?: string; // serviços
       cnpj?: string; // indústria: faturamento
+      // Recorrência leve da encomenda (mig 190): repete nos dias da semana.
+      recorrencia?: { dias: number[]; hora?: string; ate?: string; antecedenciaDias?: number };
+      _sistema?: boolean; // uso interno: ocorrência gerada pelo cron (pula validações)
       itens: {
         produtoId: string;
         variacaoId?: string;
@@ -1748,42 +2279,53 @@ export class CardapioService {
     // FUTURA e só vale se a loja liga o modo Encomenda, dentro das regras. Serviços
     // mantém o agendamento de HORÁRIO (consulta/atendimento), sem essas regras.
     const ehEncomenda = !!dto.agendamento && cfg.ramo !== 'servicos';
+    // Sinal aplicável (mig 187/188): resolvido pela quantidade de itens. Preenchido
+    // dentro do bloco de encomenda; usado depois para forçar cobrança e gravar prazo.
+    let sinalRule: { exigeSinal: boolean; sinalPct: number; cancelHoras: number | null } | null = null;
     if (ehEncomenda) {
-      const regras = this.regrasEncomenda(cfg);
-      if (!regras.ativa)
-        throw new BadRequestException('Esta loja não aceita encomendas.');
-      const quando = new Date(dto.agendamento as string); // data+hora escolhida
-      if (isNaN(quando.getTime()))
-        throw new BadRequestException('Data/hora da encomenda inválida.');
-      const agora = new Date();
-      // Antecedência em HORAS (permite mesmo dia mais tarde). 1 min de folga.
-      const minMs = agora.getTime() + regras.antecedenciaHoras * 3600_000;
-      if (quando.getTime() < minMs - 60_000)
-        throw new BadRequestException(
-          `A encomenda precisa de ao menos ${regras.antecedenciaHoras}h de antecedência.`,
-        );
-      const maxDia = new Date(agora);
-      maxDia.setDate(maxDia.getDate() + regras.horizonteDias);
-      maxDia.setHours(23, 59, 59, 999);
-      if (quando.getTime() > maxDia.getTime())
-        throw new BadRequestException(
-          `A encomenda pode ser feita com no máximo ${regras.horizonteDias} dias de antecedência.`,
-        );
-      // Corte (opcional): encomenda para HOJE só até o horário de corte.
-      const mesmoDia = quando.toDateString() === agora.toDateString();
-      if (regras.corte && mesmoDia) {
-        const [hh, mm] = regras.corte.split(':').map((x) => Number(x) || 0);
-        if (agora.getHours() > hh || (agora.getHours() === hh && agora.getMinutes() >= mm))
+      // Ocorrência gerada pelo sistema (recorrência, mig 190) PULA as validações de
+      // prazo/horizonte/corte/capacidade — a data já foi combinada na assinatura.
+      if (!(dto as any)._sistema) {
+        const regras = this.regrasEncomenda(cfg);
+        if (!regras.ativa)
+          throw new BadRequestException('Esta loja não aceita encomendas.');
+        const quando = new Date(dto.agendamento as string); // data+hora escolhida
+        if (isNaN(quando.getTime()))
+          throw new BadRequestException('Data/hora da encomenda inválida.');
+        const agora = new Date();
+        // Antecedência em HORAS (permite mesmo dia mais tarde). 1 min de folga.
+        const minMs = agora.getTime() + regras.antecedenciaHoras * 3600_000;
+        if (quando.getTime() < minMs - 60_000)
           throw new BadRequestException(
-            `As encomendas para hoje encerraram (após ${regras.corte}). Escolha outro dia.`,
+            `A encomenda precisa de ao menos ${regras.antecedenciaHoras}h de antecedência.`,
           );
+        const maxDia = new Date(agora);
+        maxDia.setDate(maxDia.getDate() + regras.horizonteDias);
+        maxDia.setHours(23, 59, 59, 999);
+        if (quando.getTime() > maxDia.getTime())
+          throw new BadRequestException(
+            `A encomenda pode ser feita com no máximo ${regras.horizonteDias} dias de antecedência.`,
+          );
+        // Corte (opcional): encomenda para HOJE só até o horário de corte.
+        const mesmoDia = quando.toDateString() === agora.toDateString();
+        if (regras.corte && mesmoDia) {
+          const [hh, mm] = regras.corte.split(':').map((x) => Number(x) || 0);
+          if (agora.getHours() > hh || (agora.getHours() === hh && agora.getMinutes() >= mm))
+            throw new BadRequestException(
+              `As encomendas para hoje encerraram (após ${regras.corte}). Escolha outro dia.`,
+            );
+        }
+        if (regras.capacidadeDia != null) {
+          const dataPedido = String(dto.agendamento).slice(0, 10); // YYYY-MM-DD escolhido
+          const usados = await this.contarEncomendasNaData(cfg.tenantId, cfg.unidadeId, dataPedido);
+          if (usados >= regras.capacidadeDia)
+            throw new BadRequestException('As encomendas para esta data esgotaram. Escolha outra data.');
+        }
       }
-      if (regras.capacidadeDia != null) {
-        const dataPedido = String(dto.agendamento).slice(0, 10); // YYYY-MM-DD escolhido
-        const usados = await this.contarEncomendasNaData(cfg.tenantId, cfg.unidadeId, dataPedido);
-        if (usados >= regras.capacidadeDia)
-          throw new BadRequestException('As encomendas para esta data esgotaram. Escolha outra data.');
-      }
+      // Sinal (mig 187/188): resolve pela quantidade TOTAL de itens do pedido.
+      const qtdItens = dto.itens.reduce((s, it) => s + (Number(it.quantidade) || 1), 0);
+      const regrasSinal = await this.regrasSinalDe(cfg.tenantId, cfg.unidadeId);
+      sinalRule = this.resolverSinal(cfg, regrasSinal, qtdItens);
     }
     const ids = [...new Set(dto.itens.map((i) => i.produtoId))];
     const prods = await this.db
@@ -1995,7 +2537,9 @@ export class CardapioService {
     // Sem forma escolhida = "pagar na entrega, a combinar" (NÃO 'entrega', que é o
     // tipo de entrega e vazava no campo de pagamento).
     const forma = orcamento ? 'faturamento' : dto.formaPagamento ?? 'a_combinar';
-    const online = !orcamento && (forma === 'pix' || forma === 'cartao');
+    // Encomenda com sinal (mig 188): força pagamento online do sinal (aguardando).
+    const exigeSinal = !!(sinalRule && sinalRule.exigeSinal && (Number(sinalRule.sinalPct) || 0) > 0);
+    const online = !orcamento && (forma === 'pix' || forma === 'cartao' || exigeSinal);
     const grande = paraReais(Math.max(0, somarCentavos(totalCent, -descontoCent, paraCentavos(taxa))));
 
     // Senha PRÓPRIA do cardápio — contador ATÔMICO por tenant/canal. O upsert
@@ -2077,6 +2621,58 @@ export class CardapioService {
         .set({ clienteId })
         .where(eq(pedidoExterno.id, ped.id));
     }
+
+    // Sinal da encomenda (mig 188): grava % / valor / prazo de cancelamento. O
+    // pedido já nasce 'aguardando' (via `online`); a cobrança do sinal é o pagar.
+    if (exigeSinal && ped?.id && sinalRule) {
+      const pct = Number(sinalRule.sinalPct) || 0;
+      const sinalValor = Math.round(grande * (pct / 100) * 100) / 100;
+      const cancelavelAte =
+        sinalRule.cancelHoras != null
+          ? new Date(new Date(dto.agendamento as string).getTime() - sinalRule.cancelHoras * 3600_000)
+          : null;
+      await this.db
+        .update(pedidoExterno)
+        .set({
+          sinalPct: String(pct),
+          sinalValor: sinalValor.toFixed(2),
+          sinalStatus: 'pendente',
+          cancelavelAte,
+        })
+        .where(eq(pedidoExterno.id, ped.id));
+    }
+
+    // Recorrência leve (mig 190): guarda o molde e liga este pedido como a 1ª
+    // ocorrência (o cron não a regera porque já existe pedido com recorrencia_id).
+    if (ehEncomenda && dto.recorrencia?.dias?.length && ped?.id) {
+      const hora = dto.recorrencia.hora || String(dto.agendamento).slice(11, 16) || '12:00';
+      const [rec] = await this.db
+        .insert(encomendaRecorrencia)
+        .values({
+          tenantId: cfg.tenantId,
+          unidadeId: cfg.unidadeId ?? null,
+          clienteId: clienteId ?? null,
+          tipo,
+          endereco:
+            tipo === 'entrega'
+              ? { rua: dto.rua, numero: dto.numero, referencia: dto.referencia, bairroId: dto.bairroId, bairroNome }
+              : null,
+          formaPagamento: forma,
+          itens: dto.itens as any,
+          dias: [...new Set((dto.recorrencia.dias || []).map((d) => Number(d)).filter((d) => d >= 0 && d <= 6))],
+          hora,
+          inicio: String(dto.agendamento).slice(0, 10),
+          fim: dto.recorrencia.ate || null,
+          antecedenciaDias: Math.max(0, Math.floor(Number(dto.recorrencia.antecedenciaDias) || 2)),
+        })
+        .returning();
+      if (rec?.id)
+        await this.db
+          .update(pedidoExterno)
+          .set({ recorrenciaId: rec.id })
+          .where(eq(pedidoExterno.id, ped.id));
+    }
+
     const clienteTokenOut = clienteId
       ? assinarCliente(clienteId, cfg.tenantId)
       : dto.clienteToken;
@@ -2175,6 +2771,19 @@ export class CardapioService {
       pagamentoOnline: online,
       orcamento,
       agendamento: dto.agendamento ?? null,
+      // Sinal da encomenda (mig 188): valor a pagar agora + prazo de cancelamento.
+      sinal:
+        exigeSinal && sinalRule
+          ? {
+              status: 'pendente',
+              pct: Number(sinalRule.sinalPct) || 0,
+              valor: Math.round(grande * ((Number(sinalRule.sinalPct) || 0) / 100) * 100) / 100,
+              cancelavelAte:
+                sinalRule.cancelHoras != null
+                  ? new Date(new Date(dto.agendamento as string).getTime() - sinalRule.cancelHoras * 3600_000).toISOString()
+                  : null,
+            }
+          : null,
       pontos: fidelidade?.pontosGanhos ?? undefined,
       fidelidade: fidelidade ?? null,
       premioAplicado: (premio as any).desconto > 0 ? { plano: (premio as any).plano, desconto: (premio as any).desconto } : null,

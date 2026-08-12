@@ -111,3 +111,32 @@ export async function consultarPagamentoPagBank(
 export async function cancelarPagamentoPagBank(_token: string, _orderId: string): Promise<void> {
   /* PIX não pago expira sozinho; nada a cancelar. */
 }
+
+// Reembolsa (estorna) um pedido PAGO — total ou parcial (`valor` em reais). Busca a
+// charge PAID do pedido e chama POST /charges/{id}/cancel. Lança em falha para o
+// chamador cair no fallback manual. Docs: /reference/reembolsar (charges cancel).
+export async function reembolsarPagamentoPagBank(
+  token: string,
+  orderId: string,
+  valor?: number,
+): Promise<{ id: string; status: string }> {
+  const ord = await fetch(`${API}/orders/${orderId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!ord.ok) throw new Error(`PagBank order ${ord.status}`);
+  const oj: any = await ord.json();
+  const charge = (oj?.charges ?? []).find((c: any) => String(c?.status).toUpperCase() === 'PAID');
+  if (!charge?.id) throw new Error('PagBank: charge paga não encontrada para estorno.');
+  const body = valor != null ? JSON.stringify({ amount: { value: centavos(valor) } }) : undefined;
+  const res = await fetch(`${API}/charges/${charge.id}/cancel`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`PagBank refund ${res.status}: ${txt.slice(0, 200)}`);
+  }
+  const j: any = await res.json();
+  return { id: String(j.id ?? charge.id), status: String(j.status ?? 'CANCELED') };
+}

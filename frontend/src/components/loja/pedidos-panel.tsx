@@ -42,6 +42,7 @@ export function PedidosPanel({
   onPedirDeNovo: (itens: any[]) => void;
 }) {
   const [historico, setHistorico] = useState<any[] | null>(null);
+  const [recorrencias, setRecorrencias] = useState<any[]>([]);
   const [sel, setSel] = useState<any>(null);
   const clienteToken = getClienteToken(token);
 
@@ -54,7 +55,23 @@ export function PedidosPanel({
     } catch {
       setHistorico([]);
     }
+    try {
+      const r: any = await api.cardapioRecorrencias(token, ct);
+      setRecorrencias(Array.isArray(r) ? r : []);
+    } catch {
+      setRecorrencias([]);
+    }
   }, [token]);
+
+  const DIAS_LBL = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  async function alterarRecorrencia(id: string, acao: 'pausar' | 'retomar' | 'cancelar') {
+    const ct = getClienteToken(token);
+    if (!ct) return;
+    try {
+      await api.cardapioAlterarRecorrencia(token, id, acao, ct);
+      await carregar();
+    } catch { /* silencioso */ }
+  }
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -83,6 +100,32 @@ export function PedidosPanel({
           <p className="py-6 text-center text-sm text-black/40">Você ainda não fez pedidos por aqui.</p>
         ) : (
           <div className="space-y-1.5">
+            {recorrencias.length > 0 && (
+              <div className="mb-2 rounded-xl border border-black/10 bg-neutral-50 p-3">
+                <p className="mb-1.5 text-sm font-bold">🔁 Encomendas recorrentes</p>
+                <div className="space-y-1.5">
+                  {recorrencias.map((r: any) => (
+                    <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
+                      <div className="min-w-0">
+                        <p className="truncate">
+                          {(r.dias ?? []).map((d: number) => DIAS_LBL[d]).join(', ') || '—'}
+                          {r.hora ? ` · ${String(r.hora).slice(0, 5)}` : ''} · {r.itens} item(ns)
+                          {r.status === 'pausada' ? ' · pausada' : ''}
+                        </p>
+                      </div>
+                      <div className="flex flex-none gap-1">
+                        {r.status === 'ativa' ? (
+                          <button type="button" onClick={() => alterarRecorrencia(r.id, 'pausar')} className="rounded-md border border-black/15 px-2 py-1 text-xs">Pausar</button>
+                        ) : (
+                          <button type="button" onClick={() => alterarRecorrencia(r.id, 'retomar')} className="rounded-md border border-black/15 px-2 py-1 text-xs">Retomar</button>
+                        )}
+                        <button type="button" onClick={() => alterarRecorrencia(r.id, 'cancelar')} className="rounded-md border border-red-200 px-2 py-1 text-xs text-red-600">Cancelar</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {historico.map((p: any) => {
               const it = info(p.status);
               const fin = finalizado(p.status);
@@ -158,6 +201,34 @@ function PedidoDetalhe({
   const fin = finalizado(pedido.status);
   const desconto = Number(pedido.desconto ?? 0);
   const taxa = Number(pedido.taxaEntrega ?? 0);
+  // Busca o status completo (traz agendamento + sinal + prazo de cancelamento).
+  const [full, setFull] = useState<any>(null);
+  useEffect(() => {
+    api.cardapioStatus(token, pedido.id).then((r: any) => setFull(r)).catch(() => {});
+  }, [token, pedido.id]);
+  const ehEncomenda = !!(full?.agendamento || pedido.agendamento);
+  const sinal = full?.sinal;
+  const prazoCancel = sinal?.cancelavelAte ? new Date(sinal.cancelavelAte) : null;
+  const foraPrazo = !!(prazoCancel && Date.now() > prazoCancel.getTime());
+
+  async function cancelarEncomendaDireto() {
+    setBusy(true); setErro('');
+    try {
+      const r: any = await api.cardapioCancelarEncomenda(token, pedido.id, ct);
+      const reemb =
+        r?.reembolso === 'estornado'
+          ? ' O sinal foi estornado.'
+          : r?.reembolso === 'estorno_pendente'
+            ? ' O estorno do sinal está sendo processado pela loja.'
+            : '';
+      setMsg('Encomenda cancelada.' + reemb);
+      setConfirmCancel(false);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível cancelar a encomenda.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function pedirDeNovo() {
     setBusy(true); setErro('');
@@ -269,20 +340,51 @@ function PedidoDetalhe({
                   </button>
                 )}
 
-                {/* Solicitar cancelamento (enquanto ainda dá) */}
-                {cancelavel(pedido.status) && (
-                  confirmCancel ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-                      <p className="text-sm text-red-700">Enviar pedido de cancelamento à equipe? Eles vão avaliar e responder.</p>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        <button type="button" onClick={() => setConfirmCancel(false)} className="rounded-lg border border-black/15 py-2 text-sm font-semibold">Voltar</button>
-                        <button type="button" disabled={busy} onClick={solicitarCancel} className="rounded-lg bg-red-600 py-2 text-sm font-semibold text-white disabled:opacity-60">{busy ? '…' : 'Confirmar'}</button>
-                      </div>
-                    </div>
+                {/* Encomenda: cancelamento DIRETO com estorno do sinal dentro do prazo. */}
+                {ehEncomenda ? (
+                  foraPrazo ? (
+                    <p className="rounded-lg border border-black/10 bg-neutral-50 px-3 py-2 text-xs text-black/50">
+                      O prazo para cancelar com reembolso já passou. Fale com a loja se precisar.
+                    </p>
                   ) : (
-                    <button type="button" onClick={() => { setConfirmCancel(true); setErro(''); }} className="w-full rounded-lg border border-red-200 py-2.5 text-sm font-semibold text-red-600">
-                      Solicitar cancelamento
-                    </button>
+                    confirmCancel ? (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                        <p className="text-sm text-red-700">
+                          Cancelar esta encomenda?
+                          {sinal?.status === 'pago' && sinal?.valor != null && (
+                            <> O sinal de <b>{brl(Number(sinal.valor))}</b> será estornado.</>
+                          )}
+                          {prazoCancel && (
+                            <> Prazo até {prazoCancel.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.</>
+                          )}
+                        </p>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <button type="button" onClick={() => setConfirmCancel(false)} className="rounded-lg border border-black/15 py-2 text-sm font-semibold">Voltar</button>
+                          <button type="button" disabled={busy} onClick={cancelarEncomendaDireto} className="rounded-lg bg-red-600 py-2 text-sm font-semibold text-white disabled:opacity-60">{busy ? '…' : 'Cancelar encomenda'}</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => { setConfirmCancel(true); setErro(''); }} className="w-full rounded-lg border border-red-200 py-2.5 text-sm font-semibold text-red-600">
+                        Cancelar encomenda
+                      </button>
+                    )
+                  )
+                ) : (
+                  /* Pedido normal: solicita cancelamento à equipe (chamado no sino). */
+                  cancelavel(pedido.status) && (
+                    confirmCancel ? (
+                      <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                        <p className="text-sm text-red-700">Enviar pedido de cancelamento à equipe? Eles vão avaliar e responder.</p>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          <button type="button" onClick={() => setConfirmCancel(false)} className="rounded-lg border border-black/15 py-2 text-sm font-semibold">Voltar</button>
+                          <button type="button" disabled={busy} onClick={solicitarCancel} className="rounded-lg bg-red-600 py-2 text-sm font-semibold text-white disabled:opacity-60">{busy ? '…' : 'Confirmar'}</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => { setConfirmCancel(true); setErro(''); }} className="w-full rounded-lg border border-red-200 py-2.5 text-sm font-semibold text-red-600">
+                        Solicitar cancelamento
+                      </button>
+                    )
                   )
                 )}
               </>
