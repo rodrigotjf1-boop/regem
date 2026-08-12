@@ -647,6 +647,11 @@ export default function CardapioPublicoPage() {
         resgateId: premioDesc > 0 ? premioSel || undefined : undefined,
         usarCashback,
         agendamento: chk.agendamento || undefined,
+        // Recorrência leve da encomenda (mig 190): dias da semana + hora do agendamento.
+        recorrencia:
+          chk.recorrente && (chk.recorrenciaDias ?? []).length && chk.agendamento
+            ? { dias: chk.recorrenciaDias, hora: String(chk.agendamento).slice(11, 16) }
+            : undefined,
         profissional: chk.profissional || undefined,
         cnpj: chk.cnpj || undefined,
         itens: cart.map((i) => ({

@@ -11,7 +11,7 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { createHmac, randomBytes } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
-import { OnEvent } from '@nestjs/event-emitter';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   caixaSessao,
@@ -56,6 +56,7 @@ export class DeliveryService {
     private readonly producao: ProducaoPedidoService,
     private readonly cashback: CashbackService,
     private readonly fidelidade: FidelidadeService,
+    private readonly events: EventEmitter2,
     @Optional()
     @Inject(forwardRef(() => OpenDeliveryService))
     private readonly openDelivery?: OpenDeliveryService,
@@ -1114,6 +1115,9 @@ export class DeliveryService {
     void this.statusBackIfood(tenantId, row, 'cancel');
     void this.statusBackFood99(tenantId, row, 'cancel');
     void this.statusBackAnotaAi(tenantId, row, 'cancel');
+    // Encomenda com sinal pago: estorna o sinal (S3). O handler no cardápio checa
+    // o status — no-op se não houver sinal pago. Idempotente.
+    this.events.emit('encomenda.sinal.reembolsar', { tenantId, pedidoId: id });
     // Integridade: cancelamento estorna cashback e pontos de fidelidade do pedido.
     // Cashback GASTO só volta se a loja configurou (default true); o GANHO sempre sai.
     // Fidelidade é perda FIXA do ponto (+ rollback do prêmio gerado; devolve o consumido).
@@ -1356,6 +1360,25 @@ export class DeliveryService {
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
   private async dispararWebhook(tenantId: string, ped: any, evento = 'status') {
+    await this.notificarN8n(tenantId, {
+      evento,
+      pedidoId: ped.id,
+      numero: ped.numero,
+      displayId: ped.displayId,
+      status: ped.status,
+      tipo: ped.tipo,
+      cliente: ped.clienteNome,
+      telefone: ped.clienteTelefone,
+      total: Number(ped.total),
+      canal: ped.canal,
+      entregadorNome: ped.entregadorNome ?? null,
+    });
+  }
+
+  // Envia um payload arbitrário ao webhook n8n da loja (canal 'n8n', URL em
+  // merchant_id, HMAC em client_secret). Público: outros módulos (encomenda/sinal)
+  // reusam para avisos de WhatsApp. Sempre carimba `em`. No-op se não configurado.
+  async notificarN8n(tenantId: string, payload: Record<string, unknown>): Promise<void> {
     try {
       const [row] = await this.db
         .select()
@@ -1363,27 +1386,13 @@ export class DeliveryService {
         .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'n8n')));
       const url = row?.merchantId; // guardamos a URL do webhook no merchantId
       if (!row?.ativo || !url) return;
-      const payload = {
-        evento,
-        pedidoId: ped.id,
-        numero: ped.numero,
-        displayId: ped.displayId,
-        status: ped.status,
-        tipo: ped.tipo,
-        cliente: ped.clienteNome,
-        telefone: ped.clienteTelefone,
-        total: Number(ped.total),
-        canal: ped.canal,
-        entregadorNome: ped.entregadorNome ?? null,
-        em: new Date().toISOString(),
-      };
-      const body = JSON.stringify(payload);
+      const body = JSON.stringify({ em: new Date().toISOString(), ...payload });
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (row.clientSecret)
         headers['X-Regem-Signature'] = createHmac('sha256', row.clientSecret).update(body).digest('hex');
       void fetch(url, { method: 'POST', headers, body }).catch(() => {});
     } catch {
-      /* nunca quebra o pedido por causa do webhook */
+      /* nunca quebra o fluxo por causa do webhook */
     }
   }
 

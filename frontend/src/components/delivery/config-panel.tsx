@@ -53,6 +53,7 @@ export function ConfigPanel({
 }) {
   const [sec, setSec] = useState('cardapio');
   const [loja, setLoja] = useState<any>(null);
+  const [regrasSinal, setRegrasSinal] = useState<any[]>([]); // faixas de sinal da encomenda (mig 187)
   const [bairros, setBairros] = useState<any[]>([]);
   const [banners, setBanners] = useState<any[]>([]);
   const [integracoes, setIntegracoes] = useState<any[]>([]);
@@ -76,6 +77,19 @@ export function ConfigPanel({
     api.cardapioBairros().then((b: any) => setBairros((b as any[]) ?? [])).catch(() => {});
     api.cardapioBanners().then((b: any) => setBanners((b as any[]) ?? [])).catch(() => {});
     api.cardapioCupons().then((c: any) => setCupons((c as any[]) ?? [])).catch(() => {});
+    api.regrasSinalEncomenda()
+      .then((r: any) =>
+        setRegrasSinal(
+          ((r as any[]) ?? []).map((x) => ({
+            minItens: String(x.minItens ?? ''),
+            maxItens: x.maxItens != null ? String(x.maxItens) : '',
+            exigeSinal: x.exigeSinal !== false,
+            sinalPct: x.sinalPct != null ? String(x.sinalPct) : '',
+            cancelHoras: x.cancelHoras != null ? String(x.cancelHoras) : '',
+          })),
+        ),
+      )
+      .catch(() => {});
     if (isGestor) {
       api.integracoesDelivery().then((i: any) => setIntegracoes((i as any[]) ?? [])).catch(() => {});
     }
@@ -92,6 +106,34 @@ export function ConfigPanel({
   }
 
   const up = (patch: any) => setLoja((l: any) => ({ ...(l ?? {}), ...patch }));
+
+  async function salvarRegrasSinal() {
+    try {
+      const r = await api.setRegrasSinalEncomenda(
+        regrasSinal
+          .filter((x) => x.minItens !== '' && x.minItens != null)
+          .map((x) => ({
+            minItens: Number(x.minItens),
+            maxItens: x.maxItens === '' || x.maxItens == null ? null : Number(x.maxItens),
+            exigeSinal: x.exigeSinal !== false,
+            sinalPct: Number(String(x.sinalPct).replace(',', '.')) || 0,
+            cancelHoras: x.cancelHoras === '' || x.cancelHoras == null ? null : Number(x.cancelHoras),
+          })),
+      );
+      setRegrasSinal(
+        ((r as any[]) ?? []).map((x) => ({
+          minItens: String(x.minItens ?? ''),
+          maxItens: x.maxItens != null ? String(x.maxItens) : '',
+          exigeSinal: x.exigeSinal !== false,
+          sinalPct: x.sinalPct != null ? String(x.sinalPct) : '',
+          cancelHoras: x.cancelHoras != null ? String(x.cancelHoras) : '',
+        })),
+      );
+      toast.success('Regras de sinal salvas.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar regras');
+    }
+  }
 
   // Persiste a config da loja com um patch explícito (usado ao trocar o modo da área).
   async function salvarLojaPatch(patch: any) {
@@ -565,6 +607,76 @@ export function ConfigPanel({
                     <p className="mt-2 text-xs text-muted-foreground">
                       A antecedência é em horas: com poucas horas, o cliente pode encomendar para o mesmo dia mais tarde; com 24h+, só a partir do dia seguinte. Os pedidos aparecem em Delivery → Encomendas · agenda, agrupados por data.
                     </p>
+
+                    {loja.encomendaAtiva && (
+                      <div className="mt-4 border-t border-border pt-3">
+                        <p className="text-sm font-bold">💰 Sinal (entrada) e cancelamento</p>
+                        <p className="mb-2 text-xs text-muted-foreground">
+                          Cobra uma parte no ato do pedido. O cliente pode cancelar com reembolso até o prazo; depois, perde o sinal e não cancela.
+                        </p>
+                        <label className="mb-2 flex items-center gap-2 text-sm">
+                          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!isGestor}
+                            checked={!!loja.encomendaExigeSinal}
+                            onChange={(e) => up({ encomendaExigeSinal: e.target.checked })} />
+                          Exigir sinal em toda encomenda (regra base)
+                        </label>
+                        {loja.encomendaExigeSinal && (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <Campo label="Sinal (% do total)">
+                              <Input type="number" value={loja.encomendaSinalPct ?? ''} onChange={(e) => up({ encomendaSinalPct: e.target.value })} placeholder="50" disabled={!isGestor} />
+                            </Campo>
+                            <Campo label="Cancelar com reembolso até (horas antes)">
+                              <Input type="number" value={loja.encomendaCancelHoras ?? ''} onChange={(e) => up({ encomendaCancelHoras: e.target.value })} placeholder="24" disabled={!isGestor} />
+                            </Campo>
+                          </div>
+                        )}
+
+                        <p className="mt-3 text-xs font-bold uppercase tracking-wide text-muted-foreground">Regras por quantidade (opcional)</p>
+                        <p className="mb-2 text-xs text-muted-foreground">
+                          Sobrepõem a base quando o pedido tem essa quantidade de itens. Ex.: 10–20 itens → sinal 50%, cancela até 48h.
+                        </p>
+                        <div className="space-y-2">
+                          {regrasSinal.map((r, i) => (
+                            <div key={i} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-6">
+                              <Campo label="De (itens)">
+                                <Input type="number" value={r.minItens} disabled={!isGestor}
+                                  onChange={(e) => { const a = [...regrasSinal]; a[i] = { ...r, minItens: e.target.value }; setRegrasSinal(a); }} />
+                              </Campo>
+                              <Campo label="Até (itens)">
+                                <Input type="number" placeholder="∞" value={r.maxItens} disabled={!isGestor}
+                                  onChange={(e) => { const a = [...regrasSinal]; a[i] = { ...r, maxItens: e.target.value }; setRegrasSinal(a); }} />
+                              </Campo>
+                              <label className="flex items-center gap-1 text-xs">
+                                <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!isGestor}
+                                  checked={r.exigeSinal !== false}
+                                  onChange={(e) => { const a = [...regrasSinal]; a[i] = { ...r, exigeSinal: e.target.checked }; setRegrasSinal(a); }} />
+                                Sinal
+                              </label>
+                              <Campo label="Sinal %">
+                                <Input type="number" value={r.sinalPct} disabled={!isGestor || r.exigeSinal === false}
+                                  onChange={(e) => { const a = [...regrasSinal]; a[i] = { ...r, sinalPct: e.target.value }; setRegrasSinal(a); }} />
+                              </Campo>
+                              <Campo label="Cancel. (h)">
+                                <Input type="number" value={r.cancelHoras} disabled={!isGestor || r.exigeSinal === false}
+                                  onChange={(e) => { const a = [...regrasSinal]; a[i] = { ...r, cancelHoras: e.target.value }; setRegrasSinal(a); }} />
+                              </Campo>
+                              <Button type="button" variant="ghost" size="sm" disabled={!isGestor}
+                                onClick={() => setRegrasSinal(regrasSinal.filter((_, x) => x !== i))}>remover</Button>
+                            </div>
+                          ))}
+                        </div>
+                        {isGestor && (
+                          <div className="mt-2 flex gap-2">
+                            <Button type="button" variant="outline" size="sm"
+                              onClick={() => setRegrasSinal([...regrasSinal, { minItens: '', maxItens: '', exigeSinal: true, sinalPct: '', cancelHoras: '' }])}>
+                              ＋ regra
+                            </Button>
+                            <Button type="button" size="sm" onClick={salvarRegrasSinal}>Salvar regras</Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                   </Secao>
                 )}

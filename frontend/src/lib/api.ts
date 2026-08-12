@@ -912,6 +912,10 @@ export const api = {
   cardapioConfig: () => req('/cardapio/config'),
   setCardapioConfig: (body: Record<string, unknown>) =>
     req('/cardapio/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Regras de sinal da encomenda por faixa de quantidade (mig 187).
+  regrasSinalEncomenda: () => req('/cardapio/encomenda/regras-sinal'),
+  setRegrasSinalEncomenda: (regras: unknown[]) =>
+    req('/cardapio/encomenda/regras-sinal', { method: 'PUT', body: JSON.stringify({ regras }) }),
   produtoPermiteNegativo: (id: string, ativo: boolean) =>
     req(`/produtos/${id}/permite-negativo`, { method: 'POST', body: JSON.stringify({ ativo }) }),
   autoPausaCardapio: () => req('/cardapio/auto-pausa'),
@@ -1016,6 +1020,14 @@ export const api = {
     pub(`/publico/cardapio/${token}/pedido/${id}/pagar`, { method: 'POST', body: '{}' }),
   cardapioVerificarPagamento: (token: string, id: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}/verificar-pagamento`, { method: 'POST', body: '{}' }),
+  // Cliente cancela a própria encomenda (estorno do sinal dentro do prazo). mig 188/S3.
+  cardapioCancelarEncomenda: (token: string, id: string, clienteToken?: string, ref?: string) =>
+    pub(`/publico/cardapio/${token}/pedido/${id}/cancelar`, { method: 'POST', body: JSON.stringify({ clienteToken, ref }) }),
+  // Recorrências de encomenda do cliente (listar + pausar/retomar/cancelar). mig 190/S5.
+  cardapioRecorrencias: (token: string, ct: string) =>
+    pub(`/publico/cardapio/${token}/recorrencias?ct=${encodeURIComponent(ct)}`),
+  cardapioAlterarRecorrencia: (token: string, id: string, acao: 'pausar' | 'retomar' | 'cancelar', clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/recorrencias/${id}/${acao}`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
   cardapioPontos: (token: string, telefone: string) =>
     pub(`/publico/cardapio/${token}/pontos?telefone=${encodeURIComponent(telefone)}`),
   cardapioPromos: (token: string) => pub(`/publico/cardapio/${token}/promos`),

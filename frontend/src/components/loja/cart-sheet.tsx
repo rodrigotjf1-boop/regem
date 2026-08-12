@@ -178,6 +178,23 @@ export function CartSheet({
         return toLocalDT(d);
       })()
     : undefined;
+  // Sinal (mig 187/188): resolve a regra pela quantidade de itens do carrinho e
+  // calcula valor + prazo de cancelamento para o AVISO FORTE antes de confirmar.
+  const sinalInfo = (() => {
+    if (!encAtiva || !enc?.sinal || chk.quando !== 'agendar') return null;
+    const qtd = cart.reduce((s: number, i: any) => s + (Number(i.qtd) || 1), 0);
+    const match = (enc.sinal.regras || [])
+      .filter((r: any) => qtd >= (Number(r.minItens) || 0) && qtd <= (r.maxItens == null ? Infinity : Number(r.maxItens)))
+      .sort((a: any, b: any) => (Number(b.minItens) || 0) - (Number(a.minItens) || 0))[0];
+    const rule = match || enc.sinal.base;
+    if (!rule || rule.exige === false || !(Number(rule.pct) > 0)) return null;
+    const valor = Math.round(total * (Number(rule.pct) / 100) * 100) / 100;
+    const deadline =
+      rule.cancelHoras != null && chk.agendamento
+        ? new Date(new Date(chk.agendamento).getTime() - Number(rule.cancelHoras) * 3600000)
+        : null;
+    return { pct: Number(rule.pct), valor, deadline };
+  })();
 
   // Tipos habilitados na config (default: só entrega). "local" cai em retirada aqui.
   const tp = tipos ?? { delivery: true };
@@ -432,6 +449,50 @@ export function CartSheet({
                     <p className="mt-1 text-xs text-neutral-500">
                       Escolha dia e hora{Number(enc?.antecedenciaHoras) > 0 ? ` (mín. ${enc.antecedenciaHoras}h de antecedência)` : ''}.
                     </p>
+                    {sinalInfo && (
+                      <div className="mt-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-sm text-amber-900">
+                        <p className="font-bold">⚠️ Esta encomenda exige sinal</p>
+                        <p className="mt-1">
+                          Você paga agora <b>{brl(sinalInfo.valor)}</b> de sinal ({sinalInfo.pct}% do total). O restante fica para a entrega/retirada.
+                        </p>
+                        {sinalInfo.deadline ? (
+                          <p className="mt-1">
+                            Dá para <b>cancelar com reembolso até {sinalInfo.deadline.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</b>. Depois disso, o sinal <b>não é reembolsado</b> e o pedido não pode ser cancelado.
+                          </p>
+                        ) : (
+                          <p className="mt-1">Após confirmar, o sinal <b>não é reembolsável</b>.</p>
+                        )}
+                      </div>
+                    )}
+                    {/* Recorrência leve: repetir nos dias da semana (mig 190). */}
+                    <label className="mt-2 flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={!!chk.recorrente} onChange={(e) => set({ recorrente: e.target.checked })} className="h-4 w-4" />
+                      Repetir toda semana (encomenda recorrente)
+                    </label>
+                    {chk.recorrente && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'].map((d, idx) => {
+                          const on = (chk.recorrenciaDias ?? []).includes(idx);
+                          return (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => {
+                                const arr = new Set<number>(chk.recorrenciaDias ?? []);
+                                if (on) arr.delete(idx); else arr.add(idx);
+                                set({ recorrenciaDias: [...arr].sort() });
+                              }}
+                              className={`rounded-lg border px-2 py-1 text-xs font-semibold ${on ? 'border-neutral-800 bg-neutral-800 text-white' : 'border-neutral-300 text-neutral-600'}`}
+                            >
+                              {d}
+                            </button>
+                          );
+                        })}
+                        <p className="mt-1 w-full text-xs text-neutral-500">
+                          Você recebe o link do sinal de cada entrega pelo WhatsApp, alguns dias antes.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )
               )}

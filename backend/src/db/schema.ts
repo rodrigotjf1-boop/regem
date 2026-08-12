@@ -2063,6 +2063,13 @@ export const pedidoExterno = pgTable('pedido_externo', {
   // Hub PDV "Retirada / Encomendas" (mig 132)
   pagoOnline: boolean('pago_online').notNull().default(false), // já pago no online (só entregar)
   retiradaTipo: text('retirada_tipo'), // retirada | encomenda | null(entrega/local)
+  // Sinal (entrada) da encomenda (mig 188) — cobrado via PIX reaproveitando gateway_payment_id.
+  sinalPct: numeric('sinal_pct'),
+  sinalValor: numeric('sinal_valor'),
+  sinalStatus: text('sinal_status'), // null/'nao' | pendente | pago | reembolsado | perdido
+  cancelavelAte: timestamp('cancelavel_ate', { withTimezone: true }), // limite p/ cancelar com reembolso
+  avisadoCancelamentoEm: timestamp('avisado_cancelamento_em', { withTimezone: true }), // lembrete de prazo enviado (mig 189)
+  recorrenciaId: uuid('recorrencia_id'), // ocorrência gerada por uma recorrência (mig 190)
   caixaSessaoId: uuid('caixa_sessao_id'), // caixa (turno) onde o a-pagar entrou
   atendenteId: uuid('atendente_id'), // quem cobrou/entregou no balcão
   entregueEm: timestamp('entregue_em', { withTimezone: true }),
@@ -2295,8 +2302,50 @@ export const cardapioConfig = pgTable('cardapio_config', {
   encomendaHorizonteDias: integer('encomenda_horizonte_dias').notNull().default(30),
   encomendaCorte: time('encomenda_corte'), // hora de corte (opcional)
   encomendaCapacidadeDia: integer('encomenda_capacidade_dia'), // máx./dia (null = ilimitado)
+  // Sinal + cancelamento da encomenda — regra BASE (mig 187). Faixas por qtd em
+  // encomenda_regra_sinal sobrepõem esta base.
+  encomendaExigeSinal: boolean('encomenda_exige_sinal').notNull().default(false),
+  encomendaSinalPct: numeric('encomenda_sinal_pct'), // % do sinal (base)
+  encomendaCancelHoras: integer('encomenda_cancel_horas'), // horas p/ cancelar com reembolso (base)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Sinal da encomenda — regras por faixa de quantidade (mig 187) =====
+export const encomendaRegraSinal = pgTable('encomenda_regra_sinal', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  minItens: integer('min_itens').notNull().default(1),
+  maxItens: integer('max_itens'), // null = sem teto
+  exigeSinal: boolean('exige_sinal').notNull().default(true),
+  sinalPct: numeric('sinal_pct').notNull().default('50'),
+  cancelHoras: integer('cancel_horas'), // prazo de cancelamento com reembolso (horas)
+  ordem: integer('ordem').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Recorrência leve de encomenda (mig 190) =====
+export const encomendaRecorrencia = pgTable('encomenda_recorrencia', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  clienteId: uuid('cliente_id'),
+  tipo: text('tipo').notNull().default('retirada'), // retirada | entrega
+  endereco: jsonb('endereco'), // snapshot do endereço (entrega)
+  formaPagamento: text('forma_pagamento'),
+  itens: jsonb('itens').notNull().default('[]'), // snapshot dos itens
+  dias: jsonb('dias').notNull().default('[]'), // dias da semana [0..6]
+  hora: text('hora'), // 'HH:MM'
+  inicio: date('inicio'),
+  fim: date('fim'), // null = sem fim
+  antecedenciaDias: integer('antecedencia_dias').notNull().default(2),
+  status: text('status').notNull().default('ativa'), // ativa | pausada | cancelada
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ===== Faixa de preço por volume (B2B, Fase L1) =====

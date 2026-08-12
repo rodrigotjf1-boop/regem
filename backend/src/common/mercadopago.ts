@@ -105,6 +105,32 @@ export async function cancelarPagamentoMP(token: string, paymentId: string): Pro
   }).catch(() => {});
 }
 
+// Reembolsa (refund) um pagamento APROVADO — total (sem valor) ou parcial (`valor`
+// em reais). Usado no cancelamento de encomenda com sinal dentro do prazo. Lança
+// em falha para o chamador cair no fallback manual. Docs: /v1/payments/{id}/refunds
+export async function reembolsarPagamentoMP(
+  token: string,
+  paymentId: string,
+  valor?: number,
+): Promise<{ id: string; status: string }> {
+  const body = valor != null ? JSON.stringify({ amount: Math.round(Number(valor) * 100) / 100 }) : undefined;
+  const res = await fetch(`${API}/v1/payments/${paymentId}/refunds`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-Idempotency-Key': `refund-${paymentId}`,
+    },
+    body,
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Mercado Pago refund ${res.status}: ${txt.slice(0, 200)}`);
+  }
+  const j: any = await res.json();
+  return { id: String(j.id ?? ''), status: j.status ?? 'approved' };
+}
+
 // Consulta o status de um pagamento (usado pelo webhook).
 export async function consultarPagamentoMP(
   token: string,
