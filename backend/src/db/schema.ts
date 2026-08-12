@@ -2289,6 +2289,12 @@ export const cardapioConfig = pgTable('cardapio_config', {
   cupomBloqueiaComResgate: boolean('cupom_bloqueia_com_resgate').notNull().default(false),
   cupomMaxCashbackCent: integer('cupom_max_cashback_cent'), // null = sem limite
   fidelidadeIntervaloHoras: integer('fidelidade_intervalo_horas').notNull().default(3),
+  // Modo Encomenda (mig 186) — OPT-IN: pedido para data futura + regras.
+  encomendaAtiva: boolean('encomenda_ativa').notNull().default(false),
+  encomendaAntecedenciaHoras: integer('encomenda_antecedencia_horas').notNull().default(24),
+  encomendaHorizonteDias: integer('encomenda_horizonte_dias').notNull().default(30),
+  encomendaCorte: time('encomenda_corte'), // hora de corte (opcional)
+  encomendaCapacidadeDia: integer('encomenda_capacidade_dia'), // máx./dia (null = ilimitado)
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

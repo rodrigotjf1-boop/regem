@@ -341,6 +341,7 @@ export class DeliveryService {
       enderecoBairro?: string;
       bandeira?: string;
       clientRef?: string;
+      retiradaTipo?: string; // 'encomenda' quando é pedido para data futura (mig 186)
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
@@ -409,6 +410,7 @@ export class DeliveryService {
         pago: extra?.statusPagamento === 'aprovado' ? true : norm.pago ?? false,
         statusPagamento: extra?.statusPagamento ?? (norm.pago ? 'aprovado' : 'na_entrega'),
         agendamento: extra?.agendamento ? new Date(extra.agendamento) : null,
+        retiradaTipo: extra?.retiradaTipo ?? null, // encomenda (mig 186) — pedido p/ data futura
         profissional: extra?.profissional ?? null,
         cnpj: extra?.cnpj ?? null,
         clienteTelefone2: extra?.clienteTelefone2 ?? null,
@@ -834,6 +836,30 @@ export class DeliveryService {
         grupoCanal: DeliveryService.grupoCanal(r.canal),
         retiradaTipo: r.agendamento != null ? 'encomenda' : 'retirada',
       }));
+  }
+
+  // Encomendas agrupadas por DATA de entrega/retirada (o que produzir para o dia)
+  // — visão operacional de marmitaria (mig 186). `data` (YYYY-MM-DD) filtra uma
+  // data; sem ela, retorna todas as datas futuras/pendentes, ascendente.
+  async listarEncomendas(tenantId: string, atual: string | null = null, data?: string) {
+    const rows = await this.listar(tenantId, atual);
+    const enc = rows
+      .filter((r) => r.agendamento != null && r.status !== 'cancelado')
+      .map((r) => ({
+        ...r,
+        grupoCanal: DeliveryService.grupoCanal(r.canal),
+        dataEntrega: new Date(r.agendamento as any).toISOString().slice(0, 10),
+      }))
+      .filter((r) => !data || r.dataEntrega === data);
+    const porData = new Map<string, any[]>();
+    for (const r of enc) {
+      const arr = porData.get(r.dataEntrega) ?? [];
+      arr.push(r);
+      porData.set(r.dataEntrega, arr);
+    }
+    return [...porData.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([d, pedidos]) => ({ data: d, total: pedidos.length, pedidos }));
   }
 
   // Entrega no balcão: conclui um pedido de retirada/encomenda. Se for A-PAGAR

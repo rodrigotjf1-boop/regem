@@ -13,6 +13,12 @@ const PG_LBL: Record<string, string> = {
   vr: '🍽 Vale-refeição',
 };
 
+// Date → "YYYY-MM-DDTHH:MM" na hora LOCAL (formato do input datetime-local).
+function toLocalDT(d: Date) {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export function CartSheet({
   accent,
   loja,
@@ -155,7 +161,23 @@ export function CartSheet({
   const falta = freteGratis ? Math.max(0, loja.freteGratisAcima - total) : 0;
   const pct = freteGratis ? Math.min(100, (total / loja.freteGratisAcima) * 100) : 0;
   const bairroSel = bairros.find((b) => b.id === chk.bairroId);
-  const agendar = isServico || chk.quando === 'agendar';
+  // Encomenda (mig 186): food/varejo só oferecem data+hora futura se a loja liga o
+  // modo. Antecedência é em HORAS → permite mesmo dia mais tarde. min/max do picker
+  // vêm das regras (o servidor revalida).
+  const enc = (loja as any).encomenda;
+  const encAtiva = !isServico && !isIndustria && enc?.ativa === true;
+  const agendar = isServico || (encAtiva && chk.quando === 'agendar');
+  const encMin = encAtiva
+    ? toLocalDT(new Date(Date.now() + (Number(enc.antecedenciaHoras) || 0) * 3600000))
+    : undefined;
+  const encMax = encAtiva
+    ? (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + (Number(enc.horizonteDias) || 30));
+        d.setHours(23, 59, 0, 0);
+        return toLocalDT(d);
+      })()
+    : undefined;
 
   // Tipos habilitados na config (default: só entrega). "local" cai em retirada aqui.
   const tp = tipos ?? { delivery: true };
@@ -164,10 +186,12 @@ export function CartSheet({
   if (tp.retirada || tp.local) opcoesTipo.push(['retirada', '🏃 Retirada']);
   const fechada = abertaAgora === false;
 
-  const cta = fechada ? 'Loja fechada' : isIndustria ? 'Solicitar orçamento' : isServico ? 'Confirmar agendamento' : chk.tipo === 'entrega' ? 'Fazer pedido' : 'Confirmar pedido';
+  // Encomenda passa mesmo com a loja fechada (o servidor libera o agendamento).
+  const bloqueiaFechada = fechada && !agendar;
+  const cta = bloqueiaFechada ? 'Loja fechada' : isIndustria ? 'Solicitar orçamento' : isServico ? 'Confirmar agendamento' : (encAtiva && chk.quando === 'agendar') ? 'Confirmar encomenda' : chk.tipo === 'entrega' ? 'Fazer pedido' : 'Confirmar pedido';
   const submitDesabilitado =
     enviando ||
-    fechada ||
+    bloqueiaFechada ||
     cart.length === 0 ||
     (!isIndustria && (loja.pagamentos ?? []).length > 0 && !chk.forma) ||
     (chk.forma === 'cartao' && (loja.formasCartao ?? []).length > 0 && !chk.bandeira) ||
@@ -393,14 +417,23 @@ export function CartSheet({
           {/* quando / agendamento */}
           {!isIndustria && (
             <div className="mt-3">
-              {!isServico && (
+              {encAtiva && (
                 <select aria-label="Quando" value={chk.quando} onChange={(e) => set({ quando: e.target.value, agendamento: e.target.value === 'agora' ? '' : chk.agendamento })} className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base">
                   <option value="agora">O quanto antes {loja.tempoEntregaMin ? `(~${loja.tempoEntregaMin} min)` : ''}</option>
-                  <option value="agendar">Agendar dia e hora</option>
+                  <option value="agendar">Encomendar (escolher dia e hora)</option>
                 </select>
               )}
               {agendar && (
-                <input type="datetime-local" aria-label="Data e hora do agendamento" value={chk.agendamento} onChange={(e) => set({ agendamento: e.target.value })} className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                isServico ? (
+                  <input type="datetime-local" aria-label="Data e hora do agendamento" value={chk.agendamento} onChange={(e) => set({ agendamento: e.target.value })} className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                ) : (
+                  <div className="mt-2">
+                    <input type="datetime-local" aria-label="Data e hora da encomenda" value={chk.agendamento} min={encMin} max={encMax} onChange={(e) => set({ agendamento: e.target.value })} className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+                    <p className="mt-1 text-xs text-neutral-500">
+                      Escolha dia e hora{Number(enc?.antecedenciaHoras) > 0 ? ` (mín. ${enc.antecedenciaHoras}h de antecedência)` : ''}.
+                    </p>
+                  </div>
+                )
               )}
               {isServico && (
                 <input value={chk.profissional} onChange={(e) => set({ profissional: e.target.value })} placeholder="Profissional (opcional)" className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
