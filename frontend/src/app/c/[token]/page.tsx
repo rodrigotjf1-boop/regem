@@ -489,7 +489,17 @@ export default function CardapioPublicoPage() {
     setCart((c) => c.filter((i) => i.key !== key));
   }
   function addUpsell(p: any) {
-    // Upsell simples: produto sem variação/grupos obrigatórios → 1 unidade.
+    // Produto do upsell pode ter VARIAÇÃO ou GRUPO OBRIGATÓRIO (ex.: "escolha a
+    // bebida"). Nesse caso, adicionar direto gera pedido inválido (o servidor
+    // rejeita "Escolha uma opção em…") e trava o checkout/PIX. Então abre o modal
+    // do produto para o cliente escolher as opções; só o produto SIMPLES entra direto.
+    const full = (menu?.produtos ?? []).find((x: any) => x.id === p.id) ?? p;
+    const precisaOpcoes =
+      (full.variacoes?.length ?? 0) > 0 || (full.grupos ?? []).some((g: any) => g.obrigatorio);
+    if (precisaOpcoes) {
+      setSel(full); // abre o produto para escolher variação/opções obrigatórias
+      return;
+    }
     const key = `${p.id}::`;
     setCart((c) => {
       const ex = c.find((i) => i.key === key);
