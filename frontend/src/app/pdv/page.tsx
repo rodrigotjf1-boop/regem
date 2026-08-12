@@ -54,6 +54,9 @@ export default function PdvPage() {
   const [tefStatus, setTefStatus] = useState<string | null>(null); // aguardando maquininha
   const [caixa, setCaixa] = useState<any>(null); // caixa/turno aberto (ou null)
   const [recebido, setRecebido] = useState(''); // valor recebido (troco em dinheiro)
+  const [encomendaAtiva, setEncomendaAtiva] = useState(false); // agendar excedente de atacado
+  const [encomendaData, setEncomendaData] = useState(''); // data combinada (YYYY-MM-DD)
+  const [previewEnc, setPreviewEnc] = useState<any[] | null>(null); // split por item (preview)
 
   const reloadCaixa = useCallback(async () => {
     const cx: any = await api.caixaAberta().catch(() => null);
@@ -243,6 +246,8 @@ export default function PdvPage() {
       pagamentos: montarPagamentos(),
       taxaServicoPct: taxa ? 10 : 0,
       idempotencyKey: chaveRef.current,
+      // Atacado: agenda o excedente que passar do estoque como encomenda.
+      encomendaDataEntrega: encomendaAtiva && encomendaData ? encomendaData : undefined,
     });
     if (tefPagId && r?.comandaId) await api.tefVincular(tefPagId, r.comandaId).catch(() => {});
     setComprovante(r);
@@ -251,8 +256,13 @@ export default function PdvPage() {
     setRecebido('');
     setDividir(false);
     setPagamentos([]);
+    setEncomendaAtiva(false);
+    setEncomendaData('');
+    setPreviewEnc(null);
     chaveRef.current = null;
-    toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
+    if (r?.encomendas?.length)
+      toast.success(`Venda registrada. ${r.encomendas.length} encomenda(s) agendada(s).`);
+    else toast.success(r?.idempotente ? 'Venda já registrada.' : 'Venda registrada.');
   }
 
   async function finalizar() {
@@ -278,6 +288,28 @@ export default function PdvPage() {
       setTefStatus(null);
     }
   }
+
+  // Preview do split de atacado (imediato/encomenda) enquanto a encomenda está
+  // ligada: mostra ao operador o que será agendado antes de finalizar.
+  useEffect(() => {
+    if (!encomendaAtiva || carrinho.length === 0) {
+      setPreviewEnc(null);
+      return;
+    }
+    let cancel = false;
+    (async () => {
+      try {
+        const itens = carrinho.map((i) => ({ produtoId: i.produtoId, quantidade: i.qtd }));
+        const r: any = await api.previewAtacado(itens);
+        if (!cancel) setPreviewEnc(Array.isArray(r) ? r.filter((x: any) => x.encomenda > 0) : []);
+      } catch {
+        if (!cancel) setPreviewEnc(null);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [encomendaAtiva, carrinho]);
 
   const visiveis = catAtiva
     ? produtos.filter((p) => p.categoriaId === catAtiva)
@@ -417,6 +449,48 @@ export default function PdvPage() {
                 <input type="checkbox" checked={taxa} onChange={(e) => setTaxa(e.target.checked)} className="h-4 w-4 accent-primary" />
                 Taxa de serviço 10%
               </label>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={encomendaAtiva}
+                  onChange={(e) => setEncomendaAtiva(e.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                  aria-pressed={encomendaAtiva}
+                />
+                Agendar encomenda do que faltar (atacado)
+              </label>
+              {encomendaAtiva && (
+                <div className="rounded-md border border-border bg-muted/40 p-2 text-xs">
+                  <label className="block">
+                    <span className="text-muted-foreground">Data de entrega/retirada</span>
+                    <input
+                      type="date"
+                      value={encomendaData}
+                      min={new Date().toISOString().slice(0, 10)}
+                      onChange={(e) => setEncomendaData(e.target.value)}
+                      className="mt-1 h-9 w-full rounded-md border border-input bg-card px-2 text-sm"
+                    />
+                  </label>
+                  {previewEnc && previewEnc.length > 0 ? (
+                    <ul className="mt-2 space-y-1">
+                      {previewEnc.map((x: any) => (
+                        <li key={x.produtoId} className="flex justify-between gap-2">
+                          <span className="truncate">{x.nome}</span>
+                          <span className="whitespace-nowrap font-mono">
+                            {x.imediato} agora
+                            {x.podeEncomendar ? ` · ${x.encomenda} encomenda` : ` · ${x.encomenda} sem ficha`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : previewEnc && previewEnc.length === 0 ? (
+                    <p className="mt-2 text-muted-foreground">Estoque cobre tudo — nada a encomendar.</p>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    O disponível sai no ato; o excedente vira ordem de produção para a data. Só vale para produtos de atacado com ficha técnica.
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">Pagamento</span>
@@ -644,6 +718,19 @@ export default function PdvPage() {
                   <span className="mt-0.5 block break-all font-mono text-[10px]">{comprovante.nfce.chave}</span>
                 )}
               </p>
+            )}
+            {comprovante.encomendas?.length > 0 && (
+              <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 p-2 text-left text-xs">
+                <p className="font-semibold text-primary">📅 Encomendas agendadas</p>
+                <ul className="mt-1 space-y-0.5">
+                  {comprovante.encomendas.map((e: any, i: number) => (
+                    <li key={i} className="flex justify-between gap-2">
+                      <span className="truncate">{e.quantidade}× {e.descricao}</span>
+                      <span className="whitespace-nowrap font-mono">{e.dataEntrega}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
             <Button type="button" className="mt-4 w-full" onClick={() => setComprovante(null)}>
               Nova venda

@@ -44,6 +44,21 @@ export class VendasController {
     );
   }
 
+  // Atacado (mig 185): preview do split imediato/encomenda por item, dado o
+  // estoque disponível. Só leitura — não vende nem baixa. A venda em si manda
+  // `encomendaDataEntrega` no /balcao para efetivar a encomenda do excedente.
+  @Post('atacado/preview')
+  @RequirePerm('pdv')
+  previewAtacado(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Body() dto: { itens: { produtoId: string; quantidade: number }[]; unidadeId?: string },
+  ) {
+    const unidade =
+      (user.categoria === 'presidente' ? dto.unidadeId || unidadeAtual : unidadeAtual) || null;
+    return this.service.preverEncomendaAtacado(user.tenantId, dto.itens ?? [], unidade);
+  }
+
   // ----- Mesas (Fase F2) -----
   @Get('mesas')
   @RequirePerm('mesas')

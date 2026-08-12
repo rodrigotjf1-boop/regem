@@ -79,6 +79,11 @@ export class OrdemProducaoService {
         impressoraId: dto?.impressoraId ?? null,
         tarefaDefId: dto?.tarefaDefId ?? null,
         criadoPorId: atorId ?? null,
+        // Encomenda de atacado (mig 185): vínculo com a venda + data combinada.
+        comandaId: dto?.comandaId ?? null,
+        origem: dto?.origem ?? null,
+        dataEntrega: dto?.dataEntrega ?? null,
+        obs: dto?.obs ?? null,
       })
       .returning();
     await this.despacharCanais(tenantId, row, ficha);

@@ -278,6 +278,13 @@ export function ProdutoForm({
                 <Input type="number" value={f.vendaMultiplo} onChange={(e) => set({ vendaMultiplo: e.target.value })} placeholder="1" />
               </div>
             </div>
+            <label className="mt-3 flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={f.atacadoAtivo} onChange={(e) => set({ atacadoAtivo: e.target.checked })} className="h-4 w-4 accent-primary" />
+              Ativar preço de atacado (desconto por volume)
+            </label>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Com o atacado ligado, as faixas de desconto por quantidade (definidas ao editar o produto) valem no PDV e no cardápio.
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {SELOS.map((s) => {
                 const on = f.selos.includes(s.v);

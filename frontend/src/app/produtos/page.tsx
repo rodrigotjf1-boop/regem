@@ -64,7 +64,7 @@ export default function ProdutosPage() {
   // destinos de produção (KDS/impressora) — só ao editar
   const [destinosSel, setDestinosSel] = useState<string[]>([]);
   const [salvandoDest, setSalvandoDest] = useState(false);
-  const [faixas, setFaixas] = useState<{ qtdMin: string; preco: string }[]>([]);
+  const [faixas, setFaixas] = useState<{ qtdMin: string; descontoPct: string }[]>([]);
 
   useEffect(() => {
     if (!getToken()) {
@@ -130,9 +130,12 @@ export default function ProdutosPage() {
         editId,
         faixas
           .filter((f) => f.qtdMin !== '')
-          .map((f) => ({ qtdMin: Number(f.qtdMin), preco: Number(String(f.preco).replace(',', '.')) || 0 })),
+          .map((f) => ({
+            qtdMin: Number(f.qtdMin),
+            descontoPct: Number(String(f.descontoPct).replace(',', '.')) || 0,
+          })),
       );
-      toast.success('Faixas de preço salvas.');
+      toast.success('Faixas de atacado salvas.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar faixas');
     }
@@ -149,7 +152,10 @@ export default function ProdutosPage() {
       setComps(cs as any[]);
       setInsumos(its as any[]);
       setDestinosSel((dest as any[]).map((d) => d.equipamentoId));
-      setFaixas((fx as any[]).map((f) => ({ qtdMin: String(f.qtdMin), preco: String(f.preco) })));
+      setFaixas((fx as any[]).map((f) => ({
+        qtdMin: String(f.qtdMin),
+        descontoPct: f.descontoPct != null ? String(f.descontoPct) : '',
+      })));
       if (fichaId) {
         const fi: any = await api.ficha(fichaId).catch(() => null);
         setFichaIngs(fi?.ingredientes ?? []);
@@ -197,6 +203,7 @@ export default function ProdutosPage() {
         disponivelCardapio: p.disponivelCardapio ?? true,
         disponivelBalcao: p.disponivelBalcao ?? true,
         destaque: p.destaque ?? false,
+        atacadoAtivo: p.atacadoAtivo ?? false,
         selos: p.selos ?? [],
         canaisPausados: p.canaisPausados ?? [],
         sugestoes: p.sugestoes ?? [],
@@ -269,6 +276,7 @@ export default function ProdutosPage() {
         disponivelCardapio: f.disponivelCardapio,
         disponivelBalcao: f.disponivelBalcao,
         destaque: f.destaque,
+        atacadoAtivo: f.atacadoAtivo,
         selos: f.selos,
         canaisPausados: f.canaisPausados ?? [],
         sugestoes: f.sugestoes ?? [],

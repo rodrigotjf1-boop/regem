@@ -1181,6 +1181,10 @@ export const ordemProducao = pgTable('ordem_producao', {
   motivo: text('motivo'),
   obs: text('obs'),
   refId: uuid('ref_id'), // idempotência do produzir()
+  // Encomenda de atacado (mig 185): amarra a ordem à venda que a originou.
+  comandaId: uuid('comanda_id'),
+  origem: text('origem'), // ex.: 'encomenda_atacado'
+  dataEntrega: date('data_entrega'), // data combinada de entrega/retirada
   canais: jsonb('canais').notNull().default('[]'), // ["app","kds","linha_tempo","impressao"]
   kdsEquipamentoId: uuid('kds_equipamento_id'),
   impressoraId: uuid('impressora_id'),
@@ -1251,6 +1255,7 @@ export const produto = pgTable('produto', {
   permiteNegativo: boolean('permite_negativo').notNull().default(false), // reativado sem estoque (contagem negativa)
   disponivelBalcao: boolean('disponivel_balcao').notNull().default(true), // canal PDV
   destaque: boolean('destaque').notNull().default(false), // upsell "peça também"
+  atacadoAtivo: boolean('atacado_ativo').notNull().default(false), // liga faixas de atacado (mig 184)
   vendaMultiplo: integer('venda_multiplo'),
   duracaoMin: integer('duracao_min'),
   gtin: text('gtin'),
@@ -2298,7 +2303,8 @@ export const produtoFaixaPreco = pgTable('produto_faixa_preco', {
     .notNull()
     .references(() => produto.id, { onDelete: 'cascade' }),
   qtdMin: integer('qtd_min').notNull().default(1),
-  preco: numeric('preco').notNull().default('0'),
+  preco: numeric('preco').notNull().default('0'), // legado (mig 042); não usado no modo %
+  descontoPct: numeric('desconto_pct'), // % de desconto da faixa (mig 184)
   ordem: integer('ordem').notNull().default(0),
 });
 

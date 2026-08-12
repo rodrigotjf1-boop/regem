@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 
@@ -75,4 +76,11 @@ export class VendaBalcaoDto {
   @IsOptional()
   @IsString()
   idempotencyKey?: string;
+
+  // Encomenda de atacado (mig 185): data combinada de entrega/retirada (YYYY-MM-DD).
+  // Presente = itens de atacado que passam do estoque disponível têm o excedente
+  // agendado como ordem de produção nesta data; ausente = venda normal.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Data de entrega inválida (use AAAA-MM-DD).' })
+  encomendaDataEntrega?: string;
 }

@@ -56,6 +56,7 @@ export const vazio = () => ({
   disponivelCardapio: true,
   disponivelBalcao: true,
   destaque: false,
+  atacadoAtivo: false,
   selos: [] as string[],
   canaisPausados: [] as string[],
   sugestoes: [] as string[],

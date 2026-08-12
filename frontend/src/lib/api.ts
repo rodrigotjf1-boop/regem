@@ -639,6 +639,9 @@ export const api = {
     req('/producao/cores', { method: 'PUT', body: JSON.stringify(body) }),
   vendaBalcao: (body: Record<string, unknown>) =>
     req('/vendas/balcao', { method: 'POST', body: JSON.stringify(body) }),
+  // Atacado (mig 185): preview do split imediato/encomenda por item.
+  previewAtacado: (itens: { produtoId: string; quantidade: number }[]) =>
+    req('/vendas/atacado/preview', { method: 'POST', body: JSON.stringify({ itens }) }),
   produtoComplementos: (produtoId: string) =>
     req(`/produtos/${produtoId}/complementos`),
   criarGrupoComplemento: (produtoId: string, body: Record<string, unknown>) =>
