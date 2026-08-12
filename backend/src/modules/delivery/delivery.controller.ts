@@ -134,6 +134,18 @@ export class DeliveryController {
     return this.service.listarRetirada(user.tenantId, atual);
   }
 
+  // Encomendas por data (mig 186): visão operacional "o que produzir para o dia".
+  @Get('encomendas')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  encomendas(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Query('data') data?: string,
+  ) {
+    return this.service.listarEncomendas(user.tenantId, atual, data || undefined);
+  }
+
   // Entrega no balcão: conclui e cobra (a-pagar) no caixa do atendente.
   @Post('pedidos/:id/entregar')
   @UseGuards(JwtAuthGuard, PermissoesGuard)

@@ -24,6 +24,7 @@ const MENU: { grupo: string; itens: { k: string; label: string; breve?: boolean 
     itens: [
       { k: 'cardapio', label: 'Cardápio' },
       { k: 'horarios', label: 'Horários' },
+      { k: 'encomenda', label: 'Encomenda' },
       { k: 'area', label: 'Área de atendimento' },
       { k: 'cupons', label: 'Cupons' },
       { k: 'fidelidade', label: 'Plano de fidelidade' },
@@ -532,6 +533,38 @@ export function ConfigPanel({
                         </div>
                       </div>
                     )}
+                    <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
+                  </Secao>
+                )}
+
+                {/* ENCOMENDA (mig 186) — opt-in por loja */}
+                {sec === 'encomenda' && (
+                  <Secao dica="Encomenda = pedido no cardápio para dia e hora à frente — pode ser outro dia OU o mesmo dia mais tarde (marmitaria, bolos, kits). Fica DESLIGADO por padrão; ligue só se a loja trabalha assim.">
+                    <label className="mb-3 flex items-center gap-2 text-sm">
+                      <input type="checkbox" className="h-4 w-4 accent-primary" disabled={!isGestor}
+                        checked={!!loja.encomendaAtiva}
+                        onChange={(e) => up({ encomendaAtiva: e.target.checked })} />
+                      Aceitar encomendas (pedido para dia e hora à frente)
+                    </label>
+                    {loja.encomendaAtiva && (
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <Campo label="Antecedência mínima (horas)">
+                          <Input type="number" value={loja.encomendaAntecedenciaHoras ?? ''} onChange={(e) => up({ encomendaAntecedenciaHoras: e.target.value })} placeholder="24" disabled={!isGestor} />
+                        </Campo>
+                        <Campo label="Até quantos dias à frente">
+                          <Input type="number" value={loja.encomendaHorizonteDias ?? ''} onChange={(e) => up({ encomendaHorizonteDias: e.target.value })} placeholder="30" disabled={!isGestor} />
+                        </Campo>
+                        <Campo label="Horário de corte (opcional)">
+                          <Input type="time" value={(loja.encomendaCorte ?? '').slice(0, 5)} onChange={(e) => up({ encomendaCorte: e.target.value })} disabled={!isGestor} />
+                        </Campo>
+                        <Campo label="Máx. de encomendas por dia (opcional)">
+                          <Input type="number" value={loja.encomendaCapacidadeDia ?? ''} onChange={(e) => up({ encomendaCapacidadeDia: e.target.value })} placeholder="sem limite" disabled={!isGestor} />
+                        </Campo>
+                      </div>
+                    )}
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      A antecedência é em horas: com poucas horas, o cliente pode encomendar para o mesmo dia mais tarde; com 24h+, só a partir do dia seguinte. Os pedidos aparecem em Delivery → Encomendas · agenda, agrupados por data.
+                    </p>
                     <SalvarBar onSalvar={salvarLoja} salvando={salvando} pode={isGestor} />
                   </Secao>
                 )}

@@ -286,6 +286,27 @@ export class CardapioService {
         dto.fidelidadeIntervaloHoras != null
           ? Math.max(0, Math.floor(Number(dto.fidelidadeIntervaloHoras) || 0))
           : row?.fidelidadeIntervaloHoras ?? 3,
+      // Modo Encomenda (mig 186) — opt-in + regras de data futura.
+      encomendaAtiva:
+        dto.encomendaAtiva != null ? !!dto.encomendaAtiva : row?.encomendaAtiva ?? false,
+      encomendaAntecedenciaHoras:
+        dto.encomendaAntecedenciaHoras != null
+          ? Math.max(0, Math.floor(Number(dto.encomendaAntecedenciaHoras) || 0))
+          : row?.encomendaAntecedenciaHoras ?? 24,
+      encomendaHorizonteDias:
+        dto.encomendaHorizonteDias != null
+          ? Math.max(1, Math.floor(Number(dto.encomendaHorizonteDias) || 1))
+          : row?.encomendaHorizonteDias ?? 30,
+      encomendaCorte:
+        'encomendaCorte' in dto
+          ? (dto.encomendaCorte || null)
+          : row?.encomendaCorte ?? null,
+      encomendaCapacidadeDia:
+        'encomendaCapacidadeDia' in dto
+          ? (dto.encomendaCapacidadeDia == null || dto.encomendaCapacidadeDia === '' || Number(dto.encomendaCapacidadeDia) <= 0
+              ? null
+              : Math.floor(Number(dto.encomendaCapacidadeDia)))
+          : row?.encomendaCapacidadeDia ?? null,
       whatsapp: dto.whatsapp ?? row?.whatsapp ?? null,
       parcelasMax:
         dto.parcelasMax != null ? Number(dto.parcelasMax) || null : row?.parcelasMax ?? null,
@@ -787,6 +808,39 @@ export class CardapioService {
     return map;
   }
 
+  // Regras de encomenda (mig 186): a antecedência é em HORAS (permite MESMO DIA em
+  // horário mais à frente, não só data futura). Fonte única — exposta no menu (o
+  // checkout monta a janela data+hora) e usada na validação do servidor. `corte`
+  // (opcional) fecha encomendas para HOJE após aquele horário. `ativa:false` = loja
+  // não trabalha com encomenda.
+  private regrasEncomenda(cfg: any) {
+    if (!cfg?.encomendaAtiva) return { ativa: false as const };
+    return {
+      ativa: true as const,
+      antecedenciaHoras: Math.max(0, Number(cfg.encomendaAntecedenciaHoras) || 0),
+      horizonteDias: Math.max(1, Number(cfg.encomendaHorizonteDias) || 30),
+      corte: cfg.encomendaCorte ? String(cfg.encomendaCorte).slice(0, 5) : null,
+      capacidadeDia: cfg.encomendaCapacidadeDia ?? null,
+    };
+  }
+
+  // Quantas encomendas (não canceladas) já existem para uma data (fuso SP).
+  private async contarEncomendasNaData(
+    tenantId: string,
+    unidadeId: string | null,
+    data: string,
+  ): Promise<number> {
+    const r: any = await this.db.execute(sql`
+      select count(*)::int as n from pedido_externo
+      where tenant_id = ${tenantId}
+        ${unidadeId ? sql`and unidade_id = ${unidadeId}` : sql``}
+        and agendamento is not null
+        and (agendamento at time zone 'America/Sao_Paulo')::date = ${data}::date
+        and status <> 'cancelado'
+    `);
+    return Number((r?.rows ?? r)?.[0]?.n ?? 0);
+  }
+
   async menu(token: string) {
     const cfg = await this.resolver(token);
     const catsRaw = await this.db
@@ -910,6 +964,8 @@ export class CardapioService {
         tempoEntregaMin: cfg.tempoEntregaMin,
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
+        // Modo Encomenda (mig 186): regras p/ o checkout oferecer data futura.
+        encomenda: this.regrasEncomenda(cfg),
         avaliacao: cfg.avaliacao != null ? Number(cfg.avaliacao) : null,
         freteGratisAcima:
           cfg.freteGratisAcima != null ? Number(cfg.freteGratisAcima) : null,
@@ -1687,6 +1743,48 @@ export class CardapioService {
     // Loja fechada (para o TIPO do pedido): bloqueia (pedidos agendados passam).
     if (!dto.agendamento && !this.estaAberta(cfg, dto.tipo))
       throw new BadRequestException('A loja está fechada no momento. Volte no horário de funcionamento.');
+
+    // Encomenda (mig 186): para food/varejo, `agendamento` = pedido para data
+    // FUTURA e só vale se a loja liga o modo Encomenda, dentro das regras. Serviços
+    // mantém o agendamento de HORÁRIO (consulta/atendimento), sem essas regras.
+    const ehEncomenda = !!dto.agendamento && cfg.ramo !== 'servicos';
+    if (ehEncomenda) {
+      const regras = this.regrasEncomenda(cfg);
+      if (!regras.ativa)
+        throw new BadRequestException('Esta loja não aceita encomendas.');
+      const quando = new Date(dto.agendamento as string); // data+hora escolhida
+      if (isNaN(quando.getTime()))
+        throw new BadRequestException('Data/hora da encomenda inválida.');
+      const agora = new Date();
+      // Antecedência em HORAS (permite mesmo dia mais tarde). 1 min de folga.
+      const minMs = agora.getTime() + regras.antecedenciaHoras * 3600_000;
+      if (quando.getTime() < minMs - 60_000)
+        throw new BadRequestException(
+          `A encomenda precisa de ao menos ${regras.antecedenciaHoras}h de antecedência.`,
+        );
+      const maxDia = new Date(agora);
+      maxDia.setDate(maxDia.getDate() + regras.horizonteDias);
+      maxDia.setHours(23, 59, 59, 999);
+      if (quando.getTime() > maxDia.getTime())
+        throw new BadRequestException(
+          `A encomenda pode ser feita com no máximo ${regras.horizonteDias} dias de antecedência.`,
+        );
+      // Corte (opcional): encomenda para HOJE só até o horário de corte.
+      const mesmoDia = quando.toDateString() === agora.toDateString();
+      if (regras.corte && mesmoDia) {
+        const [hh, mm] = regras.corte.split(':').map((x) => Number(x) || 0);
+        if (agora.getHours() > hh || (agora.getHours() === hh && agora.getMinutes() >= mm))
+          throw new BadRequestException(
+            `As encomendas para hoje encerraram (após ${regras.corte}). Escolha outro dia.`,
+          );
+      }
+      if (regras.capacidadeDia != null) {
+        const dataPedido = String(dto.agendamento).slice(0, 10); // YYYY-MM-DD escolhido
+        const usados = await this.contarEncomendasNaData(cfg.tenantId, cfg.unidadeId, dataPedido);
+        if (usados >= regras.capacidadeDia)
+          throw new BadRequestException('As encomendas para esta data esgotaram. Escolha outra data.');
+      }
+    }
     const ids = [...new Set(dto.itens.map((i) => i.produtoId))];
     const prods = await this.db
       .select({
@@ -1936,6 +2034,7 @@ export class CardapioService {
             ? 'aguardando'
             : 'na_entrega',
         agendamento: dto.agendamento,
+        retiradaTipo: ehEncomenda ? 'encomenda' : undefined,
         profissional: dto.profissional,
         cnpj: dto.cnpj,
         clienteTelefone2: tipo === 'entrega' ? dto.telefone2 : undefined,

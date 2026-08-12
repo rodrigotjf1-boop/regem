@@ -751,6 +751,9 @@ export const api = {
     req(`/manutencao/${id}/excluir`, { method: 'POST', body: JSON.stringify({ motivo }) }),
   // Hub Retirada / Encomendas (Fase 1, mig 132)
   retiradaPedidos: () => req('/delivery/retirada'),
+  // Encomendas agrupadas por data (mig 186). data opcional (YYYY-MM-DD) filtra uma data.
+  encomendasPorData: (data?: string) =>
+    req(`/delivery/encomendas${data ? `?data=${encodeURIComponent(data)}` : ''}`),
   entregarBalcao: (id: string, forma?: string) =>
     req(`/delivery/pedidos/${id}/entregar`, {
       method: 'POST',
