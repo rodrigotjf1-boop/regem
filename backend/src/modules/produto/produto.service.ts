@@ -1068,7 +1068,7 @@ export class ProdutoService {
   async setFaixas(
     tenantId: string,
     produtoId: string,
-    faixas: { qtdMin: number; preco: number }[],
+    faixas: { qtdMin: number; preco?: number; descontoPct?: number }[],
   ) {
     await this.db
       .delete(produtoFaixaPreco)
@@ -1087,6 +1087,11 @@ export class ProdutoService {
             produtoId,
             qtdMin: Number(f.qtdMin),
             preco: String(Number(f.preco) || 0),
+            // Modo atacado % (mig 184): guarda o desconto da faixa quando informado.
+            descontoPct:
+              f.descontoPct == null || Number.isNaN(Number(f.descontoPct))
+                ? null
+                : String(Math.min(Math.max(Number(f.descontoPct), 0), 100)),
             ordem: i,
           })),
       );
@@ -1265,6 +1270,7 @@ export class ProdutoService {
           disponivelCardapio: dto.disponivelCardapio ?? true,
           disponivelBalcao: dto.disponivelBalcao ?? true,
           destaque: dto.destaque ?? false,
+          atacadoAtivo: dto.atacadoAtivo ?? false,
           vendaMultiplo: dto.vendaMultiplo,
           duracaoMin: dto.duracaoMin,
           gtin: dto.gtin,
@@ -1358,6 +1364,7 @@ export class ProdutoService {
     set('disponivelCardapio', dto.disponivelCardapio);
     set('disponivelBalcao', dto.disponivelBalcao);
     set('destaque', dto.destaque);
+    set('atacadoAtivo', dto.atacadoAtivo);
     set('vendaMultiplo', dto.vendaMultiplo);
     set('duracaoMin', dto.duracaoMin);
     set('gtin', dto.gtin);

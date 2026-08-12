@@ -8,6 +8,7 @@ import {
   IsUUID,
   Matches,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateColaboradorDto {
@@ -15,9 +16,13 @@ export class CreateColaboradorDto {
   @MinLength(2)
   nome!: string;
 
-  // E-mail de login (opcional). Necessário para acessar por senha; a senha em si
-  // é definida em Pessoas → "Acesso & senha".
-  @IsOptional()
+  // E-mail de CONTATO (opcional). Desde a mig 141 quem entra é o `usuario`
+  // (apelido) — o e-mail deixou de ser o identificador de login. Ao editar um
+  // colaborador cadastrado sem e-mail, o form manda a string vazia `''`; como
+  // `@IsOptional()` só pula null/undefined, um `@IsEmail()` cru rejeitava o `''`
+  // ("email must be an email") e travava a edição. Validamos o formato só quando
+  // há e-mail de fato; `''` passa e o service normaliza para null (limpa).
+  @ValidateIf((o) => o.email !== undefined && o.email !== null && o.email !== '')
   @IsEmail()
   email?: string;
 

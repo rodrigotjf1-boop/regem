@@ -6,10 +6,11 @@ import { EdgeImpressaoProcessor } from './edge-impressao.processor';
 import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module';
 import { FiscalModule } from '../fiscal/fiscal.module';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
+import { OrdemProducaoModule } from '../ordem-producao/ordem-producao.module';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 
 @Module({
-  imports: [ProducaoPedidoModule, FiscalModule, EquipamentoModule],
+  imports: [ProducaoPedidoModule, FiscalModule, EquipamentoModule, OrdemProducaoModule],
   controllers: [VendasController, VendasExternaController],
   providers: [VendasService, SyncTokenGuard, EdgeImpressaoProcessor],
   exports: [VendasService],

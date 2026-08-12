@@ -32,13 +32,16 @@ import {
   equipamento,
   auditLog,
   deliveryConfig,
+  produtoFaixaPreco,
 } from '../../db/schema';
+import { precoComAtacado } from '../../common/preco-atacado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   ProducaoPedidoService,
   ItemProducao,
 } from '../producao-pedido/producao-pedido.service';
 import { FiscalService } from '../fiscal/fiscal.service';
+import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 
@@ -55,7 +58,121 @@ export class VendasService {
     private readonly events: EventEmitter2,
     private readonly producao: ProducaoPedidoService,
     private readonly fiscal: FiscalService,
+    private readonly ordemProducao: OrdemProducaoService,
   ) {}
+
+  // ===== Atacado: disponibilidade + encomenda (mig 184/185) =====
+
+  // Saldo atual de UM item de estoque no ledger (entrada − saída), opcionalmente
+  // por unidade. Base para decidir quanto dá pra vender no ato.
+  private async saldoItem(
+    tenantId: string,
+    itemId: string,
+    unidadeId?: string | null,
+  ): Promise<number> {
+    const r: any = await this.db.execute(sql`
+      select coalesce(sum(case tipo
+               when 'entrada' then quantidade
+               when 'saida'   then -quantidade
+               else quantidade end), 0) as saldo
+      from movimento_estoque
+      where tenant_id = ${tenantId} and item_id = ${itemId}
+        ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+    `);
+    return Number((r?.rows ?? r)?.[0]?.saldo ?? 0);
+  }
+
+  // Quantas unidades do produto dá pra atender AGORA com o estoque disponível.
+  // `disponivel: null` = produto sem controle de estoque (ilimitado). Explode a
+  // ficha para 1 unidade e divide o saldo de cada insumo pelo consumo por unidade
+  // (piso do gargalo). `podeEncomendar` = tem ficha → o excedente pode virar ordem.
+  async disponibilidadeProduto(
+    tenantId: string,
+    produtoId: string,
+    unidadeId?: string | null,
+  ): Promise<{ disponivel: number | null; podeEncomendar: boolean }> {
+    const [p] = await this.db
+      .select()
+      .from(produto)
+      .where(and(eq(produto.id, produtoId), eq(produto.tenantId, tenantId)));
+    if (!p) return { disponivel: 0, podeEncomendar: false };
+    if (!p.controlaEstoque) return { disponivel: null, podeEncomendar: !!p.fichaId };
+    const consumo = new Map<string, number>();
+    await this.acumularProduto(this.db, tenantId, p, 1, 1, [], consumo);
+    if (consumo.size === 0) return { disponivel: null, podeEncomendar: !!p.fichaId };
+    let disp = Infinity;
+    for (const [itemId, porUn] of consumo) {
+      if (!(porUn > 0)) continue;
+      const saldo = await this.saldoItem(tenantId, itemId, unidadeId);
+      disp = Math.min(disp, Math.floor(saldo / porUn));
+    }
+    const disponivel = Number.isFinite(disp) ? Math.max(disp, 0) : null;
+    return { disponivel, podeEncomendar: !!p.fichaId };
+  }
+
+  // Preview do split de atacado: por item, quanto sai no ato e quanto vira
+  // encomenda, dado o estoque disponível. Somente leitura (não vende nem baixa).
+  async preverEncomendaAtacado(
+    tenantId: string,
+    itens: { produtoId: string; quantidade: number }[],
+    unidadeId?: string | null,
+  ) {
+    const out: any[] = [];
+    for (const it of itens ?? []) {
+      const qtd = Number(it.quantidade) || 0;
+      const [p] = await this.db
+        .select({ id: produto.id, nome: produto.nome, atacadoAtivo: produto.atacadoAtivo })
+        .from(produto)
+        .where(and(eq(produto.id, it.produtoId), eq(produto.tenantId, tenantId)));
+      if (!p) continue;
+      const { disponivel, podeEncomendar } = await this.disponibilidadeProduto(
+        tenantId,
+        it.produtoId,
+        unidadeId,
+      );
+      // Ilimitado (disponivel null) → tudo imediato, sem encomenda.
+      const imediato = disponivel == null ? qtd : Math.min(qtd, Math.max(disponivel, 0));
+      const encomenda = Math.max(qtd - imediato, 0);
+      out.push({
+        produtoId: p.id,
+        nome: p.nome,
+        atacadoAtivo: p.atacadoAtivo === true,
+        solicitado: qtd,
+        disponivel,
+        imediato,
+        encomenda,
+        // Só dá pra encomendar o excedente se o produto tem ficha (é produzível).
+        podeEncomendar: encomenda > 0 && podeEncomendar,
+      });
+    }
+    return out;
+  }
+
+  // Faixas de atacado (mig 184) de UM produto: só as com desconto > 0, ordenadas
+  // por qtd_min. Aceita `tx` (dentro de transação) ou usa this.db. Vazio = sem
+  // atacado. Usado no PDV/comanda para descontar o preço unitário pela quantidade.
+  private async faixasAtacadoDe(
+    db: any,
+    tenantId: string,
+    produtoId: string,
+  ): Promise<{ qtdMin: number; descontoPct: number }[]> {
+    const rows = await db
+      .select({
+        qtdMin: produtoFaixaPreco.qtdMin,
+        descontoPct: produtoFaixaPreco.descontoPct,
+      })
+      .from(produtoFaixaPreco)
+      .where(
+        and(
+          eq(produtoFaixaPreco.tenantId, tenantId),
+          eq(produtoFaixaPreco.produtoId, produtoId),
+        ),
+      )
+      .orderBy(produtoFaixaPreco.qtdMin);
+    return rows
+      .map((r: any) => ({ qtdMin: Number(r.qtdMin) || 0, descontoPct: Number(r.descontoPct) || 0 }))
+      .filter((f: any) => f.descontoPct > 0);
+  }
 
   // ACUMULA (não insere) o consumo por item da explosão de UMA ficha no mapa
   // `consumo`. `remover` = ids de ficha_ingrediente que NÃO devem baixar (opcionais
@@ -362,6 +479,9 @@ export class VendasService {
       if (existente) return { comandaId: existente.id, idempotente: true };
     }
 
+    // Encomendas de atacado a criar APÓS o commit (evita ordem órfã se a venda
+    // falhar/rolar back). Preenchido no loop de itens quando há split.
+    const encomendas: any[] = [];
     let res: any;
     try {
       res = await this.db.transaction(async (tx) => {
@@ -409,6 +529,33 @@ export class VendasService {
         if (!p) throw new BadRequestException('Produto inválido');
         const qtd = Number(it.quantidade) || 1;
 
+        // Atacado + encomenda (mig 185): com data de entrega e item de atacado
+        // produzível (tem ficha), o que passa do estoque disponível AGORA vira
+        // ordem de produção agendada; vende só o disponível no ato.
+        let qtdVenda = qtd;
+        if (dto.encomendaDataEntrega && p.atacadoAtivo && p.fichaId) {
+          const { disponivel } = await this.disponibilidadeProduto(
+            tenantId,
+            p.id,
+            dto.unidadeId ?? null,
+          );
+          if (disponivel != null && qtd > disponivel) {
+            qtdVenda = Math.max(disponivel, 0);
+            const encQtd = qtd - qtdVenda;
+            if (encQtd > 0)
+              encomendas.push({
+                produtoId: p.id,
+                fichaId: p.fichaId,
+                itemSaidaId: p.itemId ?? null,
+                unidade: p.unidadeMedida ?? 'un',
+                quantidade: encQtd,
+                descricao: p.nome,
+              });
+          }
+        }
+        // Tudo virou encomenda → nada a vender/baixar agora nesta linha.
+        if (qtdVenda <= 0) continue;
+
         let preco = Number(p.precoVenda);
         let descricao = p.nome;
         let fatorFicha = 1;
@@ -432,7 +579,14 @@ export class VendasService {
           (it as any).complementos ?? [],
         );
         preco += precoDelta;
-        total += preco * qtd;
+        // Atacado por volume (mig 184): desconto por quantidade sobre o preço
+        // unitário da linha (grava já descontado; o subtotal segue a soma).
+        if (p.atacadoAtivo) {
+          const faixas = await this.faixasAtacadoDe(tx, tenantId, p.id);
+          // Desconto pela quantidade TOTAL pedida (qtd), não só a vendida no ato.
+          preco = precoComAtacado(preco, faixas, qtd);
+        }
+        total += preco * qtdVenda;
 
         const obs = (it as any).observacao || null;
         const [ci] = await tx
@@ -444,7 +598,7 @@ export class VendasService {
             variacaoId: it.variacaoId,
             fichaId: p.fichaId,
             descricao,
-            quantidade: String(qtd),
+            quantidade: String(qtdVenda),
             precoUnitario: String(preco),
             observacao: obs,
             criadoPorId: atorId,
@@ -466,14 +620,14 @@ export class VendasService {
           });
         }
 
-        await this.acumularProduto(tx, tenantId, p, fatorFicha, qtd, snapshots, consumo);
+        await this.acumularProduto(tx, tenantId, p, fatorFicha, qtdVenda, snapshots, consumo);
 
         const compTexto =
           snapshots
             .map((s: any) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`)
             .join(' · ') || null;
         viaClienteItens.push({
-          quantidade: qtd,
+          quantidade: qtdVenda,
           descricao,
           precoUnitario: preco,
           complementosTexto: compTexto,
@@ -482,7 +636,7 @@ export class VendasService {
           itensProducao.push({
             produto: p,
             descricao,
-            quantidade: qtd,
+            quantidade: qtdVenda,
             complementosTexto: compTexto,
             observacao: obs,
             comandaItemId: ci.id,
@@ -601,6 +755,37 @@ export class VendasService {
       detalhe: { total: res.total, itens: dto.itens.length },
     });
 
+    // Encomendas de atacado (mig 185): cria as ordens de produção do excedente
+    // APÓS o commit da venda, amarradas à comanda, com a data combinada. Falha
+    // aqui não desfaz a venda já concluída (best-effort + auditoria da ordem).
+    const encomendasCriadas: any[] = [];
+    for (const e of encomendas) {
+      try {
+        const ordem = await this.ordemProducao.criar(tenantId, atorId, {
+          fichaId: e.fichaId,
+          quantidadePlanejada: e.quantidade,
+          unidade: e.unidade,
+          unidadeId: res.unidadeId ?? null,
+          dataProducao: (dto as any).encomendaDataEntrega,
+          dataEntrega: (dto as any).encomendaDataEntrega,
+          itemSaidaId: e.itemSaidaId,
+          comandaId: res.comandaId,
+          origem: 'encomenda_atacado',
+          obs: `Encomenda de atacado: ${e.quantidade}× ${e.descricao}`,
+          liberar: true,
+        });
+        encomendasCriadas.push({
+          ordemId: ordem?.id,
+          produtoId: e.produtoId,
+          descricao: e.descricao,
+          quantidade: e.quantidade,
+          dataEntrega: (dto as any).encomendaDataEntrega,
+        });
+      } catch {
+        // não derruba a venda; o gestor pode recriar a ordem manualmente
+      }
+    }
+
     // Notifica destinos (KDS/impressora) dos novos pedidos duráveis (tempo real).
     this.producao.emitirNovos(res.producaoPayloads);
 
@@ -628,7 +813,11 @@ export class VendasService {
       res.comandaId,
       res.unidadeId,
     );
-    return { ...res, nfce: nota ? { status: nota.status, chave: nota.chave, numero: nota.numero } : null };
+    return {
+      ...res,
+      nfce: nota ? { status: nota.status, chave: nota.chave, numero: nota.numero } : null,
+      encomendas: encomendasCriadas,
+    };
   }
 
   // Renderiza + enfileira a via do cliente (cupom). Silencioso se não há impressora 'cupom'.
@@ -1724,6 +1913,11 @@ export class VendasService {
     );
     preco += precoDelta;
     const qtd = Number(dto.quantidade) || 1;
+    // Atacado por volume (mig 184): desconto por quantidade nesta linha da comanda.
+    if (p.atacadoAtivo) {
+      const faixas = await this.faixasAtacadoDe(this.db, tenantId, p.id);
+      preco = precoComAtacado(preco, faixas, qtd);
+    }
     const obs = dto.observacao || null;
     const [item] = await this.db
       .insert(comandaItem)

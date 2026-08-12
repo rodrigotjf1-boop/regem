@@ -56,7 +56,9 @@ import {
   integracao,
   entitlement,
   alertaEstoque,
+  produtoFaixaPreco,
 } from '../../db/schema';
+import { precoComAtacado } from '../../common/preco-atacado';
 import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP } from '../../common/mercadopago';
 import { criarPixPagBank, consultarPagamentoPagBank } from '../../common/pagbank';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
@@ -756,6 +758,35 @@ export class CardapioService {
     return 'Fechada';
   }
 
+  // Faixas de atacado (mig 184) por produto: só as com desconto > 0, ordenadas.
+  // Retorna Map<produtoId, {qtdMin, descontoPct}[]> para precificar/exibir em lote.
+  private async faixasAtacadoPorProduto(tenantId: string, ids: string[]) {
+    const map = new Map<string, { qtdMin: number; descontoPct: number }[]>();
+    if (!ids.length) return map;
+    const rows = await this.db
+      .select({
+        produtoId: produtoFaixaPreco.produtoId,
+        qtdMin: produtoFaixaPreco.qtdMin,
+        descontoPct: produtoFaixaPreco.descontoPct,
+      })
+      .from(produtoFaixaPreco)
+      .where(
+        and(
+          eq(produtoFaixaPreco.tenantId, tenantId),
+          inArray(produtoFaixaPreco.produtoId, ids),
+        ),
+      )
+      .orderBy(produtoFaixaPreco.qtdMin);
+    for (const r of rows) {
+      const pct = Number(r.descontoPct) || 0;
+      if (pct <= 0) continue;
+      const arr = map.get(r.produtoId) ?? [];
+      arr.push({ qtdMin: Number(r.qtdMin) || 0, descontoPct: pct });
+      map.set(r.produtoId, arr);
+    }
+    return map;
+  }
+
   async menu(token: string) {
     const cfg = await this.resolver(token);
     const catsRaw = await this.db
@@ -771,7 +802,8 @@ export class CardapioService {
              imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin",
              tipo, ficha_id as "fichaId", controla_estoque as "controlaEstoque",
              disponivel_cardapio as "disponivelCardapio", pausado_estoque as "pausadoEstoque",
-             permite_negativo as "permiteNegativo", destaque
+             permite_negativo as "permiteNegativo", destaque,
+             atacado_ativo as "atacadoAtivo"
       from produto
       where tenant_id = ${cfg.tenantId} and deleted_at is null
         and ativo = true
@@ -779,6 +811,8 @@ export class CardapioService {
     `);
     const lista = (prods.rows ?? prods) as any[];
     const ids = lista.map((p) => p.id);
+    // Faixas de atacado (mig 184) para exibir "a partir de N un, -X%" no cardápio.
+    const faixasAtacado = await this.faixasAtacadoPorProduto(cfg.tenantId, ids);
 
     // Esgotado automático pelo ledger: produto que controla estoque e cujo
     // insumo (item) tem saldo <= 0 fica marcado como esgotado no cardápio.
@@ -953,6 +987,9 @@ export class CardapioService {
           selos: p.selos ?? [],
           duracaoMin: p.duracaoMin,
           destaque: p.destaque === true,
+          // Atacado por volume (mig 184): faixas "a partir de N un → -X%" (só se ligado).
+          atacado:
+            p.atacadoAtivo === true ? faixasAtacado.get(p.id) ?? [] : [],
           // Esgotado = auto por estoque OU pausa manual OU auto-pausa por estoque.
           esgotado: esgotados.has(p.id) || p.disponivelCardapio === false || p.pausadoEstoque === true,
           variacoes: variacoes
@@ -1659,10 +1696,13 @@ export class CardapioService {
         precoPromocional: produto.precoPromocional,
         ativo: produto.ativo,
         disponivelCardapio: produto.disponivelCardapio,
+        atacadoAtivo: produto.atacadoAtivo,
       })
       .from(produto)
       .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)));
     const porId = new Map(prods.map((p) => [p.id, p]));
+    // Faixas de atacado (mig 184) para aplicar o desconto por quantidade na linha.
+    const faixasAtacado = await this.faixasAtacadoPorProduto(cfg.tenantId, ids);
     for (const it of dto.itens) {
       const p = porId.get(it.produtoId);
       // Só entra no cardápio produto ativo E marcado para o canal cardápio digital.
@@ -1709,7 +1749,10 @@ export class CardapioService {
         it.complementos ?? [],
       );
       const qtd = Number(it.quantidade) || 1;
-      const preco = base + precoDelta;
+      let preco = base + precoDelta;
+      // Atacado por volume (mig 184): aplica a faixa "a partir de N un" sobre o
+      // preço unitário da linha antes de somar o subtotal (base de cupom/cashback).
+      if (p.atacadoAtivo) preco = precoComAtacado(preco, faixasAtacado.get(p.id), qtd);
       totalCent += paraCentavos(preco) * qtd;
       itensOut.push({
         produtoId: it.produtoId,

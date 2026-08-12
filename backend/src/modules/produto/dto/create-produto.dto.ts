@@ -123,6 +123,7 @@ export class CreateProdutoDto {
   @IsOptional() @IsBoolean() disponivelCardapio?: boolean;
   @IsOptional() @IsBoolean() disponivelBalcao?: boolean;
   @IsOptional() @IsBoolean() destaque?: boolean;
+  @IsOptional() @IsBoolean() atacadoAtivo?: boolean; // liga faixas de atacado (mig 184)
   @IsOptional() @IsInt() vendaMultiplo?: number;
   @IsOptional() @IsInt() duracaoMin?: number;
   @IsOptional() @IsString() gtin?: string;
