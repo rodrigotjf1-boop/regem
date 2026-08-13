@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Headers,
   Param,
   Post,
   Put,
@@ -117,10 +118,15 @@ export class CardapioPublicoController {
   // Webhook do Mercado Pago (confirmação de PIX). Sem token de loja: correlaciona
   // pelo gateway_payment_id do pedido. Aceita o id no body (data.id) ou na query.
   @Post('pagamento/mercadopago/webhook')
-  mpWebhook(@Body() body: any, @Query() q: any) {
+  mpWebhook(@Body() body: any, @Query() q: any, @Headers() h: any) {
     const paymentId =
       body?.data?.id ?? body?.resource ?? q?.['data.id'] ?? q?.id ?? '';
-    return this.service.webhookMercadoPago(String(paymentId || ''));
+    // Assinatura (defesa em profundidade): validada só se MP_WEBHOOK_SECRET setado.
+    return this.service.webhookMercadoPago(
+      String(paymentId || ''),
+      h?.['x-signature'],
+      h?.['x-request-id'],
+    );
   }
 
   // Webhook do PagBank (Orders). Sem token de loja: correlaciona pelo id do pedido
@@ -133,8 +139,8 @@ export class CardapioPublicoController {
   }
 
   @Get(':token/pontos')
-  pontos(@Param('token') token: string, @Query('telefone') telefone: string) {
-    return this.service.pontosPublico(token, telefone ?? '');
+  pontos(@Param('token') token: string, @Query('ct') ct?: string) {
+    return this.service.pontosPublico(token, ct);
   }
 
   @Get(':token/promos')
@@ -146,40 +152,40 @@ export class CardapioPublicoController {
   @Post(':token/fidelidade/resgatar')
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   resgatar(@Param('token') token: string, @Body() dto: any) {
-    return this.service.resgatarFidelidade(token, dto?.resgateId ?? '', dto?.telefone ?? '');
+    return this.service.resgatarFidelidade(token, dto?.resgateId ?? '', dto?.clienteToken);
   }
 
   // Prêmios resgatados, prontos para abater no próximo pedido.
   @Get(':token/fidelidade/premios')
-  premios(@Param('token') token: string, @Query('telefone') telefone: string) {
-    return this.service.premiosFidelidade(token, telefone ?? '');
+  premios(@Param('token') token: string, @Query('ct') ct?: string) {
+    return this.service.premiosFidelidade(token, ct);
   }
 
   // Saldo de cashback do cliente.
   @Get(':token/cashback')
-  cashback(@Param('token') token: string, @Query('telefone') telefone: string) {
-    return this.service.cashbackSaldoPublico(token, telefone ?? '');
+  cashback(@Param('token') token: string, @Query('ct') ct?: string) {
+    return this.service.cashbackSaldoPublico(token, ct);
   }
 
   // Troca pontos de cashback por um produto (gera vale).
   @Post(':token/cashback/resgatar')
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   cashbackResgatar(@Param('token') token: string, @Body() dto: any) {
-    return this.service.cashbackResgatarProduto(token, dto?.telefone ?? '', dto?.produtoId ?? '');
+    return this.service.cashbackResgatarProduto(token, dto?.clienteToken, dto?.produtoId ?? '');
   }
 
-  // Pedidos recentes de um telefone (robô: "cadê meu pedido?").
+  // Pedidos recentes do cliente (identificado pelo token do cliente).
   @Get(':token/pedidos')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
-  pedidosTelefone(@Param('token') token: string, @Query('telefone') telefone: string) {
-    return this.service.pedidosPorTelefone(token, telefone ?? '');
+  pedidosTelefone(@Param('token') token: string, @Query('ct') ct?: string) {
+    return this.service.pedidosPorTelefone(token, ct);
   }
 
   // Último pedido do cliente (card do topo, com imagem dos produtos).
   @Get(':token/ultimo-pedido')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
-  ultimoPedido(@Param('token') token: string, @Query('telefone') telefone: string) {
-    return this.service.ultimoPedidoPublico(token, telefone ?? '');
+  ultimoPedido(@Param('token') token: string, @Query('ct') ct?: string) {
+    return this.service.ultimoPedidoPublico(token, ct);
   }
 
   // Handoff: o robô abre um chamado de atendimento para a loja.

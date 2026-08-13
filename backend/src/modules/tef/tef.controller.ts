@@ -24,33 +24,38 @@ const GESTOR = ['presidente', 'gerente', 'supervisao'];
 export class TefController {
   constructor(private readonly service: TefService) {}
 
-  // ----- PDV (JWT) -----
+  // ----- PDV (JWT) — pagamento TEF é dado financeiro: exige a permissão 'pdv'. -----
   @Post('pagamentos')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('pdv')
   criar(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.criar(user.tenantId, user.colaboradorId, dto);
   }
 
   @Get('pagamentos')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('pdv')
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);
   }
 
   @Get('pagamentos/:id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('pdv')
   get(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.get(user.tenantId, id);
   }
 
   @Post('pagamentos/:id/vincular')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('pdv')
   vincular(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.service.vincularComanda(user.tenantId, id, dto?.comandaId);
   }
 
   @Post('pagamentos/:id/cancelar')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('pdv')
   cancelar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.cancelar(user.tenantId, user.colaboradorId, user.categoria, id);
   }

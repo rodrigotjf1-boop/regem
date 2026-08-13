@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { brl } from './tipos';
+import { brl, getClienteToken } from './tipos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Aba Promos: cupons vigentes, fidelidade (progresso + resgate) e ofertas.
@@ -32,17 +32,17 @@ export function PromosPanel({
       setCashback(null);
       return;
     }
-    api.cardapioPontos(token, tel).then(setStatus).catch(() => setStatus(null));
-    api.cardapioCashback(token, tel).then(setCashback).catch(() => setCashback(null));
+    const ct = getClienteToken(token) || undefined;
+    api.cardapioPontos(token, ct).then(setStatus).catch(() => setStatus(null));
+    api.cardapioCashback(token, ct).then(setCashback).catch(() => setCashback(null));
   }, [token, telefone]);
   useEffect(() => {
     carregarStatus();
   }, [carregarStatus]);
 
   async function resgatarProduto(produtoId: string) {
-    const tel = (telefone ?? '').replace(/\D/g, '');
     try {
-      await api.cardapioCashbackResgatar(token, tel, produtoId);
+      await api.cardapioCashbackResgatar(token, getClienteToken(token) || undefined, produtoId);
       alert('Produto resgatado! O desconto entra automaticamente no seu próximo pedido.');
       carregarStatus();
     } catch (e) {
@@ -55,9 +55,8 @@ export function PromosPanel({
   const temCashback = cashback && ((cashback.valor ?? 0) > 0 || (cashback.pontos ?? 0) > 0 || cbPontosProdutos.length > 0);
 
   async function resgatar(id: string) {
-    const tel = (telefone ?? '').replace(/\D/g, '');
     try {
-      await api.cardapioFidelidadeResgatar(token, id, tel);
+      await api.cardapioFidelidadeResgatar(token, id, getClienteToken(token) || undefined);
       alert('Prêmio resgatado! O desconto entra automaticamente no seu próximo pedido.');
       carregarStatus();
     } catch (e) {

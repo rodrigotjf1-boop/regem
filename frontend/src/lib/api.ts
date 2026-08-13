@@ -1008,12 +1008,13 @@ export const api = {
     pub(`/publico/cardapio/${token}/cupom`, { method: 'POST', body: JSON.stringify({ codigo, subtotal, telefone }) }),
   cardapioCuponsDisponiveis: (token: string, telefone: string, subtotal: number) =>
     pub(`/publico/cardapio/${token}/cupons-disponiveis?telefone=${encodeURIComponent(telefone)}&subtotal=${subtotal}`),
-  cardapioFidelidadeResgatar: (token: string, resgateId: string, telefone: string) =>
-    pub(`/publico/cardapio/${token}/fidelidade/resgatar`, { method: 'POST', body: JSON.stringify({ resgateId, telefone }) }),
-  cardapioFidelidadePremios: (token: string, telefone: string) =>
-    pub(`/publico/cardapio/${token}/fidelidade/premios?telefone=${encodeURIComponent(telefone)}`),
-  cardapioUltimoPedido: (token: string, telefone: string) =>
-    pub(`/publico/cardapio/${token}/ultimo-pedido?telefone=${encodeURIComponent(telefone)}`),
+  // Ações de PII do cliente: identificadas pelo TOKEN do cliente (não por telefone).
+  cardapioFidelidadeResgatar: (token: string, resgateId: string, clienteToken?: string) =>
+    pub(`/publico/cardapio/${token}/fidelidade/resgatar`, { method: 'POST', body: JSON.stringify({ resgateId, clienteToken }) }),
+  cardapioFidelidadePremios: (token: string, clienteToken?: string) =>
+    pub(`/publico/cardapio/${token}/fidelidade/premios${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
+  cardapioUltimoPedido: (token: string, clienteToken?: string) =>
+    pub(`/publico/cardapio/${token}/ultimo-pedido${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
   cardapioStatus: (token: string, id: string, ref?: string) =>
     pub(`/publico/cardapio/${token}/pedido/${id}${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`),
   cardapioPagar: (token: string, id: string) =>
@@ -1028,8 +1029,8 @@ export const api = {
     pub(`/publico/cardapio/${token}/recorrencias?ct=${encodeURIComponent(ct)}`),
   cardapioAlterarRecorrencia: (token: string, id: string, acao: 'pausar' | 'retomar' | 'cancelar', clienteToken: string) =>
     pub(`/publico/cardapio/${token}/recorrencias/${id}/${acao}`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
-  cardapioPontos: (token: string, telefone: string) =>
-    pub(`/publico/cardapio/${token}/pontos?telefone=${encodeURIComponent(telefone)}`),
+  cardapioPontos: (token: string, clienteToken?: string) =>
+    pub(`/publico/cardapio/${token}/pontos${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
   cardapioPromos: (token: string) => pub(`/publico/cardapio/${token}/promos`),
   cardapioPecaTambem: (token: string, produtos: string[]) =>
     pub(`/publico/cardapio/${token}/peca-tambem?produtos=${encodeURIComponent(produtos.join(','))}`),
@@ -1094,11 +1095,11 @@ export const api = {
     req(`/cashback/planos/${id}/finalizar`, { method: 'POST', body: '{}' }),
   cashbackRelatorio: (inicio = '', fim = '', telefone = '') =>
     req(`/cashback/relatorio?inicio=${inicio}&fim=${fim}&telefone=${encodeURIComponent(telefone)}`),
-  // Cashback (público, cardápio)
-  cardapioCashback: (token: string, telefone: string) =>
-    pub(`/publico/cardapio/${token}/cashback?telefone=${encodeURIComponent(telefone)}`),
-  cardapioCashbackResgatar: (token: string, telefone: string, produtoId: string) =>
-    pub(`/publico/cardapio/${token}/cashback/resgatar`, { method: 'POST', body: JSON.stringify({ telefone, produtoId }) }),
+  // Cashback (público, cardápio) — identificado pelo TOKEN do cliente.
+  cardapioCashback: (token: string, clienteToken?: string) =>
+    pub(`/publico/cardapio/${token}/cashback${clienteToken ? `?ct=${encodeURIComponent(clienteToken)}` : ''}`),
+  cardapioCashbackResgatar: (token: string, clienteToken: string | undefined, produtoId: string) =>
+    pub(`/publico/cardapio/${token}/cashback/resgatar`, { method: 'POST', body: JSON.stringify({ clienteToken, produtoId }) }),
   comandas: () => req('/vendas/comandas'),
   comanda: (id: string) => req(`/vendas/comandas/${id}`),
   abrirComanda: (body: Record<string, unknown>) =>

@@ -54,7 +54,7 @@ export function ClientePanel({
       const p: any = await api.clientePerfil(token, ct);
       setPerfil(p);
       const tel = (p?.cliente?.telefone ?? '').replace(/\D/g, '');
-      if (tel.length >= 10) api.cardapioCashback(token, tel).then(setCashback).catch(() => setCashback(null));
+      if (tel.length >= 10) api.cardapioCashback(token, getClienteToken(token) || undefined).then(setCashback).catch(() => setCashback(null));
     } catch {
       setClienteToken(token, null);
       setPerfil(null);
