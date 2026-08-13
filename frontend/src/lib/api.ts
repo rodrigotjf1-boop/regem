@@ -29,9 +29,16 @@ function ehEdge(): boolean {
   return process.env.NEXT_PUBLIC_EDGE === '1';
 }
 
-export function getToken() {
+// JWT real (edge/Bearer e fallback). null no modo cookie (o token vive no cookie
+// httpOnly, ilegível por JS). Usado p/ decodificar, montar o Bearer e o socket.
+export function getJwt(): string | null {
   if (typeof window === 'undefined') return null;
   return localStorage.getItem(TOKEN_KEY) ?? sessionStorage.getItem(TOKEN_KEY);
+}
+// Presença de sessão ("estou logado?") — JWT real OU sessão por cookie (identidade
+// guardada em regem_me). Mantém os 53 gates `if (!getToken())` valendo nos dois modos.
+export function getToken(): string | null {
+  return getJwt() ?? (lerMe() ? 'cookie' : null);
 }
 // persist=true (padrão): localStorage (sobrevive a fechar o navegador).
 // persist=false: sessionStorage (cai ao fechar a aba) — "Manter conectado" off.
@@ -61,9 +68,12 @@ function lerMe(): any {
     return null;
   }
 }
+function guardarMe(me: any) {
+  if (typeof window !== 'undefined') localStorage.setItem(ME_KEY, JSON.stringify(me));
+}
 // Payload de identidade: do JWT (Bearer/edge) OU do /auth/me guardado (nuvem/cookie).
 function lerPayload(): any {
-  const t = getToken();
+  const t = getJwt();
   if (t) {
     try {
       return JSON.parse(atob(t.split('.')[1] ?? ''));
@@ -77,16 +87,26 @@ function lerPayload(): any {
 // Estabelece a sessão após login/register. Ponto único de costura da migração
 // para cookie httpOnly.
 //
-// FASE A (atual): guarda o token (Bearer/localStorage), como antes. Na NUVEM o
-// servidor JÁ grava, em paralelo, o cookie httpOnly no login — aqui não mudamos o
-// comportamento (o Bearer segue conduzindo a sessão), então zero risco de lockout;
-// o cookie fica estabelecido e VERIFICÁVEL em produção antes do cutover.
-//
-// FASE B (cutover, próximo passo): na nuvem, sondar /auth/me e, se o cookie
-// funcionar, NÃO guardar o token (fica só no cookie → XSS não rouba a sessão) e
-// memorizar a identidade (`guardarMe`) — depende da separação getToken()/getJwt()
-// nos 53 gates e do socket ler o cookie no handshake. Ver docs/auth-cookie-migracao.md.
+// Edge: guarda o token (Bearer/localStorage), como sempre.
+// Nuvem: SONDA /auth/me sem Bearer — se o cookie httpOnly funciona, NÃO guarda o
+// token (fica só no cookie → XSS não rouba a sessão) e memoriza a identidade p/ os
+// gates de UI. Se o cookie falhar (config), cai no Bearer — AUTO-PROTEGIDO, sem
+// risco de lockout: só entra em cookie-only quando o cookie comprovadamente vai.
 export async function estabelecerSessao(token: string, persist = true): Promise<void> {
+  if (ehEdge()) {
+    setToken(token, persist);
+    return;
+  }
+  try {
+    const r = await fetch(`${apiBase()}/auth/me`, { credentials: 'include', cache: 'no-store' });
+    if (r.ok) {
+      clearToken(); // token só no cookie httpOnly
+      guardarMe(await r.json());
+      return;
+    }
+  } catch {
+    /* cai no fallback Bearer */
+  }
   setToken(token, persist);
 }
 
@@ -279,7 +299,7 @@ function sessaoExpirou() {
 }
 
 async function req(path: string, options: RequestInit = {}) {
-  const token = getToken();
+  const token = getJwt(); // Bearer só quando há JWT real; no modo cookie vai o cookie
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {
@@ -409,13 +429,14 @@ export const distApi = {
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
 async function uploadFile(path: string, file: File) {
-  const token = getToken();
+  const token = getJwt();
   const form = new FormData();
   form.append('file', file);
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {
       method: 'POST',
+      credentials: ehEdge() ? 'same-origin' : 'include',
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: form,
     });
@@ -1186,10 +1207,11 @@ export const api = {
     }),
   // Baixa o PDF consolidado do espelho (com auth) e devolve um object URL p/ abrir.
   pontoEspelhoPdfUrl: async (competencia: string): Promise<string> => {
-    const token = getToken();
+    const token = getJwt();
     const res = await fetch(
       `${apiBase()}/ponto/fechamentos/${competencia}/pdf`,
       {
+        credentials: ehEdge() ? 'same-origin' : 'include',
         headers: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(getUnidadeAtual()
