@@ -1704,12 +1704,17 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
           ) : (
             <>
               <p className="text-[11px] text-muted-foreground">PIX online direto na <strong>sua conta Mercado Pago</strong> — o dinheiro cai em você. Cole o <strong>Access Token</strong> de produção (Mercado Pago → Seus negócios → Configurações → Credenciais de produção → <em>Access Token</em>).</p>
-              <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O webhook do Mercado Pago é automático (o Regem informa a URL na cobrança). Nada a cadastrar no painel do MP.</p>
+              <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">O webhook do Mercado Pago é automático (o Regem informa a URL na cobrança). A <strong>assinatura secreta</strong> abaixo é opcional — reforça a segurança do webhook.</p>
             </>
           )}
           <Campo label={`${ehPs ? 'Token PagBank' : 'Access Token'}${it.temToken ? ' (salvo)' : ''}`}>
             <Input type="password" value={tokenV} onChange={(e) => setTokenV(e.target.value)} placeholder={it.temToken ? '•••••• (mantém)' : ehPs ? 'cole o token de produção do PagBank' : 'cole o Access Token de produção do Mercado Pago'} className="h-8" disabled={!pode} />
           </Campo>
+          {ehMp && (
+            <Campo label={`Assinatura secreta do webhook — opcional${it.temSecret ? ' (salva)' : ''}`}>
+              <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (mantém)' : 'Mercado Pago → Webhooks → Assinatura secreta'} className="h-8" disabled={!pode} />
+            </Campo>
+          )}
           {pode && (
             <div className="flex flex-wrap items-center justify-between gap-2">
               {pixTestMsg ? (
