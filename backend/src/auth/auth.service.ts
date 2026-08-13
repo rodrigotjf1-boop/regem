@@ -29,8 +29,11 @@ import { PERFIS_PADRAO, perfilPadrao, type Permissoes } from './permissoes';
 // Lockout de PIN: após N falhas em JANELA minutos (na mesma unidade), bloqueia.
 const PIN_MAX_FALHAS = 10;
 // Janela curta (recupera rápido) para reduzir DoS interno: um funcionário
-// errando PINs de propósito só trava o terminal por poucos minutos. O brute-force
-// tem como defesa primária o @Throttle 5/60s por IP no endpoint de PIN.
+// errando PINs de propósito só trava o terminal por poucos minutos.
+// Este lockout é a defesa PRIMÁRIA contra brute-force de PIN — conta só falhas e
+// é por unidade, então não se contorna trocando de IP (VPN/botnet). O @Throttle
+// por IP no controller é apenas teto volumétrico: sozinho ele seria burlado por
+// um atacante distribuído e, apertado demais, barra a troca de turno legítima.
 const PIN_JANELA_MIN = 5;
 
 @Injectable()
