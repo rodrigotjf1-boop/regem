@@ -13,6 +13,7 @@ import {
 import { randomUUID } from 'crypto';
 import { Server, Socket } from 'socket.io';
 import { EquipamentoService } from '../equipamento/equipamento.service';
+import { lerCookieSessao } from '../../auth/cookie-sessao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,7 +33,12 @@ const corsOrigin = process.env.CORS_ORIGIN;
 // Rooms por tenant (+ unidade e tipo de device). Handshake por JWT (gestor/web)
 // ou por token de equipamento (device). Ver decisoes-design §5 e CLAUDE.md.
 @WebSocketGateway({
-  cors: corsOrigin ? { origin: corsOrigin.split(',').map((o) => o.trim()) } : { origin: true },
+  // Nuvem (lista fixa): credentials:true p/ o cookie httpOnly ir no handshake.
+  // Edge ('*'/sem lista): origin:true, auth por jwt/device (sem cookie).
+  cors:
+    corsOrigin && corsOrigin.trim() !== '*'
+      ? { origin: corsOrigin.split(',').map((o) => o.trim()), credentials: true }
+      : { origin: true },
 })
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
@@ -69,8 +75,12 @@ export class RealtimeGateway
           online: true,
         });
         this.log.log(`device conectado: ${eq.tipo} · ${eq.nome}`);
-      } else if (auth.jwt) {
-        const p: any = this.jwt.verify(auth.jwt);
+      } else {
+        // Gestor: JWT no handshake (edge/Bearer) OU cookie httpOnly (nuvem, Fase B).
+        const jwt =
+          auth.jwt || lerCookieSessao({ headers: socket.handshake.headers } as any);
+        if (!jwt) return this.recusar(socket, 'sem credenciais');
+        const p: any = this.jwt.verify(jwt);
         const ctx: SockCtx = {
           tenantId: p.tenant,
           role: 'gestor',
@@ -78,8 +88,6 @@ export class RealtimeGateway
         };
         socket.data.ctx = ctx;
         this.entrarSalas(socket, ctx);
-      } else {
-        return this.recusar(socket, 'sem credenciais');
       }
     } catch {
       this.recusar(socket, 'handshake inválido');

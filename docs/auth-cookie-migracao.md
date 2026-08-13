@@ -33,14 +33,17 @@ Frontend (`lib/api.ts`):
 3. Confirme que o app funciona normal (o Bearer ainda conduz).
 4. Se o cookie **não** aparecer: conferir `CORS_ORIGIN` (lista fixa, sem `*`) e, se `app.` e `api.` precisarem compartilhar, setar `COOKIE_DOMAIN=.dmsregem.com` no `regem-api`. Sem o cookie, a Fase B não deve ser ligada.
 
-## Fase B — cutover (PRÓXIMO passo, depende da verificação acima)
-1. **Separar `getToken()` (presença) de `getJwt()` (token real):**
-   - `getJwt()`: JWT real ou null → usado por `lerPayload` (decode), pelo header Bearer do `req()` e pelo `rt.ts`.
-   - `getToken()`: passa a significar "logado?" = `!!getJwt() || !!lerMe()` → os **53 gates ficam intactos** (só trocam a fonte, não o call-site).
-2. **`estabelecerSessao` (nuvem):** sondar `GET /auth/me` sem Bearer; se 200, `clearToken()` (token só no cookie) + `guardarMe(me)`. Se falhar, cai no Bearer (auto-protegido).
-3. **Socket (`rt.ts`):** no modo cookie, o handshake vai sem `auth.jwt`; o `RealtimeGateway` passa a **ler o cookie `regem_sess`** do header do handshake (o socket.io manda cookies com `withCredentials`). Ligar `withCredentials:true` no cliente.
-4. **Migração suave:** sessões antigas (só localStorage) seguem no Bearer até o próximo login; novas viram cookie-only. Sem logout em massa.
-5. Validar isolamento/lockout em staging antes da nuvem. Rollback = reverter o front (o backend da Fase A é compatível com os dois).
+## Fase B — ENTREGUE (cutover cookie-only, AUTO-PROTEGIDO)
+
+Ligado por padrão na nuvem, mas **só entra em cookie-only quando o cookie comprovadamente funciona** — senão cai no Bearer (sem lockout). O que foi feito:
+1. **`getJwt()` (token real) separado de `getToken()` (presença):**
+   - `getJwt()`: JWT real ou null → `lerPayload` (decode), Bearer do `req()`/`uploadFile`/`pontoEspelhoPdfUrl`, e `rt.ts`.
+   - `getToken()` = `getJwt() ?? (lerMe() ? 'cookie' : null)` → os **53 gates `if (!getToken())` ficam intactos** (valem nos dois modos).
+2. **`estabelecerSessao` (nuvem):** sonda `GET /auth/me` sem Bearer; se 200 → `clearToken()` (token só no cookie) + `guardarMe(me)`; se falhar → `setToken` (Bearer, auto-protegido).
+3. **Socket (`rt.ts` + `RealtimeGateway`):** cliente manda `withCredentials:true` (nuvem) e `jwt` só se houver; o gateway lê **`auth.jwt` OU o cookie `regem_sess`** do handshake, e o CORS do WS ganhou `credentials:true` na lista fixa.
+4. **Migração suave:** sessões antigas (localStorage) seguem no Bearer até o próximo login; novas viram cookie-only. Sem logout em massa.
+
+**Validar em produção:** após o deploy, um login novo na nuvem deve deixar de gravar o JWT no `localStorage` (DevTools → Application → Local Storage: sem `regen_token`; só `regem_me`) e o app + **KDS/realtime** seguem funcionando (socket pelo cookie). Se algo falhar, o próprio login cai no Bearer; rollback = reverter o front (backend aceita os dois).
 
 ## Notas
 - **CSRF:** `SameSite=Lax` barra POST cross-site; `app.→api.` é same-site (mesmo `dmsregem.com`) → o cookie vai nos XHR. Sem necessidade de token CSRF adicional no MVP.
