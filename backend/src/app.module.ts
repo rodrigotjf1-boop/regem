@@ -5,7 +5,8 @@ import { LicenseInterceptor } from './modules/licenca/license.interceptor';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { CfThrottlerGuard } from './common/cf-throttler.guard';
 import { DrizzleModule } from './db/drizzle.module';
 import { AppController } from './app.controller';
 import { EmpresaModule } from './modules/empresa/empresa.module';
@@ -170,7 +171,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
   ],
   controllers: [AppController],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Conta o rate limit pelo IP real do cliente atrás da Cloudflare (ver guard).
+    { provide: APP_GUARD, useClass: CfThrottlerGuard },
     // Barra endpoints @CloudOnly quando EDGE_MODE=true (defesa em profundidade
     // da fronteira cloud-only×edge — ver edge-manifest.ts).
     { provide: APP_GUARD, useClass: CloudOnlyGuard },
