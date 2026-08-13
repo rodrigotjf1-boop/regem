@@ -18,12 +18,24 @@ import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
 import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+
+// Ator da operação (para auditoria) — vem do @CurrentUser do controller.
+type Ator = { colaboradorId?: string; categoria?: string };
 
 @Injectable()
 export class EstoqueService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
-  async createItem(tenantId: string, dto: CreateItemDto, atual: string | null = null) {
+  async createItem(
+    tenantId: string,
+    dto: CreateItemDto,
+    atual: string | null = null,
+    ator?: Ator,
+  ) {
     // Fornecedor principal: 1º da lista N:N, ou o campo legado.
     const principal = dto.fornecedorIds?.length ? dto.fornecedorIds[0] : dto.fornecedorId;
     const [row] = await this.db
@@ -47,6 +59,17 @@ export class EstoqueService {
       .returning();
     await this.gravarConversoes(tenantId, row.id, dto.conversoes);
     await this.gravarFornecedores(tenantId, row.id, dto.fornecedorIds, dto.fornecedorId);
+    // Auditoria: insumo criado.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'estoque',
+      acao: 'item_criado',
+      entidadeTipo: 'item_estoque',
+      entidadeId: row.id,
+      origem: 'web',
+    });
     return row;
   }
 
@@ -71,7 +94,13 @@ export class EstoqueService {
   }
 
   // Edita um insumo (campos + conversões replace-all).
-  async updateItem(tenantId: string, id: string, dto: CreateItemDto, atual: string | null = null) {
+  async updateItem(
+    tenantId: string,
+    id: string,
+    dto: CreateItemDto,
+    atual: string | null = null,
+    ator?: Ator,
+  ) {
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.nome !== undefined) patch.nome = dto.nome;
     if (dto.unidadeMedida !== undefined) patch.unidadeMedida = dto.unidadeMedida;
@@ -101,6 +130,17 @@ export class EstoqueService {
     if (dto.conversoes) await this.gravarConversoes(tenantId, id, dto.conversoes);
     if (dto.fornecedorIds !== undefined || dto.fornecedorId !== undefined)
       await this.gravarFornecedores(tenantId, id, dto.fornecedorIds, dto.fornecedorId);
+    // Auditoria: insumo editado.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'estoque',
+      acao: 'item_editado',
+      entidadeTipo: 'item_estoque',
+      entidadeId: id,
+      origem: 'web',
+    });
     return row;
   }
 
@@ -226,7 +266,12 @@ export class EstoqueService {
     }));
   }
 
-  async createMovimento(tenantId: string, dto: CreateMovimentoDto, atual: string | null = null) {
+  async createMovimento(
+    tenantId: string,
+    dto: CreateMovimentoDto,
+    atual: string | null = null,
+    ator?: Ator,
+  ) {
     const [it] = await this.db
       .select({ id: itemEstoque.id })
       .from(itemEstoque)
@@ -251,6 +296,18 @@ export class EstoqueService {
         data: dto.data,
       })
       .returning();
+    // Auditoria: movimento manual de estoque (entrada/saída/ajuste).
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'estoque',
+      acao: 'movimento_manual',
+      entidadeTipo: 'item_estoque',
+      entidadeId: dto.itemId,
+      detalhe: { tipo: dto.tipo, quantidade: dto.quantidade, motivo: dto.motivo },
+      origem: 'web',
+    });
     return row;
   }
 

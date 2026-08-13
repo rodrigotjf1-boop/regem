@@ -27,7 +27,7 @@ export class FuncaoController {
   @Post()
   @Roles('presidente', 'gerente')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateFuncaoDto) {
-    return this.service.create(user.tenantId, dto);
+    return this.service.create(user.tenantId, dto, user);
   }
 
   @Get()
@@ -42,12 +42,12 @@ export class FuncaoController {
     @Param('id') id: string,
     @Body() dto: CreateFuncaoDto,
   ) {
-    return this.service.update(user.tenantId, id, dto);
+    return this.service.update(user.tenantId, id, dto, user);
   }
 
   @Delete(':id')
   @Roles('presidente', 'gerente')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.remove(user.tenantId, id);
+    return this.service.remove(user.tenantId, id, user);
   }
 }

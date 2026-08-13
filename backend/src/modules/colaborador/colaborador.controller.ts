@@ -32,7 +32,7 @@ export class ColaboradorController {
     @Body() dto: CreateColaboradorDto,
     @UnidadeAtual() unidadeId: string | null,
   ) {
-    return this.service.create(user.tenantId, dto, user.categoria, unidadeId);
+    return this.service.create(user.tenantId, dto, user.categoria, unidadeId, user);
   }
 
   @Get()
@@ -52,14 +52,14 @@ export class ColaboradorController {
     @Param('id') id: string,
     @Body() dto: CreateColaboradorDto,
   ) {
-    return this.service.update(user.tenantId, id, dto);
+    return this.service.update(user.tenantId, id, dto, user);
   }
 
   @Delete(':id')
   @Roles('presidente', 'gerente')
   @RequirePerm('cadastros')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.remove(user.tenantId, id);
+    return this.service.remove(user.tenantId, id, user);
   }
 
   // Reset de senha pelo gestor (recuperação sem e-mail).

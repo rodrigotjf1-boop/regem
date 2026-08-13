@@ -8,12 +8,19 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { setor, unidade } from '../../db/schema';
 import { CreateSetorDto } from './dto/create-setor.dto';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+
+// Ator da operação (para auditoria) — vem do @CurrentUser do controller.
+type Ator = { colaboradorId?: string; categoria?: string };
 
 @Injectable()
 export class SetorService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
-  async create(tenantId: string, dto: CreateSetorDto) {
+  async create(tenantId: string, dto: CreateSetorDto, ator?: Ator) {
     // A unidade referenciada precisa ser do mesmo tenant (ref cross-tenant-safe).
     const [uni] = await this.db
       .select({ id: unidade.id })
@@ -37,6 +44,17 @@ export class SetorService {
         cor: dto.cor,
       })
       .returning();
+    // Auditoria: setor criado.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'setor_criado',
+      entidadeTipo: 'setor',
+      entidadeId: row.id,
+      origem: 'web',
+    });
     return row;
   }
 
@@ -45,6 +63,7 @@ export class SetorService {
     tenantId: string,
     id: string,
     dto: { nome?: string; icone?: string; cor?: string },
+    ator?: Ator,
   ) {
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.nome !== undefined) patch.nome = dto.nome;
@@ -62,10 +81,21 @@ export class SetorService {
       )
       .returning();
     if (!row) throw new NotFoundException('Setor não encontrado');
+    // Auditoria: setor editado.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'setor_editado',
+      entidadeTipo: 'setor',
+      entidadeId: id,
+      origem: 'web',
+    });
     return row;
   }
 
-  async remove(tenantId: string, id: string) {
+  async remove(tenantId: string, id: string, ator?: Ator) {
     // Guarda: não excluir setor com funções, turnos, etiquetas ou janelas ativas.
     const r: any = await this.db.execute(sql`
       select
@@ -96,6 +126,17 @@ export class SetorService {
       .where(and(eq(setor.id, id), eq(setor.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Setor não encontrado');
+    // Auditoria: setor removido.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'setor_removido',
+      entidadeTipo: 'setor',
+      entidadeId: id,
+      origem: 'web',
+    });
     return { ok: true };
   }
 

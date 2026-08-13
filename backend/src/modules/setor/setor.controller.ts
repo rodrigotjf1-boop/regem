@@ -28,7 +28,7 @@ export class SetorController {
   @Post()
   @Roles('presidente', 'gerente')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateSetorDto) {
-    return this.service.create(user.tenantId, dto);
+    return this.service.create(user.tenantId, dto, user);
   }
 
   @Patch(':id')
@@ -38,13 +38,13 @@ export class SetorController {
     @Param('id') id: string,
     @Body() dto: { nome?: string; icone?: string; cor?: string },
   ) {
-    return this.service.update(user.tenantId, id, dto);
+    return this.service.update(user.tenantId, id, dto, user);
   }
 
   @Delete(':id')
   @Roles('presidente', 'gerente')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.remove(user.tenantId, id);
+    return this.service.remove(user.tenantId, id, user);
   }
 
   @Get()
