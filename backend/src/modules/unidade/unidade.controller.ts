@@ -27,7 +27,7 @@ export class UnidadeController {
   @Post()
   @Roles('presidente')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateUnidadeDto) {
-    return this.service.create(user.tenantId, dto);
+    return this.service.create(user.tenantId, dto, user);
   }
 
   @Get()
@@ -42,12 +42,12 @@ export class UnidadeController {
     @Param('id') id: string,
     @Body() dto: CreateUnidadeDto,
   ) {
-    return this.service.update(user.tenantId, id, dto);
+    return this.service.update(user.tenantId, id, dto, user);
   }
 
   @Delete(':id')
   @Roles('presidente')
   remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.remove(user.tenantId, id);
+    return this.service.remove(user.tenantId, id, user);
   }
 }

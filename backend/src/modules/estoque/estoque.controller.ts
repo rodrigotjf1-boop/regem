@@ -33,7 +33,7 @@ export class EstoqueController {
     @UnidadeAtual() atual: string | null,
     @Body() dto: CreateItemDto,
   ) {
-    return this.service.createItem(user.tenantId, dto, atual);
+    return this.service.createItem(user.tenantId, dto, atual, user);
   }
 
   @Get('itens')
@@ -50,7 +50,7 @@ export class EstoqueController {
     @Param('id') id: string,
     @Body() dto: CreateItemDto,
   ) {
-    return this.service.updateItem(user.tenantId, id, dto, atual);
+    return this.service.updateItem(user.tenantId, id, dto, atual, user);
   }
 
   // ----- Categorias de insumo (cadastro próprio) -----
@@ -81,7 +81,7 @@ export class EstoqueController {
     @UnidadeAtual() atual: string | null,
     @Body() dto: CreateMovimentoDto,
   ) {
-    return this.service.createMovimento(user.tenantId, dto, atual);
+    return this.service.createMovimento(user.tenantId, dto, atual, user);
   }
 
   @Get('movimentos')

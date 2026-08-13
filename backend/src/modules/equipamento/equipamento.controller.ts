@@ -78,8 +78,11 @@ export class EquipamentoController {
     return this.service.removerImpressora(user.tenantId, id);
   }
 
-  // ----- Terminal de PDV: pareamento do PC (qualquer autenticado; o token é a prova) -----
+  // ----- Terminal de PDV: pareamento do PC (só presidente/gerente com perm servidor) -----
   @Post('parear')
+  @UseGuards(PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('servidor')
   parear(@CurrentUser() user: AuthUser, @Body() dto: { token?: string }) {
     return this.service.parear(user.tenantId, dto?.token ?? '');
   }

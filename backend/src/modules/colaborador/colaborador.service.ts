@@ -20,6 +20,9 @@ import { AuthUser } from '../../auth/auth-user';
 import { NIL_UUID } from '../../auth/unidade-atual.decorator';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
 
+// Ator da operação (para auditoria) — vem do @CurrentUser do controller.
+type Ator = { colaboradorId?: string; categoria?: string };
+
 // Colunas públicas: nunca expõe senha_hash / pin_hash.
 const publicCols = {
   id: colaborador.id,
@@ -236,6 +239,7 @@ export class ColaboradorService {
     dto: CreateColaboradorDto,
     atorCategoria = 'presidente',
     unidadeAtual?: string | null,
+    ator?: Ator,
   ) {
     const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 12) : undefined;
     const email = dto.email?.trim().toLowerCase() || undefined;
@@ -330,11 +334,22 @@ export class ColaboradorService {
         )
         .onConflictDoNothing();
     }
+    // Auditoria: colaborador criado.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria ?? atorCategoria,
+      tipo: 'cadastro',
+      acao: 'colaborador_criado',
+      entidadeTipo: 'colaborador',
+      entidadeId: row.id,
+      origem: 'web',
+    });
     return { ...row, funcaoIds: validas };
   }
 
   // Edição geral (Cadastros): dados básicos + funções (N:N) + PIN opcional.
-  async update(tenantId: string, id: string, dto: CreateColaboradorDto) {
+  async update(tenantId: string, id: string, dto: CreateColaboradorDto, ator?: Ator) {
     const [atual] = await this.db
       .select({ id: colaborador.id, perfilAcessoId: colaborador.perfilAcessoId })
       .from(colaborador)
@@ -425,10 +440,21 @@ export class ColaboradorService {
           .onConflictDoNothing();
       }
     }
+    // Auditoria: colaborador editado.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'colaborador_editado',
+      entidadeTipo: 'colaborador',
+      entidadeId: id,
+      origem: 'web',
+    });
     return { ...row, funcaoIds: validas };
   }
 
-  async remove(tenantId: string, id: string) {
+  async remove(tenantId: string, id: string, ator?: Ator) {
     const [row] = await this.db
       .update(colaborador)
       .set({ deletedAt: new Date() })
@@ -441,6 +467,17 @@ export class ColaboradorService {
       )
       .returning({ id: colaborador.id });
     if (!row) throw new NotFoundException('Colaborador não encontrado.');
+    // Auditoria: colaborador removido.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'colaborador_removido',
+      entidadeTipo: 'colaborador',
+      entidadeId: id,
+      origem: 'web',
+    });
     return { ok: true };
   }
 

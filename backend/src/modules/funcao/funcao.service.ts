@@ -8,6 +8,10 @@ import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { funcao, funcaoSetor, setor, etiqueta } from '../../db/schema';
 import { CreateFuncaoDto } from './dto/create-funcao.dto';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+
+// Ator da operação (para auditoria) — vem do @CurrentUser do controller.
+type Ator = { colaboradorId?: string; categoria?: string };
 
 // Abrevia o nome numa sigla (sem acento, só letras, 4 chars). "Aux. Cozinha" → "AUXC".
 export function gerarSigla(nome: string): string {
@@ -21,7 +25,10 @@ export function gerarSigla(nome: string): string {
 
 @Injectable()
 export class FuncaoService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDB,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   // Sincroniza os setores (N:N) de uma função com a lista informada.
   private async syncSetores(tenantId: string, funcaoId: string, setorIds: string[]) {
@@ -35,7 +42,7 @@ export class FuncaoService {
     }
   }
 
-  async create(tenantId: string, dto: CreateFuncaoDto) {
+  async create(tenantId: string, dto: CreateFuncaoDto, ator?: Ator) {
     // Setor primário = o informado ou o 1º da lista N:N.
     const setorPrimario = dto.setorId ?? dto.setorIds?.[0] ?? null;
     const [row] = await this.db
@@ -94,10 +101,21 @@ export class FuncaoService {
         etiquetaGerada = et;
       }
     }
+    // Auditoria: função criada.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'funcao_criada',
+      entidadeTipo: 'funcao',
+      entidadeId: row.id,
+      origem: 'web',
+    });
     return { ...row, etiqueta: etiquetaGerada };
   }
 
-  async update(tenantId: string, id: string, dto: CreateFuncaoDto) {
+  async update(tenantId: string, id: string, dto: CreateFuncaoDto, ator?: Ator) {
     const setorPrimario = dto.setorId ?? dto.setorIds?.[0] ?? null;
     const [row] = await this.db
       .update(funcao)
@@ -118,10 +136,21 @@ export class FuncaoService {
     // Re-sincroniza os setores N:N quando a lista é informada.
     if (dto.setorIds !== undefined)
       await this.syncSetores(tenantId, id, dto.setorIds);
+    // Auditoria: função editada.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'funcao_editada',
+      entidadeTipo: 'funcao',
+      entidadeId: id,
+      origem: 'web',
+    });
     return row;
   }
 
-  async remove(tenantId: string, id: string) {
+  async remove(tenantId: string, id: string, ator?: Ator) {
     // Guarda: não excluir função vinculada a colaboradores ou etiquetas ativas.
     const r: any = await this.db.execute(sql`
       select
@@ -140,6 +169,17 @@ export class FuncaoService {
       .where(and(eq(funcao.id, id), eq(funcao.tenantId, tenantId)))
       .returning();
     if (!row) throw new NotFoundException('Função não encontrada.');
+    // Auditoria: função removida.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.colaboradorId,
+      atorPerfil: ator?.categoria,
+      tipo: 'cadastro',
+      acao: 'funcao_removida',
+      entidadeTipo: 'funcao',
+      entidadeId: id,
+      origem: 'web',
+    });
     return { ok: true };
   }
 
