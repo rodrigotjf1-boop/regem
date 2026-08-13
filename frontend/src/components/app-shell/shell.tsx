@@ -39,7 +39,7 @@ import {
   Wand2,
   Wrench,
 } from 'lucide-react';
-import { api, clearToken, getCategoria, getPermissoes, getToken } from '@/lib/api';
+import { api, sair as deslogar, getCategoria, getPermissoes, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
@@ -275,8 +275,8 @@ export function Shell({
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
-  function sair() {
-    clearToken();
+  async function sair() {
+    await deslogar(); // nuvem: apaga o cookie httpOnly no servidor + limpa local
     router.replace('/entrar');
   }
 
