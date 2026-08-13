@@ -54,6 +54,16 @@ async function bootstrap() {
     ...(httpsOptions ? { httpsOptions } : {}),
   });
 
+  // Atrás do proxy do EasyPanel: confia no 1º hop para que req.ip = IP REAL do
+  // cliente (X-Forwarded-For). Sem isto o rate-limit por IP conta todo mundo como
+  // o IP do proxy (throttle global / mal atribuído). No edge (sem proxy) é inócuo.
+  // Com a Cloudflare na frente a cadeia ganha um salto (Cloudflare → EasyPanel →
+  // API): defina TRUST_PROXY=2 no ambiente da nuvem no dia da virada. Só subir o
+  // número quando o proxy REALMENTE existir — hop confiado a mais = X-Forwarded-For
+  // forjável pelo cliente.
+  const trustProxy = Number(process.env.TRUST_PROXY ?? 1);
+  app.set('trust proxy', Number.isFinite(trustProxy) ? trustProxy : 1);
+
   // Limite de corpo: o default do Express é 100kb, o que estourava 413 no /sync/push
   // quando o edge acumulava muitas linhas. Sobe para SYNC ep. (o edge já fatia em
   // páginas de ~200 linhas — este é a rede de segurança). rawBody (Stripe) é preservado.
@@ -77,11 +87,20 @@ async function bootstrap() {
   // CORS: '*' libera qualquer origem (edge/appliance na LAN — o app em :3001 chama
   // a API em :3002, e o host varia por loja); lista separada por vírgula em
   // produção nuvem; sem a var (dev) libera todas.
+  // Auth é por Bearer (header), não cookie → CORS aberto não vaza sessão; ainda
+  // assim, na NUVEM o correto é a lista fixa dos seus domínios (o '*' é só p/ edge).
+  const ehEdgeMode = process.env.EDGE_MODE === 'true';
+  if (isProd && !ehEdgeMode && corsOrigin?.trim() === '*') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[SEGURANÇA] CORS_ORIGIN="*" na nuvem — troque pela lista dos seus domínios (ex.: https://app.dmsregem.com).',
+    );
+  }
   app.enableCors(
     !corsOrigin
       ? {}
       : corsOrigin.trim() === '*'
-        ? { origin: true }
+        ? { origin: true } // credentials fica false (default) — Bearer, não cookie
         : { origin: corsOrigin.split(',').map((o) => o.trim()) },
   );
 
