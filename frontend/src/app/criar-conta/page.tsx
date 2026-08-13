@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { api, setToken } from '@/lib/api';
+import { api, estabelecerSessao } from '@/lib/api';
 import { RegemMark } from '@/components/brand/regem-mark';
 
 // Máscara progressiva de CNPJ (00.000.000/0000-00).
@@ -41,7 +41,7 @@ export default function CriarContaPage() {
     setLoading(true);
     try {
       const r = await api.register(form);
-      setToken(r.access_token);
+      await estabelecerSessao(r.access_token);
       router.push('/inicio');
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao criar conta');

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   api,
-  setToken,
+  estabelecerSessao,
   getToken,
   getCategoria,
   rotaInicial,
@@ -311,7 +311,7 @@ export default function LoginPage() {
       // Com workspace aberto, o apelido é procurado só nesta empresa — é o que
       // permite um "joao" em cada loja sem colidir.
       const r = await api.login(email, senha, ws?.tenantId);
-      setToken(r.access_token, lembrar);
+      await estabelecerSessao(r.access_token, lembrar);
       // Landing por perfil (só gestor tem dashboard). replace: não volta ao login.
       router.replace(rotaInicial(getCategoria()));
     } catch (err) {

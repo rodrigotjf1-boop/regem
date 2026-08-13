@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
 import { colaborador, funcao, perfilAcesso, suporteSessao, empresa } from '../db/schema';
 import { perfilPadrao, PACOTE_SUPORTE, type Permissoes } from './permissoes';
+import { lerCookieSessao } from './cookie-sessao';
 
 // TTL do cache de revalidação: janela máxima entre uma mudança no banco
 // (bloqueio/rebaixamento/permissão) e ela valer nas requisições.
@@ -33,13 +34,16 @@ export class JwtAuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
+    // Header Bearer tem prioridade (edge/integrações/API); sem ele, cai no cookie
+    // httpOnly (nuvem, Fase B). Um dos dois carrega o JWT.
     const header = req.headers['authorization'] as string | undefined;
-    if (!header?.startsWith('Bearer ')) {
+    const raw = header?.startsWith('Bearer ') ? header.slice(7) : lerCookieSessao(req);
+    if (!raw) {
       throw new UnauthorizedException('Token ausente');
     }
     let payload: any;
     try {
-      payload = this.jwt.verify(header.slice(7));
+      payload = this.jwt.verify(raw);
     } catch {
       throw new UnauthorizedException('Token inválido');
     }
@@ -72,6 +76,11 @@ export class JwtAuthGuard implements CanActivate {
       setorId: payload.setor ?? null,
       unidadeId: payload.uni ?? null,
       permissoes: payload.perm ?? undefined,
+      // Campos só-exibição (para o /auth/me alimentar os gates de UI no modo cookie,
+      // onde o front não decodifica mais o JWT). Não são usados em decisão de segurança.
+      nome: payload.nome,
+      func: payload.func,
+      perfil: payload.perfil,
     };
 
     // Revalidação autoritativa contra o banco (cacheada por CACHE_MS).

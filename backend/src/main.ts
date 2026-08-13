@@ -98,10 +98,10 @@ async function bootstrap() {
   }
   app.enableCors(
     !corsOrigin
-      ? {}
+      ? { origin: true, credentials: true } // dev: reflete a origem e permite cookie
       : corsOrigin.trim() === '*'
-        ? { origin: true } // credentials fica false (default) — Bearer, não cookie
-        : { origin: corsOrigin.split(',').map((o) => o.trim()) },
+        ? { origin: true } // edge/LAN: '*' NÃO pode ir com credentials → Bearer, não cookie
+        : { origin: corsOrigin.split(',').map((o) => o.trim()), credentials: true }, // nuvem: cookie httpOnly (app.→api.)
   );
 
   // Prefixo versionado da API: /api/v1/*

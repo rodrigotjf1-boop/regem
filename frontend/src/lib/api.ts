@@ -22,6 +22,12 @@ export async function pingServidor(): Promise<boolean> {
 }
 
 const TOKEN_KEY = 'regen_token';
+const ME_KEY = 'regem_me';
+
+// Edge (LAN/HTTP): sessão por Bearer/localStorage. Nuvem: cookie httpOnly.
+function ehEdge(): boolean {
+  return process.env.NEXT_PUBLIC_EDGE === '1';
+}
 
 export function getToken() {
   if (typeof window === 'undefined') return null;
@@ -41,6 +47,60 @@ export function setToken(t: string, persist = true) {
 export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
+  if (typeof window !== 'undefined') localStorage.removeItem(ME_KEY);
+}
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Identidade guardada do /auth/me (modo cookie) — SÓ para gates de UI; NÃO é
+// credencial (o token vive no cookie httpOnly). O servidor sempre reconfere o RBAC.
+function lerMe(): any {
+  if (typeof window === 'undefined') return null;
+  try {
+    return JSON.parse(localStorage.getItem(ME_KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+// Payload de identidade: do JWT (Bearer/edge) OU do /auth/me guardado (nuvem/cookie).
+function lerPayload(): any {
+  const t = getToken();
+  if (t) {
+    try {
+      return JSON.parse(atob(t.split('.')[1] ?? ''));
+    } catch {
+      return null;
+    }
+  }
+  return lerMe();
+}
+
+// Estabelece a sessão após login/register. Ponto único de costura da migração
+// para cookie httpOnly.
+//
+// FASE A (atual): guarda o token (Bearer/localStorage), como antes. Na NUVEM o
+// servidor JÁ grava, em paralelo, o cookie httpOnly no login — aqui não mudamos o
+// comportamento (o Bearer segue conduzindo a sessão), então zero risco de lockout;
+// o cookie fica estabelecido e VERIFICÁVEL em produção antes do cutover.
+//
+// FASE B (cutover, próximo passo): na nuvem, sondar /auth/me e, se o cookie
+// funcionar, NÃO guardar o token (fica só no cookie → XSS não rouba a sessão) e
+// memorizar a identidade (`guardarMe`) — depende da separação getToken()/getJwt()
+// nos 53 gates e do socket ler o cookie no handshake. Ver docs/auth-cookie-migracao.md.
+export async function estabelecerSessao(token: string, persist = true): Promise<void> {
+  setToken(token, persist);
+}
+
+// Logout: na nuvem, pede ao servidor para apagar o cookie httpOnly (o JS não
+// consegue). Sempre limpa o estado local. Idempotente.
+export async function sair(): Promise<void> {
+  if (!ehEdge()) {
+    try {
+      await fetch(`${apiBase()}/auth/logout`, { method: 'POST', credentials: 'include' });
+    } catch {
+      /* sem rede: limpa local mesmo assim */
+    }
+  }
+  clearToken();
 }
 
 // Unidade selecionada no seletor global (preferência de visão, não dado de negócio).
@@ -123,52 +183,25 @@ export function clearTerminal() {
   window.dispatchEvent(new Event('regem:terminal'));
 }
 
-// Lê a categoria da hierarquia do payload do JWT (para gates de UI).
+// Categoria da hierarquia (gates de UI). Do JWT (edge) ou do /auth/me (cookie).
 export function getCategoria(): string | null {
-  const t = getToken();
-  if (!t) return null;
-  try {
-    const payload = JSON.parse(atob(t.split('.')[1] ?? ''));
-    return payload.cat ?? null;
-  } catch {
-    return null;
-  }
+  return lerPayload()?.cat ?? null;
 }
 
-// Nome do responsável logado (menu inferior). Do JWT (`nome`).
+// Nome do responsável logado (menu inferior).
 export function getNome(): string | null {
-  const t = getToken();
-  if (!t) return null;
-  try {
-    return JSON.parse(atob(t.split('.')[1] ?? '')).nome ?? null;
-  } catch {
-    return null;
-  }
+  return lerPayload()?.nome ?? null;
 }
 
-// Rótulo da função do responsável (ex.: "Gerente"). Do JWT (`func`).
+// Rótulo da função do responsável (ex.: "Gerente").
 export function getFuncaoNome(): string | null {
-  const t = getToken();
-  if (!t) return null;
-  try {
-    return JSON.parse(atob(t.split('.')[1] ?? '')).func ?? null;
-  } catch {
-    return null;
-  }
+  return lerPayload()?.func ?? null;
 }
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-// Permissões do perfil de acesso (claim `perm` do JWT). Gates de UI apenas — a
-// trava real é no servidor. Ausente (token antigo) = objeto vazio.
+// Permissões do perfil de acesso (`perm`). Gates de UI apenas — a trava real é no
+// servidor. Ausente (token antigo / sem sessão) = objeto vazio.
 export function getPermissoes(): any {
-  const t = getToken();
-  if (!t) return {};
-  try {
-    const payload = JSON.parse(atob(t.split('.')[1] ?? ''));
-    return payload.perm ?? {};
-  } catch {
-    return {};
-  }
+  return lerPayload()?.perm ?? {};
 }
 
 // Atalho: o perfil pode ver valores financeiros (R$)?
@@ -176,16 +209,10 @@ export function podeVerFinanceiro(): boolean {
   return !!getPermissoes()?.ver_financeiro;
 }
 
-// Unidade FIXA do usuário (claim `uni` do JWT): execução/gerente de loja ficam
-// travados nela e não veem o seletor. Presidente/C&O = null (escolhe a unidade).
+// Unidade FIXA do usuário (`uni`): execução/gerente de loja ficam travados nela e
+// não veem o seletor. Presidente/C&O = null (escolhe a unidade).
 export function getUnidadeFixa(): string | null {
-  const t = getToken();
-  if (!t) return null;
-  try {
-    return JSON.parse(atob(t.split('.')[1] ?? '')).uni ?? null;
-  } catch {
-    return null;
-  }
+  return lerPayload()?.uni ?? null;
 }
 
 // Atalho: permissão de ação por módulo (ex.: podePerm('estoque','criar')).
@@ -257,6 +284,9 @@ async function req(path: string, options: RequestInit = {}) {
   try {
     res = await fetch(`${apiBase()}${path}`, {
       ...options,
+      // Nuvem: manda o cookie httpOnly (a sessão vive nele quando não há Bearer).
+      // Edge: CORS '*' NÃO aceita credenciais → same-origin, sessão via Bearer.
+      credentials: ehEdge() ? 'same-origin' : 'include',
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
