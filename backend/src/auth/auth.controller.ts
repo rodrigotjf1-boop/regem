@@ -25,8 +25,13 @@ export class AuthController {
     return this.service.login(dto);
   }
 
+  // Teto volumétrico (anti-flood), não a defesa anti brute-force: quem segura o
+  // brute-force é o lockout por unidade no service (conta só FALHAS e independe
+  // do IP, então não se contorna trocando de origem). Aqui o limite por IP
+  // precisa caber na troca de turno — uma loja inteira bate ponto pelo mesmo IP
+  // (NAT), e 5/min derrubava o 6º colaborador do minuto.
   @Post('pin')
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   pin(@Body() dto: PinLoginDto) {
     return this.service.pinLogin(dto);
   }
