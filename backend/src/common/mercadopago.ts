@@ -6,7 +6,35 @@
 // Fluxo PIX: cria um "payment" method_id=pix → devolve QR Code (copia-e-cola +
 // base64) e o id; o cliente paga; o MP chama o webhook; consultamos o status.
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 const API = 'https://api.mercadopago.com';
+
+// Verifica a ASSINATURA do webhook do Mercado Pago (defesa em profundidade sobre a
+// re-consulta). Só bloqueia se `MP_WEBHOOK_SECRET` estiver configurado — sem ele,
+// retorna true (comportamento atual mantido). Manifesto oficial:
+// `id:<data.id>;request-id:<x-request-id>;ts:<ts>;` → HMAC-SHA256 hex = v1.
+export function assinaturaWebhookMPOk(
+  xSignature: string | undefined,
+  xRequestId: string | undefined,
+  dataId: string,
+  secret: string,
+): boolean {
+  if (!secret) return true; // sem secret → não exige assinatura (opcional)
+  if (!xSignature) return false;
+  const parts: Record<string, string> = {};
+  for (const p of String(xSignature).split(',')) {
+    const [k, v] = p.split('=');
+    if (k && v) parts[k.trim()] = v.trim();
+  }
+  const { ts, v1 } = parts;
+  if (!ts || !v1) return false;
+  const manifest = `id:${String(dataId).toLowerCase()};request-id:${xRequestId ?? ''};ts:${ts};`;
+  const calc = createHmac('sha256', secret).update(manifest).digest('hex');
+  const a = Buffer.from(calc);
+  const b = Buffer.from(v1);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 export type PixCriado = {
   id: string;

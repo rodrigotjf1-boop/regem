@@ -162,6 +162,29 @@ export class JobsService {
     );
   }
 
+  // Expurgo LGPD: fotos de desperdício e vistoria retidas > 90 dias (não tinham
+  // rotina de expurgo). Baseado em created_at → cobre também as fotos antigas.
+  @Cron('7 3 * * *') // 03:07 todos os dias
+  async expurgarFotosOperacao() {
+    const RETENCAO_DIAS = 90;
+    for (const tabela of ['desperdicio', 'vistoria'] as const) {
+      const r: any = await this.db.execute(sql`
+        select id, foto_ref as "fotoRef" from ${sql.raw(tabela)}
+        where foto_ref is not null
+          and created_at < now() - (${RETENCAO_DIAS} * interval '1 day')
+        limit 500
+      `);
+      const rows = r.rows ?? r;
+      if (!rows.length) continue;
+      let apagadas = 0;
+      for (const row of rows) {
+        if (row.fotoRef && (await this.midia.remover(row.fotoRef))) apagadas++;
+        await this.db.execute(sql`update ${sql.raw(tabela)} set foto_ref = null where id = ${row.id}`);
+      }
+      this.log.log(`Expurgo LGPD: ${apagadas} foto(s) de ${tabela} removida(s) (${rows.length})`);
+    }
+  }
+
   // §1.4 — Ponto de pedido: alerta os itens no/abaixo do ROP (por tenant, em tempo real).
   @Cron('0 6 * * *') // 06:00
   async pontoDePedido() {

@@ -248,7 +248,7 @@ export default function CardapioPublicoPage() {
       setUltimoPedido(null);
       return;
     }
-    api.cardapioUltimoPedido(token, tel).then(setUltimoPedido).catch(() => setUltimoPedido(null));
+    api.cardapioUltimoPedido(token, getClienteToken(token) || undefined).then(setUltimoPedido).catch(() => setUltimoPedido(null));
   }, [menu, token, chk.telefone]);
 
   // Modo raio: se o endereço não tem coordenadas, geocodifica o endereço
@@ -281,7 +281,7 @@ export default function CardapioPublicoPage() {
     if (!menu?.loja?.fidelidadeAtiva || tel.length < 8 || (chk.nome ?? '').trim()) return;
     const t = setTimeout(async () => {
       try {
-        const r: any = await api.cardapioPontos(token, tel);
+        const r: any = await api.cardapioPontos(token, getClienteToken(token) || undefined);
         if (r?.nome) setChk((s: any) => (s.nome ? s : { ...s, nome: r.nome }));
       } catch {
         /* ignora */
@@ -570,7 +570,7 @@ export default function CardapioPublicoPage() {
       setCashbackSaldo(0);
       return;
     }
-    api.cardapioCashback(token, tel).then((c: any) => setCashbackSaldo(Number(c?.valor) || 0)).catch(() => setCashbackSaldo(0));
+    api.cardapioCashback(token, getClienteToken(token) || undefined).then((c: any) => setCashbackSaldo(Number(c?.valor) || 0)).catch(() => setCashbackSaldo(0));
   }, [checkout, menu, token, chk.telefone]);
 
   // Prêmios de fidelidade resgatados (abate automático no pedido).
@@ -584,7 +584,7 @@ export default function CardapioPublicoPage() {
       return;
     }
     api
-      .cardapioFidelidadePremios(token, tel)
+      .cardapioFidelidadePremios(token, getClienteToken(token) || undefined)
       .then((l: any) => {
         const arr = Array.isArray(l) ? l : [];
         setPremios(arr);

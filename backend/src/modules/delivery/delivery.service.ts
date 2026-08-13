@@ -29,6 +29,7 @@ import {
 } from '../../db/schema';
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
+import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { validarTokenMP } from '../../common/mercadopago';
 import { validarTokenPagBank } from '../../common/pagbank';
 import { perfilEfetivo, listarPerfis, CAMPOS_CATALOGO, type PerfilCupom } from './cupom-perfis';
@@ -1386,6 +1387,11 @@ export class DeliveryService {
         .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'n8n')));
       const url = row?.merchantId; // guardamos a URL do webhook no merchantId
       if (!row?.ativo || !url) return;
+      // Anti-SSRF: a URL vem do lojista — bloqueia IP privado/local/metadata cloud.
+      if (!(await urlPublicaSegura(url))) {
+        this.logger.warn(`Webhook n8n bloqueado (URL não-pública): ${String(url).slice(0, 80)}`);
+        return;
+      }
       const body = JSON.stringify({ em: new Date().toISOString(), ...payload });
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (row.clientSecret)

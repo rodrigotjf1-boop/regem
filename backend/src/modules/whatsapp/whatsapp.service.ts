@@ -1,10 +1,19 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
 import { gerarCardapioPdf } from './cardapio-pdf';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Compara o segredo do bot em tempo CONSTANTE (evita timing attack). Falha se o
+// esperado não está setado ou os tamanhos diferem.
+function segredoBotOk(recebido: string, esperado: string): boolean {
+  if (!esperado) return false;
+  const a = Buffer.from(String(recebido ?? ''));
+  const b = Buffer.from(esperado);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 // Onboarding do WhatsApp da loja via Evolution API (v2):
 //   POST /instance/create · GET /instance/connect/{name} (QR) ·
 //   GET /instance/connectionState/{name} · POST /webhook/set/{name}
@@ -587,7 +596,7 @@ export class WhatsappService {
   // resolver (instância + BOT_RESOLVER_SECRET). Devolve um texto pronto pro cliente.
   async statusPedidoBot(instancia: string, secret: string, telefone?: string, numero?: string) {
     const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
-    if (!esperado || secret !== esperado) throw new BadRequestException('Não autorizado.');
+    if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
     const [cfg] = await this.db
       .select({ tenantId: cardapioConfig.tenantId })
       .from(cardapioConfig)
@@ -623,7 +632,7 @@ export class WhatsappService {
 
   async resolver(instancia: string, secret: string, numero?: string) {
     const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
-    if (!esperado || secret !== esperado) throw new BadRequestException('Não autorizado.');
+    if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
     const [cfg] = await this.db
       .select()
       .from(cardapioConfig)

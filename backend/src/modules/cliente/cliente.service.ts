@@ -27,6 +27,7 @@ import {
 } from '../../db/schema';
 import { inArray } from 'drizzle-orm';
 import { assinarCliente, verificarCliente } from './cliente-token';
+import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -68,6 +69,11 @@ export class ClienteService {
     secret?: string,
   ): Promise<boolean> {
     try {
+      // Anti-SSRF: a URL pode vir do lojista (integração n8n) — bloqueia interno.
+      if (!(await urlPublicaSegura(url))) {
+        this.logger.error(`webhook OTP bloqueado (URL não-pública): ${String(url).slice(0, 80)}`);
+        return false;
+      }
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 8000);
       const body = JSON.stringify(payload);

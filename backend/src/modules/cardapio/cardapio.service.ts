@@ -61,7 +61,7 @@ import {
   encomendaRecorrencia,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
-import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP, reembolsarPagamentoMP } from '../../common/mercadopago';
+import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP, reembolsarPagamentoMP, assinaturaWebhookMPOk } from '../../common/mercadopago';
 import { criarPixPagBank, consultarPagamentoPagBank, reembolsarPagamentoPagBank } from '../../common/pagbank';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
@@ -1211,8 +1211,26 @@ export class CardapioService {
 
   // Público (robô): pedidos recentes de um telefone — pra responder "cadê meu pedido?".
   // Casa pelos últimos 8 dígitos (ignora formatação/DDI).
-  async pedidosPorTelefone(token: string, telefone: string) {
+  // Resolve o TELEFONE do cliente a partir do clienteToken assinado (prova de
+  // posse). Fecha a enumeração por telefone chutável: as consultas/resgates de PII
+  // passam a usar SÓ o telefone do DONO do token. null = sem prova de identidade.
+  private async telefoneDoTokenCliente(
+    tenantId: string,
+    clienteToken?: string,
+  ): Promise<string | null> {
+    const cli = verificarCliente(clienteToken);
+    if (!cli || cli.tenant !== tenantId) return null;
+    const [row] = await this.db
+      .select({ telefone: cliente.telefone })
+      .from(cliente)
+      .where(and(eq(cliente.id, cli.cli), eq(cliente.tenantId, tenantId)));
+    return row?.telefone ?? null;
+  }
+
+  async pedidosPorTelefone(token: string, clienteToken?: string) {
     const cfg = await this.resolver(token);
+    const telefone = await this.telefoneDoTokenCliente(cfg.tenantId, clienteToken);
+    if (!telefone) return []; // sem prova de dono → nada (era enumerável por telefone)
     const digits = String(telefone ?? '').replace(/\D/g, '');
     if (digits.length < 8) return [];
     const tail = digits.slice(-8);
@@ -1253,8 +1271,10 @@ export class CardapioService {
   }
 
   // Público: último pedido do cliente (com imagem dos produtos) — card do topo.
-  async ultimoPedidoPublico(token: string, telefone: string) {
+  async ultimoPedidoPublico(token: string, clienteToken?: string) {
     const cfg = await this.resolver(token);
+    const telefone = await this.telefoneDoTokenCliente(cfg.tenantId, clienteToken);
+    if (!telefone) return null; // sem prova de dono
     const digits = String(telefone ?? '').replace(/\D/g, '');
     if (digits.length < 8) return null;
     const tail = digits.slice(-8);
@@ -1518,8 +1538,14 @@ export class CardapioService {
 
   // Webhook do Mercado Pago: confirma o pagamento. Descobre o tenant pelo pedido
   // correlacionado (gateway_payment_id) e consulta o status real no MP.
-  async webhookMercadoPago(paymentId: string) {
+  async webhookMercadoPago(paymentId: string, xSignature?: string, xRequestId?: string) {
     if (!paymentId) return { ok: true, ignorado: true };
+    // Defesa em profundidade: se MP_WEBHOOK_SECRET está setado, rejeita corpo sem
+    // assinatura válida (sem o env, mantém o comportamento atual — só a re-consulta).
+    if (!assinaturaWebhookMPOk(xSignature, xRequestId, paymentId, process.env.MP_WEBHOOK_SECRET ?? '')) {
+      this.logger.warn(`Webhook MP com assinatura inválida (payment ${paymentId}) — ignorado.`);
+      return { ok: true, assinaturaInvalida: true };
+    }
     const [p] = await this.db
       .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, pago: pedidoExterno.pago })
       .from(pedidoExterno)
@@ -2829,34 +2855,45 @@ export class CardapioService {
   }
 
   // Público: status de fidelidade do cliente (planos, progresso e prêmios).
-  async pontosPublico(token: string, telefone: string) {
+  // Exige clienteToken (prova de dono) — não expõe saldo por telefone chutável.
+  async pontosPublico(token: string, clienteToken?: string) {
     const cfg = await this.resolver(token);
     if (!cfg.fidelidadeAtiva) return { ativo: false, planos: [], resgates: [] };
+    const telefone = await this.telefoneDoTokenCliente(cfg.tenantId, clienteToken);
+    if (!telefone) return { ativo: true, planos: [], resgates: [] };
     return { ativo: true, ...(await this.fidelidade.statusCliente(cfg.tenantId, telefone)) };
   }
 
-  // Público: resgata um prêmio de fidelidade disponível.
-  async resgatarFidelidade(token: string, resgateId: string, telefone: string) {
+  // Público: resgata um prêmio de fidelidade — só o DONO do token (não por telefone).
+  async resgatarFidelidade(token: string, resgateId: string, clienteToken?: string) {
     const cfg = await this.resolver(token);
+    const telefone = await this.telefoneDoTokenCliente(cfg.tenantId, clienteToken);
+    if (!telefone) throw new BadRequestException('Identifique-se para resgatar.');
     return this.fidelidade.resgatar(cfg.tenantId, resgateId, telefone);
   }
 
   // Público: prêmios já resgatados, prontos para abater no próximo pedido.
-  async premiosFidelidade(token: string, telefone: string) {
+  async premiosFidelidade(token: string, clienteToken?: string) {
     const cfg = await this.resolver(token);
     if (!cfg.fidelidadeAtiva) return [];
+    const telefone = await this.telefoneDoTokenCliente(cfg.tenantId, clienteToken);
+    if (!telefone) return [];
     return this.fidelidade.premiosParaUsar(cfg.tenantId, telefone);
   }
 
   // Público: saldo de cashback do cliente (valor, pontos, vales, planos).
-  async cashbackSaldoPublico(token: string, telefone: string) {
+  async cashbackSaldoPublico(token: string, clienteToken?: string) {
     const cfg = await this.resolver(token);
+    const telefone = await this.telefoneDoTokenCliente(cfg.tenantId, clienteToken);
+    if (!telefone) return { valor: 0, pontos: 0, vales: [], planos: [] };
     return this.cashback.saldoCliente(cfg.tenantId, telefone);
   }
 
-  // Público: troca pontos de cashback por um produto (gera vale).
-  async cashbackResgatarProduto(token: string, telefone: string, produtoId: string) {
+  // Público: troca pontos de cashback por um produto — só o DONO do token.
+  async cashbackResgatarProduto(token: string, clienteToken: string | undefined, produtoId: string) {
     const cfg = await this.resolver(token);
+    const telefone = await this.telefoneDoTokenCliente(cfg.tenantId, clienteToken);
+    if (!telefone) throw new BadRequestException('Identifique-se para resgatar.');
     return this.cashback.resgatarProduto(cfg.tenantId, telefone, produtoId);
   }
 
