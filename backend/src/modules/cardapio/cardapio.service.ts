@@ -1389,6 +1389,19 @@ export class CardapioService {
     return (await this.tokenCanal(tenantId, 'mercadopago')) || process.env.MP_ACCESS_TOKEN || null;
   }
 
+  // Assinatura secreta do webhook do MP: config DA LOJA (BYO) — guardada na coluna
+  // client_secret da integração 'mercadopago'. Cada loja tem a sua (o token e o
+  // segredo são da conta MP dela). Env fica só como override global opcional. null
+  // = loja não cadastrou → verificação de assinatura desligada (a re-consulta ao
+  // gateway continua sendo a proteção real).
+  private async resolveMpWebhookSecret(tenantId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ secret: integracao.clientSecret, ativo: integracao.ativo })
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'mercadopago')));
+    return (row?.ativo && row.secret) || process.env.MP_WEBHOOK_SECRET || null;
+  }
+
   // Token do PagBank/PagSeguro: SÓ por tenant (canal 'pagseguro'), BYO puro. Modo
   // distribuição — cada loja cola o token na integração; sem env/cadastro na API.
   private async resolvePagseguroToken(tenantId: string): Promise<string | null> {
@@ -1540,18 +1553,23 @@ export class CardapioService {
   // correlacionado (gateway_payment_id) e consulta o status real no MP.
   async webhookMercadoPago(paymentId: string, xSignature?: string, xRequestId?: string) {
     if (!paymentId) return { ok: true, ignorado: true };
-    // Defesa em profundidade: se MP_WEBHOOK_SECRET está setado, rejeita corpo sem
-    // assinatura válida (sem o env, mantém o comportamento atual — só a re-consulta).
-    if (!assinaturaWebhookMPOk(xSignature, xRequestId, paymentId, process.env.MP_WEBHOOK_SECRET ?? '')) {
-      this.logger.warn(`Webhook MP com assinatura inválida (payment ${paymentId}) — ignorado.`);
-      return { ok: true, assinaturaInvalida: true };
-    }
+    // Correlaciona primeiro: o webhook chega só com o paymentId; o tenant (e a
+    // assinatura secreta DELE) só é conhecido pelo pedido. Payment desconhecido =
+    // ignora sem precisar de segredo.
     const [p] = await this.db
       .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId, pago: pedidoExterno.pago })
       .from(pedidoExterno)
       .where(eq(pedidoExterno.gatewayPaymentId, String(paymentId)));
     if (!p) return { ok: true, naoCorrelacionado: true };
     if (p.pago) return { ok: true, jaPago: true };
+    // Defesa em profundidade: se ESTA loja cadastrou a assinatura secreta do webhook
+    // (Integrações → Mercado Pago), rejeita corpo sem assinatura válida. Sem segredo
+    // cadastrado, mantém o comportamento atual — a re-consulta ao gateway é a proteção.
+    const webhookSecret = await this.resolveMpWebhookSecret(p.tenantId);
+    if (webhookSecret && !assinaturaWebhookMPOk(xSignature, xRequestId, paymentId, webhookSecret)) {
+      this.logger.warn(`Webhook MP com assinatura inválida (payment ${paymentId}) — ignorado.`);
+      return { ok: true, assinaturaInvalida: true };
+    }
     const mpToken = await this.resolveMpToken(p.tenantId);
     if (!mpToken) return { ok: true, semToken: true };
     const st = await consultarPagamentoMP(mpToken, String(paymentId));

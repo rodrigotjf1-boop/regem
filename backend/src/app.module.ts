@@ -73,6 +73,7 @@ import { GogemModule } from './modules/gogem/gogem.module';
 import { EdgeModule } from './modules/edge/edge.module';
 import { TelemetriaInterceptor } from './modules/edge/telemetria.interceptor';
 import { UnidadeUnicaInterceptor } from './auth/unidade-unica.interceptor';
+import { RlsInterceptor } from './auth/rls.interceptor';
 import { TerminalSegredoInterceptor } from './auth/terminal-segredo.interceptor';
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { SuporteModule } from './modules/suporte/suporte.module';
@@ -171,6 +172,9 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
   ],
   controllers: [AppController],
   providers: [
+    // RLS por tenant (defesa em profundidade) — MAIS EXTERNO: abre a transação com o
+    // GUC app.tenant que cobre todo o request. Passthrough puro se RLS_ENABLED≠true.
+    { provide: APP_INTERCEPTOR, useClass: RlsInterceptor },
     // Conta o rate limit pelo IP real do cliente atrás da Cloudflare (ver guard).
     { provide: APP_GUARD, useClass: CfThrottlerGuard },
     // Barra endpoints @CloudOnly quando EDGE_MODE=true (defesa em profundidade
