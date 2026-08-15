@@ -859,8 +859,13 @@ export const api = {
     req('/integracoes/cardapio-web/exportar-catalogo', { method: 'POST', body: '{}' }),
   cardapioWebExportarTeste: () =>
     req('/integracoes/cardapio-web/exportar-teste', { method: 'POST', body: '{}' }),
-  // 99Food / DiDi Food — app_id + app_secret + app_shop_id (webhook).
+  // 99Food / DiDi Food — produção: app_id/app_secret são GLOBAIS (env do servidor);
+  // o lojista só autoriza a loja pelo link (getUrl) e confirma o vínculo.
   food99Status: () => req('/integracoes/99food/status'),
+  food99Conectar: () => req('/integracoes/99food/conectar', { method: 'POST', body: '{}' }),
+  food99Vincular: (appShopId?: string) =>
+    req('/integracoes/99food/vincular', { method: 'POST', body: JSON.stringify({ appShopId: appShopId ?? '' }) }),
+  food99RecusarBind: () => req('/integracoes/99food/recusar-bind', { method: 'POST', body: '{}' }),
   food99Token: () => req('/integracoes/99food/token'),
   food99CardapioTeste: () => req('/integracoes/99food/cardapio-teste', { method: 'POST', body: '{}' }),
   food99ExportarCatalogo: () => req('/integracoes/99food/exportar-catalogo', { method: 'POST', body: '{}' }),
@@ -868,6 +873,12 @@ export const api = {
     req('/integracoes/99food/credenciais', { method: 'POST', body: JSON.stringify(body) }),
   food99Puxar: (orderId: string) =>
     req('/integracoes/99food/puxar', { method: 'POST', body: JSON.stringify({ orderId }) }),
+  // Liga o recebimento de cancelamento/reembolso do cliente (shop/apply/set).
+  food99AplicarSet: (body?: { cancel?: boolean; refund?: boolean }) =>
+    req('/integracoes/99food/apply-set', { method: 'POST', body: JSON.stringify(body ?? {}) }),
+  // Confirma a entrega self-delivery pelo código do cliente (verifyDeliveryCode → 600).
+  food99VerificarEntrega: (orderId: string, codigo: string) =>
+    req('/integracoes/99food/verificar-entrega', { method: 'POST', body: JSON.stringify({ orderId, codigo }) }),
   // Anota Aí — token da loja + ID da loja (polling, sem webhook público).
   ifoodSolicitar: () => req('/integracoes/ifood/solicitar', { method: 'POST', body: '{}' }),
   ifoodDesativar: () => req('/integracoes/ifood/desativar', { method: 'POST', body: '{}' }),

@@ -27,8 +27,11 @@ export class Food99Controller {
   @Throttle({ default: { ttl: 60000, limit: 240 } })
   async webhook(@Req() req: RawBodyRequest<Request>, @Body() body: any) {
     const raw = req.rawBody?.toString('utf8') || (body ? JSON.stringify(body) : '');
+    // Assinatura do 99food: MD5(corpo_cru + app_secret) no header didi-header-sign.
+    const rawSign = req.headers['didi-header-sign'];
+    const sign = Array.isArray(rawSign) ? rawSign[0] : rawSign;
     return this.service
-      .processarWebhook(raw)
+      .processarWebhook(raw, sign)
       .catch(() => ({ errno: 0, errmsg: 'error-handled' }));
   }
 
@@ -55,6 +58,31 @@ export class Food99Controller {
   @Roles('presidente', 'gerente')
   status(@CurrentUser() user: AuthUser) {
     return this.service.status(user.tenantId);
+  }
+
+  // PRODUÇÃO — onboarding self-service: gera o link de autorização (getUrl). O
+  // lojista abre, autoriza a loja 99food dele; o resto vem por webhook shopBindStatus.
+  @Post('conectar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  conectar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Body() dto: { unidadeId?: string }) {
+    return this.service.conectar(user.tenantId, (dto?.unidadeId ?? atual) || null);
+  }
+
+  // Confirma a loja recém-vinculada oferecida ("é a minha loja").
+  @Post('vincular')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  vincular(@CurrentUser() user: AuthUser, @Body() dto: { appShopId?: string }) {
+    return this.service.vincular(user.tenantId, String(dto?.appShopId ?? '').trim());
+  }
+
+  // Descarta a loja recém-vinculada oferecida (não era a do lojista).
+  @Post('recusar-bind')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  recusarBind(@CurrentUser() user: AuthUser) {
+    return this.service.recusarBind(user.tenantId);
   }
 
   // Gera/retorna um auth_token fresco da loja (p/ colar na Ferramenta de Sandbox).
@@ -94,5 +122,26 @@ export class Food99Controller {
   @Roles('presidente', 'gerente')
   desconectar(@CurrentUser() user: AuthUser) {
     return this.service.desconectar(user.tenantId);
+  }
+
+  // Liga o recebimento de cancelamento/reembolso do cliente (shop/apply/set) — passo
+  // necessário para a homologação do cancelamento (dispara orderCancelApply).
+  @Post('apply-set')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  applySet(@CurrentUser() user: AuthUser, @Body() dto: { cancel?: boolean; refund?: boolean }) {
+    return this.service.ativarApply(user.tenantId, dto?.cancel ?? true, dto?.refund ?? true);
+  }
+
+  // Confirma a entrega self-delivery pelo código do cliente (verifyDeliveryCode → 600).
+  @Post('verificar-entrega')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  verificarEntrega(@CurrentUser() user: AuthUser, @Body() dto: { orderId?: string; codigo?: string }) {
+    return this.service.verificarEntregaPorTenant(
+      user.tenantId,
+      String(dto?.orderId ?? '').trim(),
+      String(dto?.codigo ?? '').trim(),
+    );
   }
 }

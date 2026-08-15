@@ -1500,7 +1500,6 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   const [ambiente, setAmbiente] = useState('producao');
   const [cwMsg, setCwMsg] = useState('');
   const [cwBusy, setCwBusy] = useState(false);
-  const [f99Order, setF99Order] = useState('');
   const [f99Msg, setF99Msg] = useState('');
   const [f99Busy, setF99Busy] = useState(false);
   const [anotaMsg, setAnotaMsg] = useState('');
@@ -1532,17 +1531,52 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setAnotaBusy(false);
     }
   }
-  const [f99Token, setF99Token] = useState('');
-  async function cardapioTesteF99() {
-    setF99Busy(true);
-    setF99Msg('Subindo cardápio de teste (1 item)…');
+  // PRODUÇÃO — onboarding self-service (sem credenciais digitadas pelo lojista).
+  const [f99Status, setF99Status] = useState<any>(null);
+  async function carregarStatusF99() {
+    try { setF99Status(await api.food99Status()); } catch { /* ignore */ }
+  }
+  useEffect(() => {
+    if (ehFood99) carregarStatusF99();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ehFood99]);
+  // Gera o link de autorização (getUrl) e abre em outra aba — o lojista autoriza a
+  // loja 99food dele; o vínculo volta por webhook (shopBindStatus).
+  async function conectarF99() {
+    setF99Busy(true); setF99Msg('Gerando link de autorização…');
     try {
-      const r: any = await api.food99CardapioTeste();
-      if (r?.ok) setF99Msg(`Cardápio de teste subido. Use o APPitemID "${r.appItemId}" no Sandbox (Crie pedido). Aguarde ~1 min o 99Food processar.`);
-      else setF99Msg(`Falha ao subir cardápio (errno ${r?.errno ?? '?'}). Vou ver o log.`);
+      const r: any = await api.food99Conectar();
+      if (r?.url) {
+        window.open(r.url, '_blank', 'noopener');
+        setF99Msg('Abrimos a página do 99Food em outra aba. Faça login na sua conta 99Food e autorize a loja; depois volte e clique em "Já autorizei".');
+      } else {
+        setF99Msg('Não consegui gerar o link — tente de novo em instantes.');
+      }
     } catch (e: any) {
-      setF99Msg('Erro ao subir cardápio: ' + (e?.message ?? ''));
+      setF99Msg('Erro ao conectar: ' + (e?.message ?? ''));
     } finally {
+      setF99Busy(false);
+    }
+  }
+  async function vincularF99() {
+    setF99Busy(true); setF99Msg('Confirmando a loja…');
+    try {
+      await api.food99Vincular(f99Status?.pendingBind?.appShopId);
+      setF99Msg('Loja conectada! Os pedidos do 99Food vão cair no painel automaticamente.');
+      await carregarStatusF99();
+    } catch (e: any) {
+      setF99Msg('Erro ao confirmar: ' + (e?.message ?? ''));
+    } finally {
+      setF99Busy(false);
+    }
+  }
+  async function recusarF99() {
+    setF99Busy(true); setF99Msg('');
+    try {
+      await api.food99RecusarBind();
+      setF99Msg('Ok, descartei essa loja. Clique em "Conectar" de novo se precisar.');
+      await carregarStatusF99();
+    } catch { /* ignore */ } finally {
       setF99Busy(false);
     }
   }
@@ -1554,50 +1588,6 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setF99Msg(`Cardápio exportado: ${r?.produtos ?? 0} itens em ${r?.categorias ?? 0} categorias.`);
     } catch (e: any) {
       setF99Msg('Erro ao exportar: ' + (e?.message ?? ''));
-    } finally {
-      setF99Busy(false);
-    }
-  }
-  async function buscarTokenF99() {
-    setF99Busy(true);
-    setF99Msg('Gerando token da loja…');
-    setF99Token('');
-    try {
-      const r: any = await api.food99Token();
-      if (r?.ok && r?.token) {
-        setF99Token(r.token);
-        setF99Msg(`Token gerado (auth OK). Expira em ${r.expiraEm ? new Date(r.expiraEm).toLocaleString('pt-BR') : '—'}. Cole na Ferramenta de Sandbox do 99Food.`);
-      } else {
-        setF99Msg('Não consegui gerar token — confira App ID / App Secret / App Shop ID e salve de novo.');
-      }
-    } catch (e: any) {
-      setF99Msg('Erro ao gerar token: ' + (e?.message ?? ''));
-    } finally {
-      setF99Busy(false);
-    }
-  }
-  async function salvarF99() {
-    setF99Busy(true);
-    setF99Msg('');
-    try {
-      await api.food99SalvarCredenciais({ appId: clientId, appSecret: clientSecret, appShopId: merchantId });
-      setF99Msg('Credenciais salvas. Registre o webhook no portal do 99Food e dispare um pedido no Sandbox.');
-      setClientSecret('');
-    } catch (e: any) {
-      setF99Msg('Erro ao salvar: ' + (e?.message ?? ''));
-    } finally {
-      setF99Busy(false);
-    }
-  }
-  async function puxarF99() {
-    if (!f99Order.trim()) { setF99Msg('Informe o order_id do pedido de teste.'); return; }
-    setF99Busy(true);
-    setF99Msg('Puxando pedido…');
-    try {
-      const r: any = await api.food99Puxar(f99Order.trim());
-      setF99Msg(r?.ok ? 'Pedido importado do 99Food.' : 'Pedido não encontrado (confira order_id e credenciais).');
-    } catch (e: any) {
-      setF99Msg('Erro ao puxar: ' + (e?.message ?? ''));
     } finally {
       setF99Busy(false);
     }
@@ -1747,39 +1737,41 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
         </>
       ) : ehFood99 ? (
         <>
-          <p className="text-[11px] text-muted-foreground">API do <strong>99Food (DiDi Food)</strong>. No portal do desenvolvedor (<strong>developer-food.99app.com</strong> → Gerenciamento de aplicativo → detalhes do app) copie o <strong>APP ID</strong> e o <strong>Secret</strong>; o <strong>App Shop ID</strong> é o que você definiu ao criar a loja de teste (ex.: <code>regemteste01</code>). O 99Food <strong>empurra os pedidos</strong> para o webhook abaixo — cadastre-o no app.</p>
-          <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">Webhook a registrar no 99Food (campo "Endereço do webhook"): <code>https://api.dmsregem.com/api/v1/integracoes/99food/webhook</code></p>
-          <div className="grid gap-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <Campo label="App ID"><Input value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="ex.: 5764607716243277863" className="h-8" disabled={!pode} /></Campo>
-              <Campo label="App Shop ID"><Input value={merchantId} onChange={(e) => setMerchantId(e.target.value)} placeholder="ex.: regemteste01" className="h-8" disabled={!pode} /></Campo>
+          <p className="text-[11px] text-muted-foreground">Integração oficial do <strong>99Food (DiDi Food)</strong>. Você <strong>não precisa digitar nenhuma credencial</strong>: clique em <strong>Conectar com 99Food</strong>, faça login na sua conta 99Food e autorize a loja. Os pedidos passam a cair no painel automaticamente.</p>
+          {f99Status?.configurado === false && (
+            <p className="rounded bg-warn/10 px-2 py-1 text-[11px] text-warn">A integração ainda não foi habilitada no servidor. Fale com o suporte Regem.</p>
+          )}
+          {f99Status?.conectado ? (
+            <div className="rounded border border-ok/40 bg-ok/10 px-3 py-2 text-[12px]">
+              <p className="font-medium text-ok">Conectado{f99Status?.shopName ? `: ${f99Status.shopName}` : ''}</p>
+              <p className="text-[11px] text-muted-foreground">Loja vinculada. Os pedidos do 99Food chegam automaticamente por webhook.</p>
             </div>
-            <Campo label={`App Secret${it.temSecret ? ' (salvo)' : ''}`}>
-              <Input type="password" value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} placeholder={it.temSecret ? '•••••• (deixe em branco p/ manter)' : 'cole o Secret do app'} className="h-8" disabled={!pode} />
-            </Campo>
-          </div>
-          {f99Msg && <p className="text-[11px] text-muted-foreground">{f99Msg}</p>}
-          {f99Token && (
-            <Campo label="Token da loja (cole na Ferramenta de Sandbox do 99Food)">
-              <Input value={f99Token} readOnly onFocus={(e) => e.currentTarget.select()} className="h-8 font-mono text-[11px]" />
-            </Campo>
-          )}
-          {pode && (
-            <>
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={exportarCatalogoF99} title="Cria as categorias/itens do Regem no 99Food">Exportar catálogo</Button>
-                <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={cardapioTesteF99} title="Sobe 1 item de teste no cardápio da loja (pré-requisito do Sandbox)">Subir cardápio de teste</Button>
-                <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={buscarTokenF99} title="Gera um auth_token fresco da loja para colar no Sandbox do portal">Buscar token da loja</Button>
-                <Button type="button" size="sm" disabled={f99Busy} onClick={salvarF99}>Salvar credenciais</Button>
-              </div>
-              <div className="flex flex-wrap items-end gap-2 border-t border-border pt-2">
-                <div className="flex-1 min-w-[10rem]">
-                  <Campo label="Testar por order_id (sem webhook)"><Input value={f99Order} onChange={(e) => setF99Order(e.target.value)} placeholder="cole o order_id de um pedido de teste" className="h-8" disabled={!pode} /></Campo>
+          ) : f99Status?.pendingBind ? (
+            <div className="rounded border border-warn/40 bg-warn/10 px-3 py-2 text-[12px]">
+              <p className="font-medium">Uma loja foi vinculada: <strong>{f99Status.pendingBind.nome ?? f99Status.pendingBind.appShopId}</strong></p>
+              {f99Status.pendingBind.addr && <p className="text-[11px] text-muted-foreground">{f99Status.pendingBind.addr}</p>}
+              <p className="mt-1 text-[11px] text-muted-foreground">É a sua loja?</p>
+              {pode && (
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" disabled={f99Busy} onClick={vincularF99}>Sim, é a minha</Button>
+                  <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={recusarF99}>Não é minha</Button>
                 </div>
-                <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={puxarF99}>Puxar pedido</Button>
+              )}
+            </div>
+          ) : (
+            pode && (
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" disabled={f99Busy} onClick={conectarF99}>Conectar com 99Food</Button>
+                <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={carregarStatusF99}>Já autorizei</Button>
               </div>
-            </>
+            )
           )}
+          {f99Status?.conectado && pode && (
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-2">
+              <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={exportarCatalogoF99} title="Cria as categorias/itens do Regem no 99Food">Exportar catálogo</Button>
+            </div>
+          )}
+          {f99Msg && <p className="text-[11px] text-muted-foreground">{f99Msg}</p>}
         </>
       ) : ehAnota ? (
         <>
