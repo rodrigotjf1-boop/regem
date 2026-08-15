@@ -1,4 +1,5 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
@@ -21,7 +22,9 @@ import { DeliveryService } from '../../delivery/delivery.service';
 //   token = auth_token (cache) · config.tokenExp = validade (ms)
 //   config.pendingCancels = { [orderId]: { reasonId, reason, attempts } }  (blindagem)
 const CANAL = '99food';
-const BASE = process.env.FOOD99_BASE_URL ?? 'https://openapi.didi-food.com';
+// Domínio migrado didi-food.com → 99food.com (changelog 29/04/2026; o antigo morreu
+// em 29/05/2026). Env FOOD99_BASE_URL sobrepõe se precisar.
+const BASE = process.env.FOOD99_BASE_URL ?? 'https://openapi.99food.com';
 // reason_id padrão de cancelamento (enum 99food: 1010/1020/1030/1040/1050/1060/1080).
 // 1010 = problema no estabelecimento (ajustar quando tivermos os labels oficiais).
 const CANCEL_REASON_PADRAO = Number(process.env.FOOD99_CANCEL_REASON ?? 1010);
@@ -47,15 +50,29 @@ export class Food99Service {
     private readonly delivery: DeliveryService,
   ) {}
 
+  // App de PRODUÇÃO: app_id/app_secret são GLOBAIS (1 app da SISTER p/ TODAS as
+  // lojas) e vêm do ambiente (FOOD99_APP_ID / FOOD99_APP_SECRET). Fallback: credencial
+  // por tenant no banco (modelo de teste). Por loja guardamos só o app_shop_id
+  // (merchantId = UUID que o 99food gera no vínculo) + auth_token (cache).
+  private appIdEnv(): string {
+    return (process.env.FOOD99_APP_ID ?? '').trim();
+  }
+  private appSecretEnv(): string {
+    return (process.env.FOOD99_APP_SECRET ?? '').trim();
+  }
+
   private mapRow(r: any): IntegFood99 | null {
-    if (!r || !r.clientId || !r.clientSecret || !r.merchantId) return null;
+    if (!r || !r.merchantId) return null;
+    const appId = this.appIdEnv() || (r.clientId ? String(r.clientId).trim() : '');
+    const appSecret = this.appSecretEnv() || (r.clientSecret ? String(r.clientSecret).trim() : '');
+    if (!appId || !appSecret) return null;
     return {
       id: r.id,
       tenantId: r.tenantId,
       unidadeId: r.unidadeId ?? null,
-      appId: (r.clientId as string).trim(),
-      appSecret: (r.clientSecret as string).trim(),
-      appShopId: (r.merchantId as string).trim(),
+      appId,
+      appSecret,
+      appShopId: String(r.merchantId).trim(),
       token: r.token,
       config: r.config ?? {},
     };
@@ -150,6 +167,145 @@ export class Food99Service {
     return r.token;
   }
 
+  // ===== Onboarding self-service (produção) =====
+  // O lojista NÃO digita credencial. Ele autoriza a loja pelo link do getUrl; o
+  // 99food avisa por webhook shopBindStatus; a gente atribui ao tenant que clicou
+  // "Conectar" e ele confirma o nome da loja. app_id/app_secret são globais (env).
+
+  // Token EFÊMERO (não persiste) para uma loja recém-vinculada ainda sem linha própria.
+  private async tokenEfemero(appShopId: string): Promise<string | null> {
+    const appId = this.appIdEnv();
+    const appSecret = this.appSecretEnv();
+    if (!appId || !appSecret) return null;
+    const r = await this.fetchTokenGet({ appId, appSecret, appShopId, config: {} } as any);
+    return r.errno === 0 && r.token ? r.token : null;
+  }
+
+  // GET /v1/shop/shop/detail — nome/endereço da loja (usa auth_token).
+  private async shopDetail(appShopId: string): Promise<any | null> {
+    const tk = await this.tokenEfemero(appShopId);
+    if (!tk) return null;
+    const q = new URLSearchParams({ auth_token: tk }).toString();
+    const res = await fetch(`${BASE}/v1/shop/shop/detail?${q}`, { method: 'GET' }).catch(() => null);
+    const j: any = res ? await res.json().catch(() => null) : null;
+    return j?.errno === 0 ? j.data : null;
+  }
+
+  // Gera o link de autorização (getUrl) p/ o lojista conectar a loja 99food dele ao
+  // NOSSO app. Só precisa do app_id (global). Marca bindPending no tenant p/ atribuir
+  // o shopBindStatus que vier a seguir.
+  async conectar(tenantId: string, unidadeId: string | null): Promise<{ url: string }> {
+    const appId = this.appIdEnv();
+    if (!appId) throw new BadRequestException('99Food não configurado no servidor (defina FOOD99_APP_ID/FOOD99_APP_SECRET).');
+    const [ex] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
+    const config = { ...((ex?.config as any) ?? {}), bindPending: Date.now() };
+    if (ex) {
+      await this.db.update(integracao).set({ config, ...(unidadeId ? { unidadeId } : {}), updatedAt: new Date() }).where(eq(integracao.id, ex.id));
+    } else {
+      await this.db.insert(integracao).values({ tenantId, unidadeId, canal: CANAL, ativo: false, config });
+    }
+    // app_id é 64-bit → LITERAL no corpo (bigint-safe).
+    const res = await fetch(`${BASE}/v1/auth/authorizationpage/getUrl`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: `{"app_id":${appId}}`,
+    }).catch(() => null);
+    const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
+    if (j?.errno !== 0 || !j?.data?.url) {
+      this.logger.warn(`getUrl errno=${j?.errno}: ${JSON.stringify(j).slice(0, 160)}`);
+      throw new BadRequestException(`99Food recusou gerar o link (errno ${j?.errno}).`);
+    }
+    return { url: j.data.url };
+  }
+
+  // Webhook shopBindStatus: o lojista autorizou (ou desvinculou) a loja pelo link.
+  // data.appShopIDList = UUID(s) da loja no nosso app; data.bindStatus = bind|unbind.
+  private async tratarBind(raw: string): Promise<void> {
+    const bindStatus = ((raw.match(/"bindStatus"\s*:\s*"?(bind|unbind)"?/i) || [])[1] || '').toLowerCase();
+    const lista = (raw.match(/"appShopIDList"\s*:\s*\[([^\]]*)\]/) || [])[1] || '';
+    const uuids = (lista.match(/"([^"]+)"/g) || []).map((s) => s.replace(/"/g, ''));
+    if (!uuids.length) {
+      this.logger.warn('shopBindStatus sem appShopIDList');
+      return;
+    }
+    if (bindStatus === 'unbind') {
+      for (const u of uuids) {
+        const [row] = await this.db.select().from(integracao).where(and(eq(integracao.canal, CANAL), eq(integracao.merchantId, u)));
+        if (row) await this.db.update(integracao).set({ ativo: false, token: null, updatedAt: new Date() }).where(eq(integracao.id, row.id));
+      }
+      this.logger.log(`shopBindStatus unbind: ${uuids.join(',')}`);
+      return;
+    }
+    // bind: atribui ao tenant que clicou "Conectar" mais recentemente e guarda a loja
+    // para ELE confirmar (nome/endereço) — evita atribuir à loja errada.
+    const alvo = await this.tenantBindPendente();
+    if (!alvo) {
+      this.logger.warn(`shopBindStatus bind ${uuids.join(',')} sem tenant aguardando (ignora)`);
+      return;
+    }
+    const u = uuids[0];
+    const detail = await this.shopDetail(u).catch(() => null);
+    const nome = detail?.shop_name ?? detail?.name ?? null;
+    const addr = detail?.shop_addr ?? detail?.address ?? null;
+    const config = { ...((alvo.config as any) ?? {}), pendingBind: { appShopId: u, nome, addr }, bindPending: null };
+    await this.db.update(integracao).set({ config, updatedAt: new Date() }).where(eq(integracao.id, alvo.id));
+    this.logger.log(`shopBindStatus bind ${u} → tenant ${alvo.tenant_id ?? alvo.tenantId} (aguarda confirmação: ${nome ?? '?'})`);
+  }
+
+  // Linha 99food com bindPending mais recente (o lojista que acabou de clicar Conectar).
+  private async tenantBindPendente(): Promise<any | null> {
+    const r: any = await this.db.execute(sql`
+      select * from integracao
+      where canal = ${CANAL} and (config->>'bindPending') is not null
+      order by (config->>'bindPending')::bigint desc
+      limit 1
+    `);
+    return (r?.rows ?? r)?.[0] ?? null;
+  }
+
+  // Confirma o vínculo (o lojista disse "é a minha loja"): grava o app_shop_id,
+  // ativa, liga cancel/refund do cliente e ajusta o aceite p/ API.
+  async vincular(tenantId: string, appShopId: string): Promise<{ ok: boolean }> {
+    const [row] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
+    if (!row) throw new BadRequestException('Nada para vincular — clique em "Conectar com 99Food" primeiro.');
+    const pend = (row.config as any)?.pendingBind;
+    const alvoId = appShopId || pend?.appShopId;
+    if (!alvoId) throw new BadRequestException('Nenhuma loja recém-vinculada para confirmar.');
+    const config = { ...((row.config as any) ?? {}), tokenExp: 0, shopName: pend?.nome ?? null, pendingBind: null, bindPending: null };
+    await this.db.update(integracao).set({ merchantId: alvoId, ativo: true, token: null, config, updatedAt: new Date() }).where(eq(integracao.id, row.id));
+    const ig = await this.integracaoDoTenant(tenantId);
+    if (ig) {
+      await this.configurarApply(ig, true, true).catch(() => false);
+      await this.definirAceiteApi(ig).catch(() => false);
+    }
+    return { ok: true };
+  }
+
+  // Descarta a loja recém-vinculada oferecida (não era a do lojista).
+  async recusarBind(tenantId: string): Promise<{ ok: boolean }> {
+    const [row] = await this.db.select().from(integracao).where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
+    if (row) {
+      const config = { ...((row.config as any) ?? {}), pendingBind: null };
+      await this.db.update(integracao).set({ config, updatedAt: new Date() }).where(eq(integracao.id, row.id));
+    }
+    return { ok: true };
+  }
+
+  // POST setconfirmmethod {auth_token, order_confirm_method:2} — aceite via API.
+  private async definirAceiteApi(ig: IntegFood99): Promise<boolean> {
+    const tk = await this.authToken(ig);
+    if (!tk) return false;
+    const j = await this.postJson('/v1/shop/shop/setconfirmmethod', tk, ['"order_confirm_method":2']);
+    if (j?.errno !== 0) this.logger.warn(`setconfirmmethod loja=${ig.appShopId} errno=${j?.errno}`);
+    return j?.errno === 0;
+  }
+
   // ===== Pedido =====
   async pedido(ig: IntegFood99, orderId: string): Promise<any | null> {
     const tk = await this.authToken(ig);
@@ -205,6 +361,85 @@ export class Food99Service {
     return j?.errno === 0;
   }
 
+  // POST body JSON bigint-safe (order_id/apply_id como LITERAIS, nunca via JSON.stringify).
+  private async postJson(caminho: string, tk: string, campos: string[]): Promise<any> {
+    const body = `{${[`"auth_token":${JSON.stringify(tk)}`, ...campos].join(',')}}`;
+    const res = await fetch(`${BASE}${caminho}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    }).catch(() => null);
+    return res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
+  }
+
+  // POST /v1/order/selfdelivery/verifyDeliveryCode {auth_token, order_id, takeaway_code}
+  // — self-delivery (changelog 23/07): valida o código do cliente → pedido vira 600.
+  async verificarCodigoEntrega(ig: IntegFood99, orderId: string, codigo: string): Promise<{ ok: boolean; errno: number }> {
+    if (!this.soDigitos(orderId)) return { ok: false, errno: -1 };
+    const tk = await this.authToken(ig);
+    if (!tk) return { ok: false, errno: -1 };
+    const j = await this.postJson('/v1/order/selfdelivery/verifyDeliveryCode', tk, [
+      `"order_id":${orderId}`,
+      `"takeaway_code":${JSON.stringify(String(codigo))}`,
+    ]);
+    if (j?.errno === 0) this.logger.log(`verifyDeliveryCode ${orderId} OK`);
+    else this.logger.warn(`verifyDeliveryCode ${orderId} errno=${j?.errno}`);
+    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1) };
+  }
+
+  // POST /v1/shop/apply/set — LIGA o recebimento de cancelamento/reembolso do cliente
+  // (é o que dispara orderCancelApply/orderRefundApply). receive_*: 0=não, 1=sim.
+  async configurarApply(ig: IntegFood99, receberCancel: boolean, receberRefund: boolean): Promise<boolean> {
+    const tk = await this.authToken(ig);
+    if (!tk) return false;
+    const j = await this.postJson('/v1/shop/apply/set', tk, [
+      `"receive_cancel_apply":${receberCancel ? 1 : 0}`,
+      `"receive_refund_apply":${receberRefund ? 1 : 0}`,
+    ]);
+    if (j?.errno !== 0) this.logger.warn(`apply/set loja=${ig.appShopId} errno=${j?.errno}`);
+    return j?.errno === 0;
+  }
+
+  // POST /v1/order/apply/cancel — responde ao cancelamento PEDIDO PELO CLIENTE
+  // (webhook orderCancelApply). agree=true aceita; false recusa (com reason).
+  // ⚠️ Os nomes dos campos (agree_type/reason) precisam ser confirmados na doc
+  // "Order Cancel Apply" — se der errno de parâmetro no Sandbox, ajustar aqui.
+  async responderCancelamento(
+    ig: IntegFood99,
+    orderId: string,
+    applyId: string,
+    agree: boolean,
+    reason?: string,
+  ): Promise<{ ok: boolean; errno: number }> {
+    if (!this.soDigitos(orderId) || !this.soDigitos(applyId)) return { ok: false, errno: -1 };
+    const tk = await this.authToken(ig);
+    if (!tk) return { ok: false, errno: -1 };
+    const campos = [`"order_id":${orderId}`, `"apply_id":${applyId}`, `"agree_type":${agree ? 1 : 2}`];
+    if (reason) campos.push(`"reason":${JSON.stringify(reason)}`);
+    const j = await this.postJson('/v1/order/apply/cancel', tk, campos);
+    this.logger.log(`apply/cancel ${orderId} agree=${agree} errno=${j?.errno}`);
+    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1) };
+  }
+
+  // POST /v1/order/apply/refund — responde ao reembolso pedido pelo cliente
+  // (webhook orderRefundApply). Mesma ressalva de campos que o apply/cancel.
+  async responderReembolso(
+    ig: IntegFood99,
+    orderId: string,
+    applyId: string,
+    agree: boolean,
+    reason?: string,
+  ): Promise<{ ok: boolean; errno: number }> {
+    if (!this.soDigitos(orderId) || !this.soDigitos(applyId)) return { ok: false, errno: -1 };
+    const tk = await this.authToken(ig);
+    if (!tk) return { ok: false, errno: -1 };
+    const campos = [`"order_id":${orderId}`, `"apply_id":${applyId}`, `"agree_type":${agree ? 1 : 2}`];
+    if (reason) campos.push(`"reason":${JSON.stringify(reason)}`);
+    const j = await this.postJson('/v1/order/apply/refund', tk, campos);
+    this.logger.log(`apply/refund ${orderId} agree=${agree} errno=${j?.errno}`);
+    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1) };
+  }
+
   // POST cancel {auth_token, order_id, reason_id, reason}. Retorna errno p/ a blindagem.
   private async cancelarApi(
     ig: IntegFood99,
@@ -248,6 +483,21 @@ export class Food99Service {
     const r = await this.cancelarApi(ig, orderId, reasonId, reason);
     if (r.ok) await this.limparCancelPendente(ig, orderId);
     else await this.marcarCancelPendente(ig, orderId, reasonId, reason);
+  }
+
+  // Liga na loja o recebimento de cancelamento/reembolso do cliente (apply/set) —
+  // é o que faz o 99food enviar orderCancelApply/orderRefundApply.
+  async ativarApply(tenantId: string, cancel = true, refund = true): Promise<{ ok: boolean }> {
+    const ig = await this.integracaoDoTenant(tenantId);
+    if (!ig) throw new BadRequestException('99Food não configurado para esta loja.');
+    return { ok: await this.configurarApply(ig, cancel, refund) };
+  }
+
+  // Confirma a entrega self-delivery pelo código do cliente (verifyDeliveryCode → 600).
+  async verificarEntregaPorTenant(tenantId: string, orderId: string, codigo: string): Promise<{ ok: boolean; errno: number }> {
+    const ig = await this.integracaoDoTenant(tenantId);
+    if (!ig) throw new BadRequestException('99Food não configurado para esta loja.');
+    return this.verificarCodigoEntrega(ig, orderId, codigo);
   }
 
   private async marcarCancelPendente(
@@ -308,63 +558,108 @@ export class Food99Service {
     return feitos;
   }
 
-  // ===== Webhook (orderNew / orderCancel / orderFinish) =====
-  // Recebe o CORPO CRU (string). O order_id é 64-bit: extraímos por regex como
-  // STRING (nunca JSON.parse) pra não corromper. Responde rápido e ingere de forma
-  // idempotente (delivery.ingest por externalId). O shape exato do payload será
-  // confirmado no 1º pedido do sandbox — por isso logamos o corpo cru.
-  async processarWebhook(raw: string): Promise<{ errno: number; errmsg: string }> {
+  // Verificação da assinatura do webhook: didi-header-sign = MD5(corpo_cru + app_secret).
+  // true = íntegro. Sem sign/secret → false (não dá pra verificar).
+  private assinaturaOk(raw: string, appSecret: string, sign?: string): boolean {
+    if (!sign || !appSecret) return false;
+    const esperado = createHash('md5').update(raw + appSecret).digest('hex');
+    return esperado.toLowerCase() === String(sign).toLowerCase();
+  }
+
+  // ===== Webhook do 99food =====
+  // Recebe o CORPO CRU (string) + a assinatura (didi-header-sign). order_id/apply_id
+  // são 64-bit: extraídos por regex como STRING (nunca JSON.parse) pra não corromper.
+  // Switch por TIPO EXATO (orderNew, orderCancelApply, …). Responde StandardResponse
+  // errno:0 (senão o 99food reenvia).
+  async processarWebhook(raw: string, sign?: string): Promise<{ errno: number; errmsg: string }> {
     const orderId = (raw.match(/"order_id"\s*:\s*"?(\d+)"?/) || [])[1];
+    const applyId = (raw.match(/"apply_id"\s*:\s*"?(\d+)"?/) || [])[1];
     const appShopId = (raw.match(/"app_shop_id"\s*:\s*"?([^",}\s]+)"?/) || [])[1];
-    const event = (raw.match(/"(?:event|event_type|type|msg_type)"\s*:\s*"?([a-zA-Z_]+)"?/) || [])[1] || '';
-    this.logger.log(`webhook event=${event || '?'} order=${orderId ?? '?'} shop=${appShopId ?? '?'} raw=${raw.slice(0, 300)}`);
-    if (!orderId) return { errno: 0, errmsg: 'ignored' };
+    const type = (raw.match(/"(?:type|event|event_type|msg_type)"\s*:\s*"?([a-zA-Z_]+)"?/) || [])[1] || '';
+    const ev = type.toLowerCase();
+    this.logger.log(`webhook type=${type || '?'} order=${orderId ?? '?'} shop=${appShopId ?? '?'} raw=${raw.slice(0, 300)}`);
+
+    // Vínculo/desvínculo de loja (produção): não depende de loja ativa; o app_shop_id
+    // vem em data.appShopIDList, não no topo. Assinatura conferida com o secret GLOBAL.
+    if (ev === 'shopbindstatus') {
+      if (!this.assinaturaOk(raw, this.appSecretEnv(), sign)) {
+        this.logger.warn('shopBindStatus: assinatura inválida');
+        if (process.env.FOOD99_REQUIRE_SIGN === 'true') return { errno: 0, errmsg: 'bad-sign' };
+      }
+      await this.tratarBind(raw).catch((e) => this.logger.warn(`tratarBind: ${e?.message ?? e}`));
+      return { errno: 0, errmsg: 'ok' };
+    }
+
     const ig = await this.porAppShopId(appShopId);
     if (!ig) {
       this.logger.warn('webhook: loja 99food não resolvida (app_shop_id?)');
       return { errno: 0, errmsg: 'no-store' };
     }
-    const ev = event.toLowerCase();
+
+    // Segurança: confere a assinatura. Por padrão TOLERA (só loga) pra não derrubar a
+    // homologação por um segredo com espaço; FOOD99_REQUIRE_SIGN=true rejeita de fato.
+    if (!this.assinaturaOk(raw, ig.appSecret, sign)) {
+      this.logger.warn(`webhook: assinatura inválida (loja=${ig.appShopId})`);
+      if (process.env.FOOD99_REQUIRE_SIGN === 'true') return { errno: 0, errmsg: 'bad-sign' };
+    }
+
     try {
-      if (ev.includes('cancel')) {
-        await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'cancelado');
-      } else if (ev.includes('finish') || ev.includes('complete') || ev.includes('deliver')) {
-        await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'concluido');
-      } else if (ev.includes('new') || ev === 'order' || ev.includes('order')) {
-        // orderNew: ingere o pedido. Primário = GET detail (OrderModel no topo);
-        // fallback = o pedido EMBUTIDO no webhook (data.order_info) — o Sandbox
-        // avisa que o detail pode ser simulado, então não dependemos só dele.
-        const unidadeId = await this.unidadeDestino(ig.tenantId, ig.unidadeId);
-        let order: any = await this.pedido(ig, orderId);
-        if (!order) {
-          try {
-            const parsed = JSON.parse(raw);
-            order = parsed?.data?.order_info ?? parsed?.data ?? null;
-          } catch {
-            /* corpo não-JSON: ignora */
-          }
+      if (ev === 'ordercancelapply') {
+        // Cliente pediu cancelamento → aceitamos (homologação). O orderCancel seguinte
+        // reflete o pedido como cancelado. (FOOD99_APPLY_CANCEL=refuse recusa.)
+        if (applyId) {
+          const agree = process.env.FOOD99_APPLY_CANCEL !== 'refuse';
+          await this.responderCancelamento(ig, orderId!, applyId, agree, agree ? undefined : 'store cannot fulfill');
         }
-        if (order) {
-          await this.delivery.ingest(
-            ig.tenantId,
-            unidadeId,
-            CANAL,
-            { ...order, order_id: orderId }, // externalId preciso (string, bigint-safe)
-            { taxaEntrega: (Number(order?.price?.delivery_price) || 0) / 100 },
-          );
-        } else {
-          this.logger.warn(`webhook: pedido ${orderId} sem detalhe nem corpo utilizável`);
+      } else if (ev === 'orderrefundapply') {
+        if (applyId) {
+          const agree = process.env.FOOD99_APPLY_REFUND !== 'refuse';
+          await this.responderReembolso(ig, orderId!, applyId, agree, agree ? undefined : 'store refuses');
         }
+      } else if (ev === 'ordercancel' || ev === 'orderpartialcancel') {
+        if (orderId) await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'cancelado');
+      } else if (ev === 'orderfinish') {
+        if (orderId) await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'concluido');
+      } else if (ev === 'ordernew' || (!ev && orderId)) {
+        // orderNew: ingere. Primário = GET detail; fallback = data.order_info do corpo.
+        if (orderId) await this.ingerirNovo(ig, orderId, raw);
+      } else if (ev === 'orderconfirm' || ev === 'orderready' || ev === 'deliverystatus') {
+        // Ecos do nosso próprio status / progresso de entrega — só reconhece.
+        this.logger.log(`webhook: ${type} order=${orderId} (ack)`);
       } else {
-        // Eventos não-pedido (uploadMenuTaskStatus, shopStatus…): só reconhece.
-        this.logger.log(`webhook: evento ${event} ignorado`);
+        // shopStatus, shopBindStatus, imageAuditStatus, uploadMenuTaskStatus,
+        // autoOnlineResult… — reconhece (nada a fazer no fluxo de pedido por ora).
+        this.logger.log(`webhook: evento ${type} reconhecido (sem ação)`);
       }
     } catch (e: any) {
-      this.logger.warn(`webhook ingest ${orderId}: ${e?.message ?? e}`);
+      this.logger.warn(`webhook ${type} ${orderId}: ${e?.message ?? e}`);
     }
-    // Resposta ao 99food. O shape exato de sucesso ("Webhooks Responses") será
-    // confirmado na doc; StandardResponse errno:0 é a convenção da API deles.
-    return { errno: 0, errmsg: 'success' };
+    return { errno: 0, errmsg: 'ok' };
+  }
+
+  // Ingestão de um pedido novo (orderNew): detail como primário, corpo como fallback.
+  private async ingerirNovo(ig: IntegFood99, orderId: string, raw: string): Promise<void> {
+    const unidadeId = await this.unidadeDestino(ig.tenantId, ig.unidadeId);
+    let order: any = await this.pedido(ig, orderId);
+    if (!order) {
+      try {
+        const parsed = JSON.parse(raw);
+        order = parsed?.data?.order_info ?? parsed?.data ?? null;
+      } catch {
+        /* corpo não-JSON */
+      }
+    }
+    if (!order) {
+      this.logger.warn(`webhook: pedido ${orderId} sem detalhe nem corpo utilizável`);
+      return;
+    }
+    await this.delivery.ingest(
+      ig.tenantId,
+      unidadeId,
+      CANAL,
+      { ...order, order_id: orderId }, // externalId string (bigint-safe)
+      { taxaEntrega: (Number(order?.price?.delivery_price) || 0) / 100 },
+    );
   }
 
   // ===== Persistência das credenciais (tela do gestor) =====
@@ -411,11 +706,19 @@ export class Food99Service {
   }
 
   async status(tenantId: string) {
-    const ig = await this.integracaoDoTenant(tenantId);
+    const [row] = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
+    const ig = this.mapRow(row);
+    const cfg = (row?.config as any) ?? {};
     return {
-      conectado: !!ig,
+      conectado: !!ig && !!row?.ativo,
+      configurado: !!this.appIdEnv() || !!row?.clientId, // servidor tem app configurado
       appShopId: ig?.appShopId ?? null,
-      pendentesCancel: Object.keys(ig?.config?.pendingCancels ?? {}).length,
+      shopName: cfg.shopName ?? null,
+      pendingBind: cfg.pendingBind ?? null, // loja recém-vinculada aguardando confirmação
+      pendentesCancel: Object.keys(cfg.pendingCancels ?? {}).length,
     };
   }
 
@@ -444,9 +747,11 @@ export class Food99Service {
       auth_token: tk,
       menus: [{ app_menu_id: 'regemmenu1', menu_name: 'Cardápio de teste', app_category_ids: ['regemcat1'] }],
       categories: [{ app_category_id: 'regemcat1', category_name: 'Lanches', app_item_ids: [appItemId] }],
-      items: [{ app_item_id: appItemId, item_name: 'X-Burger Teste', price: 2500 }],
+      items: [{ app_item_id: appItemId, item_name: 'X-Burger Teste', price: 2500, is_sold_separately: true }],
+      modifier_groups: [],
     };
-    const res = await fetch(`${BASE}/v1/item/item/upload`, {
+    // Menu é v3 (a v1 saiu junto com a migração de domínio) — mesma forma do export.
+    const res = await fetch(`${BASE}/v3/item/item/upload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -500,15 +805,23 @@ export class Food99Service {
   }
 
   async desconectar(tenantId: string): Promise<{ ok: boolean }> {
-    const [ig] = await this.db
+    // Desvincula a loja no 99food também (best-effort), depois desativa localmente.
+    const ativo = await this.integracaoDoTenant(tenantId);
+    if (ativo) {
+      const tk = await this.authToken(ativo).catch(() => null);
+      if (tk) {
+        await fetch(`${BASE}/v1/shop/shop/unbind?${new URLSearchParams({ auth_token: tk }).toString()}`, { method: 'GET' }).catch(() => {});
+      }
+    }
+    const [row] = await this.db
       .select()
       .from(integracao)
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
-    if (!ig) return { ok: true };
+    if (!row) return { ok: true };
     await this.db
       .update(integracao)
       .set({ ativo: false, token: null, config: {}, updatedAt: new Date() })
-      .where(eq(integracao.id, ig.id));
+      .where(eq(integracao.id, row.id));
     return { ok: true };
   }
 
