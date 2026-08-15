@@ -1,14 +1,14 @@
 'use client';
 
-import { use, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // QR do entregador (Fase 4) — página PÚBLICA aberta ao escanear o QR do cupom.
 // O entregador se identifica e confirma a saída → o pedido vai para "em rota".
 
-export default function DespachoPage({ params }: { params: Promise<{ token: string }> }) {
-  const { token } = use(params);
+export default function DespachoPage({ params }: { params: { token: string } }) {
+  const { token } = params;
   const [info, setInfo] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [carregando, setCarregando] = useState(true);
