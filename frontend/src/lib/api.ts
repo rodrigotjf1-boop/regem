@@ -866,6 +866,7 @@ export const api = {
   food99Vincular: (appShopId?: string) =>
     req('/integracoes/99food/vincular', { method: 'POST', body: JSON.stringify({ appShopId: appShopId ?? '' }) }),
   food99RecusarBind: () => req('/integracoes/99food/recusar-bind', { method: 'POST', body: '{}' }),
+  food99LojasAutorizadas: () => req('/integracoes/99food/lojas-autorizadas'),
   food99Token: () => req('/integracoes/99food/token'),
   food99CardapioTeste: () => req('/integracoes/99food/cardapio-teste', { method: 'POST', body: '{}' }),
   food99ExportarCatalogo: () => req('/integracoes/99food/exportar-catalogo', { method: 'POST', body: '{}' }),
