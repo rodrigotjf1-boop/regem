@@ -1533,6 +1533,7 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
   }
   // PRODUÇÃO — onboarding self-service (sem credenciais digitadas pelo lojista).
   const [f99Status, setF99Status] = useState<any>(null);
+  const [f99Lojas, setF99Lojas] = useState<any[]>([]);
   async function carregarStatusF99() {
     try { setF99Status(await api.food99Status()); } catch { /* ignore */ }
   }
@@ -1540,6 +1541,23 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
     if (ehFood99) carregarStatusF99();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ehFood99]);
+  // "Já autorizei": puxa as lojas autorizadas do 99Food (getAuthorizedShops) —
+  // funciona mesmo se o webhook shopBindStatus não tiver chegado.
+  async function jaAutorizeiF99() {
+    setF99Busy(true); setF99Msg('Buscando lojas autorizadas no 99Food…');
+    try {
+      await carregarStatusF99();
+      const r: any = await api.food99LojasAutorizadas();
+      const lojas = r?.lojas ?? [];
+      setF99Lojas(lojas);
+      if (!lojas.length) setF99Msg('Ainda não vejo nenhuma loja autorizada. Confirme que autorizou no 99Food (conta da loja) e tente de novo em ~30s.');
+      else setF99Msg(`${lojas.length} loja(s) autorizada(s) encontrada(s). Selecione a sua.`);
+    } catch (e: any) {
+      setF99Msg('Erro ao buscar lojas: ' + (e?.message ?? ''));
+    } finally {
+      setF99Busy(false);
+    }
+  }
   // Gera o link de autorização (getUrl) e abre em outra aba — o lojista autoriza a
   // loja 99food dele; o vínculo volta por webhook (shopBindStatus).
   async function conectarF99() {
@@ -1558,11 +1576,12 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
       setF99Busy(false);
     }
   }
-  async function vincularF99() {
+  async function vincularF99(appShopId?: string) {
     setF99Busy(true); setF99Msg('Confirmando a loja…');
     try {
-      await api.food99Vincular(f99Status?.pendingBind?.appShopId);
+      await api.food99Vincular(appShopId ?? f99Status?.pendingBind?.appShopId);
       setF99Msg('Loja conectada! Os pedidos do 99Food vão cair no painel automaticamente.');
+      setF99Lojas([]);
       await carregarStatusF99();
     } catch (e: any) {
       setF99Msg('Erro ao confirmar: ' + (e?.message ?? ''));
@@ -1753,16 +1772,31 @@ function IntegracaoCard({ it, onSalvar, pode }: { it: any; onSalvar: (dto: any) 
               <p className="mt-1 text-[11px] text-muted-foreground">É a sua loja?</p>
               {pode && (
                 <div className="mt-1 flex flex-wrap gap-2">
-                  <Button type="button" size="sm" disabled={f99Busy} onClick={vincularF99}>Sim, é a minha</Button>
+                  <Button type="button" size="sm" disabled={f99Busy} onClick={() => vincularF99()}>Sim, é a minha</Button>
                   <Button type="button" size="sm" variant="ghost" disabled={f99Busy} onClick={recusarF99}>Não é minha</Button>
                 </div>
               )}
             </div>
           ) : (
             pode && (
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" disabled={f99Busy} onClick={conectarF99}>Conectar com 99Food</Button>
-                <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={carregarStatusF99}>Já autorizei</Button>
+              <div className="grid gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" disabled={f99Busy} onClick={conectarF99}>Conectar com 99Food</Button>
+                  <Button type="button" size="sm" variant="outline" disabled={f99Busy} onClick={jaAutorizeiF99}>Já autorizei</Button>
+                </div>
+                {f99Lojas.length > 0 && (
+                  <div className="rounded border border-border bg-secondary/40 p-2 text-[12px]">
+                    <p className="mb-1 font-medium">Lojas autorizadas — selecione a sua:</p>
+                    <div className="grid gap-1">
+                      {f99Lojas.map((l: any) => (
+                        <div key={l.appShopId} className="flex items-center justify-between gap-2 rounded bg-background px-2 py-1">
+                          <span className="truncate">{l.nome ?? l.appShopId}</span>
+                          <Button type="button" size="sm" disabled={f99Busy} onClick={() => vincularF99(l.appShopId)}>Vincular</Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )
           )}

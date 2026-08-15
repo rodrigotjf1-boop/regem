@@ -69,6 +69,15 @@ export class Food99Controller {
     return this.service.conectar(user.tenantId, (dto?.unidadeId ?? atual) || null);
   }
 
+  // Lista as lojas autorizadas ao app que ainda não estão vinculadas (fallback do
+  // webhook: puxa direto do 99food via getAuthorizedShops). O lojista escolhe a dele.
+  @Get('lojas-autorizadas')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente', 'gerente')
+  lojasAutorizadas(@CurrentUser() user: AuthUser) {
+    return this.service.lojasAutorizadas(user.tenantId);
+  }
+
   // Confirma a loja recém-vinculada oferecida ("é a minha loja").
   @Post('vincular')
   @UseGuards(JwtAuthGuard, RolesGuard)

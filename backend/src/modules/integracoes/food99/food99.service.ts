@@ -255,6 +255,66 @@ export class Food99Service {
     this.logger.log(`shopBindStatus bind ${u} → tenant ${alvo.tenant_id ?? alvo.tenantId} (aguarda confirmação: ${nome ?? '?'})`);
   }
 
+  // Assinatura de request (endpoints v3 de auth/store SEM auth_token): ordena as
+  // chaves A→Z, monta "k=v" unido por "&", concatena o app_secret no fim, MD5.
+  // (Algoritmo "List Bind Stores" da doc.) app_id vai como string decimal (bigint-safe).
+  private assinarRequest(params: Record<string, string | number>): string {
+    const secret = this.appSecretEnv();
+    const keys = Object.keys(params)
+      .filter((k) => k !== 'sign' && params[k] !== '' && params[k] !== null && params[k] !== undefined)
+      .sort();
+    const base = keys.map((k) => `${k}=${params[k]}`).join('&') + secret;
+    return createHash('md5').update(base).digest('hex');
+  }
+
+  // POST /v3/auth/authorization/getAuthorizedShops — lista as lojas autorizadas ao
+  // nosso app (independe do webhook shopBindStatus). Paginado. app_id LITERAL no corpo.
+  private async getAuthorizedShops(): Promise<Array<{ appShopId: string; nome: string | null }>> {
+    const appId = this.appIdEnv();
+    const secret = this.appSecretEnv();
+    if (!appId || !secret) return [];
+    const out: Array<{ appShopId: string; nome: string | null }> = [];
+    for (let page = 1; page <= 10; page++) {
+      const ts = Math.floor(Date.now() / 1000);
+      const sign = this.assinarRequest({ app_id: appId, page_no: page, page_size: 50, timestamp: ts });
+      const body = `{"app_id":${appId},"page_no":${page},"page_size":50,"timestamp":${ts},"sign":${JSON.stringify(sign)}}`;
+      const res = await fetch(`${BASE}/v3/auth/authorization/getAuthorizedShops`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      }).catch(() => null);
+      const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
+      if (j?.errno !== 0) {
+        this.logger.warn(`getAuthorizedShops errno=${j?.errno}: ${JSON.stringify(j).slice(0, 160)}`);
+        break;
+      }
+      const d = j?.data ?? {};
+      const shops: any[] = d.shops ?? d.list ?? d.shop_list ?? d.shop_infos ?? (Array.isArray(d) ? d : []);
+      for (const s of shops) {
+        const id = String(s.app_shop_id ?? s.appShopId ?? '');
+        if (id) out.push({ appShopId: id, nome: s.shop_name ?? s.name ?? null });
+      }
+      if (shops.length < 50) break;
+    }
+    return out;
+  }
+
+  // Lojas autorizadas ao app que AINDA não estão vinculadas a nenhum tenant do Regem
+  // (o lojista escolhe a dele). Enriquecemos o nome via shop/detail se faltar.
+  async lojasAutorizadas(_tenantId: string): Promise<{ lojas: Array<{ appShopId: string; nome: string | null }> }> {
+    const todas = await this.getAuthorizedShops();
+    const claimed = await this.db
+      .select()
+      .from(integracao)
+      .where(and(eq(integracao.canal, CANAL), eq(integracao.ativo, true)));
+    const claimedIds = new Set(claimed.map((r: any) => String(r.merchantId)));
+    const livres = todas.filter((s) => !claimedIds.has(s.appShopId));
+    for (const s of livres) {
+      if (!s.nome) s.nome = (await this.shopDetail(s.appShopId).catch(() => null))?.shop_name ?? null;
+    }
+    return { lojas: livres };
+  }
+
   // Linha 99food com bindPending mais recente (o lojista que acabou de clicar Conectar).
   private async tenantBindPendente(): Promise<any | null> {
     const r: any = await this.db.execute(sql`
@@ -277,7 +337,10 @@ export class Food99Service {
     const pend = (row.config as any)?.pendingBind;
     const alvoId = appShopId || pend?.appShopId;
     if (!alvoId) throw new BadRequestException('Nenhuma loja recém-vinculada para confirmar.');
-    const config = { ...((row.config as any) ?? {}), tokenExp: 0, shopName: pend?.nome ?? null, pendingBind: null, bindPending: null };
+    // nome: do webhook (pendingBind) ou busca no shop/detail (fluxo pull getAuthorizedShops).
+    let nome = pend?.appShopId === alvoId ? pend?.nome ?? null : null;
+    if (!nome) nome = (await this.shopDetail(alvoId).catch(() => null))?.shop_name ?? null;
+    const config = { ...((row.config as any) ?? {}), tokenExp: 0, shopName: nome, pendingBind: null, bindPending: null };
     await this.db.update(integracao).set({ merchantId: alvoId, ativo: true, token: null, config, updatedAt: new Date() }).where(eq(integracao.id, row.id));
     const ig = await this.integracaoDoTenant(tenantId);
     if (ig) {
