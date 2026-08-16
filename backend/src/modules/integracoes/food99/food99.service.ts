@@ -109,9 +109,18 @@ export class Food99Service {
 
   // ===== Auth (auth_token por loja, cache + refresh) =====
   private async persistToken(ig: IntegFood99, token: string, expMs: number): Promise<void> {
-    const config = { ...(ig.config ?? {}), tokenExp: expMs };
+    const config = { ...(ig.config ?? {}), tokenExp: expMs, lastAuthErrno: null };
     await this.db.update(integracao).set({ token, config }).where(eq(integracao.id, ig.id));
     ig.token = token;
+    ig.config = config;
+  }
+
+  // Registra o último erro de auth (errno do get/refresh) no config e zera o token,
+  // p/ o /status refletir a saúde REAL do auth sem forçar uma chamada a cada poll.
+  private async persistAuthErro(ig: IntegFood99, errno: number): Promise<void> {
+    const config = { ...(ig.config ?? {}), tokenExp: 0, lastAuthErrno: errno };
+    await this.db.update(integracao).set({ token: null, config }).where(eq(integracao.id, ig.id));
+    ig.token = null;
     ig.config = config;
   }
 
@@ -136,17 +145,26 @@ export class Food99Service {
   }
 
   // GET authtoken/refresh: gera um novo token (limite 1x/2min); depois é preciso
-  // buscá-lo com authtoken/get.
-  private async refreshToken(ig: IntegFood99): Promise<void> {
+  // buscá-lo com authtoken/get. Loga o errno da resposta (10101 = "store authorization
+  // information does not exist" → loja não provisionada no v1 do 99food, apesar de
+  // aparecer bound no getAuthorizedShops v3 → ticket no 99food).
+  private async refreshToken(ig: IntegFood99): Promise<number> {
     try {
       const q = new URLSearchParams({
         app_id: ig.appId,
         app_secret: ig.appSecret,
         app_shop_id: ig.appShopId,
       }).toString();
-      await fetch(`${BASE}/v1/auth/authtoken/refresh?${q}`, { method: 'GET' }).catch(() => {});
-    } catch {
-      /* ignora — o get subsequente decide */
+      const res = await fetch(`${BASE}/v1/auth/authtoken/refresh?${q}`, { method: 'GET' }).catch(() => null);
+      const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
+      const errno = Number(j?.errno ?? -1);
+      if (errno !== 0) {
+        this.logger.warn(`authtoken/refresh loja=${ig.appShopId} errno=${errno}: ${String(j?.errmsg ?? '').slice(0, 120)}`);
+      }
+      return errno;
+    } catch (e: any) {
+      this.logger.warn(`authtoken/refresh falhou: ${e?.message ?? e}`);
+      return -1;
     }
   }
 
@@ -161,6 +179,7 @@ export class Food99Service {
     }
     if (r.errno !== 0 || !r.token) {
       this.logger.warn(`sem auth_token loja=${ig.appShopId} (errno=${r.errno})`);
+      await this.persistAuthErro(ig, r.errno);
       return null;
     }
     await this.persistToken(ig, r.token, r.exp || Date.now() + 10 * 60 * 1000);
@@ -775,9 +794,14 @@ export class Food99Service {
       .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, CANAL)));
     const ig = this.mapRow(row);
     const cfg = (row?.config as any) ?? {};
+    const tokenExp = Number(cfg.tokenExp ?? 0);
+    const autenticado = !!row?.token && tokenExp > Date.now(); // saúde REAL do auth 99food
     return {
       conectado: !!ig && !!row?.ativo,
       configurado: !!this.appIdEnv() || !!row?.clientId, // servidor tem app configurado
+      autenticado, // token vigente e válido — NÃO só a flag ativo (evita falso positivo)
+      ultimoErroAuth: cfg.lastAuthErrno ?? null, // errno do último get/refresh que falhou (ex.: 10101)
+      tokenExpiraEm: tokenExp ? new Date(tokenExp).toISOString() : null,
       appShopId: ig?.appShopId ?? null,
       shopName: cfg.shopName ?? null,
       pendingBind: cfg.pendingBind ?? null, // loja recém-vinculada aguardando confirmação
