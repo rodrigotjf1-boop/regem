@@ -2167,6 +2167,20 @@ export const ativacao = pgTable('ativacao', {
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Cadastro pendente de verificação de e-mail (landing). A conta real só nasce após
+// confirmar o código de 6 dígitos → e-mail inválido não queima o CNPJ (mig 193).
+export const cadastroPendente = pgTable('cadastro_pendente', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  email: text('email').notNull(),
+  cnpj: text('cnpj').notNull(),
+  codigoHash: text('codigo_hash').notNull(),
+  payload: jsonb('payload').notNull(),
+  tentativas: integer('tentativas').notNull().default(0),
+  expiraEm: timestamp('expira_em', { withTimezone: true }).notNull(),
+  reenviadoEm: timestamp('reenviado_em', { withTimezone: true }),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Telemetria da frota: heartbeat do edge → painel da revenda.
 export const edgeHeartbeat = pgTable('edge_heartbeat', {
   id: uuid('id').primaryKey().defaultRandom(),
