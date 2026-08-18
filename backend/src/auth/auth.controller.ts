@@ -15,13 +15,32 @@ import { setCookieSessao, limparCookieSessao } from './cookie-sessao';
 export class AuthController {
   constructor(private readonly service: AuthService) {}
 
+  // Passo 1 do cadastro: valida (CNPJ+Receita+dedup), envia código por e-mail e
+  // guarda o pendente. NÃO cria conta nem loga — a conta nasce na verificação.
   @Post('register')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
-    const r = await this.service.register(dto);
+  register(@Body() dto: RegisterDto) {
+    return this.service.registrarInicio(dto);
+  }
+
+  // Passo 2: confere o código de 6 dígitos → cria a conta e abre a sessão.
+  @Post('verificar-cadastro')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async verificarCadastro(
+    @Body() dto: { email?: string; codigo?: string },
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const r = await this.service.verificarCadastro(String(dto?.email ?? ''), String(dto?.codigo ?? ''));
     // Nuvem: também grava o cookie httpOnly (o edge/cliente ignora e usa o Bearer).
     if (r?.access_token) setCookieSessao(res, r.access_token);
     return r;
+  }
+
+  // Reenvia o código de verificação (rate-limit no service).
+  @Post('reenviar-codigo')
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  reenviarCodigo(@Body() dto: { email?: string }) {
+    return this.service.reenviarCodigo(String(dto?.email ?? ''));
   }
 
   @Post('login')

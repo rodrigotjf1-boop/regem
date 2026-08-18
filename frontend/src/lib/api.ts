@@ -480,6 +480,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ unidadeId, pin }),
     }),
+  // Passo 1: valida e dispara o código por e-mail (não cria conta ainda).
   register: (body: {
     empresaNome: string;
     nome: string;
@@ -487,7 +488,13 @@ export const api = {
     usuario: string;
     senha: string;
     cnpj?: string;
+    endereco?: string;
   }) => req('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
+  // Passo 2: confirma o código de 6 dígitos → cria a conta e retorna a sessão.
+  verificarCadastro: (email: string, codigo: string) =>
+    req('/auth/verificar-cadastro', { method: 'POST', body: JSON.stringify({ email, codigo }) }),
+  reenviarCodigoCadastro: (email: string) =>
+    req('/auth/reenviar-codigo', { method: 'POST', body: JSON.stringify({ email }) }),
   tarefasDoDia: (data: string) => req(`/tarefas-instancias?data=${data}`),
   escalaDoDia: (data: string) => req(`/escala?data=${data}`),
   escalaSemana: (inicio: string) => req(`/escala/semana?inicio=${inicio}`),

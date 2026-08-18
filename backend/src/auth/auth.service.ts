@@ -7,7 +7,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
+import { randomInt } from 'node:crypto';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
 import {
@@ -17,8 +18,22 @@ import {
   unidade,
   setor,
   perfilAcesso,
+  cadastroPendente,
 } from '../db/schema';
 import { AuditoriaService } from '../modules/auditoria/auditoria.service';
+import { consultarCnpjReceita } from '../common/receita-cnpj';
+import { enviarCodigoVerificacao } from '../common/mailer';
+
+// Dados do cadastro guardados no pendente até a verificação do e-mail (mig 193).
+type CadastroPayload = {
+  empresaNome: string;
+  cnpj: string;
+  nome: string;
+  email: string;
+  usuario: string;
+  senhaHash: string;
+  endereco?: string | null;
+};
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { PinLoginDto } from './dto/pin-login.dto';
@@ -63,12 +78,17 @@ export class AuthService {
     return c.slice(12) === `${d1}${d2}`;
   }
 
-  async register(dto: RegisterDto) {
-    // CNPJ é a âncora anti-burla: 1 trial por CNPJ (empresa.cnpj é único).
+  // ===== Cadastro self-service em 2 passos (verificar e-mail ANTES de criar) =====
+  // Passo 1: valida tudo, gera código de 6 dígitos e guarda um CADASTRO PENDENTE
+  // (sem criar conta). A conta real só nasce no passo 2 (verificarCadastro), então
+  // e-mail inválido/de terceiro não cria nada nem "queima" o CNPJ (anti-burla).
+  async registrarInicio(dto: RegisterDto) {
     const cnpj = String(dto.cnpj ?? '').replace(/\D/g, '');
     if (!this.cnpjValido(cnpj)) {
       throw new BadRequestException('CNPJ inválido. Confira os 14 dígitos.');
     }
+    const email = String(dto.email ?? '').trim().toLowerCase();
+    // Dedup contra contas REAIS (empresa.cnpj / colaborador.email são únicos).
     const [cnpjExiste] = await this.db
       .select({ id: empresa.id })
       .from(empresa)
@@ -79,25 +99,138 @@ export class AuthService {
         'Este CNPJ já tem uma conta no Regem. Faça login ou fale com a distribuição.',
       );
     }
-    // E-mail é único global (uq_colaborador_email). Checa antes para dar uma
-    // mensagem clara em vez de estourar 500 na violação de unicidade.
-    const [existe] = await this.db
+    const [emailExiste] = await this.db
       .select({ id: colaborador.id })
       .from(colaborador)
-      .where(eq(colaborador.email, dto.email))
+      .where(eq(colaborador.email, email))
       .limit(1);
-    if (existe) {
+    if (emailExiste) {
       throw new ConflictException('Este e-mail já tem uma conta. Faça login.');
     }
-    const senhaHash = await bcrypt.hash(dto.senha, 12);
+    // Existência na Receita (BrasilAPI). Só bloqueia no 404/BAIXADA; indisponibilidade
+    // não trava o cadastro (fallback suave).
+    const receita = await consultarCnpjReceita(cnpj);
+    if (receita.estado === 'nao_existe') {
+      throw new BadRequestException('CNPJ não encontrado na Receita Federal. Confira o número.');
+    }
+    if ((receita.situacao ?? '').toUpperCase() === 'BAIXADA') {
+      throw new BadRequestException('Este CNPJ consta como BAIXADO (encerrado) na Receita Federal.');
+    }
+    // Limpa qualquer pendência antiga do mesmo e-mail/CNPJ (reenvio/refazer limpo).
+    await this.db
+      .delete(cadastroPendente)
+      .where(or(eq(cadastroPendente.email, email), eq(cadastroPendente.cnpj, cnpj)));
 
+    const senhaHash = await bcrypt.hash(dto.senha, 12); // senha nunca em claro nem no payload
+    const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const codigoHash = await bcrypt.hash(codigo, 10);
+    const payload = {
+      empresaNome: dto.empresaNome,
+      cnpj,
+      nome: dto.nome,
+      email,
+      usuario: dto.usuario.trim().toLowerCase(),
+      senhaHash,
+      endereco: dto.endereco?.trim() || null,
+    };
+    await this.db.insert(cadastroPendente).values({
+      email,
+      cnpj,
+      codigoHash,
+      payload,
+      expiraEm: new Date(Date.now() + 15 * 60 * 1000),
+      reenviadoEm: new Date(),
+    });
+    await enviarCodigoVerificacao(email, dto.nome, codigo); // dev sem RESEND_API_KEY: loga o código
+    return { precisaVerificar: true as const, email };
+  }
+
+  // Passo 2: confere o código e SÓ ENTÃO cria a conta (empresa/unidade/presidente).
+  async verificarCadastro(email: string, codigo: string) {
+    const em = String(email ?? '').trim().toLowerCase();
+    const cod = String(codigo ?? '').replace(/\D/g, '');
+    const [pend] = await this.db
+      .select()
+      .from(cadastroPendente)
+      .where(eq(cadastroPendente.email, em))
+      .limit(1);
+    if (!pend) {
+      throw new BadRequestException('Cadastro não encontrado. Refaça o cadastro.');
+    }
+    if (new Date(pend.expiraEm).getTime() < Date.now()) {
+      await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
+      throw new BadRequestException('Código expirado. Refaça o cadastro.');
+    }
+    if ((pend.tentativas ?? 0) >= 5) {
+      await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
+      throw new BadRequestException('Muitas tentativas. Refaça o cadastro.');
+    }
+    const ok = await bcrypt.compare(cod, pend.codigoHash);
+    if (!ok) {
+      await this.db
+        .update(cadastroPendente)
+        .set({ tentativas: (pend.tentativas ?? 0) + 1 })
+        .where(eq(cadastroPendente.id, pend.id));
+      throw new BadRequestException('Código incorreto.');
+    }
+    const p = pend.payload as CadastroPayload;
+    // Re-checa dedup (CNPJ/e-mail podem ter sido tomados entre o passo 1 e o 2).
+    const [cnpjExiste] = await this.db
+      .select({ id: empresa.id })
+      .from(empresa)
+      .where(eq(empresa.cnpj, p.cnpj))
+      .limit(1);
+    const [emailExiste] = await this.db
+      .select({ id: colaborador.id })
+      .from(colaborador)
+      .where(eq(colaborador.email, p.email))
+      .limit(1);
+    if (cnpjExiste || emailExiste) {
+      await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
+      throw new ConflictException('CNPJ ou e-mail já cadastrado. Faça login.');
+    }
+    const sessao = await this.criarContaVerificada(p);
+    await this.db.delete(cadastroPendente).where(eq(cadastroPendente.id, pend.id));
+    return sessao;
+  }
+
+  // Reenvia o código (rate-limit 1/min). Não revela se o e-mail tem pendência.
+  async reenviarCodigo(email: string) {
+    const em = String(email ?? '').trim().toLowerCase();
+    const [pend] = await this.db
+      .select()
+      .from(cadastroPendente)
+      .where(eq(cadastroPendente.email, em))
+      .limit(1);
+    if (!pend) return { ok: true };
+    if (pend.reenviadoEm && Date.now() - new Date(pend.reenviadoEm).getTime() < 60_000) {
+      throw new BadRequestException('Aguarde um minuto para reenviar o código.');
+    }
+    const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const codigoHash = await bcrypt.hash(codigo, 10);
+    await this.db
+      .update(cadastroPendente)
+      .set({
+        codigoHash,
+        tentativas: 0,
+        expiraEm: new Date(Date.now() + 15 * 60 * 1000),
+        reenviadoEm: new Date(),
+      })
+      .where(eq(cadastroPendente.id, pend.id));
+    const nome = (pend.payload as CadastroPayload)?.nome ?? '';
+    await enviarCodigoVerificacao(em, nome, codigo);
+    return { ok: true };
+  }
+
+  // Cria a conta a partir do cadastro verificado e devolve a sessão assinada.
+  private async criarContaVerificada(p: CadastroPayload) {
     const result = await this.db.transaction(async (tx) => {
       // G-1: todo cadastro novo ganha 3 meses (90 dias) do sistema COMPLETO.
       const [emp] = await tx
         .insert(empresa)
         .values({
-          nome: dto.empresaNome,
-          cnpj,
+          nome: p.empresaNome,
+          cnpj: p.cnpj,
           plano: 'completo',
           trialAte: new Date(Date.now() + 90 * 86400000),
         })
@@ -107,9 +240,9 @@ export class AuthService {
       // edge não tinha o que puxar (o sync desce `unidade`). Endereço é opcional.
       await tx.insert(unidade).values({
         tenantId: emp.id,
-        nome: dto.empresaNome,
+        nome: p.empresaNome,
         tipo: 'matriz',
-        endereco: dto.endereco?.trim() || null,
+        endereco: p.endereco?.trim() || null,
       });
 
       const [fun] = await tx
@@ -121,25 +254,25 @@ export class AuthService {
       const perfis = await tx
         .insert(perfilAcesso)
         .values(
-          PERFIS_PADRAO.map((p) => ({
+          PERFIS_PADRAO.map((pf) => ({
             tenantId: emp.id,
-            nome: p.nome,
-            nivel: p.nivel,
-            loginWeb: p.loginWeb,
-            permissoes: p.permissoes,
+            nome: pf.nome,
+            nivel: pf.nivel,
+            loginWeb: pf.loginWeb,
+            permissoes: pf.permissoes,
           })),
         )
         .returning();
-      const perfilPres = perfis.find((p) => p.nivel === 'presidente');
+      const perfilPres = perfis.find((pf) => pf.nivel === 'presidente');
 
       const [colab] = await tx
         .insert(colaborador)
         .values({
           tenantId: emp.id,
-          nome: dto.nome,
-          email: dto.email,
-          usuario: dto.usuario.trim().toLowerCase(), // login do dono (presidente)
-          senhaHash,
+          nome: p.nome,
+          email: p.email,
+          usuario: p.usuario.trim().toLowerCase(), // login do dono (presidente)
+          senhaHash: p.senhaHash,
           funcaoId: fun.id,
           perfilAcessoId: perfilPres?.id,
           podeNuvem: true, // o dono (presidente) acessa a nuvem desde o cadastro

@@ -29,24 +29,56 @@ export default function CriarContaPage() {
     senha: '',
   });
   const [erro, setErro] = useState('');
+  const [aviso, setAviso] = useState('');
   const [loading, setLoading] = useState(false);
+  const [passo, setPasso] = useState<'dados' | 'codigo'>('dados');
+  const [codigo, setCodigo] = useState('');
 
   function set(k: keyof typeof form, v: string) {
     setForm((s) => ({ ...s, [k]: v }));
   }
 
+  // Passo 1: valida e dispara o código por e-mail (não cria conta ainda).
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErro('');
+    setAviso('');
     setLoading(true);
     try {
-      const r = await api.register(form);
-      await estabelecerSessao(r.access_token);
-      router.push('/inicio');
+      await api.register(form);
+      setCodigo('');
+      setPasso('codigo');
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Falha ao criar conta');
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Passo 2: confirma o código → cria a conta e abre a sessão.
+  async function onVerificar(e: React.FormEvent) {
+    e.preventDefault();
+    setErro('');
+    setLoading(true);
+    try {
+      const r = await api.verificarCadastro(form.email, codigo);
+      await estabelecerSessao(r.access_token);
+      router.push('/inicio');
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não foi possível verificar o código');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onReenviar() {
+    setErro('');
+    setAviso('');
+    try {
+      await api.reenviarCodigoCadastro(form.email);
+      setAviso('Enviamos um novo código para o seu e-mail.');
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Não foi possível reenviar');
     }
   }
 
@@ -105,12 +137,15 @@ export default function CriarContaPage() {
           </div>
 
           <h2 className="font-display text-3xl font-bold tracking-tight">
-            Criar sua conta
+            {passo === 'dados' ? 'Criar sua conta' : 'Confirme seu e-mail'}
           </h2>
           <p className="mt-2 text-[#909CB4]">
-            3 meses grátis do sistema completo. Configure sua empresa em minutos.
+            {passo === 'dados'
+              ? '3 meses grátis do sistema completo. Configure sua empresa em minutos.'
+              : `Enviamos um código de 6 dígitos para ${form.email}. Digite-o abaixo para criar sua conta.`}
           </p>
 
+          {passo === 'dados' && (
           <form onSubmit={onSubmit} className="mt-8 space-y-5">
             <div>
               <label className={labelCls} htmlFor="empresaNome">
@@ -233,6 +268,66 @@ export default function CriarContaPage() {
               {loading ? 'Criando…' : 'Criar conta'}
             </button>
           </form>
+          )}
+
+          {passo === 'codigo' && (
+            <form onSubmit={onVerificar} className="mt-8 space-y-5">
+              <div>
+                <label className={labelCls} htmlFor="codigo">
+                  Código de verificação
+                </label>
+                <input
+                  id="codigo"
+                  className={`${inputCls} text-center text-2xl font-mono tracking-[.5em]`}
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  minLength={6}
+                  maxLength={6}
+                  autoFocus
+                />
+              </div>
+
+              {aviso && <p className="text-sm text-[#57A89F]">{aviso}</p>}
+              {erro && (
+                <p role="alert" className="text-sm text-[#E27A5B]">
+                  {erro}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading || codigo.length < 6}
+                className="h-12 w-full rounded-xl bg-[#E2A340] font-display font-semibold text-[#0B1220] transition-colors hover:bg-[#F2C277] disabled:opacity-60"
+              >
+                {loading ? 'Verificando…' : 'Confirmar e criar conta'}
+              </button>
+
+              <div className="flex items-center justify-between text-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasso('dados');
+                    setErro('');
+                    setAviso('');
+                  }}
+                  className="text-[#909CB4] hover:underline"
+                >
+                  ← Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={onReenviar}
+                  className="font-medium text-[#F2C277] hover:underline"
+                >
+                  Reenviar código
+                </button>
+              </div>
+            </form>
+          )}
 
           <p className="mt-6 text-sm text-[#909CB4]">
             Já tem conta?{' '}
