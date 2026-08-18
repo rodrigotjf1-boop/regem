@@ -1,4 +1,5 @@
 import { IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsCnpj } from '../../common/validadores-br';
 
 // Onboarding: cria empresa (tenant) + função Presidente + primeiro colaborador +
 // unidade MATRIZ (a "loja" que desce pro edge no primeiro login).
@@ -13,9 +14,11 @@ export class RegisterDto {
   endereco?: string;
 
   // CNPJ da empresa — âncora anti-burla do trial (1 trial por CNPJ). Aceita com
-  // ou sem máscara; a validação de dígitos é feita no service.
+  // ou sem máscara. @IsCnpj rejeita cedo (dígitos verificadores); o service ainda
+  // reconfere e consulta a existência na Receita (BrasilAPI).
   @IsString()
   @MinLength(11)
+  @IsCnpj()
   cnpj!: string;
 
   @IsString()
