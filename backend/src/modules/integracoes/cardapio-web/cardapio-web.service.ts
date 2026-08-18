@@ -449,6 +449,17 @@ export class CardapioWebService {
       taxaEntrega: Number(raw?.delivery_fee) || 0,
       trocoPara: raw?.payments?.[0]?.change_for ?? undefined,
     });
+    // Reflete o status ATUAL do CW. O webhook também dispara em MUDANÇA de status,
+    // e re-ingerir (idempotente por externalId) NÃO muda o status por si só — igual
+    // ao poller (ingerirLista), precisa refletir explicitamente, senão fica preso.
+    const bruto = (raw as any)?.status ?? (raw as any)?.order_status;
+    const st = mapStatusExterno(bruto);
+    this.logger.log(`webhook CW pedido ${orderId} status='${bruto ?? ''}' → ${st ?? 'fluxo normal'}`);
+    if (st) {
+      await this.delivery
+        .refletirStatusExterno(alvo.tenantId, 'cardapio_web', String(orderId), st)
+        .catch(() => {});
+    }
     return { ok: true };
   }
 
