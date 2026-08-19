@@ -91,6 +91,7 @@ export default function DeliveryPage() {
   const [despacho, setDespacho] = useState<any>(null);
   const [detalhe, setDetalhe] = useState<any>(null); // modal detalhe (alterar/cancelar)
   const [filaConferencia, setFilaConferencia] = useState<any[]>([]); // fila de conferência (abre o 1º)
+  const [codigoEntrega, setCodigoEntrega] = useState<{ pedido: any; codigo: string } | null>(null); // entrega própria 99food/iFood
   const [marcadosPend, setMarcadosPend] = useState<Set<string>>(new Set()); // seleção múltipla (pendentes)
   const [marcadosAnd, setMarcadosAnd] = useState<Set<string>>(new Set()); // seleção múltipla (em andamento)
   const [entregadores, setEntregadores] = useState<any[]>([]);
@@ -269,8 +270,24 @@ export default function DeliveryPage() {
     acao(api.voltarDelivery(p.id, senha), 'Pedido reaberto.');
   }
 
-  // Finalizar: pago online conclui direto; a-receber abre a conferência (valor + forma).
+  // Finalizar: só a ENTREGA PRÓPRIA (loja entrega) pede o código de 4 dígitos do cliente
+  // → abre o modal. Detecta pelo bruto: 99food delivery_type=2 (loja); iFood
+  // deliveredBy=MERCHANT. Na logística do marketplace, a loja não finaliza com código
+  // (conclui via webhook). O backend faz o handshake da Logistics API no iFood.
   async function finalizarFlow(p: any) {
+    const raw = p?.raw ?? {};
+    const entregaPropria =
+      (p.canal === '99food' && Number(raw?.delivery_type) === 2) ||
+      (p.canal === 'ifood' && String(raw?.delivery?.deliveredBy ?? '').toUpperCase() === 'MERCHANT');
+    if (entregaPropria && p.tipo !== 'retirada') {
+      setCodigoEntrega({ pedido: p, codigo: '' });
+      return;
+    }
+    await finalizarDireto(p);
+  }
+
+  // Conclui direto (pago online conclui; a-receber abre a conferência valor + forma).
+  async function finalizarDireto(p: any) {
     try {
       const r: any = await api.finalizarDelivery(p.id);
       if (r?.precisaConferencia) {
@@ -281,6 +298,28 @@ export default function DeliveryPage() {
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao finalizar');
+    }
+  }
+
+  // Valida o código de entrega no canal → se OK, conclui o pedido.
+  async function confirmarCodigoEntrega() {
+    if (!codigoEntrega) return;
+    const { pedido, codigo } = codigoEntrega;
+    if (!codigo.trim()) return toast.error('Digite o código de entrega.');
+    try {
+      const r: any = await api.confirmarCodigoDelivery(pedido.id, codigo.trim());
+      if (!r?.valid) {
+        toast.error(r?.msg || 'Código inválido — confira com o cliente.');
+        return;
+      }
+      setCodigoEntrega(null);
+      if (r?.precisaConferencia) setFilaConferencia([pedido]);
+      else {
+        toast.success('Entrega confirmada.');
+        await reload();
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao confirmar a entrega');
     }
   }
 
@@ -674,6 +713,39 @@ export default function DeliveryPage() {
       {/* Modal detalhe do pedido (reimprimir/alterar/cancelar) */}
       {detalhe && (
         <PedidoDetalhe pedido={detalhe} onClose={() => setDetalhe(null)} onChanged={reload} />
+      )}
+
+      {/* Modal: confirmar entrega por CÓDIGO (entrega própria 99food/iFood) */}
+      {codigoEntrega && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => setCodigoEntrega(null)}>
+          <div className="w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-lg" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-display text-lg font-bold">Código de entrega</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Peça o código ao cliente e digite abaixo para confirmar a entrega no{' '}
+              <strong>{CANAL_LABEL[codigoEntrega.pedido.canal] ?? codigoEntrega.pedido.canal}</strong>.
+            </p>
+            <input
+              autoFocus
+              inputMode="numeric"
+              value={codigoEntrega.codigo}
+              onChange={(e) => setCodigoEntrega((s) => (s ? { ...s, codigo: e.target.value } : s))}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmarCodigoEntrega(); }}
+              placeholder="Código do cliente"
+              className="mt-4 w-full rounded-lg border border-border bg-background px-3 py-2 text-center text-lg tracking-widest outline-none focus:ring-2 focus:ring-primary/40"
+            />
+            <div className="mt-4 flex flex-col gap-2">
+              <button type="button" onClick={confirmarCodigoEntrega} className="h-10 rounded-lg bg-primary font-display font-semibold text-primary-foreground transition-opacity hover:opacity-90">
+                Confirmar entrega
+              </button>
+              <button type="button" onClick={() => { const p = codigoEntrega.pedido; setCodigoEntrega(null); finalizarDireto(p); }} className="h-9 text-sm text-muted-foreground hover:underline">
+                Finalizar sem código
+              </button>
+              <button type="button" onClick={() => setCodigoEntrega(null)} className="h-9 text-sm text-muted-foreground hover:underline">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {novoPedido && <NovoPedido onFechar={() => setNovoPedido(false)} onCriado={reload} />}

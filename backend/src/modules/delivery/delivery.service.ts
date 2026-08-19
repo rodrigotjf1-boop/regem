@@ -133,6 +133,14 @@ export class DeliveryService {
           return;
         }
         await this.ifood.despachar(ig, id);
+        // Entrega PRÓPRIA (deliveredBy=MERCHANT): atribui o entregador da loja e avança
+        // o handshake da Logistics API — pré-requisito do verifyDeliveryCode na conclusão.
+        if ((row?.raw as any)?.delivery?.deliveredBy === 'MERCHANT') {
+          await this.ifood.logisticaDespacharProprio(ig, id, {
+            nome: row?.entregadorNome ?? null,
+            telefone: row?.entregadorTelefone ?? null,
+          });
+        }
       } else {
         // Blindagem: enfileira + reenvia até o iFood aceitar (não fire-and-forget).
         await this.ifood.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);
@@ -530,6 +538,41 @@ export class DeliveryService {
       .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId)));
     if (!p) throw new NotFoundException('Pedido externo não encontrado');
     return p;
+  }
+
+  // Confirmação de entrega por CÓDIGO (entrega própria em marketplace): o cliente dá o
+  // código ao entregador, que digita no Regem. Valida no canal (99food/iFood) → se OK,
+  // o marketplace já registra a entrega e a gente CONCLUI aqui (baixa estoque + caixa).
+  async confirmarEntregaComCodigo(
+    tenantId: string,
+    atorId: string,
+    id: string,
+    codigo: string,
+  ): Promise<{ ok: boolean; valid: boolean; precisaConferencia?: boolean; msg?: string }> {
+    const cod = String(codigo ?? '').replace(/\s/g, '');
+    if (!cod) throw new BadRequestException('Informe o código de entrega.');
+    const ped = await this.carregar(tenantId, id);
+    if (!ped.externalId) throw new BadRequestException('Pedido sem identificador do canal.');
+    const extId = String(ped.externalId);
+
+    let valid = false;
+    if (ped.canal === '99food' && this.food99) {
+      const ig = await this.food99.integracaoDoTenant(tenantId);
+      if (!ig) throw new BadRequestException('Integração 99Food não conectada.');
+      valid = (await this.food99.verificarCodigoEntrega(ig, extId, cod)).ok;
+    } else if (ped.canal === 'ifood' && this.ifood) {
+      const ig = await this.ifood.integracaoDoTenant(tenantId);
+      if (!ig) throw new BadRequestException('Integração iFood não conectada.');
+      valid = (await this.ifood.verificarCodigoEntrega(ig, extId, cod)).valid;
+    } else {
+      throw new BadRequestException('Confirmação por código não disponível para este canal.');
+    }
+
+    if (!valid) return { ok: false, valid: false, msg: 'Código inválido — confira com o cliente.' };
+    // Código válido → o canal registrou a entrega. Conclui no Regem (o status back
+    // "delivered" ao concluir é best-effort e inofensivo se o canal já concluiu).
+    const fin: any = await this.finalizar(tenantId, atorId, id, {});
+    return { ok: true, valid: true, precisaConferencia: !!fin?.precisaConferencia };
   }
 
   // Aceita: mapeia itens → produtos (por código/SKU) e cria a venda externa.

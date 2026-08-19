@@ -827,6 +827,9 @@ export const api = {
     req(`/delivery/pedidos/${id}/despachar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   finalizarDelivery: (id: string, body?: { forma?: string; valorRecebido?: number }) =>
     req(`/delivery/pedidos/${id}/finalizar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+  // Confirma a entrega por código (entrega própria 99food/iFood) → valida no canal e conclui.
+  confirmarCodigoDelivery: (id: string, codigo: string) =>
+    req(`/delivery/pedidos/${id}/confirmar-codigo`, { method: 'POST', body: JSON.stringify({ codigo }) }),
   itensDelivery: (id: string) => req(`/delivery/pedidos/${id}/itens`),
   entregadoresDelivery: () => req('/delivery/entregadores'),
   bairrosDelivery: () => req('/delivery/bairros'),
