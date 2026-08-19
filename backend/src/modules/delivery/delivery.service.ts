@@ -133,14 +133,6 @@ export class DeliveryService {
           return;
         }
         await this.ifood.despachar(ig, id);
-        // Entrega PRÓPRIA (deliveredBy=MERCHANT): atribui o entregador da loja e avança
-        // o handshake da Logistics API — pré-requisito do verifyDeliveryCode na conclusão.
-        if ((row?.raw as any)?.delivery?.deliveredBy === 'MERCHANT') {
-          await this.ifood.logisticaDespacharProprio(ig, id, {
-            nome: row?.entregadorNome ?? null,
-            telefone: row?.entregadorTelefone ?? null,
-          });
-        }
       } else {
         // Blindagem: enfileira + reenvia até o iFood aceitar (não fire-and-forget).
         await this.ifood.cancelarComBlindagem(tenantId, id, row.motivoCancelamento ?? undefined);

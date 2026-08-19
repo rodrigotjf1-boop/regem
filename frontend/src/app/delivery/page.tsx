@@ -270,10 +270,10 @@ export default function DeliveryPage() {
     acao(api.voltarDelivery(p.id, senha), 'Pedido reaberto.');
   }
 
-  // Finalizar: só a ENTREGA PRÓPRIA (loja entrega) pede o código de 4 dígitos do cliente
-  // → abre o modal. Detecta pelo bruto: 99food delivery_type=2 (loja); iFood
-  // deliveredBy=MERCHANT. Na logística do marketplace, a loja não finaliza com código
-  // (conclui via webhook). O backend faz o handshake da Logistics API no iFood.
+  // Finalizar: só a ENTREGA PRÓPRIA (loja entrega) valida o código de 4 dígitos do
+  // cliente → abre o modal. Detecta pelo bruto: 99food delivery_type=2; iFood
+  // deliveredBy=MERCHANT (verifyDeliveryCode é do módulo Order, que o Regem tem).
+  // Logística do marketplace: a loja não finaliza com código (conclui via webhook).
   async function finalizarFlow(p: any) {
     const raw = p?.raw ?? {};
     const entregaPropria =
