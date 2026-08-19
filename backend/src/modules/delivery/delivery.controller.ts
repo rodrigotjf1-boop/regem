@@ -109,6 +109,24 @@ export class DeliveryController {
     return this.service.finalizar(user.tenantId, user.colaboradorId, id, dto ?? {});
   }
 
+  // Confirma a entrega por CÓDIGO (entrega própria em marketplace: 99food/iFood).
+  // Valida o código no canal e, se OK, conclui o pedido no Regem.
+  @Post('pedidos/:id/confirmar-codigo')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  confirmarCodigo(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: { codigo?: string },
+  ) {
+    return this.service.confirmarEntregaComCodigo(
+      user.tenantId,
+      user.colaboradorId,
+      id,
+      String(dto?.codigo ?? ''),
+    );
+  }
+
   // Imprime o cupom do entregador (com o QR de despacho) — Fase 4.
   @Post('pedidos/:id/cupom-entregador')
   @UseGuards(JwtAuthGuard, PermissoesGuard)

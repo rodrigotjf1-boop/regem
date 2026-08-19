@@ -263,6 +263,73 @@ export class IfoodService {
   async despachar(ig: IntegIfood, orderId: string) {
     await this.acao(ig, orderId, 'dispatch');
   }
+  // ===== Logistics API — ENTREGA PRÓPRIA (self-delivery) — base /logistics/v1.0 =====
+  // Padrão: POST /logistics/v1.0/orders/{id}/{action}. Best-effort (nunca quebra o fluxo).
+  // ⚠️ Os NOMES das actions foram inferidos do padrão da doc — VALIDAR no sandbox: o log
+  // mostra o status (404 = nome errado / 412 = handshake fora de ordem).
+  private async logistica(ig: IntegIfood, orderId: string, action: string, body?: any): Promise<boolean> {
+    try {
+      const res = await this.req(ig, `/logistics/v1.0/orders/${orderId}/${action}`, {
+        method: 'POST',
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      if (res.status !== 202 && !res.ok) {
+        this.logger.warn(`logistica ${action} ${orderId.slice(0, 8)} ${res.status}`);
+        return false;
+      }
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`logistica ${action} ${orderId.slice(0, 8)} falhou: ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  // Despacho de ENTREGA PRÓPRIA: atribui o entregador da loja e avança o handshake
+  // (assignDriver → a caminho/chegou origem → a caminho destino), deixando o pedido
+  // pronto para o verifyDeliveryCode. Chamado quando o Regem despacha (em rota).
+  async logisticaDespacharProprio(
+    ig: IntegIfood,
+    orderId: string,
+    driver: { nome?: string | null; telefone?: string | null },
+  ): Promise<void> {
+    const ok = await this.logistica(ig, orderId, 'assignDriver', {
+      workerName: (driver.nome || 'Entregador da loja').slice(0, 60),
+      workerPhone: String(driver.telefone ?? '').replace(/\D/g, '') || undefined,
+      workerVehicleType: 'MOTORCYCLE',
+    });
+    if (!ok) return; // sem driver atribuído, os estados seguintes dariam 412
+    await this.logistica(ig, orderId, 'goingToOrigin');
+    await this.logistica(ig, orderId, 'arrivedToOrigin');
+    await this.logistica(ig, orderId, 'goingToDestination');
+  }
+
+  // POST /logistics/v1.0/orders/{id}/verifyDeliveryCode {code} → { success: true } → o
+  // pedido conclui. Entrega PRÓPRIA: o cliente informa o código ao entregador. Antes do
+  // check, marca "chegou no destino" (pré-requisito do handshake). Best-effort no estado.
+  async verificarCodigoEntrega(
+    ig: IntegIfood,
+    orderId: string,
+    codigo: string,
+  ): Promise<{ ok: boolean; valid: boolean }> {
+    await this.logistica(ig, orderId, 'arrivedToDestination').catch(() => false);
+    try {
+      const res = await this.req(ig, `/logistics/v1.0/orders/${orderId}/verifyDeliveryCode`, {
+        method: 'POST',
+        body: JSON.stringify({ code: String(codigo ?? '').trim() }),
+      });
+      if (!res.ok) {
+        this.logger.warn(`verifyDeliveryCode ${orderId.slice(0, 8)} ${res.status}`);
+        return { ok: false, valid: false };
+      }
+      const j: any = await res.json().catch(() => ({}));
+      const valid = j?.success === true || j?.valid === true || j?.isValid === true;
+      this.logger.log(`verifyDeliveryCode ${orderId.slice(0, 8)} success=${valid}`);
+      return { ok: true, valid };
+    } catch (e: any) {
+      this.logger.warn(`verifyDeliveryCode ${orderId.slice(0, 8)} falhou: ${e?.message ?? e}`);
+      return { ok: false, valid: false };
+    }
+  }
   // Consulta os motivos de cancelamento VÁLIDOS para este pedido. O iFood exige
   // essa consulta antes de cancelar (homologação) — o código válido varia por
   // pedido/estado. Resposta oficial: { reasons: [{ code, description }] } (algumas
