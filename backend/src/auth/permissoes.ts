@@ -36,6 +36,14 @@ export interface Permissoes {
   ver_financeiro?: boolean; // mostra valores em R$
   financeiro?: boolean; // módulo Financeiro (DRE / fluxo)
   formas_pagamento?: boolean; // formas de pagamento (delivery + balcão)
+  // App do Entregador (E0) — o que o entregador vê no app (padrão mínimo: só scan +
+  // geo do endereço + contato). O lojista libera o resto por estas chaves.
+  entregador_pedidos?: boolean; // ver a lista de pedidos
+  entregador_taxas?: boolean; // relatório de taxas
+  entregador_ganhos?: boolean; // resumo de ganhos
+  entregador_tempo?: boolean; // média de tempo
+  entregador_relatorio?: boolean; // relatório de entregas
+  entregador_tipos?: boolean; // tipos de entrega
   fiscal?: boolean; // Notas fiscais (NFC-e)
   tef?: boolean; // TEF / maquininha
   fiscal_config?: boolean; // configuração fiscal
@@ -136,6 +144,12 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'pedidos', rotulo: 'Pedidos · produção', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'fidelidade', rotulo: 'Fidelidade', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'cashback', rotulo: 'Cashback', grupo: 'Delivery', tipo: 'bool' },
+  { chave: 'entregador_pedidos', rotulo: 'Entregador · ver pedidos', grupo: 'Entregador (app)', tipo: 'bool' },
+  { chave: 'entregador_taxas', rotulo: 'Entregador · relatório de taxas', grupo: 'Entregador (app)', tipo: 'bool' },
+  { chave: 'entregador_ganhos', rotulo: 'Entregador · resumo de ganhos', grupo: 'Entregador (app)', tipo: 'bool' },
+  { chave: 'entregador_tempo', rotulo: 'Entregador · média de tempo', grupo: 'Entregador (app)', tipo: 'bool' },
+  { chave: 'entregador_relatorio', rotulo: 'Entregador · relatório de entregas', grupo: 'Entregador (app)', tipo: 'bool' },
+  { chave: 'entregador_tipos', rotulo: 'Entregador · tipos de entrega', grupo: 'Entregador (app)', tipo: 'bool' },
   { chave: 'meu_dia', rotulo: 'Tarefas', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'manutencao', rotulo: 'Pedidos de manutenção', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'escalas', rotulo: 'Escalas', grupo: 'Rotina', tipo: 'crud' },

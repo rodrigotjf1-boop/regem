@@ -2190,6 +2190,17 @@ export const cardapioEvento = pgTable('cardapio_evento', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// App do Entregador (E0) — token de push (FCM) do aparelho do entregador. Só nuvem.
+export const entregadorDispositivo = pgTable('entregador_dispositivo', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  colaboradorId: uuid('colaborador_id').notNull(),
+  fcmToken: text('fcm_token').notNull(),
+  plataforma: text('plataforma'), // android | ios
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Licença / revenda / frota (edge appliance) =====
 export const revenda = pgTable('revenda', {
   id: uuid('id').primaryKey().defaultRandom(),
