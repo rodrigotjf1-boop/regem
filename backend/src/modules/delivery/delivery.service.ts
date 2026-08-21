@@ -17,6 +17,7 @@ import {
   caixaSessao,
   cardapioBairro,
   cardapioConfig,
+  cliente,
   colaborador,
   comandaItem,
   deliveryConfig,
@@ -442,6 +443,10 @@ export class DeliveryService {
       throw e;
     }
 
+    // F2 (CRM): unifica a base — vincula o pedido a um cliente (por telefone) e
+    // recalcula os agregados. Todos os canais passam por aqui. Best-effort.
+    await this.vincularCliente(tenantId, row);
+
     const cfg = await this.configRaw(tenantId, unidadeId);
     // P1: se a loja tem servidor edge ativo (modo local), a nuvem NÃO materializa —
     // o pedido desce pelo sync e o edge o processa localmente (KDS/estoque).
@@ -460,6 +465,67 @@ export class DeliveryService {
       }
     }
     return row;
+  }
+
+  // Normaliza telefone BR p/ chave do cliente: só dígitos, sem DDI 55 (fica DDD+numero).
+  private static normTel(raw?: string | null): string {
+    let d = String(raw ?? '').replace(/\D/g, '');
+    if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
+    return d;
+  }
+
+  // Vincula o pedido a um cliente (find-or-create por telefone) e recalcula os
+  // agregados de CRM daquele cliente. Unifica a base de TODOS os canais; escopado
+  // por tenant; idempotente. Best-effort: nunca derruba o ingest do pedido.
+  private async vincularCliente(tenantId: string, row: typeof pedidoExterno.$inferSelect) {
+    try {
+      const tel = DeliveryService.normTel(row.clienteTelefone);
+      if (tel.length < 10) return;
+      let [c] = await this.db
+        .select({ id: cliente.id })
+        .from(cliente)
+        .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+      if (!c) {
+        try {
+          [c] = await this.db
+            .insert(cliente)
+            .values({ tenantId, telefone: tel, nome: row.clienteNome ?? null })
+            .returning({ id: cliente.id });
+        } catch {
+          // Corrida: outra requisição criou o mesmo (tenant, telefone) — rebusca.
+          [c] = await this.db
+            .select({ id: cliente.id })
+            .from(cliente)
+            .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+        }
+      }
+      if (!c) return;
+      if (!row.clienteId) {
+        await this.db
+          .update(pedidoExterno)
+          .set({ clienteId: c.id })
+          .where(eq(pedidoExterno.id, row.id));
+      }
+      // Agregados a partir dos pedidos (recência/frequência/valor); ignora cancelados.
+      await this.db.execute(sql`
+        update cliente set
+          total_pedidos      = sub.n,
+          total_gasto        = sub.gasto,
+          primeiro_pedido_em = sub.primeiro,
+          ultimo_pedido_em   = sub.ultimo,
+          atualizado_em      = now()
+        from (
+          select count(*)::int as n,
+                 coalesce(sum(total::numeric), 0) as gasto,
+                 min(criado_em) as primeiro,
+                 max(criado_em) as ultimo
+          from pedido_externo
+          where tenant_id = ${tenantId} and cliente_id = ${c.id} and status <> 'cancelado'
+        ) sub
+        where cliente.id = ${c.id}`);
+    } catch (e: any) {
+      this.logger.warn(`vincularCliente pedido ${String(row.id).slice(0, 8)}: ${e?.message ?? e}`);
+    }
   }
 
   // ===== Gestão (PDV) =====

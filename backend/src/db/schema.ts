@@ -2087,6 +2087,13 @@ export const cliente = pgTable('cliente', {
   nome: text('nome'),
   telefone: text('telefone').notNull(), // obrigatório — identidade por telefone (sem anônimo)
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
+  // Agregados de CRM (mig 194) — recência/frequência/valor materializados p/
+  // segmentação rápida; mantidos pelo ingest (todos os canais) + backfill. Uso interno.
+  primeiroPedidoEm: timestamp('primeiro_pedido_em', { withTimezone: true }),
+  ultimoPedidoEm: timestamp('ultimo_pedido_em', { withTimezone: true }),
+  totalPedidos: integer('total_pedidos').notNull().default(0),
+  totalGasto: numeric('total_gasto').notNull().default('0'),
+  optOutMarketing: boolean('opt_out_marketing').notNull().default(false),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2138,6 +2145,47 @@ export const clienteLink = pgTable('cliente_link', {
     .notNull()
     .references(() => cliente.id, { onDelete: 'cascade' }),
   slug: text('slug').notNull().unique(),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Campanhas de WhatsApp por segmento (F5) — uso interno do lojista, só nuvem =====
+export const campanha = pgTable('campanha', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  criadoPor: uuid('criado_por'),
+  segmento: text('segmento').notNull(),
+  mensagem: text('mensagem').notNull(),
+  intervaloSeg: integer('intervalo_seg').notNull().default(7), // pausa entre envios (anti-ban)
+  tetoDia: integer('teto_dia'), // limite de envios/dia (null = sem teto)
+  total: integer('total').notNull().default(0),
+  enviados: integer('enviados').notNull().default(0),
+  falhas: integer('falhas').notNull().default(0),
+  status: text('status').notNull().default('enviando'), // enviando | concluida | pausada
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+export const campanhaEnvio = pgTable('campanha_envio', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  campanhaId: uuid('campanha_id')
+    .notNull()
+    .references(() => campanha.id, { onDelete: 'cascade' }),
+  tenantId: uuid('tenant_id').notNull(),
+  clienteId: uuid('cliente_id'),
+  telefone: text('telefone').notNull(),
+  status: text('status').notNull().default('pendente'), // pendente | enviado | falha | pulado
+  erro: text('erro'),
+  enviadoEm: timestamp('enviado_em', { withTimezone: true }),
+});
+
+// Funil de visita do cardápio (F4) — eventos ANÔNIMOS (sessão gerada no cliente,
+// sem PII) p/ medir conversão. Só nuvem; por tenant. Alto volume → expurgo por retenção.
+export const cardapioEvento = pgTable('cardapio_evento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  token: text('token').notNull(),
+  sessao: text('sessao').notNull(),
+  tipo: text('tipo').notNull(), // view_menu | add_carrinho | checkout | pagamento | pedido
+  meta: jsonb('meta'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 

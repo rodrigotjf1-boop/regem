@@ -59,6 +59,7 @@ import { DeliveryModule } from './modules/delivery/delivery.module';
 import { TefModule } from './modules/tef/tef.module';
 import { CardapioModule } from './modules/cardapio/cardapio.module';
 import { ClienteModule } from './modules/cliente/cliente.module';
+import { CampanhaModule } from './modules/campanha/campanha.module';
 import { AtendimentoModule } from './modules/atendimento/atendimento.module';
 import { FidelidadeModule } from './modules/fidelidade/fidelidade.module';
 import { CashbackModule } from './modules/cashback/cashback.module';
@@ -93,6 +94,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       CardapioModule,
       WhatsappModule,
       ClienteModule,
+      CampanhaModule,
       BotModule,
       DistribuicaoModule,
       SuporteModule,

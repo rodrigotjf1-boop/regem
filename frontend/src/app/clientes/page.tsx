@@ -1,0 +1,578 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { Shell } from '@/components/app-shell/shell';
+import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const brl = (n: any) =>
+  Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const fmtData = (d?: string) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
+const diasDesde = (d?: string) =>
+  d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
+
+const CANAL_LABEL: Record<string, string> = {
+  ifood: 'iFood',
+  cardapio: 'Cardápio',
+  cardapio_web: 'Cardápio Web',
+  '99food': '99Food',
+  anotaai: 'Anota Aí',
+  delivery_direto: 'Open Delivery',
+};
+
+// Segmentos (a contagem vem do resumo, mapeada por `c`).
+const SEGS: { k: string; t: string; c: string }[] = [
+  { k: 'todos', t: 'Todos', c: 'total' },
+  { k: 'mes', t: 'No mês', c: 'mes' },
+  { k: '30d', t: 'Últimos 30 dias', c: 'd30' },
+  { k: 'sem_30', t: '+30d sem pedir', c: 'sem30' },
+  { k: 'sem_60', t: '+60d sem pedir', c: 'sem60' },
+  { k: 'campeoes', t: 'Campeões', c: 'campeoes' },
+];
+
+export default function ClientesPage() {
+  const [resumo, setResumo] = useState<any>({});
+  const [seg, setSeg] = useState('todos');
+  const [busca, setBusca] = useState('');
+  const [lista, setLista] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [detalhe, setDetalhe] = useState<any | null>(null);
+  const [historico, setHistorico] = useState<any[] | null>(null);
+  const [campModal, setCampModal] = useState(false);
+  const [campPrevia, setCampPrevia] = useState<number | null>(null);
+  const [campMsg, setCampMsg] = useState('');
+  const [campIntervalo, setCampIntervalo] = useState(7);
+  const [campTeto, setCampTeto] = useState('');
+  const [campEnviando, setCampEnviando] = useState(false);
+  const [campanhas, setCampanhas] = useState<any[] | null>(null);
+  const [funil, setFunil] = useState<any>(null);
+  const buscaRef = useRef(busca);
+  buscaRef.current = busca;
+
+  const carregarResumo = useCallback(async () => {
+    try {
+      setResumo(await api.crmResumo());
+    } catch {
+      /* silencioso — os segmentos aparecem sem contagem */
+    }
+  }, []);
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r: any = await api.crmClientes({ segmento: seg, busca: buscaRef.current, limite: 100 });
+      setLista(Array.isArray(r) ? r : []);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao carregar clientes');
+    } finally {
+      setLoading(false);
+    }
+  }, [seg]);
+
+  useEffect(() => {
+    void carregarResumo();
+  }, [carregarResumo]);
+  useEffect(() => {
+    api.crmFunil(30).then(setFunil).catch(() => {});
+  }, []);
+  useEffect(() => {
+    void carregar();
+  }, [carregar]);
+  // Debounce da busca (recarrega 350ms após parar de digitar).
+  useEffect(() => {
+    const t = setTimeout(() => void carregar(), 350);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca]);
+  // Fecha o modal com Esc.
+  useEffect(() => {
+    if (!detalhe) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDetalhe(null);
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [detalhe]);
+
+  async function abrir(c: any) {
+    setDetalhe(c);
+    setHistorico(null);
+    try {
+      const h: any = await api.crmHistorico(c.id);
+      setHistorico(Array.isArray(h) ? h : []);
+    } catch {
+      setHistorico([]);
+    }
+  }
+
+  async function abrirCampanha() {
+    setCampModal(true);
+    setCampPrevia(null);
+    try {
+      const r: any = await api.crmCampanhaPrevia(seg);
+      setCampPrevia(r?.total ?? 0);
+    } catch {
+      setCampPrevia(0);
+    }
+  }
+
+  async function enviarCampanha() {
+    if (campMsg.trim().length < 3) return toast.error('Escreva a mensagem da campanha.');
+    setCampEnviando(true);
+    try {
+      const r: any = await api.crmCampanhaCriar({
+        segmento: seg,
+        mensagem: campMsg.trim(),
+        intervaloSeg: campIntervalo,
+        tetoDia: campTeto ? Number(campTeto) : null,
+      });
+      toast.success(`Campanha criada — ${r?.total ?? 0} destinatários. O envio começa pausado.`);
+      setCampModal(false);
+      setCampMsg('');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao criar campanha');
+    } finally {
+      setCampEnviando(false);
+    }
+  }
+
+  async function abrirCampanhas() {
+    setCampanhas(null);
+    try {
+      const r: any = await api.crmCampanhas();
+      setCampanhas(Array.isArray(r) ? r : []);
+    } catch {
+      setCampanhas([]);
+    }
+  }
+
+  async function toggleOptOut(c: any) {
+    try {
+      await api.crmOptOut(c.id, !c.opt_out_marketing);
+      setDetalhe({ ...c, opt_out_marketing: !c.opt_out_marketing });
+      void carregar();
+      toast.success(
+        !c.opt_out_marketing
+          ? 'Cliente não receberá campanhas.'
+          : 'Cliente reativado para campanhas.',
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao atualizar');
+    }
+  }
+
+  return (
+    <Shell eyebrow="Delivery" title="Clientes">
+      <div className="space-y-4">
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Base de clientes da sua loja — unificada por telefone, somando todos os canais de
+          delivery. Uso interno para métricas e campanhas.
+        </p>
+
+        {/* Funil de conversão do cardápio (últimos 30 dias) */}
+        {funil && (
+          <Card className="p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold">Funil do cardápio · últimos 30 dias</p>
+              <p className="text-xs text-muted-foreground">
+                conversão{' '}
+                <strong className="text-foreground">
+                  {Number(funil.visitas) > 0
+                    ? Math.round((Number(funil.pedidos) / Number(funil.visitas)) * 100)
+                    : 0}
+                  %
+                </strong>
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {(
+                [
+                  ['Visitas', 'visitas'],
+                  ['Carrinho', 'carrinho'],
+                  ['Checkout', 'checkout'],
+                  ['Pedidos', 'pedidos'],
+                ] as [string, string][]
+              ).map(([label, key], i) => {
+                const v = Number(funil[key] ?? 0);
+                const base = Number(funil.visitas ?? 0);
+                const pct = base > 0 ? Math.round((v / base) * 100) : 0;
+                return (
+                  <div key={key} className="rounded-lg border border-border p-2.5">
+                    <p className="font-mono text-xl font-bold tabular-nums">{v}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {label}
+                      {i > 0 && <span className="ml-1 text-primary">{pct}%</span>}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
+        {/* Segmentos */}
+        <div className="flex flex-wrap gap-2">
+          {SEGS.map((s) => {
+            const n = resumo?.[s.c];
+            const ativo = seg === s.k;
+            return (
+              <button
+                key={s.k}
+                type="button"
+                onClick={() => setSeg(s.k)}
+                aria-pressed={ativo}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  ativo
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border hover:bg-muted/50'
+                }`}
+              >
+                {s.t}
+                {n != null && <span className="ml-1.5 font-mono text-xs text-muted-foreground">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Busca + ações */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por nome ou telefone…"
+            className="max-w-sm flex-1"
+            aria-label="Buscar cliente"
+          />
+          <Button variant="outline" onClick={abrirCampanhas}>
+            Campanhas
+          </Button>
+          <Button onClick={abrirCampanha}>Nova campanha</Button>
+        </div>
+
+        {/* Tabela */}
+        <Card className="overflow-hidden p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <caption className="sr-only">Lista de clientes por segmento</caption>
+              <thead className="border-b border-border bg-card text-[11px] uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th scope="col" className="px-3 py-2 font-semibold">Cliente</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Telefone</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Pedidos</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Último pedido</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Ticket médio</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">Total gasto</th>
+                  <th scope="col" className="px-3 py-2 font-semibold">Canais</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                      Carregando…
+                    </td>
+                  </tr>
+                )}
+                {!loading && lista.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                      Nenhum cliente neste segmento.
+                    </td>
+                  </tr>
+                )}
+                {!loading &&
+                  lista.map((c) => {
+                    const dias = diasDesde(c.ultimo_pedido_em);
+                    const ticket =
+                      Number(c.total_pedidos) > 0
+                        ? Number(c.total_gasto) / Number(c.total_pedidos)
+                        : 0;
+                    const canais: string[] = Array.isArray(c.canais) ? c.canais : [];
+                    return (
+                      <tr
+                        key={c.id}
+                        onClick={() => abrir(c)}
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') abrir(c);
+                        }}
+                        className="cursor-pointer border-b border-border/60 hover:bg-muted/50"
+                      >
+                        <td className="px-3 py-2 font-medium">
+                          {c.nome || 'Cliente'}
+                          {Number(c.pedidos_30d) >= 3 && (
+                            <span
+                              title="Campeão — 3+ pedidos em 30 dias"
+                              className="ml-1.5 rounded-full bg-primary/15 px-1.5 text-[10px] font-bold text-primary"
+                            >
+                              ★
+                            </span>
+                          )}
+                          {c.opt_out_marketing && (
+                            <span
+                              title="Optou por não receber campanhas"
+                              className="ml-1.5 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground"
+                            >
+                              opt-out
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                          {c.telefone}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">
+                          {c.total_pedidos ?? 0}
+                        </td>
+                        <td className="px-3 py-2 text-xs">
+                          {fmtData(c.ultimo_pedido_em)}
+                          {dias != null && <span className="ml-1 text-muted-foreground">({dias}d)</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">{brl(ticket)}</td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">
+                          {brl(c.total_gasto)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-1">
+                            {canais.map((ch) => (
+                              <span key={ch} className="rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                                {CANAL_LABEL[ch] ?? ch}
+                              </span>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
+
+      {/* Modal de detalhe / histórico */}
+      {detalhe && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => setDetalhe(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Cliente ${detalhe.nome || detalhe.telefone}`}
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg">
+            <Card className="max-h-[85vh] overflow-hidden p-0">
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <div>
+                  <p className="font-display font-bold">{detalhe.nome || 'Cliente'}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{detalhe.telefone}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetalhe(null)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2 border-b border-border px-4 py-3 text-center">
+                <div>
+                  <p className="font-mono text-lg font-bold">{detalhe.total_pedidos ?? 0}</p>
+                  <p className="text-[11px] text-muted-foreground">pedidos</p>
+                </div>
+                <div>
+                  <p className="font-mono text-lg font-bold">{brl(detalhe.total_gasto)}</p>
+                  <p className="text-[11px] text-muted-foreground">total gasto</p>
+                </div>
+                <div>
+                  <p className="font-mono text-sm font-bold">{fmtData(detalhe.ultimo_pedido_em)}</p>
+                  <p className="text-[11px] text-muted-foreground">último pedido</p>
+                </div>
+              </div>
+              <div className="border-b border-border px-4 py-2">
+                <button
+                  type="button"
+                  onClick={() => toggleOptOut(detalhe)}
+                  className="text-xs font-semibold text-primary hover:underline"
+                >
+                  {detalhe.opt_out_marketing
+                    ? 'Reativar para campanhas'
+                    : 'Não enviar campanhas a este cliente'}
+                </button>
+              </div>
+              <div className="scroll-fino max-h-[50vh] overflow-y-auto px-4 py-3">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Histórico de pedidos
+                </p>
+                {historico == null && <p className="text-sm text-muted-foreground">Carregando…</p>}
+                {historico != null && historico.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Nenhum pedido.</p>
+                )}
+                <ul className="space-y-1">
+                  {(historico ?? []).map((h) => (
+                    <li
+                      key={h.id}
+                      className="flex items-center justify-between gap-2 border-b border-border/50 py-1 text-sm"
+                    >
+                      <span>
+                        <span className="font-mono">#{h.numero ?? '—'}</span>
+                        <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                          {CANAL_LABEL[h.canal] ?? h.canal}
+                        </span>
+                        <span className="ml-2 text-xs text-muted-foreground">{fmtData(h.criado_em)}</span>
+                      </span>
+                      <span className="font-mono">{brl(h.total)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+      {/* Modal: nova campanha */}
+      {campModal && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => setCampModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Nova campanha"
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md">
+            <Card className="overflow-hidden p-0">
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <p className="font-display font-bold">Nova campanha</p>
+                <button
+                  type="button"
+                  onClick={() => setCampModal(false)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-3 px-4 py-3">
+                <p className="text-sm text-muted-foreground">
+                  Segmento{' '}
+                  <strong className="text-foreground">{SEGS.find((s) => s.k === seg)?.t}</strong> ·{' '}
+                  {campPrevia == null ? (
+                    'calculando público…'
+                  ) : (
+                    <>
+                      <strong className="text-foreground">{campPrevia}</strong> destinatários (exclui
+                      opt-out)
+                    </>
+                  )}
+                </p>
+                <textarea
+                  value={campMsg}
+                  onChange={(e) => setCampMsg(e.target.value)}
+                  rows={4}
+                  maxLength={900}
+                  placeholder="Escreva a mensagem… Ex: Oi! Sentimos sua falta 😊 Confira as novidades da [sua loja]: <link>. Responda SAIR para não receber."
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                  aria-label="Mensagem da campanha"
+                />
+                <div className="flex flex-wrap gap-3">
+                  <label className="text-xs">
+                    <span className="mb-1 block text-muted-foreground">Pausa entre envios (s)</span>
+                    <input
+                      type="number"
+                      min={3}
+                      max={120}
+                      value={campIntervalo}
+                      onChange={(e) => setCampIntervalo(Number(e.target.value) || 7)}
+                      className="w-24 rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs">
+                    <span className="mb-1 block text-muted-foreground">Teto por dia (opcional)</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={campTeto}
+                      onChange={(e) => setCampTeto(e.target.value)}
+                      placeholder="sem limite"
+                      className="w-28 rounded-md border border-border bg-background px-2 py-1 text-sm"
+                    />
+                  </label>
+                </div>
+                <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-muted-foreground">
+                  ⚠️ Envio em massa pode marcar seu número. Enviamos pausado, só para quem já pediu; a
+                  mensagem deve identificar a loja e incluir &quot;responda SAIR&quot;.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+                <Button variant="outline" onClick={() => setCampModal(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={enviarCampanha} disabled={campEnviando || !campPrevia}>
+                  {campEnviando ? 'Criando…' : `Enviar p/ ${campPrevia ?? 0}`}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: campanhas enviadas */}
+      {campanhas != null && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => setCampanhas(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Campanhas"
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-lg">
+            <Card className="max-h-[85vh] overflow-hidden p-0">
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <p className="font-display font-bold">Campanhas</p>
+                <button
+                  type="button"
+                  onClick={() => setCampanhas(null)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="scroll-fino max-h-[60vh] overflow-y-auto px-4 py-3">
+                {campanhas.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Nenhuma campanha ainda.</p>
+                )}
+                <ul className="space-y-2">
+                  {campanhas.map((k) => (
+                    <li key={k.id} className="rounded-md border border-border p-3 text-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase">
+                          {SEGS.find((s) => s.k === k.segmento)?.t ?? k.segmento}
+                        </span>
+                        <span
+                          className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            k.status === 'concluida' ? 'bg-ok/15 text-ok' : 'bg-primary/15 text-primary'
+                          }`}
+                        >
+                          {k.status}
+                        </span>
+                      </div>
+                      <p className="mt-1 break-words text-xs text-muted-foreground">{k.mensagem}</p>
+                      <p className="mt-1 font-mono text-xs">
+                        {k.enviados}/{k.total} enviados
+                        {Number(k.falhas) > 0 && ` · ${k.falhas} falhas`}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+    </Shell>
+  );
+}

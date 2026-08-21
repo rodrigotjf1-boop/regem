@@ -204,6 +204,82 @@ export class ClienteService {
     return c;
   }
 
+  // ===== CRM / segmentação (F3) — base do lojista, USO INTERNO, sempre por tenant =====
+  // Contagem por segmento (recência/frequência) para os cartões/abas da tela.
+  async crmResumo(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      with camp as (
+        select cliente_id from pedido_externo
+        where tenant_id = ${tenantId} and cliente_id is not null and status <> 'cancelado'
+          and criado_em >= now() - interval '30 days'
+        group by cliente_id having count(*) >= 3
+      )
+      select
+        count(*)::int as total,
+        count(*) filter (where c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo'))::int as mes,
+        count(*) filter (where c.ultimo_pedido_em >= now() - interval '30 days')::int as d30,
+        count(*) filter (where c.ultimo_pedido_em < now() - interval '30 days')::int as sem30,
+        count(*) filter (where c.ultimo_pedido_em < now() - interval '60 days')::int as sem60,
+        (select count(*)::int from camp) as campeoes
+      from cliente c where c.tenant_id = ${tenantId}`);
+    return (r.rows ?? r)[0] ?? { total: 0, mes: 0, d30: 0, sem30: 0, sem60: 0, campeoes: 0 };
+  }
+
+  // Lista de clientes por segmento + busca (nome/telefone). Escopo por tenant.
+  async crmClientes(
+    tenantId: string,
+    opts: { segmento?: string; busca?: string; limite?: number; offset?: number },
+  ) {
+    const limite = Math.min(Math.max(Number(opts.limite) || 50, 1), 200);
+    const offset = Math.max(Number(opts.offset) || 0, 0);
+    const seg: Record<string, any> = {
+      mes: sql`and c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo')`,
+      '30d': sql`and c.ultimo_pedido_em >= now() - interval '30 days'`,
+      sem_30: sql`and c.ultimo_pedido_em < now() - interval '30 days'`,
+      sem_60: sql`and c.ultimo_pedido_em < now() - interval '60 days'`,
+      campeoes: sql`and (select count(*) from pedido_externo p where p.cliente_id = c.id and p.status <> 'cancelado' and p.criado_em >= now() - interval '30 days') >= 3`,
+    };
+    const segFrag = seg[String(opts.segmento ?? '')] ?? sql``;
+    const busca = (opts.busca ?? '').trim();
+    const buscaFrag = busca
+      ? sql`and (c.nome ilike ${'%' + busca + '%'} or c.telefone ilike ${'%' + busca.replace(/\D/g, '') + '%'})`
+      : sql``;
+    const r: any = await this.db.execute(sql`
+      select c.id, c.nome, c.telefone, c.total_pedidos, c.total_gasto,
+             c.ultimo_pedido_em, c.primeiro_pedido_em, c.opt_out_marketing,
+             coalesce((select count(*) from pedido_externo p where p.cliente_id = c.id and p.status <> 'cancelado' and p.criado_em >= now() - interval '30 days'), 0)::int as pedidos_30d,
+             coalesce((select array_agg(distinct p.canal) from pedido_externo p where p.cliente_id = c.id), '{}') as canais
+      from cliente c
+      where c.tenant_id = ${tenantId} ${segFrag} ${buscaFrag}
+      order by c.ultimo_pedido_em desc nulls last
+      limit ${limite} offset ${offset}`);
+    return r.rows ?? r;
+  }
+
+  // Histórico de pedidos de um cliente (drill-down). Escopo por tenant.
+  async crmHistorico(tenantId: string, clienteId: string) {
+    const r: any = await this.db.execute(sql`
+      select id, numero, display_id, canal, tipo, status, total, criado_em
+      from pedido_externo
+      where tenant_id = ${tenantId} and cliente_id = ${clienteId}
+      order by criado_em desc limit 100`);
+    return r.rows ?? r;
+  }
+
+  // Funil de conversão do cardápio (F4) — sessões distintas por etapa, no período.
+  async crmFunil(tenantId: string, dias: number) {
+    const d = Math.min(Math.max(Number(dias) || 30, 1), 365);
+    const r: any = await this.db.execute(sql`
+      select
+        count(distinct sessao) filter (where tipo = 'view_menu')::int as visitas,
+        count(distinct sessao) filter (where tipo = 'add_carrinho')::int as carrinho,
+        count(distinct sessao) filter (where tipo = 'checkout')::int as checkout,
+        count(distinct sessao) filter (where tipo = 'pedido')::int as pedidos
+      from cardapio_evento
+      where tenant_id = ${tenantId} and criado_em >= now() - (${d} || ' days')::interval`);
+    return (r.rows ?? r)[0] ?? { visitas: 0, carrinho: 0, checkout: 0, pedidos: 0 };
+  }
+
   async identificar(cardapioToken: string, dto: { telefone?: string; nome?: string }) {
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);

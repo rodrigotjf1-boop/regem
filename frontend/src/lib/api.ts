@@ -1107,8 +1107,38 @@ export const api = {
   cardapioPromos: (token: string) => pub(`/publico/cardapio/${token}/promos`),
   cardapioPecaTambem: (token: string, produtos: string[]) =>
     pub(`/publico/cardapio/${token}/peca-tambem?produtos=${encodeURIComponent(produtos.join(','))}`),
+  // Beacon anônimo do funil do cardápio (F4) — best-effort.
+  cardapioEvento: (token: string, sessao: string, tipo: string, meta?: unknown) =>
+    pub(`/publico/cardapio/${token}/evento`, {
+      method: 'POST',
+      body: JSON.stringify({ sessao, tipo, meta }),
+    }),
   buscarClienteTelefone: (telefone: string) =>
     req(`/clientes/buscar?telefone=${encodeURIComponent(telefone)}`),
+  // CRM / segmentação (F3) — base do lojista, uso interno.
+  crmResumo: () => req('/clientes/crm/resumo'),
+  crmClientes: (params: { segmento?: string; busca?: string; limite?: number; offset?: number }) =>
+    req(
+      `/clientes/crm?${new URLSearchParams(
+        Object.entries(params)
+          .filter(([, v]) => v != null && v !== '')
+          .map(([k, v]) => [k, String(v)]),
+      ).toString()}`,
+    ),
+  crmHistorico: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/historico`),
+  // Campanhas de WhatsApp por segmento (F5) — só nuvem, só gestão.
+  crmCampanhaPrevia: (segmento: string) =>
+    req(`/campanhas/previa?segmento=${encodeURIComponent(segmento)}`),
+  crmCampanhas: () => req('/campanhas'),
+  crmCampanhaCriar: (body: {
+    segmento: string;
+    mensagem: string;
+    intervaloSeg?: number;
+    tetoDia?: number | null;
+  }) => req('/campanhas', { method: 'POST', body: JSON.stringify(body) }),
+  crmOptOut: (clienteId: string, optOut: boolean) =>
+    req('/campanhas/opt-out', { method: 'POST', body: JSON.stringify({ clienteId, optOut }) }),
+  crmFunil: (dias = 30) => req(`/clientes/funil?dias=${dias}`),
   // Cliente do cardápio (link mágico assinado).
   clienteIdentificar: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/cliente/identificar`, { method: 'POST', body: JSON.stringify(body) }),
