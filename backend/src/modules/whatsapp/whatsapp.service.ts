@@ -137,6 +137,99 @@ export class WhatsappService {
     return { ok: true };
   }
 
+  // ===== Número de MARKETING (F5b) — 2º WhatsApp p/ campanhas (só ENVIO, sem bot) =====
+  // Instância separada (sufixo -mkt) que isola o risco de ban do número principal.
+  private async instanciaMkt(tenantId: string): Promise<{ cfg: any; instancia: string }> {
+    const [cfg] = await this.db
+      .select()
+      .from(cardapioConfig)
+      .where(and(eq(cardapioConfig.tenantId, tenantId)));
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    let instancia = cfg.marketingInstancia;
+    if (!instancia) {
+      const slug =
+        (cfg.nomePublico ?? 'loja')
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/(^-|-$)/g, '')
+          .slice(0, 20) || 'loja';
+      instancia = `${slug}-mkt-${(cfg.token ?? '').slice(0, 6)}`;
+    }
+    return { cfg, instancia };
+  }
+
+  // Conecta o número de marketing e devolve o QR. NÃO seta webhook (é só envio).
+  async conectarMarketing(tenantId: string) {
+    const { cfg, instancia } = await this.instanciaMkt(tenantId);
+    await this.req('/instance/create', {
+      method: 'POST',
+      body: JSON.stringify({ instanceName: instancia, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
+    }).catch(() => {});
+    if (cfg.marketingInstancia !== instancia) {
+      await this.db
+        .update(cardapioConfig)
+        .set({ marketingInstancia: instancia, updatedAt: new Date() })
+        .where(eq(cardapioConfig.id, cfg.id));
+    }
+    const res = await this.req(`/instance/connect/${instancia}`, { method: 'GET' });
+    const j: any = await res.json().catch(() => ({}));
+    const base64: string | undefined = j?.base64 ?? j?.qrcode?.base64;
+    const qr = base64 ? (base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`) : null;
+    return { instancia, qr, pairingCode: j?.pairingCode ?? j?.code ?? null };
+  }
+
+  async statusMarketing(tenantId: string) {
+    const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
+    if (!cfg?.marketingInstancia) return { conectado: false, estado: 'nao_criada', instancia: null };
+    const res = await this.req(`/instance/connectionState/${cfg.marketingInstancia}`, { method: 'GET' });
+    if (!res.ok) return { conectado: false, estado: 'desconhecido', instancia: cfg.marketingInstancia };
+    const j: any = await res.json().catch(() => ({}));
+    const estado = j?.instance?.state ?? j?.state ?? 'desconhecido';
+    return { conectado: estado === 'open', estado, instancia: cfg.marketingInstancia };
+  }
+
+  async desconectarMarketing(tenantId: string) {
+    const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
+    if (cfg?.marketingInstancia)
+      await this.req(`/instance/logout/${cfg.marketingInstancia}`, { method: 'DELETE' }).catch(() => {});
+    return { ok: true };
+  }
+
+  // Envia por uma instância EXPLÍCITA, validando POSSE (a da loja ou a de marketing
+  // DESTE tenant) — nunca envia por instância de outra loja. Usado pelas campanhas.
+  async enviarPorInstancia(tenantId: string, instancia: string, numero: string, texto: string) {
+    const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
+    const permitidas = [cfg?.evolutionInstancia, cfg?.marketingInstancia].filter(Boolean);
+    if (!instancia || !permitidas.includes(instancia))
+      throw new BadRequestException('Instância não pertence à loja.');
+    const t = String(texto ?? '').trim();
+    if (!t) throw new BadRequestException('Mensagem vazia.');
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    const res = await this.req(`/message/sendText/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({ number, text: t }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true };
+  }
+
+  // Envia uma mensagem de campanha pelo número escolhido ('loja' | 'marketing').
+  async enviarCampanha(tenantId: string, instanciaTipo: string, numero: string, texto: string) {
+    const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
+    const instancia = instanciaTipo === 'marketing' ? cfg?.marketingInstancia : cfg?.evolutionInstancia;
+    if (!instancia)
+      throw new BadRequestException(
+        instanciaTipo === 'marketing' ? 'Número de marketing não conectado.' : 'WhatsApp da loja não conectado.',
+      );
+    return this.enviarPorInstancia(tenantId, instancia, numero, texto);
+  }
+
   // Diagnóstico da conexão com o Evolution — variáveis setadas? servidor respondeu?
   // a MINHA instância existe e em que estado? Para o gestor conferir sem abrir
   // EasyPanel/n8n. Mostra só a instância DESTA loja: a lista completa do servidor

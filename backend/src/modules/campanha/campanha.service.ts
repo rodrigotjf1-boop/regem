@@ -51,7 +51,13 @@ export class CampanhaService {
   async criar(
     tenantId: string,
     criadoPor: string | null,
-    dto: { segmento?: string; mensagem?: string; intervaloSeg?: number; tetoDia?: number | null },
+    dto: {
+      segmento?: string;
+      mensagem?: string;
+      intervaloSeg?: number;
+      tetoDia?: number | null;
+      instanciaTipo?: string;
+    },
   ) {
     const mensagem = String(dto.mensagem ?? '').trim();
     if (mensagem.length < 3) throw new BadRequestException('Mensagem muito curta.');
@@ -59,10 +65,18 @@ export class CampanhaService {
     const segmento = String(dto.segmento ?? 'todos');
     const intervaloSeg = Math.min(Math.max(Number(dto.intervaloSeg) || 7, 3), 120);
     const tetoDia = dto.tetoDia != null && Number(dto.tetoDia) > 0 ? Number(dto.tetoDia) : null;
+    const instanciaTipo = dto.instanciaTipo === 'marketing' ? 'marketing' : 'loja';
+    if (instanciaTipo === 'marketing') {
+      const r: any = await this.db.execute(
+        sql`select marketing_instancia from cardapio_config where tenant_id = ${tenantId} limit 1`,
+      );
+      if (!(r.rows ?? r)[0]?.marketing_instancia)
+        throw new BadRequestException('Número de marketing não conectado. Conecte antes de enviar por ele.');
+    }
 
     const [camp] = await this.db
       .insert(campanha)
-      .values({ tenantId, criadoPor: criadoPor ?? null, segmento, mensagem, intervaloSeg, tetoDia })
+      .values({ tenantId, criadoPor: criadoPor ?? null, segmento, mensagem, intervaloSeg, tetoDia, instanciaTipo })
       .returning();
 
     const ins: any = await this.db.execute(sql`
@@ -98,7 +112,7 @@ export class CampanhaService {
     this.rodando = true;
     try {
       const prontas: any = await this.db.execute(sql`
-        select id, tenant_id, mensagem, intervalo_seg, teto_dia from campanha
+        select id, tenant_id, mensagem, intervalo_seg, teto_dia, instancia_tipo from campanha
         where status = 'enviando'
           and (select coalesce(max(enviado_em), to_timestamp(0)) from campanha_envio e
                where e.campanha_id = campanha.id and e.status = 'enviado')
@@ -126,7 +140,7 @@ export class CampanhaService {
         const tel = String(envio.telefone).replace(/\D/g, '');
         const numero = tel.length === 10 || tel.length === 11 ? '55' + tel : tel;
         try {
-          await this.whatsapp.enviar(camp.tenant_id, numero, camp.mensagem);
+          await this.whatsapp.enviarCampanha(camp.tenant_id, camp.instancia_tipo ?? 'loja', numero, camp.mensagem);
           await this.db
             .update(campanhaEnvio)
             .set({ status: 'enviado', enviadoEm: new Date() })

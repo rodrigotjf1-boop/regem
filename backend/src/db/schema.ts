@@ -2161,6 +2161,7 @@ export const campanha = pgTable('campanha', {
   enviados: integer('enviados').notNull().default(0),
   falhas: integer('falhas').notNull().default(0),
   status: text('status').notNull().default('enviando'), // enviando | concluida | pausada
+  instanciaTipo: text('instancia_tipo').notNull().default('loja'), // loja | marketing (F5b)
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2352,6 +2353,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   roboMensagens: jsonb('robo_mensagens').notNull().default('[]'), // [{gatilho, resposta}]
   roboPausados: jsonb('robo_pausados').notNull().default('[]'), // números com robô pausado (humano assumiu) — mig 138
   evolutionInstancia: text('evolution_instancia'), // instância WhatsApp (chave do bot multi-tenant)
+  marketingInstancia: text('marketing_instancia'), // 2º WhatsApp p/ campanhas (F5b) — só envio, sem bot
   evolutionNumero: text('evolution_numero'), // número conectado (quando pareado)
   // Regras de estorno/empilhamento de desconto (mig 125) — a loja configura.
   cancelamentoEstornaCashback: boolean('cancelamento_estorna_cashback').notNull().default(true),
