@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../location.dart';
 import 'login_screen.dart';
 import 'scanner_screen.dart';
 import 'pedido_screen.dart';
@@ -35,6 +36,12 @@ class _HomeScreenState extends State<HomeScreen> {
           _carregando = false;
         });
       }
+      // GPS só com entrega ativa (LGPD + bateria): pede permissão em contexto.
+      if (peds.isNotEmpty) {
+        LocationSender.iniciar();
+      } else {
+        LocationSender.parar();
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -62,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _sair() async {
+    LocationSender.parar();
     await Api.sair();
     if (mounted) {
       Navigator.pushReplacement(
