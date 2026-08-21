@@ -215,6 +215,162 @@ export class EntregadorService {
     });
   }
 
+  // ===== E5 — pagamento do entregador =====
+  private readonly MODELOS = [
+    'diaria_taxas',
+    'so_diaria',
+    'so_taxas',
+    'so_taxa_fixa',
+    'diaria_taxas_fixas',
+  ];
+
+  // Config de pagamento da loja (default se ainda não configurou).
+  async configPagamento(tenantId: string) {
+    const r: any = await this.db.execute(
+      sql`select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos
+          from entregador_config where tenant_id = ${tenantId}`,
+    );
+    const c = (r.rows ?? r)[0];
+    return {
+      modelo: c?.modelo ?? 'diaria_taxas',
+      diariaCentavos: Number(c?.diaria_centavos ?? 0),
+      taxaEntregaCentavos: Number(c?.taxa_entrega_centavos ?? 0),
+      taxaFixaCentavos: Number(c?.taxa_fixa_centavos ?? 0),
+    };
+  }
+
+  async salvarConfigPagamento(
+    tenantId: string,
+    dto: { modelo?: string; diariaCentavos?: number; taxaEntregaCentavos?: number; taxaFixaCentavos?: number },
+  ) {
+    const modelo = this.MODELOS.includes(String(dto?.modelo)) ? String(dto.modelo) : 'diaria_taxas';
+    const cent = (v: any) => Math.max(0, Math.round(Number(v) || 0));
+    const diaria = cent(dto?.diariaCentavos);
+    const taxaEnt = cent(dto?.taxaEntregaCentavos);
+    const taxaFix = cent(dto?.taxaFixaCentavos);
+    await this.db.execute(sql`
+      insert into entregador_config (tenant_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos)
+      values (${tenantId}, ${modelo}, ${diaria}, ${taxaEnt}, ${taxaFix})
+      on conflict (tenant_id) do update set
+        modelo = excluded.modelo,
+        diaria_centavos = excluded.diaria_centavos,
+        taxa_entrega_centavos = excluded.taxa_entrega_centavos,
+        taxa_fixa_centavos = excluded.taxa_fixa_centavos,
+        atualizado_em = now()`);
+    return { ok: true };
+  }
+
+  // Calcula (diaria, taxas, total) em centavos para um nº de entregas, dado o modelo.
+  private calcular(cfg: any, entregas: number) {
+    const d = Number(cfg.diariaCentavos) || 0;
+    const te = Number(cfg.taxaEntregaCentavos) || 0;
+    const tf = Number(cfg.taxaFixaCentavos) || 0;
+    let diaria = 0;
+    let taxas = 0;
+    switch (cfg.modelo) {
+      case 'so_diaria':
+        diaria = d;
+        break;
+      case 'so_taxas':
+        taxas = entregas * te;
+        break;
+      case 'so_taxa_fixa':
+        taxas = tf; // valor fixo por fechamento, independente da quantidade
+        break;
+      case 'diaria_taxas_fixas':
+        diaria = d;
+        taxas = entregas * tf;
+        break;
+      case 'diaria_taxas':
+      default:
+        diaria = d;
+        taxas = entregas * te;
+        break;
+    }
+    return { diaria, taxas, total: diaria + taxas };
+  }
+
+  // Gestor: fechamento do dia — por entregador, entregas concluídas + valores calculados
+  // + se já foi fechado (pago). data = 'YYYY-MM-DD'.
+  async fechamentoDia(tenantId: string, data: string) {
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(data)) ? String(data) : null;
+    if (!dia) throw new BadRequestException('Data inválida (use YYYY-MM-DD).');
+    const cfg = await this.configPagamento(tenantId);
+    // Entregas concluídas no dia, por entregador (fuso America/Sao_Paulo).
+    const r: any = await this.db.execute(sql`
+      select p.entregador_id as colaborador_id, c.nome,
+             count(*)::int as entregas
+      from pedido_externo p
+      join colaborador c on c.id = p.entregador_id
+      where p.tenant_id = ${tenantId}
+        and p.entregador_id is not null
+        and p.status = 'concluido'
+        and (p.concluido_em at time zone 'America/Sao_Paulo')::date = ${dia}::date
+      group by p.entregador_id, c.nome
+      order by c.nome`);
+    const linhas = (r.rows ?? r) as any[];
+    // Fechamentos já feitos nesse dia.
+    const f: any = await this.db.execute(sql`
+      select colaborador_id, total_centavos from entregador_fechamento
+      where tenant_id = ${tenantId} and data_ref = ${dia}`);
+    const pagos = new Map<string, number>();
+    for (const row of f.rows ?? f) pagos.set(String(row.colaborador_id), Number(row.total_centavos));
+    return {
+      data: dia,
+      modelo: cfg.modelo,
+      entregadores: linhas.map((l) => {
+        const v = this.calcular(cfg, Number(l.entregas));
+        return {
+          colaboradorId: l.colaborador_id,
+          nome: l.nome,
+          entregas: Number(l.entregas),
+          diariaCentavos: v.diaria,
+          taxasCentavos: v.taxas,
+          totalCentavos: v.total,
+          pago: pagos.has(String(l.colaborador_id)),
+        };
+      }),
+    };
+  }
+
+  // Gestor: fecha (registra o pagamento) de um entregador no dia. Idempotente.
+  async fechar(tenantId: string, atorId: string, colaboradorId: string, data: string) {
+    const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(data)) ? String(data) : null;
+    if (!dia) throw new BadRequestException('Data inválida (use YYYY-MM-DD).');
+    if (!colaboradorId) throw new BadRequestException('Entregador não informado.');
+    const cfg = await this.configPagamento(tenantId);
+    const r: any = await this.db.execute(sql`
+      select count(*)::int as entregas from pedido_externo
+      where tenant_id = ${tenantId} and entregador_id = ${colaboradorId}
+        and status = 'concluido'
+        and (concluido_em at time zone 'America/Sao_Paulo')::date = ${dia}::date`);
+    const entregas = Number((r.rows ?? r)[0]?.entregas ?? 0);
+    const v = this.calcular(cfg, entregas);
+    await this.db.execute(sql`
+      insert into entregador_fechamento
+        (tenant_id, colaborador_id, data_ref, modelo, entregas, diaria_centavos, taxas_centavos, total_centavos, criado_por)
+      values (${tenantId}, ${colaboradorId}, ${dia}, ${cfg.modelo}, ${entregas}, ${v.diaria}, ${v.taxas}, ${v.total}, ${atorId})
+      on conflict (tenant_id, colaborador_id, data_ref) do update set
+        modelo = excluded.modelo, entregas = excluded.entregas,
+        diaria_centavos = excluded.diaria_centavos, taxas_centavos = excluded.taxas_centavos,
+        total_centavos = excluded.total_centavos, criado_por = excluded.criado_por, criado_em = now()`);
+    return { ok: true, entregas, ...v };
+  }
+
+  // App do entregador: meus ganhos de hoje (entregas + valor estimado pelo modelo da loja).
+  async ganhos(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const cfg = await this.configPagamento(user.tenantId);
+    const r: any = await this.db.execute(sql`
+      select count(*)::int as entregas from pedido_externo
+      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+        and status = 'concluido'
+        and (concluido_em at time zone 'America/Sao_Paulo')::date = (now() at time zone 'America/Sao_Paulo')::date`);
+    const entregas = Number((r.rows ?? r)[0]?.entregas ?? 0);
+    const v = this.calcular(cfg, entregas);
+    return { entregas, ...v };
+  }
+
   private distanciaM(lat1: number, lng1: number, lat2: number, lng2: number): number {
     const R = 6371000;
     const toRad = (x: number) => (x * Math.PI) / 180;

@@ -2223,6 +2223,32 @@ export const entregadorLocalizacao = pgTable('entregador_localizacao', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// App do Entregador (E5) — modelo de pagamento por loja (1 por tenant). Só nuvem.
+// modelo: diaria_taxas | so_diaria | so_taxas | so_taxa_fixa | diaria_taxas_fixas
+export const entregadorConfig = pgTable('entregador_config', {
+  tenantId: uuid('tenant_id').primaryKey(),
+  modelo: text('modelo').notNull().default('diaria_taxas'),
+  diariaCentavos: integer('diaria_centavos').notNull().default(0),
+  taxaEntregaCentavos: integer('taxa_entrega_centavos').notNull().default(0),
+  taxaFixaCentavos: integer('taxa_fixa_centavos').notNull().default(0),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// App do Entregador (E5) — fechamento de pagamento por entregador/dia (append-only).
+export const entregadorFechamento = pgTable('entregador_fechamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  colaboradorId: uuid('colaborador_id').notNull(),
+  dataRef: text('data_ref').notNull(), // YYYY-MM-DD (dia de referência)
+  modelo: text('modelo').notNull(),
+  entregas: integer('entregas').notNull().default(0),
+  diariaCentavos: integer('diaria_centavos').notNull().default(0),
+  taxasCentavos: integer('taxas_centavos').notNull().default(0),
+  totalCentavos: integer('total_centavos').notNull().default(0),
+  criadoPor: uuid('criado_por'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Licença / revenda / frota (edge appliance) =====
 export const revenda = pgTable('revenda', {
   id: uuid('id').primaryKey().defaultRandom(),

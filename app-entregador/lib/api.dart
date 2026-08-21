@@ -131,6 +131,15 @@ class Api {
     }
   }
 
+  /// E5 — meus ganhos de hoje (entregas + valores em centavos, pelo modelo da loja).
+  static Future<Map<String, dynamic>> ganhos() async {
+    final r = await http.get(Uri.parse('$base/entregador/ganhos'), headers: _headers);
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
   static String _erro(http.Response r) {
     try {
       final j = jsonDecode(r.body);

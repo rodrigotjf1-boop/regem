@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -74,5 +74,46 @@ export class EntregadorController {
   @RequirePerm('delivery')
   aoVivo(@CurrentUser() user: AuthUser) {
     return this.service.aoVivo(user.tenantId);
+  }
+
+  // ===== E5 — pagamento =====
+  // App do entregador: meus ganhos de hoje.
+  @Get('ganhos')
+  ganhos(@CurrentUser() user: AuthUser) {
+    return this.service.ganhos(user);
+  }
+
+  // Gestor: config do modelo de pagamento (valores = financeiro → presidente/gerente).
+  @Get('pagamento/config')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  pagamentoConfig(@CurrentUser() user: AuthUser) {
+    return this.service.configPagamento(user.tenantId);
+  }
+
+  @Post('pagamento/config')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  salvarPagamentoConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.salvarConfigPagamento(user.tenantId, dto ?? {});
+  }
+
+  // Gestor/atendente: fechamento do dia (quanto pagar por entregador).
+  @Get('pagamento/fechamento')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @RequirePerm('delivery')
+  fechamento(@CurrentUser() user: AuthUser, @Query('data') data: string) {
+    return this.service.fechamentoDia(user.tenantId, data);
+  }
+
+  @Post('pagamento/fechar')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @RequirePerm('delivery')
+  fechar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.fechar(user.tenantId, user.colaboradorId, dto?.colaboradorId ?? '', dto?.data ?? '');
   }
 }
