@@ -182,6 +182,12 @@ export function buildSecoes({
           placeholder: 'contato@exemplo.com',
         },
         {
+          name: 'telefone',
+          label: 'Celular (WhatsApp — usado no aviso de chegada do entregador)',
+          type: 'text',
+          placeholder: 'ex.: 21990001234',
+        },
+        {
           name: 'vinculo',
           label: 'Vínculo',
           type: 'select',
@@ -208,6 +214,7 @@ export function buildSecoes({
           usuario: v.usuario || undefined,
           email: v.email || undefined,
           senha: v.senha || undefined,
+          telefone: v.telefone || undefined,
           fotoRef: v.fotoRef || undefined,
           funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
           vinculo: v.vinculo,

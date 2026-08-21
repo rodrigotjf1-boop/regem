@@ -34,6 +34,7 @@ const publicCols = {
   vinculo: colaborador.vinculo,
   jornadaTipo: colaborador.jornadaTipo,
   email: colaborador.email,
+  telefone: colaborador.telefone, // celular (WhatsApp) — aviso de chegada
   usuario: colaborador.usuario, // apelido de login (mig 141)
   status: colaborador.status,
   perfilAcessoId: colaborador.perfilAcessoId,
@@ -306,6 +307,7 @@ export class ColaboradorService {
       .values({
         tenantId,
         nome: dto.nome,
+        telefone: dto.telefone?.trim() || null,
         fotoRef: dto.fotoRef,
         funcaoId: principal,
         usuario,
@@ -384,6 +386,7 @@ export class ColaboradorService {
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.nome !== undefined) patch.nome = dto.nome;
+    if (dto.telefone !== undefined) patch.telefone = dto.telefone?.trim() || null;
     if (dto.fotoRef !== undefined) patch.fotoRef = dto.fotoRef;
     if (dto.vinculo !== undefined) patch.vinculo = dto.vinculo;
     if (dto.jornadaTipo !== undefined) patch.jornadaTipo = dto.jornadaTipo;
