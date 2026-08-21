@@ -1,0 +1,5 @@
+package com.dmsregem.regem_entregador
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
