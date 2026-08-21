@@ -2085,7 +2085,11 @@ export const cliente = pgTable('cliente', {
     .notNull()
     .references(() => empresa.id, { onDelete: 'cascade' }),
   nome: text('nome'),
-  telefone: text('telefone').notNull(), // obrigatório — identidade por telefone (sem anônimo)
+  // nullable (mig 204): cliente de canal-proxy (iFood) não tem nº real → identidade
+  // por (origem, origemId), não por telefone.
+  telefone: text('telefone'),
+  origem: text('origem'), // null = base própria (telefone); ex.: 'ifood'
+  origemId: text('origem_id'), // id do cliente no canal de origem
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),
   // Agregados de CRM (mig 194) — recência/frequência/valor materializados p/
   // segmentação rápida; mantidos pelo ingest (todos os canais) + backfill. Uso interno.
