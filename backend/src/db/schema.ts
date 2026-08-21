@@ -2201,6 +2201,17 @@ export const entregadorDispositivo = pgTable('entregador_dispositivo', {
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// App do Entregador (E4 auto) — cache das coords do pedido + flag do alerta de chegada.
+export const entregadorChegada = pgTable('entregador_chegada', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  pedidoId: uuid('pedido_id').notNull().unique(),
+  lat: numeric('lat'),
+  lng: numeric('lng'),
+  avisada: boolean('avisada').notNull().default(false),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // App do Entregador (E2) — pings de GPS durante entrega ativa. Só nuvem.
 export const entregadorLocalizacao = pgTable('entregador_localizacao', {
   id: uuid('id').primaryKey().defaultRandom(),

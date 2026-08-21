@@ -11,6 +11,7 @@ import { pedidoExterno } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { DeliveryService } from '../delivery/delivery.service';
 import { ClienteService } from '../cliente/cliente.service';
+import { geocode, montarEndereco } from '../../common/geocode';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // App do Entregador. Auth reusa o login de colaborador (JWT já traz nome/função/
@@ -156,6 +157,8 @@ export class EntregadorService {
     await this.db.execute(sql`
       insert into entregador_localizacao (tenant_id, colaborador_id, lat, lng, precisao)
       values (${user.tenantId}, ${user.colaboradorId}, ${la}, ${ln}, ${prec})`);
+    // Geofence automático do alerta de chegada (best-effort, não bloqueia o ping).
+    void this.checarChegada(user, la, ln);
     return { ok: true };
   }
 
@@ -189,11 +192,20 @@ export class EntregadorService {
       throw new ForbiddenException('Este pedido não está atribuído a você.');
     if (ped.status !== 'despachado') throw new BadRequestException('O pedido não está em rota.');
     if (!ped.clienteTelefone) throw new BadRequestException('Pedido sem telefone do cliente.');
+    const ok = await this.dispararChegada(user, ped);
+    if (!ok)
+      throw new BadRequestException('Não foi possível avisar o cliente (webhook do n8n).');
+    return { ok: true };
+  }
+
+  // Monta o payload e dispara o alerta de chegada no webhook (manual e automático).
+  private async dispararChegada(user: AuthUser, ped: any): Promise<boolean> {
+    if (!ped.clienteTelefone) return false;
     const r: any = await this.db.execute(
       sql`select telefone from colaborador where id = ${user.colaboradorId}`,
     );
     const entregadorTelefone = (r.rows ?? r)[0]?.telefone ?? null;
-    const ok = await this.cliente.enviarEventoWebhook(user.tenantId, {
+    return this.cliente.enviarEventoWebhook(user.tenantId, {
       evento: 'chegando',
       telefone: String(ped.clienteTelefone).replace(/\D/g, ''),
       cliente: ped.clienteNome,
@@ -201,8 +213,63 @@ export class EntregadorService {
       entregadorNome: user.nome ?? ped.entregadorNome ?? 'Entregador',
       entregadorTelefone,
     });
-    if (!ok)
-      throw new BadRequestException('Não foi possível avisar o cliente (webhook do n8n).');
-    return { ok: true };
+  }
+
+  private distanciaM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371000;
+    const toRad = (x: number) => (x * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const s =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+
+  // GEOFENCE AUTOMÁTICO: a cada ping, geocodifica o endereço do pedido (1x, cacheado
+  // em entregador_chegada), mede a distância e dispara o alerta UMA vez ao chegar no
+  // raio (70m). Best-effort — nunca atrapalha o ping.
+  private async checarChegada(user: AuthUser, lat: number, lng: number) {
+    const RAIO = 70;
+    try {
+      const pedidos = await this.db
+        .select()
+        .from(pedidoExterno)
+        .where(
+          and(
+            eq(pedidoExterno.tenantId, user.tenantId),
+            eq(pedidoExterno.entregadorId, user.colaboradorId),
+            eq(pedidoExterno.status, 'despachado'),
+          ),
+        );
+      for (const ped of pedidos) {
+        if (ped.tipo === 'retirada') continue;
+        let ch: any = (
+          await this.db.execute(
+            sql`select lat, lng, avisada from entregador_chegada where pedido_id = ${ped.id}`,
+          )
+        ).rows?.[0];
+        if (!ch) {
+          const partes = [ped.enderecoRua, ped.enderecoNumero, ped.enderecoBairro].filter(
+            Boolean,
+          ) as string[];
+          const end = partes.length ? montarEndereco(partes) : String(ped.endereco ?? '');
+          const g = end ? await geocode(end).catch(() => null) : null;
+          await this.db.execute(sql`
+            insert into entregador_chegada (tenant_id, pedido_id, lat, lng)
+            values (${user.tenantId}, ${ped.id}, ${g?.lat ?? null}, ${g?.lng ?? null})
+            on conflict (pedido_id) do nothing`);
+          ch = { lat: g?.lat ?? null, lng: g?.lng ?? null, avisada: false };
+        }
+        if (ch.avisada || ch.lat == null || ch.lng == null) continue;
+        const dist = this.distanciaM(lat, lng, Number(ch.lat), Number(ch.lng));
+        if (dist <= RAIO) {
+          await this.db.execute(sql`update entregador_chegada set avisada = true where pedido_id = ${ped.id}`);
+          await this.dispararChegada(user, ped);
+        }
+      }
+    } catch {
+      // silencioso
+    }
   }
 }
