@@ -106,6 +106,19 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// E2 — manda a localização atual (durante a entrega ativa). Best-effort.
+  static Future<void> enviarLocalizacao(double lat, double lng, {double? precisao}) async {
+    try {
+      await http.post(
+        Uri.parse('$base/entregador/localizacao'),
+        headers: _headers,
+        body: jsonEncode({'lat': lat, 'lng': lng, if (precisao != null) 'precisao': precisao}),
+      );
+    } catch (_) {
+      // silencioso
+    }
+  }
+
   static String _erro(http.Response r) {
     try {
       final j = jsonDecode(r.body);

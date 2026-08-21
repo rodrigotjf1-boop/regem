@@ -2201,6 +2201,17 @@ export const entregadorDispositivo = pgTable('entregador_dispositivo', {
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// App do Entregador (E2) — pings de GPS durante entrega ativa. Só nuvem.
+export const entregadorLocalizacao = pgTable('entregador_localizacao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  colaboradorId: uuid('colaborador_id').notNull(),
+  lat: numeric('lat').notNull(),
+  lng: numeric('lng').notNull(),
+  precisao: numeric('precisao'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Licença / revenda / frota (edge appliance) =====
 export const revenda = pgTable('revenda', {
   id: uuid('id').primaryKey().defaultRandom(),

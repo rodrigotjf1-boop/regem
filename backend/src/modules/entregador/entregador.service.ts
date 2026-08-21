@@ -142,4 +142,33 @@ export class EntregadorService {
     await this.delivery.finalizar(user.tenantId, user.colaboradorId, id, {});
     return { ok: true };
   }
+
+  // ===== E2 — GPS =====
+  // O app manda a localização durante a entrega ativa. Só entregador; por tenant.
+  async enviarLocalizacao(user: AuthUser, lat: number, lng: number, precisao?: number) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const la = Number(lat);
+    const ln = Number(lng);
+    if (!isFinite(la) || !isFinite(ln)) throw new BadRequestException('Coordenadas inválidas.');
+    const prec = precisao != null && isFinite(Number(precisao)) ? Number(precisao) : null;
+    await this.db.execute(sql`
+      insert into entregador_localizacao (tenant_id, colaborador_id, lat, lng, precisao)
+      values (${user.tenantId}, ${user.colaboradorId}, ${la}, ${ln}, ${prec})`);
+    return { ok: true };
+  }
+
+  // Gestor: última posição de cada entregador ativo nos últimos 15 min + nº em rota.
+  async aoVivo(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select distinct on (l.colaborador_id)
+        l.colaborador_id, l.lat, l.lng, l.criado_em, c.nome,
+        (select count(*)::int from pedido_externo p
+           where p.tenant_id = l.tenant_id and p.entregador_id = l.colaborador_id
+             and p.status = 'despachado') as em_rota
+      from entregador_localizacao l
+      join colaborador c on c.id = l.colaborador_id
+      where l.tenant_id = ${tenantId} and l.criado_em >= now() - interval '15 minutes'
+      order by l.colaborador_id, l.criado_em desc`);
+    return r.rows ?? r;
+  }
 }
