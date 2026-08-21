@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 
 class PedidoScreen extends StatefulWidget {
@@ -41,6 +42,27 @@ class _PedidoScreenState extends State<PedidoScreen> {
   void dispose() {
     _codigo.dispose();
     super.dispose();
+  }
+
+  // E3 — abre o endereço no app de mapas do aparelho (Google Maps/Waze via
+  // seletor do sistema), traçando rota a partir da posição atual.
+  Future<void> _abrirRota() async {
+    final end = widget.pedido['endereco']?.toString().trim();
+    if (end == null || end.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Pedido sem endereço para traçar rota.')),
+      );
+      return;
+    }
+    final uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent(end)}&travelmode=driving',
+    );
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Não foi possível abrir o mapa.')),
+      );
+    }
   }
 
   // Entrega própria em marketplace (99food delivery_type=2 / iFood MERCHANT) exige
@@ -117,7 +139,20 @@ class _PedidoScreenState extends State<PedidoScreen> {
               child: ListTile(
                 leading: const Icon(Icons.location_on),
                 title: Text(p['endereco'].toString()),
+                trailing: IconButton(
+                  icon: const Icon(Icons.directions),
+                  tooltip: 'Traçar rota',
+                  onPressed: _abrirRota,
+                ),
+                onTap: _abrirRota,
               ),
+            ),
+          const SizedBox(height: 8),
+          if (p['endereco'] != null)
+            OutlinedButton.icon(
+              onPressed: _abrirRota,
+              icon: const Icon(Icons.navigation),
+              label: const Text('Abrir rota no mapa'),
             ),
           const SizedBox(height: 8),
           ...itens.map((it) {

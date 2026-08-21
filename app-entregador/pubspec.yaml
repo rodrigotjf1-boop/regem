@@ -15,6 +15,8 @@ dependencies:
   mobile_scanner: ^5.1.1
   # E2 (GPS): localização durante a entrega ativa.
   geolocator: ^13.0.0
+  # E3 (rotas): abrir o endereço no Waze/Google Maps.
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0

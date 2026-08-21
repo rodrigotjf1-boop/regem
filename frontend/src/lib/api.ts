@@ -1140,6 +1140,20 @@ export const api = {
   crmOptOut: (clienteId: string, optOut: boolean) =>
     req('/campanhas/opt-out', { method: 'POST', body: JSON.stringify({ clienteId, optOut }) }),
   crmFunil: (dias = 30) => req(`/clientes/funil?dias=${dias}`),
+  // E2b — entregadores ao vivo (última posição/15min + nº em rota).
+  entregadoresAoVivo: () => req('/entregador/ao-vivo'),
+  // E5 — pagamento do entregador.
+  entregadorPagamentoConfig: () => req('/entregador/pagamento/config'),
+  entregadorPagamentoConfigSalvar: (body: {
+    modelo: string;
+    diariaCentavos: number;
+    taxaEntregaCentavos: number;
+    taxaFixaCentavos: number;
+  }) => req('/entregador/pagamento/config', { method: 'POST', body: JSON.stringify(body) }),
+  entregadorFechamento: (data: string) =>
+    req(`/entregador/pagamento/fechamento?data=${encodeURIComponent(data)}`),
+  entregadorFechar: (body: { colaboradorId: string; data: string }) =>
+    req('/entregador/pagamento/fechar', { method: 'POST', body: JSON.stringify(body) }),
   // Número de marketing (F5b) — 2º WhatsApp p/ campanhas.
   whatsappMarketingStatus: () => req('/whatsapp/marketing/status'),
   whatsappMarketingConectar: () => req('/whatsapp/marketing/conectar', { method: 'POST' }),

@@ -15,6 +15,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _perfil;
   List<dynamic> _pedidos = [];
+  Map<String, dynamic>? _ganhos;
   String? _erro;
   bool _carregando = true;
 
@@ -24,15 +25,26 @@ class _HomeScreenState extends State<HomeScreen> {
     _carregar();
   }
 
+  String _brl(dynamic centavos) {
+    final v = (num.tryParse('${centavos ?? 0}') ?? 0) / 100.0;
+    return 'R\$ ${v.toStringAsFixed(2).replaceAll('.', ',')}';
+  }
+
   Future<void> _carregar() async {
     setState(() => _erro = null);
     try {
       final p = await Api.perfil();
       final peds = await Api.pedidos();
+      // Ganhos do dia — best-effort (se a loja não configurou, vem zerado).
+      Map<String, dynamic> g = {};
+      try {
+        g = await Api.ganhos();
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _perfil = p;
           _pedidos = peds;
+          _ganhos = g;
           _carregando = false;
         });
       }
@@ -123,6 +135,34 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(color: Colors.orange.shade800),
               ),
             ),
+          const SizedBox(height: 12),
+        ],
+        if (_ganhos != null && _perfil?['ehEntregador'] == true) ...[
+          Card(
+            color: const Color(0xFFE2A340).withValues(alpha: 0.12),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Ganhos de hoje',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      Text('${_ganhos!['entregas'] ?? 0} entrega(s)',
+                          style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    ],
+                  ),
+                  Text(
+                    _brl(_ganhos!['total']),
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F2230)),
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
         ],
         if (_pedidos.isEmpty)
