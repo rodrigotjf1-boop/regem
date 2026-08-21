@@ -12,6 +12,30 @@ class PedidoScreen extends StatefulWidget {
 class _PedidoScreenState extends State<PedidoScreen> {
   final _codigo = TextEditingController();
   bool _finalizando = false;
+  bool _avisando = false;
+
+  Future<void> _chegando() async {
+    setState(() => _avisando = true);
+    try {
+      await Api.chegando(widget.pedido['id'] as String);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Cliente avisado — você está chegando 🛵')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _avisando = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -124,6 +148,12 @@ class _PedidoScreenState extends State<PedidoScreen> {
                 ),
               ),
             ),
+          OutlinedButton.icon(
+            onPressed: _avisando ? null : _chegando,
+            icon: const Icon(Icons.notifications_active),
+            label: Text(_avisando ? 'Avisando…' : 'Avisar cliente (estou chegando)'),
+          ),
+          const SizedBox(height: 8),
           FilledButton(
             onPressed: _finalizando ? null : _finalizar,
             child: Padding(

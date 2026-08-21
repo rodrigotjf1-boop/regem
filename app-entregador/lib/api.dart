@@ -106,6 +106,18 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// E4 — avisa o cliente que o entregador está chegando (WhatsApp via n8n).
+  static Future<Map<String, dynamic>> chegando(String id) async {
+    final r = await http.post(
+      Uri.parse('$base/entregador/pedido/$id/chegando'),
+      headers: _headers,
+    );
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
   /// E2 — manda a localização atual (durante a entrega ativa). Best-effort.
   static Future<void> enviarLocalizacao(double lat, double lng, {double? precisao}) async {
     try {

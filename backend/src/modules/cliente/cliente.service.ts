@@ -95,6 +95,15 @@ export class ClienteService {
     }
   }
 
+  // Dispara um evento genérico no webhook do n8n da loja (ex.: 'chegando' do
+  // entregador). Reusa a resolução (integração da loja / OTP_WEBHOOK_URL), HMAC e
+  // anti-SSRF. Devolve true só se 2xx.
+  async enviarEventoWebhook(tenantId: string, payload: any): Promise<boolean> {
+    const wh = await this.resolverWebhook(tenantId);
+    if (!wh) return false;
+    return this.dispararWebhook(wh.url, payload, wh.secret);
+  }
+
   // Teste do webhook (presidente) — mostra exatamente o que o n8n responde.
   async testarWebhook(tenantId: string, telefone?: string) {
     const wh = await this.resolverWebhook(tenantId);

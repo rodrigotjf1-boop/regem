@@ -8,5 +8,6 @@ import { AtendimentoModule } from '../atendimento/atendimento.module';
   imports: [AtendimentoModule],
   controllers: [ClientePublicoController, ClienteAdminController],
   providers: [ClienteService],
+  exports: [ClienteService],
 })
 export class ClienteModule {}

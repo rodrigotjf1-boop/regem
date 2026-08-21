@@ -61,6 +61,12 @@ export class EntregadorController {
     );
   }
 
+  // E4 — o entregador avisa o cliente que está chegando.
+  @Post('pedido/:id/chegando')
+  chegando(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.avisarChegando(user, id);
+  }
+
   // E2 — o gestor vê os entregadores ao vivo (RBAC delivery).
   @Get('ao-vivo')
   @UseGuards(RolesGuard, PermissoesGuard)

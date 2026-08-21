@@ -10,6 +10,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { DeliveryService } from '../delivery/delivery.service';
+import { ClienteService } from '../cliente/cliente.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // App do Entregador. Auth reusa o login de colaborador (JWT já traz nome/função/
@@ -19,6 +20,7 @@ export class EntregadorService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly delivery: DeliveryService,
+    private readonly cliente: ClienteService,
   ) {}
 
   private ehEntregador(user: AuthUser): boolean {
@@ -170,5 +172,37 @@ export class EntregadorService {
       where l.tenant_id = ${tenantId} and l.criado_em >= now() - interval '15 minutes'
       order by l.colaborador_id, l.criado_em desc`);
     return r.rows ?? r;
+  }
+
+  // ===== E4 — alerta de chegada =====
+  // O entregador avisa que está chegando → n8n/Evolution manda WhatsApp ao cliente
+  // (com nome + contato do entregador). Reusa o webhook de notificação (evento
+  // 'chegando'). Só o entregador do pedido, em rota. Por tenant.
+  async avisarChegando(user: AuthUser, pedidoId: string) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const [ped] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.entregadorId !== user.colaboradorId)
+      throw new ForbiddenException('Este pedido não está atribuído a você.');
+    if (ped.status !== 'despachado') throw new BadRequestException('O pedido não está em rota.');
+    if (!ped.clienteTelefone) throw new BadRequestException('Pedido sem telefone do cliente.');
+    const r: any = await this.db.execute(
+      sql`select telefone from colaborador where id = ${user.colaboradorId}`,
+    );
+    const entregadorTelefone = (r.rows ?? r)[0]?.telefone ?? null;
+    const ok = await this.cliente.enviarEventoWebhook(user.tenantId, {
+      evento: 'chegando',
+      telefone: String(ped.clienteTelefone).replace(/\D/g, ''),
+      cliente: ped.clienteNome,
+      numero: ped.numero,
+      entregadorNome: user.nome ?? ped.entregadorNome ?? 'Entregador',
+      entregadorTelefone,
+    });
+    if (!ok)
+      throw new BadRequestException('Não foi possível avisar o cliente (webhook do n8n).');
+    return { ok: true };
   }
 }
