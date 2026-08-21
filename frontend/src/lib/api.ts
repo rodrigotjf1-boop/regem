@@ -1149,6 +1149,7 @@ export const api = {
     diariaCentavos: number;
     taxaEntregaCentavos: number;
     taxaFixaCentavos: number;
+    raioChegadaM: number;
   }) => req('/entregador/pagamento/config', { method: 'POST', body: JSON.stringify(body) }),
   entregadorFechamento: (data: string) =>
     req(`/entregador/pagamento/fechamento?data=${encodeURIComponent(data)}`),

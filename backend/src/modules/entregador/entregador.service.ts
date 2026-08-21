@@ -227,7 +227,7 @@ export class EntregadorService {
   // Config de pagamento da loja (default se ainda não configurou).
   async configPagamento(tenantId: string) {
     const r: any = await this.db.execute(
-      sql`select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos
+      sql`select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, raio_chegada_m
           from entregador_config where tenant_id = ${tenantId}`,
     );
     const c = (r.rows ?? r)[0];
@@ -236,26 +236,36 @@ export class EntregadorService {
       diariaCentavos: Number(c?.diaria_centavos ?? 0),
       taxaEntregaCentavos: Number(c?.taxa_entrega_centavos ?? 0),
       taxaFixaCentavos: Number(c?.taxa_fixa_centavos ?? 0),
+      raioChegadaM: Number(c?.raio_chegada_m ?? 70),
     };
   }
 
   async salvarConfigPagamento(
     tenantId: string,
-    dto: { modelo?: string; diariaCentavos?: number; taxaEntregaCentavos?: number; taxaFixaCentavos?: number },
+    dto: {
+      modelo?: string;
+      diariaCentavos?: number;
+      taxaEntregaCentavos?: number;
+      taxaFixaCentavos?: number;
+      raioChegadaM?: number;
+    },
   ) {
     const modelo = this.MODELOS.includes(String(dto?.modelo)) ? String(dto.modelo) : 'diaria_taxas';
     const cent = (v: any) => Math.max(0, Math.round(Number(v) || 0));
     const diaria = cent(dto?.diariaCentavos);
     const taxaEnt = cent(dto?.taxaEntregaCentavos);
     const taxaFix = cent(dto?.taxaFixaCentavos);
+    // Raio do aviso de chegada: clamp defensivo (o app oferece 20/30/40/60/70m).
+    const raio = Math.min(1000, Math.max(10, Math.round(Number(dto?.raioChegadaM) || 70)));
     await this.db.execute(sql`
-      insert into entregador_config (tenant_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos)
-      values (${tenantId}, ${modelo}, ${diaria}, ${taxaEnt}, ${taxaFix})
+      insert into entregador_config (tenant_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, raio_chegada_m)
+      values (${tenantId}, ${modelo}, ${diaria}, ${taxaEnt}, ${taxaFix}, ${raio})
       on conflict (tenant_id) do update set
         modelo = excluded.modelo,
         diaria_centavos = excluded.diaria_centavos,
         taxa_entrega_centavos = excluded.taxa_entrega_centavos,
         taxa_fixa_centavos = excluded.taxa_fixa_centavos,
+        raio_chegada_m = excluded.raio_chegada_m,
         atualizado_em = now()`);
     return { ok: true };
   }
@@ -386,8 +396,9 @@ export class EntregadorService {
   // em entregador_chegada), mede a distância e dispara o alerta UMA vez ao chegar no
   // raio (70m). Best-effort — nunca atrapalha o ping.
   private async checarChegada(user: AuthUser, lat: number, lng: number) {
-    const RAIO = 70;
     try {
+      const cfg = await this.configPagamento(user.tenantId);
+      const RAIO = Number(cfg.raioChegadaM) || 70;
       const pedidos = await this.db
         .select()
         .from(pedidoExterno)
