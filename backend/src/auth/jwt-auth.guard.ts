@@ -80,6 +80,10 @@ export class JwtAuthGuard implements CanActivate {
       // onde o front não decodifica mais o JWT). Não são usados em decisão de segurança.
       nome: payload.nome,
       func: payload.func,
+      // Contrato AuthUser: o campo é `funcaoNome`. O token carrega em `func`
+      // (compacto); sem esta linha `user.funcaoNome` fica undefined e todo
+      // consumidor server-side (ex.: EntregadorService.ehEntregador) falha.
+      funcaoNome: payload.func ?? null,
       perfil: payload.perfil,
     };
 
