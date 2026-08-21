@@ -29,6 +29,9 @@ import { inArray } from 'drizzle-orm';
 import { assinarCliente, verificarCliente } from './cliente-token';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import { AuthUser } from '../../auth/auth-user';
+import PDFDocument from 'pdfkit';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
@@ -40,6 +43,7 @@ export class ClienteService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly atendimento: AtendimentoService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   // Resolve o webhook do n8n: prefere a integração n8n da loja (por tenant, com
@@ -235,12 +239,15 @@ export class ClienteService {
   }
 
   // Lista de clientes por segmento + busca (nome/telefone). Escopo por tenant.
-  async crmClientes(
-    tenantId: string,
-    opts: { segmento?: string; busca?: string; limite?: number; offset?: number },
-  ) {
-    const limite = Math.min(Math.max(Number(opts.limite) || 50, 1), 200);
-    const offset = Math.max(Number(opts.offset) || 0, 0);
+  // Fragmentos de filtro compartilhados (lista + exportação): segmento, busca,
+  // canal e bairro. Retorna um único SQL para o WHERE.
+  private filtrosCrm(opts: {
+    segmento?: string;
+    busca?: string;
+    canal?: string;
+    bairro?: string;
+    ids?: string[];
+  }) {
     const seg: Record<string, any> = {
       mes: sql`and c.ultimo_pedido_em >= date_trunc('month', now() at time zone 'America/Sao_Paulo')`,
       '30d': sql`and c.ultimo_pedido_em >= now() - interval '30 days'`,
@@ -253,16 +260,190 @@ export class ClienteService {
     const buscaFrag = busca
       ? sql`and (c.nome ilike ${'%' + busca + '%'} or c.telefone ilike ${'%' + busca.replace(/\D/g, '') + '%'})`
       : sql``;
+    const canal = (opts.canal ?? '').trim();
+    const canalFrag = canal
+      ? sql`and exists (select 1 from pedido_externo p where p.cliente_id = c.id and p.canal = ${canal})`
+      : sql``;
+    const bairro = (opts.bairro ?? '').trim();
+    const bairroFrag = bairro
+      ? sql`and exists (select 1 from pedido_externo p where p.cliente_id = c.id and lower(p.endereco_bairro) = lower(${bairro}))`
+      : sql``;
+    // Seleção explícita (checkbox na tela) — restringe a estes ids.
+    const idsFrag =
+      opts.ids && opts.ids.length ? sql`and c.id = any(${opts.ids}::uuid[])` : sql``;
+    return sql`${segFrag} ${buscaFrag} ${canalFrag} ${bairroFrag} ${idsFrag}`;
+  }
+
+  async crmClientes(
+    tenantId: string,
+    opts: {
+      segmento?: string;
+      busca?: string;
+      canal?: string;
+      bairro?: string;
+      ids?: string[];
+      ordenar?: string;
+      direcao?: string;
+      limite?: number;
+      offset?: number;
+    },
+  ) {
+    const limite = Math.min(Math.max(Number(opts.limite) || 50, 1), 5000);
+    const offset = Math.max(Number(opts.offset) || 0, 0);
+    const filtros = this.filtrosCrm(opts);
+    // Ordenação por coluna (whitelist — nunca interpola input cru).
+    const cols: Record<string, any> = {
+      nome: sql`c.nome`,
+      pedidos: sql`c.total_pedidos`,
+      ultimo: sql`c.ultimo_pedido_em`,
+      total: sql`c.total_gasto`,
+      ticket: sql`(c.total_gasto / nullif(c.total_pedidos, 0))`,
+    };
+    const col = cols[String(opts.ordenar ?? '')] ?? sql`c.ultimo_pedido_em`;
+    const dir = String(opts.direcao ?? '').toLowerCase() === 'asc' ? sql`asc` : sql`desc`;
     const r: any = await this.db.execute(sql`
       select c.id, c.nome, c.telefone, c.total_pedidos, c.total_gasto,
              c.ultimo_pedido_em, c.primeiro_pedido_em, c.opt_out_marketing,
              coalesce((select count(*) from pedido_externo p where p.cliente_id = c.id and p.status <> 'cancelado' and p.criado_em >= now() - interval '30 days'), 0)::int as pedidos_30d,
              coalesce((select array_agg(distinct p.canal) from pedido_externo p where p.cliente_id = c.id), '{}') as canais
       from cliente c
-      where c.tenant_id = ${tenantId} ${segFrag} ${buscaFrag}
-      order by c.ultimo_pedido_em desc nulls last
+      where c.tenant_id = ${tenantId} ${filtros}
+      order by ${col} ${dir} nulls last
       limit ${limite} offset ${offset}`);
     return r.rows ?? r;
+  }
+
+  // Bairros distintos (para o filtro do CRM), a partir dos pedidos do tenant.
+  async crmBairros(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select distinct endereco_bairro as bairro from pedido_externo
+      where tenant_id = ${tenantId} and coalesce(endereco_bairro, '') <> ''
+      order by 1 limit 300`);
+    return (r.rows ?? r).map((x: any) => x.bairro);
+  }
+
+  private brl(n: number) {
+    return (Number(n) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  }
+
+  private linhasExport(rows: any[]) {
+    return rows.map((c: any) => ({
+      nome: c.nome || 'Cliente',
+      telefone: c.telefone || '',
+      pedidos: Number(c.total_pedidos) || 0,
+      ultimo: c.ultimo_pedido_em ? new Date(c.ultimo_pedido_em).toLocaleDateString('pt-BR') : '',
+      ticket: Number(c.total_pedidos) > 0 ? Number(c.total_gasto) / Number(c.total_pedidos) : 0,
+      total: Number(c.total_gasto) || 0,
+      canais: Array.isArray(c.canais) ? c.canais.join(', ') : '',
+    }));
+  }
+
+  private readonly EXPORT_HEAD = ['Nome', 'Telefone', 'Pedidos', 'Último pedido', 'Ticket médio', 'Total gasto', 'Canais'];
+
+  private gerarCsv(linhas: any[]): string {
+    const esc = (v: any) => {
+      const s = String(v ?? '');
+      return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    };
+    const body = linhas.map((l) =>
+      [l.nome, l.telefone, l.pedidos, l.ultimo, this.brl(l.ticket), this.brl(l.total), l.canais]
+        .map(esc)
+        .join(';'),
+    );
+    return [this.EXPORT_HEAD.join(';'), ...body].join('\r\n');
+  }
+
+  private gerarXls(linhas: any[]): string {
+    const esc = (v: any) =>
+      String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const th = this.EXPORT_HEAD.map((h) => `<th>${esc(h)}</th>`).join('');
+    const tr = linhas
+      .map(
+        (l) =>
+          `<tr><td>${esc(l.nome)}</td><td>${esc(l.telefone)}</td><td>${l.pedidos}</td><td>${esc(l.ultimo)}</td><td>${esc(this.brl(l.ticket))}</td><td>${esc(this.brl(l.total))}</td><td>${esc(l.canais)}</td></tr>`,
+      )
+      .join('');
+    return `<html><head><meta charset="utf-8"></head><body><table border="1"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></body></html>`;
+  }
+
+  private gerarPdf(linhas: any[]): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ size: 'A4', layout: 'landscape', margin: 36 });
+      const chunks: Buffer[] = [];
+      doc.on('data', (c: Buffer) => chunks.push(c));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+      doc.fontSize(14).text('Base de clientes');
+      doc
+        .fontSize(8)
+        .fillColor('#666')
+        .text(
+          `Exportado em ${new Date().toLocaleString('pt-BR')} · ${linhas.length} cliente(s) · uso interno (LGPD)`,
+        );
+      doc.moveDown(0.4).fillColor('#000').fontSize(8);
+      linhas.forEach((l) => {
+        doc.text(
+          `${l.nome}  ·  ${l.telefone || '—'}  ·  ${l.pedidos} ped.  ·  ${l.ultimo || '—'}  ·  ticket ${this.brl(l.ticket)}  ·  total ${this.brl(l.total)}  ·  ${l.canais || '—'}`,
+        );
+      });
+      doc.end();
+    });
+  }
+
+  // Exporta a base filtrada/selecionada (CSV/Excel/PDF). AUDITA sempre (dado
+  // sensível/LGPD). RBAC no controller (presidente/gerente + clientes_exportar).
+  async exportar(
+    user: AuthUser,
+    opts: {
+      formato?: string;
+      segmento?: string;
+      busca?: string;
+      canal?: string;
+      bairro?: string;
+      ids?: string[];
+      ordenar?: string;
+      direcao?: string;
+    },
+  ) {
+    const formato = ['csv', 'excel', 'pdf'].includes(String(opts.formato)) ? String(opts.formato) : 'csv';
+    const rows = await this.crmClientes(user.tenantId, { ...opts, limite: 5000, offset: 0 });
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'exportacao',
+      acao: 'clientes.exportar',
+      detalhe: {
+        formato,
+        total: rows.length,
+        filtros: {
+          segmento: opts.segmento || null,
+          busca: opts.busca || null,
+          canal: opts.canal || null,
+          bairro: opts.bairro || null,
+          selecionados: opts.ids?.length ?? null,
+        },
+      },
+      origem: 'web',
+    });
+    const linhas = this.linhasExport(rows);
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (formato === 'csv')
+      return {
+        filename: `clientes-${stamp}.csv`,
+        mime: 'text/csv;charset=utf-8',
+        base64: Buffer.from(String.fromCharCode(0xfeff) + this.gerarCsv(linhas), 'utf8').toString(
+          'base64',
+        ),
+      };
+    if (formato === 'excel')
+      return {
+        filename: `clientes-${stamp}.xls`,
+        mime: 'application/vnd.ms-excel',
+        base64: Buffer.from(this.gerarXls(linhas), 'utf8').toString('base64'),
+      };
+    const buf = await this.gerarPdf(linhas);
+    return { filename: `clientes-${stamp}.pdf`, mime: 'application/pdf', base64: buf.toString('base64') };
   }
 
   // Histórico de pedidos de um cliente (drill-down). Escopo por tenant.

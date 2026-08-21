@@ -42,15 +42,39 @@ export class ClienteAdminController {
     @CurrentUser() user: AuthUser,
     @Query('segmento') segmento?: string,
     @Query('busca') busca?: string,
+    @Query('canal') canal?: string,
+    @Query('bairro') bairro?: string,
+    @Query('ordenar') ordenar?: string,
+    @Query('direcao') direcao?: string,
     @Query('limite') limite?: string,
     @Query('offset') offset?: string,
   ) {
     return this.service.crmClientes(user.tenantId, {
       segmento: segmento ?? 'todos',
       busca: busca ?? '',
+      canal: canal ?? '',
+      bairro: bairro ?? '',
+      ordenar: ordenar ?? '',
+      direcao: direcao ?? '',
       limite: Number(limite) || 50,
       offset: Number(offset) || 0,
     });
+  }
+
+  // Bairros distintos (filtro do CRM).
+  @Get('crm/bairros')
+  @Roles('presidente', 'gerente', 'supervisao')
+  crmBairros(@CurrentUser() user: AuthUser) {
+    return this.service.crmBairros(user.tenantId);
+  }
+
+  // Exportação de dados sensíveis (LGPD): só presidente (sempre) e gerente quando o
+  // presidente conceder a chave `clientes_exportar`. Toda exportação é auditada.
+  @Post('export')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('clientes_exportar')
+  exportar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.exportar(user, dto ?? {});
   }
 
   @Get('crm/:id/historico')

@@ -58,6 +58,100 @@ function MoedaInput({ label, centavos, onChange }: { label: string; centavos: nu
   );
 }
 
+// Editor do perfil de pagamento de UM entregador (expansível). proprio=false → herda o padrão.
+function PerfilEntregadorRow({ ent, onSalvo }: { ent: any; onSalvo: () => void }) {
+  const [aberto, setAberto] = useState(false);
+  const [d, setD] = useState({
+    modelo: ent.modelo,
+    diariaCentavos: ent.diariaCentavos,
+    taxaEntregaCentavos: ent.taxaEntregaCentavos,
+    taxaFixaCentavos: ent.taxaFixaCentavos,
+  });
+  const [salvando, setSalvando] = useState(false);
+  const m = MODELOS.find((x) => x.k === d.modelo) ?? MODELOS[0];
+
+  const salvar = async (usarPadrao = false) => {
+    setSalvando(true);
+    try {
+      await api.entregadorPerfilSalvar({ colaboradorId: ent.colaboradorId, usarPadrao, ...d });
+      toast.success(usarPadrao ? 'Voltou ao padrão da loja.' : 'Perfil salvo.');
+      setAberto(false);
+      onSalvo();
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Erro ao salvar.');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-3 py-2 text-left"
+        onClick={() => setAberto((v) => !v)}
+        aria-expanded={aberto}
+      >
+        <span className="text-sm font-medium">🛵 {ent.nome}</span>
+        <span className="flex items-center gap-2">
+          <span
+            className={
+              'rounded-full px-2 py-0.5 text-xs ' +
+              (ent.proprio ? 'bg-amber-100 text-amber-800' : 'bg-muted text-muted-foreground')
+            }
+          >
+            {ent.proprio ? 'perfil próprio' : 'padrão da loja'}
+          </span>
+          <span className="text-xs text-muted-foreground">{MODELOS.find((x) => x.k === ent.modelo)?.t}</span>
+        </span>
+      </button>
+      {aberto && (
+        <div className="border-t p-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+              <span className="text-muted-foreground">Como este entregador é pago</span>
+              <Select value={d.modelo} onChange={(e) => setD({ ...d, modelo: e.target.value })}>
+                {MODELOS.map((x) => (
+                  <option key={x.k} value={x.k}>
+                    {x.t}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            {m.campos.diaria && (
+              <MoedaInput label="Diária" centavos={d.diariaCentavos} onChange={(c) => setD({ ...d, diariaCentavos: c })} />
+            )}
+            {m.campos.taxa && (
+              <MoedaInput
+                label="Taxa por entrega"
+                centavos={d.taxaEntregaCentavos}
+                onChange={(c) => setD({ ...d, taxaEntregaCentavos: c })}
+              />
+            )}
+            {m.campos.fixa && (
+              <MoedaInput
+                label={m.campos.fixaLabel ?? 'Valor fixo'}
+                centavos={d.taxaFixaCentavos}
+                onChange={(c) => setD({ ...d, taxaFixaCentavos: c })}
+              />
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => salvar(false)} disabled={salvando}>
+              {salvando ? 'Salvando…' : 'Salvar perfil'}
+            </Button>
+            {ent.proprio && (
+              <Button size="sm" variant="outline" onClick={() => salvar(true)} disabled={salvando}>
+                Voltar ao padrão da loja
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function EntregadoresPage() {
   const podeConfig = ['presidente', 'gerente'].includes(getCategoria() ?? '');
   const [cfg, setCfg] = useState<any>(null);
@@ -66,11 +160,13 @@ export default function EntregadoresPage() {
   const [fech, setFech] = useState<any>(null);
   const [carregando, setCarregando] = useState(true);
   const [fechando, setFechando] = useState<string | null>(null);
+  const [perfis, setPerfis] = useState<any>(null);
 
   const carregarCfg = useCallback(async () => {
     if (!podeConfig) return;
     try {
       setCfg(await api.entregadorPagamentoConfig());
+      setPerfis(await api.entregadorPerfisPagamento());
     } catch {
       /* sem permissão / vazio */
     }
@@ -139,10 +235,23 @@ export default function EntregadoresPage() {
           Modelo de pagamento da loja e fechamento do dia (quanto pagar por entregador).
         </p>
 
-        {/* Config — só presidente/gerente (valores = financeiro). */}
+        {podeConfig && (
+          <p className="mt-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+            O que o entregador vê no app (pedidos, ganhos, etc.) é configurado em{' '}
+            <a href="/config/acessos" className="font-medium underline">
+              Configurações → Acessos e perfis
+            </a>{' '}
+            → grupo <span className="font-medium">“Entregador (app)”</span>, no perfil que o entregador usa.
+          </p>
+        )}
+
+        {/* Config = PADRÃO da loja — só presidente/gerente (valores = financeiro). */}
         {podeConfig && cfg && (
-          <Card className="mt-5 p-4">
-            <h2 className="mb-3 text-sm font-semibold">Modelo de pagamento</h2>
+          <Card className="mt-4 p-4">
+            <h2 className="mb-1 text-sm font-semibold">Modelo de pagamento — padrão da loja</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Vale para todo entregador que não tiver perfil próprio abaixo.
+            </p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm sm:col-span-2">
                 <span className="text-muted-foreground">Como o entregador é pago</span>
@@ -197,6 +306,28 @@ export default function EntregadoresPage() {
                 {salvando ? 'Salvando…' : 'Salvar configurações'}
               </Button>
             </div>
+          </Card>
+        )}
+
+        {/* Pagamento POR entregador — sobrepõe o padrão da loja. */}
+        {podeConfig && perfis && (
+          <Card className="mt-4 p-4">
+            <h2 className="mb-1 text-sm font-semibold">Pagamento por entregador</h2>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Cada entregador pode ter seu próprio modelo (ex.: um só diária, outro só taxas). Sem perfil
+              próprio, herda o padrão da loja.
+            </p>
+            {(perfis.entregadores ?? []).length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                Nenhum entregador cadastrado. Cadastre um colaborador com função “entregador”.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {(perfis.entregadores ?? []).map((ent: any) => (
+                  <PerfilEntregadorRow key={ent.colaboradorId} ent={ent} onSalvo={carregarCfg} />
+                ))}
+              </div>
+            )}
           </Card>
         )}
 
