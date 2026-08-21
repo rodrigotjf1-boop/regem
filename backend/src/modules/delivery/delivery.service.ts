@@ -477,29 +477,70 @@ export class DeliveryService {
   // Vincula o pedido a um cliente (find-or-create por telefone) e recalcula os
   // agregados de CRM daquele cliente. Unifica a base de TODOS os canais; escopado
   // por tenant; idempotente. Best-effort: nunca derruba o ingest do pedido.
-  private async vincularCliente(tenantId: string, row: typeof pedidoExterno.$inferSelect) {
-    try {
-      const tel = DeliveryService.normTel(row.clienteTelefone);
-      if (tel.length < 10) return;
+  // Canais de número MASCARADO (marketplace): o telefone é um proxy/relay que se
+  // repete entre clientes e expira — não serve de identidade. Identidade = id do
+  // cliente no canal (raw.customer.id). 99food hoje entrega nº real → fica no fluxo
+  // por telefone (revisar se bloquearem no futuro).
+  private static readonly CANAIS_PROXY = ['ifood'];
+
+  // Resolve (ou cria) o cliente do pedido, ciente do canal. Marketplace-proxy indexa
+  // por (origem, origem_id); demais canais por telefone real. null = não vincular.
+  private async resolverCliente(
+    tenantId: string,
+    row: typeof pedidoExterno.$inferSelect,
+  ): Promise<string | null> {
+    const canal = String(row.canal ?? '');
+    if (DeliveryService.CANAIS_PROXY.includes(canal)) {
+      const extId = String((row.raw as any)?.customer?.id ?? '').trim();
+      if (!extId) return null; // sem índice confiável → não funde clientes distintos
       let [c] = await this.db
         .select({ id: cliente.id })
         .from(cliente)
-        .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+        .where(and(eq(cliente.tenantId, tenantId), eq(cliente.origem, canal), eq(cliente.origemId, extId)));
       if (!c) {
         try {
           [c] = await this.db
             .insert(cliente)
-            .values({ tenantId, telefone: tel, nome: row.clienteNome ?? null })
+            .values({ tenantId, telefone: null, nome: row.clienteNome ?? null, origem: canal, origemId: extId })
             .returning({ id: cliente.id });
         } catch {
-          // Corrida: outra requisição criou o mesmo (tenant, telefone) — rebusca.
           [c] = await this.db
             .select({ id: cliente.id })
             .from(cliente)
-            .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+            .where(and(eq(cliente.tenantId, tenantId), eq(cliente.origem, canal), eq(cliente.origemId, extId)));
         }
       }
-      if (!c) return;
+      return c?.id ?? null;
+    }
+    // Canais de número real: identidade por telefone.
+    const tel = DeliveryService.normTel(row.clienteTelefone);
+    if (tel.length < 10) return null;
+    let [c] = await this.db
+      .select({ id: cliente.id })
+      .from(cliente)
+      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+    if (!c) {
+      try {
+        [c] = await this.db
+          .insert(cliente)
+          .values({ tenantId, telefone: tel, nome: row.clienteNome ?? null })
+          .returning({ id: cliente.id });
+      } catch {
+        // Corrida: outra requisição criou o mesmo (tenant, telefone) — rebusca.
+        [c] = await this.db
+          .select({ id: cliente.id })
+          .from(cliente)
+          .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+      }
+    }
+    return c?.id ?? null;
+  }
+
+  private async vincularCliente(tenantId: string, row: typeof pedidoExterno.$inferSelect) {
+    try {
+      const clienteId = await this.resolverCliente(tenantId, row);
+      if (!clienteId) return;
+      const c = { id: clienteId };
       if (!row.clienteId) {
         await this.db
           .update(pedidoExterno)
