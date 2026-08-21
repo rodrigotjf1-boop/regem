@@ -314,10 +314,15 @@ export class ClienteService {
   }
 
   // Bairros distintos (para o filtro do CRM), a partir dos pedidos do tenant.
+  // Só NOMES de bairro — exclui faixas de distância (raio: "3 km", "0 a 2 km"…).
   async crmBairros(tenantId: string) {
     const r: any = await this.db.execute(sql`
       select distinct endereco_bairro as bairro from pedido_externo
-      where tenant_id = ${tenantId} and coalesce(endereco_bairro, '') <> ''
+      where tenant_id = ${tenantId}
+        and coalesce(endereco_bairro, '') <> ''
+        and endereco_bairro ~ '[A-Za-zÀ-ÿ]'   -- tem letra (é nome, não número)
+        and endereco_bairro !~ '^[0-9]'        -- não começa com dígito (distância)
+        and endereco_bairro !~* 'km|raio|metro'-- não é faixa de distância
       order by 1 limit 300`);
     return (r.rows ?? r).map((x: any) => x.bairro);
   }
