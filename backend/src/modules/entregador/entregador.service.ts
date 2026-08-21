@@ -162,7 +162,8 @@ export class EntregadorService {
     return { ok: true };
   }
 
-  // Gestor: última posição de cada entregador ativo nos últimos 15 min + nº em rota.
+  // Gestor: última posição de cada entregador ativo nos últimos 15 min + nº em rota,
+  // e o centro do mapa = coordenadas da loja (cardapio_config) p/ enquadrar de perto.
   async aoVivo(tenantId: string) {
     const r: any = await this.db.execute(sql`
       select distinct on (l.colaborador_id)
@@ -174,7 +175,15 @@ export class EntregadorService {
       join colaborador c on c.id = l.colaborador_id
       where l.tenant_id = ${tenantId} and l.criado_em >= now() - interval '15 minutes'
       order by l.colaborador_id, l.criado_em desc`);
-    return r.rows ?? r;
+    const cfg: any = await this.db.execute(
+      sql`select end_lat, end_lng from cardapio_config where tenant_id = ${tenantId} limit 1`,
+    );
+    const loja = (cfg.rows ?? cfg)[0];
+    const centro =
+      loja?.end_lat != null && loja?.end_lng != null
+        ? { lat: Number(loja.end_lat), lng: Number(loja.end_lng) }
+        : null;
+    return { centro, entregadores: r.rows ?? r };
   }
 
   // ===== E4 — alerta de chegada =====

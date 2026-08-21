@@ -30,9 +30,13 @@ export default function MapaEntregadoresPage() {
   const mapEl = useRef<HTMLDivElement>(null);
   const mapObj = useRef<any>(null);
   const markers = useRef<Record<string, any>>({});
+  const lojaMarker = useRef<any>(null);
+  const centradoInicial = useRef(false);
+  const enquadrado = useRef(false);
   const Lref = useRef<any>(null);
   const [pronto, setPronto] = useState(false);
   const [vivos, setVivos] = useState<Vivo[]>([]);
+  const [centro, setCentro] = useState<{ lat: number; lng: number } | null>(null);
   const [carregando, setCarregando] = useState(true);
 
   // Inicializa o mapa só no cliente (Leaflet acessa `window`).
@@ -61,9 +65,15 @@ export default function MapaEntregadoresPage() {
   }, []);
 
   const carregar = useCallback(async () => {
+    // Não consome tráfego enquanto a aba está oculta.
+    if (typeof document !== 'undefined' && document.hidden) return;
     try {
-      const rows = (await api.entregadoresAoVivo()) as Vivo[];
-      setVivos(Array.isArray(rows) ? rows : []);
+      const r = (await api.entregadoresAoVivo()) as {
+        centro?: { lat: number; lng: number } | null;
+        entregadores?: Vivo[];
+      };
+      setVivos(Array.isArray(r?.entregadores) ? r.entregadores : []);
+      if (r?.centro) setCentro(r.centro);
     } catch {
       /* silencioso — polling */
     } finally {
@@ -71,11 +81,18 @@ export default function MapaEntregadoresPage() {
     }
   }, []);
 
-  // Polling a cada 15s.
+  // Polling a cada 15s; recarrega ao voltar pra aba (e pausa quando oculta).
   useEffect(() => {
     carregar();
     const t = setInterval(carregar, 15000);
-    return () => clearInterval(t);
+    const onVis = () => {
+      if (typeof document !== 'undefined' && !document.hidden) carregar();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [carregar]);
 
   // Reconcilia marcadores (cria/atualiza/remove) e enquadra.
@@ -83,6 +100,24 @@ export default function MapaEntregadoresPage() {
     const L = Lref.current;
     const map = mapObj.current;
     if (!pronto || !L || !map) return;
+
+    // Centro = loja: pino de referência + primeira centralização (zoom próximo).
+    if (centro) {
+      const lojaPos: [number, number] = [centro.lat, centro.lng];
+      const lojaHtml =
+        `<div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;white-space:nowrap;">` +
+        `<div style="background:#0F2230;color:#fff;font:600 12px/1 Figtree,system-ui,sans-serif;` +
+        `padding:5px 9px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);">🏪 Loja</div>` +
+        `<div style="width:2px;height:9px;background:#0F2230;"></div></div>`;
+      const lojaIcon = L.divIcon({ className: '', html: lojaHtml, iconSize: [0, 0], iconAnchor: [0, 0] });
+      if (lojaMarker.current) lojaMarker.current.setLatLng(lojaPos).setIcon(lojaIcon);
+      else lojaMarker.current = L.marker(lojaPos, { icon: lojaIcon }).addTo(map);
+      if (!centradoInicial.current) {
+        map.setView(lojaPos, 14);
+        centradoInicial.current = true;
+      }
+    }
+
     const vistos = new Set<string>();
     const pts: [number, number][] = [];
     for (const v of vivos) {
@@ -109,8 +144,14 @@ export default function MapaEntregadoresPage() {
         delete markers.current[id];
       }
     }
-    if (pts.length) map.fitBounds(pts, { padding: [48, 48], maxZoom: 15 });
-  }, [vivos, pronto]);
+    // Enquadra loja + entregadores só na 1ª vez que aparecem (depois não mexe no
+    // zoom/pan do usuário; só atualiza posições).
+    if (pts.length && !enquadrado.current) {
+      const bounds = centro ? [...pts, [centro.lat, centro.lng] as [number, number]] : pts;
+      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 15 });
+      enquadrado.current = true;
+    }
+  }, [vivos, pronto, centro]);
 
   return (
     <Shell>
@@ -118,8 +159,15 @@ export default function MapaEntregadoresPage() {
         <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Delivery</p>
         <h1 className="text-2xl font-bold">Mapa ao vivo</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Entregadores em rota — última posição dos últimos 15 minutos. Atualiza sozinho a cada 15s.
+          Centrado na sua loja 🏪. Entregadores em rota — última posição dos últimos 15 minutos. Atualiza
+          sozinho a cada 15s (pausa quando a aba está em segundo plano).
         </p>
+        {!carregando && !centro && (
+          <p className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            A loja ainda não tem coordenadas definidas — o mapa não consegue centralizar. Defina o endereço da
+            loja em <span className="font-medium">Delivery → Configurações</span>.
+          </p>
+        )}
 
         <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Card className="overflow-hidden p-0 lg:col-span-2">
