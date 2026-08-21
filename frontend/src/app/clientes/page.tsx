@@ -50,6 +50,10 @@ export default function ClientesPage() {
   const [campEnviando, setCampEnviando] = useState(false);
   const [campanhas, setCampanhas] = useState<any[] | null>(null);
   const [funil, setFunil] = useState<any>(null);
+  const [campInstancia, setCampInstancia] = useState<'loja' | 'marketing'>('loja');
+  const [mktStatus, setMktStatus] = useState<any>(null);
+  const [mktModal, setMktModal] = useState(false);
+  const [mktQr, setMktQr] = useState<string | null>(null);
   const buscaRef = useRef(busca);
   buscaRef.current = busca;
 
@@ -97,6 +101,20 @@ export default function ClientesPage() {
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [detalhe]);
+  // Enquanto o QR do marketing está na tela, poll do status até conectar.
+  useEffect(() => {
+    if (!mktModal || !mktQr || mktStatus?.conectado) return;
+    const t = setInterval(async () => {
+      try {
+        const s = await api.whatsappMarketingStatus();
+        setMktStatus(s);
+        if (s?.conectado) setMktQr(null);
+      } catch {
+        /* ignora */
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [mktModal, mktQr, mktStatus?.conectado]);
 
   async function abrir(c: any) {
     setDetalhe(c);
@@ -112,6 +130,8 @@ export default function ClientesPage() {
   async function abrirCampanha() {
     setCampModal(true);
     setCampPrevia(null);
+    setCampInstancia('loja');
+    api.whatsappMarketingStatus().then(setMktStatus).catch(() => setMktStatus(null));
     try {
       const r: any = await api.crmCampanhaPrevia(seg);
       setCampPrevia(r?.total ?? 0);
@@ -129,6 +149,7 @@ export default function ClientesPage() {
         mensagem: campMsg.trim(),
         intervaloSeg: campIntervalo,
         tetoDia: campTeto ? Number(campTeto) : null,
+        instanciaTipo: campInstancia,
       });
       toast.success(`Campanha criada — ${r?.total ?? 0} destinatários. O envio começa pausado.`);
       setCampModal(false);
@@ -162,6 +183,35 @@ export default function ClientesPage() {
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao atualizar');
+    }
+  }
+
+  async function abrirMkt() {
+    setMktModal(true);
+    setMktQr(null);
+    try {
+      setMktStatus(await api.whatsappMarketingStatus());
+    } catch {
+      setMktStatus(null);
+    }
+  }
+  async function conectarMkt() {
+    try {
+      const r: any = await api.whatsappMarketingConectar();
+      setMktQr(r?.qr ?? null);
+      if (!r?.qr) toast.error('Não veio o QR — tente de novo em instantes.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao conectar');
+    }
+  }
+  async function desconectarMkt() {
+    try {
+      await api.whatsappMarketingDesconectar();
+      setMktQr(null);
+      setMktStatus(await api.whatsappMarketingStatus());
+      toast.success('Número de marketing desconectado.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao desconectar');
     }
   }
 
@@ -247,6 +297,9 @@ export default function ClientesPage() {
             className="max-w-sm flex-1"
             aria-label="Buscar cliente"
           />
+          <Button variant="outline" onClick={abrirMkt}>
+            Nº de marketing
+          </Button>
           <Button variant="outline" onClick={abrirCampanhas}>
             Campanhas
           </Button>
@@ -477,6 +530,42 @@ export default function ClientesPage() {
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                   aria-label="Mensagem da campanha"
                 />
+                <div className="text-xs">
+                  <span className="mb-1 block text-muted-foreground">Enviar de</span>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCampInstancia('loja')}
+                      aria-pressed={campInstancia === 'loja'}
+                      className={`rounded-md border px-3 py-1.5 ${
+                        campInstancia === 'loja'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border'
+                      }`}
+                    >
+                      Número da loja
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!mktStatus?.conectado}
+                      onClick={() => setCampInstancia('marketing')}
+                      aria-pressed={campInstancia === 'marketing'}
+                      className={`rounded-md border px-3 py-1.5 disabled:opacity-40 ${
+                        campInstancia === 'marketing'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border'
+                      }`}
+                    >
+                      Número de marketing
+                    </button>
+                  </div>
+                  {!mktStatus?.conectado && (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Conecte um número de marketing (botão &quot;Nº de marketing&quot;) para isolar o
+                      risco de ban do número principal.
+                    </p>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-3">
                   <label className="text-xs">
                     <span className="mb-1 block text-muted-foreground">Pausa entre envios (s)</span>
@@ -568,6 +657,63 @@ export default function ClientesPage() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+      {/* Modal: número de marketing */}
+      {mktModal && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => setMktModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Número de marketing"
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-sm">
+            <Card className="overflow-hidden p-0">
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <p className="font-display font-bold">Número de marketing</p>
+                <button
+                  type="button"
+                  onClick={() => setMktModal(false)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-3 px-4 py-4 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Um 2º WhatsApp só para campanhas — isola o risco de ban do número principal
+                  (bot/pedidos). Ele não responde mensagens, só envia.
+                </p>
+                {mktStatus?.conectado ? (
+                  <>
+                    <p className="rounded-md bg-ok/10 px-3 py-2 text-sm font-semibold text-ok">
+                      ✓ Conectado
+                    </p>
+                    <Button variant="outline" onClick={desconectarMkt}>
+                      Desconectar
+                    </Button>
+                  </>
+                ) : mktQr ? (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      No WhatsApp do número de marketing: Aparelhos conectados → escaneie:
+                    </p>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={mktQr}
+                      alt="QR do número de marketing"
+                      className="mx-auto h-56 w-56 rounded-md border border-border"
+                    />
+                    <p className="text-[11px] text-muted-foreground">Aguardando pareamento…</p>
+                  </>
+                ) : (
+                  <Button onClick={conectarMkt}>Conectar número de marketing</Button>
+                )}
               </div>
             </Card>
           </div>

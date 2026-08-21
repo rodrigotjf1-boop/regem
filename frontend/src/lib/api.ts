@@ -1135,10 +1135,15 @@ export const api = {
     mensagem: string;
     intervaloSeg?: number;
     tetoDia?: number | null;
+    instanciaTipo?: string;
   }) => req('/campanhas', { method: 'POST', body: JSON.stringify(body) }),
   crmOptOut: (clienteId: string, optOut: boolean) =>
     req('/campanhas/opt-out', { method: 'POST', body: JSON.stringify({ clienteId, optOut }) }),
   crmFunil: (dias = 30) => req(`/clientes/funil?dias=${dias}`),
+  // Número de marketing (F5b) — 2º WhatsApp p/ campanhas.
+  whatsappMarketingStatus: () => req('/whatsapp/marketing/status'),
+  whatsappMarketingConectar: () => req('/whatsapp/marketing/conectar', { method: 'POST' }),
+  whatsappMarketingDesconectar: () => req('/whatsapp/marketing/desconectar', { method: 'DELETE' }),
   // Cliente do cardápio (link mágico assinado).
   clienteIdentificar: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/cliente/identificar`, { method: 'POST', body: JSON.stringify(body) }),

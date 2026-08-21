@@ -41,6 +41,31 @@ export class WhatsappController {
     return this.service.desconectar(user.tenantId);
   }
 
+  // ===== Número de MARKETING (F5b) — 2º WhatsApp p/ campanhas (gate 'delivery', contexto CRM). =====
+  @Post('whatsapp/marketing/conectar')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  conectarMarketing(@CurrentUser() user: AuthUser) {
+    return this.service.conectarMarketing(user.tenantId);
+  }
+
+  @Get('whatsapp/marketing/status')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  statusMarketing(@CurrentUser() user: AuthUser) {
+    return this.service.statusMarketing(user.tenantId);
+  }
+
+  @Delete('whatsapp/marketing/desconectar')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  desconectarMarketing(@CurrentUser() user: AuthUser) {
+    return this.service.desconectarMarketing(user.tenantId);
+  }
+
   // Diagnóstico: vars setadas? Evolution respondeu? lista as instâncias.
   @Get('whatsapp/diagnostico')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
