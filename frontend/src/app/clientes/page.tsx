@@ -401,11 +401,13 @@ export default function ClientesPage() {
             className="h-10 rounded-md border border-border bg-card px-2 text-sm"
           >
             <option value="">Todos os canais</option>
-            {Object.entries(CANAL_LABEL).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v}
-              </option>
-            ))}
+            {Object.entries(CANAL_LABEL)
+              .filter(([k]) => k !== 'delivery_direto') /* Open Delivery = integração, não canal */
+              .map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
           </select>
           <select
             value={bairroF}
@@ -587,6 +589,29 @@ export default function ClientesPage() {
                     );
                   })}
               </tbody>
+              {!loading && lista.length > 0 && (
+                <tfoot className="border-t-2 border-border bg-muted/40 font-semibold">
+                  {(() => {
+                    const totPed = lista.reduce((s, c) => s + (Number(c.total_pedidos) || 0), 0);
+                    const totGasto = lista.reduce((s, c) => s + (Number(c.total_gasto) || 0), 0);
+                    const ticketGeral = totPed > 0 ? totGasto / totPed : 0;
+                    return (
+                      <tr>
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2 text-xs uppercase tracking-wide text-muted-foreground">
+                          Total · {lista.length} cliente(s)
+                        </td>
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">{totPed}</td>
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">{brl(ticketGeral)}</td>
+                        <td className="px-3 py-2 text-right font-mono tabular-nums">{brl(totGasto)}</td>
+                        <td className="px-3 py-2" />
+                      </tr>
+                    );
+                  })()}
+                </tfoot>
+              )}
             </table>
           </div>
         </Card>
