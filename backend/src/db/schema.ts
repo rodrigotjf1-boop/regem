@@ -2231,6 +2231,7 @@ export const entregadorConfig = pgTable('entregador_config', {
   diariaCentavos: integer('diaria_centavos').notNull().default(0),
   taxaEntregaCentavos: integer('taxa_entrega_centavos').notNull().default(0),
   taxaFixaCentavos: integer('taxa_fixa_centavos').notNull().default(0),
+  raioChegadaM: integer('raio_chegada_m').notNull().default(70), // geofence do aviso de chegada
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 

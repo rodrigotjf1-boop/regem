@@ -102,6 +102,7 @@ export default function EntregadoresPage() {
         diariaCentavos: cfg.diariaCentavos,
         taxaEntregaCentavos: cfg.taxaEntregaCentavos,
         taxaFixaCentavos: cfg.taxaFixaCentavos,
+        raioChegadaM: cfg.raioChegadaM ?? 70,
       });
       toast.success('Modelo de pagamento salvo.');
       carregarFech();
@@ -174,10 +175,26 @@ export default function EntregadoresPage() {
                   onChange={(c) => setCfg({ ...cfg, taxaFixaCentavos: c })}
                 />
               )}
+              <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                <span className="text-muted-foreground">Raio do aviso de chegada</span>
+                <Select
+                  value={String(cfg.raioChegadaM ?? 70)}
+                  onChange={(e) => setCfg({ ...cfg, raioChegadaM: Number(e.target.value) })}
+                >
+                  {[70, 60, 40, 30, 20].map((m) => (
+                    <option key={m} value={m}>
+                      {m} metros
+                    </option>
+                  ))}
+                </Select>
+                <span className="text-xs text-muted-foreground">
+                  Ao entrar nesse raio do endereço, o cliente é avisado automaticamente que o entregador está chegando.
+                </span>
+              </label>
             </div>
             <div className="mt-4">
               <Button onClick={salvarCfg} disabled={salvando}>
-                {salvando ? 'Salvando…' : 'Salvar modelo'}
+                {salvando ? 'Salvando…' : 'Salvar configurações'}
               </Button>
             </div>
           </Card>
