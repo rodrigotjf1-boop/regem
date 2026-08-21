@@ -34,6 +34,11 @@ export class CreateColaboradorDto {
   @MinLength(6, { message: 'Senha deve ter ao menos 6 caracteres' })
   senha?: string;
 
+  // Celular de contato (WhatsApp). Usado no aviso de chegada do entregador.
+  @IsOptional()
+  @IsString()
+  telefone?: string;
+
   @IsOptional()
   @IsString()
   fotoRef?: string;
