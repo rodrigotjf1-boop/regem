@@ -1117,7 +1117,16 @@ export const api = {
     req(`/clientes/buscar?telefone=${encodeURIComponent(telefone)}`),
   // CRM / segmentação (F3) — base do lojista, uso interno.
   crmResumo: () => req('/clientes/crm/resumo'),
-  crmClientes: (params: { segmento?: string; busca?: string; limite?: number; offset?: number }) =>
+  crmClientes: (params: {
+    segmento?: string;
+    busca?: string;
+    canal?: string;
+    bairro?: string;
+    ordenar?: string;
+    direcao?: string;
+    limite?: number;
+    offset?: number;
+  }) =>
     req(
       `/clientes/crm?${new URLSearchParams(
         Object.entries(params)
@@ -1125,6 +1134,18 @@ export const api = {
           .map(([k, v]) => [k, String(v)]),
       ).toString()}`,
     ),
+  crmBairros: () => req('/clientes/crm/bairros'),
+  // Exportação de dados sensíveis (auditada no servidor). Retorna { filename, mime, base64 }.
+  crmExportar: (body: {
+    formato: string;
+    segmento?: string;
+    busca?: string;
+    canal?: string;
+    bairro?: string;
+    ordenar?: string;
+    direcao?: string;
+    ids?: string[];
+  }) => req('/clientes/export', { method: 'POST', body: JSON.stringify(body) }),
   crmHistorico: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/historico`),
   // Campanhas de WhatsApp por segmento (F5) — só nuvem, só gestão.
   crmCampanhaPrevia: (segmento: string) =>
@@ -1155,6 +1176,16 @@ export const api = {
     req(`/entregador/pagamento/fechamento?data=${encodeURIComponent(data)}`),
   entregadorFechar: (body: { colaboradorId: string; data: string }) =>
     req('/entregador/pagamento/fechar', { method: 'POST', body: JSON.stringify(body) }),
+  // Perfil de pagamento POR entregador (sobrepõe o padrão da loja).
+  entregadorPerfisPagamento: () => req('/entregador/pagamento/perfis'),
+  entregadorPerfilSalvar: (body: {
+    colaboradorId: string;
+    usarPadrao?: boolean;
+    modelo?: string;
+    diariaCentavos?: number;
+    taxaEntregaCentavos?: number;
+    taxaFixaCentavos?: number;
+  }) => req('/entregador/pagamento/perfil', { method: 'POST', body: JSON.stringify(body) }),
   // Número de marketing (F5b) — 2º WhatsApp p/ campanhas.
   whatsappMarketingStatus: () => req('/whatsapp/marketing/status'),
   whatsappMarketingConectar: () => req('/whatsapp/marketing/conectar', { method: 'POST' }),

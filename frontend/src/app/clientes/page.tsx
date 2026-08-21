@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getCategoria, getPermissoes } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -54,6 +54,17 @@ export default function ClientesPage() {
   const [mktStatus, setMktStatus] = useState<any>(null);
   const [mktModal, setMktModal] = useState(false);
   const [mktQr, setMktQr] = useState<string | null>(null);
+  // Bloco 2 — filtros, ordenação e seleção.
+  const [canalF, setCanalF] = useState('');
+  const [bairroF, setBairroF] = useState('');
+  const [bairros, setBairros] = useState<string[]>([]);
+  const [ordenar, setOrdenar] = useState('ultimo');
+  const [direcao, setDirecao] = useState<'asc' | 'desc'>('desc');
+  const [selec, setSelec] = useState<Set<string>>(new Set());
+  // Bloco 3 — exportação.
+  const [expModal, setExpModal] = useState<string | null>(null); // formato pendente de confirmação
+  const [exportando, setExportando] = useState(false);
+  const podeExportar = getCategoria() === 'presidente' || !!getPermissoes()?.clientes_exportar;
   const buscaRef = useRef(busca);
   buscaRef.current = busca;
 
@@ -68,20 +79,34 @@ export default function ClientesPage() {
   const carregar = useCallback(async () => {
     setLoading(true);
     try {
-      const r: any = await api.crmClientes({ segmento: seg, busca: buscaRef.current, limite: 100 });
+      const r: any = await api.crmClientes({
+        segmento: seg,
+        busca: buscaRef.current,
+        canal: canalF,
+        bairro: bairroF,
+        ordenar,
+        direcao,
+        limite: 500,
+      });
       setLista(Array.isArray(r) ? r : []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao carregar clientes');
     } finally {
       setLoading(false);
     }
-  }, [seg]);
+  }, [seg, canalF, bairroF, ordenar, direcao]);
 
   useEffect(() => {
     void carregarResumo();
   }, [carregarResumo]);
   useEffect(() => {
     api.crmFunil(30).then(setFunil).catch(() => {});
+  }, []);
+  useEffect(() => {
+    api
+      .crmBairros()
+      .then((b: any) => setBairros(Array.isArray(b) ? b : []))
+      .catch(() => {});
   }, []);
   useEffect(() => {
     void carregar();
@@ -124,6 +149,67 @@ export default function ClientesPage() {
       setHistorico(Array.isArray(h) ? h : []);
     } catch {
       setHistorico([]);
+    }
+  }
+
+  // Ordenação: clicar no topo alterna asc/desc (troca de coluna começa lógica).
+  function ordenarPor(col: string) {
+    if (ordenar === col) setDirecao((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setOrdenar(col);
+      setDirecao(col === 'nome' ? 'asc' : 'desc');
+    }
+  }
+  const seta = (col: string) => (ordenar === col ? (direcao === 'asc' ? ' ▲' : ' ▼') : '');
+
+  function toggleSel(id: string) {
+    setSelec((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+  const todosSel = lista.length > 0 && lista.every((c) => selec.has(c.id));
+  function toggleSelTodos() {
+    setSelec(todosSel ? new Set() : new Set(lista.map((c) => c.id)));
+  }
+
+  function baixarArquivo(res: { filename: string; mime: string; base64: string }) {
+    const bin = atob(res.base64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([arr], { type: res.mime }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = res.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function confirmarExport() {
+    const formato = expModal;
+    if (!formato) return;
+    setExportando(true);
+    try {
+      const ids = selec.size > 0 ? Array.from(selec) : undefined;
+      const res: any = await api.crmExportar({
+        formato,
+        segmento: seg,
+        busca: buscaRef.current,
+        canal: canalF,
+        bairro: bairroF,
+        ordenar,
+        direcao,
+        ids,
+      });
+      baixarArquivo(res);
+      toast.success('Exportação gerada. Registrada na auditoria.');
+      setExpModal(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao exportar');
+    } finally {
+      setExportando(false);
     }
   }
 
@@ -306,6 +392,67 @@ export default function ClientesPage() {
           <Button onClick={abrirCampanha}>Nova campanha</Button>
         </div>
 
+        {/* Filtros + exportação */}
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={canalF}
+            onChange={(e) => setCanalF(e.target.value)}
+            aria-label="Filtrar por canal"
+            className="h-10 rounded-md border border-border bg-card px-2 text-sm"
+          >
+            <option value="">Todos os canais</option>
+            {Object.entries(CANAL_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+          <select
+            value={bairroF}
+            onChange={(e) => setBairroF(e.target.value)}
+            aria-label="Filtrar por bairro"
+            className="h-10 max-w-[200px] rounded-md border border-border bg-card px-2 text-sm"
+          >
+            <option value="">Todos os bairros</option>
+            {bairros.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+          {(canalF || bairroF) && (
+            <button
+              type="button"
+              onClick={() => {
+                setCanalF('');
+                setBairroF('');
+              }}
+              className="text-xs text-muted-foreground underline"
+            >
+              limpar filtros
+            </button>
+          )}
+          {selec.size > 0 && (
+            <span className="text-xs font-medium text-primary">{selec.size} selecionado(s)</span>
+          )}
+          {podeExportar && (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Exportar:</span>
+              {(
+                [
+                  ['csv', 'CSV'],
+                  ['excel', 'Excel'],
+                  ['pdf', 'PDF'],
+                ] as [string, string][]
+              ).map(([f, t]) => (
+                <Button key={f} variant="outline" size="sm" onClick={() => setExpModal(f)}>
+                  {t}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Tabela */}
         <Card className="overflow-hidden p-0">
           <div className="overflow-x-auto">
@@ -313,26 +460,54 @@ export default function ClientesPage() {
               <caption className="sr-only">Lista de clientes por segmento</caption>
               <thead className="border-b border-border bg-card text-[11px] uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th scope="col" className="px-3 py-2 font-semibold">Cliente</th>
+                  <th scope="col" className="w-8 px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={todosSel}
+                      onChange={toggleSelTodos}
+                      aria-label="Selecionar todos"
+                    />
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-semibold">
+                    <button type="button" onClick={() => ordenarPor('nome')} className="hover:text-foreground">
+                      Cliente{seta('nome')}
+                    </button>
+                  </th>
                   <th scope="col" className="px-3 py-2 font-semibold">Telefone</th>
-                  <th scope="col" className="px-3 py-2 text-right font-semibold">Pedidos</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Último pedido</th>
-                  <th scope="col" className="px-3 py-2 text-right font-semibold">Ticket médio</th>
-                  <th scope="col" className="px-3 py-2 text-right font-semibold">Total gasto</th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">
+                    <button type="button" onClick={() => ordenarPor('pedidos')} className="hover:text-foreground">
+                      Pedidos{seta('pedidos')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3 py-2 font-semibold">
+                    <button type="button" onClick={() => ordenarPor('ultimo')} className="hover:text-foreground">
+                      Último pedido{seta('ultimo')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">
+                    <button type="button" onClick={() => ordenarPor('ticket')} className="hover:text-foreground">
+                      Ticket médio{seta('ticket')}
+                    </button>
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">
+                    <button type="button" onClick={() => ordenarPor('total')} className="hover:text-foreground">
+                      Total gasto{seta('total')}
+                    </button>
+                  </th>
                   <th scope="col" className="px-3 py-2 font-semibold">Canais</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-6 text-center text-xs text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">
                       Carregando…
                     </td>
                   </tr>
                 )}
                 {!loading && lista.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={8} className="px-3 py-8 text-center text-sm text-muted-foreground">
                       Nenhum cliente neste segmento.
                     </td>
                   </tr>
@@ -355,6 +530,17 @@ export default function ClientesPage() {
                         }}
                         className="cursor-pointer border-b border-border/60 hover:bg-muted/50"
                       >
+                        <td
+                          className="px-3 py-2"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selec.has(c.id)}
+                            onChange={() => toggleSel(c.id)}
+                            aria-label={`Selecionar ${c.nome || 'cliente'}`}
+                          />
+                        </td>
                         <td className="px-3 py-2 font-medium">
                           {c.nome || 'Cliente'}
                           {Number(c.pedidos_30d) >= 3 && (
@@ -714,6 +900,54 @@ export default function ClientesPage() {
                 ) : (
                   <Button onClick={conectarMkt}>Conectar número de marketing</Button>
                 )}
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: aviso de responsabilidade antes de exportar (LGPD) */}
+      {expModal && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => !exportando && setExpModal(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirmar exportação"
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md">
+            <Card className="overflow-hidden p-0">
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <p className="font-display font-bold">
+                  Exportar {expModal.toUpperCase()} · {selec.size > 0 ? `${selec.size} selecionado(s)` : 'lista filtrada'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setExpModal(null)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-3 px-4 py-4">
+                <p className="rounded-md bg-warn/10 px-3 py-3 text-sm">
+                  <strong className="text-foreground">Dados sensíveis — sua responsabilidade.</strong> Estes
+                  dados de clientes são da sua loja e de <strong>uso interno</strong>. Ao exportar, você se
+                  responsabiliza pelo uso e por qualquer compartilhamento, conforme a LGPD.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Esta exportação é <strong className="text-foreground">registrada na auditoria</strong> com
+                  seu usuário, data e hora.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+                <Button variant="outline" onClick={() => setExpModal(null)} disabled={exportando}>
+                  Cancelar
+                </Button>
+                <Button onClick={confirmarExport} disabled={exportando}>
+                  {exportando ? 'Gerando…' : 'Concordo e exportar'}
+                </Button>
               </div>
             </Card>
           </div>

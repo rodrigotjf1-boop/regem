@@ -2254,6 +2254,18 @@ export const entregadorFechamento = pgTable('entregador_fechamento', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// App do Entregador (E5) — perfil de pagamento POR entregador (colaborador).
+// Sobrepõe o padrão da loja (entregadorConfig). Só nuvem.
+export const entregadorPerfilPagamento = pgTable('entregador_perfil_pagamento', {
+  tenantId: uuid('tenant_id').notNull(),
+  colaboradorId: uuid('colaborador_id').primaryKey(),
+  modelo: text('modelo').notNull().default('diaria_taxas'),
+  diariaCentavos: integer('diaria_centavos').notNull().default(0),
+  taxaEntregaCentavos: integer('taxa_entrega_centavos').notNull().default(0),
+  taxaFixaCentavos: integer('taxa_fixa_centavos').notNull().default(0),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Licença / revenda / frota (edge appliance) =====
 export const revenda = pgTable('revenda', {
   id: uuid('id').primaryKey().defaultRandom(),

@@ -309,12 +309,99 @@ export class EntregadorService {
     return { diaria, taxas, total: diaria + taxas };
   }
 
+  // Perfil de pagamento EFETIVO de um entregador: o próprio (se configurado),
+  // senão o padrão da loja (entregadorConfig).
+  private async perfilDeEntregador(tenantId: string, colaboradorId: string) {
+    const r: any = await this.db.execute(sql`
+      select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos
+      from entregador_perfil_pagamento
+      where tenant_id = ${tenantId} and colaborador_id = ${colaboradorId}`);
+    const p = (r.rows ?? r)[0];
+    if (!p) return await this.configPagamento(tenantId);
+    return {
+      modelo: p.modelo,
+      diariaCentavos: Number(p.diaria_centavos),
+      taxaEntregaCentavos: Number(p.taxa_entrega_centavos),
+      taxaFixaCentavos: Number(p.taxa_fixa_centavos),
+    };
+  }
+
+  // Gestor: lista entregadores + perfil de pagamento (próprio ou herdado do padrão).
+  async listarPerfisPagamento(tenantId: string) {
+    const ents = await this.delivery.listarEntregadores(tenantId);
+    const padrao = await this.configPagamento(tenantId);
+    const r: any = await this.db.execute(sql`
+      select colaborador_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos
+      from entregador_perfil_pagamento where tenant_id = ${tenantId}`);
+    const map = new Map<string, any>();
+    for (const p of r.rows ?? r) map.set(String(p.colaborador_id), p);
+    return {
+      padrao,
+      entregadores: (ents as any[]).map((e) => {
+        const p = map.get(String(e.id));
+        return {
+          colaboradorId: e.id,
+          nome: e.nome,
+          proprio: !!p,
+          modelo: p?.modelo ?? padrao.modelo,
+          diariaCentavos: Number(p?.diaria_centavos ?? padrao.diariaCentavos),
+          taxaEntregaCentavos: Number(p?.taxa_entrega_centavos ?? padrao.taxaEntregaCentavos),
+          taxaFixaCentavos: Number(p?.taxa_fixa_centavos ?? padrao.taxaFixaCentavos),
+        };
+      }),
+    };
+  }
+
+  // Gestor: grava o perfil próprio do entregador (ou volta a herdar o padrão).
+  async salvarPerfilPagamento(
+    tenantId: string,
+    colaboradorId: string,
+    dto: {
+      usarPadrao?: boolean;
+      modelo?: string;
+      diariaCentavos?: number;
+      taxaEntregaCentavos?: number;
+      taxaFixaCentavos?: number;
+    },
+  ) {
+    if (!colaboradorId) throw new BadRequestException('Entregador não informado.');
+    if (dto?.usarPadrao) {
+      await this.db.execute(
+        sql`delete from entregador_perfil_pagamento where tenant_id = ${tenantId} and colaborador_id = ${colaboradorId}`,
+      );
+      return { ok: true, proprio: false };
+    }
+    const modelo = this.MODELOS.includes(String(dto?.modelo)) ? String(dto.modelo) : 'diaria_taxas';
+    const cent = (v: any) => Math.max(0, Math.round(Number(v) || 0));
+    await this.db.execute(sql`
+      insert into entregador_perfil_pagamento
+        (tenant_id, colaborador_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos)
+      values (${tenantId}, ${colaboradorId}, ${modelo}, ${cent(dto?.diariaCentavos)}, ${cent(dto?.taxaEntregaCentavos)}, ${cent(dto?.taxaFixaCentavos)})
+      on conflict (colaborador_id) do update set
+        modelo = excluded.modelo, diaria_centavos = excluded.diaria_centavos,
+        taxa_entrega_centavos = excluded.taxa_entrega_centavos, taxa_fixa_centavos = excluded.taxa_fixa_centavos,
+        atualizado_em = now()`);
+    return { ok: true, proprio: true };
+  }
+
   // Gestor: fechamento do dia — por entregador, entregas concluídas + valores calculados
   // + se já foi fechado (pago). data = 'YYYY-MM-DD'.
   async fechamentoDia(tenantId: string, data: string) {
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(data)) ? String(data) : null;
     if (!dia) throw new BadRequestException('Data inválida (use YYYY-MM-DD).');
-    const cfg = await this.configPagamento(tenantId);
+    const padrao = await this.configPagamento(tenantId);
+    // Perfis próprios por entregador (sobrepõem o padrão).
+    const pr: any = await this.db.execute(sql`
+      select colaborador_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos
+      from entregador_perfil_pagamento where tenant_id = ${tenantId}`);
+    const perfis = new Map<string, any>();
+    for (const p of pr.rows ?? pr)
+      perfis.set(String(p.colaborador_id), {
+        modelo: p.modelo,
+        diariaCentavos: Number(p.diaria_centavos),
+        taxaEntregaCentavos: Number(p.taxa_entrega_centavos),
+        taxaFixaCentavos: Number(p.taxa_fixa_centavos),
+      });
     // Entregas concluídas no dia, por entregador (fuso America/Sao_Paulo).
     const r: any = await this.db.execute(sql`
       select p.entregador_id as colaborador_id, c.nome,
@@ -336,8 +423,9 @@ export class EntregadorService {
     for (const row of f.rows ?? f) pagos.set(String(row.colaborador_id), Number(row.total_centavos));
     return {
       data: dia,
-      modelo: cfg.modelo,
+      modelo: padrao.modelo,
       entregadores: linhas.map((l) => {
+        const cfg = perfis.get(String(l.colaborador_id)) ?? padrao;
         const v = this.calcular(cfg, Number(l.entregas));
         return {
           colaboradorId: l.colaborador_id,
@@ -357,7 +445,7 @@ export class EntregadorService {
     const dia = /^\d{4}-\d{2}-\d{2}$/.test(String(data)) ? String(data) : null;
     if (!dia) throw new BadRequestException('Data inválida (use YYYY-MM-DD).');
     if (!colaboradorId) throw new BadRequestException('Entregador não informado.');
-    const cfg = await this.configPagamento(tenantId);
+    const cfg = await this.perfilDeEntregador(tenantId, colaboradorId);
     const r: any = await this.db.execute(sql`
       select count(*)::int as entregas from pedido_externo
       where tenant_id = ${tenantId} and entregador_id = ${colaboradorId}
@@ -379,7 +467,7 @@ export class EntregadorService {
   // App do entregador: meus ganhos de hoje (entregas + valor estimado pelo modelo da loja).
   async ganhos(user: AuthUser) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
-    const cfg = await this.configPagamento(user.tenantId);
+    const cfg = await this.perfilDeEntregador(user.tenantId, user.colaboradorId);
     const r: any = await this.db.execute(sql`
       select count(*)::int as entregas from pedido_externo
       where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}

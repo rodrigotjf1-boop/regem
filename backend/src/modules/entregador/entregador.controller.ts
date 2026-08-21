@@ -100,6 +100,23 @@ export class EntregadorController {
     return this.service.salvarConfigPagamento(user.tenantId, dto ?? {});
   }
 
+  // Perfil de pagamento POR entregador (sobrepõe o padrão da loja).
+  @Get('pagamento/perfis')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  perfisPagamento(@CurrentUser() user: AuthUser) {
+    return this.service.listarPerfisPagamento(user.tenantId);
+  }
+
+  @Post('pagamento/perfil')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  salvarPerfil(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.salvarPerfilPagamento(user.tenantId, dto?.colaboradorId ?? '', dto ?? {});
+  }
+
   // Gestor/atendente: fechamento do dia (quanto pagar por entregador).
   @Get('pagamento/fechamento')
   @UseGuards(RolesGuard, PermissoesGuard)
