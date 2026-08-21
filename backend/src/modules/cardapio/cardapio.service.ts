@@ -943,6 +943,27 @@ export class CardapioService {
     return Number((r?.rows ?? r)?.[0]?.n ?? 0);
   }
 
+  // Registra um evento ANÔNIMO do funil do cardápio (F4). Sessão gerada no cliente,
+  // sem PII. Best-effort: nunca quebra a experiência do cardápio. Escopo por tenant.
+  async registrarEvento(token: string, sessao?: string, tipo?: string, meta?: any) {
+    const tipos = ['view_menu', 'add_carrinho', 'checkout', 'pagamento', 'pedido'];
+    if (!token || !sessao || !tipos.includes(String(tipo))) return { ok: false };
+    try {
+      const [cfg] = await this.db
+        .select({ tenantId: cardapioConfig.tenantId })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.token, token));
+      if (!cfg) return { ok: false };
+      await this.db.execute(sql`
+        insert into cardapio_evento (tenant_id, token, sessao, tipo, meta)
+        values (${cfg.tenantId}, ${token}, ${String(sessao).slice(0, 64)}, ${String(tipo)},
+                ${meta ? JSON.stringify(meta) : null}::jsonb)`);
+      return { ok: true };
+    } catch {
+      return { ok: false };
+    }
+  }
+
   async menu(token: string) {
     const cfg = await this.resolver(token);
     const catsRaw = await this.db

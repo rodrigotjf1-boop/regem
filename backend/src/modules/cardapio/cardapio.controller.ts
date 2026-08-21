@@ -36,6 +36,13 @@ export class CardapioPublicoController {
     return this.service.menu(token);
   }
 
+  // Beacon anônimo do funil (F4) — best-effort, rate-limitado (sem PII).
+  @Post(':token/evento')
+  @Throttle({ default: { ttl: 60000, limit: 120 } })
+  evento(@Param('token') token: string, @Body() dto: any) {
+    return this.service.registrarEvento(token, dto?.sessao, dto?.tipo, dto?.meta);
+  }
+
   // Rate limit apertado no envio de pedido (endpoint público).
   @Post(':token/pedido')
   @Throttle({ default: { ttl: 60000, limit: 20 } })

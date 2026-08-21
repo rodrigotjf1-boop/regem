@@ -18,11 +18,13 @@ function fakeDb() {
   return {
     store,
     select: () => ({ from: (t: any) => thenable(t) }),
-    insert: () => ({
+    // Conta só os inserts de PEDIDO (o teste mede idempotência do pedido). Outros
+    // inserts (ex.: cliente, no vínculo do CRM) retornam uma linha mas não contam.
+    insert: (t: any) => ({
       values: (v: any) => ({
         returning: () => {
           const row = { id: `p${store.length + 1}`, ...v };
-          store.push(row);
+          if (t === pedidoExterno) store.push(row);
           return Promise.resolve([row]);
         },
       }),

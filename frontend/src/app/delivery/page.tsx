@@ -21,6 +21,8 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hora = (d?: string) =>
   d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+const dataCurta = (d?: string) =>
+  d ? new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '';
 const formaLabel = (f?: string | null) => {
   const s = String(f ?? '').trim();
   if (!s) return '';
@@ -258,7 +260,11 @@ export default function DeliveryPage() {
       setDespacho(p);
       return;
     }
-    acao(api.despacharDelivery(p.id), 'Pedido despachado — em rota.');
+    // Sem QR e sem entregador cadastrado: despacha direto, mas orienta como habilitar a escolha.
+    const msg = !cfg.qrDespacho && entregadores.length === 0
+      ? 'Pedido despachado — em rota. Para escolher quem leva, cadastre um colaborador com a função "Entregador".'
+      : 'Pedido despachado — em rota.';
+    acao(api.despacharDelivery(p.id), msg);
   }
   function retornar(p: any) {
     acao(api.retornarDelivery(p.id), 'Pedido voltou para a produção.');
@@ -895,11 +901,17 @@ function ListaPedidos({
                     </span>
                   </td>
                   <td className="px-2 py-2 font-mono text-xs">
-                    {hora(p.criadoEm)}
+                    <span>{hora(p.criadoEm)}</span>
                     {cd && <span className={`ml-1 ${atrasado ? 'text-destructive' : 'text-muted-foreground'}`}>{atrasado ? '⏱!' : ''}</span>}
+                    <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{dataCurta(p.criadoEm)}</span>
                   </td>
                   <td className="px-2 py-2">
                     <span className="font-medium">{p.clienteNome ?? 'Cliente'}</span>
+                    {p.clientePedidosCount > 0 && (
+                      p.clientePedidosCount === 1
+                        ? <span title="Primeiro pedido deste cliente" className="ml-1.5 inline-grid h-4 w-4 place-items-center rounded-full bg-ok/15 align-middle text-[8px] font-bold text-ok">1º</span>
+                        : <span title={`${p.clientePedidosCount} pedidos deste cliente`} className="ml-1.5 rounded-full bg-primary/15 px-1.5 align-middle text-[10px] font-bold text-primary">{p.clientePedidosCount}×</span>
+                    )}
                   </td>
                   {variante === 'pendentes' && (
                     <td className="px-2 py-2 text-xs text-muted-foreground">
@@ -948,11 +960,19 @@ function PreviewPedido({ pedido: p, onAbrirDetalhe, className }: { pedido: any; 
       </div>
       <div className="scroll-fino max-h-[50vh] flex-1 space-y-2 overflow-y-auto px-3 py-2.5 text-sm lg:max-h-none lg:min-h-0">
         <div>
-          <p className="font-bold">{p.clienteNome ?? 'Cliente'}</p>
+          <p className="font-bold">
+            {p.clienteNome ?? 'Cliente'}
+            {p.clientePedidosCount > 0 && (
+              p.clientePedidosCount === 1
+                ? <span title="Primeiro pedido deste cliente" className="ml-1.5 inline-grid h-4 w-4 place-items-center rounded-full bg-ok/15 align-middle text-[8px] font-bold text-ok">1º</span>
+                : <span title={`${p.clientePedidosCount} pedidos deste cliente`} className="ml-1.5 rounded-full bg-primary/15 px-1.5 align-middle text-[10px] font-bold text-primary">{p.clientePedidosCount}× pedidos</span>
+            )}
+          </p>
           {p.clienteTelefone && <p className="text-xs text-muted-foreground">{p.clienteTelefone}</p>}
           <p className="mt-0.5 text-xs text-muted-foreground">{endereco}</p>
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-0.5 border-y border-border py-1.5 text-xs">
+          <span className="text-muted-foreground">{dataCurta(p.criadoEm)} · {hora(p.criadoEm)}</span>
           {p.pago ? <span className="font-bold text-ok">Pago online</span> : <span className="font-bold text-warn">A pagar {p.formaPagamento ? `· ${formaLabel(p.formaPagamento)}` : ''}</span>}
           {p.trocoPara != null && Number(p.trocoPara) > 0 && <span className="text-muted-foreground">troco p/ {brl(Number(p.trocoPara))}</span>}
           {p.entregadorNome && <span className="font-medium">🛵 {p.entregadorNome}</span>}

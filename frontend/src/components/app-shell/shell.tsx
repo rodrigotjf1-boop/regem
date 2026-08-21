@@ -91,6 +91,7 @@ const NAV: NavNode[] = [
     label: 'Delivery', icon: Bike,
     children: [
       { href: '/delivery', label: 'Painel', icon: Bike, perm: 'delivery' },
+      { href: '/clientes', label: 'Clientes', icon: Users, perm: 'delivery' },
       { href: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, perm: 'delivery' },
       { href: '/catalogo', label: 'Gestão do catálogo', icon: Store, perm: 'delivery' },
       { href: '/pedidos', label: 'Pedidos · produção', icon: Flame, perm: 'pedidos' },

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import './menu-theme.css';
@@ -68,6 +68,24 @@ export default function CardapioPublicoPage() {
   const [mostrarPedidos, setMostrarPedidos] = useState(false);
   const [perguntaAdd, setPerguntaAdd] = useState(false);
   const [aba, setAba] = useState<'inicio' | 'pedidos' | 'promos' | 'carrinho'>('inicio');
+
+  // Funil (F4): beacons ANÔNIMOS das etapas (uma vez por etapa/sessão). Best-effort,
+  // nunca quebra a UX. Sessão gerada por visita; sem PII.
+  const sessRef = useRef<string>('');
+  if (!sessRef.current) sessRef.current = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  const beaconEnviados = useRef<Set<string>>(new Set());
+  const beacon = useCallback(
+    (tipo: string, meta?: any) => {
+      if (!token || beaconEnviados.current.has(tipo)) return;
+      beaconEnviados.current.add(tipo);
+      void api.cardapioEvento(token, sessRef.current, tipo, meta).catch(() => {});
+    },
+    [token],
+  );
+  useEffect(() => { if (menu) beacon('view_menu'); }, [menu, beacon]);
+  useEffect(() => { if (cart.length > 0) beacon('add_carrinho'); }, [cart, beacon]);
+  useEffect(() => { if (checkout) beacon('checkout'); }, [checkout, beacon]);
+  useEffect(() => { if (ped?.pedidoId) beacon('pedido'); }, [ped, beacon]);
   const [ultimoPedido, setUltimoPedido] = useState<any>(null);
   const temCliente = typeof window !== 'undefined' && !!getClienteToken(token);
 
