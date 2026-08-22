@@ -588,29 +588,6 @@ if ($mig -ne 0) { throw "migrations falharam." }
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
 Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
 
-# ---- 3.4) LE-8 (auditoria ago/2026): blindagem de ACL da raiz de confianca + scripts ----
-# Alvo CIRURGICO: a chave publica de update e o codigo/scripts executados como SYSTEM
-# (tarefas de update/rollback) ou NetworkService (servicos). NAO varremos $root inteiro:
-# ele tem pastas backup-* de reinstalacao (ACL restrita) que davam "acesso negado", e
-# varrer node_modules/web era lento e fragil. Tambem NAO usamos 2>$null: redirecionar o
-# stderr de um .exe nativo sob ErrorActionPreference=Stop VIRA excecao (era a causa do
-# erro). Sem redirecionar, o stderr do icacls so vai ao log e /C faz seguir em frente.
-try {
-  # edge\ (daemons, atualizar/reverter/verify-update, update-pub.pem) + dist\ (backend que
-  # roda): SYSTEM+Admin Full; NetworkService RX (le/executa); sem Users. Sao pastas SEMPRE
-  # criadas pelo instalador (sem subpastas travadas) -> /T seguro.
-  foreach ($alvo in @((Join-Path $root 'edge'), (Join-Path $root 'dist'))) {
-    if (Test-Path $alvo) {
-      & icacls $alvo /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(RX)" /T /C /Q | Out-Null
-    }
-  }
-  # Raiz de confianca do update (Ed25519): so SYSTEM/Admin (a verificacao roda na tarefa
-  # SYSTEM). Nem leitura p/ Users/NetworkService — trocar a chave = derrotar a assinatura.
-  $pubKey = Join-Path $root 'edge\update-pub.pem'
-  if (Test-Path $pubKey) { & icacls $pubKey /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" /C /Q | Out-Null }
-  Diga "ACL do codigo/chave-publica blindada (escrita so p/ Admin/SYSTEM)."
-} catch { Diga "(aviso) nao consegui blindar a ACL do codigo: $($_.Exception.Message)" }
-
 # ---- 3.5) restore assistido (-Restaurar): marca o pedido no estado local ----
 # So grava a flag; quem faz o trabalho pesado (2 tempos: push pendente -> pull full
 # da nuvem via /sync/restore, upsert por id) e o sync-daemon no proximo ciclo. Aqui
@@ -752,4 +729,28 @@ Diga "API (interna):   https://${ip}:$Porta"
 Diga "Nos aparelhos clientes (KDS/PDV/Ponto): confie o arquivo $ca e aponte o navegador para o endereco do app acima."
 Diga "Log completo: $log"
 Set-Content -Path (Join-Path $logDir 'INSTALOU-OK.flag') -Value 'ok' -Encoding ascii -ErrorAction SilentlyContinue
+
+# ---- 7) LE-8 (auditoria ago/2026): blindagem de ACL — POR ULTIMO, so apos o sucesso ----
+# Roda DEPOIS do INSTALOU-OK.flag e de todos os passos funcionais: se a ACL remover algum
+# acesso, nada mais depende dele (evita o cascateamento que abortava a instalacao). Alvo
+# CIRURGICO: chave publica de update + codigo/scripts executados como SYSTEM (tarefas) ou
+# NetworkService (servicos). NAO varre $root (tem backup-* de reinstalacao com ACL restrita
+# = "acesso negado") nem usa 2>$null (redirecionar stderr de .exe nativo sob
+# ErrorActionPreference=Stop vira excecao). Defensivo: try/catch so degrada em aviso.
+try {
+  # edge\ (daemons, atualizar/reverter/verify-update, update-pub.pem) + dist\ (backend que
+  # roda): SYSTEM+Admin Full; NetworkService RX (le/executa); sem Users. Pastas SEMPRE
+  # criadas pelo instalador (sem subpastas travadas) -> /T seguro.
+  foreach ($alvo in @((Join-Path $root 'edge'), (Join-Path $root 'dist'))) {
+    if (Test-Path $alvo) {
+      & icacls $alvo /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(RX)" /T /C /Q | Out-Null
+    }
+  }
+  # Raiz de confianca do update (Ed25519): so SYSTEM/Admin (a verificacao roda na tarefa
+  # SYSTEM). Nem leitura p/ Users/NetworkService — trocar a chave = derrotar a assinatura.
+  $pubKey = Join-Path $root 'edge\update-pub.pem'
+  if (Test-Path $pubKey) { & icacls $pubKey /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" /C /Q | Out-Null }
+  Diga "ACL do codigo/chave-publica blindada (escrita so p/ Admin/SYSTEM)."
+} catch { Diga "(aviso) nao consegui blindar a ACL do codigo: $($_.Exception.Message)" }
+
 Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
