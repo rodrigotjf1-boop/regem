@@ -81,6 +81,10 @@ const PUSH_TABLES = [
   // e insumo localmente — precisam SUBIR (fornecedor antes de item_estoque por FK).
   { tabela: 'fornecedor', cursor: 'updated_at' },
   { tabela: 'item_estoque', cursor: 'updated_at' },
+  // Cliente do cardápio/CRM (bidirecional): cliente identificado no balcão sobe.
+  // ANTES de pedido_externo (FK na nuvem: pedido_externo.cliente_id → cliente.id).
+  // Cursor = atualizado_em (a tabela não tem updated_at).
+  { tabela: 'cliente', cursor: 'atualizado_em' },
   { tabela: 'caixa_sessao', cursor: 'updated_at' },
   { tabela: 'comanda', cursor: 'updated_at' },
   { tabela: 'comanda_item', cursor: 'updated_at' },

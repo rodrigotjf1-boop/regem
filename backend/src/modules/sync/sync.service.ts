@@ -14,6 +14,7 @@ import {
   TABELAS_JANELA_MIRROR,
   TabelaSync,
   modoPush,
+  colunaLWW,
   REDIGIR,
 } from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
@@ -232,14 +233,19 @@ export class SyncService {
         // as transacionais 'sobe' da v2, que mudam de estado. Tabelas append puras
         // (sem updated_at, ex.: movimento_estoque) seguem do-nothing (imutáveis).
         const setCols = cols.filter((c) => c !== 'id');
+        // Coluna de comparação do LWW: cursor configurado p/ tabelas 'ambos'
+        // (cliente = atualizado_em), updated_at p/ o caso legado (append c/ updated_at).
+        const lwwCol = modo === 'lww' ? colunaLWW(lote.tabela) : 'updated_at';
         const conflito =
-          (modo === 'lww' || colunas.has('updated_at')) && setCols.length
+          (modo === 'lww' || colunas.has('updated_at')) &&
+          setCols.length &&
+          colunas.has(lwwCol)
             ? sql`on conflict (id) do update set ${sql.join(
                 setCols.map((c) => sql`${sql.identifier(c)} = excluded.${sql.identifier(c)}`),
                 sql`, `,
               )}
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
-                and ${sql.identifier(lote.tabela)}.updated_at < excluded.updated_at`
+                and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}`
             : sql`on conflict (id) do nothing`;
 
         try {
