@@ -588,26 +588,26 @@ if ($mig -ne 0) { throw "migrations falharam." }
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
 Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
 
-# ---- 3.4) LE-8 (auditoria ago/2026): blindagem de ACL do codigo + raiz de confianca ----
-# Sem isto, um usuario comum poderia trocar edge\atualizar.ps1 / update-pub.pem e o
-# proximo auto-update (SYSTEM) rodaria codigo/assinatura do atacante (elevacao a SYSTEM).
-# Tira a ESCRITA de nao-admins de TODO o codigo, mantendo leitura/exec p/ NetworkService
-# (os servicos) e Full p/ SYSTEM/Admin (update/rollback trocam arquivos). Defensivo:
-# nunca aborta (try/catch) — degrada em vez de brickar.
+# ---- 3.4) LE-8 (auditoria ago/2026): blindagem de ACL da raiz de confianca + scripts ----
+# Alvo CIRURGICO: a chave publica de update e o codigo/scripts executados como SYSTEM
+# (tarefas de update/rollback) ou NetworkService (servicos). NAO varremos $root inteiro:
+# ele tem pastas backup-* de reinstalacao (ACL restrita) que davam "acesso negado", e
+# varrer node_modules/web era lento e fragil. Tambem NAO usamos 2>$null: redirecionar o
+# stderr de um .exe nativo sob ErrorActionPreference=Stop VIRA excecao (era a causa do
+# erro). Sem redirecionar, o stderr do icacls so vai ao log e /C faz seguir em frente.
 try {
-  # Codigo (dist/web/edge/node_modules): SYSTEM+Admin Full; NetworkService RX; sem Users.
-  & icacls $root /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(RX)" /T /C /Q 2>$null | Out-Null
-  # logs\: NetworkService PRECISA escrever (stdout/err dos servicos NSSM).
-  $logsDir2 = Join-Path $root 'logs'
-  if (Test-Path $logsDir2) { & icacls $logsDir2 /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q 2>$null | Out-Null }
-  # O /T acima reaplicou a ACL tambem no .env.local — RE-TRANCA (NetworkService so leitura,
-  # nunca escrita; sem Users). Senao os segredos ficariam legiveis pela conta de servico
-  # com mais poder que o necessario.
-  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(R)" 2>$null | Out-Null
+  # edge\ (daemons, atualizar/reverter/verify-update, update-pub.pem) + dist\ (backend que
+  # roda): SYSTEM+Admin Full; NetworkService RX (le/executa); sem Users. Sao pastas SEMPRE
+  # criadas pelo instalador (sem subpastas travadas) -> /T seguro.
+  foreach ($alvo in @((Join-Path $root 'edge'), (Join-Path $root 'dist'))) {
+    if (Test-Path $alvo) {
+      & icacls $alvo /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(RX)" /T /C /Q | Out-Null
+    }
+  }
   # Raiz de confianca do update (Ed25519): so SYSTEM/Admin (a verificacao roda na tarefa
   # SYSTEM). Nem leitura p/ Users/NetworkService — trocar a chave = derrotar a assinatura.
   $pubKey = Join-Path $root 'edge\update-pub.pem'
-  if (Test-Path $pubKey) { & icacls $pubKey /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" 2>$null | Out-Null }
+  if (Test-Path $pubKey) { & icacls $pubKey /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" /C /Q | Out-Null }
   Diga "ACL do codigo/chave-publica blindada (escrita so p/ Admin/SYSTEM)."
 } catch { Diga "(aviso) nao consegui blindar a ACL do codigo: $($_.Exception.Message)" }
 
