@@ -40,6 +40,10 @@ const PORTA_PADRAO = Number(process.env.PRINT_PORTA_PADRAO || 9100);
 const TENTATIVAS = 3;
 
 const pool = new pg.Pool({ connectionString: EDGE_DB });
+// Resiliencia (auditoria ago/2026): Postgres reiniciado (57P01, a cada install/update)
+// emite 'error' na conexao OCIOSA do pool -> SEM handler o Node derruba o daemon. So
+// logamos; o pg descarta a conexao morta e reabre na proxima query.
+pool.on('error', (e) => console.error(`[impressao] pool: conexao ociosa caiu (${e?.code ?? e?.message}) - descartada, segue no ar`));
 const mask = EDGE_DB.replace(/:[^:@/]*@/, ':****@');
 
 // Envia bytes crus por TCP para host:porta (protocolo RAW/9100 das termicas).

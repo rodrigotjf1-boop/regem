@@ -68,6 +68,17 @@ function resolverSsl(connStr?: string): SslOpt {
           `Conexão Postgres — TLS: ${ssl ? (ssl.rejectUnauthorized ? 'verify-full' : 'require (sem verificação)') : 'off'}`,
         );
         const pool = new Pool({ connectionString, ...(ssl ? { ssl } : {}) });
+        // RESILIÊNCIA (auditoria ago/2026): uma conexão OCIOSA do pool que recebe erro
+        // emite 'error' NO POOL — e sem handler o Node faz throw e DERRUBA o processo
+        // inteiro. Acontece toda vez que o Postgres reinicia (57P01 "terminating
+        // connection due to administrator command" — no edge a cada install/update; na
+        // nuvem quando a Supabase encerra conexões ociosas). O pg já descarta a conexão
+        // morta e abre outra na próxima query; aqui só logamos para NÃO derrubar o app.
+        pool.on('error', (err: any) => {
+          new Logger('DrizzleModule').warn(
+            `Pool Postgres: conexão ociosa caiu (${err?.code ?? err?.message ?? err}) — descartada; app segue no ar.`,
+          );
+        });
         const realDb = drizzle(pool, { schema });
         // RLS desligado (default): retorna o db normal — caminho idêntico ao de antes.
         return RLS_ENABLED ? comProxyDeTenant(realDb) : realDb;
