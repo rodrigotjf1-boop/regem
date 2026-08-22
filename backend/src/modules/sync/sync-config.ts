@@ -4,7 +4,7 @@ export type Direcao = 'sobe' | 'desce' | 'ambos';
 export type TabelaSync = {
   tabela: string;
   direcao: Direcao;
-  cursor: 'created_at' | 'updated_at' | 'criado_em';
+  cursor: 'created_at' | 'updated_at' | 'criado_em' | 'atualizado_em';
   escopo?: 'tenant_id' | 'id'; // coluna que amarra ao tenant (empresa usa 'id')
   // Filtro SQL FIXO (constante do código, nunca entrada do usuário) que restringe as
   // linhas sincronizadas. Ex.: equipamento só sincroniza impressora/pdv/salao — nunca
@@ -74,6 +74,14 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'ponto_marcacao', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'audit_log', direcao: 'sobe', cursor: 'created_at' },
+  // Cliente do cardápio/CRM (mig 071 em diante): BIDIRECIONAL. Nasce na nuvem
+  // (link mágico, marketplaces, ingest de CRM) e PRECISA DESCER — pedido_externo.
+  // cliente_id tem FK para cliente(id), então sem essa tabela o edge dropava todo
+  // pedido identificado no pull (23503). Também sobe (LWW) porque o edge pode
+  // identificar cliente num pedido de balcão. Cursor = atualizado_em (o ingest do
+  // CRM o bumpa a cada pedido → cliente recorrente re-desce junto com o pedido).
+  // Vem ANTES dos transacionais (pai antes dos filhos p/ FK).
+  { tabela: 'cliente', direcao: 'ambos', cursor: 'atualizado_em' },
   // ESPELHO (S1, ago/2026): transacionais viram BIDIRECIONAIS (antes só 'sobe').
   // Descem também p/ o edge espelhar o que o presidente faz na nuvem e o que a nuvem
   // materializou (pedido online → comanda). LWW por updated_at (gatilho da mig 095); o
@@ -123,6 +131,9 @@ export const TABELAS_JANELA_MIRROR = new Set<string>([
 // por id (aditivo — nunca apaga o que é só local). Ordem = pais antes dos filhos
 // (o daemon ainda tem retry de FK como rede de segurança). NÃO é sync contínuo.
 export const TABELAS_RESTORE: TabelaSync[] = [
+  // Cliente antes dos transacionais (FK pedido_externo.cliente_id → cliente.id):
+  // senão o botão Restaurar dropava pedidos identificados igual ao pull contínuo.
+  { tabela: 'cliente', direcao: 'desce', cursor: 'atualizado_em' },
   // Cursor por updated_at (v2) para trazer também MUDANÇAS DE ESTADO feitas na
   // nuvem durante a queda (ex.: comanda fechada), não só as criadas.
   { tabela: 'caixa_sessao', direcao: 'desce', cursor: 'updated_at' },
@@ -147,6 +158,14 @@ export function modoPush(tabela: string): 'append' | 'lww' | null {
   if (TABELAS_PUSH_APPEND.has(tabela)) return 'append';
   if (TABELAS_PUSH_LWW.has(tabela)) return 'lww';
   return null;
+}
+
+// Coluna de comparação do LWW no push (update-se-mais-nova). Quase tudo usa
+// updated_at; cliente usa atualizado_em. Deriva do cursor configurado da tabela
+// para o push não comparar uma coluna que não existe (ex.: cliente sem updated_at
+// → 42703 derrubaria o push inteiro). Default seguro: updated_at.
+export function colunaLWW(tabela: string): string {
+  return TABELAS_SYNC.find((x) => x.tabela === tabela)?.cursor ?? 'updated_at';
 }
 
 // Segurança: colunas NUNCA enviadas no pull.
