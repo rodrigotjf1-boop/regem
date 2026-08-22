@@ -464,15 +464,23 @@ export class ClienteService {
   // Funil de conversão do cardápio (F4) — sessões distintas por etapa, no período.
   async crmFunil(tenantId: string, dias: number) {
     const d = Math.min(Math.max(Number(dias) || 30, 1), 365);
-    const r: any = await this.db.execute(sql`
-      select
-        count(distinct sessao) filter (where tipo = 'view_menu')::int as visitas,
-        count(distinct sessao) filter (where tipo = 'add_carrinho')::int as carrinho,
-        count(distinct sessao) filter (where tipo = 'checkout')::int as checkout,
-        count(distinct sessao) filter (where tipo = 'pedido')::int as pedidos
-      from cardapio_evento
-      where tenant_id = ${tenantId} and criado_em >= now() - (${d} || ' days')::interval`);
-    return (r.rows ?? r)[0] ?? { visitas: 0, carrinho: 0, checkout: 0, pedidos: 0 };
+    const vazio = { visitas: 0, carrinho: 0, checkout: 0, pedidos: 0 };
+    // cardapio_evento é @cloud-only (mig 196) — não existe no edge, que roda o mesmo
+    // backend. Abrir o funil no app local dava 500 (relation does not exist). Best-effort:
+    // sem a tabela, o funil mostra estado vazio (o dado do funil é só da nuvem).
+    try {
+      const r: any = await this.db.execute(sql`
+        select
+          count(distinct sessao) filter (where tipo = 'view_menu')::int as visitas,
+          count(distinct sessao) filter (where tipo = 'add_carrinho')::int as carrinho,
+          count(distinct sessao) filter (where tipo = 'checkout')::int as checkout,
+          count(distinct sessao) filter (where tipo = 'pedido')::int as pedidos
+        from cardapio_evento
+        where tenant_id = ${tenantId} and criado_em >= now() - (${d} || ' days')::interval`);
+      return (r.rows ?? r)[0] ?? vazio;
+    } catch {
+      return vazio;
+    }
   }
 
   async identificar(cardapioToken: string, dto: { telefone?: string; nome?: string }) {
