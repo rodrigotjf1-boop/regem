@@ -36,11 +36,13 @@ function Svc($nome, $appArgs, $cwd) {
   & $Nssm install $nome $nodeExe | Out-Null
   & $Nssm set $nome AppParameters $appArgs | Out-Null
   & $Nssm set $nome AppDirectory $cwd | Out-Null
-  # LE-4 (auditoria ago/2026): baixo privilegio. Antes os servicos Node herdavam o
-  # default do NSSM = LocalSystem (admin total) -> qualquer RCE nos servicos expostos
-  # na LAN virava SYSTEM. NetworkService e nao-admin (igual ao Postgres). Precisa de
-  # leitura no .env.local e escrita em logs\ (garantidas por icacls no instalar-tudo).
-  & $Nssm set $nome ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
+  # LE-4 (auditoria ago/2026): rodar os servicos como NetworkService (baixo privilegio)
+  # ficou ADIADO. No teste de campo eles cairam como NetworkService (SERVICE_PAUSED, sem
+  # nem escrever .err.log) -> a conta nao lia o codigo (dist/edge) nem escrevia em logs\.
+  # Fazer isso exige um passo dedicado que garanta, ANTES do start, NetworkService com
+  # leitura em dist/edge/node/certs e escrita em logs\ — e teste em instalacao real.
+  # Por ora fica no DEFAULT do NSSM (LocalSystem), que funciona; a conta de baixo
+  # privilegio entra na rodada testada junto com LE-5/LE-2/LE-3. Ver docs/seguranca-remediacao.
   & $Nssm set $nome Start SERVICE_AUTO_START | Out-Null
   & $Nssm set $nome AppStdout "$cwd\logs\$nome.log" | Out-Null
   & $Nssm set $nome AppStderr "$cwd\logs\$nome.err.log" | Out-Null
