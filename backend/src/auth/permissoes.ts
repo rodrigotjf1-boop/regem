@@ -105,6 +105,32 @@ export function pode(
   return !!perm?.[modulo]?.[acao];
 }
 
+// ===== Hierarquia de níveis (RBAC de criação/edição) =====
+// Fonte única da verdade para "quem pode criar/editar/atribuir qual nível".
+// Usado por colaborador.service (criar/editar/reset de senha) e funcao.service
+// (categoria da função) — antes duplicado só no colaborador, o que abria a
+// escalada gerente→presidente por função (auditoria ago/2026, CL-1/CL-2).
+export const NIVEL: Record<string, number> = {
+  presidente: 4,
+  gerente: 3,
+  supervisao: 2,
+  execucao: 1,
+};
+
+// O ator pode CRIAR/ATRIBUIR o nível-alvo? Presidente só é criado por presidente
+// (sociedade); os demais exigem o ator ESTRITAMENTE acima do alvo.
+export function podeCriarNivel(ator: string, alvo: string): boolean {
+  if (alvo === 'presidente') return ator === 'presidente';
+  return (NIVEL[ator] ?? 0) > (NIVEL[alvo] ?? 0);
+}
+
+// O ator pode EDITAR/RESETAR um alvo que JÁ EXISTE nesse nível? Não se o alvo
+// estiver no mesmo nível ou acima — exceto presidente sobre presidente (sócios).
+export function podeEditarNivel(ator: string, alvoAtual: string): boolean {
+  if (alvoAtual === 'presidente') return ator === 'presidente';
+  return (NIVEL[ator] ?? 0) > (NIVEL[alvoAtual] ?? 0);
+}
+
 // Chaves finas (Fase 8) que, quando AUSENTES do perfil salvo, herdam a permissão
 // da chave-pai — mantém compat com perfis criados antes destas chaves existirem.
 // (Se a chave existir e for `false`, respeita o `false` — o presidente desligou.)

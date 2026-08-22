@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -9,6 +10,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { funcao, funcaoSetor, setor, etiqueta } from '../../db/schema';
 import { CreateFuncaoDto } from './dto/create-funcao.dto';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { podeCriarNivel } from '../../auth/permissoes';
 
 // Ator da operação (para auditoria) — vem do @CurrentUser do controller.
 type Ator = { colaboradorId?: string; categoria?: string };
@@ -43,6 +45,15 @@ export class FuncaoService {
   }
 
   async create(tenantId: string, dto: CreateFuncaoDto, ator?: Ator) {
+    // RBAC de hierarquia (CL-1): a categoria da função define o nível de quem a
+    // recebe. Um gerente não pode criar uma função 'presidente'/'gerente' (senão
+    // atribuiria a si mesmo e escalaria). Só valida se veio acima de 'execucao'.
+    const cat = dto.categoria ?? 'execucao';
+    if (cat !== 'execucao' && !podeCriarNivel(ator?.categoria ?? 'execucao', cat)) {
+      throw new ForbiddenException(
+        `Seu perfil não pode criar uma função de nível "${cat}".`,
+      );
+    }
     // Setor primário = o informado ou o 1º da lista N:N.
     const setorPrimario = dto.setorId ?? dto.setorIds?.[0] ?? null;
     const [row] = await this.db
@@ -116,6 +127,28 @@ export class FuncaoService {
   }
 
   async update(tenantId: string, id: string, dto: CreateFuncaoDto, ator?: Ator) {
+    // RBAC de hierarquia (CL-1): não deixar um gerente editar uma função de nível
+    // acima do seu, nem elevar a categoria para um nível que ele não pode atribuir.
+    const atorCat = ator?.categoria ?? 'execucao';
+    const [antes] = await this.db
+      .select({ categoria: funcao.categoria })
+      .from(funcao)
+      .where(
+        and(eq(funcao.id, id), eq(funcao.tenantId, tenantId), isNull(funcao.deletedAt)),
+      );
+    if (!antes) throw new NotFoundException('Função não encontrada.');
+    const catAtual = (antes.categoria as string) ?? 'execucao';
+    if (catAtual !== 'execucao' && !podeCriarNivel(atorCat, catAtual)) {
+      throw new ForbiddenException(
+        `Seu perfil não pode editar uma função de nível "${catAtual}".`,
+      );
+    }
+    const catNova = dto.categoria ?? 'execucao';
+    if (catNova !== 'execucao' && !podeCriarNivel(atorCat, catNova)) {
+      throw new ForbiddenException(
+        `Seu perfil não pode definir uma função de nível "${catNova}".`,
+      );
+    }
     const setorPrimario = dto.setorId ?? dto.setorIds?.[0] ?? null;
     const [row] = await this.db
       .update(funcao)

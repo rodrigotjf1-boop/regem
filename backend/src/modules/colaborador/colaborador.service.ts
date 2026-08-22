@@ -17,6 +17,7 @@ import {
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { AuthUser } from '../../auth/auth-user';
+import { NIVEL, podeCriarNivel, podeEditarNivel } from '../../auth/permissoes';
 import { NIL_UUID } from '../../auth/unidade-atual.decorator';
 import { CreateColaboradorDto } from './dto/create-colaborador.dto';
 
@@ -53,11 +54,8 @@ const publicCols = {
 //  - alvo presidente/C&O: só um presidente cria outro (sociedades/multi-admin);
 //  - demais: o ator precisa estar num nível ESTRITAMENTE acima do alvo
 //    (gerente cria supervisão/execução, mas NÃO outro gerente nem presidente).
-const NIVEL: Record<string, number> = { presidente: 4, gerente: 3, supervisao: 2, execucao: 1 };
-function podeCriarNivel(ator: string, alvo: string): boolean {
-  if (alvo === 'presidente') return ator === 'presidente';
-  return (NIVEL[ator] ?? 0) > (NIVEL[alvo] ?? 0);
-}
+// NIVEL / podeCriarNivel / podeEditarNivel agora vêm de auth/permissoes (fonte
+// única, compartilhada com funcao.service — fecha a escalada por função, CL-1).
 // (mig 141) Não há mais restrição de nível para ter login: quem opera o Regem
 // precisa entrar com o próprio nome. Quem acessa a web é decidido pelo perfil
 // de acesso (`perfil_acesso.login_web`), não pela categoria da função.
@@ -353,7 +351,11 @@ export class ColaboradorService {
   // Edição geral (Cadastros): dados básicos + funções (N:N) + PIN opcional.
   async update(tenantId: string, id: string, dto: CreateColaboradorDto, ator?: Ator) {
     const [atual] = await this.db
-      .select({ id: colaborador.id, perfilAcessoId: colaborador.perfilAcessoId })
+      .select({
+        id: colaborador.id,
+        perfilAcessoId: colaborador.perfilAcessoId,
+        funcaoId: colaborador.funcaoId,
+      })
       .from(colaborador)
       .where(
         and(
@@ -363,6 +365,21 @@ export class ColaboradorService {
         ),
       );
     if (!atual) throw new NotFoundException('Colaborador não encontrado.');
+
+    // RBAC de hierarquia (CL-2): editar exige estar ACIMA do nível ATUAL do alvo —
+    // senão um gerente editaria/rebaixaria um presidente. Presidente sobre
+    // presidente é permitido (sociedade), tratado em podeEditarNivel.
+    const atorCategoria = ator?.categoria ?? 'execucao';
+    const alvoCategoriaAtual = await this.categoriaDe(
+      tenantId,
+      atual.perfilAcessoId,
+      atual.funcaoId,
+    );
+    if (!podeEditarNivel(atorCategoria, alvoCategoriaAtual)) {
+      throw new ForbiddenException(
+        'Seu perfil não pode editar um colaborador de nível igual ou superior ao seu.',
+      );
+    }
 
     const pedidas = [
       ...new Set([...(dto.funcaoIds ?? []), dto.funcaoId].filter(Boolean)),
@@ -411,6 +428,18 @@ export class ColaboradorService {
         .select({ categoria: funcao.categoria })
         .from(funcao)
         .where(eq(funcao.id, principal));
+      // RBAC de hierarquia (CL-1/CL-2): trocar a função re-alinha o perfil ao nível
+      // dela. Impede o ator de PROMOVER o alvo a um nível que ele não pode atribuir
+      // (ex.: gerente movendo alguém para uma função categoria 'presidente').
+      if (
+        f?.categoria &&
+        f.categoria !== alvoCategoriaAtual &&
+        !podeCriarNivel(atorCategoria, f.categoria)
+      ) {
+        throw new ForbiddenException(
+          `Seu perfil não pode promover um colaborador ao nível "${f.categoria}".`,
+        );
+      }
       const [pAtual] = atual.perfilAcessoId
         ? await this.db
             .select({ nivel: perfilAcesso.nivel })
@@ -512,6 +541,33 @@ export class ColaboradorService {
     return rows.map((r) => ({ ...r, funcaoIds: porColab.get(r.id) ?? [] }));
   }
 
+  // Nível efetivo (categoria) de um colaborador: perfil_acesso.nivel manda; cai na
+  // categoria da função quando não há perfil — MESMA regra do JwtAuthGuard. Usado
+  // pelos guards de hierarquia (CL-1/CL-2).
+  private async categoriaDe(
+    tenantId: string,
+    perfilAcessoId?: string | null,
+    funcaoId?: string | null,
+  ): Promise<string> {
+    if (perfilAcessoId) {
+      const [p] = await this.db
+        .select({ nivel: perfilAcesso.nivel })
+        .from(perfilAcesso)
+        .where(
+          and(eq(perfilAcesso.id, perfilAcessoId), eq(perfilAcesso.tenantId, tenantId)),
+        );
+      if (p?.nivel) return p.nivel as string;
+    }
+    if (funcaoId) {
+      const [f] = await this.db
+        .select({ categoria: funcao.categoria })
+        .from(funcao)
+        .where(and(eq(funcao.id, funcaoId), eq(funcao.tenantId, tenantId)));
+      if (f?.categoria) return f.categoria as string;
+    }
+    return 'execucao';
+  }
+
   // Reset de senha pelo gestor (recuperação sem e-mail): define e-mail (opcional)
   // + nova senha do colaborador. Ação sensível → auditada.
   async definirSenha(
@@ -523,7 +579,11 @@ export class ColaboradorService {
     if (senha.length < 6)
       throw new BadRequestException('A senha deve ter ao menos 6 caracteres.');
     const [alvo] = await this.db
-      .select({ id: colaborador.id })
+      .select({
+        id: colaborador.id,
+        perfilAcessoId: colaborador.perfilAcessoId,
+        funcaoId: colaborador.funcaoId,
+      })
       .from(colaborador)
       .where(
         and(
@@ -533,6 +593,19 @@ export class ColaboradorService {
         ),
       );
     if (!alvo) throw new NotFoundException('Colaborador não encontrado.');
+
+    // RBAC de hierarquia (CL-2): não resetar a senha de alguém de nível igual ou
+    // superior ao seu (bloqueia gerente → assumir conta de presidente).
+    const alvoCategoria = await this.categoriaDe(
+      ator.tenantId,
+      alvo.perfilAcessoId,
+      alvo.funcaoId,
+    );
+    if (!podeEditarNivel(ator.categoria, alvoCategoria)) {
+      throw new ForbiddenException(
+        'Seu perfil não pode redefinir a senha de um colaborador de nível igual ou superior ao seu.',
+      );
+    }
 
     const senhaHash = await bcrypt.hash(senha, 12);
     const patch: any = { senhaHash, updatedAt: new Date() };

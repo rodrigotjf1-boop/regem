@@ -478,10 +478,15 @@ export class ClienteService {
   async identificar(cardapioToken: string, dto: { telefone?: string; nome?: string }) {
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);
+    // CL-4 (auditoria ago/2026): o token do cardápio fica na URL PÚBLICA, então
+    // identificar só pelo telefone NÃO prova posse. Não emitimos mais sessão
+    // (clienteToken) nem devolvemos endereços/PII aqui — senão qualquer um que
+    // saiba o telefone da vítima lê o endereço de casa + histórico. Para receber
+    // sessão + endereços é preciso confirmar o OTP (enviarOtp/confirmarOtp).
+    // Aqui devolvemos só o mínimo para saudação/pré-preenchimento do nome.
     return {
-      clienteToken: assinarCliente(c.id, tenantId),
-      cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
-      enderecos: await this.enderecosDe(c.id),
+      cliente: { id: c.id, nome: c.nome },
+      requerOtp: true,
     };
   }
 
@@ -489,7 +494,7 @@ export class ClienteService {
   async criarLink(
     cardapioToken: string,
     dto: { telefone?: string; nome?: string },
-  ): Promise<{ slug: string; url: string; clienteToken: string }> {
+  ): Promise<{ slug: string; url: string }> {
     const tenantId = await this.tenantDoCardapio(cardapioToken);
     const c = await this.acharOuCriarCliente(tenantId, dto.telefone, dto.nome);
     let [link] = await this.db
@@ -511,10 +516,11 @@ export class ClienteService {
       }
     }
     const base = process.env.APP_URL ?? 'https://app.dmsregem.com';
+    // CL-4: NÃO devolvemos sessão aqui. O link (slug) é a credencial de posse — a
+    // sessão é emitida só quando o próprio cliente ABRE o link (resolverLink).
     return {
       slug: link.slug,
       url: `${base}/c/${cardapioToken}?u=${link.slug}`,
-      clienteToken: assinarCliente(c.id, tenantId),
     };
   }
 
