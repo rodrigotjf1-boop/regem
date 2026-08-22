@@ -678,11 +678,14 @@ export class Food99Service {
       return { errno: 0, errmsg: 'no-store' };
     }
 
-    // Segurança: confere a assinatura. Por padrão TOLERA (só loga) pra não derrubar a
-    // homologação por um segredo com espaço; FOOD99_REQUIRE_SIGN=true rejeita de fato.
+    // Segurança (CL-3, auditoria ago/2026): EXIGE assinatura válida por padrão —
+    // só tolera se FOOD99_REQUIRE_SIGN='false' for setado explicitamente (ex.: um
+    // ambiente de homologação). Sem assinatura válida NÃO processa: um POST forjado
+    // poderia cancelar/concluir pedidos legítimos ou injetar pedido pelo corpo.
+    const exigeSign = process.env.FOOD99_REQUIRE_SIGN !== 'false';
     if (!this.assinaturaOk(raw, ig.appSecret, sign)) {
       this.logger.warn(`webhook: assinatura inválida (loja=${ig.appShopId})`);
-      if (process.env.FOOD99_REQUIRE_SIGN === 'true') return { errno: 0, errmsg: 'bad-sign' };
+      if (exigeSign) return { errno: 0, errmsg: 'bad-sign' };
     }
 
     try {
@@ -722,17 +725,13 @@ export class Food99Service {
   // Ingestão de um pedido novo (orderNew): detail como primário, corpo como fallback.
   private async ingerirNovo(ig: IntegFood99, orderId: string, raw: string): Promise<void> {
     const unidadeId = await this.unidadeDestino(ig.tenantId, ig.unidadeId);
-    let order: any = await this.pedido(ig, orderId);
+    // CL-3: ingere SOMENTE do GET detail autenticado — nunca do corpo do webhook
+    // (forjável). Se o detail não retornar agora, o poller reconcilia depois.
+    const order: any = await this.pedido(ig, orderId);
     if (!order) {
-      try {
-        const parsed = JSON.parse(raw);
-        order = parsed?.data?.order_info ?? parsed?.data ?? null;
-      } catch {
-        /* corpo não-JSON */
-      }
-    }
-    if (!order) {
-      this.logger.warn(`webhook: pedido ${orderId} sem detalhe nem corpo utilizável`);
+      this.logger.warn(
+        `webhook: pedido ${orderId} sem detail autenticado — ignorando corpo (poller reconcilia)`,
+      );
       return;
     }
     await this.delivery.ingest(

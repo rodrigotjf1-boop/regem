@@ -103,7 +103,22 @@ trap {
   } catch { }
 }
 function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
-function Rand($n) { -join ((48..57) + (65..90) + (97..122) | Get-Random -Count $n | ForEach-Object { [char]$_ }) }
+# Segredos com CSPRNG (LE-6, auditoria ago/2026): NUNCA usar Get-Random/System.Random
+# (PRNG previsivel) para material criptografico — o JWT_SECRET e a senha do Postgres
+# saem daqui. RandomNumberGenerator (CSPRNG) + rejeicao de bytes fora do multiplo do
+# alfabeto (elimina o vies de modulo), sobre o alfabeto [0-9A-Za-z] (62 chars).
+function Rand($n) {
+  $alfabeto = [char[]]((48..57) + (65..90) + (97..122))  # 62 simbolos
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  $limite = 256 - (256 % $alfabeto.Count)  # 248: descarta 248..255 (anti-vies)
+  $out = New-Object System.Text.StringBuilder
+  $buf = New-Object 'System.Byte[]' 1
+  while ($out.Length -lt $n) {
+    $rng.GetBytes($buf)
+    if ($buf[0] -lt $limite) { [void]$out.Append($alfabeto[$buf[0] % $alfabeto.Count]) }
+  }
+  $out.ToString()
+}
 # Fingerprint FORTE (P1): sha256 do MachineGuid (uppercase). MESMO calculo do
 # sync-daemon.mjs (node) -> a nuvem casa os dois. Fallback = nome do PC (legado).
 function FingerprintForte {
@@ -533,6 +548,7 @@ CLOUD_API=$CloudApi
 SYNC_TOKEN=$SyncToken
 SYNC_INTERVAL_MS=60000
 EDGE_CLIENTES=0
+EDGE_REQUIRE_SIGNED_UPDATE=true
 "@ | Set-Content -Path $envLocal -Encoding ascii
 Diga ".env.local escrito."
 
@@ -554,8 +570,10 @@ if (-not $SemProteger) {
 try {
   # Full para SYSTEM (serviços) e Administradores (permite reinstalar/cifrar depois);
   # a heranca removida (/inheritance:r) tira os Usuarios comuns — que e a real protecao.
-  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" | Out-Null
-  Diga "ACL do .env.local restrita (SYSTEM + Administradores)."
+  # LE-4: NetworkService (S-1-5-20) recebe LEITURA — os serviços Node agora rodam sob
+  # essa conta e precisam ler os segredos (que o DPAPI LocalMachine decifra na conta).
+  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(R)" | Out-Null
+  Diga "ACL do .env.local restrita (SYSTEM + Administradores + leitura NetworkService)."
 } catch { Diga "(aviso) nao consegui restringir a ACL do .env.local: $($_.Exception.Message)" }
 
 # ---- 3) migrations + certificado + servicos ----
@@ -569,6 +587,29 @@ Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
 if ($mig -ne 0) { throw "migrations falharam." }
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
 Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
+
+# ---- 3.4) LE-8 (auditoria ago/2026): blindagem de ACL do codigo + raiz de confianca ----
+# Sem isto, um usuario comum poderia trocar edge\atualizar.ps1 / update-pub.pem e o
+# proximo auto-update (SYSTEM) rodaria codigo/assinatura do atacante (elevacao a SYSTEM).
+# Tira a ESCRITA de nao-admins de TODO o codigo, mantendo leitura/exec p/ NetworkService
+# (os servicos) e Full p/ SYSTEM/Admin (update/rollback trocam arquivos). Defensivo:
+# nunca aborta (try/catch) — degrada em vez de brickar.
+try {
+  # Codigo (dist/web/edge/node_modules): SYSTEM+Admin Full; NetworkService RX; sem Users.
+  & icacls $root /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(RX)" /T /C /Q 2>$null | Out-Null
+  # logs\: NetworkService PRECISA escrever (stdout/err dos servicos NSSM).
+  $logsDir2 = Join-Path $root 'logs'
+  if (Test-Path $logsDir2) { & icacls $logsDir2 /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q 2>$null | Out-Null }
+  # O /T acima reaplicou a ACL tambem no .env.local — RE-TRANCA (NetworkService so leitura,
+  # nunca escrita; sem Users). Senao os segredos ficariam legiveis pela conta de servico
+  # com mais poder que o necessario.
+  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(R)" 2>$null | Out-Null
+  # Raiz de confianca do update (Ed25519): so SYSTEM/Admin (a verificacao roda na tarefa
+  # SYSTEM). Nem leitura p/ Users/NetworkService — trocar a chave = derrotar a assinatura.
+  $pubKey = Join-Path $root 'edge\update-pub.pem'
+  if (Test-Path $pubKey) { & icacls $pubKey /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" 2>$null | Out-Null }
+  Diga "ACL do codigo/chave-publica blindada (escrita so p/ Admin/SYSTEM)."
+} catch { Diga "(aviso) nao consegui blindar a ACL do codigo: $($_.Exception.Message)" }
 
 # ---- 3.5) restore assistido (-Restaurar): marca o pedido no estado local ----
 # So grava a flag; quem faz o trabalho pesado (2 tempos: push pendente -> pull full

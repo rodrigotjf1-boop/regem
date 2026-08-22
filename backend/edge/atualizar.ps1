@@ -75,7 +75,11 @@ for ($i = 0; $i -lt [Math]::Max($vn.Count, $va.Count); $i++) {
 # ---- Fase 3: verificacao da ASSINATURA (Ed25519) via helper node ----
 $edgeBaseV = Split-Path $Raiz -Parent
 $nodeV = if (Test-Path (Join-Path $edgeBaseV 'node\node.exe')) { Join-Path $edgeBaseV 'node\node.exe' } else { 'node' }
-$reqSig = ($cfg.EDGE_REQUIRE_SIGNED_UPDATE -eq 'true')
+# LE-1 (auditoria ago/2026): assinatura OBRIGATORIA por padrao (fail-closed). Como o
+# pacote SEMPRE traz edge\update-pub.pem, so desligamos com EDGE_REQUIRE_SIGNED_UPDATE
+# ='false' explicito (ex.: bancada de teste). Antes o default era 'so exige se =true',
+# o que deixava a nuvem/canal empurrar zip sem assinatura = RCE em massa como SYSTEM.
+$reqSig = ($cfg.EDGE_REQUIRE_SIGNED_UPDATE -ne 'false')
 if ($info.assinatura) {
   & $nodeV (Join-Path $Raiz 'edge\verify-update.mjs') $info.ultima $info.sha256 $info.url $info.assinatura
   $rc = $LASTEXITCODE
