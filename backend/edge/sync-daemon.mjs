@@ -94,6 +94,10 @@ const PUSH_TABLES = [
 ];
 
 const pool = new pg.Pool({ connectionString: EDGE_DB });
+// Resiliencia (auditoria ago/2026): o Postgres reiniciado (57P01, a cada install/
+// update) emite 'error' na conexao OCIOSA do pool -> SEM handler o Node derruba o
+// daemon. So logamos; o pg descarta a conexao morta e reabre na proxima query.
+pool.on('error', (e) => console.error(`[sync] pool: conexao ociosa caiu (${e?.code ?? e?.message}) - descartada, segue no ar`));
 const colCache = new Map();
 
 function req(k) {
