@@ -35,13 +35,26 @@
 ### ✅ LE-6 · Segredos com CSPRNG (edge) — FEITO
 **Fix:** `instalar-tudo.ps1` `Rand()` usa `RandomNumberGenerator` (CSPRNG) com rejeição anti-viés, no lugar de `Get-Random`. Cobre `JWT_SECRET` e senha do Postgres.
 
-### ✅ LE-8 · ACL da raiz de confiança e do código (edge) — FEITO
-**Fix (`instalar-tudo.ps1`, após instalar serviços):** `icacls $root /inheritance:r` com `SYSTEM:(F)`, `Administrators:(F)`, `NetworkService:(RX)` (sem Users) em todo o código; `logs\` com `NetworkService:F`; **re-tranca o `.env.local`** (o `/T` o afrouxaria); `update-pub.pem` só SYSTEM/Admin. Defensivo (try/catch, degrada). parse ✅.
-**Validar no `.exe` de teste:** serviços sobem e o auto-update (SYSTEM) ainda troca arquivos.
+### ⏳ LE-8 · ACL da raiz de confiança e do código (edge) — ADIADO (removido do baseline)
+> **Testado e removido (22/08):** a manipulação de ACL (`icacls /inheritance:r`) corrompeu o
+> filesystem em reinstalações — pastas `backup-*` passaram a negar acesso **até para Admin**
+> (`Remove-Item` falhava), e os serviços como SYSTEM saíam com **código 1** (perda de acesso
+> a `dist`/`edge`/`node_modules`; `.err.log` nem era escrito). Passamos por 3 variações (varre
+> `$root` → cirúrgico edge/dist → por último após o flag) e todas deixaram efeitos colaterais.
+> **Baseline não mexe mais em ACL do código** — igual ao install de julho que funcionava.
+> A blindagem entra na **rodada testada** junto com LE-4/LE-5/LE-2/LE-3, com os grants na
+> ordem certa (ANTES do start dos serviços) e validação em instalação real e limpa.
 
-### ✅ LE-4 · Serviços Node em conta de baixo privilégio (edge) — FEITO
-**Fix:** `instalar-servicos.ps1` `Svc()` define `ObjectName "NT AUTHORITY\NetworkService"` nos 4 serviços Node; `instalar-tudo.ps1` concede `NetworkService:(R)` no `.env.local`. SYSTEM fica só nas tarefas update/rollback. parse ✅.
-**Validar no `.exe` de teste:** boot dos 4 serviços como NetworkService + DPAPI decifra + porta LAN/impressão.
+### ⏳ LE-4 · Serviços Node em conta de baixo privilégio (edge) — ADIADO (revertido no baseline)
+> **Testado e revertido (22/08):** ao rodar como `NetworkService`, 3 dos 4 serviços caíram
+> (`SERVICE_PAUSED`, sem nem escrever `.err.log`) — a conta não lia o código (`dist`/`edge`)
+> nem escrevia em `logs\`; as permissões só entravam na blindagem do fim (tarde demais).
+> **Baseline voltou ao default (LocalSystem)**, que funciona. Para reativar com segurança,
+> a rodada testada precisa garantir, ANTES do start dos serviços, `NetworkService` com:
+> leitura em `dist`/`edge`/`node`/`certs`, escrita em `logs\`, e spawn de powershell (DPAPI).
+> Aplicar junto com LE-5/LE-2/LE-3, iterando em instalação real.
+> (Mantidos: `.env.local` com `NetworkService:(R)` e LE-8 com `NetworkService:(RX)` — inertes/
+> forward-compat com LocalSystem, que roda como SYSTEM e já tem Full.)
 
 ### ⏳ LE-5 · Postgres: role `regem_app` não-superusuário (edge) — ADIADO (rodada testada)
 > **Por que adiado:** depende do caminho de **update** que roda migrations lendo o
