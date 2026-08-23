@@ -15,8 +15,10 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _perfil;
   List<dynamic> _pedidos = [];
+  Map<String, dynamic>? _saida; // { saida, paradas: [...] } — roteiro multi-parada
   Map<String, dynamic>? _ganhos;
   bool _compartilhaContato = false; // opt-in: mandar meu contato no aviso ao cliente
+  bool _pegandoSaida = false;
   String? _erro;
   bool _carregando = true;
 
@@ -36,6 +38,10 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final p = await Api.perfil();
       final peds = await Api.pedidos();
+      Map<String, dynamic>? saida;
+      try {
+        saida = await Api.saida();
+      } catch (_) {}
       // Ganhos do dia — best-effort (se a loja não configurou, vem zerado).
       Map<String, dynamic> g = {};
       try {
@@ -49,6 +55,7 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _perfil = p;
           _pedidos = peds;
+          _saida = saida;
           _ganhos = g;
           _compartilhaContato = pref;
           _carregando = false;
@@ -99,6 +106,61 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+
+  List<dynamic> get _roteiro => (_saida?['paradas'] as List?) ?? [];
+
+  Future<void> _pegarSaida() async {
+    setState(() => _pegandoSaida = true);
+    try {
+      final s = await Api.proximaSaida();
+      if (!mounted) return;
+      final paradas = (s['paradas'] as List?) ?? [];
+      if (paradas.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nenhum pedido pronto para roteirizar agora.')),
+        );
+      }
+      await _carregar();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _pegandoSaida = false);
+    }
+  }
+
+  Widget _paradaCard(dynamic parada, int idx) {
+    final m = parada as Map<String, dynamic>;
+    final entregue = m['entregue'] == true;
+    final ordem = m['ordemParada'] ?? (idx + 1);
+    // Próxima = 1ª parada ainda não entregue (todas as anteriores já entregues).
+    final proxima = !entregue && _roteiro.take(idx).every((x) => (x as Map)['entregue'] == true);
+    const gold = Color(0xFFE2A340);
+    return Card(
+      color: proxima ? gold.withValues(alpha: 0.10) : null,
+      child: ListTile(
+        leading: CircleAvatar(
+          radius: 15,
+          backgroundColor: entregue ? Colors.green : (proxima ? gold : Colors.grey),
+          child: entregue
+              ? const Icon(Icons.check, color: Colors.white, size: 18)
+              : Text('$ordem', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        ),
+        title: Text('#${m['numero'] ?? ''} · ${m['cliente'] ?? 'Cliente'}'),
+        subtitle: Text(m['endereco']?.toString() ?? ''),
+        trailing: entregue
+            ? const Text('entregue', style: TextStyle(color: Colors.green, fontSize: 12))
+            : const Icon(Icons.chevron_right),
+        onTap: entregue ? null : () => _abrir(m),
+      ),
+    );
   }
 
   Future<void> _sair() async {
@@ -199,29 +261,49 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 16),
         ],
-        if (_pedidos.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 48),
-            child: Center(
-              child: Text(
-                'Nenhum pedido em rota.\nEscaneie o cupom para assumir uma entrega.',
-                textAlign: TextAlign.center,
-              ),
+        if (_roteiro.isNotEmpty) ...[
+          Row(
+            children: [
+              const Icon(Icons.route, size: 18),
+              const SizedBox(width: 6),
+              Text('Roteiro da saída · ${_roteiro.length} parada(s)',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ..._roteiro.asMap().entries.map((e) => _paradaCard(e.value, e.key)),
+        ] else ...[
+          if (_perfil?['ehEntregador'] == true)
+            FilledButton.icon(
+              onPressed: _pegandoSaida ? null : _pegarSaida,
+              icon: const Icon(Icons.route),
+              label: Text(_pegandoSaida ? 'Montando roteiro…' : 'Pegar próxima saída'),
             ),
-          )
-        else
-          ..._pedidos.map((p) {
-            final m = p as Map<String, dynamic>;
-            return Card(
-              child: ListTile(
-                leading: const Icon(Icons.motorcycle),
-                title: Text('#${m['numero'] ?? ''} · ${m['cliente'] ?? 'Cliente'}'),
-                subtitle: Text(m['endereco']?.toString() ?? ''),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _abrir(m),
+          const SizedBox(height: 12),
+          if (_pedidos.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text(
+                  'Nenhum pedido em rota.\nPegue uma saída ou escaneie o cupom.',
+                  textAlign: TextAlign.center,
+                ),
               ),
-            );
-          }),
+            )
+          else
+            ..._pedidos.map((p) {
+              final m = p as Map<String, dynamic>;
+              return Card(
+                child: ListTile(
+                  leading: const Icon(Icons.motorcycle),
+                  title: Text('#${m['numero'] ?? ''} · ${m['cliente'] ?? 'Cliente'}'),
+                  subtitle: Text(m['endereco']?.toString() ?? ''),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _abrir(m),
+                ),
+              );
+            }),
+        ],
       ],
     );
   }

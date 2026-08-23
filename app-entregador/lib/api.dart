@@ -163,6 +163,24 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// M3 — minha saída (roteiro) ativa: { saida, paradas: [...] }.
+  static Future<Map<String, dynamic>> saida() async {
+    final r = await http.get(Uri.parse('$base/entregador/saida'), headers: _headers);
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
+  /// M3 — pega a próxima saída (forma o roteiro com os pedidos prontos e atrela a mim).
+  static Future<Map<String, dynamic>> proximaSaida() async {
+    final r = await http.post(Uri.parse('$base/entregador/saida/proxima'), headers: _headers);
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
   static String _erro(http.Response r) {
     try {
       final j = jsonDecode(r.body);
