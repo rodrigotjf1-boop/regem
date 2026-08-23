@@ -122,9 +122,18 @@ export class SyncService {
   private async deltas(tenantId: string, lista: TabelaSync[], desde?: string) {
     const desdeTs = desde || '1970-01-01T00:00:00Z';
     const tabelas: Record<string, any[]> = {};
+    const PAGINA = 1000; // linhas por tabela por request (evita 413)
     let maxCursor = desdeTs;
     const avancar = (v: any) => {
       if (v && new Date(v) > new Date(maxCursor)) maxCursor = v;
+    };
+    // Teto do cursor compartilhado: com UMA página por tabela e UM cursor único, se
+    // alguma tabela satura (devolve página cheia) o proximoCursor NÃO pode avançar além
+    // do último cursor dela — senão as linhas seguintes (cursor entre a página e o max de
+    // outra tabela) seriam puladas para sempre. Guarda o MENOR teto entre as saturadas.
+    let teto: string | null = null;
+    const capar = (v: any) => {
+      if (v && (teto === null || new Date(v) < new Date(teto))) teto = v;
     };
     // Só consulta a janela se alguma tabela da lista for transacional pesada.
     const usaJanela = lista.some((t) => TABELAS_JANELA_MIRROR.has(t.tabela));
@@ -163,9 +172,31 @@ export class SyncService {
         select * from ${sql.identifier(t.tabela)}
         where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}${filtro}
         order by ${sql.identifier(cursor)} asc
-        limit 1000
+        limit ${PAGINA}
       `);
-      const rows = r.rows ?? r;
+      let rows = r.rows ?? r;
+      // Saturou a página → o proximoCursor não pode passar do último cursor desta tabela.
+      // ALÉM disso, como o backfill do CRM bumpa `atualizado_em = now()` para MUITOS
+      // clientes na MESMA transação, centenas de linhas compartilham o mesmo cursor: com
+      // `>` estrito o próximo ciclo pularia os empatados além da página. Por isso, quando
+      // satura, completamos TODAS as linhas com o cursor igual ao da borda (fecha os
+      // empates) e paramos o cursor nessa borda — os ciclos seguintes trazem o resto.
+      if (rows.length === PAGINA) {
+        const borda = rows[rows.length - 1]?.[cursor];
+        if (borda) {
+          const rb: any = await this.db.execute(sql`
+            select * from ${sql.identifier(t.tabela)}
+            where ${sql.identifier(escopo)} = ${tenantId}
+              and ${sql.identifier(cursor)} = ${borda}${janela}${filtro}
+            limit 50000
+          `);
+          const empatadas = rb.rows ?? rb;
+          const porId = new Map(rows.map((x: any) => [x.id, x]));
+          for (const x of empatadas) porId.set(x.id, x);
+          rows = [...porId.values()];
+          capar(borda); // não avança além da borda (linhas > borda vêm depois)
+        }
+      }
       const segredos = REDIGIR[t.tabela];
       const limpas = segredos
         ? rows.map((row: any) => {
@@ -181,10 +212,14 @@ export class SyncService {
       }
     }
 
+    // Se nenhuma tabela saturou, avança tudo (maxCursor). Se saturou, respeita o teto.
+    const proximoCursor =
+      teto && new Date(teto) < new Date(maxCursor) ? teto : maxCursor;
+
     return {
       serverTime: new Date().toISOString(),
       desde: desdeTs,
-      proximoCursor: maxCursor,
+      proximoCursor,
       tabelas,
     };
   }
