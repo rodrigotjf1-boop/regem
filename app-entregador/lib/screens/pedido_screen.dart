@@ -65,6 +65,32 @@ class _PedidoScreenState extends State<PedidoScreen> {
     }
   }
 
+  // Contato do cliente: só dígitos; com DDI 55 para o wa.me (WhatsApp).
+  String _telDigits({bool comDdi = false}) {
+    var d = (widget.pedido['telefone']?.toString() ?? '').replaceAll(RegExp(r'\D'), '');
+    if (comDdi && d.isNotEmpty && !d.startsWith('55')) d = '55$d';
+    return d;
+  }
+
+  Future<void> _abrirUri(Uri uri, String erro) async {
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(erro)));
+    }
+  }
+
+  Future<void> _ligar() async {
+    final d = _telDigits();
+    if (d.isEmpty) return;
+    await _abrirUri(Uri.parse('tel:$d'), 'Não foi possível abrir o discador.');
+  }
+
+  Future<void> _whatsapp() async {
+    final d = _telDigits(comDdi: true);
+    if (d.isEmpty) return;
+    await _abrirUri(Uri.parse('https://wa.me/$d'), 'Não foi possível abrir o WhatsApp.');
+  }
+
   // Entrega própria em marketplace (99food delivery_type=2 / iFood MERCHANT) exige
   // o código do cliente. Cardápio nativo conclui sem código.
   bool get _entregaPropria {
@@ -81,8 +107,12 @@ class _PedidoScreenState extends State<PedidoScreen> {
     return false;
   }
 
+  // Exige código quando: entrega própria de marketplace (código do canal) OU entrega
+  // própria do cardápio/local com código de 4 díg. (backend manda precisaCodigo).
+  bool get _precisaCodigo => _entregaPropria || widget.pedido['precisaCodigo'] == true;
+
   Future<void> _finalizar() async {
-    if (_entregaPropria && _codigo.text.trim().isEmpty) {
+    if (_precisaCodigo && _codigo.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Digite o código de entrega do cliente.')),
       );
@@ -92,7 +122,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
     try {
       final r = await Api.finalizar(
         widget.pedido['id'] as String,
-        codigo: _entregaPropria ? _codigo.text.trim() : null,
+        codigo: _precisaCodigo ? _codigo.text.trim() : null,
       );
       if (!mounted) return;
       if (r['valid'] == false) {
@@ -125,6 +155,7 @@ class _PedidoScreenState extends State<PedidoScreen> {
     final p = widget.pedido;
     final itens = (p['itens'] as List?) ?? [];
     final total = (p['total'] as num?)?.toStringAsFixed(2) ?? '0.00';
+    final taxa = (p['taxaEntrega'] as num?) ?? 0;
     return Scaffold(
       appBar: AppBar(title: Text('Pedido #${p['numero'] ?? ''}')),
       body: ListView(
@@ -132,7 +163,24 @@ class _PedidoScreenState extends State<PedidoScreen> {
         children: [
           Text(p['cliente']?.toString() ?? 'Cliente',
               style: Theme.of(context).textTheme.titleLarge),
-          if (p['telefone'] != null) Text(p['telefone'].toString()),
+          if (_telDigits().isNotEmpty)
+            Row(
+              children: [
+                Expanded(child: Text(p['telefone'].toString())),
+                IconButton(
+                  icon: const Icon(Icons.phone),
+                  color: Colors.green,
+                  tooltip: 'Ligar',
+                  onPressed: _ligar,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.chat),
+                  color: const Color(0xFF25D366),
+                  tooltip: 'WhatsApp',
+                  onPressed: _whatsapp,
+                ),
+              ],
+            ),
           const SizedBox(height: 8),
           if (p['endereco'] != null)
             Card(
@@ -170,8 +218,19 @@ class _PedidoScreenState extends State<PedidoScreen> {
                 : 'A receber: R\$ $total  (${p['formaPagamento'] ?? ''})',
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
+          if (taxa > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Taxa de entrega: R\$ ${taxa.toStringAsFixed(2)}',
+                style: TextStyle(
+                  color: Colors.green.shade800,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
           const SizedBox(height: 24),
-          if (_entregaPropria)
+          if (_precisaCodigo)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: TextField(

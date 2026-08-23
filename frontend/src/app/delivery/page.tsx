@@ -73,6 +73,7 @@ const STATUS_VIVO: Record<string, { label: string; cls: string }> = {
   confirmado: { label: 'Em produção', cls: 'bg-amber-500 text-white' },
   pronto: { label: 'Pronto', cls: 'bg-emerald-500 text-white' },
   despachado: { label: 'Em rota', cls: 'bg-indigo-500 text-white' },
+  entregue: { label: 'Entregue · conferir', cls: 'bg-teal-500 text-white' },
   concluido: { label: 'Concluído', cls: 'bg-emerald-600 text-white' },
   cancelado: { label: 'Cancelado', cls: 'bg-red-500 text-white' },
 };
@@ -364,7 +365,7 @@ export default function DeliveryPage() {
   // Finaliza em massa os "em andamento" marcados. Pagos online concluem direto; os
   // a-receber entram na FILA de conferência (abre a tela p/ cada um antes de concluir).
   async function finalizarEmMassa() {
-    const alvos = andamento.filter((p) => marcadosAnd.has(p.id) && p.status === 'despachado');
+    const alvos = andamento.filter((p) => marcadosAnd.has(p.id) && ['despachado', 'entregue'].includes(p.status));
     if (!alvos.length) return;
     const online = alvos.filter((p) => p.pago);
     const aReceber = alvos.filter((p) => !p.pago);
@@ -409,7 +410,7 @@ export default function DeliveryPage() {
     },
     finalizar: {
       show: true,
-      enabled: marcadosAnd.size > 0 || (!!sel && sel.status === 'despachado'),
+      enabled: marcadosAnd.size > 0 || (!!sel && ['despachado', 'entregue'].includes(st ?? '')),
       onClick: () => {
         if (marcadosAnd.size > 0) { finalizarEmMassa(); return; }
         if (sel) finalizarFlow(sel);
@@ -459,7 +460,7 @@ export default function DeliveryPage() {
   const andamento = useMemo(
     () =>
       (pedidos ?? [])
-        .filter((p) => p.status === 'despachado')
+        .filter((p) => ['despachado', 'entregue'].includes(p.status))
         .filter((p) => tipoFiltro === 'todos' || p.tipo === tipoFiltro),
     [pedidos, tipoFiltro],
   );
@@ -794,7 +795,7 @@ function ListaPedidos({
   onToggleTodos: (marcar: boolean) => void;
 }) {
   const cols: ColDef[] = variante === 'andamento'
-    ? [{ k: 'numero', t: 'Pedido' }, { k: 'displayId', t: 'Cod. externo' }, { k: 'canal', t: 'Origem' }, { k: 'criadoEm', t: 'Hora' }, { k: 'clienteNome', t: 'Cliente' }, { k: 'entregadorNome', t: 'Entregador' }]
+    ? [{ k: 'numero', t: 'Pedido' }, { k: 'displayId', t: 'Cod. externo' }, { k: 'canal', t: 'Origem' }, { k: 'criadoEm', t: 'Hora' }, { k: 'clienteNome', t: 'Cliente' }, { k: 'entregadorNome', t: 'Entregador' }, { k: 'status', t: 'Status' }]
     : [{ k: 'numero', t: 'Pedido' }, { k: 'displayId', t: 'Cod. externo' }, { k: 'canal', t: 'Origem' }, { k: 'criadoEm', t: 'Hora' }, { k: 'clienteNome', t: 'Cliente' }, { k: 'endereco', t: 'Endereço' }, { k: 'status', t: 'Status' }];
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -923,6 +924,11 @@ function ListaPedidos({
                       ? (p.entregadorNome ? <span className="text-xs font-medium">🛵 {p.entregadorNome}</span> : <span className="text-xs text-muted-foreground">—</span>)
                       : <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>}
                   </td>
+                  {variante === 'andamento' && (
+                    <td className="px-3 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>
+                    </td>
+                  )}
                 </tr>
               );
             })}

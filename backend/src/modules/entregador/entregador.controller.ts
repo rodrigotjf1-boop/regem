@@ -83,6 +83,17 @@ export class EntregadorController {
     return this.service.ganhos(user);
   }
 
+  // App do entregador: minha preferência (opt-in de compartilhar contato no aviso).
+  @Get('preferencia')
+  minhaPreferencia(@CurrentUser() user: AuthUser) {
+    return this.service.minhaPreferencia(user);
+  }
+
+  @Post('preferencia')
+  salvarPreferencia(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.salvarPreferencia(user, dto?.compartilhaContato === true);
+  }
+
   // Gestor: config do modelo de pagamento (valores = financeiro → presidente/gerente).
   @Get('pagamento/config')
   @UseGuards(RolesGuard, PermissoesGuard)
@@ -117,20 +128,23 @@ export class EntregadorController {
     return this.service.salvarPerfilPagamento(user.tenantId, dto?.colaboradorId ?? '', dto ?? {});
   }
 
-  // Gestor/atendente: fechamento do dia (quanto pagar por entregador).
+  // Gestor/atendente: fechamento do PERÍODO (dia/semana/quinzena, conforme a config de
+  // cada entregador) — quanto pagar por entregador sobre as entregas ainda não acertadas.
   @Get('pagamento/fechamento')
   @UseGuards(RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao', 'atendente')
   @RequirePerm('delivery')
-  fechamento(@CurrentUser() user: AuthUser, @Query('data') data: string) {
-    return this.service.fechamentoDia(user.tenantId, data);
+  fechamento(@CurrentUser() user: AuthUser) {
+    return this.service.fechamentoEntregadores(user.tenantId);
   }
 
+  // Finaliza e PAGA o entregador → registra o fechamento + gera a SANGRIA no caixa de
+  // entregas + marca os pedidos como acertados.
   @Post('pagamento/fechar')
   @UseGuards(RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao', 'atendente')
   @RequirePerm('delivery')
   fechar(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.fechar(user.tenantId, user.colaboradorId, dto?.colaboradorId ?? '', dto?.data ?? '');
+    return this.service.pagarEntregador(user.tenantId, user.colaboradorId, dto?.colaboradorId ?? '');
   }
 }
