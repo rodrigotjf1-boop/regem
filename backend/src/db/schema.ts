@@ -2075,6 +2075,9 @@ export const pedidoExterno = pgTable('pedido_externo', {
   entregueEm: timestamp('entregue_em', { withTimezone: true }),
   entregadorFechamentoId: uuid('entregador_fechamento_id'), // pedido já acertado no fechamento (mig 207, cloud-only)
   codigoEntrega: text('codigo_entrega'), // código de 4 díg. do cliente p/ confirmar entrega própria (mig 209, cloud-only)
+  saidaId: uuid('saida_id'), // saída/roteiro multi-parada (mig 210, cloud-only)
+  ordemParada: integer('ordem_parada'), // ordem da parada na saída (1..N)
+  rastreioToken: text('rastreio_token'), // token público do link de rastreio do cliente (mig 210, cloud-only)
   avisadoProntoEm: timestamp('avisado_pronto_em', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
@@ -2239,8 +2242,21 @@ export const entregadorConfig = pgTable('entregador_config', {
   taxaFixaCentavos: integer('taxa_fixa_centavos').notNull().default(0),
   baseTaxa: text('base_taxa').notNull().default('real'), // real (taxa do pedido) | fixa (mig 207)
   periodicidade: text('periodicidade').notNull().default('dia'), // dia | semana | quinzena (mig 207)
+  maxPedidosEntregador: integer('max_pedidos_entregador').notNull().default(1), // lote da saída multi-parada (mig 210)
   raioChegadaM: integer('raio_chegada_m').notNull().default(70), // geofence do aviso de chegada
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Saída / roteiro (mig 210) — lote de pedidos atribuído a um entregador numa viagem,
+// com paradas em ordem otimizada. Só nuvem.
+export const entregadorSaida = pgTable('entregador_saida', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  colaboradorId: uuid('colaborador_id').notNull(),
+  status: text('status').notNull().default('em_rota'), // montando | em_rota | concluida
+  totalParadas: integer('total_paradas').notNull().default(0),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  concluidaEm: timestamp('concluida_em', { withTimezone: true }),
 });
 
 // App do Entregador (E5) — fechamento de pagamento por entregador/dia (append-only).

@@ -1173,6 +1173,7 @@ export const api = {
     raioChegadaM: number;
     baseTaxa?: string; // real | fixa
     periodicidade?: string; // dia | semana | quinzena
+    maxPedidosEntregador?: number; // lote da saída multi-parada
   }) => req('/entregador/pagamento/config', { method: 'POST', body: JSON.stringify(body) }),
   // Fechamento por PERÍODO (dia/semana/quinzena conforme a config de cada entregador).
   entregadorFechamento: () => req('/entregador/pagamento/fechamento'),

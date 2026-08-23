@@ -44,6 +44,18 @@ export class EntregadorController {
     return this.service.pedidos(user);
   }
 
+  // E6 — minha saída (roteiro) ativa: paradas ordenadas.
+  @Get('saida')
+  saida(@CurrentUser() user: AuthUser) {
+    return this.service.saidaAtiva(user.tenantId, user.colaboradorId);
+  }
+
+  // E6 — pega a próxima saída: forma o roteiro (até o máximo da loja) e atrela a mim.
+  @Post('saida/proxima')
+  proximaSaida(@CurrentUser() user: AuthUser) {
+    return this.service.proximaSaida(user);
+  }
+
   // E1 — finaliza a entrega (código opcional para marketplace de entrega própria).
   @Post('pedido/:id/finalizar')
   finalizar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
