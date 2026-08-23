@@ -16,6 +16,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _perfil;
   List<dynamic> _pedidos = [];
   Map<String, dynamic>? _ganhos;
+  bool _compartilhaContato = false; // opt-in: mandar meu contato no aviso ao cliente
   String? _erro;
   bool _carregando = true;
 
@@ -40,11 +41,16 @@ class _HomeScreenState extends State<HomeScreen> {
       try {
         g = await Api.ganhos();
       } catch (_) {}
+      bool pref = false;
+      try {
+        pref = await Api.preferencia();
+      } catch (_) {}
       if (mounted) {
         setState(() {
           _perfil = p;
           _pedidos = peds;
           _ganhos = g;
+          _compartilhaContato = pref;
           _carregando = false;
         });
       }
@@ -78,6 +84,21 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(builder: (_) => PedidoScreen(pedido: ped)),
     );
     if (ok == true) _carregar();
+  }
+
+  Future<void> _toggleContato(bool v) async {
+    setState(() => _compartilhaContato = v);
+    try {
+      final r = await Api.salvarPreferencia(v);
+      if (mounted) setState(() => _compartilhaContato = r);
+    } catch (e) {
+      if (mounted) {
+        setState(() => _compartilhaContato = !v); // desfaz no erro
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    }
   }
 
   Future<void> _sair() async {
@@ -148,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Ganhos de hoje',
+                      const Text('Meus ganhos',
                           style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
                       Text('${_ganhos!['entregas'] ?? 0} entrega(s)',
                           style: const TextStyle(fontSize: 12, color: Colors.black54)),
@@ -160,6 +181,19 @@ class _HomeScreenState extends State<HomeScreen> {
                         fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F2230)),
                   ),
                 ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (_perfil?['ehEntregador'] == true) ...[
+          Card(
+            child: SwitchListTile(
+              value: _compartilhaContato,
+              onChanged: _toggleContato,
+              title: const Text('Compartilhar meu contato no aviso'),
+              subtitle: const Text(
+                'Ao avisar o cliente que estou chegando, enviar também meu nome e telefone para facilitar o contato.',
               ),
             ),
           ),

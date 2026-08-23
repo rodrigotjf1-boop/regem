@@ -1171,10 +1171,13 @@ export const api = {
     taxaEntregaCentavos: number;
     taxaFixaCentavos: number;
     raioChegadaM: number;
+    baseTaxa?: string; // real | fixa
+    periodicidade?: string; // dia | semana | quinzena
   }) => req('/entregador/pagamento/config', { method: 'POST', body: JSON.stringify(body) }),
-  entregadorFechamento: (data: string) =>
-    req(`/entregador/pagamento/fechamento?data=${encodeURIComponent(data)}`),
-  entregadorFechar: (body: { colaboradorId: string; data: string }) =>
+  // Fechamento por PERÍODO (dia/semana/quinzena conforme a config de cada entregador).
+  entregadorFechamento: () => req('/entregador/pagamento/fechamento'),
+  // Finaliza e PAGA o entregador (gera a sangria no caixa de entregas).
+  entregadorFechar: (body: { colaboradorId: string }) =>
     req('/entregador/pagamento/fechar', { method: 'POST', body: JSON.stringify(body) }),
   // Perfil de pagamento POR entregador (sobrepõe o padrão da loja).
   entregadorPerfisPagamento: () => req('/entregador/pagamento/perfis'),
@@ -1185,6 +1188,8 @@ export const api = {
     diariaCentavos?: number;
     taxaEntregaCentavos?: number;
     taxaFixaCentavos?: number;
+    baseTaxa?: string;
+    periodicidade?: string;
   }) => req('/entregador/pagamento/perfil', { method: 'POST', body: JSON.stringify(body) }),
   // Número de marketing (F5b) — 2º WhatsApp p/ campanhas.
   whatsappMarketingStatus: () => req('/whatsapp/marketing/status'),
@@ -1524,6 +1529,12 @@ export const api = {
   atualizarUnidade: (id: string, body: { nome: string; tipo?: string; endereco?: string }) =>
     req(`/unidades/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removerUnidade: (id: string) => req(`/unidades/${id}`, { method: 'DELETE' }),
+  // Tokens de integração por loja (auto-atendimento: GoGeM/Orzuni/Farol).
+  integracaoTokens: (lojaId: string) => req(`/integracao/lojas/${lojaId}/tokens`),
+  integracaoTokenCriar: (lojaId: string, body: { nome?: string; escopos: string[] }) =>
+    req(`/integracao/lojas/${lojaId}/tokens`, { method: 'POST', body: JSON.stringify(body) }),
+  integracaoTokenRevogar: (lojaId: string, id: string) =>
+    req(`/integracao/lojas/${lojaId}/tokens/${id}`, { method: 'DELETE' }),
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
   alterarAlocacao: (id: string, body: Record<string, unknown>) =>

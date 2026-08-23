@@ -2073,6 +2073,8 @@ export const pedidoExterno = pgTable('pedido_externo', {
   caixaSessaoId: uuid('caixa_sessao_id'), // caixa (turno) onde o a-pagar entrou
   atendenteId: uuid('atendente_id'), // quem cobrou/entregou no balcão
   entregueEm: timestamp('entregue_em', { withTimezone: true }),
+  entregadorFechamentoId: uuid('entregador_fechamento_id'), // pedido já acertado no fechamento (mig 207, cloud-only)
+  codigoEntrega: text('codigo_entrega'), // código de 4 díg. do cliente p/ confirmar entrega própria (mig 209, cloud-only)
   avisadoProntoEm: timestamp('avisado_pronto_em', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
@@ -2235,6 +2237,8 @@ export const entregadorConfig = pgTable('entregador_config', {
   diariaCentavos: integer('diaria_centavos').notNull().default(0),
   taxaEntregaCentavos: integer('taxa_entrega_centavos').notNull().default(0),
   taxaFixaCentavos: integer('taxa_fixa_centavos').notNull().default(0),
+  baseTaxa: text('base_taxa').notNull().default('real'), // real (taxa do pedido) | fixa (mig 207)
+  periodicidade: text('periodicidade').notNull().default('dia'), // dia | semana | quinzena (mig 207)
   raioChegadaM: integer('raio_chegada_m').notNull().default(70), // geofence do aviso de chegada
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2250,6 +2254,10 @@ export const entregadorFechamento = pgTable('entregador_fechamento', {
   diariaCentavos: integer('diaria_centavos').notNull().default(0),
   taxasCentavos: integer('taxas_centavos').notNull().default(0),
   totalCentavos: integer('total_centavos').notNull().default(0),
+  periodoInicio: date('periodo_inicio'), // fechamento por período (mig 207)
+  periodoFim: date('periodo_fim'),
+  baseTaxa: text('base_taxa'), // real | fixa (mig 207)
+  lancamentoCaixaId: uuid('lancamento_caixa_id'), // a sangria gerada no pagamento (mig 207)
   criadoPor: uuid('criado_por'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2263,6 +2271,17 @@ export const entregadorPerfilPagamento = pgTable('entregador_perfil_pagamento', 
   diariaCentavos: integer('diaria_centavos').notNull().default(0),
   taxaEntregaCentavos: integer('taxa_entrega_centavos').notNull().default(0),
   taxaFixaCentavos: integer('taxa_fixa_centavos').notNull().default(0),
+  baseTaxa: text('base_taxa').notNull().default('real'), // real | fixa (mig 207)
+  periodicidade: text('periodicidade').notNull().default('dia'), // dia | semana | quinzena (mig 207)
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// App do Entregador (Fase 4) — preferência do PRÓPRIO entregador (opt-in): compartilhar
+// o nome/contato dele no aviso de chegada ao cliente. Só nuvem. Default = não compartilha.
+export const entregadorPreferencia = pgTable('entregador_preferencia', {
+  colaboradorId: uuid('colaborador_id').primaryKey(),
+  tenantId: uuid('tenant_id').notNull(),
+  compartilhaContato: boolean('compartilha_contato').notNull().default(false),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2290,6 +2309,22 @@ export const ativacao = pgTable('ativacao', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   ativadoEm: timestamp('ativado_em', { withTimezone: true }),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Token de integração POR LOJA (auto-atendimento GoGeM/Orzuni/Farol) — desacoplado
+// do edge. Guarda só o HASH do token; escopos por token; sincroniza (edge+nuvem, LWW).
+export const integracaoToken = pgTable('integracao_token', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  unidadeId: uuid('unidade_id'), // loja; null = todas as lojas do tenant
+  tokenHash: text('token_hash').notNull().unique(),
+  nome: text('nome'),
+  escopos: text('escopos').array().notNull().default(sql`'{}'::text[]`),
+  ativo: boolean('ativo').notNull().default(true),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  revogadoEm: timestamp('revogado_em', { withTimezone: true }),
+  ultimoUsoEm: timestamp('ultimo_uso_em', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Cadastro pendente de verificação de e-mail (landing). A conta real só nasce após

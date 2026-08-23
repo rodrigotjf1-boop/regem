@@ -131,11 +131,34 @@ class Api {
     }
   }
 
-  /// E5 — meus ganhos de hoje (entregas + valores em centavos, pelo modelo da loja).
+  /// E5 — meus ganhos do período (entregas + valores em centavos, pelo modelo da loja).
   static Future<Map<String, dynamic>> ganhos() async {
     final r = await http.get(Uri.parse('$base/entregador/ganhos'), headers: _headers);
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
+  /// Fase 4 — minha preferência (compartilhar contato no aviso ao cliente).
+  static Future<bool> preferencia() async {
+    final r = await http.get(Uri.parse('$base/entregador/preferencia'), headers: _headers);
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      final j = jsonDecode(r.body) as Map<String, dynamic>;
+      return j['compartilhaContato'] == true;
+    }
+    throw Exception(_erro(r));
+  }
+
+  static Future<bool> salvarPreferencia(bool compartilhaContato) async {
+    final r = await http.post(
+      Uri.parse('$base/entregador/preferencia'),
+      headers: _headers,
+      body: jsonEncode({'compartilhaContato': compartilhaContato}),
+    );
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      final j = jsonDecode(r.body) as Map<String, dynamic>;
+      return j['compartilhaContato'] == true;
     }
     throw Exception(_erro(r));
   }

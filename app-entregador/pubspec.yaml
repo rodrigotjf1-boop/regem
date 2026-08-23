@@ -1,7 +1,7 @@
 name: regem_entregador
 description: App do Entregador — Regem (Trilha B).
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.0+4
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -12,7 +12,11 @@ dependencies:
   http: ^1.2.0
   shared_preferences: ^2.2.0
   # E1 (scan): leitor de QR/código de barras on-device.
-  mobile_scanner: ^5.1.1
+  # 7.x: suporta Flutter 3.44 + Impeller (a 5.x renderizava preview PRETO no Flutter novo).
+  mobile_scanner: ^7.4.0
+  # Permissão de câmera pedida ANTES de montar o scanner (evita a corrida do
+  # mobile_scanner 5.x: preview preto quando a permissão é concedida só depois).
+  permission_handler: ^11.3.1
   # E2 (GPS): localização durante a entrega ativa.
   geolocator: ^13.0.0
   # E3 (rotas): abrir o endereço no Waze/Google Maps.

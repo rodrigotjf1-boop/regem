@@ -156,7 +156,6 @@ export default function EntregadoresPage() {
   const podeConfig = ['presidente', 'gerente'].includes(getCategoria() ?? '');
   const [cfg, setCfg] = useState<any>(null);
   const [salvando, setSalvando] = useState(false);
-  const [data, setData] = useState(hojeLocal());
   const [fech, setFech] = useState<any>(null);
   const [carregando, setCarregando] = useState(true);
   const [fechando, setFechando] = useState<string | null>(null);
@@ -175,13 +174,13 @@ export default function EntregadoresPage() {
   const carregarFech = useCallback(async () => {
     setCarregando(true);
     try {
-      setFech(await api.entregadorFechamento(data));
+      setFech(await api.entregadorFechamento());
     } catch (e: any) {
       toast.error(e?.message ?? 'Erro ao carregar fechamento.');
     } finally {
       setCarregando(false);
     }
-  }, [data]);
+  }, []);
 
   useEffect(() => {
     carregarCfg();
@@ -199,6 +198,8 @@ export default function EntregadoresPage() {
         taxaEntregaCentavos: cfg.taxaEntregaCentavos,
         taxaFixaCentavos: cfg.taxaFixaCentavos,
         raioChegadaM: cfg.raioChegadaM ?? 70,
+        baseTaxa: cfg.baseTaxa ?? 'real',
+        periodicidade: cfg.periodicidade ?? 'dia',
       });
       toast.success('Modelo de pagamento salvo.');
       carregarFech();
@@ -212,19 +213,20 @@ export default function EntregadoresPage() {
   const fechar = async (colaboradorId: string) => {
     setFechando(colaboradorId);
     try {
-      await api.entregadorFechar({ colaboradorId, data });
-      toast.success('Fechamento registrado.');
+      const r: any = await api.entregadorFechar({ colaboradorId });
+      toast.success(`Entregador pago — sangria de R$ ${((r?.total ?? 0) / 100).toFixed(2)} no caixa de entregas.`);
       carregarFech();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Erro ao fechar.');
+      toast.error(e?.message ?? 'Erro ao pagar entregador.');
     } finally {
       setFechando(null);
     }
   };
 
   const modelo = MODELOS.find((m) => m.k === cfg?.modelo) ?? MODELOS[0];
-  const linhas: any[] = fech?.entregadores ?? [];
-  const totalGeral = linhas.reduce((s, l) => s + (l.pago ? 0 : Number(l.totalCentavos || 0)), 0);
+  // fechamentoEntregadores retorna um ARRAY (uma linha por entregador, valores em centavos).
+  const linhas: any[] = Array.isArray(fech) ? fech : (fech?.entregadores ?? []);
+  const totalGeral = linhas.reduce((s, l) => s + Number(l.total ?? l.totalCentavos ?? 0), 0);
 
   return (
     <Shell>
@@ -284,6 +286,32 @@ export default function EntregadoresPage() {
                   onChange={(c) => setCfg({ ...cfg, taxaFixaCentavos: c })}
                 />
               )}
+              {modelo.campos.taxa && (
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="text-muted-foreground">Base da taxa por entrega</span>
+                  <Select
+                    value={cfg.baseTaxa ?? 'real'}
+                    onChange={(e) => setCfg({ ...cfg, baseTaxa: e.target.value })}
+                  >
+                    <option value="real">Taxa real do pedido</option>
+                    <option value="fixa">Valor fixo por entrega (campo acima)</option>
+                  </Select>
+                  <span className="text-xs text-muted-foreground">
+                    “Real” repassa a taxa que o cliente pagou naquele pedido; “fixo” usa o valor de “Taxa por entrega”.
+                  </span>
+                </label>
+              )}
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="text-muted-foreground">Período de fechamento</span>
+                <Select
+                  value={cfg.periodicidade ?? 'dia'}
+                  onChange={(e) => setCfg({ ...cfg, periodicidade: e.target.value })}
+                >
+                  <option value="dia">Diário</option>
+                  <option value="semana">Semanal (seg–dom)</option>
+                  <option value="quinzena">Quinzenal (1–15 / 16–fim)</option>
+                </Select>
+              </label>
               <label className="flex flex-col gap-1 text-sm sm:col-span-2">
                 <span className="text-muted-foreground">Raio do aviso de chegada</span>
                 <Select
@@ -331,24 +359,23 @@ export default function EntregadoresPage() {
           </Card>
         )}
 
-        {/* Fechamento do dia. */}
+        {/* Fechamento do período (dia/semana/quinzena, conforme cada entregador). */}
         <Card className="mt-4 p-4">
           <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold">Fechamento do dia</h2>
-              <p className="text-xs text-muted-foreground">Entregas concluídas e valor a pagar.</p>
+              <h2 className="text-sm font-semibold">Fechamento e pagamento</h2>
+              <p className="text-xs text-muted-foreground">
+                Entregas concluídas e ainda não acertadas, no período de cada entregador (dia/semana/quinzena).
+                Pagar registra o fechamento e gera a <span className="font-medium">sangria no caixa de entregas</span>.
+              </p>
             </div>
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="text-muted-foreground">Dia</span>
-              <Input type="date" value={data} max={hojeLocal()} onChange={(e) => setData(e.target.value)} />
-            </label>
           </div>
 
           {carregando ? (
             <p className="text-sm text-muted-foreground">Carregando…</p>
           ) : linhas.length === 0 ? (
             <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              Nenhuma entrega concluída neste dia.
+              Nenhuma entrega pendente de acerto.
             </div>
           ) : (
             <>
@@ -370,24 +397,18 @@ export default function EntregadoresPage() {
                       <tr key={l.colaboradorId} className="border-b last:border-0">
                         <td className="py-2 pr-3 font-medium">🛵 {l.nome}</td>
                         <td className="py-2 pr-3 text-right font-mono">{l.entregas}</td>
-                        <td className="py-2 pr-3 text-right font-mono">{brl(l.diariaCentavos)}</td>
-                        <td className="py-2 pr-3 text-right font-mono">{brl(l.taxasCentavos)}</td>
-                        <td className="py-2 pr-3 text-right font-mono font-semibold">{brl(l.totalCentavos)}</td>
+                        <td className="py-2 pr-3 text-right font-mono">{brl(l.diaria ?? l.diariaCentavos)}</td>
+                        <td className="py-2 pr-3 text-right font-mono">{brl(l.taxas ?? l.taxasCentavos)}</td>
+                        <td className="py-2 pr-3 text-right font-mono font-semibold">{brl(l.total ?? l.totalCentavos)}</td>
                         <td className="py-2 pl-3 text-right">
-                          {l.pago ? (
-                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                              Pago
-                            </span>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => fechar(l.colaboradorId)}
-                              disabled={fechando === l.colaboradorId}
-                            >
-                              {fechando === l.colaboradorId ? '…' : 'Fechar'}
-                            </Button>
-                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => fechar(l.colaboradorId)}
+                            disabled={fechando === l.colaboradorId || Number(l.total ?? l.totalCentavos ?? 0) <= 0}
+                          >
+                            {fechando === l.colaboradorId ? '…' : 'Finalizar e pagar'}
+                          </Button>
                         </td>
                       </tr>
                     ))}

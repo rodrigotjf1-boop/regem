@@ -220,7 +220,7 @@ export class DeliveryService {
     // Não regride: só reflete se o alvo estiver ADIANTE do atual no fluxo
     // (cancelado é exceção — sempre encerra). RANK: novo<confirmado<pronto<despachado<concluido.
     if (novoStatus !== 'cancelado') {
-      const RANK: Record<string, number> = { novo: 0, confirmado: 1, pronto: 2, despachado: 3, concluido: 4 };
+      const RANK: Record<string, number> = { novo: 0, confirmado: 1, pronto: 2, despachado: 3, entregue: 4, concluido: 5 };
       if ((RANK[novoStatus] ?? 0) <= (RANK[row.status] ?? 0)) return;
     }
     const patch: any = { status: novoStatus };
@@ -597,6 +597,7 @@ export class DeliveryService {
               'confirmado',
               'pronto',
               'despachado',
+              'entregue', // entregue pelo entregador, aguardando conferência do atendente
             ]),
             and(
               inArray(pedidoExterno.status, ['concluido', 'cancelado']),
@@ -668,10 +669,10 @@ export class DeliveryService {
     }
 
     if (!valid) return { ok: false, valid: false, msg: 'Código inválido — confira com o cliente.' };
-    // Código válido → o canal registrou a entrega. Conclui no Regem (o status back
-    // "delivered" ao concluir é best-effort e inofensivo se o canal já concluiu).
-    const fin: any = await this.finalizar(tenantId, atorId, id, {});
-    return { ok: true, valid: true, precisaConferencia: !!fin?.precisaConferencia };
+    // Código válido → o canal registrou a entrega. No Regem, marca ENTREGUE (o cliente
+    // recebeu); a CONCLUSÃO fica com a conferência do atendente. Não conclui direto.
+    await this.marcarEntregue(tenantId, atorId, id);
+    return { ok: true, valid: true };
   }
 
   // Aceita: mapeia itens → produtos (por código/SKU) e cria a venda externa.
@@ -779,9 +780,15 @@ export class DeliveryService {
     if (ped.status === 'cancelado' || ped.status === 'novo')
       throw new BadRequestException('Aceite o pedido antes de avançar.');
     const idx = FLUXO.indexOf(ped.status);
-    if (idx < 0 || idx >= FLUXO.length - 1)
-      throw new BadRequestException('Pedido já concluído.');
-    const proximo = FLUXO[idx + 1];
+    // 'entregue' (marcado pelo entregador) não faz parte do FLUXO do kanban: a
+    // conferência do atendente o conclui direto. Os demais avançam pelo FLUXO.
+    const proximo =
+      ped.status === 'entregue'
+        ? 'concluido'
+        : idx >= 0 && idx < FLUXO.length - 1
+          ? FLUXO[idx + 1]
+          : null;
+    if (!proximo) throw new BadRequestException('Pedido já concluído.');
     // Retirada não passa por "despachado" (não há entregador): pronto → concluído.
     const novo = ped.tipo === 'retirada' && proximo === 'despachado' ? 'concluido' : proximo;
     const patch: any = { status: novo };
@@ -898,6 +905,24 @@ export class DeliveryService {
     }
   }
 
+  // O entregador marca ENTREGUE: despachado → 'entregue'. Waypoint interno — o cliente
+  // recebeu, mas o pedido AGUARDA A CONFERÊNCIA do atendente (que finaliza → 'concluido'
+  // + acerto de caixa/estoque/ganhos). Os callbacks de marketplace ('delivered') seguem
+  // disparando na CONCLUSÃO (avancar), não aqui. Idempotente.
+  async marcarEntregue(tenantId: string, _atorId: string, id: string) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status === 'concluido' || ped.status === 'entregue') return ped;
+    if (ped.status !== 'despachado')
+      throw new BadRequestException('O pedido precisa estar em rota para ser marcado como entregue.');
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({ status: 'entregue', entregueEm: new Date() })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    void this.dispararWebhook(tenantId, row);
+    return row;
+  }
+
   // Finaliza a entrega (Painel de controle, Fase 5). Pago online conclui direto;
   // a-receber exige a CONFERÊNCIA (forma recebida) e registra o valor no caixa de
   // entregas (turno 'delivery' aberto) antes de concluir. Sem forma no a-receber,
@@ -910,8 +935,10 @@ export class DeliveryService {
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'concluido') return ped;
-    if (ped.status !== 'despachado')
-      throw new BadRequestException('Só é possível finalizar um pedido em rota.');
+    // Aceita 'despachado' (em rota) OU 'entregue' (o entregador marcou entregue e
+    // aguarda a conferência do atendente).
+    if (ped.status !== 'despachado' && ped.status !== 'entregue')
+      throw new BadRequestException('Só é possível finalizar um pedido em rota ou entregue.');
     // Pago online (ou já quitado): conclui direto, sem conferência.
     if (ped.pago) return this.avancar(tenantId, id);
     // A-receber: precisa da forma recebida (conferência).

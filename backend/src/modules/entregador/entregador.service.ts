@@ -49,10 +49,17 @@ export class EntregadorService {
           .join(', ') || null,
       itens: p.itens ?? [],
       total: Number(p.total) || 0,
+      taxaEntrega: Number(p.taxaEntrega) || 0, // taxa da entrega (compõe os ganhos do entregador)
       pago: p.pago,
       formaPagamento: p.formaPagamento,
       status: p.status,
-      raw: p.raw ?? null, // p/ o app detectar entrega própria (código de entrega)
+      // Entrega própria (cardápio/local, não marketplace) com código de 4 díg. do cliente:
+      // o app exige o código pra concluir. NÃO expõe o código em si (o cliente o informa).
+      precisaCodigo:
+        p.tipo !== 'retirada' &&
+        !['ifood', '99food'].includes(String(p.canal)) &&
+        !!p.codigoEntrega,
+      raw: p.raw ?? null, // p/ o app detectar entrega própria de marketplace (código do canal)
     };
   }
 
@@ -139,11 +146,27 @@ export class EntregadorService {
   // sem código, conclui direto (cardápio nativo). Reusa a lógica do DeliveryService.
   async finalizar(user: AuthUser, id: string, codigo?: string) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
-    if (codigo && codigo.trim()) {
-      return this.delivery.confirmarEntregaComCodigo(user.tenantId, user.colaboradorId, id, codigo.trim());
+    const cod = String(codigo ?? '').trim();
+    // Carrega canal + código próprio do pedido (escopo tenant).
+    const [ped] = await this.db
+      .select({ canal: pedidoExterno.canal, codigoEntrega: pedidoExterno.codigoEntrega })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.id, id)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    // Marketplace (iFood/99food) com código do cliente: valida pela API do canal.
+    if (['ifood', '99food'].includes(String(ped.canal)) && cod) {
+      return this.delivery.confirmarEntregaComCodigo(user.tenantId, user.colaboradorId, id, cod);
     }
-    await this.delivery.finalizar(user.tenantId, user.colaboradorId, id, {});
-    return { ok: true };
+    // Entrega própria (cardápio/local) com código de 4 díg.: exige e valida o código do
+    // cliente (aleatório, gerado na criação) antes de marcar entregue.
+    if (ped.codigoEntrega) {
+      if (!cod) throw new BadRequestException('Digite o código de entrega do cliente.');
+      if (cod !== String(ped.codigoEntrega))
+        return { ok: false, valid: false, msg: 'Código inválido — confira com o cliente.' };
+    }
+    // Marca ENTREGUE (aguarda a conferência do atendente no Painel, que finaliza → concluído).
+    await this.delivery.marcarEntregue(user.tenantId, user.colaboradorId, id);
+    return { ok: true, valid: true };
   }
 
   // ===== E2 — GPS =====
@@ -208,20 +231,55 @@ export class EntregadorService {
   }
 
   // Monta o payload e dispara o alerta de chegada no webhook (manual e automático).
+  // Sempre manda o nome fantasia da loja (p/ a mensagem "O entregador do <loja> está
+  // chegando…"). Nome/contato do ENTREGADOR só vão se ele ativou o opt-in no app.
   private async dispararChegada(user: AuthUser, ped: any): Promise<boolean> {
     if (!ped.clienteTelefone) return false;
-    const r: any = await this.db.execute(
-      sql`select telefone from colaborador where id = ${user.colaboradorId}`,
+    const emp: any = await this.db.execute(
+      sql`select nome_fantasia, razao_social from empresa where id = ${user.tenantId}`,
     );
-    const entregadorTelefone = (r.rows ?? r)[0]?.telefone ?? null;
+    const e0 = (emp.rows ?? emp)[0] ?? {};
+    const nomeFantasia = e0.nome_fantasia || e0.razao_social || null;
+    const pref: any = await this.db.execute(
+      sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${user.colaboradorId}`,
+    );
+    const compartilha = (pref.rows ?? pref)[0]?.compartilha_contato === true;
+    let entregadorTelefone: string | null = null;
+    if (compartilha) {
+      const r: any = await this.db.execute(
+        sql`select telefone from colaborador where id = ${user.colaboradorId}`,
+      );
+      entregadorTelefone = (r.rows ?? r)[0]?.telefone ?? null;
+    }
     return this.cliente.enviarEventoWebhook(user.tenantId, {
       evento: 'chegando',
       telefone: String(ped.clienteTelefone).replace(/\D/g, ''),
       cliente: ped.clienteNome,
       numero: ped.numero,
-      entregadorNome: user.nome ?? ped.entregadorNome ?? 'Entregador',
+      nomeFantasia,
+      compartilhaContato: compartilha,
+      entregadorNome: compartilha ? user.nome ?? ped.entregadorNome ?? 'Entregador' : null,
       entregadorTelefone,
     });
+  }
+
+  // Preferência do próprio entregador (opt-in de compartilhar contato no aviso).
+  async minhaPreferencia(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const r: any = await this.db.execute(
+      sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${user.colaboradorId}`,
+    );
+    return { compartilhaContato: (r.rows ?? r)[0]?.compartilha_contato === true };
+  }
+
+  async salvarPreferencia(user: AuthUser, compartilhaContato: boolean) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const v = compartilhaContato === true;
+    await this.db.execute(sql`
+      insert into entregador_preferencia (colaborador_id, tenant_id, compartilha_contato)
+      values (${user.colaboradorId}, ${user.tenantId}, ${v})
+      on conflict (colaborador_id) do update set compartilha_contato = ${v}, atualizado_em = now()`);
+    return { ok: true, compartilhaContato: v };
   }
 
   // ===== E5 — pagamento do entregador =====
@@ -233,10 +291,13 @@ export class EntregadorService {
     'diaria_taxas_fixas',
   ];
 
+  private readonly BASES = ['real', 'fixa'];
+  private readonly PERIODOS = ['dia', 'semana', 'quinzena'];
+
   // Config de pagamento da loja (default se ainda não configurou).
   async configPagamento(tenantId: string) {
     const r: any = await this.db.execute(
-      sql`select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, raio_chegada_m
+      sql`select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, raio_chegada_m, base_taxa, periodicidade
           from entregador_config where tenant_id = ${tenantId}`,
     );
     const c = (r.rows ?? r)[0];
@@ -245,6 +306,8 @@ export class EntregadorService {
       diariaCentavos: Number(c?.diaria_centavos ?? 0),
       taxaEntregaCentavos: Number(c?.taxa_entrega_centavos ?? 0),
       taxaFixaCentavos: Number(c?.taxa_fixa_centavos ?? 0),
+      baseTaxa: c?.base_taxa ?? 'real',
+      periodicidade: c?.periodicidade ?? 'dia',
       raioChegadaM: Number(c?.raio_chegada_m ?? 70),
     };
   }
@@ -257,6 +320,8 @@ export class EntregadorService {
       taxaEntregaCentavos?: number;
       taxaFixaCentavos?: number;
       raioChegadaM?: number;
+      baseTaxa?: string;
+      periodicidade?: string;
     },
   ) {
     const modelo = this.MODELOS.includes(String(dto?.modelo)) ? String(dto.modelo) : 'diaria_taxas';
@@ -264,26 +329,34 @@ export class EntregadorService {
     const diaria = cent(dto?.diariaCentavos);
     const taxaEnt = cent(dto?.taxaEntregaCentavos);
     const taxaFix = cent(dto?.taxaFixaCentavos);
+    const base = this.BASES.includes(String(dto?.baseTaxa)) ? String(dto.baseTaxa) : 'real';
+    const periodo = this.PERIODOS.includes(String(dto?.periodicidade)) ? String(dto.periodicidade) : 'dia';
     // Raio do aviso de chegada: clamp defensivo (o app oferece 20/30/40/60/70m).
     const raio = Math.min(1000, Math.max(10, Math.round(Number(dto?.raioChegadaM) || 70)));
     await this.db.execute(sql`
-      insert into entregador_config (tenant_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, raio_chegada_m)
-      values (${tenantId}, ${modelo}, ${diaria}, ${taxaEnt}, ${taxaFix}, ${raio})
+      insert into entregador_config (tenant_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, raio_chegada_m, base_taxa, periodicidade)
+      values (${tenantId}, ${modelo}, ${diaria}, ${taxaEnt}, ${taxaFix}, ${raio}, ${base}, ${periodo})
       on conflict (tenant_id) do update set
         modelo = excluded.modelo,
         diaria_centavos = excluded.diaria_centavos,
         taxa_entrega_centavos = excluded.taxa_entrega_centavos,
         taxa_fixa_centavos = excluded.taxa_fixa_centavos,
         raio_chegada_m = excluded.raio_chegada_m,
+        base_taxa = excluded.base_taxa,
+        periodicidade = excluded.periodicidade,
         atualizado_em = now()`);
     return { ok: true };
   }
 
   // Calcula (diaria, taxas, total) em centavos para um nº de entregas, dado o modelo.
-  private calcular(cfg: any, entregas: number) {
+  // taxasReaisCentavos = soma da taxa_entrega REAL dos pedidos (usada quando base='real').
+  private calcular(cfg: any, entregas: number, taxasReaisCentavos = 0) {
     const d = Number(cfg.diariaCentavos) || 0;
     const te = Number(cfg.taxaEntregaCentavos) || 0;
     const tf = Number(cfg.taxaFixaCentavos) || 0;
+    // Valor das taxas por entrega: 'real' = soma da taxa do pedido (padrão); 'fixa' =
+    // nº de entregas × valor fixo configurado (taxa_entrega_centavos), na área de atendimento.
+    const taxaVar = cfg.baseTaxa === 'fixa' ? entregas * te : Number(taxasReaisCentavos) || 0;
     let diaria = 0;
     let taxas = 0;
     switch (cfg.modelo) {
@@ -291,7 +364,7 @@ export class EntregadorService {
         diaria = d;
         break;
       case 'so_taxas':
-        taxas = entregas * te;
+        taxas = taxaVar;
         break;
       case 'so_taxa_fixa':
         taxas = tf; // valor fixo por fechamento, independente da quantidade
@@ -303,17 +376,61 @@ export class EntregadorService {
       case 'diaria_taxas':
       default:
         diaria = d;
-        taxas = entregas * te;
+        taxas = taxaVar;
         break;
     }
     return { diaria, taxas, total: diaria + taxas };
+  }
+
+  // Janela do período de fechamento no fuso de SP (YYYY-MM-DD início/fim inclusivos).
+  private periodoDe(periodicidade: string): { inicio: string; fim: string } {
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (periodicidade === 'semana') {
+      const dow = (now.getDay() + 6) % 7; // 0 = segunda
+      const ini = new Date(now);
+      ini.setDate(now.getDate() - dow);
+      const fim = new Date(ini);
+      fim.setDate(ini.getDate() + 6);
+      return { inicio: iso(ini), fim: iso(fim) };
+    }
+    if (periodicidade === 'quinzena') {
+      const dia = now.getDate();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      if (dia <= 15) return { inicio: iso(new Date(y, m, 1)), fim: iso(new Date(y, m, 15)) };
+      return { inicio: iso(new Date(y, m, 16)), fim: iso(new Date(y, m + 1, 0)) };
+    }
+    return { inicio: iso(now), fim: iso(now) }; // 'dia'
+  }
+
+  // Agrega as entregas CONCLUÍDAS e não acertadas de um entregador num período (nº e
+  // soma da taxa_entrega real em centavos). Base do cálculo de ganhos e do fechamento.
+  private async agregarPeriodo(
+    tenantId: string,
+    colaboradorId: string,
+    inicio: string,
+    fim: string,
+  ): Promise<{ entregas: number; taxasReaisCentavos: number }> {
+    const r: any = await this.db.execute(sql`
+      select count(*)::int as entregas,
+             coalesce(round(sum(coalesce(taxa_entrega, 0)) * 100), 0)::bigint as taxas_centavos
+      from pedido_externo
+      where tenant_id = ${tenantId}
+        and entregador_id = ${colaboradorId}
+        and status = 'concluido'
+        and entregador_fechamento_id is null
+        and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date`);
+    const row = (r.rows ?? r)[0] ?? {};
+    return { entregas: Number(row.entregas ?? 0), taxasReaisCentavos: Number(row.taxas_centavos ?? 0) };
   }
 
   // Perfil de pagamento EFETIVO de um entregador: o próprio (se configurado),
   // senão o padrão da loja (entregadorConfig).
   private async perfilDeEntregador(tenantId: string, colaboradorId: string) {
     const r: any = await this.db.execute(sql`
-      select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos
+      select modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, base_taxa, periodicidade
       from entregador_perfil_pagamento
       where tenant_id = ${tenantId} and colaborador_id = ${colaboradorId}`);
     const p = (r.rows ?? r)[0];
@@ -323,6 +440,8 @@ export class EntregadorService {
       diariaCentavos: Number(p.diaria_centavos),
       taxaEntregaCentavos: Number(p.taxa_entrega_centavos),
       taxaFixaCentavos: Number(p.taxa_fixa_centavos),
+      baseTaxa: p.base_taxa ?? 'real',
+      periodicidade: p.periodicidade ?? 'dia',
     };
   }
 
@@ -468,14 +587,112 @@ export class EntregadorService {
   async ganhos(user: AuthUser) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
     const cfg = await this.perfilDeEntregador(user.tenantId, user.colaboradorId);
-    const r: any = await this.db.execute(sql`
-      select count(*)::int as entregas from pedido_externo
-      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
-        and status = 'concluido'
-        and (concluido_em at time zone 'America/Sao_Paulo')::date = (now() at time zone 'America/Sao_Paulo')::date`);
-    const entregas = Number((r.rows ?? r)[0]?.entregas ?? 0);
-    const v = this.calcular(cfg, entregas);
-    return { entregas, ...v };
+    // Ganhos do PERÍODO corrente (dia/semana/quinzena) sobre as entregas ainda não
+    // acertadas. Base 'real' soma a taxa do pedido; 'fixa' usa o valor configurado.
+    const { inicio, fim } = this.periodoDe(cfg.periodicidade ?? 'dia');
+    const { entregas, taxasReaisCentavos } = await this.agregarPeriodo(
+      user.tenantId,
+      user.colaboradorId,
+      inicio,
+      fim,
+    );
+    const v = this.calcular(cfg, entregas, taxasReaisCentavos);
+    return { entregas, periodicidade: cfg.periodicidade ?? 'dia', periodo: { inicio, fim }, ...v };
+  }
+
+  // ===== E5 (gestor) — fechamento e pagamento do entregador =====
+  // Lista cada entregador com os ganhos PENDENTES (entregas concluídas e não acertadas)
+  // do período dele. Base do "fechamento do dia/semana/quinzena" no Delivery.
+  async fechamentoEntregadores(tenantId: string) {
+    const ents = await this.delivery.listarEntregadores(tenantId);
+    const linhas: any[] = [];
+    for (const e of ents as any[]) {
+      const cfg = await this.perfilDeEntregador(tenantId, e.id);
+      const { inicio, fim } = this.periodoDe(cfg.periodicidade ?? 'dia');
+      const { entregas, taxasReaisCentavos } = await this.agregarPeriodo(tenantId, e.id, inicio, fim);
+      const v = this.calcular(cfg, entregas, taxasReaisCentavos);
+      linhas.push({
+        colaboradorId: e.id,
+        nome: e.nome,
+        modelo: cfg.modelo,
+        baseTaxa: cfg.baseTaxa ?? 'real',
+        periodicidade: cfg.periodicidade ?? 'dia',
+        periodo: { inicio, fim },
+        entregas,
+        ...v,
+      });
+    }
+    return linhas;
+  }
+
+  // Fecha e PAGA o entregador: soma as entregas pendentes do período, registra o
+  // fechamento (append-only), gera a SANGRIA no caixa de entregas aberto e marca os
+  // pedidos como acertados (não pagam de novo). Cancelados nunca entram (não são
+  // 'concluido'), então o cancelamento na conferência já abate naturalmente.
+  async pagarEntregador(tenantId: string, atorId: string | null, colaboradorId: string) {
+    const cfg = await this.perfilDeEntregador(tenantId, colaboradorId);
+    const { inicio, fim } = this.periodoDe(cfg.periodicidade ?? 'dia');
+    // Pedidos a acertar (guarda os ids p/ marcar exatamente estes).
+    const sel: any = await this.db.execute(sql`
+      select id, coalesce(taxa_entrega, 0) as taxa
+      from pedido_externo
+      where tenant_id = ${tenantId} and entregador_id = ${colaboradorId}
+        and status = 'concluido' and entregador_fechamento_id is null
+        and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date`);
+    const pedidos = sel.rows ?? sel;
+    const entregas = pedidos.length;
+    const taxasReaisCentavos = Math.round(
+      pedidos.reduce((s: number, p: any) => s + Number(p.taxa || 0), 0) * 100,
+    );
+    const v = this.calcular(cfg, entregas, taxasReaisCentavos);
+    if (v.total <= 0) throw new BadRequestException('Nada a pagar para este entregador no período.');
+
+    // Caixa de entregas aberto (a sangria sai daqui).
+    const cx: any = await this.db.execute(sql`
+      select id from caixa_sessao
+      where tenant_id = ${tenantId} and status = 'aberta' and origem = 'delivery' limit 1`);
+    const sessaoId = (cx.rows ?? cx)[0]?.id ?? null;
+    if (!sessaoId)
+      throw new BadRequestException('Abra o caixa de entregas para registrar o pagamento (sangria).');
+
+    const nomeRow: any = await this.db.execute(sql`select nome from colaborador where id = ${colaboradorId}`);
+    const nomeEnt = (nomeRow.rows ?? nomeRow)[0]?.nome ?? 'Entregador';
+    const rotulos: Record<string, string> = {
+      diaria_taxas: 'diária + taxas',
+      so_diaria: 'só diária',
+      so_taxas: 'só taxas',
+      so_taxa_fixa: 'só taxa fixa',
+      diaria_taxas_fixas: 'diária + taxa fixa/entrega',
+    };
+    const descr = `Pagamento ao entregador ${nomeEnt} — ${rotulos[cfg.modelo] ?? cfg.modelo} · ${entregas} entrega(s) · ${inicio}..${fim}`;
+
+    // 1) Fechamento (append-only).
+    const fech: any = await this.db.execute(sql`
+      insert into entregador_fechamento
+        (tenant_id, colaborador_id, data_ref, modelo, entregas, diaria_centavos, taxas_centavos,
+         total_centavos, periodo_inicio, periodo_fim, base_taxa, criado_por)
+      values (${tenantId}, ${colaboradorId}, ${fim}, ${cfg.modelo}, ${entregas}, ${v.diaria}, ${v.taxas},
+         ${v.total}, ${inicio}::date, ${fim}::date, ${cfg.baseTaxa ?? 'real'}, ${atorId})
+      returning id`);
+    const fechamentoId = (fech.rows ?? fech)[0].id;
+
+    // 2) Sangria no caixa de entregas (saída em dinheiro).
+    const lc: any = await this.db.execute(sql`
+      insert into lancamento_caixa (tenant_id, tipo, valor, categoria, forma, descricao, sessao_id, criado_por_id)
+      values (${tenantId}, 'saida', ${(v.total / 100).toFixed(2)}, 'pagamento_entregador', 'dinheiro',
+              ${descr}, ${sessaoId}, ${atorId})
+      returning id`);
+    const lancamentoId = (lc.rows ?? lc)[0].id;
+    await this.db.execute(sql`update entregador_fechamento set lancamento_caixa_id = ${lancamentoId} where id = ${fechamentoId}`);
+
+    // 3) Marca os pedidos como acertados (não pagam de novo).
+    if (entregas > 0) {
+      const ids = pedidos.map((p: any) => p.id);
+      await this.db.execute(sql`
+        update pedido_externo set entregador_fechamento_id = ${fechamentoId}
+        where tenant_id = ${tenantId} and id = any(${ids}::uuid[])`);
+    }
+    return { ok: true, fechamentoId, entregas, ...v, descricao: descr };
   }
 
   private distanciaM(lat1: number, lng1: number, lat2: number, lng2: number): number {
