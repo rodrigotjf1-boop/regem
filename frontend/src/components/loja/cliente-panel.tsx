@@ -219,6 +219,29 @@ export function ClientePanel({
               </div>
             )}
 
+            {/* Pedidos ativos — número + código de entrega em destaque */}
+            {Array.isArray(perfil.historico) &&
+              perfil.historico.some(
+                (p: any) => p.codigoEntrega && !['concluido', 'cancelado', 'entregue'].includes(p.status),
+              ) && (
+                <div className="rounded-xl border border-black/10 p-3">
+                  <p className="text-sm font-bold">🛵 Pedidos ativos</p>
+                  <div className="mt-1.5 space-y-1.5">
+                    {perfil.historico
+                      .filter((p: any) => p.codigoEntrega && !['concluido', 'cancelado', 'entregue'].includes(p.status))
+                      .map((p: any) => (
+                        <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-black/70">Pedido {p.numero ? `#${p.numero}` : ''}</span>
+                          <span className="rounded-md bg-black/5 px-2 py-0.5 font-mono text-base font-extrabold tracking-[0.2em]">
+                            {p.codigoEntrega}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-black/50">Informe o código ao entregador para confirmar o recebimento.</p>
+                </div>
+              )}
+
             {/* Endereços */}
             <div>
               <div className="mb-1.5 flex items-center justify-between">

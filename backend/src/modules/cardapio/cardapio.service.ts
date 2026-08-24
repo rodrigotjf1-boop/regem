@@ -1393,6 +1393,14 @@ export class CardapioService {
             }
           : null,
       criadoEm: p.criadoEm,
+      // Código de entrega — o cliente informa ao entregador na entrega. Só entrega
+      // própria não-marketplace (marketplace confirma pelo app do canal).
+      codigoEntrega:
+        p.tipo !== 'retirada' &&
+        !['ifood', '99food'].includes(String(p.canal)) &&
+        p.codigoEntrega
+          ? String(p.codigoEntrega)
+          : null,
     };
   }
 

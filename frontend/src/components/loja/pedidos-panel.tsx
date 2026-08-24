@@ -282,6 +282,19 @@ function PedidoDetalhe({
           {it.label}
         </span>
 
+        {!fin && full?.codigoEntrega && (
+          <div
+            className="mt-3 rounded-xl border-2 p-3 text-center"
+            style={{ borderColor: accent, background: `${accent}14` }}
+          >
+            <p className="text-[11px] font-bold uppercase tracking-wider text-black/55">Código de entrega</p>
+            <p className="my-0.5 font-mono text-3xl font-extrabold tracking-[0.25em]" style={{ color: accent }}>
+              {full.codigoEntrega}
+            </p>
+            <p className="text-[11px] text-black/55">Informe ao entregador para confirmar o recebimento.</p>
+          </div>
+        )}
+
         <div className="mt-2 space-y-0.5 text-xs text-black/60">
           {hhmm(pedido.criadoEm) && <p>🕐 Feito em: {hhmm(pedido.criadoEm)}</p>}
           {hhmm(pedido.despachadoEm) && <p>🛵 Saiu para entrega: {hhmm(pedido.despachadoEm)}</p>}
