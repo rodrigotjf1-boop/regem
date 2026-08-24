@@ -38,6 +38,7 @@ import { VendasService } from '../vendas/vendas.service';
 import { ProducaoPedidoService } from '../producao-pedido/producao-pedido.service';
 import { CashbackService } from '../cashback/cashback.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
+import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
 import { OpenDeliveryService } from '../integracoes/open-delivery/open-delivery.service';
 import { CardapioWebService } from '../integracoes/cardapio-web/cardapio-web.service';
 import { IfoodService } from '../integracoes/ifood/ifood.service';
@@ -59,6 +60,7 @@ export class DeliveryService {
     private readonly cashback: CashbackService,
     private readonly fidelidade: FidelidadeService,
     private readonly events: EventEmitter2,
+    private readonly flash: EdgeFlashSyncService,
     @Optional()
     @Inject(forwardRef(() => OpenDeliveryService))
     private readonly openDelivery?: OpenDeliveryService,
@@ -804,6 +806,7 @@ export class DeliveryService {
         patch.entregadorTelefone = dados.entregadorTelefone || null;
     }
     if (novo === 'concluido') patch.concluidoEm = new Date();
+    patch.updatedAt = new Date(); // bump explícito → sync edge→nuvem pega a transição (LWW/cursor)
     const [row] = await this.db
       .update(pedidoExterno)
       .set(patch)
@@ -814,6 +817,7 @@ export class DeliveryService {
       await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
       await this.reconciliarDinheiro(tenantId, row);
     }
+    void this.flash.flashPedidos([row.id]); // push IMEDIATO p/ a nuvem (app do entregador vê em segundos)
     void this.dispararWebhook(tenantId, row);
     if (novo === 'despachado') void this.statusBack(tenantId, row, 'dispatch');
     // Cardápio Web — mapeamento por tipo, alinhado ao fluxo do CW:
@@ -869,9 +873,11 @@ export class DeliveryService {
           dados?.entregadorTelefone != null
             ? dados.entregadorTelefone || null
             : ped.entregadorTelefone,
+        updatedAt: new Date(),
       })
       .where(eq(pedidoExterno.id, id))
       .returning();
+    void this.flash.flashPedidos([row.id]); // push imediato → app do entregador vê em segundos
     void this.dispararWebhook(tenantId, row);
     void this.statusBack(tenantId, row, 'dispatch');
     void this.statusBackCw(tenantId, row, 'ready'); // CW: saiu para entrega
@@ -916,9 +922,10 @@ export class DeliveryService {
       throw new BadRequestException('O pedido precisa estar em rota para ser marcado como entregue.');
     const [row] = await this.db
       .update(pedidoExterno)
-      .set({ status: 'entregue', entregueEm: new Date() })
+      .set({ status: 'entregue', entregueEm: new Date(), updatedAt: new Date() })
       .where(eq(pedidoExterno.id, id))
       .returning();
+    void this.flash.flashPedidos([row.id]); // push imediato → conferência aparece na nuvem
     void this.dispararWebhook(tenantId, row);
     return row;
   }

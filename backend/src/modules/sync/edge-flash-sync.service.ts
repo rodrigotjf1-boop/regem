@@ -1,7 +1,7 @@
 import { Global, Inject, Injectable, Logger, Module } from '@nestjs/common';
 import { inArray } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { produto } from '../../db/schema';
+import { produto, pedidoExterno } from '../../db/schema';
 
 /**
  * Flash-sync (P3/híbrido): push IMEDIATO de produtos para a nuvem, fora do ciclo do
@@ -41,6 +41,28 @@ export class EdgeFlashSyncService {
         else this.logger.log(`flash: ${linhas.length} produto(s) → cardápio online`);
       } catch (e: any) {
         this.logger.warn(`flash falhou (daemon recupera no ciclo): ${e?.message ?? e}`);
+      }
+    })();
+  }
+
+  // Push IMEDIATO de pedidos (por id) para a nuvem — usado nas mudanças de STATUS
+  // (pronto/despachado/entregue/concluído) para o app do entregador (só nuvem) ver a
+  // transição em segundos, não no ciclo de ~60s. Best-effort; o daemon é a rede de segurança.
+  async flashPedidos(ids: string[]): Promise<void> {
+    if (!this.ligado || !ids?.length) return;
+    void (async () => {
+      try {
+        const linhas = await this.db.select().from(pedidoExterno).where(inArray(pedidoExterno.id, ids));
+        if (!linhas.length) return;
+        const res = await fetch(`${this.cloud}/sync/push`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-token': this.token },
+          body: JSON.stringify({ lotes: [{ tabela: 'pedido_externo', linhas }] }),
+        });
+        if (!res.ok) this.logger.warn(`flash pedido push HTTP ${res.status}`);
+        else this.logger.log(`flash: ${linhas.length} pedido(s) → nuvem`);
+      } catch (e: any) {
+        this.logger.warn(`flash pedido falhou (daemon recupera no ciclo): ${e?.message ?? e}`);
       }
     })();
   }
