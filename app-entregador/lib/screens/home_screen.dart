@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../api.dart';
 import '../location.dart';
+import '../outbox.dart';
 import 'login_screen.dart';
 import 'scanner_screen.dart';
 import 'pedido_screen.dart';
@@ -21,11 +24,42 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _pegandoSaida = false;
   String? _erro;
   bool _carregando = true;
+  bool _online = true; // indicador de conexão (offline-first)
+  int _pendentes = 0; // entregas na fila local aguardando envio
+  StreamSubscription<List<ConnectivityResult>>? _connSub;
 
   @override
   void initState() {
     super.initState();
     _carregar();
+    _sincronizarPendentes();
+    _connSub = Connectivity().onConnectivityChanged.listen((r) {
+      final on = r.any((x) => x != ConnectivityResult.none);
+      if (mounted) setState(() => _online = on);
+      if (on) _sincronizarPendentes(); // reconectou → esvazia a fila
+    });
+  }
+
+  @override
+  void dispose() {
+    _connSub?.cancel();
+    super.dispose();
+  }
+
+  // Esvazia a fila offline e atualiza o contador de pendentes. Se algo saiu,
+  // recarrega para refletir os status já atualizados no servidor.
+  Future<void> _sincronizarPendentes() async {
+    final enviados = await Outbox.flush();
+    final p = await Outbox.pendentes();
+    if (mounted) setState(() => _pendentes = p);
+    if (enviados > 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$enviados entrega(s) pendente(s) enviada(s) ✅')),
+        );
+      }
+      _carregar();
+    }
   }
 
   String _brl(dynamic centavos) {
@@ -199,6 +233,33 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (!_online || _pendentes > 0)
+          Card(
+            color: (_online ? Colors.orange : Colors.grey).withValues(alpha: 0.12),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  Icon(_online ? Icons.sync : Icons.cloud_off,
+                      size: 18, color: _online ? Colors.orange.shade800 : Colors.grey.shade700),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      !_online
+                          ? (_pendentes > 0
+                              ? 'Sem conexão · $_pendentes entrega(s) na fila, enviam ao reconectar.'
+                              : 'Sem conexão · você ainda pode concluir entregas offline.')
+                          : '$_pendentes entrega(s) na fila, enviando…',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _online ? Colors.orange.shade900 : Colors.grey.shade800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
         if (_erro != null)
           Card(
             color: Colors.red.withValues(alpha: 0.08),

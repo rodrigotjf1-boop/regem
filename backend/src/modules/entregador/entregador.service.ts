@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
+import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
@@ -59,6 +60,14 @@ export class EntregadorService {
         p.tipo !== 'retirada' &&
         !['ifood', '99food'].includes(String(p.canal)) &&
         !!p.codigoEntrega,
+      // HASH (SHA-256) do código de entrega própria — o app verifica OFFLINE comparando o
+      // hash do que o cliente digitar. NUNCA manda o código em texto (o entregador não vê).
+      codigoEntregaHash:
+        p.tipo !== 'retirada' &&
+        !['ifood', '99food'].includes(String(p.canal)) &&
+        p.codigoEntrega
+          ? createHash('sha256').update(String(p.codigoEntrega)).digest('hex')
+          : null,
       raw: p.raw ?? null, // p/ o app detectar entrega própria de marketplace (código do canal)
     };
   }

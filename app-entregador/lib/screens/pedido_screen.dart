@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:crypto/crypto.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
+import '../outbox.dart';
 
 class PedidoScreen extends StatefulWidget {
   final Map<String, dynamic> pedido;
@@ -111,19 +114,44 @@ class _PedidoScreenState extends State<PedidoScreen> {
   // própria do cardápio/local com código de 4 díg. (backend manda precisaCodigo).
   bool get _precisaCodigo => _entregaPropria || widget.pedido['precisaCodigo'] == true;
 
+  // Verifica o código OFFLINE pelo HASH (SHA-256) que o backend mandou — sem internet,
+  // sem expor o código. Sem hash (marketplace) → deixa o servidor validar.
+  bool _codigoConfere(String code) {
+    final hash = widget.pedido['codigoEntregaHash']?.toString();
+    if (hash == null || hash.isEmpty) return true;
+    return sha256.convert(utf8.encode(code)).toString() == hash;
+  }
+
+  static bool _ehErroDeRede(String msg) =>
+      msg.contains('SocketException') ||
+      msg.contains('Failed host lookup') ||
+      msg.contains('Connection') ||
+      msg.contains('timed out') ||
+      msg.contains('Network is unreachable') ||
+      msg.contains('ClientException');
+
   Future<void> _finalizar() async {
-    if (_precisaCodigo && _codigo.text.trim().isEmpty) {
+    final code = _codigo.text.trim();
+    if (_precisaCodigo && code.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Digite o código de entrega do cliente.')),
       );
       return;
     }
-    setState(() => _finalizando = true);
-    try {
-      final r = await Api.finalizar(
-        widget.pedido['id'] as String,
-        codigo: _precisaCodigo ? _codigo.text.trim() : null,
+    // Validação OFFLINE por hash (funciona sem conexão).
+    if (_precisaCodigo && !_codigoConfere(code)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Código inválido — confira com o cliente.'),
+          backgroundColor: Colors.red,
+        ),
       );
+      return;
+    }
+    setState(() => _finalizando = true);
+    final id = widget.pedido['id'] as String;
+    try {
+      final r = await Api.finalizar(id, codigo: _precisaCodigo ? code : null);
       if (!mounted) return;
       if (r['valid'] == false) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -140,11 +168,21 @@ class _PedidoScreenState extends State<PedidoScreen> {
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
+      final msg = e.toString();
+      // Sem conexão → enfileira (offline-first) e conclui localmente; envia ao reconectar.
+      if (_ehErroDeRede(msg)) {
+        await Outbox.enfileirar(id, _precisaCodigo ? code : null);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sem conexão — entrega registrada ✅ Será enviada ao reconectar.'),
+          ),
+        );
+        Navigator.pop(context, true);
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(msg.replaceFirst('Exception: ', '')), backgroundColor: Colors.red),
       );
       setState(() => _finalizando = false);
     }
