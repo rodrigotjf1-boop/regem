@@ -753,6 +753,25 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
+    // Código de entrega própria: avisa o cliente por WhatsApp, na confirmação, que
+    // ele precisará informar o código ao entregador para receber o pedido. Só entrega
+    // própria não-marketplace com código (marketplace confirma pelo app do canal).
+    if (
+      row.tipo !== 'retirada' &&
+      !['ifood', '99food'].includes(String(row.canal)) &&
+      row.codigoEntrega &&
+      row.clienteTelefone
+    ) {
+      void this.notificarN8n(tenantId, {
+        evento: 'codigo_entrega',
+        pedidoId: row.id,
+        numero: row.numero,
+        displayId: row.displayId,
+        cliente: row.clienteNome,
+        telefone: String(row.clienteTelefone).replace(/\D/g, ''),
+        codigoEntrega: String(row.codigoEntrega),
+      });
+    }
     void this.statusBackCw(tenantId, row, 'confirm');
     void this.statusBackIfood(tenantId, row, 'confirm');
     void this.statusBackFood99(tenantId, row, 'confirm');
@@ -766,7 +785,29 @@ export class DeliveryService {
         taxaEntrega: Number(row.taxaEntrega),
       })
       .catch(() => {});
+    // No EDGE, o pedido externo entra em "pendentes" e já imprime 1 via do caixa na
+    // impressora LOCAL (a nuvem não alcança a térmica). Delivery leva o QR de despacho
+    // direto na comanda quando a loja mantém 'imprimir_qr_comanda' ligado.
+    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true' && row.comandaId) {
+      void this.imprimirCupomCaixaExterno(tenantId, row).catch(() => {});
+    }
     return row;
+  }
+
+  // Auto-impressão (EDGE) da 1ª via do caixa do pedido externo. Entrega (não retirada)
+  // com o toggle ligado leva o QR de despacho ({base}/e/{token}) na própria comanda — o
+  // entregador escaneia dela, sem o cupom do entregador separado. Best-effort.
+  private async imprimirCupomCaixaExterno(tenantId: string, ped: any) {
+    let qrData: string | undefined;
+    if (ped.tipo !== 'retirada') {
+      const cfg: any = await this.getConfig(tenantId, ped.unidadeId ?? null);
+      if (cfg?.imprimirQrComanda !== false) {
+        const token = await this.tokenDespacho(tenantId, ped.id);
+        const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
+        qrData = `${base}/e/${token}`;
+      }
+    }
+    await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, qrData);
   }
 
   async avancar(
@@ -1537,8 +1578,12 @@ export class DeliveryService {
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
   private async dispararWebhook(tenantId: string, ped: any, evento = 'status') {
+    // Cancelamento vira evento dedicado 'cancelado' e leva o MOTIVO — o cliente
+    // precisa saber por que o pedido foi cancelado (o fluxo n8n trata esse ramo).
+    const cancelado = ped.status === 'cancelado';
+    const eventoFinal = evento === 'status' && cancelado ? 'cancelado' : evento;
     await this.notificarN8n(tenantId, {
-      evento,
+      evento: eventoFinal,
       pedidoId: ped.id,
       numero: ped.numero,
       displayId: ped.displayId,
@@ -1549,6 +1594,7 @@ export class DeliveryService {
       total: Number(ped.total),
       canal: ped.canal,
       entregadorNome: ped.entregadorNome ?? null,
+      ...(cancelado ? { motivoCancelamento: ped.motivoCancelamento ?? null } : {}),
     });
   }
 
@@ -1760,6 +1806,7 @@ export class DeliveryService {
         finalizadoHoras: 5,
         qrDespacho: false,
         adiarProducaoAteKds: false,
+        imprimirQrComanda: true,
         pausadoAte: null,
         pausaMotivo: null,
       };
@@ -2008,6 +2055,9 @@ export class DeliveryService {
         dto.qrDespacho != null ? !!dto.qrDespacho : row?.qrDespacho ?? false,
       adiarProducaoAteKds:
         dto.adiarProducaoAteKds != null ? !!dto.adiarProducaoAteKds : row?.adiarProducaoAteKds ?? false,
+      // QR na 1ª via do caixa dos pedidos externos (padrão ligado).
+      imprimirQrComanda:
+        dto.imprimirQrComanda != null ? !!dto.imprimirQrComanda : row?.imprimirQrComanda ?? true,
     };
     // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
     if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;

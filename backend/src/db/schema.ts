@@ -1989,6 +1989,10 @@ export const deliveryConfig = pgTable('delivery_config', {
   // QR de despacho: ligado, o entregador lê o QR do cupom e despacha sozinho;
   // desligado, o AVANÇAR abre o modal de seleção de entregador (mig 165).
   qrDespacho: boolean('qr_despacho').notNull().default(false),
+  // Imprimir o QR de despacho já na 1ª via do caixa dos pedidos EXTERNOS (delivery):
+  // ligado (padrão), a comanda do caixa sai com o QR — o entregador escaneia direto
+  // dela, dispensando o cupom do entregador separado (mig 211, aditiva, edge lê).
+  imprimirQrComanda: boolean('imprimir_qr_comanda').notNull().default(true),
   // Pausa temporária (reativa sozinha ao passar de pausado_ate).
   pausadoAte: timestamp('pausado_ate', { withTimezone: true }),
   pausaMotivo: text('pausa_motivo'),

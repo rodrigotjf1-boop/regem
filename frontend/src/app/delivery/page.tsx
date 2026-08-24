@@ -1301,6 +1301,14 @@ function ConfigModal({ cfg, onToggle, loja, onTipo, pode, onClose }: { cfg: any;
           </span>
         </label>
 
+        <label className="mb-3 flex items-start gap-2 border-b border-border pb-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" disabled={!pode} checked={cfg.imprimirQrComanda !== false} onChange={(e) => onToggle({ imprimirQrComanda: e.target.checked })} />
+          <span>
+            Imprimir QR na comanda
+            <span className="block text-xs text-muted-foreground">Ligado: a 1ª via do caixa dos pedidos de delivery já sai com o QR de despacho — o entregador escaneia direto da comanda, sem o cupom do entregador separado. (Impressão automática no servidor local.)</span>
+          </span>
+        </label>
+
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tempos de preparo</p>
         <PrepTempoCard cfg={cfg} podeEditar={pode} onSave={onToggle} />
 

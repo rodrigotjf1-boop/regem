@@ -829,6 +829,7 @@ export class VendasService {
     dados: { senha?: number | null; mesa?: string | null; itens: any[]; total: number; forma?: string | null },
     terminalId?: string | null,
     alvoPreferido?: string | null,
+    qrData?: string | null,
   ) {
     // atorId pode ser nulo (materialização no edge de uma venda que desceu) — sem
     // ator o cupom sai sem "atendente"; evita consultar colaborador com id inválido.
@@ -854,11 +855,14 @@ export class VendasService {
     const layout = (linhaCfg?.cupomLayout as any) ?? {};
     // Fase 3 — perfil "caixa" efetivo (padrão + override) para o render por perfil.
     const perfilCaixa = perfilEfetivo('caixa', ((linhaCfg?.cupomPerfis as any) ?? {})?.caixa);
-    const conteudo = this.producao.renderViaCliente(
+    let conteudo = this.producao.renderViaCliente(
       { ...dados, atendente: ator?.nome ?? null },
       layout,
       perfilCaixa,
     );
+    // Pedido externo (delivery) com QR de despacho na comanda: o entregador escaneia
+    // direto da via do caixa (aposenta o cupom do entregador separado). Centralizado.
+    if (qrData) conteudo += `\n@C\n@QR:${qrData}\n`;
     return this.producao.enfileirarViaCliente(
       tenantId,
       unidadeId,
@@ -938,6 +942,54 @@ export class VendasService {
       enfileirados: (cupom.enfileirados || 0) + producao,
       aviso: cupom.aviso,
     };
+  }
+
+  // P/ pedido EXTERNO no edge: imprime SÓ a via do caixa (cupom) da comanda — a
+  // produção já saiu no aceitar (emitirNovos). Com `qrData`, a via leva o QR de
+  // despacho (o entregador escaneia direto da comanda). Best-effort; silencioso se
+  // não há impressora de cupom. Idempotência é de quem chama (aceitar roda 1x).
+  async materializarCupomCaixa(
+    tenantId: string,
+    comandaId: string,
+    qrData?: string | null,
+  ): Promise<{ enfileirados: number; aviso: string | null }> {
+    const [c] = await this.db
+      .select()
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+    if (!c || c.status !== 'fechada') return { enfileirados: 0, aviso: 'comanda não fechada' };
+
+    const itens = await this.db
+      .select()
+      .from(comandaItem)
+      .where(eq(comandaItem.comandaId, comandaId));
+    const viaClienteItens: any[] = [];
+    for (const it of itens) {
+      const comps = await this.db
+        .select({ tipo: comandaItemComplemento.tipo, nome: comandaItemComplemento.nome })
+        .from(comandaItemComplemento)
+        .where(eq(comandaItemComplemento.comandaItemId, it.id));
+      const compTexto =
+        comps.map((s) => `${s.tipo === 'remover' ? 'sem' : '+'} ${s.nome}`).join(' · ') || null;
+      viaClienteItens.push({
+        quantidade: Number(it.quantidade),
+        descricao: it.descricao,
+        precoUnitario: Number(it.precoUnitario),
+        complementosTexto: compTexto,
+        observacao: it.observacao,
+      });
+    }
+
+    return this.imprimirViaCliente(
+      tenantId,
+      comandaId,
+      c.unidadeId ?? null,
+      c.abertaPorId ?? null,
+      { senha: c.senha, mesa: c.mesa, itens: viaClienteItens, total: Number(c.total), forma: c.forma ?? null },
+      null,
+      null,
+      qrData,
+    );
   }
 
   // Venda por canal externo (delivery). Sem caixa: baixa estoque, cria produção
