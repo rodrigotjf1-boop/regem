@@ -177,4 +177,16 @@ export class WhatsappController {
   ) {
     return this.service.statusPedidoBot(instancia ?? '', secret ?? '', telefone ?? '', numero ?? '');
   }
+
+  // Pedidos RECENTES do cliente por telefone (contexto da IA "cadê meu pedido").
+  // Autenticado pelo secret do bot — não exige token de cliente.
+  @Get('publico/bot/pedidos')
+  @Throttle({ default: { ttl: 60000, limit: 120 } })
+  pedidosBot(
+    @Query('instancia') instancia: string,
+    @Query('secret') secret: string,
+    @Query('telefone') telefone?: string,
+  ) {
+    return this.service.pedidosPorTelefoneBot(instancia ?? '', secret ?? '', telefone ?? '');
+  }
 }
