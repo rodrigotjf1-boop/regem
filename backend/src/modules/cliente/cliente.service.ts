@@ -661,6 +661,8 @@ export class ClienteService {
         statusPagamento: pedidoExterno.statusPagamento,
         pago: pedidoExterno.pago,
         tipo: pedidoExterno.tipo,
+        canal: pedidoExterno.canal,
+        codigoEntrega: pedidoExterno.codigoEntrega,
         itens: pedidoExterno.itens,
         formaPagamento: pedidoExterno.formaPagamento,
         bandeira: pedidoExterno.bandeira,
@@ -699,7 +701,17 @@ export class ClienteService {
     return {
       cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
       enderecos: await this.enderecosDe(c.id),
-      historico: historico.map((p) => ({ ...p, resgate: resgates.has(p.id) })),
+      historico: historico.map((p) => {
+        // Expõe o código só p/ entrega própria não-marketplace; não vaza o canal cru.
+        const { canal, codigoEntrega, ...rest } = p;
+        const codigo =
+          p.tipo !== 'retirada' &&
+          !['ifood', '99food'].includes(String(canal)) &&
+          codigoEntrega
+            ? String(codigoEntrega)
+            : null;
+        return { ...rest, codigoEntrega: codigo, resgate: resgates.has(p.id) };
+      }),
     };
   }
 
