@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, or, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
@@ -732,6 +732,45 @@ export class WhatsappService {
       statusPagamento: alvo.statusPagamento,
       texto: this.textoStatusPedido(alvo),
     };
+  }
+
+  // Público (robô): pedidos RECENTES por telefone — autenticado pelo secret do bot
+  // (não exige clienteToken; o WhatsApp já prova a posse do número). Casa pelos últimos
+  // 8 dígitos. Alimenta o contexto da IA ("Pedidos recentes deste cliente").
+  async pedidosPorTelefoneBot(instancia: string, secret: string, telefone?: string) {
+    const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
+    if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
+    const [cfg] = await this.db
+      .select({ tenantId: cardapioConfig.tenantId })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.evolutionInstancia, instancia));
+    if (!cfg) throw new NotFoundException('Instância não vinculada a uma loja.');
+    const tail = this.soNumero(telefone).slice(-8);
+    if (tail.length < 8) return [];
+    const rows = await this.db
+      .select({
+        numero: pedidoExterno.numero,
+        displayId: pedidoExterno.displayId,
+        status: pedidoExterno.status,
+        statusPagamento: pedidoExterno.statusPagamento,
+        tipo: pedidoExterno.tipo,
+        total: pedidoExterno.total,
+        entregadorNome: pedidoExterno.entregadorNome,
+        criadoEm: pedidoExterno.criadoEm,
+      })
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, cfg.tenantId),
+          or(
+            ilike(pedidoExterno.clienteTelefone, `%${tail}%`),
+            ilike(pedidoExterno.clienteTelefone2, `%${tail}%`),
+          ),
+        ),
+      )
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(5);
+    return rows.map((r) => ({ ...r, statusTexto: this.textoStatusPedido(r) }));
   }
 
   async resolver(instancia: string, secret: string, numero?: string) {
