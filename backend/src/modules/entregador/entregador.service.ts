@@ -817,12 +817,17 @@ export class EntregadorService {
       .from(pedidoExterno)
       .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
     if (!ped || !ped.clienteTelefone || !ped.rastreioToken) return;
+    const codigoEntrega =
+      ped.tipo !== 'retirada' && !['ifood', '99food'].includes(String(ped.canal)) && ped.codigoEntrega
+        ? String(ped.codigoEntrega)
+        : null;
     await this.cliente.enviarEventoWebhook(tenantId, {
       evento: 'rastreio',
       telefone: String(ped.clienteTelefone).replace(/\D/g, ''),
       cliente: ped.clienteNome,
       numero: ped.numero,
       rastreioUrl: `${this.basePublica()}/r/${ped.rastreioToken}`,
+      codigoEntrega, // o cliente informa ao entregador na entrega
     });
   }
 
@@ -911,6 +916,15 @@ export class EntregadorService {
       parada = { x: Number(ped.ordem_parada), y: Number((t.rows ?? t)[0]?.n ?? 0) };
     }
     const eta = ['despachado'].includes(String(ped.status)) ? await this.etaAcumulado(tenantId, ped, pos) : null;
+    // Código de entrega (Fase 5) — o CLIENTE vê aqui p/ informar ao entregador. Só entrega
+    // própria (não marketplace, que valida pela API do canal) e enquanto não foi entregue.
+    const codigoEntrega =
+      ped.tipo !== 'retirada' &&
+      !['ifood', '99food'].includes(String(ped.canal)) &&
+      ped.codigo_entrega &&
+      !['entregue', 'concluido', 'cancelado'].includes(String(ped.status))
+        ? String(ped.codigo_entrega)
+        : null;
     return {
       numero: ped.numero,
       status: String(ped.status),
@@ -919,6 +933,7 @@ export class EntregadorService {
       destino, // { lat, lng } | null
       parada, // { x, y } | null
       etaMin: eta,
+      codigoEntrega, // o cliente informa ao entregador na entrega
     };
   }
 
