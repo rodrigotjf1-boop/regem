@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
@@ -698,6 +698,9 @@ export class WhatsappService {
     const num = String(numero ?? '').replace(/\D/g, '');
     if (!num)
       return { encontrado: false, texto: 'Não identifiquei o número do pedido. Pode me informar o número da senha?' };
+    // O cliente pode informar o Nº do Regem (pedido_externo.numero, sequencial) OU o
+    // código externo do cardápio (display_id). Casa qualquer um dos dois.
+    const numInt = Number(num);
     const rows = await this.db
       .select({
         status: pedidoExterno.status,
@@ -706,7 +709,15 @@ export class WhatsappService {
         telefone: pedidoExterno.clienteTelefone,
       })
       .from(pedidoExterno)
-      .where(and(eq(pedidoExterno.tenantId, cfg.tenantId), eq(pedidoExterno.displayId, num)))
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, cfg.tenantId),
+          or(
+            eq(pedidoExterno.displayId, num),
+            Number.isFinite(numInt) ? eq(pedidoExterno.numero, numInt) : undefined,
+          ),
+        ),
+      )
       .orderBy(desc(pedidoExterno.criadoEm))
       .limit(5);
     // Telefone (se veio) desempata quando a mesma senha se repete entre dias.
