@@ -21,6 +21,9 @@ dependencies:
   geolocator: ^13.0.0
   # E3 (rotas): abrir o endereço no Waze/Google Maps.
   url_launcher: ^6.3.0
+  # Offline-first: verificação do código por HASH (sem expor) + detecção de conexão.
+  crypto: ^3.0.3
+  connectivity_plus: ^6.1.0
 
 dev_dependencies:
   flutter_lints: ^4.0.0
