@@ -76,21 +76,39 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   // Progresso da instalação em curso: o atualizar.ps1 grava logs/update-status.json
   // a cada estágio (a tela mostra a barra e reconecta no reinício dos serviços).
   private lerProgresso(): {
+    fase: string;
     estagio: string;
     pct: number;
     versao: string | null;
+    baixadoMb: number | null;
+    totalMb: number | null;
     erro: string | null;
+    acaoFinal: string | null;
     ts: string | null;
   } | null {
     try {
       const f = join(process.cwd(), 'logs', 'update-status.json');
       if (!existsSync(f)) return null;
       const j = JSON.parse(readFileSync(f, 'utf8'));
+      const estagio = String(j.estagio ?? '');
+      // `fase` deriva do estágio (compat com pacotes antigos que não a gravam):
+      // baixando → download; ok/erro → terminal; o resto → instalação.
+      const fase =
+        j.fase ??
+        (estagio === 'baixando'
+          ? 'baixando'
+          : estagio === 'ok' || estagio === 'erro'
+            ? estagio
+            : 'instalando');
       return {
-        estagio: String(j.estagio ?? ''),
+        fase: String(fase),
+        estagio,
         pct: Number(j.pct ?? 0),
         versao: j.versao ?? null,
+        baixadoMb: j.baixadoMb != null ? Number(j.baixadoMb) : null,
+        totalMb: j.totalMb != null ? Number(j.totalMb) : null,
         erro: j.erro ?? null,
+        acaoFinal: j.acaoFinal ?? null,
         ts: j.ts ?? null,
       };
     } catch {
@@ -209,6 +227,17 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     const disp = await this.getState('update_disponivel');
     if (!disp)
       throw new BadRequestException('Não há atualização disponível. Verifique primeiro.');
+    // Mata uma execução ANTERIOR presa antes de disparar. Edges instalados antes do
+    // fix tinham a tarefa sem -MultipleInstances (default IgnoreNew): se um update
+    // travou (ex.: pg_dump), a tarefa fica "Running" por até 3 dias e IGNORA todo
+    // /run novo → "nada acontece", sem log. O /end libera; best-effort (ignora erro
+    // se não houver execução presa). O fix definitivo (StopExisting) já vem no
+    // instalar-servicos/atualizar, mas isto destrava o edge de campo agora.
+    try {
+      await pExecFile('schtasks', ['/end', '/tn', 'RegemEdgeUpdate']);
+    } catch {
+      /* sem execução presa — segue */
+    }
     try {
       await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeUpdate']);
       return { iniciada: true, versao: disp };

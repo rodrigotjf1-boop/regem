@@ -28,13 +28,22 @@ function Diga($m) { $l = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m; Write
 $statusFile = Join-Path $logDir "update-status.json"
 $script:versaoNova = ""
 $script:logArquivo = $log
-function Prog($estagio, $pct, $erro = $null) {
+$script:baixadoMb = $null   # bytes baixados (MB) - barra de download real
+$script:totalMb   = $null   # tamanho total (MB), quando o servidor informa
+$script:acaoFinal = $null   # o que o usuario precisa fazer ao terminar (ou nada)
+# fase: 'baixando' | 'instalando' | 'ok' | 'erro' - a UI mostra uma barra por fase.
+# pct: 0..100 DENTRO da fase (download real na fase 'baixando'; passos na 'instalando').
+function Prog($estagio, $pct, $fase = 'instalando', $erro = $null) {
   try {
-    $o = @{ estagio = $estagio; pct = $pct; versao = $script:versaoNova; erro = $erro; ts = (Get-Date -Format o) }
+    $o = @{
+      fase = $fase; estagio = $estagio; pct = $pct; versao = $script:versaoNova
+      baixadoMb = $script:baixadoMb; totalMb = $script:totalMb
+      acaoFinal = $script:acaoFinal; erro = $erro; ts = (Get-Date -Format o)
+    }
     $o | ConvertTo-Json -Compress | Set-Content -Path $statusFile -Encoding UTF8
   } catch {}
 }
-Prog "iniciando" 2
+Prog "iniciando" 0 'baixando'
 
 # Resolve Node/Postgres/NSSM EMBUTIDOS - o auto-update roda como SYSTEM (agendado),
 # sem o PATH do usuario. Prende os do bundle na frente do PATH desta sessao.
@@ -55,6 +64,49 @@ $versaoAtual = if ($cfg.APP_VERSION) { $cfg.APP_VERSION } else { "0" }
 $cloud = $cfg.CLOUD_API.TrimEnd("/")
 if (-not $cloud) { throw "CLOUD_API ausente no .env.local" }
 
+# ---- decifra segredos DPAPI (prefixo enc:) ----
+# O atualizar.ps1 roda como SYSTEM (mesma conta LocalMachine que cifrou via
+# proteger-env.ps1). Este era o UNICO script do edge que lia o .env.local CRU:
+# sem decifrar, o pg_dump recebia EDGE_DATABASE_URL="enc:..." (travava/falhava) e a
+# telemetria mandava x-sync-token cifrado (rejeitado pela nuvem -> nenhuma falha
+# aparecia no console). Agora decifra EDGE_DATABASE_URL e SYNC_TOKEN igual aos daemons.
+function DecDpapi($v) {
+  if (-not $v) { return $v }
+  if (-not $v.StartsWith('enc:')) { return $v }
+  try {
+    Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue
+    $bytes = [Convert]::FromBase64String($v.Substring(4))
+    $dec = [System.Security.Cryptography.ProtectedData]::Unprotect(
+      $bytes, $null, [System.Security.Cryptography.DataProtectionScope]::LocalMachine)
+    return [System.Text.Encoding]::UTF8.GetString($dec)
+  } catch { Diga "(aviso) nao decifrei um segredo DPAPI: $($_.Exception.Message)"; return $v }
+}
+foreach ($k in @('EDGE_DATABASE_URL', 'DATABASE_URL', 'SYNC_TOKEN', 'JWT_SECRET')) {
+  if ($cfg.ContainsKey($k)) { $cfg[$k] = DecDpapi $cfg[$k] }
+}
+
+# Telemetria de falha pela rota PUBLICA (/edge/telemetria/erro, sem token) - funciona
+# mesmo se o SYNC_TOKEN nao decifrar. Best-effort. Reusada na fase inicial e no rollback.
+function PostErro($tipo, $msg) {
+  try {
+    $logTail = ""
+    if (Test-Path $script:logArquivo) { $logTail = (Get-Content $script:logArquivo -Tail 40 -ErrorAction SilentlyContinue) -join "`n" }
+    $corpo = @{
+      tipo = $tipo; erro = $msg; logTail = $logTail
+      versaoNova = $script:versaoNova; versaoAtual = $versaoAtual
+      tenantId = $cfg.EDGE_TENANT_ID; modo = 'auto-update'
+    } | ConvertTo-Json -Compress
+    Invoke-RestMethod -Method Post -Uri ("{0}/edge/telemetria/erro" -f $cloud) `
+      -Body $corpo -ContentType "application/json" -TimeoutSec 15 | Out-Null
+    Diga "Telemetria de falha enviada (rota publica)."
+  } catch { Diga "(aviso) nao consegui enviar a telemetria: $($_.Exception.Message)" }
+}
+
+# ---- FASE INICIAL protegida (update-check, assinatura, download, SHA, backup) ----
+# Antes, qualquer throw AQUI ficava FORA do try/catch (que so cobria a troca de
+# servicos): a UI travava girando (sem 'erro') e a distribuicao nunca via a falha.
+# Agora todo aborto da fase inicial grava Prog 'erro' + posta telemetria.
+try {
 Diga "Versao instalada: $versaoAtual - consultando a nuvem..."
 $info = Invoke-RestMethod -Uri ("{0}/edge/update-check?versao={1}" -f $cloud, $versaoAtual) -TimeoutSec 30
 if (-not $info.atualizar -and -not $Forcar) { Diga "Ja esta na ultima versao ($($info.ultima)). Nada a fazer."; return }
@@ -92,32 +144,72 @@ elseif ($reqSig) { throw "Release SEM assinatura e EDGE_REQUIRE_SIGNED_UPDATE=tr
 else { Diga "(aviso) release sem assinatura - tolerando (defina EDGE_REQUIRE_SIGNED_UPDATE=true p/ exigir)." }
 
 Diga "Nova versao: $($info.ultima). Baixando $($info.url)"
-Prog "baixando" 15
+Prog "baixando" 0 'baixando'
 
-# ---- 2) baixa e confere o SHA-256 ANTES de tocar em nada ----
+# ---- 2) baixa em STREAM (barra REAL por bytes) e confere o SHA-256 ANTES de tocar em nada ----
 $tmp = Join-Path $env:TEMP ("regem-edge-{0}" -f (Get-Random))
 New-Item -ItemType Directory -Force $tmp | Out-Null
 $zip = Join-Path $tmp "pacote.zip"
-Invoke-WebRequest -Uri $info.url -OutFile $zip -TimeoutSec 600
+
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$reqDl = [System.Net.HttpWebRequest]::Create($info.url)
+$reqDl.Timeout = 600000; $reqDl.ReadWriteTimeout = 600000
+$respDl = $reqDl.GetResponse()
+$totalBytes = [int64]$respDl.ContentLength   # -1 se o servidor nao informar
+$script:totalMb = if ($totalBytes -gt 0) { [math]::Round($totalBytes / 1MB, 1) } else { $null }
+$rs = $respDl.GetResponseStream()
+$fs = [System.IO.File]::Create($zip)
+try {
+  $buf = New-Object byte[] 262144   # 256 KB por leitura
+  $lidos = [int64]0; $ultimoTick = 0
+  while (($n = $rs.Read($buf, 0, $buf.Length)) -gt 0) {
+    $fs.Write($buf, 0, $n)
+    $lidos += $n
+    $agora = [Environment]::TickCount
+    if (($agora - $ultimoTick) -ge 250) {   # atualiza ~4x/s (nao martela o status.json)
+      $ultimoTick = $agora
+      $script:baixadoMb = [math]::Round($lidos / 1MB, 1)
+      $pctDl = if ($totalBytes -gt 0) { [int](($lidos * 100) / $totalBytes) } else { 50 }
+      Prog "baixando" $pctDl 'baixando'
+    }
+  }
+} finally { $fs.Close(); $rs.Close(); $respDl.Close() }
+$script:baixadoMb = [math]::Round($lidos / 1MB, 1)
+Prog "baixando" 100 'baixando'
+
 $sha = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash.ToLower()
 if ($sha -ne ($info.sha256.ToLower())) {
   throw "SHA-256 NAO confere (esperado $($info.sha256), obtido $sha). Abortando - pacote corrompido ou adulterado."
 }
 Diga "SHA-256 confere. Extraindo..."
-Prog "conferindo" 35
+Prog "conferindo" 5
 $novo = Join-Path $tmp "novo"
 Expand-Archive -Path $zip -DestinationPath $novo -Force
 
 # ---- 3) BACKUP (banco + codigo) ----
-Prog "backup" 50
+Prog "backup" 20
 $bakDir = Join-Path $Raiz ("backup-{0}" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force $bakDir | Out-Null
 $dumpFile = Join-Path $bakDir "db.dump"
 $pgdump = (Get-Command pg_dump -ErrorAction SilentlyContinue)
 if ($pgdump -and $cfg.EDGE_DATABASE_URL) {
-  Diga "Backup do banco -> $dumpFile"
-  & $pgdump.Source --format=custom --file $dumpFile $cfg.EDGE_DATABASE_URL
-  if ($LASTEXITCODE -ne 0) { throw "pg_dump falhou - abortando antes de mexer no banco." }
+  # Backup com TIMEOUT (120s) e NÃO-FATAL: se o pg_dump travar (Postgres ocupado) ou
+  # falhar, NÃO aborta o update — o backup é defensivo e o rollback de CÓDIGO (dist.bak)
+  # segue valendo. Antes, um pg_dump pendurado travava o update inteiro (fase "backup").
+  Diga "Backup do banco (timeout 120s) -> $dumpFile"
+  $job = Start-Job -ScriptBlock {
+    param($exe, $file, $conn) & $exe --format=custom --file $file $conn
+  } -ArgumentList $pgdump.Source, $dumpFile, $cfg.EDGE_DATABASE_URL
+  if (Wait-Job $job -Timeout 120) {
+    Receive-Job $job 2>&1 | Out-Null
+    if ($job.State -eq 'Completed') { Diga "Backup do banco OK." }
+    else { Diga "AVISO: pg_dump falhou - seguindo SEM backup de banco (rollback de codigo via dist.bak segue valendo)." }
+  } else {
+    Diga "AVISO: pg_dump excedeu 120s (Postgres ocupado?) - CANCELANDO o backup e seguindo (rollback de codigo via dist.bak segue valendo)."
+    Stop-Job $job -ErrorAction SilentlyContinue
+    Get-Process pg_dump -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+  }
+  Remove-Job $job -Force -ErrorAction SilentlyContinue
 } else {
   Diga "AVISO: pg_dump nao encontrado (ou EDGE_DATABASE_URL vazio). Seguindo SEM backup de banco."
 }
@@ -129,9 +221,22 @@ $webAtual = Join-Path $Raiz "web"
 $webBak   = Join-Path $bakDir "web"
 if (Test-Path $webAtual) { Copy-Item $webAtual $webBak -Recurse -Force; Diga "Backup do app -> $webBak" }
 
+}
+catch {
+  # Falha na FASE INICIAL (antes de tocar nos servicos/arquivos): nada foi trocado,
+  # nao ha rollback a fazer. So reporta para a UI destravar e para a distribuicao ver.
+  $errIni = $_.Exception.Message
+  Diga "ERRO (fase inicial): $errIni"
+  $script:acaoFinal = "A atualizacao nao chegou a ser aplicada (falhou na preparacao). Nenhuma alteracao foi feita. Tente novamente; se persistir, reinicie o computador."
+  Prog "erro" 100 'erro' $errIni
+  PostErro "update_falha" $errIni
+  Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+  throw
+}
+
 # ---- 4) para servicos, troca arquivos, migra, sobe ----
 function Svc($acao, $nome) { & $nssmExe $acao $nome 2>$null | Out-Null }
-Diga "Parando servicos..."; Prog "trocando" 65; Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeImpressao"; Svc stop "RegemEdgeWeb"
+Diga "Parando servicos..."; Prog "trocando" 45; Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeImpressao"; Svc stop "RegemEdgeWeb"
 
 try {
   Diga "Trocando arquivos (dist, migrations, scripts, package)..."
@@ -162,7 +267,7 @@ try {
   Push-Location $Raiz; npm ci --omit=dev; $ciCode = $LASTEXITCODE; Pop-Location
   if ($ciCode -ne 0) { throw "npm ci falhou." }
 
-  Diga "Aplicando migrations locais..."; Prog "migrando" 80
+  Diga "Aplicando migrations locais..."; Prog "migrando" 70
   Push-Location $Raiz; node scripts\apply-all-local.mjs; $mgCode = $LASTEXITCODE; Pop-Location
   if ($mgCode -ne 0) { throw "migrations falharam." }
 
@@ -197,6 +302,24 @@ try {
     }
   } catch { Diga "(aviso) nao registrei RegemEdgeRollback: $($_.Exception.Message)" }
 
+  # AUTO-CURA da tarefa de UPDATE: re-registra RegemEdgeUpdate com -MultipleInstances
+  # StopExisting + -ExecutionTimeLimit 15min. Edges instalados antes desta versao tinham
+  # a tarefa SEM esses ajustes: uma execucao travada (pg_dump) ficava "Running" ate 3
+  # dias e IGNORAVA todo clique novo ("nada acontece"). A partir de agora, todo .zip
+  # conserta a propria tarefa - nao precisa de .exe so para isso.
+  try {
+    $atualizar = Join-Path $Raiz "edge\atualizar.ps1"
+    if (Test-Path $atualizar) {
+      $acaoU = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $atualizar, $Raiz)
+      $contaU = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+      $cfgU = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+        -MultipleInstances StopExisting -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+      Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acaoU -Principal $contaU -Settings $cfgU -Force | Out-Null
+      Diga "Tarefa RegemEdgeUpdate re-registrada (StopExisting + limite 15min)."
+    }
+  } catch { Diga "(aviso) nao re-registrei RegemEdgeUpdate: $($_.Exception.Message)" }
+
   # Atualiza APP_VERSION no .env.local ANTES de subir (senao o daemon/update-check
   # ainda se acham na versao antiga e rebaixam o mesmo pacote em loop).
   try {
@@ -210,9 +333,9 @@ try {
     Diga "APP_VERSION atualizado para $($info.ultima) no .env.local."
   } catch { Diga "(aviso) nao consegui atualizar APP_VERSION: $($_.Exception.Message)" }
 
-  Diga "Subindo servicos..."; Prog "subindo" 90; Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"; Svc start "RegemEdgeImpressao"; Svc start "RegemEdgeWeb"
+  Diga "Subindo servicos..."; Prog "subindo" 88; Svc start "RegemEdgeApi"; Svc start "RegemEdgeSync"; Svc start "RegemEdgeImpressao"; Svc start "RegemEdgeWeb"
 
-  Prog "verificando" 95
+  Prog "verificando" 96
   # ---- 5) HEALTH-CHECK (ate ~40s) ----
   # PS 5.1 nao tem -SkipCertificateCheck; aceita o cert local via callback + TLS 1.2.
   [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -232,30 +355,18 @@ try {
   }
   if (-not $ok) { throw "Health-check /ping falhou apos a troca." }
 
-  Prog "ok" 100
+  # Servicos reiniciaram e o /ping respondeu - nenhuma acao manual necessaria.
+  $script:acaoFinal = "Pronto! Nenhuma acao necessaria - os servicos ja reiniciaram. Recarregue a pagina se ela nao atualizar sozinha."
+  Prog "ok" 100 'ok'
   Diga "OK! Atualizado para $($info.ultima). Backup em: $bakDir"
 }
 catch {
   $errMsg = $_.Exception.Message
   Diga "ERRO: $errMsg"
-  Prog "erro" 100 $errMsg
-  # Telemetria de falha p/ a distribuicao (best-effort): versao, erro e o FIM do log.
-  try {
-    $logTail = ""
-    if (Test-Path $script:logArquivo) { $logTail = (Get-Content $script:logArquivo -Tail 40 -ErrorAction SilentlyContinue) -join "`n" }
-    $corpo = @{
-      origem  = "update"
-      tipo    = "update_falha"
-      nivel   = "fatal"
-      unidadeId = $cfg.EDGE_UNIDADE_ID
-      versao  = $script:versaoNova
-      mensagem = $errMsg
-      logTail = $logTail
-    } | ConvertTo-Json -Compress
-    $hdr = @{ "x-sync-token" = $cfg.SYNC_TOKEN }
-    Invoke-RestMethod -Method Post -Uri ("{0}/edge/telemetria" -f $cloud) -Headers $hdr -Body $corpo -ContentType "application/json" -TimeoutSec 15 | Out-Null
-    Diga "Telemetria de falha enviada a distribuicao."
-  } catch { Diga "(aviso) nao consegui enviar a telemetria: $($_.Exception.Message)" }
+  $script:acaoFinal = "A atualizacao foi revertida automaticamente (o servidor voltou a versao anterior). Recarregue a pagina; se o problema persistir, use 'Reverter atualizacao' ou reinicie o computador."
+  Prog "erro" 100 'erro' $errMsg
+  # Telemetria de falha pela rota PUBLICA (funciona mesmo sem token valido).
+  PostErro "update_falha" $errMsg
   Diga "ROLLBACK do codigo (dist.bak)..."
   Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeImpressao"; Svc stop "RegemEdgeWeb"
   if (Test-Path $distBak) {

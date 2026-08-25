@@ -47,7 +47,24 @@ function Svc($nome, $appArgs, $cwd) {
   & $Nssm set $nome AppStdout "$cwd\logs\$nome.log" | Out-Null
   & $Nssm set $nome AppStderr "$cwd\logs\$nome.err.log" | Out-Null
   & $Nssm set $nome AppRotateFiles 1 | Out-Null
+  # AppRotateOnline 1: rotaciona ENQUANTO o serviço roda (senão o NSSM só rotaciona no
+  # restart -> o log do Postgres, dias no ar, crescia sem parar, ex.: 111 MB). Com isto,
+  # cada .log/.err.log é cortado ao passar de 10 MB mesmo com o serviço em execução.
+  & $Nssm set $nome AppRotateOnline 1 | Out-Null
   & $Nssm set $nome AppRotateBytes 10485760 | Out-Null
+  # Postgres loga checkpoint a cada 5 min (volume principal do .err.log). Desligar reduz
+  # MUITO o crescimento — mantém só avisos/erros. Best-effort (append no postgresql.conf).
+  if ($nome -eq 'RegemEdgePg') {
+    try {
+      $pgConf = Join-Path (Split-Path $cwd -Parent) 'pgdata\postgresql.conf'
+      if (Test-Path $pgConf -PathType Leaf) {
+        $confTxt = Get-Content $pgConf -Raw
+        if ($confTxt -notmatch '(?m)^\s*log_checkpoints\s*=\s*off') {
+          Add-Content -Path $pgConf -Value "`nlog_checkpoints = off  # Regem: reduz volume do log (checkpoints)"
+        }
+      }
+    } catch {}
+  }
 }
 
 New-Item -ItemType Directory -Force "$Raiz\logs" | Out-Null
@@ -91,7 +108,12 @@ try {
     $acao = New-ScheduledTaskAction -Execute "powershell.exe" `
       -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $atualizar, $Raiz)
     $conta = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+    # -MultipleInstances StopExisting: se a execução ANTERIOR travou (ex.: pg_dump
+    # pendurado), o botão do app RE-DISPARA matando a presa em vez de ser IGNORADO
+    # (default do Windows = IgnoreNew → tarefa fica "Running" até 3 dias → "nada
+    # acontece"). -ExecutionTimeLimit PT15M: mata sozinha se passar de 15 min.
+    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+      -MultipleInstances StopExisting -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
     Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acao `
       -Principal $conta -Settings $cfg -Force | Out-Null
     Write-Host "-> Auto-update registrado SOB DEMANDA (RegemEdgeUpdate) - disparado pelo botão do app."
@@ -107,7 +129,8 @@ try {
     $acaoR = New-ScheduledTaskAction -Execute "powershell.exe" `
       -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $reverter, $Raiz)
     $contaR = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-    $cfgR = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd
+    $cfgR = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+      -MultipleInstances StopExisting -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
     Register-ScheduledTask -TaskName "RegemEdgeRollback" -Action $acaoR `
       -Principal $contaR -Settings $cfgR -Force | Out-Null
     Write-Host "-> Rollback registrado SOB DEMANDA (RegemEdgeRollback) - disparado pelo botão do app."

@@ -36,6 +36,11 @@ param(
   [string]$AtivacaoToken = "",
   [string]$LicensePublicKey = "",
   [string]$CloudApi = "https://api.dmsregem.com/api/v1",
+  # Webhook do n8n (endpoint 'regem-status') p/ os avisos de WhatsApp do cliente. No
+  # modo LOCAL, o aceite/despacho/cancelamento roda no edge e precisa desta URL para
+  # falar com o n8n (a tabela `integracao` NAO desce pro edge). Vazio = sem WhatsApp
+  # no modo local. Em reinstalacao, reusa o valor do .env.local atual se nao vier.
+  [string]$OtpWebhookUrl = "",
   [int]$Porta = 3002,       # API (NestJS) - atras do app
   [int]$PortaWeb = 3001,    # App (Next) - porta que os aparelhos/atalho abrem
   [int]$PgPorta = 5432,
@@ -528,6 +533,22 @@ if (Test-Path $envLocal) {
   try { & icacls $envLocal /grant:r "*S-1-5-32-544:(F)" "SYSTEM:(F)" | Out-Null } catch {}
   try { & attrib -R $envLocal 2>$null } catch {}
 }
+# Versao REAL do pacote (o package.mjs grava version.txt). Antes ficava HARDCODED
+# 1.6.0 aqui, o que deixava toda (re)instalacao reportando 1.6.0 mesmo com codigo novo.
+$verFile = Join-Path $root 'version.txt'
+$appVersion = if (Test-Path $verFile) { (Get-Content $verFile -Raw).Trim() } else { '0' }
+Diga "Versao do pacote: $appVersion"
+# Reinstalacao: se nao veio -OtpWebhookUrl, reusa o do .env.local atual (best-effort;
+# nao perde a config do WhatsApp em modo local). So le se o arquivo ainda estiver em texto.
+if (-not $OtpWebhookUrl -and (Test-Path $envLocal)) {
+  foreach ($linha in (Get-Content $envLocal -ErrorAction SilentlyContinue)) {
+    if ($linha -match '^\s*OTP_WEBHOOK_URL\s*=\s*(.+)$') {
+      $OtpWebhookUrl = $Matches[1].Trim()
+      Diga "Reinstalacao: reusando OTP_WEBHOOK_URL do .env.local."
+      break
+    }
+  }
+}
 @"
 # Gerado automaticamente pelo instalador do Regem Edge - nao editar a mao sem necessidade.
 DATABASE_URL=$dbLocal
@@ -538,7 +559,7 @@ NODE_ENV=production
 CORS_ORIGIN=*
 EDGE_MODE=true
 EDGE_UNIDADE_ID=$UnidadeId
-APP_VERSION=1.6.0
+APP_VERSION=$appVersion
 EDGE_TLS_CERT=$certDir\server.crt
 EDGE_TLS_KEY=$certDir\server.key
 LICENSE_PUBLIC_KEY_B64=$LicensePublicKey
@@ -546,6 +567,7 @@ LICENSE_KID=k1
 LICENSE_GRACE_DAYS=30
 CLOUD_API=$CloudApi
 SYNC_TOKEN=$SyncToken
+OTP_WEBHOOK_URL=$OtpWebhookUrl
 SYNC_INTERVAL_MS=60000
 EDGE_CLIENTES=0
 EDGE_REQUIRE_SIGNED_UPDATE=true

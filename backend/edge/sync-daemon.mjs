@@ -195,6 +195,7 @@ async function pull() {
   const data = await res.json();
   let aplicadas = 0;
   let pendentes = []; // linhas cujo pai (FK) ainda não chegou → retry
+  const falhas = [];  // linhas com erro DURO (coluna/valor) → pular, NÃO travar o pull
   for (const [tabela, rows] of Object.entries(data.tabelas)) {
     for (const row of rows) {
       try {
@@ -202,7 +203,7 @@ async function pull() {
         aplicadas++;
       } catch (e) {
         if (e.code === '23503') pendentes.push([tabela, row]);
-        else throw e;
+        else falhas.push([tabela, row, e]);
       }
     }
   }
@@ -215,12 +216,23 @@ async function pull() {
         aplicadas++;
       } catch (e) {
         if (e.code === '23503') resta.push([tabela, row]);
-        else throw e;
+        else falhas.push([tabela, row, e]);
       }
     }
     pendentes = resta;
   }
   if (pendentes.length) console.warn(`  ${pendentes.length} linha(s) sem pai (FK) após retries`);
+  // RESILIÊNCIA: um registro "veneno" (coluna/tipo/valor que o edge não aceita — ex.:
+  // coluna @cloud-only ainda não migrada) NÃO pode abortar o pull inteiro. Antes o
+  // `throw e` interrompia o laço, o cursor não avançava e NADA descia (nem catálogo,
+  // nem pedidos) — o pipe de sync ficava permanentemente travado na 1ª linha ruim.
+  // Agora pulamos a linha, seguimos aplicando o resto, avançamos o cursor e mandamos
+  // telemetria com a causa (a distribuição vê e cria a migration que falta).
+  if (falhas.length) {
+    const amostra = falhas.slice(0, 5).map(([t, , e]) => `${t}: ${e.code || ''} ${e.message}`).join(' | ');
+    console.error(`  ⚠ ${falhas.length} linha(s) IGNORADA(s) no pull (erro duro): ${amostra}`);
+    try { await reportarTelemetria('sync', 'pull_linha_ignorada', `${falhas.length} linha(s): ${amostra}`); } catch { /* best-effort */ }
+  }
   if (data.proximoCursor) await setState('pull_cursor', data.proximoCursor);
   return aplicadas;
 }
@@ -455,6 +467,14 @@ async function ciclo() {
   cicloRodando = true;
   let erro = null, p = 0, u = 0;
   try {
+    // HEARTBEAT CEDO (liveness): antes das operações longas (pull/push grandes ou um
+    // RESTORE de estado). Antes, o heartbeat só saía no FIM do ciclo (linha ~490); um
+    // restore de minutos atrasava o "estou vivo" além do limite de 3min → a NUVEM
+    // considerava o edge OFFLINE e MATERIALIZAVA o pedido novo lá (setando comanda_id)
+    // ou o CloudFallbackProcessor o assumia → ao descer com comanda_id preenchido, o
+    // EdgePedidosProcessor (que só pega comanda_id NULL) nunca materializava local:
+    // "o pedido não entra no servidor edge". O ping antecipado mantém a nuvem deferindo.
+    await heartbeat(0, 0, null);
     try {
       p = await pull();
       u = await push();
@@ -466,6 +486,7 @@ async function ciclo() {
     }
     // Restauração sob demanda (botão do app grava a flag em sync_state).
     if ((await getState('restaurar_solicitado', '0')) === '1') {
+      await heartbeat(p, u, erro); // ping ANTES do restore longo (mantém a nuvem deferindo)
       try { await restaurar(); } catch (e) { console.error(`Restauração FALHOU: ${e.message}`); }
     }
     await licenca();
