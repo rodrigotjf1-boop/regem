@@ -30,6 +30,17 @@ const CLOUD = req('CLOUD_API').replace(/\/$/, '');
 const TOKEN = req('SYNC_TOKEN');
 const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 60000);
 
+// fetch COM TIMEOUT (AbortSignal.timeout). Sem isto, uma nuvem lenta ou em 502 deixa
+// o fetch PENDURADO indefinidamente; como o ciclo é serial (trava cicloRodando), isso
+// CONGELA o daemon inteiro — todos os ticks seguintes viram "pulando este tick" e o
+// sync para por completo (incidente 25/08: congelado desde 22/08). Com timeout, o
+// fetch lança, o ciclo termina/libera e o próximo tick tenta de novo. 45s cobre pull/
+// push/restore grandes; ajustável por SYNC_FETCH_TIMEOUT_MS.
+const FETCH_TIMEOUT_MS = Number(process.env.SYNC_FETCH_TIMEOUT_MS || 45000);
+async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
+  return fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+}
+
 // Assinatura do push (espelha backend/src/modules/sync/sync-sig.ts — MANTER IGUAL).
 // A chave HMAC é derivada do token do dispositivo. Qualquer mudança aqui tem que ser
 // refletida no TS, senão a nuvem rejeita a assinatura.
@@ -188,7 +199,7 @@ async function upsertLocal(tabela, row) {
 
 async function pull() {
   const desde = await getState('pull_cursor', '1970-01-01T00:00:00Z');
-  const res = await fetch(`${CLOUD}/sync/pull?desde=${encodeURIComponent(desde)}`, {
+  const res = await fetchT(`${CLOUD}/sync/pull?desde=${encodeURIComponent(desde)}`, {
     headers: { 'x-sync-token': TOKEN },
   });
   if (!res.ok) throw new Error(`pull HTTP ${res.status}: ${await res.text()}`);
@@ -246,7 +257,7 @@ async function enviarLote(lote) {
   const seq = (Number(await getState('push_seq', '0')) || 0) + 1;
   const ts = new Date().toISOString();
   const sig = assinarSync(TOKEN, seq, ts, lotesN);
-  const res = await fetch(`${CLOUD}/sync/push`, {
+  const res = await fetchT(`${CLOUD}/sync/push`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -300,7 +311,7 @@ async function licenca() {
     // x-sync-fp = fingerprint FORTE (hash do MachineGuid); x-sync-fp-legacy = nome do PC.
     // A nuvem nega renovar se divergir do preso na ativação (anti-clone) e migra do
     // legado pro forte de forma transparente.
-    const res = await fetch(`${CLOUD}/edge/lease`, {
+    const res = await fetchT(`${CLOUD}/edge/lease`, {
       headers: { 'x-sync-token': TOKEN, 'x-sync-fp': fingerprintForte(), 'x-sync-fp-legacy': hostname() },
     });
     if (res.ok) {
@@ -333,7 +344,7 @@ async function licenca() {
 async function updateCheck() {
   try {
     const atual = process.env.APP_VERSION || '1';
-    const res = await fetch(`${CLOUD}/edge/update-check?versao=${encodeURIComponent(atual)}`);
+    const res = await fetchT(`${CLOUD}/edge/update-check?versao=${encodeURIComponent(atual)}`);
     if (!res.ok) return;
     const j = await res.json();
     if (j.atualizar) {
@@ -349,7 +360,7 @@ async function updateCheck() {
 
 async function heartbeat(pullN, pushN, erro) {
   try {
-    await fetch(`${CLOUD}/edge/heartbeat`, {
+    await fetchT(`${CLOUD}/edge/heartbeat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
       body: JSON.stringify({
@@ -378,7 +389,7 @@ async function restaurar() {
     let cursor = await getState('restore_cursor', '1970-01-01T00:00:00Z');
     let total = 0;
     for (let pagina = 0; pagina < 5000; pagina++) {
-      const res = await fetch(`${CLOUD}/sync/restore?desde=${encodeURIComponent(cursor)}`, {
+      const res = await fetchT(`${CLOUD}/sync/restore?desde=${encodeURIComponent(cursor)}`, {
         headers: { 'x-sync-token': TOKEN },
       });
       if (!res.ok) throw new Error(`restore HTTP ${res.status}: ${await res.text()}`);
@@ -420,7 +431,7 @@ async function reportarTelemetria(origem, tipo, mensagem) {
     const agora = Date.now();
     if (agora - (_telemEnviados.get(chave) ?? 0) < 5 * 60 * 1000) return;
     _telemEnviados.set(chave, agora);
-    await fetch(`${CLOUD}/edge/telemetria`, {
+    await fetchT(`${CLOUD}/edge/telemetria`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
       body: JSON.stringify({ origem, tipo, nivel: 'error', mensagem: String(mensagem).slice(0, 2000), versao: process.env.APP_VERSION ?? null }),
@@ -432,7 +443,7 @@ async function reportarTelemetria(origem, tipo, mensagem) {
 // e executa localmente. Best-effort; confirma o resultado na nuvem.
 async function verificarComandos() {
   try {
-    const res = await fetch(`${CLOUD}/edge/comandos`, { headers: { 'x-sync-token': TOKEN } });
+    const res = await fetchT(`${CLOUD}/edge/comandos`, { headers: { 'x-sync-token': TOKEN } });
     if (!res.ok) return;
     const cmds = await res.json();
     for (const c of cmds) {
@@ -445,7 +456,7 @@ async function verificarComandos() {
           resultado = 'ignorado';
         }
       } catch (e) { ok = false; resultado = String(e.message).slice(0, 200); }
-      await fetch(`${CLOUD}/edge/comandos/${c.id}/ack`, {
+      await fetchT(`${CLOUD}/edge/comandos/${c.id}/ack`, {
         method: 'POST', headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
         body: JSON.stringify({ ok, resultado }),
       }).catch(() => {});
