@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -811,12 +812,21 @@ export class EntregadorService {
         await this.delivery.avancar(user.tenantId, p.id, {
           entregadorId: user.colaboradorId,
           entregadorNome: user.nome ?? 'Entregador',
+          skipRastreio: true, // multi-parada envia o link por parada ativa (abaixo), não de uma vez
         });
       } catch { /* já despachado/estado inesperado — segue */ }
       await this.db.execute(sql`update pedido_externo set saida_id = ${saidaId}, ordem_parada = ${i + 1} where id = ${p.id}`);
     }
     await this.enviarLinkRastreio(user.tenantId, ordenados[0].id).catch(() => {});
     return this.saidaAtiva(user.tenantId, user.colaboradorId);
+  }
+
+  // Despacho ÚNICO (scan do app, /e/ web, painel) → manda o rastreio+código ao cliente.
+  // Ouve o evento do DeliveryService (módulo cloud-only; no edge não há listener, e o
+  // rastreio é conceito de nuvem mesmo). Multi-parada NÃO emite (envia por parada ativa).
+  @OnEvent('pedido.despachado')
+  async aoDespachar(p: { tenantId: string; pedidoId: string }) {
+    await this.enviarLinkRastreio(p.tenantId, p.pedidoId).catch(() => {});
   }
 
   // Envia o link público de rastreio ao cliente (webhook n8n). Best-effort.
