@@ -817,6 +817,9 @@ export class DeliveryService {
       entregadorId?: string | null;
       entregadorNome?: string | null;
       entregadorTelefone?: string | null;
+      // Multi-parada (proximaSaida) cuida do rastreio por parada ativa — passa true
+      // para NÃO disparar o link aqui (senão todas as paradas receberiam de uma vez).
+      skipRastreio?: boolean;
     },
   ) {
     const ped = await this.carregar(tenantId, id);
@@ -860,6 +863,11 @@ export class DeliveryService {
     }
     void this.flash.flashPedidos([row.id]); // push IMEDIATO p/ a nuvem (app do entregador vê em segundos)
     void this.dispararWebhook(tenantId, row);
+    // Despacho ÚNICO (scan do app, /e/ web, "avançar" do painel): manda o link de
+    // rastreio+código ao cliente. O módulo entregador (cloud-only) ouve este evento.
+    // Multi-parada passa skipRastreio (envia por parada ativa, não de uma vez só).
+    if (novo === 'despachado' && !dados?.skipRastreio)
+      this.events.emit('pedido.despachado', { tenantId, pedidoId: row.id });
     if (novo === 'despachado') void this.statusBack(tenantId, row, 'dispatch');
     // Cardápio Web — mapeamento por tipo, alinhado ao fluxo do CW:
     //  retirada: pronto→ready (pronto p/ retirar), concluído→finalize
@@ -920,6 +928,9 @@ export class DeliveryService {
       .returning();
     void this.flash.flashPedidos([row.id]); // push imediato → app do entregador vê em segundos
     void this.dispararWebhook(tenantId, row);
+    // Despacho direto do painel → link de rastreio+código ao cliente (evento ouvido
+    // pelo módulo entregador, cloud-only). Sempre pedido único (multi-parada usa avancar).
+    this.events.emit('pedido.despachado', { tenantId, pedidoId: row.id });
     void this.statusBack(tenantId, row, 'dispatch');
     void this.statusBackCw(tenantId, row, 'ready'); // CW: saiu para entrega
     void this.statusBackIfood(tenantId, row, 'dispatch');
@@ -1325,9 +1336,11 @@ export class DeliveryService {
         motivoCancelamento: motivo
           ? `${motivo} (autorizado por ${autorizou.nome})`
           : `autorizado por ${autorizou.nome}`,
+        updatedAt: new Date(), // bump explícito → cancelamento no edge sobe p/ a nuvem (LWW/cursor)
       })
       .where(eq(pedidoExterno.id, id))
       .returning();
+    void this.flash.flashPedidos([row.id]); // push IMEDIATO → a nuvem reflete o cancelamento em segundos
     void this.dispararWebhook(tenantId, row);
     void this.statusBackCw(tenantId, row, 'cancel');
     void this.statusBackIfood(tenantId, row, 'cancel');
@@ -1372,9 +1385,10 @@ export class DeliveryService {
     if (!ped || ped.status === 'cancelado' || ped.status === 'concluido') return { ok: false };
     const [row] = await this.db
       .update(pedidoExterno)
-      .set({ status: 'cancelado', canceladoEm: new Date(), motivoCancelamento: motivo })
+      .set({ status: 'cancelado', canceladoEm: new Date(), motivoCancelamento: motivo, updatedAt: new Date() })
       .where(eq(pedidoExterno.id, id))
       .returning();
+    void this.flash.flashPedidos([row.id]); // push imediato → a nuvem reflete o cancelamento
     void this.dispararWebhook(tenantId, row);
     const [cfgLoja] = await this.db
       .select({ estorna: cardapioConfig.cancelamentoEstornaCashback })
@@ -1607,8 +1621,13 @@ export class DeliveryService {
         .select()
         .from(integracao)
         .where(and(eq(integracao.tenantId, tenantId), eq(integracao.canal, 'n8n')));
-      const url = row?.merchantId; // guardamos a URL do webhook no merchantId
-      if (!row?.ativo || !url) return;
+      // URL do webhook: integração n8n da loja (com secret p/ HMAC) OU fallback global
+      // OTP_WEBHOOK_URL — ESSENCIAL no EDGE, que NÃO sincroniza a tabela `integracao`.
+      // Sem isto, status/código/cancelado disparados no edge (modo local) nunca chegam
+      // ao n8n → cliente fica sem WhatsApp. (o cliente.service já usa o mesmo fallback.)
+      const temIntegracao = !!(row?.ativo && row.merchantId);
+      const url = temIntegracao ? row!.merchantId : process.env.OTP_WEBHOOK_URL;
+      if (!url) return;
       // Anti-SSRF: a URL vem do lojista — bloqueia IP privado/local/metadata cloud.
       if (!(await urlPublicaSegura(url))) {
         this.logger.warn(`Webhook n8n bloqueado (URL não-pública): ${String(url).slice(0, 80)}`);
@@ -1616,8 +1635,9 @@ export class DeliveryService {
       }
       const body = JSON.stringify({ em: new Date().toISOString(), ...payload });
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (row.clientSecret)
-        headers['X-Regem-Signature'] = createHmac('sha256', row.clientSecret).update(body).digest('hex');
+      const secret = temIntegracao ? row!.clientSecret : undefined;
+      if (secret)
+        headers['X-Regem-Signature'] = createHmac('sha256', secret).update(body).digest('hex');
       void fetch(url, { method: 'POST', headers, body }).catch(() => {});
     } catch {
       /* nunca quebra o fluxo por causa do webhook */
