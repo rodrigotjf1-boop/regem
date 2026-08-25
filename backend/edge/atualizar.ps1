@@ -302,21 +302,23 @@ try {
     }
   } catch { Diga "(aviso) nao registrei RegemEdgeRollback: $($_.Exception.Message)" }
 
-  # AUTO-CURA da tarefa de UPDATE: re-registra RegemEdgeUpdate com -MultipleInstances
-  # StopExisting + -ExecutionTimeLimit 15min. Edges instalados antes desta versao tinham
-  # a tarefa SEM esses ajustes: uma execucao travada (pg_dump) ficava "Running" ate 3
-  # dias e IGNORAVA todo clique novo ("nada acontece"). A partir de agora, todo .zip
-  # conserta a propria tarefa - nao precisa de .exe so para isso.
+  # AUTO-CURA da tarefa de UPDATE: re-registra RegemEdgeUpdate com -ExecutionTimeLimit
+  # 15min (mata sozinha se travar). Edges instalados antes desta versao tinham a tarefa
+  # SEM o limite: uma execucao travada (pg_dump) ficava "Running" e o clique novo era
+  # ignorado ("nada acontece"). A partir de agora, todo .zip conserta a propria tarefa.
+  # O "matar a execucao presa antes de re-disparar" e feito pelo edge.service (/end).
   try {
     $atualizar = Join-Path $Raiz "edge\atualizar.ps1"
     if (Test-Path $atualizar) {
       $acaoU = New-ScheduledTaskAction -Execute "powershell.exe" `
         -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $atualizar, $Raiz)
       $contaU = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+      # NÃO usar -MultipleInstances StopExisting (enum ausente em alguns Windows → faz
+      # o Register falhar). O /end antes do /run (edge.service) já mata a execução presa.
       $cfgU = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
-        -MultipleInstances StopExisting -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
       Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acaoU -Principal $contaU -Settings $cfgU -Force | Out-Null
-      Diga "Tarefa RegemEdgeUpdate re-registrada (StopExisting + limite 15min)."
+      Diga "Tarefa RegemEdgeUpdate re-registrada (limite 15min)."
     }
   } catch { Diga "(aviso) nao re-registrei RegemEdgeUpdate: $($_.Exception.Message)" }
 

@@ -108,12 +108,15 @@ try {
     $acao = New-ScheduledTaskAction -Execute "powershell.exe" `
       -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $atualizar, $Raiz)
     $conta = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
-    # -MultipleInstances StopExisting: se a execução ANTERIOR travou (ex.: pg_dump
-    # pendurado), o botão do app RE-DISPARA matando a presa em vez de ser IGNORADO
-    # (default do Windows = IgnoreNew → tarefa fica "Running" até 3 dias → "nada
-    # acontece"). -ExecutionTimeLimit PT15M: mata sozinha se passar de 15 min.
+    # -ExecutionTimeLimit PT15M: se a execução travar (ex.: pg_dump pendurado), o
+    # Windows mata a tarefa sozinho após 15 min — não fica "Running" por dias
+    # ("nada acontece"). NÃO usar -MultipleInstances StopExisting: esse nome de enum
+    # NÃO existe em todas as versões do Windows/PowerShell (só Parallel/Queue/IgnoreNew)
+    # e, quando ausente, FAZ O Register-ScheduledTask INTEIRO FALHAR (a tarefa nem é
+    # criada). O "matar a execução presa antes de re-disparar" é feito pelo
+    # edge.service.aplicarAtualizacao (schtasks /end antes do /run), que é portável.
     $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
-      -MultipleInstances StopExisting -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+      -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
     Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acao `
       -Principal $conta -Settings $cfg -Force | Out-Null
     Write-Host "-> Auto-update registrado SOB DEMANDA (RegemEdgeUpdate) - disparado pelo botão do app."
@@ -130,7 +133,7 @@ try {
       -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $reverter, $Raiz)
     $contaR = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
     $cfgR = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
-      -MultipleInstances StopExisting -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+      -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
     Register-ScheduledTask -TaskName "RegemEdgeRollback" -Action $acaoR `
       -Principal $contaR -Settings $cfgR -Force | Out-Null
     Write-Host "-> Rollback registrado SOB DEMANDA (RegemEdgeRollback) - disparado pelo botão do app."
