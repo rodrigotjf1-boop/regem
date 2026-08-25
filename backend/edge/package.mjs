@@ -20,8 +20,11 @@ mkdirSync(out, { recursive: true });
 //   - .d.ts (declarações revelam a estrutura interna),
 //   - .md (docs de instalação/build; nada de documentação fica no PC da loja).
 const VAZA_LOGICA = /\.map$|\.d\.ts$|\.md$/i;
+// Chaves PRIVADAS nunca vão para a loja (só a pública update-pub.pem vai, p/ o
+// verify-update.mjs conferir a assinatura). Barra update-priv.pem e qualquer .pfx.
+const SEGREDO = /(^|[\\/])update-priv\.pem$|\.pfx$/i;
 const semBundle = (s) =>
-  !/[\\/](bundle|node_modules|Output)([\\/]|$)/.test(s) && !VAZA_LOGICA.test(s);
+  !/[\\/](bundle|node_modules|Output)([\\/]|$)/.test(s) && !VAZA_LOGICA.test(s) && !SEGREDO.test(s);
 
 const copiar = (rel) => {
   const src = join(raiz, rel);
@@ -61,6 +64,17 @@ copiar('drizzle.config.ts');
 // migrations ficam em database/migrations (fora de backend/) → copiamos também
 cpSync(join(raiz, '..', 'database', 'migrations'), join(out, 'database', 'migrations'), { recursive: true });
 console.log('  + database/migrations');
+
+// Versão do pacote → version.txt: o instalador (instalar-tudo.ps1) lê e carimba
+// APP_VERSION no .env.local. Antes o instalador tinha 1.6.0 hardcoded (toda
+// instalação reportava 1.6.0). publicar.ps1 define EDGE_VERSAO=<versão>.
+const versaoPkg = (process.env.EDGE_VERSAO || '').trim();
+if (versaoPkg) {
+  writeFileSync(join(out, 'version.txt'), versaoPkg);
+  console.log(`  + version.txt (${versaoPkg})`);
+} else {
+  console.warn('  (AVISO) EDGE_VERSAO não definido — version.txt não escrito (instalador usará 0).');
+}
 
 // App (frontend) em modo edge -> web/ (Next standalone autossuficiente). O
 // edge-web.mjs sobe esse Next em HTTP no localhost e serve por HTTPS na LAN.
@@ -106,7 +120,7 @@ function varrer(dir, achados = []) {
     const p = join(dir, nome);
     const st = statSync(p);
     if (st.isDirectory()) varrer(p, achados);
-    else if (/\.map$|\.d\.ts$|\.md$/i.test(nome) || /^CLAUDE\.md$/i.test(nome)) achados.push(p);
+    else if (/\.map$|\.d\.ts$|\.md$/i.test(nome) || /^CLAUDE\.md$/i.test(nome) || /^update-priv\.pem$/i.test(nome) || /\.pfx$/i.test(nome)) achados.push(p);
   }
   return achados;
 }
