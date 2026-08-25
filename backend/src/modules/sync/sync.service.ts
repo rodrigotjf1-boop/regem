@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  HttpException,
+  HttpStatus,
   Inject,
   Injectable,
   Logger,
@@ -26,6 +28,12 @@ export class SyncService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
   private readonly logger = new Logger('Sync');
   private colunasCache = new Map<string, Set<string>>();
+  // Circuit-breaker anti-tempestade: 1 push por vez por dispositivo. Se o edge (com
+  // daemon sem trava de reentrância) manda pushes SOBREPOSTOS, os concorrentes são
+  // rejeitados BARATO (429) antes do upsert pesado — a origem não afoga (evita o 502
+  // em cascata). O edge trata como falha e reenvia no próximo ciclo. In-memory basta
+  // (1 instância); com réplicas, ainda limita a concorrência por instância.
+  private readonly pushEmCurso = new Set<string>();
 
   // Verifica a ASSINATURA do push (integridade/autenticidade) + a JANELA de tempo
   // (anti-replay) + a SEQUÊNCIA por dispositivo (anti-omissão). A chave HMAC é
@@ -235,6 +243,14 @@ export class SyncService {
     lotes: LoteSyncDto[],
     assin: { seq?: string; ts?: string; sig?: string } = {},
   ) {
+    // Circuit-breaker anti-tempestade: recusa push CONCORRENTE do mesmo dispositivo
+    // (barato, 429) ANTES do trabalho pesado — a origem não afoga (evita o 502 em
+    // cascata quando o daemon do edge sobrepõe ciclos). O edge reenvia no próximo ciclo.
+    if (this.pushEmCurso.has(ctx.equipamentoId)) {
+      throw new HttpException('Já há um push deste dispositivo em curso.', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    this.pushEmCurso.add(ctx.equipamentoId);
+    try {
     await this.verificarAssinatura(ctx, lotes, assin);
     const tenantId = ctx.tenantId;
     const resultado: Record<string, { aplicadas: number; ignoradas: number }> = {};
@@ -301,6 +317,9 @@ export class SyncService {
     }
 
     return { serverTime: new Date().toISOString(), resultado };
+    } finally {
+      this.pushEmCurso.delete(ctx.equipamentoId); // libera SEMPRE (sucesso ou erro)
+    }
   }
 }
 

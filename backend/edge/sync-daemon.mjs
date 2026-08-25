@@ -442,29 +442,43 @@ async function verificarComandos() {
   } catch { /* sem rede — tenta no próximo ciclo */ }
 }
 
+// Trava de reentrância: se um ciclo demora mais que o intervalo (ex.: push preso em
+// timeout 524 da origem), o setInterval NÃO pode disparar outro por cima — senão viram
+// pushes CONCORRENTES (seq fora de ordem, dados duplicados) que sobrecarregam a nuvem
+// e causam 502 em cascata. Um ciclo por vez; o próximo tick pula se ainda está rodando.
+let cicloRodando = false;
 async function ciclo() {
+  if (cicloRodando) {
+    console.warn(`[${new Date().toISOString()}] ciclo anterior ainda em execução — pulando este tick`);
+    return;
+  }
+  cicloRodando = true;
   let erro = null, p = 0, u = 0;
   try {
-    p = await pull();
-    u = await push();
-    console.log(`[${new Date().toISOString()}] sync ok — pull ${p} linha(s), push ${u} linha(s)`);
-  } catch (e) {
-    erro = e.message;
-    console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
-    await reportarTelemetria('sync', 'sync_erro', e.message);
+    try {
+      p = await pull();
+      u = await push();
+      console.log(`[${new Date().toISOString()}] sync ok — pull ${p} linha(s), push ${u} linha(s)`);
+    } catch (e) {
+      erro = e.message;
+      console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
+      await reportarTelemetria('sync', 'sync_erro', e.message);
+    }
+    // Restauração sob demanda (botão do app grava a flag em sync_state).
+    if ((await getState('restaurar_solicitado', '0')) === '1') {
+      try { await restaurar(); } catch (e) { console.error(`Restauração FALHOU: ${e.message}`); }
+    }
+    await licenca();
+    await verificarComandos();
+    // Verificação de update: nas janelas de abertura E a cada ~10 min (o gestor
+    // pediu aviso mais frequente). Não aplica sozinho — só marca `update_disponivel`
+    // em sync_state; o app mostra o aviso e o botão de baixar/instalar.
+    await updateCheckSeJanela();
+    await updateCheckPeriodico();
+    await heartbeat(p, u, erro);
+  } finally {
+    cicloRodando = false; // libera SEMPRE — mesmo com erro, o próximo tick pode rodar
   }
-  // Restauração sob demanda (botão do app grava a flag em sync_state).
-  if ((await getState('restaurar_solicitado', '0')) === '1') {
-    try { await restaurar(); } catch (e) { console.error(`Restauração FALHOU: ${e.message}`); }
-  }
-  await licenca();
-  await verificarComandos();
-  // Verificação de update: nas janelas de abertura E a cada ~10 min (o gestor
-  // pediu aviso mais frequente). Não aplica sozinho — só marca `update_disponivel`
-  // em sync_state; o app mostra o aviso e o botão de baixar/instalar.
-  await updateCheckSeJanela();
-  await updateCheckPeriodico();
-  await heartbeat(p, u, erro);
 }
 
 // Hora/dia locais no fuso do Brasil (as janelas seguem o relógio da loja).
