@@ -38,7 +38,8 @@ $bak = Get-ChildItem -Path $Raiz -Directory -Filter 'backup-*' -ErrorAction Sile
 if (-not $bak) { throw "Nenhum backup encontrado em $Raiz. Nada para reverter." }
 Diga "Revertendo a partir de: $($bak.FullName)"
 $distBak = Join-Path $bak.FullName "dist"
-$webBak  = Join-Path $bak.FullName "web"
+$webBak  = Join-Path $bak.FullName "web"       # formato antigo (pasta)
+$webTarBak = Join-Path $bak.FullName "web.tar" # formato novo (tar, MAX_PATH-safe)
 $dumpFile = Join-Path $bak.FullName "db.dump"
 if (-not (Test-Path $distBak)) { throw "Backup sem pasta 'dist' - nao da para reverter o codigo." }
 
@@ -53,13 +54,23 @@ try {
   Diga "Codigo (dist) restaurado."
 
   # ---- restaura app (web), se o backup tiver ----
-  if (Test-Path $webBak) {
-    $webAtual = Join-Path $Raiz "web"
+  $webAtual = Join-Path $Raiz "web"
+  if (Test-Path $webTarBak) {
+    # Formato novo: web.tar (extrai com tar — respeita caminhos longos do next).
+    if (Test-Path $webAtual) { Remove-Item $webAtual -Recurse -Force }
+    New-Item -ItemType Directory -Force $webAtual | Out-Null
+    $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (-not (Test-Path $tarExe)) { $tarExe = 'tar' }
+    & $tarExe -xf $webTarBak -C $webAtual
+    if ($LASTEXITCODE -eq 0) { Diga "App (web) restaurado do web.tar." }
+    else { Diga "(aviso) falha ao extrair web.tar (rc=$LASTEXITCODE) - so o backend foi revertido." }
+  } elseif (Test-Path $webBak) {
+    # Formato antigo: pasta web/.
     if (Test-Path $webAtual) { Remove-Item $webAtual -Recurse -Force }
     Copy-Item $webBak $webAtual -Recurse -Force
-    Diga "App (web) restaurado."
+    Diga "App (web) restaurado (backup em pasta)."
   } else {
-    Diga "(aviso) backup sem 'web' - so o backend foi revertido."
+    Diga "(aviso) backup sem 'web'/'web.tar' - so o backend foi revertido."
   }
 
   # ---- banco: SO com -ComBanco (destrutivo: descarta o que rodou apos a atualizacao) ----

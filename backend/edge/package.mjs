@@ -84,8 +84,14 @@ if (!process.env.SKIP_WEB_BUILD) {
 }
 const saDir = join(raiz, '..', 'frontend', '.next', 'standalone');
 if (existsSync(join(saDir, 'server.js'))) {
-  cpSync(saDir, join(out, 'web'), { recursive: true }); // inclui .next (oculto) e node_modules
-  console.log('  + web');
+  // web/ vai como TAR (1 arquivo) e é extraído com `tar` no install. Motivo: o
+  // node_modules do next tem caminhos > 260 chars; a cópia arquivo-a-arquivo do Inno
+  // Setup (no .exe) e do Expand-Archive (no .zip) DROPA esses arquivos em silêncio
+  // (MAX_PATH) → "Cannot find module 'next'" e o RegemEdgeWeb cai em loop. O tar
+  // (bsdtar do Windows 10+) preserva caminhos longos. Limpa .md do standalone antes.
+  limparMd(saDir);
+  execSync(`tar -cf "${join(out, 'web.tar')}" -C "${saDir}" .`, { stdio: 'inherit' });
+  console.log('  + web.tar (standalone empacotado; extraído no install)');
 } else {
   console.warn('  (AVISO) web nao encontrado — rode sem SKIP_WEB_BUILD para gerar o app.');
 }
@@ -108,8 +114,7 @@ function limparMd(dir) {
     else if (/\.md$/i.test(nome)) rmSync(p, { force: true });
   }
 }
-const webDir = join(out, 'web');
-if (existsSync(webDir)) limparMd(webDir);
+// (web/ agora vai como web.tar já limpo de .md antes do tar — nada a limpar aqui)
 
 // GUARD (Fase 1): falha o build se algum arquivo que VAZA LÓGICA escapou para o
 // pacote — nossos .md/.map/.d.ts, docs/, mockups/ ou CLAUDE.md. node_modules é
