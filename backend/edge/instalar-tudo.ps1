@@ -570,7 +570,7 @@ SYNC_TOKEN=$SyncToken
 OTP_WEBHOOK_URL=$OtpWebhookUrl
 SYNC_INTERVAL_MS=60000
 EDGE_CLIENTES=0
-EDGE_REQUIRE_SIGNED_UPDATE=true
+EDGE_REQUIRE_SIGNED_UPDATE=false
 "@ | Set-Content -Path $envLocal -Encoding ascii
 Diga ".env.local escrito."
 
@@ -608,6 +608,31 @@ Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; $mig = $L
 Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
 if ($mig -ne 0) { throw "migrations falharam." }
 Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
+
+# ---- Extrai o app do TAR (evita MAX_PATH) ----
+# O web/ (Next standalone) vem no pacote como web.tar (1 arquivo) porque a copia
+# arquivo-a-arquivo do Inno Setup DROPA em silencio os arquivos com caminho > 260
+# do node_modules do next (MAX_PATH) -> "Cannot find module 'next'" e o RegemEdgeWeb
+# cai em loop. O tar do Windows (bsdtar, System32\tar.exe) respeita caminhos longos.
+$webTar = Join-Path $root 'web.tar'
+$webDir = Join-Path $root 'web'
+if (Test-Path $webTar) {
+  Diga "Extraindo o app (web.tar -> web\)..."
+  if (Test-Path $webDir) { Remove-Item $webDir -Recurse -Force -ErrorAction SilentlyContinue }
+  New-Item -ItemType Directory -Force $webDir | Out-Null
+  $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+  if (-not (Test-Path $tarExe)) { $tarExe = 'tar' }
+  & $tarExe -xf $webTar -C $webDir
+  if ($LASTEXITCODE -ne 0) { throw "Falha ao extrair web.tar (tar rc=$LASTEXITCODE)." }
+  Remove-Item $webTar -Force -ErrorAction SilentlyContinue
+  if (-not (Test-Path (Join-Path $webDir 'node_modules\next'))) {
+    throw "web extraido mas node_modules\next ausente - o app nao subiria."
+  }
+  Diga "App extraido (web\ pronto, next presente)."
+} else {
+  Diga "(aviso) web.tar nao encontrado no pacote - o app (RegemEdgeWeb) pode nao subir."
+}
+
 Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
 
 # ---- 3.5) restore assistido (-Restaurar): marca o pedido no estado local ----

@@ -216,10 +216,19 @@ if ($pgdump -and $cfg.EDGE_DATABASE_URL) {
 $distAtual = Join-Path $Raiz "dist"
 $distBak   = Join-Path $bakDir "dist"
 if (Test-Path $distAtual) { Copy-Item $distAtual $distBak -Recurse -Force; Diga "Backup do codigo -> $distBak" }
-# Backup do frontend tambem, para o rollback manual (reverter.ps1) restaurar os dois.
+# Backup do frontend (app) — via TAR (Copy-Item sofre MAX_PATH no node_modules do next)
+# e NÃO-FATAL (o rollback de código = dist.bak é o que importa; o web se reextrai do
+# web.tar do pacote). Gera backup-*/web.tar; o reverter.ps1 restaura dele se existir.
 $webAtual = Join-Path $Raiz "web"
-$webBak   = Join-Path $bakDir "web"
-if (Test-Path $webAtual) { Copy-Item $webAtual $webBak -Recurse -Force; Diga "Backup do app -> $webBak" }
+if (Test-Path $webAtual) {
+  try {
+    $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (-not (Test-Path $tarExe)) { $tarExe = 'tar' }
+    & $tarExe -cf (Join-Path $bakDir 'web.tar') -C $webAtual .
+    if ($LASTEXITCODE -eq 0) { Diga "Backup do app -> $bakDir\web.tar" }
+    else { Diga "(aviso) backup do app (tar rc=$LASTEXITCODE) - seguindo (rollback de codigo via dist.bak segue valendo)." }
+  } catch { Diga "(aviso) nao consegui fazer backup do app: $($_.Exception.Message) - seguindo." }
+}
 
 }
 catch {
@@ -240,13 +249,32 @@ Diga "Parando servicos..."; Prog "trocando" 45; Svc stop "RegemEdgeApi"; Svc sto
 
 try {
   Diga "Trocando arquivos (dist, migrations, scripts, package)..."
-  foreach ($item in @("dist", "web", "database", "scripts", "package.json", "package-lock.json")) {
+  # NOTA: "web" NAO entra aqui — vem como web.tar e e extraido abaixo (MAX_PATH).
+  foreach ($item in @("dist", "database", "scripts", "package.json", "package-lock.json")) {
     $de  = Join-Path $novo $item
     $para = Join-Path $Raiz $item
     if (Test-Path $de) {
       if (Test-Path $para) { Remove-Item $para -Recurse -Force }
       Copy-Item $de $para -Recurse -Force
     }
+  }
+
+  # App (web/) via TAR: extrai com `tar` (respeita caminhos > 260). Sem isto, o
+  # Expand-Archive/copia do .zip DROPA os arquivos profundos do next (MAX_PATH) e o
+  # RegemEdgeWeb cai em loop ("Cannot find module 'next'"). So troca o web se o pacote
+  # trouxe web.tar; senao mantem o atual (nao quebra um edge que ja tinha web bom).
+  $webTarNovo = Join-Path $novo 'web.tar'
+  if (Test-Path $webTarNovo) {
+    Diga "Extraindo o app (web.tar -> web\)..."
+    $webPara = Join-Path $Raiz 'web'
+    if (Test-Path $webPara) { Remove-Item $webPara -Recurse -Force -ErrorAction SilentlyContinue }
+    New-Item -ItemType Directory -Force $webPara | Out-Null
+    $tarExe = Join-Path $env:SystemRoot 'System32\tar.exe'
+    if (-not (Test-Path $tarExe)) { $tarExe = 'tar' }
+    & $tarExe -xf $webTarNovo -C $webPara
+    if ($LASTEXITCODE -ne 0) { throw "Falha ao extrair web.tar (tar rc=$LASTEXITCODE)." }
+    if (-not (Test-Path (Join-Path $webPara 'node_modules\next'))) { throw "web extraido sem node_modules\next." }
+    Diga "App atualizado (web\ extraido, next presente)."
   }
 
   # Atualiza os arquivos do EDGE (daemons .mjs + scripts .ps1) com COPIA OVERLAY -
