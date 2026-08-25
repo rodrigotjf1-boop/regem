@@ -41,6 +41,7 @@ export default function DistHome() {
   const [frota, setFrota] = useState<any[] | null>(null);
   const [telemetria, setTelemetria] = useState<any[] | null>(null);
   const [detErro, setDetErro] = useState<any>(null); // erro selecionado (modal de detalhe)
+  const [logCopiado, setLogCopiado] = useState(false); // feedback do botão "Copiar log"
   const [licencas, setLicencas] = useState<any[] | null>(null);
   const [usuarios, setUsuarios] = useState<any[] | null>(null);
   const [busca, setBusca] = useState('');
@@ -303,16 +304,46 @@ export default function DistHome() {
 
               {detErro.fingerprint && <p className="text-[11px] text-slate-600">fingerprint: <span className="font-mono">{detErro.fingerprint}</span></p>}
 
-              {!detErro.resolvido && (
-                <div className="mt-5 flex justify-end">
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const txt = [
+                      `Loja: ${detErro.loja ?? '—'}${detErro.unidade ? ' · ' + detErro.unidade : ''}`,
+                      `Nível: ${detErro.nivel ?? '—'} · Origem: ${detErro.origem ?? '—'}`,
+                      `Versão: ${detErro.versao ?? '—'} · Ocorrências: ${detErro.ocorrencias}`,
+                      `Primeira: ${quando(detErro.primeiroEm)} · Última: ${quando(detErro.ultimoEm)}`,
+                      detErro.fingerprint ? `Fingerprint: ${detErro.fingerprint}` : '',
+                      '',
+                      `Mensagem:\n${detErro.mensagem ?? ''}`,
+                      detErro.stack ? `\nStack:\n${detErro.stack}` : '',
+                      detErro.contexto && Object.keys(detErro.contexto).length
+                        ? `\nContexto:\n${JSON.stringify(detErro.contexto, null, 2)}`
+                        : '',
+                    ]
+                      .filter((l) => l !== '')
+                      .join('\n');
+                    navigator.clipboard
+                      ?.writeText(txt)
+                      .then(() => {
+                        setLogCopiado(true);
+                        setTimeout(() => setLogCopiado(false), 2000);
+                      })
+                      .catch(() => {});
+                  }}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-sky-500 hover:text-sky-400"
+                >
+                  {logCopiado ? 'Copiado ✓' : '📋 Copiar log'}
+                </button>
+                {!detErro.resolvido && (
                   <button
-                    onClick={() => { resolver(detErro.id); setDetErro(null); }}
+                    onClick={(e) => { e.stopPropagation(); resolver(detErro.id); setDetErro(null); }}
                     className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:border-emerald-500 hover:text-emerald-400"
                   >
                     Marcar como resolvido
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </button>
         )}
