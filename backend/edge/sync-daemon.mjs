@@ -508,6 +508,13 @@ async function ciclo() {
     await updateCheckSeJanela();
     await updateCheckPeriodico();
     await heartbeat(p, u, erro);
+  } catch (e) {
+    // BLINDAGEM: NENHUM erro de ciclo pode derrubar o daemon. O try interno cobre só
+    // pull/push; um throw de licenca/verificarComandos/updateCheck/heartbeat (aqui fora)
+    // subia até o `await ciclo()` do boot e CRASHAVA o processo → NSSM reiniciava em loop
+    // e nunca chegava a "sync ok". Agora loga + telemetria e segue no próximo tick.
+    console.error(`[${new Date().toISOString()}] ciclo ERRO (blindado): ${e?.message ?? e}`);
+    try { await reportarTelemetria('sync', 'ciclo_erro', String(e?.message ?? e)); } catch { /* best-effort */ }
   } finally {
     cicloRodando = false; // libera SEMPRE — mesmo com erro, o próximo tick pode rodar
   }
@@ -577,6 +584,15 @@ async function updateCheckSeJanela() {
 }
 
 console.log(`Daemon de sync — edge=${EDGE_DB.replace(/:[^:@/]*@/, ':****@')} cloud=${CLOUD} intervalo=${INTERVAL}ms`);
-await ensureState();
-await ciclo();
+
+// BLINDAGEM GLOBAL: um erro assíncrono solto (ex.: Postgres ainda em recuperação no
+// boot → 57P03 no ensureState; rejeição sem catch) NÃO pode matar o processo. Sem isto,
+// o daemon caía e o NSSM reiniciava em loop (dezenas de "Daemon de sync —" sem "sync ok").
+process.on('unhandledRejection', (e) => console.error(`[unhandledRejection] ${e?.message ?? e}`));
+process.on('uncaughtException', (e) => console.error(`[uncaughtException] ${e?.message ?? e}`));
+
+// ensureState e o 1º ciclo NÃO podem crashar o boot (ex.: PG recuperando = 57P03).
+// Se falharem, loga e segue — o setInterval reexecuta o ciclo quando o PG estabilizar.
+try { await ensureState(); } catch (e) { console.error(`ensureState falhou no boot (segue): ${e?.message ?? e}`); }
+try { await ciclo(); } catch (e) { console.error(`primeiro ciclo falhou no boot (segue): ${e?.message ?? e}`); }
 setInterval(ciclo, INTERVAL);
