@@ -468,10 +468,12 @@ export default function PdvPage() {
         </div>
 
         {/* Carrinho */}
-        <Card className="flex flex-col gap-3 p-4 lg:sticky lg:top-4 lg:h-[calc(100vh-5.5rem)]">
+        <Card className="flex flex-col gap-3 p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5.5rem)]">
           <h2 className="font-display font-semibold">Comanda</h2>
-          {/* Lista rola dentro do card alto; o rodapé (taxa/totais/finalizar) fica fixo embaixo. */}
-          <div className="flex-1 space-y-2 overflow-y-auto">
+          {/* max-h (não h fixa): com poucos itens o card encolhe pro conteúdo e o rodapé
+              (taxa/totais/"Receber e enviar à produção") fica SEMPRE visível. Com muitos
+              itens, só ESTA lista rola (min-h-0 deixa o flex encolher) e o rodapé fica fixo. */}
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
             {carrinho.length === 0 && (
               <p className="py-10 text-center text-sm text-muted-foreground">Toque nos produtos para adicionar.</p>
             )}
