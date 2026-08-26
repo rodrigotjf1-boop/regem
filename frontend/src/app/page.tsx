@@ -636,7 +636,7 @@ export default function LandingPage() {
           Regem
         </Link>
         <nav>
-          <a href="#">Termos de uso</a>
+          <Link href="/termos">Termos de uso</Link>
           <Link href="/privacidade">Privacidade &amp; LGPD</Link>
           <a href="#">Suporte</a>
           <a href="#">API para desenvolvedores</a>
