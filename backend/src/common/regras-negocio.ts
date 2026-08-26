@@ -168,6 +168,9 @@ export function fichaAlcancavel(
 export type UiPrefs = {
   sidebar?: 'expanded' | 'collapsed';
   side?: 'left' | 'right';
+  // Ordem PESSOAL das categorias no PDV Balcão (arrastável, POR USUÁRIO) — NÃO altera o
+  // catálogo. Lista de ids de categoria; categorias fora da lista vão para o fim.
+  pdvOrdemCategorias?: string[];
 };
 
 /** Mantém apenas chaves conhecidas com valores válidos (ignora o resto). */
@@ -175,6 +178,15 @@ export function sanitizeUiPrefs(p: any): UiPrefs {
   const out: UiPrefs = {};
   if (p?.sidebar === 'expanded' || p?.sidebar === 'collapsed') out.sidebar = p.sidebar;
   if (p?.side === 'left' || p?.side === 'right') out.side = p.side;
+  if (Array.isArray(p?.pdvOrdemCategorias)) {
+    // Só ids (strings não vazias, ≤64 chars), sem duplicatas, no máx. 200 categorias.
+    const vistos = new Set<string>();
+    const ordem = p.pdvOrdemCategorias
+      .filter((x: any) => typeof x === 'string' && x.length > 0 && x.length <= 64)
+      .filter((x: string) => (vistos.has(x) ? false : (vistos.add(x), true)))
+      .slice(0, 200);
+    if (ordem.length) out.pdvOrdemCategorias = ordem;
+  }
   return out;
 }
 
