@@ -8,10 +8,10 @@ import { RegemMark } from '@/components/brand/regem-mark';
 const RAZAO_SOCIAL = 'SISTER TECNOLOGIA LTDA';
 const NOME_FANTASIA = 'DMS Tecnologias';
 const ENDERECO = 'R. Visconde de Pirajá, 414, sala 718 — Rio de Janeiro/RJ, CEP 22.410-905';
-// ⚠️ PREENCHA antes de divulgar a página: CNPJ da SISTER TECNOLOGIA LTDA.
-// Sem valor, a linha do CNPJ simplesmente não aparece (melhor omitir do que
-// publicar um número errado num documento legal).
-const CNPJ = '';
+// Conferido na Receita (BrasilAPI) em 26/08/2026: bate com a razão social e o
+// endereço acima; situação cadastral ATIVA. Se ficar vazio, a linha do CNPJ
+// simplesmente não renderiza — melhor omitir do que publicar número errado.
+const CNPJ = '67.748.508/0001-43';
 // Data da última revisão do texto. Atualize ao mexer no conteúdo.
 const ATUALIZADO_EM = '26 de agosto de 2026';
 const CONTATO = 'suporte@dmsregem.com';
