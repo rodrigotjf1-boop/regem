@@ -76,6 +76,28 @@ export class WhatsappService {
       throw new BadRequestException('Esta conexão de WhatsApp já pertence a outra loja.');
   }
 
+  // Busca o QR do Evolution com RETRY. O Evolution (Baileys) NÃO devolve o base64 no
+  // 1º /instance/connect logo após criar a instância — o QR é gerado de forma
+  // ASSÍNCRONA (chega segundos depois). Sem retry, o 1º connect vinha vazio e o front
+  // mostrava "não foi possível gerar o QR". Tentamos algumas vezes com intervalo até o
+  // QR aparecer; se a instância já estiver 'open' (pareada), não há QR e não é erro.
+  private async pegarQr(instancia: string, tentativas = 6, intervaloMs = 1500) {
+    for (let i = 0; i < tentativas; i++) {
+      const res = await this.req(`/instance/connect/${instancia}`, { method: 'GET' }).catch(() => null);
+      const j: any = res ? await res.json().catch(() => ({})) : {};
+      const base64: string | undefined = j?.base64 ?? j?.qrcode?.base64;
+      if (base64) {
+        const qr = base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+        return { qr, pairingCode: j?.pairingCode ?? j?.code ?? null, jaConectado: false };
+      }
+      if (j?.instance?.state === 'open' || j?.state === 'open') {
+        return { qr: null, pairingCode: null, jaConectado: true };
+      }
+      if (i < tentativas - 1) await new Promise((r) => setTimeout(r, intervaloMs));
+    }
+    return { qr: null, pairingCode: null, jaConectado: false };
+  }
+
   // Conecta (cria a instância se preciso, aponta o webhook pro n8n) e devolve o QR.
   async conectar(tenantId: string) {
     const { cfg, instancia } = await this.instanciaDe(tenantId);
@@ -111,12 +133,9 @@ export class WhatsappService {
         .where(eq(cardapioConfig.id, cfg.id));
     }
 
-    // Busca o QR para parear.
-    const res = await this.req(`/instance/connect/${instancia}`, { method: 'GET' });
-    const j: any = await res.json().catch(() => ({}));
-    const base64: string | undefined = j?.base64 ?? j?.qrcode?.base64;
-    const qr = base64 ? (base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`) : null;
-    return { instancia, qr, pairingCode: j?.pairingCode ?? j?.code ?? null };
+    // Busca o QR para parear (com retry — o Evolution gera o QR de forma assíncrona).
+    const { qr, pairingCode, jaConectado } = await this.pegarQr(instancia);
+    return { instancia, qr, pairingCode, jaConectado };
   }
 
   // Estado da conexão (open | connecting | close) + número, se pareado.
@@ -173,11 +192,8 @@ export class WhatsappService {
         .set({ marketingInstancia: instancia, updatedAt: new Date() })
         .where(eq(cardapioConfig.id, cfg.id));
     }
-    const res = await this.req(`/instance/connect/${instancia}`, { method: 'GET' });
-    const j: any = await res.json().catch(() => ({}));
-    const base64: string | undefined = j?.base64 ?? j?.qrcode?.base64;
-    const qr = base64 ? (base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`) : null;
-    return { instancia, qr, pairingCode: j?.pairingCode ?? j?.code ?? null };
+    const { qr, pairingCode, jaConectado } = await this.pegarQr(instancia);
+    return { instancia, qr, pairingCode, jaConectado };
   }
 
   async statusMarketing(tenantId: string) {
