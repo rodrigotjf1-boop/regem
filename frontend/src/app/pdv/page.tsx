@@ -470,10 +470,11 @@ export default function PdvPage() {
         {/* Carrinho */}
         <Card className="flex flex-col gap-3 p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-5.5rem)]">
           <h2 className="font-display font-semibold">Comanda</h2>
-          {/* max-h (não h fixa): com poucos itens o card encolhe pro conteúdo e o rodapé
-              (taxa/totais/"Receber e enviar à produção") fica SEMPRE visível. Com muitos
-              itens, só ESTA lista rola (min-h-0 deixa o flex encolher) e o rodapé fica fixo. */}
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+          {/* Card com max-h encolhe pro conteúdo: poucos itens → sem vão, rodapé logo abaixo.
+              A lista NÃO leva flex-1 de propósito — flex-1 a esticava e empurrava o rodapé
+              pra baixo da dobra. Ela só ROLA quando o card bate no teto da viewport (min-h-0
+              permite encolher). O rodapé fica em <div shrink-0> pra nunca ser comprimido. */}
+          <div className="min-h-0 space-y-2 overflow-y-auto">
             {carrinho.length === 0 && (
               <p className="py-10 text-center text-sm text-muted-foreground">Toque nos produtos para adicionar.</p>
             )}
@@ -494,7 +495,7 @@ export default function PdvPage() {
           </div>
 
           {carrinho.length > 0 && (
-            <>
+            <div className="shrink-0 space-y-3">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={taxa} onChange={(e) => setTaxa(e.target.checked)} className="h-4 w-4 accent-primary" />
                 Taxa de serviço 10%
@@ -629,7 +630,7 @@ export default function PdvPage() {
               <Button type="button" size="lg" onClick={finalizar} disabled={enviando || !caixa || !pagamentoOk}>
                 {enviando ? 'Finalizando…' : !caixa ? 'Abra o caixa para vender' : !pagamentoOk ? 'Pagamentos não fecham o total' : 'Receber e enviar à produção'}
               </Button>
-            </>
+            </div>
           )}
         </Card>
       </div>
