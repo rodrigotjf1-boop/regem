@@ -108,7 +108,17 @@ const PUSH_TABLES = [
   { tabela: 'audit_log', cursor: 'created_at' },
 ];
 
-const pool = new pg.Pool({ connectionString: EDGE_DB });
+// TIMEOUTS: sem isto, uma conexão/consulta ao Postgres local congestionado ou com
+// lock preso PENDURA o daemon PARA SEMPRE (ele empaca na 1ª query — ensureState — e
+// nunca chega a "sync ok"; o serviço fica reiniciando). Com timeout, a query lança,
+// a blindagem cataloga e o próximo tick tenta de novo — nunca mais pendura.
+const pool = new pg.Pool({
+  connectionString: EDGE_DB,
+  connectionTimeoutMillis: 15000, // desiste de CONECTAR após 15s (banco não pronto)
+  query_timeout: 30000,           // desiste de uma QUERY após 30s (lock preso)
+  statement_timeout: 30000,       // idem, no lado do servidor
+  idleTimeoutMillis: 30000,
+});
 // Resiliencia (auditoria ago/2026): o Postgres reiniciado (57P01, a cada install/
 // update) emite 'error' na conexao OCIOSA do pool -> SEM handler o Node derruba o
 // daemon. So logamos; o pg descarta a conexao morta e reabre na proxima query.
@@ -231,6 +241,22 @@ async function pull() {
       }
     }
     pendentes = resta;
+  }
+  // ÓRFÃOS de pedido_externo: se o cliente_id nunca desceu (cliente ausente na nuvem
+  // ou fora de ordem no pull paginado), o pedido ficava ETERNAMENTE sem entrar e
+  // inflava o log do Postgres com erros de FK a cada ciclo. Inserimos o pedido com
+  // cliente_id=NULL (o cliente é OPCIONAL — nome/telefone já vêm no próprio pedido).
+  // Assim o pedido ENTRA no edge e o pull para de chocar nele.
+  if (pendentes.length) {
+    const resta2 = [];
+    for (const [tabela, row] of pendentes) {
+      if (tabela === 'pedido_externo' && row.cliente_id) {
+        try { await upsertLocal(tabela, { ...row, cliente_id: null }); aplicadas++; continue; }
+        catch { /* cai no resta2 abaixo */ }
+      }
+      resta2.push([tabela, row]);
+    }
+    pendentes = resta2;
   }
   if (pendentes.length) console.warn(`  ${pendentes.length} linha(s) sem pai (FK) após retries`);
   // RESILIÊNCIA: um registro "veneno" (coluna/tipo/valor que o edge não aceita — ex.:

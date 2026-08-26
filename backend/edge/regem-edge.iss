@@ -16,7 +16,7 @@
 ; Veja edge\COMPILAR-INSTALADOR.md para o passo a passo.
 
 #define AppName "Regem Edge"
-#define AppVer  "1.17.0"
+#define AppVer  "1.19.0"
 ; ==== EDITE ESTES 2 VALORES ANTES DE COMPILAR ====
 #define MyCloudApi     "https://api.dmsregem.com/api/v1"
 #define MyLicensePubKey "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0KTUNvd0JRWURLMlZ3QXlFQW9SY2phUGJjb0ZQYjk2dFBiSExFcHUzVmNDUjY1TlpwUFRuNWJWQmgwZ289Ci0tLS0tRU5EIFBVQkxJQyBLRVktLS0tLQo"   ; (nao e segredo — a mesma para todas as lojas)
@@ -61,7 +61,7 @@ Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
 ;    do PowerShell gravaria a senha no log) — vao num arquivo temporario que o
 ;    [Code] escreve antes e o script le e apaga. So o CAMINHO aparece aqui.
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
-  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Modo ""{code:GetModo}"" -ServidorHost ""{code:GetServidorHost}"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"""; \
+  Parameters: "-ExecutionPolicy Bypass -NoProfile -File ""{app}\backend\edge\instalar-tudo.ps1"" -Raiz ""{app}\backend"" -Modo ""{code:GetModo}"" -ServidorHost ""{code:GetServidorHost}"" -CredFile ""{tmp}\regem-cred.txt"" -LicensePublicKey ""{#MyLicensePubKey}"" -CloudApi ""{#MyCloudApi}"" -Limpar"; \
   StatusMsg: "Instalando o Regem Edge…"; \
   Flags: waituntilterminated
 
