@@ -326,6 +326,21 @@ async function req(path: string, options: RequestInit = {}) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as any);
+    // Self-heal do terminal FANTASMA: um pareamento revogado/removido (ex.: após
+    // reinstalar o edge) fazia o servidor devolver 403 e travava TODAS as páginas
+    // (Cadastros, dashboard), não só o PDV. Ao detectar esse 403 de terminal,
+    // limpamos o pareamento e refazemos a chamada UMA vez sem o header — o app se
+    // recupera sozinho; o PDV volta a pedir o pareamento pela terminal-gate.
+    // Sem risco de loop: clearTerminal() zera getTerminalAtual(), então o retry
+    // não manda X-Terminal-Id e a guarda (getTerminalAtual()) não dispara de novo.
+    if (
+      res.status === 403 &&
+      getTerminalAtual() &&
+      /paread|revogad/i.test(String(body.message || ''))
+    ) {
+      clearTerminal();
+      return req(path, options);
+    }
     throw new Error(body.message || `Erro ${res.status}`);
   }
   return res.status === 204 ? null : res.json();
