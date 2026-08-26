@@ -93,6 +93,7 @@ export default function DeliveryPage() {
   const [sel, setSel] = useState<any>(null); // pedido selecionado (preview + botões)
   const [despacho, setDespacho] = useState<any>(null);
   const [detalhe, setDetalhe] = useState<any>(null); // modal detalhe (alterar/cancelar)
+  const [detalheModo, setDetalheModo] = useState<'view' | 'alterar'>('view'); // abre em edição pelo botão "Editar pedido"
   const [filaConferencia, setFilaConferencia] = useState<any[]>([]); // fila de conferência (abre o 1º)
   const [codigoEntrega, setCodigoEntrega] = useState<{ pedido: any; codigo: string } | null>(null); // entrega própria 99food/iFood
   const [marcadosPend, setMarcadosPend] = useState<Set<string>>(new Set()); // seleção múltipla (pendentes)
@@ -419,7 +420,7 @@ export default function DeliveryPage() {
     cancelar: {
       show: true,
       enabled: !!sel && !['concluido', 'cancelado'].includes(st),
-      onClick: () => sel && setDetalhe(sel), // modal trata senha + motivo + reuso/perda
+      onClick: () => { if (sel) { setDetalheModo('view'); setDetalhe(sel); } }, // modal trata senha + motivo + reuso/perda
     },
     pronto: {
       show: true,
@@ -431,10 +432,12 @@ export default function DeliveryPage() {
       enabled: !!sel && !!sel.comandaId,
       onClick: () => sel && acao(api.reimprimirDelivery(sel.id), 'Vias reenviadas à impressão.'),
     },
-    cupomEntregador: {
+    // "Editar pedido" (antes "Cupom entregador"): abre o detalhe já em modo ALTERAR —
+    // mesma função de detalhes → Alterar. 99food/iFood NÃO editam (marketplace controla).
+    editarPedido: {
       show: true,
-      enabled: !!sel && sel.tipo !== 'retirada' && ['confirmado', 'pronto', 'despachado'].includes(st),
-      onClick: () => sel && acao(api.imprimirCupomEntregador(sel.id), 'Cupom do entregador (QR) enviado à impressão.'),
+      enabled: !!sel && ['confirmado', 'pronto'].includes(st) && !['99food', 'ifood'].includes(sel?.canal),
+      onClick: () => { if (sel) { setDetalheModo('alterar'); setDetalhe(sel); } },
     },
     nf: {
       show: true,
@@ -663,7 +666,7 @@ export default function DeliveryPage() {
 
             {/* Coluna direita: preview + painel de botões */}
             <div className="flex min-w-0 flex-col gap-3 lg:min-h-0">
-              <PreviewPedido className="lg:min-h-0 lg:flex-1" pedido={sel} onAbrirDetalhe={() => sel && setDetalhe(sel)} />
+              <PreviewPedido className="lg:min-h-0 lg:flex-1" pedido={sel} onAbrirDetalhe={() => { if (sel) { setDetalheModo('view'); setDetalhe(sel); } }} />
               <PainelAcoes acoes={acoes} temSel={!!sel} nPend={marcadosPend.size} nAnd={marcadosAnd.size} />
             </div>
           </div>
@@ -719,7 +722,7 @@ export default function DeliveryPage() {
 
       {/* Modal detalhe do pedido (reimprimir/alterar/cancelar) */}
       {detalhe && (
-        <PedidoDetalhe pedido={detalhe} onClose={() => setDetalhe(null)} onChanged={reload} />
+        <PedidoDetalhe pedido={detalhe} modoInicial={detalheModo} onClose={() => { setDetalhe(null); setDetalheModo('view'); }} onChanged={reload} />
       )}
 
       {/* Modal: confirmar entrega por CÓDIGO (entrega própria 99food/iFood) */}
@@ -1035,7 +1038,7 @@ function PainelAcoes({ acoes, temSel, nPend, nAnd }: { acoes: any; temSel: boole
         <Btn a={acoes.cancelar} label="CANCELAR" />
         <Btn a={acoes.pronto} label="PRONTO" />
         <Btn a={acoes.reimprimir} label="REIMPRIMIR" />
-        <Btn a={acoes.cupomEntregador} label="CUPOM ENTREGADOR" />
+        <Btn a={acoes.editarPedido} label="EDITAR PEDIDO" />
         <Btn a={acoes.nf} label="NF-e" />
       </div>
     </Card>

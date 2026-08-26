@@ -24,12 +24,20 @@ export function PedidoDetalhe({
   pedido: p,
   onClose,
   onChanged,
+  modoInicial,
 }: {
   pedido: any;
   onClose: () => void;
   onChanged: () => void;
+  modoInicial?: 'view' | 'alterar';
 }) {
-  const [modo, setModo] = useState<'view' | 'cancelar' | 'alterar'>('view');
+  // Abre já em "alterar" quando o botão "Editar pedido" pede — mas só se o pedido for
+  // realmente editável (status + canal); senão cai em 'view' (não abre edição indevida).
+  const editavel =
+    ['confirmado', 'pronto'].includes(p.status) && !['99food', 'ifood'].includes(p.canal);
+  const [modo, setModo] = useState<'view' | 'cancelar' | 'alterar'>(
+    modoInicial === 'alterar' && editavel ? 'alterar' : 'view',
+  );
   const [busy, setBusy] = useState(false);
   // cancelar
   const [motivo, setMotivo] = useState('');
@@ -42,14 +50,21 @@ export function PedidoDetalhe({
   const [adicionar, setAdicionar] = useState<{ produtoId: string; label: string; observacao?: string }[]>([]);
   // alterar — endereço
   const [bairros, setBairros] = useState<any[]>([]);
-  const [endRua, setEndRua] = useState(p.enderecoRua ?? '');
+  // Endereço no editar: canais integrados (Anota Aí / Cardápio Web) guardam só o
+  // endereço COMBINADO em `p.endereco` (os campos estruturados vêm vazios) — por isso o
+  // "Alterar" não puxava o endereço deles (só puxava do Regem, que preenche os campos).
+  // Fallback: se não há nenhum campo estruturado, usa o combinado na linha da rua.
+  const semEstruturado = !(p.enderecoRua || p.enderecoNumero || p.enderecoBairro);
+  const [endRua, setEndRua] = useState(p.enderecoRua ?? (semEstruturado ? (p.endereco ?? '') : ''));
   const [endNum, setEndNum] = useState(p.enderecoNumero ?? '');
   const [endBairro, setEndBairro] = useState(p.enderecoBairro ?? '');
   const [endBairroId, setEndBairroId] = useState('');
   const [endRef, setEndRef] = useState(p.enderecoReferencia ?? '');
   const [endEditado, setEndEditado] = useState(false);
 
-  const podeAlterar = ['confirmado', 'pronto'].includes(p.status);
+  // 99food/iFood NÃO podem ser alterados: o marketplace controla o pedido e alterar
+  // localmente dessincroniza. Os demais (Regem / Anota Aí / Cardápio Web) podem. (= editavel)
+  const podeAlterar = editavel;
   const finalizado = ['concluido', 'cancelado'].includes(p.status);
 
   const carregarItens = useCallback(async () => {
