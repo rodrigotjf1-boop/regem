@@ -313,23 +313,9 @@ export default function EntregadoresPage() {
                   <option value="quinzena">Quinzenal (1–15 / 16–fim)</option>
                 </Select>
               </label>
-              <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-                <span className="text-muted-foreground">Máx. de pedidos por entregador (saída)</span>
-                <Select
-                  value={String(cfg.maxPedidosEntregador ?? 1)}
-                  onChange={(e) => setCfg({ ...cfg, maxPedidosEntregador: Number(e.target.value) })}
-                >
-                  {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
-                    <option key={n} value={n}>
-                      {n === 1 ? '1 (sem multi-parada)' : `${n} pedidos por viagem`}
-                    </option>
-                  ))}
-                </Select>
-                <span className="text-xs text-muted-foreground">
-                  Quando o entregador pega uma saída, o sistema agrupa até esse tanto de pedidos prontos e
-                  ordena as paradas pela melhor rota (roteirização automática).
-                </span>
-              </label>
+              {/* "Máx. de pedidos por entregador (saída)" foi movido para o painel de
+                  Delivery (stepper "Lote/entregador", ao lado do Aceitar automaticamente),
+                  para ajuste rápido por demanda. O valor continua salvo aqui (preservado). */}
               <label className="flex flex-col gap-1 text-sm sm:col-span-2">
                 <span className="text-muted-foreground">Raio do aviso de chegada</span>
                 <Select

@@ -412,7 +412,7 @@ export default function PdvPage() {
           </button>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_420px]">
         {/* Produtos */}
         <div className="space-y-3">
           {erro && <p className="text-destructive">{erro}</p>}
@@ -468,12 +468,13 @@ export default function PdvPage() {
         </div>
 
         {/* Carrinho */}
-        <Card className="flex h-fit flex-col gap-3 p-4 lg:sticky lg:top-4">
+        <Card className="flex flex-col gap-3 p-4 lg:sticky lg:top-4 lg:h-[calc(100vh-5.5rem)]">
           <h2 className="font-display font-semibold">Comanda</h2>
-          {carrinho.length === 0 && (
-            <p className="py-6 text-center text-sm text-muted-foreground">Toque nos produtos para adicionar.</p>
-          )}
-          <div className="space-y-2">
+          {/* Lista rola dentro do card alto; o rodapé (taxa/totais/finalizar) fica fixo embaixo. */}
+          <div className="flex-1 space-y-2 overflow-y-auto">
+            {carrinho.length === 0 && (
+              <p className="py-10 text-center text-sm text-muted-foreground">Toque nos produtos para adicionar.</p>
+            )}
             {carrinho.map((i) => (
               <div key={i.key} className="flex items-center gap-2 text-sm">
                 <div className="min-w-0 flex-1">
