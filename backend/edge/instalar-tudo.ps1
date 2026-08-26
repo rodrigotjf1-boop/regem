@@ -51,7 +51,12 @@ param(
   # pedido de restauração no estado local — o sync-daemon puxa TODO o estado da
   # nuvem (push do que houver → pull full via /sync/restore) no proximo ciclo.
   # Aditivo (upsert por id): nao apaga nada; so preenche o banco local vazio.
-  [switch]$Restaurar
+  [switch]$Restaurar,
+  # INSTALACAO LIMPA (nuke): para e REMOVE servicos/tarefas de uma instalacao anterior
+  # e APAGA o banco local (pgdata) + backups + .env antes de instalar do zero. Usar
+  # quando o banco local ficou corrompido/travado. Os dados do edge vem da NUVEM (o
+  # sync repopula sozinho). Implica -SemProteger (sem DPAPI/ACL restrita) por padrao.
+  [switch]$Limpar
 )
 
 # ---- FASE 0.0: garante PowerShell 64-bit ----
@@ -75,6 +80,8 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 $ErrorActionPreference = "Stop"
 $root = $Raiz
 $base = Split-Path $root -Parent          # C:\regem-edge
+# Instalacao LIMPA => sem hardening (DPAPI/ACL restrita), para nada travar o funcionamento.
+if ($Limpar) { $SemProteger = $true }
 Set-Location $root                        # cwd = raiz do backend (resolve node_modules + caminhos relativos)
 $logDir = Join-Path $root "logs"; New-Item -ItemType Directory -Force $logDir | Out-Null
 # Marcadores de resultado que o INSTALADOR (Inno) lê no fim: a presença de
@@ -190,6 +197,41 @@ if ($reinstalacao) {
   if (Test-Path $envAntigo) {
     try { & icacls $envAntigo /reset | Out-Null } catch {}
     try { & attrib -R $envAntigo 2>$null } catch {}
+  }
+
+  # -Limpar: REMOCAO TOTAL da instalacao anterior (nuke). Remove servicos+tarefas,
+  # mata os processos presos (postgres/node) e APAGA o pgdata/backups/.env. Depois
+  # segue como instalacao NOVA (initdb do zero). Os dados vem da nuvem pelo sync.
+  if ($Limpar) {
+    Diga "  -Limpar: REMOVENDO por completo a instalacao anterior (servicos, tarefas, banco)..."
+    $nssmC = Join-Path $base 'nssm\nssm.exe'; if (-not (Test-Path $nssmC)) { $nssmC = 'nssm' }
+    foreach ($s in $svcRegem) {
+      try { & $nssmC stop $s 2>$null | Out-Null } catch {}
+      try { & sc.exe stop $s 2>$null | Out-Null } catch {}
+      try { & $nssmC remove $s confirm 2>$null | Out-Null } catch {}
+      try { & sc.exe delete $s 2>$null | Out-Null } catch {}
+    }
+    foreach ($t in @('RegemEdgeUpdate', 'RegemEdgeRollback')) {
+      try { & schtasks /end /tn $t 2>$null | Out-Null } catch {}
+      try { & schtasks /delete /tn $t /f 2>$null | Out-Null } catch {}
+    }
+    Start-Sleep -Seconds 3  # deixa os servicos morrerem e liberarem o pgdata
+    try {
+      Get-Process postgres, node -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path.StartsWith($base, [StringComparison]::OrdinalIgnoreCase) } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    } catch {}
+    Start-Sleep -Seconds 2
+    foreach ($d in @((Join-Path $base 'pgdata'), (Join-Path $base 'backup'))) {
+      if (Test-Path $d) {
+        try { Remove-Item $d -Recurse -Force -ErrorAction Stop; Diga "  Removido: $d" }
+        catch { Diga ("  (aviso) nao removi {0}: {1}" -f $d, $_.Exception.Message) }
+      }
+    }
+    Get-ChildItem $root -Directory -Filter 'backup-*' -ErrorAction SilentlyContinue | ForEach-Object { try { Remove-Item $_.FullName -Recurse -Force } catch {} }
+    try { Remove-Item $envAntigo -Force -ErrorAction SilentlyContinue } catch {}
+    Diga "  Instalacao anterior REMOVIDA. Seguindo com instalacao LIMPA (banco novo)."
+    $reinstalacao = $false  # trata como instalacao NOVA (initdb do zero)
   }
 }
 
@@ -353,6 +395,12 @@ if ($embutido.pg) {
     & $nssm set RegemEdgePg ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
     & $nssm set RegemEdgePg Start SERVICE_AUTO_START | Out-Null
     & $nssm set RegemEdgePg AppStderr "$logDir\RegemEdgePg.err.log" | Out-Null
+    # ROTACAO do log do Postgres: sem isto, o RegemEdgePg.err.log cresce sem limite
+    # (chegou a 445 MB no incidente). AppRotateOnline corta a 10 MB mesmo com o servico
+    # rodando. (O RegemEdgePg e registrado AQUI, nao no instalar-servicos.)
+    & $nssm set RegemEdgePg AppRotateFiles 1 | Out-Null
+    & $nssm set RegemEdgePg AppRotateOnline 1 | Out-Null
+    & $nssm set RegemEdgePg AppRotateBytes 10485760 | Out-Null
     & $nssm start RegemEdgePg | Out-Null
     Start-Sleep -Seconds 2
     Diga "Postgres embutido: servico iniciado como Servico de rede (porta $PgPorta)."
@@ -367,6 +415,12 @@ if ($embutido.pg) {
       & $nssm set RegemEdgePg ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
       & $nssm set RegemEdgePg Start SERVICE_AUTO_START | Out-Null
       & $nssm set RegemEdgePg AppStderr "$logDir\RegemEdgePg.err.log" | Out-Null
+    # ROTACAO do log do Postgres: sem isto, o RegemEdgePg.err.log cresce sem limite
+    # (chegou a 445 MB no incidente). AppRotateOnline corta a 10 MB mesmo com o servico
+    # rodando. (O RegemEdgePg e registrado AQUI, nao no instalar-servicos.)
+    & $nssm set RegemEdgePg AppRotateFiles 1 | Out-Null
+    & $nssm set RegemEdgePg AppRotateOnline 1 | Out-Null
+    & $nssm set RegemEdgePg AppRotateBytes 10485760 | Out-Null
     }
     & $nssm start RegemEdgePg 2>$null | Out-Null
     Start-Sleep -Seconds 2
@@ -442,6 +496,12 @@ if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSIO
     & $nssm set RegemEdgePg ObjectName "NT AUTHORITY\NetworkService" "" | Out-Null
     & $nssm set RegemEdgePg Start SERVICE_AUTO_START | Out-Null
     & $nssm set RegemEdgePg AppStderr "$logDir\RegemEdgePg.err.log" | Out-Null
+    # ROTACAO do log do Postgres: sem isto, o RegemEdgePg.err.log cresce sem limite
+    # (chegou a 445 MB no incidente). AppRotateOnline corta a 10 MB mesmo com o servico
+    # rodando. (O RegemEdgePg e registrado AQUI, nao no instalar-servicos.)
+    & $nssm set RegemEdgePg AppRotateFiles 1 | Out-Null
+    & $nssm set RegemEdgePg AppRotateOnline 1 | Out-Null
+    & $nssm set RegemEdgePg AppRotateBytes 10485760 | Out-Null
   }
   & $nssm start RegemEdgePg 2>$null | Out-Null
   Start-Sleep -Seconds 2
@@ -587,16 +647,22 @@ if (-not $SemProteger) {
   }
 }
 
-# PROTEÇÃO (Fase 1): trava a ACL do .env.local — só SYSTEM e Administradores leem
-# (os serviços rodam como SYSTEM). Remove herança para nenhum usuário comum ler.
-try {
-  # Full para SYSTEM (serviços) e Administradores (permite reinstalar/cifrar depois);
-  # a heranca removida (/inheritance:r) tira os Usuarios comuns — que e a real protecao.
-  # LE-4: NetworkService (S-1-5-20) recebe LEITURA — os serviços Node agora rodam sob
-  # essa conta e precisam ler os segredos (que o DPAPI LocalMachine decifra na conta).
-  & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(R)" | Out-Null
-  Diga "ACL do .env.local restrita (SYSTEM + Administradores + leitura NetworkService)."
-} catch { Diga "(aviso) nao consegui restringir a ACL do .env.local: $($_.Exception.Message)" }
+# PROTEÇÃO (Fase 1): trava a ACL do .env.local — só SYSTEM e Administradores leem.
+# PULADA com -SemProteger: a ACL restrita (herança removida) foi suspeita de impedir a
+# conta do serviço de LER os segredos e travar o sync. Sem hardening, o .env fica com
+# herança normal (legível pela conta do serviço, qualquer que seja) — libera a operação.
+if (-not $SemProteger) {
+  try {
+    # Full para SYSTEM (serviços) e Administradores (permite reinstalar/cifrar depois);
+    # a heranca removida (/inheritance:r) tira os Usuarios comuns — que e a real protecao.
+    # LE-4: NetworkService (S-1-5-20) recebe LEITURA — os serviços Node agora rodam sob
+    # essa conta e precisam ler os segredos (que o DPAPI LocalMachine decifra na conta).
+    & icacls $envLocal /inheritance:r /grant:r "SYSTEM:(F)" "*S-1-5-32-544:(F)" "*S-1-5-20:(R)" | Out-Null
+    Diga "ACL do .env.local restrita (SYSTEM + Administradores + leitura NetworkService)."
+  } catch { Diga "(aviso) nao consegui restringir a ACL do .env.local: $($_.Exception.Message)" }
+} else {
+  Diga "ACL do .env.local: mantida com heranca normal (-SemProteger / instalacao sem hardening)."
+}
 
 # ---- 3) migrations + certificado + servicos ----
 # Passa a conexao em TEXTO PURO por env var — neste ponto a .env.local JA foi cifrada
