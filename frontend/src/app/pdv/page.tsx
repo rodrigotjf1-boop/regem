@@ -37,6 +37,11 @@ export default function PdvPage() {
   const [carregado, setCarregado] = useState(false);
   const [categorias, setCategorias] = useState<any[]>([]);
   const [catAtiva, setCatAtiva] = useState('');
+  // Ordem PESSOAL das categorias no PDV (por usuário, salva em uiPrefs.pdvOrdemCategorias).
+  // NÃO altera o catálogo. `organizando` liga o modo arrastar; `dragCat` = índice arrastado.
+  const [ordemPdv, setOrdemPdv] = useState<string[]>([]);
+  const [organizando, setOrganizando] = useState(false);
+  const [dragCat, setDragCat] = useState<number | null>(null);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [taxa, setTaxa] = useState(false);
   const [formas, setFormas] = useState<any[]>([]); // formas de pagamento (cadastro)
@@ -66,13 +71,15 @@ export default function PdvPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [ps, cs, tc, cx, fp] = await Promise.all([
+      const [ps, cs, tc, cx, fp, pr] = await Promise.all([
         api.produtos(),
         api.produtoCategorias(),
         api.tefConfig().catch(() => ({ ativo: false })),
         api.caixaAberta().catch(() => null),
         api.formasPagamento().catch(() => []),
+        api.getPrefs().catch(() => ({})),
       ]);
+      setOrdemPdv(Array.isArray((pr as any)?.pdvOrdemCategorias) ? (pr as any).pdvOrdemCategorias : []);
       // PDV = canal balcão: só produtos ativos e marcados para o balcão.
       setProdutos(
         ps.filter(
@@ -311,6 +318,31 @@ export default function PdvPage() {
     };
   }, [encomendaAtiva, carrinho]);
 
+  // Categorias de topo na ORDEM PESSOAL do usuário (ordemPdv). As que não estão na
+  // lista salva vão para o fim, preservando a ordem do catálogo. Não altera o catálogo.
+  const catsTop = (() => {
+    const top = categorias.filter((c: any) => !c.parentId);
+    if (!ordemPdv.length) return top;
+    const pos = new Map(ordemPdv.map((id, i) => [id, i]));
+    return [...top].sort((a: any, b: any) => (pos.has(a.id) ? (pos.get(a.id) as number) : 1e9) - (pos.has(b.id) ? (pos.get(b.id) as number) : 1e9));
+  })();
+
+  // Arrastar-e-soltar: reordena as categorias e SALVA no perfil do usuário (uiPrefs).
+  async function soltarCat(destino: number) {
+    if (dragCat === null || dragCat === destino) { setDragCat(null); return; }
+    const nova = [...catsTop];
+    const [item] = nova.splice(dragCat, 1);
+    nova.splice(destino, 0, item);
+    setDragCat(null);
+    const ids = nova.map((c: any) => c.id);
+    setOrdemPdv(ids); // aplica na hora
+    try {
+      await api.patchPrefs({ pdvOrdemCategorias: ids });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar a ordem');
+    }
+  }
+
   const visiveis = catAtiva
     ? produtos.filter((p) => p.categoriaId === catAtiva)
     : produtos;
@@ -353,16 +385,31 @@ export default function PdvPage() {
           >
             Todos
           </button>
-          {categorias.filter((c) => !c.parentId).map((c) => (
+          {catsTop.map((c, i) => (
             <button
               key={c.id}
               type="button"
-              onClick={() => setCatAtiva(c.id)}
-              className={`rounded-full border px-3 py-1 text-sm font-semibold ${catAtiva === c.id ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
+              draggable={organizando}
+              onDragStart={organizando ? () => setDragCat(i) : undefined}
+              onDragOver={organizando ? (e) => e.preventDefault() : undefined}
+              onDrop={organizando ? () => soltarCat(i) : undefined}
+              onClick={() => { if (!organizando) setCatAtiva(c.id); }}
+              className={`rounded-full border px-3 py-1 text-sm font-semibold ${organizando ? 'cursor-grab' : ''} ${dragCat === i ? 'opacity-50' : ''} ${catAtiva === c.id ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
             >
-              {c.nome}
+              {organizando && <span className="mr-1 text-muted-foreground/60" aria-hidden>⠿</span>}{c.nome}
             </button>
           ))}
+          {/* Organizar: reordenar as categorias arrastando — a ordem é PESSOAL (por usuário),
+              não altera o catálogo. Salva em uiPrefs.pdvOrdemCategorias. */}
+          <button
+            type="button"
+            onClick={() => setOrganizando((v) => !v)}
+            aria-pressed={organizando}
+            title="Reordene as categorias arrastando — a ordem é só sua (não muda o catálogo)."
+            className={`ml-auto rounded-full border px-3 py-1 text-xs font-semibold ${organizando ? 'border-primary bg-primary/15 text-primary' : 'border-border bg-card text-muted-foreground'}`}
+          >
+            {organizando ? '✓ Concluir' : '↕ Organizar'}
+          </button>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
