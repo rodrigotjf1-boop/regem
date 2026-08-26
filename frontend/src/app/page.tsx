@@ -637,7 +637,7 @@ export default function LandingPage() {
         </Link>
         <nav>
           <a href="#">Termos de uso</a>
-          <a href="#">Privacidade &amp; LGPD</a>
+          <Link href="/privacidade">Privacidade &amp; LGPD</Link>
           <a href="#">Suporte</a>
           <a href="#">API para desenvolvedores</a>
         </nav>
