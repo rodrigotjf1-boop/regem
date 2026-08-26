@@ -658,10 +658,13 @@ export class DeliveryService {
     const extId = String(ped.externalId);
 
     let valid = false;
+    let errno99: number | null = null;
     if (ped.canal === '99food' && this.food99) {
       const ig = await this.food99.integracaoDoTenant(tenantId);
       if (!ig) throw new BadRequestException('Integração 99Food não conectada.');
-      valid = (await this.food99.verificarCodigoEntrega(ig, extId, cod)).ok;
+      const r = await this.food99.verificarCodigoEntrega(ig, extId, cod);
+      valid = r.ok;
+      errno99 = r.errno;
     } else if (ped.canal === 'ifood' && this.ifood) {
       const ig = await this.ifood.integracaoDoTenant(tenantId);
       if (!ig) throw new BadRequestException('Integração iFood não conectada.');
@@ -670,7 +673,12 @@ export class DeliveryService {
       throw new BadRequestException('Confirmação por código não disponível para este canal.');
     }
 
-    if (!valid) return { ok: false, valid: false, msg: 'Código inválido — confira com o cliente.' };
+    if (!valid) {
+      // Expõe o errno da 99Food p/ diagnóstico (o mesmo código funciona no app da 99,
+      // então quando o Regem falha o errno diz o motivo — ex.: estado do pedido, order_id).
+      const extra = errno99 != null && errno99 !== 0 ? ` (99Food errno=${errno99})` : '';
+      return { ok: false, valid: false, msg: `Código não aceito pela 99Food${extra} — confira o código ou o estado do pedido.` };
+    }
     // Código válido → o canal registrou a entrega. No Regem, marca ENTREGUE (o cliente
     // recebeu); a CONCLUSÃO fica com a conferência do atendente. Não conclui direto.
     await this.marcarEntregue(tenantId, atorId, id);
