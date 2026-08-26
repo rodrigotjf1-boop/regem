@@ -88,6 +88,9 @@ export default function DeliveryPage() {
   const isGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
   const [pedidos, setPedidos] = useState<any[] | null>(null);
   const [cfg, setCfg] = useState<any>({ ativo: false, autoAceitar: false, finalizadoHoras: 5 });
+  // Config GERAL do entregador (uma p/ toda a loja) — o "lote por entregador"
+  // (max_pedidos_entregador) fica aqui no painel p/ ajuste rápido conforme a demanda.
+  const [entCfg, setEntCfg] = useState<any>(null);
   const [caixa, setCaixa] = useState<any>(null);
   const [erro, setErro] = useState('');
   const [sel, setSel] = useState<any>(null); // pedido selecionado (preview + botões)
@@ -129,16 +132,18 @@ export default function DeliveryPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [ps, c, cx, ent, at, lc] = await Promise.all([
+      const [ps, c, cx, ent, at, lc, ec] = await Promise.all([
         api.deliveryPedidos(),
         api.deliveryConfig().catch(() => cfgRef.current),
         api.caixaAberta('delivery').catch(() => null),
         api.entregadoresDelivery().catch(() => []),
         api.atendimentos().catch(() => []),
         api.cardapioConfig().catch(() => null),
+        api.entregadorPagamentoConfig().catch(() => null),
       ]);
       setPedidos(ps as any[]);
       setCfg(c);
+      if (ec) setEntCfg(ec);
       setCaixa(cx);
       setEntregadores(ent as any[]);
       setAtendimentos(at as any[]);
@@ -226,6 +231,22 @@ export default function DeliveryPage() {
       setCfg(c);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao salvar');
+    }
+  }
+
+  // Lote por entregador (GERAL, 1..15): quantos pedidos saem por entregador. Ajuste
+  // rápido conforme a demanda — poucos pedidos = 1; muitos = aumenta. Preserva os
+  // demais campos da config do entregador (modelo/taxas) ao salvar.
+  async function salvarMaxLote(novo: number) {
+    const n = Math.min(15, Math.max(1, Math.round(novo)));
+    const anterior = entCfg;
+    setEntCfg((c: any) => ({ ...(c ?? {}), maxPedidosEntregador: n })); // otimista
+    try {
+      const c = await api.entregadorPagamentoConfigSalvar({ ...(anterior ?? {}), maxPedidosEntregador: n });
+      setEntCfg(c);
+    } catch (e) {
+      setEntCfg(anterior);
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar o lote por entregador');
     }
   }
 
@@ -570,6 +591,14 @@ export default function DeliveryPage() {
                 <input type="checkbox" checked={!!cfg.autoAceitar} onChange={(e) => toggleCfg({ autoAceitar: e.target.checked })} className="h-4 w-4 accent-primary" />
                 Aceitar automaticamente
               </label>
+            )}
+            {isGestor && entCfg && (
+              <div className="flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-sm" title="Quantos pedidos saem por entregador (geral). Ajuste conforme a demanda: poucos pedidos = 1; muitos = aumente.">
+                <span className="text-xs font-semibold text-muted-foreground">Lote/entregador</span>
+                <button type="button" aria-label="Diminuir lote" onClick={() => salvarMaxLote((Number(entCfg.maxPedidosEntregador) || 1) - 1)} disabled={(Number(entCfg.maxPedidosEntregador) || 1) <= 1} className="grid h-6 w-6 place-items-center rounded border border-border disabled:opacity-40">−</button>
+                <span className="min-w-[1.25rem] text-center font-mono font-bold">{Number(entCfg.maxPedidosEntregador) || 1}</span>
+                <button type="button" aria-label="Aumentar lote" onClick={() => salvarMaxLote((Number(entCfg.maxPedidosEntregador) || 1) + 1)} disabled={(Number(entCfg.maxPedidosEntregador) || 1) >= 15} className="grid h-6 w-6 place-items-center rounded border border-border disabled:opacity-40">＋</button>
+              </div>
             )}
             <div className="ml-auto flex items-center gap-1.5">
               {isGestor && cardapioAtivo && (
