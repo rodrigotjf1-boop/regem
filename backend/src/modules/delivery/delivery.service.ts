@@ -216,6 +216,13 @@ export class DeliveryService {
     // (ex.: "Prontos para entrega" da Anota, que acumula retirada pronta + delivery
     // em rota) vira 'pronto' quando o pedido é retirada — aguardando o cliente buscar.
     if (novoStatus === 'despachado' && row.tipo === 'retirada') novoStatus = 'pronto';
+    // RETIRADA: a LOJA conclui no balcão, não a plataforma. Um 'concluido' vindo do
+    // integrado/marketplace (ex.: Anota Aí check 3 = finalizado) NÃO deve fechar o
+    // pedido no Regem — senão os botões (avisar pronto / cobrar e entregar / cancelar)
+    // do hub de Retirada somem antes de a loja entregar. Vira 'pronto' (fica acionável);
+    // a conclusão real é o "Entregar/Cobrar e entregar" do balcão (entregarBalcao). O
+    // 'cancelado' da plataforma continua encerrando (não é rebaixado).
+    if (novoStatus === 'concluido' && row.tipo === 'retirada') novoStatus = 'pronto';
     // Idempotente: já está no estado alvo ou já é terminal (não regride).
     if (row.status === novoStatus) return;
     if (row.status === 'cancelado' || row.status === 'concluido') return;
