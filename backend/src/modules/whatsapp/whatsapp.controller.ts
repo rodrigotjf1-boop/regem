@@ -8,6 +8,7 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { WhatsappService } from './whatsapp.service';
+import { WhatsappProvedorService } from './whatsapp-provedor.service';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -15,7 +16,10 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 @Controller()
 @CloudOnly()
 export class WhatsappController {
-  constructor(private readonly service: WhatsappService) {}
+  constructor(
+    private readonly service: WhatsappService,
+    private readonly provedores: WhatsappProvedorService,
+  ) {}
 
   @Post('whatsapp/conectar')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
@@ -152,6 +156,45 @@ export class WhatsappController {
   @RequirePerm('bot')
   pausarConversa(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; pausar?: boolean }) {
     return this.service.pausarConversa(user.tenantId, dto?.numero ?? '', dto?.pausar !== false);
+  }
+
+  // ===== Escolha do provedor de WhatsApp (F2c) =====
+  // Devolve tambem o TEXTO dos termos: a tela exibe exatamente o que sera gravado
+  // na auditoria no aceite, sem chance de divergirem.
+  @Get('whatsapp/provedor')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
+  provedorEstado(@CurrentUser() user: AuthUser) {
+    return this.provedores.estado(user.tenantId);
+  }
+
+  @Post('whatsapp/provedor')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
+  provedorDefinir(
+    @CurrentUser() user: AuthUser,
+    @Body()
+    dto: {
+      provedor?: string;
+      aceite?: boolean;
+      termoVersao?: string;
+      waCloudPhoneId?: string;
+      waCloudWabaId?: string;
+      waCloudNumero?: string;
+    },
+  ) {
+    return this.provedores.definir(user, dto ?? {});
+  }
+
+  // Equivalente ao "Desconectar" do Evolution, para o lado da API oficial.
+  @Delete('whatsapp/cloud/vinculo')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
+  cloudDesvincular(@CurrentUser() user: AuthUser) {
+    return this.provedores.desvincularCloud(user);
   }
 
   // Resolver do bot multi-tenant: o n8n manda instância + secret e recebe a loja.

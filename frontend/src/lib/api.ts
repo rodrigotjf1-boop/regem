@@ -931,6 +931,12 @@ export const api = {
   // WhatsApp da loja (Evolution)
   whatsappConectar: () => req('/whatsapp/conectar', { method: 'POST', body: '{}' }),
   whatsappStatus: () => req('/whatsapp/status'),
+  // Escolha do provedor de WhatsApp (Evolution x API oficial da Meta). O GET devolve
+  // tambem o TEXTO dos termos, para a tela exibir exatamente o que sera auditado.
+  whatsappProvedor: () => req('/whatsapp/provedor'),
+  whatsappProvedorDefinir: (body: any) =>
+    req('/whatsapp/provedor', { method: 'POST', body: JSON.stringify(body) }),
+  whatsappCloudDesvincular: () => req('/whatsapp/cloud/vinculo', { method: 'DELETE' }),
   whatsappDesconectar: () => req('/whatsapp/desconectar', { method: 'DELETE' }),
   whatsappVincular: (instancia: string) =>
     req('/whatsapp/vincular', { method: 'POST', body: JSON.stringify({ instancia }) }),
