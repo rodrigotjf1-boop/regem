@@ -2,12 +2,14 @@ import { Module } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappController } from './whatsapp.controller';
 import { WhatsappCloudController } from './whatsapp-cloud.controller';
+import { WhatsappCloudService } from './whatsapp-cloud.service';
 
 // WhatsApp da loja (Evolution): conectar/QR + resolver do bot multi-tenant.
-// WhatsappCloudController = webhook da API oficial (Meta Cloud API), via paralela.
+// WhatsappCloudController/Service = API oficial (Meta Cloud API), via paralela —
+// a loja escolhe em cardapio_config.provedor qual dos dois atende.
 @Module({
   controllers: [WhatsappController, WhatsappCloudController],
-  providers: [WhatsappService],
-  exports: [WhatsappService],
+  providers: [WhatsappService, WhatsappCloudService],
+  exports: [WhatsappService, WhatsappCloudService],
 })
 export class WhatsappModule {}
