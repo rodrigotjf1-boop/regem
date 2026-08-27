@@ -4,6 +4,8 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
+import { WhatsappService } from './whatsapp.service';
+import { WhatsappCloudService } from './whatsapp-cloud.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Escolha do PROVEDOR de WhatsApp pela loja (F2c).
@@ -34,6 +36,8 @@ export class WhatsappProvedorService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
+    private readonly evolution: WhatsappService,
+    private readonly cloud: WhatsappCloudService,
   ) {}
 
   private async cfgDe(tenantId: string) {
@@ -166,5 +170,37 @@ export class WhatsappProvedorService {
       detalhe: { phoneNumberId: cfg.waCloudPhoneId },
     });
     return this.estado(cfg.tenantId);
+  }
+
+  // ===== Despacho do inbox por provedor (F2b) =====
+  // O painel chama sempre os mesmos endpoints; quem decide de onde vem o historico
+  // e este servico. No Evolution o proprio Evolution guarda as conversas; na Cloud
+  // elas vem da tabela whatsapp_mensagem, porque a Meta nao guarda nada.
+
+  private async provedorDe(tenantId: string): Promise<Provedor> {
+    const [cfg] = await this.db
+      .select({ provedor: cardapioConfig.provedor })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    return ((cfg?.provedor ?? 'evolution') as Provedor);
+  }
+
+  async conversas(tenantId: string) {
+    return (await this.provedorDe(tenantId)) === 'cloud'
+      ? this.cloud.listarConversas(tenantId)
+      : this.evolution.listarConversas(tenantId);
+  }
+
+  async mensagens(tenantId: string, chaves: string) {
+    return (await this.provedorDe(tenantId)) === 'cloud'
+      ? this.cloud.mensagens(tenantId, chaves)
+      : this.evolution.mensagens(tenantId, chaves);
+  }
+
+  // Envio manual do painel (o humano assume a conversa do robo).
+  async enviar(tenantId: string, numero: string, texto: string) {
+    return (await this.provedorDe(tenantId)) === 'cloud'
+      ? this.cloud.enviarTexto(tenantId, numero, texto)
+      : this.evolution.enviar(tenantId, numero, texto);
   }
 }

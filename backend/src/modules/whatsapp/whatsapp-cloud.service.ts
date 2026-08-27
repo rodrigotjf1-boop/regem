@@ -1,8 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { cardapioConfig } from '../../db/schema';
+import { cardapioConfig, whatsappMensagem } from '../../db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -103,6 +103,43 @@ export class WhatsappCloudService {
     return null;
   }
 
+  // Grava a mensagem no historico. Idempotente pelo indice unico (tenant, wamid):
+  // a Meta REENVIA o webhook quando nao recebe 200 a tempo, e sem isso a mesma
+  // mensagem apareceria duplicada no painel.
+  //
+  // Nunca derruba o fluxo: perder uma linha de historico e ruim, mas deixar de
+  // responder o cliente por causa disso e pior.
+  private async gravar(linha: {
+    tenantId: string;
+    telefone: string;
+    direcao: 'entrada' | 'saida';
+    tipo?: string;
+    texto?: string | null;
+    midiaId?: string | null;
+    wamid?: string | null;
+    status?: string | null;
+    nomeContato?: string | null;
+  }) {
+    try {
+      await this.db
+        .insert(whatsappMensagem)
+        .values({
+          tenantId: linha.tenantId,
+          telefone: linha.telefone,
+          direcao: linha.direcao,
+          tipo: linha.tipo ?? 'text',
+          texto: linha.texto ?? null,
+          midiaId: linha.midiaId ?? null,
+          wamid: linha.wamid ?? null,
+          status: linha.status ?? null,
+          nomeContato: linha.nomeContato ?? null,
+        })
+        .onConflictDoNothing();
+    } catch (e: any) {
+      this.logger.error(`falha ao gravar historico: ${e?.message ?? e}`);
+    }
+  }
+
   // Processa UM evento do webhook. Resolve a loja, aplica os portões (provedor certo,
   // robô ativo, conversa não pausada) e encaminha ao n8n no formato normalizado.
   // Nunca lança: erro aqui não pode virar retry/desativação do webhook na Meta.
@@ -112,8 +149,20 @@ export class WhatsappCloudService {
         const v = ch?.value ?? {};
         const phoneNumberId = String(v?.metadata?.phone_number_id ?? '');
 
-        for (const s of v?.statuses ?? []) {
-          this.logger.log(`status phone=${phoneNumberId} ${s?.status} id=${s?.id}`);
+        for (const st of v?.statuses ?? []) {
+          this.logger.log(`status phone=${phoneNumberId} ${st?.status} id=${st?.id}`);
+          // Marca no historico o que aconteceu com a mensagem que ENVIAMOS
+          // (entregue, lida, falhou) — e o que o painel mostra ao atendente.
+          if (st?.id && st?.status) {
+            try {
+              await this.db
+                .update(whatsappMensagem)
+                .set({ status: String(st.status) })
+                .where(eq(whatsappMensagem.wamid, String(st.id)));
+            } catch {
+              /* status e informativo: nunca vale derrubar o processamento */
+            }
+          }
         }
 
         const mensagens = v?.messages ?? [];
@@ -149,6 +198,21 @@ export class WhatsappCloudService {
           this.logger.log(
             `msg loja=${cfg.tenantId} de=${mascarar(de)} tipo=${m?.type} id=${m?.id}`,
           );
+
+          // Grava ANTES dos portoes do robo, de proposito: o painel precisa mostrar
+          // o que o cliente disse mesmo com o robo desligado ou com a conversa
+          // pausada — alias, principalmente nesses casos, que e quando o humano
+          // esta atendendo.
+          await this.gravar({
+            tenantId: cfg.tenantId,
+            telefone: de,
+            direcao: 'entrada',
+            tipo: String(m?.type ?? 'text'),
+            texto: this.textoDe(m),
+            midiaId: this.midiaDe(m),
+            wamid: String(m?.id ?? '') || null,
+            nomeContato: nome,
+          });
 
           // PORTÃO 3 — humano assumiu esta conversa: o robô não responde.
           if (!ativo || pausados.has(de)) {
@@ -241,7 +305,17 @@ export class WhatsappCloudService {
       );
     }
     const json: any = await res.json().catch(() => ({}));
-    return { ok: true, id: json?.messages?.[0]?.id ?? null };
+    const wamid = json?.messages?.[0]?.id ?? null;
+    await this.gravar({
+      tenantId,
+      telefone: para,
+      direcao: 'saida',
+      tipo: 'text',
+      texto: t,
+      wamid,
+      status: json?.messages?.[0]?.message_status ?? 'accepted',
+    });
+    return { ok: true, id: wamid };
   }
 
   // Envio chamado pelo WORKFLOW DO N8N para responder o cliente. Autenticado pelo
@@ -320,5 +394,258 @@ export class WhatsappCloudService {
     if (buffer.length > MAX_MIDIA) throw new BadRequestException('Mídia maior que o limite aceito.');
     this.logger.log(`midia entregue id=${id} tipo=${mime} bytes=${buffer.length}`);
     return { buffer, mime };
+  }
+
+  // ===== Espelho do painel (F2b) =====
+  // Reproduz EXATAMENTE o contrato que o Evolution devolve, para o /delivery nao
+  // precisar saber de qual provedor a loja e.
+
+  // Quantas linhas varremos para montar a lista de conversas. Um limite alto
+  // simplifica (agrupa em memoria, sem SQL exotico) e cobre com folga o volume de
+  // uma loja; conversas mais antigas que isso saem da lista, nao do historico.
+  private static readonly JANELA_CONVERSAS = 500;
+
+  async listarConversas(tenantId: string) {
+    const [cfg] = await this.db
+      .select()
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const pausados = new Set(
+      (Array.isArray(cfg?.roboPausados) ? (cfg!.roboPausados as any[]) : []).map(soDigitos),
+    );
+
+    const linhas = await this.db
+      .select()
+      .from(whatsappMensagem)
+      .where(eq(whatsappMensagem.tenantId, tenantId))
+      .orderBy(desc(whatsappMensagem.criadoEm))
+      .limit(WhatsappCloudService.JANELA_CONVERSAS);
+
+    const grupos = new Map<string, any>();
+    for (const l of linhas) {
+      const tel = soDigitos(l.telefone);
+      if (!tel) continue;
+      const ts = Math.floor(new Date(l.criadoEm as any).getTime() / 1000);
+      const g = grupos.get(tel) ?? {
+        telefone: tel,
+        // O front devolve `jids` para pedir as mensagens. Na Cloud nao existe jid;
+        // o telefone faz esse papel, e o contrato fica igual ao do Evolution.
+        jids: [tel],
+        nome: null as string | null,
+        foto: null as string | null, // a Meta nao entrega foto de perfil
+        naoLidas: 0,
+        ultimaMensagem: null as string | null,
+        timestamp: 0,
+        pausada: pausados.has(tel),
+        _ultimaSaida: 0,
+      };
+      if (!g.nome && l.nomeContato) g.nome = l.nomeContato;
+      if (ts > g.timestamp) {
+        g.timestamp = ts;
+        g.ultimaMensagem = l.texto ?? (l.tipo !== 'text' ? `[${l.tipo}]` : null);
+      }
+      if (l.direcao === 'saida' && ts > g._ultimaSaida) g._ultimaSaida = ts;
+      grupos.set(tel, g);
+    }
+
+    // "Nao lidas" = mensagens do cliente depois da ultima resposta nossa. Nao e o
+    // contador do WhatsApp, mas responde a pergunta que o atendente faz: quem esta
+    // esperando resposta.
+    for (const l of linhas) {
+      const tel = soDigitos(l.telefone);
+      const g = grupos.get(tel);
+      if (!g || l.direcao !== 'entrada') continue;
+      const ts = Math.floor(new Date(l.criadoEm as any).getTime() / 1000);
+      if (ts > g._ultimaSaida) g.naoLidas += 1;
+    }
+
+    return Array.from(grupos.values())
+      .map(({ _ultimaSaida, ...g }) => g)
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  }
+
+  async mensagens(tenantId: string, telefones: string) {
+    const lista = String(telefones ?? '')
+      .split(',')
+      .map((x) => soDigitos(x))
+      .filter(Boolean);
+    if (!lista.length) return [];
+    const linhas = await this.db
+      .select()
+      .from(whatsappMensagem)
+      .where(
+        and(eq(whatsappMensagem.tenantId, tenantId), inArray(whatsappMensagem.telefone, lista)),
+      )
+      .orderBy(desc(whatsappMensagem.criadoEm))
+      .limit(60);
+
+    return linhas
+      .map((l) => ({
+        id: l.wamid ?? l.id,
+        fromMe: l.direcao === 'saida',
+        texto: l.texto ?? '',
+        midia: l.tipo === 'text' ? null : l.tipo,
+        // Miniatura ainda nao ligada na Cloud: o proxy de midia existe (#379), mas o
+        // inbox pede a foto pelo formato do Evolution. Fica para uma proxima.
+        midiaKey: null,
+        status: l.status ?? null,
+        timestamp: Math.floor(new Date(l.criadoEm as any).getTime() / 1000),
+      }))
+      .sort((a, b) => a.timestamp - b.timestamp);
+  }
+
+  // ===== Envio por TEMPLATE (F2d) =====
+  // Fora da janela de 24h a Meta NAO aceita texto livre: so modelo aprovado. E o
+  // que faz o "seu pedido saiu para entrega" existir.
+  //
+  // A categoria do modelo define o preco (utilidade custa uma fracao de marketing),
+  // e quem decide isso e a aprovacao na Meta, nao esta chamada.
+  async enviarTemplate(
+    tenantId: string,
+    numero: string,
+    nome: string,
+    idioma: string,
+    params: string[],
+  ) {
+    const para = soDigitos(numero);
+    if (!para) throw new BadRequestException('Número inválido.');
+    const tpl = String(nome ?? '').trim();
+    if (!tpl) throw new BadRequestException('Nome do modelo não informado.');
+
+    const [cfg] = await this.db
+      .select()
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    if (!cfg.waCloudPhoneId)
+      throw new BadRequestException('Esta loja não tem número da API oficial vinculado.');
+
+    const componentes = params.length
+      ? [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: String(t ?? '') })) }]
+      : [];
+
+    const res = await fetch(`${GRAPH}/${cfg.waCloudPhoneId}/messages`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: para,
+        type: 'template',
+        template: {
+          name: tpl,
+          language: { code: idioma || 'pt_BR' },
+          ...(componentes.length ? { components: componentes } : {}),
+        },
+      }),
+    }).catch(() => null);
+
+    if (!res || !res.ok) {
+      const corpo = res ? await res.text().catch(() => '') : '';
+      // As duas falhas mais comuns aqui sao "modelo nao aprovado" e "sem meio de
+      // pagamento na conta" — a mensagem da Meta e o que diz qual das duas foi.
+      throw new BadRequestException(
+        `Falha ao enviar o modelo (${res?.status ?? 'sem resposta'}): ${corpo.slice(0, 220)}`,
+      );
+    }
+    const json: any = await res.json().catch(() => ({}));
+    const wamid = json?.messages?.[0]?.id ?? null;
+    await this.gravar({
+      tenantId,
+      telefone: para,
+      direcao: 'saida',
+      tipo: 'template',
+      texto: `[modelo ${tpl}] ${params.join(' · ')}`.trim(),
+      wamid,
+      status: json?.messages?.[0]?.message_status ?? 'accepted',
+    });
+    return { ok: true, id: wamid };
+  }
+
+  // Chamado pelo workflow de avisos no n8n (mesma autenticacao do bot).
+  async enviarTemplatePeloBot(
+    secret: string,
+    phoneNumberId: string,
+    numero: string,
+    nome: string,
+    idioma: string,
+    params: string[],
+  ) {
+    if (!segredoBotOk(secret, process.env.BOT_RESOLVER_SECRET ?? ''))
+      throw new BadRequestException('Não autorizado.');
+    const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? '').trim());
+    if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
+    if (cfg.provedor !== 'cloud')
+      throw new BadRequestException(`Loja está no provedor '${cfg.provedor}'.`);
+    return this.enviarTemplate(cfg.tenantId, numero, nome, idioma, params ?? []);
+  }
+
+  // Modelos da conta, com o status de aprovacao. E a base para a tela escolher o
+  // modelo de um aviso ou de uma campanha — e para o lojista ver o que ja aprovou.
+  async listarTemplates(tenantId: string) {
+    const [cfg] = await this.db
+      .select()
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const waba = cfg?.waCloudWabaId || process.env.WA_CLOUD_WABA_ID || '';
+    if (!waba) throw new BadRequestException('Conta do WhatsApp Business não vinculada a esta loja.');
+    const url = `${GRAPH}/${waba}/message_templates?fields=name,status,category,language&limit=100`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${this.token()}` },
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const corpo = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(
+        `Falha ao listar modelos (${res?.status ?? 'sem resposta'}): ${corpo.slice(0, 180)}`,
+      );
+    }
+    const json: any = await res.json().catch(() => ({}));
+    return (json?.data ?? []).map((t: any) => ({
+      nome: t?.name,
+      status: t?.status,
+      categoria: t?.category,
+      idioma: t?.language,
+    }));
+  }
+
+  // ===== Conferencia do numero antes de vincular (Fase 3) =====
+  // Sem isto, um Phone Number ID digitado errado e aceito em silencio e a loja so
+  // descobre quando a primeira mensagem nao chega. Aqui o gestor VE de qual numero
+  // se trata antes de confirmar.
+  //
+  // Nao exige que a loja ja esteja vinculada — e justamente a checagem que antecede
+  // o vinculo. So precisa que o nosso token alcance aquele numero, o que vale para a
+  // nossa WABA hoje e para a do lojista depois do cadastro incorporado.
+  async verificarNumero(phoneNumberId: string) {
+    const id = String(phoneNumberId ?? '').trim();
+    if (!/^[0-9]{5,32}$/.test(id))
+      throw new BadRequestException('Identificação do número (Phone Number ID) inválida.');
+
+    const campos = 'display_phone_number,verified_name,quality_rating,code_verification_status';
+    const res = await fetch(`${GRAPH}/${id}?fields=${campos}`, {
+      headers: { Authorization: `Bearer ${this.token()}` },
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const corpo = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(
+        `Não consegui conferir esse número na Meta (${res?.status ?? 'sem resposta'}): ${corpo.slice(0, 180)}`,
+      );
+    }
+    const j: any = await res.json().catch(() => ({}));
+
+    // Se ja pertence a OUTRA loja, avisa aqui — o indice unico da mig 214 barraria
+    // depois, mas com um erro de banco em vez de uma frase util.
+    const donos = await this.db
+      .select({ tenantId: cardapioConfig.tenantId, nome: cardapioConfig.nomePublico })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.waCloudPhoneId, id));
+
+    return {
+      phoneNumberId: id,
+      numero: j?.display_phone_number ?? null,
+      nomeExibicao: j?.verified_name ?? null,
+      qualidade: j?.quality_rating ?? null,
+      verificado: j?.code_verification_status === 'VERIFIED',
+      jaVinculadoA: donos[0]?.nome ?? null,
+    };
   }
 }

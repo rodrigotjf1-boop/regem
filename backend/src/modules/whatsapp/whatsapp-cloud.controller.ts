@@ -115,6 +115,31 @@ export class WhatsappCloudController {
     );
   }
 
+  // Envio de MODELO pelo workflow de avisos (pedido confirmado, saiu para entrega).
+  // Fora da janela de 24h a Meta so aceita modelo aprovado — texto livre e recusado.
+  @Post('publico/bot/cloud/template')
+  @Throttle({ default: { ttl: 60000, limit: 300 } })
+  enviarTemplateBot(
+    @Body()
+    dto: {
+      secret?: string;
+      phoneNumberId?: string;
+      para?: string;
+      template?: string;
+      idioma?: string;
+      params?: string[];
+    },
+  ) {
+    return this.service.enviarTemplatePeloBot(
+      dto?.secret ?? '',
+      dto?.phoneNumberId ?? '',
+      dto?.para ?? '',
+      dto?.template ?? '',
+      dto?.idioma ?? 'pt_BR',
+      Array.isArray(dto?.params) ? dto.params : [],
+    );
+  }
+
   // Proxy de mídia: o workflow do n8n pede o arquivo aqui (com o secret do bot) em
   // vez de falar com a Meta. Assim ele transcreve áudio sem nunca receber o
   // WA_CLOUD_TOKEN, que é a credencial-mestre da conta.

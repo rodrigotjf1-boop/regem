@@ -47,6 +47,22 @@ export function ProvedorWhatsapp({ pode, onEstado }: { pode: boolean; onEstado?:
   const [wabaId, setWabaId] = useState('');
   const [numero, setNumero] = useState('');
   const [busy, setBusy] = useState(false);
+  const [conf, setConf] = useState<any>(null);
+  const [confBusy, setConfBusy] = useState(false);
+
+  // Confere na Meta de qual numero e o id digitado. Evita o erro silencioso de
+  // vincular o numero errado e so descobrir quando a mensagem nao chega.
+  async function conferir() {
+    setConfBusy(true);
+    setConf(null);
+    try {
+      setConf(await api.whatsappCloudVerificarNumero(phoneId.trim()));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Não consegui conferir.');
+    } finally {
+      setConfBusy(false);
+    }
+  }
 
   async function carregar() {
     try {
@@ -184,9 +200,38 @@ export function ProvedorWhatsapp({ pode, onEstado }: { pode: boolean; onEstado?:
             <Label className="text-xs">Número (só para exibir)</Label>
             <Input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="5521999999999" />
           </div>
+          <div className="sm:col-span-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={!phoneId.trim() || confBusy}
+              onClick={conferir}
+            >
+              {confBusy ? 'Conferindo…' : 'Conferir na Meta'}
+            </Button>
+            {conf && (
+              <div className="mt-2 rounded-lg border border-border bg-muted/30 p-2 text-xs">
+                <p>
+                  <strong>{conf.nomeExibicao ?? 'sem nome de exibição'}</strong>
+                  {conf.numero ? ` · ${conf.numero}` : ''}
+                </p>
+                <p className="mt-0.5 text-muted-foreground">
+                  Qualidade: {conf.qualidade ?? '—'} ·{' '}
+                  {conf.verificado ? 'número verificado' : 'não verificado'}
+                </p>
+                {conf.jaVinculadoA && (
+                  <p className="mt-1 font-semibold text-destructive">
+                    ⚠️ Este número já está vinculado à loja “{conf.jaVinculadoA}”.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
           <p className="text-[11px] text-muted-foreground sm:col-span-3">
             Esses dois códigos ficam no painel da Meta, em WhatsApp → Configuração da API. Quando o
-            cadastro guiado da Meta estiver liberado, eles passam a ser preenchidos sozinhos.
+            cadastro incorporado hospedado pela Meta estiver liberado para a sua conta, o lojista faz
+            o cadastro por um link e você só confere o número aqui.
           </p>
         </div>
       )}

@@ -66,6 +66,19 @@ export class CampanhaService {
     const intervaloSeg = Math.min(Math.max(Number(dto.intervaloSeg) || 7, 3), 120);
     const tetoDia = dto.tetoDia != null && Number(dto.tetoDia) > 0 ? Number(dto.tetoDia) : null;
     const instanciaTipo = dto.instanciaTipo === 'marketing' ? 'marketing' : 'loja';
+
+    // Loja na API oficial: a Meta NAO aceita texto livre para iniciar conversa, so
+    // modelo aprovado. Barrar aqui e melhor que deixar a campanha rodar e falhar um
+    // contato de cada vez, deixando o lojista achando que o numero foi bloqueado.
+    const prov: any = await this.db.execute(
+      sql`select provedor from cardapio_config where tenant_id = ${tenantId} limit 1`,
+    );
+    if ((prov.rows ?? prov)[0]?.provedor === 'cloud')
+      throw new BadRequestException(
+        'Esta loja usa a API oficial da Meta, que não permite campanha com texto livre — ' +
+          'só modelo aprovado. Use os avisos de pedido, ou volte a conexão por QR Code em ' +
+          'Delivery · Config · Robô.',
+      );
     if (instanciaTipo === 'marketing') {
       const r: any = await this.db.execute(
         sql`select marketing_instancia from cardapio_config where tenant_id = ${tenantId} limit 1`,
