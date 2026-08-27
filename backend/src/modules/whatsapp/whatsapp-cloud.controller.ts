@@ -2,11 +2,14 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Logger,
   Post,
   Query,
   Req,
+  Res,
+  StreamableFile,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
@@ -110,5 +113,26 @@ export class WhatsappCloudController {
       dto?.para ?? '',
       dto?.texto ?? '',
     );
+  }
+
+  // Proxy de mídia: o workflow do n8n pede o arquivo aqui (com o secret do bot) em
+  // vez de falar com a Meta. Assim ele transcreve áudio sem nunca receber o
+  // WA_CLOUD_TOKEN, que é a credencial-mestre da conta.
+  @Get('publico/bot/cloud/midia')
+  @Throttle({ default: { ttl: 60000, limit: 120 } })
+  async midia(
+    @Query('secret') secret: string,
+    @Query('phoneNumberId') phoneNumberId: string,
+    @Query('mediaId') mediaId: string,
+    @Res({ passthrough: true }) res: any,
+  ) {
+    const { buffer, mime } = await this.service.baixarMidia(
+      secret ?? '',
+      phoneNumberId ?? '',
+      mediaId ?? '',
+    );
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Length', String(buffer.length));
+    return new StreamableFile(buffer);
   }
 }

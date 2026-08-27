@@ -14,6 +14,13 @@ import { cardapioConfig } from '../../db/schema';
 //   N8N_BOT_CLOUD_WEBHOOK_URL  — webhook do workflow "Bot Regem (Cloud)" no n8n.
 //                                Vazio = recebimento fica só no log (modo inerte).
 const GRAPH = 'https://graph.facebook.com/v25.0';
+// Teto do proxy de midia. A Meta aceita ate 16MB; 20MB deixa folga e evita que um
+// arquivo inesperado vire pico de memoria no processo da API.
+const MAX_MIDIA = 20 * 1024 * 1024;
+// A URL temporaria devolvida pela Meta so pode apontar para a CDN dela. Sem esta
+// checagem, uma resposta adulterada transformaria o proxy num SSRF: o servidor
+// buscaria uma URL arbitraria COM o Bearer no header.
+const HOSTS_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
 
 // Só os dígitos, para comparar telefone vindo em qualquer formato.
 function soDigitos(v: any): string {
@@ -255,5 +262,63 @@ export class WhatsappCloudService {
       throw new BadRequestException(`Loja está no provedor '${cfg.provedor}'.`);
 
     return this.enviarTexto(cfg.tenantId, numero, texto);
+  }
+
+  // Baixa uma midia (audio, imagem, documento) da Meta e devolve o binario.
+  //
+  // Existe para o n8n conseguir transcrever audio SEM receber o WA_CLOUD_TOKEN: o
+  // workflow chama este endpoint com o secret do bot, e o token fica no servidor.
+  // O token da Meta e a credencial-mestre da WABA (envia como qualquer loja, cria e
+  // apaga templates) — e no Cenario B passa a alcancar as WABAs dos lojistas.
+  async baixarMidia(secret: string, phoneNumberId: string, mediaId: string) {
+    if (!segredoBotOk(secret, process.env.BOT_RESOLVER_SECRET ?? ''))
+      throw new BadRequestException('Não autorizado.');
+
+    // Estrito de propósito: o id vai concatenado na URL da Graph API.
+    const id = String(mediaId ?? '').trim();
+    if (!/^[0-9]{5,32}$/.test(id)) throw new BadRequestException('mediaId inválido.');
+
+    const cfg = await this.lojaPorPhoneId(String(phoneNumberId ?? '').trim());
+    if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
+    if (cfg.provedor !== 'cloud')
+      throw new BadRequestException(`Loja está no provedor '${cfg.provedor}'.`);
+
+    const auth = { Authorization: `Bearer ${this.token()}` };
+
+    // 1) Metadados: a Meta devolve uma URL temporária, não o arquivo.
+    const metaRes = await fetch(`${GRAPH}/${id}`, { headers: auth }).catch(() => null);
+    if (!metaRes || !metaRes.ok) {
+      const corpo = metaRes ? await metaRes.text().catch(() => '') : '';
+      throw new BadRequestException(
+        `Falha ao consultar a mídia (${metaRes?.status ?? 'sem resposta'}): ${corpo.slice(0, 160)}`,
+      );
+    }
+    const meta: any = await metaRes.json().catch(() => ({}));
+    const url = String(meta?.url ?? '');
+    const mime = String(meta?.mime_type ?? 'application/octet-stream');
+    if (Number(meta?.file_size ?? 0) > MAX_MIDIA)
+      throw new BadRequestException('Mídia maior que o limite aceito.');
+
+    let host = '';
+    try {
+      const u = new URL(url);
+      if (u.protocol !== 'https:') throw new Error('http');
+      host = u.hostname;
+    } catch {
+      throw new BadRequestException('URL de mídia inválida.');
+    }
+    if (!HOSTS_MIDIA.some((h) => host === h || host.endsWith(`.${h}`)))
+      throw new BadRequestException('URL de mídia fora do domínio da Meta.');
+
+    // 2) O binário. A URL temporária TAMBÉM exige o Bearer — é o tropeço clássico
+    // de quem tenta baixar a mídia direto pelo link.
+    const binRes = await fetch(url, { headers: auth }).catch(() => null);
+    if (!binRes || !binRes.ok)
+      throw new BadRequestException(`Falha ao baixar a mídia (${binRes?.status ?? 'sem resposta'}).`);
+
+    const buffer = Buffer.from(await binRes.arrayBuffer());
+    if (buffer.length > MAX_MIDIA) throw new BadRequestException('Mídia maior que o limite aceito.');
+    this.logger.log(`midia entregue id=${id} tipo=${mime} bytes=${buffer.length}`);
+    return { buffer, mime };
   }
 }

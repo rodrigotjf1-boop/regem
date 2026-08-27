@@ -134,3 +134,34 @@ describe('WhatsappCloudService — portões do recebimento', () => {
     expect(enviados).toHaveLength(0);
   });
 });
+
+describe('WhatsappCloudService — proxy de mídia', () => {
+  const SECRET = 'segredo-do-bot';
+  beforeEach(() => {
+    process.env.BOT_RESOLVER_SECRET = SECRET;
+    process.env.WA_CLOUD_TOKEN = 'token-falso';
+  });
+
+  // Todos os casos abaixo falham ANTES de qualquer chamada de rede — é justamente
+  // isso que se quer garantir: nada sai para a Meta sem passar pelas travas.
+  it('recusa secret errado', async () => {
+    const { svc } = comLoja(LOJA);
+    await expect(svc.baixarMidia('errado', PHONE_ID, '123456')).rejects.toThrow();
+  });
+
+  it('recusa mediaId fora do formato (o id vai concatenado na URL da Graph)', async () => {
+    const { svc } = comLoja(LOJA);
+    await expect(svc.baixarMidia(SECRET, PHONE_ID, '../../me')).rejects.toThrow();
+    await expect(svc.baixarMidia(SECRET, PHONE_ID, '12')).rejects.toThrow();
+  });
+
+  it('recusa número não vinculado a nenhuma loja', async () => {
+    const { svc } = comLoja(null);
+    await expect(svc.baixarMidia(SECRET, PHONE_ID, '123456789')).rejects.toThrow();
+  });
+
+  it('recusa loja que está no Evolution', async () => {
+    const { svc } = comLoja({ ...LOJA, provedor: 'evolution' });
+    await expect(svc.baixarMidia(SECRET, PHONE_ID, '123456789')).rejects.toThrow();
+  });
+});
