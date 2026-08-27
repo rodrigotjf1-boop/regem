@@ -9,6 +9,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
+import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -19,6 +20,7 @@ export class WhatsappController {
   constructor(
     private readonly service: WhatsappService,
     private readonly provedores: WhatsappProvedorService,
+    private readonly cloud: WhatsappCloudService,
   ) {}
 
   @Post('whatsapp/conectar')
@@ -94,7 +96,9 @@ export class WhatsappController {
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('bot')
   conversas(@CurrentUser() user: AuthUser) {
-    return this.service.listarConversas(user.tenantId);
+    // Roteia pelo provedor da loja: Evolution guarda as conversas nele mesmo; na
+    // Cloud elas vem do nosso banco (a Meta nao guarda historico).
+    return this.provedores.conversas(user.tenantId);
   }
 
   @Get('whatsapp/mensagens')
@@ -102,7 +106,7 @@ export class WhatsappController {
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('bot')
   mensagens(@CurrentUser() user: AuthUser, @Query('jids') jids: string, @Query('jid') jid: string) {
-    return this.service.mensagens(user.tenantId, jids || jid || '');
+    return this.provedores.mensagens(user.tenantId, jids || jid || '');
   }
 
   @Post('whatsapp/enviar')
@@ -111,7 +115,7 @@ export class WhatsappController {
   @RequirePerm('bot')
   enviar(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; jid?: string; texto?: string }) {
     const numero = dto?.numero ?? (dto?.jid ?? '').split('@')[0];
-    return this.service.enviar(user.tenantId, numero ?? '', dto?.texto ?? '');
+    return this.provedores.enviar(user.tenantId, numero ?? '', dto?.texto ?? '');
   }
 
   // Baixa a mídia de uma mensagem sob demanda (miniatura no inbox).
@@ -156,6 +160,25 @@ export class WhatsappController {
   @RequirePerm('bot')
   pausarConversa(@CurrentUser() user: AuthUser, @Body() dto: { numero?: string; pausar?: boolean }) {
     return this.service.pausarConversa(user.tenantId, dto?.numero ?? '', dto?.pausar !== false);
+  }
+
+  // Modelos aprovados na Meta (API oficial). Alimenta a escolha do modelo num
+  // aviso ou campanha, e mostra ao lojista o que ja foi aprovado.
+  @Get('whatsapp/cloud/templates')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
+  cloudTemplates(@CurrentUser() user: AuthUser) {
+    return this.cloud.listarTemplates(user.tenantId);
+  }
+
+  // Confere na Meta de qual numero e um Phone Number ID, antes de vincular.
+  @Get('whatsapp/cloud/verificar-numero')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
+  cloudVerificarNumero(@Query('phoneNumberId') phoneNumberId: string) {
+    return this.cloud.verificarNumero(phoneNumberId ?? '');
   }
 
   // ===== Escolha do provedor de WhatsApp (F2c) =====

@@ -2933,3 +2933,23 @@ export const acertoSubpdv = pgTable('acerto_subpdv', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Histórico das conversas de WhatsApp na API OFICIAL (mig 215, @cloud-only).
+// A Meta não guarda histórico — entrega o evento uma vez e esquece. Sem esta tabela
+// a loja migrada para o oficial perderia o chat do /delivery, que é onde o atendente
+// assume a conversa. No Evolution isso não é preciso: ele mesmo guarda.
+export const whatsappMensagem = pgTable('whatsapp_mensagem', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(), // só dígitos (cliente)
+  direcao: text('direcao').notNull(), // entrada | saida
+  tipo: text('tipo').notNull().default('text'),
+  texto: text('texto'),
+  midiaId: text('midia_id'), // id da mídia na Meta (baixável pelo proxy)
+  wamid: text('wamid'), // id da mensagem na Meta — único por tenant (idempotência)
+  status: text('status'), // só saída: accepted | sent | delivered | read | failed
+  nomeContato: text('nome_contato'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});

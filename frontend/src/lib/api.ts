@@ -937,6 +937,9 @@ export const api = {
   whatsappProvedorDefinir: (body: any) =>
     req('/whatsapp/provedor', { method: 'POST', body: JSON.stringify(body) }),
   whatsappCloudDesvincular: () => req('/whatsapp/cloud/vinculo', { method: 'DELETE' }),
+  whatsappCloudVerificarNumero: (phoneNumberId: string) =>
+    req(`/whatsapp/cloud/verificar-numero?phoneNumberId=${encodeURIComponent(phoneNumberId)}`),
+  whatsappCloudTemplates: () => req('/whatsapp/cloud/templates'),
   whatsappDesconectar: () => req('/whatsapp/desconectar', { method: 'DELETE' }),
   whatsappVincular: (instancia: string) =>
     req('/whatsapp/vincular', { method: 'POST', body: JSON.stringify({ instancia }) }),
