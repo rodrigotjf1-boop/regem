@@ -1,0 +1,31 @@
+-- 216_movimento_estoque_indice_cobertura.sql — índice de cobertura para a soma de
+-- saldo por item.
+--
+-- A consulta que decide "esgotado" no cardápio (e o saldo no módulo de estoque)
+-- agrega TODO o histórico de movimentações da loja:
+--
+--   select item_id, sum(case when tipo = 'saida' then -quantidade else quantidade end)
+--   from movimento_estoque where tenant_id = ... group by item_id
+--
+-- Já existe índice em (tenant_id), mas o Postgres precisa ir à tabela buscar `tipo`
+-- e `quantidade` linha a linha. Com as duas colunas no INCLUDE, ele responde lendo
+-- só o índice (index-only scan) e não toca no heap.
+--
+-- Isto NÃO resolve a causa — a consulta continua proporcional ao histórico, que
+-- cresce para sempre. O que resolve de vez é saldo materializado por item. Este
+-- índice compra tempo, e junto com o cache do cardápio (CARDAPIO_ESTOQUE_TTL_MS)
+-- tira a soma do caminho quente.
+--
+-- NÃO @cloud-only: movimento_estoque existe no edge, e o módulo de estoque local faz
+-- a mesma soma — o índice ajuda nos dois lados.
+--
+-- ⚠️ CREATE INDEX trava ESCRITAS na tabela enquanto constrói. Em base grande, crie
+-- antes, fora de horário, com:
+--     create index concurrently movimento_estoque_tenant_item_cover
+--       on movimento_estoque (tenant_id, item_id) include (tipo, quantidade);
+-- (CONCURRENTLY não roda dentro de transação, por isso não está aqui.) Feito isso,
+-- esta migration vira no-op pelo `if not exists`.
+-- Aditiva e idempotente.
+
+create index if not exists movimento_estoque_tenant_item_cover
+  on movimento_estoque (tenant_id, item_id) include (tipo, quantidade);
