@@ -85,6 +85,14 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Dados de estoque que o cardapio precisa para calcular "esgotado". Cacheados por
+// loja (ver mapasEstoque) porque a soma do saldo varre todo o historico.
+type MapasEstoque = {
+  saldo: Map<string, number>;
+  ingMap: Map<string, any[]>;
+  comboMap: Map<string, string[]>;
+};
+
 @Injectable()
 export class CardapioService {
   private readonly logger = new Logger(CardapioService.name);
@@ -656,17 +664,34 @@ export class CardapioService {
   // Esgotado automático: para cada produto que controla estoque, resolve os
   // itens de insumo (via ficha, recursiva) e marca esgotado se algum tem saldo
   // <= 0. Combos consideram os insumos dos componentes. Saldo = ledger.
-  private async computeEsgotados(
-    tenantId: string,
-    produtos: any[],
-  ): Promise<Set<string>> {
-    // permite_negativo = reativado sem estoque: não bloqueia por saldo (contagem negativa).
-    const alvo = produtos.filter((p) => p.controlaEstoque && !p.permiteNegativo);
-    if (!alvo.length) return new Set();
+  // Cache curto dos mapas de estoque por loja.
+  //
+  // A consulta de saldo agrega o HISTORICO INTEIRO de movimentacoes da loja, sem
+  // filtro de data — e cresce para sempre. Ela era refeita a cada abertura do
+  // cardapio; agora vale por alguns segundos.
+  //
+  // Guardamos os MAPAS (dados das 3 consultas), nao o conjunto final de esgotados:
+  // a resolucao produto->insumo continua exata para qualquer lista recebida, e o
+  // cache nao depende de quais produtos o chamador passou.
+  //
+  // Sobre a defasagem: ela ja existia, e era MAIOR. O cliente ve o cardapio no
+  // load e leva minutos montando o pedido; o checkout nao revalida. O cache
+  // estende em segundos uma janela que ja era de minutos.
+  //
+  // Ajustavel por CARDAPIO_ESTOQUE_TTL_MS; 0 desliga (loja que queira exatidao).
+  private static readonly ESTOQUE_TTL_PADRAO = 30_000;
+  private cacheEstoque = new Map<string, { exp: number; dados: MapasEstoque }>();
 
-    // As tres consultas abaixo sao independentes (todas filtram so por tenant).
-    // Em paralelo elas viram UMA ida ao banco em vez de tres — e com o Postgres em
-    // outra regiao, a viagem custa mais que a consulta.
+  private async mapasEstoque(tenantId: string): Promise<MapasEstoque> {
+    const ttl = Number(process.env.CARDAPIO_ESTOQUE_TTL_MS ?? CardapioService.ESTOQUE_TTL_PADRAO);
+    const agora = Date.now();
+    if (ttl > 0) {
+      const hit = this.cacheEstoque.get(tenantId);
+      if (hit && hit.exp > agora) return hit.dados;
+    }
+
+    // As tres consultas sao independentes (todas filtram so por tenant): em
+    // paralelo viram UMA ida ao banco em vez de tres.
     const [saldoRows, ingRows, comboRows]: any[] = await Promise.all([
       // Saldo por item (mesmo sinal do módulo de estoque).
       this.db.execute(sql`
@@ -694,8 +719,7 @@ export class CardapioService {
     ]);
 
     const saldo = new Map<string, number>();
-    for (const r of saldoRows.rows ?? saldoRows)
-      saldo.set(r.itemId, Number(r.saldo) || 0);
+    for (const r of saldoRows.rows ?? saldoRows) saldo.set(r.itemId, Number(r.saldo) || 0);
 
     const ingMap = new Map<string, any[]>();
     for (const r of ingRows.rows ?? ingRows) {
@@ -711,6 +735,34 @@ export class CardapioService {
       arr.push(r.fichaId);
       comboMap.set(r.comboId, arr);
     }
+
+    const dados: MapasEstoque = { saldo, ingMap, comboMap };
+    if (ttl > 0) {
+      // Varredura simples ao crescer: o mapa de saldo de uma loja grande tem
+      // milhares de itens, e sem isso lojas inativas ficariam ocupando memoria.
+      if (this.cacheEstoque.size > 100) {
+        for (const [k, v] of this.cacheEstoque) if (v.exp <= agora) this.cacheEstoque.delete(k);
+      }
+      this.cacheEstoque.set(tenantId, { exp: agora + ttl, dados });
+    }
+    return dados;
+  }
+
+  // Zera o cache de uma loja. Existe para quem quiser refletir uma movimentacao na
+  // hora (ex.: apos baixa manual) sem esperar o TTL.
+  invalidarEstoque(tenantId: string) {
+    this.cacheEstoque.delete(tenantId);
+  }
+
+  private async computeEsgotados(
+    tenantId: string,
+    produtos: any[],
+  ): Promise<Set<string>> {
+    // permite_negativo = reativado sem estoque: não bloqueia por saldo (contagem negativa).
+    const alvo = produtos.filter((p) => p.controlaEstoque && !p.permiteNegativo);
+    if (!alvo.length) return new Set();
+
+    const { saldo, ingMap, comboMap } = await this.mapasEstoque(tenantId);
 
     const itensDaFicha = (fichaId: string, vis: Set<string>): string[] => {
       if (!fichaId || vis.has(fichaId)) return [];
