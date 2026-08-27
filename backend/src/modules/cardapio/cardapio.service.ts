@@ -664,26 +664,39 @@ export class CardapioService {
     const alvo = produtos.filter((p) => p.controlaEstoque && !p.permiteNegativo);
     if (!alvo.length) return new Set();
 
-    // Saldo por item (mesmo sinal do módulo de estoque).
-    const saldoRows: any = await this.db.execute(sql`
-      select item_id as "itemId",
-             coalesce(sum(case when tipo = 'saida' then -quantidade else quantidade end), 0) as saldo
-      from movimento_estoque
-      where tenant_id = ${tenantId}
-      group by item_id
-    `);
+    // As tres consultas abaixo sao independentes (todas filtram so por tenant).
+    // Em paralelo elas viram UMA ida ao banco em vez de tres — e com o Postgres em
+    // outra regiao, a viagem custa mais que a consulta.
+    const [saldoRows, ingRows, comboRows]: any[] = await Promise.all([
+      // Saldo por item (mesmo sinal do módulo de estoque).
+      this.db.execute(sql`
+        select item_id as "itemId",
+               coalesce(sum(case when tipo = 'saida' then -quantidade else quantidade end), 0) as saldo
+        from movimento_estoque
+        where tenant_id = ${tenantId}
+        group by item_id
+      `),
+      // Mapa de ingredientes por ficha (carregado uma vez para o tenant).
+      this.db.execute(sql`
+        select fi.ficha_id as "fichaId", fi.item_id as "itemId",
+               fi.sub_ficha_id as "subFichaId"
+        from ficha_ingrediente fi
+        join ficha_tecnica ft on ft.id = fi.ficha_id
+        where ft.tenant_id = ${tenantId}
+      `),
+      // Itens de combo -> componentes.
+      this.db.execute(sql`
+        select pci.combo_produto_id as "comboId", p.ficha_id as "fichaId"
+        from produto_combo_item pci
+        join produto p on p.id = pci.componente_produto_id
+        where p.tenant_id = ${tenantId}
+      `),
+    ]);
+
     const saldo = new Map<string, number>();
     for (const r of saldoRows.rows ?? saldoRows)
       saldo.set(r.itemId, Number(r.saldo) || 0);
 
-    // Mapa de ingredientes por ficha (carregado uma vez para o tenant).
-    const ingRows: any = await this.db.execute(sql`
-      select fi.ficha_id as "fichaId", fi.item_id as "itemId",
-             fi.sub_ficha_id as "subFichaId"
-      from ficha_ingrediente fi
-      join ficha_tecnica ft on ft.id = fi.ficha_id
-      where ft.tenant_id = ${tenantId}
-    `);
     const ingMap = new Map<string, any[]>();
     for (const r of ingRows.rows ?? ingRows) {
       const arr = ingMap.get(r.fichaId) ?? [];
@@ -691,13 +704,6 @@ export class CardapioService {
       ingMap.set(r.fichaId, arr);
     }
 
-    // Itens de combo → componentes.
-    const comboRows: any = await this.db.execute(sql`
-      select pci.combo_produto_id as "comboId", p.ficha_id as "fichaId"
-      from produto_combo_item pci
-      join produto p on p.id = pci.componente_produto_id
-      where p.tenant_id = ${tenantId}
-    `);
     const comboMap = new Map<string, string[]>();
     for (const r of comboRows.rows ?? comboRows) {
       if (!r.fichaId) continue;
@@ -966,14 +972,22 @@ export class CardapioService {
 
   async menu(token: string) {
     const cfg = await this.resolver(token);
-    const catsRaw = await this.db
-      .select()
-      .from(categoriaProduto)
-      .where(and(eq(categoriaProduto.tenantId, cfg.tenantId), isNull(categoriaProduto.deletedAt)))
-      .orderBy(categoriaProduto.ordem);
-    // Só as categorias disponíveis agora (janelas dias/horários); vazio = sempre.
-    const cats = catsRaw.filter((c: any) => c.ativo !== false && categoriaDisponivelAgora(c.disponibilidade));
-    const prods: any = await this.db.execute(sql`
+    // ===== Consultas agrupadas por NIVEL DE DEPENDENCIA =====
+    // Este e o cardapio que o cliente abre para pedir, e fazia ~14 idas e voltas ao
+    // Postgres, uma de cada vez. Nenhuma delas e lenta: o custo e a viagem, que se
+    // paga uma vez por consulta. Agrupadas, as MESMAS consultas cabem em 3 idas.
+    //
+    // Promise.all, e nao disparar solto e aguardar depois: no Node 22 uma promessa
+    // rejeitada que ninguem aguardou derruba o processo.
+    //
+    // NIVEL 1 — so precisam do tenant.
+    const [catsRaw, prods, sinalRegras, formasCardapio] = await Promise.all([
+      this.db
+        .select()
+        .from(categoriaProduto)
+        .where(and(eq(categoriaProduto.tenantId, cfg.tenantId), isNull(categoriaProduto.deletedAt)))
+        .orderBy(categoriaProduto.ordem),
+      this.db.execute(sql`
       select id, nome, descricao, preco_venda as "precoVenda",
              preco_promocional as "precoPromocional", categoria_id as "categoriaId",
              imagem_ref as "imagemRef", selos, duracao_min as "duracaoMin",
@@ -985,83 +999,93 @@ export class CardapioService {
       where tenant_id = ${cfg.tenantId} and deleted_at is null
         and ativo = true
       order by nome
-    `);
-    const lista = (prods.rows ?? prods) as any[];
+    `) as Promise<any>,
+      // Regras de sinal da encomenda (mig 187) — o checkout mostra o aviso pela qtd.
+      cfg.encomendaAtiva
+        ? this.regrasSinalDe(cfg.tenantId, cfg.unidadeId)
+        : Promise.resolve([] as any[]),
+      // Formas de pagamento do cardápio = as `forma_pagamento` marcadas p/ cardápio.
+      this.db
+        .select({ nome: formaPagamento.nome })
+        .from(formaPagamento)
+        .where(
+          and(
+            eq(formaPagamento.tenantId, cfg.tenantId),
+            eq(formaPagamento.ativo, true),
+            eq(formaPagamento.cardapio, true),
+          ),
+        )
+        .orderBy(formaPagamento.ordem, formaPagamento.nome),
+    ]);
+
+    // Só as categorias disponíveis agora (janelas dias/horários); vazio = sempre.
+    const cats = catsRaw.filter((c: any) => c.ativo !== false && categoriaDisponivelAgora(c.disponibilidade));
+    const lista = ((prods as any).rows ?? prods) as any[];
     const ids = lista.map((p) => p.id);
-    // Faixas de atacado (mig 184) para exibir "a partir de N un, -X%" no cardápio.
-    const faixasAtacado = await this.faixasAtacadoPorProduto(cfg.tenantId, ids);
-    // Regras de sinal da encomenda (mig 187) — o checkout mostra o aviso pela qtd.
-    const sinalRegras = cfg.encomendaAtiva
-      ? await this.regrasSinalDe(cfg.tenantId, cfg.unidadeId)
-      : [];
 
-    // Esgotado automático pelo ledger: produto que controla estoque e cujo
-    // insumo (item) tem saldo <= 0 fica marcado como esgotado no cardápio.
-    const esgotados = await this.computeEsgotados(cfg.tenantId, lista);
-
-    // Complementos (grupos + opções) e variações em lote.
-    const grupos = ids.length
-      ? await this.db
-          .select()
-          .from(complementoGrupo)
-          .where(
-            and(
-              eq(complementoGrupo.tenantId, cfg.tenantId),
-              inArray(complementoGrupo.produtoId, ids),
-              isNull(complementoGrupo.deletedAt),
-            ),
-          )
-          .orderBy(complementoGrupo.ordem)
-      : [];
-    const opcoes = grupos.length
-      ? await this.db
-          .select()
-          .from(complementoOpcao)
-          .where(and(eq(complementoOpcao.tenantId, cfg.tenantId), isNull(complementoOpcao.deletedAt)))
-          .orderBy(complementoOpcao.ordem)
-      : [];
+    // NIVEL 2 — precisam dos produtos (ids/lista).
+    // `opcoes` nao depende dos grupos (filtra so por tenant); o guard por
+    // grupos.length e aplicado DEPOIS, para o resultado ficar identico ao de antes.
+    const [faixasAtacado, esgotados, grupos, opcoesRaw, variacoes] = await Promise.all([
+      // Faixas de atacado (mig 184) para exibir "a partir de N un, -X%" no cardápio.
+      this.faixasAtacadoPorProduto(cfg.tenantId, ids),
+      // Esgotado automático pelo ledger: produto que controla estoque e cujo
+      // insumo (item) tem saldo <= 0 fica marcado como esgotado no cardápio.
+      this.computeEsgotados(cfg.tenantId, lista),
+      // Complementos (grupos + opções) e variações em lote.
+      ids.length
+        ? this.db
+            .select()
+            .from(complementoGrupo)
+            .where(
+              and(
+                eq(complementoGrupo.tenantId, cfg.tenantId),
+                inArray(complementoGrupo.produtoId, ids),
+                isNull(complementoGrupo.deletedAt),
+              ),
+            )
+            .orderBy(complementoGrupo.ordem)
+        : Promise.resolve([] as any[]),
+      ids.length
+        ? this.db
+            .select()
+            .from(complementoOpcao)
+            .where(and(eq(complementoOpcao.tenantId, cfg.tenantId), isNull(complementoOpcao.deletedAt)))
+            .orderBy(complementoOpcao.ordem)
+        : Promise.resolve([] as any[]),
+      ids.length
+        ? this.db.select().from(produtoVariacao).where(inArray(produtoVariacao.produtoId, ids))
+        : Promise.resolve([] as any[]),
+    ]);
+    const opcoes = grupos.length ? opcoesRaw : ([] as any[]);
     // Regra de cada grupo (uma / várias sem / várias COM repetição) — vem do
     // complemento reutilizável de origem (o grupo materializado não a guarda).
     const origemIds = [...new Set((grupos as any[]).map((g) => g.origemComplementoId).filter(Boolean))] as string[];
-    const compRegras = origemIds.length
-      ? await this.db
-          .select({ id: complemento.id, regra: complemento.regra })
-          .from(complemento)
-          .where(and(eq(complemento.tenantId, cfg.tenantId), inArray(complemento.id, origemIds)))
-      : [];
+    const opcaoOrigemIdsPre = [
+      ...new Set((opcoes as any[]).map((o) => o.origemOpcaoId).filter(Boolean)),
+    ] as string[];
+    // NIVEL 3 — dependem de grupos/opcoes.
+    const [compRegras, imgs] = await Promise.all([
+      origemIds.length
+        ? this.db
+            .select({ id: complemento.id, regra: complemento.regra })
+            .from(complemento)
+            .where(and(eq(complemento.tenantId, cfg.tenantId), inArray(complemento.id, origemIds)))
+        : Promise.resolve([] as any[]),
+      // Imagem da opção — vem da opção reutilizável de origem (o complemento_opcao
+      // materializado não guarda imagem).
+      opcaoOrigemIdsPre.length
+        ? this.db
+            .select({ id: opcao.id, imagemRef: opcao.imagemRef })
+            .from(opcao)
+            .where(and(eq(opcao.tenantId, cfg.tenantId), inArray(opcao.id, opcaoOrigemIdsPre)))
+        : Promise.resolve([] as any[]),
+    ]);
     const regraPorOrigem = new Map(compRegras.map((c) => [c.id, c.regra]));
     const regraDoGrupo = (g: any) =>
       (g.origemComplementoId && regraPorOrigem.get(g.origemComplementoId)) || (g.max === 1 ? 'uma' : 'varias_sem_repeticao');
-    // Imagem da opção (para exibir no cardápio) — vem da opção reutilizável de origem
-    // (o complemento_opcao materializado não guarda imagem).
-    const opcaoOrigemIds = [...new Set((opcoes as any[]).map((o) => o.origemOpcaoId).filter(Boolean))] as string[];
-    const imgs = opcaoOrigemIds.length
-      ? await this.db
-          .select({ id: opcao.id, imagemRef: opcao.imagemRef })
-          .from(opcao)
-          .where(and(eq(opcao.tenantId, cfg.tenantId), inArray(opcao.id, opcaoOrigemIds)))
-      : [];
     const imgPorOrigem = new Map(imgs.map((o) => [o.id, o.imagemRef]));
-    const variacoes = ids.length
-      ? await this.db
-          .select()
-          .from(produtoVariacao)
-          .where(inArray(produtoVariacao.produtoId, ids))
-      : [];
-
-    // Formas de pagamento do cardápio = as `forma_pagamento` marcadas p/ cardápio.
     // Fallback: se nenhuma foi marcada ainda, usa o `pagamentos` legado (sem regressão).
-    const formasCardapio = await this.db
-      .select({ nome: formaPagamento.nome })
-      .from(formaPagamento)
-      .where(
-        and(
-          eq(formaPagamento.tenantId, cfg.tenantId),
-          eq(formaPagamento.ativo, true),
-          eq(formaPagamento.cardapio, true),
-        ),
-      )
-      .orderBy(formaPagamento.ordem, formaPagamento.nome);
     const pagamentosCardapio = formasCardapio.map((f) => f.nome);
 
     return {
