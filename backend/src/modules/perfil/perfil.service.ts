@@ -56,6 +56,9 @@ export class PerfilService {
     const nome = (dto.nome ?? '').trim();
     if (!nome) throw new BadRequestException('Informe o nome do perfil.');
     const nivel = NIVEIS.includes(dto.nivel ?? '') ? (dto.nivel as string) : 'execucao';
+    // Só existe UM C&O (semeado no onboarding). Não deixa criar outro presidente por API.
+    if (nivel === 'presidente')
+      throw new BadRequestException('Não é possível criar um perfil de nível presidente/C&O.');
     const [ja] = await this.db
       .select({ id: perfilAcesso.id })
       .from(perfilAcesso)
