@@ -148,7 +148,11 @@ export class ColaboradorService {
     },
   ) {
     const [alvo] = await this.db
-      .select({ id: colaborador.id })
+      .select({
+        id: colaborador.id,
+        perfilAcessoId: colaborador.perfilAcessoId,
+        funcaoId: colaborador.funcaoId,
+      })
       .from(colaborador)
       .where(
         and(
@@ -160,6 +164,36 @@ export class ColaboradorService {
     if (!alvo) throw new NotFoundException('Colaborador não encontrado.');
     if (id === ator.colaboradorId && dto.status === 'bloqueado') {
       throw new BadRequestException('Você não pode bloquear o seu próprio acesso.');
+    }
+
+    // Blindagem do nível C&O (RBAC no servidor, não só no front): o presidente/C&O é
+    // intocável por esta tela — não pode ser REBAIXADO nem bloqueado aqui, e ninguém
+    // pode ser PROMOVIDO a C&O por um <select> de perfil. Foi assim que uma presidente
+    // virou "Execução" por acidente durante o cadastro de um entregador.
+    const nivelAtual = await this.categoriaDe(
+      ator.tenantId,
+      alvo.perfilAcessoId,
+      alvo.funcaoId,
+    );
+    if (
+      nivelAtual === 'presidente' &&
+      (dto.perfilAcessoId !== undefined || dto.status === 'bloqueado')
+    ) {
+      throw new BadRequestException(
+        'O acesso do presidente/C&O é fixo e não pode ser alterado aqui.',
+      );
+    }
+    if (dto.perfilAcessoId !== undefined) {
+      const nivelNovo = await this.categoriaDe(
+        ator.tenantId,
+        dto.perfilAcessoId,
+        alvo.funcaoId,
+      );
+      if (nivelNovo === 'presidente') {
+        throw new BadRequestException(
+          'Não é possível promover a presidente/C&O por aqui.',
+        );
+      }
     }
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };

@@ -288,7 +288,8 @@ export default function AcessosPage() {
             </Button>
           </Card>
 
-          {perfis.map((p) => {
+          {/* C&O fora da lista: o perfil presidente/C&O é fixo e intocável — não aparece aqui. */}
+          {perfis.filter((p) => p.nivel !== 'presidente').map((p) => {
             const pres = p.nivel === 'presidente';
             const perm = p.permissoes ?? {};
             return (
@@ -388,20 +389,31 @@ export default function AcessosPage() {
                       </p>
                     </div>
 
-                    <label className="flex items-center gap-1.5 text-xs">
-                      Perfil
-                      <select
-                        aria-label={`Perfil de ${c.nome}`}
-                        className="h-9 rounded-md border border-input bg-card px-2 text-sm"
-                        value={c.perfilAcessoId ?? ''}
-                        onChange={(e) => salvarAcesso(c.id, { perfilAcessoId: e.target.value })}
+                    {ehPres ? (
+                      // Presidente/C&O: acesso fixo — sem dropdown, não dá pra rebaixar o dono.
+                      <span
+                        className="rounded bg-ok/15 px-2 py-1 text-xs font-bold text-ok"
+                        title="O acesso do presidente/C&O é fixo e não pode ser alterado aqui."
                       >
-                        <option value="" disabled>—</option>
-                        {perfis.map((p) => (
-                          <option key={p.id} value={p.id}>{p.nome}</option>
-                        ))}
-                      </select>
-                    </label>
+                        Presidente · C&O (fixo)
+                      </span>
+                    ) : (
+                      <label className="flex items-center gap-1.5 text-xs">
+                        Perfil
+                        <select
+                          aria-label={`Perfil de ${c.nome}`}
+                          className="h-9 rounded-md border border-input bg-card px-2 text-sm"
+                          value={c.perfilAcessoId ?? ''}
+                          onChange={(e) => salvarAcesso(c.id, { perfilAcessoId: e.target.value })}
+                        >
+                          <option value="" disabled>—</option>
+                          {/* C&O fora das opções: não dá pra promover ninguém a presidente por aqui. */}
+                          {perfis.filter((p) => p.nivel !== 'presidente').map((p) => (
+                            <option key={p.id} value={p.id}>{p.nome}</option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
 
                     <label className="flex items-center gap-1.5 text-xs" title="Libera o PIN do app do colaborador">
                       App
