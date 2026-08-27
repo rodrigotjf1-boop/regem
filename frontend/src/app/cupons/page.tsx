@@ -188,16 +188,29 @@ export default function CuponsPage() {
                     <span className="font-medium">{c.mesa ? `Mesa ${c.mesa}` : 'Balcão'}</span>
                     {c.status === 'cancelada' ? (
                       <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive">cancelada</span>
+                    ) : c.status === 'falha' ? (
+                      <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">falha no pagamento</span>
                     ) : (
                       <span className="rounded bg-ok/10 px-1.5 py-0.5 text-xs text-ok">fechada</span>
                     )}
                     {c.forma && <span className="text-xs capitalize text-muted-foreground">{c.forma}</span>}
+                    {c.equipamentoNome && (
+                      <span
+                        className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                        title="Equipamento de origem"
+                      >
+                        {c.equipamentoNome}
+                      </span>
+                    )}
                   </div>
+                  {c.status === 'falha' && c.motivoCancelamento && (
+                    <span className="mt-0.5 block text-xs text-destructive">{c.motivoCancelamento}</span>
+                  )}
                   <span className="text-xs text-muted-foreground">
-                    {hora(c.canceladaEm ?? c.fechadaEm)}
+                    {hora(c.canceladaEm ?? c.fechadaEm ?? c.abertaEm)}
                   </span>
                 </div>
-                <span className={`font-mono text-sm font-bold ${c.status === 'cancelada' ? 'text-muted-foreground line-through' : ''}`}>
+                <span className={`font-mono text-sm font-bold ${c.status === 'cancelada' ? 'text-muted-foreground line-through' : c.status === 'falha' ? 'text-muted-foreground' : ''}`}>
                   {brl(Number(c.total))}
                 </span>
               </button>
@@ -257,6 +270,16 @@ export default function CuponsPage() {
               <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
                 Venda cancelada em {hora(sel.canceladaEm)}
                 {sel.motivoCancelamento ? ` · ${sel.motivoCancelamento}` : ''}
+              </p>
+            ) : sel.status === 'falha' ? (
+              // Falha de pagamento do totem: informativo, sem cancelar/estornar
+              // (não movimentou estoque nem caixa).
+              <p className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                Pedido não pago — falha no totem
+                {sel.motivoCancelamento ? ` · ${sel.motivoCancelamento}` : ''}
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Registro só para controle — não baixou estoque nem entrou no caixa.
+                </span>
               </p>
             ) : (
               <div className="space-y-2 border-t border-border pt-3">

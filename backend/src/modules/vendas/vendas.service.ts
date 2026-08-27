@@ -44,6 +44,7 @@ import { FiscalService } from '../fiscal/fiscal.service';
 import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
+import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function hojeISO() {
@@ -513,6 +514,9 @@ export class VendasService {
             : dto.forma,
           fechadaEm: new Date(),
           abertaPorId: atorId,
+          // Equipamento de origem do cupom (PDV/caixa que fez a venda) — pro card
+          // de Cupons mostrar "de onde saiu" (totem já grava; balcão faltava).
+          origemEquipamentoId: terminalId ?? null,
         })
         .returning();
 
@@ -2362,13 +2366,129 @@ export class VendasService {
 
   // ===== Cupons & cancelamento (Fase C) =====
   // Cupons = vendas fechadas/canceladas (as comandas). Consulta pelo atendente/gerente.
+  // Pedido de totem que NÃO foi pago (erro no checkout do GoGeM). SÓ informativo:
+  // entra na lista de Cupons como 'falha' + motivo, sem baixar estoque e sem caixa.
+  // Endpoint SEPARADO da venda (via GoGeM, best-effort) para NUNCA virar venda/caixa.
+  async registrarFalhaTotem(
+    tenantId: string,
+    ctx: { unidadeId: string | null; equipamentoId: string | null },
+    dto: VendaExternaFalhaDto,
+  ) {
+    if (!dto.idempotencyKey?.trim())
+      throw new BadRequestException('idempotencyKey é obrigatória.');
+    const motivo = (dto.motivo ?? '').trim() || 'Falha no pagamento (totem).';
+
+    // Idempotência: mesma chave → devolve o registro já criado (reenvio não duplica).
+    const [existente] = await this.db
+      .select({ id: comanda.id })
+      .from(comanda)
+      .where(
+        and(
+          eq(comanda.tenantId, tenantId),
+          eq(comanda.idempotencyKey, dto.idempotencyKey),
+        ),
+      );
+    if (existente) return { comandaId: existente.id, idempotente: true };
+
+    // Resolve itens por codigo_pdv SÓ para a descrição (informativo). NÃO baixa
+    // estoque, NÃO cria produção, NÃO lança caixa.
+    const codigos = [
+      ...new Set((dto.itens ?? []).map((i) => (i.codigoPdv ?? '').trim()).filter(Boolean)),
+    ];
+    const prods = codigos.length
+      ? await this.db
+          .select()
+          .from(produto)
+          .where(
+            and(
+              eq(produto.tenantId, tenantId),
+              inArray(produto.codigo, codigos),
+              isNull(produto.deletedAt),
+            ),
+          )
+      : [];
+    const porCodigo = new Map<string, any>(
+      prods.filter((p) => p.codigo).map((p) => [p.codigo as string, p]),
+    );
+
+    const total = dto.totalCentavos != null ? Number(dto.totalCentavos) / 100 : null;
+    try {
+      const [cmd] = await this.db
+        .insert(comanda)
+        .values({
+          tenantId,
+          unidadeId: ctx.unidadeId ?? null,
+          status: 'falha',
+          idempotencyKey: dto.idempotencyKey,
+          forma: dto.formaTentada ?? null,
+          total: total != null ? String(total.toFixed(2)) : null,
+          origemEquipamentoId: ctx.equipamentoId ?? null,
+          // Reusa a coluna de motivo (sem migration) para a causa da falha.
+          motivoCancelamento: motivo,
+          obs: dto.senhaPlataforma ? `Totem #${dto.senhaPlataforma}` : null,
+        })
+        .returning();
+
+      for (const it of dto.itens ?? []) {
+        const p = porCodigo.get((it.codigoPdv ?? '').trim());
+        const qtd = Number(it.quantidade) || 1;
+        await this.db.insert(comandaItem).values({
+          tenantId,
+          comandaId: cmd.id,
+          produtoId: p?.id ?? null,
+          descricao: p?.nome ?? (it.codigoPdv ?? 'item'),
+          quantidade: String(qtd),
+          precoUnitario: p ? String(Number(p.precoVenda)) : '0',
+        });
+      }
+
+      await this.auditoria.registrar({
+        tenantId,
+        atorId: null,
+        atorPerfil: 'servico',
+        tipo: 'venda',
+        acao: 'falha_pagamento_totem',
+        entidadeTipo: 'comanda',
+        entidadeId: cmd.id,
+        detalhe: {
+          motivo,
+          forma: dto.formaTentada ?? null,
+          total,
+          origem: 'totem',
+          equipamentoId: ctx.equipamentoId,
+        },
+      });
+      return { comandaId: cmd.id, status: 'falha' };
+    } catch (e: any) {
+      // Corrida: mesma chave inseriu primeiro (unique) → devolve o existente.
+      if (e?.code === '23505') {
+        const [ex] = await this.db
+          .select({ id: comanda.id })
+          .from(comanda)
+          .where(
+            and(
+              eq(comanda.tenantId, tenantId),
+              eq(comanda.idempotencyKey, dto.idempotencyKey),
+            ),
+          );
+        if (ex) return { comandaId: ex.id, idempotente: true };
+      }
+      throw e;
+    }
+  }
+
   listarCupons(tenantId: string, limite = 50) {
+    // Inclui 'falha' (pedido de totem que não foi pago — informativo). O join traz
+    // o NOME do equipamento de origem (totem1/pdv1/caixa1) pro card do cupom.
     return this.db.execute(sql`
       select c.id, c.senha, c.mesa, c.status, c.total, c.forma,
              c.fechada_em as "fechadaEm", c.cancelada_em as "canceladaEm",
-             c.motivo_cancelamento as "motivoCancelamento"
+             c.aberta_em as "abertaEm",
+             c.motivo_cancelamento as "motivoCancelamento",
+             e.nome as "equipamentoNome"
       from comanda c
-      where c.tenant_id = ${tenantId} and c.status in ('fechada','cancelada')
+      left join equipamento e on e.id = c.origem_equipamento_id
+      where c.tenant_id = ${tenantId} and c.status in ('fechada','cancelada','falha')
       order by coalesce(c.fechada_em, c.aberta_em) desc
       limit ${limite}
     `).then((r: any) => r.rows ?? r);
