@@ -174,8 +174,15 @@ export class WhatsappController {
     @Query('secret') secret: string,
     @Query('numero') numero?: string,
     @Query('telefone') telefone?: string,
+    @Query('phoneNumberId') phoneNumberId?: string,
   ) {
-    return this.service.statusPedidoBot(instancia ?? '', secret ?? '', telefone ?? '', numero ?? '');
+    return this.service.statusPedidoBot(
+      instancia ?? '',
+      secret ?? '',
+      telefone ?? '',
+      numero ?? '',
+      phoneNumberId ?? '',
+    );
   }
 
   // Pedidos RECENTES do cliente por telefone (contexto da IA "cadê meu pedido").
@@ -186,7 +193,13 @@ export class WhatsappController {
     @Query('instancia') instancia: string,
     @Query('secret') secret: string,
     @Query('telefone') telefone?: string,
+    @Query('phoneNumberId') phoneNumberId?: string,
   ) {
-    return this.service.pedidosPorTelefoneBot(instancia ?? '', secret ?? '', telefone ?? '');
+    return this.service.pedidosPorTelefoneBot(
+      instancia ?? '',
+      secret ?? '',
+      telefone ?? '',
+      phoneNumberId ?? '',
+    );
   }
 }

@@ -703,14 +703,40 @@ export class WhatsappService {
 
   // Robô: status de um pedido por NÚMERO (senha) + telefone. Autentica igual ao
   // resolver (instância + BOT_RESOLVER_SECRET). Devolve um texto pronto pro cliente.
-  async statusPedidoBot(instancia: string, secret: string, telefone?: string, numero?: string) {
+  // Resolve a loja pela CHAVE DO PROVEDOR: instancia do Evolution ou Phone Number ID
+  // da Meta. Loja migrada para a Cloud API nao tem instancia, e loja no Evolution nao
+  // tem phone id — um dos dois basta, e o chamador manda o que tiver.
+  private async lojaPorChaveBot(instancia?: string, phoneNumberId?: string) {
+    const pid = String(phoneNumberId ?? '').trim();
+    if (pid) {
+      const [c] = await this.db
+        .select({ tenantId: cardapioConfig.tenantId })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.waCloudPhoneId, pid));
+      if (c) return c;
+    }
+    const inst = String(instancia ?? '').trim();
+    if (inst) {
+      const [c] = await this.db
+        .select({ tenantId: cardapioConfig.tenantId })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.evolutionInstancia, inst));
+      if (c) return c;
+    }
+    return null;
+  }
+
+  async statusPedidoBot(
+    instancia: string,
+    secret: string,
+    telefone?: string,
+    numero?: string,
+    phoneNumberId?: string,
+  ) {
     const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
     if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
-    const [cfg] = await this.db
-      .select({ tenantId: cardapioConfig.tenantId })
-      .from(cardapioConfig)
-      .where(eq(cardapioConfig.evolutionInstancia, instancia));
-    if (!cfg) throw new NotFoundException('Instância não vinculada a uma loja.');
+    const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
+    if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
     const num = String(numero ?? '').replace(/\D/g, '');
     if (!num)
       return { encontrado: false, texto: 'Não identifiquei o número do pedido. Pode me informar o número da senha?' };
@@ -753,14 +779,16 @@ export class WhatsappService {
   // Público (robô): pedidos RECENTES por telefone — autenticado pelo secret do bot
   // (não exige clienteToken; o WhatsApp já prova a posse do número). Casa pelos últimos
   // 8 dígitos. Alimenta o contexto da IA ("Pedidos recentes deste cliente").
-  async pedidosPorTelefoneBot(instancia: string, secret: string, telefone?: string) {
+  async pedidosPorTelefoneBot(
+    instancia: string,
+    secret: string,
+    telefone?: string,
+    phoneNumberId?: string,
+  ) {
     const esperado = process.env.BOT_RESOLVER_SECRET ?? '';
     if (!segredoBotOk(secret, esperado)) throw new BadRequestException('Não autorizado.');
-    const [cfg] = await this.db
-      .select({ tenantId: cardapioConfig.tenantId })
-      .from(cardapioConfig)
-      .where(eq(cardapioConfig.evolutionInstancia, instancia));
-    if (!cfg) throw new NotFoundException('Instância não vinculada a uma loja.');
+    const cfg = await this.lojaPorChaveBot(instancia, phoneNumberId);
+    if (!cfg) throw new NotFoundException('Número/instância não vinculado a uma loja.');
     const tail = this.soNumero(telefone).slice(-8);
     if (tail.length < 8) return [];
     const rows = await this.db
