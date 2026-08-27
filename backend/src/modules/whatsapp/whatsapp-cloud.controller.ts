@@ -1,10 +1,21 @@
-import { Controller, Get, HttpCode, Logger, Post, Query, Req, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Logger,
+  Post,
+  Query,
+  Req,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { CloudOnly } from '../../common/cloud-only.decorator';
+import { WhatsappCloudService } from './whatsapp-cloud.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Webhook da API OFICIAL do WhatsApp (Meta Cloud API). Fase 1: SÓ RECEBE e loga.
+// Webhook da API OFICIAL do WhatsApp (Meta Cloud API).
 // Não toca no fluxo do Evolution (whatsapp.controller/service) — é uma via paralela,
 // para a loja poder migrar por provedor sem derrubar quem está no Evolution.
 //
@@ -31,16 +42,11 @@ function assinaturaOk(rawBody: Buffer | undefined, header: string | undefined): 
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// Telefone só com os 4 últimos dígitos — o log não guarda o número do cliente.
-function mascarar(tel?: string): string {
-  const s = String(tel ?? '');
-  return s.length > 4 ? `***${s.slice(-4)}` : '***';
-}
-
 @Controller()
 @CloudOnly()
 export class WhatsappCloudController {
   private readonly logger = new Logger('WhatsappCloud');
+  constructor(private readonly service: WhatsappCloudService) {}
 
   // Desafio de verificação. A Meta chama UMA vez, ao salvar a URL no painel, e
   // exige o hub.challenge cru no corpo — qualquer JSON em volta reprova.
@@ -68,6 +74,8 @@ export class WhatsappCloudController {
   }
 
   // Eventos (mensagens recebidas + status de entrega das que enviamos).
+  // Responde 200 na hora e processa em seguida: a Meta tem timeout curto, e
+  // segurar a resposta esperando o n8n é o caminho para ela desativar a assinatura.
   @Post('publico/whatsapp/cloud/webhook')
   @HttpCode(200)
   @Throttle({ default: { ttl: 60000, limit: 600 } })
@@ -76,29 +84,31 @@ export class WhatsappCloudController {
       this.logger.warn('Evento com assinatura inválida — descartado.');
       throw new UnauthorizedException('Assinatura inválida.');
     }
-    try {
-      const body = req.body ?? {};
-      if (process.env.WA_CLOUD_DEBUG === '1') {
-        this.logger.debug(JSON.stringify(body));
-      }
-      for (const entry of body.entry ?? []) {
-        for (const ch of entry.changes ?? []) {
-          const v = ch.value ?? {};
-          const numeroLoja = v.metadata?.display_phone_number ?? '?';
-          for (const m of v.messages ?? []) {
-            this.logger.log(
-              `msg loja=${numeroLoja} de=${mascarar(m.from)} tipo=${m.type} id=${m.id}`,
-            );
-          }
-          for (const s of v.statuses ?? []) {
-            this.logger.log(`status loja=${numeroLoja} ${s.status} id=${s.id}`);
-          }
-        }
-      }
-    } catch (e: any) {
-      // Nunca propaga: erro nosso não pode virar retry/desativação do webhook na Meta.
-      this.logger.error(`Falha ao processar evento: ${e?.message ?? e}`);
+    const body = req.body ?? {};
+    if (process.env.WA_CLOUD_DEBUG === '1') {
+      this.logger.debug(JSON.stringify(body));
     }
+    // Sem await de propósito (ver comentário acima). O processar() nunca lança,
+    // mas o catch fica como rede de segurança contra rejeição não tratada.
+    this.service
+      .processar(body)
+      .catch((e: any) => this.logger.error(`Falha ao processar evento: ${e?.message ?? e}`));
     return { ok: true };
+  }
+
+  // Envio chamado pelo workflow "Bot Regem (Cloud)" no n8n para responder o cliente.
+  // Autenticado pelo BOT_RESOLVER_SECRET (o mesmo do resolver do Evolution), com a
+  // loja identificada pelo phoneNumberId que o próprio workflow recebeu.
+  @Post('publico/bot/cloud/enviar')
+  @Throttle({ default: { ttl: 60000, limit: 300 } })
+  enviarBot(
+    @Body() dto: { secret?: string; phoneNumberId?: string; para?: string; texto?: string },
+  ) {
+    return this.service.enviarPeloBot(
+      dto?.secret ?? '',
+      dto?.phoneNumberId ?? '',
+      dto?.para ?? '',
+      dto?.texto ?? '',
+    );
   }
 }

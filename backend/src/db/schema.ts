@@ -2486,6 +2486,15 @@ export const cardapioConfig = pgTable('cardapio_config', {
   evolutionInstancia: text('evolution_instancia'), // instância WhatsApp (chave do bot multi-tenant)
   marketingInstancia: text('marketing_instancia'), // 2º WhatsApp p/ campanhas (F5b) — só envio, sem bot
   evolutionNumero: text('evolution_numero'), // número conectado (quando pareado)
+  // Provedor de WhatsApp DESTA loja (mig 214). 'evolution' = pareamento por QR (nao
+  // oficial); 'cloud' = API oficial da Meta. Default mantem toda loja existente como
+  // esta. As colunas wa_cloud_* so valem quando provedor='cloud'.
+  provedor: text('provedor').notNull().default('evolution'), // evolution | cloud
+  // Phone Number ID da Meta: CHAVE MULTI-TENANT do webhook (a URL de callback e uma so
+  // para todas as lojas; quem desambigua e o metadata.phone_number_id do payload).
+  waCloudPhoneId: text('wa_cloud_phone_id'),
+  waCloudWabaId: text('wa_cloud_waba_id'), // WABA dona do numero (Cenario B: e do lojista)
+  waCloudNumero: text('wa_cloud_numero'), // numero em si, para exibir na tela
   // Regras de estorno/empilhamento de desconto (mig 125) — a loja configura.
   cancelamentoEstornaCashback: boolean('cancelamento_estorna_cashback').notNull().default(true),
   cupomBloqueiaComResgate: boolean('cupom_bloqueia_com_resgate').notNull().default(false),
