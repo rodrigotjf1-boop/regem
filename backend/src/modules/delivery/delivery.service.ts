@@ -1780,6 +1780,7 @@ export class DeliveryService {
   // merchant_id, HMAC em client_secret). Público: outros módulos (encomenda/sinal)
   // reusam para avisos de WhatsApp. Sempre carimba `em`. No-op se não configurado.
   async notificarN8n(tenantId: string, payload: Record<string, unknown>): Promise<void> {
+    const evento = String(payload?.evento ?? 'status');
     try {
       const [row] = await this.db
         .select()
@@ -1791,10 +1792,21 @@ export class DeliveryService {
       // ao n8n → cliente fica sem WhatsApp. (o cliente.service já usa o mesmo fallback.)
       const temIntegracao = !!(row?.ativo && row.merchantId);
       const url = temIntegracao ? row!.merchantId : process.env.OTP_WEBHOOK_URL;
-      if (!url) return;
+      const fonte = temIntegracao ? 'integracao' : 'env';
+      const host = (() => {
+        try {
+          return new URL(String(url)).host;
+        } catch {
+          return String(url);
+        }
+      })();
+      if (!url) {
+        this.logger.warn(`[n8n-aviso] evento=${evento} SEM URL (integração n8n inativa e OTP_WEBHOOK_URL vazio)`);
+        return;
+      }
       // Anti-SSRF: a URL vem do lojista — bloqueia IP privado/local/metadata cloud.
       if (!(await urlPublicaSegura(url))) {
-        this.logger.warn(`Webhook n8n bloqueado (URL não-pública): ${String(url).slice(0, 80)}`);
+        this.logger.warn(`[n8n-aviso] evento=${evento} BLOQUEADO (URL não-pública): ${host}`);
         return;
       }
       const body = JSON.stringify({ em: new Date().toISOString(), ...payload });
@@ -1802,9 +1814,20 @@ export class DeliveryService {
       const secret = temIntegracao ? row!.clientSecret : undefined;
       if (secret)
         headers['X-Regem-Signature'] = createHmac('sha256', secret).update(body).digest('hex');
-      void fetch(url, { method: 'POST', headers, body }).catch(() => {});
-    } catch {
-      /* nunca quebra o fluxo por causa do webhook */
+      // Telemetria: loga pra ONDE foi (host + fonte) e o que o n8n RESPONDEU, sem
+      // bloquear o fluxo do pedido. Aparece no log do regem-api (EasyPanel).
+      fetch(url, { method: 'POST', headers, body })
+        .then(async (res) => {
+          const txt = await res.text().catch(() => '');
+          const linha = `[n8n-aviso] evento=${evento} fonte=${fonte} → ${host} status=${res.status} ${txt.slice(0, 200)}`;
+          if (res.ok) this.logger.log(linha);
+          else this.logger.warn(linha);
+        })
+        .catch((e: any) => {
+          this.logger.warn(`[n8n-aviso] evento=${evento} fonte=${fonte} → ${host} FALHOU: ${e?.message ?? e}`);
+        });
+    } catch (e: any) {
+      this.logger.warn(`[n8n-aviso] evento=${evento} erro interno: ${e?.message ?? e}`);
     }
   }
 

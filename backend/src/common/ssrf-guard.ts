@@ -4,7 +4,10 @@
 // VPS. Bloqueia protocolo não-http(s), hostnames locais e IPs privados, resolvendo
 // o DNS (defesa contra DNS rebinding: checa TODOS os IPs resolvidos).
 import { lookup } from 'node:dns/promises';
-import net from 'node:net';
+// Namespace import (não default): com o build sem esModuleInterop, `import net from
+// 'node:net'` vira `undefined` em runtime → `net.isIP` crasha ("reading 'isIP'"),
+// derrubando TODO webhook (OTP e avisos n8n). `import * as net` funciona sempre.
+import * as net from 'node:net';
 
 function ipPrivadoOuLocal(ip: string): boolean {
   const v = net.isIP(ip);
