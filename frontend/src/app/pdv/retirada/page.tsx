@@ -325,6 +325,13 @@ function PedidoCard({
             <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">
               {p.retiradaTipo === 'encomenda' ? '📅 Encomenda' : '🏪 Retirada'}
             </span>
+            {/* Senha do TOTEM (a que o cliente leva) — vem no displayId; o operador casa
+                o pedido por ela, não pelo nº sequencial do Regem. Esconde o fallback (#nº). */}
+            {p.grupoCanal === 'totem' && p.displayId && p.displayId !== `#${p.numero}` && (
+              <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-bold text-primary">
+                Senha #{String(p.displayId).replace(/^#/, '')}
+              </span>
+            )}
           </div>
           <p className="mt-1 truncate text-sm font-medium">{p.clienteNome || 'Cliente'}</p>
           {p.clienteTelefone && (
@@ -347,12 +354,19 @@ function PedidoCard({
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-1 text-xs">
         <span className="font-mono font-bold">{brl(Number(p.total))}</span>
-        {p.pago ? (
-          <span className="rounded-full bg-ok/10 px-2 py-0.5 font-semibold text-ok">Pago online</span>
-        ) : (
+        {/* Pago no BALCÃO (passou por sessão de caixa) → "Pagamento em [forma]".
+            "Pago online" só p/ pedido externo pré-pago (sem sessão de caixa). */}
+        {!p.pago ? (
           <span className="rounded-full bg-warn/10 px-2 py-0.5 font-semibold text-warn">A pagar</span>
+        ) : p.caixaSessaoId ? (
+          <span className="rounded-full bg-ok/10 px-2 py-0.5 font-semibold text-ok">
+            Pagamento em {p.formaPagamentoLabel || p.formaPagamento || 'balcão'}
+          </span>
+        ) : (
+          <span className="rounded-full bg-ok/10 px-2 py-0.5 font-semibold text-ok">Pago online</span>
         )}
-        {p.formaPagamentoLabel && (
+        {/* Chip de forma separado só quando NÃO virou "Pagamento em [forma]". */}
+        {p.formaPagamentoLabel && !(p.pago && p.caixaSessaoId) && (
           <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{p.formaPagamentoLabel}</span>
         )}
         {p.agendamento && (
@@ -374,9 +388,13 @@ function PedidoCard({
             )
           ) : (
             <>
-              <Button size="sm" variant="outline" onClick={onAvisar} disabled={busy}>
-                Avisar pronto
-              </Button>
+              {/* Totem: cliente está no balcão (e sem telefone) — "Avisar pronto" (WhatsApp)
+                  não faz sentido, então some no card do totem. */}
+              {p.grupoCanal !== 'totem' && (
+                <Button size="sm" variant="outline" onClick={onAvisar} disabled={busy}>
+                  Avisar pronto
+                </Button>
+              )}
               <Button size="sm" onClick={onEntregar} disabled={busy}>
                 {p.pago ? 'Entregar' : 'Cobrar e entregar'}
               </Button>
