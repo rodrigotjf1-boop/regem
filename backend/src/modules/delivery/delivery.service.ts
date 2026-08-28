@@ -1148,6 +1148,7 @@ export class DeliveryService {
         ),
       );
     if (!sessao) throw new BadRequestException('Abra o caixa do PDV para receber o pagamento.');
+    const f = forma && String(forma).trim() ? String(forma).trim() : 'dinheiro';
     const [row] = await this.db
       .update(pedidoExterno)
       .set({
@@ -1155,12 +1156,12 @@ export class DeliveryService {
         statusPagamento: 'aprovado',
         caixaSessaoId: sessao.id,
         atendenteId: atorId ?? null,
+        formaPagamento: f, // forma escolhida no balcão → card mostra "Pagamento em [forma]"
       })
       .where(eq(pedidoExterno.id, id))
       .returning();
     // Aponta o lançamento da venda para o caixa do atendente, com a forma recebida.
     if (row.comandaId) {
-      const f = forma && String(forma).trim() ? String(forma).trim() : 'dinheiro';
       await this.db
         .update(lancamentoCaixa)
         .set({ sessaoId: sessao.id, forma: f })
@@ -1295,6 +1296,9 @@ export class DeliveryService {
       patch.caixaSessaoId = sessaoId;
       patch.pago = true;
       patch.statusPagamento = 'aprovado';
+      // Forma cobrada no balcão → card mostra "Pagamento em [forma]" (não "Pago online").
+      if (dados?.forma && String(dados.forma).trim())
+        patch.formaPagamento = String(dados.forma).trim();
     } else {
       patch.pagoOnline = true;
     }
@@ -2226,10 +2230,13 @@ export class DeliveryService {
       };
     });
     const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
+    const senhaTotem = (dto.senhaPlataforma ?? '').toString().trim() || undefined;
     // canal 'totem' → grupoCanal 'totem'; pago=false → "A pagar" (cobra no balcão).
-    // externalId = idempotencyKey → o ingest dedup por (canal, externalId).
+    // externalId = idempotencyKey → dedup. displayId = SENHA do totem (a que o cliente
+    // leva) — o operador casa o pedido por ela, não pelo nº sequencial do Regem.
     return this.ingest(tenantId, ctx.unidadeId ?? null, 'totem', {
       externalId: dto.idempotencyKey,
+      displayId: senhaTotem,
       clienteNome: dto.cliente ?? null,
       tipo: 'retirada',
       itens,
