@@ -1756,6 +1756,11 @@ export class DeliveryService {
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
   private async dispararWebhook(tenantId: string, ped: any, evento = 'status') {
+    // O AVISO DE STATUS ao cliente (WhatsApp pelo bot Regem) é SÓ para o Cardápio Regem.
+    // Marketplace/integrado (Anota Aí, iFood, Cardápio Web…) notificam o próprio cliente —
+    // não devem receber o status do Regem (nem o código de entrega, que é feature nossa).
+    // O status-back para o canal (statusBackAnotaAi/CW/Food99) é chamado à parte e segue.
+    if (DeliveryService.grupoCanal(ped.canal) !== 'regem') return;
     // Cancelamento vira evento dedicado 'cancelado' e leva o MOTIVO — o cliente
     // precisa saber por que o pedido foi cancelado (o fluxo n8n trata esse ramo).
     const cancelado = ped.status === 'cancelado';
