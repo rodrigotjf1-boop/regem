@@ -26,12 +26,19 @@ const CANAL_COR: Record<string, string> = {
   cardapio_web: '#0F62FE', keeta: '#00B14F',
 };
 
-// Os 3 grupos de origem que o hub agrupa.
+// Grupos de origem que o hub agrupa. Cada coluna só aparece se a origem está EM USO
+// (integração conectada) ou tem pedido — ver `gruposVisiveis`.
 const GRUPOS = [
   { key: 'regem', titulo: 'Cardápio Regem', dica: 'pedidos do seu cardápio', icone: '🟡' },
   { key: 'integrado', titulo: 'Cardápio integrado', dica: 'Anota Aí · Cardápio Web · Delivery Direto · Rappi', icone: '🔗' },
   { key: 'marketplace', titulo: 'Marketplaces', dica: 'iFood · 99Food · Keeta', icone: '🏬' },
+  { key: 'totem', titulo: 'Totem GoGeM', dica: 'pedidos em dinheiro — cobrar no balcão', icone: '🕹️' },
 ] as const;
+
+// Nº de colunas visíveis → classe de grid (Tailwind precisa de classes estáticas).
+const GRID_COLS: Record<number, string> = {
+  1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3', 4: 'lg:grid-cols-4',
+};
 
 const STATUS_LABEL: Record<string, { txt: string; cls: string }> = {
   novo: { txt: 'Novo', cls: 'bg-info/10 text-info' },
@@ -50,6 +57,7 @@ export default function RetiradaPage() {
   const [cancelar, setCancelar] = useState<any>(null); // pedido em cancelamento
   const [detalhe, setDetalhe] = useState<any>(null); // pedido aberto no painel de detalhe
   const [busy, setBusy] = useState<string | null>(null);
+  const [origensEmUso, setOrigensEmUso] = useState<Record<string, boolean>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -58,7 +66,10 @@ export default function RetiradaPage() {
         api.caixaAberta('pdv').catch(() => null),
         api.formasPagamento().catch(() => []),
       ]);
-      setPedidos(Array.isArray(p) ? p : []);
+      // Backend novo devolve { pedidos, origensEmUso }; compat com o array antigo.
+      const pedidosArr = Array.isArray(p) ? p : ((p as any)?.pedidos ?? []);
+      setPedidos(pedidosArr);
+      setOrigensEmUso(Array.isArray(p) ? {} : ((p as any)?.origensEmUso ?? {}));
       setCaixa(c);
       setFormas(Array.isArray(f) ? f : []);
     } catch {
@@ -75,10 +86,17 @@ export default function RetiradaPage() {
   }, [reload]);
 
   const porGrupo = useMemo(() => {
-    const m: Record<string, any[]> = { regem: [], integrado: [], marketplace: [] };
+    const m: Record<string, any[]> = { regem: [], integrado: [], marketplace: [], totem: [] };
     for (const p of pedidos) (m[p.grupoCanal] ?? m.regem).push(p);
     return m;
   }, [pedidos]);
+
+  // Coluna visível: origem EM USO (integração conectada) OU tem pedido agora — nunca
+  // esconde uma coluna que tenha pedido. Fallback: se o backend não informou origens
+  // (edge sem as tabelas de config), mostra só as que têm pedido.
+  const gruposVisiveis = GRUPOS.filter(
+    (g) => origensEmUso[g.key] || porGrupo[g.key].length > 0,
+  );
 
   const abertos = pedidos.filter((p) => p.status !== 'concluido' && p.status !== 'cancelado').length;
 
@@ -147,8 +165,8 @@ export default function RetiradaPage() {
           <p className="mt-1 text-sm">Pedidos do seu cardápio e das integrações aparecem aqui.</p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {GRUPOS.map((g) => (
+        <div className={`grid grid-cols-1 gap-4 md:grid-cols-2 ${GRID_COLS[gruposVisiveis.length] ?? 'lg:grid-cols-3'}`}>
+          {gruposVisiveis.map((g) => (
             <div key={g.key} className="min-w-0">
               <div className="mb-2 flex items-baseline gap-2">
                 <h2 className="text-sm font-bold uppercase tracking-wide">
