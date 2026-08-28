@@ -355,6 +355,7 @@ export class DeliveryService {
       bandeira?: string;
       clientRef?: string;
       retiradaTipo?: string; // 'encomenda' quando é pedido para data futura (mig 186)
+      naoAutoAceitar?: boolean; // pula o aceite automático (ex.: totem "após pagamento")
     },
   ) {
     const norm: PedidoNormalizado = adaptar(canal, raw);
@@ -460,7 +461,7 @@ export class DeliveryService {
     const cfg = await this.configRaw(tenantId, unidadeId);
     // P1: se a loja tem servidor edge ativo (modo local), a nuvem NÃO materializa —
     // o pedido desce pelo sync e o edge o processa localmente (KDS/estoque).
-    if (cfg?.autoAceitar && !(await this.deferirParaEdge(tenantId))) {
+    if (cfg?.autoAceitar && !extra?.naoAutoAceitar && !(await this.deferirParaEdge(tenantId))) {
       try {
         return await this.aceitar(tenantId, null, row.id);
       } catch {
@@ -2231,19 +2232,29 @@ export class DeliveryService {
     });
     const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
     const senhaTotem = (dto.senhaPlataforma ?? '').toString().trim() || undefined;
+    // No modo "após pagamento", o pedido NÃO vai pra produção na chegada — fica
+    // aguardando o "Receber pagamento" no balcão. Por isso pula o auto-aceitar
+    // (senão o delivery com "aceitar automático" mandava pra cozinha antes de pagar).
+    const aposPagamento = await this.totemAposPagamento(tenantId);
     // canal 'totem' → grupoCanal 'totem'; pago=false → "A pagar" (cobra no balcão).
     // externalId = idempotencyKey → dedup. displayId = SENHA do totem (a que o cliente
     // leva) — o operador casa o pedido por ela, não pelo nº sequencial do Regem.
-    return this.ingest(tenantId, ctx.unidadeId ?? null, 'totem', {
-      externalId: dto.idempotencyKey,
-      displayId: senhaTotem,
-      clienteNome: dto.cliente ?? null,
-      tipo: 'retirada',
-      itens,
-      total,
-      formaPagamento: 'dinheiro',
-      pago: false,
-    });
+    return this.ingest(
+      tenantId,
+      ctx.unidadeId ?? null,
+      'totem',
+      {
+        externalId: dto.idempotencyKey,
+        displayId: senhaTotem,
+        clienteNome: dto.cliente ?? null,
+        tipo: 'retirada',
+        itens,
+        total,
+        formaPagamento: 'dinheiro',
+        pago: false,
+      },
+      { naoAutoAceitar: aposPagamento },
+    );
   }
 
   async emitirNf(tenantId: string, atorId: string, id: string) {

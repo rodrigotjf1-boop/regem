@@ -308,6 +308,11 @@ function PedidoCard({
   const st = STATUS_LABEL[p.status] ?? { txt: p.status, cls: 'bg-muted text-muted-foreground' };
   // Totem no modo "após pagamento": o pedido novo é COBRADO antes de ir pra cozinha.
   const totemReceberPrimeiro = p.grupoCanal === 'totem' && totemAposPagamento && !p.pago;
+  // Nesse caso o 'novo' NÃO está em produção — está aguardando o pagamento no balcão.
+  const stMostra =
+    totemReceberPrimeiro && p.status === 'novo'
+      ? { txt: 'Aguardando pagamento', cls: 'bg-warn/10 text-warn' }
+      : st;
   return (
     <Card
       className="cursor-pointer p-3 transition-colors hover:bg-secondary/40"
@@ -338,8 +343,8 @@ function PedidoCard({
             <p className="truncate text-xs text-muted-foreground">{p.clienteTelefone}</p>
           )}
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${st.cls}`}>
-          {st.txt}
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${stMostra.cls}`}>
+          {stMostra.txt}
         </span>
       </div>
 
