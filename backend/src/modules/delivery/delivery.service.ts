@@ -1084,7 +1084,96 @@ export class DeliveryService {
         retiradaTipo: r.agendamento != null ? 'encomenda' : 'retirada',
       }));
     const origensEmUso = await this.origensEmUso(tenantId);
-    return { pedidos, origensEmUso };
+    const totemAposPagamento = await this.totemAposPagamento(tenantId);
+    return { pedidos, origensEmUso, totemAposPagamento };
+  }
+
+  // Modo de produção do Totem GoGeM (config por loja, nível rede): true = produz só
+  // APÓS o pagamento no balcão (padrão); false = produz ao aceitar e cobra depois.
+  // Leitura BLINDADA: pré-migration (coluna ausente) ou no edge cai no padrão (true).
+  private async totemAposPagamento(tenantId: string): Promise<boolean> {
+    try {
+      const r: any = await this.db.execute(sql`
+        select totem_producao_apos_pagamento as v
+        from delivery_config
+        where tenant_id = ${tenantId} and unidade_id is null
+        limit 1`);
+      const row = (r.rows ?? r)[0];
+      return row?.v == null ? true : !!row.v;
+    } catch {
+      return true;
+    }
+  }
+
+  // Gestor alterna o modo de produção do totem. Upsert na config da REDE (unidade_id null).
+  async setTotemModo(tenantId: string, aposPagamento: boolean) {
+    const v = !!aposPagamento;
+    const upd: any = await this.db.execute(sql`
+      update delivery_config set totem_producao_apos_pagamento = ${v}, updated_at = now()
+      where tenant_id = ${tenantId} and unidade_id is null`);
+    if ((upd.rowCount ?? 0) === 0) {
+      await this.db.execute(sql`
+        insert into delivery_config (tenant_id, unidade_id, totem_producao_apos_pagamento)
+        values (${tenantId}, null, ${v})`);
+    }
+    return { totemAposPagamento: v };
+  }
+
+  // "Receber pagamento" do totem (modo APÓS pagamento): cobra o dinheiro no caixa e
+  // MANDA pra produção — sem concluir. Depois o operador "Entregar" (já pago) conclui e
+  // baixa o estoque. = aceitar (produção) + a cobrança do entregarBalcao, sem a entrega.
+  async receberPagamentoTotem(
+    tenantId: string,
+    atorId: string | null,
+    id: string,
+    terminalId: string | null,
+    forma?: string | null,
+  ) {
+    const ped = await this.carregar(tenantId, id);
+    if (ped.status === 'cancelado' || ped.status === 'concluido')
+      throw new BadRequestException('Pedido não está aberto.');
+    if (ped.pago) throw new BadRequestException('Pedido já está pago.');
+    // 1) Aceita (cria comanda + lançamento de venda + produção). Idempotente se já aceito.
+    if (ped.status === 'novo') await this.aceitar(tenantId, atorId, id);
+    // 2) Cobra no caixa aberto do PDV e marca pago — sem concluir (não entrega ainda).
+    const [sessao] = await this.db
+      .select({ id: caixaSessao.id })
+      .from(caixaSessao)
+      .where(
+        and(
+          eq(caixaSessao.tenantId, tenantId),
+          eq(caixaSessao.status, 'aberta'),
+          eq(caixaSessao.origem, 'pdv'),
+          terminalId ? eq(caixaSessao.terminalId, terminalId) : isNull(caixaSessao.terminalId),
+        ),
+      );
+    if (!sessao) throw new BadRequestException('Abra o caixa do PDV para receber o pagamento.');
+    const [row] = await this.db
+      .update(pedidoExterno)
+      .set({
+        pago: true,
+        statusPagamento: 'aprovado',
+        caixaSessaoId: sessao.id,
+        atendenteId: atorId ?? null,
+      })
+      .where(eq(pedidoExterno.id, id))
+      .returning();
+    // Aponta o lançamento da venda para o caixa do atendente, com a forma recebida.
+    if (row.comandaId) {
+      const f = forma && String(forma).trim() ? String(forma).trim() : 'dinheiro';
+      await this.db
+        .update(lancamentoCaixa)
+        .set({ sessaoId: sessao.id, forma: f })
+        .where(
+          and(
+            eq(lancamentoCaixa.tenantId, tenantId),
+            eq(lancamentoCaixa.comandaId, row.comandaId),
+            eq(lancamentoCaixa.tipo, 'entrada'),
+            eq(lancamentoCaixa.categoria, 'venda'),
+          ),
+        );
+    }
+    return row;
   }
 
   // Quais ORIGENS de pedido estão em uso (integração conectada) — o hub de Retirada

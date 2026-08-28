@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
@@ -58,6 +58,10 @@ export default function RetiradaPage() {
   const [detalhe, setDetalhe] = useState<any>(null); // pedido aberto no painel de detalhe
   const [busy, setBusy] = useState<string | null>(null);
   const [origensEmUso, setOrigensEmUso] = useState<Record<string, boolean>>({});
+  const [totemAposPagamento, setTotemAposPagamento] = useState(true);
+  const [cobrarModo, setCobrarModo] = useState<'entregar' | 'receber'>('entregar');
+  const [cat, setCat] = useState<string | null>(null);
+  const ehGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
 
   const reload = useCallback(async () => {
     try {
@@ -70,6 +74,8 @@ export default function RetiradaPage() {
       const pedidosArr = Array.isArray(p) ? p : ((p as any)?.pedidos ?? []);
       setPedidos(pedidosArr);
       setOrigensEmUso(Array.isArray(p) ? {} : ((p as any)?.origensEmUso ?? {}));
+      if (!Array.isArray(p) && (p as any)?.totemAposPagamento != null)
+        setTotemAposPagamento(!!(p as any).totemAposPagamento);
       setCaixa(c);
       setFormas(Array.isArray(f) ? f : []);
     } catch {
@@ -80,6 +86,7 @@ export default function RetiradaPage() {
   }, []);
 
   useEffect(() => {
+    setCat(getCategoria());
     reload();
     const t = setInterval(reload, 15000);
     return () => clearInterval(t);
@@ -129,6 +136,7 @@ export default function RetiradaPage() {
   // Entregar: pago online → conclui direto; a-pagar → abre a cobrança.
   async function entregar(p: any) {
     if (!p.pago) {
+      setCobrarModo('entregar');
       setCobrar(p);
       return;
     }
@@ -141,6 +149,25 @@ export default function RetiradaPage() {
       toast.error(e?.message || 'Falha ao entregar.');
     } finally {
       setBusy(null);
+    }
+  }
+
+  // Totem (modo "após pagamento"): recebe o dinheiro no balcão e manda pra produção.
+  function receberPagamento(p: any) {
+    setCobrarModo('receber');
+    setCobrar(p);
+  }
+
+  // Gestor alterna o modo de produção do totem (persiste na config da loja).
+  async function alternarTotemModo() {
+    const novo = !totemAposPagamento;
+    setTotemAposPagamento(novo); // otimista
+    try {
+      await api.setTotemModo(novo);
+      toast.success(novo ? 'Totem: produção só após o pagamento.' : 'Totem: produção antes de cobrar.');
+    } catch (e: any) {
+      setTotemAposPagamento(!novo);
+      toast.error(e?.message || 'Falha ao salvar o modo.');
     }
   }
 
@@ -175,6 +202,26 @@ export default function RetiradaPage() {
                 <span className="text-xs text-muted-foreground">{porGrupo[g.key].length}</span>
               </div>
               <p className="mb-3 text-xs text-muted-foreground">{g.dica}</p>
+              {/* Modo de produção do totem: gestor alterna; os demais só veem o estado. */}
+              {g.key === 'totem' && ehGestor && (
+                <button
+                  type="button"
+                  onClick={alternarTotemModo}
+                  aria-pressed={totemAposPagamento}
+                  title="Define quando o pedido do totem em dinheiro vai pra cozinha"
+                  className="mb-3 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] hover:border-primary/50"
+                >
+                  <span className="text-muted-foreground">Produção</span>
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${totemAposPagamento ? 'bg-warn/15 text-warn' : 'bg-ok/15 text-ok'}`}>
+                    {totemAposPagamento ? 'só após pagamento' : 'antes de cobrar'}
+                  </span>
+                </button>
+              )}
+              {g.key === 'totem' && !ehGestor && (
+                <p className="mb-3 text-[11px] text-muted-foreground">
+                  Produção: {totemAposPagamento ? 'só após pagamento' : 'antes de cobrar'}
+                </p>
+              )}
               <div className="flex flex-col gap-3">
                 {porGrupo[g.key].length === 0 && (
                   <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">
@@ -186,8 +233,10 @@ export default function RetiradaPage() {
                     key={p.id}
                     p={p}
                     busy={busy === p.id}
+                    totemAposPagamento={totemAposPagamento}
                     onAbrir={() => setDetalhe(p)}
                     onAceitar={() => aceitar(p)}
+                    onReceber={() => receberPagamento(p)}
                     onAvisar={() => avisarPronto(p)}
                     onEntregar={() => entregar(p)}
                     onCancelar={() => setCancelar(p)}
@@ -204,6 +253,7 @@ export default function RetiradaPage() {
           pedido={cobrar}
           formas={formas}
           temCaixa={!!caixa}
+          modo={cobrarModo}
           onClose={() => setCobrar(null)}
           onDone={async () => {
             setCobrar(null);
@@ -248,14 +298,16 @@ function ChipCanal({ canal }: { canal: string }) {
 }
 
 function PedidoCard({
-  p, busy, onAbrir, onAceitar, onAvisar, onEntregar, onCancelar,
+  p, busy, totemAposPagamento, onAbrir, onAceitar, onReceber, onAvisar, onEntregar, onCancelar,
 }: {
-  p: any; busy: boolean;
+  p: any; busy: boolean; totemAposPagamento: boolean;
   onAbrir: () => void;
-  onAceitar: () => void; onAvisar: () => void; onEntregar: () => void; onCancelar: () => void;
+  onAceitar: () => void; onReceber: () => void; onAvisar: () => void; onEntregar: () => void; onCancelar: () => void;
 }) {
   const itens: any[] = Array.isArray(p.itens) ? p.itens : [];
   const st = STATUS_LABEL[p.status] ?? { txt: p.status, cls: 'bg-muted text-muted-foreground' };
+  // Totem no modo "após pagamento": o pedido novo é COBRADO antes de ir pra cozinha.
+  const totemReceberPrimeiro = p.grupoCanal === 'totem' && totemAposPagamento && !p.pago;
   return (
     <Card
       className="cursor-pointer p-3 transition-colors hover:bg-secondary/40"
@@ -315,7 +367,11 @@ function PedidoCard({
       {p.status !== 'concluido' && p.status !== 'cancelado' && (
         <div className="mt-3 flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
           {p.status === 'novo' ? (
-            <Button size="sm" onClick={onAceitar} disabled={busy}>Aceitar</Button>
+            totemReceberPrimeiro ? (
+              <Button size="sm" onClick={onReceber} disabled={busy}>Receber pagamento</Button>
+            ) : (
+              <Button size="sm" onClick={onAceitar} disabled={busy}>Aceitar</Button>
+            )
           ) : (
             <>
               <Button size="sm" variant="outline" onClick={onAvisar} disabled={busy}>
@@ -336,10 +392,13 @@ function PedidoCard({
 }
 
 // Cobrança no balcão de um pedido a-pagar → valor entra no caixa do atendente.
+// modo='entregar' cobra + entrega (conclui); modo='receber' (totem após pagamento)
+// cobra e manda pra produção — o "Entregar" (já pago) conclui depois.
 function CobrarModal({
-  pedido, formas, temCaixa, onClose, onDone,
+  pedido, formas, temCaixa, modo = 'entregar', onClose, onDone,
 }: {
-  pedido: any; formas: any[]; temCaixa: boolean; onClose: () => void; onDone: () => void;
+  pedido: any; formas: any[]; temCaixa: boolean; modo?: 'entregar' | 'receber';
+  onClose: () => void; onDone: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const opcoes = formas.length
@@ -356,8 +415,13 @@ function CobrarModal({
   async function confirmar() {
     setBusy(true);
     try {
-      await api.entregarBalcao(pedido.id, forma);
-      toast.success('Cobrado e entregue. Valor no seu caixa.');
+      if (modo === 'receber') {
+        await api.receberPagamentoTotem(pedido.id, forma);
+        toast.success('Pagamento recebido. Pedido foi pra produção.');
+      } else {
+        await api.entregarBalcao(pedido.id, forma);
+        toast.success('Cobrado e entregue. Valor no seu caixa.');
+      }
       onDone();
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao cobrar.');
@@ -366,10 +430,15 @@ function CobrarModal({
   }
 
   return (
-    <Modal onClose={onClose} titulo={`Cobrar retirada #${pedido.numero ?? ''}`}>
+    <Modal
+      onClose={onClose}
+      titulo={`${modo === 'receber' ? 'Receber pagamento' : 'Cobrar retirada'} #${pedido.numero ?? ''}`}
+    >
       <p className="text-sm text-muted-foreground">
         Total <span className="font-mono font-bold text-foreground">{brl(Number(pedido.total))}</span> —
-        o valor entra no turno aberto do seu caixa.
+        {modo === 'receber'
+          ? ' o valor entra no seu caixa e o pedido vai pra produção.'
+          : ' o valor entra no turno aberto do seu caixa.'}
       </p>
       {!temCaixa && (
         <p className="mt-2 rounded-lg bg-danger/10 p-2 text-xs text-danger">
@@ -388,7 +457,9 @@ function CobrarModal({
       </select>
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={busy}>Cancelar</Button>
-        <Button onClick={confirmar} disabled={busy || !temCaixa}>Confirmar</Button>
+        <Button onClick={confirmar} disabled={busy || !temCaixa}>
+          {modo === 'receber' ? 'Receber e produzir' : 'Confirmar'}
+        </Button>
       </div>
     </Modal>
   );

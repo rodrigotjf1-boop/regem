@@ -187,6 +187,36 @@ export class DeliveryController {
     });
   }
 
+  // Totem GoGeM (modo "após pagamento"): recebe o dinheiro no balcão e MANDA pra
+  // produção — sem concluir. Depois o operador "Entregar" (já pago) conclui.
+  @Post('pedidos/:id/receber-pagamento')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  receberPagamento(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @TerminalAtual() terminalId: string | null,
+    @Body() dto: any,
+  ) {
+    return this.service.receberPagamentoTotem(
+      user.tenantId,
+      user.colaboradorId,
+      id,
+      terminalId,
+      dto?.forma ?? null,
+    );
+  }
+
+  // Modo de produção do Totem GoGeM (só GESTOR): produz ao aceitar e cobra depois
+  // (false) ou produz só após o pagamento no balcão (true).
+  @Post('totem-modo')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  totemModo(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setTotemModo(user.tenantId, !!dto?.aposPagamento);
+  }
+
   // Avisar pronto (robô / status-back do canal).
   @Post('pedidos/:id/avisar-pronto')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
