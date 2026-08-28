@@ -832,6 +832,18 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ forma }),
     }),
+  // Totem GoGeM (modo "após pagamento"): recebe o dinheiro e manda pra produção (sem concluir).
+  receberPagamentoTotem: (id: string, forma?: string) =>
+    req(`/delivery/pedidos/${id}/receber-pagamento`, {
+      method: 'POST',
+      body: JSON.stringify({ forma }),
+    }),
+  // Gestor alterna o modo de produção do totem (true = só após pagamento).
+  setTotemModo: (aposPagamento: boolean) =>
+    req('/delivery/totem-modo', {
+      method: 'POST',
+      body: JSON.stringify({ aposPagamento }),
+    }),
   avisarProntoDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/avisar-pronto`, { method: 'POST', body: '{}' }),
   alterarDelivery: (id: string, body: Record<string, unknown>) =>
