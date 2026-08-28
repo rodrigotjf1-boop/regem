@@ -21,6 +21,7 @@ import {
   colaborador,
   comandaItem,
   deliveryConfig,
+  equipamento,
   funcao,
   integracao,
   lancamentoCaixa,
@@ -1063,8 +1064,9 @@ export class DeliveryService {
 
   // ===== Hub "Retirada / Encomendas" (Fase 1, mig 132) =====
   // Grupo de origem do pedido: 'regem' (cardápio próprio) | 'integrado' | 'marketplace'.
-  private static grupoCanal(canal: string): 'regem' | 'integrado' | 'marketplace' {
+  private static grupoCanal(canal: string): 'regem' | 'integrado' | 'marketplace' | 'totem' {
     const c = String(canal || '').toLowerCase();
+    if (c === 'totem' || c === 'gogem') return 'totem'; // pedido do totem (GoGeM)
     if (['ifood', '99food', 'keeta'].includes(c)) return 'marketplace';
     if (['anotaai', 'cardapio_web', 'delivery_direto', 'rappi'].includes(c)) return 'integrado';
     return 'regem'; // cardapio, manual, balcao, n8n…
@@ -1074,13 +1076,66 @@ export class DeliveryService {
   // (retirada = imediata; encomenda = agendada). O front agrupa pelos 3 grupos.
   async listarRetirada(tenantId: string, atual: string | null = null) {
     const rows = await this.listar(tenantId, atual);
-    return rows
+    const pedidos = rows
       .filter((r) => r.tipo === 'retirada' || r.agendamento != null)
       .map((r) => ({
         ...r,
         grupoCanal: DeliveryService.grupoCanal(r.canal),
         retiradaTipo: r.agendamento != null ? 'encomenda' : 'retirada',
       }));
+    const origensEmUso = await this.origensEmUso(tenantId);
+    return { pedidos, origensEmUso };
+  }
+
+  // Quais ORIGENS de pedido estão em uso (integração conectada) — o hub de Retirada
+  // só mostra a coluna cuja origem está em uso (ou que tem pedido). Cada query é
+  // blindada: no EDGE as tabelas `integracao`/`cardapio_config` podem não existir
+  // (cloud-only) — aí a origem cai em false e a coluna aparece só se tiver pedido.
+  private async origensEmUso(
+    tenantId: string,
+  ): Promise<{ regem: boolean; integrado: boolean; marketplace: boolean; totem: boolean }> {
+    const safe = async <T>(fn: () => Promise<T>, def: T): Promise<T> => {
+      try {
+        return await fn();
+      } catch {
+        return def;
+      }
+    };
+    const ativos = await safe(async () => {
+      const integ = await this.db
+        .select({ canal: integracao.canal, ativo: integracao.ativo })
+        .from(integracao)
+        .where(eq(integracao.tenantId, tenantId));
+      return new Set(integ.filter((i) => i.ativo).map((i) => i.canal));
+    }, new Set<string>());
+    const regem = await safe(async () => {
+      const [cc] = await this.db
+        .select({ ativo: cardapioConfig.ativo })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId))
+        .limit(1);
+      return !!cc?.ativo;
+    }, false);
+    const totem = await safe(async () => {
+      const [srv] = await this.db
+        .select({ id: equipamento.id })
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'servidor_local'),
+            eq(equipamento.ativo, true),
+          ),
+        )
+        .limit(1);
+      return !!srv;
+    }, false);
+    return {
+      regem,
+      integrado: ['anotaai', 'cardapio_web', 'delivery_direto', 'rappi'].some((c) => ativos.has(c)),
+      marketplace: ['ifood', '99food', 'keeta'].some((c) => ativos.has(c)),
+      totem,
+    };
   }
 
   // Encomendas agrupadas por DATA de entrega/retirada (o que produzir para o dia)
@@ -2040,6 +2095,59 @@ export class DeliveryService {
         enderecoReferencia: dto.enderecoReferencia,
       },
     );
+  }
+
+  // Pedido de TOTEM pago em DINHEIRO (o cliente paga no BALCÃO). O GoGeM chama isto
+  // quando a forma escolhida no totem é dinheiro → entra no hub de Retirada, coluna
+  // "Totem GoGeM", como 'novo' e 'A pagar'. NÃO baixa estoque agora — o operador cobra
+  // no balcão ("Cobrar e entregar") e aí entra estoque + caixa pelo fluxo normal.
+  async criarPedidoTotemDinheiro(
+    tenantId: string,
+    ctx: { unidadeId: string | null },
+    dto: {
+      idempotencyKey?: string;
+      itens?: { codigoPdv?: string; quantidade?: number }[];
+      cliente?: string;
+      senhaPlataforma?: string;
+      totalCentavos?: number;
+    },
+  ) {
+    if (!dto.idempotencyKey?.trim())
+      throw new BadRequestException('idempotencyKey é obrigatória.');
+    const codigos = [
+      ...new Set((dto.itens ?? []).map((i) => (i.codigoPdv ?? '').trim()).filter(Boolean)),
+    ];
+    if (!codigos.length) throw new BadRequestException('Itens sem codigoPdv.');
+    const prods = await this.db
+      .select({ id: produto.id, nome: produto.nome, preco: produto.precoVenda, codigo: produto.codigo })
+      .from(produto)
+      .where(and(eq(produto.tenantId, tenantId), inArray(produto.codigo, codigos), isNull(produto.deletedAt)));
+    const porCodigo = new Map(prods.filter((p) => p.codigo).map((p) => [p.codigo as string, p]));
+    const faltando = codigos.filter((c) => !porCodigo.has(c));
+    if (faltando.length)
+      throw new BadRequestException(`Código(s) PDV não encontrado(s): ${faltando.join(', ')}`);
+    const itens = (dto.itens ?? []).map((it) => {
+      const p = porCodigo.get((it.codigoPdv ?? '').trim())!;
+      return {
+        produtoId: p.id,
+        codigo: p.codigo ?? undefined,
+        descricao: p.nome,
+        quantidade: Number(it.quantidade) || 1,
+        precoUnitario: Number(p.preco) || 0, // preço do servidor (nunca do cliente)
+      };
+    });
+    const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
+    // canal 'totem' → grupoCanal 'totem'; pago=false → "A pagar" (cobra no balcão).
+    // externalId = idempotencyKey → o ingest dedup por (canal, externalId).
+    return this.ingest(tenantId, ctx.unidadeId ?? null, 'totem', {
+      externalId: dto.idempotencyKey,
+      clienteNome: dto.cliente ?? null,
+      tipo: 'retirada',
+      itens,
+      total,
+      formaPagamento: 'dinheiro',
+      pago: false,
+    });
   }
 
   async emitirNf(tenantId: string, atorId: string, id: string) {

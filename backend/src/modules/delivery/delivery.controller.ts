@@ -41,6 +41,14 @@ export class DeliveryController {
     );
   }
 
+  // Totem GoGeM: pedido pago em DINHEIRO (paga no balcão). Auth = token do dispositivo
+  // (servidor_local/totem). Entra no hub de Retirada, coluna "Totem GoGeM", como "A pagar".
+  @Post('totem-dinheiro')
+  @UseGuards(SyncTokenGuard)
+  totemDinheiro(@SyncCtx() ctx: SyncCtxData, @Body() dto: any) {
+    return this.service.criarPedidoTotemDinheiro(ctx.tenantId, ctx, dto);
+  }
+
   // ----- Gestão (PDV) -----
   @Get('pedidos')
   @UseGuards(JwtAuthGuard, PermissoesGuard)
