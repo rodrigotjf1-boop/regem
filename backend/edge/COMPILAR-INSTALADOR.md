@@ -6,6 +6,27 @@
 
 ---
 
+## ⚠️ REGRA DE OURO (nasceu do incidente do `.exe` 1.20 quebrado)
+
+Um `.exe`/`.zip` **NUNCA** sai de uma árvore defasada nem de um `regem-edge-dist`
+reaproveitado. O jeito certo é **um comando** que sincroniza com o `origin/main`,
+rebuilda do zero, empacota e **verifica** antes de liberar o Inno:
+
+```powershell
+# na raiz C:\Regen — FECHE o `npm run dev` do frontend antes (next build corrompe o dev)
+powershell -ExecutionPolicy Bypass -File backend\edge\build-release.ps1 -Versao 1.21.0
+```
+
+Ele só imprime **"TUDO OK — compile o .iss no Inno"** se o **preflight** passar
+(`backend\edge\preflight-release.mjs`), que confere o que ninguém checou no 1.20:
+HEAD == `origin/main` (0 commits atrás), **`web.tar` com `node_modules/next` dentro**
+(senão o RegemEdgeWeb cai em loop *"Cannot find module 'next'"*), **`sync-daemon` com
+keyset + don't-abort** (senão o transacional não desce ao edge), e `version.txt` ==
+`.iss AppVer`. **Se reprovar, NÃO builde** — corrija o que ele apontou. Os Passos 1–4
+abaixo são o detalhe manual do que esse comando faz.
+
+---
+
 ## Passo 1 — Gerar o pacote do app
 
 - **Ação:** compilar e montar a pasta distribuível.
@@ -39,6 +60,18 @@
   - `MyCloudApi` → a URL da sua API (padrão `https://api.dmsregem.com/api/v1`).
   - `MyLicensePubKey` → cole o **`LICENSE_PUBLIC_KEY_B64`** (o valor **público**, gerado por `node scripts/gen-license-keys.mjs`). **Não** é segredo e é o mesmo para todas as lojas.
 - **Confirmação:** as duas linhas não têm mais os textos de exemplo (`COLE_AQUI...`).
+
+## Passo 3.5 — Preflight (OBRIGATÓRIO antes do Inno)
+
+- **Ação:** provar que o dist está bom **antes** de gastar um build quebrado na loja.
+- **Onde:** terminal na raiz `C:\Regen`.
+- **Como:**
+  ```bash
+  node backend/edge/preflight-release.mjs 1.21.0
+  ```
+- **Confirmação:** imprime `PREFLIGHT OK`. Se imprimir `PREFLIGHT FALHOU`, **pare** e
+  corrija exatamente o que ele listou (dist velho, `web.tar` sem `next`, sync-daemon
+  antigo, versão trocada). Nunca compile o `.iss` com o preflight vermelho.
 
 ## Passo 4 — Compilar no Inno Setup
 
