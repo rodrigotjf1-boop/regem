@@ -381,7 +381,10 @@ if ($embutido.pg) {
     Diga "Inicializando Postgres embutido em $pgData..."
     $pwfile = Join-Path $env:TEMP ("pgpw-{0}.txt" -f (Get-Random))
     Set-Content -Path $pwfile -Value $pgSenha -NoNewline -Encoding ascii
-    & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -D $pgData | Out-Null
+    # -k (--data-checksums): soma de verificacao de pagina → o Postgres detecta corrupcao
+    # cedo (ja tivemos pgdata corrompido travando o daemon). So em instalacao NOVA; custo
+    # ~2% de I/O, aceitavel no edge. Nao afeta reinstalacao (initdb e pulado).
+    & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -k -D $pgData | Out-Null
     Remove-Item $pwfile -Force
     # O postgres.exe se RECUSA a rodar como conta admin (Sistema Local). O servico
     # roda como "Servico de rede" (NetworkService = SID S-1-5-20, nao-admin) — igual
@@ -485,7 +488,9 @@ if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSIO
   $connPg = "postgresql://postgres:$pgSenha@localhost:$PgPorta/postgres"
   $pwfile = Join-Path $env:TEMP ("pgpw-{0}.txt" -f (Get-Random))
   Set-Content -Path $pwfile -Value $pgSenha -NoNewline -Encoding ascii
-  & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -D $pgData | Out-Null
+  # -k (--data-checksums): idem ao caminho de instalacao nova acima — detecta corrupcao
+  # de pagina cedo. Este ramo ja recria o pgdata do zero (recuperacao), entao e seguro.
+  & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -k -D $pgData | Out-Null
   Remove-Item $pwfile -Force
   icacls $pgData /setowner "*S-1-5-20" /T /C /Q | Out-Null
   icacls $pgData /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q | Out-Null

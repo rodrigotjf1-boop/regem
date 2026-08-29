@@ -101,8 +101,10 @@ export class SyncService {
 
   // Deltas de controle (desce/ambos) desde o cursor, escopados ao tenant.
   // Identificadores (tabela/cursor) vêm da whitelist TABELAS_PULL — nunca do usuário.
-  async pull(tenantId: string, desde?: string) {
-    return this.deltas(tenantId, TABELAS_PULL, desde);
+  // `cursores` (opcional): mapa tabela→"<ts>|<id>" p/ o pull KEYSET por tabela (edge
+  // novo). Ausente = caminho legado (cursor único), edge antigo inalterado.
+  async pull(tenantId: string, desde?: string, cursores?: Record<string, string>) {
+    return this.deltas(tenantId, TABELAS_PULL, desde, cursores);
   }
 
   // RESTAURAÇÃO (nuvem → edge, sob demanda): deltas das tabelas TRANSACIONAIS.
@@ -127,18 +129,29 @@ export class SyncService {
   }
 
   // Núcleo do delta por cursor, reutilizado por pull e restore.
-  private async deltas(tenantId: string, lista: TabelaSync[], desde?: string) {
+  // `cursores` presente → pull KEYSET por tabela (edge novo): cada tabela avança pelo
+  // par composto (coluna_cursor, id), eliminando o pulo do cursor compartilhado e os
+  // empates no limite da página. Ausente → caminho LEGADO (cursor único + teto +
+  // completar empates), preservado 100% para o edge antigo que não manda `cursores`.
+  private async deltas(
+    tenantId: string,
+    lista: TabelaSync[],
+    desde?: string,
+    cursores?: Record<string, string>,
+  ) {
     const desdeTs = desde || '1970-01-01T00:00:00Z';
+    const keyset = !!cursores && typeof cursores === 'object';
     const tabelas: Record<string, any[]> = {};
+    const cursoresOut: Record<string, string> = {};
     const PAGINA = 1000; // linhas por tabela por request (evita 413)
     let maxCursor = desdeTs;
     const avancar = (v: any) => {
       if (v && new Date(v) > new Date(maxCursor)) maxCursor = v;
     };
-    // Teto do cursor compartilhado: com UMA página por tabela e UM cursor único, se
-    // alguma tabela satura (devolve página cheia) o proximoCursor NÃO pode avançar além
-    // do último cursor dela — senão as linhas seguintes (cursor entre a página e o max de
-    // outra tabela) seriam puladas para sempre. Guarda o MENOR teto entre as saturadas.
+    // Teto do cursor compartilhado (SÓ no caminho legado): com UMA página por tabela e
+    // UM cursor único, se alguma tabela satura o proximoCursor NÃO pode avançar além do
+    // último cursor dela — senão linhas seguintes seriam puladas. Menor teto entre as
+    // saturadas. O keyset não precisa disto (cada tabela tem seu próprio cursor).
     let teto: string | null = null;
     const capar = (v: any) => {
       if (v && (teto === null || new Date(v) < new Date(teto))) teto = v;
@@ -159,12 +172,7 @@ export class SyncService {
             ? 'criado_em'
             : null;
       if (!cursor) continue;
-      // Soft-delete também é "mudança": inclui deleted_at no delta (onde a coluna existe),
-      // para exclusões propagarem mesmo que o updated_at não tenha sido bumpado.
       const temDel = colunas.has('deleted_at');
-      const cond = temDel
-        ? sql`(${sql.identifier(cursor)} > ${desdeTs} or deleted_at > ${desdeTs})`
-        : sql`${sql.identifier(cursor)} > ${desdeTs}`;
       // Janela de espelho: transacional pesado só desce dos últimos `mirror_dias`
       // (por created_at quando existe — "N dias de vendas"; senão pelo cursor). A
       // nuvem guarda tudo; isto só limita o que o edge puxa. Controle/catálogo = sem janela.
@@ -176,6 +184,58 @@ export class SyncService {
       // equipamento só sincroniza impressora/pdv/salao (nunca servidor_local).
       const filtro = t.filtroSql ? sql` and (${sql.raw(t.filtroSql)})` : sql``;
       const escopo = t.escopo ?? 'tenant_id';
+      const segredos = REDIGIR[t.tabela];
+      // Limpa: remove o cursor auxiliar __kc e eventuais segredos antes de devolver.
+      const limpar = (rows: any[]) =>
+        rows.map((row: any) => {
+          const c = { ...row };
+          delete c.__kc;
+          if (segredos) for (const s of segredos) delete c[s];
+          return c;
+        });
+
+      if (keyset) {
+        // ── KEYSET por tabela. Cursor = "<timestamp texto full-precision>|<id>".
+        // Sem `greatest(cursor, deleted_at)` aqui: o gatilho (mig 095) bumpa updated_at
+        // no soft-delete, então a exclusão anda pelo próprio cursor (mesma premissa do
+        // LWW). Comparação sargável (usa índice em (cursor) / (cursor,id)).
+        const raw = cursores![t.tabela];
+        let kts = desdeTs;
+        let kid = '';
+        if (raw) {
+          const p = raw.indexOf('|');
+          kts = p >= 0 ? raw.slice(0, p) : raw;
+          kid = p >= 0 ? raw.slice(p + 1) : '';
+        }
+        const cond = kid
+          ? sql`(${sql.identifier(cursor)} > ${kts}::timestamptz
+                 or (${sql.identifier(cursor)} = ${kts}::timestamptz and ${sql.identifier('id')} > ${kid}))`
+          : sql`${sql.identifier(cursor)} > ${kts}::timestamptz`;
+        const r: any = await this.db.execute(sql`
+          select *, ${sql.identifier(cursor)}::text as __kc
+          from ${sql.identifier(t.tabela)}
+          where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}${filtro}
+          order by ${sql.identifier(cursor)} asc, ${sql.identifier('id')} asc
+          limit ${PAGINA}
+        `);
+        const rows = r.rows ?? r;
+        tabelas[t.tabela] = limpar(rows);
+        if (rows.length) {
+          const last = rows[rows.length - 1];
+          cursoresOut[t.tabela] = `${last.__kc}|${last.id}`;
+          avancar(last.__kc);
+        } else if (raw) {
+          cursoresOut[t.tabela] = raw; // sem novidade — preserva a posição da tabela
+        }
+        continue;
+      }
+
+      // ── LEGADO (edge antigo, sem `cursores`): cursor único + teto + completa empates.
+      // Soft-delete também é "mudança": inclui deleted_at (onde existe) p/ exclusões
+      // propagarem mesmo sem bump de updated_at.
+      const cond = temDel
+        ? sql`(${sql.identifier(cursor)} > ${desdeTs} or deleted_at > ${desdeTs})`
+        : sql`${sql.identifier(cursor)} > ${desdeTs}`;
       const r: any = await this.db.execute(sql`
         select * from ${sql.identifier(t.tabela)}
         where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}${filtro}
@@ -183,12 +243,7 @@ export class SyncService {
         limit ${PAGINA}
       `);
       let rows = r.rows ?? r;
-      // Saturou a página → o proximoCursor não pode passar do último cursor desta tabela.
-      // ALÉM disso, como o backfill do CRM bumpa `atualizado_em = now()` para MUITOS
-      // clientes na MESMA transação, centenas de linhas compartilham o mesmo cursor: com
-      // `>` estrito o próximo ciclo pularia os empatados além da página. Por isso, quando
-      // satura, completamos TODAS as linhas com o cursor igual ao da borda (fecha os
-      // empates) e paramos o cursor nessa borda — os ciclos seguintes trazem o resto.
+      // Saturou → completa os empatados do último cursor e para o teto nessa borda.
       if (rows.length === PAGINA) {
         const borda = rows[rows.length - 1]?.[cursor];
         if (borda) {
@@ -202,25 +257,18 @@ export class SyncService {
           const porId = new Map(rows.map((x: any) => [x.id, x]));
           for (const x of empatadas) porId.set(x.id, x);
           rows = [...porId.values()];
-          capar(borda); // não avança além da borda (linhas > borda vêm depois)
+          capar(borda);
         }
       }
-      const segredos = REDIGIR[t.tabela];
-      const limpas = segredos
-        ? rows.map((row: any) => {
-            const c = { ...row };
-            for (const s of segredos) delete c[s];
-            return c;
-          })
-        : rows;
-      tabelas[t.tabela] = limpas;
+      tabelas[t.tabela] = limpar(rows);
       for (const row of rows) {
         avancar(row[cursor]);
         if (temDel) avancar(row['deleted_at']);
       }
     }
 
-    // Se nenhuma tabela saturou, avança tudo (maxCursor). Se saturou, respeita o teto.
+    // Legado: se saturou, respeita o teto; senão avança tudo. Keyset: proximoCursor é só
+    // um backstop (maior cursor visto) — a posição real vai no mapa `cursores`.
     const proximoCursor =
       teto && new Date(teto) < new Date(maxCursor) ? teto : maxCursor;
 
@@ -228,6 +276,7 @@ export class SyncService {
       serverTime: new Date().toISOString(),
       desde: desdeTs,
       proximoCursor,
+      ...(keyset ? { cursores: cursoresOut } : {}),
       tabelas,
     };
   }
