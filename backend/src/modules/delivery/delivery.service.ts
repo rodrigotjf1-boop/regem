@@ -770,12 +770,13 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, id))
       .returning();
     void this.dispararWebhook(tenantId, row);
-    // Código de entrega própria: avisa o cliente por WhatsApp, na confirmação, que
-    // ele precisará informar o código ao entregador para receber o pedido. Só entrega
-    // própria não-marketplace com código (marketplace confirma pelo app do canal).
+    // Código de entrega própria: avisa o cliente por WhatsApp que ele precisará
+    // informar o código ao entregador. SÓ para o Cardápio Regem — marketplace e
+    // integrado (Anota Aí, iFood, 99Food, Cardápio Web, Rappi…) têm o próprio fluxo
+    // e NÃO podem receber msg pelo WhatsApp do Regem (mesmo motivo do #391).
     if (
+      DeliveryService.grupoCanal(row.canal) === 'regem' &&
       row.tipo !== 'retirada' &&
-      !['ifood', '99food'].includes(String(row.canal)) &&
       row.codigoEntrega &&
       row.clienteTelefone
     ) {
