@@ -209,7 +209,20 @@ async function upsertLocal(tabela, row) {
 
 async function pull() {
   const desde = await getState('pull_cursor', '1970-01-01T00:00:00Z');
-  const res = await fetchT(`${CLOUD}/sync/pull?desde=${encodeURIComponent(desde)}`, {
+  // Keyset por tabela: mapa tabela→"<ts>|<id>" no sync_state. Enviamos SEMPRE o param
+  // `cursores` (mesmo {} no 1º pull) p/ optar pelo caminho keyset da nuvem — assim cada
+  // tabela avança pela sua própria posição e nenhuma "pula". `desde` (cursor legado)
+  // segue como PISO p/ tabelas ainda sem entrada no mapa (migração sem re-pull do zero).
+  let cursores = {};
+  try {
+    cursores = JSON.parse(await getState('pull_cursores', '{}')) || {};
+  } catch {
+    cursores = {};
+  }
+  const qs =
+    `desde=${encodeURIComponent(desde)}` +
+    `&cursores=${encodeURIComponent(JSON.stringify(cursores))}`;
+  const res = await fetchT(`${CLOUD}/sync/pull?${qs}`, {
     headers: { 'x-sync-token': TOKEN },
   });
   if (!res.ok) throw new Error(`pull HTTP ${res.status}: ${await res.text()}`);
@@ -270,6 +283,12 @@ async function pull() {
     console.error(`  ⚠ ${falhas.length} linha(s) IGNORADA(s) no pull (erro duro): ${amostra}`);
     try { await reportarTelemetria('sync', 'pull_linha_ignorada', `${falhas.length} linha(s): ${amostra}`); } catch { /* best-effort */ }
   }
+  // Keyset: mescla as posições por tabela devolvidas pela nuvem (nuvem nova). Preserva
+  // as entradas que já tínhamos (uma tabela sem novidade não vem no retorno).
+  if (data.cursores && typeof data.cursores === 'object') {
+    await setState('pull_cursores', JSON.stringify({ ...cursores, ...data.cursores }));
+  }
+  // Mantém o cursor legado (piso p/ tabelas novas + compat caso o daemon seja rebaixado).
   if (data.proximoCursor) await setState('pull_cursor', data.proximoCursor);
   return aplicadas;
 }

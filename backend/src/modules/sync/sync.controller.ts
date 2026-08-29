@@ -11,8 +11,12 @@ export class SyncController {
   constructor(private readonly service: SyncService) {}
 
   @Get('pull')
-  pull(@SyncCtx() ctx: SyncCtxData, @Query('desde') desde?: string) {
-    return this.service.pull(ctx.tenantId, desde);
+  pull(
+    @SyncCtx() ctx: SyncCtxData,
+    @Query('desde') desde?: string,
+    @Query('cursores') cursores?: string,
+  ) {
+    return this.service.pull(ctx.tenantId, desde, parseCursores(cursores));
   }
 
   // Restauração sob demanda: deltas das tabelas transacionais (nuvem → edge).
@@ -30,5 +34,21 @@ export class SyncController {
     @Headers('x-sync-sig') sig?: string,
   ) {
     return this.service.push(ctx, dto.lotes, { seq, ts, sig });
+  }
+}
+
+// Parse do mapa de cursores keyset (query `?cursores=<json>`). Presença de um OBJETO
+// válido (mesmo vazio `{}`, no 1º pull do edge novo) liga o caminho keyset; JSON inválido
+// ou não-objeto → undefined → caminho legado (edge antigo). Só aceita valores string.
+function parseCursores(s?: string): Record<string, string> | undefined {
+  if (!s) return undefined;
+  try {
+    const o = JSON.parse(s);
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return undefined;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(o)) if (typeof v === 'string') out[k] = v;
+    return out;
+  } catch {
+    return undefined;
   }
 }

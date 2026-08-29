@@ -21,6 +21,7 @@ import { DeliveryService } from './delivery.service';
 export class EdgePedidosProcessor {
   private readonly logger = new Logger('EdgePedidos');
   private rodando = false;
+  private ultimoAvisoOrfaos = 0; // throttle do aviso de comanda ausente (ms)
   private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
 
   constructor(
@@ -54,6 +55,32 @@ export class EdgePedidosProcessor {
         } catch (e: any) {
           this.logger.warn(`falha ao materializar ${p.id}: ${e?.message ?? e}`);
         }
+      }
+
+      // Reconciliação (SÓ observabilidade — NÃO re-materializa p/ não duplicar estoque/
+      // avisos): pedido ONLINE que a NUVEM materializou (comanda_id preenchido) mas cuja
+      // comanda NÃO desceu para o edge fica invisível no painel local. Isso é o sintoma
+      // clássico do cursor pulando/janela (ver keyset do pull). Aqui só surfamos a
+      // contagem (throttle 5 min) — com o keyset a comanda desce e a contagem zera. A
+      // re-materialização segura (sem baixa dupla) fica p/ validação em edge real.
+      const orfaos: any[] = await this.db.execute(sql`
+        select pe.id
+        from pedido_externo pe
+        where pe.comanda_id is not null
+          and pe.canal is not null and pe.canal <> 'balcao'
+          and pe.criado_em >= now() - interval '2 days'
+          and pe.criado_em <  now() - interval '3 minutes'
+          and not exists (select 1 from comanda c where c.id = pe.comanda_id)
+        limit 50
+      `).then((r: any) => r.rows ?? r);
+      if (orfaos.length && Date.now() - this.ultimoAvisoOrfaos > 5 * 60 * 1000) {
+        this.ultimoAvisoOrfaos = Date.now();
+        const amostra = orfaos.slice(0, 3).map((o) => o.id).join(', ');
+        this.logger.warn(
+          `${orfaos.length} pedido(s) materializado(s) na nuvem SEM comanda local ` +
+            `(provável descida do pull) — ex.: ${amostra}. O keyset deve fechar; ` +
+            `se persistir, verificar sync da tabela comanda.`,
+        );
       }
     } catch (e: any) {
       this.logger.warn(`ciclo falhou: ${e?.message ?? e}`);

@@ -91,6 +91,19 @@ try {
   Write-Host "-> Firewall: portas $PortaWeb (app) e $PortaApi (API) liberadas (perfil Privado/Domínio)"
 } catch { Write-Warning "Não consegui criar a regra de firewall: $_" }
 
+# Dependências de serviço (boot limpo): os serviços node dependem do Postgres local
+# (RegemEdgePg); o Web depende da API. Sem isto, no boot eles sobem ANTES do Postgres e
+# falham a 1ª query (o retry/timeout salva, mas é sujo). Best-effort e GUARDADO: só amarra
+# se o RegemEdgePg já existe (a instalação completa o registra antes deste script — l.702
+# do instalar-tudo; uma execução avulsa sem PG não trava a partida dos serviços node).
+if (Get-Service -Name RegemEdgePg -ErrorAction SilentlyContinue) {
+  foreach ($s in @('RegemEdgeApi', 'RegemEdgeSync', 'RegemEdgeImpressao')) {
+    & $Nssm set $s DependOnService RegemEdgePg | Out-Null
+  }
+  & $Nssm set RegemEdgeWeb DependOnService RegemEdgeApi | Out-Null
+  Write-Host "-> Dependências: Api/Sync/Impressao → RegemEdgePg; Web → RegemEdgeApi"
+}
+
 & $Nssm start RegemEdgeApi
 & $Nssm start RegemEdgeSync
 & $Nssm start RegemEdgeImpressao
