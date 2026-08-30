@@ -71,11 +71,25 @@ function ehTransitorio(e) {
   return /fetch failed|terminated|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE|UND_ERR|socket hang up|other side closed/i.test(causaErro(e));
 }
 
+// Gateway transitório do Cloudflare/origem (502/503/504): comum quando a origem está
+// sob carga ou o edge reconecta com backlog. Re-tentável — MAS só para requisições
+// IDEMPOTENTES (GET: pull/restore). O push é POST: re-enviar em 5xx arriscaria
+// DUPLO-APPLY, então NÃO re-tenta aqui — o ciclo re-tenta no próximo tick e a nuvem
+// deduplica por seq. Na última tentativa devolve a resposta 5xx (o chamador loga o corpo).
+const GATEWAY_5XX = new Set([502, 503, 504]);
 async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
+  const metodo = (opts.method || 'GET').toUpperCase();
+  const idempotente = metodo === 'GET' || metodo === 'HEAD';
   let ultimo;
   for (let tent = 1; tent <= FETCH_TENTATIVAS; tent++) {
     try {
-      return await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+      const res = await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+      if (idempotente && GATEWAY_5XX.has(res.status) && tent < FETCH_TENTATIVAS) {
+        ultimo = new Error(`HTTP ${res.status} (gateway)`);
+        await new Promise((r) => setTimeout(r, 600 * tent));
+        continue;
+      }
+      return res;
     } catch (e) {
       ultimo = e;
       if (!ehTransitorio(e) || tent === FETCH_TENTATIVAS) break;
