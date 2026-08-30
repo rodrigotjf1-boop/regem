@@ -15,6 +15,13 @@ import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { createHash, createHmac } from 'node:crypto';
+import dns from 'node:dns';
+// Preferir IPv4 nas resoluções DNS. Num SERVIÇO do Windows o IPv6 costuma NÃO rotear
+// (o processo do USUÁRIO conecta por IPv6 e dá 200; o do serviço falha) → o daemon
+// batia "fetch failed" a cada ciclo enquanto o fetch manual funcionava. IPv4 p/
+// Cloudflare é universal; Happy Eyeballs ainda tenta IPv6 como fallback. Junto com o
+// retry do fetchT (socket morto reusado do pool), elimina o "fetch failed" em série.
+dns.setDefaultResultOrder('ipv4first');
 
 const pExecFile = promisify(execFile);
 
@@ -37,8 +44,48 @@ const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 60000);
 // fetch lança, o ciclo termina/libera e o próximo tick tenta de novo. 45s cobre pull/
 // push/restore grandes; ajustável por SYNC_FETCH_TIMEOUT_MS.
 const FETCH_TIMEOUT_MS = Number(process.env.SYNC_FETCH_TIMEOUT_MS || 45000);
+const FETCH_TENTATIVAS = Number(process.env.SYNC_FETCH_RETRIES || 3);
+
+// Extrai a CAUSA real de um erro de fetch. O undici aninha o motivo em e.cause[.cause]
+// (ex.: TypeError "fetch failed" → cause AggregateError → cause Error ECONNRESET). Sem
+// isto o daemon logava só "fetch failed" e a gente ficava HORAS caçando no escuro.
+function causaErro(e) {
+  const partes = [];
+  let cur = e;
+  for (let i = 0; i < 5 && cur; i++) {
+    const cod = cur.code || cur.errno || (cur.name && cur.name !== 'Error' ? cur.name : '');
+    const msg = cur.message ? String(cur.message).slice(0, 140) : '';
+    const t = [cod, msg].filter(Boolean).join(' ');
+    if (t && !partes.includes(t)) partes.push(t);
+    cur = cur.cause;
+  }
+  return partes.join(' <- ') || String(e);
+}
+
+// Erro de rede TRANSITÓRIO → vale re-tentar. O daemon é um processo LONGO: o pool do
+// undici acumula sockets keep-alive que a nuvem/Cloudflare já fechou por ociosidade; a
+// 1ª tentativa pega o socket morto (ECONNRESET / "fetch failed"), a 2ª abre um novo.
+// Sem retry, o ciclo inteiro falhava e NADA sincronizava (o restore concluía só quando
+// o pool estava quente). Também cobre IPv6 instável e resets pontuais do CDN.
+function ehTransitorio(e) {
+  return /fetch failed|terminated|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE|UND_ERR|socket hang up|other side closed/i.test(causaErro(e));
+}
+
 async function fetchT(url, opts = {}, ms = FETCH_TIMEOUT_MS) {
-  return fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+  let ultimo;
+  for (let tent = 1; tent <= FETCH_TENTATIVAS; tent++) {
+    try {
+      return await fetch(url, { ...opts, signal: AbortSignal.timeout(ms) });
+    } catch (e) {
+      ultimo = e;
+      if (!ehTransitorio(e) || tent === FETCH_TENTATIVAS) break;
+      await new Promise((r) => setTimeout(r, 600 * tent)); // backoff curto p/ pegar socket novo
+    }
+  }
+  // Propaga a mensagem JÁ com a causa real (a telemetria/log param de esconder o motivo).
+  const err = new Error(`${ultimo?.message || 'fetch falhou'} | causa: ${causaErro(ultimo)}`);
+  err.cause = ultimo;
+  throw err;
 }
 
 // Assinatura do push (espelha backend/src/modules/sync/sync-sig.ts — MANTER IGUAL).
@@ -537,8 +584,8 @@ async function ciclo() {
       console.log(`[${new Date().toISOString()}] sync ok — pull ${p} linha(s), push ${u} linha(s)`);
     } catch (e) {
       erro = e.message;
-      console.error(`[${new Date().toISOString()}] sync FALHOU: ${e.message}`);
-      await reportarTelemetria('sync', 'sync_erro', e.message);
+      console.error(`[${new Date().toISOString()}] sync FALHOU: ${causaErro(e)}`);
+      await reportarTelemetria('sync', 'sync_erro', causaErro(e));
     }
     // Restauração sob demanda (botão do app grava a flag em sync_state).
     if ((await getState('restaurar_solicitado', '0')) === '1') {
@@ -558,8 +605,8 @@ async function ciclo() {
     // pull/push; um throw de licenca/verificarComandos/updateCheck/heartbeat (aqui fora)
     // subia até o `await ciclo()` do boot e CRASHAVA o processo → NSSM reiniciava em loop
     // e nunca chegava a "sync ok". Agora loga + telemetria e segue no próximo tick.
-    console.error(`[${new Date().toISOString()}] ciclo ERRO (blindado): ${e?.message ?? e}`);
-    try { await reportarTelemetria('sync', 'ciclo_erro', String(e?.message ?? e)); } catch { /* best-effort */ }
+    console.error(`[${new Date().toISOString()}] ciclo ERRO (blindado): ${causaErro(e)}`);
+    try { await reportarTelemetria('sync', 'ciclo_erro', causaErro(e)); } catch { /* best-effort */ }
   } finally {
     cicloRodando = false; // libera SEMPRE — mesmo com erro, o próximo tick pode rodar
   }
