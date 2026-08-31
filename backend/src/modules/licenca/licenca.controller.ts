@@ -118,6 +118,20 @@ export class LicencaController {
     return this.service.instalarSelfService(dto ?? {});
   }
 
+  // F3a-2 — re-autorização p/ mover o edge p/ MÁQUINA NOVA (2º fator: e-mail ou TOTP).
+  // Disparado quando o /instalar devolve 403 reauthRequired. Público por conta (bcrypt).
+  @Post('provisionamento/reautorizar/solicitar')
+  @Throttle({ default: { ttl: 60000, limit: 8 } })
+  reautorizarSolicitar(@Body() dto: any) {
+    return this.service.reautorizarSolicitar(dto ?? {});
+  }
+
+  @Post('provisionamento/reautorizar/confirmar')
+  @Throttle({ default: { ttl: 60000, limit: 15 } })
+  reautorizarConfirmar(@Body() dto: any) {
+    return this.service.reautorizarConfirmar(dto ?? {});
+  }
+
   // ===== Edge (token de dispositivo servidor_local) =====
   @Get('edge/lease')
   @UseGuards(SyncTokenGuard)
