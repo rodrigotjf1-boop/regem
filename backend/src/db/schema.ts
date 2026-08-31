@@ -2366,11 +2366,14 @@ export const edgeHeartbeat = pgTable('edge_heartbeat', {
   id: uuid('id').primaryKey().defaultRandom(),
   ativacaoId: uuid('ativacao_id'),
   tenantId: uuid('tenant_id'),
+  unidadeId: uuid('unidade_id'), // saúde POR LOJA (matriz≠filial) — mig 219
   versao: text('versao'),
   estado: text('estado'),
   ultimoSync: timestamp('ultimo_sync', { withTimezone: true }),
   discoLivreMb: integer('disco_livre_mb'),
   clientes: integer('clientes'),
+  fingerprint: text('fingerprint'), // hash do MachineGuid — base do controle de instalação (F3)
+  saude: jsonb('saude'), // status dos 5 serviços + uptime + restore + impressora + ram — mig 219
   erro: text('erro'),
   recebidoEm: timestamp('recebido_em', { withTimezone: true }).notNull().defaultNow(),
 });

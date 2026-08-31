@@ -468,18 +468,76 @@ async function updateCheck() {
   } catch { /* best-effort: sem rede, ignora */ }
 }
 
-async function heartbeat(pullN, pushN, erro) {
+// Fingerprint é estável por instalação → cacheia (evita reg query a cada heartbeat).
+let _fpCache = null;
+function fpEdge() {
+  if (_fpCache === null) { try { _fpCache = fingerprintForte(); } catch { _fpCache = ''; } }
+  return _fpCache || null;
+}
+
+// Status dos 5 serviços Windows + disco livre, numa SÓ chamada powershell COM TIMEOUT.
+// O ciclo é serial: um powershell pendurado congelaria o sync (mesma disciplina do
+// fetchT/pool). Best-effort: falha → null (a saúde some, o heartbeat continua).
+async function statusServicosEDisco() {
   try {
+    const { stdout } = await pExecFile('powershell', [
+      '-NoProfile', '-NonInteractive', '-Command',
+      "$s=Get-Service RegemEdgeApi,RegemEdgeWeb,RegemEdgeSync,RegemEdgeImpressao,RegemEdgePg -EA SilentlyContinue|ForEach-Object{$_.Name+'='+$_.Status};$d=[int]((Get-PSDrive C -EA SilentlyContinue).Free/1MB);@{servicos=@($s);discoLivreMb=$d}|ConvertTo-Json -Compress",
+    ], { timeout: 8000, windowsHide: true, encoding: 'utf8', maxBuffer: 1 << 20 });
+    const o = JSON.parse(stdout);
+    const servicos = {};
+    for (const l of [].concat(o.servicos || [])) {
+      const [nome, est] = String(l).split('=');
+      if (nome) servicos[nome.replace(/^RegemEdge/i, '').toLowerCase()] = (est || '').trim();
+    }
+    for (const s of ['api', 'web', 'sync', 'impressao', 'pg']) if (!(s in servicos)) servicos[s] = 'ausente';
+    return { servicos, discoLivreMb: Number.isFinite(o.discoLivreMb) ? o.discoLivreMb : null };
+  } catch { return { servicos: null, discoLivreMb: null }; }
+}
+
+// Saúde rica — só no heartbeat de FIM de ciclo. Cada coleta é best-effort; nada pode
+// derrubar o heartbeat (já best-effort).
+async function coletarSaude() {
+  const sd = await statusServicosEDisco();
+  const saude = { servicos: sd.servicos };
+  try { saude.uptimeS = Math.round(process.uptime()); } catch { /* */ }
+  try {
+    const os = await import('node:os');
+    saude.ramLivreMb = Math.round(os.freemem() / 1048576);
+    saude.ramTotalMb = Math.round(os.totalmem() / 1048576);
+  } catch { /* */ }
+  try {
+    saude.restaurando = (await getState('restaurando', '0')) === '1';
+    saude.restoreProgresso = Number(await getState('restore_progresso', '0')) || 0;
+  } catch { /* */ }
+  try {
+    const r = await pool.query("select count(*)::int n from equipamento where tipo = 'impressora'");
+    saude.impressoraConfigurada = (r.rows?.[0]?.n ?? 0) > 0;
+  } catch { /* */ }
+  return { saude, discoLivreMb: sd.discoLivreMb };
+}
+
+async function heartbeat(pullN, pushN, erro, comSaude) {
+  try {
+    const corpo = {
+      versao: process.env.APP_VERSION || '1',
+      estado: erro ? 'erro' : 'sync_ok',
+      ultimoSync: new Date().toISOString(),
+      clientes: Number(process.env.EDGE_CLIENTES || 0) || null,
+      erro: erro || null,
+      unidadeId: process.env.EDGE_UNIDADE_ID || null, // saúde/roteamento POR LOJA (F1)
+    };
+    if (comSaude) {
+      // Só no fim do ciclo (60s): fingerprint + status dos serviços + disco/ram/restore.
+      corpo.fingerprint = fpEdge();
+      const { saude, discoLivreMb } = await coletarSaude();
+      corpo.saude = saude;
+      if (discoLivreMb != null) corpo.discoLivreMb = discoLivreMb;
+    }
     await fetchT(`${CLOUD}/edge/heartbeat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
-      body: JSON.stringify({
-        versao: process.env.APP_VERSION || '1',
-        estado: erro ? 'erro' : 'sync_ok',
-        ultimoSync: new Date().toISOString(),
-        clientes: Number(process.env.EDGE_CLIENTES || 0) || null,
-        erro: erro || null,
-      }),
+      body: JSON.stringify(corpo),
     });
   } catch { /* heartbeat é best-effort */ }
 }
@@ -633,7 +691,7 @@ async function ciclo() {
     // em sync_state; o app mostra o aviso e o botão de baixar/instalar.
     await updateCheckSeJanela();
     await updateCheckPeriodico();
-    await heartbeat(p, u, erro);
+    await heartbeat(p, u, erro, true); // heartbeat RICO (saúde dos 5 serviços) no FIM do ciclo
   } catch (e) {
     // BLINDAGEM: NENHUM erro de ciclo pode derrubar o daemon. O try interno cobre só
     // pull/push; um throw de licenca/verificarComandos/updateCheck/heartbeat (aqui fora)

@@ -371,7 +371,7 @@ export class LicencaService {
   }
 
   // ===== Heartbeat (telemetria) =====
-  async heartbeat(tenantId: string, dto: any) {
+  async heartbeat(tenantId: string, unidadeId: string | null, dto: any) {
     const [a] = await this.db
       .select({ id: ativacao.id })
       .from(ativacao)
@@ -380,11 +380,15 @@ export class LicencaService {
     await this.db.insert(edgeHeartbeat).values({
       ativacaoId: a?.id ?? null,
       tenantId,
+      // Unidade do EDGE derivada do TOKEN (não-spoofável); dto é fallback p/ edge antigo.
+      unidadeId: unidadeId ?? dto?.unidadeId ?? null,
       versao: dto?.versao ?? null,
       estado: dto?.estado ?? null,
       ultimoSync: dto?.ultimoSync ? new Date(dto.ultimoSync) : null,
       discoLivreMb: dto?.discoLivreMb != null ? Number(dto.discoLivreMb) : null,
       clientes: dto?.clientes != null ? Number(dto.clientes) : null,
+      fingerprint: dto?.fingerprint ?? null, // base do controle de instalação (F3)
+      saude: dto?.saude ?? null, // status dos 5 serviços + uptime + restore + impressora
       erro: dto?.erro ?? null,
     });
     return { ok: true };
