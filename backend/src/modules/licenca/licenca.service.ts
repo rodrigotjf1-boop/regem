@@ -23,12 +23,15 @@ import {
   empresa,
   equipamento,
   funcao,
+  reautorizacaoEdge,
   revenda,
   unidade,
 } from '../../db/schema';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease, licencaConfigurada } from './lease';
-import { precisaReautorizar } from './reauth-instalacao';
+import { precisaReautorizar, gerarCodigoReauth, hashCodigoReauth } from './reauth-instalacao';
+import { verificarTotp } from '../distribuicao/totp';
+import { enviarCodigoVerificacao } from '../../common/mailer';
 import { PLANOS } from './planos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -336,6 +339,147 @@ export class LicencaService {
     // Devolve a unidade resolvida: o instalador grava em EDGE_UNIDADE_ID, que é
     // o escopo do sincronismo deste servidor local.
     return { syncToken, unidadeId, lease: this.leaseDe(row), ativo: true };
+  }
+
+  // ===== RE-AUTORIZAÇÃO DE INSTALAÇÃO (F3a-2) =====
+  // Mover o edge p/ uma MÁQUINA NOVA (fingerprint diferente) com a trava ligada. 2 etapas:
+  // solicitar (cria o pedido + manda o código) e confirmar (valida + MOVE, matando a antiga).
+
+  // Autentica a conta C&O (mesmo critério do instalar) — a senha é a 1ª camada; o código é a 2ª.
+  private async autenticarCO(email: string, senha: string) {
+    const [u] = await this.db
+      .select({
+        id: colaborador.id,
+        nome: colaborador.nome,
+        tenantId: colaborador.tenantId,
+        senhaHash: colaborador.senhaHash,
+        categoria: funcao.categoria,
+      })
+      .from(colaborador)
+      .leftJoin(funcao, eq(colaborador.funcaoId, funcao.id))
+      .where(eq(colaborador.email, email.trim()))
+      .limit(1);
+    if (!u?.senhaHash || !(await bcrypt.compare(senha, u.senhaHash))) {
+      throw new UnauthorizedException('E-mail ou senha inválidos.');
+    }
+    if (!['presidente', 'gerente'].includes(u.categoria ?? '')) {
+      throw new ForbiddenException('Apenas o C&O ou gerente pode re-autorizar.');
+    }
+    return u;
+  }
+
+  // Etapa 1: cria o pedido. E-mail → gera + envia o código (e ALERTA o dono da tentativa);
+  // TOTP → o usuário lê do app (nada a enviar). Devolve o método + o destino mascarado.
+  async reautorizarSolicitar(dto: { email?: string; senha?: string; fingerprint?: string; metodo?: string }) {
+    const email = String(dto.email ?? '').trim();
+    const fingerprint = String(dto.fingerprint ?? '').trim();
+    if (!email || !dto.senha || !fingerprint) {
+      throw new BadRequestException('E-mail, senha e device são obrigatórios.');
+    }
+    const u = await this.autenticarCO(email, dto.senha);
+    const tenantId = u.tenantId;
+    const [a] = await this.db.select().from(ativacao).where(eq(ativacao.tenantId, tenantId)).limit(1);
+    if (!a) throw new NotFoundException('Esta loja ainda não tem instalação. Faça a primeira instalação.');
+    const metodo = dto.metodo === 'totp' && a.reauthTotpSecret ? 'totp' : 'email';
+    let codigo: string | null = null;
+    let codigoHash: string | null = null;
+    let expiraEm: Date | null = null;
+    if (metodo === 'email') {
+      codigo = gerarCodigoReauth();
+      codigoHash = hashCodigoReauth(codigo);
+      expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    }
+    const [eqSrv] = await this.db
+      .select({ unidadeId: equipamento.unidadeId })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'servidor_local')))
+      .limit(1);
+    await this.db.insert(reautorizacaoEdge).values({
+      tenantId,
+      unidadeId: eqSrv?.unidadeId ?? null,
+      fingerprintNovo: fingerprint,
+      metodo,
+      codigoHash,
+      expiraEm,
+      status: 'pendente',
+    });
+    if (metodo === 'email') {
+      enviarCodigoVerificacao(email, u.nome ?? '', codigo!).catch(() => {});
+    }
+    this.logger.warn(`Re-auth SOLICITADA: loja ${tenantId}, método ${metodo}, máquina nova ${fingerprint.slice(0, 12)}…`);
+    return { metodo, destino: metodo === 'email' ? this.mascararEmail(email) : 'app autenticador' };
+  }
+
+  // Etapa 2: valida o código (e-mail ou TOTP) e MOVE — rotaciona o token (a máquina antiga
+  // cai em 401 na hora, porque o SyncTokenGuard olha o TOKEN, não o fingerprint) + rebinda
+  // o fingerprint da nova + reativa. Devolve o novo syncToken (o instalador segue com ele).
+  async reautorizarConfirmar(dto: { email?: string; senha?: string; fingerprint?: string; codigo?: string }) {
+    const email = String(dto.email ?? '').trim();
+    const fingerprint = String(dto.fingerprint ?? '').trim();
+    const codigo = String(dto.codigo ?? '').trim();
+    if (!email || !dto.senha || !fingerprint || !codigo) {
+      throw new BadRequestException('E-mail, senha, device e código são obrigatórios.');
+    }
+    const u = await this.autenticarCO(email, dto.senha);
+    const tenantId = u.tenantId;
+    const [pend] = await this.db
+      .select()
+      .from(reautorizacaoEdge)
+      .where(
+        and(
+          eq(reautorizacaoEdge.tenantId, tenantId),
+          eq(reautorizacaoEdge.fingerprintNovo, fingerprint),
+          eq(reautorizacaoEdge.status, 'pendente'),
+        ),
+      )
+      .orderBy(desc(reautorizacaoEdge.criadoEm))
+      .limit(1);
+    if (!pend) throw new BadRequestException('Nenhum pedido de re-autorização pendente. Reinicie a instalação.');
+    if (pend.tentativas >= 5) {
+      await this.db.update(reautorizacaoEdge).set({ status: 'expirada' }).where(eq(reautorizacaoEdge.id, pend.id));
+      throw new ForbiddenException('Muitas tentativas. Solicite um novo código.');
+    }
+    const [a] = await this.db.select().from(ativacao).where(eq(ativacao.tenantId, tenantId)).limit(1);
+    let ok = false;
+    if (pend.metodo === 'totp' && a?.reauthTotpSecret) {
+      ok = verificarTotp(a.reauthTotpSecret, codigo);
+    } else {
+      if (pend.expiraEm && new Date(pend.expiraEm) < new Date()) {
+        throw new BadRequestException('Código expirado. Solicite um novo.');
+      }
+      ok = !!pend.codigoHash && pend.codigoHash === hashCodigoReauth(codigo);
+    }
+    if (!ok) {
+      await this.db
+        .update(reautorizacaoEdge)
+        .set({ tentativas: pend.tentativas + 1 })
+        .where(eq(reautorizacaoEdge.id, pend.id));
+      throw new UnauthorizedException('Código inválido.');
+    }
+    // APROVADO → MOVE. Rotaciona o token (mata a antiga em 401) ANTES de rebindar.
+    const novoToken = randomBytes(24).toString('hex');
+    const [eqSrv] = await this.db
+      .update(equipamento)
+      .set({ token: novoToken, ativo: true, revogadoEm: null })
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'servidor_local')))
+      .returning({ unidadeId: equipamento.unidadeId });
+    const [row] = await this.db
+      .update(ativacao)
+      .set({ deviceFingerprint: fingerprint, status: 'ativado', atualizadoEm: new Date() })
+      .where(eq(ativacao.id, a!.id))
+      .returning();
+    await this.db
+      .update(reautorizacaoEdge)
+      .set({ status: 'aprovada', confirmadoEm: new Date() })
+      .where(eq(reautorizacaoEdge.id, pend.id));
+    this.logger.warn(`Re-auth APROVADA: loja ${tenantId} movida p/ ${fingerprint.slice(0, 12)}… — token rotacionado.`);
+    return { syncToken: novoToken, unidadeId: eqSrv?.unidadeId ?? null, lease: this.leaseDe(row), ativo: true };
+  }
+
+  private mascararEmail(email: string): string {
+    const [nome, dom] = email.split('@');
+    if (!dom) return '***';
+    return `${nome.slice(0, 2)}${'*'.repeat(Math.max(1, nome.length - 2))}@${dom}`;
   }
 
   // Renova o lease (o edge chama no sync, mandando o fingerprint). Suspenso/revogado,
