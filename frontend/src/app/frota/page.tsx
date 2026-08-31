@@ -14,6 +14,28 @@ import { toast } from '@/lib/toast';
 const MODULOS = ['kds', 'ponto', 'app_colaborador', 'cashback', 'fidelidade', 'integracoes', 'bot'];
 const dh = (d: any) => (d ? new Date(d).toLocaleString('pt-BR') : '—');
 
+// Saúde dos 5 serviços do edge (F1) — badge por serviço (verde=Running, vermelho=parado/
+// ausente). Antes o /frota mostrava só 🟢/⚪ pelo heartbeat: Pg/Impressão caídos = verde.
+const SERVS_EDGE: [string, string][] = [['pg', 'PG'], ['api', 'API'], ['sync', 'Sync'], ['impressao', 'Impr'], ['web', 'Web']];
+function saudeBadges(f: any) {
+  const s = f?.saude?.servicos;
+  if (!s) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {SERVS_EDGE.map(([k, label]) => {
+        const ok = s[k] === 'Running';
+        return (
+          <span key={k} title={`${label}: ${s[k] ?? '?'}`}
+            className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${ok ? 'bg-ok/15 text-ok' : 'bg-destructive/15 text-destructive'}`}>
+            {label}
+          </span>
+        );
+      })}
+      {f.saude?.restaurando && <span title={`restaurando (${f.saude.restoreProgresso ?? 0} linhas)`} className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">restore</span>}
+    </div>
+  );
+}
+
 export default function FrotaPage() {
   const router = useRouter();
   const [cat, setCat] = useState<string | null>(null);
@@ -113,13 +135,14 @@ export default function FrotaPage() {
                   <th className="py-2 pr-3 font-medium">Ramo/Plano</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 pr-3 font-medium">Último sinal</th>
+                  <th className="py-2 pr-3 font-medium">Serviços</th>
                   <th className="py-2 pr-3 font-medium">Último login</th>
                   <th className="py-2 pr-3 font-medium">Versão</th>
                   <th className="py-2 font-medium">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {frota.length === 0 && <tr><td colSpan={7} className="py-6 text-center text-muted-foreground">Nenhuma loja ativada.</td></tr>}
+                {frota.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">Nenhuma loja ativada.</td></tr>}
                 {frota.map((f) => (
                   <tr key={f.id} className="border-b border-border/50">
                     <td className="py-2 pr-3 font-mono text-xs">{(f.tenantId ?? '').slice(0, 8)}…</td>
@@ -128,6 +151,7 @@ export default function FrotaPage() {
                       <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${f.status === 'ativado' ? 'bg-ok/15 text-ok' : f.status === 'suspenso' ? 'bg-warn/15 text-warn' : f.status === 'revogado' ? 'bg-destructive/15 text-destructive' : 'bg-secondary text-muted-foreground'}`}>{f.status}</span>
                     </td>
                     <td className="py-2 pr-3">{f.online ? '🟢' : '⚪'} <span className="text-xs text-muted-foreground">{dh(f.heartbeatEm)}</span></td>
+                    <td className="py-2 pr-3">{saudeBadges(f)}</td>
                     <td className="py-2 pr-3 text-xs text-muted-foreground">{dh(f.ultimoLogin)}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{f.versao ?? '—'}</td>
                     <td className="py-2">
