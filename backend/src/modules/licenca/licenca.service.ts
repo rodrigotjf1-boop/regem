@@ -28,6 +28,7 @@ import {
 } from '../../db/schema';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease, licencaConfigurada } from './lease';
+import { precisaReautorizar } from './reauth-instalacao';
 import { PLANOS } from './planos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -237,6 +238,29 @@ export class LicencaService {
       throw new ForbiddenException('Este equipamento já está vinculado a outra empresa.');
     }
 
+    // 3b) CONTROLE DE INSTALAÇÃO (F3, anti-clone). Carrega a ativação da loja ANTES de
+    // reativar/rebindar: com a trava LIGADA (reauth_ativo) e um fingerprint de OUTRA
+    // máquina, BLOQUEIA e exige o 2º fator — o clone com senha vazada não passa, e o token
+    // da máquina antiga NÃO é reativado (ela segue sendo a autorizada até aprovarem o move).
+    // Mesma máquina (MachineGuid estável entre reinstalações) = fingerprint IGUAL → segue
+    // liso (reinstalação, sem re-auth). O move legítimo se resolve em /reautorizar/*.
+    const [aExiste] = await this.db
+      .select()
+      .from(ativacao)
+      .where(eq(ativacao.tenantId, tenantId))
+      .limit(1);
+    if (precisaReautorizar(aExiste, fingerprint)) {
+      const metodos = ['email', ...(aExiste!.reauthTotpSecret ? ['totp'] : [])];
+      throw new ForbiddenException({
+        message:
+          'Esta loja já tem um servidor local em outra máquina. Confirme a mudança com ' +
+          'o código (e-mail ou app autenticador) para movê-lo para cá.',
+        reauthRequired: true,
+        metodos,
+        metodoPreferido: aExiste!.reauthMetodo ?? 'email',
+      });
+    }
+
     // 4) Equipamento servidor_local: reusa o existente ou cria (gera o sync token).
     let syncToken: string;
     const [eqExiste] = await this.db
@@ -276,7 +300,6 @@ export class LicencaService {
       .where(eq(empresa.id, tenantId))
       .limit(1);
     const validadeAte = emp?.trialAte ?? null;
-    const [aExiste] = await this.db.select().from(ativacao).where(eq(ativacao.tenantId, tenantId)).limit(1);
     let row: any;
     if (aExiste) {
       [row] = await this.db

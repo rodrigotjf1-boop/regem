@@ -2326,9 +2326,29 @@ export const ativacao = pgTable('ativacao', {
   validadeAte: timestamp('validade_ate', { withTimezone: true }),
   status: text('status').notNull().default('emitido'), // emitido | ativado | suspenso | revogado
   deviceFingerprint: text('device_fingerprint'),
+  // Controle de instalação anti-clone (F3, mig 220) — CLOUD-ONLY (ativacao não sincroniza):
+  reauthAtivo: boolean('reauth_ativo').notNull().default(false), // trava opt-in
+  reauthMetodo: text('reauth_metodo').notNull().default('email'), // 'email' | 'totp'
+  reauthTotpSecret: text('reauth_totp_secret'), // base32 do app; null = não enrolado
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   ativadoEm: timestamp('ativado_em', { withTimezone: true }),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Pedidos de re-autorização de instalação (F3, mig 220) — mover o edge p/ máquina nova
+// exige 2º fator (código e-mail OU TOTP). CLOUD-ONLY.
+export const reautorizacaoEdge = pgTable('reautorizacao_edge', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  unidadeId: uuid('unidade_id'),
+  fingerprintNovo: text('fingerprint_novo').notNull(),
+  metodo: text('metodo').notNull().default('email'), // 'email' | 'totp'
+  codigoHash: text('codigo_hash'),
+  expiraEm: timestamp('expira_em', { withTimezone: true }),
+  tentativas: integer('tentativas').notNull().default(0),
+  status: text('status').notNull().default('pendente'), // pendente | aprovada | expirada
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  confirmadoEm: timestamp('confirmado_em', { withTimezone: true }),
 });
 
 // Token de integração POR LOJA (auto-atendimento GoGeM/Orzuni/Farol) — desacoplado
