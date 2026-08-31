@@ -111,38 +111,26 @@ export class LicencaService {
 
   // Painel de frota: ativações + último heartbeat.
   async frota() {
-    const rows = await this.db.select().from(ativacao).orderBy(desc(ativacao.criadoEm)).limit(500);
-    const out: any[] = [];
-    for (const a of rows) {
-      const [hb] = await this.db
-        .select()
-        .from(edgeHeartbeat)
-        .where(eq(edgeHeartbeat.ativacaoId, a.id))
-        .orderBy(desc(edgeHeartbeat.recebidoEm))
-        .limit(1);
-      // Último login da loja: atividade visível mesmo sem edge (modo nuvem).
-      const ul: any = await this.db.execute(sql`
-        select max(created_at) as ult from audit_log
-        where tenant_id = ${a.tenantId} and acao = 'login'
-      `);
-      out.push({
-        id: a.id,
-        tenantId: a.tenantId,
-        ramo: a.ramo,
-        plano: a.plano,
-        modulos: a.modulos,
-        status: a.status,
-        trial: a.trial,
-        validadeAte: a.validadeAte,
-        vinculado: !!a.deviceFingerprint,
-        versao: hb?.versao ?? null,
-        ultimoSync: hb?.ultimoSync ?? null,
-        online: hb ? Date.now() - new Date(hb.recebidoEm).getTime() < 5 * 60000 : false,
-        heartbeatEm: hb?.recebidoEm ?? null,
-        ultimoLogin: (ul?.rows ?? ul)?.[0]?.ult ?? null,
-      });
-    }
-    return out;
+    // 1 query SET-BASED (LATERAL) — antes era N+1 (500 ativações × 2 queries: heartbeat +
+    // último login), violando "1 request + query set-based". Traz também a saúde dos
+    // serviços (F1) + a unidade, pra o /frota do lojista mostrar QUAL serviço caiu.
+    const r: any = await this.db.execute(sql`
+      select a.id, a.tenant_id as "tenantId", a.ramo, a.plano, a.modulos, a.status,
+             a.trial, a.validade_ate as "validadeAte",
+             (a.device_fingerprint is not null) as "vinculado",
+             h.versao, h.ultimo_sync as "ultimoSync", h.recebido_em as "heartbeatEm",
+             h.saude, h.unidade_id as "unidadeId", h.estado as "edgeEstado",
+             (h.recebido_em is not null and h.recebido_em > now() - interval '5 minutes') as "online",
+             (select max(al.created_at) from audit_log al
+                where al.tenant_id = a.tenant_id and al.acao = 'login') as "ultimoLogin"
+      from ativacao a
+      left join lateral (
+        select * from edge_heartbeat hb
+        where hb.ativacao_id = a.id order by hb.recebido_em desc limit 1
+      ) h on true
+      order by a.criado_em desc
+      limit 500`);
+    return r.rows ?? r;
   }
 
   // ===== Provisionamento (edge) =====
