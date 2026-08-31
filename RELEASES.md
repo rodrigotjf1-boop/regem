@@ -10,6 +10,15 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → publica no console de distribuição.
 
+## Pendências acumuladas — F1/F2/F3 (após 1.23, a incluir no próximo corte)
+
+Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado, **não empacotado**:
+- **F1 — saúde da frota (#397/#398):** `sync-daemon.mjs` enriquece o heartbeat (`coletarSaude`/`statusServicosEDisco`/`fpEdge` + unidade). → **`.zip` + `.exe`** (tocou `sync-daemon`). Cloud: **migration 219** (`edge_heartbeat` += `unidade_id`/`fingerprint`/`saude`) — _aplicada na nuvem._
+- **F2 — impressão por unidade (#401/#402):** `impressao-daemon.mjs` + processadores escopados por `EDGE_UNIDADE_ID` (matriz não imprime em filial). → **`.zip` + `.exe`** (tocou `impressao-daemon`). Cloud: só código.
+- **F3 — trava de instalação anti-clone (#403/#404/#405):** `instalar-tudo.ps1` trata `reauthRequired` (2FA e-mail/TOTP) e move o edge rotacionando o token. → **`.exe`** (instalador). Cloud: **migration 220** (`ativacao` += `reauth_*` + `reautorizacao_edge`) — **⚠️ aplicar na nuvem** (código já deployado lê essas colunas). Console em `/frota` (autodeploy).
+
+> Próximo corte do edge deve ser **`.exe` + `.zip`** (sync + impressão + instalador mudaram). Cortar com `build-release.ps1 -Versao X.Y.Z` (verde no preflight → Inno).
+
 ## Estado atual do edge
 
 - **`1.21.0` — cortada (29/08):** corrigiu o **web** (`web.tar` com `next` → RegemEdgeWeb sobe) + trouxe pull keyset/don't-abort. **Mas revelou** um bloqueio que estava mascarado: o daemon (serviço do Windows, processo longo) batia **`sync FALHOU: fetch failed` a cada ciclo** enquanto o `fetch` manual dava 200 — era **IPv6 que o serviço não roteia** + **socket keep-alive morto** reusado. Diagnóstico às cegas porque o daemon logava só "fetch failed" (jogava fora `e.cause`).
