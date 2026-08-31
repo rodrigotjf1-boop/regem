@@ -102,6 +102,32 @@ export class LicencaController {
     return this.service.rebind(id);
   }
 
+  // F3b — trava de instalação (anti-clone): liga/desliga + escolhe 2º fator, enrola TOTP,
+  // e vê a trilha de moves. Só a distribuição (DistribuidorGuard); config sensível.
+  @Post('ativacao/:id/reauth')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
+  reauthConfig(@Param('id') id: string, @Body() dto: any) {
+    return this.service.reauthConfig(id, dto ?? {});
+  }
+
+  @Post('ativacao/:id/reauth/totp/iniciar')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
+  reauthTotpIniciar(@Param('id') id: string) {
+    return this.service.reauthTotpIniciar(id);
+  }
+
+  @Post('ativacao/:id/reauth/totp/confirmar')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
+  reauthTotpConfirmar(@Param('id') id: string, @Body() dto: any) {
+    return this.service.reauthTotpConfirmar(id, dto?.codigo ?? '');
+  }
+
+  @Get('ativacao/:id/reauth/moves')
+  @UseGuards(JwtAuthGuard, DistribuidorGuard)
+  reauthMoves(@Param('id') id: string) {
+    return this.service.reauthMoves(id);
+  }
+
   // ===== Provisionamento (edge, público por token) =====
   @Post('provisionamento/ativar')
   @Throttle({ default: { ttl: 60000, limit: 20 } })

@@ -940,6 +940,14 @@ export const api = {
     req(`/ativacao/${id}/modulos`, { method: 'POST', body: JSON.stringify(body) }),
   ativacaoAcao: (id: string, acao: 'suspender' | 'reativar' | 'revogar' | 'rebind') =>
     req(`/ativacao/${id}/${acao}`, { method: 'POST', body: '{}' }),
+  // F3b — trava de instalação (anti-clone): liga/desliga + 2º fator (e-mail/TOTP).
+  reauthConfig: (id: string, body: { ativo?: boolean; metodo?: string }) =>
+    req(`/ativacao/${id}/reauth`, { method: 'POST', body: JSON.stringify(body) }),
+  reauthTotpIniciar: (id: string) =>
+    req(`/ativacao/${id}/reauth/totp/iniciar`, { method: 'POST', body: '{}' }),
+  reauthTotpConfirmar: (id: string, codigo: string) =>
+    req(`/ativacao/${id}/reauth/totp/confirmar`, { method: 'POST', body: JSON.stringify({ codigo }) }),
+  reauthMoves: (id: string) => req(`/ativacao/${id}/reauth/moves`),
   // WhatsApp da loja (Evolution)
   whatsappConectar: () => req('/whatsapp/conectar', { method: 'POST', body: '{}' }),
   whatsappStatus: () => req('/whatsapp/status'),

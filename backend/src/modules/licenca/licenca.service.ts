@@ -30,7 +30,7 @@ import {
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease, licencaConfigurada } from './lease';
 import { precisaReautorizar, gerarCodigoReauth, hashCodigoReauth } from './reauth-instalacao';
-import { verificarTotp } from '../distribuicao/totp';
+import { verificarTotp, gerarSegredoBase32, otpauthUri } from '../distribuicao/totp';
 import { enviarCodigoVerificacao } from '../../common/mailer';
 import { PLANOS } from './planos';
 
@@ -113,6 +113,90 @@ export class LicencaService {
     return { ok: true };
   }
 
+  // ===== F3b — controle da trava de instalação (console de distribuição) =====
+  // Liga/desliga a trava (reauth_ativo) e escolhe o 2º fator (e-mail/TOTP). TOTP só é
+  // aceito como método se já houver segredo enrolado — senão a loja se trancaria fora.
+  async reauthConfig(ativacaoId: string, dto: { ativo?: boolean; metodo?: string }) {
+    const metodo = dto.metodo === 'totp' ? 'totp' : 'email';
+    const [a] = await this.db
+      .select({ totp: ativacao.reauthTotpSecret })
+      .from(ativacao)
+      .where(eq(ativacao.id, ativacaoId))
+      .limit(1);
+    if (!a) throw new NotFoundException('Ativação não encontrada.');
+    if (metodo === 'totp' && !a.totp) {
+      throw new BadRequestException('Configure o app autenticador (QR) antes de escolher esse método.');
+    }
+    const [row] = await this.db
+      .update(ativacao)
+      .set({ reauthAtivo: !!dto.ativo, reauthMetodo: metodo, atualizadoEm: new Date() })
+      .where(eq(ativacao.id, ativacaoId))
+      .returning({ reauthAtivo: ativacao.reauthAtivo, reauthMetodo: ativacao.reauthMetodo });
+    this.logger.warn(`Trava de instalação ${row.reauthAtivo ? 'LIGADA' : 'desligada'} (método ${row.reauthMetodo}) — ativação ${ativacaoId}.`);
+    return { ok: true, ...row };
+  }
+
+  // TOTP: gera o segredo e devolve o QR (otpauth). Grava o segredo já, mas ele fica
+  // INERTE até confirmar — o método só vira 'totp' após validar um código do app.
+  // O segredo mora só na nuvem (ativacao, cloud-only); nunca desce pro edge.
+  async reauthTotpIniciar(ativacaoId: string) {
+    const [a] = await this.db
+      .select({ tenantId: ativacao.tenantId })
+      .from(ativacao)
+      .where(eq(ativacao.id, ativacaoId))
+      .limit(1);
+    if (!a?.tenantId) throw new NotFoundException('Ativação não encontrada.');
+    const secret = gerarSegredoBase32();
+    await this.db
+      .update(ativacao)
+      .set({ reauthTotpSecret: secret, atualizadoEm: new Date() })
+      .where(eq(ativacao.id, ativacaoId));
+    const conta = `loja-${String(a.tenantId).slice(0, 8)}`;
+    return { otpauthUri: otpauthUri(secret, conta, 'Regem Edge'), secret };
+  }
+
+  // Confirma o TOTP: valida um código contra o segredo e LIGA o método (e a trava).
+  async reauthTotpConfirmar(ativacaoId: string, codigo: string) {
+    const [a] = await this.db
+      .select({ totp: ativacao.reauthTotpSecret })
+      .from(ativacao)
+      .where(eq(ativacao.id, ativacaoId))
+      .limit(1);
+    if (!a) throw new NotFoundException('Ativação não encontrada.');
+    if (!a.totp) throw new BadRequestException('Gere o QR primeiro.');
+    if (!verificarTotp(a.totp, codigo)) {
+      throw new UnauthorizedException('Código inválido. Confira o app autenticador e tente de novo.');
+    }
+    await this.db
+      .update(ativacao)
+      .set({ reauthMetodo: 'totp', reauthAtivo: true, atualizadoEm: new Date() })
+      .where(eq(ativacao.id, ativacaoId));
+    return { ok: true };
+  }
+
+  // Trilha dos pedidos de move desta loja (auditoria no console).
+  async reauthMoves(ativacaoId: string) {
+    const [a] = await this.db
+      .select({ tenantId: ativacao.tenantId })
+      .from(ativacao)
+      .where(eq(ativacao.id, ativacaoId))
+      .limit(1);
+    if (!a?.tenantId) throw new NotFoundException('Ativação não encontrada.');
+    return this.db
+      .select({
+        id: reautorizacaoEdge.id,
+        metodo: reautorizacaoEdge.metodo,
+        status: reautorizacaoEdge.status,
+        fingerprintNovo: reautorizacaoEdge.fingerprintNovo,
+        criadoEm: reautorizacaoEdge.criadoEm,
+        confirmadoEm: reautorizacaoEdge.confirmadoEm,
+      })
+      .from(reautorizacaoEdge)
+      .where(eq(reautorizacaoEdge.tenantId, a.tenantId))
+      .orderBy(desc(reautorizacaoEdge.criadoEm))
+      .limit(20);
+  }
+
   // Painel de frota: ativações + último heartbeat.
   async frota() {
     // 1 query SET-BASED (LATERAL) — antes era N+1 (500 ativações × 2 queries: heartbeat +
@@ -121,6 +205,8 @@ export class LicencaService {
     const r: any = await this.db.execute(sql`
       select a.id, a.tenant_id as "tenantId", a.ramo, a.plano, a.modulos, a.status,
              a.trial, a.validade_ate as "validadeAte",
+             a.reauth_ativo as "reauthAtivo", a.reauth_metodo as "reauthMetodo",
+             (a.reauth_totp_secret is not null) as "reauthTemTotp",
              (a.device_fingerprint is not null) as "vinculado",
              h.versao, h.ultimo_sync as "ultimoSync", h.recebido_em as "heartbeatEm",
              h.saude, h.unidade_id as "unidadeId", h.estado as "edgeEstado",
