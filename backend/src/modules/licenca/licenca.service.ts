@@ -245,6 +245,16 @@ export class LicencaService {
     return { ativacaoId: row.id, lease: this.leaseDe(row) };
   }
 
+  // Erro de coluna inexistente (Postgres 42703). Usado p/ tolerar o intervalo em que o
+  // código (autodeploy imediato) chega ANTES da migration cloud-only (aplicada à mão na
+  // nuvem) — uma feature nova não pode derrubar um fluxo crítico enquanto a migration não
+  // sobe. drizzle/pg encapsula: a causa real pode estar em e.cause.
+  private ehColunaAusente(e: any): boolean {
+    const code = e?.code ?? e?.cause?.code;
+    const msg = String(e?.message ?? e?.cause?.message ?? '');
+    return code === '42703' || /column .* does not exist/i.test(msg);
+  }
+
   // Auto-instalação SELF-SERVICE (G-4): o instalador manda a conta C&O + o
   // fingerprint do aparelho; a nuvem confere trial + anti-clonagem e devolve o
   // token de sync (cria/reusa o equipamento servidor_local) e o lease. Sem humano.
@@ -333,21 +343,55 @@ export class LicencaService {
     // da máquina antiga NÃO é reativado (ela segue sendo a autorizada até aprovarem o move).
     // Mesma máquina (MachineGuid estável entre reinstalações) = fingerprint IGUAL → segue
     // liso (reinstalação, sem re-auth). O move legítimo se resolve em /reautorizar/*.
+    // aExiste com colunas que SEMPRE existem (id/ativadoEm/deviceFingerprint) — dirige o
+    // update-vs-insert da ativação lá embaixo. NUNCA selecionar reauth_* aqui: se a mig
+    // 220 ainda não subiu, um select('*') estoura 42703 e derruba a instalação inteira
+    // (foi o 500 do potitjf 31/08 16:14). As colunas da trava vêm num select separado,
+    // tolerante (abaixo).
     const [aExiste] = await this.db
-      .select()
+      .select({
+        id: ativacao.id,
+        ativadoEm: ativacao.ativadoEm,
+        deviceFingerprint: ativacao.deviceFingerprint,
+      })
       .from(ativacao)
       .where(eq(ativacao.tenantId, tenantId))
       .limit(1);
-    if (precisaReautorizar(aExiste, fingerprint)) {
-      const metodos = ['email', ...(aExiste!.reauthTotpSecret ? ['totp'] : [])];
-      throw new ForbiddenException({
-        message:
-          'Esta loja já tem um servidor local em outra máquina. Confirme a mudança com ' +
-          'o código (e-mail ou app autenticador) para movê-lo para cá.',
-        reauthRequired: true,
-        metodos,
-        metodoPreferido: aExiste!.reauthMetodo ?? 'email',
-      });
+    // Trava (reauth_*) = colunas cloud-only da migration 220. Se o deploy chegou ANTES da
+    // 220 (autodeploy imediato x migration manual), trata a trava como DESLIGADA (default
+    // seguro — nenhuma loja pôde ligá-la ainda) em vez de 500 na instalação; loga p/ a
+    // telemetria cobrar a 220. Aplicada a 220, a trava passa a valer sem tocar no código.
+    if (aExiste) {
+      try {
+        const [rah] = await this.db
+          .select({
+            deviceFingerprint: ativacao.deviceFingerprint,
+            reauthAtivo: ativacao.reauthAtivo,
+            reauthMetodo: ativacao.reauthMetodo,
+            reauthTotpSecret: ativacao.reauthTotpSecret,
+          })
+          .from(ativacao)
+          .where(eq(ativacao.id, aExiste.id))
+          .limit(1);
+        if (precisaReautorizar(rah, fingerprint)) {
+          const metodos = ['email', ...(rah!.reauthTotpSecret ? ['totp'] : [])];
+          throw new ForbiddenException({
+            message:
+              'Esta loja já tem um servidor local em outra máquina. Confirme a mudança com ' +
+              'o código (e-mail ou app autenticador) para movê-lo para cá.',
+            reauthRequired: true,
+            metodos,
+            metodoPreferido: rah!.reauthMetodo ?? 'email',
+          });
+        }
+      } catch (e) {
+        if (e instanceof ForbiddenException) throw e; // a trava disparou de verdade
+        if (!this.ehColunaAusente(e)) throw e;
+        this.logger.error(
+          'Trava de instalação indisponível: migration 220 ausente na nuvem (ativacao.reauth_* não existe). ' +
+            'Instalação seguindo com a trava DESLIGADA (default seguro). APLIQUE a migration 220.',
+        );
+      }
     }
 
     // 4) Equipamento servidor_local: reusa o existente ou cria (gera o sync token).
