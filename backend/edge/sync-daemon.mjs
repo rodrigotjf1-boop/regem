@@ -517,6 +517,11 @@ async function restaurar() {
           catch (e) { if (e.code === '23503') orfaos.push([tabela, row]); else throw e; }
         }
       }
+      // Visibilidade: sem isto o restore era caixa-preta (nem o gestor nem o suporte
+      // sabiam se baixava, travava ou dava erro). Loga a cada página + grava o progresso
+      // em sync_state p/ a UI (/servidor) mostrar "Restaurando… N linha(s)".
+      if (linhas) console.log(`  restore: +${linhas} linha(s) (página ${pagina}, total ${total}${orfaos.length ? `, ${orfaos.length} p/ varredura FK` : ''})`);
+      try { await setState('restore_progresso', String(total)); } catch { /* best-effort */ }
       if (!data.proximoCursor || data.proximoCursor === cursor || linhas === 0) break;
       cursor = data.proximoCursor;
       await setState('restore_cursor', cursor);
