@@ -551,11 +551,15 @@ async function restaurar() {
   await setState('restaurar_solicitado', '0'); // consome o pedido (não repete se travar)
   await setState('restaurando', '1');
   try {
-    // 1) empurra o pendente local (as tabelas que sobem)
-    try { await push(); } catch (e) { console.warn(`  push no restore: ${e.message}`); }
-    // 2) puxa as transacionais da nuvem por delta e faz upsert local
-    let cursor = await getState('restore_cursor', '1970-01-01T00:00:00Z');
+    // DOWNLOAD PRIMEIRO — é o que a loja precisa. O push (upload) foi pro FIM (best-effort):
+    // rodando aqui na frente, com a nuvem em 502 + fila de push grande, ele SEGURAVA o
+    // download e o restore ficava preso (potitjf 31/08 — "solicitada" sem nunca puxar).
+    // E SEMPRE COMPLETO (desde 1970): o botão Restaurar é catch-up total; não confia num
+    // restore_cursor adiantado que faz concluir com 0 linha (bug real do potitjf: dado na
+    // nuvem, cursor à frente → restore "conclui" sem baixar nada).
+    let cursor = '1970-01-01T00:00:00Z';
     let total = 0;
+    console.log(`  restore: baixando da nuvem desde ${cursor} (completo)…`);
     // FK sem pai: ACUMULA entre páginas. O restore pagina por tabela (1000/tabela) com
     // cursor por tabela, então uma FILHA (comanda_item, producao_pedido_item) pode chegar
     // numa página ANTES do PAI (comanda, producao_pedido), que vem numa página posterior.
@@ -578,7 +582,7 @@ async function restaurar() {
       // Visibilidade: sem isto o restore era caixa-preta (nem o gestor nem o suporte
       // sabiam se baixava, travava ou dava erro). Loga a cada página + grava o progresso
       // em sync_state p/ a UI (/servidor) mostrar "Restaurando… N linha(s)".
-      if (linhas) console.log(`  restore: +${linhas} linha(s) (página ${pagina}, total ${total}${orfaos.length ? `, ${orfaos.length} p/ varredura FK` : ''})`);
+      console.log(`  restore: página ${pagina} → +${linhas} linha(s) (total ${total}${orfaos.length ? `, ${orfaos.length} p/ varredura FK` : ''})`);
       try { await setState('restore_progresso', String(total)); } catch { /* best-effort */ }
       if (!data.proximoCursor || data.proximoCursor === cursor || linhas === 0) break;
       cursor = data.proximoCursor;
@@ -600,6 +604,8 @@ async function restaurar() {
     if (resta.length) console.warn(`  ${resta.length} linha(s) sem pai (FK) mesmo após varredura final do restore`);
     await setState('restaurado_em', new Date().toISOString());
     console.log(`Restauração concluída — ${total} linha(s) aplicadas.`);
+    // Push do pendente local por ÚLTIMO — best-effort, NUNCA trava o download acima.
+    try { await push(); } catch (e) { console.warn(`  push pós-restore (best-effort): ${e.message}`); }
   } finally {
     await setState('restaurando', '0');
   }
