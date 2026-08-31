@@ -27,7 +27,8 @@ export class ImpressaoController {
   @Get('pendentes')
   @UseGuards(SyncTokenGuard)
   pendentes(@SyncCtx() ctx: SyncCtxData) {
-    return this.service.jobsPendentes(ctx.tenantId);
+    // F2: canal de impressão POR LOJA — a unidade vem do token (não-spoofável).
+    return this.service.jobsPendentes(ctx.tenantId, ctx.unidadeId ?? null);
   }
 
   @Post(':id/impresso')
