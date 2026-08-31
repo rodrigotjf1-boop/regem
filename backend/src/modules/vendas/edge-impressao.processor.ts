@@ -24,6 +24,8 @@ export class EdgeImpressaoProcessor {
   private readonly logger = new Logger('EdgeImpressao');
   private rodando = false;
   private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  // F2 (roteamento por loja): setada → só imprime as comandas DESTA unidade. Vazia → tenant-wide.
+  private readonly unidadeId = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -39,6 +41,7 @@ export class EdgeImpressaoProcessor {
         select c.id, c.tenant_id as "tenantId"
         from comanda c
         where c.status = 'fechada'
+          ${this.unidadeId ? sql`and c.unidade_id = ${this.unidadeId}` : sql``}
           and c.created_at > now() - interval '12 hours'
           and c.created_at < now() - interval '45 seconds'
           and not exists (select 1 from impressao_edge_feito f where f.comanda_id = c.id)

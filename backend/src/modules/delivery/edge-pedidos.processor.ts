@@ -23,6 +23,10 @@ export class EdgePedidosProcessor {
   private rodando = false;
   private ultimoAvisoOrfaos = 0; // throttle do aviso de comanda ausente (ms)
   private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
+  // Unidade DESTE edge (F2 — roteamento por loja). Setada → só materializa/imprime os
+  // pedidos DESTA loja (o edge da matriz NUNCA pega o pedido da filial). Vazia (1 loja
+  // ou edge antigo sem EDGE_UNIDADE_ID) → tenant-wide, comportamento atual preservado.
+  private readonly unidadeId = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -35,17 +39,18 @@ export class EdgePedidosProcessor {
     this.rodando = true;
     try {
       // Pedidos que desceram da nuvem e ainda não viraram produção local.
+      const conds = [
+        eq(pedidoExterno.status, 'novo'),
+        isNull(pedidoExterno.comandaId),
+        // Só pedidos ONLINE (têm cliente/canal externo) — evita mexer em rascunhos.
+        sql`(${pedidoExterno.canal} is not null and ${pedidoExterno.canal} <> 'balcao')`,
+      ];
+      // F2: escopo por unidade quando o edge é de uma loja específica (nunca matriz→filial).
+      if (this.unidadeId) conds.push(eq(pedidoExterno.unidadeId, this.unidadeId));
       const pendentes = await this.db
         .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId })
         .from(pedidoExterno)
-        .where(
-          and(
-            eq(pedidoExterno.status, 'novo'),
-            isNull(pedidoExterno.comandaId),
-            // Só pedidos ONLINE (têm cliente/canal externo) — evita mexer em rascunhos.
-            sql`(${pedidoExterno.canal} is not null and ${pedidoExterno.canal} <> 'balcao')`,
-          ),
-        )
+        .where(and(...conds))
         .limit(50);
 
       for (const p of pendentes) {
@@ -68,6 +73,7 @@ export class EdgePedidosProcessor {
         from pedido_externo pe
         where pe.comanda_id is not null
           and pe.canal is not null and pe.canal <> 'balcao'
+          ${this.unidadeId ? sql`and pe.unidade_id = ${this.unidadeId}` : sql``}
           and pe.criado_em >= now() - interval '2 days'
           and pe.criado_em <  now() - interval '3 minutes'
           and not exists (select 1 from comanda c where c.id = pe.comanda_id)

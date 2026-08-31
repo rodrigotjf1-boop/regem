@@ -1111,7 +1111,12 @@ export class ProducaoPedidoService {
 
   // ===== Fila de impressão (worker do edge; auth por token servidor_local) =====
   // Devolve host/porta da impressora junto (o worker não precisa de outra chamada).
-  jobsPendentes(tenantId: string, limite = 20) {
+  jobsPendentes(tenantId: string, unidadeId: string | null = null, limite = 20) {
+    // F2 (canal por LOJA): quando o edge é de uma unidade, só entrega os jobs DELA
+    // + os "da rede" (unidade_id null). Sem unidade → tenant-wide (comportamento atual).
+    const conds = [eq(impressaoJob.tenantId, tenantId), eq(impressaoJob.status, 'pendente')];
+    if (unidadeId)
+      conds.push(sql`(${impressaoJob.unidadeId} = ${unidadeId} or ${impressaoJob.unidadeId} is null)`);
     return this.db
       .select({
         id: impressaoJob.id,
@@ -1134,12 +1139,7 @@ export class ProducaoPedidoService {
       })
       .from(impressaoJob)
       .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
-      .where(
-        and(
-          eq(impressaoJob.tenantId, tenantId),
-          eq(impressaoJob.status, 'pendente'),
-        ),
-      )
+      .where(and(...conds))
       .orderBy(impressaoJob.criadoEm)
       .limit(limite);
   }
