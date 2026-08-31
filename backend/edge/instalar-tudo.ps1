@@ -150,6 +150,54 @@ function FingerprintForte {
   return $env:COMPUTERNAME
 }
 
+# F3a-2 — a loja JA tem servidor local em OUTRA maquina e a trava (reauth_ativo) esta
+# ligada: o /instalar respondeu 403 reauthRequired. Move o edge p/ ESTA maquina com 2o
+# fator (codigo por e-mail da conta OU app autenticador/TOTP). So o C&O, COM o codigo,
+# autoriza — senha vazada sozinha nao clona o edge. Retorna a resposta do /confirmar
+# (tem o syncToken NOVO; a maquina antiga cai em 401 no proximo sync) ou lanca erro claro.
+function Reautorizar-Edge {
+  param($CloudApi, $Payload, $Info)
+  $api = $CloudApi.TrimEnd('/')
+  Diga ""
+  Diga "*** ESTA LOJA JA TEM UM SERVIDOR EDGE EM OUTRA MAQUINA ***"
+  Diga "Para mover a instalacao para ESTE computador, confirme com um codigo de seguranca."
+  $metodos = @($Info.metodos)
+  $metodo = if ($Info.metodoPreferido) { $Info.metodoPreferido } else { 'email' }
+  if (($metodos -contains 'totp') -and ($metodos -contains 'email')) {
+    $op = Read-Host "Receber o codigo por [1] e-mail da conta ou [2] app autenticador? (1/2)"
+    if ($op -eq '2') { $metodo = 'totp' } else { $metodo = 'email' }
+  }
+  $solBody = @{ email = $Payload.email; senha = $Payload.senha; fingerprint = $Payload.fingerprint; metodo = $metodo }
+  try {
+    $sol = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/reautorizar/solicitar" -f $api) `
+      -ContentType "application/json" -Body ($solBody | ConvertTo-Json -Compress) -TimeoutSec 40
+  } catch {
+    throw "Nao consegui iniciar a re-autorizacao: $($_.Exception.Message)"
+  }
+  if ($sol.metodo -eq 'totp') {
+    Diga "Abra o app autenticador (Google Authenticator/Authy) da conta e pegue o codigo de 6 digitos."
+  } else {
+    Diga ("Enviei um codigo de 6 digitos para o e-mail da conta ({0})." -f $sol.destino)
+    Diga "Se NAO foi voce que pediu isto, IGNORE — ninguem move o edge sem o codigo."
+  }
+  $resp = $null
+  for ($tent = 1; $tent -le 3; $tent++) {
+    $codigo = (Read-Host "Digite o codigo de 6 digitos").Trim()
+    $confBody = @{ email = $Payload.email; senha = $Payload.senha; fingerprint = $Payload.fingerprint; codigo = $codigo }
+    try {
+      $resp = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/reautorizar/confirmar" -f $api) `
+        -ContentType "application/json" -Body ($confBody | ConvertTo-Json -Compress) -TimeoutSec 40
+      break
+    } catch {
+      $c = $null; try { $c = [int]$_.Exception.Response.StatusCode } catch {}
+      if ($c -eq 401 -and $tent -lt 3) { Diga "Codigo invalido. Tente de novo." ; continue }
+      throw "Re-autorizacao falhou: $($_.Exception.Message)"
+    }
+  }
+  if (-not $resp -or -not $resp.syncToken) { throw "Re-autorizacao nao concluida (sem token)." }
+  return $resp
+}
+
 # Assinatura de codigo (rota interna): confia a CA de ASSINATURA do Regem em Root +
 # TrustedPublisher, para o app/instalador assinado NAO cair em "editor desconhecido".
 # O .pem e PUBLICO (so o certificado); a chave privada (.pfx) fica so com a
@@ -553,7 +601,14 @@ if ($Email -and $Senha) {
       if ($resp) { $escolha = $resp | ConvertFrom-Json }
     } catch { }
 
-    if ($escolha -and $escolha.escolhaUnidade -and $escolha.unidades) {
+    if ($escolha -and $escolha.reauthRequired) {
+      # Maquina nova + trava ligada: 2o fator (e-mail/TOTP) move o edge p/ ca.
+      $r = Reautorizar-Edge -CloudApi $CloudApi -Payload $payload -Info $escolha
+      $SyncToken = $r.syncToken
+      if ($r.unidadeId) { $UnidadeId = $r.unidadeId }
+      Diga "Re-autorizado: instalacao movida para esta maquina (a antiga foi revogada)."
+    }
+    elseif ($escolha -and $escolha.escolhaUnidade -and $escolha.unidades) {
       Diga "Esta empresa tem mais de uma loja. Em qual delas este servidor esta sendo instalado?"
       $i = 1
       foreach ($u in $escolha.unidades) {
@@ -576,7 +631,24 @@ if ($Email -and $Senha) {
         $SyncToken = $r.syncToken
         Diga "Provisionado: sync token recebido e licenca ativada na nuvem."
       } catch {
-        throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+        # Com a unidade escolhida, a nuvem pode agora pedir a re-autorizacao (maquina nova).
+        $e2 = $null
+        try {
+          $resp2 = $_.ErrorDetails.Message
+          if (-not $resp2 -and $_.Exception.Response) {
+            $sr2 = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+            $resp2 = $sr2.ReadToEnd()
+          }
+          if ($resp2) { $e2 = $resp2 | ConvertFrom-Json }
+        } catch { }
+        if ($e2 -and $e2.reauthRequired) {
+          $r = Reautorizar-Edge -CloudApi $CloudApi -Payload $payload -Info $e2
+          $SyncToken = $r.syncToken
+          if ($r.unidadeId) { $UnidadeId = $r.unidadeId }
+          Diga "Re-autorizado: instalacao movida para esta maquina (a antiga foi revogada)."
+        } else {
+          throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+        }
       }
     } else {
       throw "Falha no provisionamento self-service: $($_.Exception.Message)"

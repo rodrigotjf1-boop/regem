@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { TravaModal } from '@/components/frota/trava-modal';
 import { toast } from '@/lib/toast';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -43,6 +44,7 @@ export default function FrotaPage() {
   const [form, setForm] = useState<any>({ tenantId: '', ramo: 'food_service', plano: 'basico', modulos: [] as string[], trial: false, validadeDias: '' });
   const [tokenNovo, setTokenNovo] = useState<string | null>(null);
   const [restrito, setRestrito] = useState(false);
+  const [travaDe, setTravaDe] = useState<any>(null);
 
   const carregar = useCallback(async () => {
     try { setFrota((await api.frotaEdge()) as any[]); setRestrito(false); }
@@ -136,13 +138,14 @@ export default function FrotaPage() {
                   <th className="py-2 pr-3 font-medium">Status</th>
                   <th className="py-2 pr-3 font-medium">Último sinal</th>
                   <th className="py-2 pr-3 font-medium">Serviços</th>
+                  <th className="py-2 pr-3 font-medium">Trava</th>
                   <th className="py-2 pr-3 font-medium">Último login</th>
                   <th className="py-2 pr-3 font-medium">Versão</th>
                   <th className="py-2 font-medium">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {frota.length === 0 && <tr><td colSpan={8} className="py-6 text-center text-muted-foreground">Nenhuma loja ativada.</td></tr>}
+                {frota.length === 0 && <tr><td colSpan={9} className="py-6 text-center text-muted-foreground">Nenhuma loja ativada.</td></tr>}
                 {frota.map((f) => (
                   <tr key={f.id} className="border-b border-border/50">
                     <td className="py-2 pr-3 font-mono text-xs">{(f.tenantId ?? '').slice(0, 8)}…</td>
@@ -152,6 +155,12 @@ export default function FrotaPage() {
                     </td>
                     <td className="py-2 pr-3">{f.online ? '🟢' : '⚪'} <span className="text-xs text-muted-foreground">{dh(f.heartbeatEm)}</span></td>
                     <td className="py-2 pr-3">{saudeBadges(f)}</td>
+                    <td className="py-2 pr-3">
+                      <button type="button" onClick={() => setTravaDe(f)} title="Configurar a trava de instalação"
+                        className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${f.reauthAtivo ? 'bg-ok/15 text-ok' : 'bg-secondary text-muted-foreground'}`}>
+                        {f.reauthAtivo ? `🔒 ${f.reauthMetodo === 'totp' ? 'app' : 'e-mail'}` : '🔓 off'}
+                      </button>
+                    </td>
                     <td className="py-2 pr-3 text-xs text-muted-foreground">{dh(f.ultimoLogin)}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{f.versao ?? '—'}</td>
                     <td className="py-2">
@@ -169,6 +178,7 @@ export default function FrotaPage() {
           </div>
         </Card>
       </div>
+      {travaDe && <TravaModal ativacao={travaDe} onClose={() => setTravaDe(null)} onChange={carregar} />}
     </Shell>
   );
 }
