@@ -44,6 +44,10 @@ const INTERVAL = Number(process.env.SYNC_INTERVAL_MS || 60000);
 // fetch lança, o ciclo termina/libera e o próximo tick tenta de novo. 45s cobre pull/
 // push/restore grandes; ajustável por SYNC_FETCH_TIMEOUT_MS.
 const FETCH_TIMEOUT_MS = Number(process.env.SYNC_FETCH_TIMEOUT_MS || 45000);
+// Restore puxa páginas GRANDES (1000 linhas/tabela) do banco na nuvem (Oregon, latência)
+// → estourava os 45s, o cursor não avançava e o restore travava na mesma página. Timeout
+// próprio, folgado. Ajustável por SYNC_RESTORE_TIMEOUT_MS.
+const RESTORE_TIMEOUT_MS = Number(process.env.SYNC_RESTORE_TIMEOUT_MS || 120000);
 const FETCH_TENTATIVAS = Number(process.env.SYNC_FETCH_RETRIES || 3);
 
 // Extrai a CAUSA real de um erro de fetch. O undici aninha o motivo em e.cause[.cause]
@@ -68,7 +72,7 @@ function causaErro(e) {
 // Sem retry, o ciclo inteiro falhava e NADA sincronizava (o restore concluía só quando
 // o pool estava quente). Também cobre IPv6 instável e resets pontuais do CDN.
 function ehTransitorio(e) {
-  return /fetch failed|terminated|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE|UND_ERR|socket hang up|other side closed/i.test(causaErro(e));
+  return /fetch failed|terminated|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH|EPIPE|UND_ERR|socket hang up|other side closed|aborted due to timeout|operation was aborted|TimeoutError/i.test(causaErro(e));
 }
 
 // Gateway transitório do Cloudflare/origem (502/503/504): comum quando a origem está
@@ -494,32 +498,43 @@ async function restaurar() {
     // 2) puxa as transacionais da nuvem por delta e faz upsert local
     let cursor = await getState('restore_cursor', '1970-01-01T00:00:00Z');
     let total = 0;
+    // FK sem pai: ACUMULA entre páginas. O restore pagina por tabela (1000/tabela) com
+    // cursor por tabela, então uma FILHA (comanda_item, producao_pedido_item) pode chegar
+    // numa página ANTES do PAI (comanda, producao_pedido), que vem numa página posterior.
+    // Antes descartávamos por página → a filha sumia (vendas/comandas de hoje não desciam).
+    // Agora guardamos e re-tentamos no FIM, com todos os pais já presentes.
+    const orfaos = [];
     for (let pagina = 0; pagina < 5000; pagina++) {
       const res = await fetchT(`${CLOUD}/sync/restore?desde=${encodeURIComponent(cursor)}`, {
         headers: { 'x-sync-token': TOKEN },
-      });
+      }, RESTORE_TIMEOUT_MS);
       if (!res.ok) throw new Error(`restore HTTP ${res.status}: ${await res.text()}`);
       const data = await res.json();
       const linhas = Object.values(data.tabelas).reduce((s, r) => s + r.length, 0);
-      let pendentes = [];
       for (const [tabela, rows] of Object.entries(data.tabelas)) {
         for (const row of rows) {
           try { await upsertLocal(tabela, row); total++; }
-          catch (e) { if (e.code === '23503') pendentes.push([tabela, row]); else throw e; }
+          catch (e) { if (e.code === '23503') orfaos.push([tabela, row]); else throw e; }
         }
-      }
-      for (let passe = 0; passe < 3 && pendentes.length; passe++) {
-        const resta = [];
-        for (const [tabela, row] of pendentes) {
-          try { await upsertLocal(tabela, row); total++; }
-          catch (e) { if (e.code === '23503') resta.push([tabela, row]); else throw e; }
-        }
-        pendentes = resta;
       }
       if (!data.proximoCursor || data.proximoCursor === cursor || linhas === 0) break;
       cursor = data.proximoCursor;
       await setState('restore_cursor', cursor);
     }
+    // Varredura final dos órfãos (os pais de páginas posteriores já entraram). Várias
+    // passadas porque um órfão pode depender de outro (cadeia comanda→item→…); para quando
+    // uma passada não resolve mais nada (pai genuinamente ausente na nuvem = fica de fora).
+    let resta = orfaos;
+    for (let passe = 0; passe < 6 && resta.length; passe++) {
+      const proximo = [];
+      for (const [tabela, row] of resta) {
+        try { await upsertLocal(tabela, row); total++; }
+        catch (e) { if (e.code === '23503') proximo.push([tabela, row]); else throw e; }
+      }
+      if (proximo.length === resta.length) { resta = proximo; break; }
+      resta = proximo;
+    }
+    if (resta.length) console.warn(`  ${resta.length} linha(s) sem pai (FK) mesmo após varredura final do restore`);
     await setState('restaurado_em', new Date().toISOString());
     console.log(`Restauração concluída — ${total} linha(s) aplicadas.`);
   } finally {
