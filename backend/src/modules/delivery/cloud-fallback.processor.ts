@@ -55,7 +55,10 @@ export class CloudFallbackProcessor {
             isNull(pedidoExterno.comandaId),
             lt(pedidoExterno.criadoEm, corteIdade),
             sql`(${pedidoExterno.canal} is not null and ${pedidoExterno.canal} <> 'balcao')`,
-            sql`not exists (select 1 from ${edgeHeartbeat} hb where hb.tenant_id = ${pedidoExterno.tenantId} and hb.recebido_em >= ${corteHb})`,
+            // F2: resgata só se a UNIDADE do pedido não tem edge vivo — o edge da matriz
+            // NÃO "cobre" a filial (senão um pedido da filial com edge caído nunca seria
+            // resgatado). `hb.unidade_id is null` = heartbeat antigo (tenant-wide, transição).
+            sql`not exists (select 1 from ${edgeHeartbeat} hb where hb.tenant_id = ${pedidoExterno.tenantId} and hb.recebido_em >= ${corteHb} and (hb.unidade_id = ${pedidoExterno.unidadeId} or hb.unidade_id is null))`,
           ),
         )
         .limit(50);
