@@ -30,6 +30,7 @@ import {
   produto,
 } from '../../db/schema';
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
+import { edgeAtivo } from '../../common/edge-ativo';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { validarTokenMP } from '../../common/mercadopago';
@@ -319,15 +320,11 @@ export class DeliveryService {
 
   // A nuvem deve adiar a materialização deste pedido para o EDGE? Sim quando NÃO
   // estamos no edge E a loja tem um servidor edge com heartbeat recente (~3 min).
-  private async deferirParaEdge(tenantId: string): Promise<boolean> {
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return false;
-    const limite = new Date(Date.now() - 3 * 60 * 1000);
-    const [hb] = await this.db
-      .select({ id: edgeHeartbeat.id })
-      .from(edgeHeartbeat)
-      .where(and(eq(edgeHeartbeat.tenantId, tenantId), gte(edgeHeartbeat.recebidoEm, limite)))
-      .limit(1);
-    return !!hb;
+  private deferirParaEdge(tenantId: string, unidadeId: string | null = null): Promise<boolean> {
+    // Fonte única (edge-ativo.ts), agora POR UNIDADE: só defere ao edge se a LOJA do
+    // pedido tem edge vivo — não basta o tenant ter algum (senão a filial materializaria
+    // o pedido da matriz, e vice-versa).
+    return edgeAtivo(this.db, tenantId, unidadeId);
   }
 
   // ===== Ingestão (edge → nós) =====
@@ -461,7 +458,7 @@ export class DeliveryService {
     const cfg = await this.configRaw(tenantId, unidadeId);
     // P1: se a loja tem servidor edge ativo (modo local), a nuvem NÃO materializa —
     // o pedido desce pelo sync e o edge o processa localmente (KDS/estoque).
-    if (cfg?.autoAceitar && !extra?.naoAutoAceitar && !(await this.deferirParaEdge(tenantId))) {
+    if (cfg?.autoAceitar && !extra?.naoAutoAceitar && !(await this.deferirParaEdge(tenantId, unidadeId))) {
       try {
         return await this.aceitar(tenantId, null, row.id);
       } catch {
