@@ -112,3 +112,25 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
     ).rejects.toThrow();
   });
 });
+
+// Blindagem contra migration-lag (deploy antes da 220): instalarSelfService tolera as
+// colunas reauth_* ausentes tratando a trava como desligada, em vez de 500 (incidente
+// potitjf 31/08 16:14). ehColunaAusente é o discriminador que decide o que engolir.
+describe('LicencaService.ehColunaAusente — F3 tolerância a migration-lag', () => {
+  const svc: any = new LicencaService({} as any, {} as any);
+  it('reconhece 42703 (Postgres column does not exist)', () => {
+    expect(svc.ehColunaAusente({ code: '42703' })).toBe(true);
+  });
+  it('reconhece pela mensagem (o exato erro do potitjf)', () => {
+    expect(svc.ehColunaAusente(new Error('column "reauth_ativo" does not exist'))).toBe(true);
+  });
+  it('reconhece a causa aninhada (drizzle/pg encapsula)', () => {
+    expect(svc.ehColunaAusente({ message: 'query failed', cause: { code: '42703' } })).toBe(true);
+  });
+  it('NÃO engole outros erros (ex.: unique violation 23505)', () => {
+    expect(svc.ehColunaAusente({ code: '23505', message: 'duplicate key' })).toBe(false);
+  });
+  it('NÃO engole erro genérico sem código/mensagem de coluna', () => {
+    expect(svc.ehColunaAusente(new Error('timeout'))).toBe(false);
+  });
+});
