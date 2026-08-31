@@ -144,6 +144,7 @@ export class DistribuicaoService {
              e.trial_ate as "trialAte", e.assinatura_status as "assinaturaStatus",
              h.versao as "edgeVersao", h.recebido_em as "ultimoHeartbeat",
              h.estado as "edgeEstado", h.clientes, h.disco_livre_mb as "discoLivreMb", h.erro as "edgeErro",
+             h.saude, h.unidade_id as "unidadeId",
              -- Último login de QUALQUER pessoa da loja: mostra atividade mesmo em
              -- lojas sem edge (modo nuvem), onde o "último sinal" nunca chega.
              (select max(a.created_at) from audit_log a where a.tenant_id = e.id and a.acao = 'login') as "ultimoLogin",
