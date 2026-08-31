@@ -26,6 +26,30 @@ function statusLic(l: any): { k: string; label: string; cor: string } {
   return { k: 'valida', label: assinante ? 'Assinatura' : `Trial ${dias}d`, cor: 'text-emerald-400' };
 }
 
+// Saúde dos 5 serviços do edge (F1) — badge por serviço. Verde=Running, vermelho=parado/
+// ausente. Antes o /frota mostrava só "online" pelo heartbeat: Pg/Impressão caídos =
+// verde. Agora o suporte vê QUAL serviço caiu sem pedir Get-Service ao lojista.
+const SERVS: [string, string][] = [['pg', 'PG'], ['api', 'API'], ['sync', 'Sync'], ['impressao', 'Impr'], ['web', 'Web']];
+function saudeBadges(l: any) {
+  const s = l?.saude?.servicos;
+  if (!s) return <span className="text-xs text-slate-600">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {SERVS.map(([k, label]) => {
+        const st = s[k];
+        const ok = st === 'Running';
+        return (
+          <span key={k} title={`${label}: ${st ?? '?'}`}
+            className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${ok ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}`}>
+            {label}
+          </span>
+        );
+      })}
+      {l.saude?.restaurando && <span title={`restaurando (${l.saude.restoreProgresso ?? 0} linhas)`} className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] text-sky-400">restore</span>}
+    </div>
+  );
+}
+
 export default function DistHome() {
   const router = useRouter();
   const [me, setMe] = useState<any>(null);
@@ -199,12 +223,13 @@ export default function DistHome() {
             {filtroBar(false)}
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
-                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último login</th><th className="p-3">Último sinal</th>{podeTelemetria && <th className="p-3"></th>}</tr></thead>
+                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Serviços</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último login</th><th className="p-3">Último sinal</th>{podeTelemetria && <th className="p-3"></th>}</tr></thead>
                 <tbody>
                   {frota && filtrar(frota).map((l) => (
                     <tr key={l.id} className="border-t border-slate-800/70">
                       <td className="p-3"><div className="font-medium">{l.nome}</div><div className="text-xs text-slate-500">{l.cnpj ?? '(teste)'}</div></td>
                       <td className="p-3"><span className={online(l.ultimoHeartbeat) ? 'text-emerald-400' : 'text-slate-500'}>● {online(l.ultimoHeartbeat) ? 'online' : 'offline'}</span></td>
+                      <td className="p-3">{saudeBadges(l)}</td>
                       <td className="p-3 font-mono text-xs">{l.edgeVersao ?? '—'}</td>
                       <td className="p-3">{l.clientes ?? '—'}</td>
                       <td className="p-3">{l.errosAbertos > 0 ? <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-400">{l.errosAbertos}</span> : <span className="text-slate-600">0</span>}</td>
@@ -217,7 +242,7 @@ export default function DistHome() {
                       </div></td>}
                     </tr>
                   ))}
-                  {frota && filtrar(frota).length === 0 && <tr><td colSpan={podeTelemetria ? 8 : 7} className="p-6 text-center text-slate-500">Nenhuma loja no filtro.</td></tr>}
+                  {frota && filtrar(frota).length === 0 && <tr><td colSpan={podeTelemetria ? 9 : 8} className="p-6 text-center text-slate-500">Nenhuma loja no filtro.</td></tr>}
                 </tbody>
               </table>
             </div>
