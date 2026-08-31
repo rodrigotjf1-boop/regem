@@ -155,17 +155,23 @@ async function imprimirJob(job) {
 }
 
 // Busca a fila (join com equipamento para host/porta/largura/vias).
+// F2 (roteamento por loja): unidade DESTE edge. Setada → só imprime os jobs DELA + os
+// "da rede" (unidade_id null). O banco local tem o tenant inteiro (sync tenant-wide), então
+// o filtro é aqui. Vazio (1 loja / edge antigo) → tenant-wide, comportamento atual.
+const EDGE_UNIDADE = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
 async function pendentes() {
+  const filtro = EDGE_UNIDADE ? 'and (j.unidade_id = $1 or j.unidade_id is null)' : '';
+  const params = EDGE_UNIDADE ? [EDGE_UNIDADE] : [];
   const r = await pool.query(`
     select j.id, j.conteudo, j.tentativas,
            e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.vias, e.nome as impressora,
            e.linguagem_etiqueta as linguagem
     from impressao_job j
     left join equipamento e on e.id = j.equipamento_id
-    where j.status = 'pendente'
+    where j.status = 'pendente' ${filtro}
     order by j.criado_em asc
     limit 20
-  `);
+  `, params);
   return r.rows;
 }
 
