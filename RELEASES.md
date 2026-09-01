@@ -71,6 +71,8 @@ descia; `Restaurar` imprimia "solicitada" e **nunca puxava**.
 
 | Versão | Data | Tipo | Notas |
 |---|---|---|---|
+| 1.28.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | **rebase de seq** (para o flood de "REGRESSÃO" na reinstalação) + **time-box no push** (20s/ciclo → o pull roda e o pedido novo desce) (#414); nuvem (seq) por autodeploy |
+| 1.27.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | **carga do snapshot em LOTE** (500/bloco → restore em segundos, não 10 min) + **push set-based** na nuvem (mata o 502 do upload) + **UI de restore** (barra/progresso/erro) (#413) |
 | 1.26.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | **restore por SNAPSHOT** (arquivo NDJSON gzip por tenant, carga com FK off) substitui a paginação (#411); F1 nuvem por autodeploy + F2 edge no .exe (88 MB) |
 | 1.25.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | fix restore paginado: baixa-primeiro + sempre completo + log por página (#409) — page-by-page ainda não carregava local → aposentado no 1.26 |
 | 1.24.0 | 31/08/2026 | .exe + .zip (a compilar/publicar) | F1 saúde + F2 impressão/unidade + F3 trava anti-clone/instalador 2FA + blindagem migration-lag; superset dos fixes de sync 1.22/1.23 (#397–#407); migs 219+220 na nuvem |
