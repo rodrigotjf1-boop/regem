@@ -809,19 +809,21 @@ export class DeliveryService {
     return row;
   }
 
-  // Auto-impressão (EDGE) da 1ª via do caixa do pedido externo. Entrega (não retirada)
-  // com o toggle ligado leva o QR de despacho ({base}/e/{token}) na própria comanda — o
-  // entregador escaneia dela, sem o cupom do entregador separado. Best-effort.
+  // URL do QR de despacho ({base}/e/{token}) que vai na 1ª via da comanda em ENTREGA (não
+  // retirada) com o toggle ligado — o entregador escaneia dela. Reusado pela 1ª impressão E
+  // pela REIMPRESSÃO (sem isto a reimpressão saía sem o QR — bug relatado 01/09).
+  private async qrDespacho(tenantId: string, ped: any): Promise<string | undefined> {
+    if (ped.tipo === 'retirada') return undefined;
+    const cfg: any = await this.getConfig(tenantId, ped.unidadeId ?? null);
+    if (cfg?.imprimirQrComanda === false) return undefined;
+    const token = await this.tokenDespacho(tenantId, ped.id);
+    const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
+    return `${base}/e/${token}`;
+  }
+
+  // Auto-impressão (EDGE) da 1ª via do caixa do pedido externo. Best-effort.
   private async imprimirCupomCaixaExterno(tenantId: string, ped: any) {
-    let qrData: string | undefined;
-    if (ped.tipo !== 'retirada') {
-      const cfg: any = await this.getConfig(tenantId, ped.unidadeId ?? null);
-      if (cfg?.imprimirQrComanda !== false) {
-        const token = await this.tokenDespacho(tenantId, ped.id);
-        const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
-        qrData = `${base}/e/${token}`;
-      }
-    }
+    const qrData = await this.qrDespacho(tenantId, ped);
     await this.vendas.materializarCupomCaixa(tenantId, ped.comandaId, qrData);
   }
 
@@ -1744,7 +1746,10 @@ export class DeliveryService {
     const ped = await this.carregar(tenantId, id);
     if (!ped.comandaId)
       throw new BadRequestException('Pedido ainda não aceito (sem via para imprimir).');
-    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId, alvoPreferido);
+    // Passa o MESMO QR de despacho da 1ª via ({base}/e/{token}) — senão a reimpressão sai
+    // sem o QR e o entregador não tem o que escanear (bug relatado 01/09).
+    const qrData = await this.qrDespacho(tenantId, ped);
+    return this.vendas.reimprimirViasExterno(tenantId, atorId, ped.comandaId, alvoPreferido, qrData);
   }
 
   // ===== Integrações (credenciais de apps externos) =====
