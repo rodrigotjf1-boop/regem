@@ -432,6 +432,12 @@ async function push() {
   // bloco. Menos chance de 413 e progresso persistido (o cursor só avança após o
   // request do bloco dar certo — se cair no meio, retoma de onde parou).
   const PUSH_MAX = Number(process.env.SYNC_PUSH_MAX_LINHAS || 200);
+  // TIME-BOX: o push NÃO pode monopolizar o ciclo. Sem isto, empurrar um backlog grande
+  // (ex.: re-push das ~25k linhas do snapshot) rodava minutos numa chamada só e o PULL não
+  // rodava nesse tempo → pedido novo não descia. Fatia de 20s por ciclo; o cursor persiste
+  // (setState por bloco), então o próximo ciclo continua de onde parou.
+  const PUSH_LIMITE_MS = Number(process.env.SYNC_PUSH_LIMITE_MS || 20000);
+  const push_inicio = Date.now();
   let total = 0;
   for (const t of PUSH_TABLES) {
     if (!(await colunas(t.tabela)).size) continue;
@@ -451,6 +457,10 @@ async function push() {
       cur = new Date(max).toISOString();
       await setState(`push_${t.tabela}`, cur);
       total += r.rows.length;
+      if (Date.now() - push_inicio > PUSH_LIMITE_MS) {
+        console.log(`  push: fatia de ${PUSH_LIMITE_MS}ms atingida (${total} linha(s)) — libera o ciclo; continua no próximo`);
+        return total;
+      }
       if (r.rows.length < PUSH_MAX) break; // última página desta tabela
     }
   }

@@ -72,17 +72,26 @@ export class SyncService {
     const row0 = (r.rows ?? r)[0] ?? {};
     const last = Number(row0.s) || 0;
     const n = Number(seq);
+    // Reinstalação LIMPA zera o contador do edge (seq volta a 1). Sem tratar, o edge fica
+    // ETERNAMENTE "regredindo" (1<14110, 2<14110…) e FLODA o log a cada push. Queda GRANDE
+    // (>50) = reinstalação → ACEITA o novo baseline (rebaseia last=n) e loga UMA vez; queda
+    // pequena = duplicata real → só avisa. A segurança anti-replay real é a janela de 15min
+    // do ts (acima) + a assinatura HMAC — o seq é secundário.
+    const reinstalou = n < last && last - n > 50;
     if (n > last + 1) this.logger.warn(`GAP de sync (dev ${dev}): seq ${last} → ${n} — lotes omitidos?`);
-    else if (n < last) this.logger.warn(`REGRESSÃO de seq (dev ${dev}): ${n} < ${last} — restauração/duplicata?`);
+    else if (reinstalou) this.logger.log(`sequência de push REINICIADA (dev ${dev}): ${last} → ${n} (reinstalação) — rebaseando; para de avisar.`);
+    else if (n < last) this.logger.warn(`REGRESSÃO de seq (dev ${dev}): ${n} < ${last} — duplicata?`);
     // Anti-rollback de relógio: o ts do push nunca deveria retroceder.
     const tsAtual = new Date(ts).getTime();
     const tsMax = row0.t ? new Date(row0.t).getTime() : 0;
     if (tsAtual < tsMax) {
       this.logger.warn(`RELÓGIO retrocedeu (dev ${dev}): ${new Date(ts).toISOString()} < ${new Date(tsMax).toISOString()} — possível backdating.`);
     }
-    if (n > last || tsAtual > tsMax) {
+    // Avança (n>last) OU REBASEIA no reset (reinstalou → last=n) OU só o ts. No reset, o
+    // próximo push (n+1 > n) já é normal → o spam para na 1ª linha.
+    if (n > last || reinstalou || tsAtual > tsMax) {
       await this.db.execute(sql`update equipamento set
-        last_push_seq = ${Math.max(n, last)},
+        last_push_seq = ${reinstalou ? n : Math.max(n, last)},
         last_push_ts = ${new Date(Math.max(tsAtual, tsMax)).toISOString()}
         where id = ${ctx.equipamentoId}`);
     }
