@@ -931,8 +931,28 @@ export class EntregadorService {
     return rota ?? c?.rota ?? null;
   }
 
-  // M5 — ETA acumulado (minutos): soma as pernas da posição atual do entregador pelas
-  // paradas PENDENTES da saída até a deste pedido (distância reta ÷ velocidade média).
+  // Duração real (minutos) de uma rota por N waypoints via OSRM (só o tempo, sem geometria).
+  // FALLBACK: null se sem OSRM_URL / fora / erro → o chamador usa a reta.
+  private async duracaoRotaOsrm(coords: { lat: number; lng: number }[]): Promise<number | null> {
+    const base = (process.env.OSRM_URL || '').replace(/\/$/, '');
+    if (!base || coords.length < 2) return null;
+    try {
+      const pares = coords.map((c) => `${c.lng},${c.lat}`).join(';');
+      const res = await fetch(`${base}/route/v1/driving/${pares}?overview=false`, {
+        signal: AbortSignal.timeout(4000),
+      });
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      const rt = j?.routes?.[0];
+      if (j?.code !== 'Ok' || rt?.duration == null) return null;
+      return Math.max(1, Math.round(Number(rt.duration) / 60));
+    } catch {
+      return null;
+    }
+  }
+
+  // M5 — ETA acumulado (minutos): tempo REAL pelas ruas (OSRM) da posição do entregador
+  // pelas paradas PENDENTES da saída até a deste pedido. Fallback: distância reta ÷ 25 km/h.
   private async etaAcumulado(
     tenantId: string,
     ped: any,
@@ -944,15 +964,21 @@ export class EntregadorService {
       where tenant_id = ${tenantId} and saida_id = ${ped.saida_id} and ordem_parada <= ${ped.ordem_parada}
         and status not in ('entregue', 'concluido', 'cancelado')
       order by ordem_parada asc`);
-    let cur = driverPos;
-    let dist = 0;
+    // Sequência: posição do entregador → paradas pendentes até esta (na ordem).
+    const coords: { lat: number; lng: number }[] = [driverPos];
     for (const s of r.rows ?? r) {
       const c = await this.coordDoPedido(tenantId, s);
-      if (!c) continue;
-      dist += this.distanciaM(cur.lat, cur.lng, c.lat, c.lng);
-      cur = c;
+      if (c) coords.push(c);
     }
-    const mPorMin = 25000 / 60; // 25 km/h
+    if (coords.length < 2) return null;
+    // ETA real pelas ruas (OSRM); fallback: distância reta ÷ 25 km/h se o OSRM estiver fora.
+    const osrm = await this.duracaoRotaOsrm(coords);
+    if (osrm != null) return osrm;
+    let dist = 0;
+    for (let i = 1; i < coords.length; i++) {
+      dist += this.distanciaM(coords[i - 1].lat, coords[i - 1].lng, coords[i].lat, coords[i].lng);
+    }
+    const mPorMin = 25000 / 60; // 25 km/h (fallback)
     return dist > 0 ? Math.max(1, Math.round(dist / mPorMin)) : null;
   }
 
