@@ -30,7 +30,7 @@ type Dados = {
 export default function RastreioPage() {
   const params = useParams<{ token: string }>();
   const token = String(params?.token ?? '');
-  const mapEl = useRef<HTMLDivElement>(null);
+  const mapEl = useRef<HTMLDivElement | null>(null);
   const mapObj = useRef<any>(null);
   const Lref = useRef<any>(null);
   const driverMk = useRef<any>(null);
@@ -41,14 +41,19 @@ export default function RastreioPage() {
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
 
-  // Mapa só no cliente (Leaflet acessa window).
-  useEffect(() => {
-    let cancel = false;
+  // Mapa só no cliente (Leaflet acessa window). Inicializa via CALLBACK REF: o container do
+  // mapa é renderizado condicionalmente (dentro do ramo `dados`), então um useEffect deps []
+  // rodava na montagem quando o <div> AINDA não existia → retornava cedo, o mapa nunca subia
+  // e setPronto(true) nunca disparava (caixa branca). O callback ref dispara quando o <div>
+  // monta de fato (quando `dados` chega).
+  const initMap = useCallback((node: HTMLDivElement | null) => {
+    mapEl.current = node;
+    if (!node || mapObj.current) return;
     (async () => {
       const L = await import('leaflet');
-      if (cancel || !mapEl.current || mapObj.current) return;
+      if (!mapEl.current || mapObj.current) return; // desmontou antes do import resolver
       Lref.current = L;
-      const map = L.map(mapEl.current, { zoomControl: false }).setView([-14.235, -51.925], 4);
+      const map = L.map(node, { zoomControl: false }).setView([-14.235, -51.925], 4);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap',
         maxZoom: 19,
@@ -56,14 +61,16 @@ export default function RastreioPage() {
       mapObj.current = map;
       setPronto(true);
     })();
-    return () => {
-      cancel = true;
+  }, []);
+  useEffect(
+    () => () => {
       if (mapObj.current) {
         mapObj.current.remove();
         mapObj.current = null;
       }
-    };
-  }, []);
+    },
+    [],
+  );
 
   const carregar = useCallback(async () => {
     if (typeof document !== 'undefined' && document.hidden) return;
@@ -218,7 +225,7 @@ export default function RastreioPage() {
             )}
 
             <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
-              <div ref={mapEl} style={{ height: 360, width: '100%' }} />
+              <div ref={initMap} style={{ height: 360, width: '100%' }} />
             </div>
 
             <p style={{ fontSize: 13, color: '#48586a', marginTop: 12 }}>
