@@ -15,6 +15,8 @@ import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { createHash, createHmac } from 'node:crypto';
+import zlib from 'node:zlib';
+import { Readable } from 'node:stream';
 import dns from 'node:dns';
 // Preferir IPv4 nas resoluções DNS. Num SERVIÇO do Windows o IPv6 costuma NÃO rotear
 // (o processo do USUÁRIO conecta por IPv6 e dá 200; o do serviço falha) → o daemon
@@ -48,6 +50,9 @@ const FETCH_TIMEOUT_MS = Number(process.env.SYNC_FETCH_TIMEOUT_MS || 45000);
 // → estourava os 45s, o cursor não avançava e o restore travava na mesma página. Timeout
 // próprio, folgado. Ajustável por SYNC_RESTORE_TIMEOUT_MS.
 const RESTORE_TIMEOUT_MS = Number(process.env.SYNC_RESTORE_TIMEOUT_MS || 120000);
+// Snapshot (Trilha A): download de UM arquivo (todo o transacional da janela) — janela
+// larga. Ajustável por SYNC_SNAPSHOT_TIMEOUT_MS.
+const SNAPSHOT_TIMEOUT_MS = Number(process.env.SYNC_SNAPSHOT_TIMEOUT_MS || 300000);
 const FETCH_TENTATIVAS = Number(process.env.SYNC_FETCH_RETRIES || 3);
 
 // Extrai a CAUSA real de um erro de fetch. O undici aninha o motivo em e.cause[.cause]
@@ -234,7 +239,9 @@ async function setState(k, v) {
 // edge não volta pra 'aberta' por um delta atrasado/materialização tardia da nuvem.
 const ESTADOS_TERMINAIS = { comanda: ['fechada', 'cancelada'] };
 
-async function upsertLocal(tabela, row) {
+// exec = executor da query: `pool` no pull/restore normal; um CLIENT de transação no
+// restore por snapshot (carga atômica com FK desligada). Default = pool (retrocompatível).
+async function upsertLocal(tabela, row, exec = pool) {
   const cols = await colunas(tabela);
   const keys = Object.keys(row).filter((k) => cols.has(k));
   if (!keys.includes('id')) return;
@@ -243,7 +250,7 @@ async function upsertLocal(tabela, row) {
   const vals = keys.map((k) => coerce(row[k]));
   // Append puro (sem colunas mutáveis) → insere ou ignora.
   if (!setCols.length) {
-    await pool.query(
+    await exec.query(
       `insert into ${q(tabela)} (${keys.map(q).join(',')}) values (${ph.join(',')})
        on conflict (id) do nothing`,
       vals,
@@ -265,7 +272,7 @@ async function upsertLocal(tabela, row) {
     cond.push(`not (${q(tabela)}.status in (${lst}) and excluded.status not in (${lst}))`);
   }
   const whereSql = cond.length ? ` where ${cond.join(' and ')}` : '';
-  await pool.query(
+  await exec.query(
     `insert into ${q(tabela)} (${keys.map(q).join(',')}) values (${ph.join(',')})
      on conflict (id) ${setSql}${whereSql}`,
     vals,
@@ -542,6 +549,69 @@ async function heartbeat(pullN, pushN, erro, comSaude) {
   } catch { /* heartbeat é best-effort */ }
 }
 
+// Restore por SNAPSHOT (Trilha A) — robusto. Baixa /sync/snapshot (NDJSON gzip, corpo
+// OPACO → gunzip explícito) com TODO o transacional da loja (escopado pelo token) e carrega
+// numa TRANSAÇÃO com session_replication_role=replica (FK/triggers OFF → sem ordem
+// pai/filho, fim do "sem pai (FK)"). Substitui o restore linha-a-linha; se falhar, o
+// chamador cai no restaurar() antigo. Só COMMITA se recebeu o __fim (parcial = rollback).
+async function restaurarSnapshot() {
+  console.log('Restore (snapshot): baixando o arquivo da nuvem…');
+  await setState('restaurar_solicitado', '0');
+  await setState('restaurando', '1');
+  try {
+    const res = await fetchT(`${CLOUD}/sync/snapshot`, { headers: { 'x-sync-token': TOKEN } }, SNAPSHOT_TIMEOUT_MS);
+    if (!res.ok) throw new Error(`snapshot HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+    const gunzip = zlib.createGunzip();
+    Readable.fromWeb(res.body).pipe(gunzip);
+    const client = await pool.connect();
+    let total = 0, fimOk = false, tabelaAtual = null;
+    try {
+      await client.query('begin');
+      // FK/triggers OFF durante a carga (o postgres local é superuser). O arquivo entra em
+      // qualquer ordem — acaba o "sem pai (FK)" e a dependência de ordem pai→filho.
+      await client.query('set session_replication_role = replica');
+      const aplicar = async (linha) => {
+        if (!linha) return;
+        const obj = JSON.parse(linha);
+        if (obj.__fim) { fimOk = true; return; }
+        if (obj.__t) { tabelaAtual = obj.__t; return; }
+        if (tabelaAtual) {
+          await upsertLocal(tabelaAtual, obj, client);
+          total++;
+          if (total % 5000 === 0) { console.log(`  snapshot: ${total} linha(s)…`); try { await setState('restore_progresso', String(total)); } catch { /* best-effort */ } }
+        }
+      };
+      let buffer = '';
+      for await (const chunk of gunzip) {
+        buffer += chunk.toString('utf8');
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const linha = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          await aplicar(linha);
+        }
+      }
+      await aplicar(buffer.trim());
+      if (!fimOk) throw new Error('snapshot incompleto (sem marcador __fim) — carga descartada');
+      await client.query('commit');
+      await setState('restaurado_em', new Date().toISOString());
+      await setState('restore_progresso', String(total));
+      console.log(`Restore (snapshot) CONCLUÍDO — ${total} linha(s) aplicadas.`);
+    } catch (e) {
+      try { await client.query('rollback'); } catch { /* ignore */ }
+      throw e;
+    } finally {
+      try { await client.query('set session_replication_role = origin'); } catch { /* ignore */ }
+      client.release();
+    }
+    // Push do pendente por último — best-effort, NUNCA trava o download.
+    try { await push(); } catch (e) { console.warn(`  push pós-snapshot (best-effort): ${e.message}`); }
+    return total;
+  } finally {
+    await setState('restaurando', '0');
+  }
+}
+
 // RESTAURAÇÃO sob demanda (botão do app): volta ao modo local após operar na
 // nuvem. 2 tempos, aditivo (upsert por id, nunca apaga o que é só local):
 //   1) EMPURRA o operacional local pendente pra nuvem (não perde venda de antes
@@ -688,7 +758,16 @@ async function ciclo() {
     // Restauração sob demanda (botão do app grava a flag em sync_state).
     if ((await getState('restaurar_solicitado', '0')) === '1') {
       await heartbeat(p, u, erro); // ping ANTES do restore longo (mantém a nuvem deferindo)
-      try { await restaurar(); } catch (e) { console.error(`Restauração FALHOU: ${e.message}`); }
+      // RESTORE = SNAPSHOT (arquivo). A paginação linha-a-linha foi APOSENTADA (frágil a
+      // 502-por-lote/FK/cursor, "não carregava local" — decisão do gestor 01/09). Baixa UM
+      // arquivo da nuvem e carrega numa transação com FK desligada. Sem fallback pro
+      // page-by-page: se falhar, loga/telemetra e o gestor re-dispara (a flag já foi consumida).
+      try {
+        await restaurarSnapshot();
+      } catch (e) {
+        console.error(`Restore (snapshot) FALHOU: ${causaErro(e)}`);
+        await reportarTelemetria('sync', 'snapshot_erro', causaErro(e));
+      }
     }
     await licenca();
     await verificarComandos();
