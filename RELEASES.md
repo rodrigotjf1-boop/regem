@@ -10,6 +10,16 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → publica no console de distribuição.
 
+## Acumulado (NÃO empacotado) — próximo `.exe`/`.zip` do edge
+
+Mudanças **do edge** já na `main` (ou em branch) aguardando o próximo corte:
+- **Reimpressão do delivery leva o QR de despacho (#416, na `main`):** `delivery.service`/`vendas.reimprimirViasExterno` — a reimpressão local rodava sem o `@QR`. → **`.zip` + `.exe`** (backend do edge).
+- **Seed de cursor no fim do restore + log carimbado (branch `feat/edge-cursor-seed-log-ts`, ⚠️ NÃO mesclado):** `sync-daemon.mjs` — após `-Limpar` o ciclo baixa só o novo (não re-baixa os 60 dias) + `[data-hora]` em toda linha do log. → **`.zip` + `.exe`**. **Mesclar o branch antes de cortar.**
+
+> **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
+
+Cortar quando o gestor pedir: `build-release.ps1 -Versao X.Y.Z` de worktree off `origin/main` (que já terá o #416 + o branch mesclado).
+
 ## F1/F2/F3 — ✅ cortado no 1.24.0 (31/08)
 
 Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado e **empacotado no 1.24.0**:
