@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { SyncService } from './sync.service';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from './sync-token.guard';
 import { SyncPushDto } from './dto/push.dto';
@@ -23,6 +24,13 @@ export class SyncController {
   @Get('restore')
   restore(@SyncCtx() ctx: SyncCtxData, @Query('desde') desde?: string) {
     return this.service.restore(ctx.tenantId, desde);
+  }
+
+  // SNAPSHOT (Trilha A): estado transacional da loja como UM arquivo NDJSON gzip. O edge
+  // baixa e carrega de uma vez (FK desligada). @Res() → o service streama a resposta.
+  @Get('snapshot')
+  snapshot(@SyncCtx() ctx: SyncCtxData, @Res() res: Response) {
+    return this.service.snapshot(ctx.tenantId, res);
   }
 
   @Post('push')

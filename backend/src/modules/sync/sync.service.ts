@@ -8,6 +8,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { timingSafeEqual } from 'node:crypto';
+import { createGzip } from 'node:zlib';
+import type { Response } from 'express';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -112,6 +114,66 @@ export class SyncService {
   // por id (aditivo). Autenticado pelo mesmo sync token (tenant forçado).
   async restore(tenantId: string, desde?: string) {
     return this.deltas(tenantId, TABELAS_RESTORE, desde);
+  }
+
+  // ===== SNAPSHOT (Trilha A) — restore por ARQUIVO, robusto =====
+  // Exporta as TRANSACIONAIS da loja como UM stream NDJSON gzip, escopado pelo tenant do
+  // TOKEN (nunca cross-tenant). O edge baixa e carrega de uma vez, com FK desligada, no
+  // lugar do restore linha-a-linha (que sofria 502-por-lote, ordem de FK e cursor
+  // adiantado). Keyset por `id` NATIVO (uuid, usa o índice da PK; sem tie/skip); respeita
+  // a janela mirror_dias do transacional pesado. Cada tabela vem precedida de {"__t":nome};
+  // o fim é {"__fim":true,...} — o edge só aplica se recebeu o __fim (senão descarta).
+  async snapshot(tenantId: string, res: Response) {
+    // gzip como CORPO OPACO (octet-stream), NÃO Content-Encoding: assim nem o cliente nem
+    // a Cloudflare descomprimem/recomprimem sozinhos — o edge gunzipa explícito (determinístico).
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Cache-Control', 'no-store');
+    const gz = createGzip();
+    gz.pipe(res);
+    const escrever = (obj: unknown) =>
+      new Promise<void>((resolve, reject) => {
+        gz.write(JSON.stringify(obj) + '\n', (err) => (err ? reject(err) : resolve()));
+      });
+    const UUID_MIN = '00000000-0000-0000-0000-000000000000';
+    try {
+      const dias = await this.mirrorDias(tenantId);
+      let total = 0;
+      for (const t of TABELAS_RESTORE) {
+        const colunas = await this.colunasDe(t.tabela);
+        // Segurança/robustez: precisa de `id` (keyset) e `tenant_id` (escopo). Sem um
+        // deles, pula a tabela — jamais exporta sem filtro de loja.
+        if (!colunas.has('id') || !colunas.has('tenant_id')) continue;
+        const janelaCol = colunas.has('created_at') ? 'created_at' : t.cursor;
+        const janela =
+          TABELAS_JANELA_MIRROR.has(t.tabela) && colunas.has(janelaCol)
+            ? sql` and ${sql.identifier(janelaCol)} >= now() - (${dias} * interval '1 day')`
+            : sql``;
+        await escrever({ __t: t.tabela });
+        let ultimoId = UUID_MIN;
+        for (;;) {
+          const r: any = await this.db.execute(sql`
+            select * from ${sql.identifier(t.tabela)}
+            where tenant_id = ${tenantId}${janela} and id > ${ultimoId}::uuid
+            order by id asc limit 1000`);
+          const rows = (r.rows ?? r) as any[];
+          if (!rows.length) break;
+          for (const row of rows) {
+            await escrever(row);
+            total++;
+          }
+          ultimoId = String(rows[rows.length - 1].id);
+          if (rows.length < 1000) break;
+        }
+      }
+      await escrever({ __fim: true, linhas: total });
+      this.logger.log(`snapshot: loja ${tenantId} → ${total} linha(s)`);
+    } catch (e: any) {
+      // Já pipamos o gzip → não dá pra trocar por 500. Encerramos SEM __fim; o edge
+      // detecta a ausência do marcador final e DESCARTA (não aplica um snapshot parcial).
+      this.logger.error(`snapshot loja ${tenantId} FALHOU: ${e?.message ?? e}`);
+    } finally {
+      gz.end();
+    }
   }
 
   // Janela de espelho (mirror_dias) da empresa — quantos dias de transacional pesado
