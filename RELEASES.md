@@ -10,6 +10,14 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → publica no console de distribuição.
 
+## Acumulado (NÃO empacotado ainda) — candidato a `1.29.0`
+
+Mudanças de **edge (`sync-daemon.mjs`)** prontas no branch `feat/edge-cursor-seed-log-ts`, aguardando corte (o gestor validando o 1.28 primeiro):
+- **Seed de cursor ao fim do restore** (fecha a Solução A): grava a marca-d'água das **9 tabelas do snapshot** em `pull_cursores` (+ `push_*` se a base estava vazia = `-Limpar`) → após reinstalar, o ciclo baixa **só o que é novo** (pedido de hoje em ~1 ciclo) no lugar de re-baixar/re-enviar os 60 dias que o snapshot já trouxe. **Só as 9**: catálogo/controle fica de fora (segue o piso global 1970). **Sem tocar na nuvem.**
+- **Log carimbado**: `[data-hora]` ISO em toda linha do daemon (some a confusão de misturar restore antigo com novo no arquivo rolante — nos custou tempo em 01/09).
+
+Corte = **`.zip` + `.exe`** (tocou `sync-daemon`). Só quando o gestor pedir ou acumular mais. **1.28 = sync ponta a ponta OK** (recebe pedido + sobe status), então não há urgência.
+
 ## F1/F2/F3 — ✅ cortado no 1.24.0 (31/08)
 
 Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado e **empacotado no 1.24.0**:
