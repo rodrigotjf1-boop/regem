@@ -16,6 +16,35 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL || 'https://api.dmsregem.com/api/v1';
 }
 
+// Decodifica polyline6 (OSRM geometries=polyline6) → [[lat,lng],...] p/ o Leaflet.
+function decodePolyline6(str: string): [number, number][] {
+  let index = 0,
+    lat = 0,
+    lng = 0;
+  const coords: [number, number][] = [];
+  while (index < str.length) {
+    let b: number,
+      shift = 0,
+      result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    shift = 0;
+    result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    coords.push([lat / 1e6, lng / 1e6]);
+  }
+  return coords;
+}
+
 type Dados = {
   numero: number | null;
   status: string;
@@ -25,6 +54,7 @@ type Dados = {
   parada: { x: number; y: number } | null;
   etaMin: number | null;
   codigoEntrega: string | null;
+  rota: { geometry: string; duracaoMin: number; distanciaM: number } | null;
 };
 
 export default function RastreioPage() {
@@ -35,6 +65,7 @@ export default function RastreioPage() {
   const Lref = useRef<any>(null);
   const driverMk = useRef<any>(null);
   const destMk = useRef<any>(null);
+  const rotaLine = useRef<any>(null);
   const enquadrado = useRef(false);
   const [pronto, setPronto] = useState(false);
   const [dados, setDados] = useState<Dados | null>(null);
@@ -133,6 +164,21 @@ export default function RastreioPage() {
       const icon = L.divIcon({ className: '', html, iconSize: [0, 0], iconAnchor: [0, 0] });
       if (driverMk.current) driverMk.current.setLatLng(pos).setIcon(icon);
       else driverMk.current = L.marker(pos, { icon }).addTo(map);
+    }
+
+    // Rota real (OSRM) — traçado pelas ruas do entregador até o destino. Atualiza quando o
+    // backend recalcula (entregador andou). Sem rota (OSRM fora / não despachado) → remove.
+    const geo = dados.rota?.geometry;
+    if (geo) {
+      const linha = decodePolyline6(geo);
+      if (linha.length) {
+        pts.push(...linha);
+        if (rotaLine.current) rotaLine.current.setLatLngs(linha);
+        else rotaLine.current = L.polyline(linha, { color: OURO, weight: 5, opacity: 0.85 }).addTo(map);
+      }
+    } else if (rotaLine.current) {
+      map.removeLayer(rotaLine.current);
+      rotaLine.current = null;
     }
 
     if (pts.length && !enquadrado.current) {

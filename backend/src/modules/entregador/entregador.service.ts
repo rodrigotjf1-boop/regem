@@ -873,6 +873,64 @@ export class EntregadorService {
     }
   }
 
+  // Rota real (OSRM self-hosted) do entregador até o destino, p/ desenhar no rastreio do
+  // cliente. Geometria polyline6 (o front decodifica). FALLBACK: sem OSRM_URL ou OSRM fora
+  // → null (o rastreio segue sem a linha, sem quebrar). Timeout curto p/ não pendurar.
+  private async rotaOsrm(
+    from: { lat: number; lng: number },
+    to: { lat: number; lng: number },
+  ): Promise<{ geometry: string; duracaoMin: number; distanciaM: number } | null> {
+    const base = (process.env.OSRM_URL || '').replace(/\/$/, '');
+    if (!base) return null;
+    try {
+      const url =
+        `${base}/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}` +
+        `?overview=full&geometries=polyline6`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      const rt = j?.routes?.[0];
+      if (j?.code !== 'Ok' || !rt?.geometry) return null;
+      return {
+        geometry: String(rt.geometry),
+        duracaoMin: Math.max(1, Math.round(Number(rt.duration) / 60)),
+        distanciaM: Math.round(Number(rt.distance)),
+      };
+    } catch {
+      return null; // OSRM fora / timeout → sem rota
+    }
+  }
+
+  // Cache de rota por pedido: só RECALCULA quando o entregador ANDOU (> 100 m) desde o
+  // último cálculo (regra do gestor: "quando o entregador andar"), ou sem cache / velho
+  // demais. Evita bater no OSRM a cada poll de cada viewer. Se o OSRM falhar agora mas havia
+  // cache, mantém o traçado anterior.
+  private rotaCache = new Map<
+    string,
+    { pos: { lat: number; lng: number }; dest: { lat: number; lng: number }; rota: any; ts: number }
+  >();
+  private async rotaComCache(
+    chave: string,
+    pos: { lat: number; lng: number },
+    dest: { lat: number; lng: number },
+  ) {
+    const MOVEU_M = 100;
+    const MAX_MS = 5 * 60 * 1000;
+    const c = this.rotaCache.get(chave);
+    const agora = Date.now();
+    if (
+      c &&
+      agora - c.ts < MAX_MS &&
+      this.distanciaM(c.pos.lat, c.pos.lng, pos.lat, pos.lng) < MOVEU_M &&
+      this.distanciaM(c.dest.lat, c.dest.lng, dest.lat, dest.lng) < MOVEU_M
+    ) {
+      return c.rota;
+    }
+    const rota = await this.rotaOsrm(pos, dest);
+    if (rota) this.rotaCache.set(chave, { pos, dest, rota, ts: agora });
+    return rota ?? c?.rota ?? null;
+  }
+
   // M5 — ETA acumulado (minutos): soma as pernas da posição atual do entregador pelas
   // paradas PENDENTES da saída até a deste pedido (distância reta ÷ velocidade média).
   private async etaAcumulado(
@@ -944,6 +1002,12 @@ export class EntregadorService {
       !['entregue', 'concluido', 'cancelado'].includes(String(ped.status))
         ? String(ped.codigo_entrega)
         : null;
+    // Rota real (OSRM) SÓ quando o entregador está a caminho (regra do gestor: rastreio só
+    // quando indo até o cliente) — traçado entregador → este destino.
+    const rota =
+      String(ped.status) === 'despachado' && pos && destino
+        ? await this.rotaComCache(String(ped.id ?? tk), pos, destino)
+        : null;
     return {
       numero: ped.numero,
       status: String(ped.status),
@@ -952,6 +1016,7 @@ export class EntregadorService {
       destino, // { lat, lng } | null
       parada, // { x, y } | null
       etaMin: eta,
+      rota, // { geometry(polyline6), duracaoMin, distanciaM } | null — traçado real p/ o mapa
       codigoEntrega, // o cliente informa ao entregador na entrega
     };
   }
