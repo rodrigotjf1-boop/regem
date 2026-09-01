@@ -19,7 +19,21 @@ Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado e *
 
 > Empacotado no **1.24.0** (abaixo). Migrations: **219 (F1)** e **220 (F3)** aplicadas na nuvem (31/08).
 
-## Última release: `1.25.0` — cortada (01/09/2026), **.exe COMPILADO** ✅
+## Última release: `1.26.0` — cortada (01/09/2026), **.exe COMPILADO** ✅ (SNAPSHOT)
+
+**Restore por SNAPSHOT (arquivo)** substitui a paginação linha-a-linha (#411) — decisão do
+gestor: o page-by-page não carregava local e era frágil (502/FK/cursor).
+- **Nuvem (F1):** `GET /sync/snapshot` (escopo por tenant do token) streama todo o
+  transacional da loja como **NDJSON gzip opaco** (Cloudflare-safe: `/sync/` no skip +
+  stream escapa do 524). Deploy por **autodeploy** no merge.
+- **Edge (F2):** `restaurarSnapshot()` baixa o arquivo e carrega numa **transação com FK
+  desligada** (`session_replication_role=replica`) — sem ordem pai/filho, sem "sem pai (FK)";
+  só commita com o `__fim`. O gatilho do restore chama **só** o snapshot (paginação removida).
+- **`.exe`** = dist 1.24 (web.tar/backend íntegros) **+ daemon novo** + version 1.26.0;
+  preflight OK; compilado no Inno (88 MB). Sem migration. **F1 precisa estar deployado** na
+  nuvem antes de reinstalar/disparar (autodeploy).
+
+## Release anterior: `1.25.0` — cortada (01/09/2026), .exe compilado
 
 Fix do **restore** que destravou o edge (incidente potitjf, ~1 semana sem testes): o edge
 ficava com snapshot velho — o transacional recente (pedidos ativos, vendas de hoje) não
@@ -57,7 +71,8 @@ descia; `Restaurar` imprimia "solicitada" e **nunca puxava**.
 
 | Versão | Data | Tipo | Notas |
 |---|---|---|---|
-| 1.25.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | fix restore: baixa-primeiro + sempre completo + log por página (#409) — destrava o edge (transacional recente descia 0); .exe compilado no Inno (88 MB) |
+| 1.26.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | **restore por SNAPSHOT** (arquivo NDJSON gzip por tenant, carga com FK off) substitui a paginação (#411); F1 nuvem por autodeploy + F2 edge no .exe (88 MB) |
+| 1.25.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | fix restore paginado: baixa-primeiro + sempre completo + log por página (#409) — page-by-page ainda não carregava local → aposentado no 1.26 |
 | 1.24.0 | 31/08/2026 | .exe + .zip (a compilar/publicar) | F1 saúde + F2 impressão/unidade + F3 trava anti-clone/instalador 2FA + blindagem migration-lag; superset dos fixes de sync 1.22/1.23 (#397–#407); migs 219+220 na nuvem |
 | 1.23.0 | ~30/08/2026 | .exe + .zip | restore FK-órfão acumulado (instalação nova conclui) |
 | 1.22.0 | ~30/08/2026 | .exe + .zip | fetch failed: IPv4-first + retry (rede + 5xx GET) + causa real; reset-restore.ps1 (#395, #396) |
