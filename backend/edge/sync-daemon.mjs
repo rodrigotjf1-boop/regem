@@ -279,6 +279,44 @@ async function upsertLocal(tabela, row, exec = pool) {
   );
 }
 
+// Upsert em LOTE (INSERT multi-linha) — 1 request por bloco no lugar de 1 por linha.
+// A carga do snapshot tem dezenas de milhares de linhas: row-a-row levava ~10 min; o lote
+// leva segundos. Mesma regra LWW do upsertLocal (não sobrescreve local mais novo) +
+// exceção de estado terminal. Assume colunas consistentes no bloco (o snapshot manda select *).
+async function upsertLote(tabela, rows, exec = pool) {
+  if (!rows?.length) return 0;
+  const cols = await colunas(tabela);
+  const keys = Object.keys(rows[0]).filter((k) => cols.has(k));
+  if (!keys.includes('id')) return 0;
+  const setCols = keys.filter((k) => k !== 'id');
+  const ph = [];
+  const vals = [];
+  let i = 1;
+  for (const row of rows) {
+    ph.push('(' + keys.map(() => `$${i++}`).join(',') + ')');
+    for (const k of keys) vals.push(coerce(row[k]));
+  }
+  let setSql;
+  if (!setCols.length) {
+    setSql = 'do nothing';
+  } else {
+    const cond = [];
+    if (cols.has('updated_at')) cond.push(`${q(tabela)}.updated_at < excluded.updated_at`);
+    const terminais = ESTADOS_TERMINAIS[tabela];
+    if (terminais && cols.has('status')) {
+      const lst = terminais.map((s) => `'${s}'`).join(',');
+      cond.push(`not (${q(tabela)}.status in (${lst}) and excluded.status not in (${lst}))`);
+    }
+    const whereSql = cond.length ? ` where ${cond.join(' and ')}` : '';
+    setSql = `do update set ${setCols.map((k) => `${q(k)}=excluded.${q(k)}`).join(',')}${whereSql}`;
+  }
+  await exec.query(
+    `insert into ${q(tabela)} (${keys.map(q).join(',')}) values ${ph.join(',')} on conflict (id) ${setSql}`,
+    vals,
+  );
+  return rows.length;
+}
+
 async function pull() {
   const desde = await getState('pull_cursor', '1970-01-01T00:00:00Z');
   // Keyset por tabela: mapa tabela→"<ts>|<id>" no sync_state. Enviamos SEMPRE o param
@@ -558,6 +596,8 @@ async function restaurarSnapshot() {
   console.log('Restore (snapshot): baixando o arquivo da nuvem…');
   await setState('restaurar_solicitado', '0');
   await setState('restaurando', '1');
+  await setState('restore_erro', ''); // limpa erro anterior — a UI mostra progresso/erro
+  await setState('restore_progresso', '0');
   try {
     const res = await fetchT(`${CLOUD}/sync/snapshot`, { headers: { 'x-sync-token': TOKEN } }, SNAPSHOT_TIMEOUT_MS);
     if (!res.ok) throw new Error(`snapshot HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -570,16 +610,23 @@ async function restaurarSnapshot() {
       // FK/triggers OFF durante a carga (o postgres local é superuser). O arquivo entra em
       // qualquer ordem — acaba o "sem pai (FK)" e a dependência de ordem pai→filho.
       await client.query('set session_replication_role = replica');
+      // Carga em LOTE: acumula linhas por tabela e grava em blocos (upsertLote) — 1 request
+      // por bloco no lugar de 1 por linha (row-a-row levava ~10 min; lote leva segundos).
+      const LOTE = 500;
+      let buf = [];
+      const flush = async () => {
+        if (!tabelaAtual || !buf.length) return;
+        total += await upsertLote(tabelaAtual, buf, client);
+        buf = [];
+        console.log(`  snapshot: ${total} linha(s)…`);
+        try { await setState('restore_progresso', String(total)); } catch { /* best-effort */ }
+      };
       const aplicar = async (linha) => {
         if (!linha) return;
         const obj = JSON.parse(linha);
-        if (obj.__fim) { fimOk = true; return; }
-        if (obj.__t) { tabelaAtual = obj.__t; return; }
-        if (tabelaAtual) {
-          await upsertLocal(tabelaAtual, obj, client);
-          total++;
-          if (total % 5000 === 0) { console.log(`  snapshot: ${total} linha(s)…`); try { await setState('restore_progresso', String(total)); } catch { /* best-effort */ } }
-        }
+        if (obj.__fim) { fimOk = true; await flush(); return; }
+        if (obj.__t) { await flush(); tabelaAtual = obj.__t; return; } // fecha a tabela anterior
+        if (tabelaAtual) { buf.push(obj); if (buf.length >= LOTE) await flush(); }
       };
       let buffer = '';
       for await (const chunk of gunzip) {
@@ -592,6 +639,7 @@ async function restaurarSnapshot() {
         }
       }
       await aplicar(buffer.trim());
+      await flush(); // último bloco
       if (!fimOk) throw new Error('snapshot incompleto (sem marcador __fim) — carga descartada');
       await client.query('commit');
       await setState('restaurado_em', new Date().toISOString());
@@ -765,8 +813,10 @@ async function ciclo() {
       try {
         await restaurarSnapshot();
       } catch (e) {
-        console.error(`Restore (snapshot) FALHOU: ${causaErro(e)}`);
-        await reportarTelemetria('sync', 'snapshot_erro', causaErro(e));
+        const causa = causaErro(e);
+        console.error(`Restore (snapshot) FALHOU: ${causa}`);
+        try { await setState('restore_erro', String(causa).slice(0, 500)); } catch { /* best-effort */ }
+        await reportarTelemetria('sync', 'snapshot_erro', causa);
       }
     }
     await licenca();

@@ -76,9 +76,35 @@ function RestaurarServidor() {
                 : 'Restaurar agora'}
         </Button>
       </div>
-      {status?.restauradoEm && (
+      {/* Andamento AO VIVO — some a caixa-preta: barra + contagem de linhas aplicadas. */}
+      {status?.restaurando && (
+        <div className="mt-3">
+          <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
+            <span>Baixando o estado da nuvem…</span>
+            <span className="font-mono">{Number(status.progresso || 0).toLocaleString('pt-BR')} linha(s)</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-secondary" role="progressbar" aria-label="Restaurando">
+            <div className="h-full w-full animate-pulse rounded-full bg-primary" />
+          </div>
+        </div>
+      )}
+      {status?.solicitado && !status?.restaurando && (
+        <p className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-warn" aria-hidden /> Na fila — começa no próximo ciclo de sync…
+        </p>
+      )}
+      {/* ERRO da última restauração (antes era invisível — parecia que "não fazia nada"). */}
+      {status?.erro && !status?.restaurando && !status?.solicitado && (
+        <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
+          <p className="font-medium">A última restauração falhou.</p>
+          <p className="mt-1 break-words font-mono text-xs">{status.erro}</p>
+          <p className="mt-1 text-xs text-destructive/80">Clique em “Restaurar agora” para tentar de novo; se persistir, envie o log ao suporte.</p>
+        </div>
+      )}
+      {status?.restauradoEm && !status?.restaurando && (
         <p className="mt-2 text-xs text-muted-foreground">
           Última restauração: {new Date(status.restauradoEm).toLocaleString('pt-BR')}
+          {status?.progresso ? ` · ${Number(status.progresso).toLocaleString('pt-BR')} linha(s)` : ''}
         </p>
       )}
       {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}

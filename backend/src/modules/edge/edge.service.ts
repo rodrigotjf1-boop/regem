@@ -218,6 +218,10 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
       solicitado: (await this.getState('restaurar_solicitado')) === '1',
       restaurando: (await this.getState('restaurando')) === '1',
       restauradoEm: (await this.getState('restaurado_em')) || null,
+      // Progresso (linhas aplicadas até agora) + último erro — p/ a UI mostrar barra e
+      // feedback em vez de ficar caixa-preta (o daemon grava restore_progresso/restore_erro).
+      progresso: Number((await this.getState('restore_progresso')) || 0),
+      erro: (await this.getState('restore_erro')) || null,
     };
   }
 
