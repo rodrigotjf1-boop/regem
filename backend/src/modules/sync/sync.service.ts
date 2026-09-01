@@ -375,33 +375,23 @@ export class SyncService {
       let aplicadas = 0;
       let ignoradas = 0;
 
-      for (const linha of lote.linhas ?? []) {
-        if (!linha || typeof linha !== 'object' || !linha.id) {
-          ignoradas++;
-          continue;
-        }
-        const cols = Object.keys(linha).filter(
+      // Linhas válidas (com id). O tenant_id é FORÇADO ao do token (ignora o da linha).
+      const linhas = (lote.linhas ?? []).filter(
+        (l: any) => l && typeof l === 'object' && l.id,
+      );
+      ignoradas += (lote.linhas?.length ?? 0) - linhas.length;
+
+      if (linhas.length) {
+        // Colunas do LOTE: do 1º registro (o edge manda `select *` → colunas consistentes).
+        const cols = Object.keys(linhas[0] as any).filter(
           (k) => colunas.has(k) && k !== 'tenant_id',
         );
         const nomes = ['tenant_id', ...cols];
-        const valores = [tenantId, ...cols.map((c) => coagir((linha as any)[c]))];
-        const insercao = sql`insert into ${sql.identifier(lote.tabela)} (
-            ${sql.join(nomes.map((n) => sql.identifier(n)), sql`, `)}
-          ) values (
-            ${sql.join(valores.map((v) => sql`${v}`), sql`, `)}
-          )`;
-
-        // LWW (update-se-mais-nova) para QUALQUER tabela com `updated_at` — inclui
-        // as transacionais 'sobe' da v2, que mudam de estado. Tabelas append puras
-        // (sem updated_at, ex.: movimento_estoque) seguem do-nothing (imutáveis).
         const setCols = cols.filter((c) => c !== 'id');
-        // Coluna de comparação do LWW: cursor configurado p/ tabelas 'ambos'
-        // (cliente = atualizado_em), updated_at p/ o caso legado (append c/ updated_at).
         const lwwCol = modo === 'lww' ? colunaLWW(lote.tabela) : 'updated_at';
+        // LWW (update-se-mais-nova) p/ tabela com updated_at; senão do-nothing (append imutável).
         const conflito =
-          (modo === 'lww' || colunas.has('updated_at')) &&
-          setCols.length &&
-          colunas.has(lwwCol)
+          (modo === 'lww' || colunas.has('updated_at')) && setCols.length && colunas.has(lwwCol)
             ? sql`on conflict (id) do update set ${sql.join(
                 setCols.map((c) => sql`${sql.identifier(c)} = excluded.${sql.identifier(c)}`),
                 sql`, `,
@@ -409,19 +399,37 @@ export class SyncService {
               where ${sql.identifier(lote.tabela)}.tenant_id = excluded.tenant_id
                 and ${sql.identifier(lote.tabela)}.${sql.identifier(lwwCol)} < excluded.${sql.identifier(lwwCol)}`
             : sql`on conflict (id) do nothing`;
+        const linhaVals = (linha: any) =>
+          sql`(${sql.join([tenantId, ...cols.map((c) => coagir(linha[c]))].map((v) => sql`${v}`), sql`, `)})`;
+        const colsSql = sql.join(nomes.map((n) => sql.identifier(n)), sql`, `);
 
+        // SET-BASED: 1 INSERT multi-linha por lote (1 ida ao banco no lugar de N). Com o
+        // banco em Oregon (~200ms/ida), row-a-row × 200 linhas estourava o timeout de 100s
+        // da Cloudflare → 502. Um bloco só resolve em ~1 ida. Regra "operação em massa =
+        // query set-based, nunca loop N". Se o bloco falhar (FK fora de ordem, id repetido),
+        // cai no FALLBACK linha-a-linha (ignora 23503/23505 por linha, sem derrubar o lote).
         try {
-          const r: any = await this.db.execute(sql`${insercao} ${conflito}`);
-          if ((r?.rowCount ?? 0) > 0) aplicadas++;
-          else ignoradas++;
-        } catch (e: any) {
-          // 23505 = duplicado; 23503 = FK fora de ordem (pai ainda não chegou) —
-          // ignora sem derrubar o push (a linha volta no próximo ciclo/estado).
-          if (e?.code === '23505' || e?.code === '23503') {
-            ignoradas++;
-            continue;
+          const r: any = await this.db.execute(
+            sql`insert into ${sql.identifier(lote.tabela)} (${colsSql}) values ${sql.join(linhas.map(linhaVals), sql`, `)} ${conflito}`,
+          );
+          aplicadas += r?.rowCount ?? 0;
+          ignoradas += linhas.length - (r?.rowCount ?? 0);
+        } catch {
+          for (const linha of linhas) {
+            try {
+              const r: any = await this.db.execute(
+                sql`insert into ${sql.identifier(lote.tabela)} (${colsSql}) values ${linhaVals(linha)} ${conflito}`,
+              );
+              if ((r?.rowCount ?? 0) > 0) aplicadas++;
+              else ignoradas++;
+            } catch (e: any) {
+              if (e?.code === '23505' || e?.code === '23503') {
+                ignoradas++;
+                continue;
+              }
+              throw e;
+            }
           }
-          throw e;
         }
       }
       resultado[lote.tabela] = { aplicadas, ignoradas };
