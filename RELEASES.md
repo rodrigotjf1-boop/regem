@@ -19,7 +19,24 @@ Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado e *
 
 > Empacotado no **1.24.0** (abaixo). Migrations: **219 (F1)** e **220 (F3)** aplicadas na nuvem (31/08).
 
-## Última release: `1.24.0` — cortada (31/08/2026), dist VERIFICADO
+## Última release: `1.25.0` — cortada (01/09/2026), **.exe COMPILADO** ✅
+
+Fix do **restore** que destravou o edge (incidente potitjf, ~1 semana sem testes): o edge
+ficava com snapshot velho — o transacional recente (pedidos ativos, vendas de hoje) não
+descia; `Restaurar` imprimia "solicitada" e **nunca puxava**.
+- **Causa (#409):** o restore fazia `push` (upload) **ANTES** de baixar → com a nuvem em 502
+  + fila grande, segurava o download; e usava `restore_cursor` **adiantado** → concluía com 0.
+- **Fix:** restore **baixa primeiro** (push best-effort no fim) + **sempre completo** (desde
+  1970; o servidor limita à janela `mirror_dias`=60) + **log por página** (nunca mais cego).
+- Só mudou `sync-daemon.mjs` → dist = 1.24.0 **+ daemon novo** (web.tar/backend idênticos).
+  O `build-release` travou no `next build` (hang conhecido) → dist montado por
+  reaproveitamento + **preflight OK** → `.exe` compilado no **Inno (`ISCC.exe`)** →
+  `backend\edge\Output\RegemEdgeSetup.exe` (**88 MB**, AppVer 1.25.0).
+- **Cloud:** nenhuma migration. **`.zip` a publicar** (`edge\publicar.ps1`) p/ os demais edges.
+- **Trilha 2 (durável):** snapshot em arquivo (`docs/plano-snapshot-restore.md`) — implementado
+  no código (não empacotado ainda; será o 1.26.0 após testes).
+
+## Release anterior: `1.24.0` — cortada (31/08/2026), dist VERIFICADO
 
 `build-release.ps1 -Versao 1.24.0` de **worktree off `origin/main`** (`e1c1c52`) — preflight **TUDO OK** (web.tar 26.7 MB c/ next, sync keyset+don't-abort, `version.txt == .iss == 1.24.0`). Dist em `C:\Regen\regem-edge-dist` + `.iss` carimbada. **`.exe` a compilar no Inno** (`backend\edge\regem-edge.iss` → `Output\RegemEdgeSetup.exe`); **`.zip` a publicar** (`edge\publicar.ps1`). **Superset do 1.23** — leva tudo:
 - **sync (1.22):** `ipv4first` + `fetchT` retry (rede + 5xx GET) + `causaErro()` — fim do `fetch failed` cego; `reset-restore.ps1`.
@@ -40,6 +57,7 @@ Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado e *
 
 | Versão | Data | Tipo | Notas |
 |---|---|---|---|
+| 1.25.0 | 01/09/2026 | .exe ✅ + .zip (a publicar) | fix restore: baixa-primeiro + sempre completo + log por página (#409) — destrava o edge (transacional recente descia 0); .exe compilado no Inno (88 MB) |
 | 1.24.0 | 31/08/2026 | .exe + .zip (a compilar/publicar) | F1 saúde + F2 impressão/unidade + F3 trava anti-clone/instalador 2FA + blindagem migration-lag; superset dos fixes de sync 1.22/1.23 (#397–#407); migs 219+220 na nuvem |
 | 1.23.0 | ~30/08/2026 | .exe + .zip | restore FK-órfão acumulado (instalação nova conclui) |
 | 1.22.0 | ~30/08/2026 | .exe + .zip | fetch failed: IPv4-first + retry (rede + 5xx GET) + causa real; reset-restore.ps1 (#395, #396) |
