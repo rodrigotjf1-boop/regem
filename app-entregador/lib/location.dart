@@ -78,7 +78,14 @@ class LocationSender {
       (pos) {
         Api.enviarLocalizacao(pos.latitude, pos.longitude, precisao: pos.accuracy);
       },
-      onError: (_) {}, // silencioso — não atrapalha a entrega
+      // Stream morreu (erro do provedor de GPS / SO suspendeu): cancela e ZERA _sub para o
+      // próximo iniciar() (a cada refresh da lista) reabrir. Antes ficava "preso" (_sub != null)
+      // e parava de postar — o rastreio congelava na última posição.
+      onError: (_) {
+        _sub?.cancel();
+        _sub = null;
+      },
+      cancelOnError: true,
     );
   }
 
