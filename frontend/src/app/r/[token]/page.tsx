@@ -123,7 +123,7 @@ export default function RastreioPage() {
   useEffect(() => {
     if (!token) return;
     carregar();
-    const t = setInterval(carregar, 15000);
+    const t = setInterval(carregar, 8000); // ~2s à frente do envio do app (10s) — pega a nova posição logo
     const onVis = () => {
       if (typeof document !== 'undefined' && !document.hidden) carregar();
     };
@@ -157,9 +157,13 @@ export default function RastreioPage() {
     if (dp) {
       const pos: [number, number] = [dp.lat, dp.lng];
       pts.push(pos);
+      // Ícone do entregador: bag de entrega (bolsa) num badge dourado — pedido do gestor.
+      const bag =
+        `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="${NAVY}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">` +
+        `<path d="M5 8h14l-1.1 11.2H6.1L5 8z"/><path d="M8.5 8V6.2a3.5 3.5 0 0 1 7 0V8"/></svg>`;
       const html =
         `<div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;">` +
-        `<div style="background:${OURO};color:${NAVY};font:600 12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);">🛵 Entregador</div>` +
+        `<div title="Entregador" style="background:${OURO};display:grid;place-items:center;width:34px;height:34px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.35);border:2px solid #fff;">${bag}</div>` +
         `<div style="width:2px;height:9px;background:${OURO};"></div></div>`;
       const icon = L.divIcon({ className: '', html, iconSize: [0, 0], iconAnchor: [0, 0] });
       if (driverMk.current) driverMk.current.setLatLng(pos).setIcon(icon);
