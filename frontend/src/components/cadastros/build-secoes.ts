@@ -463,6 +463,9 @@ export function buildSecoes({
           usuario: v.usuario ?? undefined,
           senha: v.senha || undefined,
           email: v.email ?? undefined,
+          // telefone também faltava aqui: o form de edição mostrava o campo mas o
+          // PATCH nunca mandava, então o WhatsApp do entregador nunca salvava ao editar.
+          telefone: v.telefone ?? undefined,
           fotoRef: v.fotoRef || undefined,
           funcaoIds: v.funcaoIds ? v.funcaoIds.split(',').filter(Boolean) : [],
           vinculo: v.vinculo,
