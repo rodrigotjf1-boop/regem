@@ -810,39 +810,62 @@ export class EntregadorService {
       const lat = Number(row.lat), lng = Number(row.lng);
       if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
     }
-    // O endereço do cliente já vem GEOCODIFICADO (cliente_endereco.lat/lng, salvo p/ o frete
-    // por raio) — usa direto, confiável, sem depender do Nominatim (que falhava sem rua/cidade
-    // na query → destino null → sem rota). Prefere o endereço principal/mais recente.
-    if (p.cliente_id) {
+    // Resolve o destino pelo endereço DESTE pedido — NÃO o "principal" do cliente. (Antes pegava
+    // o cliente_endereco por principal/recente: dois pedidos do mesmo cliente em endereços
+    // diferentes caíam no mesmo destino → rastreio "travado" no mesmo trajeto.)
+    const rua = String(p.endereco_rua ?? '').trim();
+    const num = String(p.endereco_numero ?? '').trim();
+    const bairro = String(p.endereco_bairro ?? '').trim();
+    // (a) casa o endereço do pedido com um endereço SALVO do cliente que JÁ tenha coords.
+    if (p.cliente_id && rua) {
       const ce: any = await this.db.execute(sql`
         select lat, lng from cliente_endereco
         where cliente_id = ${p.cliente_id} and lat is not null and lng is not null
-        order by principal desc, criado_em desc limit 1`);
+          and lower(coalesce(logradouro, '')) = lower(${rua})
+          and (${num} = '' or coalesce(numero, '') = ${num})
+        order by criado_em desc limit 1`);
       const e0 = (ce.rows ?? ce)[0];
       if (e0) {
         const lat = Number(e0.lat), lng = Number(e0.lng);
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          await this.db
-            .execute(sql`insert into entregador_chegada (tenant_id, pedido_id, lat, lng)
-                         values (${tenantId}, ${p.id}, ${lat}, ${lng}) on conflict (pedido_id) do nothing`)
-            .catch(() => {});
+          await this.cachearChegada(tenantId, p.id, lat, lng);
           return { lat, lng };
         }
       }
     }
-    // Fallback: geocode do endereço do pedido (a rua pode estar em endereco_rua OU endereco).
+    // (b) geocode do endereço DO PEDIDO, enriquecido com a cidade do cliente (muitos endereços
+    // são salvos sem cidade nem coords). Resolvendo: cacheia por pedido E preenche o
+    // cliente_endereco (conserta o frete por raio dali pra frente).
+    let cidade: string | null = null;
+    if (p.cliente_id) {
+      const cc: any = await this.db.execute(sql`
+        select cidade from cliente_endereco
+        where cliente_id = ${p.cliente_id} and cidade is not null and cidade <> '' limit 1`);
+      cidade = (cc.rows ?? cc)[0]?.cidade ?? null;
+    }
     const end =
-      montarEndereco([p.endereco_rua || p.endereco, p.endereco_numero, p.endereco_bairro]) ||
-      String(p.endereco ?? '');
+      montarEndereco([rua || p.endereco, num, bairro, cidade, 'Brasil']) || String(p.endereco ?? '');
     const g = end ? await geocode(end).catch(() => null) : null;
     if (g) {
-      await this.db
-        .execute(sql`insert into entregador_chegada (tenant_id, pedido_id, lat, lng)
-                     values (${tenantId}, ${p.id}, ${g.lat}, ${g.lng}) on conflict (pedido_id) do nothing`)
-        .catch(() => {});
+      await this.cachearChegada(tenantId, p.id, g.lat, g.lng);
+      if (p.cliente_id && rua) {
+        await this.db
+          .execute(sql`update cliente_endereco set lat = ${String(g.lat)}, lng = ${String(g.lng)}
+                       where cliente_id = ${p.cliente_id} and lat is null
+                         and lower(coalesce(logradouro, '')) = lower(${rua})
+                         and (${num} = '' or coalesce(numero, '') = ${num})`)
+          .catch(() => {});
+      }
       return g;
     }
     return null;
+  }
+
+  private async cachearChegada(tenantId: string, pedidoId: string, lat: number, lng: number) {
+    await this.db
+      .execute(sql`insert into entregador_chegada (tenant_id, pedido_id, lat, lng)
+                   values (${tenantId}, ${pedidoId}, ${lat}, ${lng}) on conflict (pedido_id) do nothing`)
+      .catch(() => {});
   }
 
   // Matriz de DURAÇÕES (segundos) entre todos os pontos via OSRM /table — 1 chamada pega
