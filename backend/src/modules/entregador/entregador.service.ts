@@ -249,11 +249,16 @@ export class EntregadorService {
   // chegando…"). Nome/contato do ENTREGADOR só vão se ele ativou o opt-in no app.
   private async dispararChegada(user: AuthUser, ped: any): Promise<boolean> {
     if (!ped.clienteTelefone) return false;
-    const emp: any = await this.db.execute(
-      sql`select nome_fantasia, razao_social from empresa where id = ${user.tenantId}`,
+    // Nome da loja p/ a mensagem = "Nome do estabelecimento" (Config → Loja), que salva em
+    // cardapio_config.nome_publico. Fallback pro empresa.nome se não houver.
+    const cfg: any = await this.db.execute(
+      sql`select nome_publico from cardapio_config where tenant_id = ${user.tenantId} limit 1`,
     );
-    const e0 = (emp.rows ?? emp)[0] ?? {};
-    const nomeFantasia = e0.nome_fantasia || e0.razao_social || null;
+    const emp: any = await this.db.execute(
+      sql`select nome from empresa where id = ${user.tenantId}`,
+    );
+    const nomeFantasia =
+      (cfg.rows ?? cfg)[0]?.nome_publico || (emp.rows ?? emp)[0]?.nome || null;
     const pref: any = await this.db.execute(
       sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${user.colaboradorId}`,
     );
@@ -727,8 +732,30 @@ export class EntregadorService {
       const lat = Number(row.lat), lng = Number(row.lng);
       if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
     }
+    // O endereço do cliente já vem GEOCODIFICADO (cliente_endereco.lat/lng, salvo p/ o frete
+    // por raio) — usa direto, confiável, sem depender do Nominatim (que falhava sem rua/cidade
+    // na query → destino null → sem rota). Prefere o endereço principal/mais recente.
+    if (p.cliente_id) {
+      const ce: any = await this.db.execute(sql`
+        select lat, lng from cliente_endereco
+        where cliente_id = ${p.cliente_id} and lat is not null and lng is not null
+        order by principal desc, criado_em desc limit 1`);
+      const e0 = (ce.rows ?? ce)[0];
+      if (e0) {
+        const lat = Number(e0.lat), lng = Number(e0.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          await this.db
+            .execute(sql`insert into entregador_chegada (tenant_id, pedido_id, lat, lng)
+                         values (${tenantId}, ${p.id}, ${lat}, ${lng}) on conflict (pedido_id) do nothing`)
+            .catch(() => {});
+          return { lat, lng };
+        }
+      }
+    }
+    // Fallback: geocode do endereço do pedido (a rua pode estar em endereco_rua OU endereco).
     const end =
-      montarEndereco([p.endereco_rua, p.endereco_numero, p.endereco_bairro]) || String(p.endereco ?? '');
+      montarEndereco([p.endereco_rua || p.endereco, p.endereco_numero, p.endereco_bairro]) ||
+      String(p.endereco ?? '');
     const g = end ? await geocode(end).catch(() => null) : null;
     if (g) {
       await this.db
@@ -1041,7 +1068,7 @@ export class EntregadorService {
       entregador,
       destino, // { lat, lng } | null
       parada, // { x, y } | null
-      etaMin: eta,
+      etaMin: eta ?? rota?.duracaoMin ?? null, // saída multi-parada; senão a duração da rota (OSRM)
       rota, // { geometry(polyline6), duracaoMin, distanciaM } | null — traçado real p/ o mapa
       codigoEntrega, // o cliente informa ao entregador na entrega
     };

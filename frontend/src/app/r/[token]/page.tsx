@@ -123,7 +123,7 @@ export default function RastreioPage() {
   useEffect(() => {
     if (!token) return;
     carregar();
-    const t = setInterval(carregar, 15000);
+    const t = setInterval(carregar, 8000); // ~2s à frente do envio do app (10s) — pega a nova posição logo
     const onVis = () => {
       if (typeof document !== 'undefined' && !document.hidden) carregar();
     };
@@ -157,9 +157,10 @@ export default function RastreioPage() {
     if (dp) {
       const pos: [number, number] = [dp.lat, dp.lng];
       pts.push(pos);
+      // Ícone do entregador: moto de delivery (🛵) num badge dourado.
       const html =
         `<div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;">` +
-        `<div style="background:${OURO};color:${NAVY};font:600 12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);">🛵 Entregador</div>` +
+        `<div title="Entregador" style="background:${OURO};display:grid;place-items:center;width:38px;height:38px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.35);border:2px solid #fff;font-size:22px;line-height:1;">🛵</div>` +
         `<div style="width:2px;height:9px;background:${OURO};"></div></div>`;
       const icon = L.divIcon({ className: '', html, iconSize: [0, 0], iconAnchor: [0, 0] });
       if (driverMk.current) driverMk.current.setLatLng(pos).setIcon(icon);
