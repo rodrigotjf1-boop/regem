@@ -292,10 +292,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Meus ganhos',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      Text(
+                        _ganhos!['estimado'] == true ? 'Meus ganhos estimados' : 'Meus ganhos',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
                       Text('${_ganhos!['entregas'] ?? 0} entrega(s)',
                           style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      if ((_ganhos!['pendentesConferencia'] ?? 0) > 0)
+                        Text(
+                          '${_ganhos!['pendentesConferencia']} aguardando conferência',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF7A5011)),
+                        ),
                     ],
                   ),
                   Text(

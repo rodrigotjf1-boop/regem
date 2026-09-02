@@ -641,21 +641,41 @@ export class EntregadorService {
     return { ok: true, entregas, ...v };
   }
 
-  // App do entregador: meus ganhos de hoje (entregas + valor estimado pelo modelo da loja).
+  // App do entregador: meus ganhos ESTIMADOS do período. Diferente do fechamento do gestor
+  // (que só conta 'concluido' = conferido/pagável), a estimativa do app inclui as entregas
+  // que o entregador já CONFIRMOU com código ('entregue'), ainda pendentes de conferência no
+  // atendimento — assim a taxa entra no "Meus ganhos estimados" na hora. Se o pedido for
+  // cancelado no atendimento, o status deixa de ser entregue/concluido → sai da estimativa
+  // sozinho (e do pagamento, que já era só 'concluido'). Base 'real' soma a taxa do pedido;
+  // 'fixa' usa o valor fixo por entrega do perfil.
   async ganhos(user: AuthUser) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
     const cfg = await this.perfilDeEntregador(user.tenantId, user.colaboradorId);
-    // Ganhos do PERÍODO corrente (dia/semana/quinzena) sobre as entregas ainda não
-    // acertadas. Base 'real' soma a taxa do pedido; 'fixa' usa o valor configurado.
     const { inicio, fim } = this.periodoDe(cfg.periodicidade ?? 'dia');
-    const { entregas, taxasReaisCentavos } = await this.agregarPeriodo(
-      user.tenantId,
-      user.colaboradorId,
-      inicio,
-      fim,
-    );
+    const r: any = await this.db.execute(sql`
+      select
+        count(*) filter (where status in ('entregue', 'concluido'))::int as entregas,
+        coalesce(round(sum(coalesce(taxa_entrega, 0)) filter (where status in ('entregue', 'concluido')) * 100), 0)::bigint as taxas_centavos,
+        count(*) filter (where status = 'entregue')::int as pendentes
+      from pedido_externo
+      where tenant_id = ${user.tenantId}
+        and entregador_id = ${user.colaboradorId}
+        and entregador_fechamento_id is null
+        and (coalesce(concluido_em, entregue_em) at time zone 'America/Sao_Paulo')::date
+            between ${inicio}::date and ${fim}::date`);
+    const row = (r.rows ?? r)[0] ?? {};
+    const entregas = Number(row.entregas ?? 0);
+    const taxasReaisCentavos = Number(row.taxas_centavos ?? 0);
+    const pendentesConferencia = Number(row.pendentes ?? 0);
     const v = this.calcular(cfg, entregas, taxasReaisCentavos);
-    return { entregas, periodicidade: cfg.periodicidade ?? 'dia', periodo: { inicio, fim }, ...v };
+    return {
+      entregas,
+      pendentesConferencia, // entregas confirmadas aguardando a conferência no atendimento
+      estimado: pendentesConferencia > 0, // o app rotula "Meus ganhos estimados" quando há pendência
+      periodicidade: cfg.periodicidade ?? 'dia',
+      periodo: { inicio, fim },
+      ...v,
+    };
   }
 
   // ===== E5 (gestor) — fechamento e pagamento do entregador =====
