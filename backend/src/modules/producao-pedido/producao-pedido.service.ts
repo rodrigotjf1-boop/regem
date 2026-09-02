@@ -982,8 +982,17 @@ export class ProducaoPedidoService {
       conexao: equipamento.conexao,
       host: equipamento.host,
       dispositivo: equipamento.dispositivo,
+      fazProducao: equipamento.fazProducao, // P3 — não jogar cupom do cliente na cozinha
+      fazCupom: equipamento.fazCupom,
     };
-    type Imp = { id: string; conexao: string | null; host: string | null; dispositivo: string | null };
+    type Imp = {
+      id: string;
+      conexao: string | null;
+      host: string | null;
+      dispositivo: string | null;
+      fazProducao?: boolean | null;
+      fazCupom?: boolean | null;
+    };
     let printers: Imp[] = [];
 
     // (0) alvo preferido explícito (override do reimprimir).
@@ -1081,12 +1090,21 @@ export class ProducaoPedidoService {
           or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))!,
         );
       const todas: Imp[] = await this.db.select(cols).from(equipamento).where(and(...conds));
-      const disponiveis = todas
-        .filter((p) => this.alvoValido(p))
-        .sort((a, b) => (a.conexao === 'local' ? -1 : 0) - (b.conexao === 'local' ? -1 : 0));
+      // P3 — prefere impressora que NÃO seja só de produção (evita cupom do cliente na cozinha);
+      // depois local/USB. Se sobrar só produção, usa mesmo assim, mas com aviso mais forte.
+      const disponiveis = todas.filter((p) => this.alvoValido(p)).sort((a, b) => {
+        const soProdA = a.fazProducao && !a.fazCupom ? 1 : 0;
+        const soProdB = b.fazProducao && !b.fazCupom ? 1 : 0;
+        if (soProdA !== soProdB) return soProdA - soProdB;
+        return (a.conexao === 'local' ? -1 : 0) - (b.conexao === 'local' ? -1 : 0);
+      });
       if (disponiveis.length) {
-        validos = [disponiveis[0]];
-        aviso = 'Nenhuma impressora de cupom configurada — usei a primeira impressora disponível.';
+        const p0 = disponiveis[0];
+        validos = [p0];
+        aviso =
+          p0.fazProducao && !p0.fazCupom
+            ? 'Nenhuma impressora de cupom configurada — usei uma impressora de PRODUÇÃO. Configure uma impressora de cupom.'
+            : 'Nenhuma impressora de cupom configurada — usei a primeira impressora disponível.';
       } else {
         return {
           enfileirados: 0,
