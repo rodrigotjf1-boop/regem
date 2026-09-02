@@ -19,6 +19,9 @@ dependencies:
   permission_handler: ^11.3.1
   # E2 (GPS): localização durante a entrega ativa.
   geolocator: ^13.0.0
+  # AndroidSettings/AppleSettings/ForegroundNotificationConfig (localização em 2º plano).
+  geolocator_android: 4.6.2
+  geolocator_apple: 2.3.14
   # E3 (rotas): abrir o endereço no Waze/Google Maps.
   url_launcher: ^6.3.0
   # Offline-first: verificação do código por HASH (sem expor) + detecção de conexão.
