@@ -1842,9 +1842,13 @@ export const impressaoJob = pgTable('impressao_job', {
   comandaId: uuid('comanda_id'), // venda de origem (mig 177) — idempotência do materializador do edge
   via: text('via').notNull().default('producao'), // producao | conferencia
   conteudo: text('conteudo').notNull(),
-  status: text('status').notNull().default('pendente'), // pendente | impresso | erro
+  status: text('status').notNull().default('pendente'), // pendente | enviando | impresso | erro
   tentativas: integer('tentativas').notNull().default(0),
   erro: text('erro'),
+  // Reserva atômica anti-duplo-print (mig 221, P0): o worker seta 'enviando' + claim_ate antes
+  // de imprimir; outro worker/poll só re-pega se a lease (claim_ate) venceu.
+  claimPor: text('claim_por'),
+  claimAte: timestamp('claim_ate', { withTimezone: true }),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   impressoEm: timestamp('impresso_em', { withTimezone: true }),
 });

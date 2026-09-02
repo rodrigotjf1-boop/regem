@@ -83,12 +83,13 @@ async function imprimirJob(job) {
   if (local && !job.dispositivo) { await marcar(job.id, false, 'impressora local sem nome do Windows'); return; }
   if (!local && !job.host) { await marcar(job.id, false, 'impressora de rede sem IP'); return; }
   const vias = Math.max(1, Number(job.vias) || 1);
-  const buffer = renderEscpos(job.conteudo, job.largura || 80);
+  const buffer = renderEscpos(job.conteudo, job.largura || 80, job.linguagem);
   const enviar = local ? () => enviarWindows(job.dispositivo, buffer) : () => enviarTcp(job.host, job.porta, buffer);
   let ultimoErro = null;
+  let enviadas = 0; // via-a-via: uma via que já saiu NÃO é reimpressa no retry
   for (let t = 1; t <= TENTATIVAS; t++) {
     try {
-      for (let v = 0; v < vias; v++) await enviar();
+      while (enviadas < vias) { await enviar(); enviadas++; }
       await marcar(job.id, true);
       console.log(`  ✓ ${String(job.id).slice(0, 8)} -> ${local ? 'win:' + job.dispositivo : (job.impressora || job.host)}` + (vias > 1 ? ` (${vias} vias)` : ''));
       return;
@@ -98,7 +99,7 @@ async function imprimirJob(job) {
     }
   }
   await marcar(job.id, false, ultimoErro);
-  console.error(`  ✗ ${String(job.id).slice(0, 8)} falhou: ${ultimoErro}`);
+  console.error(`  ✗ ${String(job.id).slice(0, 8)} falhou (${enviadas}/${vias} vias): ${ultimoErro}`);
 }
 
 async function ciclo() {

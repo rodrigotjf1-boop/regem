@@ -1111,43 +1111,49 @@ export class ProducaoPedidoService {
 
   // ===== Fila de impressão (worker do edge; auth por token servidor_local) =====
   // Devolve host/porta da impressora junto (o worker não precisa de outra chamada).
-  jobsPendentes(tenantId: string, unidadeId: string | null = null, limite = 20) {
-    // F2 (canal por LOJA): quando o edge é de uma unidade, só entrega os jobs DELA
-    // + os "da rede" (unidade_id null). Sem unidade → tenant-wide (comportamento atual).
-    const conds = [eq(impressaoJob.tenantId, tenantId), eq(impressaoJob.status, 'pendente')];
-    if (unidadeId)
-      conds.push(sql`(${impressaoJob.unidadeId} = ${unidadeId} or ${impressaoJob.unidadeId} is null)`);
-    return this.db
-      .select({
-        id: impressaoJob.id,
-        equipamentoId: impressaoJob.equipamentoId,
-        pedidoId: impressaoJob.pedidoId,
-        conteudo: impressaoJob.conteudo,
-        tentativas: impressaoJob.tentativas,
-        criadoEm: impressaoJob.criadoEm,
-        conexao: equipamento.conexao, // 'rede' | 'local' (mig 120)
-        host: equipamento.host,
-        porta: equipamento.porta,
-        dispositivo: equipamento.dispositivo, // nome no Windows (conexao='local')
-        largura: equipamento.largura,
-        // Vias por tipo (mig 168): cupom do cliente vs produção; null herda `vias`.
-        vias: sql<number>`case
-          when ${impressaoJob.via} = 'cliente' then coalesce(${equipamento.viasCliente}, ${equipamento.vias})
-          when ${impressaoJob.via} = 'producao' then coalesce(${equipamento.viasProducao}, ${equipamento.vias})
-          else ${equipamento.vias} end`,
-        impressora: equipamento.nome,
-      })
-      .from(impressaoJob)
-      .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
-      .where(and(...conds))
-      .orderBy(impressaoJob.criadoEm)
-      .limit(limite);
+  // Reserva ATÔMICA (claim/lease, mig 221) + entrega da fila ao worker (edge/nuvem). O
+  // `for update skip locked` impede dois consumidores pegarem o MESMO job (fim do duplo-print);
+  // marca 'enviando' + lease de 120s na entrega — se o worker morrer no meio, o job só volta a
+  // ser pegável quando a lease vence (não reimprime a cada ciclo se o ACK falhar). F2: filtro
+  // pela unidade do edge (+ os "da rede", unidade_id null). Vias por tipo (mig 168).
+  async jobsPendentes(tenantId: string, unidadeId: string | null = null, limite = 20) {
+    const filtro = unidadeId
+      ? sql`and (j.unidade_id = ${unidadeId} or j.unidade_id is null)`
+      : sql``;
+    const r: any = await this.db.execute(sql`
+      with alvo as (
+        select j.id from impressao_job j
+        where j.tenant_id = ${tenantId}
+          and (j.status = 'pendente' or (j.status = 'enviando' and j.claim_ate < now()))
+          ${filtro}
+        order by j.criado_em asc
+        limit ${limite}
+        for update skip locked
+      ),
+      claimed as (
+        update impressao_job
+        set status = 'enviando', claim_por = 'cloud', claim_ate = now() + interval '120 seconds'
+        where id in (select id from alvo)
+        returning id, equipamento_id, pedido_id, via, conteudo, tentativas, criado_em
+      )
+      select c.id, c.equipamento_id as "equipamentoId", c.pedido_id as "pedidoId",
+             c.conteudo, c.tentativas, c.criado_em as "criadoEm",
+             e.conexao, e.host, e.porta, e.dispositivo, e.largura,
+             case
+               when c.via = 'cliente' then coalesce(e.vias_cliente, e.vias)
+               when c.via = 'producao' then coalesce(e.vias_producao, e.vias)
+               else e.vias end as vias,
+             e.nome as impressora, e.linguagem_etiqueta as linguagem
+      from claimed c
+      left join equipamento e on e.id = c.equipamento_id
+      order by c.criado_em asc`);
+    return (r.rows ?? r) as any[];
   }
 
   async marcarImpresso(tenantId: string, jobId: string) {
     await this.db
       .update(impressaoJob)
-      .set({ status: 'impresso', impressoEm: new Date() })
+      .set({ status: 'impresso', impressoEm: new Date(), claimPor: null, claimAte: null })
       .where(
         and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
       );
@@ -1161,6 +1167,8 @@ export class ProducaoPedidoService {
         status: 'erro',
         erro: (erro ?? 'falha').slice(0, 400),
         tentativas: sql`${impressaoJob.tentativas} + 1`,
+        claimPor: null,
+        claimAte: null,
       })
       .where(
         and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
@@ -1239,9 +1247,17 @@ export class ProducaoPedidoService {
     if (await edgeAtivo(this.db, tenantId)) {
       return { ok: false, edge: true, aviso: 'Esta loja usa servidor local (edge). Reimprima pelo servidor local.' };
     }
-    const set: { status: string; erro: null; equipamentoId?: string } = {
+    const set: {
+      status: string;
+      erro: null;
+      claimPor: null;
+      claimAte: null;
+      equipamentoId?: string;
+    } = {
       status: 'pendente',
       erro: null,
+      claimPor: null,
+      claimAte: null,
     };
     if (equipamentoId) {
       const [imp] = await this.db
