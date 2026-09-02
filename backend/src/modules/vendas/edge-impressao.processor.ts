@@ -15,8 +15,9 @@ import { VendasService } from './vendas.service';
  * Só roda no edge (EDGE_MODE). Idempotente:
  *  - ignora comandas que já têm `impressao_job` (a venda local já imprimiu no registro);
  *  - marca cada comanda processada em `impressao_edge_feito` (não reprocessa em loop);
- *  - piso de 45s desde a criação: dá tempo do enfileiramento PÓS-transação da venda
- *    local acontecer, então nunca reimprime a própria venda do edge;
+ *  - piso curto (20s) desde a criação: o guard REAL contra reimprimir a venda local é o
+ *    `not exists impressao_job` (o enfileiramento local pós-commit acontece em segundos); o
+ *    piso é só folga p/ essa corrida. P1 — reduzido de 45s p/ cortar a latência da venda-nuvem;
  *  - exclui pedidos externos/delivery (o EdgePedidosProcessor já materializa esses).
  */
 @Injectable()
@@ -32,7 +33,7 @@ export class EdgeImpressaoProcessor {
     private readonly vendas: VendasService,
   ) {}
 
-  @Interval(12000)
+  @Interval(5000) // P1: 12s→5s p/ cortar a latência da impressão de venda-nuvem no edge
   async processar() {
     if (!this.isEdge || this.rodando) return;
     this.rodando = true;
@@ -43,7 +44,7 @@ export class EdgeImpressaoProcessor {
         where c.status = 'fechada'
           ${this.unidadeId ? sql`and c.unidade_id = ${this.unidadeId}` : sql``}
           and c.created_at > now() - interval '12 hours'
-          and c.created_at < now() - interval '45 seconds'
+          and c.created_at < now() - interval '20 seconds'
           and not exists (select 1 from impressao_edge_feito f where f.comanda_id = c.id)
           and not exists (select 1 from impressao_job j where j.comanda_id = c.id)
           and not exists (select 1 from pedido_externo pe where pe.comanda_id = c.id)
