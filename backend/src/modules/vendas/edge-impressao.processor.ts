@@ -38,7 +38,7 @@ export class EdgeImpressaoProcessor {
     this.rodando = true;
     try {
       const r: any = await this.db.execute(sql`
-        select c.id, c.tenant_id as "tenantId"
+        select c.id, c.tenant_id as "tenantId", c.created_at as "createdAt"
         from comanda c
         where c.status = 'fechada'
           ${this.unidadeId ? sql`and c.unidade_id = ${this.unidadeId}` : sql``}
@@ -51,18 +51,29 @@ export class EdgeImpressaoProcessor {
         limit 50
       `);
       const pendentes = r.rows ?? r;
+      const GRACA_MIN = 20; // sem impressora: reprocessa por até 20 min (dá tempo de configurar)
       for (const c of pendentes) {
+        let enfileirados = 0;
+        let erro = false;
         try {
           const res = await this.vendas.materializarImpressaoLocal(c.tenantId, c.id);
-          if (res.enfileirados > 0)
-            this.logger.log(`cupom da venda ${c.id} materializado no edge (${res.enfileirados} via[s])`);
+          enfileirados = res.enfileirados;
+          if (enfileirados > 0)
+            this.logger.log(`cupom da venda ${c.id} materializado no edge (${enfileirados} via[s])`);
         } catch (e: any) {
+          erro = true; // falha real (transitória) → NÃO marca feito; tenta de novo no próximo ciclo
           this.logger.warn(`falha ao materializar ${c.id}: ${e?.message ?? e}`);
-        } finally {
-          // Marca como processada MESMO sem impressora (evita reprocessar em loop).
+        }
+        // P2 — só marca 'feito' quando REALMENTE enfileirou; senão o cupom se perdia por falta
+        // de impressora (configurar depois nunca reimprimia). Sem impressora: deixa reprocessar
+        // até configurarem uma; passada a graça, desiste + avisa (não fica em loop pra sempre).
+        const idadeMin = (Date.now() - new Date(c.createdAt).getTime()) / 60000;
+        if (enfileirados > 0 || (!erro && enfileirados === 0 && idadeMin > GRACA_MIN)) {
           await this.db
             .execute(sql`insert into impressao_edge_feito (comanda_id) values (${c.id}) on conflict do nothing`)
             .catch(() => {});
+          if (enfileirados === 0)
+            this.logger.warn(`comanda ${c.id}: cupom NAO impresso — sem impressora de cupom (desisti apos ${GRACA_MIN}min)`);
         }
       }
     } catch (e: any) {

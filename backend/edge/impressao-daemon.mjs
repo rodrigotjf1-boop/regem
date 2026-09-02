@@ -38,6 +38,7 @@ const EDGE_DB = req('EDGE_DATABASE_URL');
 const POLL_MS = Number(process.env.PRINT_POLL_MS || 3000);
 const PORTA_PADRAO = Number(process.env.PRINT_PORTA_PADRAO || 9100);
 const TENTATIVAS = 3;
+const AUTO_RETRY_CAP = 5; // rounds de re-tentativa automática (P2) antes de 'erro' terminal
 const WORKER_ID = `edge-${randomUUID().slice(0, 8)}`; // identifica a reserva (claim) deste worker
 
 const pool = new pg.Pool({ connectionString: EDGE_DB });
@@ -112,9 +113,17 @@ async function marcarImpresso(id) {
   );
 }
 async function marcarErro(id, msg) {
+  // Auto-retry (P2): re-enfileira como 'pendente' com backoff crescente (reusa claim_ate como
+  // "não pegar antes de") até AUTO_RETRY_CAP; depois vira 'erro' terminal (reimpressão manual).
   await pool.query(
-    `update impressao_job set status='erro', erro=$2, tentativas=tentativas+1, claim_por=null, claim_ate=null where id=$1`,
-    [id, String(msg || 'falha').slice(0, 400)],
+    `update impressao_job set
+       tentativas = tentativas + 1,
+       erro = $2,
+       claim_por = null,
+       status = case when tentativas + 1 < $3 then 'pendente' else 'erro' end,
+       claim_ate = case when tentativas + 1 < $3 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
+     where id = $1`,
+    [id, String(msg || 'falha').slice(0, 400), AUTO_RETRY_CAP],
   );
 }
 
@@ -174,7 +183,8 @@ async function pendentes() {
   const r = await pool.query(`
     with alvo as (
       select j.id from impressao_job j
-      where (j.status = 'pendente' or (j.status = 'enviando' and j.claim_ate < now())) ${filtro}
+      where ((j.status = 'pendente' and (j.claim_ate is null or j.claim_ate < now()))
+             or (j.status = 'enviando' and j.claim_ate < now())) ${filtro}
       order by j.criado_em asc
       limit 20
       for update skip locked

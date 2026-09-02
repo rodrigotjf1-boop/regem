@@ -1124,7 +1124,8 @@ export class ProducaoPedidoService {
       with alvo as (
         select j.id from impressao_job j
         where j.tenant_id = ${tenantId}
-          and (j.status = 'pendente' or (j.status = 'enviando' and j.claim_ate < now()))
+          and ((j.status = 'pendente' and (j.claim_ate is null or j.claim_ate < now()))
+               or (j.status = 'enviando' and j.claim_ate < now()))
           ${filtro}
         order by j.criado_em asc
         limit ${limite}
@@ -1161,18 +1162,16 @@ export class ProducaoPedidoService {
   }
 
   async marcarErro(tenantId: string, jobId: string, erro?: string) {
-    await this.db
-      .update(impressaoJob)
-      .set({
-        status: 'erro',
-        erro: (erro ?? 'falha').slice(0, 400),
-        tentativas: sql`${impressaoJob.tentativas} + 1`,
-        claimPor: null,
-        claimAte: null,
-      })
-      .where(
-        and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
-      );
+    // Auto-retry (P2): re-enfileira 'pendente' com backoff crescente (reusa claim_ate como "não
+    // pegar antes de") até 5 rounds; depois 'erro' terminal (reimpressão manual). CASE atômico.
+    await this.db.execute(sql`
+      update impressao_job set
+        tentativas = tentativas + 1,
+        erro = ${(erro ?? 'falha').slice(0, 400)},
+        claim_por = null,
+        status = case when tentativas + 1 < 5 then 'pendente' else 'erro' end,
+        claim_ate = case when tentativas + 1 < 5 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
+      where id = ${jobId} and tenant_id = ${tenantId}`);
     return { ok: true };
   }
 
