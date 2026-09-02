@@ -118,6 +118,22 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  /// E3 — rota OSRM (traçado + ETA) da minha posição até o destino do pedido, p/ o mapa
+  /// in-app. Manda lat/lng se houver (senão o backend usa a última localização registrada).
+  /// Retorna { destino:{lat,lng}, from:{lat,lng}|null, rota:{geometry,duracaoMin,distanciaM}|null,
+  /// endereco, cliente }.
+  static Future<Map<String, dynamic>> rota(String id, {double? lat, double? lng}) async {
+    final r = await http.post(
+      Uri.parse('$base/entregador/pedido/$id/rota'),
+      headers: _headers,
+      body: jsonEncode({if (lat != null) 'lat': lat, if (lng != null) 'lng': lng}),
+    );
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
   /// E2 — manda a localização atual (durante a entrega ativa). Best-effort.
   static Future<void> enviarLocalizacao(double lat, double lng, {double? precisao}) async {
     try {

@@ -51,6 +51,24 @@ class LocationSender {
     return const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 0);
   }
 
+  /// Uma leitura PONTUAL da posição (p/ pedir a rota in-app ao backend). Tenta a atual com
+  /// timeout curto; cai na última conhecida; null se sem permissão/indisponível. Não liga o
+  /// stream de envio — é só para mandar o ponto de partida da rota.
+  static Future<Position?> posicaoAtual() async {
+    try {
+      if (!await _garantirPermissao()) return await Geolocator.getLastKnownPosition();
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+      ).timeout(const Duration(seconds: 6));
+    } catch (_) {
+      try {
+        return await Geolocator.getLastKnownPosition();
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
   /// Começa a enviar (a cada 10s, inclusive em 2º plano no Android) se houver permissão.
   /// Idempotente.
   static Future<void> iniciar() async {
