@@ -1210,9 +1210,14 @@ export class EntregadorService {
     let entregador: any = null;
     let pos: { lat: number; lng: number } | null = null;
     if (ped.entregador_id) {
+      // Só considera a posição AO VIVO: GPS dos últimos 10 min. Sem isso o rastreio mostrava
+      // a última posição (às vezes de horas atrás — app fechado / permissão sem "o tempo todo")
+      // como se fosse a atual (ponto fantasma). Velho → pos null → tela "assim que sair...".
       const loc: any = await this.db.execute(sql`
         select lat, lng, criado_em from entregador_localizacao
-        where colaborador_id = ${ped.entregador_id} order by criado_em desc limit 1`);
+        where colaborador_id = ${ped.entregador_id}
+          and criado_em >= now() - interval '10 minutes'
+        order by criado_em desc limit 1`);
       const l = (loc.rows ?? loc)[0];
       if (l && l.lat != null && l.lng != null) pos = { lat: Number(l.lat), lng: Number(l.lng) };
       const pref: any = await this.db.execute(sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${ped.entregador_id}`);
