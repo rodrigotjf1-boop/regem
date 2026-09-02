@@ -31,15 +31,22 @@ export class EntregadorService {
     private readonly cliente: ClienteService,
   ) {}
 
-  // Expurgo da localização do entregador (1 ponto/~10s por entregador → cresce rápido). Guarda
-  // 2 dias — o rastreio usa só os últimos 10 min; janela curta p/ auditoria. @Cron diário.
-  @Cron('23 4 * * *')
+  // Cap de linhas da localização: mantém só as últimas ~1000 posições POR entregador (rolling).
+  // A tabela cresce rápido (1 ponto/~12s por entregador ativo → ~5k/dia cada); o rastreio usa só
+  // a última, então 1000 (≈3h de trilha) sobra. @Cron a cada 30 min. Só na nuvem (o app posta lá).
+  @Cron('*/30 * * * *')
   async expurgarLocalizacao() {
+    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
     try {
       const r: any = await this.db.execute(sql`
-        delete from entregador_localizacao where criado_em < now() - interval '2 days'`);
+        delete from entregador_localizacao el
+        using (
+          select id, row_number() over (partition by colaborador_id order by criado_em desc) as rn
+          from entregador_localizacao
+        ) r
+        where el.id = r.id and r.rn > 1000`);
       const n = Number(r.rowCount ?? r.rows?.length ?? 0);
-      if (n) logEntregador.log(`expurgo localizacao: ${n} pontos antigos removidos`);
+      if (n) logEntregador.log(`expurgo localizacao: ${n} pontos removidos (cap 1000/entregador)`);
     } catch (e: any) {
       logEntregador.warn(`expurgo localizacao falhou: ${e?.message ?? e}`);
     }
@@ -1002,12 +1009,17 @@ export class EntregadorService {
       order by criado_em desc limit 1`);
     const saida = (s.rows ?? s)[0];
     if (!saida) return { saida: null, paradas: [] as any[] };
-    const r: any = await this.db.execute(sql`
-      select * from pedido_externo where tenant_id = ${tenantId} and saida_id = ${saida.id}
-      order by ordem_parada asc`);
-    const paradas = (r.rows ?? r).map((p: any) => ({
+    // Drizzle (camelCase) — o resumo() lê camelCase (p.codigoEntrega/clienteNome/enderecoNumero).
+    // Com `select *` (raw, snake_case) o precisaCodigo saía FALSE → o app não mostrava o campo do
+    // código na parada da saída e não dava pra finalizar a entrega (nem ir pra próxima).
+    const rows = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.saidaId, saida.id)))
+      .orderBy(pedidoExterno.ordemParada);
+    const paradas = rows.map((p) => ({
       ...this.resumo(p),
-      ordemParada: p.ordem_parada,
+      ordemParada: p.ordemParada,
       entregue: ['entregue', 'concluido'].includes(String(p.status)),
     }));
     return { saida: { id: saida.id, status: saida.status, totalParadas: saida.total_paradas }, paradas };
