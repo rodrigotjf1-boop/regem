@@ -27,7 +27,7 @@ O app entregador **não** é `.exe`/`.zip` do edge — é **APK de instalação 
 - **Rota OSRM no mapa in-app (#427):** "Ver rota" desenha a NOSSA rota (OSRM) num `flutter_map` + ETA; botão "Navegar" abre Waze/Maps p/ a voz. Consome `POST /entregador/pedido/:id/rota` (#426, cloud/autodeploy).
 - **Ganhos estimados (#430):** ao confirmar a entrega com código, a taxa (real/por entrega ou fixa, pelo perfil) já entra em "Meus ganhos estimados" (inclui 'entregue' pendente de conferência); cancelamento no atendimento abate sozinho. Backend `ganhos()` (cloud/autodeploy) + rótulo no app.
 
-**Build de teste `0.1.0+10`** (02/09) para sideload em **`app-entregador/dist/regem-entregador-0.1.0+10.apk`** (65 MB, **release assinado com chave de debug** → instala direto; se não instalar por cima do anterior, **desinstalar** o app antes). **Convenção:** todo APK vai versionado em `app-entregador/dist/` (gitignored) — não espalhar em Downloads/outros diretórios. **Play/AAB** só quando o app amadurecer (aí wire do `upload.jks` no `build.gradle.kts` + bump do versionCode).
+**Build de teste `0.1.0+10`** (02/09) para sideload em **`app-entregador/build/app/outputs/flutter-apk/app-release.apk`** (65 MB, **release assinado com chave de debug** → instala direto; se não instalar por cima do anterior, **desinstalar** o app antes). **Convenção:** o APK fica no caminho padrão de build do Flutter — `app-entregador/build/app/outputs/flutter-apk/` (`app-release.apk` = último build) — **não** copiar pra Downloads nem criar pastas novas. **Play/AAB** só quando o app amadurecer (aí wire do `upload.jks` no `build.gradle.kts` + bump do versionCode).
 
 ## F1/F2/F3 — ✅ cortado no 1.24.0 (31/08)
 
