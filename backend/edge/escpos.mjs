@@ -30,6 +30,9 @@ const feed = (n) => [ESC, 0x64, n]; // ESC d n  (avanca n linhas)
 const beep = (n = 2, t = 3) => [ESC, 0x42, n, t]; // ESC B n t  (bipe)
 // Corte parcial com avanco (compat. Epson/genericas): GS V 66 n
 const cut = () => [GS, 0x56, 66, 0x00];
+// Abre a gaveta de dinheiro (kick drawer): ESC p m t1 t2 — pino 0, pulso ~50/200ms. Emitido
+// quando o conteudo do ticket tem uma linha '@GAVETA' (o gerador do cupom decide quando pedir).
+const abrirGaveta = () => [ESC, 0x70, 0x00, 0x19, 0xfa];
 
 // Remove acentos/diacriticos -> ASCII. Mantem legivel em qualquer codepage.
 function ascii(s) {
@@ -151,6 +154,11 @@ export function renderEscpos(conteudo, largura = 80, linguagem) {
   push(init());
   const linhas = String(conteudo ?? '').split(/\r?\n/);
   for (const linhaRaw of linhas) {
+    // Gaveta de dinheiro (P4): linha '@GAVETA' abre a gaveta (kick drawer) sem imprimir nada.
+    if (linhaRaw.trim() === '@GAVETA') {
+      push(abrirGaveta());
+      continue;
+    }
     // QR do cupom por perfil (Fase 3): '@QR:<dados>' vira um QR centralizado.
     if (linhaRaw.startsWith('@QR:')) {
       push(align(1)); push(qrCode(linhaRaw.slice(4))); push([0x0a]); push(align(0));

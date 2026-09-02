@@ -3,8 +3,10 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -34,6 +36,8 @@ import { perfilEfetivo } from '../delivery/cupom-perfis';
 import { edgeAtivo } from '../../common/edge-ativo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const logImpressao = new Logger('Impressao'); // P4 — logs do expurgo da fila
 
 // Item pronto para roteamento (montado pela venda a partir da comanda).
 export interface ItemProducao {
@@ -982,8 +986,17 @@ export class ProducaoPedidoService {
       conexao: equipamento.conexao,
       host: equipamento.host,
       dispositivo: equipamento.dispositivo,
+      fazProducao: equipamento.fazProducao, // P3 — não jogar cupom do cliente na cozinha
+      fazCupom: equipamento.fazCupom,
     };
-    type Imp = { id: string; conexao: string | null; host: string | null; dispositivo: string | null };
+    type Imp = {
+      id: string;
+      conexao: string | null;
+      host: string | null;
+      dispositivo: string | null;
+      fazProducao?: boolean | null;
+      fazCupom?: boolean | null;
+    };
     let printers: Imp[] = [];
 
     // (0) alvo preferido explícito (override do reimprimir).
@@ -1081,12 +1094,21 @@ export class ProducaoPedidoService {
           or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))!,
         );
       const todas: Imp[] = await this.db.select(cols).from(equipamento).where(and(...conds));
-      const disponiveis = todas
-        .filter((p) => this.alvoValido(p))
-        .sort((a, b) => (a.conexao === 'local' ? -1 : 0) - (b.conexao === 'local' ? -1 : 0));
+      // P3 — prefere impressora que NÃO seja só de produção (evita cupom do cliente na cozinha);
+      // depois local/USB. Se sobrar só produção, usa mesmo assim, mas com aviso mais forte.
+      const disponiveis = todas.filter((p) => this.alvoValido(p)).sort((a, b) => {
+        const soProdA = a.fazProducao && !a.fazCupom ? 1 : 0;
+        const soProdB = b.fazProducao && !b.fazCupom ? 1 : 0;
+        if (soProdA !== soProdB) return soProdA - soProdB;
+        return (a.conexao === 'local' ? -1 : 0) - (b.conexao === 'local' ? -1 : 0);
+      });
       if (disponiveis.length) {
-        validos = [disponiveis[0]];
-        aviso = 'Nenhuma impressora de cupom configurada — usei a primeira impressora disponível.';
+        const p0 = disponiveis[0];
+        validos = [p0];
+        aviso =
+          p0.fazProducao && !p0.fazCupom
+            ? 'Nenhuma impressora de cupom configurada — usei uma impressora de PRODUÇÃO. Configure uma impressora de cupom.'
+            : 'Nenhuma impressora de cupom configurada — usei a primeira impressora disponível.';
       } else {
         return {
           enfileirados: 0,
@@ -1111,43 +1133,50 @@ export class ProducaoPedidoService {
 
   // ===== Fila de impressão (worker do edge; auth por token servidor_local) =====
   // Devolve host/porta da impressora junto (o worker não precisa de outra chamada).
-  jobsPendentes(tenantId: string, unidadeId: string | null = null, limite = 20) {
-    // F2 (canal por LOJA): quando o edge é de uma unidade, só entrega os jobs DELA
-    // + os "da rede" (unidade_id null). Sem unidade → tenant-wide (comportamento atual).
-    const conds = [eq(impressaoJob.tenantId, tenantId), eq(impressaoJob.status, 'pendente')];
-    if (unidadeId)
-      conds.push(sql`(${impressaoJob.unidadeId} = ${unidadeId} or ${impressaoJob.unidadeId} is null)`);
-    return this.db
-      .select({
-        id: impressaoJob.id,
-        equipamentoId: impressaoJob.equipamentoId,
-        pedidoId: impressaoJob.pedidoId,
-        conteudo: impressaoJob.conteudo,
-        tentativas: impressaoJob.tentativas,
-        criadoEm: impressaoJob.criadoEm,
-        conexao: equipamento.conexao, // 'rede' | 'local' (mig 120)
-        host: equipamento.host,
-        porta: equipamento.porta,
-        dispositivo: equipamento.dispositivo, // nome no Windows (conexao='local')
-        largura: equipamento.largura,
-        // Vias por tipo (mig 168): cupom do cliente vs produção; null herda `vias`.
-        vias: sql<number>`case
-          when ${impressaoJob.via} = 'cliente' then coalesce(${equipamento.viasCliente}, ${equipamento.vias})
-          when ${impressaoJob.via} = 'producao' then coalesce(${equipamento.viasProducao}, ${equipamento.vias})
-          else ${equipamento.vias} end`,
-        impressora: equipamento.nome,
-      })
-      .from(impressaoJob)
-      .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
-      .where(and(...conds))
-      .orderBy(impressaoJob.criadoEm)
-      .limit(limite);
+  // Reserva ATÔMICA (claim/lease, mig 221) + entrega da fila ao worker (edge/nuvem). O
+  // `for update skip locked` impede dois consumidores pegarem o MESMO job (fim do duplo-print);
+  // marca 'enviando' + lease de 120s na entrega — se o worker morrer no meio, o job só volta a
+  // ser pegável quando a lease vence (não reimprime a cada ciclo se o ACK falhar). F2: filtro
+  // pela unidade do edge (+ os "da rede", unidade_id null). Vias por tipo (mig 168).
+  async jobsPendentes(tenantId: string, unidadeId: string | null = null, limite = 20) {
+    const filtro = unidadeId
+      ? sql`and (j.unidade_id = ${unidadeId} or j.unidade_id is null)`
+      : sql``;
+    const r: any = await this.db.execute(sql`
+      with alvo as (
+        select j.id from impressao_job j
+        where j.tenant_id = ${tenantId}
+          and ((j.status = 'pendente' and (j.claim_ate is null or j.claim_ate < now()))
+               or (j.status = 'enviando' and j.claim_ate < now()))
+          ${filtro}
+        order by j.criado_em asc
+        limit ${limite}
+        for update skip locked
+      ),
+      claimed as (
+        update impressao_job
+        set status = 'enviando', claim_por = 'cloud', claim_ate = now() + interval '120 seconds'
+        where id in (select id from alvo)
+        returning id, equipamento_id, pedido_id, via, conteudo, tentativas, criado_em
+      )
+      select c.id, c.equipamento_id as "equipamentoId", c.pedido_id as "pedidoId",
+             c.conteudo, c.tentativas, c.criado_em as "criadoEm",
+             e.conexao, e.host, e.porta, e.dispositivo, e.largura,
+             case
+               when c.via = 'cliente' then coalesce(e.vias_cliente, e.vias)
+               when c.via = 'producao' then coalesce(e.vias_producao, e.vias)
+               else e.vias end as vias,
+             e.nome as impressora, e.linguagem_etiqueta as linguagem
+      from claimed c
+      left join equipamento e on e.id = c.equipamento_id
+      order by c.criado_em asc`);
+    return (r.rows ?? r) as any[];
   }
 
   async marcarImpresso(tenantId: string, jobId: string) {
     await this.db
       .update(impressaoJob)
-      .set({ status: 'impresso', impressoEm: new Date() })
+      .set({ status: 'impresso', impressoEm: new Date(), claimPor: null, claimAte: null })
       .where(
         and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
       );
@@ -1155,16 +1184,16 @@ export class ProducaoPedidoService {
   }
 
   async marcarErro(tenantId: string, jobId: string, erro?: string) {
-    await this.db
-      .update(impressaoJob)
-      .set({
-        status: 'erro',
-        erro: (erro ?? 'falha').slice(0, 400),
-        tentativas: sql`${impressaoJob.tentativas} + 1`,
-      })
-      .where(
-        and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
-      );
+    // Auto-retry (P2): re-enfileira 'pendente' com backoff crescente (reusa claim_ate como "não
+    // pegar antes de") até 5 rounds; depois 'erro' terminal (reimpressão manual). CASE atômico.
+    await this.db.execute(sql`
+      update impressao_job set
+        tentativas = tentativas + 1,
+        erro = ${(erro ?? 'falha').slice(0, 400)},
+        claim_por = null,
+        status = case when tentativas + 1 < 5 then 'pendente' else 'erro' end,
+        claim_ate = case when tentativas + 1 < 5 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
+      where id = ${jobId} and tenant_id = ${tenantId}`);
     return { ok: true };
   }
 
@@ -1186,6 +1215,24 @@ export class ProducaoPedidoService {
       .where(eq(impressaoJob.tenantId, tenantId))
       .orderBy(desc(impressaoJob.criadoEm))
       .limit(limite);
+  }
+
+  // P4 — expurgo da fila de impressão (não cresce pra sempre). Roda no backend da NUVEM E no do
+  // EDGE — cada um limpa a SUA fila local (impressao_job é por-banco). Mantém 'impresso' 3 dias
+  // (histórico do painel), 'erro' 14 dias (diagnóstico) e órfãos 'pendente'/'enviando' 2 dias.
+  @Cron('17 4 * * *')
+  async expurgarFilaImpressao() {
+    try {
+      const r: any = await this.db.execute(sql`
+        delete from impressao_job
+        where (status = 'impresso' and impresso_em < now() - interval '3 days')
+           or (status = 'erro' and criado_em < now() - interval '14 days')
+           or (status in ('pendente', 'enviando') and criado_em < now() - interval '2 days')`);
+      const n = Number(r.rowCount ?? r.rows?.length ?? 0);
+      if (n) logImpressao.log(`expurgo: ${n} jobs antigos removidos da fila`);
+    } catch (e: any) {
+      logImpressao.warn(`expurgo falhou: ${e?.message ?? e}`);
+    }
   }
 
   // Enfileira uma página de teste para a impressora (botão do painel). O worker
@@ -1239,9 +1286,17 @@ export class ProducaoPedidoService {
     if (await edgeAtivo(this.db, tenantId)) {
       return { ok: false, edge: true, aviso: 'Esta loja usa servidor local (edge). Reimprima pelo servidor local.' };
     }
-    const set: { status: string; erro: null; equipamentoId?: string } = {
+    const set: {
+      status: string;
+      erro: null;
+      claimPor: null;
+      claimAte: null;
+      equipamentoId?: string;
+    } = {
       status: 'pendente',
       erro: null,
+      claimPor: null,
+      claimAte: null,
     };
     if (equipamentoId) {
       const [imp] = await this.db
