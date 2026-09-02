@@ -33,6 +33,9 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# APKs de teste (sideload), versionados — não versionar no git (65 MB cada)
+/dist/
+
 # Symbolication related
 app.*.symbols
 
