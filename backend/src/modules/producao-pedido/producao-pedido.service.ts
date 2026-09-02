@@ -3,8 +3,10 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -34,6 +36,8 @@ import { perfilEfetivo } from '../delivery/cupom-perfis';
 import { edgeAtivo } from '../../common/edge-ativo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const logImpressao = new Logger('Impressao'); // P4 — logs do expurgo da fila
 
 // Item pronto para roteamento (montado pela venda a partir da comanda).
 export interface ItemProducao {
@@ -1211,6 +1215,24 @@ export class ProducaoPedidoService {
       .where(eq(impressaoJob.tenantId, tenantId))
       .orderBy(desc(impressaoJob.criadoEm))
       .limit(limite);
+  }
+
+  // P4 — expurgo da fila de impressão (não cresce pra sempre). Roda no backend da NUVEM E no do
+  // EDGE — cada um limpa a SUA fila local (impressao_job é por-banco). Mantém 'impresso' 3 dias
+  // (histórico do painel), 'erro' 14 dias (diagnóstico) e órfãos 'pendente'/'enviando' 2 dias.
+  @Cron('17 4 * * *')
+  async expurgarFilaImpressao() {
+    try {
+      const r: any = await this.db.execute(sql`
+        delete from impressao_job
+        where (status = 'impresso' and impresso_em < now() - interval '3 days')
+           or (status = 'erro' and criado_em < now() - interval '14 days')
+           or (status in ('pendente', 'enviando') and criado_em < now() - interval '2 days')`);
+      const n = Number(r.rowCount ?? r.rows?.length ?? 0);
+      if (n) logImpressao.log(`expurgo: ${n} jobs antigos removidos da fila`);
+    } catch (e: any) {
+      logImpressao.warn(`expurgo falhou: ${e?.message ?? e}`);
+    }
   }
 
   // Enfileira uma página de teste para a impressora (botão do painel). O worker

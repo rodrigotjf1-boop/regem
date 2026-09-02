@@ -569,6 +569,14 @@ async function coletarSaude() {
     const r = await pool.query("select count(*)::int n from equipamento where tipo = 'impressora'");
     saude.impressoraConfigurada = (r.rows?.[0]?.n ?? 0) > 0;
   } catch { /* */ }
+  try {
+    // Fila de impressão (P4): erros terminais + pendentes acumulados — observabilidade no console.
+    const r = await pool.query(
+      "select count(*) filter (where status='erro')::int erros, count(*) filter (where status in ('pendente','enviando'))::int pend from impressao_job",
+    );
+    saude.impressaoErros = r.rows?.[0]?.erros ?? 0;
+    saude.impressaoPendentes = r.rows?.[0]?.pend ?? 0;
+  } catch { /* */ }
   return { saude, discoLivreMb: sd.discoLivreMb };
 }
 
