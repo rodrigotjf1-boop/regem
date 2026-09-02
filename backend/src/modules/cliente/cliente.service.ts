@@ -268,9 +268,16 @@ export class ClienteService {
     const bairroFrag = bairro
       ? sql`and exists (select 1 from pedido_externo p where p.cliente_id = c.id and lower(p.endereco_bairro) = lower(${bairro}))`
       : sql``;
-    // Seleção explícita (checkbox na tela) — restringe a estes ids.
+    // Seleção explícita (checkbox na tela) — restringe a estes ids. Usa lista de binds
+    // (sql.join) em vez de `any(${ids}::uuid[])` — o template sql do Drizzle serializava o
+    // array errado (o ::uuid[] recebia o UUID cru, sem chaves) → "malformed array literal".
     const idsFrag =
-      opts.ids && opts.ids.length ? sql`and c.id = any(${opts.ids}::uuid[])` : sql``;
+      opts.ids && opts.ids.length
+        ? sql`and c.id in (${sql.join(
+            opts.ids.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})`
+        : sql``;
     return sql`${segFrag} ${buscaFrag} ${canalFrag} ${bairroFrag} ${idsFrag}`;
   }
 
