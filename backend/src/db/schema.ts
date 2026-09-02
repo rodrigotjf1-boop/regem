@@ -2240,6 +2240,17 @@ export const entregadorLocalizacao = pgTable('entregador_localizacao', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Rastreio "latest-only" (mig 222): 1 linha por entregador, UPSERTada a cada ping — substitui o
+// INSERT-por-ping da entregador_localizacao (que crescia). Todos os usos leem só a última posição.
+export const entregadorPosicao = pgTable('entregador_posicao', {
+  colaboradorId: uuid('colaborador_id').primaryKey(),
+  tenantId: uuid('tenant_id').notNull(),
+  lat: numeric('lat').notNull(),
+  lng: numeric('lng').notNull(),
+  precisao: numeric('precisao'),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // App do Entregador (E5) — modelo de pagamento por loja (1 por tenant). Só nuvem.
 // modelo: diaria_taxas | so_diaria | so_taxas | so_taxa_fixa | diaria_taxas_fixas
 export const entregadorConfig = pgTable('entregador_config', {

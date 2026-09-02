@@ -16,6 +16,7 @@ import { ClienteService } from '../cliente/cliente.service';
 import { geocode, montarEndereco } from '../../common/geocode';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
 // App do Entregador. Auth reusa o login de colaborador (JWT já traz nome/função/
 // permissões). Sempre por tenant; reusa a lógica de despacho do DeliveryService.
 @Injectable()
@@ -191,9 +192,14 @@ export class EntregadorService {
     const ln = Number(lng);
     if (!isFinite(la) || !isFinite(ln)) throw new BadRequestException('Coordenadas inválidas.');
     const prec = precisao != null && isFinite(Number(precisao)) ? Number(precisao) : null;
+    // UPSERT latest (mig 222): 1 linha por entregador, sobrescrita — sem INSERT-por-ping nem
+    // crescimento da tabela. Todos os leitores (rastreio, rota, aoVivo, geofence) usam só a última.
     await this.db.execute(sql`
-      insert into entregador_localizacao (tenant_id, colaborador_id, lat, lng, precisao)
-      values (${user.tenantId}, ${user.colaboradorId}, ${la}, ${ln}, ${prec})`);
+      insert into entregador_posicao (colaborador_id, tenant_id, lat, lng, precisao, atualizado_em)
+      values (${user.colaboradorId}, ${user.tenantId}, ${la}, ${ln}, ${prec}, now())
+      on conflict (colaborador_id) do update set
+        tenant_id = excluded.tenant_id, lat = excluded.lat, lng = excluded.lng,
+        precisao = excluded.precisao, atualizado_em = now()`);
     // Geofence automático do alerta de chegada (best-effort, não bloqueia o ping).
     void this.checarChegada(user, la, ln);
     return { ok: true };
@@ -203,15 +209,14 @@ export class EntregadorService {
   // e o centro do mapa = coordenadas da loja (cardapio_config) p/ enquadrar de perto.
   async aoVivo(tenantId: string) {
     const r: any = await this.db.execute(sql`
-      select distinct on (l.colaborador_id)
-        l.colaborador_id, l.lat, l.lng, l.criado_em, c.nome,
+      select l.colaborador_id, l.lat, l.lng, l.atualizado_em as criado_em, c.nome,
         (select count(*)::int from pedido_externo p
            where p.tenant_id = l.tenant_id and p.entregador_id = l.colaborador_id
              and p.status = 'despachado') as em_rota
-      from entregador_localizacao l
+      from entregador_posicao l
       join colaborador c on c.id = l.colaborador_id
-      where l.tenant_id = ${tenantId} and l.criado_em >= now() - interval '15 minutes'
-      order by l.colaborador_id, l.criado_em desc`);
+      where l.tenant_id = ${tenantId} and l.atualizado_em >= now() - interval '15 minutes'
+      order by c.nome`);
     const cfg: any = await this.db.execute(
       sql`select end_lat, end_lng from cardapio_config where tenant_id = ${tenantId} limit 1`,
     );
@@ -265,8 +270,7 @@ export class EntregadorService {
       Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
     if (!from) {
       const loc: any = await this.db.execute(sql`
-        select lat, lng from entregador_localizacao
-        where colaborador_id = ${user.colaboradorId} order by criado_em desc limit 1`);
+        select lat, lng from entregador_posicao where colaborador_id = ${user.colaboradorId}`);
       const l = (loc.rows ?? loc)[0];
       if (l && l.lat != null && l.lng != null) from = { lat: Number(l.lat), lng: Number(l.lng) };
     }
@@ -983,12 +987,17 @@ export class EntregadorService {
       order by criado_em desc limit 1`);
     const saida = (s.rows ?? s)[0];
     if (!saida) return { saida: null, paradas: [] as any[] };
-    const r: any = await this.db.execute(sql`
-      select * from pedido_externo where tenant_id = ${tenantId} and saida_id = ${saida.id}
-      order by ordem_parada asc`);
-    const paradas = (r.rows ?? r).map((p: any) => ({
+    // Drizzle (camelCase) — o resumo() lê camelCase (p.codigoEntrega/clienteNome/enderecoNumero).
+    // Com `select *` (raw, snake_case) o precisaCodigo saía FALSE → o app não mostrava o campo do
+    // código na parada da saída e não dava pra finalizar a entrega (nem ir pra próxima).
+    const rows = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.saidaId, saida.id)))
+      .orderBy(pedidoExterno.ordemParada);
+    const paradas = rows.map((p) => ({
       ...this.resumo(p),
-      ordemParada: p.ordem_parada,
+      ordemParada: p.ordemParada,
       entregue: ['entregue', 'concluido'].includes(String(p.status)),
     }));
     return { saida: { id: saida.id, status: saida.status, totalParadas: saida.total_paradas }, paradas };
@@ -1214,10 +1223,9 @@ export class EntregadorService {
       // a última posição (às vezes de horas atrás — app fechado / permissão sem "o tempo todo")
       // como se fosse a atual (ponto fantasma). Velho → pos null → tela "assim que sair...".
       const loc: any = await this.db.execute(sql`
-        select lat, lng, criado_em from entregador_localizacao
+        select lat, lng from entregador_posicao
         where colaborador_id = ${ped.entregador_id}
-          and criado_em >= now() - interval '10 minutes'
-        order by criado_em desc limit 1`);
+          and atualizado_em >= now() - interval '10 minutes'`);
       const l = (loc.rows ?? loc)[0];
       if (l && l.lat != null && l.lng != null) pos = { lat: Number(l.lat), lng: Number(l.lng) };
       const pref: any = await this.db.execute(sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${ped.entregador_id}`);

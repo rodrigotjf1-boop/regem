@@ -12,6 +12,7 @@ import { createHmac, createHash, randomBytes, randomInt } from 'crypto';
 const hashOtp = (codigo: string) => createHash('sha256').update(codigo.trim()).digest('hex');
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { Cron } from '@nestjs/schedule';
 import { geocode, montarEndereco } from '../../common/geocode';
 import {
   cardapioConfig,
@@ -721,6 +722,45 @@ export class ClienteService {
         return { ...rest, codigoEntrega: codigo, resgate: resgates.has(p.id) };
       }),
     };
+  }
+
+  // Backfill progressivo: geocodifica endereços salvos SEM coords (o form antigo não mandava e o
+  // save não geocodificava — quebrava frete por raio E destino do rastreio). Lote pequeno
+  // respeitando o Nominatim (~1/s). Só na NUVEM (não no edge, p/ não duplicar a escrita que
+  // sincroniza). @Cron a cada 10 min; para sozinho quando não há mais o que preencher.
+  @Cron('*/10 * * * *')
+  async backfillGeocodeEnderecos() {
+    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
+    try {
+      const r: any = await this.db.execute(sql`
+        select id, cliente_id, logradouro, numero, bairro, cidade
+        from cliente_endereco
+        where (lat is null or lng is null) and coalesce(logradouro, '') <> ''
+        order by criado_em desc limit 20`);
+      const rows = r.rows ?? r;
+      let ok = 0;
+      for (const e of rows) {
+        let cidade = e.cidade || null;
+        if (!cidade) {
+          const cc: any = await this.db.execute(sql`
+            select cidade from cliente_endereco
+            where cliente_id = ${e.cliente_id} and cidade is not null and cidade <> '' limit 1`);
+          cidade = (cc.rows ?? cc)[0]?.cidade ?? null;
+        }
+        const q = montarEndereco([e.logradouro, e.numero, e.bairro, cidade, 'Brasil']);
+        const g = q ? await geocode(q).catch(() => null) : null;
+        if (g) {
+          await this.db
+            .execute(sql`update cliente_endereco set lat = ${String(g.lat)}, lng = ${String(g.lng)} where id = ${e.id}`)
+            .catch(() => {});
+          ok++;
+        }
+        await new Promise((res) => setTimeout(res, 1100)); // ~1 req/s (política do Nominatim)
+      }
+      if (ok) new Logger('GeoBackfill').log(`${ok}/${rows.length} endereços geocodificados`);
+    } catch {
+      /* best-effort */
+    }
   }
 
   async adicionarEndereco(cardapioToken: string, clienteToken: string | undefined, dto: any) {

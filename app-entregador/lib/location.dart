@@ -12,6 +12,7 @@ import 'api.dart';
 /// quando não há mais entregas.
 class LocationSender {
   static StreamSubscription<Position>? _sub;
+  static Timer? _pulso; // pulso periódico com getCurrentPosition (fallback do stream)
 
   static Future<bool> _garantirPermissao() async {
     if (!await Geolocator.isLocationServiceEnabled()) return false;
@@ -72,18 +73,40 @@ class LocationSender {
   /// Começa a enviar (a cada 10s, inclusive em 2º plano no Android) se houver permissão.
   /// Idempotente.
   static Future<void> iniciar() async {
-    if (_sub != null) return;
+    if (_sub != null || _pulso != null) return;
     if (!await _garantirPermissao()) return;
+    // PULSO periódico com getCurrentPosition (localização fundida — funciona mesmo onde o
+    // getPositionStream de alta precisão + foreground service NÃO emite, ex.: Android 14/15).
+    // Garante atualização a cada 12s COM O APP ABERTO — antes o app postava só a posição inicial
+    // e parava, o rastreio envelhecia (10 min) e sumia. O stream abaixo dá updates mais finos +
+    // 2º plano quando o foreground service sobe.
+    Future<void> pulsar() async {
+      final p = await posicaoAtual();
+      if (p != null) {
+        Api.enviarLocalizacao(p.latitude, p.longitude, precisao: p.accuracy);
+      }
+    }
+
+    pulsar(); // imediata
+    _pulso = Timer.periodic(const Duration(seconds: 12), (_) => pulsar());
     _sub = Geolocator.getPositionStream(locationSettings: _settings()).listen(
       (pos) {
         Api.enviarLocalizacao(pos.latitude, pos.longitude, precisao: pos.accuracy);
       },
-      onError: (_) {}, // silencioso — não atrapalha a entrega
+      // Stream morreu (erro do provedor / foreground service / SO): zera _sub p/ reabrir no
+      // próximo iniciar(). O pulso acima continua postando enquanto isso.
+      onError: (_) {
+        _sub?.cancel();
+        _sub = null;
+      },
+      cancelOnError: true,
     );
   }
 
   static void parar() {
     _sub?.cancel();
     _sub = null;
+    _pulso?.cancel();
+    _pulso = null;
   }
 }
