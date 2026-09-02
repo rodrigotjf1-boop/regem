@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../outbox.dart';
+import 'rota_screen.dart';
 
 class PedidoScreen extends StatefulWidget {
   final Map<String, dynamic> pedido;
@@ -47,25 +48,14 @@ class _PedidoScreenState extends State<PedidoScreen> {
     super.dispose();
   }
 
-  // E3 — abre o endereço no app de mapas do aparelho (Google Maps/Waze via
-  // seletor do sistema), traçando rota a partir da posição atual.
-  Future<void> _abrirRota() async {
-    final end = widget.pedido['endereco']?.toString().trim();
-    if (end == null || end.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pedido sem endereço para traçar rota.')),
-      );
-      return;
-    }
-    final uri = Uri.parse(
-      'https://www.google.com/maps/dir/?api=1&destination=${Uri.encodeComponent(end)}&travelmode=driving',
+  // E3 — abre a NOSSA rota (OSRM) num mapa DENTRO do app; lá dentro há o botão "Navegar"
+  // que abre o Google Maps/Waze para a direção por voz. Antes este botão abria o mapa
+  // externo direto (sem a nossa rota).
+  void _verRota() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => RotaScreen(pedido: widget.pedido)),
     );
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Não foi possível abrir o mapa.')),
-      );
-    }
   }
 
   // Contato do cliente: só dígitos; com DDI 55 para o wa.me (WhatsApp).
@@ -227,18 +217,18 @@ class _PedidoScreenState extends State<PedidoScreen> {
                 title: Text(p['endereco'].toString()),
                 trailing: IconButton(
                   icon: const Icon(Icons.directions),
-                  tooltip: 'Traçar rota',
-                  onPressed: _abrirRota,
+                  tooltip: 'Ver rota',
+                  onPressed: _verRota,
                 ),
-                onTap: _abrirRota,
+                onTap: _verRota,
               ),
             ),
           const SizedBox(height: 8),
           if (p['endereco'] != null)
             OutlinedButton.icon(
-              onPressed: _abrirRota,
-              icon: const Icon(Icons.navigation),
-              label: const Text('Abrir rota no mapa'),
+              onPressed: _verRota,
+              icon: const Icon(Icons.map),
+              label: const Text('Ver rota'),
             ),
           const SizedBox(height: 8),
           ...itens.map((it) {
