@@ -157,13 +157,10 @@ export default function RastreioPage() {
     if (dp) {
       const pos: [number, number] = [dp.lat, dp.lng];
       pts.push(pos);
-      // Ícone do entregador: bag de entrega (bolsa) num badge dourado — pedido do gestor.
-      const bag =
-        `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="${NAVY}" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">` +
-        `<path d="M5 8h14l-1.1 11.2H6.1L5 8z"/><path d="M8.5 8V6.2a3.5 3.5 0 0 1 7 0V8"/></svg>`;
+      // Ícone do entregador: moto de delivery (🛵) num badge dourado.
       const html =
         `<div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;">` +
-        `<div title="Entregador" style="background:${OURO};display:grid;place-items:center;width:34px;height:34px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.35);border:2px solid #fff;">${bag}</div>` +
+        `<div title="Entregador" style="background:${OURO};display:grid;place-items:center;width:38px;height:38px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.35);border:2px solid #fff;font-size:22px;line-height:1;">🛵</div>` +
         `<div style="width:2px;height:9px;background:${OURO};"></div></div>`;
       const icon = L.divIcon({ className: '', html, iconSize: [0, 0], iconAnchor: [0, 0] });
       if (driverMk.current) driverMk.current.setLatLng(pos).setIcon(icon);
