@@ -12,6 +12,7 @@ import 'api.dart';
 /// quando não há mais entregas.
 class LocationSender {
   static StreamSubscription<Position>? _sub;
+  static Timer? _pulso; // pulso periódico com getCurrentPosition (fallback do stream)
 
   static Future<bool> _garantirPermissao() async {
     if (!await Geolocator.isLocationServiceEnabled()) return false;
@@ -72,23 +73,28 @@ class LocationSender {
   /// Começa a enviar (a cada 10s, inclusive em 2º plano no Android) se houver permissão.
   /// Idempotente.
   static Future<void> iniciar() async {
-    if (_sub != null) return;
+    if (_sub != null || _pulso != null) return;
     if (!await _garantirPermissao()) return;
-    // Posição IMEDIATA (getCurrentPosition usa localização fundida — pega fix mesmo DENTRO da
-    // loja, onde o stream de alta precisão não emite): o rastreio já mostra o entregador na hora,
-    // sem esperar ele se mover. O stream abaixo cobre a movimentação na rua.
-    posicaoAtual().then((p) {
+    // PULSO periódico com getCurrentPosition (localização fundida — funciona mesmo onde o
+    // getPositionStream de alta precisão + foreground service NÃO emite, ex.: Android 14/15).
+    // Garante atualização a cada 12s COM O APP ABERTO — antes o app postava só a posição inicial
+    // e parava, o rastreio envelhecia (10 min) e sumia. O stream abaixo dá updates mais finos +
+    // 2º plano quando o foreground service sobe.
+    Future<void> pulsar() async {
+      final p = await posicaoAtual();
       if (p != null) {
         Api.enviarLocalizacao(p.latitude, p.longitude, precisao: p.accuracy);
       }
-    });
+    }
+
+    pulsar(); // imediata
+    _pulso = Timer.periodic(const Duration(seconds: 12), (_) => pulsar());
     _sub = Geolocator.getPositionStream(locationSettings: _settings()).listen(
       (pos) {
         Api.enviarLocalizacao(pos.latitude, pos.longitude, precisao: pos.accuracy);
       },
-      // Stream morreu (erro do provedor de GPS / SO suspendeu): cancela e ZERA _sub para o
-      // próximo iniciar() (a cada refresh da lista) reabrir. Antes ficava "preso" (_sub != null)
-      // e parava de postar — o rastreio congelava na última posição.
+      // Stream morreu (erro do provedor / foreground service / SO): zera _sub p/ reabrir no
+      // próximo iniciar(). O pulso acima continua postando enquanto isso.
       onError: (_) {
         _sub?.cancel();
         _sub = null;
@@ -100,5 +106,7 @@ class LocationSender {
   static void parar() {
     _sub?.cancel();
     _sub = null;
+    _pulso?.cancel();
+    _pulso = null;
   }
 }
