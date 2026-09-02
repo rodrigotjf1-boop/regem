@@ -37,3 +37,32 @@ export function montarEndereco(
 ): string {
   return partes.map((p) => (p ?? '').trim()).filter(Boolean).join(', ');
 }
+
+// Reverse-geocode (coord → endereço) via Nominatim — para o botão "usar minha localização"
+// preencher rua/bairro/cidade a partir do GPS. Falha → null (o cliente ainda tem o pin/coord).
+export async function reverseGeocode(
+  lat: number,
+  lng: number,
+): Promise<{ logradouro: string; bairro: string; cidade: string; uf: string } | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 5000);
+    const res = await fetch(url, {
+      headers: { 'User-Agent': UA, 'Accept-Language': 'pt-BR' },
+      signal: ctrl.signal,
+    }).finally(() => clearTimeout(t));
+    if (!res.ok) return null;
+    const j = (await res.json()) as { address?: Record<string, string> };
+    const a = j?.address ?? {};
+    return {
+      logradouro: a.road ?? a.pedestrian ?? a.footway ?? a.path ?? '',
+      bairro: a.suburb ?? a.neighbourhood ?? a.city_district ?? a.quarter ?? '',
+      cidade: a.city ?? a.town ?? a.municipality ?? a.village ?? '',
+      uf: a.state ?? '',
+    };
+  } catch {
+    return null;
+  }
+}
