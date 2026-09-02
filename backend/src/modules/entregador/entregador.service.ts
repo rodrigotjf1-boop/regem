@@ -249,11 +249,16 @@ export class EntregadorService {
   // chegando…"). Nome/contato do ENTREGADOR só vão se ele ativou o opt-in no app.
   private async dispararChegada(user: AuthUser, ped: any): Promise<boolean> {
     if (!ped.clienteTelefone) return false;
+    // Nome da loja p/ a mensagem = "Nome do estabelecimento" (Config → Loja), que salva em
+    // cardapio_config.nome_publico. Fallback pro empresa.nome se não houver.
+    const cfg: any = await this.db.execute(
+      sql`select nome_publico from cardapio_config where tenant_id = ${user.tenantId} limit 1`,
+    );
     const emp: any = await this.db.execute(
       sql`select nome from empresa where id = ${user.tenantId}`,
     );
-    const e0 = (emp.rows ?? emp)[0] ?? {};
-    const nomeFantasia = e0.nome || null;
+    const nomeFantasia =
+      (cfg.rows ?? cfg)[0]?.nome_publico || (emp.rows ?? emp)[0]?.nome || null;
     const pref: any = await this.db.execute(
       sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${user.colaboradorId}`,
     );
