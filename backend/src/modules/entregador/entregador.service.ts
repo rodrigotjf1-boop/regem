@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno } from '../../db/schema';
@@ -763,12 +763,15 @@ export class EntregadorService {
     const lancamentoId = (lc.rows ?? lc)[0].id;
     await this.db.execute(sql`update entregador_fechamento set lancamento_caixa_id = ${lancamentoId} where id = ${fechamentoId}`);
 
-    // 3) Marca os pedidos como acertados (não pagam de novo).
+    // 3) Marca os pedidos como acertados (não pagam de novo). Usa inArray do Drizzle — o
+    // `id = any(${ids}::uuid[])` no template sql serializava o array errado (o ::uuid[] recebia
+    // o UUID cru, sem chaves) → "malformed array literal". Set-based, 1 query.
     if (entregas > 0) {
-      const ids = pedidos.map((p: any) => p.id);
-      await this.db.execute(sql`
-        update pedido_externo set entregador_fechamento_id = ${fechamentoId}
-        where tenant_id = ${tenantId} and id = any(${ids}::uuid[])`);
+      const ids = pedidos.map((p: any) => p.id as string);
+      await this.db
+        .update(pedidoExterno)
+        .set({ entregadorFechamentoId: fechamentoId })
+        .where(and(eq(pedidoExterno.tenantId, tenantId), inArray(pedidoExterno.id, ids)));
     }
     return { ok: true, fechamentoId, entregas, ...v, descricao: descr };
   }
