@@ -25,8 +25,9 @@ Cortar quando o gestor pedir: `build-release.ps1 -Versao X.Y.Z` de worktree off 
 O app entregador **não** é `.exe`/`.zip` do edge — é **APK de instalação direta** (AAB/Play adiado "até estar mais completo"). Última versão na Play = `0.1.0` (versionCode 7). Acumulado desde então:
 - **Localização em 2º plano (#419):** `getPositionStream` + foreground service → envia a cada 10s com a tela apagada; manifest += `ACCESS_BACKGROUND_LOCATION`/`FOREGROUND_SERVICE(_LOCATION)`.
 - **Rota OSRM no mapa in-app (#427):** "Ver rota" desenha a NOSSA rota (OSRM) num `flutter_map` + ETA; botão "Navegar" abre Waze/Maps p/ a voz. Consome `POST /entregador/pedido/:id/rota` (#426, cloud/autodeploy).
+- **Ganhos estimados (#430):** ao confirmar a entrega com código, a taxa (real/por entrega ou fixa, pelo perfil) já entra em "Meus ganhos estimados" (inclui 'entregue' pendente de conferência); cancelamento no atendimento abate sozinho. Backend `ganhos()` (cloud/autodeploy) + rótulo no app.
 
-**Build de teste `0.1.0+9`** gerado (02/09) para sideload: `app-entregador/build/app/outputs/flutter-apk/app-release.apk` (65 MB, **release assinado com chave de debug** → instala direto; se não instalar por cima do anterior, **desinstalar** o app antes). Copiado p/ `Downloads/regem-entregador-0.1.0+9.apk`. **Play/AAB** só quando o app amadurecer (aí wire do `upload.jks` no `build.gradle.kts` + bump do versionCode).
+**Build de teste `0.1.0+10`** gerado (02/09) para sideload: `app-entregador/build/app/outputs/flutter-apk/app-release.apk` (65 MB, **release assinado com chave de debug** → instala direto; se não instalar por cima do anterior, **desinstalar** o app antes). Copiado p/ `Downloads/regem-entregador-0.1.0+10.apk`. **Play/AAB** só quando o app amadurecer (aí wire do `upload.jks` no `build.gradle.kts` + bump do versionCode).
 
 ## F1/F2/F3 — ✅ cortado no 1.24.0 (31/08)
 
