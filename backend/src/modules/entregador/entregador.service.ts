@@ -244,6 +244,40 @@ export class EntregadorService {
     return { ok: true };
   }
 
+  // App do entregador: rota OSRM (traçado + ETA) da posição do entregador até o destino do
+  // pedido, para desenhar no mapa IN-APP (sem depender do Google Maps). O app manda a sua
+  // posição atual (lat/lng); sem ela, cai na última localização registrada. Carrega o pedido
+  // em snake_case para o coordDoPedido usar as coords já geocodificadas do cliente. Rota null
+  // se o OSRM estiver fora → o app mostra só os marcadores + o botão "Navegar" (app externo).
+  async rotaEntregador(user: AuthUser, pedidoId: string, lat: number, lng: number) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const r: any = await this.db.execute(sql`
+      select id, status, entregador_id, cliente_id, cliente_nome,
+             endereco, endereco_rua, endereco_numero, endereco_bairro
+        from pedido_externo where tenant_id = ${user.tenantId} and id = ${pedidoId} limit 1`);
+    const ped = (r.rows ?? r)[0];
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.entregador_id !== user.colaboradorId)
+      throw new ForbiddenException('Este pedido não está atribuído a você.');
+    const destino = await this.coordDoPedido(user.tenantId, ped);
+    if (!destino) throw new BadRequestException('Endereço do pedido sem coordenadas.');
+    let from: { lat: number; lng: number } | null =
+      Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+    if (!from) {
+      const loc: any = await this.db.execute(sql`
+        select lat, lng from entregador_localizacao
+        where colaborador_id = ${user.colaboradorId} order by criado_em desc limit 1`);
+      const l = (loc.rows ?? loc)[0];
+      if (l && l.lat != null && l.lng != null) from = { lat: Number(l.lat), lng: Number(l.lng) };
+    }
+    const rota = from ? await this.rotaOsrm(from, destino) : null;
+    const endereco =
+      montarEndereco([ped.endereco_rua || ped.endereco, ped.endereco_numero, ped.endereco_bairro]) ||
+      String(ped.endereco ?? '') ||
+      null;
+    return { destino, from, rota, endereco, cliente: ped.cliente_nome ?? null };
+  }
+
   // Monta o payload e dispara o alerta de chegada no webhook (manual e automático).
   // Sempre manda o nome fantasia da loja (p/ a mensagem "O entregador do <loja> está
   // chegando…"). Nome/contato do ENTREGADOR só vão se ele ativou o opt-in no app.
