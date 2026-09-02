@@ -683,12 +683,30 @@ export class EntregadorService {
   // do período dele. Base do "fechamento do dia/semana/quinzena" no Delivery.
   async fechamentoEntregadores(tenantId: string) {
     const ents = await this.delivery.listarEntregadores(tenantId);
+    // Turno (caixa de entregas) aberto + quem JÁ foi pago NELE — o botão vira "Pago" (disable)
+    // até abrir um novo turno, evitando pagar duas vezes. 1 query p/ todos (não por entregador).
+    // Ao abrir novo turno, os fechamentos ficam no caixa antigo → pagoNoTurno volta a false.
+    const cx: any = await this.db.execute(sql`
+      select id from caixa_sessao
+      where tenant_id = ${tenantId} and status = 'aberta' and origem = 'delivery' limit 1`);
+    const sessaoId = (cx.rows ?? cx)[0]?.id ?? null;
+    const pagos = new Map<string, number>();
+    if (sessaoId) {
+      const rp: any = await this.db.execute(sql`
+        select ef.colaborador_id, coalesce(sum(ef.total_centavos), 0)::bigint as total
+        from entregador_fechamento ef
+        join lancamento_caixa lc on lc.id = ef.lancamento_caixa_id
+        where ef.tenant_id = ${tenantId} and lc.sessao_id = ${sessaoId}
+        group by ef.colaborador_id`);
+      for (const r of rp.rows ?? rp) pagos.set(String(r.colaborador_id), Number(r.total));
+    }
     const linhas: any[] = [];
     for (const e of ents as any[]) {
       const cfg = await this.perfilDeEntregador(tenantId, e.id);
       const { inicio, fim } = this.periodoDe(cfg.periodicidade ?? 'dia');
       const { entregas, taxasReaisCentavos } = await this.agregarPeriodo(tenantId, e.id, inicio, fim);
       const v = this.calcular(cfg, entregas, taxasReaisCentavos);
+      const pagoCentavos = pagos.get(String(e.id)) ?? 0;
       linhas.push({
         colaboradorId: e.id,
         nome: e.nome,
@@ -698,6 +716,9 @@ export class EntregadorService {
         periodo: { inicio, fim },
         entregas,
         ...v,
+        turnoAberto: !!sessaoId, // sem caixa de entregas aberto não há como pagar (sangria)
+        pagoNoTurno: pagoCentavos > 0, // já pago neste turno → botão "Pago" (disable até novo turno)
+        pagoCentavos,
       });
     }
     return linhas;
