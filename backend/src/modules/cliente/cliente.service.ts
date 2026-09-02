@@ -12,6 +12,7 @@ import { createHmac, createHash, randomBytes, randomInt } from 'crypto';
 const hashOtp = (codigo: string) => createHash('sha256').update(codigo.trim()).digest('hex');
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { geocode, montarEndereco } from '../../common/geocode';
 import {
   cardapioConfig,
   cashbackMovimento,
@@ -725,6 +726,26 @@ export class ClienteService {
   async adicionarEndereco(cardapioToken: string, clienteToken: string | undefined, dto: any) {
     const c = await this.clienteDoToken(cardapioToken, clienteToken);
     const primeiro = (await this.enderecosDe(c.id)).length === 0;
+    // Geocode no SERVIDOR quando o front não manda coords (o formulário nem sempre resolve): sem
+    // lat/lng o endereço quebra o frete por raio E o destino do rastreio do entregador. Enriquece
+    // com a cidade do cliente quando o endereço não traz cidade.
+    let lat = dto.lat != null && dto.lat !== '' ? String(dto.lat) : null;
+    let lng = dto.lng != null && dto.lng !== '' ? String(dto.lng) : null;
+    if (!lat || !lng) {
+      let cidade = dto.cidade || null;
+      if (!cidade) {
+        const cc: any = await this.db.execute(sql`
+          select cidade from cliente_endereco
+          where cliente_id = ${c.id} and cidade is not null and cidade <> '' limit 1`);
+        cidade = (cc.rows ?? cc)[0]?.cidade ?? null;
+      }
+      const q = montarEndereco([dto.logradouro, dto.numero, dto.bairro, cidade, 'Brasil']);
+      const g = q ? await geocode(q).catch(() => null) : null;
+      if (g) {
+        lat = String(g.lat);
+        lng = String(g.lng);
+      }
+    }
     const [e] = await this.db
       .insert(clienteEndereco)
       .values({
@@ -739,8 +760,8 @@ export class ClienteService {
         bairroId: dto.bairroId || null,
         cidade: dto.cidade || null,
         referencia: dto.referencia || null,
-        lat: dto.lat != null && dto.lat !== '' ? String(dto.lat) : null,
-        lng: dto.lng != null && dto.lng !== '' ? String(dto.lng) : null,
+        lat,
+        lng,
         principal: dto.principal ?? primeiro,
       })
       .returning();
