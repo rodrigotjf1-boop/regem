@@ -3,8 +3,10 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { OnEvent } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
@@ -16,6 +18,9 @@ import { ClienteService } from '../cliente/cliente.service';
 import { geocode, montarEndereco } from '../../common/geocode';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+const logEntregador = new Logger('Entregador'); // expurgo/telemetria
+
 // App do Entregador. Auth reusa o login de colaborador (JWT já traz nome/função/
 // permissões). Sempre por tenant; reusa a lógica de despacho do DeliveryService.
 @Injectable()
@@ -25,6 +30,20 @@ export class EntregadorService {
     private readonly delivery: DeliveryService,
     private readonly cliente: ClienteService,
   ) {}
+
+  // Expurgo da localização do entregador (1 ponto/~10s por entregador → cresce rápido). Guarda
+  // 2 dias — o rastreio usa só os últimos 10 min; janela curta p/ auditoria. @Cron diário.
+  @Cron('23 4 * * *')
+  async expurgarLocalizacao() {
+    try {
+      const r: any = await this.db.execute(sql`
+        delete from entregador_localizacao where criado_em < now() - interval '2 days'`);
+      const n = Number(r.rowCount ?? r.rows?.length ?? 0);
+      if (n) logEntregador.log(`expurgo localizacao: ${n} pontos antigos removidos`);
+    } catch (e: any) {
+      logEntregador.warn(`expurgo localizacao falhou: ${e?.message ?? e}`);
+    }
+  }
 
   private ehEntregador(user: AuthUser): boolean {
     return /entregador/i.test(user.funcaoNome ?? '');
