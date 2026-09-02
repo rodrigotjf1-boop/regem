@@ -79,6 +79,13 @@ export class EntregadorController {
     return this.service.avisarChegando(user, id);
   }
 
+  // E3 — rota OSRM (traçado + ETA) até o destino do pedido, p/ o mapa in-app. Corpo: { lat, lng }
+  // = posição atual do entregador (opcional; sem ela usa a última registrada).
+  @Post('pedido/:id/rota')
+  rota(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.rotaEntregador(user, id, Number(dto?.lat), Number(dto?.lng));
+  }
+
   // E2 — o gestor vê os entregadores ao vivo (RBAC delivery).
   @Get('ao-vivo')
   @UseGuards(RolesGuard, PermissoesGuard)
