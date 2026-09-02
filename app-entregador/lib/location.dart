@@ -74,6 +74,14 @@ class LocationSender {
   static Future<void> iniciar() async {
     if (_sub != null) return;
     if (!await _garantirPermissao()) return;
+    // Posição IMEDIATA (getCurrentPosition usa localização fundida — pega fix mesmo DENTRO da
+    // loja, onde o stream de alta precisão não emite): o rastreio já mostra o entregador na hora,
+    // sem esperar ele se mover. O stream abaixo cobre a movimentação na rua.
+    posicaoAtual().then((p) {
+      if (p != null) {
+        Api.enviarLocalizacao(p.latitude, p.longitude, precisao: p.accuracy);
+      }
+    });
     _sub = Geolocator.getPositionStream(locationSettings: _settings()).listen(
       (pos) {
         Api.enviarLocalizacao(pos.latitude, pos.longitude, precisao: pos.accuracy);

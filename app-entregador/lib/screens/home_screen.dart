@@ -95,8 +95,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _carregando = false;
         });
       }
-      // GPS só com entrega ativa (LGPD + bateria): pede permissão em contexto.
-      if (peds.isNotEmpty) {
+      // GPS só com entrega ativa (LGPD + bateria): pedidos avulsos em rota OU paradas pendentes
+      // numa saída (roteiro). Antes só olhava `peds` → no roteiro o GPS não ligava.
+      final temSaidaAtiva =
+          (saida?['paradas'] as List?)?.any((p) => (p as Map)['entregue'] != true) ?? false;
+      if (peds.isNotEmpty || temSaidaAtiva) {
         LocationSender.iniciar();
       } else {
         LocationSender.parar();
