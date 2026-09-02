@@ -403,15 +403,23 @@ export default function EntregadoresPage() {
                         <td className="py-2 pr-3 text-right font-mono">{l.entregas}</td>
                         <td className="py-2 pr-3 text-right font-mono">{brl(l.diaria ?? l.diariaCentavos)}</td>
                         <td className="py-2 pr-3 text-right font-mono">{brl(l.taxas ?? l.taxasCentavos)}</td>
-                        <td className="py-2 pr-3 text-right font-mono font-semibold">{brl(l.total ?? l.totalCentavos)}</td>
+                        <td className="py-2 pr-3 text-right font-mono font-semibold">{brl(l.pagoNoTurno ? l.pagoCentavos : (l.total ?? l.totalCentavos))}</td>
                         <td className="py-2 pl-3 text-right">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => fechar(l.colaboradorId)}
-                            disabled={fechando === l.colaboradorId || Number(l.total ?? l.totalCentavos ?? 0) <= 0}
+                            disabled={
+                              l.pagoNoTurno ||
+                              fechando === l.colaboradorId ||
+                              Number(l.total ?? l.totalCentavos ?? 0) <= 0
+                            }
                           >
-                            {fechando === l.colaboradorId ? '…' : 'Finalizar e pagar'}
+                            {l.pagoNoTurno
+                              ? '✓ Pago'
+                              : fechando === l.colaboradorId
+                                ? '…'
+                                : 'Finalizar e pagar'}
                           </Button>
                         </td>
                       </tr>
