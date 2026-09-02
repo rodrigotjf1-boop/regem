@@ -801,32 +801,111 @@ export class EntregadorService {
     return null;
   }
 
-  // Ordena as paradas por VIZINHO-MAIS-PRÓXIMO a partir da loja (distância reta). Pedidos
-  // sem coordenada vão para o fim, na ordem original. Sem coords da loja → sem otimização.
+  // Matriz de DURAÇÕES (segundos) entre todos os pontos via OSRM /table — 1 chamada pega
+  // todos os pares (o `--max-table-size 3000` cobre de sobra uma saída de ≤15 paradas).
+  // m[i][j] = seg de i→j. null se OSRM fora → o chamador cai na reta.
+  private async matrizDuracaoOsrm(
+    coords: { lat: number; lng: number }[],
+  ): Promise<number[][] | null> {
+    const base = (process.env.OSRM_URL || '').replace(/\/$/, '');
+    if (!base || coords.length < 2) return null;
+    try {
+      const pts = coords.map((c) => `${c.lng},${c.lat}`).join(';');
+      const url = `${base}/table/v1/driving/${pts}?annotations=duration`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      if (j?.code !== 'Ok' || !Array.isArray(j.durations)) return null;
+      return j.durations as number[][]; // seg; pode ter null p/ par inalcançável
+    } catch {
+      return null; // OSRM fora / timeout → sem matriz
+    }
+  }
+
+  // Fase 3 — ROTEIRIZAÇÃO POR PRAZO. A cada parada vai no pedido MAIS URGENTE (prazo mais
+  // próximo do fim, mesmo o mais longe), MAS encaixa um mais PERTO antes se ele chega no
+  // prazo dele E, depois dele, o urgente ainda chega a tempo (regra do gestor). Prazo =
+  // confirmado_em (aceito) + cardapio_config.tempo_entrega_min; fallback criado_em. Tempos de
+  // rua reais (OSRM /table); reta ÷ vel. urbana como fallback. Handover de 2 min por parada
+  // entra na conta. Sem prazo (tempo_entrega_min vazio) / sem coords da loja → degrada pro
+  // vizinho-mais-próximo. Pedidos sem coordenada vão pro fim.
   private async roteirizar(tenantId: string, prontos: any[]): Promise<any[]> {
     if (prontos.length <= 1) return prontos;
-    const cfg: any = await this.db.execute(sql`select end_lat, end_lng from cardapio_config where tenant_id = ${tenantId} limit 1`);
+    const cfg: any = await this.db.execute(
+      sql`select end_lat, end_lng, tempo_entrega_min from cardapio_config where tenant_id = ${tenantId} limit 1`,
+    );
     const loja = (cfg.rows ?? cfg)[0];
-    let cur = { lat: Number(loja?.end_lat), lng: Number(loja?.end_lng) };
-    if (!Number.isFinite(cur.lat) || !Number.isFinite(cur.lng)) return prontos;
-    const pts: { p: any; coord: { lat: number; lng: number } | null }[] = [];
-    for (const p of prontos) pts.push({ p, coord: await this.coordDoPedido(tenantId, p) });
+    const origem = { lat: Number(loja?.end_lat), lng: Number(loja?.end_lng) };
+    if (!Number.isFinite(origem.lat) || !Number.isFinite(origem.lng)) return prontos;
+
+    // Coords + prazo (ms) de cada pedido.
+    const tempoEntregaMin = Number(loja?.tempo_entrega_min);
+    const temPrazo = Number.isFinite(tempoEntregaMin) && tempoEntregaMin > 0;
+    const pts: { p: any; coord: { lat: number; lng: number } | null; prazo: number | null }[] = [];
+    for (const p of prontos) {
+      const coord = await this.coordDoPedido(tenantId, p);
+      let prazo: number | null = null;
+      if (temPrazo) {
+        const base = p.confirmado_em ?? p.criado_em;
+        const t = base ? new Date(base).getTime() : NaN;
+        if (Number.isFinite(t)) prazo = t + tempoEntregaMin * 60000;
+      }
+      pts.push({ p, coord, prazo });
+    }
     const comCoord = pts.filter((x) => x.coord);
     const semCoord = pts.filter((x) => !x.coord);
     if (comCoord.length <= 1) return prontos;
-    const ordem: any[] = [];
-    const rest = [...comCoord];
+
+    // Matriz de durações: índice 0 = loja, 1..N = paradas. Reta ÷ velocidade se OSRM fora.
+    const coordsAll = [origem, ...comCoord.map((x) => x.coord!)];
+    const M = await this.matrizDuracaoOsrm(coordsAll);
+    const VEL_MS = 6.1; // ~22 km/h urbano (fallback)
+    const dur = (i: number, j: number): number => {
+      const v = M?.[i]?.[j];
+      if (v != null && Number.isFinite(v)) return v as number;
+      const a = coordsAll[i], b = coordsAll[j];
+      return this.distanciaM(a.lat, a.lng, b.lat, b.lng) / VEL_MS;
+    };
+
+    const SERVICE_S = 120; // handover por parada (2 min) — entra na conta do prazo
+    const prazoDe = new Map<number, number | null>();
+    comCoord.forEach((x, i) => prazoDe.set(i + 1, x.prazo));
+
+    const ordem: number[] = []; // índices na matriz (1..N)
+    const rest = comCoord.map((_, i) => i + 1);
+    let cur = 0; // loja
+    let t = Date.now();
     while (rest.length) {
-      let bi = 0, bd = Infinity;
-      for (let i = 0; i < rest.length; i++) {
-        const d = this.distanciaM(cur.lat, cur.lng, rest[i].coord!.lat, rest[i].coord!.lng);
-        if (d < bd) { bd = d; bi = i; }
+      // Mais urgente = menor prazo (null = +Inf); desempata pelo mais perto.
+      let U = rest[0];
+      for (const i of rest) {
+        const ci = prazoDe.get(i) ?? Infinity;
+        const cu = prazoDe.get(U) ?? Infinity;
+        if (ci < cu || (ci === cu && dur(cur, i) < dur(cur, U))) U = i;
       }
-      const [pick] = rest.splice(bi, 1);
-      ordem.push(pick.p);
-      cur = pick.coord!;
+      // Atalho seguro: o mais perto que chega no prazo DELE e deixa o urgente no prazo.
+      let escolhido = U;
+      let melhor = dur(cur, U);
+      for (const c of rest) {
+        if (c === U) continue;
+        const dcc = dur(cur, c);
+        if (dcc >= melhor) continue;
+        const pc = prazoDe.get(c);
+        const cOk = pc == null || t + dcc * 1000 <= pc;
+        const pu = prazoDe.get(U);
+        const uOk = pu == null || t + (dcc + SERVICE_S + dur(c, U)) * 1000 <= pu;
+        if (cOk && uOk) {
+          escolhido = c;
+          melhor = dcc;
+        }
+      }
+      ordem.push(escolhido);
+      t += (dur(cur, escolhido) + SERVICE_S) * 1000;
+      cur = escolhido;
+      rest.splice(rest.indexOf(escolhido), 1);
     }
-    return [...ordem, ...semCoord.map((x) => x.p)];
+    const ordenados = ordem.map((i) => comCoord[i - 1].p);
+    return [...ordenados, ...semCoord.map((x) => x.p)];
   }
 
   // Saída ATIVA (em_rota) do entregador + paradas ordenadas. { saida:null } se não há.
