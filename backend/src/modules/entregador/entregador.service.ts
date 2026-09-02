@@ -3,10 +3,8 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { OnEvent } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
@@ -19,8 +17,6 @@ import { geocode, montarEndereco } from '../../common/geocode';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-const logEntregador = new Logger('Entregador'); // expurgo/telemetria
-
 // App do Entregador. Auth reusa o login de colaborador (JWT já traz nome/função/
 // permissões). Sempre por tenant; reusa a lógica de despacho do DeliveryService.
 @Injectable()
@@ -30,27 +26,6 @@ export class EntregadorService {
     private readonly delivery: DeliveryService,
     private readonly cliente: ClienteService,
   ) {}
-
-  // Cap de linhas da localização: mantém só as últimas ~1000 posições POR entregador (rolling).
-  // A tabela cresce rápido (1 ponto/~12s por entregador ativo → ~5k/dia cada); o rastreio usa só
-  // a última, então 1000 (≈3h de trilha) sobra. @Cron a cada 30 min. Só na nuvem (o app posta lá).
-  @Cron('*/30 * * * *')
-  async expurgarLocalizacao() {
-    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
-    try {
-      const r: any = await this.db.execute(sql`
-        delete from entregador_localizacao el
-        using (
-          select id, row_number() over (partition by colaborador_id order by criado_em desc) as rn
-          from entregador_localizacao
-        ) r
-        where el.id = r.id and r.rn > 1000`);
-      const n = Number(r.rowCount ?? r.rows?.length ?? 0);
-      if (n) logEntregador.log(`expurgo localizacao: ${n} pontos removidos (cap 1000/entregador)`);
-    } catch (e: any) {
-      logEntregador.warn(`expurgo localizacao falhou: ${e?.message ?? e}`);
-    }
-  }
 
   private ehEntregador(user: AuthUser): boolean {
     return /entregador/i.test(user.funcaoNome ?? '');
@@ -217,9 +192,14 @@ export class EntregadorService {
     const ln = Number(lng);
     if (!isFinite(la) || !isFinite(ln)) throw new BadRequestException('Coordenadas inválidas.');
     const prec = precisao != null && isFinite(Number(precisao)) ? Number(precisao) : null;
+    // UPSERT latest (mig 222): 1 linha por entregador, sobrescrita — sem INSERT-por-ping nem
+    // crescimento da tabela. Todos os leitores (rastreio, rota, aoVivo, geofence) usam só a última.
     await this.db.execute(sql`
-      insert into entregador_localizacao (tenant_id, colaborador_id, lat, lng, precisao)
-      values (${user.tenantId}, ${user.colaboradorId}, ${la}, ${ln}, ${prec})`);
+      insert into entregador_posicao (colaborador_id, tenant_id, lat, lng, precisao, atualizado_em)
+      values (${user.colaboradorId}, ${user.tenantId}, ${la}, ${ln}, ${prec}, now())
+      on conflict (colaborador_id) do update set
+        tenant_id = excluded.tenant_id, lat = excluded.lat, lng = excluded.lng,
+        precisao = excluded.precisao, atualizado_em = now()`);
     // Geofence automático do alerta de chegada (best-effort, não bloqueia o ping).
     void this.checarChegada(user, la, ln);
     return { ok: true };
@@ -229,15 +209,14 @@ export class EntregadorService {
   // e o centro do mapa = coordenadas da loja (cardapio_config) p/ enquadrar de perto.
   async aoVivo(tenantId: string) {
     const r: any = await this.db.execute(sql`
-      select distinct on (l.colaborador_id)
-        l.colaborador_id, l.lat, l.lng, l.criado_em, c.nome,
+      select l.colaborador_id, l.lat, l.lng, l.atualizado_em as criado_em, c.nome,
         (select count(*)::int from pedido_externo p
            where p.tenant_id = l.tenant_id and p.entregador_id = l.colaborador_id
              and p.status = 'despachado') as em_rota
-      from entregador_localizacao l
+      from entregador_posicao l
       join colaborador c on c.id = l.colaborador_id
-      where l.tenant_id = ${tenantId} and l.criado_em >= now() - interval '15 minutes'
-      order by l.colaborador_id, l.criado_em desc`);
+      where l.tenant_id = ${tenantId} and l.atualizado_em >= now() - interval '15 minutes'
+      order by c.nome`);
     const cfg: any = await this.db.execute(
       sql`select end_lat, end_lng from cardapio_config where tenant_id = ${tenantId} limit 1`,
     );
@@ -291,8 +270,7 @@ export class EntregadorService {
       Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
     if (!from) {
       const loc: any = await this.db.execute(sql`
-        select lat, lng from entregador_localizacao
-        where colaborador_id = ${user.colaboradorId} order by criado_em desc limit 1`);
+        select lat, lng from entregador_posicao where colaborador_id = ${user.colaboradorId}`);
       const l = (loc.rows ?? loc)[0];
       if (l && l.lat != null && l.lng != null) from = { lat: Number(l.lat), lng: Number(l.lng) };
     }
@@ -1245,10 +1223,9 @@ export class EntregadorService {
       // a última posição (às vezes de horas atrás — app fechado / permissão sem "o tempo todo")
       // como se fosse a atual (ponto fantasma). Velho → pos null → tela "assim que sair...".
       const loc: any = await this.db.execute(sql`
-        select lat, lng, criado_em from entregador_localizacao
+        select lat, lng from entregador_posicao
         where colaborador_id = ${ped.entregador_id}
-          and criado_em >= now() - interval '10 minutes'
-        order by criado_em desc limit 1`);
+          and atualizado_em >= now() - interval '10 minutes'`);
       const l = (loc.rows ?? loc)[0];
       if (l && l.lat != null && l.lng != null) pos = { lat: Number(l.lat), lng: Number(l.lng) };
       const pref: any = await this.db.execute(sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${ped.entregador_id}`);
