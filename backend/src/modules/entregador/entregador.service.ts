@@ -1042,7 +1042,7 @@ export class EntregadorService {
       entregador,
       destino, // { lat, lng } | null
       parada, // { x, y } | null
-      etaMin: eta,
+      etaMin: eta ?? rota?.duracaoMin ?? null, // saída multi-parada; senão a duração da rota (OSRM)
       rota, // { geometry(polyline6), duracaoMin, distanciaM } | null — traçado real p/ o mapa
       codigoEntrega, // o cliente informa ao entregador na entrega
     };
