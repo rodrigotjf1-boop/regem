@@ -250,10 +250,10 @@ export class EntregadorService {
   private async dispararChegada(user: AuthUser, ped: any): Promise<boolean> {
     if (!ped.clienteTelefone) return false;
     const emp: any = await this.db.execute(
-      sql`select nome_fantasia, razao_social from empresa where id = ${user.tenantId}`,
+      sql`select nome from empresa where id = ${user.tenantId}`,
     );
     const e0 = (emp.rows ?? emp)[0] ?? {};
-    const nomeFantasia = e0.nome_fantasia || e0.razao_social || null;
+    const nomeFantasia = e0.nome || null;
     const pref: any = await this.db.execute(
       sql`select compartilha_contato from entregador_preferencia where colaborador_id = ${user.colaboradorId}`,
     );
