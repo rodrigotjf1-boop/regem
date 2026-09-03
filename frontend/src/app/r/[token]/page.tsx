@@ -139,15 +139,17 @@ export default function RastreioPage() {
     const L = Lref.current;
     const map = mapObj.current;
     if (!pronto || !L || !map || !dados) return;
+    if (['entregue', 'concluido'].includes(dados.status)) return; // rastreio encerrado após a entrega
     const pts: [number, number][] = [];
 
     if (dados.destino) {
       const pos: [number, number] = [dados.destino.lat, dados.destino.lng];
       pts.push(pos);
+      // Destino do cliente: casinha num badge navy, sem texto.
       const html =
         `<div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;">` +
-        `<div style="background:${NAVY};color:#fff;font:600 12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);">📍 Você</div>` +
-        `<div style="width:2px;height:9px;background:${NAVY};"></div></div>`;
+        `<div title="Endereço de entrega" style="background:${NAVY};display:grid;place-items:center;width:30px;height:30px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);border:2px solid #fff;font-size:15px;line-height:1;">🏠</div>` +
+        `<div style="width:2px;height:8px;background:${NAVY};"></div></div>`;
       const icon = L.divIcon({ className: '', html, iconSize: [0, 0], iconAnchor: [0, 0] });
       if (destMk.current) destMk.current.setLatLng(pos).setIcon(icon);
       else destMk.current = L.marker(pos, { icon }).addTo(map);
@@ -238,11 +240,6 @@ export default function RastreioPage() {
                 {entregue ? '✅ ' : '🛵 '}
                 {dados.statusLabel}
               </span>
-              {dados.parada && (
-                <span style={{ fontSize: 13, color: '#48586a', fontWeight: 600 }}>
-                  Parada {dados.parada.x} de {dados.parada.y}
-                </span>
-              )}
               {dados.etaMin != null && !entregue && (
                 <span style={{ fontSize: 13, color: '#48586a', fontWeight: 600 }}>· ~{dados.etaMin} min</span>
               )}
@@ -271,17 +268,25 @@ export default function RastreioPage() {
               </div>
             )}
 
-            <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
-              <div ref={initMap} style={{ height: 360, width: '100%' }} />
-            </div>
-
-            <p style={{ fontSize: 13, color: '#48586a', marginTop: 12 }}>
-              {entregue
-                ? 'Seu pedido foi entregue. Bom apetite! 🍽️'
-                : dados.entregador?.pos
-                ? `${dados.entregador?.nome ? `${dados.entregador.nome} está` : 'O entregador está'} a caminho — a posição atualiza sozinha.`
-                : 'Assim que o entregador sair para o seu endereço, você o verá se movendo aqui.'}
-            </p>
+            {entregue ? (
+              // Após a entrega, o acompanhamento ao vivo encerra (o link "expira"): só o agradecimento.
+              <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, padding: 28, textAlign: 'center', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
+                <div style={{ fontSize: 40 }}>✅</div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: NAVY, margin: '8px 0 4px' }}>Pedido entregue</p>
+                <p style={{ fontSize: 13, color: '#48586a' }}>Bom apetite! 🍽️ O acompanhamento ao vivo foi encerrado.</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
+                  <div ref={initMap} style={{ height: 360, width: '100%' }} />
+                </div>
+                <p style={{ fontSize: 13, color: '#48586a', marginTop: 12 }}>
+                  {dados.entregador?.pos
+                    ? `${dados.entregador?.nome ? `${dados.entregador.nome} está` : 'O entregador está'} a caminho — a posição atualiza sozinha.`
+                    : 'Assim que o entregador sair para o seu endereço, você o verá se movendo aqui.'}
+                </p>
+              </>
+            )}
           </>
         ) : null}
       </div>

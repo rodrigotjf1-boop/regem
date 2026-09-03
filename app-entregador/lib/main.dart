@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'api.dart';
+import 'theme.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 
@@ -17,10 +18,7 @@ class RegemEntregadorApp extends StatelessWidget {
     return MaterialApp(
       title: 'Regem Entregador',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: const Color(0xFFE2A340), // dourado Regem
-      ),
+      theme: regemTheme(),
       home: Api.logado ? const HomeScreen() : const LoginScreen(),
     );
   }

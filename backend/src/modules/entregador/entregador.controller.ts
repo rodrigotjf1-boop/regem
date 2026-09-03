@@ -86,6 +86,62 @@ export class EntregadorController {
     return this.service.rotaEntregador(user, id, Number(dto?.lat), Number(dto?.lng));
   }
 
+  // ===== FILA (Frente 2) — máquina de estados do botão do app =====
+  @Post('fila/entrar')
+  entrarFila(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.entrarFila(user, Number(dto?.lat), Number(dto?.lng));
+  }
+
+  @Post('fila/sair')
+  sairFila(@CurrentUser() user: AuthUser) {
+    return this.service.sairFila(user);
+  }
+
+  @Get('fila/estado')
+  estadoFila(@CurrentUser() user: AuthUser) {
+    return this.service.estadoFila(user);
+  }
+
+  // "Procurar pedido": reserva o batch (só o 1º da fila).
+  @Post('procurar')
+  procurar(@CurrentUser() user: AuthUser) {
+    return this.service.procurarPedidos(user);
+  }
+
+  // "Iniciar entrega(s)": despacha o batch + roteiriza + avisa o 1º cliente.
+  @Post('iniciar')
+  iniciar(@CurrentUser() user: AuthUser) {
+    return this.service.iniciarEntregas(user);
+  }
+
+  // Atendente: a fila da loja (nome + iniciais + status) — painel de delivery (RBAC delivery).
+  @Get('fila')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @RequirePerm('delivery')
+  fila(@CurrentUser() user: AuthUser) {
+    return this.service.listarFila(user.tenantId, (user as any).unidadeId ?? null);
+  }
+
+  // Frente 4 — relatório de entregas (por entregador, tempo médio, ganhos) num período.
+  // ?inicio=YYYY-MM-DD&fim=YYYY-MM-DD (dia/semana/mês/personalizado resolvidos no front).
+  @Get('relatorio')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @RequirePerm('delivery')
+  relatorio(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio: string,
+    @Query('fim') fim: string,
+  ) {
+    return this.service.relatorioEntregadores(
+      user.tenantId,
+      inicio,
+      fim,
+      (user as any).unidadeId ?? null,
+    );
+  }
+
   // E2 — o gestor vê os entregadores ao vivo (RBAC delivery).
   @Get('ao-vivo')
   @UseGuards(RolesGuard, PermissoesGuard)

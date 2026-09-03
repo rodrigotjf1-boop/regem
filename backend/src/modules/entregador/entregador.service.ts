@@ -128,6 +128,21 @@ export class EntregadorService {
     if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
     if (ped.status !== 'pronto')
       throw new BadRequestException('O pedido ainda não está pronto para sair.');
+    // Modo carrinho (Frente 2): se é a MINHA vez de puxar (1º da fila), o scan RESERVA o pedido
+    // no batch em vez de despachar — acumula e depois "Iniciar entrega(s)". Sem trava de nº: o
+    // lote/entregador é alvo ideal, não teto (posso escanear mais que o lote). Fora da fila (app
+    // sem fila, ou não é a minha vez) → despacha na hora (retrocompatível com o app instalado).
+    const est: any = await this.estadoFila(user).catch(() => ({ botao: 'entrar_fila' }));
+    if (est.botao === 'procurar' || est.botao === 'iniciar') {
+      await this.db.execute(sql`
+        update pedido_externo
+          set entregador_id = ${user.colaboradorId}, entregador_nome = ${user.nome ?? 'Entregador'},
+              reservado_em = coalesce(reservado_em, now())
+        where id = ${ped.id} and tenant_id = ${user.tenantId} and status = 'pronto'
+          and saida_id is null and (reservado_em is null or entregador_id = ${user.colaboradorId})`);
+      const [res] = await this.db.select().from(pedidoExterno).where(eq(pedidoExterno.id, ped.id));
+      return { ok: true, reservado: true, modo: 'carrinho', pedido: this.resumo(res ?? ped) };
+    }
     await this.delivery.avancar(user.tenantId, ped.id, {
       entregadorId: user.colaboradorId,
       entregadorNome: user.nome ?? 'Entregador',
@@ -182,6 +197,313 @@ export class EntregadorService {
     // Regra do usuário: só agora (parada entregue) o cliente da PRÓXIMA parada recebe o link.
     await this.avancarSaida(user.tenantId, id).catch(() => {});
     return { ok: true, valid: true };
+  }
+
+  // ===== FILA DE ENTREGADORES (Frente 2) — por unidade =====
+  // Raio (m) da loja p/ "entrar na fila". 150m: o GPS erra ~10-25m; 10m (pedido do gestor) era
+  // inviável — o entregador na porta lê 15-20m e nunca entraria. Objetivo (estar na loja, não a
+  // km) preservado. Ajustável aqui.
+  private static readonly FILA_RAIO_M = 150;
+
+  private async unidadeDoEntregador(colaboradorId: string): Promise<string | null> {
+    const r: any = await this.db.execute(
+      sql`select unidade_id from colaborador where id = ${colaboradorId}`,
+    );
+    return (r.rows ?? r)[0]?.unidade_id ?? null;
+  }
+
+  private async coordsDaLoja(
+    tenantId: string,
+    unidadeId: string | null,
+  ): Promise<{ lat: number; lng: number } | null> {
+    const r: any = await this.db.execute(sql`
+      select end_lat, end_lng from cardapio_config
+      where tenant_id = ${tenantId}
+        ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+      order by (unidade_id is null) asc limit 1`);
+    const l = (r.rows ?? r)[0];
+    const lat = Number(l?.end_lat), lng = Number(l?.end_lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  }
+
+  async entrarFila(user: AuthUser, lat: number, lng: number) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const unidadeId = await this.unidadeDoEntregador(user.colaboradorId);
+    const loja = await this.coordsDaLoja(user.tenantId, unidadeId);
+    const la = Number(lat), ln = Number(lng);
+    // Geofence: precisa estar na loja. Sem coords da loja → não bloqueia (fail-open).
+    if (loja && Number.isFinite(la) && Number.isFinite(ln)) {
+      const dist = this.distanciaM(la, ln, loja.lat, loja.lng);
+      if (dist > EntregadorService.FILA_RAIO_M)
+        throw new BadRequestException(
+          `Você precisa estar na loja para entrar na fila (você está a ~${Math.round(dist)}m).`,
+        );
+    }
+    // Frente 3 — a volta à fila FECHA o ciclo anterior (saída em rota → concluída). O tempo de
+    // ciclo (concluida_em − criado_em) ÷ nº de paradas = tempo médio por entrega no relatório.
+    await this.db.execute(sql`
+      update entregador_saida set status = 'concluida', concluida_em = coalesce(concluida_em, now())
+      where tenant_id = ${user.tenantId} and colaborador_id = ${user.colaboradorId} and status <> 'concluida'`);
+    await this.db.execute(sql`
+      insert into entregador_fila (colaborador_id, tenant_id, unidade_id, status, entrou_em, atualizado_em)
+      values (${user.colaboradorId}, ${user.tenantId}, ${unidadeId}, 'aguardando', now(), now())
+      on conflict (colaborador_id) do update set
+        status = 'aguardando', unidade_id = excluded.unidade_id,
+        entrou_em = case when entregador_fila.status = 'aguardando' then entregador_fila.entrou_em else now() end,
+        atualizado_em = now()`);
+    return this.estadoFila(user);
+  }
+
+  async sairFila(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    await this.db.execute(sql`delete from entregador_fila where colaborador_id = ${user.colaboradorId}`);
+    // Solta o carrinho (reservas ainda não despachadas) ao sair da fila — não prende pedidos.
+    await this.db.execute(sql`
+      update pedido_externo set entregador_id = null, entregador_nome = null, reservado_em = null
+      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+        and status = 'pronto' and reservado_em is not null and saida_id is null`);
+    return { ok: true };
+  }
+
+  // Estado do BOTÃO do app (máquina de estados): entrar_fila | na_fila | procurar | iniciar | em_entrega.
+  async estadoFila(user: AuthUser) {
+    if (!this.ehEntregador(user)) return { botao: 'entrar_fila', naFila: false } as any;
+    const unidadeId = await this.unidadeDoEntregador(user.colaboradorId);
+    const max = Math.max(1, Number((await this.configPagamento(user.tenantId)).maxPedidosEntregador) || 1);
+    const ativa = await this.saidaAtiva(user.tenantId, user.colaboradorId);
+    const temSaida = !!ativa.saida;
+    const rr: any = await this.db.execute(sql`
+      select count(*)::int n from pedido_externo
+      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+        and status = 'pronto' and reservado_em is not null`);
+    const reservados = Number((rr.rows ?? rr)[0]?.n ?? 0);
+    const fr: any = await this.db.execute(
+      sql`select status, entrou_em from entregador_fila where colaborador_id = ${user.colaboradorId}`,
+    );
+    const minha = (fr.rows ?? fr)[0];
+    let posicao: number | null = null;
+    if (minha && minha.status === 'aguardando') {
+      const pr: any = await this.db.execute(sql`
+        select count(*)::int + 1 as pos from entregador_fila
+        where tenant_id = ${user.tenantId}
+          and ${unidadeId ? sql`(unidade_id = ${unidadeId} or unidade_id is null)` : sql`unidade_id is null`}
+          and status = 'aguardando' and entrou_em < ${minha.entrou_em}`);
+      posicao = Number((pr.rows ?? pr)[0]?.pos ?? 1);
+    }
+    // Prontos livres p/ puxar (na minha unidade): dispara o alerta ao 1º da fila (Frente 2d).
+    const pr2: any = await this.db.execute(sql`
+      select count(*)::int n from pedido_externo
+      where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
+        and entregador_id is null and reservado_em is null and saida_id is null
+        ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}`);
+    const prontosDisponiveis = Number((pr2.rows ?? pr2)[0]?.n ?? 0);
+    let botao: string;
+    if (temSaida) botao = 'em_entrega';
+    else if (reservados > 0) botao = 'iniciar';
+    else if (minha && minha.status === 'aguardando') botao = posicao === 1 ? 'procurar' : 'na_fila';
+    else botao = 'entrar_fila';
+    return { botao, naFila: !!minha, status: minha?.status ?? null, posicao, reservados, maxPedidos: max, temSaida, prontosDisponiveis };
+  }
+
+  // "Procurar pedido": só o 1º da fila. Reserva até (max - reservados) pedidos PRONTOS livres
+  // (entregador_id + reservado_em, status ainda 'pronto') — batch. Reserva atômica (skip locked).
+  async procurarPedidos(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const est: any = await this.estadoFila(user);
+    if (est.botao !== 'procurar' && est.botao !== 'iniciar')
+      throw new BadRequestException('Aguarde a sua vez na fila.');
+    const faltam = Math.max(0, est.maxPedidos - est.reservados);
+    if (faltam > 0) {
+      const unidadeId = await this.unidadeDoEntregador(user.colaboradorId);
+      await this.db.execute(sql`
+        update pedido_externo
+        set entregador_id = ${user.colaboradorId}, entregador_nome = ${user.nome ?? 'Entregador'}, reservado_em = now()
+        where id in (
+          select id from pedido_externo
+          where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
+            and entregador_id is null and reservado_em is null and saida_id is null
+            ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+          order by criado_em asc limit ${faltam}
+          for update skip locked)`);
+    }
+    return this.estadoFila(user);
+  }
+
+  // "Iniciar entrega(s)": despacha o batch reservado + forma a saída (roteiriza) + AVISA o 1º
+  // cliente + link, e tira o entregador da fila (em_entrega). É AQUI que o cliente é avisado.
+  async iniciarEntregas(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    // Raw SQL (snake_case) — o roteirizar/coordDoPedido leem snake_case.
+    const rr: any = await this.db.execute(sql`
+      select * from pedido_externo
+      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+        and status = 'pronto' and reservado_em is not null
+      order by criado_em asc`);
+    const reservados = rr.rows ?? rr;
+    if (!reservados.length)
+      throw new BadRequestException('Nenhum pedido reservado. Puxe ou escaneie um pedido primeiro.');
+    const ordenados = await this.roteirizar(user.tenantId, reservados);
+    const ins: any = await this.db.execute(sql`
+      insert into entregador_saida (tenant_id, colaborador_id, status, total_paradas)
+      values (${user.tenantId}, ${user.colaboradorId}, 'em_rota', ${ordenados.length}) returning id`);
+    const saidaId = (ins.rows ?? ins)[0].id;
+    for (let i = 0; i < ordenados.length; i++) {
+      const p = ordenados[i];
+      try {
+        await this.delivery.avancar(user.tenantId, p.id, {
+          entregadorId: user.colaboradorId,
+          entregadorNome: user.nome ?? 'Entregador',
+          skipRastreio: true,
+        });
+      } catch { /* já despachado/estado inesperado — segue */ }
+      await this.db.execute(
+        sql`update pedido_externo set saida_id = ${saidaId}, ordem_parada = ${i + 1}, reservado_em = null where id = ${p.id}`,
+      );
+    }
+    await this.enviarLinkRastreio(user.tenantId, ordenados[0].id).catch(() => {});
+    await this.db.execute(
+      sql`update entregador_fila set status = 'em_entrega', atualizado_em = now() where colaborador_id = ${user.colaboradorId}`,
+    );
+    return this.saidaAtiva(user.tenantId, user.colaboradorId);
+  }
+
+  // Atendente: a fila da unidade (nome + INICIAIS + status) p/ o painel de delivery.
+  async listarFila(tenantId: string, unidadeId: string | null = null) {
+    const r: any = await this.db.execute(sql`
+      select f.colaborador_id, c.nome, f.status, f.entrou_em
+      from entregador_fila f join colaborador c on c.id = f.colaborador_id
+      where f.tenant_id = ${tenantId}
+        ${unidadeId ? sql`and (f.unidade_id = ${unidadeId} or f.unidade_id is null)` : sql``}
+      order by (f.status = 'aguardando') desc, f.entrou_em asc`);
+    return (r.rows ?? r).map((x: any) => {
+      const partes = String(x.nome ?? '').trim().split(/\s+/).filter(Boolean);
+      const iniciais =
+        ((partes[0]?.[0] ?? '') + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase() || '?';
+      return { colaboradorId: x.colaborador_id, nome: x.nome, iniciais, status: x.status };
+    });
+  }
+
+  // ===== Frente 4 — relatório de entregas (por entregador, tempo médio, ganhos) =====
+  // Consolidado por entregador num período [inicio, fim] (YYYY-MM-DD, fuso SP). Tudo SET-BASED
+  // (4 queries agregadas), montado em memória — nada de loop de N queries por entregador.
+  async relatorioEntregadores(
+    tenantId: string,
+    inicio: string,
+    fim: string,
+    unidadeId?: string | null,
+  ) {
+    const okData = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(String(s ?? ''));
+    if (!okData(inicio) || !okData(fim))
+      throw new BadRequestException('Período inválido (use YYYY-MM-DD).');
+    const uni = unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``;
+
+    // 1) entregas + taxa real + dias trabalhados por entregador (concluídas no período).
+    const q1: any = await this.db.execute(sql`
+      select entregador_id,
+             count(*)::int entregas,
+             coalesce(round(sum(coalesce(taxa_entrega, 0)) * 100), 0)::bigint taxas_centavos,
+             count(distinct (concluido_em at time zone 'America/Sao_Paulo')::date)::int dias
+      from pedido_externo
+      where tenant_id = ${tenantId} and entregador_id is not null and status = 'concluido'
+        and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date
+        ${uni}
+      group by entregador_id`);
+
+    // 2) entregas por bairro por entregador.
+    const q2: any = await this.db.execute(sql`
+      select entregador_id, coalesce(nullif(trim(endereco_bairro), ''), '—') bairro, count(*)::int n
+      from pedido_externo
+      where tenant_id = ${tenantId} and entregador_id is not null and status = 'concluido'
+        and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date
+        ${uni}
+      group by entregador_id, bairro order by n desc`);
+
+    // 3) tempo de ciclo (saída → volta à fila) por entregador.
+    const q3: any = await this.db.execute(sql`
+      select colaborador_id,
+             coalesce(sum(extract(epoch from (concluida_em - criado_em))), 0)::bigint dur_seg,
+             coalesce(sum(total_paradas), 0)::int paradas,
+             count(*)::int ciclos
+      from entregador_saida
+      where tenant_id = ${tenantId} and status = 'concluida' and concluida_em is not null
+        and (criado_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date
+      group by colaborador_id`);
+
+    // 4) perfis próprios (p/ ganhos) + padrão da loja.
+    const padrao = await this.configPagamento(tenantId);
+    const q4: any = await this.db.execute(sql`
+      select colaborador_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, base_taxa
+      from entregador_perfil_pagamento where tenant_id = ${tenantId}`);
+
+    const mapEnt = new Map<string, any>();
+    for (const r of q1.rows ?? q1) mapEnt.set(String(r.entregador_id), r);
+    const mapBairro = new Map<string, { bairro: string; n: number }[]>();
+    for (const r of q2.rows ?? q2) {
+      const k = String(r.entregador_id);
+      if (!mapBairro.has(k)) mapBairro.set(k, []);
+      mapBairro.get(k)!.push({ bairro: String(r.bairro), n: Number(r.n) });
+    }
+    const mapCiclo = new Map<string, any>();
+    for (const r of q3.rows ?? q3) mapCiclo.set(String(r.colaborador_id), r);
+    const mapPerfil = new Map<string, any>();
+    for (const r of q4.rows ?? q4) mapPerfil.set(String(r.colaborador_id), r);
+
+    const ents = (await this.delivery.listarEntregadores(tenantId)) as any[];
+    const linhas = ents
+      .map((e) => {
+        const id = String(e.id);
+        const ag = mapEnt.get(id);
+        const entregas = Number(ag?.entregas ?? 0);
+        const dias = Number(ag?.dias ?? 0);
+        const taxasReais = Number(ag?.taxas_centavos ?? 0);
+        const cic = mapCiclo.get(id);
+        const durSeg = Number(cic?.dur_seg ?? 0);
+        const paradas = Number(cic?.paradas ?? 0);
+        const tempoMedioSeg = paradas > 0 ? Math.round(durSeg / paradas) : null;
+        const p = mapPerfil.get(id);
+        const cfg = p
+          ? {
+              modelo: p.modelo,
+              diariaCentavos: Number(p.diaria_centavos),
+              taxaEntregaCentavos: Number(p.taxa_entrega_centavos),
+              taxaFixaCentavos: Number(p.taxa_fixa_centavos),
+              baseTaxa: p.base_taxa ?? 'real',
+            }
+          : padrao;
+        const base = this.calcular(cfg, entregas, taxasReais);
+        // A diária é POR DIA: multiplica pelos dias com entrega no período (não 1× no período
+        // todo). Modelos sem diária → só as taxas já calculadas.
+        const temDiaria = ['so_diaria', 'diaria_taxas', 'diaria_taxas_fixas'].includes(cfg.modelo);
+        const diariaComp = temDiaria ? (Number(cfg.diariaCentavos) || 0) * Math.max(0, dias) : 0;
+        const ganhosCentavos = diariaComp + base.taxas;
+        return {
+          colaboradorId: id,
+          nome: e.nome,
+          entregas,
+          dias,
+          ganhosCentavos,
+          tempoMedioSeg,
+          ciclos: Number(cic?.ciclos ?? 0),
+          bairros: mapBairro.get(id) ?? [],
+        };
+      })
+      .filter((l) => l.entregas > 0 || l.ciclos > 0)
+      .sort((a, b) => b.entregas - a.entregas);
+
+    const totEntregas = linhas.reduce((s, l) => s + l.entregas, 0);
+    const totGanhos = linhas.reduce((s, l) => s + l.ganhosCentavos, 0);
+    const totDur = (q3.rows ?? q3).reduce((s: number, r: any) => s + Number(r.dur_seg), 0);
+    const totParadas = (q3.rows ?? q3).reduce((s: number, r: any) => s + Number(r.paradas), 0);
+    return {
+      periodo: { inicio, fim },
+      entregadores: linhas,
+      totais: {
+        entregadores: linhas.length,
+        entregas: totEntregas,
+        ganhosCentavos: totGanhos,
+        tempoMedioSeg: totParadas > 0 ? Math.round(totDur / totParadas) : null,
+      },
+    };
   }
 
   // ===== E2 — GPS =====
@@ -407,7 +729,10 @@ export class EntregadorService {
         periodicidade = excluded.periodicidade,
         max_pedidos_entregador = excluded.max_pedidos_entregador,
         atualizado_em = now()`);
-    return { ok: true };
+    // Retorna a config persistida (não `{ ok: true }`): o front faz setEntCfg(resposta),
+    // e devolver só {ok} apagava maxPedidosEntregador do estado → o próximo clique calculava
+    // a partir do default 1 (1+1=2) e o lote "voltava sozinho pra 2". Re-leitura = autoritativo.
+    return this.configPagamento(tenantId);
   }
 
   // Calcula (diaria, taxas, total) em centavos para um nº de entregas, dado o modelo.
