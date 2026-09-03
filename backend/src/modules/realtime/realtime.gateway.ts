@@ -122,6 +122,27 @@ export class RealtimeGateway
     socket.disconnect(true);
   }
 
+  // Sanitiza texto vindo do socket (W1): remove caracteres de controle e corta no limite —
+  // evita injeção de conteúdo arbitrário nas telas do KDS de todo o tenant.
+  private sanitizar(v: any, max: number): string {
+    let out = '';
+    for (const ch of String(v ?? '')) {
+      const c = ch.charCodeAt(0);
+      out += c < 32 || c === 127 ? ' ' : ch; // troca controles por espaco
+    }
+    return out.trim().slice(0, max);
+  }
+
+  // Rate-limit simples por socket+ação (in-memory no próprio socket): true se já passou o
+  // intervalo desde a última vez (W1 — evita flood de alerta/ping = DoS intra-tenant + escrita).
+  private permitido(socket: Socket, acao: string, intervaloMs: number): boolean {
+    const agora = Date.now();
+    const mapa: Record<string, number> = (socket.data._rl ??= {});
+    if (agora - (mapa[acao] ?? 0) < intervaloMs) return false;
+    mapa[acao] = agora;
+    return true;
+  }
+
   // Marcação de ponto gravada em qualquer origem (web/terminal/gestor) → broadcast ao vivo.
   @OnEvent('ponto.marcado')
   onPontoMarcado(p: {
@@ -207,12 +228,17 @@ export class RealtimeGateway
   onAlerta(@ConnectedSocket() socket: Socket, @MessageBody() body: any) {
     const ctx: SockCtx | undefined = socket.data?.ctx;
     if (!ctx) return { ok: false };
+    // RBAC (W1): só GESTOR dispara alerta ao KDS. Um device (token de KDS/ponto) NÃO pode
+    // broadcastar conteúdo arbitrário para todo o tenant.
+    if (ctx.role !== 'gestor') return { ok: false, erro: 'sem permissão' };
+    // Rate-limit: no máx. ~1 alerta/2s por socket (evita flood intra-tenant).
+    if (!this.permitido(socket, 'alerta', 2000)) return { ok: false, erro: 'muito rápido, aguarde' };
     const alerta = {
-      id: body?.id ?? randomUUID(),
-      titulo: body?.titulo ?? 'Alerta',
-      detalhe: body?.detalhe ?? '',
-      prioridade: body?.prioridade ?? 'alta',
-      som: body?.som ?? true,
+      id: this.sanitizar(body?.id, 64) || randomUUID(),
+      titulo: this.sanitizar(body?.titulo, 80) || 'Alerta',
+      detalhe: this.sanitizar(body?.detalhe, 300),
+      prioridade: ['alta', 'media', 'baixa'].includes(body?.prioridade) ? body.prioridade : 'alta',
+      som: body?.som !== false,
       em: new Date().toISOString(),
     };
     this.server.to(`tenant:${ctx.tenantId}`).emit('kds:alerta', alerta);
@@ -223,7 +249,11 @@ export class RealtimeGateway
   @SubscribeMessage('device:ping')
   async onPing(@ConnectedSocket() socket: Socket) {
     const ctx: SockCtx | undefined = socket.data?.ctx;
-    if (ctx?.equipamentoId) await this.equipamentos.registrarPing(ctx.equipamentoId);
+    // Rate-limit (W1): o ping GRAVA no banco → no máx. 1 escrita/10s por socket (um device não
+    // pode floodar escrita). O ACK volta sempre; só a persistência é limitada.
+    if (ctx?.equipamentoId && this.permitido(socket, 'ping', 10000)) {
+      await this.equipamentos.registrarPing(ctx.equipamentoId);
+    }
     return { ok: true };
   }
 }

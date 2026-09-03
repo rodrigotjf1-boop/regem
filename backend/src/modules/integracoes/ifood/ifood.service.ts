@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
+import { fetchExterno } from '../../../common/fetch-externo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API do iFood (merchant-api.ifood.com.br). Guardamos por integração
@@ -141,7 +142,7 @@ export class IfoodService {
         sql`select email from usuario_distribuicao where perfil in ('diretoria','tecnico') and ativo = true`,
       );
       const destinatarios = (dst?.rows ?? dst).map((x: any) => x.email).filter(Boolean);
-      await fetch(hook, {
+      await fetchExterno(hook, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -164,7 +165,7 @@ export class IfoodService {
     const exp = Number(ig.config?.tokenExp ?? 0);
     if (ig.token && exp > Date.now() + 60000) return ig.token;
     try {
-      const res = await fetch(`${BASE}/authentication/v1.0/oauth/token`, {
+      const res = await fetchExterno(`${BASE}/authentication/v1.0/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -196,7 +197,7 @@ export class IfoodService {
   private async req(ig: IntegIfood, path: string, init: RequestInit = {}): Promise<Response> {
     const tk = await this.token(ig);
     if (!tk) throw new Error('sem token iFood');
-    return fetch(`${BASE}${path}`, {
+    return fetchExterno(`${BASE}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${tk}`,

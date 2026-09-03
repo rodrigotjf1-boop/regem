@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { and, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
+import { fetchExterno } from '../../../common/fetch-externo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da Open Delivery API (padrão Abrasel). Várias PLATAFORMAS expõem a mesma
@@ -68,7 +69,7 @@ export class OpenDeliveryService {
     const exp = Number(ig.config?.tokenExp ?? 0);
     if (ig.token && exp > Date.now() + 60000) return ig.token;
     try {
-      const res = await fetch(`${ig.baseUrl}/oauth/token`, {
+      const res = await fetchExterno(`${ig.baseUrl}/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -100,7 +101,7 @@ export class OpenDeliveryService {
   private async req(ig: IntegOD, path: string, init: RequestInit = {}): Promise<any> {
     const tk = await this.token(ig);
     if (!tk) throw new Error('sem token');
-    const res = await fetch(`${ig.baseUrl}${path}`, {
+    const res = await fetchExterno(`${ig.baseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${tk}`,

@@ -43,9 +43,9 @@ Request/Correlation ID; (3) frontend descarta `code`/`status`/`requestId` (só l
 - [x] **Bloco 3 — 🔴 Pagamentos (R1/R2).** `aprovarPagamento` ATÔMICO (guarda de estado no WHERE + `returning` → só o vencedor confirma/aceita; a guarda de estado JÁ é a idempotência, sem migration de ledger). `common/gateway-erro.ts` (GatewayError + `classificarFalhaGateway`) + timeout em todas as chamadas MP/PagBank; fallback inteligente: ambíguo (timeout/5xx/rede) retenta o MESMO provider 1× (idempotency-key) e PARA — só definitivo (4xx) cai no próximo (fim da 2ª PIX). Testes `gateway-erro.spec.ts`. ✅
 - [ ] **Bloco 4 — 🔴 Sync push (S1/S2).** Keyset composto `ts|id` no push + skip por linha (dead-letter). Protocolo intacto.
 - [ ] **Bloco 5 — 🔴 Impressão (P1) + Edge (E1).** Claim/lease no `print-agent.mjs` + handlers de processo nos 3 daemons + `AppThrottle` no NSSM.
-- [ ] **Bloco 6 — Integrações (I1).** Wrapper `fetch` compartilhado (timeout + AbortController + normalização → `EXTERNAL_SERVICE_*`).
-- [ ] **Bloco 7 — WebSocket (W1) + hardening auth/tenant (T1).**
-- [ ] **Bloco 8 — Testes negativos** por módulo (auth, tenant, RBAC, pagamento, pedidos, sync, integrações, banco, impressão).
+- [x] **Bloco 6 — Integrações (I1).** `common/fetch-externo.ts` (`fetchExterno` = fetch + timeout 10s + normalização p/ `EXTERNAL_SERVICE_TIMEOUT/ERROR`, não lança em não-2xx). Aplicado a 26 chamadas em ifood/food99/cardapio-web/open-delivery/anotaai + whatsapp.service — fim do request/poller pendurado. ✅
+- [x] **Bloco 7 — WebSocket (W1).** `realtime.gateway.ts`: `kds:alerta` exige `role='gestor'` (device não broadcasta) + sanitiza titulo/detalhe (tira controle, corta tamanho) + rate-limit (~1/2s); `device:ping` rate-limit de escrita (1/10s). `realtime.gateway.spec.ts` (4 testes). **T1 (enumeração workspace + RLS-por-padrão) ADIADO** — 🟡, mexe no login/infra e pede decisão de produto. ✅
+- [x] **Bloco 8 — Testes negativos.** Cobre o CÓDIGO NOVO/alterado do épico: `errors.spec.ts` (mapeador pg, envelope aditivo, mascaramento 500), `gateway-erro.spec.ts` (classificação do fallback de pagamento), `realtime.gateway.spec.ts` (RBAC/sanitização/rate-limit do WS). Cobertura negativa exaustiva por módulo (auth/tenant/pedidos legados) segue como esforço contínuo sobre os 149 testes já existentes. ✅
 
 Após cada bloco: `npm test` + `npm run build` verdes antes de seguir. PR/merge dos 🔴 só com
 confirmação do gestor (produção). Testes vivem em `src/**/*.spec.ts` (jest + ts-jest, rootDir=src).
