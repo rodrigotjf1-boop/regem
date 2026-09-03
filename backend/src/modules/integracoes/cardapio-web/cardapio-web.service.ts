@@ -5,6 +5,7 @@ import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { mapStatusExterno } from '../../delivery/adapters';
+import { fetchExterno } from '../../../common/fetch-externo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API Aberta do Cardápio Web (docs.cardapioweb.com).
@@ -150,7 +151,7 @@ export class CardapioWebService {
     const env: Ambiente = (ig.config?.env as Ambiente) ?? this.env;
     const codeVerifier = ig.config?.codeVerifier as string;
     try {
-      const res = await fetch(`${bases(env).api}/api/partner/oauth/token`, {
+      const res = await fetchExterno(`${bases(env).api}/api/partner/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -190,7 +191,7 @@ export class CardapioWebService {
     if (!refresh) return ig.token; // sem refresh: usa o que tem (pode 401 e reconectar)
     const env: Ambiente = (ig.config?.env as Ambiente) ?? this.env;
     try {
-      const res = await fetch(`${bases(env).api}/api/partner/oauth/token`, {
+      const res = await fetchExterno(`${bases(env).api}/api/partner/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -239,7 +240,7 @@ export class CardapioWebService {
       if (!tk) throw new Error('sem token do Cardápio Web');
       headers['Authorization'] = `Bearer ${tk}`;
     }
-    return fetch(`${bases(env).api}${path}`, { ...init, headers });
+    return fetchExterno(`${bases(env).api}${path}`, { ...init, headers });
   }
 
   // ===== 4) Pedidos (F2 usa isto no webhook/poller) =====

@@ -4,6 +4,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
+import { fetchExterno } from '../../../common/fetch-externo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API do 99Food / DiDi Food (openapi.didi-food.com). É a API
@@ -132,7 +133,7 @@ export class Food99Service {
         app_secret: ig.appSecret,
         app_shop_id: ig.appShopId,
       }).toString();
-      const res = await fetch(`${BASE}/v1/auth/authtoken/get?${q}`, { method: 'GET' });
+      const res = await fetchExterno(`${BASE}/v1/auth/authtoken/get?${q}`, { method: 'GET' });
       const j: any = await res.json().catch(() => ({ errno: -1 }));
       if (j?.errno === 0 && j?.data?.auth_token) {
         return { token: j.data.auth_token, exp: (Number(j.data.token_expiration_time) || 0) * 1000, errno: 0 };
@@ -155,7 +156,7 @@ export class Food99Service {
         app_secret: ig.appSecret,
         app_shop_id: ig.appShopId,
       }).toString();
-      const res = await fetch(`${BASE}/v1/auth/authtoken/refresh?${q}`, { method: 'GET' }).catch(() => null);
+      const res = await fetchExterno(`${BASE}/v1/auth/authtoken/refresh?${q}`, { method: 'GET' }).catch(() => null);
       const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
       const errno = Number(j?.errno ?? -1);
       if (errno !== 0) {
@@ -205,7 +206,7 @@ export class Food99Service {
     const tk = await this.tokenEfemero(appShopId);
     if (!tk) return null;
     const q = new URLSearchParams({ auth_token: tk }).toString();
-    const res = await fetch(`${BASE}/v1/shop/shop/detail?${q}`, { method: 'GET' }).catch(() => null);
+    const res = await fetchExterno(`${BASE}/v1/shop/shop/detail?${q}`, { method: 'GET' }).catch(() => null);
     const j: any = res ? await res.json().catch(() => null) : null;
     return j?.errno === 0 ? j.data : null;
   }
@@ -227,7 +228,7 @@ export class Food99Service {
       await this.db.insert(integracao).values({ tenantId, unidadeId, canal: CANAL, ativo: false, config });
     }
     // app_id é 64-bit → LITERAL no corpo (bigint-safe).
-    const res = await fetch(`${BASE}/v1/auth/authorizationpage/getUrl`, {
+    const res = await fetchExterno(`${BASE}/v1/auth/authorizationpage/getUrl`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: `{"app_id":${appId}}`,
@@ -297,7 +298,7 @@ export class Food99Service {
       const ts = Math.floor(Date.now() / 1000);
       const sign = this.assinarRequest({ app_id: appId, page_no: page, page_size: 50, timestamp: ts });
       const body = `{"app_id":${appId},"page_no":${page},"page_size":50,"timestamp":${ts},"sign":${JSON.stringify(sign)}}`;
-      const res = await fetch(`${BASE}/v3/auth/authorization/getAuthorizedShops`, {
+      const res = await fetchExterno(`${BASE}/v3/auth/authorization/getAuthorizedShops`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
@@ -393,7 +394,7 @@ export class Food99Service {
     const tk = await this.authToken(ig);
     if (!tk) return null;
     const q = new URLSearchParams({ auth_token: tk, order_id: orderId }).toString();
-    const res = await fetch(`${BASE}/v1/order/order/detail?${q}`, { method: 'GET' }).catch(() => null);
+    const res = await fetchExterno(`${BASE}/v1/order/order/detail?${q}`, { method: 'GET' }).catch(() => null);
     if (!res) return null;
     const j: any = await res.json().catch(() => null);
     return j?.errno === 0 ? j.data : null;
@@ -410,7 +411,7 @@ export class Food99Service {
     const tk = await this.authToken(ig);
     if (!tk) return false;
     const body = `{"auth_token":${JSON.stringify(tk)},"order_id":${orderId}}`;
-    const res = await fetch(`${BASE}/v1/order/order/confirm`, {
+    const res = await fetchExterno(`${BASE}/v1/order/order/confirm`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -427,7 +428,7 @@ export class Food99Service {
     const tk = await this.authToken(ig);
     if (!tk) return false;
     const q = new URLSearchParams({ auth_token: tk, order_id: orderId }).toString();
-    const res = await fetch(`${BASE}/v1/order/order/ready?${q}`, { method: 'GET' }).catch(() => null);
+    const res = await fetchExterno(`${BASE}/v1/order/order/ready?${q}`, { method: 'GET' }).catch(() => null);
     const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
     return j?.errno === 0;
   }
@@ -438,7 +439,7 @@ export class Food99Service {
     const tk = await this.authToken(ig);
     if (!tk) return false;
     const q = new URLSearchParams({ auth_token: tk, order_id: orderId }).toString();
-    const res = await fetch(`${BASE}/v1/order/order/delivered?${q}`, { method: 'GET' }).catch(() => null);
+    const res = await fetchExterno(`${BASE}/v1/order/order/delivered?${q}`, { method: 'GET' }).catch(() => null);
     const j: any = res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
     return j?.errno === 0;
   }
@@ -446,7 +447,7 @@ export class Food99Service {
   // POST body JSON bigint-safe (order_id/apply_id como LITERAIS, nunca via JSON.stringify).
   private async postJson(caminho: string, tk: string, campos: string[]): Promise<any> {
     const body = `{${[`"auth_token":${JSON.stringify(tk)}`, ...campos].join(',')}}`;
-    const res = await fetch(`${BASE}${caminho}`, {
+    const res = await fetchExterno(`${BASE}${caminho}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -538,7 +539,7 @@ export class Food99Service {
       `"reason_id":${reasonId}`,
     ];
     if (reason) parts.push(`"reason":${JSON.stringify(reason)}`);
-    const res = await fetch(`${BASE}/v1/order/order/cancel`, {
+    const res = await fetchExterno(`${BASE}/v1/order/order/cancel`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: `{${parts.join(',')}}`,
@@ -837,7 +838,7 @@ export class Food99Service {
       modifier_groups: [],
     };
     // Menu é v3 (a v1 saiu junto com a migração de domínio) — mesma forma do export.
-    const res = await fetch(`${BASE}/v3/item/item/upload`, {
+    const res = await fetchExterno(`${BASE}/v3/item/item/upload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -876,7 +877,7 @@ export class Food99Service {
       ...(p.descricao ? { short_desc: String(p.descricao).slice(0, 300) } : {}),
     }));
     const body = JSON.stringify({ auth_token: tk, menus, categories, items, modifier_groups: [] });
-    const res = await fetch(`${BASE}/v3/item/item/upload`, {
+    const res = await fetchExterno(`${BASE}/v3/item/item/upload`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
@@ -896,7 +897,7 @@ export class Food99Service {
     if (ativo) {
       const tk = await this.authToken(ativo).catch(() => null);
       if (tk) {
-        await fetch(`${BASE}/v1/shop/shop/unbind?${new URLSearchParams({ auth_token: tk }).toString()}`, { method: 'GET' }).catch(() => {});
+        await fetchExterno(`${BASE}/v1/shop/shop/unbind?${new URLSearchParams({ auth_token: tk }).toString()}`, { method: 'GET' }).catch(() => {});
       }
     }
     const [row] = await this.db
