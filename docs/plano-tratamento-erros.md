@@ -39,7 +39,7 @@ Request/Correlation ID; (3) frontend descarta `code`/`status`/`requestId` (só l
 ## Blocos (ordem de execução)
 
 - [x] **Bloco 1 — Backbone.** `common/errors/{error-codes,app-error,pg-error}.ts` + `common/request-context.ts` + `common/request-id.middleware.ts`; **estende** `telemetria-exception.filter.ts` (envelope aditivo `+code +requestId`, normaliza pg, mascara 500) e `telemetria-logger.ts` (carimba requestId); `app.module.ts` registra o middleware. Teste `errors.spec.ts`. **Sem quebra de contrato** (mantém statusCode/message/error). ✅
-- [ ] **Bloco 2 — Frontend client.** `ApiError {status,code,message,details,requestId}` no `req()`; helper `handleApiError`; `app/error.tsx` + `global-error.tsx`; fix do skeleton infinito em `meu-dia`. Design system intacto.
+- [x] **Bloco 2 — Frontend client.** `ApiError {status,code,message,details,requestId}` (estende Error → 250 catches seguem) + `handleApiError` no `req()`/`pub()`; `app/error.tsx` + `global-error.tsx` (fim da tela branca); fix do skeleton infinito em `meu-dia` (redireciona sem sessão). Design system intacto. ✅
 - [ ] **Bloco 3 — 🔴 Pagamentos (R1/R2).** `aprovarPagamento` atômico (`UPDATE ... WHERE pago=false`/lock) + ledger de idempotência por evento externo + timeout nas chamadas financeiras + fallback "consulta-antes-de-recriar".
 - [ ] **Bloco 4 — 🔴 Sync push (S1/S2).** Keyset composto `ts|id` no push + skip por linha (dead-letter). Protocolo intacto.
 - [ ] **Bloco 5 — 🔴 Impressão (P1) + Edge (E1).** Claim/lease no `print-agent.mjs` + handlers de processo nos 3 daemons + `AppThrottle` no NSSM.
