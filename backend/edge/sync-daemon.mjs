@@ -451,8 +451,40 @@ async function enviarLote(lote) {
     },
     body: JSON.stringify({ lotes: lotesN }),
   });
-  if (!res.ok) throw new Error(`push HTTP ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const err = new Error(`push HTTP ${res.status}: ${await res.text()}`);
+    err.status = res.status; // p/ o push classificar definitivo (4xx) × transitório (5xx/429)
+    throw err;
+  }
   await setState('push_seq', String(seq)); // só avança o seq após sucesso
+}
+
+// Cursor do push = "<ISO>|<id>" (keyset composto). Compat: cursores antigos são só o ISO —
+// parseia como {ts, id=nil} (re-envia no máx. as linhas do mesmo ts uma vez; a nuvem deduplica).
+function parseCursorPush(s) {
+  const str = String(s ?? '');
+  const i = str.indexOf('|');
+  if (i < 0) return { ts: str || '1970-01-01T00:00:00Z', id: '00000000-0000-0000-0000-000000000000' };
+  return { ts: str.slice(0, i), id: str.slice(i + 1) || '00000000-0000-0000-0000-000000000000' };
+}
+
+// Reenvia um lote REJEITADO (4xx definitivo) linha a linha, isolando a "veneno": as boas sobem;
+// a que ainda falhar 4xx é logada (DEAD-LETTER) e pulada; 5xx/rede no meio → para (o cursor já
+// persistido reflete o progresso, retoma no próximo ciclo). Persiste o cursor por linha PROCESSADA.
+async function enviarLinhaALinha(t, linhas) {
+  for (const linha of linhas) {
+    try {
+      await enviarLote({ tabela: t.tabela, linhas: [linha] });
+    } catch (e) {
+      const st = e?.status;
+      const definitivo = typeof st === 'number' && st >= 400 && st < 500 && st !== 429 && st !== 408;
+      if (!definitivo) throw e; // transitório → para; retoma no próximo ciclo sem perder posição
+      console.error(
+        `[push dead-letter] ${t.tabela} id=${linha.id} cursor=${linha[t.cursor]} — PULADA (HTTP ${st}): ${String(e?.message ?? '').slice(0, 160)}`,
+      );
+    }
+    await setState(`push_${t.tabela}`, `${new Date(linha[t.cursor]).toISOString()}|${linha.id}`);
+  }
 }
 
 async function push() {
@@ -472,18 +504,35 @@ async function push() {
     let cur = await getState(`push_${t.tabela}`, '1970-01-01T00:00:00Z');
     for (let pagina = 0; pagina < 10000; pagina++) {
       const filtro = t.filtro ? ` and (${t.filtro})` : ''; // constante do PUSH_TABLES, não é entrada de usuário
+      const { ts, id } = parseCursorPush(cur);
+      // Keyset COMPOSTO (cursor, id) — mesma forma expandida/sargável do PULL da nuvem. SEM o
+      // desempate por id, ≥PUSH_MAX linhas com o MESMO timestamp na fronteira da página eram
+      // PULADAS pra sempre (perda silenciosa): now()=início da tx → uma transação grande
+      // (audit_log, movimento_estoque, comanda_item…) gera muitos timestamps idênticos.
       const r = await pool.query(
-        `select * from ${q(t.tabela)} where ${q(t.cursor)} > $1${filtro} order by ${q(t.cursor)} asc limit $2`,
-        [cur, PUSH_MAX],
+        `select * from ${q(t.tabela)}
+           where (${q(t.cursor)} > $1::timestamptz
+                  or (${q(t.cursor)} = $1::timestamptz and ${q('id')} > $2))${filtro}
+           order by ${q(t.cursor)} asc, ${q('id')} asc limit $3`,
+        [ts, id, PUSH_MAX],
       );
       if (!r.rows.length) break;
-      await enviarLote({ tabela: t.tabela, linhas: r.rows });
-      const max = r.rows.reduce(
-        (m, row) => (new Date(row[t.cursor]) > new Date(m) ? row[t.cursor] : m),
-        cur,
-      );
-      cur = new Date(max).toISOString();
-      await setState(`push_${t.tabela}`, cur);
+      try {
+        await enviarLote({ tabela: t.tabela, linhas: r.rows });
+        const ultima = r.rows[r.rows.length - 1]; // ordenado por (cursor, id) → a última é o máximo
+        cur = `${new Date(ultima[t.cursor]).toISOString()}|${ultima.id}`;
+        await setState(`push_${t.tabela}`, cur);
+      } catch (e) {
+        const st = e?.status;
+        const definitivo = typeof st === 'number' && st >= 400 && st < 500 && st !== 429 && st !== 408;
+        if (!definitivo) throw e; // transitório (5xx/rede/429): re-tenta o LOTE no próximo ciclo (como hoje)
+        // DEFINITIVO (4xx): o lote tem uma linha "veneno" que travava a tabela + as posteriores.
+        // Isola linha a linha (as boas sobem; a veneno vira dead-letter e é pulada) — não bloqueia
+        // o resto do sync (vendas de outras tabelas continuam subindo).
+        console.warn(`  push: lote de ${t.tabela} rejeitado (HTTP ${st}) — reenviando linha a linha p/ isolar a veneno`);
+        await enviarLinhaALinha(t, r.rows);
+        cur = await getState(`push_${t.tabela}`, cur); // recarrega o cursor avançado pelo row-by-row
+      }
       total += r.rows.length;
       if (Date.now() - push_inicio > PUSH_LIMITE_MS) {
         console.log(`  push: fatia de ${PUSH_LIMITE_MS}ms atingida (${total} linha(s)) — libera o ciclo; continua no próximo`);
@@ -596,6 +645,14 @@ async function coletarSaude() {
   try {
     const r = await pool.query("select count(*)::int n from equipamento where tipo = 'impressora'");
     saude.impressoraConfigurada = (r.rows?.[0]?.n ?? 0) > 0;
+  } catch { /* */ }
+  try {
+    // Fila de impressão (P4): erros terminais + pendentes acumulados — observabilidade no console.
+    const r = await pool.query(
+      "select count(*) filter (where status='erro')::int erros, count(*) filter (where status in ('pendente','enviando'))::int pend from impressao_job",
+    );
+    saude.impressaoErros = r.rows?.[0]?.erros ?? 0;
+    saude.impressaoPendentes = r.rows?.[0]?.pend ?? 0;
   } catch { /* */ }
   return { saude, discoLivreMb: sd.discoLivreMb };
 }

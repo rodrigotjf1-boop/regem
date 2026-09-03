@@ -10,13 +10,30 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → publica no console de distribuição.
 
-## Acumulado (NÃO empacotado ainda) — candidato a `1.29.0`
+## Acumulado (NÃO empacotado) — próximo `.exe`/`.zip` do edge
 
-Mudanças de **edge (`sync-daemon.mjs`)** prontas no branch `feat/edge-cursor-seed-log-ts`, aguardando corte (o gestor validando o 1.28 primeiro):
-- **Seed de cursor ao fim do restore** (fecha a Solução A): grava a marca-d'água das **9 tabelas do snapshot** em `pull_cursores` (+ `push_*` se a base estava vazia = `-Limpar`) → após reinstalar, o ciclo baixa **só o que é novo** (pedido de hoje em ~1 ciclo) no lugar de re-baixar/re-enviar os 60 dias que o snapshot já trouxe. **Só as 9**: catálogo/controle fica de fora (segue o piso global 1970). **Sem tocar na nuvem.**
-- **Log carimbado**: `[data-hora]` ISO em toda linha do daemon (some a confusão de misturar restore antigo com novo no arquivo rolante — nos custou tempo em 01/09).
+Mudanças **do edge** já na `main` (ou em branch) aguardando o próximo corte:
+- **Reimpressão do delivery leva o QR de despacho (#416, na `main`):** `delivery.service`/`vendas.reimprimirViasExterno` — a reimpressão local rodava sem o `@QR`. → **`.zip` + `.exe`** (backend do edge).
+- **Seed de cursor no fim do restore + log carimbado (branch `feat/edge-cursor-seed-log-ts`, ⚠️ NÃO mesclado):** `sync-daemon.mjs` — após `-Limpar` o ciclo baixa só o novo (não re-baixa os 60 dias) + `[data-hora]` em toda linha do log. → **`.zip` + `.exe`**. **Mesclar o branch antes de cortar.**
+- **Robustez de impressão P0–P4 (branch `feat/impressao-p0-p4`, ⚠️ NÃO mesclado):** claim/lease anti-duplo-print (**mig 221**) + auto-retry de erro + via-a-via + latência menor da venda-nuvem + fallback de cupom fora da cozinha + expurgo da fila + telemetria de impressão no heartbeat + gaveta (`@GAVETA`). Toca `impressao-daemon.mjs`, `print-agent.mjs`, `escpos.mjs`, `sync-daemon.mjs` (heartbeat) → **`.zip` + `.exe`**. Nuvem: backend por autodeploy + **migration 221** (roda nos DOIS bancos, nuvem+edge — **não** é cloud-only). Mesclar o branch + aplicar a 221 na nuvem antes de cortar.
+- **Tratamento de erros no edge — Blocos 4/5 (branch `feat/tratamento-erros-edge`, ⚠️ NÃO mesclado):** **S1** `sync-daemon.mjs` push com keyset composto `(cursor, id)` → fim da perda silenciosa de vendas/movimentos (≥200 linhas no mesmo `updated_at` eram puladas); **S2** reenvio linha-a-linha + dead-letter (linha "veneno" não trava a fila); **E1** handlers `unhandledRejection`/`uncaughtException` em `impressao-daemon.mjs`/`print-agent.mjs`/`edge-web.mjs` (saem 1 → NSSM reinicia) + `AppExit/AppThrottle/AppRestartDelay` no `instalar-servicos.ps1` (sem crash-loop); **P1** `print-agent.mjs` ACK com retry+log (menos reimpressão pós-lease). → **`.zip` + `.exe`** (toca sync-daemon + os 3 daemons + `.iss`/instalador via `.ps1`). Sem migration. ⚠️ **Validar no edge antes de cortar** (não há teste local dos daemons).
 
-Corte = **`.zip` + `.exe`** (tocou `sync-daemon`). Só quando o gestor pedir ou acumular mais. **1.28 = sync ponta a ponta OK** (recebe pedido + sobe status), então não há urgência.
+> **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
+
+Cortar quando o gestor pedir: `build-release.ps1 -Versao X.Y.Z` de worktree off `origin/main` (que já terá o #416 + o branch mesclado).
+
+## App do entregador (APK — fora do edge)
+
+O app entregador **não** é `.exe`/`.zip` do edge — é **APK de instalação direta** (AAB/Play adiado "até estar mais completo"). Última versão na Play = `0.1.0` (versionCode 7). Acumulado desde então:
+- **Localização em 2º plano (#419):** `getPositionStream` + foreground service → envia a cada 10s com a tela apagada; manifest += `ACCESS_BACKGROUND_LOCATION`/`FOREGROUND_SERVICE(_LOCATION)`.
+- **Rota OSRM no mapa in-app (#427):** "Ver rota" desenha a NOSSA rota (OSRM) num `flutter_map` + ETA; botão "Navegar" abre Waze/Maps p/ a voz. Consome `POST /entregador/pedido/:id/rota` (#426, cloud/autodeploy).
+- **Ganhos estimados (#430):** ao confirmar a entrega com código, a taxa (real/por entrega ou fixa, pelo perfil) já entra em "Meus ganhos estimados" (inclui 'entregue' pendente de conferência); cancelamento no atendimento abate sozinho. Backend `ganhos()` (cloud/autodeploy) + rótulo no app.
+- **Visual moderno + marca (`+14`):** tema Regem coeso (Material 3, ouro/navy), monograma **R.O. em órbita**, nome "Regem / ENTREGADOR" no login e no topo; só layout.
+- **Fila + máquina de estados do botão (Frentes 2b/2d, `+15`):** o botão vira `Entrar na fila` (geofence ~150m) → `Nº da fila` → `Procurar pedido` (só o 1º da fila) → `Iniciar entrega(s)` (roteiriza + avisa o 1º cliente) → `em entrega` (roteiro). **Scan do 1º da fila = modo carrinho** (reserva no batch, sem teto — o lote é alvo, não trava); fora da fila despacha na hora (retrocompatível). **Alerta de pronto:** som + haptic + banner quando surge pedido pronto e eu sou o 1º. Consome os endpoints de fila (cloud). ⚠️ **Push em 2º plano (tela apagada) = follow-up (FCM/Firebase).**
+
+**Build de teste `0.1.0+15`** (03/09) para sideload em **`app-entregador/build/app/outputs/flutter-apk/app-release.apk`** (~65 MB, **release assinado com chave de debug** → instala direto; se não instalar por cima do anterior, **desinstalar** o app antes). **Convenção:** o APK fica no caminho padrão de build do Flutter — `app-entregador/build/app/outputs/flutter-apk/` (`app-release.apk` = último build) — **não** copiar pra Downloads nem criar pastas novas. **Play/AAB** só quando o app amadurecer (aí wire do `upload.jks` no `build.gradle.kts` + bump do versionCode).
+
+> **Épico delivery-fila (Frentes 1–4) — lado NUVEM é autodeploy** (rastreio `/r/[token]` sem "Você"/"Parada X-Y" + casinha; fila do atendente em `/delivery`; ciclo/tempo por entrega; relatórios `/delivery/relatorios`; **fix do "Lote/entregador"** que voltava sozinho pra 2). **NÃO** entra no `.exe`/`.zip`. Precisa da **migration 223** na nuvem (`entregador_fila` + `pedido_externo.reservado_em`) — sem ela os endpoints de fila dão erro.
 
 ## F1/F2/F3 — ✅ cortado no 1.24.0 (31/08)
 

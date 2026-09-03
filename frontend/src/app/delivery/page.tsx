@@ -87,6 +87,7 @@ export default function DeliveryPage() {
   const [cat, setCat] = useState<string | null>(null);
   const isGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
   const [pedidos, setPedidos] = useState<any[] | null>(null);
+  const [fila, setFila] = useState<any[]>([]); // Frente 2c — fila de entregadores
   const [cfg, setCfg] = useState<any>({ ativo: false, autoAceitar: false, finalizadoHoras: 5 });
   // Config GERAL do entregador (uma p/ toda a loja) — o "lote por entregador"
   // (max_pedidos_entregador) fica aqui no painel p/ ajuste rápido conforme a demanda.
@@ -132,7 +133,7 @@ export default function DeliveryPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [ps, c, cx, ent, at, lc, ec] = await Promise.all([
+      const [ps, c, cx, ent, at, lc, ec, fl] = await Promise.all([
         api.deliveryPedidos(),
         api.deliveryConfig().catch(() => cfgRef.current),
         api.caixaAberta('delivery').catch(() => null),
@@ -140,8 +141,10 @@ export default function DeliveryPage() {
         api.atendimentos().catch(() => []),
         api.cardapioConfig().catch(() => null),
         api.entregadorPagamentoConfig().catch(() => null),
+        api.filaEntregadores().catch(() => []),
       ]);
       setPedidos(ps as any[]);
+      setFila((fl as any[]) ?? []);
       setCfg(c);
       if (ec) setEntCfg(ec);
       setCaixa(cx);
@@ -600,6 +603,15 @@ export default function DeliveryPage() {
                 <button type="button" aria-label="Aumentar lote" onClick={() => salvarMaxLote((Number(entCfg.maxPedidosEntregador) || 1) + 1)} disabled={(Number(entCfg.maxPedidosEntregador) || 1) >= 15} className="grid h-6 w-6 place-items-center rounded border border-border disabled:opacity-40">＋</button>
               </div>
             )}
+            {(isGestor || cat === 'atendente') && (
+              <Link
+                href="/delivery/relatorios"
+                className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-sm font-medium hover:bg-muted"
+                title="Relatórios de entrega — entregas, tempo médio e ganhos por entregador"
+              >
+                📊 Relatórios
+              </Link>
+            )}
             <div className="ml-auto flex items-center gap-1.5">
               {isGestor && cardapioAtivo && (
                 <button
@@ -696,7 +708,7 @@ export default function DeliveryPage() {
             {/* Coluna direita: preview + painel de botões */}
             <div className="flex min-w-0 flex-col gap-3 lg:min-h-0">
               <PreviewPedido className="lg:min-h-0 lg:flex-1" pedido={sel} onAbrirDetalhe={() => { if (sel) { setDetalheModo('view'); setDetalhe(sel); } }} />
-              <PainelAcoes acoes={acoes} temSel={!!sel} nPend={marcadosPend.size} nAnd={marcadosAnd.size} />
+              <PainelAcoes acoes={acoes} temSel={!!sel} nPend={marcadosPend.size} nAnd={marcadosAnd.size} fila={fila} />
             </div>
           </div>
         )}
@@ -1043,12 +1055,12 @@ function PreviewPedido({ pedido: p, onAbrirDetalhe, className }: { pedido: any; 
 }
 
 // ---- Painel de ações (botões do mockup) ----
-function PainelAcoes({ acoes, temSel, nPend, nAnd }: { acoes: any; temSel: boolean; nPend: number; nAnd: number }) {
+function PainelAcoes({ acoes, temSel, nPend, nAnd, fila }: { acoes: any; temSel: boolean; nPend: number; nAnd: number; fila: any[] }) {
   const Btn = ({ a, label, variant = 'outline' as const }: { a: any; label: string; variant?: 'default' | 'outline' }) => (
     <Button
       type="button"
       variant={variant}
-      className="h-12 justify-center text-sm font-bold"
+      className="h-10 justify-center text-xs font-bold"
       disabled={!a.enabled}
       onClick={a.onClick}
     >
@@ -1060,15 +1072,42 @@ function PainelAcoes({ acoes, temSel, nPend, nAnd }: { acoes: any; temSel: boole
       {!temSel && nPend === 0 && nAnd === 0 && (
         <p className="mb-2 text-center text-xs text-muted-foreground">Selecione um pedido (ou marque vários com a caixinha) para agir.</p>
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <Btn a={acoes.avancar} label={nPend > 0 ? `AVANÇAR (${nPend})` : 'AVANÇAR'} variant="default" />
-        <Btn a={acoes.voltar} label="VOLTAR" />
-        <Btn a={acoes.finalizar} label={nAnd > 0 ? `FINALIZAR (${nAnd})` : 'FINALIZAR'} variant="default" />
-        <Btn a={acoes.cancelar} label="CANCELAR" />
-        <Btn a={acoes.pronto} label="PRONTO" />
-        <Btn a={acoes.reimprimir} label="REIMPRIMIR" />
-        <Btn a={acoes.editarPedido} label="EDITAR PEDIDO" />
-        <Btn a={acoes.nf} label="NF-e" />
+      <div className="flex gap-3">
+        <div className="grid flex-1 grid-cols-2 gap-2">
+          <Btn a={acoes.avancar} label={nPend > 0 ? `AVANÇAR (${nPend})` : 'AVANÇAR'} variant="default" />
+          <Btn a={acoes.voltar} label="VOLTAR" />
+          <Btn a={acoes.finalizar} label={nAnd > 0 ? `FINALIZAR (${nAnd})` : 'FINALIZAR'} variant="default" />
+          <Btn a={acoes.cancelar} label="CANCELAR" />
+          <Btn a={acoes.pronto} label="PRONTO" />
+          <Btn a={acoes.reimprimir} label="REIMPRIMIR" />
+          <Btn a={acoes.editarPedido} label="EDITAR PEDIDO" />
+          <Btn a={acoes.nf} label="NF-e" />
+        </div>
+        {/* Frente 2c — fila de entregadores (iniciais). 1º da fila = destaque; em entrega = apagado. */}
+        <div className="w-14 shrink-0">
+          <div className="mb-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted-foreground">🛵 Fila</div>
+          <div className="flex flex-col gap-1.5">
+            {fila.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border py-3 text-center text-[10px] leading-tight text-muted-foreground">fila vazia</div>
+            ) : (
+              fila.map((f, i) => (
+                <div
+                  key={f.colaboradorId}
+                  title={`${f.nome ?? ''} — ${f.status === 'em_entrega' ? 'em entrega' : `${i + 1}º da fila`}`}
+                  className={`flex h-10 items-center justify-center rounded-lg border text-xs font-bold ${
+                    f.status === 'em_entrega'
+                      ? 'border-border bg-muted text-muted-foreground'
+                      : i === 0
+                        ? 'border-primary bg-primary/15 text-foreground'
+                        : 'border-border bg-card text-foreground'
+                  }`}
+                >
+                  {f.iniciais ?? '?'}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </Card>
   );

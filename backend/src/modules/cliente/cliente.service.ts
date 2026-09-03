@@ -12,6 +12,8 @@ import { createHmac, createHash, randomBytes, randomInt } from 'crypto';
 const hashOtp = (codigo: string) => createHash('sha256').update(codigo.trim()).digest('hex');
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { Cron } from '@nestjs/schedule';
+import { geocode, montarEndereco } from '../../common/geocode';
 import {
   cardapioConfig,
   cashbackMovimento,
@@ -268,9 +270,16 @@ export class ClienteService {
     const bairroFrag = bairro
       ? sql`and exists (select 1 from pedido_externo p where p.cliente_id = c.id and lower(p.endereco_bairro) = lower(${bairro}))`
       : sql``;
-    // Seleção explícita (checkbox na tela) — restringe a estes ids.
+    // Seleção explícita (checkbox na tela) — restringe a estes ids. Usa lista de binds
+    // (sql.join) em vez de `any(${ids}::uuid[])` — o template sql do Drizzle serializava o
+    // array errado (o ::uuid[] recebia o UUID cru, sem chaves) → "malformed array literal".
     const idsFrag =
-      opts.ids && opts.ids.length ? sql`and c.id = any(${opts.ids}::uuid[])` : sql``;
+      opts.ids && opts.ids.length
+        ? sql`and c.id in (${sql.join(
+            opts.ids.map((id) => sql`${id}::uuid`),
+            sql`, `,
+          )})`
+        : sql``;
     return sql`${segFrag} ${buscaFrag} ${canalFrag} ${bairroFrag} ${idsFrag}`;
   }
 
@@ -715,9 +724,68 @@ export class ClienteService {
     };
   }
 
+  // Backfill progressivo: geocodifica endereços salvos SEM coords (o form antigo não mandava e o
+  // save não geocodificava — quebrava frete por raio E destino do rastreio). Lote pequeno
+  // respeitando o Nominatim (~1/s). Só na NUVEM (não no edge, p/ não duplicar a escrita que
+  // sincroniza). @Cron a cada 10 min; para sozinho quando não há mais o que preencher.
+  @Cron('*/10 * * * *')
+  async backfillGeocodeEnderecos() {
+    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return;
+    try {
+      const r: any = await this.db.execute(sql`
+        select id, cliente_id, logradouro, numero, bairro, cidade
+        from cliente_endereco
+        where (lat is null or lng is null) and coalesce(logradouro, '') <> ''
+        order by criado_em desc limit 20`);
+      const rows = r.rows ?? r;
+      let ok = 0;
+      for (const e of rows) {
+        let cidade = e.cidade || null;
+        if (!cidade) {
+          const cc: any = await this.db.execute(sql`
+            select cidade from cliente_endereco
+            where cliente_id = ${e.cliente_id} and cidade is not null and cidade <> '' limit 1`);
+          cidade = (cc.rows ?? cc)[0]?.cidade ?? null;
+        }
+        const q = montarEndereco([e.logradouro, e.numero, e.bairro, cidade, 'Brasil']);
+        const g = q ? await geocode(q).catch(() => null) : null;
+        if (g) {
+          await this.db
+            .execute(sql`update cliente_endereco set lat = ${String(g.lat)}, lng = ${String(g.lng)} where id = ${e.id}`)
+            .catch(() => {});
+          ok++;
+        }
+        await new Promise((res) => setTimeout(res, 1100)); // ~1 req/s (política do Nominatim)
+      }
+      if (ok) new Logger('GeoBackfill').log(`${ok}/${rows.length} endereços geocodificados`);
+    } catch {
+      /* best-effort */
+    }
+  }
+
   async adicionarEndereco(cardapioToken: string, clienteToken: string | undefined, dto: any) {
     const c = await this.clienteDoToken(cardapioToken, clienteToken);
     const primeiro = (await this.enderecosDe(c.id)).length === 0;
+    // Geocode no SERVIDOR quando o front não manda coords (o formulário nem sempre resolve): sem
+    // lat/lng o endereço quebra o frete por raio E o destino do rastreio do entregador. Enriquece
+    // com a cidade do cliente quando o endereço não traz cidade.
+    let lat = dto.lat != null && dto.lat !== '' ? String(dto.lat) : null;
+    let lng = dto.lng != null && dto.lng !== '' ? String(dto.lng) : null;
+    if (!lat || !lng) {
+      let cidade = dto.cidade || null;
+      if (!cidade) {
+        const cc: any = await this.db.execute(sql`
+          select cidade from cliente_endereco
+          where cliente_id = ${c.id} and cidade is not null and cidade <> '' limit 1`);
+        cidade = (cc.rows ?? cc)[0]?.cidade ?? null;
+      }
+      const q = montarEndereco([dto.logradouro, dto.numero, dto.bairro, cidade, 'Brasil']);
+      const g = q ? await geocode(q).catch(() => null) : null;
+      if (g) {
+        lat = String(g.lat);
+        lng = String(g.lng);
+      }
+    }
     const [e] = await this.db
       .insert(clienteEndereco)
       .values({
@@ -732,8 +800,8 @@ export class ClienteService {
         bairroId: dto.bairroId || null,
         cidade: dto.cidade || null,
         referencia: dto.referencia || null,
-        lat: dto.lat != null && dto.lat !== '' ? String(dto.lat) : null,
-        lng: dto.lng != null && dto.lng !== '' ? String(dto.lng) : null,
+        lat,
+        lng,
         principal: dto.principal ?? primeiro,
       })
       .returning();

@@ -38,6 +38,8 @@ const EDGE_DB = req('EDGE_DATABASE_URL');
 const POLL_MS = Number(process.env.PRINT_POLL_MS || 3000);
 const PORTA_PADRAO = Number(process.env.PRINT_PORTA_PADRAO || 9100);
 const TENTATIVAS = 3;
+const AUTO_RETRY_CAP = 5; // rounds de re-tentativa automática (P2) antes de 'erro' terminal
+const WORKER_ID = `edge-${randomUUID().slice(0, 8)}`; // identifica a reserva (claim) deste worker
 
 const pool = new pg.Pool({ connectionString: EDGE_DB });
 // Resiliencia (auditoria ago/2026): Postgres reiniciado (57P01, a cada install/update)
@@ -45,6 +47,16 @@ const pool = new pg.Pool({ connectionString: EDGE_DB });
 // logamos; o pg descarta a conexao morta e reabre na proxima query.
 pool.on('error', (e) => console.error(`[impressao] pool: conexao ociosa caiu (${e?.code ?? e?.message}) - descartada, segue no ar`));
 const mask = EDGE_DB.replace(/:[^:@/]*@/, ':****@');
+
+// Rede de seguranca do PROCESSO (E1): sem estes handlers, uma promise rejeitada / excecao nao
+// tratada (ex.: erro de DB no drain) DERRUBA o servico em silencio. unhandledRejection: loga e
+// segue. uncaughtException: estado desconhecido -> loga e SAI (1) p/ o NSSM reiniciar limpo
+// (AppThrottle no instalar-servicos.ps1 evita crash-loop).
+process.on('unhandledRejection', (e) => console.error(`[unhandledRejection] ${e?.stack ?? e?.message ?? e}`));
+process.on('uncaughtException', (e) => {
+  console.error(`[uncaughtException] ${e?.stack ?? e?.message ?? e}`);
+  process.exit(1);
+});
 
 // Envia bytes crus por TCP para host:porta (protocolo RAW/9100 das termicas).
 function enviarTcp(host, porta, buffer) {
@@ -106,14 +118,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function marcarImpresso(id) {
   await pool.query(
-    `update impressao_job set status='impresso', impresso_em=now() where id=$1`,
+    `update impressao_job set status='impresso', impresso_em=now(), claim_por=null, claim_ate=null where id=$1`,
     [id],
   );
 }
 async function marcarErro(id, msg) {
+  // Auto-retry (P2): re-enfileira como 'pendente' com backoff crescente (reusa claim_ate como
+  // "não pegar antes de") até AUTO_RETRY_CAP; depois vira 'erro' terminal (reimpressão manual).
   await pool.query(
-    `update impressao_job set status='erro', erro=$2, tentativas=tentativas+1 where id=$1`,
-    [id, String(msg || 'falha').slice(0, 400)],
+    `update impressao_job set
+       tentativas = tentativas + 1,
+       erro = $2,
+       claim_por = null,
+       status = case when tentativas + 1 < $3 then 'pendente' else 'erro' end,
+       claim_ate = case when tentativas + 1 < $3 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
+     where id = $1`,
+    [id, String(msg || 'falha').slice(0, 400), AUTO_RETRY_CAP],
   );
 }
 
@@ -138,9 +158,13 @@ async function imprimirJob(job) {
     : () => enviarTcp(job.host, job.porta, buffer);
   const alvo = local ? `win:${job.dispositivo}` : `${job.impressora || job.host}:${job.porta || PORTA_PADRAO}`;
   let ultimoErro = null;
+  let enviadas = 0; // via-a-via: uma via que já saiu NÃO é reimpressa no retry
   for (let t = 1; t <= TENTATIVAS; t++) {
     try {
-      for (let v = 0; v < vias; v++) await enviar();
+      while (enviadas < vias) {
+        await enviar();
+        enviadas++;
+      }
       await marcarImpresso(job.id);
       console.log(`  ✓ job ${job.id.slice(0, 8)} -> ${alvo}` + (vias > 1 ? ` (${vias} vias)` : ''));
       return true;
@@ -150,7 +174,7 @@ async function imprimirJob(job) {
     }
   }
   await marcarErro(job.id, ultimoErro);
-  console.error(`  ✗ job ${job.id.slice(0, 8)} falhou apos ${TENTATIVAS} tentativas: ${ultimoErro}`);
+  console.error(`  ✗ job ${job.id.slice(0, 8)} falhou apos ${TENTATIVAS} tentativas (${enviadas}/${vias} vias): ${ultimoErro}`);
   return false;
 }
 
@@ -160,17 +184,37 @@ async function imprimirJob(job) {
 // o filtro é aqui. Vazio (1 loja / edge antigo) → tenant-wide, comportamento atual.
 const EDGE_UNIDADE = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
 async function pendentes() {
-  const filtro = EDGE_UNIDADE ? 'and (j.unidade_id = $1 or j.unidade_id is null)' : '';
-  const params = EDGE_UNIDADE ? [EDGE_UNIDADE] : [];
+  // Reserva atômica (claim/lease, mig 221): pega até 20 jobs marcando 'enviando' + lease de
+  // 120s; `for update skip locked` impede outro worker pegar o mesmo (fim do duplo-print) e
+  // re-pega os 'enviando' com lease VENCIDA (worker que morreu no meio). Vias por tipo (mig 168):
+  // cupom do cliente vs produção (antes usava só `e.vias` flat — ignorava viasCliente/Producao).
+  const filtro = EDGE_UNIDADE ? 'and (j.unidade_id = $2 or j.unidade_id is null)' : '';
+  const params = EDGE_UNIDADE ? [WORKER_ID, EDGE_UNIDADE] : [WORKER_ID];
   const r = await pool.query(`
-    select j.id, j.conteudo, j.tentativas,
-           e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.vias, e.nome as impressora,
-           e.linguagem_etiqueta as linguagem
-    from impressao_job j
-    left join equipamento e on e.id = j.equipamento_id
-    where j.status = 'pendente' ${filtro}
-    order by j.criado_em asc
-    limit 20
+    with alvo as (
+      select j.id from impressao_job j
+      where ((j.status = 'pendente' and (j.claim_ate is null or j.claim_ate < now()))
+             or (j.status = 'enviando' and j.claim_ate < now())) ${filtro}
+      order by j.criado_em asc
+      limit 20
+      for update skip locked
+    ),
+    claimed as (
+      update impressao_job
+      set status='enviando', claim_por=$1, claim_ate=now() + interval '120 seconds'
+      where id in (select id from alvo)
+      returning id, conteudo, via, tentativas, equipamento_id
+    )
+    select c.id, c.conteudo, c.via, c.tentativas,
+           e.conexao, e.host, e.porta, e.dispositivo, e.largura,
+           e.nome as impressora, e.linguagem_etiqueta as linguagem,
+           case
+             when c.via = 'cliente' then coalesce(e.vias_cliente, e.vias)
+             when c.via = 'producao' then coalesce(e.vias_producao, e.vias)
+             else e.vias end as vias
+    from claimed c
+    left join equipamento e on e.id = c.equipamento_id
+    order by c.criado_em asc
   `, params);
   return r.rows;
 }

@@ -1842,9 +1842,13 @@ export const impressaoJob = pgTable('impressao_job', {
   comandaId: uuid('comanda_id'), // venda de origem (mig 177) — idempotência do materializador do edge
   via: text('via').notNull().default('producao'), // producao | conferencia
   conteudo: text('conteudo').notNull(),
-  status: text('status').notNull().default('pendente'), // pendente | impresso | erro
+  status: text('status').notNull().default('pendente'), // pendente | enviando | impresso | erro
   tentativas: integer('tentativas').notNull().default(0),
   erro: text('erro'),
+  // Reserva atômica anti-duplo-print (mig 221, P0): o worker seta 'enviando' + claim_ate antes
+  // de imprimir; outro worker/poll só re-pega se a lease (claim_ate) venceu.
+  claimPor: text('claim_por'),
+  claimAte: timestamp('claim_ate', { withTimezone: true }),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   impressoEm: timestamp('impresso_em', { withTimezone: true }),
 });
@@ -2081,6 +2085,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   codigoEntrega: text('codigo_entrega'), // código de 4 díg. do cliente p/ confirmar entrega própria (mig 209, cloud-only)
   saidaId: uuid('saida_id'), // saída/roteiro multi-parada (mig 210, cloud-only)
   ordemParada: integer('ordem_parada'), // ordem da parada na saída (1..N)
+  reservadoEm: timestamp('reservado_em', { withTimezone: true }), // batch do entregador antes de "Iniciar" (mig 223)
   rastreioToken: text('rastreio_token'), // token público do link de rastreio do cliente (mig 210, cloud-only)
   avisadoProntoEm: timestamp('avisado_pronto_em', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
@@ -2234,6 +2239,28 @@ export const entregadorLocalizacao = pgTable('entregador_localizacao', {
   lng: numeric('lng').notNull(),
   precisao: numeric('precisao'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Rastreio "latest-only" (mig 222): 1 linha por entregador, UPSERTada a cada ping — substitui o
+// INSERT-por-ping da entregador_localizacao (que crescia). Todos os usos leem só a última posição.
+export const entregadorPosicao = pgTable('entregador_posicao', {
+  colaboradorId: uuid('colaborador_id').primaryKey(),
+  tenantId: uuid('tenant_id').notNull(),
+  lat: numeric('lat').notNull(),
+  lng: numeric('lng').notNull(),
+  precisao: numeric('precisao'),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Fila de entregadores por unidade (mig 223, Frente 2). Só o 1º 'aguardando' puxa pedido; ao
+// iniciar as entregas vira 'em_entrega'; ao concluir todas, re-entra na fila.
+export const entregadorFila = pgTable('entregador_fila', {
+  colaboradorId: uuid('colaborador_id').primaryKey(),
+  tenantId: uuid('tenant_id').notNull(),
+  unidadeId: uuid('unidade_id'),
+  status: text('status').notNull().default('aguardando'), // aguardando | em_entrega
+  entrouEm: timestamp('entrou_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // App do Entregador (E5) — modelo de pagamento por loja (1 por tenant). Só nuvem.

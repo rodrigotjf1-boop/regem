@@ -9,6 +9,8 @@
 // + link PNG do QR; o cliente paga; o PagBank chama o webhook; consultamos o pedido
 // (charges[].status === 'PAID').
 
+import { classificarFalhaGateway, FIN_TIMEOUT_CRIAR_MS, FIN_TIMEOUT_CONSULTA_MS } from './gateway-erro';
+
 const API = process.env.PAGBANK_API_BASE || 'https://api.pagseguro.com';
 
 export type PixCriado = {
@@ -52,18 +54,26 @@ export async function criarPixPagBank(
     ],
     ...(dados.notificationUrl ? { notification_urls: [dados.notificationUrl] } : {}),
   };
-  const res = await fetch(`${API}/orders`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'x-idempotency-key': dados.idempotencia,
-    },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API}/orders`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'x-idempotency-key': dados.idempotencia,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(FIN_TIMEOUT_CRIAR_MS),
+    });
+  } catch (e) {
+    // Rede/timeout/abort: estado DESCONHECIDO → ambíguo (idempotency-key protege o retry no
+    // MESMO provider; o orquestrador NÃO deve cair em outro gateway p/ não gerar 2ª PIX).
+    throw classificarFalhaGateway(e);
+  }
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
-    throw new Error(`PagBank ${res.status}: ${txt.slice(0, 200)}`);
+    throw classificarFalhaGateway(new Error(`PagBank ${res.status}: ${txt.slice(0, 200)}`), res.status);
   }
   const j: any = await res.json();
   const qr = (j?.qr_codes ?? [])[0] ?? {};
@@ -99,6 +109,7 @@ export async function consultarPagamentoPagBank(
 ): Promise<{ id: string; status: string; referenciaExterna: string | null }> {
   const res = await fetch(`${API}/orders/${orderId}`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(FIN_TIMEOUT_CONSULTA_MS),
   });
   if (!res.ok) throw new Error(`PagBank status ${res.status}`);
   const j: any = await res.json();
@@ -122,6 +133,7 @@ export async function reembolsarPagamentoPagBank(
 ): Promise<{ id: string; status: string }> {
   const ord = await fetch(`${API}/orders/${orderId}`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(FIN_TIMEOUT_CONSULTA_MS),
   });
   if (!ord.ok) throw new Error(`PagBank order ${ord.status}`);
   const oj: any = await ord.json();
@@ -132,6 +144,7 @@ export async function reembolsarPagamentoPagBank(
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body,
+    signal: AbortSignal.timeout(FIN_TIMEOUT_CRIAR_MS),
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => '');

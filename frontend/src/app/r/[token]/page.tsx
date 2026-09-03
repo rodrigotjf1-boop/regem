@@ -16,6 +16,35 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL || 'https://api.dmsregem.com/api/v1';
 }
 
+// Decodifica polyline6 (OSRM geometries=polyline6) → [[lat,lng],...] p/ o Leaflet.
+function decodePolyline6(str: string): [number, number][] {
+  let index = 0,
+    lat = 0,
+    lng = 0;
+  const coords: [number, number][] = [];
+  while (index < str.length) {
+    let b: number,
+      shift = 0,
+      result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+    shift = 0;
+    result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+    coords.push([lat / 1e6, lng / 1e6]);
+  }
+  return coords;
+}
+
 type Dados = {
   numero: number | null;
   status: string;
@@ -25,30 +54,37 @@ type Dados = {
   parada: { x: number; y: number } | null;
   etaMin: number | null;
   codigoEntrega: string | null;
+  rota: { geometry: string; duracaoMin: number; distanciaM: number } | null;
 };
 
 export default function RastreioPage() {
   const params = useParams<{ token: string }>();
   const token = String(params?.token ?? '');
-  const mapEl = useRef<HTMLDivElement>(null);
+  const mapEl = useRef<HTMLDivElement | null>(null);
   const mapObj = useRef<any>(null);
   const Lref = useRef<any>(null);
   const driverMk = useRef<any>(null);
   const destMk = useRef<any>(null);
+  const rotaLine = useRef<any>(null);
   const enquadrado = useRef(false);
   const [pronto, setPronto] = useState(false);
   const [dados, setDados] = useState<Dados | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
 
-  // Mapa só no cliente (Leaflet acessa window).
-  useEffect(() => {
-    let cancel = false;
+  // Mapa só no cliente (Leaflet acessa window). Inicializa via CALLBACK REF: o container do
+  // mapa é renderizado condicionalmente (dentro do ramo `dados`), então um useEffect deps []
+  // rodava na montagem quando o <div> AINDA não existia → retornava cedo, o mapa nunca subia
+  // e setPronto(true) nunca disparava (caixa branca). O callback ref dispara quando o <div>
+  // monta de fato (quando `dados` chega).
+  const initMap = useCallback((node: HTMLDivElement | null) => {
+    mapEl.current = node;
+    if (!node || mapObj.current) return;
     (async () => {
       const L = await import('leaflet');
-      if (cancel || !mapEl.current || mapObj.current) return;
+      if (!mapEl.current || mapObj.current) return; // desmontou antes do import resolver
       Lref.current = L;
-      const map = L.map(mapEl.current, { zoomControl: false }).setView([-14.235, -51.925], 4);
+      const map = L.map(node, { zoomControl: false }).setView([-14.235, -51.925], 4);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap',
         maxZoom: 19,
@@ -56,14 +92,16 @@ export default function RastreioPage() {
       mapObj.current = map;
       setPronto(true);
     })();
-    return () => {
-      cancel = true;
+  }, []);
+  useEffect(
+    () => () => {
       if (mapObj.current) {
         mapObj.current.remove();
         mapObj.current = null;
       }
-    };
-  }, []);
+    },
+    [],
+  );
 
   const carregar = useCallback(async () => {
     if (typeof document !== 'undefined' && document.hidden) return;
@@ -85,7 +123,7 @@ export default function RastreioPage() {
   useEffect(() => {
     if (!token) return;
     carregar();
-    const t = setInterval(carregar, 15000);
+    const t = setInterval(carregar, 8000); // ~2s à frente do envio do app (10s) — pega a nova posição logo
     const onVis = () => {
       if (typeof document !== 'undefined' && !document.hidden) carregar();
     };
@@ -101,15 +139,17 @@ export default function RastreioPage() {
     const L = Lref.current;
     const map = mapObj.current;
     if (!pronto || !L || !map || !dados) return;
+    if (['entregue', 'concluido'].includes(dados.status)) return; // rastreio encerrado após a entrega
     const pts: [number, number][] = [];
 
     if (dados.destino) {
       const pos: [number, number] = [dados.destino.lat, dados.destino.lng];
       pts.push(pos);
+      // Destino do cliente: casinha num badge navy, sem texto.
       const html =
         `<div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;">` +
-        `<div style="background:${NAVY};color:#fff;font:600 12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);">📍 Você</div>` +
-        `<div style="width:2px;height:9px;background:${NAVY};"></div></div>`;
+        `<div title="Endereço de entrega" style="background:${NAVY};display:grid;place-items:center;width:30px;height:30px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);border:2px solid #fff;font-size:15px;line-height:1;">🏠</div>` +
+        `<div style="width:2px;height:8px;background:${NAVY};"></div></div>`;
       const icon = L.divIcon({ className: '', html, iconSize: [0, 0], iconAnchor: [0, 0] });
       if (destMk.current) destMk.current.setLatLng(pos).setIcon(icon);
       else destMk.current = L.marker(pos, { icon }).addTo(map);
@@ -119,13 +159,29 @@ export default function RastreioPage() {
     if (dp) {
       const pos: [number, number] = [dp.lat, dp.lng];
       pts.push(pos);
+      // Ícone do entregador: moto de delivery (🛵) num badge dourado.
       const html =
         `<div style="transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;">` +
-        `<div style="background:${OURO};color:${NAVY};font:600 12px/1 system-ui,sans-serif;padding:5px 9px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.3);">🛵 Entregador</div>` +
+        `<div title="Entregador" style="background:${OURO};display:grid;place-items:center;width:38px;height:38px;border-radius:999px;box-shadow:0 2px 6px rgba(0,0,0,.35);border:2px solid #fff;font-size:22px;line-height:1;">🛵</div>` +
         `<div style="width:2px;height:9px;background:${OURO};"></div></div>`;
       const icon = L.divIcon({ className: '', html, iconSize: [0, 0], iconAnchor: [0, 0] });
       if (driverMk.current) driverMk.current.setLatLng(pos).setIcon(icon);
       else driverMk.current = L.marker(pos, { icon }).addTo(map);
+    }
+
+    // Rota real (OSRM) — traçado pelas ruas do entregador até o destino. Atualiza quando o
+    // backend recalcula (entregador andou). Sem rota (OSRM fora / não despachado) → remove.
+    const geo = dados.rota?.geometry;
+    if (geo) {
+      const linha = decodePolyline6(geo);
+      if (linha.length) {
+        pts.push(...linha);
+        if (rotaLine.current) rotaLine.current.setLatLngs(linha);
+        else rotaLine.current = L.polyline(linha, { color: OURO, weight: 5, opacity: 0.85 }).addTo(map);
+      }
+    } else if (rotaLine.current) {
+      map.removeLayer(rotaLine.current);
+      rotaLine.current = null;
     }
 
     if (pts.length && !enquadrado.current) {
@@ -184,11 +240,6 @@ export default function RastreioPage() {
                 {entregue ? '✅ ' : '🛵 '}
                 {dados.statusLabel}
               </span>
-              {dados.parada && (
-                <span style={{ fontSize: 13, color: '#48586a', fontWeight: 600 }}>
-                  Parada {dados.parada.x} de {dados.parada.y}
-                </span>
-              )}
               {dados.etaMin != null && !entregue && (
                 <span style={{ fontSize: 13, color: '#48586a', fontWeight: 600 }}>· ~{dados.etaMin} min</span>
               )}
@@ -217,17 +268,25 @@ export default function RastreioPage() {
               </div>
             )}
 
-            <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
-              <div ref={mapEl} style={{ height: 360, width: '100%' }} />
-            </div>
-
-            <p style={{ fontSize: 13, color: '#48586a', marginTop: 12 }}>
-              {entregue
-                ? 'Seu pedido foi entregue. Bom apetite! 🍽️'
-                : dados.entregador?.pos
-                ? `${dados.entregador?.nome ? `${dados.entregador.nome} está` : 'O entregador está'} a caminho — a posição atualiza sozinha.`
-                : 'Assim que o entregador sair para o seu endereço, você o verá se movendo aqui.'}
-            </p>
+            {entregue ? (
+              // Após a entrega, o acompanhamento ao vivo encerra (o link "expira"): só o agradecimento.
+              <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, padding: 28, textAlign: 'center', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
+                <div style={{ fontSize: 40 }}>✅</div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: NAVY, margin: '8px 0 4px' }}>Pedido entregue</p>
+                <p style={{ fontSize: 13, color: '#48586a' }}>Bom apetite! 🍽️ O acompanhamento ao vivo foi encerrado.</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ background: '#fff', border: '1px solid #d9e0e8', borderRadius: 14, overflow: 'hidden', boxShadow: '0 8px 24px rgba(15,34,48,.06)' }}>
+                  <div ref={initMap} style={{ height: 360, width: '100%' }} />
+                </div>
+                <p style={{ fontSize: 13, color: '#48586a', marginTop: 12 }}>
+                  {dados.entregador?.pos
+                    ? `${dados.entregador?.nome ? `${dados.entregador.nome} está` : 'O entregador está'} a caminho — a posição atualiza sozinha.`
+                    : 'Assim que o entregador sair para o seu endereço, você o verá se movendo aqui.'}
+                </p>
+              </>
+            )}
           </>
         ) : null}
       </div>

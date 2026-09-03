@@ -1503,6 +1503,7 @@ export class VendasService {
     atorId: string,
     comandaId: string,
     alvoPreferido?: string | null,
+    qrData?: string | null,
   ) {
     const [c] = await this.db
       .select()
@@ -1537,6 +1538,7 @@ export class VendasService {
       },
       null,
       alvoPreferido,
+      qrData,
     );
     return { ok: (res?.enfileirados ?? 0) > 0, ...res };
   }

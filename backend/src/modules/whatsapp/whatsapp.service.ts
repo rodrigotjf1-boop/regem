@@ -4,6 +4,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, pedidoExterno } from '../../db/schema';
 import { gerarCardapioPdf } from './cardapio-pdf';
+import { fetchExterno } from '../../common/fetch-externo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Compara o segredo do bot em tempo CONSTANTE (evita timing attack). Falha se o
@@ -36,7 +37,7 @@ export class WhatsappService {
 
   private async req(path: string, init: RequestInit = {}) {
     const { url, key } = this.cfg();
-    const res = await fetch(`${url}${path}`, {
+    const res = await fetchExterno(`${url}${path}`, {
       ...init,
       headers: { apikey: key, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
     });

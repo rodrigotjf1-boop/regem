@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // SystemSound/HapticFeedback — alerta de pedido pronto
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../api.dart';
 import '../location.dart';
 import '../outbox.dart';
+import '../theme.dart';
+import '../widgets/regem_mark.dart';
 import 'login_screen.dart';
 import 'scanner_screen.dart';
 import 'pedido_screen.dart';
@@ -21,7 +24,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _saida; // { saida, paradas: [...] } — roteiro multi-parada
   Map<String, dynamic>? _ganhos;
   bool _compartilhaContato = false; // opt-in: mandar meu contato no aviso ao cliente
-  bool _pegandoSaida = false;
+  Map<String, dynamic>? _fila; // estado do botão da fila (máquina de estados — Frente 2)
+  bool _filaBusy = false; // ação da fila em andamento (evita duplo toque)
+  Timer? _filaTimer; // poll do estado da fila (posição/pronto)
+  bool _alertaProntoArmado = false; // já alertei p/ o pronto atual (não repete a cada poll)
   String? _erro;
   bool _carregando = true;
   bool _online = true; // indicador de conexão (offline-first)
@@ -33,6 +39,10 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _carregar();
     _sincronizarPendentes();
+    _carregarFila();
+    // Poll leve do estado da fila: posição na fila muda quando outros entram/saem, e o
+    // botão "Procurar" aparece quando eu viro o 1º. 8s equilibra responsividade × bateria.
+    _filaTimer = Timer.periodic(const Duration(seconds: 8), (_) => _carregarFila());
     _connSub = Connectivity().onConnectivityChanged.listen((r) {
       final on = r.any((x) => x != ConnectivityResult.none);
       if (mounted) setState(() => _online = on);
@@ -43,6 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _connSub?.cancel();
+    _filaTimer?.cancel();
     super.dispose();
   }
 
@@ -95,8 +106,11 @@ class _HomeScreenState extends State<HomeScreen> {
           _carregando = false;
         });
       }
-      // GPS só com entrega ativa (LGPD + bateria): pede permissão em contexto.
-      if (peds.isNotEmpty) {
+      // GPS só com entrega ativa (LGPD + bateria): pedidos avulsos em rota OU paradas pendentes
+      // numa saída (roteiro). Antes só olhava `peds` → no roteiro o GPS não ligava.
+      final temSaidaAtiva =
+          (saida?['paradas'] as List?)?.any((p) => (p as Map)['entregue'] != true) ?? false;
+      if (peds.isNotEmpty || temSaidaAtiva) {
         LocationSender.iniciar();
       } else {
         LocationSender.parar();
@@ -116,7 +130,10 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       MaterialPageRoute(builder: (_) => const ScannerScreen()),
     );
-    if (ok == true) _carregar();
+    if (ok == true) {
+      _carregar();
+      _carregarFila(); // scan em modo carrinho muda o botão p/ "Iniciar entrega(s)"
+    }
   }
 
   Future<void> _abrir(Map<String, dynamic> ped) async {
@@ -144,29 +161,191 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<dynamic> get _roteiro => (_saida?['paradas'] as List?) ?? [];
 
-  Future<void> _pegarSaida() async {
-    setState(() => _pegandoSaida = true);
+  // ===== Fila (Frente 2) — máquina de estados do botão =====
+  Future<void> _carregarFila() async {
     try {
-      final s = await Api.proximaSaida();
-      if (!mounted) return;
-      final paradas = (s['paradas'] as List?) ?? [];
-      if (paradas.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Nenhum pedido pronto para roteirizar agora.')),
-        );
+      final f = await Api.estadoFila();
+      if (mounted) setState(() => _fila = f);
+      // Frente 2d — alerta ao 1º da fila quando surge pedido pronto p/ puxar. Só quando a
+      // condição VIRA verdadeira (não repete a cada poll); rearma quando ela sai (novo pronto
+      // volta a alertar). Cobre o caso "entregador distraído" com o app aberto; o push em 2º
+      // plano (tela apagada) depende de FCM/Firebase — follow-up documentado.
+      final prontos = (f['prontosDisponiveis'] as num?)?.toInt() ?? 0;
+      final deveAlertar = f['botao'] == 'procurar' && prontos > 0;
+      if (deveAlertar && !_alertaProntoArmado) {
+        _alertaProntoArmado = true;
+        _alertarPedidoPronto(prontos);
+      } else if (!deveAlertar) {
+        _alertaProntoArmado = false;
       }
+    } catch (_) {/* best-effort — não trava a home */}
+  }
+
+  // Alerta sonoro + tátil + banner: "tem pedido pronto, você é o próximo".
+  void _alertarPedidoPronto(int n) {
+    SystemSound.play(SystemSoundType.alert);
+    Future.delayed(const Duration(milliseconds: 600), () => SystemSound.play(SystemSoundType.alert));
+    HapticFeedback.heavyImpact();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(n > 1
+          ? '🛵 $n pedidos prontos! Você é o 1º — puxe os pedidos.'
+          : '🛵 Pedido pronto! Você é o 1º — puxe o pedido.'),
+      backgroundColor: kVerde,
+      duration: const Duration(seconds: 6),
+    ));
+  }
+
+  void _snack(String msg, {bool erro = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: erro ? Colors.red : null),
+    );
+  }
+
+  Future<void> _entrarFila() async {
+    setState(() => _filaBusy = true);
+    try {
+      final p = await LocationSender.posicaoAtual();
+      if (p == null) {
+        throw Exception('Não consegui a sua localização. Ative o GPS e tente de novo.');
+      }
+      final f = await Api.filaEntrar(p.latitude, p.longitude);
+      if (mounted) setState(() => _fila = f);
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''), erro: true);
+    } finally {
+      if (mounted) setState(() => _filaBusy = false);
+    }
+  }
+
+  Future<void> _sairFila() async {
+    setState(() => _filaBusy = true);
+    try {
+      await Api.filaSair();
+      await _carregarFila();
       await _carregar();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: Colors.red,
+      _snack(e.toString().replaceFirst('Exception: ', ''), erro: true);
+    } finally {
+      if (mounted) setState(() => _filaBusy = false);
+    }
+  }
+
+  Future<void> _procurar() async {
+    setState(() => _filaBusy = true);
+    try {
+      final f = await Api.procurarPedidos();
+      if (mounted) setState(() => _fila = f);
+      final n = (f['reservados'] as num?)?.toInt() ?? 0;
+      _snack(n > 0
+          ? '$n pedido(s) no carrinho. Escaneie mais ou inicie a entrega.'
+          : 'Nenhum pedido pronto agora. Você pode escanear um cupom ou aguardar.');
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''), erro: true);
+    } finally {
+      if (mounted) setState(() => _filaBusy = false);
+    }
+  }
+
+  Future<void> _iniciar() async {
+    setState(() => _filaBusy = true);
+    try {
+      await Api.iniciarEntregas();
+      await _carregar(); // agora tenho saída → o roteiro aparece
+      await _carregarFila(); // botão → em_entrega
+    } catch (e) {
+      _snack(e.toString().replaceFirst('Exception: ', ''), erro: true);
+    } finally {
+      if (mounted) setState(() => _filaBusy = false);
+    }
+  }
+
+  // O botão principal muda conforme o meu estado na fila.
+  Widget _botaoFila() {
+    final botao = _fila?['botao'] as String? ?? 'entrar_fila';
+    final pos = (_fila?['posicao'] as num?)?.toInt();
+    final reservados = (_fila?['reservados'] as num?)?.toInt() ?? 0;
+    final busy = _filaBusy;
+    Widget primary(String label, IconData icon, VoidCallback? onTap) => SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: busy ? null : onTap,
+            icon: busy
+                ? const SizedBox(
+                    width: 18, height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : Icon(icon),
+            label: Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
           ),
         );
-      }
-    } finally {
-      if (mounted) setState(() => _pegandoSaida = false);
+    final sair = TextButton.icon(
+      onPressed: busy ? null : _sairFila,
+      icon: const Icon(Icons.logout, size: 18),
+      label: const Text('Sair da fila'),
+    );
+    switch (botao) {
+      case 'na_fila':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Card(
+              color: kNavy.withValues(alpha: 0.06),
+              child: ListTile(
+                leading: const Icon(Icons.groups_rounded, color: kNavy),
+                title: Text('${pos ?? '-'}º da fila',
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                subtitle: const Text('Aguarde a sua vez para puxar pedidos.'),
+              ),
+            ),
+            sair,
+          ],
+        );
+      case 'procurar':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Card(
+              color: kOuro.withValues(alpha: 0.12),
+              child: const ListTile(
+                leading: Icon(Icons.emoji_events_rounded, color: kOuro),
+                title: Text('Você é o 1º da fila', style: TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text('Puxe os pedidos prontos ou escaneie os cupons.'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            primary('Procurar pedido', Icons.search_rounded, _procurar),
+            sair,
+          ],
+        );
+      case 'iniciar':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Card(
+              color: kVerde.withValues(alpha: 0.10),
+              child: ListTile(
+                leading: const Icon(Icons.shopping_bag_rounded, color: kVerde),
+                title: Text('$reservados no carrinho',
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: const Text('Escaneie ou puxe mais, e inicie quando quiser.'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            primary('Iniciar entrega(s) ($reservados)', Icons.play_arrow_rounded, _iniciar),
+            const SizedBox(height: 6),
+            OutlinedButton.icon(
+              onPressed: busy ? null : _procurar,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('Puxar mais prontos'),
+            ),
+            sair,
+          ],
+        );
+      case 'em_entrega':
+        return const SizedBox.shrink(); // o roteiro da saída é mostrado abaixo
+      default: // entrar_fila
+        return primary('Entrar na fila', Icons.login_rounded, _entrarFila);
     }
   }
 
@@ -212,16 +391,35 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Meus pedidos'),
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            const RegemMark(size: 34, fundo: kNavy),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Text('Regem',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kNavy, height: 1)),
+                Text('ENTREGADOR',
+                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: kOuro, letterSpacing: 2)),
+              ],
+            ),
+          ],
+        ),
         actions: [
-          IconButton(onPressed: _sair, icon: const Icon(Icons.logout)),
+          IconButton(onPressed: _sair, icon: const Icon(Icons.logout_rounded), tooltip: 'Sair'),
+          const SizedBox(width: 4),
         ],
       ),
       body: RefreshIndicator(onRefresh: _carregar, child: _corpo()),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _escanear,
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text('Escanear'),
+        backgroundColor: kNavy,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.qr_code_scanner_rounded),
+        label: const Text('Escanear', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
@@ -292,10 +490,17 @@ class _HomeScreenState extends State<HomeScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Meus ganhos',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                      Text(
+                        _ganhos!['estimado'] == true ? 'Meus ganhos estimados' : 'Meus ganhos',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
                       Text('${_ganhos!['entregas'] ?? 0} entrega(s)',
                           style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      if ((_ganhos!['pendentesConferencia'] ?? 0) > 0)
+                        Text(
+                          '${_ganhos!['pendentesConferencia']} aguardando conferência',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF7A5011)),
+                        ),
                     ],
                   ),
                   Text(
@@ -334,19 +539,14 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 8),
           ..._roteiro.asMap().entries.map((e) => _paradaCard(e.value, e.key)),
         ] else ...[
-          if (_perfil?['ehEntregador'] == true)
-            FilledButton.icon(
-              onPressed: _pegandoSaida ? null : _pegarSaida,
-              icon: const Icon(Icons.route),
-              label: Text(_pegandoSaida ? 'Montando roteiro…' : 'Pegar próxima saída'),
-            ),
+          if (_perfil?['ehEntregador'] == true) _botaoFila(),
           const SizedBox(height: 12),
           if (_pedidos.isEmpty)
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
+              padding: EdgeInsets.symmetric(vertical: 24),
               child: Center(
                 child: Text(
-                  'Nenhum pedido em rota.\nPegue uma saída ou escaneie o cupom.',
+                  'Nenhum pedido em rota.\nEntre na fila e puxe ou escaneie os cupons.',
                   textAlign: TextAlign.center,
                 ),
               ),

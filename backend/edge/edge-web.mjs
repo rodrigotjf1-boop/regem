@@ -44,6 +44,15 @@ if (!cert || !key) {
   process.exit(1);
 }
 
+// Rede de seguranca do PROCESSO (E1): sem estes handlers uma excecao nao tratada derruba o
+// servico em silencio. unhandledRejection: loga e segue. uncaughtException: loga e SAI (1) p/
+// o NSSM reiniciar (AppThrottle evita crash-loop).
+process.on('unhandledRejection', (e) => console.error(`[edge-web][unhandledRejection] ${e?.stack ?? e?.message ?? e}`));
+process.on('uncaughtException', (e) => {
+  console.error(`[edge-web][uncaughtException] ${e?.stack ?? e?.message ?? e}`);
+  process.exit(1);
+});
+
 // 1) sobe o Next standalone em HTTP, so no localhost (nunca exposto direto).
 const next = spawn(process.execPath, [serverJs], {
   cwd: webRoot,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../api.dart';
+import '../theme.dart';
+import '../widgets/regem_mark.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -56,18 +58,21 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('🛵', style: TextStyle(fontSize: 52)),
+                const RegemMark(size: 78, fundo: kNavy),
+                const SizedBox(height: 18),
+                const Text('Regem',
+                    style: TextStyle(
+                        fontSize: 30, fontWeight: FontWeight.w800, color: kNavy, letterSpacing: -0.5, height: 1)),
+                const Text('ENTREGADOR',
+                    style: TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.w700, color: kOuro, letterSpacing: 3.5)),
                 const SizedBox(height: 8),
-                Text('Regem Entregador',
-                    style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 4),
-                Text('Entre com seu usuário da loja',
-                    style: Theme.of(context).textTheme.bodyMedium),
+                const Text('Entre com seu usuário da loja',
+                    style: TextStyle(color: kTinta2, fontSize: 13.5)),
                 const SizedBox(height: 28),
                 TextField(
                   controller: _id,
-                  decoration: const InputDecoration(
-                      labelText: 'Usuário', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Usuário'),
                   textInputAction: TextInputAction.next,
                   autocorrect: false,
                 ),
@@ -75,8 +80,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _senha,
                   obscureText: true,
-                  decoration: const InputDecoration(
-                      labelText: 'Senha', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Senha'),
                   onSubmitted: (_) => _entrar(),
                 ),
                 const SizedBox(height: 16),

@@ -1,10 +1,10 @@
 name: regem_entregador
 description: App do Entregador — Regem (Trilha B).
 publish_to: 'none'
-version: 0.1.0+7
+version: 0.1.0+15
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: '>=3.4.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -19,11 +19,18 @@ dependencies:
   permission_handler: ^11.3.1
   # E2 (GPS): localização durante a entrega ativa.
   geolocator: ^13.0.0
+  # AndroidSettings/AppleSettings/ForegroundNotificationConfig (localização em 2º plano).
+  geolocator_android: 4.6.2
+  geolocator_apple: 2.3.14
   # E3 (rotas): abrir o endereço no Waze/Google Maps.
   url_launcher: ^6.3.0
   # Offline-first: verificação do código por HASH (sem expor) + detecção de conexão.
   crypto: ^3.0.3
   connectivity_plus: ^6.1.0
+  # E3 (rota in-app): mapa OSM (equivalente ao Leaflet) + polyline da NOSSA rota (OSRM),
+  # em vez de abrir o Google Maps. O botão "Navegar" ainda abre o app externo p/ a voz.
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_lints: ^4.0.0
