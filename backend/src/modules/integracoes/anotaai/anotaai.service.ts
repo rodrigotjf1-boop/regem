@@ -5,6 +5,7 @@ import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao, pedidoExterno, atendimentoChamado } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { agendamentoAnotaAi } from '../../delivery/adapters';
+import { fetchExterno } from '../../../common/fetch-externo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API de Pedidos da Anota Aí (api-parceiros.anota.ai). Auth = token da
@@ -75,7 +76,7 @@ export class AnotaAiService {
   }
 
   private async req(ig: IntegAnota, path: string, init: RequestInit = {}): Promise<Response> {
-    return fetch(`${BASE}${path}`, {
+    return fetchExterno(`${BASE}${path}`, {
       ...init,
       headers: { Authorization: ig.token, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
     });
@@ -348,7 +349,7 @@ export class AnotaAiService {
         sql`select email from usuario_distribuicao where perfil in ('diretoria','tecnico') and ativo = true`,
       );
       const destinatarios = (dst?.rows ?? dst).map((x: any) => x.email).filter(Boolean);
-      await fetch(hook, {
+      await fetchExterno(hook, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -388,7 +389,7 @@ export class AnotaAiService {
   ): Promise<{ categorias: number; produtos: number; atualizados: number; complementos: number }> {
     const ig = await this.integracaoDoTenant(tenantId);
     if (!ig) throw new BadRequestException('Conecte a Anota Aí primeiro (salve o token da loja).');
-    const res = await fetch(`${MENU_BASE}/v2/nm-category/rest/simple-item/export/v2`, {
+    const res = await fetchExterno(`${MENU_BASE}/v2/nm-category/rest/simple-item/export/v2`, {
       headers: { Authorization: ig.token, 'Content-Type': 'application/json' },
     }).catch(() => null);
     if (!res || !res.ok) throw new BadRequestException(`Falha ao buscar o cardápio da Anota Aí (${res?.status ?? 'sem resposta'}).`);
