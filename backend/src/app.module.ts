@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { RequestIdMiddleware } from './common/request-id.middleware';
 import { CloudOnlyGuard } from './common/cloud-only.guard';
 import { LicenseInterceptor } from './modules/licenca/license.interceptor';
 import { ConfigModule } from '@nestjs/config';
@@ -194,4 +195,10 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     { provide: APP_INTERCEPTOR, useClass: TerminalSegredoInterceptor },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // Request/Correlation ID em toda rota (aceita X-Request-ID ou gera) — o mais cedo possível
+  // no pipeline, para logs e envelope de erro correlacionarem.
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestIdMiddleware).forRoutes('*');
+  }
+}
