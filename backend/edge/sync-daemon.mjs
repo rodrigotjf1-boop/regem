@@ -27,6 +27,16 @@ dns.setDefaultResultOrder('ipv4first');
 
 const pExecFile = promisify(execFile);
 
+// LOG com carimbo de data/hora ISO em TODA linha. Sem isto, o arquivo rolante mistura
+// linhas de tentativas ANTIGAS (restore/pull de instalações anteriores) com as novas e
+// ninguém sabe se um "restore concluído" foi antes ou depois de uma atualização — a
+// leitura no PowerShell vira adivinhação (nos custou tempo em 01/09). Prefixa [ISO] uma
+// vez; as chamadas param de repetir o carimbo à mão (evita duplicar).
+for (const _m of ['log', 'warn', 'error']) {
+  const _orig = console[_m].bind(console);
+  console[_m] = (...a) => _orig(`[${new Date().toISOString()}]`, ...a);
+}
+
 // Rodando como servico do Windows nao ha shell que exporte as envs. A API usa
 // @nestjs/config + secure-env; este daemon faz o equivalente E DECIFRA os enc:
 // DPAPI — senao a EDGE_DATABASE_URL fica cifrada e o pg conecta como a conta da
@@ -176,6 +186,24 @@ const PUSH_TABLES = [
   { tabela: 'ponto_marcacao', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', cursor: 'created_at' },
   { tabela: 'audit_log', cursor: 'created_at' },
+];
+
+// Tabelas do SNAPSHOT (espelha TABELAS_RESTORE do backend) + a coluna de cursor de cada.
+// Ao FIM do restore posicionamos o pull_cursores destas com a marca-d'água REAL do banco
+// local — assim o ciclo seguinte NÃO re-baixa os 60 dias que o snapshot já trouxe (o
+// -Limpar zera o cursor p/ 1970 → crawl de dezenas de ciclos até "hoje"). SÓ estas 9: o
+// catálogo/controle fica de FORA (não vem no snapshot) e segue baixando pelo PISO global
+// (pull_cursor=1970), por isso NUNCA mexemos no pull_cursor global aqui.
+const SNAPSHOT_TABELAS = [
+  ['cliente', 'atualizado_em'],
+  ['caixa_sessao', 'updated_at'],
+  ['comanda', 'updated_at'],
+  ['comanda_item', 'updated_at'],
+  ['producao_pedido', 'updated_at'],
+  ['producao_pedido_item', 'updated_at'],
+  ['pedido_externo', 'updated_at'],
+  ['lancamento_caixa', 'created_at'],
+  ['movimento_estoque', 'created_at'],
 ];
 
 // TIMEOUTS: sem isto, uma conexão/consulta ao Postgres local congestionado ou com
@@ -671,8 +699,19 @@ async function restaurarSnapshot() {
     const gunzip = zlib.createGunzip();
     Readable.fromWeb(res.body).pipe(gunzip);
     const client = await pool.connect();
-    let total = 0, fimOk = false, tabelaAtual = null;
+    let total = 0, fimOk = false, tabelaAtual = null, fresco = false;
     try {
+      // Base VAZIA antes da carga = instalação -Limpar (banco recriado). Só aí é seguro
+      // posicionar TAMBÉM o cursor de PUSH ao fim (não há linha só-local a preservar); num
+      // restore pelo botão sobre base com dado, o push best-effort ao fim ainda precisa
+      // subir o operacional local pendente. ANTES do `begin`: um erro aqui (tabela ausente)
+      // não pode envenenar a transação de carga.
+      try {
+        const _c = await client.query(
+          'select not exists(select 1 from comanda) and not exists(select 1 from pedido_externo) as vazio',
+        );
+        fresco = _c.rows?.[0]?.vazio === true;
+      } catch { fresco = false; }
       await client.query('begin');
       // FK/triggers OFF durante a carga (o postgres local é superuser). O arquivo entra em
       // qualquer ordem — acaba o "sem pai (FK)" e a dependência de ordem pai→filho.
@@ -712,6 +751,37 @@ async function restaurarSnapshot() {
       await setState('restaurado_em', new Date().toISOString());
       await setState('restore_progresso', String(total));
       console.log(`Restore (snapshot) CONCLUÍDO — ${total} linha(s) aplicadas.`);
+      // SEED dos cursores (fecha a Solução A): o snapshot já trouxe TODO o transacional.
+      // Sem posicionar, o -Limpar deixa o cursor em 1970 e o próximo ciclo RE-BAIXA/RE-ENVIA
+      // os 60 dias que o snapshot carregou (crawl lento + backlog de push de 20s/ciclo) antes
+      // de chegar no pedido de HOJE. Marca-d'água REAL do banco local, no formato keyset da
+      // nuvem ("<cursor::text>|<id>"). Roda APÓS o commit (sem transação → um erro numa tabela
+      // não envenena nada) e usa o `client` só p/ ler. Falha aqui = segue no crawl normal.
+      try {
+        let _cur = {};
+        try { _cur = JSON.parse(await getState('pull_cursores', '{}')) || {}; } catch { _cur = {}; }
+        let _n = 0;
+        for (const [tb, col] of SNAPSHOT_TABELAS) {
+          let hw;
+          try {
+            hw = await client.query(
+              `select ${q(col)}::text as kc, id::text as id from ${q(tb)}
+               where ${q(col)} is not null order by ${q(col)} desc, id desc limit 1`,
+            );
+          } catch { continue; } // tabela/coluna ausente → deixa baixar pelo piso (seguro)
+          if (!hw.rows?.length) continue;
+          _cur[tb] = `${hw.rows[0].kc}|${hw.rows[0].id}`;
+          _n++;
+          if (fresco) {
+            const _iso = new Date(hw.rows[0].kc);
+            if (!isNaN(_iso.getTime())) await setState(`push_${tb}`, _iso.toISOString());
+          }
+        }
+        await setState('pull_cursores', JSON.stringify(_cur));
+        console.log(`Restore: cursores posicionados (${_n} tabela(s), ${fresco ? 'pull+push' : 'só pull'}) — próximo ciclo baixa só o novo.`);
+      } catch (e) {
+        console.warn(`Restore: não posicionou cursores (segue no crawl normal): ${e.message}`);
+      }
     } catch (e) {
       try { await client.query('rollback'); } catch { /* ignore */ }
       throw e;
@@ -847,7 +917,7 @@ async function verificarComandos() {
 let cicloRodando = false;
 async function ciclo() {
   if (cicloRodando) {
-    console.warn(`[${new Date().toISOString()}] ciclo anterior ainda em execução — pulando este tick`);
+    console.warn(`ciclo anterior ainda em execução — pulando este tick`);
     return;
   }
   cicloRodando = true;
@@ -864,10 +934,10 @@ async function ciclo() {
     try {
       p = await pull();
       u = await push();
-      console.log(`[${new Date().toISOString()}] sync ok — pull ${p} linha(s), push ${u} linha(s)`);
+      console.log(`sync ok — pull ${p} linha(s), push ${u} linha(s)`);
     } catch (e) {
       erro = e.message;
-      console.error(`[${new Date().toISOString()}] sync FALHOU: ${causaErro(e)}`);
+      console.error(`sync FALHOU: ${causaErro(e)}`);
       await reportarTelemetria('sync', 'sync_erro', causaErro(e));
     }
     // Restauração sob demanda (botão do app grava a flag em sync_state).
@@ -899,7 +969,7 @@ async function ciclo() {
     // pull/push; um throw de licenca/verificarComandos/updateCheck/heartbeat (aqui fora)
     // subia até o `await ciclo()` do boot e CRASHAVA o processo → NSSM reiniciava em loop
     // e nunca chegava a "sync ok". Agora loga + telemetria e segue no próximo tick.
-    console.error(`[${new Date().toISOString()}] ciclo ERRO (blindado): ${causaErro(e)}`);
+    console.error(`ciclo ERRO (blindado): ${causaErro(e)}`);
     try { await reportarTelemetria('sync', 'ciclo_erro', causaErro(e)); } catch { /* best-effort */ }
   } finally {
     cicloRodando = false; // libera SEMPRE — mesmo com erro, o próximo tick pode rodar
