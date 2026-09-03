@@ -184,6 +184,173 @@ export class EntregadorService {
     return { ok: true, valid: true };
   }
 
+  // ===== FILA DE ENTREGADORES (Frente 2) — por unidade =====
+  // Raio (m) da loja p/ "entrar na fila". 150m: o GPS erra ~10-25m; 10m (pedido do gestor) era
+  // inviável — o entregador na porta lê 15-20m e nunca entraria. Objetivo (estar na loja, não a
+  // km) preservado. Ajustável aqui.
+  private static readonly FILA_RAIO_M = 150;
+
+  private async unidadeDoEntregador(colaboradorId: string): Promise<string | null> {
+    const r: any = await this.db.execute(
+      sql`select unidade_id from colaborador where id = ${colaboradorId}`,
+    );
+    return (r.rows ?? r)[0]?.unidade_id ?? null;
+  }
+
+  private async coordsDaLoja(
+    tenantId: string,
+    unidadeId: string | null,
+  ): Promise<{ lat: number; lng: number } | null> {
+    const r: any = await this.db.execute(sql`
+      select end_lat, end_lng from cardapio_config
+      where tenant_id = ${tenantId}
+        ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+      order by (unidade_id is null) asc limit 1`);
+    const l = (r.rows ?? r)[0];
+    const lat = Number(l?.end_lat), lng = Number(l?.end_lng);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  }
+
+  async entrarFila(user: AuthUser, lat: number, lng: number) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const unidadeId = await this.unidadeDoEntregador(user.colaboradorId);
+    const loja = await this.coordsDaLoja(user.tenantId, unidadeId);
+    const la = Number(lat), ln = Number(lng);
+    // Geofence: precisa estar na loja. Sem coords da loja → não bloqueia (fail-open).
+    if (loja && Number.isFinite(la) && Number.isFinite(ln)) {
+      const dist = this.distanciaM(la, ln, loja.lat, loja.lng);
+      if (dist > EntregadorService.FILA_RAIO_M)
+        throw new BadRequestException(
+          `Você precisa estar na loja para entrar na fila (você está a ~${Math.round(dist)}m).`,
+        );
+    }
+    await this.db.execute(sql`
+      insert into entregador_fila (colaborador_id, tenant_id, unidade_id, status, entrou_em, atualizado_em)
+      values (${user.colaboradorId}, ${user.tenantId}, ${unidadeId}, 'aguardando', now(), now())
+      on conflict (colaborador_id) do update set
+        status = 'aguardando', unidade_id = excluded.unidade_id,
+        entrou_em = case when entregador_fila.status = 'aguardando' then entregador_fila.entrou_em else now() end,
+        atualizado_em = now()`);
+    return this.estadoFila(user);
+  }
+
+  async sairFila(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    await this.db.execute(sql`delete from entregador_fila where colaborador_id = ${user.colaboradorId}`);
+    return { ok: true };
+  }
+
+  // Estado do BOTÃO do app (máquina de estados): entrar_fila | na_fila | procurar | iniciar | em_entrega.
+  async estadoFila(user: AuthUser) {
+    if (!this.ehEntregador(user)) return { botao: 'entrar_fila', naFila: false } as any;
+    const unidadeId = await this.unidadeDoEntregador(user.colaboradorId);
+    const max = Math.max(1, Number((await this.configPagamento(user.tenantId)).maxPedidosEntregador) || 1);
+    const ativa = await this.saidaAtiva(user.tenantId, user.colaboradorId);
+    const temSaida = !!ativa.saida;
+    const rr: any = await this.db.execute(sql`
+      select count(*)::int n from pedido_externo
+      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+        and status = 'pronto' and reservado_em is not null`);
+    const reservados = Number((rr.rows ?? rr)[0]?.n ?? 0);
+    const fr: any = await this.db.execute(
+      sql`select status, entrou_em from entregador_fila where colaborador_id = ${user.colaboradorId}`,
+    );
+    const minha = (fr.rows ?? fr)[0];
+    let posicao: number | null = null;
+    if (minha && minha.status === 'aguardando') {
+      const pr: any = await this.db.execute(sql`
+        select count(*)::int + 1 as pos from entregador_fila
+        where tenant_id = ${user.tenantId}
+          and ${unidadeId ? sql`(unidade_id = ${unidadeId} or unidade_id is null)` : sql`unidade_id is null`}
+          and status = 'aguardando' and entrou_em < ${minha.entrou_em}`);
+      posicao = Number((pr.rows ?? pr)[0]?.pos ?? 1);
+    }
+    let botao: string;
+    if (temSaida) botao = 'em_entrega';
+    else if (reservados > 0) botao = 'iniciar';
+    else if (minha && minha.status === 'aguardando') botao = posicao === 1 ? 'procurar' : 'na_fila';
+    else botao = 'entrar_fila';
+    return { botao, naFila: !!minha, status: minha?.status ?? null, posicao, reservados, maxPedidos: max, temSaida };
+  }
+
+  // "Procurar pedido": só o 1º da fila. Reserva até (max - reservados) pedidos PRONTOS livres
+  // (entregador_id + reservado_em, status ainda 'pronto') — batch. Reserva atômica (skip locked).
+  async procurarPedidos(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    const est: any = await this.estadoFila(user);
+    if (est.botao !== 'procurar' && est.botao !== 'iniciar')
+      throw new BadRequestException('Aguarde a sua vez na fila.');
+    const faltam = Math.max(0, est.maxPedidos - est.reservados);
+    if (faltam > 0) {
+      const unidadeId = await this.unidadeDoEntregador(user.colaboradorId);
+      await this.db.execute(sql`
+        update pedido_externo
+        set entregador_id = ${user.colaboradorId}, entregador_nome = ${user.nome ?? 'Entregador'}, reservado_em = now()
+        where id in (
+          select id from pedido_externo
+          where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
+            and entregador_id is null and reservado_em is null and saida_id is null
+            ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+          order by criado_em asc limit ${faltam}
+          for update skip locked)`);
+    }
+    return this.estadoFila(user);
+  }
+
+  // "Iniciar entrega(s)": despacha o batch reservado + forma a saída (roteiriza) + AVISA o 1º
+  // cliente + link, e tira o entregador da fila (em_entrega). É AQUI que o cliente é avisado.
+  async iniciarEntregas(user: AuthUser) {
+    if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
+    // Raw SQL (snake_case) — o roteirizar/coordDoPedido leem snake_case.
+    const rr: any = await this.db.execute(sql`
+      select * from pedido_externo
+      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+        and status = 'pronto' and reservado_em is not null
+      order by criado_em asc`);
+    const reservados = rr.rows ?? rr;
+    if (!reservados.length)
+      throw new BadRequestException('Nenhum pedido reservado. Puxe ou escaneie um pedido primeiro.');
+    const ordenados = await this.roteirizar(user.tenantId, reservados);
+    const ins: any = await this.db.execute(sql`
+      insert into entregador_saida (tenant_id, colaborador_id, status, total_paradas)
+      values (${user.tenantId}, ${user.colaboradorId}, 'em_rota', ${ordenados.length}) returning id`);
+    const saidaId = (ins.rows ?? ins)[0].id;
+    for (let i = 0; i < ordenados.length; i++) {
+      const p = ordenados[i];
+      try {
+        await this.delivery.avancar(user.tenantId, p.id, {
+          entregadorId: user.colaboradorId,
+          entregadorNome: user.nome ?? 'Entregador',
+          skipRastreio: true,
+        });
+      } catch { /* já despachado/estado inesperado — segue */ }
+      await this.db.execute(
+        sql`update pedido_externo set saida_id = ${saidaId}, ordem_parada = ${i + 1}, reservado_em = null where id = ${p.id}`,
+      );
+    }
+    await this.enviarLinkRastreio(user.tenantId, ordenados[0].id).catch(() => {});
+    await this.db.execute(
+      sql`update entregador_fila set status = 'em_entrega', atualizado_em = now() where colaborador_id = ${user.colaboradorId}`,
+    );
+    return this.saidaAtiva(user.tenantId, user.colaboradorId);
+  }
+
+  // Atendente: a fila da unidade (nome + INICIAIS + status) p/ o painel de delivery.
+  async listarFila(tenantId: string, unidadeId: string | null = null) {
+    const r: any = await this.db.execute(sql`
+      select f.colaborador_id, c.nome, f.status, f.entrou_em
+      from entregador_fila f join colaborador c on c.id = f.colaborador_id
+      where f.tenant_id = ${tenantId}
+        ${unidadeId ? sql`and (f.unidade_id = ${unidadeId} or f.unidade_id is null)` : sql``}
+      order by (f.status = 'aguardando') desc, f.entrou_em asc`);
+    return (r.rows ?? r).map((x: any) => {
+      const partes = String(x.nome ?? '').trim().split(/\s+/).filter(Boolean);
+      const iniciais =
+        ((partes[0]?.[0] ?? '') + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase() || '?';
+      return { colaboradorId: x.colaborador_id, nome: x.nome, iniciais, status: x.status };
+    });
+  }
+
   // ===== E2 — GPS =====
   // O app manda a localização durante a entrega ativa. Só entregador; por tenant.
   async enviarLocalizacao(user: AuthUser, lat: number, lng: number, precisao?: number) {

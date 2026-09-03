@@ -2085,6 +2085,7 @@ export const pedidoExterno = pgTable('pedido_externo', {
   codigoEntrega: text('codigo_entrega'), // código de 4 díg. do cliente p/ confirmar entrega própria (mig 209, cloud-only)
   saidaId: uuid('saida_id'), // saída/roteiro multi-parada (mig 210, cloud-only)
   ordemParada: integer('ordem_parada'), // ordem da parada na saída (1..N)
+  reservadoEm: timestamp('reservado_em', { withTimezone: true }), // batch do entregador antes de "Iniciar" (mig 223)
   rastreioToken: text('rastreio_token'), // token público do link de rastreio do cliente (mig 210, cloud-only)
   avisadoProntoEm: timestamp('avisado_pronto_em', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
@@ -2248,6 +2249,17 @@ export const entregadorPosicao = pgTable('entregador_posicao', {
   lat: numeric('lat').notNull(),
   lng: numeric('lng').notNull(),
   precisao: numeric('precisao'),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Fila de entregadores por unidade (mig 223, Frente 2). Só o 1º 'aguardando' puxa pedido; ao
+// iniciar as entregas vira 'em_entrega'; ao concluir todas, re-entra na fila.
+export const entregadorFila = pgTable('entregador_fila', {
+  colaboradorId: uuid('colaborador_id').primaryKey(),
+  tenantId: uuid('tenant_id').notNull(),
+  unidadeId: uuid('unidade_id'),
+  status: text('status').notNull().default('aguardando'), // aguardando | em_entrega
+  entrouEm: timestamp('entrou_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
