@@ -63,6 +63,7 @@ import {
 import { precoComAtacado } from '../../common/preco-atacado';
 import { criarPixMP, consultarPagamentoMP, cancelarPagamentoMP, reembolsarPagamentoMP, assinaturaWebhookMPOk } from '../../common/mercadopago';
 import { criarPixPagBank, consultarPagamentoPagBank, reembolsarPagamentoPagBank } from '../../common/pagbank';
+import { GatewayError } from '../../common/gateway-erro';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import { VendasService } from '../vendas/vendas.service';
@@ -1578,41 +1579,59 @@ export class CardapioService {
     // Expira em 10 min (alinha com o cron que cancela o não pago).
     const expiraEm = new Date(Date.now() + 10 * 60 * 1000);
     const erros: string[] = [];
+    const criarESalvar = async (gw: (typeof gws)[number]) => {
+      const rota = gw.provider === 'pagseguro' ? 'pagbank' : 'mercadopago';
+      const notificationUrl = base ? `${base}/api/v1/publico/cardapio/pagamento/${rota}/webhook` : undefined;
+      const args = {
+        valor: aCobrar, // sinal (encomenda) ou total
+        descricao: ehSinal ? `Sinal · ${descricao}` : descricao,
+        nome: p.clienteNome ?? undefined,
+        email,
+        referenciaExterna: p.id,
+        notificationUrl,
+        idempotencia: ehSinal ? `sinal-${p.id}` : `pedido-${p.id}`,
+        expiraEm,
+      };
+      const pix =
+        gw.provider === 'pagseguro'
+          ? await criarPixPagBank(gw.token, args)
+          : await criarPixMP(gw.token, args);
+      await this.db
+        .update(pedidoExterno)
+        .set({ gatewayPaymentId: pix.id, gatewayProvider: gw.provider, statusPagamento: 'aguardando' })
+        .where(eq(pedidoExterno.id, pedidoId));
+      return {
+        ok: true as const,
+        statusPagamento: 'aguardando',
+        gateway: gw.provider,
+        sinal: ehSinal ? { valor: aCobrar } : undefined,
+        pix: { qrCode: pix.qrCode, qrCodeBase64: pix.qrCodeBase64, ticketUrl: pix.ticketUrl },
+      };
+    };
     for (const gw of gws) {
       try {
-        const rota = gw.provider === 'pagseguro' ? 'pagbank' : 'mercadopago';
-        const notificationUrl = base ? `${base}/api/v1/publico/cardapio/pagamento/${rota}/webhook` : undefined;
-        const args = {
-          valor: aCobrar, // sinal (encomenda) ou total
-          descricao: ehSinal ? `Sinal · ${descricao}` : descricao,
-          nome: p.clienteNome ?? undefined,
-          email,
-          referenciaExterna: p.id,
-          notificationUrl,
-          idempotencia: ehSinal ? `sinal-${p.id}` : `pedido-${p.id}`,
-          expiraEm,
-        };
-        const pix =
-          gw.provider === 'pagseguro'
-            ? await criarPixPagBank(gw.token, args)
-            : await criarPixMP(gw.token, args);
-        await this.db
-          .update(pedidoExterno)
-          .set({ gatewayPaymentId: pix.id, gatewayProvider: gw.provider, statusPagamento: 'aguardando' })
-          .where(eq(pedidoExterno.id, pedidoId));
-        return {
-          ok: true,
-          statusPagamento: 'aguardando',
-          gateway: gw.provider,
-          sinal: ehSinal ? { valor: aCobrar } : undefined,
-          pix: { qrCode: pix.qrCode, qrCodeBase64: pix.qrCodeBase64, ticketUrl: pix.ticketUrl },
-        };
+        return await criarESalvar(gw);
       } catch (e) {
         const motivo = e instanceof Error ? e.message : 'erro no gateway';
         // logger.error → TelemetriaLogger leva a falha de cobrança para a distribuição.
         this.logger.error(`PIX ${gw.provider} falhou (pedido ${p.id}, tenant ${cfg.tenantId}): ${motivo}`);
         erros.push(`${gw.provider}: ${motivo}`);
-        // segue para o próximo gateway (fallback).
+        // Estado AMBÍGUO (timeout/5xx/rede, ou erro não classificado): a cobrança PODE ter sido
+        // criada. Tenta o MESMO provider 1× (a idempotency-key evita 2ª PIX) e, se falhar, PARA —
+        // NÃO cai em outro gateway (geraria uma 2ª cobrança viva). O cron de 10 min limpa o
+        // pendente; o cliente pode tentar de novo (mesma key = mesma cobrança).
+        const ambiguo = !(e instanceof GatewayError) || e.ambiguo;
+        if (ambiguo) {
+          try {
+            return await criarESalvar(gw);
+          } catch (e2) {
+            const m2 = e2 instanceof Error ? e2.message : 'erro no gateway';
+            this.logger.error(`PIX ${gw.provider} retry falhou (pedido ${p.id}): ${m2}`);
+            throw new BadRequestException('Pagamento indisponível no momento. Tente novamente em instantes.');
+          }
+        }
+        // Falha DEFINITIVA (4xx do provider: token/config inválidos → nada criado) → seguro
+        // tentar o PRÓXIMO gateway.
       }
     }
     throw new BadRequestException(`Não foi possível gerar o PIX: ${erros.join(' | ')}`);
@@ -2071,20 +2090,27 @@ export class CardapioService {
       .where(eq(pedidoExterno.id, pedidoId));
     if (!p) return { tipo: 'nada' };
     if (p.sinalStatus === 'pago') return { tipo: 'nada' }; // já confirmado via sinal
-    let tipo: 'sinal' | 'total' | 'nada';
+    let tipo: 'sinal' | 'total';
     if (p.sinalStatus === 'pendente') {
-      await this.db
+      // ATÔMICO (R1): a guarda de estado no WHERE + returning garante que só o 1º caller que
+      // transita pendente→pago prossegue. Fecha a corrida webhook×polling → nunca confirma/
+      // aceita 2× (que gerava 2 comandas + baixa de estoque dobrada).
+      const upd = await this.db
         .update(pedidoExterno)
         .set({ sinalStatus: 'pago', statusPagamento: 'sinal_pago' })
-        .where(eq(pedidoExterno.id, pedidoId));
+        .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.sinalStatus, 'pendente')))
+        .returning({ id: pedidoExterno.id });
+      if (!upd.length) return { tipo: 'nada' }; // outro caller já confirmou o sinal
       tipo = 'sinal';
       // Confirma ao cliente por WhatsApp (n8n) — sinal pago + prazo de cancelamento.
       void this.avisarSinalPago(tenantId, pedidoId);
     } else if (!p.pago) {
-      await this.db
+      const upd = await this.db
         .update(pedidoExterno)
         .set({ pago: true, statusPagamento: 'aprovado' })
-        .where(eq(pedidoExterno.id, pedidoId));
+        .where(and(eq(pedidoExterno.id, pedidoId), eq(pedidoExterno.pago, false)))
+        .returning({ id: pedidoExterno.id });
+      if (!upd.length) return { tipo: 'nada' }; // outro caller já marcou pago
       tipo = 'total';
     } else {
       return { tipo: 'nada' };

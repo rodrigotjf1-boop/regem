@@ -7,6 +7,7 @@
 // base64) e o id; o cliente paga; o MP chama o webhook; consultamos o status.
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { classificarFalhaGateway, FIN_TIMEOUT_CRIAR_MS, FIN_TIMEOUT_CONSULTA_MS } from './gateway-erro';
 
 const API = 'https://api.mercadopago.com';
 
@@ -85,18 +86,26 @@ export async function criarPixMP(
         'X-Idempotency-Key': dados.idempotencia,
       },
       body: JSON.stringify(b),
+      signal: AbortSignal.timeout(FIN_TIMEOUT_CRIAR_MS),
     });
-  let res = await postar(body);
-  // Se o MP recusar E havia date_of_expiration, tenta SEM ela (o mínimo de expiração
-  // do MP varia) — não vale quebrar o PIX por causa disso; o cron cancela em 10 min.
-  if (!res.ok && body.date_of_expiration) {
-    const semExp = { ...body };
-    delete semExp.date_of_expiration;
-    res = await postar(semExp);
+  let res: Response;
+  try {
+    res = await postar(body);
+    // Se o MP recusar E havia date_of_expiration, tenta SEM ela (o mínimo de expiração
+    // do MP varia) — não vale quebrar o PIX por causa disso; o cron cancela em 10 min.
+    if (!res.ok && body.date_of_expiration) {
+      const semExp = { ...body };
+      delete semExp.date_of_expiration;
+      res = await postar(semExp);
+    }
+  } catch (e) {
+    // Rede/timeout/abort: estado DESCONHECIDO → ambíguo (a idempotency-key protege o retry no
+    // MESMO provider; o orquestrador NÃO deve cair em outro gateway p/ não gerar 2ª PIX).
+    throw classificarFalhaGateway(e);
   }
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
-    throw new Error(`Mercado Pago ${res.status}: ${txt.slice(0, 200)}`);
+    throw classificarFalhaGateway(new Error(`Mercado Pago ${res.status}: ${txt.slice(0, 200)}`), res.status);
   }
   const j: any = await res.json();
   const tx = j?.point_of_interaction?.transaction_data ?? {};
@@ -130,6 +139,7 @@ export async function cancelarPagamentoMP(token: string, paymentId: string): Pro
     method: 'PUT',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ status: 'cancelled' }),
+    signal: AbortSignal.timeout(FIN_TIMEOUT_CONSULTA_MS),
   }).catch(() => {});
 }
 
@@ -150,6 +160,7 @@ export async function reembolsarPagamentoMP(
       'X-Idempotency-Key': `refund-${paymentId}`,
     },
     body,
+    signal: AbortSignal.timeout(FIN_TIMEOUT_CRIAR_MS),
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
@@ -166,6 +177,7 @@ export async function consultarPagamentoMP(
 ): Promise<{ id: string; status: string; referenciaExterna: string | null }> {
   const res = await fetch(`${API}/v1/payments/${paymentId}`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(FIN_TIMEOUT_CONSULTA_MS),
   });
   if (!res.ok) throw new Error(`Mercado Pago status ${res.status}`);
   const j: any = await res.json();
