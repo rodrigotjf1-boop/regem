@@ -1,6 +1,7 @@
 import { ConsoleLogger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TelemetriaBridge } from './telemetria-bridge';
+import { getRequestId } from './request-context';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Logger do app que, além de logar no console, leva os erros (error/fatal) para a
@@ -45,6 +46,7 @@ export class TelemetriaLogger extends ConsoleLogger {
 
     const tipo = ctx ? `log:${ctx}`.slice(0, 60) : 'log';
     const stackCurto = stack ? String(stack).slice(0, 4000) : null;
+    const requestId = getRequestId() ?? null; // correlação (quando dentro de um request HTTP)
 
     // Nuvem: grava direto no store da telemetria (sem tenant = erro global da nuvem).
     if (!TelemetriaLogger.ehEdge) {
@@ -55,7 +57,7 @@ export class TelemetriaLogger extends ConsoleLogger {
         mensagem: msg,
         stack: stackCurto,
         versao: process.env.APP_VERSION ?? null,
-        contexto: { context: ctx },
+        contexto: { context: ctx, requestId },
       });
       return;
     }
@@ -74,7 +76,7 @@ export class TelemetriaLogger extends ConsoleLogger {
         mensagem: msg,
         stack: stackCurto,
         versao: process.env.APP_VERSION ?? null,
-        contexto: { context: ctx },
+        contexto: { context: ctx, requestId },
       }),
     }).catch(() => {});
   }

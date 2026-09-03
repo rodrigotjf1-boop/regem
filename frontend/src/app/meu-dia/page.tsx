@@ -53,8 +53,10 @@ export default function MeuDiaPage() {
   }, [data]);
 
   useEffect(() => {
+    // Sem sessão: redireciona (antes o skeleton ficava para sempre — carregar() nunca rodava).
     if (getToken()) carregar();
-  }, [carregar]);
+    else router.replace('/entrar');
+  }, [carregar, router]);
 
   async function marcar(id: string, estado: string) {
     setTarefas((t) => t.map((x) => (x.id === id ? { ...x, estado } : x)));

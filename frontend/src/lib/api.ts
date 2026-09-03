@@ -298,6 +298,32 @@ function sessaoExpirou() {
   }
 }
 
+// Erro tipado da API — carrega status/code/requestId do envelope do backend (Bloco 1 do
+// tratamento de erros). ESTENDE Error de propósito: o código existente que lê `.message`
+// (e faz `e instanceof Error`) continua valendo; código novo pode reagir por `.code`
+// (ex.: 'RBAC_PERMISSION_DENIED', 'AUTH_TOKEN_EXPIRED') e exibir o requestId no suporte.
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly details?: unknown;
+  readonly requestId?: string;
+  constructor(opts: { status: number; message: string; code?: string; details?: unknown; requestId?: string }) {
+    super(opts.message);
+    this.name = 'ApiError';
+    this.status = opts.status;
+    this.code = opts.code;
+    this.details = opts.details;
+    this.requestId = opts.requestId;
+  }
+}
+
+// Mensagem amigável para o usuário a partir de qualquer erro capturado — centraliza o padrão
+// `e instanceof Error ? e.message : '...'` repetido pelas telas. Código novo: `toast.error(handleApiError(e))`.
+export function handleApiError(e: unknown, fallback = 'Não foi possível concluir. Tente de novo.'): string {
+  if (e instanceof Error) return e.message || fallback;
+  return fallback;
+}
+
 async function req(path: string, options: RequestInit = {}) {
   const token = getJwt(); // Bearer só quando há JWT real; no modo cookie vai o cookie
   let res: Response;
@@ -317,12 +343,12 @@ async function req(path: string, options: RequestInit = {}) {
       },
     });
   } catch {
-    // Erro de REDE (offline, DNS, CORS) — distinto de erro de API.
-    throw new Error('Sem conexão com o servidor. Verifique a internet.');
+    // Erro de REDE (offline, DNS, CORS) — distinto de erro de API (status 0).
+    throw new ApiError({ status: 0, code: 'NETWORK', message: 'Sem conexão com o servidor. Verifique a internet.' });
   }
   if (res.status === 401) {
     sessaoExpirou();
-    throw new Error('Sessão expirada. Entre novamente.');
+    throw new ApiError({ status: 401, code: 'AUTH_UNAUTHENTICATED', message: 'Sessão expirada. Entre novamente.' });
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as any);
@@ -341,7 +367,14 @@ async function req(path: string, options: RequestInit = {}) {
       clearTerminal();
       return req(path, options);
     }
-    throw new Error(body.message || `Erro ${res.status}`);
+    const msg = Array.isArray(body.message) ? body.message.join('; ') : body.message;
+    throw new ApiError({
+      status: res.status,
+      message: msg || `Erro ${res.status}`,
+      code: body.code,
+      details: body.details,
+      requestId: body.requestId,
+    });
   }
   return res.status === 204 ? null : res.json();
 }
@@ -354,7 +387,14 @@ async function pub(path: string, options: RequestInit = {}) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as any);
-    throw new Error(body.message || `Erro ${res.status}`);
+    const msg = Array.isArray(body.message) ? body.message.join('; ') : body.message;
+    throw new ApiError({
+      status: res.status,
+      message: msg || `Erro ${res.status}`,
+      code: body.code,
+      details: body.details,
+      requestId: body.requestId,
+    });
   }
   return res.status === 204 ? null : res.json();
 }

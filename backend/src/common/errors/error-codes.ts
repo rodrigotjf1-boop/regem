@@ -1,0 +1,41 @@
+// Catálogo de CÓDIGOS de erro internos e ESTÁVEIS do REGEM. O frontend reage
+// preferencialmente pelo `code` (não pela mensagem, que pode mudar/ser traduzida).
+// Regra: adicione novos códigos aqui; NÃO renomeie os existentes (são contrato interno
+// consumido pelo cliente e pela telemetria).
+export const ErrorCodes = {
+  // Genéricos
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  BAD_REQUEST: 'BAD_REQUEST',
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+  RESOURCE_NOT_FOUND: 'RESOURCE_NOT_FOUND',
+  RATE_LIMITED: 'RATE_LIMITED',
+  // Autenticação
+  AUTH_UNAUTHENTICATED: 'AUTH_UNAUTHENTICATED',
+  AUTH_INVALID_CREDENTIALS: 'AUTH_INVALID_CREDENTIALS',
+  AUTH_TOKEN_EXPIRED: 'AUTH_TOKEN_EXPIRED',
+  AUTH_TOKEN_INVALID: 'AUTH_TOKEN_INVALID',
+  AUTH_PIN_INVALID: 'AUTH_PIN_INVALID',
+  // Tenant / RBAC
+  TENANT_NOT_FOUND: 'TENANT_NOT_FOUND',
+  TENANT_ACCESS_DENIED: 'TENANT_ACCESS_DENIED',
+  RBAC_PERMISSION_DENIED: 'RBAC_PERMISSION_DENIED',
+  ACCESS_DENIED: 'ACCESS_DENIED',
+  // Banco de dados
+  DATABASE_ERROR: 'DATABASE_ERROR',
+  DATABASE_CONFLICT: 'DATABASE_CONFLICT',
+  DATABASE_UNAVAILABLE: 'DATABASE_UNAVAILABLE',
+  // Integrações externas
+  EXTERNAL_SERVICE_ERROR: 'EXTERNAL_SERVICE_ERROR',
+  EXTERNAL_SERVICE_TIMEOUT: 'EXTERNAL_SERVICE_TIMEOUT',
+  // Sync / edge
+  SYNC_CONFLICT: 'SYNC_CONFLICT',
+  SYNC_FAILED: 'SYNC_FAILED',
+  EDGE_OFFLINE: 'EDGE_OFFLINE',
+  // Impressão
+  PRINTER_UNAVAILABLE: 'PRINTER_UNAVAILABLE',
+  PRINT_FAILED: 'PRINT_FAILED',
+  // WebSocket
+  WEBSOCKET_ERROR: 'WEBSOCKET_ERROR',
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];
