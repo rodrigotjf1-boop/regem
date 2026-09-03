@@ -4,6 +4,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../api.dart';
 import '../location.dart';
 import '../outbox.dart';
+import '../theme.dart';
+import '../widgets/regem_mark.dart';
 import 'login_screen.dart';
 import 'scanner_screen.dart';
 import 'pedido_screen.dart';
@@ -215,16 +217,35 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Meus pedidos'),
+        titleSpacing: 16,
+        title: Row(
+          children: [
+            const RegemMark(size: 34, fundo: kNavy),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Text('Regem',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: kNavy, height: 1)),
+                Text('ENTREGADOR',
+                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: kOuro, letterSpacing: 2)),
+              ],
+            ),
+          ],
+        ),
         actions: [
-          IconButton(onPressed: _sair, icon: const Icon(Icons.logout)),
+          IconButton(onPressed: _sair, icon: const Icon(Icons.logout_rounded), tooltip: 'Sair'),
+          const SizedBox(width: 4),
         ],
       ),
       body: RefreshIndicator(onRefresh: _carregar, child: _corpo()),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _escanear,
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text('Escanear'),
+        backgroundColor: kNavy,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.qr_code_scanner_rounded),
+        label: const Text('Escanear', style: TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
