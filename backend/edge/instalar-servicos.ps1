@@ -44,6 +44,13 @@ function Svc($nome, $appArgs, $cwd) {
   # Por ora fica no DEFAULT do NSSM (LocalSystem), que funciona; a conta de baixo
   # privilegio entra na rodada testada junto com LE-5/LE-2/LE-3. Ver docs/seguranca-remediacao.
   & $Nssm set $nome Start SERVICE_AUTO_START | Out-Null
+  # Recuperacao (E1): em QUALQUER saida do processo, reinicia; AppThrottle + AppRestartDelay
+  # evitam CRASH-LOOP apertado (ex.: excecao no boot). Os daemons agora saem(1) em
+  # uncaughtException, entao o NSSM precisa reiniciar de forma controlada (5s de janela de
+  # "start rapido demais" + 3s de espera antes de subir de novo).
+  & $Nssm set $nome AppExit Default Restart | Out-Null
+  & $Nssm set $nome AppThrottle 5000 | Out-Null
+  & $Nssm set $nome AppRestartDelay 3000 | Out-Null
   & $Nssm set $nome AppStdout "$cwd\logs\$nome.log" | Out-Null
   & $Nssm set $nome AppStderr "$cwd\logs\$nome.err.log" | Out-Null
   & $Nssm set $nome AppRotateFiles 1 | Out-Null

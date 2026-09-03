@@ -48,6 +48,16 @@ const pool = new pg.Pool({ connectionString: EDGE_DB });
 pool.on('error', (e) => console.error(`[impressao] pool: conexao ociosa caiu (${e?.code ?? e?.message}) - descartada, segue no ar`));
 const mask = EDGE_DB.replace(/:[^:@/]*@/, ':****@');
 
+// Rede de seguranca do PROCESSO (E1): sem estes handlers, uma promise rejeitada / excecao nao
+// tratada (ex.: erro de DB no drain) DERRUBA o servico em silencio. unhandledRejection: loga e
+// segue. uncaughtException: estado desconhecido -> loga e SAI (1) p/ o NSSM reiniciar limpo
+// (AppThrottle no instalar-servicos.ps1 evita crash-loop).
+process.on('unhandledRejection', (e) => console.error(`[unhandledRejection] ${e?.stack ?? e?.message ?? e}`));
+process.on('uncaughtException', (e) => {
+  console.error(`[uncaughtException] ${e?.stack ?? e?.message ?? e}`);
+  process.exit(1);
+});
+
 // Envia bytes crus por TCP para host:porta (protocolo RAW/9100 das termicas).
 function enviarTcp(host, porta, buffer) {
   return new Promise((resolve, reject) => {
