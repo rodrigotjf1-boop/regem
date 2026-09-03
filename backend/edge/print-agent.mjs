@@ -37,6 +37,15 @@ if (!CLOUD || !TOKEN) {
 const RAW_PS1 = fileURLToPath(new URL('./raw-print.ps1', import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Rede de seguranca do PROCESSO (E1): sem estes handlers uma excecao nao tratada derruba o
+// agente em silencio. unhandledRejection: loga e segue. uncaughtException: loga e SAI (1) p/ o
+// NSSM reiniciar (AppThrottle evita crash-loop).
+process.on('unhandledRejection', (e) => console.error(`[print-agent][unhandledRejection] ${e?.stack ?? e?.message ?? e}`));
+process.on('uncaughtException', (e) => {
+  console.error(`[print-agent][uncaughtException] ${e?.stack ?? e?.message ?? e}`);
+  process.exit(1);
+});
+
 // --- envio para a impressora (idêntico ao worker do edge) ---
 function enviarTcp(host, porta, buffer) {
   return new Promise((resolve, reject) => {
@@ -75,7 +84,21 @@ async function api(path, opts = {}) {
   });
 }
 async function marcar(id, ok, erro) {
-  await api(`/impressao/${id}/${ok ? 'impresso' : 'erro'}`, { method: 'POST', body: JSON.stringify({ erro: erro || null }) }).catch(() => {});
+  const path = `/impressao/${id}/${ok ? 'impresso' : 'erro'}`;
+  const body = JSON.stringify({ erro: erro || null });
+  // ACK com RETRY: o servidor já reserva o job (claim/lease de 120s). Se este POST falhar, o job
+  // fica 'enviando' e SÓ é repescado (reimpresso) quando a lease vence — então vale insistir
+  // algumas vezes p/ um blip de rede não virar reimpressão. Antes: `.catch(()=>{})` (1 tentativa).
+  for (let t = 1; t <= 3; t++) {
+    try {
+      const res = await api(path, { method: 'POST', body });
+      if (res.ok) return;
+    } catch {
+      /* rede — tenta de novo */
+    }
+    if (t < 3) await sleep(400 * t);
+  }
+  console.error(`  ! ACK '${ok ? 'impresso' : 'erro'}' falhou p/ job ${String(id).slice(0, 8)} — pode reimprimir após a lease`);
 }
 
 async function imprimirJob(job) {
@@ -109,7 +132,8 @@ async function ciclo() {
     const jobs = await res.json();
     for (const j of jobs) await imprimirJob(j);
   } catch (e) {
-    // Nuvem fora / rede — silencioso; tenta no próximo ciclo.
+    // Nuvem fora / rede — não derruba o agente; loga p/ observabilidade (antes: 100% silencioso).
+    console.error(`  ciclo do agente falhou (nuvem/rede): ${String(e?.message ?? e).slice(0, 160)}`);
   }
 }
 
