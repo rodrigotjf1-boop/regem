@@ -769,6 +769,7 @@ export const api = {
     }),
   // Delivery (Fase H)
   deliveryPedidos: () => req('/delivery/pedidos'),
+  filaEntregadores: () => req('/entregador/fila'), // Frente 2c — fila da loja p/ o painel do atendente
   aceitarDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/aceitar`, { method: 'POST', body: '{}' }),
   avancarDelivery: (id: string, body?: Record<string, unknown>) =>
