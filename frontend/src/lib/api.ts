@@ -770,6 +770,8 @@ export const api = {
   // Delivery (Fase H)
   deliveryPedidos: () => req('/delivery/pedidos'),
   filaEntregadores: () => req('/entregador/fila'), // Frente 2c — fila da loja p/ o painel do atendente
+  relatorioEntregas: (inicio: string, fim: string) => // Frente 4 — relatório por período
+    req(`/entregador/relatorio?inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`),
   aceitarDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/aceitar`, { method: 'POST', body: '{}' }),
   avancarDelivery: (id: string, body?: Record<string, unknown>) =>

@@ -123,6 +123,25 @@ export class EntregadorController {
     return this.service.listarFila(user.tenantId, (user as any).unidadeId ?? null);
   }
 
+  // Frente 4 — relatório de entregas (por entregador, tempo médio, ganhos) num período.
+  // ?inicio=YYYY-MM-DD&fim=YYYY-MM-DD (dia/semana/mês/personalizado resolvidos no front).
+  @Get('relatorio')
+  @UseGuards(RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @RequirePerm('delivery')
+  relatorio(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio: string,
+    @Query('fim') fim: string,
+  ) {
+    return this.service.relatorioEntregadores(
+      user.tenantId,
+      inicio,
+      fim,
+      (user as any).unidadeId ?? null,
+    );
+  }
+
   // E2 — o gestor vê os entregadores ao vivo (RBAC delivery).
   @Get('ao-vivo')
   @UseGuards(RolesGuard, PermissoesGuard)

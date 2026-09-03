@@ -603,6 +603,15 @@ export default function DeliveryPage() {
                 <button type="button" aria-label="Aumentar lote" onClick={() => salvarMaxLote((Number(entCfg.maxPedidosEntregador) || 1) + 1)} disabled={(Number(entCfg.maxPedidosEntregador) || 1) >= 15} className="grid h-6 w-6 place-items-center rounded border border-border disabled:opacity-40">＋</button>
               </div>
             )}
+            {(isGestor || cat === 'atendente') && (
+              <Link
+                href="/delivery/relatorios"
+                className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-sm font-medium hover:bg-muted"
+                title="Relatórios de entrega — entregas, tempo médio e ganhos por entregador"
+              >
+                📊 Relatórios
+              </Link>
+            )}
             <div className="ml-auto flex items-center gap-1.5">
               {isGestor && cardapioAtivo && (
                 <button

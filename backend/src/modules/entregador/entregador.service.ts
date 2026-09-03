@@ -239,6 +239,11 @@ export class EntregadorService {
           `Você precisa estar na loja para entrar na fila (você está a ~${Math.round(dist)}m).`,
         );
     }
+    // Frente 3 — a volta à fila FECHA o ciclo anterior (saída em rota → concluída). O tempo de
+    // ciclo (concluida_em − criado_em) ÷ nº de paradas = tempo médio por entrega no relatório.
+    await this.db.execute(sql`
+      update entregador_saida set status = 'concluida', concluida_em = coalesce(concluida_em, now())
+      where tenant_id = ${user.tenantId} and colaborador_id = ${user.colaboradorId} and status <> 'concluida'`);
     await this.db.execute(sql`
       insert into entregador_fila (colaborador_id, tenant_id, unidade_id, status, entrou_em, atualizado_em)
       values (${user.colaboradorId}, ${user.tenantId}, ${unidadeId}, 'aguardando', now(), now())
@@ -376,6 +381,129 @@ export class EntregadorService {
         ((partes[0]?.[0] ?? '') + (partes.length > 1 ? partes[partes.length - 1][0] : '')).toUpperCase() || '?';
       return { colaboradorId: x.colaborador_id, nome: x.nome, iniciais, status: x.status };
     });
+  }
+
+  // ===== Frente 4 — relatório de entregas (por entregador, tempo médio, ganhos) =====
+  // Consolidado por entregador num período [inicio, fim] (YYYY-MM-DD, fuso SP). Tudo SET-BASED
+  // (4 queries agregadas), montado em memória — nada de loop de N queries por entregador.
+  async relatorioEntregadores(
+    tenantId: string,
+    inicio: string,
+    fim: string,
+    unidadeId?: string | null,
+  ) {
+    const okData = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(String(s ?? ''));
+    if (!okData(inicio) || !okData(fim))
+      throw new BadRequestException('Período inválido (use YYYY-MM-DD).');
+    const uni = unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``;
+
+    // 1) entregas + taxa real + dias trabalhados por entregador (concluídas no período).
+    const q1: any = await this.db.execute(sql`
+      select entregador_id,
+             count(*)::int entregas,
+             coalesce(round(sum(coalesce(taxa_entrega, 0)) * 100), 0)::bigint taxas_centavos,
+             count(distinct (concluido_em at time zone 'America/Sao_Paulo')::date)::int dias
+      from pedido_externo
+      where tenant_id = ${tenantId} and entregador_id is not null and status = 'concluido'
+        and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date
+        ${uni}
+      group by entregador_id`);
+
+    // 2) entregas por bairro por entregador.
+    const q2: any = await this.db.execute(sql`
+      select entregador_id, coalesce(nullif(trim(endereco_bairro), ''), '—') bairro, count(*)::int n
+      from pedido_externo
+      where tenant_id = ${tenantId} and entregador_id is not null and status = 'concluido'
+        and (concluido_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date
+        ${uni}
+      group by entregador_id, bairro order by n desc`);
+
+    // 3) tempo de ciclo (saída → volta à fila) por entregador.
+    const q3: any = await this.db.execute(sql`
+      select colaborador_id,
+             coalesce(sum(extract(epoch from (concluida_em - criado_em))), 0)::bigint dur_seg,
+             coalesce(sum(total_paradas), 0)::int paradas,
+             count(*)::int ciclos
+      from entregador_saida
+      where tenant_id = ${tenantId} and status = 'concluida' and concluida_em is not null
+        and (criado_em at time zone 'America/Sao_Paulo')::date between ${inicio}::date and ${fim}::date
+      group by colaborador_id`);
+
+    // 4) perfis próprios (p/ ganhos) + padrão da loja.
+    const padrao = await this.configPagamento(tenantId);
+    const q4: any = await this.db.execute(sql`
+      select colaborador_id, modelo, diaria_centavos, taxa_entrega_centavos, taxa_fixa_centavos, base_taxa
+      from entregador_perfil_pagamento where tenant_id = ${tenantId}`);
+
+    const mapEnt = new Map<string, any>();
+    for (const r of q1.rows ?? q1) mapEnt.set(String(r.entregador_id), r);
+    const mapBairro = new Map<string, { bairro: string; n: number }[]>();
+    for (const r of q2.rows ?? q2) {
+      const k = String(r.entregador_id);
+      if (!mapBairro.has(k)) mapBairro.set(k, []);
+      mapBairro.get(k)!.push({ bairro: String(r.bairro), n: Number(r.n) });
+    }
+    const mapCiclo = new Map<string, any>();
+    for (const r of q3.rows ?? q3) mapCiclo.set(String(r.colaborador_id), r);
+    const mapPerfil = new Map<string, any>();
+    for (const r of q4.rows ?? q4) mapPerfil.set(String(r.colaborador_id), r);
+
+    const ents = (await this.delivery.listarEntregadores(tenantId)) as any[];
+    const linhas = ents
+      .map((e) => {
+        const id = String(e.id);
+        const ag = mapEnt.get(id);
+        const entregas = Number(ag?.entregas ?? 0);
+        const dias = Number(ag?.dias ?? 0);
+        const taxasReais = Number(ag?.taxas_centavos ?? 0);
+        const cic = mapCiclo.get(id);
+        const durSeg = Number(cic?.dur_seg ?? 0);
+        const paradas = Number(cic?.paradas ?? 0);
+        const tempoMedioSeg = paradas > 0 ? Math.round(durSeg / paradas) : null;
+        const p = mapPerfil.get(id);
+        const cfg = p
+          ? {
+              modelo: p.modelo,
+              diariaCentavos: Number(p.diaria_centavos),
+              taxaEntregaCentavos: Number(p.taxa_entrega_centavos),
+              taxaFixaCentavos: Number(p.taxa_fixa_centavos),
+              baseTaxa: p.base_taxa ?? 'real',
+            }
+          : padrao;
+        const base = this.calcular(cfg, entregas, taxasReais);
+        // A diária é POR DIA: multiplica pelos dias com entrega no período (não 1× no período
+        // todo). Modelos sem diária → só as taxas já calculadas.
+        const temDiaria = ['so_diaria', 'diaria_taxas', 'diaria_taxas_fixas'].includes(cfg.modelo);
+        const diariaComp = temDiaria ? (Number(cfg.diariaCentavos) || 0) * Math.max(0, dias) : 0;
+        const ganhosCentavos = diariaComp + base.taxas;
+        return {
+          colaboradorId: id,
+          nome: e.nome,
+          entregas,
+          dias,
+          ganhosCentavos,
+          tempoMedioSeg,
+          ciclos: Number(cic?.ciclos ?? 0),
+          bairros: mapBairro.get(id) ?? [],
+        };
+      })
+      .filter((l) => l.entregas > 0 || l.ciclos > 0)
+      .sort((a, b) => b.entregas - a.entregas);
+
+    const totEntregas = linhas.reduce((s, l) => s + l.entregas, 0);
+    const totGanhos = linhas.reduce((s, l) => s + l.ganhosCentavos, 0);
+    const totDur = (q3.rows ?? q3).reduce((s: number, r: any) => s + Number(r.dur_seg), 0);
+    const totParadas = (q3.rows ?? q3).reduce((s: number, r: any) => s + Number(r.paradas), 0);
+    return {
+      periodo: { inicio, fim },
+      entregadores: linhas,
+      totais: {
+        entregadores: linhas.length,
+        entregas: totEntregas,
+        ganhosCentavos: totGanhos,
+        tempoMedioSeg: totParadas > 0 ? Math.round(totDur / totParadas) : null,
+      },
+    };
   }
 
   // ===== E2 — GPS =====
