@@ -197,6 +197,51 @@ class Api {
     throw Exception(_erro(r));
   }
 
+  // ===== Fila de entregadores (Frente 2) — máquina de estados do botão =====
+  /// Estado do meu botão: { botao: entrar_fila|na_fila|procurar|iniciar|em_entrega,
+  /// posicao, reservados, maxPedidos, temSaida }.
+  static Future<Map<String, dynamic>> estadoFila() async {
+    final r = await http.get(Uri.parse('$base/entregador/fila/estado'), headers: _headers);
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
+  /// Entra na fila da loja (geofence: precisa estar na loja). Manda a minha posição atual.
+  static Future<Map<String, dynamic>> filaEntrar(double lat, double lng) async {
+    final r = await http.post(Uri.parse('$base/entregador/fila/entrar'),
+        headers: _headers, body: jsonEncode({'lat': lat, 'lng': lng}));
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
+  /// Sai da fila (solta o carrinho reservado).
+  static Future<void> filaSair() async {
+    final r = await http.post(Uri.parse('$base/entregador/fila/sair'), headers: _headers);
+    if (r.statusCode < 200 || r.statusCode >= 300) throw Exception(_erro(r));
+  }
+
+  /// "Procurar pedido": reserva o lote de prontos livres (até o lote/entregador). Só o 1º da fila.
+  static Future<Map<String, dynamic>> procurarPedidos() async {
+    final r = await http.post(Uri.parse('$base/entregador/procurar'), headers: _headers);
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
+  /// "Iniciar entrega(s)": despacha o lote reservado + roteiriza + avisa o 1º cliente.
+  static Future<Map<String, dynamic>> iniciarEntregas() async {
+    final r = await http.post(Uri.parse('$base/entregador/iniciar'), headers: _headers);
+    if (r.statusCode >= 200 && r.statusCode < 300) {
+      return jsonDecode(r.body) as Map<String, dynamic>;
+    }
+    throw Exception(_erro(r));
+  }
+
   static String _erro(http.Response r) {
     try {
       final j = jsonDecode(r.body);

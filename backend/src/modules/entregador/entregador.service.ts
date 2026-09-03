@@ -128,6 +128,21 @@ export class EntregadorService {
     if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
     if (ped.status !== 'pronto')
       throw new BadRequestException('O pedido ainda não está pronto para sair.');
+    // Modo carrinho (Frente 2): se é a MINHA vez de puxar (1º da fila), o scan RESERVA o pedido
+    // no batch em vez de despachar — acumula e depois "Iniciar entrega(s)". Sem trava de nº: o
+    // lote/entregador é alvo ideal, não teto (posso escanear mais que o lote). Fora da fila (app
+    // sem fila, ou não é a minha vez) → despacha na hora (retrocompatível com o app instalado).
+    const est: any = await this.estadoFila(user).catch(() => ({ botao: 'entrar_fila' }));
+    if (est.botao === 'procurar' || est.botao === 'iniciar') {
+      await this.db.execute(sql`
+        update pedido_externo
+          set entregador_id = ${user.colaboradorId}, entregador_nome = ${user.nome ?? 'Entregador'},
+              reservado_em = coalesce(reservado_em, now())
+        where id = ${ped.id} and tenant_id = ${user.tenantId} and status = 'pronto'
+          and saida_id is null and (reservado_em is null or entregador_id = ${user.colaboradorId})`);
+      const [res] = await this.db.select().from(pedidoExterno).where(eq(pedidoExterno.id, ped.id));
+      return { ok: true, reservado: true, modo: 'carrinho', pedido: this.resumo(res ?? ped) };
+    }
     await this.delivery.avancar(user.tenantId, ped.id, {
       entregadorId: user.colaboradorId,
       entregadorNome: user.nome ?? 'Entregador',
@@ -237,6 +252,11 @@ export class EntregadorService {
   async sairFila(user: AuthUser) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
     await this.db.execute(sql`delete from entregador_fila where colaborador_id = ${user.colaboradorId}`);
+    // Solta o carrinho (reservas ainda não despachadas) ao sair da fila — não prende pedidos.
+    await this.db.execute(sql`
+      update pedido_externo set entregador_id = null, entregador_nome = null, reservado_em = null
+      where tenant_id = ${user.tenantId} and entregador_id = ${user.colaboradorId}
+        and status = 'pronto' and reservado_em is not null and saida_id is null`);
     return { ok: true };
   }
 
@@ -265,12 +285,19 @@ export class EntregadorService {
           and status = 'aguardando' and entrou_em < ${minha.entrou_em}`);
       posicao = Number((pr.rows ?? pr)[0]?.pos ?? 1);
     }
+    // Prontos livres p/ puxar (na minha unidade): dispara o alerta ao 1º da fila (Frente 2d).
+    const pr2: any = await this.db.execute(sql`
+      select count(*)::int n from pedido_externo
+      where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
+        and entregador_id is null and reservado_em is null and saida_id is null
+        ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}`);
+    const prontosDisponiveis = Number((pr2.rows ?? pr2)[0]?.n ?? 0);
     let botao: string;
     if (temSaida) botao = 'em_entrega';
     else if (reservados > 0) botao = 'iniciar';
     else if (minha && minha.status === 'aguardando') botao = posicao === 1 ? 'procurar' : 'na_fila';
     else botao = 'entrar_fila';
-    return { botao, naFila: !!minha, status: minha?.status ?? null, posicao, reservados, maxPedidos: max, temSaida };
+    return { botao, naFila: !!minha, status: minha?.status ?? null, posicao, reservados, maxPedidos: max, temSaida, prontosDisponiveis };
   }
 
   // "Procurar pedido": só o 1º da fila. Reserva até (max - reservados) pedidos PRONTOS livres
@@ -574,7 +601,10 @@ export class EntregadorService {
         periodicidade = excluded.periodicidade,
         max_pedidos_entregador = excluded.max_pedidos_entregador,
         atualizado_em = now()`);
-    return { ok: true };
+    // Retorna a config persistida (não `{ ok: true }`): o front faz setEntCfg(resposta),
+    // e devolver só {ok} apagava maxPedidosEntregador do estado → o próximo clique calculava
+    // a partir do default 1 (1+1=2) e o lote "voltava sozinho pra 2". Re-leitura = autoritativo.
+    return this.configPagamento(tenantId);
   }
 
   // Calcula (diaria, taxas, total) em centavos para um nº de entregas, dado o modelo.
