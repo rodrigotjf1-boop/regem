@@ -126,6 +126,14 @@ export default function DistHome() {
     catch (err) { const m = err instanceof Error ? err.message : 'Erro'; setErro(m); alert(m); }
   }
 
+  // Desvincula a máquina desta loja — escape do 403 "equipamento já vinculado a outra
+  // empresa" ao repor/reaproveitar um PC (troca de máquina, máquina de teste).
+  async function liberarMaquina(l: any) {
+    if (!confirm(`Liberar a máquina de "${l.nome}"?\nDesvincula o PC atual — a PRÓXIMA instalação (desta loja ou de outra na mesma máquina) vincula do zero. O edge da máquina antiga para de sincronizar (token novo na reinstalação). Use ao trocar/reaproveitar o computador.`)) return;
+    try { await distApi.liberarMaquina(l.id); setErro(''); await carregar(me.perfil); alert('Máquina liberada. Rode a instalação de novo.'); }
+    catch (err) { const m = err instanceof Error ? err.message : 'Erro'; setErro(m); alert(m); }
+  }
+
   // F9 — acessar as CONFIGURAÇÕES da loja em modo suporte (escopado + auditado).
   async function acessarSuporte(id: string, nome: string) {
     const motivo = window.prompt(`Acessar "${nome}" em MODO SUPORTE (acesso de suporte, tudo auditado e visível para a loja).\nMotivo do acesso:`);
@@ -250,6 +258,7 @@ export default function DistHome() {
                         <button onClick={() => acessarSuporte(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-sky-400 hover:border-sky-500">Suporte</button>
                         {l.edgeVersao && <button onClick={() => rollback(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-amber-400 hover:border-amber-500">Rollback</button>}
                         {l.ativacaoId && <button onClick={() => trava(l)} title="Trava de instalação (anti-clone) — liga/desliga" className={`rounded border px-2 py-1 text-xs ${l.reauthAtivo ? 'border-emerald-600 text-emerald-400 hover:border-emerald-400' : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}>{l.reauthAtivo ? '🔒 travado' : '🔓 livre'}</button>}
+                        {l.ativacaoId && <button onClick={() => liberarMaquina(l)} title="Desvincular a máquina desta loja (ao trocar/reaproveitar o PC)" className="rounded border border-slate-700 px-2 py-1 text-xs text-rose-400 hover:border-rose-500">Liberar máquina</button>}
                       </div></td>}
                     </tr>
                   ))}
