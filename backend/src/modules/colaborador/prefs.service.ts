@@ -9,7 +9,15 @@ import { UpdatePrefsDto } from './dto/update-prefs.dto';
 export class PrefsService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
+  // A sessão de SUPORTE (F9) tem colaboradorId sintético 'sup:<tecnicoId>' — NÃO é um
+  // UUID de colaborador real. Usá-lo num WHERE id = ... estoura 22P02 (invalid uuid) e
+  // derruba a página. Suporte não tem preferências pessoais: devolve o padrão.
+  private ehSuporte(colaboradorId?: string): boolean {
+    return !colaboradorId || colaboradorId.startsWith('sup:');
+  }
+
   async get(tenantId: string, colaboradorId: string): Promise<UiPrefs> {
+    if (this.ehSuporte(colaboradorId)) return sanitizeUiPrefs(undefined);
     const [row] = await this.db
       .select({ uiPrefs: colaborador.uiPrefs })
       .from(colaborador)
@@ -25,6 +33,7 @@ export class PrefsService {
     colaboradorId: string,
     dto: UpdatePrefsDto,
   ): Promise<UiPrefs> {
+    if (this.ehSuporte(colaboradorId)) return sanitizeUiPrefs(undefined); // suporte não salva prefs
     const atual = await this.get(tenantId, colaboradorId);
     const novo = mergeUiPrefs(atual, dto);
     await this.db
