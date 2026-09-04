@@ -12,11 +12,8 @@
 
 ## Acumulado (NÃO empacotado) — próximo `.exe`/`.zip` do edge
 
-Mudanças **do edge** já na `main` (ou em branch) aguardando o próximo corte:
-- **Reimpressão do delivery leva o QR de despacho (#416, na `main`):** `delivery.service`/`vendas.reimprimirViasExterno` — a reimpressão local rodava sem o `@QR`. → **`.zip` + `.exe`** (backend do edge).
-- **Seed de cursor no fim do restore + log carimbado (branch `feat/edge-cursor-seed-log-ts`, ⚠️ NÃO mesclado):** `sync-daemon.mjs` — após `-Limpar` o ciclo baixa só o novo (não re-baixa os 60 dias) + `[data-hora]` em toda linha do log. → **`.zip` + `.exe`**. **Mesclar o branch antes de cortar.**
-- **Robustez de impressão P0–P4 (branch `feat/impressao-p0-p4`, ⚠️ NÃO mesclado):** claim/lease anti-duplo-print (**mig 221**) + auto-retry de erro + via-a-via + latência menor da venda-nuvem + fallback de cupom fora da cozinha + expurgo da fila + telemetria de impressão no heartbeat + gaveta (`@GAVETA`). Toca `impressao-daemon.mjs`, `print-agent.mjs`, `escpos.mjs`, `sync-daemon.mjs` (heartbeat) → **`.zip` + `.exe`**. Nuvem: backend por autodeploy + **migration 221** (roda nos DOIS bancos, nuvem+edge — **não** é cloud-only). Mesclar o branch + aplicar a 221 na nuvem antes de cortar.
-- **Tratamento de erros no edge — Blocos 4/5 (branch `feat/tratamento-erros-edge`, ⚠️ NÃO mesclado):** **S1** `sync-daemon.mjs` push com keyset composto `(cursor, id)` → fim da perda silenciosa de vendas/movimentos (≥200 linhas no mesmo `updated_at` eram puladas); **S2** reenvio linha-a-linha + dead-letter (linha "veneno" não trava a fila); **E1** handlers `unhandledRejection`/`uncaughtException` em `impressao-daemon.mjs`/`print-agent.mjs`/`edge-web.mjs` (saem 1 → NSSM reinicia) + `AppExit/AppThrottle/AppRestartDelay` no `instalar-servicos.ps1` (sem crash-loop); **P1** `print-agent.mjs` ACK com retry+log (menos reimpressão pós-lease). → **`.zip` + `.exe`** (toca sync-daemon + os 3 daemons + `.iss`/instalador via `.ps1`). Sem migration. ⚠️ **Validar no edge antes de cortar** (não há teste local dos daemons).
+Mudanças **do edge** já na `main` aguardando o próximo corte:
+- _(vazio — tudo o que estava acumulado aqui foi **cortado no 1.29.0**, abaixo.)_
 
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
@@ -43,6 +40,20 @@ Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado e *
 - **F3 — trava de instalação anti-clone (#403/#404/#405):** `instalar-tudo.ps1` trata `reauthRequired` (2FA e-mail/TOTP) e move o edge rotacionando o token. → **`.exe`** (instalador). Cloud: **migration 220** (`ativacao` += `reauth_*` + `reautorizacao_edge`) — **⚠️ aplicar na nuvem** (código já deployado lê essas colunas). Console em `/frota` (autodeploy).
 
 > Empacotado no **1.24.0** (abaixo). Migrations: **219 (F1)** e **220 (F3)** aplicadas na nuvem (31/08).
+
+## Última release: `1.29.0` — cortada (03/09/2026), **.exe COMPILADO** ✅
+
+`.exe` completo (**88 MB**) em `backend/edge/Output/RegemEdgeSetup.exe`, cortado de worktree off `origin/main` (`b0b2725`), preflight **"TUDO OK"**. Empacota tudo que estava acumulado + **2 fixes de incidente** (edge quebrava na instalação/operação):
+
+- **Tratamento de erros no edge — Blocos 4/5 (#443):** sync push keyset composto `(cursor, id)` (fim da perda silenciosa) + reenvio linha-a-linha/dead-letter; handlers `unhandledRejection`/`uncaughtException` nos 3 daemons + NSSM `AppExit/AppThrottle/AppRestartDelay`; ACK do `print-agent` com retry.
+- **Seed de cursor no restore + log carimbado (#444):** `sync-daemon.mjs`.
+- **Robustez de impressão P0–P4** (claim/lease **mig 221**, já na nuvem) + **reimpressão QR (#416)**.
+- 🔴 **FIX mig 222 (#445):** `delete from entregador_localizacao` ganhou guard `if exists` — a tabela é **cloud-only** e não existe no edge; o delete direto **ABORTAVA toda a instalação** (`42P01`).
+- 🔴 **FIX backend ipv4first (#446):** `setDefaultResultOrder('ipv4first')` no `main.ts` — o backend não resolvia `api.dmsregem.com` no serviço Windows (IPv6 não rota) → quebrava a validação de licença. Mesmo fix que o `sync-daemon` já tinha desde a 1.22.
+
+**Sem migration nova na nuvem** (222/223 já aplicadas; 221 já aplicada; ipv4first é código). O `.exe` reinstala limpo + re-sync. `.zip` (`publicar.ps1`) opcional para testar update por zip.
+
+> **⚠️ Notas de corte (aprendido no 1.29.0):** (1) o `next build` do release **PENDURA no ambiente automatizado** por estado acumulado (processos/locks zumbis) — um **restart do PC limpa** e o build roda; NÃO é limite headless. (2) ISCC (Inno CLI, compila o `.exe` sem GUI) em `C:\Program Files\Inno Setup 7\ISCC.exe`. (3) O `bundle/` (node/pgsql/nssm, **975 MB**) **NÃO está no git** → no worktree usar **junction** de `C:\Regen\backend\edge\bundle` (senão o `.exe` sai ~16 MB SEM os binários — o `.iss` usa `skipifsourcedoesntexist` e pula em silêncio). Remover a junction com `.Delete()`/`rmdir` (NÃO recursivo) antes de apagar o worktree, senão apaga o bundle real.
 
 ## Última release: `1.26.0` — cortada (01/09/2026), **.exe COMPILADO** ✅ (SNAPSHOT)
 
