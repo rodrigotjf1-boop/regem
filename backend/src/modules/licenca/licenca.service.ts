@@ -462,6 +462,13 @@ export class LicencaService {
           status: 'ativado',
           deviceFingerprint: fingerprint,
           ativadoEm: new Date(),
+          // F — trava anti-clone LIGADA por padrão já na 1ª instalação (2º fator = e-mail; o app
+          // autenticador é opt-in depois). Mover o edge p/ outra máquina passa a exigir o código
+          // por e-mail OU a liberação da distribuição no console. Reinstalar na MESMA máquina
+          // (fingerprint igual) segue liso. Lojas já instaladas antes disto continuam com a trava
+          // desligada — só as NOVAS nascem travadas.
+          reauthAtivo: true,
+          reauthMetodo: 'email',
         })
         .returning();
     }
