@@ -312,6 +312,15 @@ export default function EquipamentosPage() {
           Regem. Cada device recebe um token único usado no pareamento.
         </p>
 
+        <div className="flex items-start gap-2 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-sm text-sky-800">
+          <span aria-hidden>♻️</span>
+          <span>
+            <strong>Trocou o servidor local de máquina?</strong> Reinstale/repareie os equipamentos
+            (impressoras, KDS e Terminais de Ponto) <strong>um a um</strong> no novo servidor. Cada
+            device gera um token/pareamento novo — não reaproveite os antigos, para evitar conflito.
+          </span>
+        </div>
+
         {/* Integração GoGeM (autoatendimento): empurra pausas/edições na hora */}
         <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
           <div>

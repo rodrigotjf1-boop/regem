@@ -646,12 +646,24 @@ export class LicencaService {
       throw new UnauthorizedException('Código inválido.');
     }
     // APROVADO → MOVE. Rotaciona o token (mata a antiga em 401) ANTES de rebindar.
+    // ⚠️ Rotaciona UM ÚNICO servidor_local (por id). Um UPDATE em massa (por tenant+tipo)
+    // poria o MESMO token novo em 2+ linhas se a loja tiver servidor_local DUPLICADO (de
+    // instalações repetidas) → viola o UNIQUE de equipamento.token (23505 → 409 "Conflito"),
+    // que era o erro que travava o cliente ao mover com o código. Pega o mais recente.
     const novoToken = randomBytes(24).toString('hex');
-    const [eqSrv] = await this.db
-      .update(equipamento)
-      .set({ token: novoToken, ativo: true, revogadoEm: null })
+    const [eqSel] = await this.db
+      .select({ id: equipamento.id, unidadeId: equipamento.unidadeId })
+      .from(equipamento)
       .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'servidor_local')))
-      .returning({ unidadeId: equipamento.unidadeId });
+      .orderBy(desc(equipamento.createdAt))
+      .limit(1);
+    if (eqSel) {
+      await this.db
+        .update(equipamento)
+        .set({ token: novoToken, ativo: true, revogadoEm: null })
+        .where(eq(equipamento.id, eqSel.id));
+    }
+    const eqSrv = eqSel;
     const [row] = await this.db
       .update(ativacao)
       .set({ deviceFingerprint: fingerprint, status: 'ativado', atualizadoEm: new Date() })
