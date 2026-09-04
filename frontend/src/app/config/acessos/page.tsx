@@ -84,6 +84,13 @@ function SuporteCard() {
     catch (err) { toast.error(err instanceof Error ? err.message : 'Erro'); }
     finally { setBusy(false); }
   }
+  async function alternarTotal(total: boolean) {
+    if (total && !confirm('Conceder ACESSO TOTAL ao suporte?\nO técnico poderá ver/editar tudo da sua loja (incl. financeiro em R$, vendas e clientes) enquanto estiver conectado. Tudo continua auditado. Você pode retirar a qualquer momento.')) return;
+    setBusy(true);
+    try { const e: any = await api.suporteAcessoTotal(total); setEst(e); toast.success(total ? 'Acesso total concedido ao suporte.' : 'Suporte voltou ao acesso mínimo (config).'); }
+    catch (err) { toast.error(err instanceof Error ? err.message : 'Erro'); }
+    finally { setBusy(false); }
+  }
   const dt = (v: any) => (v ? new Date(v).toLocaleString('pt-BR') : '—');
   return (
     <Card className="p-4">
@@ -91,17 +98,29 @@ function SuporteCard() {
         <div className="min-w-0">
           <h2 className="font-display text-base font-bold">Acesso de suporte</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Técnicos da distribuição podem acessar <strong>apenas as configurações</strong> (impressão, KDS,
+            Por padrão, técnicos da distribuição acessam <strong>apenas as configurações</strong> (impressão, KDS,
             direcionamento, cupom) — nunca financeiro, dados de clientes ou vendas. Toda ação fica na sua
             auditoria. Você pode bloquear a qualquer momento.
           </p>
         </div>
-        <label className="flex flex-none items-center gap-2 text-sm">
-          <input type="checkbox" className="h-4 w-4 accent-primary" disabled={busy}
-            checked={!!est?.bloqueado} onChange={(e) => alternar(e.target.checked)} />
-          Bloquear acesso de suporte
-        </label>
+        <div className="flex flex-none flex-col gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-primary" disabled={busy}
+              checked={!!est?.bloqueado} onChange={(e) => alternar(e.target.checked)} />
+            Bloquear acesso de suporte
+          </label>
+          <label className={`flex items-center gap-2 text-sm ${est?.bloqueado ? 'opacity-40' : ''}`}>
+            <input type="checkbox" className="h-4 w-4 accent-primary" disabled={busy || !!est?.bloqueado}
+              checked={!!est?.acessoTotal} onChange={(e) => alternarTotal(e.target.checked)} />
+            Dar acesso total ao suporte
+          </label>
+        </div>
       </div>
+      {est?.acessoTotal && !est?.bloqueado && (
+        <p className="mt-2 rounded bg-amber-500/15 px-2 py-1 text-xs text-amber-700">
+          ⚠️ Acesso total ativo: o suporte enxerga tudo da loja (inclusive R$). Desmarque para voltar ao mínimo.
+        </p>
+      )}
       {est?.sessoesAtivas?.length > 0 && (
         <p className="mt-2 rounded bg-amber-500/15 px-2 py-1 text-xs text-amber-700">
           🛠️ Suporte ativo agora: {est.sessoesAtivas.map((x: any) => x.tecnicoNome || 'técnico').join(', ')}.

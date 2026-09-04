@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import QRCode from 'qrcode';
 import { api, getToken, getCategoria } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -373,6 +376,113 @@ function BotaoInstalador() {
   );
 }
 
+// F9 (C) — Self-service do C&O: o presidente cadastra o APP AUTENTICADOR (2º fator do
+// anti-clone) e vê o estado do próprio servidor. Feito na NUVEM (app.dmsregem): a
+// ativação/segredo TOTP moram só na nuvem — por isso este card NÃO aparece no edge.
+// O presidente não liga/desliga a trava (isso é da distribuição); só enrola o app.
+function AutenticadorAntiClone() {
+  const [presidente, setPresidente] = useState(false);
+  const [srv, setSrv] = useState<any>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [qr, setQr] = useState('');
+  const [secret, setSecret] = useState('');
+  const [codigo, setCodigo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const carregar = useCallback(async () => {
+    try { setSrv(await api.meuServidor()); } catch { setSrv(null); } finally { setCarregando(false); }
+  }, []);
+  useEffect(() => {
+    setPresidente(getCategoria() === 'presidente');
+    carregar();
+  }, [carregar]);
+
+  async function iniciar() {
+    setBusy(true); setMsg('');
+    try {
+      const r: any = await api.meuTotpIniciar();
+      setSecret(r.secret ?? '');
+      setQr(await QRCode.toDataURL(r.otpauthUri, { width: 200, margin: 1 }));
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Erro ao gerar o QR'); }
+    finally { setBusy(false); }
+  }
+  async function confirmar() {
+    if (codigo.trim().length !== 6) { setMsg('Digite o código de 6 dígitos do app.'); return; }
+    setBusy(true); setMsg('');
+    try {
+      await api.meuTotpConfirmar(codigo.trim());
+      setQr(''); setSecret(''); setCodigo('');
+      setMsg('App autenticador cadastrado ✅ — a partir de agora, mover o servidor pede o código do app.');
+      await carregar();
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Código inválido'); }
+    finally { setBusy(false); }
+  }
+
+  if (!presidente) return null; // só o C&O
+
+  return (
+    <Card className="p-6 lg:col-span-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-display text-lg font-bold">App autenticador (anti-clone)</h2>
+          <p className="max-w-prose text-sm text-muted-foreground">
+            Cadastre um <strong>app autenticador</strong> (Google Authenticator, Authy…) como 2º fator.
+            Assim, se precisar mover o servidor para outro computador, você libera pelo <strong>código do app</strong>,
+            sem depender de e-mail nem da distribuição. Ligar/desligar a trava continua com a distribuição.
+          </p>
+        </div>
+        {!carregando && srv?.instalado && (
+          <div className="flex flex-none flex-col items-end gap-1 text-xs text-muted-foreground">
+            <span className={`rounded-full px-2 py-0.5 font-medium ${srv.online ? 'bg-ok/15 text-ok' : 'bg-secondary'}`}>
+              {srv.online ? '● servidor online' : '○ servidor offline'}
+            </span>
+            {srv.versao && <span className="font-mono">v{srv.versao}</span>}
+            <span>Trava: {srv.travaAtiva ? `ligada (${srv.metodo === 'totp' ? 'app' : 'e-mail'})` : 'desligada'}</span>
+            {srv.temTotp && <span className="text-ok">✓ app já cadastrado</span>}
+          </div>
+        )}
+      </div>
+
+      {carregando ? (
+        <p className="mt-3 text-sm text-muted-foreground">Carregando…</p>
+      ) : !srv?.instalado ? (
+        <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+          Instale o servidor local primeiro (abaixo). Depois volte aqui para cadastrar o app autenticador.
+        </p>
+      ) : (
+        <div className="mt-4 rounded-lg border border-dashed border-border p-4">
+          {srv.temTotp && !qr && (
+            <p className="mb-2 text-xs text-ok">App já configurado. Para trocar de aparelho, gere um novo QR.</p>
+          )}
+          {!qr ? (
+            <Button type="button" variant="outline" onClick={iniciar} disabled={busy}>
+              {busy ? 'Gerando…' : srv.temTotp ? 'Gerar novo QR' : 'Cadastrar app (gerar QR)'}
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">Escaneie no app autenticador (ou digite a chave manualmente):</p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qr} alt="QR do app autenticador" className="rounded border border-border" width={200} height={200} />
+              <p className="break-all font-mono text-[11px] text-muted-foreground">{secret}</p>
+              <div className="flex flex-wrap items-end gap-2">
+                <div>
+                  <Label className="text-xs">Código do app</Label>
+                  <Input inputMode="numeric" maxLength={6} value={codigo}
+                    onChange={(e) => setCodigo(e.target.value.replace(/\D/g, ''))}
+                    placeholder="000000" className="w-28 font-mono" />
+                </div>
+                <Button type="button" onClick={confirmar} disabled={busy}>{busy ? 'Confirmando…' : 'Confirmar'}</Button>
+              </div>
+            </div>
+          )}
+          {msg && <p className="mt-3 text-sm text-muted-foreground">{msg}</p>}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 const PASSOS = [
   {
     t: 'Baixe e execute o instalador',
@@ -400,6 +510,8 @@ export default function ServidorPage() {
         {process.env.NEXT_PUBLIC_EDGE === '1' && <AtualizacaoServidor />}
         {process.env.NEXT_PUBLIC_EDGE === '1' && <RestaurarServidor />}
         {process.env.NEXT_PUBLIC_EDGE === '1' && <SuporteServidor />}
+        {/* App autenticador (anti-clone) — só na NUVEM (app.dmsregem): ativação/segredo moram lá. */}
+        {process.env.NEXT_PUBLIC_EDGE !== '1' && <AutenticadorAntiClone />}
         <Card className="p-6 lg:col-span-2">
           <h2 className="font-display text-xl font-bold">Instale o Regem na sua loja</h2>
           <p className="mt-2 max-w-prose text-sm text-muted-foreground">

@@ -30,4 +30,10 @@ export class SuporteController {
   bloquear(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.bloquear(user.tenantId, user.colaboradorId, user.categoria, !!dto?.bloquear);
   }
+
+  // F9 (D) — conceder/retirar acesso TOTAL ao suporte (só presidente).
+  @Patch('acesso-total')
+  acessoTotal(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.acessoTotal(user.tenantId, user.colaboradorId, user.categoria, !!dto?.total);
+  }
 }

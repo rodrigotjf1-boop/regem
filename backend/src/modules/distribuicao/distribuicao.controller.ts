@@ -67,6 +67,15 @@ export class DistribuicaoController {
     return this.service.frota();
   }
 
+  // F3b — trava de instalação (anti-clone): liga/desliga por loja (Diretoria + Técnico).
+  // Desligar = "liberar" a loja p/ reinstalar o edge em máquina nova sem o 2º fator.
+  @Post('licencas/:tenantId/trava')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  trava(@DistUser() u: DistCtx, @Param('tenantId') id: string, @Body() dto: any) {
+    return this.service.trava(id, dto ?? {}, u);
+  }
+
   // F9 — Acesso de SUPORTE a uma loja (Diretoria + Técnico). Emite um token curto,
   // escopado (só config, cat='suporte') e AUDITADO na trilha da própria loja.
   @Post('suporte/iniciar')

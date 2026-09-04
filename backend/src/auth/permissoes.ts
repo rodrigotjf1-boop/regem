@@ -96,6 +96,40 @@ export const PACOTE_SUPORTE: Permissoes = {
   dashboard: true, // visão geral, sem detalhe financeiro (governado por ver_financeiro=false)
 };
 
+// PACOTE TOTAL da sessão de SUPORTE (F9 · D) — usado SÓ quando o presidente da loja
+// concede acesso total (empresa.suporte_acesso_total=true), para ajudar com config
+// local/nuvem. Ainda imposto pelo SERVIDOR (nunca do token) e AUDITADO. Não muda a
+// categoria (segue 'suporte'): a blindagem C&O/distribuição por categoria continua
+// valendo — "total" cobre os módulos da própria loja, não a Visão C&O da distribuição.
+const CRUD_TOTAL = { ver: true, criar: true, editar: true, excluir: true };
+export const PACOTE_SUPORTE_TOTAL: Permissoes = {
+  // Operação
+  dashboard: true, pdv: true, mesas: true, cupons: true,
+  // Delivery
+  delivery: true, pedidos: true, fidelidade: true, cashback: true,
+  // Rotina
+  meu_dia: true, manutencao: true, escalas: CRUD_TOTAL, checklist: true, mural: true,
+  guias: true, vistoria: true, desempenho: true,
+  // Financeiro / Fiscal
+  ver_financeiro: true, financeiro: true, formas_pagamento: true, clientes_exportar: true,
+  fiscal: true, tef: true, fiscal_config: true,
+  // Entregador (o que o app do entregador mostra — irrelevante p/ suporte, mas total)
+  entregador_pedidos: true, entregador_taxas: true, entregador_ganhos: true,
+  entregador_tempo: true, entregador_relatorio: true, entregador_tipos: true,
+  // Gestão
+  cadastros: true, fichas: true, bot: true, desligamento: true, loja: true, unidades: true,
+  ponto_gerencial: true, producao_kds: true,
+  // Config de impressão/KDS
+  impressoras: true, kds: true, direcionamento_impressao: true, cupom_layout: true,
+  config_ramo: true, planos: true, acessos: true, servidor: true,
+  // Relatórios
+  turnos: true, relatorios_vendas: true, cancelamentos: true,
+  // Diretoria (visao_co segue barrada pela categoria='suporte' — flag aqui é inócua)
+  auditoria: true, visao_co: true,
+  // CRUD fino
+  ponto: CRUD_TOTAL, estoque: CRUD_TOTAL,
+};
+
 // Checa uma ação de módulo (ex.: pode(perm, 'estoque', 'criar')).
 export function pode(
   perm: Permissoes | undefined | null,

@@ -4,6 +4,8 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { DistribuidorGuard } from '../../auth/distribuidor.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -126,6 +128,30 @@ export class LicencaController {
   @UseGuards(JwtAuthGuard, DistribuidorGuard)
   reauthMoves(@Param('id') id: string) {
     return this.service.reauthMoves(id);
+  }
+
+  // ===== Self-service do C&O (F9 · C) — o PRESIDENTE gerencia o PRÓPRIO edge e
+  // cadastra o app autenticador. Escopo SEMPRE pelo tenant do token (nunca :id
+  // livre) — um presidente jamais toca a ativação de outra loja. Presidente-only.
+  @Get('minha-loja/servidor')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente')
+  meuServidor(@CurrentUser() user: AuthUser) {
+    return this.service.minhaLojaServidor(user.tenantId);
+  }
+
+  @Post('minha-loja/reauth/totp/iniciar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente')
+  meuTotpIniciar(@CurrentUser() user: AuthUser) {
+    return this.service.minhaReauthTotpIniciar(user.tenantId);
+  }
+
+  @Post('minha-loja/reauth/totp/confirmar')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('presidente')
+  meuTotpConfirmar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.minhaReauthTotpConfirmar(user.tenantId, dto?.codigo ?? '');
   }
 
   // ===== Provisionamento (edge, público por token) =====

@@ -449,6 +449,9 @@ export const distApi = {
     distReq('/distribuicao/usuarios', { method: 'POST', body: JSON.stringify(dto) }),
   auditoria: () => distReq('/distribuicao/auditoria'),
   frota: () => distReq('/distribuicao/frota'),
+  // F3b — trava de instalação (anti-clone): liga/desliga por loja.
+  trava: (tenantId: string, ativo: boolean, metodo = 'email') =>
+    distReq(`/distribuicao/licencas/${tenantId}/trava`, { method: 'POST', body: JSON.stringify({ ativo, metodo }) }),
   // F9 — inicia/encerra acesso de suporte a uma loja (retorna o token de suporte).
   suporteIniciar: (tenantId: string, motivo?: string) =>
     distReq('/distribuicao/suporte/iniciar', { method: 'POST', body: JSON.stringify({ tenantId, motivo }) }),
@@ -991,6 +994,12 @@ export const api = {
   reauthTotpConfirmar: (id: string, codigo: string) =>
     req(`/ativacao/${id}/reauth/totp/confirmar`, { method: 'POST', body: JSON.stringify({ codigo }) }),
   reauthMoves: (id: string) => req(`/ativacao/${id}/reauth/moves`),
+  // F9 (C) — self-service do C&O: gerencia o PRÓPRIO edge e cadastra o app
+  // autenticador (2º fator do anti-clone). Escopado ao tenant do token (presidente).
+  meuServidor: () => req('/minha-loja/servidor'),
+  meuTotpIniciar: () => req('/minha-loja/reauth/totp/iniciar', { method: 'POST', body: '{}' }),
+  meuTotpConfirmar: (codigo: string) =>
+    req('/minha-loja/reauth/totp/confirmar', { method: 'POST', body: JSON.stringify({ codigo }) }),
   // WhatsApp da loja (Evolution)
   whatsappConectar: () => req('/whatsapp/conectar', { method: 'POST', body: '{}' }),
   whatsappStatus: () => req('/whatsapp/status'),
@@ -1575,6 +1584,9 @@ export const api = {
   suporteSessoes: () => req('/suporte/sessoes'),
   suporteBloquear: (bloquear: boolean) =>
     req('/suporte/bloquear', { method: 'PATCH', body: JSON.stringify({ bloquear }) }),
+  // F9 (D) — presidente concede/retira acesso TOTAL ao suporte (senão só config).
+  suporteAcessoTotal: (total: boolean) =>
+    req('/suporte/acesso-total', { method: 'PATCH', body: JSON.stringify({ total }) }),
   parearTerminal: (token: string) =>
     req('/equipamento/parear', { method: 'POST', body: JSON.stringify({ token }) }),
   // Módulos ativos para MIM (plano contratado ∩ liga/desliga do presidente).
