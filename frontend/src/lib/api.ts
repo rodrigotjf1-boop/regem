@@ -68,7 +68,7 @@ function lerMe(): any {
     return null;
   }
 }
-function guardarMe(me: any) {
+export function guardarMe(me: any) {
   if (typeof window !== 'undefined') localStorage.setItem(ME_KEY, JSON.stringify(me));
 }
 // Payload de identidade: do JWT (Bearer/edge) OU do /auth/me guardado (nuvem/cookie).
@@ -221,7 +221,12 @@ export function getFuncaoNome(): string | null {
 // Permissões do perfil de acesso (`perm`). Gates de UI apenas — a trava real é no
 // servidor. Ausente (token antigo / sem sessão) = objeto vazio.
 export function getPermissoes(): any {
-  return lerPayload()?.perm ?? {};
+  // Sessão de SUPORTE: o token traz `cat` mas NÃO `perm` (imposto pelo servidor, por
+  // segurança). Cai no /auth/me cacheado (lerMe), que devolve o pacote real do servidor
+  // — senão todo gate de UII (menu, podePerm) bloquearia o suporte indevidamente.
+  const p = lerPayload()?.perm;
+  if (p && Object.keys(p).length) return p;
+  return lerMe()?.perm ?? p ?? {};
 }
 
 // Atalho: o perfil pode ver valores financeiros (R$)?
