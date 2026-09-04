@@ -16,4 +16,15 @@ create table if not exists entregador_posicao (
 create index if not exists idx_entregador_posicao_tenant on entregador_posicao (tenant_id, atualizado_em);
 
 -- Legado: a entregador_localizacao (INSERT-por-ping) não é mais usada — drena os dados antigos.
-delete from entregador_localizacao;
+-- GUARDA: entregador_localizacao é cloud-only (mig 200 = @cloud-only) e NÃO existe no edge — o
+-- delete direto quebrava com 42P01 e ABORTAVA toda a atualização do edge. Só drena se existir
+-- (na nuvem existe → drena; no edge não existe → pula, sem erro).
+do $$
+begin
+  if exists (
+    select 1 from information_schema.tables
+    where table_schema = 'public' and table_name = 'entregador_localizacao'
+  ) then
+    delete from entregador_localizacao;
+  end if;
+end $$;
