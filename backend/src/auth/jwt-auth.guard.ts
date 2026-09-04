@@ -9,7 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import { eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../db/drizzle.module';
 import { colaborador, funcao, perfilAcesso, suporteSessao, empresa } from '../db/schema';
-import { perfilPadrao, PACOTE_SUPORTE, type Permissoes } from './permissoes';
+import { perfilPadrao, PACOTE_SUPORTE, PACOTE_SUPORTE_TOTAL, type Permissoes } from './permissoes';
 import { lerCookieSessao } from './cookie-sessao';
 
 // TTL do cache de revalidação: janela máxima entre uma mudança no banco
@@ -62,7 +62,9 @@ export class JwtAuthGuard implements CanActivate {
         categoria: 'suporte',
         setorId: null,
         unidadeId: null,
-        permissoes: PACOTE_SUPORTE, // fixo, do servidor
+        // Pacote imposto pelo servidor: mínimo (só config) OU total, conforme a loja
+        // concedeu (empresa.suporte_acesso_total). Nunca vem do token.
+        permissoes: sess.acessoTotal ? PACOTE_SUPORTE_TOTAL : PACOTE_SUPORTE,
         suporte: { sessaoId: payload.sessao, tecnicoId: payload.impBy, nome: payload.nome },
       };
       return true;
@@ -105,11 +107,11 @@ export class JwtAuthGuard implements CanActivate {
     return true;
   }
 
-  private suporteCache = new Map<string, { exp: number; valida: boolean }>();
+  private suporteCache = new Map<string, { exp: number; valida: boolean; acessoTotal?: boolean }>();
 
   // Revalida a sessão de suporte (cache 30s): ativa? não expirada? loja não bloqueou?
   private async estadoSuporte(sessaoId?: string) {
-    if (!sessaoId) return { valida: false };
+    if (!sessaoId) return { valida: false, acessoTotal: false };
     const c = this.suporteCache.get(sessaoId);
     if (c && c.exp > Date.now()) return c;
     const [row] = await this.db
@@ -117,13 +119,14 @@ export class JwtAuthGuard implements CanActivate {
         encerradaEm: suporteSessao.encerradaEm,
         expiraEm: suporteSessao.expiraEm,
         bloq: empresa.suporteBloqueado,
+        total: empresa.suporteAcessoTotal,
       })
       .from(suporteSessao)
       .leftJoin(empresa, eq(empresa.id, suporteSessao.tenantId))
       .where(eq(suporteSessao.id, sessaoId));
     const valida =
       !!row && !row.encerradaEm && new Date(row.expiraEm as any) > new Date() && !row.bloq;
-    const val = { exp: Date.now() + CACHE_MS, valida };
+    const val = { exp: Date.now() + CACHE_MS, valida, acessoTotal: !!row?.total };
     this.suporteCache.set(sessaoId, val);
     return val;
   }

@@ -17,17 +17,37 @@ export class SuporteService {
 
   async estado(tenantId: string) {
     const emp: any = await this.db.execute(
-      sql`select suporte_bloqueado as "bloqueado" from empresa where id = ${tenantId} limit 1`,
+      sql`select suporte_bloqueado as "bloqueado", suporte_acesso_total as "acessoTotal"
+          from empresa where id = ${tenantId} limit 1`,
     );
     const ativ: any = await this.db.execute(sql`
       select id, tecnico_nome as "tecnicoNome", motivo, iniciada_em as "iniciadaEm", expira_em as "expiraEm"
       from suporte_sessao
       where tenant_id = ${tenantId} and encerrada_em is null and expira_em > now()
       order by iniciada_em desc`);
+    const row = (emp.rows ?? emp)[0];
     return {
-      bloqueado: !!(emp.rows ?? emp)[0]?.bloqueado,
+      bloqueado: !!row?.bloqueado,
+      acessoTotal: !!row?.acessoTotal,
       sessoesAtivas: (ativ.rows ?? ativ) as any[],
     };
+  }
+
+  // F9 (D) — o presidente concede/retira ACESSO TOTAL ao suporte (senão: pacote
+  // mínimo de config). Vale ao vivo: o guard revalida o pacote em ~30s.
+  async acessoTotal(tenantId: string, atorId: string, atorPerfil: string, total: boolean) {
+    await this.db.execute(
+      sql`update empresa set suporte_acesso_total = ${total} where id = ${tenantId}`,
+    );
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil,
+      tipo: 'acessos',
+      acao: total ? 'suporte_acesso_total_ligado' : 'suporte_acesso_total_desligado',
+      detalhe: {},
+    });
+    return this.estado(tenantId);
   }
 
   // Histórico (para a tela "Acessos de suporte").

@@ -197,6 +197,58 @@ export class LicencaService {
       .limit(20);
   }
 
+  // ===== Self-service do C&O (F9 · C) — o PRESIDENTE da loja gerencia o PRÓPRIO
+  // edge e cadastra o app autenticador (2º fator do anti-clone), sem depender da
+  // distribuição. Tudo escopado ao tenant do usuário logado (nunca um :id livre):
+  // resolve a ativação pelo tenantId, e só então reusa os métodos de reauth. O
+  // presidente NÃO liga/desliga a trava (isso é da distribuição) — só enrola o TOTP.
+
+  // Resolve a ativação (edge) da própria loja. Uma por tenant no caso comum; com
+  // várias (rede multi-edge), pega a mais recente. Lança se a loja nunca instalou.
+  private async ativacaoDoTenant(tenantId: string): Promise<string> {
+    const [a] = await this.db
+      .select({ id: ativacao.id })
+      .from(ativacao)
+      .where(eq(ativacao.tenantId, tenantId))
+      .orderBy(desc(ativacao.criadoEm))
+      .limit(1);
+    if (!a?.id) {
+      throw new NotFoundException('Sua loja ainda não tem servidor local instalado.');
+    }
+    return a.id;
+  }
+
+  // Status do próprio edge para a tela "Servidor local" da loja.
+  async minhaLojaServidor(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select a.id as "ativacaoId", a.status,
+             a.reauth_ativo as "travaAtiva", a.reauth_metodo as "metodo",
+             (a.reauth_totp_secret is not null) as "temTotp",
+             (a.device_fingerprint is not null) as "instalado",
+             h.versao, h.ultimo_sync as "ultimoSync",
+             (h.recebido_em is not null and h.recebido_em > now() - interval '5 minutes') as "online"
+      from ativacao a
+      left join lateral (
+        select * from edge_heartbeat hb where hb.ativacao_id = a.id
+        order by hb.recebido_em desc limit 1
+      ) h on true
+      where a.tenant_id = ${tenantId}
+      order by a.criado_em desc limit 1`);
+    const row = (r.rows ?? r)[0];
+    if (!row) return { instalado: false };
+    return { ...row, instalado: !!row.instalado, online: !!row.online };
+  }
+
+  // Enrola o app autenticador da própria loja (gera QR). Inerte até confirmar.
+  async minhaReauthTotpIniciar(tenantId: string) {
+    return this.reauthTotpIniciar(await this.ativacaoDoTenant(tenantId));
+  }
+
+  // Confirma o código do app e ativa o TOTP como 2º fator da própria loja.
+  async minhaReauthTotpConfirmar(tenantId: string, codigo: string) {
+    return this.reauthTotpConfirmar(await this.ativacaoDoTenant(tenantId), codigo);
+  }
+
   // Painel de frota: ativações + último heartbeat.
   async frota() {
     // 1 query SET-BASED (LATERAL) — antes era N+1 (500 ativações × 2 queries: heartbeat +
@@ -462,6 +514,13 @@ export class LicencaService {
           status: 'ativado',
           deviceFingerprint: fingerprint,
           ativadoEm: new Date(),
+          // F — trava anti-clone LIGADA por padrão já na 1ª instalação (2º fator = e-mail; o app
+          // autenticador é opt-in depois). Mover o edge p/ outra máquina passa a exigir o código
+          // por e-mail OU a liberação da distribuição no console. Reinstalar na MESMA máquina
+          // (fingerprint igual) segue liso. Lojas já instaladas antes disto continuam com a trava
+          // desligada — só as NOVAS nascem travadas.
+          reauthAtivo: true,
+          reauthMetodo: 'email',
         })
         .returning();
     }

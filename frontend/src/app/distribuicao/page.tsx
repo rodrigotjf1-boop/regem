@@ -115,6 +115,16 @@ export default function DistHome() {
     try { await distApi.rollbackRemoto(id); setErro(''); alert('Rollback solicitado. O edge executa no próximo ciclo de sync.'); }
     catch (err) { setErro(err instanceof Error ? err.message : 'Erro'); }
   }
+  // F3b — liga/desliga a trava de instalação (anti-clone) da loja.
+  async function trava(l: any) {
+    const novo = !l.reauthAtivo;
+    const msg = novo
+      ? `LIGAR a trava anti-clone de "${l.nome}"?\nMover o edge p/ outra máquina passará a exigir o código (e-mail).`
+      : `DESLIGAR a trava de "${l.nome}"?\nLIBERA a instalação em máquina nova sem 2º fator (o clone deixa de ser bloqueado).`;
+    if (!confirm(msg)) return;
+    try { await distApi.trava(l.id, novo); setErro(''); await carregar(me.perfil); }
+    catch (err) { const m = err instanceof Error ? err.message : 'Erro'; setErro(m); alert(m); }
+  }
 
   // F9 — acessar as CONFIGURAÇÕES da loja em modo suporte (escopado + auditado).
   async function acessarSuporte(id: string, nome: string) {
@@ -236,9 +246,10 @@ export default function DistHome() {
                       <td className={`p-3 text-xs ${statusLic(l).cor}`}>{statusLic(l).label}</td>
                       <td className="p-3 text-xs text-slate-500">{quando(l.ultimoLogin)}</td>
                       <td className="p-3 text-xs text-slate-500">{quando(l.ultimoHeartbeat)}</td>
-                      {podeTelemetria && <td className="p-3"><div className="flex gap-1.5">
+                      {podeTelemetria && <td className="p-3"><div className="flex flex-wrap gap-1.5">
                         <button onClick={() => acessarSuporte(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-sky-400 hover:border-sky-500">Suporte</button>
                         {l.edgeVersao && <button onClick={() => rollback(l.id, l.nome)} className="rounded border border-slate-700 px-2 py-1 text-xs text-amber-400 hover:border-amber-500">Rollback</button>}
+                        {l.ativacaoId && <button onClick={() => trava(l)} title="Trava de instalação (anti-clone) — liga/desliga" className={`rounded border px-2 py-1 text-xs ${l.reauthAtivo ? 'border-emerald-600 text-emerald-400 hover:border-emerald-400' : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}>{l.reauthAtivo ? '🔒 travado' : '🔓 livre'}</button>}
                       </div></td>}
                     </tr>
                   ))}

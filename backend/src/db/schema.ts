@@ -45,6 +45,9 @@ export const empresa = pgTable('empresa', {
   isDistribuidor: boolean('is_distribuidor').notNull().default(false),
   // Consentimento de suporte (F9): true = a loja BLOQUEIA acesso de técnico (mig 170).
   suporteBloqueado: boolean('suporte_bloqueado').notNull().default(false),
+  // F9 (D) — o presidente concede ACESSO TOTAL ao suporte (senão só o pacote mínimo
+  // de config). Server-authoritative: lido pelo guard a cada request (mig 224).
+  suporteAcessoTotal: boolean('suporte_acesso_total').notNull().default(false),
   // Assinatura Stripe (G-6b). O "válido até" fica no trial_ate (fim do período pago).
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),

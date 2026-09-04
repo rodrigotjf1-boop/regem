@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -145,6 +146,9 @@ export class DistribuicaoService {
              h.versao as "edgeVersao", h.recebido_em as "ultimoHeartbeat",
              h.estado as "edgeEstado", h.clientes, h.disco_livre_mb as "discoLivreMb", h.erro as "edgeErro",
              h.saude, h.unidade_id as "unidadeId",
+             -- Trava de instalação (anti-clone, mig 220): estado p/ o cadeado no console.
+             av.id as "ativacaoId", av.reauth_ativo as "reauthAtivo", av.reauth_metodo as "reauthMetodo",
+             (av.reauth_totp_secret is not null) as "reauthTemTotp",
              -- Último login de QUALQUER pessoa da loja: mostra atividade mesmo em
              -- lojas sem edge (modo nuvem), onde o "último sinal" nunca chega.
              (select max(a.created_at) from audit_log a where a.tenant_id = e.id and a.acao = 'login') as "ultimoLogin",
@@ -153,8 +157,28 @@ export class DistribuicaoService {
       left join lateral (
         select * from edge_heartbeat hb where hb.tenant_id = e.id order by hb.recebido_em desc limit 1
       ) h on true
+      left join lateral (
+        select * from ativacao a2 where a2.tenant_id = e.id order by a2.criado_em desc limit 1
+      ) av on true
       order by e.nome`);
     return r.rows ?? r;
+  }
+
+  // F3b — liga/desliga a trava de instalação (anti-clone) de uma loja pelo console de
+  // distribuição. É o caminho "pede à distribuição a liberação": desligar a trava (ou o
+  // presidente aprovar um move) permite reinstalar o edge em máquina nova sem o 2º fator.
+  // 2º fator padrão = e-mail (o app autenticador/TOTP é opt-in — enrola na área da loja).
+  async trava(tenantId: string, dto: { ativo?: boolean; metodo?: string }, autor: any) {
+    const metodo = dto?.metodo === 'totp' ? 'totp' : 'email';
+    const ativo = !!dto?.ativo;
+    const r: any = await this.db.execute(sql`
+      update ativacao set reauth_ativo = ${ativo}, reauth_metodo = ${metodo}, atualizado_em = now()
+      where tenant_id = ${tenantId}
+      returning id, reauth_ativo as "reauthAtivo", reauth_metodo as "reauthMetodo"`);
+    const row = (r.rows ?? r)[0];
+    if (!row) throw new NotFoundException('Loja sem ativação (edge nunca instalado).');
+    await this.auditar(autor, ativo ? 'trava_instalacao_ligou' : 'trava_instalacao_desligou', tenantId);
+    return row;
   }
 
   // Telemetria cross-tenant (erros das lojas). NOTA LGPD: mensagem/stack são técnicos;
