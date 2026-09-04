@@ -20,7 +20,15 @@ export class RolesGuard implements CanActivate {
     if (!required || required.length === 0) return true;
 
     const req = context.switchToHttp().getRequest();
-    if (!req.user || !required.includes(req.user.categoria)) {
+    // Suporte (F9) = nível GERÊNCIA (decisão do dono): no teste de PAPEL, trata
+    // 'suporte' como 'gerente'. Assim o suporte alcança as telas de gestão/config
+    // (equipamentos, impressão, KDS…) sem precisar marcar 'suporte' em dezenas de
+    // @Roles. O que ele pode DE FATO fazer segue governado pelo @RequirePerm + o
+    // PACOTE_SUPORTE (sem financeiro/acessos/planos/…) e por tudo ser AUDITADO na
+    // loja. Endpoints presidente-only (sem 'gerente' no @Roles) seguem barrados —
+    // inclusive o /suporte da própria loja (o técnico não se desbloqueia).
+    const categoria = req.user?.categoria === 'suporte' ? 'gerente' : req.user?.categoria;
+    if (!req.user || !required.includes(categoria)) {
       throw new ForbiddenException('Permissão insuficiente');
     }
     return true;
