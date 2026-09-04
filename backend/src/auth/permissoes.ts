@@ -81,20 +81,8 @@ export interface Permissoes {
 
 export type ModuloAcao = 'ponto' | 'estoque' | 'escalas';
 
-// PACOTE FIXO da sessão de SUPORTE (F9) — imposto pelo SERVIDOR, nunca vem do token.
-// Least privilege: só CONFIG (impressão/KDS/direcionamento/cupom) + visão geral.
-// NÃO inclui financeiro (R$), PII de cliente (delivery/pedidos mostram nome/telefone),
-// vendas, cadastro de pessoas, ponto, estoque, relatórios, auditoria, acessos.
-export const PACOTE_SUPORTE: Permissoes = {
-  impressoras: true,
-  kds: true,
-  direcionamento_impressao: true,
-  cupom_layout: true,
-  producao_kds: true,
-  servidor: true,
-  loja: true, // Configurações → Loja/config técnica (perfil do estabelecimento; sem PII de cliente)
-  dashboard: true, // visão geral, sem detalhe financeiro (governado por ver_financeiro=false)
-};
+// PACOTE_SUPORTE (mínimo da sessão de suporte) fica definido no FIM do arquivo, pois
+// espelha o nível GERÊNCIA (perfilPadrao('gerente')), que só existe depois. Ver lá.
 
 // PACOTE TOTAL da sessão de SUPORTE (F9 · D) — usado SÓ quando o presidente da loja
 // concede acesso total (empresa.suporte_acesso_total=true), para ajudar com config
@@ -330,3 +318,12 @@ export const PERFIS_PADRAO: {
 export const perfilPadrao = (nivel: string) =>
   PERFIS_PADRAO.find((p) => p.nivel === nivel) ??
   PERFIS_PADRAO[PERFIS_PADRAO.length - 1];
+
+// PACOTE MÍNIMO da sessão de SUPORTE (F9) — imposto pelo SERVIDOR, nunca vem do token.
+// Decisão do dono (set/2026): o suporte técnico da distribuição tem, por padrão,
+// acesso de NÍVEL GERÊNCIA (mesmos módulos de um gerente) — antes era só-config, o
+// que "não dava acesso nenhum". Gerência JÁ exclui o sensível: ver_financeiro/R$,
+// financeiro, acessos (RBAC), planos, unidades, visão C&O, exportar clientes, fiscal.
+// Para ir além disso, o presidente concede acesso TOTAL (PACOTE_SUPORTE_TOTAL). A
+// categoria segue 'suporte' (sem bypass de presidente) e tudo é auditado na loja.
+export const PACOTE_SUPORTE: Permissoes = { ...perfilPadrao('gerente').permissoes };

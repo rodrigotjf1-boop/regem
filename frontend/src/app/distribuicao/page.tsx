@@ -128,7 +128,7 @@ export default function DistHome() {
 
   // F9 — acessar as CONFIGURAÇÕES da loja em modo suporte (escopado + auditado).
   async function acessarSuporte(id: string, nome: string) {
-    const motivo = window.prompt(`Acessar "${nome}" em MODO SUPORTE (só configurações, tudo auditado).\nMotivo do acesso:`);
+    const motivo = window.prompt(`Acessar "${nome}" em MODO SUPORTE (acesso de suporte, tudo auditado e visível para a loja).\nMotivo do acesso:`);
     if (motivo === null) return; // cancelou
     try {
       const r: any = await distApi.suporteIniciar(id, motivo || undefined);
