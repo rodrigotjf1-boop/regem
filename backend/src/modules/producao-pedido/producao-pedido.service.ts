@@ -1238,10 +1238,23 @@ export class ProducaoPedidoService {
   // Enfileira uma página de teste para a impressora (botão do painel). O worker
   // do edge converte o texto em ESC/POS e imprime — valida IP/porta/papel na hora.
   async enfileirarTeste(tenantId: string, equipamentoId: string) {
-    // F10 — com edge ativo, a impressão é do servidor local; a nuvem não gera job
-    // órfão. Orienta o usuário a testar pelo servidor local.
+    // F10 — com edge ativo, a impressora está na LAN (a nuvem não a alcança direto).
+    // Em vez de um aviso morto, dispara um COMANDO REMOTO: o servidor local recebe no
+    // próximo ciclo e imprime um teste em TODAS as impressoras configuradas nele. Sem
+    // sincronizar impressao_job/equipamento — reusa o canal edge_comando (mesmo do
+    // rollback). O `equipamentoId` clicado é ignorado (a config de impressora vive no
+    // edge; a nuvem não tem os ids dele) — testa todas, que é o que valida "imprime?".
     if (await edgeAtivo(this.db, tenantId)) {
-      return { ok: false, edge: true, aviso: 'Esta loja usa servidor local (edge). Faça o teste de impressão no servidor local — a nuvem não imprime direto nas impressoras da LAN.' };
+      await this.db.execute(sql`
+        insert into edge_comando (tenant_id, comando, solicitado_por)
+        values (${tenantId}, 'testar_impressora', 'nuvem')`);
+      return {
+        ok: true,
+        edge: true,
+        aviso:
+          'Servidor local ativo — enviei um teste para as impressoras configuradas nele. ' +
+          'O papel sai em alguns segundos (no próximo ciclo do servidor).',
+      };
     }
     const [imp] = await this.db
       .select()

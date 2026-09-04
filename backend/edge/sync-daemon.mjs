@@ -884,6 +884,35 @@ async function reportarTelemetria(origem, tipo, mensagem) {
   } catch { /* best-effort */ }
 }
 
+// Comando 'testar_impressora' (nuvem→edge): a impressora vive na LAN (a nuvem não a
+// alcança direto), então a nuvem manda um comando e o EDGE imprime um teste em CADA
+// impressora configurada localmente. Reusa a fila local (impressao_job) — o worker de
+// impressão pega via LISTEN/poll e envia por TCP 9100 / winspool. Só o edge tem a
+// config de impressora (equipamento é edge-local). Retorna quantas foram enfileiradas.
+async function enfileirarTesteLocal() {
+  const { rows } = await pool.query(
+    `select id, tenant_id, unidade_id, nome, host, porta, largura from equipamento where tipo='impressora'`,
+  );
+  for (const p of rows) {
+    const linha = '-'.repeat(Number(p.largura) === 58 ? 32 : 48);
+    const conteudo = [
+      '*** TESTE REGEM (via nuvem) ***',
+      linha,
+      `Impressora: ${p.nome ?? '(sem nome)'}`,
+      `Destino: ${p.host ? `${p.host}:${p.porta ?? 9100}` : '(impressora do Windows)'}`,
+      new Date().toLocaleString('pt-BR'),
+      linha,
+      'Se leu isto, a impressora esta OK.',
+    ].join('\n');
+    await pool.query(
+      `insert into impressao_job (tenant_id, unidade_id, equipamento_id, via, conteudo)
+       values ($1, $2, $3, 'teste', $4)`,
+      [p.tenant_id, p.unidade_id ?? null, p.id, conteudo],
+    );
+  }
+  return rows.length;
+}
+
 // Comandos remotos (Fase 4): a distribuição enfileira (ex.: rollback); o edge busca
 // e executa localmente. Best-effort; confirma o resultado na nuvem.
 async function verificarComandos() {
@@ -897,6 +926,9 @@ async function verificarComandos() {
         if (c.comando === 'rollback') {
           await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeRollback']);
           resultado = 'rollback disparado';
+        } else if (c.comando === 'testar_impressora') {
+          const n = await enfileirarTesteLocal();
+          resultado = `teste enfileirado em ${n} impressora(s)`;
         } else {
           resultado = 'ignorado';
         }
