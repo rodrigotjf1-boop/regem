@@ -458,7 +458,7 @@ export function Shell({
         {cat === 'suporte' && (
           <div className="sticky top-0 z-30 flex items-center gap-2 bg-amber-500 px-4 py-1.5 text-center text-xs font-semibold text-black">
             <span aria-hidden>🛠️</span>
-            <span className="flex-1">MODO SUPORTE — acesso técnico da distribuição · somente configuração · todas as ações são auditadas e visíveis para a loja</span>
+            <span className="flex-1">MODO SUPORTE — acesso técnico da distribuição · todas as ações são auditadas e visíveis para a loja</span>
           </div>
         )}
         <main className={fill ? 'main-fill' : 'px-5 py-5 pb-16'}>{children}</main>
