@@ -40,7 +40,7 @@ import {
   Wand2,
   Wrench,
 } from 'lucide-react';
-import { api, sair as deslogar, getCategoria, getPermissoes, getToken } from '@/lib/api';
+import { api, sair as deslogar, getCategoria, getPermissoes, getToken, guardarMe } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { RegemMark } from '@/components/brand/regem-mark';
 import { BottomNav } from '@/components/app-shell/bottom-nav';
@@ -214,6 +214,14 @@ export function Shell({
     }
     setCat(getCategoria() ?? '');
     setPerms(getPermissoes());
+    // Sessão de SUPORTE: as permissões são impostas pelo SERVIDOR e, por segurança,
+    // NÃO vão no token — então getPermissoes() (que lê o JWT) vem vazio e o menu ficava
+    // VAZIO. Busca a verdade no /auth/me (o Bearer de suporte devolve o pacote correto).
+    if (getCategoria() === 'suporte') {
+      api.get('/auth/me').then((me: any) => {
+        if (me?.perm) { guardarMe(me); setPerms(me.perm); } // cacheia p/ os gates das páginas também
+      }).catch(() => {});
+    }
     // Falha silenciosa de propósito: se não conseguir ler os módulos, o menu
     // continua completo — melhor mostrar demais do que trancar o gestor fora.
     api.modulosMeus().then(setModulos).catch(() => setModulos(null));
