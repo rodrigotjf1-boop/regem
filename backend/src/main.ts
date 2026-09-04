@@ -9,6 +9,13 @@ import { carregarEnvSeguro } from './secure-env';
 import { verificarIntegridade } from './integridade';
 import { TelemetriaLogger } from './common/telemetria-logger';
 import { TelemetriaExceptionFilter } from './common/telemetria-exception.filter';
+import { setDefaultResultOrder } from 'node:dns';
+
+// Edge (serviço Windows): o IPv6 costuma NÃO rotear no contexto do serviço → a resolução IPv6-first
+// falha ("O nome remoto não pôde ser resolvido: api.dmsregem.com") e a validação de licença/a
+// telemetria quebram. Preferir IPv4 (o MESMO fix do sync-daemon desde a 1.22) elimina isso; o Happy
+// Eyeballs ainda tenta IPv6 como fallback. Global — vale p/ todo fetch/http do backend.
+setDefaultResultOrder('ipv4first');
 
 async function bootstrap() {
   // Fase 1 (proteção): decifra segredos do .env cifrados com DPAPI (enc:), se houver.
