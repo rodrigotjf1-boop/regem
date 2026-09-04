@@ -244,8 +244,19 @@ catch {
 }
 
 # ---- 4) para servicos, troca arquivos, migra, sobe ----
-function Svc($acao, $nome) { & $nssmExe $acao $nome 2>$null | Out-Null }
-Diga "Parando servicos..."; Prog "trocando" 45; Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeImpressao"; Svc stop "RegemEdgeWeb"
+# nssm escreve avisos no stderr (ex.: parar um servico que tem DEPENDENTES rodando).
+# No PS 5.1, redirecionar o stderr de um nativo (2>) faz o PS embrulhar cada linha como
+# NativeCommandError; com ErrorActionPreference=Stop isso ABORTAVA o update inteiro no
+# "Parando servicos" (RegemEdgeApi tem dependentes) — sem log de erro na UI. Blinda com
+# EA=Continue local + try (o stop/start e best-effort; o health-check depois valida).
+function Svc($acao, $nome) {
+  $ea = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { & $nssmExe $acao $nome 2>&1 | Out-Null } catch { }
+  $ErrorActionPreference = $ea
+}
+# Para os DEPENDENTES primeiro e o Api por ULTIMO (Web/Sync/Impressao dependem do Api;
+# parar o Api com dependentes vivos faz o SCM recusar e o nssm cuspir o aviso).
+Diga "Parando servicos..."; Prog "trocando" 45; Svc stop "RegemEdgeWeb"; Svc stop "RegemEdgeImpressao"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeApi"
 
 try {
   Diga "Trocando arquivos (dist, migrations, scripts, package)..."
@@ -398,7 +409,7 @@ catch {
   # Telemetria de falha pela rota PUBLICA (funciona mesmo sem token valido).
   PostErro "update_falha" $errMsg
   Diga "ROLLBACK do codigo (dist.bak)..."
-  Svc stop "RegemEdgeApi"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeImpressao"; Svc stop "RegemEdgeWeb"
+  Svc stop "RegemEdgeWeb"; Svc stop "RegemEdgeImpressao"; Svc stop "RegemEdgeSync"; Svc stop "RegemEdgeApi"
   if (Test-Path $distBak) {
     if (Test-Path $distAtual) { Remove-Item $distAtual -Recurse -Force }
     Copy-Item $distBak $distAtual -Recurse -Force
