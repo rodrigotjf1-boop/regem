@@ -181,6 +181,23 @@ export class DistribuicaoService {
     return row;
   }
 
+  // Anti-clone (licenca.service §3): um fingerprint só pertence a UMA empresa. Ao
+  // repor uma máquina numa OUTRA loja (troca de PC, reaproveitar máquina de teste), o
+  // self-service bate 403 "equipamento já vinculado a outra empresa". Este é o ESCAPE
+  // do distribuidor: desvincula a máquina DESTA loja (device_fingerprint=null) para que
+  // ela possa ser (re)vinculada — a esta loja em máquina nova, ou a máquina liberada a
+  // outra. Não mexe no sync token; a 1ª instalação seguinte re-vincula o fingerprint.
+  async liberarMaquina(tenantId: string, autor: any) {
+    const r: any = await this.db.execute(sql`
+      update ativacao set device_fingerprint = null, atualizado_em = now()
+      where tenant_id = ${tenantId}
+      returning id`);
+    const row = (r.rows ?? r)[0];
+    if (!row) throw new NotFoundException('Loja sem ativação (edge nunca instalado).');
+    await this.auditar(autor, 'equipamento_liberado', tenantId);
+    return { ok: true };
+  }
+
   // Telemetria cross-tenant (erros das lojas). NOTA LGPD: mensagem/stack são técnicos;
   // uma redação de PII pode entrar num hardening futuro.
   async telemetria() {

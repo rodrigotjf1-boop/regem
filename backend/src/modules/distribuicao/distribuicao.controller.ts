@@ -76,6 +76,15 @@ export class DistribuicaoController {
     return this.service.trava(id, dto ?? {}, u);
   }
 
+  // Desvincula a máquina desta loja (device_fingerprint=null) — escape do anti-clone
+  // "equipamento já vinculado a outra empresa" ao repor/reaproveitar um PC.
+  @Post('licencas/:tenantId/liberar-maquina')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  liberarMaquina(@DistUser() u: DistCtx, @Param('tenantId') id: string) {
+    return this.service.liberarMaquina(id, u);
+  }
+
   // F9 — Acesso de SUPORTE a uma loja (Diretoria + Técnico). Emite um token curto,
   // escopado (só config, cat='suporte') e AUDITADO na trilha da própria loja.
   @Post('suporte/iniciar')

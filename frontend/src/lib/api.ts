@@ -452,6 +452,9 @@ export const distApi = {
   // F3b — trava de instalação (anti-clone): liga/desliga por loja.
   trava: (tenantId: string, ativo: boolean, metodo = 'email') =>
     distReq(`/distribuicao/licencas/${tenantId}/trava`, { method: 'POST', body: JSON.stringify({ ativo, metodo }) }),
+  // Desvincula a máquina desta loja (escape do "equipamento já vinculado a outra empresa").
+  liberarMaquina: (tenantId: string) =>
+    distReq(`/distribuicao/licencas/${tenantId}/liberar-maquina`, { method: 'POST', body: '{}' }),
   // F9 — inicia/encerra acesso de suporte a uma loja (retorna o token de suporte).
   suporteIniciar: (tenantId: string, motivo?: string) =>
     distReq('/distribuicao/suporte/iniciar', { method: 'POST', body: JSON.stringify({ tenantId, motivo }) }),
