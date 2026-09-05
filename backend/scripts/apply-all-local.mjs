@@ -62,6 +62,19 @@ try {
   ]);
   const ehBenigno = (e) =>
     BENIGNOS.has(e.code) || /already exists|já existe|does already/i.test(e.message ?? '');
+  // No EDGE, um erro de "objeto NÃO existe" (tabela/coluna/tipo/schema) quase sempre é
+  // uma migration que toca um artefato @cloud-only (entregador, telemetria, frota…) que
+  // NÃO marcamos `-- @cloud-only` nem guardamos — o edge legitimamente não tem. Antes,
+  // isso ABORTAVA o update inteiro (rollback). Agora, SÓ NO EDGE, pula essa migration +
+  // AVISA (pra corrigirmos a marcação) e SEGUE. Na NUVEM continua ESTRITO (aborta), pra
+  // não mascarar bug real. Regra de autoria: [[migrations-cloud-only-regra-edge]].
+  const CLOUD_ONLY_AUSENTE = new Set([
+    '42P01', // undefined_table
+    '42703', // undefined_column
+    '42704', // undefined_object (type/collation/…)
+    '3F000', // invalid_schema_name
+    '42883', // undefined_function
+  ]);
   for (const f of arquivos) {
     const sql = readFileSync(path.join(dir, f), 'utf8');
     // Distribuição-only: não cria no banco da LOJA (edge). O marcador é uma DIRETIVA
@@ -83,6 +96,15 @@ try {
       if (ehBenigno(e)) {
         console.log('JÁ  ', f, '(já aplicada)');
         jaExistiam++;
+        continue;
+      }
+      // EDGE + "objeto não existe" = artefato cloud-only não marcado/guardado. Não
+      // aborta o update inteiro: PULA + AVISA (telemetria vê o WARN) e SEGUE. Regra de
+      // autoria em [[migrations-cloud-only-regra-edge]]. NÃO cobre 23503 (FK) e afins:
+      // erro de DADO/constraint é bug real da migration e DEVE abortar (ex.: a 073).
+      if (ehEdge && CLOUD_ONLY_AUSENTE.has(e.code)) {
+        console.warn('PULA(edge)', f, '→', e.message, `(${e.code}) — artefato cloud-only ausente; marque -- @cloud-only ou guarde o statement (if exists).`);
+        puladas++;
         continue;
       }
       // ABORTA na 1ª falha REAL: migrations seguintes costumam depender desta.
