@@ -1,25 +1,32 @@
 import type { Metadata, Viewport } from 'next';
-import { Figtree, Archivo, JetBrains_Mono } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import TelemetriaCliente from '@/components/telemetria-cliente';
 
-// Fontes self-hosted via next/font (sem @import bloqueante). Cada uma liga na
-// variável CSS que o tailwind.config já consome (--font-sans/display/mono).
-const figtree = Figtree({
-  subsets: ['latin'],
+// Fontes VENDORIZADAS (next/font/local, arquivos em src/fonts) — os .woff2 variáveis
+// vêm do npm (@fontsource-variable), NÃO do Google no build. Antes usávamos
+// next/font/google, que BAIXA as fontes de fonts.gstatic.com durante o `next build`;
+// quando esse download estola (rede/firewall/rate-limit do Google), o build PENDURA em
+// "Creating an optimized production build" a 0% de CPU. Local = build offline, nunca
+// trava. Cada uma liga na variável CSS que o tailwind já consome (--font-sans/display/mono).
+const figtree = localFont({
+  src: '../fonts/figtree-var.woff2',
+  weight: '300 900',
   display: 'swap',
   variable: '--font-sans',
   fallback: ['system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
 });
-const archivo = Archivo({
-  subsets: ['latin'],
+const archivo = localFont({
+  src: '../fonts/archivo-var.woff2',
+  weight: '100 900',
   display: 'swap',
   variable: '--font-display',
   fallback: ['system-ui', 'sans-serif'],
 });
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
+const jetbrainsMono = localFont({
+  src: '../fonts/jetbrains-mono-var.woff2',
+  weight: '100 800',
   display: 'swap',
   variable: '--font-mono',
   fallback: ['ui-monospace', 'monospace'],
