@@ -176,6 +176,12 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao sincronizar.'); }
     finally { setBusy(false); }
   }
+  async function reenviarRegem() {
+    setBusy(true);
+    try { await api.whatsappModelosRegem(); toast.success('Modelos da Regem enviados p/ aprovação da Meta.'); carregar(); }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao enviar os modelos.'); }
+    finally { setBusy(false); }
+  }
   async function remover(id: string) {
     if (!confirm('Remover este modelo do Regem?')) return;
     try { await api.whatsappTemplateRemover(id); carregar(); }
@@ -190,12 +196,16 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-sm text-foreground/70">Modelos aprovados pela Meta permitem <strong>iniciar</strong> conversa (marketing) na API oficial.</p>
         {pode && (
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" disabled={busy} onClick={reenviarRegem}>Modelos da Regem</Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={sincronizar}>Sincronizar com a Meta</Button>
             <Button size="sm" onClick={() => { resetar(); setAberto((v) => !v); }}>{aberto ? 'Fechar' : '＋ Novo modelo'}</Button>
           </div>
         )}
       </div>
+      <p className="rounded-lg bg-primary/5 px-3 py-2 text-[12px] text-foreground/70">
+        ℹ️ Ao conectar a API oficial, a <strong>biblioteca de modelos da Regem</strong> já é enviada pra aprovação automaticamente. Você também pode <strong>criar modelos novos</strong> — mas todo modelo novo <strong>passa pela análise da Meta</strong>, e a aprovação depende dela (siga o formato exigido).
+      </p>
 
       {aberto && pode && (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

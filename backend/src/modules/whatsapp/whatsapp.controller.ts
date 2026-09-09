@@ -246,6 +246,15 @@ export class WhatsappController {
     return this.cloud.sincronizarTemplates(user.tenantId);
   }
 
+  // (Re)envia a biblioteca de modelos do Regem à WABA da loja (submete p/ aprovação).
+  @Post('whatsapp/cloud/modelos-regem')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  modelosRegem(@CurrentUser() user: AuthUser) {
+    return this.cloud.seedModelosRegem(user.tenantId);
+  }
+
   @Delete('whatsapp/cloud/templates/:id')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
