@@ -14,6 +14,8 @@ import { ModelosWhatsapp } from '@/components/delivery/modelos-whatsapp';
 // conteúdo com imagem+link, prévia do balão, agendamento, tipos prontos, cupom automático
 // e lista de exclusão (opt-out). Disparo pelo número de marketing (anti-ban).
 
+const brl = (n: any) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 const SEGS = [
   { k: 'todos', t: 'Todos os clientes' },
   { k: 'mes', t: 'Pediram no mês' },
@@ -66,6 +68,7 @@ async function comprimir(file: File): Promise<File> {
 export default function MarketingPage() {
   const [pode, setPode] = useState(false);
   const [campanhas, setCampanhas] = useState<any[]>([]);
+  const [metricas, setMetricas] = useState<Record<string, any>>({});
   const [novo, setNovo] = useState(false);
   const [excluir, setExcluir] = useState('');
 
@@ -122,6 +125,24 @@ export default function MarketingPage() {
       /* ignore */
     }
   }, []);
+
+  // Métricas/ROI sob demanda (toggle por campanha).
+  async function verMetricas(id: string) {
+    if (metricas[id]) {
+      setMetricas((m) => {
+        const n = { ...m };
+        delete n[id];
+        return n;
+      });
+      return;
+    }
+    try {
+      const d: any = await api.crmCampanhaMetricas(id);
+      setMetricas((m) => ({ ...m, [id]: d }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não consegui carregar as métricas.');
+    }
+  }
 
   useEffect(() => {
     const cat = getCategoria();
@@ -599,11 +620,24 @@ export default function MarketingPage() {
           ) : (
             <div className="divide-y divide-border">
               {campanhas.map((c) => (
-                <div key={c.id} className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
-                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-foreground/70">{c.tipo ?? 'avulsa'}</span>
-                  <span className="min-w-0 flex-1 truncate">{c.mensagem}</span>
-                  <span className="text-xs text-foreground/70">{c.enviados}/{c.total} enviados{c.falhas ? ` · ${c.falhas} falhas` : ''}</span>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] ${c.status === 'concluida' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>{c.status}</span>
+                <div key={c.id} className="px-4 py-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-foreground/70">{c.tipo ?? 'avulsa'}</span>
+                    <span className="min-w-0 flex-1 truncate text-foreground">{c.mensagem}</span>
+                    <span className="text-xs text-foreground/70">{c.enviados}/{c.total} enviados{c.falhas ? ` · ${c.falhas} falhas` : ''}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] ${c.status === 'concluida' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>{c.status}</span>
+                    <button type="button" className="text-[11px] font-semibold text-primary underline" onClick={() => verMetricas(c.id)}>
+                      {metricas[c.id] ? 'ocultar' : 'métricas'}
+                    </button>
+                  </div>
+                  {metricas[c.id] && (
+                    <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2 text-xs sm:grid-cols-4">
+                      <div><span className="block text-foreground/60">Enviados</span><strong className="text-foreground">{metricas[c.id].enviados}/{metricas[c.id].total}</strong></div>
+                      <div><span className="block text-foreground/60">Pedidos atribuídos (7d)</span><strong className="text-foreground">{metricas[c.id].pedidos}</strong></div>
+                      <div><span className="block text-foreground/60">Receita atribuída</span><strong className="text-foreground">{brl(metricas[c.id].valor)}</strong></div>
+                      <div><span className="block text-foreground/60">Cupons resgatados</span><strong className="text-foreground">{metricas[c.id].cupomCodigo ? metricas[c.id].cupomResgates : '—'}</strong></div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -1278,6 +1278,7 @@ export const api = {
         (recuperacaoDias ? `&recuperacaoDias=${recuperacaoDias}` : ''),
     ),
   crmCampanhas: () => req('/campanhas'),
+  crmCampanhaMetricas: (id: string) => req(`/campanhas/${encodeURIComponent(id)}/metricas`),
   // Corpo rico (tipo, link, imagem, agendamento, tetos, cupom automático).
   crmCampanhaCriar: (body: any) =>
     req('/campanhas', { method: 'POST', body: JSON.stringify(body) }),

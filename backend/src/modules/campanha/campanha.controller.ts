@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -22,6 +22,12 @@ export class CampanhaController {
   @Get()
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);
+  }
+
+  // Métricas/ROI de uma campanha (enviados/falhas + cupons resgatados + pedidos atribuídos).
+  @Get(':id/metricas')
+  metricas(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.metricas(user.tenantId, id);
   }
 
   @Get('previa')
