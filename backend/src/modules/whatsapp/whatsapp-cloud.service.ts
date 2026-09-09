@@ -710,6 +710,25 @@ export class WhatsappCloudService {
     return (process.env.PUBLIC_API_BASE || 'https://api.dmsregem.com/api/v1').replace(/\/+$/, '');
   }
 
+  // Valida o corpo contra as REGRAS DA META (as que causam rejeição automática).
+  // Devolve a mensagem de erro (pt-BR) ou null se ok. Usada no submit (trava) e
+  // espelhada no front (aviso imediato).
+  private validarCorpoTemplate(txt: string, onde = 'texto'): string | null {
+    const t = String(txt ?? '').trim();
+    if (t.length < 3) return `O ${onde} está muito curto.`;
+    if (/^\{\{\s*\d+\s*\}\}/.test(t))
+      return `O ${onde} não pode COMEÇAR com uma variável ({{1}}) — regra da Meta. Coloque um texto antes (ex.: "Olá {{1}}…").`;
+    if (/\{\{\s*\d+\s*\}\}\s*$/.test(t))
+      return `O ${onde} não pode TERMINAR com uma variável — regra da Meta. Coloque um texto depois.`;
+    if (/\{\{\s*\d+\s*\}\}\s*\{\{\s*\d+\s*\}\}/.test(t))
+      return `Duas variáveis não podem ficar coladas ({{1}} {{2}}) — separe com texto.`;
+    const nums = (t.match(/\{\{\s*\d+\s*\}\}/g) ?? []).map((v) => Number(v.replace(/\D/g, '')));
+    const uniq = [...new Set(nums)].sort((a, b) => a - b);
+    if (uniq.some((n, i) => n !== i + 1))
+      return `As variáveis devem ser numeradas em sequência a partir de {{1}}, sem pular (encontrei ${uniq.map((n) => `{{${n}}}`).join(', ')}).`;
+    return null;
+  }
+
   // Converte nossos botões p/ o formato da Meta na CRIAÇÃO do template. O botão URL
   // "Peça agora" usa o redirect rastreado (.../r/{{1}}) → clique medido + leva ao link
   // da campanha. copy_code = copiar cupom. quick_reply/optout = resposta rápida.
@@ -820,6 +839,16 @@ export class WhatsappCloudService {
       .where(and(eq(whatsappTemplate.id, id), eq(whatsappTemplate.tenantId, tenantId)));
     if (!tpl) throw new NotFoundException('Modelo não encontrado.');
     const waba = await this.wabaDe(tenantId);
+
+    // Trava as regras da Meta ANTES de enviar (evita rejeição + dá mensagem clara em pt).
+    const errCorpo = this.validarCorpoTemplate(tpl.corpo, tpl.formato === 'carrossel' ? 'texto do topo' : 'corpo');
+    if (errCorpo) throw new BadRequestException(errCorpo);
+    if (tpl.formato === 'carrossel') {
+      ((tpl.cards as any[] | null) ?? []).forEach((card, i) => {
+        const e = this.validarCorpoTemplate(String(card?.corpo ?? ''), `texto do card ${i + 1}`);
+        if (e) throw new BadRequestException(e);
+      });
+    }
 
     const exemploCorpo = (txt: string) => {
       const n = (String(txt ?? '').match(/\{\{\d+\}\}/g) ?? []).length;
