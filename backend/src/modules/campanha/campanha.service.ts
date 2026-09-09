@@ -8,6 +8,9 @@ import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Base pública p/ o link rastreado do clique (redireciona pro link real da campanha).
+const PUB = (process.env.PUBLIC_API_BASE || 'https://api.dmsregem.com/api/v1').replace(/\/+$/, '');
+
 // Campanhas de WhatsApp por segmento (épico 2 provedores). USO INTERNO do lojista,
 // sempre por tenant. Envio pelo NÚMERO DE MARKETING (ou principal), resolvido pelo
 // modelo novo (whatsapp_numero), PAUSADO (anti-ban), respeitando opt-out + lista de
@@ -66,7 +69,7 @@ export class CampanhaService {
   // do envio) com valor. Atribuição por cliente_id + janela de tempo. Sem migration.
   async metricas(tenantId: string, campId: string) {
     const r: any = await this.db.execute(sql`
-      select id, cupom_codigo, criado_em, total, enviados, falhas, status
+      select id, cupom_codigo, criado_em, total, enviados, falhas, status, cliques, mensagem_b
       from campanha where id = ${campId} and tenant_id = ${tenantId} limit 1`);
     const camp = (r.rows ?? r)[0];
     if (!camp) throw new BadRequestException('Campanha não encontrada.');
@@ -89,6 +92,23 @@ export class CampanhaService {
         and p.criado_em >= e.enviado_em and p.criado_em <= e.enviado_em + interval '7 days'
         and p.status <> 'cancelado'`);
     const row = (pa.rows ?? pa)[0] ?? {};
+
+    // Se houve teste A/B, quebra enviados/cliques/pedidos por variante.
+    let ab: any = null;
+    if (camp.mensagem_b) {
+      const abr: any = await this.db.execute(sql`
+        select e.variante,
+               count(*) filter (where e.status = 'enviado')::int as enviados,
+               count(*) filter (where e.clicou)::int as cliques,
+               count(distinct p.id)::int as pedidos
+        from campanha_envio e
+        left join pedido_externo p on p.cliente_id = e.cliente_id and p.status <> 'cancelado'
+             and p.criado_em >= e.enviado_em and p.criado_em <= e.enviado_em + interval '7 days'
+        where e.campanha_id = ${campId} and e.variante is not null
+        group by e.variante order by e.variante`);
+      ab = (abr.rows ?? abr);
+    }
+
     return {
       total: camp.total,
       enviados: camp.enviados,
@@ -98,7 +118,25 @@ export class CampanhaService {
       cupomResgates,
       pedidos: row.pedidos ?? 0,
       valor: row.valor ?? 0,
+      cliques: camp.cliques ?? 0,
+      ab,
     };
+  }
+
+  // Registra o CLIQUE no link rastreado (uma vez por envio) e devolve o link real p/
+  // o redirect público fazer o 302. Best-effort — não quebra o redirect se algo falhar.
+  async registrarClique(envioId: string): Promise<string | null> {
+    const cur: any = await this.db.execute(sql`
+      select e.campanha_id, e.clicou, c.link
+      from campanha_envio e join campanha c on c.id = e.campanha_id
+      where e.id = ${envioId} limit 1`);
+    const row = (cur.rows ?? cur)[0];
+    if (!row) return null;
+    if (!row.clicou) {
+      await this.db.execute(sql`update campanha_envio set clicou = true, clicado_em = now() where id = ${envioId}`);
+      await this.db.execute(sql`update campanha set cliques = cliques + 1, atualizado_em = now() where id = ${row.campanha_id}`);
+    }
+    return row.link ?? null;
   }
 
   // Cria (ou agenda) uma campanha e MATERIALIZA os destinatários numa única query
@@ -112,6 +150,7 @@ export class CampanhaService {
       recuperacaoDias?: number;
       tipo?: string;
       mensagem?: string;
+      mensagemB?: string | null;
       link?: string | null;
       imagemRef?: string | null;
       intervaloSeg?: number;
@@ -179,6 +218,7 @@ export class CampanhaService {
         segmento,
         tipo,
         mensagem,
+        mensagemB: dto.mensagemB?.trim() || null,
         link: dto.link?.trim() || null,
         imagemRef: dto.imagemRef?.trim() || null,
         intervaloSeg,
@@ -199,9 +239,12 @@ export class CampanhaService {
       })
       .returning();
 
+    // A/B: se tem mensagem B, sorteia a variante de cada destinatário (~50/50); senão, 'A'.
+    const temAB = !!(dto.mensagemB && dto.mensagemB.trim());
+    const varFrag = temAB ? sql`case when random() < 0.5 then 'B' else 'A' end` : sql`'A'`;
     const ins: any = await this.db.execute(sql`
-      insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone)
-      select ${camp.id}, c.tenant_id, c.id, c.telefone
+      insert into campanha_envio (campanha_id, tenant_id, cliente_id, telefone, variante)
+      select ${camp.id}, c.tenant_id, c.id, c.telefone, ${varFrag}
       from cliente c
       where c.tenant_id = ${tenantId} ${this.excluidos()} ${this.segFrag(segmento, dto.recuperacaoDias)}`);
     const total = ins.rowCount ?? 0;
@@ -337,8 +380,8 @@ export class CampanhaService {
     this.rodando = true;
     try {
       const prontas: any = await this.db.execute(sql`
-        select id, tenant_id, mensagem, link, imagem_ref, intervalo_seg, teto_dia, teto_semana,
-               teto_mes, instancia_tipo, agendada, dias_semana, hora_inicio, hora_fim,
+        select id, tenant_id, mensagem, mensagem_b, link, imagem_ref, intervalo_seg, teto_dia,
+               teto_semana, teto_mes, instancia_tipo, agendada, dias_semana, hora_inicio, hora_fim,
                inicia_em, termina_em, template_nome, template_idioma, template_vars
         from campanha
         where status = 'enviando'
@@ -355,7 +398,7 @@ export class CampanhaService {
         if (camp.teto_mes && (await this.enviadosNoPeriodo(camp.id, 'month')) >= camp.teto_mes) continue;
 
         const prox: any = await this.db.execute(sql`
-          select id, telefone, cliente_id from campanha_envio
+          select id, telefone, cliente_id, variante from campanha_envio
           where campanha_id = ${camp.id} and status = 'pendente' order by id limit 1`);
         const envio = (prox.rows ?? prox)[0];
         if (!envio) {
@@ -367,9 +410,12 @@ export class CampanhaService {
         }
         const tel = String(envio.telefone).replace(/\D/g, '');
         const numero = tel.length === 10 || tel.length === 11 ? '55' + tel : tel;
-        const caption = [String(camp.mensagem ?? ''), camp.link ? String(camp.link) : '']
-          .filter(Boolean)
-          .join('\n');
+        // A/B: usa a mensagem da variante do destinatário. Link vai RASTREADO (redirect
+        // por envio) p/ medir cliques; sem link, nada é anexado.
+        const msgVar =
+          envio.variante === 'B' && camp.mensagem_b ? String(camp.mensagem_b) : String(camp.mensagem ?? '');
+        const linkTrack = camp.link ? `${PUB}/publico/campanha/r/${envio.id}` : '';
+        const caption = [msgVar, linkTrack].filter(Boolean).join('\n');
         try {
           const papel = camp.instancia_tipo === 'marketing' ? 'marketing' : 'principal';
           const num = await this.numeros.resolver(camp.tenant_id, papel);
