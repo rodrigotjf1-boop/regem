@@ -2200,6 +2200,9 @@ export const campanha = pgTable('campanha', {
   templateNome: text('template_nome'),
   templateIdioma: text('template_idioma'),
   templateVars: jsonb('template_vars'),
+  // Teste A/B + cliques (mig 228)
+  mensagemB: text('mensagem_b'), // variante B (null = sem A/B)
+  cliques: integer('cliques').notNull().default(0),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2214,6 +2217,10 @@ export const campanhaEnvio = pgTable('campanha_envio', {
   status: text('status').notNull().default('pendente'), // pendente | enviado | falha | pulado
   erro: text('erro'),
   enviadoEm: timestamp('enviado_em', { withTimezone: true }),
+  // A/B + clique (mig 228)
+  variante: text('variante'), // 'A' | 'B' | null
+  clicou: boolean('clicou').notNull().default(false),
+  clicadoEm: timestamp('clicado_em', { withTimezone: true }),
 });
 
 // Lista de EXCLUSÃO de marketing por telefone (mig 226) — cobre quem não é cliente

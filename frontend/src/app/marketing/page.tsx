@@ -77,6 +77,7 @@ export default function MarketingPage() {
   const [seg, setSeg] = useState('todos');
   const [recDias, setRecDias] = useState(45);
   const [msg, setMsg] = useState('');
+  const [msgB, setMsgB] = useState('');
   const [link, setLink] = useState('');
   const [imagemRef, setImagemRef] = useState<string | null>(null);
   const [subindoImg, setSubindoImg] = useState(false);
@@ -213,6 +214,7 @@ export default function MarketingPage() {
         segmento: seg,
         recuperacaoDias: seg === 'recuperacao' ? recDias : undefined,
         mensagem: msg,
+        mensagemB: !ehCloud ? msgB.trim() || null : null,
         link: link.trim() || null,
         imagemRef,
         instanciaTipo: instancia,
@@ -248,6 +250,7 @@ export default function MarketingPage() {
     setTipo('avulsa');
     setSeg('todos');
     setMsg('');
+    setMsgB('');
     setLink('');
     setImagemRef(null);
     setTetoDia('');
@@ -405,6 +408,19 @@ export default function MarketingPage() {
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
                 />
                 <Input value={link} onChange={(e) => setLink(e.target.value)} placeholder="Link (opcional) — ex.: cardápio/cupom" />
+                {!ehCloud && (
+                  <details className="text-xs">
+                    <summary className="cursor-pointer text-foreground/70">Teste A/B — mensagem alternativa (opcional)</summary>
+                    <textarea
+                      value={msgB}
+                      onChange={(e) => setMsgB(e.target.value)}
+                      rows={4}
+                      maxLength={900}
+                      placeholder="Variante B: metade do público recebe esta versão. Deixe vazio para não testar."
+                      className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                    />
+                  </details>
+                )}
                 <div className="flex flex-wrap items-center gap-2">
                   <input
                     ref={fileRef}
@@ -631,11 +647,30 @@ export default function MarketingPage() {
                     </button>
                   </div>
                   {metricas[c.id] && (
-                    <div className="mt-2 grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2 text-xs sm:grid-cols-4">
-                      <div><span className="block text-foreground/60">Enviados</span><strong className="text-foreground">{metricas[c.id].enviados}/{metricas[c.id].total}</strong></div>
-                      <div><span className="block text-foreground/60">Pedidos atribuídos (7d)</span><strong className="text-foreground">{metricas[c.id].pedidos}</strong></div>
-                      <div><span className="block text-foreground/60">Receita atribuída</span><strong className="text-foreground">{brl(metricas[c.id].valor)}</strong></div>
-                      <div><span className="block text-foreground/60">Cupons resgatados</span><strong className="text-foreground">{metricas[c.id].cupomCodigo ? metricas[c.id].cupomResgates : '—'}</strong></div>
+                    <div className="mt-2 space-y-2">
+                      <div className="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-2 text-xs sm:grid-cols-5">
+                        <div><span className="block text-foreground/60">Enviados</span><strong className="text-foreground">{metricas[c.id].enviados}/{metricas[c.id].total}</strong></div>
+                        <div><span className="block text-foreground/60">Cliques no link</span><strong className="text-foreground">{metricas[c.id].cliques}</strong></div>
+                        <div><span className="block text-foreground/60">Pedidos atribuídos (7d)</span><strong className="text-foreground">{metricas[c.id].pedidos}</strong></div>
+                        <div><span className="block text-foreground/60">Receita atribuída</span><strong className="text-foreground">{brl(metricas[c.id].valor)}</strong></div>
+                        <div><span className="block text-foreground/60">Cupons resgatados</span><strong className="text-foreground">{metricas[c.id].cupomCodigo ? metricas[c.id].cupomResgates : '—'}</strong></div>
+                      </div>
+                      {Array.isArray(metricas[c.id].ab) && metricas[c.id].ab.length > 0 && (
+                        <div className="rounded-lg border border-border p-2 text-xs">
+                          <p className="mb-1 font-semibold text-foreground">Teste A/B</p>
+                          <div className="grid grid-cols-4 gap-1 text-foreground/70">
+                            <span className="font-semibold">Variante</span><span className="font-semibold">Enviados</span><span className="font-semibold">Cliques</span><span className="font-semibold">Pedidos</span>
+                            {metricas[c.id].ab.map((v: any) => (
+                              <div key={v.variante} className="contents">
+                                <span className="text-foreground">{v.variante}</span>
+                                <span>{v.enviados}</span>
+                                <span>{v.cliques}</span>
+                                <span>{v.pedidos}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
