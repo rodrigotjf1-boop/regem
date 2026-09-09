@@ -550,7 +550,7 @@ export class WhatsappCloudService {
     nome: string,
     idioma: string,
     params: string[],
-    opts?: { envioId?: string; cupom?: string | null },
+    opts?: { envioId?: string; cupom?: string | null; phoneId?: string },
   ) {
     const para = soDigitos(numero);
     if (!para) throw new BadRequestException('Número inválido.');
@@ -562,7 +562,9 @@ export class WhatsappCloudService {
       .from(cardapioConfig)
       .where(eq(cardapioConfig.tenantId, tenantId));
     if (!cfg) throw new NotFoundException('Cardápio não configurado.');
-    if (!cfg.waCloudPhoneId)
+    // Envia pelo phone_id informado (papel marketing na Oficial) ou o principal da loja.
+    const phoneEnvio = String(opts?.phoneId ?? '').trim() || cfg.waCloudPhoneId;
+    if (!phoneEnvio)
       throw new BadRequestException('Esta loja não tem número da API oficial vinculado.');
 
     // Carrega o modelo local p/ montar botões (URL rastreada = opts.envioId; copiar
@@ -607,7 +609,7 @@ export class WhatsappCloudService {
       });
     }
 
-    const res = await fetch(`${GRAPH}/${cfg.waCloudPhoneId}/messages`, {
+    const res = await fetch(`${GRAPH}/${phoneEnvio}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1012,8 +1014,9 @@ export class WhatsappCloudService {
   // COBRANÇA fica na conta do próprio lojista (ele cadastra o meio de pagamento no fluxo).
   async finalizarEmbeddedSignup(
     tenantId: string,
-    dto: { code?: string; phoneNumberId?: string; wabaId?: string },
+    dto: { code?: string; phoneNumberId?: string; wabaId?: string; papel?: string },
   ) {
+    const papel = dto.papel === 'marketing' ? 'marketing' : 'principal';
     const phoneId = String(dto.phoneNumberId ?? '').trim();
     const wabaId = String(dto.wabaId ?? '').trim();
     if (!phoneId || !wabaId)
@@ -1044,27 +1047,31 @@ export class WhatsappCloudService {
       /* segue sem o número de exibição */
     }
 
-    // 4) Grava no modelo (principal/cloud) + espelha no cardapio_config (webhook/legado).
-    const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
-    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
-    await this.db
-      .update(cardapioConfig)
-      .set({ provedor: 'cloud', waCloudPhoneId: phoneId, waCloudWabaId: wabaId, waCloudNumero: numero, updatedAt: new Date() })
-      .where(eq(cardapioConfig.id, cfg.id));
+    // 4) Grava no modelo (papel/cloud). No PRINCIPAL espelha em cardapio_config (webhook/
+    // envio legado leem de lá) e semeia a biblioteca. No MARKETING grava só a linha do
+    // papel (não mexe no provedor da loja nem no atendimento).
     const [ex] = await this.db
       .select({ id: whatsappNumero.id })
       .from(whatsappNumero)
       .where(
-        and(eq(whatsappNumero.tenantId, tenantId), eq(whatsappNumero.papel, 'principal'), isNull(whatsappNumero.unidadeId)),
+        and(eq(whatsappNumero.tenantId, tenantId), eq(whatsappNumero.papel, papel), isNull(whatsappNumero.unidadeId)),
       );
     const patch: any = { provedor: 'cloud', phoneId, wabaId, numero, status: 'conectado', atualizadoEm: new Date() };
     if (ex) await this.db.update(whatsappNumero).set(patch).where(eq(whatsappNumero.id, ex.id));
-    else await this.db.insert(whatsappNumero).values({ tenantId, papel: 'principal', ...patch });
+    else await this.db.insert(whatsappNumero).values({ tenantId, papel, ...patch });
 
-    // Semeia a biblioteca Regem na WABA recém-conectada (2º plano — não segura o retorno).
-    void this.seedModelosRegem(tenantId).catch(() => {});
+    if (papel === 'principal') {
+      const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
+      if (cfg)
+        await this.db
+          .update(cardapioConfig)
+          .set({ provedor: 'cloud', waCloudPhoneId: phoneId, waCloudWabaId: wabaId, waCloudNumero: numero, updatedAt: new Date() })
+          .where(eq(cardapioConfig.id, cfg.id));
+      // Semeia a biblioteca Regem na WABA recém-conectada (2º plano — não segura o retorno).
+      void this.seedModelosRegem(tenantId).catch(() => {});
+    }
 
-    return { ok: true, phoneNumberId: phoneId, wabaId, numero };
+    return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero };
   }
 
   // ===== Conferencia do numero antes de vincular (Fase 3) =====
