@@ -61,6 +61,46 @@ export class CampanhaService {
     return r.rows ?? r;
   }
 
+  // Métricas/ROI de uma campanha (Fase 5): enviados/falhas + cupons resgatados (se a
+  // campanha vinculou cupom) + PEDIDOS ATRIBUÍDOS (quem recebeu e pediu até 7 dias depois
+  // do envio) com valor. Atribuição por cliente_id + janela de tempo. Sem migration.
+  async metricas(tenantId: string, campId: string) {
+    const r: any = await this.db.execute(sql`
+      select id, cupom_codigo, criado_em, total, enviados, falhas, status
+      from campanha where id = ${campId} and tenant_id = ${tenantId} limit 1`);
+    const camp = (r.rows ?? r)[0];
+    if (!camp) throw new BadRequestException('Campanha não encontrada.');
+
+    let cupomResgates = 0;
+    if (camp.cupom_codigo) {
+      const cr: any = await this.db.execute(sql`
+        select count(*)::int as n from cupom_uso cu
+          join cupom c on c.id = cu.cupom_id
+         where c.tenant_id = ${tenantId} and upper(c.codigo) = upper(${camp.cupom_codigo})
+           and cu.usado_em >= ${camp.criado_em}`);
+      cupomResgates = (cr.rows ?? cr)[0]?.n ?? 0;
+    }
+
+    const pa: any = await this.db.execute(sql`
+      select count(distinct p.id)::int as pedidos, coalesce(sum(p.total), 0)::float as valor
+      from campanha_envio e
+      join pedido_externo p on p.cliente_id = e.cliente_id
+      where e.campanha_id = ${campId} and e.status = 'enviado' and e.cliente_id is not null
+        and p.criado_em >= e.enviado_em and p.criado_em <= e.enviado_em + interval '7 days'
+        and p.status <> 'cancelado'`);
+    const row = (pa.rows ?? pa)[0] ?? {};
+    return {
+      total: camp.total,
+      enviados: camp.enviados,
+      falhas: camp.falhas,
+      status: camp.status,
+      cupomCodigo: camp.cupom_codigo ?? null,
+      cupomResgates,
+      pedidos: row.pedidos ?? 0,
+      valor: row.valor ?? 0,
+    };
+  }
+
   // Cria (ou agenda) uma campanha e MATERIALIZA os destinatários numa única query
   // (set-based — nunca loop N), excluindo opt-out + lista de exclusão.
   async criar(
