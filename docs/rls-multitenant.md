@@ -70,7 +70,7 @@ existe, volte ao passo 1).
 ```
 Onde: EasyPanel → serviço regem-api → aba Environment
 Variável DATABASE_URL (troque o usuário, mesma senha/host do formato do pooler):
-  postgresql://regem_rls.yhwcehdoaqhexkriyehv:<senha do passo 1>@aws-1-us-west-2.pooler.supabase.com:6543/postgres
+  postgresql://regem_rls.baglkwaahkjgwvnfabic:<senha do passo 1>@aws-0-sa-east-1.pooler.supabase.com:6543/postgres
 Adicione também:
   RLS_ENABLED = true
 Salvar → Deploy.

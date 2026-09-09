@@ -215,7 +215,8 @@ export class WhatsappCloudService {
           });
 
           // Opt-out por palavra-chave: cliente responde SAIR/PARAR → entra na lista de
-          // exclusão de marketing (LGPD). Best-effort, não interrompe o fluxo do robô.
+          // exclusão de marketing (LGPD) + AVISO de confirmação. VOLTAR desfaz. Não
+          // encaminha ao robô (continue), pra não misturar com o atendimento.
           const txt = this.textoDe(m).trim().toLowerCase();
           if (/^(sair|parar|cancelar|stop|descadastrar)\.?$/.test(txt)) {
             try {
@@ -223,9 +224,26 @@ export class WhatsappCloudService {
                 .insert(marketingOptout)
                 .values({ tenantId: cfg.tenantId, telefone: de, motivo: 'palavra_chave' })
                 .onConflictDoNothing();
+              await this.enviarTexto(
+                cfg.tenantId,
+                de,
+                'Pronto ✅ Você não vai mais receber ofertas e campanhas nossas. Se foi engano e quiser voltar a receber, responda VOLTAR.',
+              );
             } catch {
               /* opt-out best-effort */
             }
+            continue;
+          }
+          if (/^(voltar|voltei|receber)\.?$/.test(txt)) {
+            try {
+              await this.db
+                .delete(marketingOptout)
+                .where(and(eq(marketingOptout.tenantId, cfg.tenantId), eq(marketingOptout.telefone, de)));
+              await this.enviarTexto(cfg.tenantId, de, 'Feito! Você voltou a receber nossas ofertas e novidades 🎉');
+            } catch {
+              /* best-effort */
+            }
+            continue;
           }
 
           // PORTÃO 3 — humano assumiu esta conversa: o robô não responde.
