@@ -423,7 +423,10 @@ export class CampanhaService {
             // API oficial: dispara o MODELO aprovado, preenchendo as variáveis.
             if (!camp.template_nome) throw new Error('Campanha oficial sem modelo.');
             const params = await this.paramsTemplate(camp, envio.cliente_id);
-            await this.cloud.enviarTemplate(camp.tenant_id, numero, camp.template_nome, camp.template_idioma || 'pt_BR', params);
+            await this.cloud.enviarTemplate(camp.tenant_id, numero, camp.template_nome, camp.template_idioma || 'pt_BR', params, {
+              envioId: envio.id, // botão URL rastreado (.../r/:envioId) → clique medido
+              cupom: camp.cupom_codigo, // botão "copiar cupom"
+            });
           } else {
             if (!num.instancia) throw new Error('Número não conectado.');
             if (camp.imagem_ref)

@@ -218,7 +218,7 @@ export class WhatsappCloudService {
           // exclusão de marketing (LGPD) + AVISO de confirmação. VOLTAR desfaz. Não
           // encaminha ao robô (continue), pra não misturar com o atendimento.
           const txt = this.textoDe(m).trim().toLowerCase();
-          if (/^(sair|parar|cancelar|stop|descadastrar)\.?$/.test(txt)) {
+          if (/^(sair|parar|cancelar|stop|descadastrar|sair das ofertas|parar ofertas|n[aã]o quero receber)\.?$/.test(txt)) {
             try {
               await this.db
                 .insert(marketingOptout)
@@ -538,6 +538,7 @@ export class WhatsappCloudService {
     nome: string,
     idioma: string,
     params: string[],
+    opts?: { envioId?: string; cupom?: string | null },
   ) {
     const para = soDigitos(numero);
     if (!para) throw new BadRequestException('Número inválido.');
@@ -552,9 +553,47 @@ export class WhatsappCloudService {
     if (!cfg.waCloudPhoneId)
       throw new BadRequestException('Esta loja não tem número da API oficial vinculado.');
 
-    const componentes = params.length
+    // Carrega o modelo local p/ montar botões (URL rastreada = opts.envioId; copiar
+    // cupom = opts.cupom) e o carrossel no ENVIO.
+    const [tplRow] = await this.db
+      .select()
+      .from(whatsappTemplate)
+      .where(and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, tpl)));
+    const envioId = opts?.envioId || 'x';
+    const cupom = opts?.cupom || 'CUPOM';
+    const paramBotao = (b: any, idx: number) => {
+      if (b?.tipo === 'url')
+        return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: envioId }] };
+      if (b?.tipo === 'copy_code')
+        return { type: 'button', sub_type: 'copy_code', index: String(idx), parameters: [{ type: 'coupon_code', coupon_code: cupom }] };
+      return null; // quick_reply/optout não levam parâmetro no envio
+    };
+
+    const componentes: any[] = params.length
       ? [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: String(t ?? '') })) }]
       : [];
+
+    if (tplRow?.formato === 'carrossel') {
+      const cards = (tplRow.cards as any[] | null) ?? [];
+      componentes.push({
+        type: 'carousel',
+        cards: cards.map((card, ci) => {
+          const comps: any[] = [
+            { type: 'header', parameters: [{ type: 'image', image: { link: String(card?.imagemRef ?? '') } }] },
+          ];
+          (card?.botoes ?? []).forEach((b: any, bi: number) => {
+            const p = paramBotao(b, bi);
+            if (p) comps.push(p);
+          });
+          return { card_index: ci, components: comps };
+        }),
+      });
+    } else {
+      (tplRow?.botoes as any[] | null)?.forEach((b, idx) => {
+        const p = paramBotao(b, idx);
+        if (p) componentes.push(p);
+      });
+    }
 
     const res = await fetch(`${GRAPH}/${cfg.waCloudPhoneId}/messages`, {
       method: 'POST',
@@ -667,6 +706,58 @@ export class WhatsappCloudService {
       .orderBy(desc(whatsappTemplate.criadoEm));
   }
 
+  private redirectBase(): string {
+    return (process.env.PUBLIC_API_BASE || 'https://api.dmsregem.com/api/v1').replace(/\/+$/, '');
+  }
+
+  // Converte nossos botões p/ o formato da Meta na CRIAÇÃO do template. O botão URL
+  // "Peça agora" usa o redirect rastreado (.../r/{{1}}) → clique medido + leva ao link
+  // da campanha. copy_code = copiar cupom. quick_reply/optout = resposta rápida.
+  private montarBotoesTemplate(botoes: any[] | null | undefined): any[] {
+    const out: any[] = [];
+    for (const b of botoes ?? []) {
+      const texto = String(b?.texto ?? '').slice(0, 25);
+      if (b?.tipo === 'url') {
+        const base = `${this.redirectBase()}/publico/campanha/r`;
+        out.push({ type: 'URL', text: texto || 'Peça agora', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
+      } else if (b?.tipo === 'copy_code') {
+        out.push({ type: 'COPY_CODE', example: 'PROMO10' });
+      } else if (b?.tipo === 'optout') {
+        // Texto padronizado p/ o clique cair no opt-out automático do webhook.
+        out.push({ type: 'QUICK_REPLY', text: 'Sair das ofertas' });
+      } else {
+        out.push({ type: 'QUICK_REPLY', text: texto || 'Responder' });
+      }
+    }
+    return out.slice(0, 10);
+  }
+
+  // Upload resumable de uma imagem (URL pública) → header_handle exigido p/ criar
+  // template com HEADER/carrossel de IMAGEM. Usa o App ID + token do System User.
+  private async uploadMidiaHandle(imagemUrl: string): Promise<string> {
+    const appId = process.env.WA_CLOUD_APP_ID ?? '';
+    if (!appId) throw new BadRequestException('WA_CLOUD_APP_ID não configurado (necessário p/ enviar imagem à Meta).');
+    if (!imagemUrl) throw new BadRequestException('Card sem imagem.');
+    const img = await fetch(imagemUrl).catch(() => null);
+    if (!img || !img.ok) throw new BadRequestException('Não consegui baixar a imagem do card.');
+    const buf = Buffer.from(await img.arrayBuffer());
+    const mime = img.headers.get('content-type') || 'image/jpeg';
+    const s = await fetch(
+      `${GRAPH}/${appId}/uploads?file_length=${buf.length}&file_type=${encodeURIComponent(mime)}`,
+      { method: 'POST', headers: { Authorization: `Bearer ${this.token()}` } },
+    ).catch(() => null);
+    const sj: any = s ? await s.json().catch(() => ({})) : {};
+    if (!sj?.id) throw new BadRequestException(`Falha ao abrir upload na Meta: ${JSON.stringify(sj).slice(0, 160)}`);
+    const u = await fetch(`${GRAPH}/${sj.id}`, {
+      method: 'POST',
+      headers: { Authorization: `OAuth ${this.token()}`, file_offset: '0' },
+      body: buf as any,
+    }).catch(() => null);
+    const uj: any = u ? await u.json().catch(() => ({})) : {};
+    if (!uj?.h) throw new BadRequestException(`Falha no upload da imagem à Meta: ${JSON.stringify(uj).slice(0, 160)}`);
+    return uj.h;
+  }
+
   // Cria/edita um template em RASCUNHO no banco (ainda não vai à Meta).
   async salvarTemplate(
     tenantId: string,
@@ -679,10 +770,16 @@ export class WhatsappCloudService {
       corpo?: string;
       rodape?: string | null;
       exemplo?: string[] | null;
+      botoes?: any[] | null;
+      formato?: string;
+      cards?: any[] | null;
     },
   ) {
+    const formato = dto.formato === 'carrossel' ? 'carrossel' : 'padrao';
     const corpo = String(dto.corpo ?? '').trim();
     if (corpo.length < 3) throw new BadRequestException('Corpo do modelo muito curto.');
+    if (formato === 'carrossel' && (!dto.cards || dto.cards.length < 2))
+      throw new BadRequestException('Carrossel exige pelo menos 2 cards.');
     const categoria = ['UTILITY', 'AUTHENTICATION'].includes(String(dto.categoria))
       ? String(dto.categoria)
       : 'MARKETING';
@@ -694,6 +791,9 @@ export class WhatsappCloudService {
       corpo,
       rodape: dto.rodape?.trim() || null,
       exemplo: dto.exemplo && dto.exemplo.length ? dto.exemplo : null,
+      botoes: dto.botoes && dto.botoes.length ? dto.botoes : null,
+      formato,
+      cards: formato === 'carrossel' && dto.cards?.length ? dto.cards : null,
       status: 'rascunho',
       atualizadoEm: new Date(),
     };
@@ -721,18 +821,42 @@ export class WhatsappCloudService {
     if (!tpl) throw new NotFoundException('Modelo não encontrado.');
     const waba = await this.wabaDe(tenantId);
 
-    const nVars = (tpl.corpo.match(/\{\{\d+\}\}/g) ?? []).length;
-    const componentes: any[] = [];
-    if (tpl.cabecalho) componentes.push({ type: 'HEADER', format: 'TEXT', text: tpl.cabecalho });
-    const body: any = { type: 'BODY', text: tpl.corpo };
-    if (nVars > 0) {
-      // A Meta exige exemplo p/ cada variável do corpo.
+    const exemploCorpo = (txt: string) => {
+      const n = (String(txt ?? '').match(/\{\{\d+\}\}/g) ?? []).length;
+      if (!n) return undefined;
       const ex = (tpl.exemplo as string[] | null) ?? [];
-      const exemplos = Array.from({ length: nVars }, (_, i) => ex[i] || 'exemplo');
-      body.example = { body_text: [exemplos] };
+      return { body_text: [Array.from({ length: n }, (_, i) => ex[i] || 'exemplo')] };
+    };
+    const componentes: any[] = [];
+    if (tpl.formato === 'carrossel') {
+      // Balão (BODY) + CAROUSEL com os cards (cada card: imagem + corpo + botões).
+      const body: any = { type: 'BODY', text: tpl.corpo };
+      const exB = exemploCorpo(tpl.corpo);
+      if (exB) body.example = exB;
+      componentes.push(body);
+      const cards = (tpl.cards as any[] | null) ?? [];
+      const cardsMeta: any[] = [];
+      for (const card of cards) {
+        const handle = await this.uploadMidiaHandle(String(card?.imagemRef ?? ''));
+        const comps: any[] = [
+          { type: 'HEADER', format: 'IMAGE', example: { header_handle: [handle] } },
+          { type: 'BODY', text: String(card?.corpo ?? '') },
+        ];
+        const btns = this.montarBotoesTemplate(card?.botoes);
+        if (btns.length) comps.push({ type: 'BUTTONS', buttons: btns });
+        cardsMeta.push({ components: comps });
+      }
+      componentes.push({ type: 'CAROUSEL', cards: cardsMeta });
+    } else {
+      if (tpl.cabecalho) componentes.push({ type: 'HEADER', format: 'TEXT', text: tpl.cabecalho });
+      const body: any = { type: 'BODY', text: tpl.corpo };
+      const exB = exemploCorpo(tpl.corpo);
+      if (exB) body.example = exB;
+      componentes.push(body);
+      if (tpl.rodape) componentes.push({ type: 'FOOTER', text: tpl.rodape });
+      const btns = this.montarBotoesTemplate(tpl.botoes as any[]);
+      if (btns.length) componentes.push({ type: 'BUTTONS', buttons: btns });
     }
-    componentes.push(body);
-    if (tpl.rodape) componentes.push({ type: 'FOOTER', text: tpl.rodape });
 
     const res = await fetch(`${GRAPH}/${waba}/message_templates`, {
       method: 'POST',

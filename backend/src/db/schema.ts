@@ -2251,6 +2251,10 @@ export const whatsappTemplate = pgTable('whatsapp_template', {
   corpo: text('corpo').notNull(), // body com {{1}}, {{2}}…
   rodape: text('rodape'), // footer (opcional)
   exemplo: jsonb('exemplo'), // valores de exemplo das variáveis
+  // Botões + carrossel (mig 229)
+  botoes: jsonb('botoes'), // [{tipo:'url'|'copy_code'|'quick_reply'|'optout', texto, url?}]
+  formato: text('formato').notNull().default('padrao'), // 'padrao' | 'carrossel'
+  cards: jsonb('cards'), // carrossel: [{imagemRef, corpo, botoes:[...]}]
   status: text('status').notNull().default('rascunho'), // rascunho|pendente|aprovado|rejeitado|pausado
   metaId: text('meta_id'),
   motivoRejeicao: text('motivo_rejeicao'),
