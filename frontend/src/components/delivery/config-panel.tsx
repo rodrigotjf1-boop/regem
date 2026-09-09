@@ -12,7 +12,7 @@ import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
-import { ProvedorWhatsapp } from '@/components/delivery/provedor-whatsapp';
+import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -1253,8 +1253,9 @@ function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) 
       <p className="rounded-lg bg-primary/10 px-3 py-2 text-xs text-primary">
         ℹ️ Este robô é do <strong>cardápio digital do Regem</strong>. Se a sua loja usa um cardápio externo (Cardápio Web, Anota Aí, Delivery Web…), o robô de atendimento é o <strong>desse cardápio</strong> — aqui o Regem apenas centraliza e administra os pedidos.
       </p>
-      <ProvedorWhatsapp pode={pode} onEstado={(e) => setProvedor(e.provedor)} />
-      {/* O QR só faz sentido no Evolution; na API oficial o vínculo é por Phone Number ID. */}
+      <NumerosWhatsapp pode={pode} onProvedorPrincipal={(p) => setProvedor(p)} />
+      {/* O QR do número PRINCIPAL (Evolution) vem do fluxo rico abaixo — polling + renovação
+          automática + diagnóstico. Na API oficial o vínculo é por Phone Number ID. */}
       {provedor !== 'cloud' && <ConectarWhatsapp pode={pode} />}
       <p className="text-xs text-muted-foreground">Robô de auto atendimento do cardápio/WhatsApp. Aqui você configura as <strong>mensagens</strong>. O “cérebro” com IA (respostas livres) entra numa etapa dedicada.</p>
       <ToggleLinha label="Robô ativo" desc="Responde os clientes automaticamente." checked={!!loja.roboAtivo} onChange={(v) => up({ roboAtivo: v })} pode={pode} />

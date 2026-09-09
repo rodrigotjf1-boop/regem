@@ -907,7 +907,7 @@ export default function CardapioPublicoPage() {
           )}
           {loja.whatsapp && ped.status !== 'cancelado' && (
             podeWhats ? (
-              <a href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}?text=${msgWhats}`} className="mt-4 inline-block rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-white">💬 Falar no WhatsApp</a>
+              <a href={`https://wa.me/${loja.whatsapp.replace(/\D/g, '')}?text=${msgWhats}`} className="mt-4 inline-block rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-white">💬 Acompanhar no WhatsApp</a>
             ) : (
               <span title="Disponível após a confirmação do pagamento" className="mt-4 inline-block cursor-not-allowed rounded-xl bg-neutral-200 px-5 py-3 font-semibold text-neutral-400">💬 Falar no WhatsApp (após o pagamento)</span>
             )

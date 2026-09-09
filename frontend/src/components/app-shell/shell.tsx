@@ -96,6 +96,7 @@ const NAV: NavNode[] = [
       { href: '/delivery/entregadores', label: 'Entregadores', icon: Bike, perm: 'delivery' },
       { href: '/clientes', label: 'Clientes', icon: Users, perm: 'delivery' },
       { href: '/whatsapp', label: 'WhatsApp', icon: MessageCircle, perm: 'delivery' },
+      { href: '/marketing', label: 'Marketing', icon: Megaphone, perm: 'delivery' },
       { href: '/catalogo', label: 'Gestão do catálogo', icon: Store, perm: 'delivery' },
       { href: '/pedidos', label: 'Pedidos · produção', icon: Flame, perm: 'pedidos' },
       { href: '/encomendas', label: 'Encomendas · agenda', icon: CalendarDays, perm: 'delivery' },

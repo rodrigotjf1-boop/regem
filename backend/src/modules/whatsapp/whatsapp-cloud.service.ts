@@ -1,8 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { cardapioConfig, whatsappMensagem } from '../../db/schema';
+import { cardapioConfig, marketingOptout, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -213,6 +213,20 @@ export class WhatsappCloudService {
             wamid: String(m?.id ?? '') || null,
             nomeContato: nome,
           });
+
+          // Opt-out por palavra-chave: cliente responde SAIR/PARAR → entra na lista de
+          // exclusão de marketing (LGPD). Best-effort, não interrompe o fluxo do robô.
+          const txt = this.textoDe(m).trim().toLowerCase();
+          if (/^(sair|parar|cancelar|stop|descadastrar)\.?$/.test(txt)) {
+            try {
+              await this.db
+                .insert(marketingOptout)
+                .values({ tenantId: cfg.tenantId, telefone: de, motivo: 'palavra_chave' })
+                .onConflictDoNothing();
+            } catch {
+              /* opt-out best-effort */
+            }
+          }
 
           // PORTÃO 3 — humano assumiu esta conversa: o robô não responde.
           if (!ativo || pausados.has(de)) {
@@ -605,6 +619,217 @@ export class WhatsappCloudService {
       categoria: t?.category,
       idioma: t?.language,
     }));
+  }
+
+  // ===== Gestão LOCAL de templates (Opção B: criar/submeter pelo Regem, mig 227) =====
+
+  private async wabaDe(tenantId: string): Promise<string> {
+    const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
+    const waba = cfg?.waCloudWabaId || process.env.WA_CLOUD_WABA_ID || '';
+    if (!waba) throw new BadRequestException('Conta do WhatsApp Business (WABA) não vinculada a esta loja.');
+    return waba;
+  }
+
+  // Normaliza o nome técnico exigido pela Meta (minúsculas, dígitos, underscore).
+  private normalizarNome(nome: string): string {
+    return String(nome ?? '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9_]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 60) || 'modelo';
+  }
+
+  async templatesLocais(tenantId: string) {
+    return this.db
+      .select()
+      .from(whatsappTemplate)
+      .where(eq(whatsappTemplate.tenantId, tenantId))
+      .orderBy(desc(whatsappTemplate.criadoEm));
+  }
+
+  // Cria/edita um template em RASCUNHO no banco (ainda não vai à Meta).
+  async salvarTemplate(
+    tenantId: string,
+    dto: {
+      id?: string;
+      nome?: string;
+      categoria?: string;
+      idioma?: string;
+      cabecalho?: string | null;
+      corpo?: string;
+      rodape?: string | null;
+      exemplo?: string[] | null;
+    },
+  ) {
+    const corpo = String(dto.corpo ?? '').trim();
+    if (corpo.length < 3) throw new BadRequestException('Corpo do modelo muito curto.');
+    const categoria = ['UTILITY', 'AUTHENTICATION'].includes(String(dto.categoria))
+      ? String(dto.categoria)
+      : 'MARKETING';
+    const patch = {
+      nome: this.normalizarNome(dto.nome || 'modelo'),
+      categoria,
+      idioma: dto.idioma || 'pt_BR',
+      cabecalho: dto.cabecalho?.trim() || null,
+      corpo,
+      rodape: dto.rodape?.trim() || null,
+      exemplo: dto.exemplo && dto.exemplo.length ? dto.exemplo : null,
+      status: 'rascunho',
+      atualizadoEm: new Date(),
+    };
+    if (dto.id) {
+      const [row] = await this.db
+        .update(whatsappTemplate)
+        .set(patch)
+        .where(and(eq(whatsappTemplate.id, dto.id), eq(whatsappTemplate.tenantId, tenantId)))
+        .returning();
+      return row;
+    }
+    const [row] = await this.db
+      .insert(whatsappTemplate)
+      .values({ tenantId, ...patch })
+      .returning();
+    return row;
+  }
+
+  // Submete o template à Meta para aprovação. Guarda o meta_id e marca 'pendente'.
+  async submeterTemplate(tenantId: string, id: string) {
+    const [tpl] = await this.db
+      .select()
+      .from(whatsappTemplate)
+      .where(and(eq(whatsappTemplate.id, id), eq(whatsappTemplate.tenantId, tenantId)));
+    if (!tpl) throw new NotFoundException('Modelo não encontrado.');
+    const waba = await this.wabaDe(tenantId);
+
+    const nVars = (tpl.corpo.match(/\{\{\d+\}\}/g) ?? []).length;
+    const componentes: any[] = [];
+    if (tpl.cabecalho) componentes.push({ type: 'HEADER', format: 'TEXT', text: tpl.cabecalho });
+    const body: any = { type: 'BODY', text: tpl.corpo };
+    if (nVars > 0) {
+      // A Meta exige exemplo p/ cada variável do corpo.
+      const ex = (tpl.exemplo as string[] | null) ?? [];
+      const exemplos = Array.from({ length: nVars }, (_, i) => ex[i] || 'exemplo');
+      body.example = { body_text: [exemplos] };
+    }
+    componentes.push(body);
+    if (tpl.rodape) componentes.push({ type: 'FOOTER', text: tpl.rodape });
+
+    const res = await fetch(`${GRAPH}/${waba}/message_templates`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: tpl.nome, language: tpl.idioma, category: tpl.categoria, components: componentes }),
+    }).catch(() => null);
+    const json: any = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok) {
+      const msg = json?.error?.error_user_msg || json?.error?.message || 'falha ao submeter';
+      await this.db
+        .update(whatsappTemplate)
+        .set({ status: 'rejeitado', motivoRejeicao: String(msg).slice(0, 300), atualizadoEm: new Date() })
+        .where(eq(whatsappTemplate.id, id));
+      throw new BadRequestException(`Meta recusou o modelo: ${String(msg).slice(0, 220)}`);
+    }
+    const [row] = await this.db
+      .update(whatsappTemplate)
+      .set({ status: 'pendente', metaId: json?.id ?? null, motivoRejeicao: null, atualizadoEm: new Date() })
+      .where(eq(whatsappTemplate.id, id))
+      .returning();
+    return row;
+  }
+
+  // Sincroniza o STATUS dos templates com a Meta (aprovado/rejeitado/pausado).
+  async sincronizarTemplates(tenantId: string) {
+    const remotos = await this.listarTemplates(tenantId); // [{nome,status,categoria,idioma}]
+    const mapa = new Map((remotos as any[]).map((t) => [`${t.nome}|${t.idioma}`, t.status]));
+    const locais = await this.templatesLocais(tenantId);
+    const de: Record<string, string> = { APPROVED: 'aprovado', PENDING: 'pendente', REJECTED: 'rejeitado', PAUSED: 'pausado' };
+    for (const l of locais) {
+      const st = mapa.get(`${l.nome}|${l.idioma}`);
+      if (st && de[st] && de[st] !== l.status) {
+        await this.db
+          .update(whatsappTemplate)
+          .set({ status: de[st], atualizadoEm: new Date() })
+          .where(eq(whatsappTemplate.id, l.id));
+      }
+    }
+    return this.templatesLocais(tenantId);
+  }
+
+  async removerTemplate(tenantId: string, id: string) {
+    await this.db
+      .delete(whatsappTemplate)
+      .where(and(eq(whatsappTemplate.id, id), eq(whatsappTemplate.tenantId, tenantId)));
+    return { ok: true };
+  }
+
+  // App ID + Configuration ID do Embedded Signup (do env) para o front montar o popup.
+  // Não são segredos (aparecem no JS do cliente de qualquer forma).
+  embeddedConfig() {
+    return {
+      appId: process.env.WA_CLOUD_APP_ID ?? '',
+      configId: process.env.WA_CLOUD_CONFIG_ID ?? '',
+      graphVersion: 'v25.0',
+    };
+  }
+
+  // ===== Embedded Signup (Fase 3 frente 2) — cada loja conecta o PRÓPRIO WABA =====
+  // O popup da Meta devolve (no front) o `code` + o phone_number_id + o WABA da loja.
+  // Aqui a gente: (1) troca o code por token (confirma o vínculo), (2) assina nosso app
+  // na WABA da loja (p/ os webhooks fluírem), (3) grava phone_id/WABA no modelo. A
+  // COBRANÇA fica na conta do próprio lojista (ele cadastra o meio de pagamento no fluxo).
+  async finalizarEmbeddedSignup(
+    tenantId: string,
+    dto: { code?: string; phoneNumberId?: string; wabaId?: string },
+  ) {
+    const phoneId = String(dto.phoneNumberId ?? '').trim();
+    const wabaId = String(dto.wabaId ?? '').trim();
+    if (!phoneId || !wabaId)
+      throw new BadRequestException('O cadastro não concluiu (faltou o número ou a conta WABA).');
+
+    // 1) Troca o code por token — confirma o vínculo. best-effort (não bloqueia).
+    const appId = process.env.WA_CLOUD_APP_ID ?? '';
+    const appSecret = process.env.WA_CLOUD_APP_SECRET ?? '';
+    if (dto.code && appId && appSecret) {
+      await fetch(
+        `${GRAPH}/oauth/access_token?client_id=${appId}&client_secret=${appSecret}&code=${encodeURIComponent(dto.code)}`,
+      ).catch(() => null);
+    }
+
+    // 2) Assina o nosso app na WABA da loja (System User token) — sem isso os webhooks
+    // da loja não chegam na nossa URL de callback.
+    await fetch(`${GRAPH}/${wabaId}/subscribed_apps`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}` },
+    }).catch(() => null);
+
+    // 3) Número de exibição (best-effort).
+    let numero: string | null = null;
+    try {
+      const v: any = await this.verificarNumero(phoneId);
+      numero = v?.numero ?? null;
+    } catch {
+      /* segue sem o número de exibição */
+    }
+
+    // 4) Grava no modelo (principal/cloud) + espelha no cardapio_config (webhook/legado).
+    const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
+    if (!cfg) throw new NotFoundException('Cardápio não configurado.');
+    await this.db
+      .update(cardapioConfig)
+      .set({ provedor: 'cloud', waCloudPhoneId: phoneId, waCloudWabaId: wabaId, waCloudNumero: numero, updatedAt: new Date() })
+      .where(eq(cardapioConfig.id, cfg.id));
+    const [ex] = await this.db
+      .select({ id: whatsappNumero.id })
+      .from(whatsappNumero)
+      .where(
+        and(eq(whatsappNumero.tenantId, tenantId), eq(whatsappNumero.papel, 'principal'), isNull(whatsappNumero.unidadeId)),
+      );
+    const patch: any = { provedor: 'cloud', phoneId, wabaId, numero, status: 'conectado', atualizadoEm: new Date() };
+    if (ex) await this.db.update(whatsappNumero).set(patch).where(eq(whatsappNumero.id, ex.id));
+    else await this.db.insert(whatsappNumero).values({ tenantId, papel: 'principal', ...patch });
+
+    return { ok: true, phoneNumberId: phoneId, wabaId, numero };
   }
 
   // ===== Conferencia do numero antes de vincular (Fase 3) =====

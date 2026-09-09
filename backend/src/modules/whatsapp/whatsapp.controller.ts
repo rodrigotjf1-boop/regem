@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
@@ -9,6 +9,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { WhatsappService } from './whatsapp.service';
 import { WhatsappProvedorService } from './whatsapp-provedor.service';
+import { WhatsappNumeroService, Papel } from './whatsapp-numero.service';
 import { WhatsappCloudService } from './whatsapp-cloud.service';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 
@@ -20,8 +21,48 @@ export class WhatsappController {
   constructor(
     private readonly service: WhatsappService,
     private readonly provedores: WhatsappProvedorService,
+    private readonly numeros: WhatsappNumeroService,
     private readonly cloud: WhatsappCloudService,
   ) {}
+
+  // ===== Números por PAPEL × PROVEDOR (modelo novo, mig 225) =====
+  // Tela de configuração: principal (chatbot só responde) + marketing (disparo).
+  @Get('whatsapp/numeros')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  listarNumeros(@CurrentUser() user: AuthUser) {
+    return this.numeros.listar(user.tenantId);
+  }
+
+  @Post('whatsapp/numeros')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  salvarNumero(
+    @CurrentUser() user: AuthUser,
+    @Body()
+    dto: {
+      papel?: string;
+      provedor?: string;
+      numero?: string | null;
+      instancia?: string | null;
+      phoneId?: string | null;
+      wabaId?: string | null;
+      verificado?: boolean;
+      termoAceito?: string | null;
+    },
+  ) {
+    return this.numeros.salvarNumero(user.tenantId, (dto?.papel ?? '') as Papel, dto ?? {});
+  }
+
+  @Delete('whatsapp/numeros/:papel')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  removerNumero(@CurrentUser() user: AuthUser, @Param('papel') papel: string) {
+    return this.numeros.remover(user.tenantId, (papel ?? '') as Papel);
+  }
 
   @Post('whatsapp/conectar')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
@@ -170,6 +211,69 @@ export class WhatsappController {
   @RequirePerm('bot')
   cloudTemplates(@CurrentUser() user: AuthUser) {
     return this.cloud.listarTemplates(user.tenantId);
+  }
+
+  // ===== Gestão LOCAL de templates (Opção B — criar/submeter pelo Regem, mig 227) =====
+  @Get('whatsapp/cloud/templates/locais')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  templatesLocais(@CurrentUser() user: AuthUser) {
+    return this.cloud.templatesLocais(user.tenantId);
+  }
+
+  @Post('whatsapp/cloud/templates/salvar')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  templateSalvar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.cloud.salvarTemplate(user.tenantId, dto ?? {});
+  }
+
+  @Post('whatsapp/cloud/templates/:id/submeter')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  templateSubmeter(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.cloud.submeterTemplate(user.tenantId, id);
+  }
+
+  @Post('whatsapp/cloud/templates/sincronizar')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  templatesSincronizar(@CurrentUser() user: AuthUser) {
+    return this.cloud.sincronizarTemplates(user.tenantId);
+  }
+
+  @Delete('whatsapp/cloud/templates/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  templateRemover(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.cloud.removerTemplate(user.tenantId, id);
+  }
+
+  // ===== Embedded Signup (Fase 3 frente 2) — conectar o WABA da própria loja =====
+  // Config pública (App ID + Configuration ID) para o front montar o popup da Meta.
+  @Get('whatsapp/cloud/embedded-config')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  embeddedConfig() {
+    return this.cloud.embeddedConfig();
+  }
+
+  // Finaliza o cadastro incorporado: grava phone_id/WABA da loja + assina o app.
+  @Post('whatsapp/cloud/embedded-signup')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  embeddedSignup(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { code?: string; phoneNumberId?: string; wabaId?: string },
+  ) {
+    return this.cloud.finalizarEmbeddedSignup(user.tenantId, dto ?? {});
   }
 
   // Confere na Meta de qual numero e um Phone Number ID, antes de vincular.

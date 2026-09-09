@@ -25,17 +25,28 @@ export class CampanhaController {
   }
 
   @Get('previa')
-  previa(@CurrentUser() user: AuthUser, @Query('segmento') segmento?: string) {
-    return this.service.previa(user.tenantId, segmento ?? 'todos');
+  previa(
+    @CurrentUser() user: AuthUser,
+    @Query('segmento') segmento?: string,
+    @Query('recuperacaoDias') recuperacaoDias?: string,
+  ) {
+    return this.service.previa(user.tenantId, segmento ?? 'todos', Number(recuperacaoDias) || undefined);
   }
 
   @Post()
   criar(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.criar(user.tenantId, user.colaboradorId ?? null, dto);
+    return this.service.criar(user.tenantId, user.colaboradorId ?? null, user.unidadeId ?? null, dto);
   }
 
+  // Opt-out de um CLIENTE cadastrado (toggle do flag).
   @Post('opt-out')
   optOut(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.toggleOptOut(user.tenantId, String(dto?.clienteId ?? ''), !!dto?.optOut);
+  }
+
+  // Adiciona um TELEFONE à lista de exclusão (cobre quem não é cliente cadastrado).
+  @Post('excluir-telefone')
+  excluirTelefone(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.optOutPorTelefone(user.tenantId, String(dto?.telefone ?? ''), 'manual');
   }
 }

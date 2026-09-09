@@ -1020,6 +1020,26 @@ export const api = {
   whatsappCloudVerificarNumero: (phoneNumberId: string) =>
     req(`/whatsapp/cloud/verificar-numero?phoneNumberId=${encodeURIComponent(phoneNumberId)}`),
   whatsappCloudTemplates: () => req('/whatsapp/cloud/templates'),
+  // Gestão LOCAL de templates da API oficial (Opção B, mig 227).
+  whatsappTemplatesLocais: () => req('/whatsapp/cloud/templates/locais'),
+  whatsappTemplateSalvar: (body: any) =>
+    req('/whatsapp/cloud/templates/salvar', { method: 'POST', body: JSON.stringify(body) }),
+  whatsappTemplateSubmeter: (id: string) =>
+    req(`/whatsapp/cloud/templates/${encodeURIComponent(id)}/submeter`, { method: 'POST', body: '{}' }),
+  whatsappTemplatesSincronizar: () =>
+    req('/whatsapp/cloud/templates/sincronizar', { method: 'POST', body: '{}' }),
+  whatsappTemplateRemover: (id: string) =>
+    req(`/whatsapp/cloud/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Embedded Signup (Fase 3 frente 2): config pública (App ID + Config ID) + finalizar.
+  whatsappEmbeddedConfig: () => req('/whatsapp/cloud/embedded-config'),
+  whatsappEmbeddedSignup: (body: { code?: string; phoneNumberId?: string; wabaId?: string }) =>
+    req('/whatsapp/cloud/embedded-signup', { method: 'POST', body: JSON.stringify(body) }),
+  // Números por PAPEL × PROVEDOR (mig 225): principal (chatbot só responde) + marketing.
+  whatsappNumeros: () => req('/whatsapp/numeros'),
+  whatsappNumeroSalvar: (body: any) =>
+    req('/whatsapp/numeros', { method: 'POST', body: JSON.stringify(body) }),
+  whatsappNumeroRemover: (papel: string) =>
+    req(`/whatsapp/numeros/${encodeURIComponent(papel)}`, { method: 'DELETE' }),
   whatsappDesconectar: () => req('/whatsapp/desconectar', { method: 'DELETE' }),
   whatsappVincular: (instancia: string) =>
     req('/whatsapp/vincular', { method: 'POST', body: JSON.stringify({ instancia }) }),
@@ -1251,19 +1271,20 @@ export const api = {
     ids?: string[];
   }) => req('/clientes/export', { method: 'POST', body: JSON.stringify(body) }),
   crmHistorico: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/historico`),
-  // Campanhas de WhatsApp por segmento (F5) — só nuvem, só gestão.
-  crmCampanhaPrevia: (segmento: string) =>
-    req(`/campanhas/previa?segmento=${encodeURIComponent(segmento)}`),
+  // Campanhas de WhatsApp por segmento (F5 + épico marketing) — só nuvem, só gestão.
+  crmCampanhaPrevia: (segmento: string, recuperacaoDias?: number) =>
+    req(
+      `/campanhas/previa?segmento=${encodeURIComponent(segmento)}` +
+        (recuperacaoDias ? `&recuperacaoDias=${recuperacaoDias}` : ''),
+    ),
   crmCampanhas: () => req('/campanhas'),
-  crmCampanhaCriar: (body: {
-    segmento: string;
-    mensagem: string;
-    intervaloSeg?: number;
-    tetoDia?: number | null;
-    instanciaTipo?: string;
-  }) => req('/campanhas', { method: 'POST', body: JSON.stringify(body) }),
+  // Corpo rico (tipo, link, imagem, agendamento, tetos, cupom automático).
+  crmCampanhaCriar: (body: any) =>
+    req('/campanhas', { method: 'POST', body: JSON.stringify(body) }),
   crmOptOut: (clienteId: string, optOut: boolean) =>
     req('/campanhas/opt-out', { method: 'POST', body: JSON.stringify({ clienteId, optOut }) }),
+  crmExcluirTelefone: (telefone: string) =>
+    req('/campanhas/excluir-telefone', { method: 'POST', body: JSON.stringify({ telefone }) }),
   crmFunil: (dias = 30) => req(`/clientes/funil?dias=${dias}`),
   // E2b — entregadores ao vivo (última posição/15min + nº em rota).
   entregadoresAoVivo: () => req('/entregador/ao-vivo'),
