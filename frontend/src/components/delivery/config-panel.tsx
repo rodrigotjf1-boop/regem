@@ -1098,165 +1098,18 @@ export function PontoLojaMapa({ loja, up, pode }: { loja: any; up: (p: any) => v
 const areaTxt = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm';
 
 // Conectar o WhatsApp da loja (Evolution): mostra o QR e faz polling do status.
-function ConectarWhatsapp({ pode }: { pode: boolean }) {
-  const [status, setStatus] = useState<any>(null);
-  const [qr, setQr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [erro, setErro] = useState('');
-  const [inst, setInst] = useState('');
-  const [avancado, setAvancado] = useState(false);
-  const [diag, setDiag] = useState<any>(null);
-  const [diagBusy, setDiagBusy] = useState(false);
-
-  async function testar() {
-    setDiagBusy(true); setErro('');
-    try { setDiag(await api.whatsappDiagnostico()); } catch (e) { setErro(e instanceof Error ? e.message : 'Erro no diagnóstico'); }
-    finally { setDiagBusy(false); }
-  }
-
-  async function vincular() {
-    if (!inst.trim()) { setErro('Informe o nome exato da conexão existente.'); return; }
-    setBusy(true); setErro('');
-    try {
-      const r: any = await api.whatsappVincular(inst.trim());
-      setStatus({ conectado: r?.conectado, estado: r?.estado, instancia: r?.instancia });
-      if (!r?.conectado) setErro(`Vinculado, mas a instância está "${r?.estado}". Confira se está Connected no Evolution.`);
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao vincular'); }
-    finally { setBusy(false); }
-  }
-
-  async function carregarStatus() {
-    try { setStatus(await api.whatsappStatus()); } catch { /* ignore */ }
-  }
-  useEffect(() => { carregarStatus(); }, []);
-  // Enquanto o QR está na tela, verifica a cada 3s se pareou.
-  useEffect(() => {
-    if (!qr) return;
-    const t = setInterval(async () => {
-      try {
-        const s: any = await api.whatsappStatus();
-        setStatus(s);
-        if (s?.conectado) { setQr(null); clearInterval(t); }
-      } catch { /* ignore */ }
-    }, 3000);
-    return () => clearInterval(t);
-  }, [qr]);
-
-  // O código do WhatsApp expira em menos de 1 minuto. Sem renovar, o gestor aponta
-  // o celular para um QR morto e "não conecta". Renova sozinho enquanto está na tela.
-  useEffect(() => {
-    if (!qr || status?.conectado) return;
-    const t = setInterval(async () => {
-      try {
-        const r: any = await api.whatsappConectar();
-        if (r?.qr) setQr(r.qr);
-      } catch { /* ignore */ }
-    }, 30000);
-    return () => clearInterval(t);
-  }, [qr, status?.conectado]);
-
-  async function conectar() {
-    setBusy(true); setErro('');
-    try {
-      const r: any = await api.whatsappConectar();
-      setQr(r?.qr ?? null);
-      if (!r?.qr) setErro('Não foi possível gerar o QR agora. Tente novamente em instantes ou fale com o suporte.');
-    } catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao conectar'); }
-    finally { setBusy(false); }
-  }
-  async function desconectar() {
-    if (!confirm('Desconectar o WhatsApp desta loja?')) return;
-    try { await api.whatsappDesconectar(); setQr(null); carregarStatus(); } catch { /* ignore */ }
-  }
-
-  const conectado = status?.conectado;
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold">WhatsApp da loja</p>
-          <p className="text-xs text-muted-foreground">
-            {conectado
-              ? `● Conectado${status?.instancia ? ` · ${status.instancia}` : ''}`
-              : 'Conecte o número do WhatsApp que o robô vai atender.'}
-          </p>
-        </div>
-        {pode && (
-          conectado
-            ? <Button type="button" size="sm" variant="outline" onClick={desconectar}>Desconectar</Button>
-            : <Button type="button" size="sm" onClick={conectar} disabled={busy}>{busy ? 'Gerando…' : (qr ? 'Gerar novo QR' : 'Conectar WhatsApp')}</Button>
-        )}
-      </div>
-      {pode && !conectado && (
-        <div className="mt-2">
-          <button type="button" className="text-[11px] text-muted-foreground underline" onClick={() => setAvancado((v) => !v)}>
-            {avancado ? 'ocultar avançado' : 'avançado — já tenho uma instância'}
-          </button>
-          {avancado && (
-            <div className="mt-1 space-y-2 rounded-lg border border-dashed border-border p-2">
-              <div>
-                <Button type="button" size="sm" variant="outline" disabled={diagBusy} onClick={testar}>
-                  {diagBusy ? 'Testando…' : 'Testar conexão'}
-                </Button>
-              </div>
-              {diag && (
-                <div className="rounded-md bg-secondary/60 p-2 text-[11px]">
-                  <p>{diag.urlSet ? '✅' : '❌'} URL configurada {diag.url ? <span className="text-muted-foreground">({diag.url})</span> : ''}</p>
-                  <p>{diag.keySet ? '✅' : '❌'} Chave configurada</p>
-                  <p>{diag.evolutionOk ? '✅ Evolution respondeu' : '❌ Evolution não respondeu'}</p>
-                  {diag.erro && <p className="mt-1 text-destructive">{diag.erro}</p>}
-                  {diag.instanciaVinculada && <p className="mt-1">Instância vinculada: <strong>{diag.instanciaVinculada}</strong></p>}
-                  <p>
-                    {diag.webhookConfigurado ? '✅' : '❌'} Atendimento automático configurado no servidor
-                    {diag.webhookAtivo === false && <span className="text-destructive"> · esta conexão está sem o robô</span>}
-                  </p>
-                  {diag.instancias?.length > 0 && (
-                    <div className="mt-1">
-                      <p className="font-semibold">Esta loja no Evolution (clique p/ usar):</p>
-                      {diag.instancias.map((x: any) => (
-                        <button key={x.nome} type="button" onClick={() => setInst(x.nome)} className="mr-1 mt-1 rounded bg-card px-1.5 py-0.5 hover:bg-primary/10">
-                          {x.nome} <span className="text-muted-foreground">· {x.estado}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              <p className="text-[11px] text-muted-foreground">Migração/suporte: cole o <strong>nome exato</strong> de uma instância existente para reaproveitar os chats, sem escanear de novo.</p>
-              <div className="flex gap-2">
-                <Input value={inst} onChange={(e) => setInst(e.target.value)} placeholder="nome exato da conexão" className="h-8" disabled={busy} />
-                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={vincular}>Vincular</Button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-      {qr && !conectado && (
-        <div className="mt-3 flex flex-col items-center gap-2">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={qr} alt="QR do WhatsApp" className="h-56 w-56 rounded-lg border border-border" />
-          <p className="text-xs text-muted-foreground">No celular da loja: WhatsApp → Aparelhos conectados → <strong>Conectar aparelho</strong> → aponte para o QR.</p>
-          <p className="text-[11px] text-muted-foreground">O código se renova sozinho a cada 30 segundos — deixe esta tela aberta.</p>
-        </div>
-      )}
-      {erro && <p className="mt-2 text-xs text-destructive">{erro}</p>}
-    </div>
-  );
-}
 
 function Robo({ loja, up, onSalvar, salvando, pode }: { loja: any; up: (p: any) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
   const msgs: any[] = loja.roboMensagens ?? [];
   const setMsgs = (m: any[]) => up({ roboMensagens: m });
-  const [provedor, setProvedor] = useState<string>('evolution');
   return (
     <div className="space-y-3">
       <p className="rounded-lg bg-primary/10 px-3 py-2 text-xs text-primary">
         ℹ️ Este robô é do <strong>cardápio digital do Regem</strong>. Se a sua loja usa um cardápio externo (Cardápio Web, Anota Aí, Delivery Web…), o robô de atendimento é o <strong>desse cardápio</strong> — aqui o Regem apenas centraliza e administra os pedidos.
       </p>
-      <NumerosWhatsapp pode={pode} onProvedorPrincipal={(p) => setProvedor(p)} />
-      {/* O QR do número PRINCIPAL (Evolution) vem do fluxo rico abaixo — polling + renovação
-          automática + diagnóstico. Na API oficial o vínculo é por Phone Number ID. */}
-      {provedor !== 'cloud' && <ConectarWhatsapp pode={pode} />}
+      {/* Configuração completa dos números (Principal + Marketing) — inclui o QR e o
+          cadastro oficial da Meta. Substitui o antigo bloco separado "WhatsApp da loja". */}
+      <NumerosWhatsapp pode={pode} />
       <p className="text-xs text-muted-foreground">Robô de auto atendimento do cardápio/WhatsApp. Aqui você configura as <strong>mensagens</strong>. O “cérebro” com IA (respostas livres) entra numa etapa dedicada.</p>
       <ToggleLinha label="Robô ativo" desc="Responde os clientes automaticamente." checked={!!loja.roboAtivo} onChange={(v) => up({ roboAtivo: v })} pode={pode} />
 
