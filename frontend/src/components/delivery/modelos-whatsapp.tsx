@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 // só envia e espelha o status. Variáveis no corpo com {{1}}, {{2}}…
 
 const STATUS: Record<string, { t: string; c: string }> = {
-  rascunho: { t: 'rascunho', c: 'bg-muted text-muted-foreground' },
+  rascunho: { t: 'rascunho', c: 'bg-muted text-foreground/70' },
   pendente: { t: 'em análise', c: 'bg-amber-500/10 text-amber-600' },
   aprovado: { t: 'aprovado', c: 'bg-emerald-500/10 text-emerald-600' },
   rejeitado: { t: 'rejeitado', c: 'bg-destructive/10 text-destructive' },
@@ -114,7 +114,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-foreground/70">
           Modelos aprovados pela Meta permitem <strong>iniciar</strong> conversa (marketing) na API oficial.
         </p>
         {pode && (
@@ -133,11 +133,11 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
         <Card className="space-y-3 p-4">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs">
-              <span className="mb-0.5 block text-muted-foreground">Nome técnico</span>
+              <span className="mb-0.5 block text-foreground/70">Nome técnico</span>
               <Input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="promo_frete_gratis" />
             </label>
             <label className="text-xs">
-              <span className="mb-0.5 block text-muted-foreground">Categoria</span>
+              <span className="mb-0.5 block text-foreground/70">Categoria</span>
               <select
                 value={form.categoria}
                 onChange={(e) => setForm({ ...form, categoria: e.target.value })}
@@ -149,16 +149,28 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
               </select>
             </label>
             <label className="text-xs">
-              <span className="mb-0.5 block text-muted-foreground">Idioma</span>
+              <span className="mb-0.5 block text-foreground/70">Idioma</span>
               <Input value={form.idioma} onChange={(e) => setForm({ ...form, idioma: e.target.value })} placeholder="pt_BR" />
             </label>
           </div>
+          {/* O que cada categoria significa (a Meta cobra e regula diferente por categoria) */}
+          <div className="rounded-lg border border-dashed border-border bg-muted/40 p-2 text-[11px] leading-relaxed text-foreground/75">
+            {form.categoria === 'MARKETING' && (
+              <span><strong className="text-foreground">Marketing:</strong> promoções, ofertas, novidades, cupons, reativação. Exige opt-in do cliente, tem teto de frequência e é a categoria mais cara. Use para campanhas.</span>
+            )}
+            {form.categoria === 'UTILITY' && (
+              <span><strong className="text-foreground">Utilidade:</strong> mensagens ligadas a uma transação que o cliente já fez (confirmação/status de pedido, recibo, lembrete). Mais barata; dentro da janela de 24h pode ser grátis. Não serve para promoção.</span>
+            )}
+            {form.categoria === 'AUTHENTICATION' && (
+              <span><strong className="text-foreground">Autenticação:</strong> apenas códigos de verificação/login (OTP). Não use para conteúdo comercial.</span>
+            )}
+          </div>
           <label className="block text-xs">
-            <span className="mb-0.5 block text-muted-foreground">Cabeçalho (opcional)</span>
+            <span className="mb-0.5 block text-foreground/70">Cabeçalho (opcional)</span>
             <Input value={form.cabecalho} onChange={(e) => setForm({ ...form, cabecalho: e.target.value })} placeholder="Ex.: Oferta da semana" />
           </label>
           <label className="block text-xs">
-            <span className="mb-0.5 block text-muted-foreground">Corpo (use {'{{1}}'}, {'{{2}}'}… para variáveis)</span>
+            <span className="mb-0.5 block text-foreground/70">Corpo (use {'{{1}}'}, {'{{2}}'}… para variáveis)</span>
             <textarea
               value={form.corpo}
               onChange={(e) => setForm({ ...form, corpo: e.target.value })}
@@ -171,14 +183,14 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {exemplos.map((ex, i) => (
                 <label key={i} className="text-xs">
-                  <span className="mb-0.5 block text-muted-foreground">Exemplo {'{{'}{i + 1}{'}}'}</span>
+                  <span className="mb-0.5 block text-foreground/70">Exemplo {'{{'}{i + 1}{'}}'}</span>
                   <Input value={ex} onChange={(e) => setExemplos((c) => c.map((x, j) => (j === i ? e.target.value : x)))} placeholder={i === 0 ? 'João' : 'exemplo'} />
                 </label>
               ))}
             </div>
           )}
           <label className="block text-xs">
-            <span className="mb-0.5 block text-muted-foreground">Rodapé (opcional)</span>
+            <span className="mb-0.5 block text-foreground/70">Rodapé (opcional)</span>
             <Input value={form.rodape} onChange={(e) => setForm({ ...form, rodape: e.target.value })} placeholder="Responda SAIR para não receber" />
           </label>
           <div className="flex justify-end gap-2">
@@ -193,7 +205,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
           <p className="font-display font-bold">Modelos</p>
         </div>
         {lista.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">Nenhum modelo ainda.</p>
+          <p className="px-4 py-6 text-sm text-foreground/70">Nenhum modelo ainda.</p>
         ) : (
           <div className="divide-y divide-border">
             {lista.map((t) => {
@@ -202,7 +214,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
                 <div key={t.id} className="px-4 py-3 text-sm">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs">{t.nome}</span>
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-muted-foreground">{t.categoria}</span>
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-foreground/70">{t.categoria}</span>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] ${st.c}`}>{st.t}</span>
                     <div className="ml-auto flex gap-2">
                       {pode && (t.status === 'rascunho' || t.status === 'rejeitado') && (
@@ -212,7 +224,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
                       {pode && <button type="button" className="text-[11px] text-destructive underline" onClick={() => remover(t.id)}>remover</button>}
                     </div>
                   </div>
-                  <p className="mt-1 whitespace-pre-wrap break-words text-xs text-muted-foreground">{t.corpo}</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words text-xs text-foreground/70">{t.corpo}</p>
                   {t.status === 'rejeitado' && t.motivo_rejeicao && (
                     <p className="mt-1 text-[11px] text-destructive">Motivo: {t.motivo_rejeicao}</p>
                   )}

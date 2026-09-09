@@ -81,15 +81,21 @@ export function NumerosWhatsapp({
   onProvedorPrincipal?: (p: Provedor) => void;
 }) {
   const [est, setEst] = useState<Estado | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [carregando, setCarregando] = useState(true);
   const [mesmoNumero, setMesmoNumero] = useState(false);
 
   async function carregar() {
+    setCarregando(true);
+    setErro(null);
     try {
       const d: Estado = await api.whatsappNumeros();
       setEst(d);
       onProvedorPrincipal?.(d.principal.provedor);
-    } catch {
-      /* a tela continua útil sem este bloco */
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não consegui carregar os números.');
+    } finally {
+      setCarregando(false);
     }
   }
   useEffect(() => {
@@ -97,25 +103,48 @@ export function NumerosWhatsapp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!est) return null;
+  // Fallback: os cards SEMPRE aparecem (mesmo antes de carregar / se der erro), para
+  // o gestor nunca ficar sem a configuração de números na tela.
+  const vazio: NumeroResolvido = {
+    papel: 'principal',
+    provedor: 'evolution',
+    numero: null,
+    instancia: null,
+    phoneId: null,
+    wabaId: null,
+    status: 'desconectado',
+    verificado: false,
+    vinculado: false,
+  };
+  const dados: Estado = est ?? {
+    principal: { ...vazio, papel: 'principal' },
+    marketing: { ...vazio, papel: 'marketing' },
+    termo: { versao: '', evolution: '', cloud: '' },
+  };
 
   return (
-    <div className="rounded-lg border border-border p-3">
-      <p className="text-sm font-semibold">Números de WhatsApp da loja</p>
-      <p className="mt-0.5 text-xs text-muted-foreground">
+    <div className="rounded-lg border border-border bg-card p-3">
+      <p className="text-sm font-semibold text-foreground">Números de WhatsApp da loja</p>
+      <p className="mt-0.5 text-xs text-foreground/70">
         Dois papéis: o <strong>Principal</strong> conversa com quem te chama; o de{' '}
         <strong>Marketing</strong> faz os disparos das campanhas. Você pode usar o mesmo número nos dois.
       </p>
+      {carregando && !est && <p className="mt-2 text-xs text-foreground/60">Carregando números…</p>}
+      {erro && (
+        <p className="mt-2 rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive">
+          {erro} <button type="button" className="underline" onClick={carregar}>tentar de novo</button>
+        </p>
+      )}
 
       <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <CardNumero papel="principal" dado={est.principal} termo={est.termo} pode={pode} onMudou={carregar} />
+        <CardNumero papel="principal" dado={dados.principal} termo={dados.termo} pode={pode} onMudou={carregar} />
         <CardNumero
           papel="marketing"
-          dado={est.marketing}
-          termo={est.termo}
+          dado={dados.marketing}
+          termo={dados.termo}
           pode={pode}
           onMudou={carregar}
-          espelharDe={mesmoNumero ? est.principal : undefined}
+          espelharDe={mesmoNumero ? dados.principal : undefined}
         />
       </div>
 
@@ -131,11 +160,11 @@ export function NumerosWhatsapp({
                 try {
                   await api.whatsappNumeroSalvar({
                     papel: 'marketing',
-                    provedor: est.principal.provedor,
-                    numero: est.principal.numero,
-                    phoneId: est.principal.phoneId,
-                    wabaId: est.principal.wabaId,
-                    termoAceito: est.termo.versao,
+                    provedor: dados.principal.provedor,
+                    numero: dados.principal.numero,
+                    phoneId: dados.principal.phoneId,
+                    wabaId: dados.principal.wabaId,
+                    termoAceito: dados.termo.versao,
                   });
                   toast.success('Marketing usando o mesmo número do Principal.');
                   carregar();
@@ -287,16 +316,16 @@ function CardNumero({
           className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
             conectado
               ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
-              : 'border-border bg-muted text-muted-foreground'
+              : 'border-border bg-muted text-foreground/70'
           }`}
         >
           {conectado ? '● conectado' : '○ não conectado'}
         </span>
-        {dado.numero && <span className="text-[11px] text-muted-foreground">{dado.numero}</span>}
+        {dado.numero && <span className="text-[11px] text-foreground/70">{dado.numero}</span>}
       </div>
 
       {espelhado ? (
-        <p className="mt-2 text-xs text-muted-foreground">
+        <p className="mt-2 text-xs text-foreground/70">
           Espelhando o número Principal. Desmarque “usar o mesmo número” para configurar um número separado.
         </p>
       ) : (
@@ -319,10 +348,10 @@ function CardNumero({
             ))}
           </div>
 
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{DESC[papel]}</p>
+          <p className="mt-2 text-xs leading-relaxed text-foreground/70">{DESC[papel]}</p>
 
           <div className="mt-2 rounded-lg border border-dashed border-border bg-muted/30 p-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">O que você aceita</p>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-foreground/70">O que você aceita</p>
             <p className="mt-0.5 text-[11px] leading-relaxed">{termo[provedor]}</p>
           </div>
 
@@ -331,11 +360,11 @@ function CardNumero({
               <Button type="button" size="sm" disabled={!pode || busy} onClick={embeddedSignup}>
                 {busy ? 'Abrindo…' : conectado ? 'Reconectar com a Meta' : 'Conectar com a Meta (recomendado)'}
               </Button>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[11px] text-foreground/70">
                 Abre o cadastro oficial da Meta num popup. Você conecta o número e cadastra a sua forma de
                 pagamento (a Meta cobra as mensagens direto da sua empresa). A gente só guarda a referência do número.
               </p>
-              <details className="text-[11px] text-muted-foreground">
+              <details className="text-[11px] text-foreground/70">
                 <summary className="cursor-pointer">avançado — informar o Phone Number ID manualmente</summary>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div>
@@ -375,7 +404,7 @@ function CardNumero({
                 disabled={!pode}
                 className="max-w-[220px]"
               />
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-[11px] text-foreground/70">
                 A conexão por QR do número principal fica logo abaixo.
               </span>
             </div>
@@ -385,7 +414,7 @@ function CardNumero({
             <div className="mt-2 flex flex-col items-center rounded-lg border border-border bg-white p-2">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={qr} alt="QR Code do WhatsApp" className="h-44 w-44" />
-              <p className="mt-1 text-[11px] text-muted-foreground">Abra o WhatsApp → Aparelhos conectados → Conectar aparelho.</p>
+              <p className="mt-1 text-[11px] text-foreground/70">Abra o WhatsApp → Aparelhos conectados → Conectar aparelho.</p>
             </div>
           )}
 

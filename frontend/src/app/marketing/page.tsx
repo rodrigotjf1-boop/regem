@@ -107,6 +107,11 @@ export default function MarketingPage() {
   const ehCloud = provedorAtual === 'cloud';
   const templateSel = templates.find((t) => t.nome === templateNome);
   const templateVarsCount = templateSel ? (String(templateSel.corpo).match(/\{\{\d+\}\}/g) ?? []).length : 0;
+  // Só faz sentido "Modelos (API oficial)" se a loja usa a API oficial em algum número.
+  const temCloud = numeros?.principal?.provedor === 'cloud' || numeros?.marketing?.provedor === 'cloud';
+  // Marketing só funciona com um número conectado — evita erro no disparo.
+  const numeroConectado = !!(numeros?.principal?.vinculado || numeros?.marketing?.vinculado);
+  const abas = (temCloud ? (['campanhas', 'modelos'] as const) : (['campanhas'] as const));
 
   const carregar = useCallback(async () => {
     try {
@@ -238,26 +243,28 @@ export default function MarketingPage() {
 
   return (
     <Shell>
-      <div className="mx-auto w-full max-w-4xl space-y-4 p-4">
+      <div className="w-full space-y-4 p-4 lg:p-6">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="font-display text-xl font-bold">Marketing</h1>
           {pode && aba === 'campanhas' && (
-            <Button className="ml-auto" onClick={() => setNovo((v) => !v)}>
+            <Button className="ml-auto" disabled={!numeroConectado} onClick={() => setNovo((v) => !v)}>
               {novo ? 'Fechar' : '＋ Nova campanha'}
             </Button>
           )}
         </div>
 
-        {/* Abas */}
-        <div className="flex gap-2 border-b border-border">
-          {(['campanhas', 'modelos'] as const).map((k) => (
+        {/* Abas (Modelos só quando a loja usa API oficial) */}
+        <div className="flex gap-1 border-b border-border">
+          {abas.map((k) => (
             <button
               key={k}
               type="button"
               onClick={() => setAba(k)}
               aria-pressed={aba === k}
-              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium ${
-                aba === k ? 'border-primary text-primary' : 'border-transparent text-muted-foreground'
+              className={`-mb-px border-b-2 px-4 py-2 text-sm font-semibold transition ${
+                aba === k
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-foreground/60 hover:text-foreground'
               }`}
             >
               {k === 'campanhas' ? 'Campanhas' : 'Modelos (API oficial)'}
@@ -266,36 +273,40 @@ export default function MarketingPage() {
         </div>
 
         {/* Como funciona / casos de uso */}
-        <details className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
-          <summary className="cursor-pointer font-semibold">Como funciona · casos de uso e boas práticas</summary>
-          <div className="mt-2 space-y-2 text-xs leading-relaxed text-muted-foreground">
+        <details className="rounded-xl border border-border bg-card p-4 text-sm shadow-sm">
+          <summary className="cursor-pointer font-semibold text-foreground">Como funciona · casos de uso e boas práticas</summary>
+          <div className="mt-3 space-y-2.5 text-[13px] leading-relaxed text-foreground/80">
             <p>
-              O Regem é <strong>Provedor de Tecnologia oficial da Meta (WhatsApp)</strong>. Você escolhe, por número, entre:
+              O Regem é <strong className="text-foreground">Provedor de Tecnologia oficial da Meta (WhatsApp)</strong>. Você escolhe, por número, entre:
             </p>
             <p>
-              <strong>API Oficial (Meta)</strong> — mais segura e escalável para <strong>marketing</strong>. Iniciar conversa exige um{' '}
+              <strong className="text-foreground">API Oficial (Meta)</strong> — mais segura e escalável para <strong>marketing</strong>. Iniciar conversa exige um{' '}
               <strong>modelo (template) aprovado</strong> e o <strong>opt-in</strong> do cliente; a Meta cobra as mensagens direto da conta da sua loja. É o caminho recomendado para disparos em volume.
             </p>
             <p>
-              <strong>Grátis (QR / Evolution)</strong> — sem custo por mensagem, mas <strong>não oficial</strong>: o número pode ser bloqueado pela Meta a qualquer momento. Use um <strong>número descartável</strong> para marketing, nunca o principal da loja.
+              <strong className="text-foreground">Grátis (QR / Evolution)</strong> — sem custo por mensagem, mas <strong>não oficial</strong>: o número pode ser bloqueado pela Meta a qualquer momento. Use um <strong>número descartável</strong> para marketing, nunca o principal da loja.
             </p>
             <p>
-              <strong>Janela de 24h:</strong> quando o cliente te manda mensagem (ex.: botão “Acompanhar no WhatsApp” no cardápio), abre-se uma janela de 24h em que você responde livremente, sem custo de modelo. Marketing fora dessa janela é iniciado por você (campanha) e, na API oficial, exige modelo aprovado.
-            </p>
-            <p>
-              <strong>Boas práticas:</strong> peça opt-in, respeite quem responde <strong>SAIR</strong> (entra na lista de exclusão automaticamente), mantenha <strong>1–3 mensagens por semana</strong>, e sempre identifique a loja. Isso protege a qualidade do número e evita bloqueios.
+              <strong className="text-foreground">Boas práticas:</strong> peça opt-in, respeite quem responde <strong>SAIR</strong> (entra na lista de exclusão automaticamente, com aviso de confirmação), mantenha <strong>1–3 mensagens por semana</strong>, e sempre identifique a loja. Isso protege a qualidade do número e evita bloqueios.
             </p>
           </div>
         </details>
 
-        {aba === 'modelos' && <ModelosWhatsapp pode={pode} />}
+        {/* Aviso: sem número conectado, o disparo não funciona */}
+        {pode && numeros && !numeroConectado && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[13px] text-amber-700">
+            ⚠️ Nenhum número de WhatsApp conectado. Conecte em <strong>Delivery · Configurações · Robô</strong> antes de criar campanhas.
+          </div>
+        )}
+
+        {aba === 'modelos' && temCloud && <ModelosWhatsapp pode={pode} />}
 
         {/* Assistente */}
         {aba === 'campanhas' && novo && pode && (
           <Card className="space-y-4 p-4">
             {/* Tipo */}
             <div>
-              <p className="mb-1 text-xs font-semibold text-muted-foreground">Tipo de campanha</p>
+              <p className="mb-1 text-xs font-semibold text-foreground/70">Tipo de campanha</p>
               <div className="flex flex-wrap gap-2">
                 {TIPOS.map((t) => (
                   <button
@@ -315,7 +326,7 @@ export default function MarketingPage() {
 
             {/* Público */}
             <div>
-              <p className="mb-1 text-xs font-semibold text-muted-foreground">Público</p>
+              <p className="mb-1 text-xs font-semibold text-foreground/70">Público</p>
               <div className="flex flex-wrap items-center gap-2">
                 {SEGS.map((s) => (
                   <button
@@ -331,7 +342,7 @@ export default function MarketingPage() {
                   </button>
                 ))}
                 {seg === 'recuperacao' && (
-                  <label className="text-xs text-muted-foreground">
+                  <label className="text-xs text-foreground/70">
                     há mais de{' '}
                     <input
                       type="number"
@@ -352,7 +363,7 @@ export default function MarketingPage() {
             {/* Conteúdo + prévia */}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground">Mensagem</p>
+                <p className="text-xs font-semibold text-foreground/70">Mensagem</p>
                 <textarea
                   value={msg}
                   onChange={(e) => setMsg(e.target.value)}
@@ -378,13 +389,13 @@ export default function MarketingPage() {
                       remover
                     </button>
                   )}
-                  <span className="text-[11px] text-muted-foreground">Ideal 1080×1350 (4:5). Comprimimos automático.</span>
+                  <span className="text-[11px] text-foreground/70">Ideal 1080×1350 (4:5). Comprimimos automático.</span>
                 </div>
               </div>
 
               {/* Prévia do balão do WhatsApp */}
               <div>
-                <p className="mb-1 text-xs font-semibold text-muted-foreground">Prévia (como o cliente vê)</p>
+                <p className="mb-1 text-xs font-semibold text-foreground/70">Prévia (como o cliente vê)</p>
                 <div className="rounded-lg bg-[#e5ddd5] p-3">
                   <div className="ml-auto max-w-[85%] rounded-lg rounded-tr-none bg-[#dcf8c6] p-2 shadow">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -407,17 +418,17 @@ export default function MarketingPage() {
                 </label>
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                   <label className="text-xs">
-                    <span className="mb-0.5 block text-muted-foreground">Código</span>
+                    <span className="mb-0.5 block text-foreground/70">Código</span>
                     <Input value={cupomCodigo} onChange={(e) => setCupomCodigo(e.target.value.toUpperCase())} placeholder="PROMO10" />
                   </label>
                   {tipo !== 'frete_gratis' && (
                     <label className="text-xs">
-                      <span className="mb-0.5 block text-muted-foreground">Desconto (%)</span>
+                      <span className="mb-0.5 block text-foreground/70">Desconto (%)</span>
                       <Input type="number" value={cupomValor} onChange={(e) => setCupomValor(e.target.value)} />
                     </label>
                   )}
                   <label className="text-xs">
-                    <span className="mb-0.5 block text-muted-foreground">Validade (dias)</span>
+                    <span className="mb-0.5 block text-foreground/70">Validade (dias)</span>
                     <Input type="number" value={cupomDuracao} onChange={(e) => setCupomDuracao(e.target.value)} />
                   </label>
                 </div>
@@ -427,7 +438,7 @@ export default function MarketingPage() {
             {/* Enviar de + pacing + tetos */}
             <div className="flex flex-wrap items-end gap-3">
               <div className="text-xs">
-                <span className="mb-1 block text-muted-foreground">Enviar do número</span>
+                <span className="mb-1 block text-foreground/70">Enviar do número</span>
                 <div className="flex gap-2">
                   {(['marketing', 'loja'] as const).map((i) => (
                     <button
@@ -443,19 +454,19 @@ export default function MarketingPage() {
                 </div>
               </div>
               <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">Pausa (s)</span>
+                <span className="mb-1 block text-foreground/70">Pausa (s)</span>
                 <Input type="number" min={3} max={120} value={intervalo} onChange={(e) => setIntervalo(Number(e.target.value) || 30)} className="w-20" />
               </label>
               <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">Teto/dia</span>
+                <span className="mb-1 block text-foreground/70">Teto/dia</span>
                 <Input type="number" value={tetoDia} onChange={(e) => setTetoDia(e.target.value)} placeholder="—" className="w-20" />
               </label>
               <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">Teto/semana</span>
+                <span className="mb-1 block text-foreground/70">Teto/semana</span>
                 <Input type="number" value={tetoSemana} onChange={(e) => setTetoSemana(e.target.value)} placeholder="—" className="w-24" />
               </label>
               <label className="text-xs">
-                <span className="mb-1 block text-muted-foreground">Teto/mês</span>
+                <span className="mb-1 block text-foreground/70">Teto/mês</span>
                 <Input type="number" value={tetoMes} onChange={(e) => setTetoMes(e.target.value)} placeholder="—" className="w-24" />
               </label>
             </div>
@@ -467,13 +478,13 @@ export default function MarketingPage() {
                   Número oficial (Meta) — a campanha vai por MODELO aprovado (o texto livre acima não é usado).
                 </p>
                 {templates.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-foreground/70">
                     Nenhum modelo <strong>aprovado</strong> ainda. Crie e aprove um na aba <strong>Modelos</strong>.
                   </p>
                 ) : (
                   <>
                     <label className="block text-xs">
-                      <span className="mb-0.5 block text-muted-foreground">Modelo aprovado</span>
+                      <span className="mb-0.5 block text-foreground/70">Modelo aprovado</span>
                       <select
                         value={templateNome}
                         onChange={(e) => {
@@ -488,12 +499,12 @@ export default function MarketingPage() {
                         ))}
                       </select>
                     </label>
-                    {templateSel && <p className="whitespace-pre-wrap text-xs text-muted-foreground">{templateSel.corpo}</p>}
+                    {templateSel && <p className="whitespace-pre-wrap text-xs text-foreground/70">{templateSel.corpo}</p>}
                     {templateVarsCount > 0 && (
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {Array.from({ length: templateVarsCount }, (_, i) => (
                           <label key={i} className="text-xs">
-                            <span className="mb-0.5 block text-muted-foreground">Variável {'{{'}{i + 1}{'}}'}</span>
+                            <span className="mb-0.5 block text-foreground/70">Variável {'{{'}{i + 1}{'}}'}</span>
                             <Input
                               value={templateVars[String(i + 1)] ?? ''}
                               onChange={(e) => setTemplateVars((v) => ({ ...v, [String(i + 1)]: e.target.value }))}
@@ -501,7 +512,7 @@ export default function MarketingPage() {
                             />
                           </label>
                         ))}
-                        <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                        <p className="text-[11px] text-foreground/70 sm:col-span-2">
                           Digite <strong>nome</strong> para inserir o primeiro nome do cliente; qualquer outro texto é fixo.
                         </p>
                       </div>
@@ -532,18 +543,18 @@ export default function MarketingPage() {
                       </button>
                     ))}
                   </div>
-                  <label className="text-xs text-muted-foreground">
+                  <label className="text-xs text-foreground/70">
                     das <input type="time" value={horaInicio} onChange={(e) => setHoraInicio(e.target.value)} className="rounded-md border border-border bg-background px-2 py-1" />
                   </label>
-                  <label className="text-xs text-muted-foreground">
+                  <label className="text-xs text-foreground/70">
                     até <input type="time" value={horaFim} onChange={(e) => setHoraFim(e.target.value)} className="rounded-md border border-border bg-background px-2 py-1" />
                   </label>
-                  <span className="text-[11px] text-muted-foreground">Vazio = manda direto, respeitando a pausa.</span>
+                  <span className="text-[11px] text-foreground/70">Vazio = manda direto, respeitando a pausa.</span>
                 </div>
               )}
             </div>
 
-            <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-muted-foreground">
+            <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-foreground/70">
               ⚠️ Disparo em massa pode marcar o número. Enviamos pausado, só para quem não optou por sair; a mensagem deve identificar a loja e incluir “responda SAIR”. Marketing em número Evolution tem risco alto — prefira um número descartável.
             </p>
 
@@ -563,14 +574,14 @@ export default function MarketingPage() {
             <p className="font-display font-bold">Campanhas</p>
           </div>
           {campanhas.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted-foreground">Nenhuma campanha ainda.</p>
+            <p className="px-4 py-6 text-sm text-foreground/70">Nenhuma campanha ainda.</p>
           ) : (
             <div className="divide-y divide-border">
               {campanhas.map((c) => (
                 <div key={c.id} className="flex flex-wrap items-center gap-2 px-4 py-3 text-sm">
-                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-muted-foreground">{c.tipo ?? 'avulsa'}</span>
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-foreground/70">{c.tipo ?? 'avulsa'}</span>
                   <span className="min-w-0 flex-1 truncate">{c.mensagem}</span>
-                  <span className="text-xs text-muted-foreground">{c.enviados}/{c.total} enviados{c.falhas ? ` · ${c.falhas} falhas` : ''}</span>
+                  <span className="text-xs text-foreground/70">{c.enviados}/{c.total} enviados{c.falhas ? ` · ${c.falhas} falhas` : ''}</span>
                   <span className={`rounded-full px-2 py-0.5 text-[10px] ${c.status === 'concluida' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>{c.status}</span>
                 </div>
               ))}
@@ -581,8 +592,12 @@ export default function MarketingPage() {
         {/* Lista de exclusão */}
         {pode && (
           <Card className="space-y-2 p-4">
-            <p className="text-sm font-semibold">Lista de exclusão (não receber marketing)</p>
-            <p className="text-xs text-muted-foreground">Adicione um número para nunca receber disparos. Clientes que respondem “SAIR” também entram aqui.</p>
+            <p className="text-sm font-semibold text-foreground">Lista de exclusão (não receber marketing)</p>
+            <p className="text-[13px] text-foreground/70">
+              Esta lista é preenchida <strong>automaticamente</strong> quando o cliente responde <strong>SAIR</strong> numa campanha —
+              ele recebe um aviso de que <strong>não receberá mais ofertas e campanhas</strong> e confirma a saída. Você também pode
+              excluir um número manualmente aqui.
+            </p>
             <div className="flex flex-wrap gap-2">
               <Input value={excluir} onChange={(e) => setExcluir(e.target.value)} placeholder="5521999999999" className="max-w-[220px]" />
               <Button type="button" variant="outline" onClick={excluirTel}>Excluir número</Button>
