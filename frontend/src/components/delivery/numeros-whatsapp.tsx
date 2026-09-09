@@ -34,14 +34,13 @@ type Estado = {
 
 const DESC: Record<'principal' | 'marketing', string> = {
   principal:
-    'Responde os clientes DEPOIS que eles iniciam a conversa — status de pedido, dúvidas, ' +
-    'horários e link. O chatbot nunca inicia conversa, o que reduz (não zera) o risco de ' +
-    'bloqueio. Número usado há meses/anos? Prefira a API Oficial. Boas práticas: assine o ' +
-    'selo verificado e evite usar o número principal para disparo de marketing.',
+    'É o número que conversa com seus clientes: responde dúvidas, horário, link do cardápio e o ' +
+    'andamento do pedido. O robô só responde quando o cliente chama primeiro — ele nunca começa a ' +
+    'conversa sozinho.',
   marketing:
-    'Dispara campanhas para sua base, para atrair e recuperar vendas. ⚠️ Sem a API Oficial, ' +
-    'o risco de bloqueio do número é ALTÍSSIMO — use um número descartável, nunca o principal ' +
-    'da loja. Na API Oficial, o disparo exige modelo aprovado e é bem mais seguro.',
+    'É o número que ENVIA as promoções e campanhas para seus clientes. Aqui é a loja que começa a ' +
+    'conversa, então o WhatsApp é mais rígido: o ideal é usar um número separado (um chip só pra isso), ' +
+    'nunca o número principal da loja.',
 };
 
 // Carrega o SDK JS do Facebook uma vez e inicializa com o App ID da distribuição.
@@ -125,9 +124,14 @@ export function NumerosWhatsapp({
   return (
     <div className="rounded-lg border border-border bg-card p-3">
       <p className="text-sm font-semibold text-foreground">Números de WhatsApp da loja</p>
-      <p className="mt-0.5 text-xs text-foreground/70">
-        Dois papéis: o <strong>Principal</strong> conversa com quem te chama; o de{' '}
-        <strong>Marketing</strong> faz os disparos das campanhas. Você pode usar o mesmo número nos dois.
+      <p className="mt-0.5 text-xs text-foreground">
+        Você tem dois números: o <strong>Principal</strong> fala com os clientes (atendimento + robô) e o de{' '}
+        <strong>Marketing</strong> envia as promoções. Podem ser o mesmo número.
+      </p>
+      <p className="mt-2 rounded-lg bg-primary/5 px-3 py-2 text-xs text-foreground">
+        💡 <strong>Dica:</strong> no <strong>Principal</strong>, use a opção <strong>Grátis</strong> pra continuar
+        usando seu WhatsApp normal no celular. Pra <strong>enviar promoções</strong>, a opção <strong>Oficial</strong>{' '}
+        é a mais segura (evita bloqueio).
       </p>
       {carregando && !est && <p className="mt-2 text-xs text-foreground/60">Carregando números…</p>}
       {erro && (
@@ -285,7 +289,7 @@ function CardNumero({
             return;
           }
           api
-            .whatsappEmbeddedSignup({ code, phoneNumberId, wabaId })
+            .whatsappEmbeddedSignup({ code, phoneNumberId, wabaId, papel })
             .then(() => {
               toast.success('WhatsApp oficial conectado!');
               onMudou();
@@ -343,16 +347,16 @@ function CardNumero({
                   provedor === p ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:border-primary/40'
                 } ${pode ? '' : 'cursor-not-allowed opacity-60'}`}
               >
-                {p === 'evolution' ? 'Grátis (QR)' : 'Oficial (Meta)'}
+                {p === 'evolution' ? 'Grátis (não oficial)' : 'Oficial (Meta)'}
               </button>
             ))}
           </div>
 
-          <p className="mt-2 text-xs leading-relaxed text-foreground/70">{DESC[papel]}</p>
+          <p className="mt-2 text-xs leading-relaxed text-foreground">{DESC[papel]}</p>
 
           <div className="mt-2 rounded-lg border border-dashed border-border bg-muted/30 p-2">
             <p className="text-[10px] font-bold uppercase tracking-wide text-foreground/70">O que você aceita</p>
-            <p className="mt-0.5 text-[11px] leading-relaxed">{termo[provedor]}</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-foreground">{termo[provedor]}</p>
           </div>
 
           {provedor === 'cloud' ? (
@@ -360,12 +364,13 @@ function CardNumero({
               <Button type="button" size="sm" disabled={!pode || busy} onClick={embeddedSignup}>
                 {busy ? 'Abrindo…' : conectado ? 'Reconectar com a Meta' : 'Conectar com a Meta (recomendado)'}
               </Button>
-              <p className="text-[11px] text-foreground/70">
-                Abre o cadastro oficial da Meta num popup. Você conecta o número e cadastra a sua forma de
-                pagamento (a Meta cobra as mensagens direto da sua empresa). A gente só guarda a referência do número.
+              <p className="text-[11px] text-foreground">
+                Abre uma janela da Meta pra você conectar o número e cadastrar sua forma de pagamento (a Meta
+                cobra as mensagens direto de você). ⚠️ Este número sai do WhatsApp normal do celular — o
+                atendimento passa a ser feito aqui, na tela do Regem.
               </p>
               <details className="text-[11px] text-foreground/70">
-                <summary className="cursor-pointer">avançado — informar o Phone Number ID manualmente</summary>
+                <summary className="cursor-pointer">avançado — informar o código do número manualmente</summary>
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                   <div>
                     <Label className="text-xs">Phone Number ID</Label>

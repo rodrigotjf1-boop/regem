@@ -1033,7 +1033,7 @@ export const api = {
     req(`/whatsapp/cloud/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Embedded Signup (Fase 3 frente 2): config pública (App ID + Config ID) + finalizar.
   whatsappEmbeddedConfig: () => req('/whatsapp/cloud/embedded-config'),
-  whatsappEmbeddedSignup: (body: { code?: string; phoneNumberId?: string; wabaId?: string }) =>
+  whatsappEmbeddedSignup: (body: { code?: string; phoneNumberId?: string; wabaId?: string; papel?: string }) =>
     req('/whatsapp/cloud/embedded-signup', { method: 'POST', body: JSON.stringify(body) }),
   // Números por PAPEL × PROVEDOR (mig 225): principal (chatbot só responde) + marketing.
   whatsappNumeros: () => req('/whatsapp/numeros'),

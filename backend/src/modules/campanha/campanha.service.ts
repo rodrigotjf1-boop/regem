@@ -426,6 +426,7 @@ export class CampanhaService {
             await this.cloud.enviarTemplate(camp.tenant_id, numero, camp.template_nome, camp.template_idioma || 'pt_BR', params, {
               envioId: envio.id, // botão URL rastreado (.../r/:envioId) → clique medido
               cupom: camp.cupom_codigo, // botão "copiar cupom"
+              phoneId: num.phoneId || undefined, // dispara pelo número do papel (marketing na Oficial)
             });
           } else {
             if (!num.instancia) throw new Error('Número não conectado.');
