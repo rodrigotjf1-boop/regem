@@ -21,6 +21,37 @@ const STATUS: Record<string, { t: string; c: string }> = {
 };
 const vazio = { id: '', nome: '', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: '', corpo: '', rodape: '' };
 
+// Modelos prontos (presets) — o lojista clica, revisa e envia pra aprovação. {{1}}=nome
+// do cliente, {{2}}=link (mapeie no disparo da campanha). Servem p/ qualquer loja.
+const PRESETS: { t: string; form: any; exemplo: string[] }[] = [
+  {
+    t: 'Frete grátis',
+    form: {
+      id: '',
+      nome: 'promo_frete_gratis',
+      categoria: 'MARKETING',
+      idioma: 'pt_BR',
+      cabecalho: 'Frete grátis hoje! 🛵',
+      corpo: 'Olá {{1}}! Hoje é FRETE GRÁTIS na nossa loja. Aproveite e faça seu pedido: {{2}}',
+      rodape: 'Responda SAIR para não receber ofertas.',
+    },
+    exemplo: ['João', 'https://app.dmsregem.com/c/sua-loja'],
+  },
+  {
+    t: 'Recuperar cliente',
+    form: {
+      id: '',
+      nome: 'recuperacao_cliente',
+      categoria: 'MARKETING',
+      idioma: 'pt_BR',
+      cabecalho: 'Sentimos sua falta 😊',
+      corpo: 'Oi {{1}}, faz um tempo que você não pede! Bateu aquela vontade? Veja as novidades: {{2}}',
+      rodape: 'Responda SAIR para não receber ofertas.',
+    },
+    exemplo: ['Maria', 'https://app.dmsregem.com/c/sua-loja'],
+  },
+];
+
 export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const [lista, setLista] = useState<any[]>([]);
   const [form, setForm] = useState<any>(vazio);
@@ -131,6 +162,22 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
       {aberto && pode && (
         <Card className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-foreground/70">Começar de um modelo pronto:</span>
+            {PRESETS.map((p) => (
+              <button
+                key={p.t}
+                type="button"
+                onClick={() => {
+                  setForm({ ...p.form });
+                  setExemplos([...p.exemplo]);
+                }}
+                className="rounded-full border border-primary/40 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary"
+              >
+                {p.t}
+              </button>
+            ))}
+          </div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-xs">
               <span className="mb-0.5 block text-foreground/70">Nome técnico</span>
