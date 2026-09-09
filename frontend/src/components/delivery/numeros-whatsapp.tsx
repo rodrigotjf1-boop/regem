@@ -382,7 +382,7 @@ function CardNumero({
                 </div>
               </details>
             </div>
-          ) : papel === 'marketing' ? (
+          ) : (
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <Button type="button" size="sm" disabled={!pode || busy} onClick={conectarEvolution}>
                 {busy ? 'Aguarde…' : conectado ? 'Reconectar (QR)' : 'Conectar (QR)'}
@@ -394,19 +394,6 @@ function CardNumero({
                 disabled={!pode}
                 className="max-w-[220px]"
               />
-            </div>
-          ) : (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <Input
-                value={numero}
-                onChange={(e) => setNumero(e.target.value)}
-                placeholder="Número (exibir) 5521999999999"
-                disabled={!pode}
-                className="max-w-[220px]"
-              />
-              <span className="text-[11px] text-foreground/70">
-                A conexão por QR do número principal fica logo abaixo.
-              </span>
             </div>
           )}
 
