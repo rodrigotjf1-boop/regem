@@ -111,7 +111,9 @@ export default function MarketingPage() {
   const temCloud = numeros?.principal?.provedor === 'cloud' || numeros?.marketing?.provedor === 'cloud';
   // Marketing só funciona com um número conectado — evita erro no disparo.
   const numeroConectado = !!(numeros?.principal?.vinculado || numeros?.marketing?.vinculado);
-  const abas = (temCloud ? (['campanhas', 'modelos'] as const) : (['campanhas'] as const));
+  // Na API oficial o modelo é PRÉ-REQUISITO → aba "Modelos" vem primeiro.
+  const abas = (temCloud ? (['modelos', 'campanhas'] as const) : (['campanhas'] as const));
+  const semModeloAprovado = temCloud && templates.length === 0;
 
   const carregar = useCallback(async () => {
     try {
@@ -132,6 +134,15 @@ export default function MarketingPage() {
       .then((ts: any) => setTemplates((ts || []).filter((t: any) => t.status === 'aprovado')))
       .catch(() => {});
   }, [carregar]);
+
+  // Abre em "Modelos" por padrão quando a loja é API oficial e ainda não tem modelo
+  // aprovado (o modelo é pré-requisito p/ campanha). Roda uma vez, após carregar números.
+  const abaAjustada = useRef(false);
+  useEffect(() => {
+    if (abaAjustada.current || !numeros) return;
+    abaAjustada.current = true;
+    if (temCloud && templates.length === 0) setAba('modelos');
+  }, [numeros, temCloud, templates.length]);
 
   // Recalcula o público quando o segmento muda.
   useEffect(() => {
@@ -568,6 +579,16 @@ export default function MarketingPage() {
         )}
 
         {aba === 'campanhas' && (<>
+        {/* API oficial exige modelo aprovado ANTES da campanha */}
+        {semModeloAprovado && (
+          <div className="rounded-xl border border-primary/40 bg-primary/5 p-3 text-[13px] text-foreground/80">
+            📋 Sua loja usa a <strong>API oficial da Meta</strong>: crie e <strong>aprove um modelo</strong> antes de disparar campanhas.
+            {' '}
+            <button type="button" className="font-semibold text-primary underline" onClick={() => setAba('modelos')}>
+              Ir para Modelos
+            </button>
+          </div>
+        )}
         {/* Lista de campanhas */}
         <Card className="p-0">
           <div className="border-b border-border px-4 py-3">
