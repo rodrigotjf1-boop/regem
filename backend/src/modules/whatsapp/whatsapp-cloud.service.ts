@@ -22,6 +22,18 @@ const MAX_MIDIA = 20 * 1024 * 1024;
 // buscaria uma URL arbitraria COM o Bearer no header.
 const HOSTS_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
 
+// Biblioteca de modelos do Regem (auto-submetidos à WABA da loja no onboarding). Textos
+// genéricos e dentro das regras da Meta (texto antes/depois da variável) → aprovam sozinhos.
+// {{1}} = nome do cliente. Botões: url (Peça agora rastreado) / copy_code (cupom) / optout.
+const CATALOGO_REGEM: Array<{ nome: string; cabecalho: string; corpo: string; botoes: any[] }> = [
+  { nome: 'promo_frete_gratis', cabecalho: 'Frete grátis hoje! 🛵', corpo: 'Olá {{1}}! Hoje é FRETE GRÁTIS na nossa loja. Aproveite e faça seu pedido.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cupom_desconto', cabecalho: 'Presente pra você 🎁', corpo: 'Oi {{1}}, preparamos um desconto especial pra você hoje. Aproveite antes que acabe!', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'recuperacao_cliente', cabecalho: 'Sentimos sua falta 😊', corpo: 'Oi {{1}}, faz um tempo que você não pede! Que tal pedir hoje? Dá uma olhada nas novidades.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cliente_vip', cabecalho: 'Você é VIP 🏆', corpo: 'Oi {{1}}, você é cliente especial pra gente! Preparamos um mimo exclusivo pra você.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'aniversario', cabecalho: 'Feliz aniversário! 🎉', corpo: 'Parabéns, {{1}}! Comemore com a gente — tem um presente esperando por você.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio 🍔', corpo: 'Oi {{1}}, chegou novidade na nossa loja! Dá uma olhada e peça o seu.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+];
+
 // Só os dígitos, para comparar telefone vindo em qualquer formato.
 function soDigitos(v: any): string {
   return String(v ?? '').replace(/\D/g, '');
@@ -934,6 +946,55 @@ export class WhatsappCloudService {
     return { ok: true };
   }
 
+  // Semeia a BIBLIOTECA REGEM na WABA da loja: cria (se não existir) e submete cada
+  // modelo base. Best-effort por item — um falho não impede os outros. Usado no
+  // onboarding (Embedded Signup) e no botão "Reenviar modelos da Regem".
+  async seedModelosRegem(tenantId: string) {
+    const resultados: any[] = [];
+    for (const base of CATALOGO_REGEM) {
+      try {
+        const [ja] = await this.db
+          .select({ id: whatsappTemplate.id, status: whatsappTemplate.status })
+          .from(whatsappTemplate)
+          .where(
+            and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, base.nome), eq(whatsappTemplate.idioma, 'pt_BR')),
+          );
+        if (ja && (ja.status === 'aprovado' || ja.status === 'pendente')) {
+          resultados.push({ nome: base.nome, status: ja.status, pulado: true });
+          continue;
+        }
+        let id = ja?.id;
+        if (!id) {
+          const [row] = await this.db
+            .insert(whatsappTemplate)
+            .values({
+              tenantId,
+              nome: base.nome,
+              categoria: 'MARKETING',
+              idioma: 'pt_BR',
+              cabecalho: base.cabecalho,
+              corpo: base.corpo,
+              botoes: base.botoes,
+              formato: 'padrao',
+              status: 'rascunho',
+            })
+            .returning();
+          id = row.id;
+        } else {
+          await this.db
+            .update(whatsappTemplate)
+            .set({ cabecalho: base.cabecalho, corpo: base.corpo, botoes: base.botoes, status: 'rascunho', atualizadoEm: new Date() })
+            .where(eq(whatsappTemplate.id, id));
+        }
+        await this.submeterTemplate(tenantId, id);
+        resultados.push({ nome: base.nome, status: 'pendente' });
+      } catch (e: any) {
+        resultados.push({ nome: base.nome, erro: String(e?.message ?? e).slice(0, 160) });
+      }
+    }
+    return { total: CATALOGO_REGEM.length, resultados };
+  }
+
   // App ID + Configuration ID do Embedded Signup (do env) para o front montar o popup.
   // Não são segredos (aparecem no JS do cliente de qualquer forma).
   embeddedConfig() {
@@ -999,6 +1060,9 @@ export class WhatsappCloudService {
     const patch: any = { provedor: 'cloud', phoneId, wabaId, numero, status: 'conectado', atualizadoEm: new Date() };
     if (ex) await this.db.update(whatsappNumero).set(patch).where(eq(whatsappNumero.id, ex.id));
     else await this.db.insert(whatsappNumero).values({ tenantId, papel: 'principal', ...patch });
+
+    // Semeia a biblioteca Regem na WABA recém-conectada (2º plano — não segura o retorno).
+    void this.seedModelosRegem(tenantId).catch(() => {});
 
     return { ok: true, phoneNumberId: phoneId, wabaId, numero };
   }

@@ -1028,6 +1028,7 @@ export const api = {
     req(`/whatsapp/cloud/templates/${encodeURIComponent(id)}/submeter`, { method: 'POST', body: '{}' }),
   whatsappTemplatesSincronizar: () =>
     req('/whatsapp/cloud/templates/sincronizar', { method: 'POST', body: '{}' }),
+  whatsappModelosRegem: () => req('/whatsapp/cloud/modelos-regem', { method: 'POST', body: '{}' }),
   whatsappTemplateRemover: (id: string) =>
     req(`/whatsapp/cloud/templates/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Embedded Signup (Fase 3 frente 2): config pública (App ID + Config ID) + finalizar.
