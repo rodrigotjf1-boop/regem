@@ -34,6 +34,19 @@ const PRESETS: { t: string; form: any; exemplo: string[]; peca?: boolean; cupom?
   },
 ];
 
+// Regras da Meta que rejeitam automático (aviso imediato ao lojista). null = ok.
+function validarCorpo(txt: string): string | null {
+  const t = (txt ?? '').trim();
+  if (t.length < 3) return null; // ainda digitando
+  if (/^\{\{\s*\d+\s*\}\}/.test(t)) return 'Não pode começar com variável ({{1}}) — regra da Meta. Coloque um texto antes (ex.: "Olá {{1}}…").';
+  if (/\{\{\s*\d+\s*\}\}\s*$/.test(t)) return 'Não pode terminar com variável — regra da Meta. Coloque um texto depois.';
+  if (/\{\{\s*\d+\s*\}\}\s*\{\{\s*\d+\s*\}\}/.test(t)) return 'Duas variáveis coladas ({{1}} {{2}}) — separe com texto.';
+  const nums = (t.match(/\{\{\s*\d+\s*\}\}/g) ?? []).map((v) => Number(v.replace(/\D/g, '')));
+  const uniq = [...new Set(nums)].sort((a, b) => a - b);
+  if (uniq.some((n, i) => n !== i + 1)) return 'As variáveis devem ser {{1}}, {{2}}… em sequência, sem pular números.';
+  return null;
+}
+
 // Comprime imagem no navegador (1080px máx, JPG q80) antes de subir.
 async function comprimir(file: File): Promise<File> {
   const url = URL.createObjectURL(file);
@@ -117,9 +130,15 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   }
 
   async function salvar(submeter: boolean) {
-    if (formato === 'padrao' && form.corpo.trim().length < 3) return toast.error('Escreva o corpo do modelo.');
+    if (form.corpo.trim().length < 3) return toast.error(formato === 'carrossel' ? 'Escreva o texto do topo do carrossel.' : 'Escreva o corpo do modelo.');
+    // Regras da Meta (só bloqueiam no ENVIO p/ aprovação; rascunho pode salvar).
+    if (submeter) {
+      const eCorpo = validarCorpo(form.corpo);
+      if (eCorpo) return toast.error(eCorpo);
+      const eCard = cards.map((c, i) => (validarCorpo(c.corpo) ? `Card ${i + 1}: ${validarCorpo(c.corpo)}` : null)).find(Boolean);
+      if (eCard) return toast.error(eCard);
+    }
     if (formato === 'carrossel') {
-      if (form.corpo.trim().length < 3) return toast.error('Escreva o texto do balão (topo do carrossel).');
       if (cards.length < 2) return toast.error('O carrossel precisa de pelo menos 2 cards.');
       if (cards.some((c) => !c.imagemRef)) return toast.error('Todo card precisa de uma imagem.');
     }
@@ -164,6 +183,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   }
 
   const botoesPreview = montarBotoes();
+  const erroCorpo = validarCorpo(form.corpo);
 
   return (
     <div className="space-y-4">
@@ -217,7 +237,8 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
             <label className="block text-xs">
               <span className="mb-0.5 block text-foreground/70">{formato === 'carrossel' ? 'Texto do topo (balão)' : 'Corpo'} — use {'{{1}}'} p/ o nome</span>
               <textarea value={form.corpo} onChange={(e) => setForm({ ...form, corpo: e.target.value })} rows={3}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" placeholder="Olá {{1}}! Confira nossas ofertas 🍔" />
+                className={`w-full rounded-md border bg-background px-3 py-2 text-sm ${erroCorpo ? 'border-destructive' : 'border-border'}`} placeholder="Olá {{1}}! Confira nossas ofertas 🍔" />
+              {erroCorpo && <p className="mt-1 text-[11px] text-destructive">⚠️ {erroCorpo}</p>}
             </label>
             {nVars > 0 && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -267,7 +288,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" disabled={busy} onClick={() => salvar(false)}>Salvar rascunho</Button>
-              <Button size="sm" disabled={busy} onClick={() => salvar(true)}>Salvar e enviar p/ aprovação</Button>
+              <Button size="sm" disabled={busy || !!erroCorpo} onClick={() => salvar(true)}>Salvar e enviar p/ aprovação</Button>
             </div>
           </Card>
 
