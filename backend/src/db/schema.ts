@@ -2183,6 +2183,23 @@ export const campanha = pgTable('campanha', {
   falhas: integer('falhas').notNull().default(0),
   status: text('status').notNull().default('enviando'), // enviando | concluida | pausada
   instanciaTipo: text('instancia_tipo').notNull().default('loja'), // loja | marketing (F5b)
+  // Marketing rico (mig 226): tipo, conteúdo, agendamento, cupom vinculado.
+  tipo: text('tipo').notNull().default('avulsa'), // avulsa|frete_gratis|cupom|recuperacao|campeoes|aniversario|peca_de_novo|vip|fim_de_semana
+  link: text('link'),
+  imagemRef: text('imagem_ref'),
+  diasSemana: jsonb('dias_semana'), // [0..6] (0=dom) ou null = todos
+  horaInicio: time('hora_inicio'),
+  horaFim: time('hora_fim'),
+  tetoSemana: integer('teto_semana'),
+  tetoMes: integer('teto_mes'),
+  cupomCodigo: text('cupom_codigo'),
+  agendada: boolean('agendada').notNull().default(false),
+  iniciaEm: timestamp('inicia_em', { withTimezone: true }),
+  terminaEm: timestamp('termina_em', { withTimezone: true }),
+  // Campanha via API oficial (mig 227): template aprovado + mapa de variáveis {{n}}->campo.
+  templateNome: text('template_nome'),
+  templateIdioma: text('template_idioma'),
+  templateVars: jsonb('template_vars'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2197,6 +2214,41 @@ export const campanhaEnvio = pgTable('campanha_envio', {
   status: text('status').notNull().default('pendente'), // pendente | enviado | falha | pulado
   erro: text('erro'),
   enviadoEm: timestamp('enviado_em', { withTimezone: true }),
+});
+
+// Lista de EXCLUSÃO de marketing por telefone (mig 226) — cobre quem não é cliente
+// cadastrado. Complementa cliente.opt_out_marketing. Entrada por palavra-chave
+// (SAIR/PARAR), manual ou link. @cloud-only.
+export const marketingOptout = pgTable('marketing_optout', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  clienteId: uuid('cliente_id'),
+  motivo: text('motivo'), // 'palavra_chave' | 'manual' | 'link'
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Templates da API oficial (mig 227) — gestão local + espelho do status da Meta.
+// @cloud-only. Marketing fora da janela de 24h exige template MARKETING aprovado.
+export const whatsappTemplate = pgTable('whatsapp_template', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  nome: text('nome').notNull(), // nome técnico (minúsculas/underscore)
+  categoria: text('categoria').notNull().default('MARKETING'), // MARKETING | UTILITY | AUTHENTICATION
+  idioma: text('idioma').notNull().default('pt_BR'),
+  cabecalho: text('cabecalho'), // header de texto (opcional)
+  corpo: text('corpo').notNull(), // body com {{1}}, {{2}}…
+  rodape: text('rodape'), // footer (opcional)
+  exemplo: jsonb('exemplo'), // valores de exemplo das variáveis
+  status: text('status').notNull().default('rascunho'), // rascunho|pendente|aprovado|rejeitado|pausado
+  metaId: text('meta_id'),
+  motivoRejeicao: text('motivo_rejeicao'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Funil de visita do cardápio (F4) — eventos ANÔNIMOS (sessão gerada no cliente,
@@ -2564,6 +2616,29 @@ export const cardapioConfig = pgTable('cardapio_config', {
   encomendaExigeSinal: boolean('encomenda_exige_sinal').notNull().default(false),
   encomendaSinalPct: numeric('encomenda_sinal_pct'), // % do sinal (base)
   encomendaCancelHoras: integer('encomenda_cancel_horas'), // horas p/ cancelar com reembolso (base)
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// ===== Números de WhatsApp por PAPEL × PROVEDOR (mig 225) =====
+// Substitui (sem remover) as colunas de WhatsApp de cardapio_config. 1 número por
+// (loja, papel): 'principal' (chatbot só responde) e 'marketing' (disparo). O mesmo
+// número pode ocupar os 2 papéis (2 linhas). @cloud-only — o edge não envia WhatsApp.
+export const whatsappNumero = pgTable('whatsapp_numero', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'), // null = configuração da rede/tenant
+  papel: text('papel').notNull(), // 'principal' | 'marketing'
+  provedor: text('provedor').notNull().default('evolution'), // 'evolution' | 'cloud'
+  numero: text('numero'), // E.164 p/ exibir
+  instancia: text('instancia'), // instância Evolution (null no cloud)
+  phoneId: text('phone_id'), // phone_number_id do Cloud (null no evolution)
+  wabaId: text('waba_id'), // WABA id do Cloud (null no evolution)
+  status: text('status').notNull().default('desconectado'), // desconectado|conectando|conectado|erro
+  verificado: boolean('verificado').notNull().default(false),
+  termoAceito: text('termo_aceito'), // versão do termo aceito
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

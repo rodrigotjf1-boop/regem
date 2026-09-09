@@ -1,0 +1,403 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { toast } from '@/lib/toast';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+// Números de WhatsApp por PAPEL × PROVEDOR (épico 2 provedores, mig 225).
+//   Principal = chatbot só responde (nunca inicia): status/dúvidas/horário/link.
+//   Marketing = disparo de campanha (nós iniciamos).
+// O mesmo número pode ocupar os 2 papéis. Cada número tem sua instância (Evolution)
+// ou phone_number_id (Cloud oficial). Os textos de uso são guard-rails anti-ban.
+
+type Provedor = 'evolution' | 'cloud';
+type NumeroResolvido = {
+  papel: 'principal' | 'marketing';
+  provedor: Provedor;
+  numero: string | null;
+  instancia: string | null;
+  phoneId: string | null;
+  wabaId: string | null;
+  status: string;
+  verificado: boolean;
+  vinculado: boolean;
+};
+type Estado = {
+  principal: NumeroResolvido;
+  marketing: NumeroResolvido;
+  termo: { versao: string; evolution: string; cloud: string };
+};
+
+const DESC: Record<'principal' | 'marketing', string> = {
+  principal:
+    'Responde os clientes DEPOIS que eles iniciam a conversa — status de pedido, dúvidas, ' +
+    'horários e link. O chatbot nunca inicia conversa, o que reduz (não zera) o risco de ' +
+    'bloqueio. Número usado há meses/anos? Prefira a API Oficial. Boas práticas: assine o ' +
+    'selo verificado e evite usar o número principal para disparo de marketing.',
+  marketing:
+    'Dispara campanhas para sua base, para atrair e recuperar vendas. ⚠️ Sem a API Oficial, ' +
+    'o risco de bloqueio do número é ALTÍSSIMO — use um número descartável, nunca o principal ' +
+    'da loja. Na API Oficial, o disparo exige modelo aprovado e é bem mais seguro.',
+};
+
+// Carrega o SDK JS do Facebook uma vez e inicializa com o App ID da distribuição.
+let fbCarregando = false;
+function carregarFB(appId: string, version: string): Promise<any> {
+  return new Promise((resolve) => {
+    const w = window as any;
+    if (w.FB) {
+      try {
+        w.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version });
+      } catch {
+        /* já inicializado */
+      }
+      return resolve(w.FB);
+    }
+    w.fbAsyncInit = function () {
+      w.FB.init({ appId, autoLogAppEvents: true, xfbml: false, version });
+      resolve(w.FB);
+    };
+    if (!fbCarregando) {
+      fbCarregando = true;
+      const s = document.createElement('script');
+      s.src = 'https://connect.facebook.net/en_US/sdk.js';
+      s.async = true;
+      s.defer = true;
+      s.crossOrigin = 'anonymous';
+      document.body.appendChild(s);
+    }
+  });
+}
+
+export function NumerosWhatsapp({
+  pode,
+  onProvedorPrincipal,
+}: {
+  pode: boolean;
+  onProvedorPrincipal?: (p: Provedor) => void;
+}) {
+  const [est, setEst] = useState<Estado | null>(null);
+  const [mesmoNumero, setMesmoNumero] = useState(false);
+
+  async function carregar() {
+    try {
+      const d: Estado = await api.whatsappNumeros();
+      setEst(d);
+      onProvedorPrincipal?.(d.principal.provedor);
+    } catch {
+      /* a tela continua útil sem este bloco */
+    }
+  }
+  useEffect(() => {
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!est) return null;
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <p className="text-sm font-semibold">Números de WhatsApp da loja</p>
+      <p className="mt-0.5 text-xs text-muted-foreground">
+        Dois papéis: o <strong>Principal</strong> conversa com quem te chama; o de{' '}
+        <strong>Marketing</strong> faz os disparos das campanhas. Você pode usar o mesmo número nos dois.
+      </p>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <CardNumero papel="principal" dado={est.principal} termo={est.termo} pode={pode} onMudou={carregar} />
+        <CardNumero
+          papel="marketing"
+          dado={est.marketing}
+          termo={est.termo}
+          pode={pode}
+          onMudou={carregar}
+          espelharDe={mesmoNumero ? est.principal : undefined}
+        />
+      </div>
+
+      {pode && (
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={mesmoNumero}
+            onChange={async (e) => {
+              setMesmoNumero(e.target.checked);
+              if (e.target.checked) {
+                // Copia a config do principal para o marketing.
+                try {
+                  await api.whatsappNumeroSalvar({
+                    papel: 'marketing',
+                    provedor: est.principal.provedor,
+                    numero: est.principal.numero,
+                    phoneId: est.principal.phoneId,
+                    wabaId: est.principal.wabaId,
+                    termoAceito: est.termo.versao,
+                  });
+                  toast.success('Marketing usando o mesmo número do Principal.');
+                  carregar();
+                } catch (err) {
+                  toast.error(err instanceof Error ? err.message : 'Não consegui espelhar.');
+                }
+              }
+            }}
+          />
+          <span>Usar o mesmo número do Principal também no Marketing</span>
+        </label>
+      )}
+    </div>
+  );
+}
+
+function CardNumero({
+  papel,
+  dado,
+  termo,
+  pode,
+  onMudou,
+  espelharDe,
+}: {
+  papel: 'principal' | 'marketing';
+  dado: NumeroResolvido;
+  termo: Estado['termo'];
+  pode: boolean;
+  onMudou: () => void;
+  espelharDe?: NumeroResolvido;
+}) {
+  const [provedor, setProvedor] = useState<Provedor>(dado.provedor);
+  const [phoneId, setPhoneId] = useState(dado.phoneId ?? '');
+  const [wabaId, setWabaId] = useState(dado.wabaId ?? '');
+  const [numero, setNumero] = useState(dado.numero ?? '');
+  const [qr, setQr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setProvedor(dado.provedor);
+    setPhoneId(dado.phoneId ?? '');
+    setWabaId(dado.wabaId ?? '');
+    setNumero(dado.numero ?? '');
+  }, [dado]);
+
+  const titulo = papel === 'principal' ? '📱 Número Principal' : '📣 Número de Marketing';
+  const conectado = dado.vinculado;
+
+  async function salvar() {
+    setBusy(true);
+    try {
+      await api.whatsappNumeroSalvar({ papel, provedor, numero, phoneId, wabaId, termoAceito: termo.versao });
+      toast.success('Configuração salva.');
+      onMudou();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível salvar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function conectarEvolution() {
+    setBusy(true);
+    setQr(null);
+    try {
+      // Garante o provedor evolution salvo antes de parear.
+      await api.whatsappNumeroSalvar({ papel, provedor: 'evolution', numero, termoAceito: termo.versao });
+      const r: any = papel === 'principal' ? await api.whatsappConectar() : await api.whatsappMarketingConectar();
+      if (r?.jaConectado) {
+        toast.success('Número já conectado.');
+        onMudou();
+      } else if (r?.qr) {
+        setQr(r.qr);
+      } else {
+        toast.info('Gerando QR… tente novamente em alguns segundos.');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível conectar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Embedded Signup (API oficial): abre o popup da Meta, captura phone_id + WABA da loja
+  // e finaliza no backend. O lojista cadastra o próprio meio de pagamento no fluxo.
+  async function embeddedSignup() {
+    setBusy(true);
+    try {
+      const cfg: any = await api.whatsappEmbeddedConfig();
+      if (!cfg?.appId || !cfg?.configId) {
+        toast.error('Cadastro oficial ainda não configurado no servidor (App ID / Configuration ID).');
+        setBusy(false);
+        return;
+      }
+      const FB = await carregarFB(cfg.appId, cfg.graphVersion || 'v25.0');
+      let phoneNumberId = '';
+      let wabaId = '';
+      const onMsg = (event: MessageEvent) => {
+        try {
+          if (!/(^|\.)facebook\.com$/.test(new URL(event.origin).hostname)) return;
+          const d = JSON.parse(event.data);
+          if (d.type === 'WA_EMBEDDED_SIGNUP' && d.event === 'FINISH') {
+            phoneNumberId = d.data?.phone_number_id ?? '';
+            wabaId = d.data?.waba_id ?? '';
+          }
+        } catch {
+          /* mensagem não-JSON do SDK */
+        }
+      };
+      window.addEventListener('message', onMsg);
+      FB.login(
+        (resp: any) => {
+          window.removeEventListener('message', onMsg);
+          const code = resp?.authResponse?.code;
+          if (!code) {
+            toast.error('Cadastro cancelado.');
+            setBusy(false);
+            return;
+          }
+          api
+            .whatsappEmbeddedSignup({ code, phoneNumberId, wabaId })
+            .then(() => {
+              toast.success('WhatsApp oficial conectado!');
+              onMudou();
+            })
+            .catch((e) => toast.error(e instanceof Error ? e.message : 'Falha ao finalizar o cadastro.'))
+            .finally(() => setBusy(false));
+        },
+        {
+          config_id: cfg.configId,
+          response_type: 'code',
+          override_default_response_type: true,
+          extras: { setup: {}, featureType: '', sessionInfoVersion: '3' },
+        },
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não consegui abrir o cadastro da Meta.');
+      setBusy(false);
+    }
+  }
+
+  const espelhado = !!espelharDe;
+
+  return (
+    <div className="rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-semibold">{titulo}</span>
+        <span
+          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${
+            conectado
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+              : 'border-border bg-muted text-muted-foreground'
+          }`}
+        >
+          {conectado ? '● conectado' : '○ não conectado'}
+        </span>
+        {dado.numero && <span className="text-[11px] text-muted-foreground">{dado.numero}</span>}
+      </div>
+
+      {espelhado ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Espelhando o número Principal. Desmarque “usar o mesmo número” para configurar um número separado.
+        </p>
+      ) : (
+        <>
+          {/* Toggle de provedor */}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(['evolution', 'cloud'] as Provedor[]).map((p) => (
+              <button
+                key={p}
+                type="button"
+                disabled={!pode}
+                aria-pressed={provedor === p}
+                onClick={() => setProvedor(p)}
+                className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                  provedor === p ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border hover:border-primary/40'
+                } ${pode ? '' : 'cursor-not-allowed opacity-60'}`}
+              >
+                {p === 'evolution' ? 'Grátis (QR)' : 'Oficial (Meta)'}
+              </button>
+            ))}
+          </div>
+
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{DESC[papel]}</p>
+
+          <div className="mt-2 rounded-lg border border-dashed border-border bg-muted/30 p-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">O que você aceita</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed">{termo[provedor]}</p>
+          </div>
+
+          {provedor === 'cloud' ? (
+            <div className="mt-2 space-y-2">
+              <Button type="button" size="sm" disabled={!pode || busy} onClick={embeddedSignup}>
+                {busy ? 'Abrindo…' : conectado ? 'Reconectar com a Meta' : 'Conectar com a Meta (recomendado)'}
+              </Button>
+              <p className="text-[11px] text-muted-foreground">
+                Abre o cadastro oficial da Meta num popup. Você conecta o número e cadastra a sua forma de
+                pagamento (a Meta cobra as mensagens direto da sua empresa). A gente só guarda a referência do número.
+              </p>
+              <details className="text-[11px] text-muted-foreground">
+                <summary className="cursor-pointer">avançado — informar o Phone Number ID manualmente</summary>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <div>
+                    <Label className="text-xs">Phone Number ID</Label>
+                    <Input value={phoneId} onChange={(e) => setPhoneId(e.target.value)} placeholder="Phone Number ID" disabled={!pode} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">WABA ID</Label>
+                    <Input value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WABA ID" disabled={!pode} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Número (exibir)</Label>
+                    <Input value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="5521999999999" disabled={!pode} />
+                  </div>
+                </div>
+              </details>
+            </div>
+          ) : papel === 'marketing' ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Button type="button" size="sm" disabled={!pode || busy} onClick={conectarEvolution}>
+                {busy ? 'Aguarde…' : conectado ? 'Reconectar (QR)' : 'Conectar (QR)'}
+              </Button>
+              <Input
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+                placeholder="Número (exibir) 5521999999999"
+                disabled={!pode}
+                className="max-w-[220px]"
+              />
+            </div>
+          ) : (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Input
+                value={numero}
+                onChange={(e) => setNumero(e.target.value)}
+                placeholder="Número (exibir) 5521999999999"
+                disabled={!pode}
+                className="max-w-[220px]"
+              />
+              <span className="text-[11px] text-muted-foreground">
+                A conexão por QR do número principal fica logo abaixo.
+              </span>
+            </div>
+          )}
+
+          {qr && (
+            <div className="mt-2 flex flex-col items-center rounded-lg border border-border bg-white p-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={qr} alt="QR Code do WhatsApp" className="h-44 w-44" />
+              <p className="mt-1 text-[11px] text-muted-foreground">Abra o WhatsApp → Aparelhos conectados → Conectar aparelho.</p>
+            </div>
+          )}
+
+          {pode && (
+            <div className="mt-2">
+              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={salvar}>
+                {busy ? 'Salvando…' : 'Salvar escolha'}
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

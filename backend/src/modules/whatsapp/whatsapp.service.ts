@@ -247,6 +247,35 @@ export class WhatsappService {
     return this.enviarPorInstancia(tenantId, instancia, numero, texto);
   }
 
+  // Envia IMAGEM (por URL pública) por uma instância EXPLÍCITA da loja — usado pelas
+  // campanhas com criativo. Valida POSSE igual ao enviarPorInstancia. O Evolution
+  // busca a imagem pela URL; a legenda (caption) leva o texto + link da campanha.
+  async enviarMidiaPorInstancia(
+    tenantId: string,
+    instancia: string,
+    numero: string,
+    mediaUrl: string,
+    caption: string,
+    mediatype: 'image' | 'video' = 'image',
+  ) {
+    const [cfg] = await this.db.select().from(cardapioConfig).where(and(eq(cardapioConfig.tenantId, tenantId)));
+    const permitidas = [cfg?.evolutionInstancia, cfg?.marketingInstancia].filter(Boolean);
+    if (!instancia || !permitidas.includes(instancia))
+      throw new BadRequestException('Instância não pertence à loja.');
+    const number = this.soNumero(numero);
+    if (!number) throw new BadRequestException('Número inválido.');
+    if (!mediaUrl) throw new BadRequestException('Imagem ausente.');
+    const res = await this.req(`/message/sendMedia/${instancia}`, {
+      method: 'POST',
+      body: JSON.stringify({ number, mediatype, media: mediaUrl, caption: String(caption ?? '').trim() }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.text().catch(() => '') : '';
+      throw new BadRequestException(`Falha ao enviar mídia (${res?.status ?? 'sem resposta'}): ${body.slice(0, 150)}`);
+    }
+    return { ok: true };
+  }
+
   // Diagnóstico da conexão com o Evolution — variáveis setadas? servidor respondeu?
   // a MINHA instância existe e em que estado? Para o gestor conferir sem abrir
   // EasyPanel/n8n. Mostra só a instância DESTA loja: a lista completa do servidor
