@@ -15,6 +15,7 @@
 Mudanças **do edge** já na `main` aguardando o próximo corte:
 - **Impressão de teste nuvem→local (`sync-daemon.mjs`):** novo comando remoto `testar_impressora` — a nuvem enfileira em `edge_comando`, o edge imprime um teste em TODAS as impressoras locais (fila `impressao_job`). Tocou `sync-daemon` → **`.zip` + `.exe`**. Cloud (autodeploy): `enfileirarTeste` com edge ativo passa a disparar o comando em vez do aviso F10.
 - **Épico melhorias Delivery (split de pagamento):** o **PDV do edge** recebe pagamento de retirada/encomenda dividido em várias formas → grava em `pedido_externo_pagamento` (**migration 230**, NÃO cloud-only — precisa existir no edge). O backend do delivery (`delivery.service`) roda no edge → **`.zip`**. As demais frentes do épico (cupons/fidelidade/cashback/horário/área-OSRM/marketing/whatsapp/entregadores) são **cloud-only** (autodeploy).
+- **Tarefas — horário final + prioridade + criador (#478):** `tarefa_def` ganha `horario_fim`/`prioridade`/`criado_por_id`/`criado_por_nivel` (**migration 235**, NÃO cloud-only — Meu Dia roda offline no edge; nuvem ✓ 10/09). Só schema aditivo — sem tocar `sync`/`edge` → basta **`.zip`** para o edge conhecer as colunas novas (o front/back de gestão é autodeploy).
 
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
