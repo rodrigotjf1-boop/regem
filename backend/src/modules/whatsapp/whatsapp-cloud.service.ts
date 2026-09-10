@@ -3,7 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { cardapioConfig, marketingOptout, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
+import { cardapioConfig, empresa, marketingOptout, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -24,16 +24,28 @@ const MAX_MIDIA = 20 * 1024 * 1024;
 const HOSTS_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
 
 // Biblioteca de modelos do Regem (auto-submetidos à WABA da loja no onboarding). Textos
-// genéricos e dentro das regras da Meta (texto antes/depois da variável) → aprovam sozinhos.
-// {{1}} = nome do cliente. Botões: url (Peça agora rastreado) / copy_code (cupom) / optout.
+// dentro das regras da Meta (texto antes/depois da variável). {{1}} = nome do cliente.
+// {loja}/{cidade} = IDENTIFICAÇÃO da loja — viram texto LITERAL no envio (puxado de
+// nomePublico/empresa.nome + endCidade em Configurações → Loja), não são variáveis da Meta.
+// Botões: url (Peça agora rastreado) / copy_code (cupom) / optout.
 const CATALOGO_REGEM: Array<{ nome: string; cabecalho: string; corpo: string; botoes: any[] }> = [
-  { nome: 'promo_frete_gratis', cabecalho: 'Frete grátis hoje! 🛵', corpo: 'Olá {{1}}! Hoje é FRETE GRÁTIS na nossa loja. Aproveite e faça seu pedido.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'cupom_desconto', cabecalho: 'Presente pra você 🎁', corpo: 'Oi {{1}}, preparamos um desconto especial pra você hoje. Aproveite antes que acabe!', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'recuperacao_cliente', cabecalho: 'Sentimos sua falta 😊', corpo: 'Oi {{1}}, faz um tempo que você não pede! Que tal pedir hoje? Dá uma olhada nas novidades.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'cliente_vip', cabecalho: 'Você é VIP 🏆', corpo: 'Oi {{1}}, você é cliente especial pra gente! Preparamos um mimo exclusivo pra você.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'aniversario', cabecalho: 'Feliz aniversário! 🎉', corpo: 'Parabéns, {{1}}! Comemore com a gente — tem um presente esperando por você.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio 🍔', corpo: 'Oi {{1}}, chegou novidade na nossa loja! Dá uma olhada e peça o seu.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'promo_frete_gratis', cabecalho: 'Frete grátis hoje! 🛵', corpo: 'Olá {{1}}! Aqui é a {loja}{cidade}. Hoje tem FRETE GRÁTIS pra você — aproveite e peça o seu pelo link abaixo. 🛵', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cupom_desconto', cabecalho: 'Um presente pra você 🎁', corpo: 'Oi {{1}}, aqui é a {loja}{cidade}! Preparamos um desconto especial pra você hoje. Aproveite antes que acabe — use seu cupom no pedido. 🎁', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'recuperacao_cliente', cabecalho: 'Sentimos sua falta 😊', corpo: 'Oi {{1}}, faz um tempo que você não pede na {loja}! Que tal matar a saudade hoje? Tem novidade te esperando. 😊', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cliente_vip', cabecalho: 'Você é VIP 🏆', corpo: 'Oi {{1}}, você é cliente especial pra {loja}! Como forma de agradecer, preparamos um mimo exclusivo pra você. Dá uma olhada! 🏆', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'aniversario', cabecalho: 'Feliz aniversário! 🎉', corpo: 'Parabéns, {{1}}! A {loja} preparou um presente especial pra você comemorar com a gente. Aproveite seu dia! 🎉', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio 🍔', corpo: 'Oi {{1}}, chegou novidade no cardápio da {loja}! Dá uma olhada nas nossas delícias e peça o seu. 🍔', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
 ];
+
+// Injeta a identificação da loja ({loja}/{cidade}) nos textos do catálogo. {cidade} vira
+// " de <cidade>" quando há cidade; some quando não há (evita frase quebrada).
+function identificarLoja(txt: string, loja: string, cidade: string): string {
+  return String(txt ?? '')
+    .replace(/\{cidade\}/g, cidade ? ` de ${cidade}` : '')
+    .replace(/\{loja\}/g, loja || 'nossa loja')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 // Só os dígitos, para comparar telefone vindo em qualquer formato.
 function soDigitos(v: any): string {
@@ -969,6 +981,14 @@ export class WhatsappCloudService {
   // onboarding (Embedded Signup) e no botão "Reenviar modelos da Regem".
   async seedModelosRegem(tenantId: string) {
     const resultados: any[] = [];
+    // Identificação da loja p/ os textos (Configurações → Loja): nome público + cidade.
+    const [cfgLoja] = await this.db
+      .select({ nomePublico: cardapioConfig.nomePublico, cidade: cardapioConfig.endCidade })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const [emp] = await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, tenantId));
+    const loja = String(cfgLoja?.nomePublico || emp?.nome || 'nossa loja').trim();
+    const cidade = String(cfgLoja?.cidade || '').trim();
     for (const base of CATALOGO_REGEM) {
       try {
         const [ja] = await this.db
@@ -992,8 +1012,8 @@ export class WhatsappCloudService {
             nome: base.nome,
             categoria: 'MARKETING',
             idioma: 'pt_BR',
-            cabecalho: base.cabecalho,
-            corpo: base.corpo,
+            cabecalho: identificarLoja(base.cabecalho, loja, cidade),
+            corpo: identificarLoja(base.corpo, loja, cidade),
             botoes: base.botoes,
             formato: 'padrao',
             status: 'rascunho',
