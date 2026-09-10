@@ -318,6 +318,46 @@ export default function MarketingPage() {
             <p>
               <strong className="text-foreground">Boas práticas:</strong> peça opt-in, respeite quem responde <strong>SAIR</strong> (entra na lista de exclusão automaticamente, com aviso de confirmação), mantenha <strong>1–3 mensagens por semana</strong>, e sempre identifique a loja. Isso protege a qualidade do número e evita bloqueios.
             </p>
+            <div className="pt-1">
+              <p className="mb-1 font-semibold text-foreground">Custos por mensagem (API Oficial)</p>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-[12px]">
+                  <caption className="sr-only">Custos estimados por categoria de mensagem no WhatsApp oficial da Meta</caption>
+                  <thead>
+                    <tr className="border-b border-border text-left text-foreground">
+                      <th className="py-1 pr-2 font-semibold">Categoria</th>
+                      <th className="py-1 pr-2 font-semibold">Quando usar</th>
+                      <th className="py-1 font-semibold whitespace-nowrap">Custo aprox. (Brasil)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="align-top">
+                    <tr className="border-b border-border/60">
+                      <td className="py-1 pr-2 font-medium text-foreground">Marketing</td>
+                      <td className="py-1 pr-2">Promoções, ofertas, cupom, reativação, carrossel</td>
+                      <td className="py-1 font-mono whitespace-nowrap">~R$ 0,31–0,38</td>
+                    </tr>
+                    <tr className="border-b border-border/60">
+                      <td className="py-1 pr-2 font-medium text-foreground">Utilidade</td>
+                      <td className="py-1 pr-2">Status de pedido, recibo, lembrete (ligado a uma transação)</td>
+                      <td className="py-1 font-mono whitespace-nowrap">~R$ 0,04–0,05</td>
+                    </tr>
+                    <tr className="border-b border-border/60">
+                      <td className="py-1 pr-2 font-medium text-foreground">Autenticação</td>
+                      <td className="py-1 pr-2">Código OTP / login</td>
+                      <td className="py-1 font-mono whitespace-nowrap">~R$ 0,15–0,19</td>
+                    </tr>
+                    <tr>
+                      <td className="py-1 pr-2 font-medium text-foreground">Serviço (cliente inicia, em 24h)</td>
+                      <td className="py-1 pr-2">Atendimento/dúvidas depois que o cliente te chama</td>
+                      <td className="py-1 font-mono font-semibold text-ok whitespace-nowrap">grátis</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="mt-1.5 text-[11px] text-foreground/60">
+                ⚠️ Valores <strong>estimados</strong> (Brasil, 2026) — a Meta cobra direto da conta da sua loja e os preços podem variar por categoria, país e política da Meta. A <strong>janela de 24h</strong> (quando o cliente inicia a conversa) é gratuita.
+              </p>
+            </div>
           </div>
         </details>
 
