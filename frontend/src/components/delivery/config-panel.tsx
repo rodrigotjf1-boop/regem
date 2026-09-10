@@ -8,6 +8,8 @@ import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { InputMoeda } from '@/components/ui/input-moeda';
+import { MapaAreaEntrega } from '@/components/delivery/mapa-area';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
@@ -60,6 +62,7 @@ export function ConfigPanel({
   const [integracoes, setIntegracoes] = useState<any[]>([]);
   const [cupons, setCupons] = useState<any[]>([]);
   const [novoCupom, setNovoCupom] = useState({
+    nome: '',
     codigo: '',
     tipo: 'percentual',
     valor: '',
@@ -68,6 +71,9 @@ export function ConfigPanel({
     condicao: 'nenhuma', // nenhuma | novos | dias | max
     minDiasSemCompra: '',
     maxPorCliente: '',
+    validoDe: '',
+    validade: '',
+    maxUsos: '',
   });
   const [qr, setQr] = useState('');
   const [salvando, setSalvando] = useState(false);
@@ -227,6 +233,7 @@ export function ConfigPanel({
     const n = (v: string) => (v ? Number(String(v).replace(',', '.')) : undefined);
     try {
       await api.criarCupom({
+        nome: novoCupom.nome.trim() || undefined,
         codigo: novoCupom.codigo.trim(),
         tipo: novoCupom.tipo,
         valor: novoCupom.tipo === 'fretegratis' ? 0 : n(novoCupom.valor) || 0,
@@ -235,8 +242,11 @@ export function ConfigPanel({
         somenteNovos: novoCupom.condicao === 'novos',
         minDiasSemCompra: novoCupom.condicao === 'dias' ? n(novoCupom.minDiasSemCompra) : undefined,
         maxPorCliente: novoCupom.condicao === 'max' ? n(novoCupom.maxPorCliente) : undefined,
+        validoDe: novoCupom.validoDe || undefined,
+        validade: novoCupom.validade || undefined,
+        maxUsos: novoCupom.maxUsos ? Number(novoCupom.maxUsos) : undefined,
       });
-      setNovoCupom({ codigo: '', tipo: novoCupom.tipo, valor: '', tetoDesconto: '', minimo: '', condicao: 'nenhuma', minDiasSemCompra: '', maxPorCliente: '' });
+      setNovoCupom({ nome: '', codigo: '', tipo: novoCupom.tipo, valor: '', tetoDesconto: '', minimo: '', condicao: 'nenhuma', minDiasSemCompra: '', maxPorCliente: '', validoDe: '', validade: '', maxUsos: '' });
       setCupons(await api.cardapioCupons());
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Erro'); }
   }
@@ -406,7 +416,11 @@ export function ConfigPanel({
                     <div className="max-w-xl space-y-3 rounded-lg border border-border p-3">
                       <div className="flex flex-wrap items-end gap-2">
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Código</label>
+                          <label className="mb-1 block text-xs text-muted-foreground">Nome (opcional)</label>
+                          <Input className="w-40" placeholder="ex.: Boas-vindas" value={novoCupom.nome} onChange={(e) => setNovoCupom((s) => ({ ...s, nome: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Nome / Código</label>
                           <Input className="w-32" placeholder="CÓDIGO" value={novoCupom.codigo} onChange={(e) => setNovoCupom((s) => ({ ...s, codigo: e.target.value.toUpperCase() }))} />
                         </div>
                         <div>
@@ -417,21 +431,46 @@ export function ConfigPanel({
                             <option value="fretegratis">Frete grátis</option>
                           </select>
                         </div>
-                        {novoCupom.tipo !== 'fretegratis' && (
+                        {novoCupom.tipo === 'valor' && (
                           <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">{novoCupom.tipo === 'percentual' ? '% de desconto' : 'Valor (R$)'}</label>
-                            <Input className="w-24" type="number" placeholder="Valor" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
+                            <label className="mb-1 block text-xs text-muted-foreground">Valor</label>
+                            <InputMoeda className="w-32" value={novoCupom.valor} onChange={(v) => setNovoCupom((s) => ({ ...s, valor: v }))} ariaLabel="Valor do cupom" />
                           </div>
                         )}
                         {novoCupom.tipo === 'percentual' && (
                           <div>
-                            <label className="mb-1 block text-xs text-muted-foreground">Teto do desconto (R$)</label>
-                            <Input className="w-28" type="number" placeholder="opcional" value={novoCupom.tetoDesconto} onChange={(e) => setNovoCupom((s) => ({ ...s, tetoDesconto: e.target.value }))} />
+                            <label className="mb-1 block text-xs text-muted-foreground">% de desconto</label>
+                            <div className="relative w-24">
+                              <Input type="number" className="pr-6" placeholder="0" value={novoCupom.valor} onChange={(e) => setNovoCupom((s) => ({ ...s, valor: e.target.value }))} />
+                              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                            </div>
+                          </div>
+                        )}
+                        {novoCupom.tipo === 'percentual' && (
+                          <div>
+                            <label className="mb-1 block text-xs text-muted-foreground">Teto do desconto</label>
+                            <InputMoeda className="w-32" value={novoCupom.tetoDesconto} onChange={(v) => setNovoCupom((s) => ({ ...s, tetoDesconto: v }))} placeholder="opcional" ariaLabel="Teto do desconto" />
                           </div>
                         )}
                         <div>
-                          <label className="mb-1 block text-xs text-muted-foreground">Pedido mínimo (R$)</label>
-                          <Input className="w-28" type="number" placeholder="opcional" value={novoCupom.minimo} onChange={(e) => setNovoCupom((s) => ({ ...s, minimo: e.target.value }))} />
+                          <label className="mb-1 block text-xs text-muted-foreground">Pedido mínimo</label>
+                          <InputMoeda className="w-32" value={novoCupom.minimo} onChange={(v) => setNovoCupom((s) => ({ ...s, minimo: v }))} placeholder="opcional" ariaLabel="Pedido mínimo" />
+                        </div>
+                      </div>
+
+                      {/* Período de atividade + limite total de usos */}
+                      <div className="flex flex-wrap items-end gap-2 border-t border-border pt-3">
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Válido de</label>
+                          <Input type="date" className="w-40" value={novoCupom.validoDe} onChange={(e) => setNovoCupom((s) => ({ ...s, validoDe: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Válido até</label>
+                          <Input type="date" className="w-40" value={novoCupom.validade} onChange={(e) => setNovoCupom((s) => ({ ...s, validade: e.target.value }))} />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs text-muted-foreground">Limite total de usos</label>
+                          <Input type="number" className="w-32" placeholder="ilimitado" value={novoCupom.maxUsos} onChange={(e) => setNovoCupom((s) => ({ ...s, maxUsos: e.target.value }))} />
                         </div>
                       </div>
 
@@ -466,7 +505,7 @@ export function ConfigPanel({
                       {cupons.length === 0 && <span className="text-sm text-muted-foreground">Nenhum cupom.</span>}
                       {cupons.map((c) => (
                         <span key={c.id} className="flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs">
-                          <strong>{c.codigo}</strong> ·{' '}
+                          <strong>{c.nome ? `${c.nome} · ${c.codigo}` : c.codigo}</strong> ·{' '}
                           {c.tipo === 'fretegratis'
                             ? 'frete grátis'
                             : c.tipo === 'percentual'
@@ -475,7 +514,10 @@ export function ConfigPanel({
                           {c.minimo ? ` · mín. ${Number(c.minimo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}
                           {c.somenteNovos ? ' · novos' : ''}
                           {c.minDiasSemCompra ? ` · ${c.minDiasSemCompra}d inativo` : ''}
-                          {c.maxPorCliente ? ` · máx ${c.maxPorCliente}x` : ''}
+                          {c.maxPorCliente ? ` · máx ${c.maxPorCliente}x/cliente` : ''}
+                          {c.maxUsos ? ` · ${c.maxUsos} no total` : ''}
+                          {c.validoDe ? ` · de ${String(c.validoDe).slice(8, 10)}/${String(c.validoDe).slice(5, 7)}` : ''}
+                          {c.validade ? ` · até ${String(c.validade).slice(8, 10)}/${String(c.validade).slice(5, 7)}` : ''}
                           <button type="button" onClick={() => delCupom(c.id)} className="text-destructive">×</button>
                         </span>
                       ))}
@@ -597,8 +639,12 @@ export function ConfigPanel({
                         <Campo label="Até quantos dias à frente">
                           <Input type="number" value={loja.encomendaHorizonteDias ?? ''} onChange={(e) => up({ encomendaHorizonteDias: e.target.value })} placeholder="30" disabled={!isGestor} />
                         </Campo>
-                        <Campo label="Horário de corte (opcional)">
-                          <Input type="time" value={(loja.encomendaCorte ?? '').slice(0, 5)} onChange={(e) => up({ encomendaCorte: e.target.value })} disabled={!isGestor} />
+                        <Campo label="Janela de corte p/ hoje (opcional)">
+                          <div className="flex items-center gap-2">
+                            <Input type="time" value={(loja.encomendaCorteInicio ?? '').slice(0, 5)} onChange={(e) => up({ encomendaCorteInicio: e.target.value })} disabled={!isGestor} aria-label="Início do corte" />
+                            <span className="text-xs text-muted-foreground">até</span>
+                            <Input type="time" value={(loja.encomendaCorte ?? '').slice(0, 5)} onChange={(e) => up({ encomendaCorte: e.target.value })} disabled={!isGestor} aria-label="Fim do corte" />
+                          </div>
                         </Campo>
                         <Campo label="Máx. de encomendas por dia (opcional)">
                           <Input type="number" value={loja.encomendaCapacidadeDia ?? ''} onChange={(e) => up({ encomendaCapacidadeDia: e.target.value })} placeholder="sem limite" disabled={!isGestor} />
@@ -690,6 +736,8 @@ export function ConfigPanel({
                   <AreaAtendimento
                     modo={loja.areaModo ?? 'bairro'}
                     onTrocarModo={(m) => salvarLojaPatch({ areaModo: m })}
+                    lat={loja.endLat}
+                    lng={loja.endLng}
                     raios={loja.raios ?? []}
                     onRaios={(r) => up({ raios: r })}
                     onSalvarRaios={salvarLoja}
@@ -920,10 +968,12 @@ function Horarios({ value, onChange, pode }: { value: any[]; onChange: (h: any[]
 const brl = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 function AreaAtendimento({
-  modo, onTrocarModo, raios, onRaios, onSalvarRaios, bairros, onSalvarBairros, salvando, pode,
+  modo, onTrocarModo, lat, lng, raios, onRaios, onSalvarRaios, bairros, onSalvarBairros, salvando, pode,
 }: {
   modo: string;
   onTrocarModo: (m: string) => void;
+  lat?: any;
+  lng?: any;
   raios: any[];
   onRaios: (r: any[]) => void;
   onSalvarRaios: () => void;
@@ -950,7 +1000,7 @@ function AreaAtendimento({
       </div>
 
       {modo === 'raio' ? (
-        <FaixasRaio raios={raios} onRaios={onRaios} onSalvar={onSalvarRaios} salvando={salvando} pode={pode} />
+        <FaixasRaio raios={raios} onRaios={onRaios} onSalvar={onSalvarRaios} salvando={salvando} pode={pode} lat={lat} lng={lng} />
       ) : (
         <ListaBairros bairros={bairros} onSalvar={onSalvarBairros} salvando={salvando} pode={pode} />
       )}
@@ -994,7 +1044,7 @@ const RAIO_PRESETS: { km: number; label: string }[] = [
   { km: 6, label: '6km' }, { km: 7, label: '7km' }, { km: 999, label: '7km+' },
 ];
 
-function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]; onRaios: (r: any[]) => void; onSalvar: () => void; salvando: boolean; pode: boolean }) {
+function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode, lat, lng }: { raios: any[]; onRaios: (r: any[]) => void; onSalvar: () => void; salvando: boolean; pode: boolean; lat?: any; lng?: any }) {
   const lista = raios ?? [];
   function add(ateKm: any = '') { onRaios([...lista, { ateKm, taxa: 0 }].sort((a, b) => (Number(a.ateKm) || 9999) - (Number(b.ateKm) || 9999))); }
   function up(i: number, patch: any) { onRaios(lista.map((x, j) => (j === i ? { ...x, ...patch } : x))); }
@@ -1003,6 +1053,7 @@ function FaixasRaio({ raios, onRaios, onSalvar, salvando, pode }: { raios: any[]
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">Faixas de distância a partir do endereço da loja: “até X km custa R$Y”. Toque num preset para adicionar e depois preencha a taxa.</p>
+      <MapaAreaEntrega lat={lat} lng={lng} raios={lista} />
       {/* Presets rápidos */}
       {pode && (
         <div className="flex flex-wrap gap-1.5">
@@ -1177,10 +1228,10 @@ function textoContraste(hex: string): string {
   return lum > 0.6 ? '#0F2230' : '#ffffff';
 }
 
-function LogoPlataforma({ canal, nome, cor, tam = 'md' }: { canal: string; nome: string; cor: string; tam?: 'sm' | 'md' }) {
+function LogoPlataforma({ canal, nome, cor, tam = 'md' }: { canal: string; nome: string; cor: string; tam?: 'sm' | 'md' | 'lg' }) {
   const [erro, setErro] = useState(false);
   const meta = PLAT_META[canal];
-  const box = tam === 'sm' ? 'h-9 w-9' : 'h-12 w-12';
+  const box = tam === 'sm' ? 'h-9 w-9' : tam === 'lg' ? 'h-20 w-20' : 'h-12 w-12';
   if (meta?.logo && !erro) {
     return <img src={meta.logo} alt={nome} onError={() => setErro(true)} className={`${box} rounded-lg object-contain`} />;
   }
@@ -1199,14 +1250,14 @@ function PlataformaCard({ it, onClick }: { it: any; onClick: () => void }) {
       type="button"
       onClick={onClick}
       aria-label={`Configurar ${nome}`}
-      className="group flex w-[104px] flex-col items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-2.5 text-center transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="group flex w-[200px] flex-col items-center justify-center gap-3 rounded-2xl border border-border bg-card px-4 py-5 text-center transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${it.ativo ? 'bg-ok/15 text-ok' : 'bg-secondary text-muted-foreground'}`}>
         <span className={`h-2 w-2 rounded-full ${it.ativo ? 'bg-ok' : 'bg-muted-foreground/40'}`} />
         {it.ativo ? 'ativo' : 'off'}
       </span>
-      <LogoPlataforma canal={it.canal} nome={nome} cor={cor} tam="sm" />
-      <span className="text-center text-[13px] font-semibold leading-tight">{nome}</span>
+      <LogoPlataforma canal={it.canal} nome={nome} cor={cor} tam="lg" />
+      <span className="text-center text-base font-semibold leading-tight">{nome}</span>
     </button>
   );
 }

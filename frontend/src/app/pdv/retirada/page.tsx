@@ -9,12 +9,20 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CaixaPanel } from '@/components/pdv/caixa-panel';
 import { PedidoDetalhe } from '@/components/delivery/pedido-detalhe';
+import { SplitPagamento, montarPagamentos } from '@/components/pdv/split-pagamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hora = (d?: string) =>
   d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+// Data + hora (encomenda pode ser para dias à frente → sempre mostrar a data).
+const dataHora = (d?: string) =>
+  d
+    ? new Date(d).toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+      })
+    : '—';
 
 const CANAL_LABEL: Record<string, string> = {
   ifood: 'iFood', cardapio: 'Cardápio', cardapio_web: 'Cardápio Web', anotaai: 'Anota Aí',
@@ -375,7 +383,7 @@ function PedidoCard({
           <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{p.formaPagamentoLabel}</span>
         )}
         {p.agendamento && (
-          <span className="text-muted-foreground">🕒 {hora(p.agendamento)}</span>
+          <span className="text-muted-foreground">🗓 {dataHora(p.agendamento)}</span>
         )}
       </div>
 
@@ -434,15 +442,27 @@ function CobrarModal({
   const [forma, setForma] = useState<string>(
     sugerida && opcoes.includes(sugerida) ? sugerida : opcoes[0],
   );
+  const [dividir, setDividir] = useState(false);
+  const [pagamentos, setPagamentos] = useState<{ forma: string; valor: string }[]>([
+    { forma: sugerida && opcoes.includes(sugerida) ? sugerida : opcoes[0], valor: Number(pedido.total || 0).toFixed(2) },
+  ]);
 
   async function confirmar() {
+    const pags = montarPagamentos(dividir, pagamentos);
+    if (dividir) {
+      const soma = (pags ?? []).reduce((s, p) => s + p.valor, 0);
+      if (!pags?.length || Math.abs(soma - Number(pedido.total || 0)) > 0.01) {
+        toast.error('A soma das formas precisa fechar o total do pedido.');
+        return;
+      }
+    }
     setBusy(true);
     try {
       if (modo === 'receber') {
-        await api.receberPagamentoTotem(pedido.id, forma);
+        await api.receberPagamentoTotem(pedido.id, forma, pags);
         toast.success('Pagamento recebido. Pedido foi pra produção.');
       } else {
-        await api.entregarBalcao(pedido.id, forma);
+        await api.entregarBalcao(pedido.id, forma, pags);
         toast.success('Cobrado e entregue. Valor no seu caixa.');
       }
       onDone();
@@ -468,16 +488,16 @@ function CobrarModal({
           Abra o caixa do PDV antes de cobrar.
         </p>
       )}
-      <label className="mt-3 block text-sm font-medium">Forma de pagamento</label>
-      <select
-        className="mt-1 w-full rounded-lg border border-border bg-background p-2 text-sm"
-        value={forma}
-        onChange={(e) => setForma(e.target.value)}
-      >
-        {opcoes.map((o: string) => (
-          <option key={o} value={o}>{o}</option>
-        ))}
-      </select>
+      <SplitPagamento
+        opcoes={opcoes}
+        total={Number(pedido.total || 0)}
+        formaUnica={forma}
+        onFormaUnica={setForma}
+        dividir={dividir}
+        onDividir={setDividir}
+        pagamentos={pagamentos}
+        onPagamentos={setPagamentos}
+      />
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={busy}>Cancelar</Button>
         <Button onClick={confirmar} disabled={busy || !temCaixa}>

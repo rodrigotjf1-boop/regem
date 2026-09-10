@@ -742,10 +742,10 @@ export default function DeliveryPage() {
           pedido={filaConferencia[0]}
           restantes={filaConferencia.length}
           onFechar={async () => { setFilaConferencia([]); setMarcadosAnd(new Set()); await reload(); }}
-          onConfirmar={async (forma, valorRecebido) => {
+          onConfirmar={async (forma, valorRecebido, pagamentos) => {
             const atual = filaConferencia[0];
             try {
-              await api.finalizarDelivery(atual.id, { forma, valorRecebido });
+              await api.finalizarDelivery(atual.id, { forma, valorRecebido, pagamentos });
             } catch (e) {
               toast.error(e instanceof Error ? e.message : 'Erro ao finalizar');
               return;
@@ -1026,7 +1026,7 @@ function PreviewPedido({ pedido: p, onAbrirDetalhe, className }: { pedido: any; 
           {p.pago ? <span className="font-bold text-ok">Pago online</span> : <span className="font-bold text-warn">A pagar {p.formaPagamento ? `· ${formaLabel(p.formaPagamento)}` : ''}</span>}
           {p.trocoPara != null && Number(p.trocoPara) > 0 && <span className="text-muted-foreground">troco p/ {brl(Number(p.trocoPara))}</span>}
           {p.entregadorNome && <span className="font-medium">🛵 {p.entregadorNome}</span>}
-          {p.agendamento && <span className="text-info">agendado {hora(p.agendamento)}</span>}
+          {p.agendamento && <span className="text-info">agendado {dataCurta(p.agendamento)} {hora(p.agendamento)}</span>}
           {p.cupom && <span className="text-muted-foreground">cupom {p.cupom}</span>}
         </div>
         <ul className="space-y-1">
@@ -1117,7 +1117,7 @@ function PainelAcoes({ acoes, temSel, nPend, nAnd, fila }: { acoes: any; temSel:
 function RodapeDelivery({ integracoes, cardapioAtivo, totais }: { integracoes: any[]; cardapioAtivo: boolean; totais: { total: number; cancelados: number; concluidos: number } }) {
   const canais = [
     { nome: 'Cardápio Regem', on: cardapioAtivo },
-    ...integracoes.map((it) => ({ nome: CANAL_LABEL[it.canal] ?? it.canal, on: !!it.ativo })),
+    ...integracoes.filter((it) => it.canal !== 'n8n').map((it) => ({ nome: CANAL_LABEL[it.canal] ?? it.canal, on: !!it.ativo })),
   ];
   return (
     <Card className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 text-xs">
@@ -1274,7 +1274,7 @@ function DespachoModal({ pedido, entregadores, onFechar, onConfirmar }: {
 function ConferenciaModal({ pedido, onFechar, onConfirmar, restantes = 1 }: {
   pedido: any;
   onFechar: () => void;
-  onConfirmar: (forma: string, valorRecebido: number) => void;
+  onConfirmar: (forma: string, valorRecebido: number, pagamentos?: { forma: string; valor: number }[]) => void;
   restantes?: number;
 }) {
   const total = Number(pedido.total) || 0;
@@ -1284,6 +1284,14 @@ function ConferenciaModal({ pedido, onFechar, onConfirmar, restantes = 1 }: {
   const troco = forma === 'dinheiro' ? Math.max(0, recebido - total) : 0;
   const faltou = forma === 'dinheiro' && recebido < total;
   const FORMAS: [string, string][] = [['dinheiro', 'Dinheiro'], ['cartao', 'Cartão'], ['pix', 'Pix']];
+  // Split de pagamento (mais de uma forma).
+  const [dividir, setDividir] = useState(false);
+  const [pagamentos, setPagamentos] = useState<{ forma: string; valor: string }[]>([{ forma: 'dinheiro', valor: total.toFixed(2) }]);
+  const somaCent = pagamentos.reduce((s, p) => s + Math.round((Number(String(p.valor).replace(',', '.')) || 0) * 100), 0);
+  const restanteCent = Math.round(total * 100) - somaCent;
+  const setLinha = (i: number, patch: any) => setPagamentos((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const addLinha = () => setPagamentos((ps) => [...ps, { forma: 'dinheiro', valor: restanteCent > 0 ? (restanteCent / 100).toFixed(2) : '' }]);
+  const delLinha = (i: number) => setPagamentos((ps) => ps.filter((_, j) => j !== i));
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={onFechar}>
       <Card className="w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
@@ -1295,35 +1303,77 @@ function ConferenciaModal({ pedido, onFechar, onConfirmar, restantes = 1 }: {
           Pedido #{pedido.numero ?? '—'} · a receber <strong className="text-warn">{brl(total)}</strong>
         </p>
         <div className="space-y-3">
-          <div>
-            <p className="mb-1 text-xs font-medium">Forma recebida</p>
-            <div className="inline-flex flex-wrap gap-1.5">
-              {FORMAS.map(([k, lb]) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setForma(k)}
-                  aria-pressed={forma === k}
-                  className={`rounded-lg border px-3 py-1.5 text-sm ${forma === k ? 'border-primary bg-primary/10 font-semibold' : 'border-border'}`}
-                >
-                  {lb}
-                </button>
-              ))}
-            </div>
-          </div>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium">Valor recebido</span>
-            <Input value={valor} inputMode="decimal" onChange={(e) => setValor(e.target.value)} />
+          <label className="flex items-center gap-2 text-xs font-medium">
+            <input type="checkbox" className="h-4 w-4 accent-primary" checked={dividir} onChange={(e) => setDividir(e.target.checked)} />
+            Dividir pagamento (mais de uma forma)
           </label>
-          {forma === 'dinheiro' && (
-            <p className={`text-sm ${faltou ? 'text-destructive' : 'text-muted-foreground'}`}>
-              {faltou ? `Faltam ${brl(total - recebido)}` : `Troco: ${brl(troco)}`}
-            </p>
+          {!dividir ? (
+            <>
+              <div>
+                <p className="mb-1 text-xs font-medium">Forma recebida</p>
+                <div className="inline-flex flex-wrap gap-1.5">
+                  {FORMAS.map(([k, lb]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setForma(k)}
+                      aria-pressed={forma === k}
+                      className={`rounded-lg border px-3 py-1.5 text-sm ${forma === k ? 'border-primary bg-primary/10 font-semibold' : 'border-border'}`}
+                    >
+                      {lb}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium">Valor recebido</span>
+                <Input value={valor} inputMode="decimal" onChange={(e) => setValor(e.target.value)} />
+              </label>
+              {forma === 'dinheiro' && (
+                <p className={`text-sm ${faltou ? 'text-destructive' : 'text-muted-foreground'}`}>
+                  {faltou ? `Faltam ${brl(total - recebido)}` : `Troco: ${brl(troco)}`}
+                </p>
+              )}
+            </>
+          ) : (
+            <div className="space-y-2">
+              {pagamentos.map((p, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <select className="flex-1 rounded-lg border border-border bg-card p-2 text-sm" value={p.forma} onChange={(e) => setLinha(i, { forma: e.target.value })}>
+                    {FORMAS.map(([k, lb]) => <option key={k} value={k}>{lb}</option>)}
+                  </select>
+                  <Input className="w-28 text-right" inputMode="decimal" placeholder="0,00" value={p.valor} onChange={(e) => setLinha(i, { valor: e.target.value })} aria-label="Valor da forma" />
+                  {pagamentos.length > 1 && <button type="button" onClick={() => delLinha(i)} className="px-1 text-destructive" aria-label="Remover">×</button>}
+                </div>
+              ))}
+              <div className="flex items-center justify-between text-xs">
+                <button type="button" onClick={addLinha} className="font-semibold text-primary">＋ adicionar forma</button>
+                <span className={restanteCent === 0 ? 'text-ok' : 'text-warn'}>
+                  {restanteCent === 0 ? 'fecha o total ✓' : `${restanteCent > 0 ? 'falta' : 'excede'} ${brl(Math.abs(restanteCent) / 100)}`}
+                </span>
+              </div>
+            </div>
           )}
         </div>
         <div className="mt-4 flex gap-2">
           <Button type="button" variant="ghost" className="flex-1" onClick={onFechar}>Cancelar</Button>
-          <Button type="button" className="flex-1" onClick={() => onConfirmar(forma, recebido)}>Confirmar recebimento</Button>
+          <Button
+            type="button"
+            className="flex-1"
+            disabled={dividir && restanteCent !== 0}
+            onClick={() => {
+              if (dividir) {
+                const pags = pagamentos
+                  .map((p) => ({ forma: p.forma, valor: Number(String(p.valor).replace(',', '.')) || 0 }))
+                  .filter((p) => p.forma && p.valor > 0);
+                onConfirmar('', total, pags);
+              } else {
+                onConfirmar(forma, recebido);
+              }
+            }}
+          >
+            Confirmar recebimento
+          </Button>
         </div>
       </Card>
     </div>

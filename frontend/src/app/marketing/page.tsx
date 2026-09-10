@@ -70,7 +70,7 @@ export default function MarketingPage() {
   const [campanhas, setCampanhas] = useState<any[]>([]);
   const [metricas, setMetricas] = useState<Record<string, any>>({});
   const [novo, setNovo] = useState(false);
-  const [excluir, setExcluir] = useState('');
+  const [optoutLista, setOptoutLista] = useState<any[]>([]);
 
   // Builder
   const [tipo, setTipo] = useState('avulsa');
@@ -166,6 +166,12 @@ export default function MarketingPage() {
     if (temCloud && templates.length === 0) setAba('modelos');
   }, [numeros, temCloud, templates.length]);
 
+  // Lista de exclusão (só leitura) — carrega quando o gestor pode ver.
+  useEffect(() => {
+    if (!pode) return;
+    api.crmOptoutLista().then((r: any) => setOptoutLista((r as any[]) ?? [])).catch(() => setOptoutLista([]));
+  }, [pode]);
+
   // Recalcula o público quando o segmento muda.
   useEffect(() => {
     if (!novo) return;
@@ -260,18 +266,6 @@ export default function MarketingPage() {
     setDias([]);
     setHoraInicio('');
     setHoraFim('');
-  }
-
-  async function excluirTel() {
-    const t = excluir.replace(/\D/g, '');
-    if (!t) return;
-    try {
-      await api.crmExcluirTelefone(t);
-      toast.success('Número adicionado à lista de exclusão.');
-      setExcluir('');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Não consegui excluir.');
-    }
   }
 
   const captionPreview = [msg.replace('{CUPOM}', cupomCodigo || 'CUPOM'), link].filter(Boolean).join('\n');
@@ -679,19 +673,33 @@ export default function MarketingPage() {
           )}
         </Card>
 
-        {/* Lista de exclusão */}
+        {/* Lista de exclusão — só leitura (cresce sozinha com o "SAIR" do cliente) */}
         {pode && (
           <Card className="space-y-2 p-4">
             <p className="text-sm font-semibold text-foreground">Lista de exclusão (não receber marketing)</p>
             <p className="text-[13px] text-foreground/70">
-              Esta lista é preenchida <strong>automaticamente</strong> quando o cliente responde <strong>SAIR</strong> numa campanha —
-              ele recebe um aviso de que <strong>não receberá mais ofertas e campanhas</strong> e confirma a saída. Você também pode
-              excluir um número manualmente aqui.
+              Preenchida <strong>automaticamente</strong> quando o cliente responde <strong>SAIR</strong> numa campanha (ele recebe a
+              confirmação de que não receberá mais ofertas). É só para <strong>controle</strong> — as campanhas nunca disparam para
+              estes números.
             </p>
-            <div className="flex flex-wrap gap-2">
-              <Input value={excluir} onChange={(e) => setExcluir(e.target.value)} placeholder="5521999999999" className="max-w-[220px]" />
-              <Button type="button" variant="outline" onClick={excluirTel}>Excluir número</Button>
-            </div>
+            {optoutLista.length === 0 ? (
+              <p className="text-[13px] text-foreground/50">Ninguém saiu das campanhas ainda.</p>
+            ) : (
+              <div className="max-h-64 space-y-1 overflow-y-auto">
+                <p className="text-[11px] text-foreground/60">{optoutLista.length} número(s) na lista</p>
+                {optoutLista.map((o, i) => (
+                  <div key={`${o.telefone}-${i}`} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-1.5 text-[13px]">
+                    <span className="font-medium text-foreground">
+                      {o.nome || 'Cliente'} · <span className="font-mono text-foreground/70">{o.telefone}</span>
+                    </span>
+                    <span className="text-[11px] text-foreground/50">
+                      {o.motivo === 'palavra_chave' ? 'saiu por "SAIR"' : o.motivo === 'link' ? 'saiu por link' : 'manual'}
+                      {o.criado_em ? ` · ${new Date(o.criado_em).toLocaleDateString('pt-BR')}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         )}
         </>)}

@@ -110,6 +110,28 @@ export function CashbackPanel({ pode }: { pode: boolean }) {
     set({ produtos: pontos ? [...outros, { produtoId, pontos: Number(pontos) }] : outros });
   };
   const prodPontos = (produtoId: string) => form.produtos.find((p: any) => p.produtoId === produtoId)?.pontos ?? '';
+  // Item 8: precificação proporcional — a 1ª faixa (regras[0]) define os pontos por real.
+  const [autoProporcional, setAutoProporcional] = useState(false);
+  const pontosPorReal = (() => {
+    const r0 = form.regras?.[0];
+    const reais = Number(String(r0?.reais ?? '').replace(',', '.')) || 0;
+    const pontos = Number(String(r0?.pontos ?? '').replace(',', '.')) || 0;
+    return reais > 0 ? pontos / reais : 0;
+  })();
+  function preencherProporcional() {
+    if (pontosPorReal <= 0) {
+      toast.error('Defina a 1ª faixa (ex.: R$ 1 = 100 pontos) antes de preencher.');
+      setAutoProporcional(false);
+      return;
+    }
+    const novos = produtos
+      .map((p) => {
+        const preco = Number(p.precoVenda ?? p.preco ?? 0);
+        return preco > 0 ? { produtoId: p.id, pontos: Math.round(preco * pontosPorReal) } : null;
+      })
+      .filter(Boolean) as any[];
+    set({ produtos: novos });
+  }
 
   return (
     <div className="space-y-4">
@@ -156,6 +178,31 @@ export function CashbackPanel({ pode }: { pode: boolean }) {
                 ))}
               </div>
               {pode && <button type="button" onClick={addRegra} className="mt-1 text-xs font-semibold text-primary">＋ adicionar faixa</button>}
+            </div>
+            <div className="rounded-md border border-dashed border-border bg-muted/30 p-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-primary"
+                  checked={autoProporcional}
+                  onChange={(e) => {
+                    setAutoProporcional(e.target.checked);
+                    if (e.target.checked) preencherProporcional();
+                  }}
+                  disabled={!pode}
+                />
+                <span>
+                  Preencher com valor proporcional de venda dos produtos abaixo
+                  <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                    Usa a 1ª faixa como referência (ex.: R$ 1 = 100 pontos → um produto de R$ 10 vira 1000 pontos).
+                  </span>
+                </span>
+              </label>
+              {autoProporcional && pode && (
+                <button type="button" onClick={preencherProporcional} className="mt-1 text-xs font-semibold text-primary">
+                  ↻ recalcular pelos preços atuais
+                </button>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-xs text-muted-foreground">Produtos para resgate (pontos)</label>

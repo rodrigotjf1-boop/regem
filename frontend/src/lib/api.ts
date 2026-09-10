@@ -881,16 +881,16 @@ export const api = {
   // Encomendas agrupadas por data (mig 186). data opcional (YYYY-MM-DD) filtra uma data.
   encomendasPorData: (data?: string) =>
     req(`/delivery/encomendas${data ? `?data=${encodeURIComponent(data)}` : ''}`),
-  entregarBalcao: (id: string, forma?: string) =>
+  entregarBalcao: (id: string, forma?: string, pagamentos?: { forma: string; valor: number; formaPagamentoId?: string }[]) =>
     req(`/delivery/pedidos/${id}/entregar`, {
       method: 'POST',
-      body: JSON.stringify({ forma }),
+      body: JSON.stringify({ forma, pagamentos }),
     }),
   // Totem GoGeM (modo "após pagamento"): recebe o dinheiro e manda pra produção (sem concluir).
-  receberPagamentoTotem: (id: string, forma?: string) =>
+  receberPagamentoTotem: (id: string, forma?: string, pagamentos?: { forma: string; valor: number; formaPagamentoId?: string }[]) =>
     req(`/delivery/pedidos/${id}/receber-pagamento`, {
       method: 'POST',
-      body: JSON.stringify({ forma }),
+      body: JSON.stringify({ forma, pagamentos }),
     }),
   // Gestor alterna o modo de produção do totem (true = só após pagamento).
   setTotemModo: (aposPagamento: boolean) =>
@@ -906,7 +906,7 @@ export const api = {
     req(`/delivery/pedidos/${id}/reimprimir`, { method: 'POST', body: JSON.stringify({ equipamentoId: equipamentoId ?? null }) }),
   despacharDelivery: (id: string, body?: Record<string, unknown>) =>
     req(`/delivery/pedidos/${id}/despachar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
-  finalizarDelivery: (id: string, body?: { forma?: string; valorRecebido?: number }) =>
+  finalizarDelivery: (id: string, body?: { forma?: string; valorRecebido?: number; pagamentos?: { forma: string; valor: number; formaPagamentoId?: string }[] }) =>
     req(`/delivery/pedidos/${id}/finalizar`, { method: 'POST', body: JSON.stringify(body ?? {}) }),
   // Confirma a entrega por código (entrega própria 99food/iFood) → valida no canal e conclui.
   confirmarCodigoDelivery: (id: string, codigo: string) =>
@@ -1047,6 +1047,9 @@ export const api = {
   whatsappDiagnostico: () => req('/whatsapp/diagnostico'),
   // Inbox (sobre a instância Evolution do robô)
   whatsappConversas: () => req('/whatsapp/conversas'),
+  whatsappHistoricoConfig: () => req('/whatsapp/historico-config'),
+  whatsappHistoricoConfigSalvar: (retencaoDias: number) =>
+    req('/whatsapp/historico-config', { method: 'POST', body: JSON.stringify({ retencaoDias }) }),
   whatsappMensagens: (jids: string) => req(`/whatsapp/mensagens?jids=${encodeURIComponent(jids)}`),
   whatsappEnviar: (jid: string, texto: string) =>
     req('/whatsapp/enviar', { method: 'POST', body: JSON.stringify({ jid, texto }) }),
@@ -1287,6 +1290,7 @@ export const api = {
     req('/campanhas/opt-out', { method: 'POST', body: JSON.stringify({ clienteId, optOut }) }),
   crmExcluirTelefone: (telefone: string) =>
     req('/campanhas/excluir-telefone', { method: 'POST', body: JSON.stringify({ telefone }) }),
+  crmOptoutLista: () => req('/campanhas/optout'),
   crmFunil: (dias = 30) => req(`/clientes/funil?dias=${dias}`),
   // E2b — entregadores ao vivo (última posição/15min + nº em rota).
   entregadoresAoVivo: () => req('/entregador/ao-vivo'),

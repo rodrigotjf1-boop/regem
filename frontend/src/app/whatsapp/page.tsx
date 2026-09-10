@@ -8,11 +8,21 @@ import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Send, Bot, Play, FileText, Image as ImageIcon, ImageOff } from 'lucide-react';
+import { ArrowLeft, Send, Bot, Play, FileText, Image as ImageIcon, ImageOff, Settings } from 'lucide-react';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const hora = (ts: number) =>
   ts ? new Date(ts * 1000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+// Rótulo do separador de dia no chat (Hoje / Ontem / dd/mm/aaaa).
+const rotuloDia = (d: Date) => {
+  const hoje = new Date();
+  const ontem = new Date();
+  ontem.setDate(hoje.getDate() - 1);
+  const eq = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  if (eq(d, hoje)) return 'Hoje';
+  if (eq(d, ontem)) return 'Ontem';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
 const foneFmt = (f: string) => {
   const d = String(f ?? '').replace(/\D/g, '');
   if (d.length >= 12) return `+${d.slice(0, 2)} (${d.slice(2, 4)}) ${d.slice(4, 9)}-${d.slice(9)}`;
@@ -109,6 +119,21 @@ export default function WhatsappPage() {
   // "Carregar fotos" (economia de dados, igual ao WhatsApp). Desligado por
   // padrão: fotos só baixam ao clicar. A escolha fica guardada neste navegador.
   const [autoFotos, setAutoFotos] = useState(false);
+  // Config do histórico (retenção). 0 = manter tudo; N = manter só os últimos N dias.
+  const [cfgHist, setCfgHist] = useState(false);
+  const [retencao, setRetencao] = useState<number>(0);
+  useEffect(() => {
+    api.whatsappHistoricoConfig().then((r: any) => setRetencao(Number(r?.retencaoDias) || 0)).catch(() => {});
+  }, []);
+  async function salvarRetencao() {
+    try {
+      await api.whatsappHistoricoConfigSalvar(Number(retencao) || 0);
+      toast.success('Retenção do histórico salva.');
+      setCfgHist(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao salvar.');
+    }
+  }
   useEffect(() => {
     setAutoFotos(localStorage.getItem('regem_wa_fotos') === '1');
   }, []);
@@ -378,24 +403,50 @@ export default function WhatsappPage() {
                   >
                     {sel.pausada ? <><Play className="h-4 w-4" /> Retomar robô</> : <><Bot className="h-4 w-4" /> Pausar robô</>}
                   </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={() => setCfgHist(true)}
+                    title="Configurar o histórico de conversas"
+                  >
+                    <Settings className="h-4 w-4" /> Config
+                  </Button>
                 </div>
 
                 <div className="min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto bg-secondary/30 p-3">
                   {msgs.length === 0 && (
                     <p className="py-8 text-center text-xs text-muted-foreground">Sem mensagens carregadas.</p>
                   )}
-                  {msgs.map((m) => (
-                    <div key={m.id} className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[75%] rounded-lg px-2.5 py-1.5 text-sm ${m.fromMe ? 'bg-emerald-500 text-white' : 'border border-border bg-card'}`}>
-                        {m.midia ? (
-                          <MidiaMsg m={m} jid={sel.jids?.[0] ?? ''} auto={autoFotos} />
-                        ) : (
-                          <span className="whitespace-pre-wrap break-words">{m.texto}</span>
-                        )}
-                        <span className={`ml-2 align-bottom text-[10px] ${m.fromMe ? 'text-white/70' : 'text-muted-foreground'}`}>{hora(m.timestamp)}</span>
-                      </div>
-                    </div>
-                  ))}
+                  {(() => {
+                    let ultimoDia = '';
+                    return msgs.map((m) => {
+                      const d = new Date((m.timestamp || 0) * 1000);
+                      const diaKey = d.toDateString();
+                      const mostraDia = m.timestamp ? diaKey !== ultimoDia : false;
+                      if (m.timestamp) ultimoDia = diaKey;
+                      return (
+                        <div key={m.id}>
+                          {mostraDia && (
+                            <div className="my-2 flex justify-center">
+                              <span className="rounded-full bg-card px-3 py-0.5 text-[11px] text-muted-foreground shadow-sm">{rotuloDia(d)}</span>
+                            </div>
+                          )}
+                          <div className={`flex ${m.fromMe ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[75%] rounded-lg px-2.5 py-1.5 text-sm ${m.fromMe ? 'bg-emerald-500 text-white' : 'border border-border bg-card'}`}>
+                              {m.midia ? (
+                                <MidiaMsg m={m} jid={sel.jids?.[0] ?? ''} auto={autoFotos} />
+                              ) : (
+                                <span className="whitespace-pre-wrap break-words">{m.texto}</span>
+                              )}
+                              <span className={`ml-2 align-bottom text-[10px] ${m.fromMe ? 'text-white/70' : 'text-muted-foreground'}`}>{hora(m.timestamp)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
                   <div ref={fimRef} />
                 </div>
 
@@ -435,6 +486,36 @@ export default function WhatsappPage() {
                   {c.nome}{c.unidadeNome ? ` · ${c.unidadeNome}` : ''}
                 </Button>
               ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Config do histórico de conversas (retenção) — item 11 */}
+      {cfgHist && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" onClick={() => setCfgHist(false)}>
+          <Card className="w-full max-w-sm space-y-3 p-5" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="font-display text-base font-bold">Histórico de conversas</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">Por quanto tempo guardar as mensagens das conversas oficiais (WhatsApp API). O que passar do prazo é apagado automaticamente.</p>
+            </div>
+            <div className="space-y-2">
+              {([['Manter tudo', 0], ['Só do dia (24h)', 1], ['Última semana', 7], ['Último mês', 30]] as [string, number][]).map(([lb, v]) => (
+                <label key={v} className="flex items-center gap-2 text-sm">
+                  <input type="radio" name="ret" className="accent-primary" checked={Number(retencao || 0) === v} onChange={() => setRetencao(v)} />
+                  {lb}
+                </label>
+              ))}
+              <label className="flex items-center gap-2 text-sm">
+                <input type="radio" name="ret" className="accent-primary" checked={![0, 1, 7, 30].includes(Number(retencao || 0))} onChange={() => setRetencao(15)} />
+                Personalizado:
+                <Input className="w-20" type="number" min={1} value={![0, 1, 7, 30].includes(Number(retencao || 0)) ? String(retencao) : ''} onChange={(e) => setRetencao(Number(e.target.value) || 0)} />
+                dias
+              </label>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCfgHist(false)}>Cancelar</Button>
+              <Button onClick={salvarRetencao}>Salvar</Button>
             </div>
           </Card>
         </div>

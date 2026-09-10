@@ -738,6 +738,10 @@ export class EntregadorService {
   // Calcula (diaria, taxas, total) em centavos para um nº de entregas, dado o modelo.
   // taxasReaisCentavos = soma da taxa_entrega REAL dos pedidos (usada quando base='real').
   private calcular(cfg: any, entregas: number, taxasReaisCentavos = 0) {
+    // Sem entregas não acertadas no período, NÃO há nada a pagar — nem diária nem taxa
+    // fixa. Antes a parte fixa era reinjetada mesmo com entregas=0, então o "a pagar"
+    // não zerava após o acerto (e permitia pagar de novo). (item 13c)
+    if (!entregas || entregas <= 0) return { diaria: 0, taxas: 0, total: 0 };
     const d = Number(cfg.diariaCentavos) || 0;
     const te = Number(cfg.taxaEntregaCentavos) || 0;
     const tf = Number(cfg.taxaFixaCentavos) || 0;

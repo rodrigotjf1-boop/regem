@@ -112,7 +112,7 @@ export class DeliveryController {
   finalizar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body() dto: { forma?: string; valorRecebido?: number },
+    @Body() dto: { forma?: string; valorRecebido?: number; pagamentos?: any[] },
   ) {
     return this.service.finalizar(user.tenantId, user.colaboradorId, id, dto ?? {});
   }
@@ -184,6 +184,7 @@ export class DeliveryController {
   ) {
     return this.service.entregarBalcao(user.tenantId, user.colaboradorId, id, terminalId, {
       forma: dto?.forma ?? null,
+      pagamentos: dto?.pagamentos ?? undefined,
     });
   }
 
@@ -204,6 +205,7 @@ export class DeliveryController {
       id,
       terminalId,
       dto?.forma ?? null,
+      dto?.pagamentos ?? undefined,
     );
   }
 

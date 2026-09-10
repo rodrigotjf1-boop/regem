@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { Interval } from '@nestjs/schedule';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { cardapioConfig, marketingOptout, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
@@ -1005,6 +1006,43 @@ export class WhatsappCloudService {
       configId: process.env.WA_CLOUD_CONFIG_ID ?? '',
       graphVersion: 'v25.0',
     };
+  }
+
+  // ===== Retenção do histórico de conversas (item 11, mig 234) =====
+  // wa_retencao_dias: 0/null = manter tudo; N = manter só os últimos N dias.
+  async historicoConfig(tenantId: string) {
+    const [cfg] = await this.db
+      .select({ retencaoDias: cardapioConfig.waRetencaoDias })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId))
+      .limit(1);
+    return { retencaoDias: Number(cfg?.retencaoDias) || 0 };
+  }
+
+  async salvarHistoricoConfig(tenantId: string, retencaoDias: number) {
+    const v = Math.max(0, Math.floor(Number(retencaoDias) || 0));
+    await this.db
+      .update(cardapioConfig)
+      .set({ waRetencaoDias: v || null, updatedAt: new Date() })
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    return { ok: true, retencaoDias: v };
+  }
+
+  // Expurgo do histórico Cloud conforme a retenção de cada loja (só nuvem). A cada 6h
+  // apaga whatsapp_mensagem além do prazo (wa_retencao_dias > 0). Best-effort.
+  @Interval(6 * 60 * 60 * 1000)
+  async expurgarHistorico() {
+    if (process.env.EDGE_MODE === '1') return;
+    try {
+      await this.db.execute(sql`
+        delete from whatsapp_mensagem m
+        using cardapio_config c
+        where c.tenant_id = m.tenant_id
+          and coalesce(c.wa_retencao_dias, 0) > 0
+          and m.criado_em < now() - (c.wa_retencao_dias || ' days')::interval`);
+    } catch {
+      /* expurgo best-effort */
+    }
   }
 
   // ===== Embedded Signup (Fase 3 frente 2) — cada loja conecta o PRÓPRIO WABA =====

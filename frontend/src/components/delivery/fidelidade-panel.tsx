@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { InputMoeda } from '@/components/ui/input-moeda';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -14,12 +15,40 @@ const RECOMPENSA_LBL: Record<string, string> = {
   valor_fixo: 'R$ fixo no próximo pedido',
 };
 
+// Lista com filtro por digitação + seleção múltipla (categorias/produtos).
+function ListaFiltravel({
+  itens, selecionados, onChange, disabled, placeholder,
+}: {
+  itens: any[]; selecionados: string[]; onChange: (ids: string[]) => void; disabled?: boolean; placeholder?: string;
+}) {
+  const [q, setQ] = useState('');
+  const filtrados = itens.filter((p) => String(p.nome ?? '').toLowerCase().includes(q.toLowerCase()));
+  const toggle = (id: string) =>
+    onChange(selecionados.includes(id) ? selecionados.filter((x) => x !== id) : [...selecionados, id]);
+  return (
+    <div>
+      <Input placeholder={placeholder ?? 'Filtrar…'} value={q} onChange={(e) => setQ(e.target.value)} disabled={disabled} className="mb-1" />
+      <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-input p-2">
+        {filtrados.map((p) => (
+          <label key={p.id} className="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="checkbox" className="h-4 w-4 accent-primary" checked={selecionados.includes(p.id)} onChange={() => toggle(p.id)} disabled={disabled} />
+            <span className="truncate">{p.nome}</span>
+          </label>
+        ))}
+        {filtrados.length === 0 && <p className="text-xs text-muted-foreground">Nada encontrado.</p>}
+      </div>
+      {selecionados.length > 0 && <p className="mt-1 text-[11px] text-muted-foreground">{selecionados.length} selecionado(s)</p>}
+    </div>
+  );
+}
+
 const PLANO_VAZIO = {
   id: '',
   nome: '',
   ativo: true,
   qualificadorTipo: 'qualquer',
   qualificadorId: '',
+  qualificadorIds: [] as string[],
   pontosMeta: 10,
   recompensaTipo: 'percentual_proximo',
   recompensaValor: '',
@@ -58,6 +87,7 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
       ativo: p.ativo,
       qualificadorTipo: p.qualificadorTipo,
       qualificadorId: p.qualificadorId ?? '',
+      qualificadorIds: (p.qualificadorIds?.length ? p.qualificadorIds : (p.qualificadorId ? [p.qualificadorId] : [])) as string[],
       pontosMeta: p.pontosMeta,
       recompensaTipo: p.recompensaTipo,
       recompensaValor: String(p.recompensaValor ?? ''),
@@ -70,8 +100,10 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
 
   async function salvar() {
     if (!form.nome.trim()) return toast.error('Informe o nome do plano.');
-    if (form.qualificadorTipo !== 'qualquer' && !form.qualificadorId)
-      return toast.error('Escolha a categoria ou o produto que dá ponto.');
+    if (form.qualificadorTipo === 'produto' && !form.qualificadorId)
+      return toast.error('Escolha o produto que dá ponto.');
+    if (form.qualificadorTipo === 'categoria' && !(form.qualificadorIds?.length))
+      return toast.error('Escolha ao menos uma categoria que dá ponto.');
     setSalvando(true);
     try {
       await api.salvarFidelidadePlano({
@@ -79,7 +111,18 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
         nome: form.nome.trim(),
         ativo: form.ativo,
         qualificadorTipo: form.qualificadorTipo,
-        qualificadorId: form.qualificadorTipo === 'qualquer' ? null : form.qualificadorId,
+        qualificadorId:
+          form.qualificadorTipo === 'produto'
+            ? form.qualificadorId
+            : form.qualificadorTipo === 'categoria'
+              ? (form.qualificadorIds[0] ?? null)
+              : null,
+        qualificadorIds:
+          form.qualificadorTipo === 'categoria'
+            ? form.qualificadorIds
+            : form.qualificadorTipo === 'produto' && form.qualificadorId
+              ? [form.qualificadorId]
+              : [],
         pontosMeta: Number(form.pontosMeta) || 1,
         recompensaTipo: form.recompensaTipo,
         recompensaValor: Number(String(form.recompensaValor).replace(',', '.')) || 0,
@@ -155,11 +198,8 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
               </div>
               {form.qualificadorTipo === 'categoria' && (
                 <div>
-                  <label className="mb-1 block text-xs text-muted-foreground">Categoria</label>
-                  <select aria-label="Categoria" className="flex h-11 w-full rounded-md border border-input bg-card px-2 text-sm" value={form.qualificadorId} onChange={(e) => set({ qualificadorId: e.target.value })} disabled={!pode}>
-                    <option value="">Selecione…</option>
-                    {categorias.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                  </select>
+                  <label className="mb-1 block text-xs text-muted-foreground">Categorias (uma ou mais)</label>
+                  <ListaFiltravel itens={categorias} selecionados={form.qualificadorIds} onChange={(ids) => set({ qualificadorIds: ids })} disabled={!pode} placeholder="Filtrar categoria…" />
                 </div>
               )}
               {form.qualificadorTipo === 'produto' && (
@@ -190,22 +230,20 @@ export function FidelidadePanel({ pode }: { pode: boolean }) {
 
             <div className="grid gap-2 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-muted-foreground">{form.recompensaTipo === 'valor_fixo' ? 'Valor do desconto (R$)' : '% de desconto'}</label>
-                <Input type="number" value={form.recompensaValor} onChange={(e) => set({ recompensaValor: e.target.value })} disabled={!pode} />
+                <label className="mb-1 block text-xs text-muted-foreground">{form.recompensaTipo === 'valor_fixo' ? 'Valor do desconto' : '% de desconto'}</label>
+                {form.recompensaTipo === 'valor_fixo' ? (
+                  <InputMoeda value={form.recompensaValor} onChange={(v) => set({ recompensaValor: v })} disabled={!pode} ariaLabel="Valor do desconto" />
+                ) : (
+                  <div className="relative">
+                    <Input type="number" className="pr-6" value={form.recompensaValor} onChange={(e) => set({ recompensaValor: e.target.value })} disabled={!pode} />
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                  </div>
+                )}
               </div>
               {form.recompensaTipo === 'percentual_produtos' && (
                 <div>
                   <label className="mb-1 block text-xs text-muted-foreground">Produtos com desconto</label>
-                  <select
-                    aria-label="Produtos do prêmio"
-                    multiple
-                    className="h-24 w-full rounded-md border border-input bg-card px-2 text-sm"
-                    value={form.recompensaProdutos}
-                    onChange={(e) => set({ recompensaProdutos: Array.from(e.target.selectedOptions, (o) => o.value) })}
-                    disabled={!pode}
-                  >
-                    {produtos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
-                  </select>
+                  <ListaFiltravel itens={produtos} selecionados={form.recompensaProdutos} onChange={(ids) => set({ recompensaProdutos: ids })} disabled={!pode} placeholder="Filtrar produto…" />
                 </div>
               )}
             </div>

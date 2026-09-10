@@ -20,12 +20,14 @@ import {
   cliente,
   colaborador,
   comandaItem,
+  cupomUso,
   deliveryConfig,
   equipamento,
   funcao,
   integracao,
   lancamentoCaixa,
   pedidoExterno,
+  pedidoExternoPagamento,
   edgeHeartbeat,
   produto,
 } from '../../db/schema';
@@ -1007,7 +1009,7 @@ export class DeliveryService {
     tenantId: string,
     atorId: string,
     id: string,
-    opts: { forma?: string; valorRecebido?: number } = {},
+    opts: { forma?: string; valorRecebido?: number; pagamentos?: any[] } = {},
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'concluido') return ped;
@@ -1017,9 +1019,13 @@ export class DeliveryService {
       throw new BadRequestException('Só é possível finalizar um pedido em rota ou entregue.');
     // Pago online (ou já quitado): conclui direto, sem conferência.
     if (ped.pago) return this.avancar(tenantId, id);
-    // A-receber: precisa da forma recebida (conferência).
-    const forma = String(opts.forma ?? '').trim().toLowerCase();
-    if (!forma) return { precisaConferencia: true };
+    // A-receber: precisa da forma recebida (conferência). Split → rótulo combinado.
+    let formaFinal = String(opts.forma ?? '').trim().toLowerCase();
+    if (opts.pagamentos?.length) {
+      const { formaLabel } = await this.registrarSplit(tenantId, id, opts.pagamentos);
+      if (formaLabel) formaFinal = formaLabel;
+    }
+    if (!formaFinal) return { precisaConferencia: true };
     // Registra o recebimento no caixa de entregas aberto.
     const [sessao] = await this.db
       .select({ id: caixaSessao.id })
@@ -1040,7 +1046,7 @@ export class DeliveryService {
       .set({
         pago: true,
         statusPagamento: 'aprovado',
-        formaPagamento: forma,
+        formaPagamento: formaFinal,
         caixaSessaoId: sessao.id,
       })
       .where(eq(pedidoExterno.id, id));
@@ -1048,7 +1054,7 @@ export class DeliveryService {
     if (ped.comandaId) {
       await this.db
         .update(lancamentoCaixa)
-        .set({ sessaoId: sessao.id, forma })
+        .set({ sessaoId: sessao.id, forma: formaFinal })
         .where(
           and(
             eq(lancamentoCaixa.tenantId, tenantId),
@@ -1129,6 +1135,7 @@ export class DeliveryService {
     id: string,
     terminalId: string | null,
     forma?: string | null,
+    pagamentos?: any[],
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado' || ped.status === 'concluido')
@@ -1149,7 +1156,11 @@ export class DeliveryService {
         ),
       );
     if (!sessao) throw new BadRequestException('Abra o caixa do PDV para receber o pagamento.');
-    const f = forma && String(forma).trim() ? String(forma).trim() : 'dinheiro';
+    let f = forma && String(forma).trim() ? String(forma).trim() : 'dinheiro';
+    if (pagamentos?.length) {
+      const { formaLabel } = await this.registrarSplit(tenantId, id, pagamentos);
+      if (formaLabel) f = formaLabel;
+    }
     const [row] = await this.db
       .update(pedidoExterno)
       .set({
@@ -1261,7 +1272,7 @@ export class DeliveryService {
     atorId: string | null,
     id: string,
     terminalId: string | null,
-    dados?: { forma?: string | null },
+    dados?: { forma?: string | null; pagamentos?: any[] },
   ) {
     const ped = await this.carregar(tenantId, id);
     if (ped.status === 'cancelado') throw new BadRequestException('Pedido cancelado.');
@@ -1277,6 +1288,7 @@ export class DeliveryService {
     };
     // A-pagar: precisa do caixa do atendente aberto para receber o valor.
     let sessaoId: string | null = null;
+    let formaCobrada = '';
     if (!ped.pago) {
       const [sessao] = await this.db
         .select({ id: caixaSessao.id })
@@ -1298,8 +1310,12 @@ export class DeliveryService {
       patch.pago = true;
       patch.statusPagamento = 'aprovado';
       // Forma cobrada no balcão → card mostra "Pagamento em [forma]" (não "Pago online").
-      if (dados?.forma && String(dados.forma).trim())
-        patch.formaPagamento = String(dados.forma).trim();
+      formaCobrada = dados?.forma && String(dados.forma).trim() ? String(dados.forma).trim() : '';
+      if (dados?.pagamentos?.length) {
+        const { formaLabel } = await this.registrarSplit(tenantId, id, dados.pagamentos);
+        if (formaLabel) formaCobrada = formaLabel;
+      }
+      if (formaCobrada) patch.formaPagamento = formaCobrada;
     } else {
       patch.pagoOnline = true;
     }
@@ -1313,7 +1329,7 @@ export class DeliveryService {
       await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
     // Aponta o lançamento da venda para o caixa do atendente, com a forma cobrada.
     if (sessaoId && row.comandaId) {
-      const forma = dados?.forma && String(dados.forma).trim() ? String(dados.forma).trim() : 'dinheiro';
+      const forma = formaCobrada || 'dinheiro';
       await this.db
         .update(lancamentoCaixa)
         .set({ sessaoId, forma })
@@ -1526,6 +1542,7 @@ export class DeliveryService {
       .estornarPedido(tenantId, id, row.clienteTelefone ?? undefined, devolverGasto)
       .catch(() => {});
     void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
+    void this.estornarCupomUso(tenantId, id); // libera o uso do cupom (max_por_cliente/max_usos)
     void this.statusBack(tenantId, row, 'cancel'); // avisa o marketplace
     return {
       ...row,
@@ -1563,7 +1580,51 @@ export class DeliveryService {
       .estornarPedido(tenantId, id, row.clienteTelefone ?? undefined, cfgLoja?.estorna !== false)
       .catch(() => {});
     void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
+    void this.estornarCupomUso(tenantId, id);
     return { ok: true, id: row.id };
+  }
+
+  // Cancelamento: devolve o(s) uso(s) de cupom do pedido, liberando os limites
+  // (max_por_cliente e max_usos global). Sem isso, um pedido cancelado consumia
+  // indevidamente uma unidade do limite. Idempotente.
+  private async estornarCupomUso(tenantId: string, pedidoId: string) {
+    try {
+      await this.db
+        .delete(cupomUso)
+        .where(and(eq(cupomUso.tenantId, tenantId), eq(cupomUso.pedidoId, pedidoId)));
+    } catch {
+      /* cupom sem uso registrado (ou tabela ausente no edge) — ignora */
+    }
+  }
+
+  // Split de pagamento (mig 230): grava N formas em pedido_externo_pagamento (substitui
+  // qualquer split anterior do pedido) e devolve o rótulo combinado ("dinheiro + pix").
+  // O caixa continua com 1 lançamento no TOTAL (rótulo combinado) — a repartição real
+  // fica registrada aqui, fonte de verdade para "como o pedido foi pago".
+  private async registrarSplit(tenantId: string, pedidoId: string, pagamentos: any[]) {
+    const linhas = (pagamentos ?? [])
+      .map((p) => ({
+        forma: String(p?.forma ?? '').trim(),
+        formaPagamentoId: p?.formaPagamentoId ?? null,
+        valor: Number(String(p?.valor ?? '').replace(',', '.')) || 0,
+      }))
+      .filter((p) => p.forma && p.valor > 0);
+    await this.db
+      .delete(pedidoExternoPagamento)
+      .where(and(eq(pedidoExternoPagamento.tenantId, tenantId), eq(pedidoExternoPagamento.pedidoExternoId, pedidoId)));
+    if (linhas.length) {
+      await this.db.insert(pedidoExternoPagamento).values(
+        linhas.map((l) => ({
+          tenantId,
+          pedidoExternoId: pedidoId,
+          forma: l.forma,
+          formaPagamentoId: l.formaPagamentoId,
+          valor: String(l.valor),
+        })),
+      );
+    }
+    const formaLabel = linhas.length ? Array.from(new Set(linhas.map((l) => l.forma))).join(' + ') : '';
+    return { formaLabel, total: linhas.reduce((s, l) => s + l.valor, 0), linhas };
   }
 
   // ===== Alterar / reimprimir / entregadores =====

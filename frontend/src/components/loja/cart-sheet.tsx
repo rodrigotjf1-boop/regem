@@ -58,12 +58,14 @@ export function CartSheet({
   enviando,
   tipos,
   abertaAgora,
+  abertoPorTipo,
   areaRaio,
 }: {
   accent: string;
   loja: any;
   tipos?: { delivery?: boolean; retirada?: boolean; local?: boolean };
   abertaAgora?: boolean;
+  abertoPorTipo?: { entrega?: boolean; retirada?: boolean; local?: boolean };
   bairros: any[];
   cart: CartItem[];
   upsell: any[];
@@ -198,10 +200,27 @@ export function CartSheet({
 
   // Tipos habilitados na config (default: só entrega). "local" cai em retirada aqui.
   const tp = tipos ?? { delivery: true };
+  // Abertura POR TIPO (item 3): a loja pode estar aberta p/ retirada/consumo mas FORA do
+  // horário de ENTREGA — aí o endereço fica indisponível e só dá p/ retirar/consumir.
+  // Só oferece o modo habilitado E aberto agora. (Sem abertoPorTipo = payload antigo →
+  // cai no comportamento anterior via abertaAgora.)
+  const temPorTipo = !!abertoPorTipo;
+  const abt = abertoPorTipo ?? {};
+  const entregaAberta = !!tp.delivery && (!temPorTipo || abt.entrega !== false);
+  const retiradaAberta = (!!tp.retirada || !!tp.local) && (!temPorTipo || abt.retirada !== false || abt.local !== false);
   const opcoesTipo: [string, string][] = [];
-  if (tp.delivery) opcoesTipo.push(['entrega', '🛵 Entrega']);
-  if (tp.retirada || tp.local) opcoesTipo.push(['retirada', '🏃 Retirada']);
-  const fechada = abertaAgora === false;
+  if (entregaAberta) opcoesTipo.push(['entrega', '🛵 Entrega']);
+  if (retiradaAberta) opcoesTipo.push(['retirada', '🏃 Retirada']);
+  // Fechada = nenhum modo disponível agora (respeita horário por tipo). No payload antigo,
+  // usa o abertaAgora global.
+  const fechada = temPorTipo ? opcoesTipo.length === 0 : abertaAgora === false;
+
+  // Se o modo escolhido não está mais disponível (ex.: entrega fechou), força um aberto.
+  useEffect(() => {
+    const keys = opcoesTipo.map((o) => o[0]);
+    if (keys.length && !keys.includes(chk.tipo)) set({ tipo: keys[0] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opcoesTipo.map((o) => o[0]).join(','), chk.tipo]);
 
   // Encomenda passa mesmo com a loja fechada (o servidor libera o agendamento).
   const bloqueiaFechada = fechada && !agendar;

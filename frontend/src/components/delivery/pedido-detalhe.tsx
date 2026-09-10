@@ -14,6 +14,13 @@ const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const hora = (d: any) =>
   d ? new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+// Data + hora (encomenda pode ser p/ dias à frente → mostrar a data junto).
+const dataHora = (d: any) =>
+  d
+    ? new Date(d).toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+      })
+    : '';
 const STATUS_LABEL: Record<string, string> = {
   novo: 'Novo', confirmado: 'Em produção', pronto: 'Pronto',
   despachado: 'Em rota', concluido: 'Concluído', cancelado: 'Cancelado',
@@ -184,7 +191,7 @@ export function PedidoDetalhe({
                   <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{STATUS_LABEL[p.status]}</span>
                 )}
                 {p.numero != null && <span className="text-xs text-muted-foreground">#{p.numero}</span>}
-                <span className="ml-auto font-mono text-[11px] text-muted-foreground">{hora(p.criadoEm)}</span>
+                <span className="ml-auto font-mono text-[11px] text-muted-foreground">{dataHora(p.criadoEm)}</span>
               </p>
               <p className="font-medium">
                 {p.clienteNome ?? 'Cliente'}
@@ -199,7 +206,7 @@ export function PedidoDetalhe({
               {p.entregadorNome && (
                 <p className="text-xs font-medium">🛵 {p.entregadorNome}{p.entregadorTelefone ? ` · 📞 ${p.entregadorTelefone}` : ''}</p>
               )}
-              {p.agendamento && <p className="text-xs text-info">🗓 agendado p/ {hora(p.agendamento)}</p>}
+              {p.agendamento && <p className="text-xs text-info">🗓 agendado p/ {dataHora(p.agendamento)}</p>}
               {p.cupom && <p className="text-xs text-muted-foreground">🎟 cupom {p.cupom}</p>}
             </div>
 

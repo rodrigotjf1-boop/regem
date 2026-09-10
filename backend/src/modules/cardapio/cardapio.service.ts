@@ -312,6 +312,10 @@ export class CardapioService {
         'encomendaCorte' in dto
           ? (dto.encomendaCorte || null)
           : row?.encomendaCorte ?? null,
+      encomendaCorteInicio:
+        'encomendaCorteInicio' in dto
+          ? (dto.encomendaCorteInicio || null)
+          : row?.encomendaCorteInicio ?? null,
       encomendaCapacidadeDia:
         'encomendaCapacidadeDia' in dto
           ? (dto.encomendaCapacidadeDia == null || dto.encomendaCapacidadeDia === '' || Number(dto.encomendaCapacidadeDia) <= 0
@@ -493,7 +497,10 @@ export class CardapioService {
       tetoDesconto: tipo === 'percentual' ? num(dto.tetoDesconto) : null,
       minimo: num(dto.minimo),
       ativo: dto.ativo != null ? !!dto.ativo : true,
-      validade: dto.validade || null,
+      validade: dto.validade || null, // FIM da validade (data)
+      validoDe: dto.validoDe || null, // INÍCIO da validade (mig 232)
+      maxUsos: int(dto.maxUsos), // limite GLOBAL de usos (mig 232)
+      nome: dto.nome?.trim() || null, // nome amigável (mig 232)
       somenteNovos: !!dto.somenteNovos,
       maxPorCliente: int(dto.maxPorCliente),
       minDiasSemCompra: int(dto.minDiasSemCompra),
@@ -588,8 +595,21 @@ export class CardapioService {
         ),
       );
     if (!c) return { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom inválido.' };
-    if (c.validade && new Date(c.validade) < new Date())
+    // Janela de validade por DATA (fuso SP; dia final inclusivo) — mig 232.
+    const hojeISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    if (c.validoDe && String(c.validoDe).slice(0, 10) > hojeISO)
+      return { valido: false, desconto: 0, freteGratis: false, motivo: 'Este cupom ainda não está disponível.' };
+    if (c.validade && String(c.validade).slice(0, 10) < hojeISO)
       return { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom expirado.' };
+    // Limite GLOBAL de usos (todos os clientes somados) — mig 232.
+    if (c.maxUsos) {
+      const [u]: any = await this.db.execute(
+        sql`select count(*)::int as n from cupom_uso where cupom_id = ${c.id}`,
+      );
+      const usos = Number(((u?.rows ?? u)[0] ?? {}).n ?? 0);
+      if (usos >= Number(c.maxUsos))
+        return { valido: false, desconto: 0, freteGratis: false, motivo: 'Este cupom esgotou.' };
+    }
     if (c.minimo && subtotal < Number(c.minimo))
       return { valido: false, desconto: 0, freteGratis: false, motivo: `Mínimo de R$ ${Number(c.minimo).toFixed(2)}.` };
     const tel = (ctx.telefone ?? '').replace(/\D/g, '');
@@ -831,6 +851,26 @@ export class CardapioService {
     };
   }
 
+  // Distância de ROTA (OSRM self-hosted) loja→cliente em KM, p/ o frete por raio (item 5).
+  // Usa a mesma infra OSRM_URL do app do entregador. FALLBACK: sem OSRM_URL / fora / fora
+  // de cobertura / timeout → null (o chamador cai no Haversine).
+  private async distanciaKmOsrm(slat: number, slng: number, lat: number, lng: number): Promise<number | null> {
+    const base = (process.env.OSRM_URL || '').replace(/\/$/, '');
+    if (!base) return null;
+    if (![slat, slng, lat, lng].every((n) => Number.isFinite(n))) return null;
+    try {
+      const url = `${base}/route/v1/driving/${slng},${slat};${lng},${lat}?overview=false`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (!res.ok) return null;
+      const j: any = await res.json();
+      const rt = j?.routes?.[0];
+      if (j?.code !== 'Ok' || rt?.distance == null) return null;
+      return Number(rt.distance) / 1000; // metros → km
+    } catch {
+      return null; // OSRM fora / timeout → Haversine
+    }
+  }
+
   // Rótulo de horário para o cabeçalho: "Aberta até 23:00" ou "Abre às 18:00"
   // (com dia abreviado quando não for hoje). null quando não há horários.
   private horarioLabel(cfg: any): string | null {
@@ -895,7 +935,8 @@ export class CardapioService {
       ativa: true as const,
       antecedenciaHoras: Math.max(0, Number(cfg.encomendaAntecedenciaHoras) || 0),
       horizonteDias: Math.max(1, Number(cfg.encomendaHorizonteDias) || 30),
-      corte: cfg.encomendaCorte ? String(cfg.encomendaCorte).slice(0, 5) : null,
+      corte: cfg.encomendaCorte ? String(cfg.encomendaCorte).slice(0, 5) : null, // FIM da janela
+      corteInicio: cfg.encomendaCorteInicio ? String(cfg.encomendaCorteInicio).slice(0, 5) : null, // INÍCIO (mig 231)
       capacidadeDia: cfg.encomendaCapacidadeDia ?? null,
     };
   }
@@ -1227,6 +1268,13 @@ export class CardapioService {
       },
       // Aberta agora (respeita horários) — o storefront e o robô usam isto.
       abertaAgora: this.estaAberta(cfg),
+      // Abertura POR TIPO: a loja pode estar aberta p/ retirada/consumo mas FORA do
+      // horário de entrega (ou vice-versa). O storefront libera cada modo por aqui.
+      abertoPorTipo: {
+        entrega: this.estaAberta(cfg, 'entrega'),
+        retirada: this.estaAberta(cfg, 'retirada'),
+        local: this.estaAberta(cfg, 'local'),
+      },
       horarioLabel: this.horarioLabel(cfg), // "Aberta até 23:00" / "Abre às 18:00"
       // Contexto para o robô/atendimento (o n8n lê tudo com o token):
       horarios: cfg.horarios ?? [],
@@ -2481,11 +2529,19 @@ export class CardapioService {
           throw new BadRequestException(
             `A encomenda pode ser feita com no máximo ${regras.horizonteDias} dias de antecedência.`,
           );
-        // Corte (opcional): encomenda para HOJE só até o horário de corte.
+        // Corte (opcional): encomenda para HOJE só dentro da JANELA [início, fim] (mig 231).
         const mesmoDia = quando.toDateString() === agora.toDateString();
-        if (regras.corte && mesmoDia) {
-          const [hh, mm] = regras.corte.split(':').map((x) => Number(x) || 0);
-          if (agora.getHours() > hh || (agora.getHours() === hh && agora.getMinutes() >= mm))
+        if (mesmoDia && (regras.corte || regras.corteInicio)) {
+          const nowMin = agora.getHours() * 60 + agora.getMinutes();
+          const toMin = (s: string) => {
+            const [hh, mm] = s.split(':').map((x) => Number(x) || 0);
+            return hh * 60 + mm;
+          };
+          if (regras.corteInicio && nowMin < toMin(regras.corteInicio))
+            throw new BadRequestException(
+              `As encomendas para hoje abrem às ${regras.corteInicio}. Escolha outro horário ou dia.`,
+            );
+          if (regras.corte && nowMin >= toMin(regras.corte))
             throw new BadRequestException(
               `As encomendas para hoje encerraram (após ${regras.corte}). Escolha outro dia.`,
             );
@@ -2609,7 +2665,9 @@ export class CardapioService {
         const slng = Number(cfg.endLng);
         const raios = [...((cfg.raios as any[]) ?? [])].sort((a, b) => Number(a.ateKm) - Number(b.ateKm));
         if ([lat, lng, slat, slng].every((n) => Number.isFinite(n)) && raios.length) {
-          const km = haversineKm(slat, slng, lat, lng);
+          // Distância de ROTA real via OSRM (item 5); fallback Haversine (linha reta).
+          const kmOsrm = await this.distanciaKmOsrm(slat, slng, lat, lng);
+          const km = kmOsrm ?? haversineKm(slat, slng, lat, lng);
           const faixa = raios.find((r) => km <= Number(r.ateKm)) ?? raios[raios.length - 1];
           taxa = Number(faixa.taxa) || 0;
           bairroNome = `~${km.toFixed(1)} km`;

@@ -42,7 +42,19 @@ export class FidelidadeService {
       nome: dto.nome.trim(),
       ativo: dto.ativo != null ? !!dto.ativo : true,
       qualificadorTipo: QUALIFICADORES.includes(dto.qualificadorTipo) ? dto.qualificadorTipo : 'qualquer',
-      qualificadorId: dto.qualificadorTipo === 'qualquer' ? null : dto.qualificadorId || null,
+      // Multi-categoria/produto (mig 233). Mantém qualificadorId (legado) = 1º id p/ compat.
+      qualificadorIds:
+        dto.qualificadorTipo === 'qualquer'
+          ? []
+          : Array.isArray(dto.qualificadorIds)
+            ? dto.qualificadorIds.filter(Boolean)
+            : dto.qualificadorId
+              ? [dto.qualificadorId]
+              : [],
+      qualificadorId:
+        dto.qualificadorTipo === 'qualquer'
+          ? null
+          : (Array.isArray(dto.qualificadorIds) ? dto.qualificadorIds.filter(Boolean)[0] : null) ?? dto.qualificadorId ?? null,
       pontosMeta: Math.max(1, Number(dto.pontosMeta) || 1),
       recompensaTipo: RECOMPENSAS.includes(dto.recompensaTipo) ? dto.recompensaTipo : 'percentual_proximo',
       recompensaValor: String(Number(dto.recompensaValor) || 0),
@@ -234,12 +246,19 @@ export class FidelidadeService {
     let pontosGanhos = 0;
     const premios: any[] = [];
     for (const plano of planos) {
+      // Alvos: multi-categoria/produto (qualificadorIds), com fallback ao legado.
+      const alvos: string[] =
+        Array.isArray(plano.qualificadorIds) && plano.qualificadorIds.length
+          ? (plano.qualificadorIds as string[])
+          : plano.qualificadorId
+            ? [plano.qualificadorId]
+            : [];
       const qualifica =
         plano.qualificadorTipo === 'qualquer'
           ? true
           : plano.qualificadorTipo === 'categoria'
-            ? !!plano.qualificadorId && catSet.has(plano.qualificadorId)
-            : !!plano.qualificadorId && prodSet.has(plano.qualificadorId);
+            ? alvos.some((id) => catSet.has(id))
+            : alvos.some((id) => prodSet.has(id));
       if (!qualifica) continue;
       // Dedupe: 1 ponto por pedido por plano (índice único pedido+plano).
       const ins = await this.db
