@@ -177,8 +177,23 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
     finally { setBusy(false); }
   }
   async function reenviarRegem() {
+    if (!confirm(
+      'Enviar a biblioteca de modelos da Regem para ANÁLISE DA META?\n\n' +
+      '• Só os modelos que ainda NÃO existem são enviados (é uma vez só).\n' +
+      '• Modelos já enviados ou REPROVADOS não são reenviados aqui.\n' +
+      '• Para reenviar um reprovado, edite-o e clique em "enviar p/ aprovação".',
+    )) return;
     setBusy(true);
-    try { await api.whatsappModelosRegem(); toast.success('Modelos da Regem enviados p/ aprovação da Meta.'); carregar(); }
+    try {
+      const r: any = await api.whatsappModelosRegem();
+      const novos = (r?.resultados ?? []).filter((x: any) => x?.novo).length;
+      toast.success(
+        novos > 0
+          ? `${novos} modelo(s) da Regem enviado(s) para análise da Meta.`
+          : 'Nada a enviar — todos os modelos da Regem já existem (nenhum reenviado).',
+      );
+      carregar();
+    }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao enviar os modelos.'); }
     finally { setBusy(false); }
   }
@@ -197,7 +212,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
         <p className="text-sm text-foreground/70">Modelos aprovados pela Meta permitem <strong>iniciar</strong> conversa (marketing) na API oficial.</p>
         {pode && (
           <div className="ml-auto flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" disabled={busy} onClick={reenviarRegem}>Modelos da Regem</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={reenviarRegem} title="Envia à Meta só os modelos da Regem que ainda não existem (uma vez). Não reenvia reprovados.">Modelos da Regem</Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={sincronizar}>Sincronizar com a Meta</Button>
             <Button size="sm" onClick={() => { resetar(); setAberto((v) => !v); }}>{aberto ? 'Fechar' : '＋ Novo modelo'}</Button>
           </div>

@@ -668,12 +668,7 @@ export class WhatsappCloudService {
   // Modelos da conta, com o status de aprovacao. E a base para a tela escolher o
   // modelo de um aviso ou de uma campanha — e para o lojista ver o que ja aprovou.
   async listarTemplates(tenantId: string) {
-    const [cfg] = await this.db
-      .select()
-      .from(cardapioConfig)
-      .where(eq(cardapioConfig.tenantId, tenantId));
-    const waba = cfg?.waCloudWabaId || process.env.WA_CLOUD_WABA_ID || '';
-    if (!waba) throw new BadRequestException('Conta do WhatsApp Business não vinculada a esta loja.');
+    const waba = await this.wabaDe(tenantId); // papel-aware (Marketing → Principal → cfg → env)
     const url = `${GRAPH}/${waba}/message_templates?fields=name,status,category,language&limit=100`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.token()}` },
@@ -696,8 +691,28 @@ export class WhatsappCloudService {
   // ===== Gestão LOCAL de templates (Opção B: criar/submeter pelo Regem, mig 227) =====
 
   private async wabaDe(tenantId: string): Promise<string> {
-    const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
-    const waba = cfg?.waCloudWabaId || process.env.WA_CLOUD_WABA_ID || '';
+    // Templates vivem na WABA que vai ENVIAR. No modelo de 2 papéis, o Marketing pode ser
+    // uma WABA PRÓPRIA (a loja conecta só o Marketing como Oficial e o Principal fica no
+    // Grátis). Prioriza a WABA do número de MARKETING (cloud) → PRINCIPAL (cloud) →
+    // cardapio_config → env. (Antes pegava só o cardapio_config/env → submetia p/ a WABA
+    // errada quando o oficial era o Marketing → a Meta rejeitava os modelos.)
+    const nums = await this.db
+      .select({ papel: whatsappNumero.papel, wabaId: whatsappNumero.wabaId })
+      .from(whatsappNumero)
+      .where(
+        and(
+          eq(whatsappNumero.tenantId, tenantId),
+          eq(whatsappNumero.provedor, 'cloud'),
+          isNull(whatsappNumero.unidadeId),
+        ),
+      );
+    const mkt = nums.find((n) => n.papel === 'marketing' && n.wabaId)?.wabaId;
+    const prin = nums.find((n) => n.papel === 'principal' && n.wabaId)?.wabaId;
+    const [cfg] = await this.db
+      .select({ w: cardapioConfig.waCloudWabaId })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const waba = mkt || prin || cfg?.w || process.env.WA_CLOUD_WABA_ID || '';
     if (!waba) throw new BadRequestException('Conta do WhatsApp Business (WABA) não vinculada a esta loja.');
     return waba;
   }
@@ -962,35 +977,30 @@ export class WhatsappCloudService {
           .where(
             and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, base.nome), eq(whatsappTemplate.idioma, 'pt_BR')),
           );
-        if (ja && (ja.status === 'aprovado' || ja.status === 'pendente')) {
+        // Já existe (QUALQUER status, inclusive REJEITADO) → NÃO reenvia. Reenviar um
+        // rejeitado idêntico só toma outra reprovação; o reenvio de um rejeitado é MANUAL
+        // por modelo (o lojista edita e clica "enviar p/ aprovação"). O seed só CRIA os
+        // que ainda não existem → é seguro clicar/rodar de novo (não duplica nem reenvia).
+        if (ja) {
           resultados.push({ nome: base.nome, status: ja.status, pulado: true });
           continue;
         }
-        let id = ja?.id;
-        if (!id) {
-          const [row] = await this.db
-            .insert(whatsappTemplate)
-            .values({
-              tenantId,
-              nome: base.nome,
-              categoria: 'MARKETING',
-              idioma: 'pt_BR',
-              cabecalho: base.cabecalho,
-              corpo: base.corpo,
-              botoes: base.botoes,
-              formato: 'padrao',
-              status: 'rascunho',
-            })
-            .returning();
-          id = row.id;
-        } else {
-          await this.db
-            .update(whatsappTemplate)
-            .set({ cabecalho: base.cabecalho, corpo: base.corpo, botoes: base.botoes, status: 'rascunho', atualizadoEm: new Date() })
-            .where(eq(whatsappTemplate.id, id));
-        }
-        await this.submeterTemplate(tenantId, id);
-        resultados.push({ nome: base.nome, status: 'pendente' });
+        const [row] = await this.db
+          .insert(whatsappTemplate)
+          .values({
+            tenantId,
+            nome: base.nome,
+            categoria: 'MARKETING',
+            idioma: 'pt_BR',
+            cabecalho: base.cabecalho,
+            corpo: base.corpo,
+            botoes: base.botoes,
+            formato: 'padrao',
+            status: 'rascunho',
+          })
+          .returning();
+        await this.submeterTemplate(tenantId, row.id);
+        resultados.push({ nome: base.nome, status: 'pendente', novo: true });
       } catch (e: any) {
         resultados.push({ nome: base.nome, erro: String(e?.message ?? e).slice(0, 160) });
       }
@@ -1105,9 +1115,10 @@ export class WhatsappCloudService {
           .update(cardapioConfig)
           .set({ provedor: 'cloud', waCloudPhoneId: phoneId, waCloudWabaId: wabaId, waCloudNumero: numero, updatedAt: new Date() })
           .where(eq(cardapioConfig.id, cfg.id));
-      // Semeia a biblioteca Regem na WABA recém-conectada (2º plano — não segura o retorno).
-      void this.seedModelosRegem(tenantId).catch(() => {});
     }
+    // Semeia a biblioteca Regem na WABA recém-conectada — QUALQUER papel (o Marketing pode
+    // ser a WABA oficial; wabaDe() resolve papel-aware). Idempotente + 2º plano.
+    void this.seedModelosRegem(tenantId).catch(() => {});
 
     return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero };
   }
