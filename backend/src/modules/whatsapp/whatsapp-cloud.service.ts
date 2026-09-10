@@ -29,12 +29,12 @@ const HOSTS_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
 // nomePublico/empresa.nome + endCidade em Configurações → Loja), não são variáveis da Meta.
 // Botões: url (Peça agora rastreado) / copy_code (cupom) / optout.
 const CATALOGO_REGEM: Array<{ nome: string; cabecalho: string; corpo: string; botoes: any[] }> = [
-  { nome: 'promo_frete_gratis', cabecalho: 'Frete grátis hoje! 🛵', corpo: 'Olá {{1}}! Aqui é a {loja}{cidade}. Hoje tem FRETE GRÁTIS pra você — aproveite e peça o seu pelo link abaixo. 🛵', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'cupom_desconto', cabecalho: 'Um presente pra você 🎁', corpo: 'Oi {{1}}, aqui é a {loja}{cidade}! Preparamos um desconto especial pra você hoje. Aproveite antes que acabe — use seu cupom no pedido. 🎁', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'recuperacao_cliente', cabecalho: 'Sentimos sua falta 😊', corpo: 'Oi {{1}}, faz um tempo que você não pede na {loja}! Que tal matar a saudade hoje? Tem novidade te esperando. 😊', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'cliente_vip', cabecalho: 'Você é VIP 🏆', corpo: 'Oi {{1}}, você é cliente especial pra {loja}! Como forma de agradecer, preparamos um mimo exclusivo pra você. Dá uma olhada! 🏆', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'aniversario', cabecalho: 'Feliz aniversário! 🎉', corpo: 'Parabéns, {{1}}! A {loja} preparou um presente especial pra você comemorar com a gente. Aproveite seu dia! 🎉', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio 🍔', corpo: 'Oi {{1}}, chegou novidade no cardápio da {loja}! Dá uma olhada nas nossas delícias e peça o seu. 🍔', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'promo_frete_gratis', cabecalho: 'Frete grátis hoje', corpo: 'Olá {{1}}! Aqui é a {loja}{cidade}. Hoje tem FRETE GRÁTIS pra você — aproveite e peça o seu pelo link abaixo. 🛵', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cupom_desconto', cabecalho: 'Um presente pra você', corpo: 'Oi {{1}}, aqui é a {loja}{cidade}! Preparamos um desconto especial pra você hoje. Aproveite antes que acabe — use seu cupom no pedido. 🎁', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'recuperacao_cliente', cabecalho: 'Sentimos sua falta', corpo: 'Oi {{1}}, faz um tempo que você não pede na {loja}! Que tal matar a saudade hoje? Tem novidade te esperando. 😊', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cliente_vip', cabecalho: 'Você é VIP', corpo: 'Oi {{1}}, você é cliente especial pra {loja}! Como forma de agradecer, preparamos um mimo exclusivo pra você. Dá uma olhada! 🏆', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'aniversario', cabecalho: 'Feliz aniversário', corpo: 'Parabéns, {{1}}! A {loja} preparou um presente especial pra você comemorar com a gente. Aproveite seu dia! 🎉', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio', corpo: 'Oi {{1}}, chegou novidade no cardápio da {loja}! Dá uma olhada nas nossas delícias e peça o seu. 🍔', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
 ];
 
 // Injeta a identificação da loja ({loja}/{cidade}) nos textos do catálogo. {cidade} vira
@@ -874,6 +874,19 @@ export class WhatsappCloudService {
   }
 
   // Submete o template à Meta para aprovação. Guarda o meta_id e marca 'pendente'.
+  // Cabeçalho TEXT da Meta: NÃO pode ter emojis, quebras de linha, asteriscos nem
+  // caracteres de formatação (*, _, ~, `) — senão a Meta recusa o modelo. Sanitiza e
+  // limita a 60 chars. (Emojis no corpo são permitidos; no cabeçalho, não.)
+  private sanitizarCabecalho(txt: string): string {
+    return String(txt ?? '')
+      .replace(/[\r\n]+/g, ' ')
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{2190}-\u{21FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}]/gu, '')
+      .replace(/[*_~`]/g, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+      .slice(0, 60);
+  }
+
   async submeterTemplate(tenantId: string, id: string) {
     const [tpl] = await this.db
       .select()
@@ -919,7 +932,8 @@ export class WhatsappCloudService {
       }
       componentes.push({ type: 'CAROUSEL', cards: cardsMeta });
     } else {
-      if (tpl.cabecalho) componentes.push({ type: 'HEADER', format: 'TEXT', text: tpl.cabecalho });
+      const cab = this.sanitizarCabecalho(tpl.cabecalho ?? '');
+      if (cab) componentes.push({ type: 'HEADER', format: 'TEXT', text: cab });
       const body: any = { type: 'BODY', text: tpl.corpo };
       const exB = exemploCorpo(tpl.corpo);
       if (exB) body.example = exB;
