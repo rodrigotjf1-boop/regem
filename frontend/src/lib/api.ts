@@ -1022,6 +1022,8 @@ export const api = {
   whatsappCloudTemplates: () => req('/whatsapp/cloud/templates'),
   // Gestão LOCAL de templates da API oficial (Opção B, mig 227).
   whatsappTemplatesLocais: () => req('/whatsapp/cloud/templates/locais'),
+  whatsappTemplatesAnalytics: (desde?: string, ate?: string) =>
+    req(`/whatsapp/cloud/templates/analytics${desde || ate ? `?${new URLSearchParams({ ...(desde ? { desde } : {}), ...(ate ? { ate } : {}) }).toString()}` : ''}`),
   whatsappTemplateSalvar: (body: any) =>
     req('/whatsapp/cloud/templates/salvar', { method: 'POST', body: JSON.stringify(body) }),
   whatsappTemplateSubmeter: (id: string) =>

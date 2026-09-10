@@ -78,6 +78,7 @@ async function comprimir(file: File): Promise<File> {
 
 export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const [lista, setLista] = useState<any[]>([]);
+  const [analytics, setAnalytics] = useState<Record<string, any>>({}); // desempenho Meta por modelo (por loja)
   const [form, setForm] = useState<any>(vazio);
   const [exemplos, setExemplos] = useState<string[]>([]);
   const [formato, setFormato] = useState<'padrao' | 'carrossel'>('padrao');
@@ -92,6 +93,8 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
   const carregar = async () => {
     try { setLista(await api.whatsappTemplatesLocais()); } catch { /* ignore */ }
+    // Desempenho na Meta (best-effort; só desta loja — o backend filtra por tenant).
+    api.whatsappTemplatesAnalytics().then((r: any) => setAnalytics(r?.porTemplate ?? {})).catch(() => {});
   };
   useEffect(() => { carregar(); }, []);
 
@@ -385,6 +388,13 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
                   </div>
                   <p className="mt-1 whitespace-pre-wrap break-words text-xs text-foreground/70">{t.corpo}</p>
                   {t.status === 'rejeitado' && t.motivo_rejeicao && <p className="mt-1 text-[11px] text-destructive">Motivo: {t.motivo_rejeicao}</p>}
+                  {analytics[t.nome]?.enviados > 0 && (
+                    <p className="mt-1 text-[11px] text-foreground/60">
+                      📊 {analytics[t.nome].enviados} enviados · {analytics[t.nome].entregues} entregues · {analytics[t.nome].lidos} lidos · {analytics[t.nome].cliques} clique(s)
+                      {analytics[t.nome].custo > 0 ? ` · custo ${Number(analytics[t.nome].custo).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}` : ''}
+                      <span className="ml-1 text-foreground/40">(últimos 30 dias, Meta)</span>
+                    </p>
+                  )}
                 </div>
               );
             })}

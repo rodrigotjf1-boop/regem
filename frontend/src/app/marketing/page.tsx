@@ -69,6 +69,7 @@ export default function MarketingPage() {
   const [pode, setPode] = useState(false);
   const [campanhas, setCampanhas] = useState<any[]>([]);
   const [metricas, setMetricas] = useState<Record<string, any>>({});
+  const [tplAnalytics, setTplAnalytics] = useState<Record<string, any>>({}); // desempenho Meta por modelo (por loja)
   const [novo, setNovo] = useState(false);
   const [optoutLista, setOptoutLista] = useState<any[]>([]);
 
@@ -171,6 +172,12 @@ export default function MarketingPage() {
     if (!pode) return;
     api.crmOptoutLista().then((r: any) => setOptoutLista((r as any[]) ?? [])).catch(() => setOptoutLista([]));
   }, [pode]);
+
+  // Desempenho dos modelos na Meta (só desta loja — backend filtra por tenant).
+  useEffect(() => {
+    if (!pode || !temCloud) return;
+    api.whatsappTemplatesAnalytics().then((r: any) => setTplAnalytics(r?.porTemplate ?? {})).catch(() => {});
+  }, [pode, temCloud]);
 
   // Recalcula o público quando o segmento muda.
   useEffect(() => {
@@ -673,6 +680,18 @@ export default function MarketingPage() {
                         <div><span className="block text-foreground/60">Receita atribuída</span><strong className="text-foreground">{brl(metricas[c.id].valor)}</strong></div>
                         <div><span className="block text-foreground/60">Cupons resgatados</span><strong className="text-foreground">{metricas[c.id].cupomCodigo ? metricas[c.id].cupomResgates : '—'}</strong></div>
                       </div>
+                      {tplAnalytics[c.templateNome ?? c.template_nome]?.enviados > 0 && (
+                        <div className="rounded-lg border border-border p-2 text-xs">
+                          <p className="mb-1 font-semibold text-foreground">Desempenho na Meta (modelo · últimos 30 dias)</p>
+                          <div className="grid grid-cols-2 gap-2 text-foreground/70 sm:grid-cols-5">
+                            <div><span className="block text-foreground/60">Enviados</span><strong className="text-foreground">{tplAnalytics[c.templateNome ?? c.template_nome].enviados}</strong></div>
+                            <div><span className="block text-foreground/60">Entregues</span><strong className="text-foreground">{tplAnalytics[c.templateNome ?? c.template_nome].entregues}</strong></div>
+                            <div><span className="block text-foreground/60">Lidos</span><strong className="text-foreground">{tplAnalytics[c.templateNome ?? c.template_nome].lidos}</strong></div>
+                            <div><span className="block text-foreground/60">Cliques (botão)</span><strong className="text-foreground">{tplAnalytics[c.templateNome ?? c.template_nome].cliques}</strong></div>
+                            <div><span className="block text-foreground/60">Custo (Meta)</span><strong className="text-foreground">{tplAnalytics[c.templateNome ?? c.template_nome].custo > 0 ? brl(tplAnalytics[c.templateNome ?? c.template_nome].custo) : '—'}</strong></div>
+                          </div>
+                        </div>
+                      )}
                       {Array.isArray(metricas[c.id].ab) && metricas[c.id].ab.length > 0 && (
                         <div className="rounded-lg border border-border p-2 text-xs">
                           <p className="mb-1 font-semibold text-foreground">Teste A/B</p>
