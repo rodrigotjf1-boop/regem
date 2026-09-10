@@ -24,12 +24,12 @@ const vazio = { id: '', nome: '', categoria: 'MARKETING', idioma: 'pt_BR', cabec
 const PRESETS: { t: string; form: any; exemplo: string[]; peca?: boolean; cupom?: boolean }[] = [
   {
     t: 'Frete grátis',
-    form: { id: '', nome: 'promo_frete_gratis', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: 'Frete grátis hoje! 🛵', corpo: 'Olá {{1}}! Hoje é FRETE GRÁTIS na nossa loja. Aproveite e faça seu pedido!', rodape: '' },
+    form: { id: '', nome: 'promo_frete_gratis', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: 'Frete grátis hoje', corpo: 'Olá {{1}}! Hoje é FRETE GRÁTIS na nossa loja. Aproveite e faça seu pedido! 🛵', rodape: '' },
     exemplo: ['João'], peca: true, cupom: true,
   },
   {
     t: 'Recuperar cliente',
-    form: { id: '', nome: 'recuperacao_cliente', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: 'Sentimos sua falta 😊', corpo: 'Oi {{1}}, faz um tempo que você não pede! Bateu aquela vontade? Veja as novidades.', rodape: '' },
+    form: { id: '', nome: 'recuperacao_cliente', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: 'Sentimos sua falta', corpo: 'Oi {{1}}, faz um tempo que você não pede! Bateu aquela vontade? Veja as novidades. 😊', rodape: '' },
     exemplo: ['Maria'], peca: true,
   },
 ];
@@ -44,6 +44,18 @@ function validarCorpo(txt: string): string | null {
   const nums = (t.match(/\{\{\s*\d+\s*\}\}/g) ?? []).map((v) => Number(v.replace(/\D/g, '')));
   const uniq = [...new Set(nums)].sort((a, b) => a - b);
   if (uniq.some((n, i) => n !== i + 1)) return 'As variáveis devem ser {{1}}, {{2}}… em sequência, sem pular números.';
+  return null;
+}
+
+// Regras do CABEÇALHO (HEADER TEXT) da Meta: sem emoji, quebra de linha, asterisco ou
+// formatação (* _ ~ `), e até 60 caracteres. (Emoji é permitido só no corpo.)
+function validarCabecalho(txt: string): string | null {
+  const s = String(txt ?? '');
+  if (!s.trim()) return null; // opcional
+  if (/[\r\n]/.test(s)) return 'O cabeçalho não pode ter quebra de linha (regra da Meta).';
+  if (/[*_~`]/.test(s)) return 'O cabeçalho não pode ter formatação (* _ ~ `) — use só no corpo.';
+  if (/\p{Extended_Pictographic}/u.test(s)) return 'O cabeçalho não pode ter emoji — use emoji só no corpo.';
+  if (s.length > 60) return 'O cabeçalho deve ter até 60 caracteres.';
   return null;
 }
 
@@ -205,6 +217,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
   const botoesPreview = montarBotoes();
   const erroCorpo = validarCorpo(form.corpo);
+  const erroCabecalho = validarCabecalho(form.cabecalho);
 
   return (
     <div className="space-y-4">
@@ -255,8 +268,9 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
             </div>
 
             {formato === 'padrao' && (
-              <label className="block text-xs"><span className="mb-0.5 block text-foreground/70">Cabeçalho (opcional)</span>
-                <Input value={form.cabecalho} onChange={(e) => setForm({ ...form, cabecalho: e.target.value })} placeholder="Ex.: Oferta da semana" /></label>
+              <label className="block text-xs"><span className="mb-0.5 block text-foreground/70">Cabeçalho (opcional) — sem emoji, quebra de linha ou * _ ~ ` (emoji só no corpo)</span>
+                <Input value={form.cabecalho} onChange={(e) => setForm({ ...form, cabecalho: e.target.value })} placeholder="Ex.: Oferta da semana" className={erroCabecalho ? 'border-destructive' : undefined} />
+                {erroCabecalho && <p className="mt-1 text-[11px] text-destructive">⚠️ {erroCabecalho}</p>}</label>
             )}
 
             <label className="block text-xs">
@@ -313,7 +327,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" disabled={busy} onClick={() => salvar(false)}>Salvar rascunho</Button>
-              <Button size="sm" disabled={busy || !!erroCorpo} onClick={() => salvar(true)}>Salvar e enviar p/ aprovação</Button>
+              <Button size="sm" disabled={busy || !!erroCorpo || !!erroCabecalho} onClick={() => salvar(true)}>Salvar e enviar p/ aprovação</Button>
             </div>
           </Card>
 
