@@ -34,12 +34,14 @@ export function TarefaModal({
   tarefa,
   politica,
   data,
+  podeEditar = true,
   onClose,
   onChanged,
 }: {
   tarefa: any;
   politica: { conclusao: boolean; parcial: boolean };
   data: string;
+  podeEditar?: boolean; // permissão de editar/excluir (por nível de quem criou)
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -53,6 +55,8 @@ export function TarefaModal({
   // Edição
   const [titulo, setTitulo] = useState(tarefa.titulo ?? '');
   const [horario, setHorario] = useState((tarefa.horario ?? '').slice(0, 5));
+  const [horarioFim, setHorarioFim] = useState((tarefa.horarioFim ?? '').slice(0, 5));
+  const [prioridade, setPrioridade] = useState(tarefa.prioridade ?? '');
   const [setorId, setSetorId] = useState(tarefa.setorId ?? '');
   const [funcaoId, setFuncaoId] = useState(tarefa.funcaoId ?? '');
   const [colaboradorId, setColaboradorId] = useState(tarefa.colaboradorId ?? '');
@@ -113,6 +117,8 @@ export function TarefaModal({
       await api.editarTarefa(tarefa.id, {
         titulo: titulo.trim(),
         horario: horario || null,
+        horarioFim: horarioFim || null,
+        prioridade: prioridade || null,
         setorId: setorId || null,
         funcaoId,
         colaboradorResolvidoId: colaboradorId || null,
@@ -177,11 +183,18 @@ export function TarefaModal({
             {[tarefa.setorNome, tarefa.funcaoNome, tarefa.colaboradorNome ?? 'em aberto']
               .filter(Boolean)
               .join(' · ')}
-            {tarefa.horario ? ` · ${String(tarefa.horario).slice(0, 5)}` : ''}
+            {tarefa.horario ? ` · ${String(tarefa.horario).slice(0, 5)}${tarefa.horarioFim ? `–${String(tarefa.horarioFim).slice(0, 5)}` : ''}` : ''}
           </p>
-          <span className="mt-1 inline-block rounded-md bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
-            {ESTADO_LABEL[tarefa.estado] ?? tarefa.estado}
-          </span>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className="inline-block rounded-md bg-secondary px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+              {ESTADO_LABEL[tarefa.estado] ?? tarefa.estado}
+            </span>
+            {tarefa.prioridade && (
+              <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-semibold ${tarefa.prioridade === 'alta' ? 'bg-destructive/15 text-destructive' : tarefa.prioridade === 'media' ? 'bg-warn/15 text-warn' : 'bg-secondary text-muted-foreground'}`}>
+                Prioridade {tarefa.prioridade === 'media' ? 'média' : tarefa.prioridade}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Fotos já registradas */}
@@ -207,10 +220,12 @@ export function TarefaModal({
               <Button type="button" size="sm" variant="outline" onClick={() => setModo('parcial')}>Parcial</Button>
               <Button type="button" size="sm" variant="outline" onClick={() => setModo('nao_feita')}>Não concluída</Button>
             </div>
-            <div className="flex gap-2 border-t border-border pt-3">
-              <Button type="button" size="sm" variant="ghost" className="flex-1" onClick={() => setModo('editar')}>Editar</Button>
-              <Button type="button" size="sm" variant="ghost" className="flex-1 text-destructive" onClick={() => setModo('excluir')}>Excluir</Button>
-            </div>
+            {podeEditar && (
+              <div className="flex gap-2 border-t border-border pt-3">
+                <Button type="button" size="sm" variant="ghost" className="flex-1" onClick={() => setModo('editar')}>Editar</Button>
+                <Button type="button" size="sm" variant="ghost" className="flex-1 text-destructive" onClick={() => setModo('excluir')}>Excluir</Button>
+              </div>
+            )}
           </div>
         )}
 
@@ -273,9 +288,24 @@ export function TarefaModal({
                 {responsaveis.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
               </Select>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="eh" className="text-xs">Horário inicial</Label>
+                <Input id="eh" type="time" value={horario} onChange={(e) => setHorario(e.target.value)} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="ehf" className="text-xs">Horário final</Label>
+                <Input id="ehf" type="time" value={horarioFim} onChange={(e) => setHorarioFim(e.target.value)} />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label htmlFor="eh" className="text-xs">Horário</Label>
-              <Input id="eh" type="time" value={horario} onChange={(e) => setHorario(e.target.value)} />
+              <Label htmlFor="epr" className="text-xs">Prioridade</Label>
+              <Select id="epr" value={prioridade} onChange={(e) => setPrioridade(e.target.value)}>
+                <option value="">Sem prioridade</option>
+                <option value="alta">Alta</option>
+                <option value="media">Média</option>
+                <option value="baixa">Baixa</option>
+              </Select>
             </div>
             <div className="flex gap-2">
               <Button type="button" className="flex-1" disabled={busy} onClick={salvarEdicao}>

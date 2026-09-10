@@ -395,7 +395,11 @@ export const tarefaDef = pgTable('tarefa_def', {
   ),
   recorrenciaTipo: text('recorrencia_tipo').notNull().default('avulsa'),
   recorrenciaConfig: jsonb('recorrencia_config'),
-  horario: time('horario'),
+  horario: time('horario'), // horário inicial (opcional)
+  horarioFim: time('horario_fim'), // horário final (opcional, mig 235)
+  prioridade: text('prioridade'), // alta | media | baixa (mig 235)
+  criadoPorId: uuid('criado_por_id'), // quem criou (mig 235) — base da permissão de editar/excluir
+  criadoPorNivel: text('criado_por_nivel'), // nível de quem criou no ato (presidente|gerente|supervisao|execucao)
   janelaTurnoId: uuid('janela_turno_id'),
   proibidaNoPico: boolean('proibida_no_pico').notNull().default(false),
   antecipavel: boolean('antecipavel').notNull().default(false),

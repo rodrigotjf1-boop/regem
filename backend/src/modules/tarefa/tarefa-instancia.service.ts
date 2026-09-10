@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Inject,
   Injectable,
   NotFoundException,
@@ -19,6 +20,9 @@ import {
 import { resolverColaboradorTarefa } from '../../common/regras-negocio';
 import { InstanciarTarefaDto } from './dto/instanciar-tarefa.dto';
 import { ConcluirTarefaDto } from './dto/concluir-tarefa.dto';
+
+// Hierarquia p/ a trava de editar/excluir por nível de quem criou a tarefa (mig 235).
+const RANK_NIVEL: Record<string, number> = { execucao: 1, supervisao: 2, gerente: 3, presidente: 4 };
 
 @Injectable()
 export class TarefaInstanciaService {
@@ -117,6 +121,11 @@ export class TarefaInstanciaService {
         motivo: tarefaInstancia.motivo,
         titulo: tarefaDef.titulo,
         horario: tarefaDef.horario,
+        tarefaDefId: tarefaInstancia.tarefaDefId,
+        criadoEm: tarefaDef.createdAt,
+        horarioFim: tarefaDef.horarioFim,
+        prioridade: tarefaDef.prioridade,
+        criadoPorNivel: tarefaDef.criadoPorNivel,
         etiquetaSigla: etiqueta.sigla,
         etiquetaContador: etiqueta.contador,
         // Setor/função: snapshot da instância (novo cadastro) ou via etiqueta (legado).
@@ -223,20 +232,33 @@ export class TarefaInstanciaService {
 
   // Exclui a tarefa (soft-delete) exigindo motivo. Guarda o motivo e a auditoria
   // fica no controller.
-  async excluir(tenantId: string, id: string, motivo: string) {
+  // Trava (mig 235): quem criou define quem pode mexer. Gerência mexe no que a gerência
+  // criou; o que a presidência criou, só a presidência. null/escala = tratado como gerente.
+  private async assertPodeMexer(tarefaDefId: string | null | undefined, atorCategoria: string) {
+    let nivelCriador = 'gerente';
+    if (tarefaDefId) {
+      const [d] = await this.db
+        .select({ n: tarefaDef.criadoPorNivel })
+        .from(tarefaDef)
+        .where(eq(tarefaDef.id, tarefaDefId));
+      if (d?.n) nivelCriador = String(d.n);
+    }
+    if ((RANK_NIVEL[atorCategoria] ?? 0) < (RANK_NIVEL[nivelCriador] ?? 3))
+      throw new ForbiddenException('Sem permissão para alterar/excluir esta tarefa (criada por um nível acima).');
+  }
+
+  async excluir(tenantId: string, id: string, motivo: string, atorCategoria = 'presidente') {
     if (!motivo?.trim()) throw new BadRequestException('Informe o motivo da exclusão.');
-    const [row] = await this.db
+    const [inst] = await this.db
+      .select({ tarefaDefId: tarefaInstancia.tarefaDefId })
+      .from(tarefaInstancia)
+      .where(and(eq(tarefaInstancia.id, id), eq(tarefaInstancia.tenantId, tenantId), isNull(tarefaInstancia.deletedAt)));
+    if (!inst) throw new NotFoundException('Tarefa não encontrada');
+    await this.assertPodeMexer(inst.tarefaDefId, atorCategoria);
+    await this.db
       .update(tarefaInstancia)
       .set({ deletedAt: new Date(), motivo })
-      .where(
-        and(
-          eq(tarefaInstancia.id, id),
-          eq(tarefaInstancia.tenantId, tenantId),
-          isNull(tarefaInstancia.deletedAt),
-        ),
-      )
-      .returning();
-    if (!row) throw new NotFoundException('Tarefa não encontrada');
+      .where(and(eq(tarefaInstancia.id, id), eq(tarefaInstancia.tenantId, tenantId)));
     return { ok: true };
   }
 
@@ -248,10 +270,13 @@ export class TarefaInstanciaService {
     dto: {
       titulo?: string;
       horario?: string;
+      horarioFim?: string | null;
+      prioridade?: string | null;
       setorId?: string | null;
       funcaoId?: string | null;
       colaboradorResolvidoId?: string | null;
     },
+    atorCategoria = 'presidente',
   ) {
     const [inst] = await this.db
       .select()
@@ -264,6 +289,7 @@ export class TarefaInstanciaService {
         ),
       );
     if (!inst) throw new NotFoundException('Tarefa não encontrada');
+    await this.assertPodeMexer(inst.tarefaDefId, atorCategoria);
 
     await this.db
       .update(tarefaInstancia)
@@ -279,10 +305,15 @@ export class TarefaInstanciaService {
       .where(eq(tarefaInstancia.id, id));
 
     // Título/horário vivem no def; atualiza quando a tarefa é avulsa (1:1).
-    if (inst.tarefaDefId && (dto.titulo !== undefined || dto.horario !== undefined)) {
+    if (
+      inst.tarefaDefId &&
+      (dto.titulo !== undefined || dto.horario !== undefined || dto.horarioFim !== undefined || dto.prioridade !== undefined)
+    ) {
       const patch: Record<string, unknown> = {};
       if (dto.titulo !== undefined) patch.titulo = dto.titulo;
       if (dto.horario !== undefined) patch.horario = dto.horario || null;
+      if (dto.horarioFim !== undefined) patch.horarioFim = dto.horarioFim || null;
+      if (dto.prioridade !== undefined) patch.prioridade = dto.prioridade || null;
       if (dto.setorId !== undefined) patch.setorId = dto.setorId;
       if (dto.funcaoId !== undefined) patch.funcaoId = dto.funcaoId;
       if (Object.keys(patch).length)

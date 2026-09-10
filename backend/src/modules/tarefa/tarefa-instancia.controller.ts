@@ -116,7 +116,7 @@ export class TarefaInstanciaController {
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('checklist')
   async editar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    const res = await this.service.editar(user.tenantId, id, dto);
+    const res = await this.service.editar(user.tenantId, id, dto, user.categoria);
     await this.auditoria.registrar({
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
@@ -135,7 +135,7 @@ export class TarefaInstanciaController {
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('checklist')
   async excluir(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { motivo?: string }) {
-    const res = await this.service.excluir(user.tenantId, id, dto?.motivo ?? '');
+    const res = await this.service.excluir(user.tenantId, id, dto?.motivo ?? '', user.categoria);
     await this.auditoria.registrar({
       tenantId: user.tenantId,
       atorId: user.colaboradorId,
