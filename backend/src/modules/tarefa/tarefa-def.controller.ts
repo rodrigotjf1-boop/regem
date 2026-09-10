@@ -18,7 +18,7 @@ export class TarefaDefController {
   @Post()
   @Roles('presidente', 'gerente', 'supervisao')
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateTarefaDefDto) {
-    return this.service.create(user.tenantId, dto);
+    return this.service.create(user.tenantId, dto, { id: user.colaboradorId, nivel: user.categoria });
   }
 
   @Get()

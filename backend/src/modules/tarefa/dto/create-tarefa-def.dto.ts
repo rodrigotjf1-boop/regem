@@ -34,6 +34,16 @@ export class CreateTarefaDefDto {
   @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'horário inválido (HH:MM)' })
   horario?: string;
 
+  // Horário final (opcional) — HH:MM.
+  @IsOptional()
+  @Matches(/^\d{2}:\d{2}(:\d{2})?$/, { message: 'horário final inválido (HH:MM)' })
+  horarioFim?: string;
+
+  // Prioridade da tarefa.
+  @IsOptional()
+  @IsIn(['alta', 'media', 'baixa'])
+  prioridade?: string;
+
   @IsOptional()
   @IsString()
   descricao?: string;

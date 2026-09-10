@@ -8,7 +8,11 @@ import { CreateTarefaDefDto } from './dto/create-tarefa-def.dto';
 export class TarefaDefService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
-  async create(tenantId: string, dto: CreateTarefaDefDto) {
+  async create(
+    tenantId: string,
+    dto: CreateTarefaDefDto,
+    ator?: { id?: string | null; nivel?: string | null },
+  ) {
     const [u] = await this.db
       .select({ id: unidade.id })
       .from(unidade)
@@ -57,6 +61,10 @@ export class TarefaDefService {
         origem: dto.origem ?? 'avulsa',
         titulo: dto.titulo,
         horario: dto.horario,
+        horarioFim: dto.horarioFim,
+        prioridade: dto.prioridade,
+        criadoPorId: ator?.id ?? null,
+        criadoPorNivel: ator?.nivel ?? null,
         descricao: dto.descricao,
         etiquetaId: dto.etiquetaId,
         colaboradorOverrideId: dto.colaboradorOverrideId,

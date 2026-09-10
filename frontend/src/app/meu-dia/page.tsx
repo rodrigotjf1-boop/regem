@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, CircleSlash, MinusCircle, Plus, Wrench, X } from 'lucide-react';
-import { api, getToken } from '@/lib/api';
+import { Plus, X } from 'lucide-react';
+import { api, getToken, getCategoria } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { SkeletonList } from '@/components/ui/skeleton';
 import { Shell } from '@/components/app-shell/shell';
 import { NovaTarefaForm } from '@/components/tarefa/nova-tarefa-form';
+import { TarefaModal } from '@/components/tarefa/tarefa-modal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Tarefa = {
@@ -16,10 +17,17 @@ type Tarefa = {
   estado: string;
   titulo: string | null;
   setorNome: string | null;
-  etiquetaSigla: string | null;
-  etiquetaContador: number | null;
   colaboradorNome: string | null;
+  horario?: string | null;
+  horarioFim?: string | null;
+  prioridade?: string | null;
+  criadoEm?: string | null;
+  criadoPorNivel?: string | null;
+  [k: string]: any;
 };
+
+// Hierarquia p/ gate de UI de editar/excluir (a trava real é no servidor).
+const RANK: Record<string, number> = { execucao: 1, supervisao: 2, gerente: 3, presidente: 4 };
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   pendente: { label: 'Pendente', cls: 'bg-slate-100 text-slate-600' },
@@ -34,13 +42,30 @@ function hoje() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function fmtData(v?: string | null) {
+  if (!v) return '—';
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pt-BR');
+}
+
+function fmtHora(v?: string | null) {
+  return v ? String(v).slice(0, 5) : '—';
+}
+
 export default function MeuDiaPage() {
   const router = useRouter();
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [show, setShow] = useState(false);
+  const [sel, setSel] = useState<Tarefa | null>(null);
+  const [politica, setPolitica] = useState({ conclusao: false, parcial: false });
   const data = hoje();
+
+  // Quem sou eu — para liberar editar/excluir só a quem tem nível >= o de quem criou.
+  // A trava real é no servidor; aqui é só UI.
+  const minhaCategoria = getCategoria() ?? 'execucao';
+  const meuRank = RANK[minhaCategoria] ?? 1;
 
   const carregar = useCallback(async () => {
     try {
@@ -58,20 +83,10 @@ export default function MeuDiaPage() {
     else router.replace('/entrar');
   }, [carregar, router]);
 
-  async function marcar(id: string, estado: string) {
-    setTarefas((t) => t.map((x) => (x.id === id ? { ...x, estado } : x)));
-    try {
-      await api.concluirTarefa(id, estado);
-    } catch {
-      carregar();
-    }
-  }
-
-  const grupos = tarefas.reduce<Record<string, Tarefa[]>>((acc, t) => {
-    const k = t.setorNome ?? 'Sem setor';
-    (acc[k] ??= []).push(t);
-    return acc;
-  }, {});
+  // Política de foto (gestão) — usada pelo modal de conclusão. Silencia se sem permissão.
+  useEffect(() => {
+    api.politicaFotoTarefa().then((p: any) => p && setPolitica(p)).catch(() => {});
+  }, []);
 
   const dataLabel = new Date(data + 'T00:00').toLocaleDateString('pt-BR', {
     weekday: 'long',
@@ -104,16 +119,6 @@ export default function MeuDiaPage() {
         </p>
       )}
 
-      {/* Atalhos das frentes de pedidos internos (mig 130 / 134). */}
-      <div className="mb-5 flex flex-wrap gap-2">
-        <Button variant="outline" size="sm" onClick={() => router.push('/ordens-producao')}>
-          Pedidos de produção
-        </Button>
-        <Button variant="outline" size="sm" onClick={() => router.push('/manutencao')}>
-          <Wrench className="h-4 w-4" /> Pedidos de manutenção
-        </Button>
-      </div>
-
       {show && (
         <div className="mb-5 max-w-xl">
           <NovaTarefaForm
@@ -143,55 +148,89 @@ export default function MeuDiaPage() {
         </Card>
       )}
 
-      <div className="space-y-6">
-        {Object.entries(grupos).map(([setorNome, items]) => (
-          <section key={setorNome} className="space-y-2">
-            <h3 className="font-display text-[11px] font-bold uppercase tracking-[.12em] text-muted-foreground">
-              {setorNome}
-            </h3>
-            <div className="grid gap-2 md:grid-cols-2">
-              {items.map((t) => {
-                const st = STATUS[t.estado] ?? STATUS.pendente;
-                return (
-                  <Card key={t.id} className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="font-medium leading-tight">
-                          {t.titulo ?? 'Tarefa'}
-                        </p>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
-                          {t.etiquetaSigla
-                            ? `${t.etiquetaSigla}${t.etiquetaContador ?? ''}`
-                            : '—'}
-                          {t.colaboradorNome
-                            ? ` · ${t.colaboradorNome}`
-                            : ' · vaga aberta'}
-                        </p>
-                      </div>
-                      <span
-                        className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-bold ${st.cls}`}
-                      >
-                        {st.label}
-                      </span>
-                    </div>
-                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <Button variant="outline" size="sm" onClick={() => marcar(t.id, 'feita')}>
-                        <Check className="h-4 w-4" /> Feita
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => marcar(t.id, 'parcial')}>
-                        <MinusCircle className="h-4 w-4" /> Parcial
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => marcar(t.id, 'nao_feita')}>
-                        <CircleSlash className="h-4 w-4" /> Não feita
-                      </Button>
-                    </div>
-                  </Card>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-      </div>
+      {!loading && tarefas.length > 0 && (
+        <Card className="overflow-hidden p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <caption className="sr-only">Tarefas do dia — clique numa linha para ver detalhes</caption>
+              <thead>
+                <tr className="border-b border-border bg-muted/30 text-left text-[11px] font-bold uppercase tracking-[.08em] text-muted-foreground">
+                  <th className="whitespace-nowrap px-3 py-2.5">Data criação</th>
+                  <th className="px-3 py-2.5">Nome</th>
+                  <th className="px-3 py-2.5">Status</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Hora inicial</th>
+                  <th className="whitespace-nowrap px-3 py-2.5">Hora final</th>
+                  <th className="px-3 py-2.5">Responsável</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tarefas.map((t) => {
+                  const st = STATUS[t.estado] ?? STATUS.pendente;
+                  return (
+                    <tr
+                      key={t.id}
+                      tabIndex={0}
+                      role="button"
+                      onClick={() => setSel(t)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSel(t);
+                        }
+                      }}
+                      className="cursor-pointer border-b border-border/60 outline-none transition-colors last:border-0 hover:bg-muted/40 focus-visible:bg-muted/40"
+                    >
+                      <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs text-muted-foreground">
+                        {fmtData(t.criadoEm)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className="font-medium">{t.titulo ?? 'Tarefa'}</span>
+                        {t.prioridade && (
+                          <span
+                            className={`ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                              t.prioridade === 'alta'
+                                ? 'bg-red-100 text-red-700'
+                                : t.prioridade === 'media'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {t.prioridade === 'media' ? 'média' : t.prioridade}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span className={`inline-block rounded-md px-2 py-0.5 text-[11px] font-bold ${st.cls}`}>
+                          {st.label}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs">{fmtHora(t.horario)}</td>
+                      <td className="whitespace-nowrap px-3 py-2.5 font-mono text-xs">{fmtHora(t.horarioFim)}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">
+                        {t.colaboradorNome ?? 'vaga aberta'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {sel && (
+        <TarefaModal
+          tarefa={sel}
+          politica={politica}
+          data={data}
+          podeEditar={meuRank >= (RANK[sel.criadoPorNivel ?? 'gerente'] ?? 3)}
+          onClose={() => setSel(null)}
+          onChanged={() => {
+            setSel(null);
+            carregar();
+          }}
+        />
+      )}
     </Shell>
   );
 }

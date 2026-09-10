@@ -30,6 +30,8 @@ export function NovaTarefaForm({
   const [funcaoId, setFuncaoId] = useState('');
   const [colaboradorId, setColaboradorId] = useState(''); // '' = em aberto
   const [horario, setHorario] = useState('');
+  const [horarioFim, setHorarioFim] = useState('');
+  const [prioridade, setPrioridade] = useState('');
   const [erro, setErro] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -79,6 +81,8 @@ export function NovaTarefaForm({
         setorId: setorId || undefined,
         funcaoId,
         horario: horario || undefined,
+        horarioFim: horarioFim || undefined,
+        prioridade: prioridade || undefined,
         origem: 'avulsa',
       });
       await api.instanciarTarefa({
@@ -155,13 +159,26 @@ export function NovaTarefaForm({
               : 'Escolha a função para listar os escalados.'}
           </p>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="hr">Horário (opcional)</Label>
-          <Input id="hr" type="time" value={horario} onChange={(e) => setHorario(e.target.value)} />
-          <p className="text-xs text-muted-foreground">
-            Posiciona a tarefa na linha do tempo do dia (Dashboard).
-          </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="hr">Horário inicial (opcional)</Label>
+            <Input id="hr" type="time" value={horario} onChange={(e) => setHorario(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="hf">Horário final (opcional)</Label>
+            <Input id="hf" type="time" value={horarioFim} onChange={(e) => setHorarioFim(e.target.value)} />
+          </div>
         </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="pr">Prioridade</Label>
+          <Select id="pr" value={prioridade} onChange={(e) => setPrioridade(e.target.value)}>
+            <option value="">Sem prioridade</option>
+            <option value="alta">Alta</option>
+            <option value="media">Média</option>
+            <option value="baixa">Baixa</option>
+          </Select>
+        </div>
+        <p className="text-xs text-muted-foreground">O horário inicial posiciona a tarefa na linha do tempo do dia.</p>
         {erro && (
           <p role="alert" className="text-sm text-destructive">{erro}</p>
         )}
