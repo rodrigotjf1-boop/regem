@@ -41,10 +41,20 @@ export class CampanhaService {
     return m[String(segmento ?? '')] ?? sql``;
   }
 
+  // Dígitos do telefone SEM um eventual DDI 55 (12-13 dígitos) — normaliza p/ casar
+  // números vindos do WhatsApp (chegam com 55) com os do cadastro (sem 55) e formatações.
+  private telExpr(col: string): string {
+    const d = `regexp_replace(coalesce(${col},''),'\\D','','g')`;
+    return `(case when length(${d}) in (12,13) and left(${d},2)='55' then substr(${d},3) else ${d} end)`;
+  }
+
   // Filtro de exclusão: sem opt-out de cliente E fora da lista de exclusão por telefone.
+  // Compara telefones NORMALIZADOS (sem 55/formatação) — senão o opt-out por "SAIR"
+  // (que chega com 55) nunca casaria com o cadastro (sem 55).
   private excluidos() {
     return sql`and c.opt_out_marketing = false and coalesce(c.telefone,'') <> ''
-      and not exists (select 1 from marketing_optout mo where mo.tenant_id = c.tenant_id and mo.telefone = c.telefone)`;
+      and not exists (select 1 from marketing_optout mo where mo.tenant_id = c.tenant_id
+        and ${sql.raw(this.telExpr('mo.telefone'))} = ${sql.raw(this.telExpr('c.telefone'))})`;
   }
 
   // Público estimado (quem receberia): do segmento, com telefone, exceto excluídos.
@@ -313,6 +323,21 @@ export class CampanhaService {
     return { ok: true };
   }
 
+  // Lista de exclusão (opt-out) para VISIBILIDADE do lojista — só leitura. A lista
+  // cresce sozinha (cliente clica "sair"); o lojista não adiciona nem edita. Junta o
+  // nome do cliente cadastrado quando o telefone casa (normalizado).
+  async listarOptout(tenantId: string) {
+    const r: any = await this.db.execute(sql`
+      select mo.telefone, mo.motivo, mo.criado_em,
+        (select c.nome from cliente c where c.tenant_id = mo.tenant_id
+          and ${sql.raw(this.telExpr('c.telefone'))} = ${sql.raw(this.telExpr('mo.telefone'))} limit 1) as nome
+      from marketing_optout mo
+      where mo.tenant_id = ${tenantId}
+      order by mo.criado_em desc
+      limit 500`);
+    return (r.rows ?? r) as any[];
+  }
+
   // Agora em São Paulo (dia 0=dom..6=sáb, hh:mm) — p/ a janela de agendamento.
   private agoraSp(): { dia: number; hhmm: string } {
     const agora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }));
@@ -409,6 +434,19 @@ export class CampanhaService {
           continue;
         }
         const tel = String(envio.telefone).replace(/\D/g, '');
+        // Reverifica o opt-out no MOMENTO do envio: o cliente pode ter saído DEPOIS da
+        // criação da campanha. Sem isso, o envio pendente ainda seria disparado.
+        const telN = (tel.length === 12 || tel.length === 13) && tel.startsWith('55') ? tel.slice(2) : tel;
+        const optou: any = await this.db.execute(sql`
+          select 1 from marketing_optout mo where mo.tenant_id = ${camp.tenant_id}
+            and ${sql.raw(this.telExpr('mo.telefone'))} = ${telN} limit 1`);
+        if ((optou.rows ?? optou).length) {
+          await this.db
+            .update(campanhaEnvio)
+            .set({ status: 'excluido' })
+            .where(eq(campanhaEnvio.id, envio.id));
+          continue;
+        }
         const numero = tel.length === 10 || tel.length === 11 ? '55' + tel : tel;
         // A/B: usa a mensagem da variante do destinatário. Link vai RASTREADO (redirect
         // por envio) p/ medir cliques; sem link, nada é anexado.

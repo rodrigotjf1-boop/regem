@@ -1136,6 +1136,7 @@ export default function CardapioPublicoPage() {
           loja={loja}
           tipos={menu.tipos}
           abertaAgora={menu.abertaAgora}
+          abertoPorTipo={menu.abertoPorTipo}
           bairros={bairros}
           cart={cart}
           upsell={upsellFinal}

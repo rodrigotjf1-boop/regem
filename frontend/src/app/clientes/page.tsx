@@ -313,7 +313,10 @@ export default function ClientesPage() {
         {funil && (
           <Card className="p-4">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold">Funil do cardápio · últimos 30 dias</p>
+              <div>
+                <p className="text-sm font-semibold">Funil do cardápio Regem · últimos 30 dias</p>
+                <p className="text-[11px] text-muted-foreground">Da visita ao pedido no seu cardápio digital do Regem — mesma base dos segmentos abaixo.</p>
+              </div>
               <p className="text-xs text-muted-foreground">
                 conversão{' '}
                 <strong className="text-foreground">

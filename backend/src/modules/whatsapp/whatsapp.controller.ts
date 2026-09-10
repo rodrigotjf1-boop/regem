@@ -150,6 +150,23 @@ export class WhatsappController {
     return this.provedores.mensagens(user.tenantId, jids || jid || '');
   }
 
+  // Retenção do histórico de conversas (item 11) — lê/salva wa_retencao_dias da loja.
+  @Get('whatsapp/historico-config')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('bot')
+  historicoConfig(@CurrentUser() user: AuthUser) {
+    return this.cloud.historicoConfig(user.tenantId);
+  }
+
+  @Post('whatsapp/historico-config')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('bot')
+  salvarHistoricoConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.cloud.salvarHistoricoConfig(user.tenantId, Number(dto?.retencaoDias) || 0);
+  }
+
   @Post('whatsapp/enviar')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')

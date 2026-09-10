@@ -50,7 +50,14 @@ export class CampanhaController {
     return this.service.toggleOptOut(user.tenantId, String(dto?.clienteId ?? ''), !!dto?.optOut);
   }
 
-  // Adiciona um TELEFONE à lista de exclusão (cobre quem não é cliente cadastrado).
+  // Lista de exclusão (opt-out) — só leitura, para o lojista visualizar quem saiu.
+  @Get('optout')
+  listarOptout(@CurrentUser() user: AuthUser) {
+    return this.service.listarOptout(user.tenantId);
+  }
+
+  // Adiciona um TELEFONE à lista de exclusão. NÃO é usado pela UI (a lista é automática);
+  // fica para o fluxo n8n do Evolution repassar o "SAIR" recebido no bot.
   @Post('excluir-telefone')
   excluirTelefone(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.optOutPorTelefone(user.tenantId, String(dto?.telefone ?? ''), 'manual');

@@ -2094,6 +2094,23 @@ export const pedidoExterno = pgTable('pedido_externo', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
+// Split de pagamento do pedido de delivery/retirada/encomenda (mig 230). 1 linha por
+// forma — espelha comanda_pagamento, mas ligado ao pedido_externo. Quando o pedido é
+// pago em forma única, pode ter 0 linhas (usa pedido_externo.forma_pagamento) ou 1 linha.
+export const pedidoExternoPagamento = pgTable('pedido_externo_pagamento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  pedidoExternoId: uuid('pedido_externo_id')
+    .notNull()
+    .references(() => pedidoExterno.id, { onDelete: 'cascade' }),
+  forma: text('forma').notNull(),
+  formaPagamentoId: uuid('forma_pagamento_id'),
+  valor: numeric('valor').notNull().default('0'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Cliente do cardápio (link mágico assinado): perfil por telefone, endereços
 // salvos e histórico (via pedido_externo.cliente_id). LGPD: consentimento.
 export const cliente = pgTable('cliente', {
@@ -2611,6 +2628,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   waCloudPhoneId: text('wa_cloud_phone_id'),
   waCloudWabaId: text('wa_cloud_waba_id'), // WABA dona do numero (Cenario B: e do lojista)
   waCloudNumero: text('wa_cloud_numero'), // numero em si, para exibir na tela
+  waRetencaoDias: integer('wa_retencao_dias'), // retenção do histórico WhatsApp Cloud em dias (mig 234; null/0 = ilimitado)
   // Regras de estorno/empilhamento de desconto (mig 125) — a loja configura.
   cancelamentoEstornaCashback: boolean('cancelamento_estorna_cashback').notNull().default(true),
   cupomBloqueiaComResgate: boolean('cupom_bloqueia_com_resgate').notNull().default(false),
@@ -2620,7 +2638,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   encomendaAtiva: boolean('encomenda_ativa').notNull().default(false),
   encomendaAntecedenciaHoras: integer('encomenda_antecedencia_horas').notNull().default(24),
   encomendaHorizonteDias: integer('encomenda_horizonte_dias').notNull().default(30),
-  encomendaCorte: time('encomenda_corte'), // hora de corte (opcional)
+  encomendaCorte: time('encomenda_corte'), // hora de corte — FIM da janela (opcional)
+  encomendaCorteInicio: time('encomenda_corte_inicio'), // INÍCIO da janela de corte (mig 231)
   encomendaCapacidadeDia: integer('encomenda_capacidade_dia'), // máx./dia (null = ilimitado)
   // Sinal + cancelamento da encomenda — regra BASE (mig 187). Faixas por qtd em
   // encomenda_regra_sinal sobrepõem esta base.
@@ -2789,6 +2808,10 @@ export const cupom = pgTable('cupom', {
   somenteNovos: boolean('somente_novos').notNull().default(false), // só cliente sem pedido anterior
   maxPorCliente: integer('max_por_cliente'), // nº máx. de usos por cliente (null = ilimitado)
   minDiasSemCompra: integer('min_dias_sem_compra'), // cliente há > N dias sem comprar
+  // Janela de validade + limite global + nome amigável (mig 232)
+  validoDe: date('valido_de'), // início da validade (validade = fim)
+  maxUsos: integer('max_usos'), // limite GLOBAL de usos (null = ilimitado)
+  nome: text('nome'), // nome amigável (label "Nome / Código")
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2819,7 +2842,8 @@ export const fidelidadePlano = pgTable('fidelidade_plano', {
   ativo: boolean('ativo').notNull().default(true),
   status: text('status').notNull().default('ativo'), // ativo | finalizando | encerrado
   qualificadorTipo: text('qualificador_tipo').notNull().default('qualquer'), // qualquer | categoria | produto
-  qualificadorId: uuid('qualificador_id'), // categoria_produto.id ou produto.id
+  qualificadorId: uuid('qualificador_id'), // categoria_produto.id ou produto.id (legado; compat)
+  qualificadorIds: jsonb('qualificador_ids').notNull().default('[]'), // multi-categoria/produto (mig 233)
   pontosMeta: integer('pontos_meta').notNull().default(10),
   recompensaTipo: text('recompensa_tipo').notNull().default('percentual_proximo'), // percentual_proximo | percentual_produtos | valor_fixo
   recompensaValor: numeric('recompensa_valor').notNull().default('0'),
