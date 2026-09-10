@@ -230,6 +230,19 @@ export class WhatsappController {
     return this.cloud.listarTemplates(user.tenantId);
   }
 
+  // Desempenho dos modelos na Meta (enviados/entregues/lidos/cliques + custo) — por LOJA.
+  @Get('whatsapp/cloud/templates/analytics')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  templatesAnalytics(
+    @CurrentUser() user: AuthUser,
+    @Query('desde') desde?: string,
+    @Query('ate') ate?: string,
+  ) {
+    return this.cloud.templateAnalytics(user.tenantId, { desde, ate });
+  }
+
   // ===== Gestão LOCAL de templates (Opção B — criar/submeter pelo Regem, mig 227) =====
   @Get('whatsapp/cloud/templates/locais')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)

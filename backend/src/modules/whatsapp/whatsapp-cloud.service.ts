@@ -993,6 +993,64 @@ export class WhatsappCloudService {
   // Semeia a BIBLIOTECA REGEM na WABA da loja: cria (se não existir) e submete cada
   // modelo base. Best-effort por item — um falho não impede os outros. Usado no
   // onboarding (Embedded Signup) e no botão "Reenviar modelos da Regem".
+  // Desempenho dos modelos na Meta (Template Analytics API): enviados/entregues/lidos/
+  // cliques (por botão) + custo, por período. Traz pro Regem o que hoje só se vê no Meta
+  // Business. Best-effort: se a Meta falhar/estiver sem dados, devolve vazio (a UI degrada).
+  async templateAnalytics(
+    tenantId: string,
+    opts: { desde?: string; ate?: string; templateIds?: string[] } = {},
+  ): Promise<{ porTemplate: Record<string, any>; periodo: { desde: string; ate: string } }> {
+    const hoje = new Date();
+    const ate = opts.ate ? new Date(opts.ate) : hoje;
+    const desde = opts.desde ? new Date(opts.desde) : new Date(hoje.getTime() - 30 * 86400000);
+    const periodo = { desde: desde.toISOString().slice(0, 10), ate: ate.toISOString().slice(0, 10) };
+    const vazio = { porTemplate: {} as Record<string, any>, periodo };
+    let waba: string;
+    try {
+      waba = await this.wabaDe(tenantId);
+    } catch {
+      return vazio;
+    }
+    // Mapa metaId → nome (só os que já têm metaId, ou seja, foram submetidos).
+    const locais = await this.db
+      .select({ nome: whatsappTemplate.nome, metaId: whatsappTemplate.metaId })
+      .from(whatsappTemplate)
+      .where(eq(whatsappTemplate.tenantId, tenantId));
+    const nomePorMeta = new Map<string, string>();
+    for (const l of locais) if (l.metaId) nomePorMeta.set(String(l.metaId), l.nome);
+    let metaIds = (opts.templateIds ?? []).filter(Boolean);
+    if (!metaIds.length) metaIds = [...nomePorMeta.keys()];
+    metaIds = metaIds.slice(0, 10); // limite da Meta
+    if (!metaIds.length) return vazio;
+    // Habilita insights na WABA (idempotente, best-effort — exigido antes de consultar).
+    await fetch(`${GRAPH}/${waba}?is_enabled_for_insights=true`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}` },
+    }).catch(() => null);
+    const start = Math.floor(desde.getTime() / 1000);
+    const end = Math.floor(ate.getTime() / 1000);
+    const ids = encodeURIComponent(JSON.stringify(metaIds));
+    const mts = encodeURIComponent(JSON.stringify(['SENT', 'DELIVERED', 'READ', 'CLICKED', 'COST']));
+    const url = `${GRAPH}/${waba}/template_analytics?start=${start}&end=${end}&granularity=DAILY&template_ids=${ids}&metric_types=${mts}`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${this.token()}` } }).catch(() => null);
+    if (!res || !res.ok) return vazio;
+    const json: any = await res.json().catch(() => ({}));
+    const porTemplate: Record<string, any> = {};
+    for (const bloco of json?.data ?? []) {
+      for (const dp of bloco?.data_points ?? []) {
+        const nome = nomePorMeta.get(String(dp.template_id)) ?? String(dp.template_id);
+        const acc = porTemplate[nome] ?? { enviados: 0, entregues: 0, lidos: 0, cliques: 0, custo: 0 };
+        acc.enviados += Number(dp.sent) || 0;
+        acc.entregues += Number(dp.delivered) || 0;
+        acc.lidos += Number(dp.read) || 0;
+        for (const c of dp.clicked ?? []) acc.cliques += Number(c.count) || 0;
+        for (const c of dp.cost ?? []) if (c?.type === 'amount_spent') acc.custo += Number(c.value) || 0;
+        porTemplate[nome] = acc;
+      }
+    }
+    return { porTemplate, periodo };
+  }
+
   async seedModelosRegem(tenantId: string) {
     const resultados: any[] = [];
     // Identificação da loja p/ os textos (Configurações → Loja): nome público + cidade.
