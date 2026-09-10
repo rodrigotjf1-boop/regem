@@ -81,7 +81,7 @@ export default function MarketingPage() {
   const [link, setLink] = useState('');
   const [imagemRef, setImagemRef] = useState<string | null>(null);
   const [subindoImg, setSubindoImg] = useState(false);
-  const [instancia, setInstancia] = useState<'marketing' | 'loja'>('marketing');
+  // Campanha SEMPRE sai pelo número de MARKETING (é o papel de disparo) — sem toggle.
   const [intervalo, setIntervalo] = useState(30);
   const [tetoDia, setTetoDia] = useState('');
   const [tetoSemana, setTetoSemana] = useState('');
@@ -107,7 +107,7 @@ export default function MarketingPage() {
   const ehCupom = tipo === 'cupom' || tipo === 'frete_gratis';
   // Provedor do número escolhido (marketing→papel marketing; loja→principal).
   const provedorAtual: 'evolution' | 'cloud' =
-    (instancia === 'marketing' ? numeros?.marketing?.provedor : numeros?.principal?.provedor) ?? 'evolution';
+    numeros?.marketing?.provedor ?? 'evolution';
   const ehCloud = provedorAtual === 'cloud';
   const templateSel = templates.find((t) => t.nome === templateNome);
   const templateVarsCount = templateSel ? (String(templateSel.corpo).match(/\{\{\d+\}\}/g) ?? []).length : 0;
@@ -223,7 +223,7 @@ export default function MarketingPage() {
         mensagemB: !ehCloud ? msgB.trim() || null : null,
         link: link.trim() || null,
         imagemRef,
-        instanciaTipo: instancia,
+        instanciaTipo: 'marketing',
         intervaloSeg: intervalo,
         tetoDia: tetoDia ? Number(tetoDia) : null,
         tetoSemana: tetoSemana ? Number(tetoSemana) : null,
@@ -517,24 +517,8 @@ export default function MarketingPage() {
               </div>
             )}
 
-            {/* Enviar de + pacing + tetos */}
+            {/* Pacing + tetos (a campanha sai sempre pelo número de Marketing) */}
             <div className="flex flex-wrap items-end gap-3">
-              <div className="text-xs">
-                <span className="mb-1 block text-foreground/70">Enviar do número</span>
-                <div className="flex gap-2">
-                  {(['marketing', 'loja'] as const).map((i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setInstancia(i)}
-                      aria-pressed={instancia === i}
-                      className={`rounded-md border px-3 py-1.5 ${instancia === i ? 'border-primary bg-primary/10 text-primary' : 'border-border'}`}
-                    >
-                      {i === 'marketing' ? 'Marketing' : 'Principal'}
-                    </button>
-                  ))}
-                </div>
-              </div>
               <label className="text-xs">
                 <span className="mb-1 block text-foreground/70">Pausa (s)</span>
                 <Input type="number" min={3} max={120} value={intervalo} onChange={(e) => setIntervalo(Number(e.target.value) || 30)} className="w-20" />
