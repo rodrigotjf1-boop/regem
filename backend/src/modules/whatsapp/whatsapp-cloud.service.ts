@@ -3,7 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { cardapioConfig, marketingOptout, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
+import { cardapioConfig, empresa, marketingOptout, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -24,16 +24,28 @@ const MAX_MIDIA = 20 * 1024 * 1024;
 const HOSTS_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
 
 // Biblioteca de modelos do Regem (auto-submetidos à WABA da loja no onboarding). Textos
-// genéricos e dentro das regras da Meta (texto antes/depois da variável) → aprovam sozinhos.
-// {{1}} = nome do cliente. Botões: url (Peça agora rastreado) / copy_code (cupom) / optout.
+// dentro das regras da Meta (texto antes/depois da variável). {{1}} = nome do cliente.
+// {loja}/{cidade} = IDENTIFICAÇÃO da loja — viram texto LITERAL no envio (puxado de
+// nomePublico/empresa.nome + endCidade em Configurações → Loja), não são variáveis da Meta.
+// Botões: url (Peça agora rastreado) / copy_code (cupom) / optout.
 const CATALOGO_REGEM: Array<{ nome: string; cabecalho: string; corpo: string; botoes: any[] }> = [
-  { nome: 'promo_frete_gratis', cabecalho: 'Frete grátis hoje! 🛵', corpo: 'Olá {{1}}! Hoje é FRETE GRÁTIS na nossa loja. Aproveite e faça seu pedido.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'cupom_desconto', cabecalho: 'Presente pra você 🎁', corpo: 'Oi {{1}}, preparamos um desconto especial pra você hoje. Aproveite antes que acabe!', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'recuperacao_cliente', cabecalho: 'Sentimos sua falta 😊', corpo: 'Oi {{1}}, faz um tempo que você não pede! Que tal pedir hoje? Dá uma olhada nas novidades.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'cliente_vip', cabecalho: 'Você é VIP 🏆', corpo: 'Oi {{1}}, você é cliente especial pra gente! Preparamos um mimo exclusivo pra você.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'aniversario', cabecalho: 'Feliz aniversário! 🎉', corpo: 'Parabéns, {{1}}! Comemore com a gente — tem um presente esperando por você.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
-  { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio 🍔', corpo: 'Oi {{1}}, chegou novidade na nossa loja! Dá uma olhada e peça o seu.', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'promo_frete_gratis', cabecalho: 'Frete grátis hoje! 🛵', corpo: 'Olá {{1}}! Aqui é a {loja}{cidade}. Hoje tem FRETE GRÁTIS pra você — aproveite e peça o seu pelo link abaixo. 🛵', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cupom_desconto', cabecalho: 'Um presente pra você 🎁', corpo: 'Oi {{1}}, aqui é a {loja}{cidade}! Preparamos um desconto especial pra você hoje. Aproveite antes que acabe — use seu cupom no pedido. 🎁', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'recuperacao_cliente', cabecalho: 'Sentimos sua falta 😊', corpo: 'Oi {{1}}, faz um tempo que você não pede na {loja}! Que tal matar a saudade hoje? Tem novidade te esperando. 😊', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'cliente_vip', cabecalho: 'Você é VIP 🏆', corpo: 'Oi {{1}}, você é cliente especial pra {loja}! Como forma de agradecer, preparamos um mimo exclusivo pra você. Dá uma olhada! 🏆', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'aniversario', cabecalho: 'Feliz aniversário! 🎉', corpo: 'Parabéns, {{1}}! A {loja} preparou um presente especial pra você comemorar com a gente. Aproveite seu dia! 🎉', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'copy_code', texto: 'Copiar cupom' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
+  { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio 🍔', corpo: 'Oi {{1}}, chegou novidade no cardápio da {loja}! Dá uma olhada nas nossas delícias e peça o seu. 🍔', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
 ];
+
+// Injeta a identificação da loja ({loja}/{cidade}) nos textos do catálogo. {cidade} vira
+// " de <cidade>" quando há cidade; some quando não há (evita frase quebrada).
+function identificarLoja(txt: string, loja: string, cidade: string): string {
+  return String(txt ?? '')
+    .replace(/\{cidade\}/g, cidade ? ` de ${cidade}` : '')
+    .replace(/\{loja\}/g, loja || 'nossa loja')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 // Só os dígitos, para comparar telefone vindo em qualquer formato.
 function soDigitos(v: any): string {
@@ -668,12 +680,7 @@ export class WhatsappCloudService {
   // Modelos da conta, com o status de aprovacao. E a base para a tela escolher o
   // modelo de um aviso ou de uma campanha — e para o lojista ver o que ja aprovou.
   async listarTemplates(tenantId: string) {
-    const [cfg] = await this.db
-      .select()
-      .from(cardapioConfig)
-      .where(eq(cardapioConfig.tenantId, tenantId));
-    const waba = cfg?.waCloudWabaId || process.env.WA_CLOUD_WABA_ID || '';
-    if (!waba) throw new BadRequestException('Conta do WhatsApp Business não vinculada a esta loja.');
+    const waba = await this.wabaDe(tenantId); // papel-aware (Marketing → Principal → cfg → env)
     const url = `${GRAPH}/${waba}/message_templates?fields=name,status,category,language&limit=100`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${this.token()}` },
@@ -696,8 +703,28 @@ export class WhatsappCloudService {
   // ===== Gestão LOCAL de templates (Opção B: criar/submeter pelo Regem, mig 227) =====
 
   private async wabaDe(tenantId: string): Promise<string> {
-    const [cfg] = await this.db.select().from(cardapioConfig).where(eq(cardapioConfig.tenantId, tenantId));
-    const waba = cfg?.waCloudWabaId || process.env.WA_CLOUD_WABA_ID || '';
+    // Templates vivem na WABA que vai ENVIAR. No modelo de 2 papéis, o Marketing pode ser
+    // uma WABA PRÓPRIA (a loja conecta só o Marketing como Oficial e o Principal fica no
+    // Grátis). Prioriza a WABA do número de MARKETING (cloud) → PRINCIPAL (cloud) →
+    // cardapio_config → env. (Antes pegava só o cardapio_config/env → submetia p/ a WABA
+    // errada quando o oficial era o Marketing → a Meta rejeitava os modelos.)
+    const nums = await this.db
+      .select({ papel: whatsappNumero.papel, wabaId: whatsappNumero.wabaId })
+      .from(whatsappNumero)
+      .where(
+        and(
+          eq(whatsappNumero.tenantId, tenantId),
+          eq(whatsappNumero.provedor, 'cloud'),
+          isNull(whatsappNumero.unidadeId),
+        ),
+      );
+    const mkt = nums.find((n) => n.papel === 'marketing' && n.wabaId)?.wabaId;
+    const prin = nums.find((n) => n.papel === 'principal' && n.wabaId)?.wabaId;
+    const [cfg] = await this.db
+      .select({ w: cardapioConfig.waCloudWabaId })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const waba = mkt || prin || cfg?.w || process.env.WA_CLOUD_WABA_ID || '';
     if (!waba) throw new BadRequestException('Conta do WhatsApp Business (WABA) não vinculada a esta loja.');
     return waba;
   }
@@ -954,6 +981,14 @@ export class WhatsappCloudService {
   // onboarding (Embedded Signup) e no botão "Reenviar modelos da Regem".
   async seedModelosRegem(tenantId: string) {
     const resultados: any[] = [];
+    // Identificação da loja p/ os textos (Configurações → Loja): nome público + cidade.
+    const [cfgLoja] = await this.db
+      .select({ nomePublico: cardapioConfig.nomePublico, cidade: cardapioConfig.endCidade })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const [emp] = await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, tenantId));
+    const loja = String(cfgLoja?.nomePublico || emp?.nome || 'nossa loja').trim();
+    const cidade = String(cfgLoja?.cidade || '').trim();
     for (const base of CATALOGO_REGEM) {
       try {
         const [ja] = await this.db
@@ -962,35 +997,30 @@ export class WhatsappCloudService {
           .where(
             and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, base.nome), eq(whatsappTemplate.idioma, 'pt_BR')),
           );
-        if (ja && (ja.status === 'aprovado' || ja.status === 'pendente')) {
+        // Já existe (QUALQUER status, inclusive REJEITADO) → NÃO reenvia. Reenviar um
+        // rejeitado idêntico só toma outra reprovação; o reenvio de um rejeitado é MANUAL
+        // por modelo (o lojista edita e clica "enviar p/ aprovação"). O seed só CRIA os
+        // que ainda não existem → é seguro clicar/rodar de novo (não duplica nem reenvia).
+        if (ja) {
           resultados.push({ nome: base.nome, status: ja.status, pulado: true });
           continue;
         }
-        let id = ja?.id;
-        if (!id) {
-          const [row] = await this.db
-            .insert(whatsappTemplate)
-            .values({
-              tenantId,
-              nome: base.nome,
-              categoria: 'MARKETING',
-              idioma: 'pt_BR',
-              cabecalho: base.cabecalho,
-              corpo: base.corpo,
-              botoes: base.botoes,
-              formato: 'padrao',
-              status: 'rascunho',
-            })
-            .returning();
-          id = row.id;
-        } else {
-          await this.db
-            .update(whatsappTemplate)
-            .set({ cabecalho: base.cabecalho, corpo: base.corpo, botoes: base.botoes, status: 'rascunho', atualizadoEm: new Date() })
-            .where(eq(whatsappTemplate.id, id));
-        }
-        await this.submeterTemplate(tenantId, id);
-        resultados.push({ nome: base.nome, status: 'pendente' });
+        const [row] = await this.db
+          .insert(whatsappTemplate)
+          .values({
+            tenantId,
+            nome: base.nome,
+            categoria: 'MARKETING',
+            idioma: 'pt_BR',
+            cabecalho: identificarLoja(base.cabecalho, loja, cidade),
+            corpo: identificarLoja(base.corpo, loja, cidade),
+            botoes: base.botoes,
+            formato: 'padrao',
+            status: 'rascunho',
+          })
+          .returning();
+        await this.submeterTemplate(tenantId, row.id);
+        resultados.push({ nome: base.nome, status: 'pendente', novo: true });
       } catch (e: any) {
         resultados.push({ nome: base.nome, erro: String(e?.message ?? e).slice(0, 160) });
       }
@@ -1105,9 +1135,10 @@ export class WhatsappCloudService {
           .update(cardapioConfig)
           .set({ provedor: 'cloud', waCloudPhoneId: phoneId, waCloudWabaId: wabaId, waCloudNumero: numero, updatedAt: new Date() })
           .where(eq(cardapioConfig.id, cfg.id));
-      // Semeia a biblioteca Regem na WABA recém-conectada (2º plano — não segura o retorno).
-      void this.seedModelosRegem(tenantId).catch(() => {});
     }
+    // Semeia a biblioteca Regem na WABA recém-conectada — QUALQUER papel (o Marketing pode
+    // ser a WABA oficial; wabaDe() resolve papel-aware). Idempotente + 2º plano.
+    void this.seedModelosRegem(tenantId).catch(() => {});
 
     return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero };
   }
