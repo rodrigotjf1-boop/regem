@@ -28,6 +28,9 @@ import {
   lancamentoCaixa,
   pedidoExterno,
   pedidoExternoPagamento,
+  pedidoNotificacao,
+  whatsappMensagem,
+  whatsappTemplate,
   edgeHeartbeat,
   produto,
 } from '../../db/schema';
@@ -1829,8 +1832,11 @@ export class DeliveryService {
     // precisa saber por que o pedido foi cancelado (o fluxo n8n trata esse ramo).
     const cancelado = ped.status === 'cancelado';
     const eventoFinal = evento === 'status' && cancelado ? 'cancelado' : evento;
-    await this.notificarN8n(tenantId, {
+    const eventoStatus = DeliveryService.eventoDeStatus(ped.status, ped.tipo, eventoFinal);
+
+    const payload = {
       evento: eventoFinal,
+      eventoStatus, // gatilho do modelo de utilidade (null = status sem aviso ao cliente)
       pedidoId: ped.id,
       numero: ped.numero,
       displayId: ped.displayId,
@@ -1842,7 +1848,131 @@ export class DeliveryService {
       canal: ped.canal,
       entregadorNome: ped.entregadorNome ?? null,
       ...(cancelado ? { motivoCancelamento: ped.motivoCancelamento ?? null } : {}),
-    });
+    };
+
+    // Provedor do PRINCIPAL decide o canal do aviso. No EVOLUTION (grátis) mantém o
+    // comportamento de hoje: sempre WhatsApp via n8n. Na API OFICIAL a Meta trava o
+    // início de conversa; então quem NÃO iniciou conversa recebe a notificação IN-APP no
+    // cardápio (sem iniciarmos conversa), e quem JÁ conversou recebe pelo n8n (o fluxo
+    // manda texto na janela de 24h ou o template de utilidade fora dela).
+    const [cfg] = await this.db
+      .select({ provedor: cardapioConfig.provedor })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const provedor = (cfg?.provedor ?? 'evolution') as string;
+
+    if (provedor !== 'cloud') {
+      await this.notificarN8n(tenantId, payload);
+      return;
+    }
+
+    const tel = String(ped.clienteTelefone ?? '').replace(/\D/g, '');
+    const conversaIniciada = tel ? await this.clienteJaConversou(tenantId, tel) : false;
+    if (conversaIniciada) {
+      // Janela aberta? (última entrada do cliente < 24h) — o n8n usa isto p/ escolher
+      // texto (chatbot) x template. Passamos também o nome do template do status aprovado.
+      const janelaAberta = tel ? await this.clienteJanelaAberta(tenantId, tel) : false;
+      const templateNome = eventoStatus ? await this.templateDoEvento(tenantId, eventoStatus) : null;
+      await this.notificarN8n(tenantId, { ...payload, janelaAberta, templateNome });
+      return;
+    }
+    // Não iniciou conversa → notificação in-app (cloud-only).
+    await this.gravarNotificacaoPedido(tenantId, ped, eventoStatus);
+  }
+
+  // Mapeia o status do pedido para o EVENTO de aviso ao cliente (= evento do template de
+  // utilidade). Retorna null quando o status não gera aviso (ex.: 'novo', ou 'pronto' de
+  // ENTREGA — aí o cliente é avisado no 'despachado'/saiu para entrega).
+  private static eventoDeStatus(status: string, tipo: string, evento: string): string | null {
+    if (evento === 'atrasado') return 'atrasado';
+    switch (status) {
+      case 'confirmado': return 'confirmado';
+      case 'pronto': return tipo === 'retirada' ? 'pronto_retirada' : null;
+      case 'despachado': return 'saiu_entrega';
+      case 'concluido':
+      case 'entregue': return 'entregue';
+      case 'cancelado': return 'cancelado';
+      default: return null;
+    }
+  }
+
+  // O cliente já mandou ALGUMA mensagem para a loja (é um contato que conversa com a gente)?
+  private async clienteJaConversou(tenantId: string, telefone: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: whatsappMensagem.id })
+      .from(whatsappMensagem)
+      .where(and(eq(whatsappMensagem.tenantId, tenantId), eq(whatsappMensagem.telefone, telefone), eq(whatsappMensagem.direcao, 'entrada')))
+      .limit(1);
+    return !!row;
+  }
+
+  // Janela de atendimento de 24h aberta = última mensagem do cliente há menos de 24h.
+  private async clienteJanelaAberta(tenantId: string, telefone: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ criadoEm: whatsappMensagem.criadoEm })
+      .from(whatsappMensagem)
+      .where(and(eq(whatsappMensagem.tenantId, tenantId), eq(whatsappMensagem.telefone, telefone), eq(whatsappMensagem.direcao, 'entrada')))
+      .orderBy(desc(whatsappMensagem.criadoEm))
+      .limit(1);
+    if (!row?.criadoEm) return false;
+    return Date.now() - new Date(row.criadoEm as any).getTime() < 24 * 60 * 60 * 1000;
+  }
+
+  // Nome do template de UTILIDADE aprovado para um evento de status (ou null).
+  private async templateDoEvento(tenantId: string, evento: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ nome: whatsappTemplate.nome })
+      .from(whatsappTemplate)
+      .where(and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.evento, evento), eq(whatsappTemplate.status, 'aprovado')))
+      .limit(1);
+    return row?.nome ?? null;
+  }
+
+  private basePublica(): string {
+    return (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/$/, '');
+  }
+
+  // Grava a notificação IN-APP do status no histórico do cliente (cardápio). Cloud-only:
+  // no edge a tabela não existe e o cliente não acompanha por lá. Best-effort.
+  private async gravarNotificacaoPedido(tenantId: string, ped: any, eventoStatus: string | null): Promise<void> {
+    if (process.env.EDGE_MODE === '1') return;
+    if (!eventoStatus) return;
+    try {
+      const [row] = await this.db
+        .select({ clienteId: pedidoExterno.clienteId, rastreioToken: pedidoExterno.rastreioToken })
+        .from(pedidoExterno)
+        .where(eq(pedidoExterno.id, ped.id));
+      if (!row?.clienteId) return; // pedido sem cliente identificado — não há onde mostrar
+      const t = DeliveryService.textoNotificacao(eventoStatus, ped);
+      const rastreioUrl =
+        eventoStatus === 'saiu_entrega' && row.rastreioToken ? `${this.basePublica()}/r/${row.rastreioToken}` : null;
+      await this.db.insert(pedidoNotificacao).values({
+        tenantId,
+        pedidoExternoId: ped.id,
+        clienteId: row.clienteId,
+        evento: eventoStatus,
+        titulo: t.titulo,
+        texto: t.texto,
+        rastreioUrl,
+      });
+    } catch {
+      /* best-effort: um aviso in-app não pode quebrar a mudança de status */
+    }
+  }
+
+  // Texto pt-BR do aviso in-app por evento. #NNN = displayId do pedido quando houver.
+  private static textoNotificacao(evento: string, ped: any): { titulo: string; texto: string } {
+    const ref = ped.displayId ? ` #${ped.displayId}` : '';
+    const motivo = ped.motivoCancelamento ? ` Motivo: ${ped.motivoCancelamento}.` : '';
+    switch (evento) {
+      case 'confirmado': return { titulo: 'Pedido em produção', texto: `Recebemos seu pedido${ref} e ele já está em produção. 👨‍🍳` };
+      case 'pronto_retirada': return { titulo: 'Pedido pronto', texto: `Seu pedido${ref} está pronto para retirada! 🎉` };
+      case 'saiu_entrega': return { titulo: 'Saiu para entrega', texto: `Seu pedido${ref} saiu para entrega! 🛵 Acompanhe a chegada pelo botão abaixo.` };
+      case 'entregue': return { titulo: 'Pedido entregue', texto: `Seu pedido${ref} foi entregue. Bom apetite! 💛` };
+      case 'cancelado': return { titulo: 'Pedido cancelado', texto: `Seu pedido${ref} foi cancelado.${motivo}` };
+      case 'atrasado': return { titulo: 'Pedido atrasando', texto: `Seu pedido${ref} está levando mais tempo que o previsto. Pedimos desculpas — já estamos correndo para concluir. 🙏` };
+      default: return { titulo: 'Atualização do pedido', texto: `Seu pedido${ref} teve uma atualização.` };
+    }
   }
 
   // Envia um payload arbitrário ao webhook n8n da loja (canal 'n8n', URL em

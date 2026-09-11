@@ -1341,6 +1341,10 @@ export const api = {
     pub(`/publico/cardapio/${token}/cliente/otp/confirmar`, { method: 'POST', body: JSON.stringify(body) }),
   clientePerfil: (token: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente?clienteToken=${encodeURIComponent(clienteToken)}`),
+  clienteNotificacoes: (token: string, clienteToken: string) =>
+    pub(`/publico/cardapio/${token}/cliente/notificacoes?clienteToken=${encodeURIComponent(clienteToken)}`),
+  clienteNotificacoesLidas: (token: string, clienteToken: string, ids?: string[]) =>
+    pub(`/publico/cardapio/${token}/cliente/notificacoes/lidas`, { method: 'POST', body: JSON.stringify({ clienteToken, ids }) }),
   clienteAddEndereco: (token: string, body: Record<string, unknown>) =>
     pub(`/publico/cardapio/${token}/cliente/endereco`, { method: 'POST', body: JSON.stringify(body) }),
   clienteRemEndereco: (token: string, id: string, clienteToken: string) =>

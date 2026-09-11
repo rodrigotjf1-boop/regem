@@ -26,6 +26,7 @@ import {
   fidelidadeResgate,
   integracao,
   pedidoExterno,
+  pedidoNotificacao,
 } from '../../db/schema';
 import { inArray } from 'drizzle-orm';
 import { assinarCliente, verificarCliente } from './cliente-token';
@@ -169,6 +170,43 @@ export class ClienteService {
       .where(and(eq(cliente.id, v.cli), eq(cliente.tenantId, tenantId)));
     if (!c) throw new UnauthorizedException('Cliente não encontrado.');
     return c;
+  }
+
+  // Notificações in-app de status do pedido (aba Pedidos do cardápio). Só do próprio
+  // cliente (link mágico). Mais recentes primeiro; não lidas contam para o badge.
+  async notificacoes(cardapioToken: string, clienteToken?: string) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    const linhas = await this.db
+      .select()
+      .from(pedidoNotificacao)
+      .where(and(eq(pedidoNotificacao.tenantId, c.tenantId), eq(pedidoNotificacao.clienteId, c.id)))
+      .orderBy(desc(pedidoNotificacao.criadoEm))
+      .limit(50);
+    return {
+      naoLidas: linhas.filter((l) => !l.lida).length,
+      itens: linhas.map((l) => ({
+        id: l.id,
+        pedidoId: l.pedidoExternoId,
+        evento: l.evento,
+        titulo: l.titulo,
+        texto: l.texto,
+        rastreioUrl: l.rastreioUrl,
+        lida: l.lida,
+        em: l.criadoEm,
+      })),
+    };
+  }
+
+  // Marca notificações como lidas (as informadas, ou todas do cliente). Escopo do cliente.
+  async marcarNotificacoesLidas(cardapioToken: string, clienteToken?: string, ids?: string[]) {
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    const alvo = Array.isArray(ids) ? ids.filter(Boolean) : null;
+    const base = and(eq(pedidoNotificacao.tenantId, c.tenantId), eq(pedidoNotificacao.clienteId, c.id));
+    await this.db
+      .update(pedidoNotificacao)
+      .set({ lida: true })
+      .where(alvo && alvo.length ? and(base, inArray(pedidoNotificacao.id, alvo)) : base);
+    return { ok: true };
   }
 
   private async enderecosDe(clienteId: string) {

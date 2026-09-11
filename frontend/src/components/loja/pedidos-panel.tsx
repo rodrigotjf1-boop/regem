@@ -43,6 +43,7 @@ export function PedidosPanel({
 }) {
   const [historico, setHistorico] = useState<any[] | null>(null);
   const [recorrencias, setRecorrencias] = useState<any[]>([]);
+  const [notifs, setNotifs] = useState<any[]>([]);
   const [sel, setSel] = useState<any>(null);
   const clienteToken = getClienteToken(token);
 
@@ -60,6 +61,16 @@ export function PedidosPanel({
       setRecorrencias(Array.isArray(r) ? r : []);
     } catch {
       setRecorrencias([]);
+    }
+    // Avisos in-app de status (só existem quando a loja está na API oficial e o cliente
+    // não iniciou conversa no WhatsApp). Ao abrir a aba, marca as não lidas como lidas.
+    try {
+      const n: any = await api.clienteNotificacoes(token, ct);
+      const itens = Array.isArray(n?.itens) ? n.itens : [];
+      setNotifs(itens);
+      if (n?.naoLidas > 0) api.clienteNotificacoesLidas(token, ct).catch(() => {});
+    } catch {
+      setNotifs([]);
     }
   }, [token]);
 
@@ -100,6 +111,38 @@ export function PedidosPanel({
           <p className="py-6 text-center text-sm text-black/40">Você ainda não fez pedidos por aqui.</p>
         ) : (
           <div className="space-y-1.5">
+            {notifs.length > 0 && (
+              <div className="mb-2 rounded-xl border border-black/10 bg-neutral-50 p-3">
+                <p className="mb-1.5 text-sm font-bold">🔔 Avisos do pedido</p>
+                <div className="space-y-1.5">
+                  {notifs.slice(0, 8).map((n: any) => (
+                    <div
+                      key={n.id}
+                      className="rounded-lg bg-white px-3 py-2 text-sm"
+                      style={n.lida ? undefined : { boxShadow: `0 0 0 1px ${accent}` }}
+                    >
+                      <p className="flex items-center gap-2 font-semibold">
+                        {!n.lida && <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ background: accent }} />}
+                        {n.titulo}
+                        <span className="ml-auto text-[11px] font-normal text-black/40">{hhmm(n.em)}</span>
+                      </p>
+                      <p className="mt-0.5 text-xs text-black/60">{n.texto}</p>
+                      {n.rastreioUrl && (
+                        <a
+                          href={n.rastreioUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="mt-1.5 inline-block rounded-md px-3 py-1 text-xs font-bold text-white"
+                          style={{ background: accent }}
+                        >
+                          Acompanhar entrega
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {recorrencias.length > 0 && (
               <div className="mb-2 rounded-xl border border-black/10 bg-neutral-50 p-3">
                 <p className="mb-1.5 text-sm font-bold">🔁 Encomendas recorrentes</p>
