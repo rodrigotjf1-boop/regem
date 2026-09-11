@@ -252,6 +252,31 @@ function CardNumero({
     }
   }
 
+  // Registra o número na Cloud API (ativa o ENVIO). Corrige o 133010 "Account not
+  // registered". Pede o PIN de verificação em duas etapas (6 dígitos): se o número não
+  // tem, o lojista escolhe um; se já tem, informa o que usa no WhatsApp.
+  async function registrarNumero() {
+    const pin = (window.prompt(
+      'PIN de verificação em duas etapas (6 dígitos).\n\n' +
+        'Se este número NÃO usa verificação em duas etapas, escolha um PIN novo de 6 dígitos.\n' +
+        'Se JÁ usa, digite o mesmo PIN configurado no WhatsApp.',
+    ) || '').replace(/\D/g, '');
+    if (pin.length !== 6) {
+      if (pin.length) toast.error('O PIN precisa ter 6 dígitos.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.whatsappRegistrarNumero({ papel, pin });
+      toast.success('Número ativado para envio! Já pode disparar.');
+      onMudou();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Não foi possível registrar o número.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Embedded Signup (API oficial): abre o popup da Meta, captura phone_id + WABA da loja
   // e finaliza no backend. O lojista cadastra o próprio meio de pagamento no fluxo.
   async function embeddedSignup() {
@@ -370,9 +395,23 @@ function CardNumero({
 
           {provedor === 'cloud' ? (
             <div className="mt-2 space-y-2">
-              <Button type="button" size="sm" disabled={!pode || busy} onClick={embeddedSignup}>
-                {busy ? 'Abrindo…' : conectado ? 'Reconectar com a Meta' : 'Conectar com a Meta (recomendado)'}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" size="sm" disabled={!pode || busy} onClick={embeddedSignup}>
+                  {busy ? 'Abrindo…' : conectado ? 'Reconectar com a Meta' : 'Conectar com a Meta (recomendado)'}
+                </Button>
+                {conectado && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!pode || busy}
+                    onClick={registrarNumero}
+                    title="Ativa o número para ENVIO na API oficial (registra na Meta). Use se ao enviar aparecer 'Account not registered' (133010)."
+                  >
+                    Ativar envio (registrar)
+                  </Button>
+                )}
+              </div>
               <p className="text-[11px] text-foreground">
                 Abre uma janela da Meta pra você conectar o número e cadastrar sua forma de pagamento (a Meta
                 cobra as mensagens direto de você).

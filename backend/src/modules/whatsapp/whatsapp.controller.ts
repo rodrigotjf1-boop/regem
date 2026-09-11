@@ -324,6 +324,16 @@ export class WhatsappController {
     return this.cloud.finalizarEmbeddedSignup(user.tenantId, dto ?? {});
   }
 
+  // Registra o número na Cloud API (ativa o envio) — corrige o 133010 "Account not
+  // registered". Recebe o papel e o PIN de verificação em duas etapas (6 dígitos).
+  @Post('whatsapp/cloud/registrar-numero')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  registrarNumero(@CurrentUser() user: AuthUser, @Body() dto: { papel?: string; pin?: string }) {
+    return this.cloud.registrarNumeroPapel(user.tenantId, dto?.papel ?? 'marketing', dto?.pin ?? '');
+  }
+
   // Confere na Meta de qual numero e um Phone Number ID, antes de vincular.
   @Get('whatsapp/cloud/verificar-numero')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
