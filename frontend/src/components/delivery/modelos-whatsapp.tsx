@@ -88,6 +88,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const [btnOptout, setBtnOptout] = useState(false);
   const [busy, setBusy] = useState(false);
   const [aberto, setAberto] = useState(false);
+  const [limite, setLimite] = useState<{ limite: number | null; usadoHoje: number } | null>(null);
   const cardFileRef = useRef<HTMLInputElement>(null);
   const cardAlvo = useRef<number>(-1);
 
@@ -187,7 +188,17 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   }
   async function sincronizar() {
     setBusy(true);
-    try { setLista(await api.whatsappTemplatesSincronizar()); toast.success('Status sincronizado.'); }
+    try {
+      setLista(await api.whatsappTemplatesSincronizar());
+      // Aproveita a sincronização para atualizar o LIMITE de envio (lido da Meta).
+      const lim: any = await api.whatsappLimite().catch(() => null);
+      if (lim) setLimite(lim);
+      toast.success(
+        lim?.limite != null
+          ? `Sincronizado. Limite de envio: ${Number(lim.limite).toLocaleString('pt-BR')}/24h (usado hoje: ${lim.usadoHoje}).`
+          : 'Status sincronizado.',
+      );
+    }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao sincronizar.'); }
     finally { setBusy(false); }
   }
@@ -259,6 +270,13 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
       <p className="rounded-lg bg-primary/5 px-3 py-2 text-[12px] text-foreground/70">
         ℹ️ Ao conectar a API oficial, a <strong>biblioteca de modelos da Regem</strong> já é enviada pra aprovação automaticamente. Você também pode <strong>criar modelos novos</strong> — mas todo modelo novo <strong>passa pela análise da Meta</strong>, e a aprovação depende dela (siga o formato exigido).
       </p>
+      {limite && (
+        <p className="rounded-lg border border-border bg-card px-3 py-2 text-[12px] text-foreground/70">
+          📨 <strong>Limite de envio:</strong>{' '}
+          {limite.limite == null ? 'sem teto' : `${Number(limite.limite).toLocaleString('pt-BR')} conversas iniciadas / 24h`}
+          {' '}· usado hoje: {limite.usadoHoje}. Só conta mensagem que a loja inicia (atendimento não conta). Atualizado ao sincronizar.
+        </p>
+      )}
 
       {aberto && pode && (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">

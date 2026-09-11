@@ -68,10 +68,44 @@ export class CampanhaService {
   async listar(tenantId: string) {
     const r: any = await this.db.execute(sql`
       select id, segmento, tipo, mensagem, link, imagem_ref, intervalo_seg, teto_dia, teto_semana,
-             teto_mes, agendada, dias_semana, hora_inicio, hora_fim, cupom_codigo,
+             teto_mes, agendada, dias_semana, hora_inicio, hora_fim, inicia_em, termina_em, cupom_codigo,
              total, enviados, falhas, status, criado_em
       from campanha where tenant_id = ${tenantId} order by criado_em desc limit 50`);
-    return r.rows ?? r;
+    const rows = (r.rows ?? r) as any[];
+    // `estado` = status amigável para a lista. 'aguardando' = agendada e fora da janela
+    // agora (janela/dia/horário) — o worker só dispara quando a janela abre.
+    return rows.map((c) => ({
+      ...c,
+      estado:
+        c.status === 'concluida' ? 'concluida'
+        : c.status === 'pausada' ? 'pausada'
+        : c.status === 'enviando' ? (this.dentroDaJanela(c) ? 'ativa' : 'aguardando')
+        : c.status,
+    }));
+  }
+
+  // Pausa/retoma o disparo de uma campanha. Pausada = o worker não a pega (só 'enviando').
+  // Não mexe em campanha concluída. Presidente/gerência (RBAC no controller).
+  async pausar(tenantId: string, id: string, pausar: boolean) {
+    const r: any = await this.db.execute(sql`
+      select status from campanha where id = ${id} and tenant_id = ${tenantId} limit 1`);
+    const atual = (r.rows ?? r)[0];
+    if (!atual) throw new BadRequestException('Campanha não encontrada.');
+    if (atual.status === 'concluida') throw new BadRequestException('Campanha já concluída.');
+    const novo = pausar ? 'pausada' : 'enviando';
+    await this.db.execute(sql`update campanha set status = ${novo}, atualizado_em = now() where id = ${id} and tenant_id = ${tenantId}`);
+    return { ok: true, status: novo };
+  }
+
+  // Exclui a campanha PERMANENTEMENTE (e os envios). Não desfaz mensagens já enviadas.
+  // Permissão no controller (presidente por padrão; gerência se o presidente conceder).
+  async excluir(tenantId: string, id: string) {
+    const r: any = await this.db.execute(sql`
+      select id from campanha where id = ${id} and tenant_id = ${tenantId} limit 1`);
+    if (!(r.rows ?? r)[0]) throw new BadRequestException('Campanha não encontrada.');
+    await this.db.execute(sql`delete from campanha_envio where campanha_id = ${id} and tenant_id = ${tenantId}`);
+    await this.db.execute(sql`delete from campanha where id = ${id} and tenant_id = ${tenantId}`);
+    return { ok: true };
   }
 
   // Métricas/ROI de uma campanha (Fase 5): enviados/falhas + cupons resgatados (se a

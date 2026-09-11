@@ -23,6 +23,7 @@ export interface Permissoes {
   pedidos?: boolean;
   fidelidade?: boolean;
   cashback?: boolean;
+  campanha_excluir?: boolean; // excluir campanha de WhatsApp (permanente) — presidente por padrão
   // Rotina
   meu_dia?: boolean;
   manutencao?: boolean; // pedidos de manutenção (mig 134)
@@ -194,6 +195,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'pedidos', rotulo: 'Pedidos · produção', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'fidelidade', rotulo: 'Fidelidade', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'cashback', rotulo: 'Cashback', grupo: 'Delivery', tipo: 'bool' },
+  { chave: 'campanha_excluir', rotulo: 'Excluir campanhas (WhatsApp)', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'entregador_pedidos', rotulo: 'Entregador · ver pedidos', grupo: 'Entregador (app)', tipo: 'bool' },
   { chave: 'entregador_taxas', rotulo: 'Entregador · relatório de taxas', grupo: 'Entregador (app)', tipo: 'bool' },
   { chave: 'entregador_ganhos', rotulo: 'Entregador · resumo de ganhos', grupo: 'Entregador (app)', tipo: 'bool' },
