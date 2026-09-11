@@ -1413,6 +1413,48 @@ export class WhatsappCloudService {
     return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero, coexistence: !!dto.coexistence };
   }
 
+  // ===== Registro do número na Cloud API (ativa o ENVIO) =====
+  // Sem registrar, a Meta recusa o envio com 133010 "Account not registered". O PIN é a
+  // verificação em duas etapas: se o número NÃO tem 2FA, este PIN passa a valer; se JÁ
+  // tem, precisa ser o mesmo (senão a Meta recusa e o dono informa o PIN dele).
+  async registrarNumeroCloud(phoneNumberId: string, pin: string): Promise<{ ok: true }> {
+    const id = String(phoneNumberId ?? '').trim();
+    if (!/^[0-9]{5,32}$/.test(id)) throw new BadRequestException('Phone Number ID inválido.');
+    const p = String(pin ?? '').replace(/\D/g, '');
+    if (p.length !== 6) throw new BadRequestException('O PIN de registro precisa ter 6 dígitos.');
+    const res = await fetch(`${GRAPH}/${id}/register`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.token()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', pin: p }),
+    }).catch(() => null);
+    const j: any = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok) {
+      const msg = j?.error?.error_user_msg || j?.error?.message || 'falha ao registrar';
+      throw new BadRequestException(`Não consegui registrar o número na Meta: ${String(msg).slice(0, 220)}`);
+    }
+    return { ok: true };
+  }
+
+  // Resolve o phone_number_id do papel (cloud) e registra. papel 'principal' cai no
+  // cardapio_config quando a linha do papel não tem o phone_id.
+  async registrarNumeroPapel(tenantId: string, papel: string, pin: string) {
+    const pl = papel === 'marketing' ? 'marketing' : 'principal';
+    const [row] = await this.db
+      .select({ phoneId: whatsappNumero.phoneId })
+      .from(whatsappNumero)
+      .where(and(eq(whatsappNumero.tenantId, tenantId), eq(whatsappNumero.papel, pl), eq(whatsappNumero.provedor, 'cloud'), isNull(whatsappNumero.unidadeId)));
+    let phoneId = row?.phoneId ?? '';
+    if (!phoneId && pl === 'principal') {
+      const [cfg] = await this.db
+        .select({ p: cardapioConfig.waCloudPhoneId })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId));
+      phoneId = cfg?.p ?? '';
+    }
+    if (!phoneId) throw new BadRequestException('Este papel não tem número da API oficial vinculado.');
+    return this.registrarNumeroCloud(phoneId, pin);
+  }
+
   // ===== Conferencia do numero antes de vincular (Fase 3) =====
   // Sem isto, um Phone Number ID digitado errado e aceito em silencio e a loja so
   // descobre quando a primeira mensagem nao chega. Aqui o gestor VE de qual numero

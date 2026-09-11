@@ -1038,6 +1038,8 @@ export const api = {
   whatsappEmbeddedConfig: () => req('/whatsapp/cloud/embedded-config'),
   whatsappEmbeddedSignup: (body: { code?: string; phoneNumberId?: string; wabaId?: string; papel?: string; coexistence?: boolean }) =>
     req('/whatsapp/cloud/embedded-signup', { method: 'POST', body: JSON.stringify(body) }),
+  whatsappRegistrarNumero: (body: { papel: string; pin: string }) =>
+    req('/whatsapp/cloud/registrar-numero', { method: 'POST', body: JSON.stringify(body) }),
   // Números por PAPEL × PROVEDOR (mig 225): principal (chatbot só responde) + marketing.
   whatsappNumeros: () => req('/whatsapp/numeros'),
   whatsappNumeroSalvar: (body: any) =>
