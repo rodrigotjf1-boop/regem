@@ -55,7 +55,7 @@ const CATALOGO_UTILIDADE: Array<{
   // de um "recebido" — quando confirma, a cozinha já começou).
   { nome: 'pedido_em_producao', evento: 'confirmado', cabecalho: 'Pedido em produção', corpo: 'Oi {{1}}! Recebemos seu pedido na {loja} e ele já está em produção. 👨‍🍳 Qualquer novidade a gente te avisa por aqui.', botoes: [] },
   { nome: 'pedido_pronto_retirada', evento: 'pronto_retirada', cabecalho: 'Pedido pronto', corpo: 'Oi {{1}}, seu pedido na {loja} está PRONTO para retirada! 🎉 Pode vir buscar quando quiser.', botoes: [] },
-  { nome: 'pedido_saiu_entrega', evento: 'saiu_entrega', cabecalho: 'Saiu para entrega', corpo: 'Oi {{1}}, seu pedido saiu para entrega! 🛵 Acompanhe a chegada em tempo real pelo botão abaixo.', botoes: [{ tipo: 'url', texto: 'Acompanhar entrega' }] },
+  { nome: 'pedido_saiu_entrega', evento: 'saiu_entrega', cabecalho: 'Saiu para entrega', corpo: 'Oi {{1}}, seu pedido saiu para entrega! 🛵 Acompanhe a chegada em tempo real pelo botão abaixo.', botoes: [{ tipo: 'rastreio', texto: 'Acompanhar entrega' }] },
   { nome: 'pedido_entregue', evento: 'entregue', cabecalho: 'Pedido entregue', corpo: 'Oi {{1}}, seu pedido foi entregue! Bom apetite e muito obrigado por pedir na {loja}. 💛', botoes: [] },
   { nome: 'pedido_cancelado', evento: 'cancelado', cabecalho: 'Pedido cancelado', corpo: 'Oi {{1}}, seu pedido na {loja} foi cancelado. Se ficou alguma dúvida ou não reconhece isso, é só responder aqui que a gente ajuda.', botoes: [] },
   { nome: 'pedido_atrasado', evento: 'atrasado', cabecalho: 'Pedido atrasando', corpo: 'Oi {{1}}, seu pedido na {loja} está levando um pouco mais de tempo que o previsto. Pedimos desculpas pelo atraso — já estamos correndo para concluir e te entregar o quanto antes! 🙏', botoes: [] },
@@ -588,7 +588,7 @@ export class WhatsappCloudService {
     nome: string,
     idioma: string,
     params: string[],
-    opts?: { envioId?: string; cupom?: string | null; phoneId?: string },
+    opts?: { envioId?: string; cupom?: string | null; phoneId?: string; rastreio?: string | null },
   ) {
     const para = soDigitos(numero);
     if (!para) throw new BadRequestException('Número inválido.');
@@ -613,9 +613,13 @@ export class WhatsappCloudService {
       .where(and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, tpl)));
     const envioId = opts?.envioId || 'x';
     const cupom = opts?.cupom || 'CUPOM';
+    const rastreio = opts?.rastreio || 'x';
     const paramBotao = (b: any, idx: number) => {
+      // url = redirect de campanha (envioId); rastreio = página /r/{token} do delivery.
       if (b?.tipo === 'url')
         return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: envioId }] };
+      if (b?.tipo === 'rastreio')
+        return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: rastreio }] };
       if (b?.tipo === 'copy_code')
         return { type: 'button', sub_type: 'copy_code', index: String(idx), parameters: [{ type: 'coupon_code', coupon_code: cupom }] };
       return null; // quick_reply/optout não levam parâmetro no envio
@@ -692,6 +696,7 @@ export class WhatsappCloudService {
     nome: string,
     idioma: string,
     params: string[],
+    rastreio?: string | null,
   ) {
     if (!segredoBotOk(secret, process.env.BOT_RESOLVER_SECRET ?? ''))
       throw new BadRequestException('Não autorizado.');
@@ -699,7 +704,8 @@ export class WhatsappCloudService {
     if (!cfg) throw new NotFoundException('Número não vinculado a uma loja.');
     if (cfg.provedor !== 'cloud')
       throw new BadRequestException(`Loja está no provedor '${cfg.provedor}'.`);
-    return this.enviarTemplate(cfg.tenantId, numero, nome, idioma, params ?? []);
+    // `rastreio` = token do /r/{token} (botão "Acompanhar entrega" do saiu_entrega).
+    return this.enviarTemplate(cfg.tenantId, numero, nome, idioma, params ?? [], { rastreio: rastreio ?? null });
   }
 
   // Modelos da conta, com o status de aprovacao. E a base para a tela escolher o
@@ -778,6 +784,11 @@ export class WhatsappCloudService {
     return (process.env.PUBLIC_API_BASE || 'https://api.dmsregem.com/api/v1').replace(/\/+$/, '');
   }
 
+  // Base pública do app do cliente (cardápio/rastreio) — o /r/{token} do delivery.
+  private rastreioBase(): string {
+    return (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+  }
+
   // Valida o corpo contra as REGRAS DA META (as que causam rejeição automática).
   // Devolve a mensagem de erro (pt-BR) ou null se ok. Usada no submit (trava) e
   // espelhada no front (aviso imediato).
@@ -807,6 +818,10 @@ export class WhatsappCloudService {
       if (b?.tipo === 'url') {
         const base = `${this.redirectBase()}/publico/campanha/r`;
         out.push({ type: 'URL', text: texto || 'Peça agora', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
+      } else if (b?.tipo === 'rastreio') {
+        // Botão de rastreio do delivery: URL dinâmica {app}/r/{{1}} = token de rastreio.
+        const base = `${this.rastreioBase()}/r`;
+        out.push({ type: 'URL', text: texto || 'Acompanhar entrega', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
       } else if (b?.tipo === 'copy_code') {
         out.push({ type: 'COPY_CODE', example: 'PROMO10' });
       } else if (b?.tipo === 'optout') {
