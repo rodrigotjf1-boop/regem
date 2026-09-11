@@ -114,6 +114,17 @@ export default function MarketingPage() {
   const ehCloud = provedorAtual === 'cloud';
   const templateSel = templates.find((t) => t.nome === templateNome);
   const templateVarsCount = templateSel ? (String(templateSel.corpo).match(/\{\{\d+\}\}/g) ?? []).length : 0;
+  // Ao escolher um modelo, já preenche as variáveis: {{1}} = "nome" (primeiro nome do
+  // cliente); as demais ficam vazias para o gestor definir. Evita mandar variáveis a menos
+  // (erro 132000 da Meta) e faz a campanha personalizar por padrão.
+  useEffect(() => {
+    if (!templateSel) return;
+    const n = (String(templateSel.corpo).match(/\{\{\d+\}\}/g) ?? []).length;
+    const init: Record<string, string> = {};
+    for (let i = 1; i <= n; i++) init[String(i)] = i === 1 ? 'nome' : '';
+    setTemplateVars(init);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateNome]);
   // Só faz sentido "Modelos (API oficial)" se a loja usa a API oficial em algum número.
   const temCloud = numeros?.principal?.provedor === 'cloud' || numeros?.marketing?.provedor === 'cloud';
   // Marketing só funciona com um número conectado — evita erro no disparo.
