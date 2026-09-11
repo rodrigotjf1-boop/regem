@@ -1242,15 +1242,32 @@ export class WhatsappCloudService {
   // Aqui a gente: (1) troca o code por token (confirma o vínculo), (2) assina nosso app
   // na WABA da loja (p/ os webhooks fluírem), (3) grava phone_id/WABA no modelo. A
   // COBRANÇA fica na conta do próprio lojista (ele cadastra o meio de pagamento no fluxo).
+  // Coexistência: o número já está registrado (roda no app WhatsApp Business do lojista),
+  // então o evento devolve só o WABA — buscamos o phone_number_id na própria conta.
+  private async primeiroPhoneIdDaWaba(wabaId: string): Promise<string> {
+    const res = await fetch(`${GRAPH}/${wabaId}/phone_numbers?fields=id,display_phone_number`, {
+      headers: { Authorization: `Bearer ${this.token()}` },
+    }).catch(() => null);
+    if (!res || !res.ok) return '';
+    const j: any = await res.json().catch(() => ({}));
+    return String(j?.data?.[0]?.id ?? '').trim();
+  }
+
   async finalizarEmbeddedSignup(
     tenantId: string,
-    dto: { code?: string; phoneNumberId?: string; wabaId?: string; papel?: string },
+    dto: { code?: string; phoneNumberId?: string; wabaId?: string; papel?: string; coexistence?: boolean },
   ) {
     const papel = dto.papel === 'marketing' ? 'marketing' : 'principal';
-    const phoneId = String(dto.phoneNumberId ?? '').trim();
+    let phoneId = String(dto.phoneNumberId ?? '').trim();
     const wabaId = String(dto.wabaId ?? '').trim();
-    if (!phoneId || !wabaId)
-      throw new BadRequestException('O cadastro não concluiu (faltou o número ou a conta WABA).');
+    if (!wabaId)
+      throw new BadRequestException('O cadastro não concluiu (faltou a conta WABA).');
+    // No fluxo de COEXISTÊNCIA o evento não traz o phone_number_id — resolve pela WABA.
+    if (!phoneId) {
+      phoneId = await this.primeiroPhoneIdDaWaba(wabaId);
+      if (!phoneId)
+        throw new BadRequestException('O cadastro não concluiu (não encontrei o número na conta WABA).');
+    }
 
     // 1) Troca o code por token — confirma o vínculo. best-effort (não bloqueia).
     const appId = process.env.WA_CLOUD_APP_ID ?? '';
@@ -1304,7 +1321,7 @@ export class WhatsappCloudService {
     if (papel === 'principal') void this.seedUtilidade(tenantId).catch(() => {});
     else void this.seedModelosRegem(tenantId).catch(() => {});
 
-    return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero };
+    return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero, coexistence: !!dto.coexistence };
   }
 
   // ===== Conferencia do numero antes de vincular (Fase 3) =====

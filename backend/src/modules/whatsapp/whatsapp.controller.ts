@@ -319,7 +319,7 @@ export class WhatsappController {
   @RequirePerm('delivery')
   embeddedSignup(
     @CurrentUser() user: AuthUser,
-    @Body() dto: { code?: string; phoneNumberId?: string; wabaId?: string; papel?: string },
+    @Body() dto: { code?: string; phoneNumberId?: string; wabaId?: string; papel?: string; coexistence?: boolean },
   ) {
     return this.cloud.finalizarEmbeddedSignup(user.tenantId, dto ?? {});
   }
