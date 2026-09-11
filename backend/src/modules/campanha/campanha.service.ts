@@ -396,6 +396,56 @@ export class CampanhaService {
     });
   }
 
+  // Envia a MESMA mensagem/modelo da campanha para UM número (teste do gestor). Não cria
+  // campanha, não grava envios, não checa opt-out (é um número do próprio lojista). Usa o
+  // MESMO número de disparo (papel) que a campanha usaria, então reflete o envio real.
+  async enviarTeste(
+    tenantId: string,
+    dto: {
+      telefone?: string;
+      mensagem?: string;
+      link?: string | null;
+      imagemRef?: string | null;
+      instanciaTipo?: string;
+      cupomCodigo?: string | null;
+      templateNome?: string | null;
+      templateIdioma?: string | null;
+      templateVars?: Record<string, string> | null;
+    },
+  ): Promise<{ ok: true; provedor: string; numero: string }> {
+    const tel = String(dto.telefone ?? '').replace(/\D/g, '');
+    if (tel.length < 10) throw new BadRequestException('Informe um número de WhatsApp válido para o teste (com DDD).');
+    const numero = tel.length === 10 || tel.length === 11 ? '55' + tel : tel;
+
+    const papel = dto.instanciaTipo === 'marketing' ? 'marketing' : dto.instanciaTipo === 'loja' ? 'principal' : 'marketing';
+    const num = await this.numeros.resolver(tenantId, papel);
+
+    if (num.provedor === 'cloud') {
+      if (!dto.templateNome)
+        throw new BadRequestException('Número oficial: o teste exige um MODELO (template) aprovado selecionado.');
+      // Preenche as variáveis do corpo do modelo (para teste, o nome vira "Cliente").
+      const vars = (dto.templateVars ?? {}) as Record<string, string>;
+      const idxs = Object.keys(vars).map(Number).filter((n) => !Number.isNaN(n)).sort((a, b) => a - b);
+      const params = idxs.map((i) => {
+        const campo = String(vars[String(i)] ?? '');
+        return campo === 'nome' ? 'Cliente' : campo || 'Cliente';
+      });
+      await this.cloud.enviarTemplate(tenantId, numero, dto.templateNome, dto.templateIdioma || 'pt_BR', params, {
+        cupom: dto.cupomCodigo ?? null,
+        phoneId: num.phoneId || undefined,
+      });
+    } else {
+      if (!num.instancia)
+        throw new BadRequestException('Número de disparo não conectado. Conecte antes de enviar o teste.');
+      const msg = String(dto.mensagem ?? '').trim();
+      if (msg.length < 3) throw new BadRequestException('Mensagem muito curta.');
+      const caption = [msg, dto.link ? String(dto.link) : ''].filter(Boolean).join('\n');
+      if (dto.imagemRef) await this.whatsapp.enviarMidiaPorInstancia(tenantId, num.instancia, numero, dto.imagemRef, caption);
+      else await this.whatsapp.enviarPorInstancia(tenantId, num.instancia, numero, caption);
+    }
+    return { ok: true, provedor: num.provedor, numero };
+  }
+
   // Worker: a cada tick, envia 1 mensagem por campanha PRONTA (pacing por intervalo_seg),
   // respeitando janela de agendamento + tetos dia/semana/mês. Só na nuvem; nunca sobrepõe.
   @Interval(3000)

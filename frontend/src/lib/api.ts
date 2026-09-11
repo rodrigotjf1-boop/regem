@@ -1289,6 +1289,9 @@ export const api = {
   // Corpo rico (tipo, link, imagem, agendamento, tetos, cupom automático).
   crmCampanhaCriar: (body: any) =>
     req('/campanhas', { method: 'POST', body: JSON.stringify(body) }),
+  // Envia a campanha para UM número (teste do gestor) — não cria campanha.
+  crmCampanhaTeste: (body: any) =>
+    req('/campanhas/teste', { method: 'POST', body: JSON.stringify(body) }),
   crmOptOut: (clienteId: string, optOut: boolean) =>
     req('/campanhas/opt-out', { method: 'POST', body: JSON.stringify({ clienteId, optOut }) }),
   crmExcluirTelefone: (telefone: string) =>

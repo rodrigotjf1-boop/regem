@@ -97,6 +97,8 @@ export default function MarketingPage() {
   const [cupomDuracao, setCupomDuracao] = useState('7');
   const [previa, setPrevia] = useState<number | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [testeNumero, setTesteNumero] = useState('');
+  const [testando, setTestando] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   // Abas + provedor + templates (para campanha na API oficial)
   const [aba, setAba] = useState<'campanhas' | 'modelos'>('campanhas');
@@ -256,6 +258,42 @@ export default function MarketingPage() {
       toast.error(e instanceof Error ? e.message : 'Não foi possível criar.');
     } finally {
       setEnviando(false);
+    }
+  }
+
+  // Envia a MESMA mensagem/modelo para UM número, só para conferir antes de disparar.
+  async function testar() {
+    const tel = testeNumero.replace(/\D/g, '');
+    if (tel.length < 10) {
+      toast.error('Digite um número com DDD para o teste.');
+      return;
+    }
+    if (!ehCloud && msg.trim().length < 3) {
+      toast.error('Escreva a mensagem.');
+      return;
+    }
+    if (ehCloud && !templateNome) {
+      toast.error('Selecione um modelo aprovado para testar.');
+      return;
+    }
+    setTestando(true);
+    try {
+      await api.crmCampanhaTeste({
+        telefone: tel,
+        instanciaTipo: 'marketing',
+        mensagem: msg,
+        link: link.trim() || null,
+        imagemRef,
+        cupomCodigo: ehCupom ? cupomCodigo.trim().toUpperCase() : null,
+        templateNome: ehCloud ? templateNome : null,
+        templateIdioma: ehCloud ? templateSel?.idioma || 'pt_BR' : null,
+        templateVars: ehCloud ? templateVars : null,
+      });
+      toast.success(`Teste enviado para ${tel}. Confira o WhatsApp.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível enviar o teste.');
+    } finally {
+      setTestando(false);
     }
   }
 
@@ -630,6 +668,30 @@ export default function MarketingPage() {
             <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-foreground/70">
               ⚠️ Disparo em massa pode marcar o número. Enviamos pausado, só para quem não optou por sair; a mensagem deve identificar a loja e incluir “responda SAIR”. Marketing em número Evolution tem risco alto — prefira um número descartável.
             </p>
+
+            {/* Enviar teste para UM número antes de disparar para o público */}
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3">
+              <p className="text-xs font-semibold text-foreground">Enviar teste</p>
+              <p className="mt-0.5 text-[11px] text-foreground/70">
+                Manda esta mensagem/modelo só para um número (o seu), pelo mesmo número de marketing, pra você conferir antes de disparar para todos.
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  value={testeNumero}
+                  onChange={(e) => setTesteNumero(e.target.value)}
+                  placeholder="Número com DDD (ex.: 5521999999999)"
+                  className="min-w-[220px] flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm outline-none"
+                  inputMode="numeric"
+                />
+                <Button
+                  variant="outline"
+                  onClick={testar}
+                  disabled={testando || testeNumero.replace(/\D/g, '').length < 10 || (ehCloud && !templateNome)}
+                >
+                  {testando ? 'Enviando…' : 'Enviar teste'}
+                </Button>
+              </div>
+            </div>
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setNovo(false)}>Cancelar</Button>
