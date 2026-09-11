@@ -212,6 +212,27 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao enviar os modelos.'); }
     finally { setBusy(false); }
   }
+  async function reenviarUtilidade() {
+    if (!confirm(
+      'Enviar a biblioteca de modelos de UTILIDADE (avisos de status do pedido) para ANÁLISE DA META?\n\n' +
+      '• São os avisos "em produção", "pronto", "saiu para entrega", "entregue", "cancelado", "atrasado" e "atendimento".\n' +
+      '• Vão para a WABA do número PRINCIPAL (é dele que saem os avisos).\n' +
+      '• Só os que ainda NÃO existem são enviados. Reprovados não são reenviados aqui.',
+    )) return;
+    setBusy(true);
+    try {
+      const r: any = await api.whatsappModelosUtilidade();
+      const novos = (r?.resultados ?? []).filter((x: any) => x?.novo).length;
+      toast.success(
+        novos > 0
+          ? `${novos} modelo(s) de utilidade enviado(s) para análise da Meta.`
+          : 'Nada a enviar — todos os modelos de utilidade já existem (nenhum reenviado).',
+      );
+      carregar();
+    }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao enviar os modelos de utilidade.'); }
+    finally { setBusy(false); }
+  }
   async function remover(id: string) {
     if (!confirm('Remover este modelo do Regem?')) return;
     try { await api.whatsappTemplateRemover(id); carregar(); }
@@ -229,6 +250,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
         {pode && (
           <div className="ml-auto flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={busy} onClick={reenviarRegem} title="Envia à Meta só os modelos da Regem que ainda não existem (uma vez). Não reenvia reprovados.">Modelos da Regem</Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={reenviarUtilidade} title="Envia à Meta os avisos de status do pedido (em produção, pronto, saiu para entrega, entregue, cancelado, atrasado, atendimento) à WABA do número principal.">Modelos de utilidade</Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={sincronizar}>Sincronizar com a Meta</Button>
             <Button size="sm" onClick={() => { resetar(); setAberto((v) => !v); }}>{aberto ? 'Fechar' : '＋ Novo modelo'}</Button>
           </div>

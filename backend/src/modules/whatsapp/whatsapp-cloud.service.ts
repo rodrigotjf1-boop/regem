@@ -37,6 +37,31 @@ const CATALOGO_REGEM: Array<{ nome: string; cabecalho: string; corpo: string; bo
   { nome: 'novidade_cardapio', cabecalho: 'Novidade no cardápio', corpo: 'Oi {{1}}, chegou novidade no cardápio da {loja}! Dá uma olhada nas nossas delícias e peça o seu. 🍔', botoes: [{ tipo: 'url', texto: 'Peça agora' }, { tipo: 'optout', texto: 'Sair das ofertas' }] },
 ];
 
+// Biblioteca de UTILIDADE (acompanhamento de pedido) — auto-submetida à WABA do número
+// PRINCIPAL quando ele conecta na API oficial. Categoria UTILITY (custa fração do
+// marketing). Cada modelo tem um `evento` = o status que o dispara. {{1}} = nome do
+// cliente (o corpo nunca começa/termina com variável — regra da Meta). O de "saiu para
+// entrega" leva o botão de rastreio (url .../r/{{1}} = envioId, medido).
+// atendimento_humano: como template só aceita 3 botões, o menu de 6 opções vai NUMERADO
+// no corpo (janela fechada); com janela aberta o n8n manda a LISTA interativa (até 10).
+const CATALOGO_UTILIDADE: Array<{
+  nome: string;
+  evento: string;
+  cabecalho: string;
+  corpo: string;
+  botoes: any[];
+}> = [
+  // Estágio "confirmado" = a loja aceitou e o pedido ENTROU EM PRODUÇÃO (fica no lugar
+  // de um "recebido" — quando confirma, a cozinha já começou).
+  { nome: 'pedido_em_producao', evento: 'confirmado', cabecalho: 'Pedido em produção', corpo: 'Oi {{1}}! Recebemos seu pedido na {loja} e ele já está em produção. 👨‍🍳 Qualquer novidade a gente te avisa por aqui.', botoes: [] },
+  { nome: 'pedido_pronto_retirada', evento: 'pronto_retirada', cabecalho: 'Pedido pronto', corpo: 'Oi {{1}}, seu pedido na {loja} está PRONTO para retirada! 🎉 Pode vir buscar quando quiser.', botoes: [] },
+  { nome: 'pedido_saiu_entrega', evento: 'saiu_entrega', cabecalho: 'Saiu para entrega', corpo: 'Oi {{1}}, seu pedido saiu para entrega! 🛵 Acompanhe a chegada em tempo real pelo botão abaixo.', botoes: [{ tipo: 'url', texto: 'Acompanhar entrega' }] },
+  { nome: 'pedido_entregue', evento: 'entregue', cabecalho: 'Pedido entregue', corpo: 'Oi {{1}}, seu pedido foi entregue! Bom apetite e muito obrigado por pedir na {loja}. 💛', botoes: [] },
+  { nome: 'pedido_cancelado', evento: 'cancelado', cabecalho: 'Pedido cancelado', corpo: 'Oi {{1}}, seu pedido na {loja} foi cancelado. Se ficou alguma dúvida ou não reconhece isso, é só responder aqui que a gente ajuda.', botoes: [] },
+  { nome: 'pedido_atrasado', evento: 'atrasado', cabecalho: 'Pedido atrasando', corpo: 'Oi {{1}}, seu pedido na {loja} está levando um pouco mais de tempo que o previsto. Pedimos desculpas pelo atraso — já estamos correndo para concluir e te entregar o quanto antes! 🙏', botoes: [] },
+  { nome: 'atendimento_humano', evento: 'atendimento', cabecalho: 'Como podemos ajudar', corpo: 'Oi {{1}}! Antes de te encaminhar para o atendimento, me conta o que você precisa? Responda com o número:\n1 Alterar endereço\n2 Alterar pedido\n3 Item faltando\n4 Item errado\n5 Cancelar pedido\n6 Sobre o pedido', botoes: [] },
+];
+
 // Injeta a identificação da loja ({loja}/{cidade}) nos textos do catálogo. {cidade} vira
 // " de <cidade>" quando há cidade; some quando não há (evita frase quebrada).
 function identificarLoja(txt: string, loja: string, cidade: string): string {
@@ -702,12 +727,12 @@ export class WhatsappCloudService {
 
   // ===== Gestão LOCAL de templates (Opção B: criar/submeter pelo Regem, mig 227) =====
 
-  private async wabaDe(tenantId: string): Promise<string> {
+  private async wabaDe(tenantId: string, preferir: 'marketing' | 'principal' = 'marketing'): Promise<string> {
     // Templates vivem na WABA que vai ENVIAR. No modelo de 2 papéis, o Marketing pode ser
     // uma WABA PRÓPRIA (a loja conecta só o Marketing como Oficial e o Principal fica no
-    // Grátis). Prioriza a WABA do número de MARKETING (cloud) → PRINCIPAL (cloud) →
-    // cardapio_config → env. (Antes pegava só o cardapio_config/env → submetia p/ a WABA
-    // errada quando o oficial era o Marketing → a Meta rejeitava os modelos.)
+    // Grátis). Por padrão prioriza a WABA do MARKETING; para modelos de UTILIDADE (avisos
+    // de status), `preferir='principal'` — eles saem do número PRINCIPAL, então têm que ser
+    // aprovados na WABA dele. Cai para o outro papel → cardapio_config → env.
     const nums = await this.db
       .select({ papel: whatsappNumero.papel, wabaId: whatsappNumero.wabaId })
       .from(whatsappNumero)
@@ -724,7 +749,8 @@ export class WhatsappCloudService {
       .select({ w: cardapioConfig.waCloudWabaId })
       .from(cardapioConfig)
       .where(eq(cardapioConfig.tenantId, tenantId));
-    const waba = mkt || prin || cfg?.w || process.env.WA_CLOUD_WABA_ID || '';
+    const ordem = preferir === 'principal' ? [prin, mkt] : [mkt, prin];
+    const waba = ordem.find(Boolean) || cfg?.w || process.env.WA_CLOUD_WABA_ID || '';
     if (!waba) throw new BadRequestException('Conta do WhatsApp Business (WABA) não vinculada a esta loja.');
     return waba;
   }
@@ -893,7 +919,8 @@ export class WhatsappCloudService {
       .from(whatsappTemplate)
       .where(and(eq(whatsappTemplate.id, id), eq(whatsappTemplate.tenantId, tenantId)));
     if (!tpl) throw new NotFoundException('Modelo não encontrado.');
-    const waba = await this.wabaDe(tenantId);
+    // UTILIDADE (avisos de status) vive na WABA do PRINCIPAL; marketing, na do Marketing.
+    const waba = await this.wabaDe(tenantId, tpl.categoria === 'UTILITY' ? 'principal' : 'marketing');
 
     // Trava as regras da Meta ANTES de enviar (evita rejeição + dá mensagem clara em pt).
     const errCorpo = this.validarCorpoTemplate(tpl.corpo, tpl.formato === 'carrossel' ? 'texto do topo' : 'corpo');
@@ -1100,6 +1127,54 @@ export class WhatsappCloudService {
     return { total: CATALOGO_REGEM.length, resultados };
   }
 
+  // Semeia a biblioteca de UTILIDADE (avisos de status) na WABA do PRINCIPAL. Mesma
+  // disciplina do seed de marketing: cria só o que não existe (idempotente, seguro
+  // rodar de novo) e submete cada um. Chamado quando o PRINCIPAL conecta na API oficial.
+  async seedUtilidade(tenantId: string) {
+    const resultados: any[] = [];
+    const [cfgLoja] = await this.db
+      .select({ nomePublico: cardapioConfig.nomePublico, cidade: cardapioConfig.endCidade })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const [emp] = await this.db.select({ nome: empresa.nome }).from(empresa).where(eq(empresa.id, tenantId));
+    const loja = String(cfgLoja?.nomePublico || emp?.nome || 'nossa loja').trim();
+    const cidade = String(cfgLoja?.cidade || '').trim();
+    for (const base of CATALOGO_UTILIDADE) {
+      try {
+        const [ja] = await this.db
+          .select({ id: whatsappTemplate.id, status: whatsappTemplate.status })
+          .from(whatsappTemplate)
+          .where(
+            and(eq(whatsappTemplate.tenantId, tenantId), eq(whatsappTemplate.nome, base.nome), eq(whatsappTemplate.idioma, 'pt_BR')),
+          );
+        if (ja) {
+          resultados.push({ nome: base.nome, status: ja.status, pulado: true });
+          continue;
+        }
+        const [row] = await this.db
+          .insert(whatsappTemplate)
+          .values({
+            tenantId,
+            nome: base.nome,
+            categoria: 'UTILITY',
+            idioma: 'pt_BR',
+            evento: base.evento,
+            cabecalho: identificarLoja(base.cabecalho, loja, cidade),
+            corpo: identificarLoja(base.corpo, loja, cidade),
+            botoes: base.botoes.length ? base.botoes : null,
+            formato: 'padrao',
+            status: 'rascunho',
+          })
+          .returning();
+        await this.submeterTemplate(tenantId, row.id);
+        resultados.push({ nome: base.nome, status: 'pendente', novo: true });
+      } catch (e: any) {
+        resultados.push({ nome: base.nome, erro: String(e?.message ?? e).slice(0, 160) });
+      }
+    }
+    return { total: CATALOGO_UTILIDADE.length, resultados };
+  }
+
   // App ID + Configuration ID do Embedded Signup (do env) para o front montar o popup.
   // Não são segredos (aparecem no JS do cliente de qualquer forma).
   embeddedConfig() {
@@ -1208,9 +1283,11 @@ export class WhatsappCloudService {
           .set({ provedor: 'cloud', waCloudPhoneId: phoneId, waCloudWabaId: wabaId, waCloudNumero: numero, updatedAt: new Date() })
           .where(eq(cardapioConfig.id, cfg.id));
     }
-    // Semeia a biblioteca Regem na WABA recém-conectada — QUALQUER papel (o Marketing pode
-    // ser a WABA oficial; wabaDe() resolve papel-aware). Idempotente + 2º plano.
-    void this.seedModelosRegem(tenantId).catch(() => {});
+    // Semeia a biblioteca certa na WABA recém-conectada, conforme o papel: MARKETING →
+    // catálogo de ofertas; PRINCIPAL → catálogo de UTILIDADE (avisos de status do pedido).
+    // Idempotente + 2º plano (não bloqueia o retorno do onboarding).
+    if (papel === 'principal') void this.seedUtilidade(tenantId).catch(() => {});
+    else void this.seedModelosRegem(tenantId).catch(() => {});
 
     return { ok: true, papel, phoneNumberId: phoneId, wabaId, numero };
   }

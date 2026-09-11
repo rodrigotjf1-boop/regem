@@ -285,6 +285,15 @@ export class WhatsappController {
     return this.cloud.seedModelosRegem(user.tenantId);
   }
 
+  // (Re)envia a biblioteca de UTILIDADE (avisos de status) à WABA do número principal.
+  @Post('whatsapp/cloud/modelos-utilidade')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  modelosUtilidade(@CurrentUser() user: AuthUser) {
+    return this.cloud.seedUtilidade(user.tenantId);
+  }
+
   @Delete('whatsapp/cloud/templates/:id')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
