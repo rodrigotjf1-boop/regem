@@ -67,6 +67,7 @@ async function comprimir(file: File): Promise<File> {
 
 export default function MarketingPage() {
   const [pode, setPode] = useState(false);
+  const [podeExcluir, setPodeExcluir] = useState(false);
   const [campanhas, setCampanhas] = useState<any[]>([]);
   const [metricas, setMetricas] = useState<Record<string, any>>({});
   const [tplAnalytics, setTplAnalytics] = useState<Record<string, any>>({}); // desempenho Meta por modelo (por loja)
@@ -167,10 +168,36 @@ export default function MarketingPage() {
     }
   }
 
+  async function pausarCampanha(id: string, pausar: boolean) {
+    try {
+      await api.crmCampanhaPausar(id, pausar);
+      toast.success(pausar ? 'Campanha pausada.' : 'Campanha retomada.');
+      carregar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível alterar a campanha.');
+    }
+  }
+
+  async function excluirCampanha(id: string) {
+    if (!confirm(
+      'Excluir esta campanha PERMANENTEMENTE?\n\n' +
+      '• A campanha e o histórico de envios dela serão apagados e NÃO há como desfazer.\n' +
+      '• Mensagens já enviadas aos clientes não são removidas.',
+    )) return;
+    try {
+      await api.crmCampanhaExcluir(id);
+      toast.success('Campanha excluída.');
+      carregar();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível excluir (sem permissão?).');
+    }
+  }
+
   useEffect(() => {
     const cat = getCategoria();
     const perms = getPermissoes();
     setPode(cat === 'presidente' || cat === 'gerente' || perms.includes('delivery'));
+    setPodeExcluir(cat === 'presidente' || perms.includes('campanha_excluir'));
     carregar();
     api.whatsappNumeros().then(setNumeros).catch(() => {});
     api
@@ -808,10 +835,35 @@ export default function MarketingPage() {
                     <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase text-foreground/70">{c.tipo ?? 'avulsa'}</span>
                     <span className="min-w-0 flex-1 truncate text-foreground">{c.mensagem}</span>
                     <span className="text-xs text-foreground/70">{c.enviados}/{c.total} enviados{c.falhas ? ` · ${c.falhas} falhas` : ''}</span>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] ${c.status === 'concluida' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>{c.status}</span>
+                    {(() => {
+                      const est = c.estado ?? c.status;
+                      const cls =
+                        est === 'concluida' ? 'bg-emerald-500/10 text-emerald-600'
+                        : est === 'pausada' ? 'bg-slate-400/15 text-slate-500'
+                        : est === 'aguardando' ? 'bg-amber-500/10 text-amber-600'
+                        : 'bg-blue-500/10 text-blue-600'; // ativa
+                      const rot =
+                        est === 'concluida' ? 'concluída'
+                        : est === 'pausada' ? 'pausada'
+                        : est === 'aguardando' ? 'aguardando'
+                        : 'ativa';
+                      return <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${cls}`}>{rot}</span>;
+                    })()}
                     <button type="button" className="text-[11px] font-semibold text-primary underline" onClick={() => verMetricas(c.id)}>
                       {metricas[c.id] ? 'ocultar' : 'métricas'}
                     </button>
+                    {pode && (c.estado ?? c.status) !== 'concluida' && (
+                      <button type="button" className="text-[11px] font-semibold text-foreground/70 underline"
+                        onClick={() => pausarCampanha(c.id, (c.estado ?? c.status) !== 'pausada')}>
+                        {(c.estado ?? c.status) === 'pausada' ? 'retomar' : 'pausar'}
+                      </button>
+                    )}
+                    {podeExcluir && (
+                      <button type="button" className="text-[11px] font-semibold text-destructive underline"
+                        onClick={() => excluirCampanha(c.id)}>
+                        excluir
+                      </button>
+                    )}
                   </div>
                   {metricas[c.id] && (
                     <div className="mt-2 space-y-2">

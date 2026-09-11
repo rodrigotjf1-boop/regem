@@ -1295,6 +1295,10 @@ export const api = {
   // Envia a campanha para UM número (teste do gestor) — não cria campanha.
   crmCampanhaTeste: (body: any) =>
     req('/campanhas/teste', { method: 'POST', body: JSON.stringify(body) }),
+  crmCampanhaPausar: (id: string, pausar: boolean) =>
+    req(`/campanhas/${encodeURIComponent(id)}/pausar`, { method: 'POST', body: JSON.stringify({ pausar }) }),
+  crmCampanhaExcluir: (id: string) =>
+    req(`/campanhas/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   crmOptOut: (clienteId: string, optOut: boolean) =>
     req('/campanhas/opt-out', { method: 'POST', body: JSON.stringify({ clienteId, optOut }) }),
   crmExcluirTelefone: (telefone: string) =>

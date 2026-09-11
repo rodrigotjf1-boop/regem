@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -49,6 +49,20 @@ export class CampanhaController {
   @Post('teste')
   teste(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.enviarTeste(user.tenantId, dto);
+  }
+
+  // Pausar/retomar o disparo (presidente/gerência — mesma regra da tela).
+  @Post(':id/pausar')
+  pausar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.service.pausar(user.tenantId, id, dto?.pausar !== false);
+  }
+
+  // Excluir campanha PERMANENTEMENTE — presidente por padrão; gerência só se o presidente
+  // conceder a permissão `campanha_excluir` (o RequirePerm do método sobrepõe o da classe).
+  @Delete(':id')
+  @RequirePerm('campanha_excluir')
+  excluir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.excluir(user.tenantId, id);
   }
 
   // Opt-out de um CLIENTE cadastrado (toggle do flag).
