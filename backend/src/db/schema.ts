@@ -2655,6 +2655,8 @@ export const cardapioConfig = pgTable('cardapio_config', {
   waCloudWabaId: text('wa_cloud_waba_id'), // WABA dona do numero (Cenario B: e do lojista)
   waCloudNumero: text('wa_cloud_numero'), // numero em si, para exibir na tela
   waRetencaoDias: integer('wa_retencao_dias'), // retenção do histórico WhatsApp Cloud em dias (mig 234; null/0 = ilimitado)
+  waMsgLimit: integer('wa_msg_limit'), // limite de conversas iniciadas/24h (cache do webhook business_capability_update; mig 238)
+  waMsgLimitEm: timestamp('wa_msg_limit_em', { withTimezone: true }), // quando o limite foi atualizado pela última vez
   // Regras de estorno/empilhamento de desconto (mig 125) — a loja configura.
   cancelamentoEstornaCashback: boolean('cancelamento_estorna_cashback').notNull().default(true),
   cupomBloqueiaComResgate: boolean('cupom_bloqueia_com_resgate').notNull().default(false),

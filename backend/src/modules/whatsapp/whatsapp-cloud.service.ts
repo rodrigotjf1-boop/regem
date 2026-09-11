@@ -225,6 +225,15 @@ export class WhatsappCloudService {
         const v = ch?.value ?? {};
         const phoneNumberId = String(v?.metadata?.phone_number_id ?? '');
 
+        // business_capability_update: a Meta mudou o LIMITE de envio (tier). Cacheia na
+        // loja para o Regem mostrar sem chamada ao vivo (v24: max_daily_conversations_per_business;
+        // v23: max_daily_conversation_per_phone).
+        if (ch?.field === 'business_capability_update') {
+          const novo = Number(v?.max_daily_conversations_per_business ?? v?.max_daily_conversation_per_phone ?? 0) || 0;
+          if (novo > 0) await this.atualizarLimiteCache(String(entry?.id ?? ''), phoneNumberId || undefined, novo);
+          continue;
+        }
+
         for (const st of v?.statuses ?? []) {
           this.logger.log(`status phone=${phoneNumberId} ${st?.status} id=${st?.id}`);
           // Marca no historico o que aconteceu com a mensagem que ENVIAMOS
@@ -1509,21 +1518,73 @@ export class WhatsappCloudService {
       where tenant_id = ${tenantId} and direcao = 'saida' and tipo = 'template'
         and criado_em > now() - interval '24 hours'`);
     const usadoHoje = Number((usoq.rows ?? usoq)[0]?.n ?? 0);
-    if (!phoneId) return { conectado: false, tier: null, limite: null, usadoHoje, qualidade: null };
+    // Cache do webhook business_capability_update — fallback quando a leitura ao vivo falha.
+    const [cfgCache] = await this.db
+      .select({ cache: cardapioConfig.waMsgLimit })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    const cache = cfgCache?.cache ?? null;
+    if (!phoneId) return { conectado: false, tier: null, limite: cache, usadoHoje, qualidade: null };
     const res = await fetch(
       `${GRAPH}/${phoneId}?fields=display_phone_number,quality_rating,whatsapp_business_manager_messaging_limit`,
       { headers: { Authorization: `Bearer ${this.token()}` } },
     ).catch(() => null);
-    if (!res || !res.ok) return { conectado: true, tier: null, limite: null, usadoHoje, qualidade: null };
+    if (!res || !res.ok) return { conectado: true, tier: null, limite: cache, usadoHoje, qualidade: null };
     const j: any = await res.json().catch(() => ({}));
     const tier = j?.whatsapp_business_manager_messaging_limit ?? null;
+    const limite = WhatsappCloudService.tierParaNumero(tier) ?? cache;
+    // Mantém o cache quente com o valor ao vivo (o webhook também atualiza).
+    if (limite != null && limite !== cache) {
+      await this.db
+        .update(cardapioConfig)
+        .set({ waMsgLimit: limite, waMsgLimitEm: new Date() })
+        .where(eq(cardapioConfig.tenantId, tenantId))
+        .catch(() => {});
+    }
     return {
       conectado: true,
       tier,
-      limite: WhatsappCloudService.tierParaNumero(tier),
+      limite,
       usadoHoje,
       qualidade: j?.quality_rating ?? null,
     };
+  }
+
+  // Cacheia o novo limite (webhook business_capability_update). Resolve a loja pelo
+  // phone_number_id (se veio) ou pela WABA (entry.id). Best-effort — nunca derruba o webhook.
+  private async atualizarLimiteCache(wabaId: string, phoneId: string | undefined, limite: number): Promise<void> {
+    try {
+      let tenantId = '';
+      if (phoneId) {
+        const cfg = await this.lojaPorPhoneId(phoneId);
+        tenantId = (cfg as any)?.tenantId ?? '';
+      }
+      if (!tenantId && wabaId) {
+        const [c] = await this.db
+          .select({ t: cardapioConfig.tenantId })
+          .from(cardapioConfig)
+          .where(eq(cardapioConfig.waCloudWabaId, wabaId));
+        tenantId = c?.t ?? '';
+        if (!tenantId) {
+          const [n] = await this.db
+            .select({ t: whatsappNumero.tenantId })
+            .from(whatsappNumero)
+            .where(eq(whatsappNumero.wabaId, wabaId));
+          tenantId = n?.t ?? '';
+        }
+      }
+      if (!tenantId) {
+        this.logger.warn(`business_capability_update sem loja (waba=${wabaId})`);
+        return;
+      }
+      await this.db
+        .update(cardapioConfig)
+        .set({ waMsgLimit: limite, waMsgLimitEm: new Date() })
+        .where(eq(cardapioConfig.tenantId, tenantId));
+      this.logger.log(`limite de envio atualizado por webhook (loja ${tenantId}): ${limite}/24h`);
+    } catch (e: any) {
+      this.logger.warn(`falha ao cachear limite: ${e?.message ?? e}`);
+    }
   }
 
   // ===== Conferencia do numero antes de vincular (Fase 3) =====
