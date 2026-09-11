@@ -190,6 +190,30 @@ export class WhatsappCloudService {
     }
   }
 
+  // Pausa o robô para UMA conversa (coexistência: o lojista respondeu pelo app). Idempotente:
+  // acrescenta o telefone em cardapio_config.robo_pausados sem duplicar. Best-effort.
+  private async pausarRoboConversa(tenantId: string, telefone: string): Promise<void> {
+    try {
+      const tel = soDigitos(telefone);
+      if (!tel) return;
+      const [cfg] = await this.db
+        .select({ id: cardapioConfig.id, roboPausados: cardapioConfig.roboPausados })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId));
+      if (!cfg) return;
+      const atual = Array.isArray(cfg.roboPausados) ? (cfg.roboPausados as any[]).map(String) : [];
+      if (atual.map(soDigitos).includes(tel)) return; // já pausado
+      atual.push(tel);
+      await this.db
+        .update(cardapioConfig)
+        .set({ roboPausados: atual, updatedAt: new Date() })
+        .where(eq(cardapioConfig.id, cfg.id));
+      this.logger.log(`coexistência: robô pausado para ${mascarar(tel)} (dono respondeu pelo app).`);
+    } catch {
+      /* best-effort: pausar é melhoria, nunca pode derrubar o webhook */
+    }
+  }
+
   // Processa UM evento do webhook. Resolve a loja, aplica os portões (provedor certo,
   // robô ativo, conversa não pausada) e encaminha ao n8n no formato normalizado.
   // Nunca lança: erro aqui não pode virar retry/desativação do webhook na Meta.
@@ -213,6 +237,33 @@ export class WhatsappCloudService {
               /* status e informativo: nunca vale derrubar o processamento */
             }
           }
+        }
+
+        // COEXISTÊNCIA — ecos das mensagens que o LOJISTA envia pelo app/WhatsApp Web
+        // (smb_message_echoes). NÃO é mensagem do cliente: registra como SAÍDA no inbox
+        // (o atendente vê o que foi dito à mão) e PAUSA o robô naquela conversa — o dono
+        // assumiu, então o robô não responde por cima. Retomar é manual (como já é hoje).
+        const echoes = v?.message_echoes ?? [];
+        if (echoes.length) {
+          const cfgE = await this.lojaPorPhoneId(phoneNumberId);
+          if (cfgE && cfgE.provedor === 'cloud') {
+            for (const e of echoes) {
+              const cliente = soDigitos(e?.to);
+              if (!cliente) continue;
+              await this.gravar({
+                tenantId: cfgE.tenantId,
+                telefone: cliente,
+                direcao: 'saida',
+                tipo: String(e?.type ?? 'text'),
+                texto: this.textoDe(e),
+                midiaId: this.midiaDe(e),
+                wamid: String(e?.id ?? '') || null,
+                status: 'sent',
+              });
+              await this.pausarRoboConversa(cfgE.tenantId, cliente);
+            }
+          }
+          continue;
         }
 
         const mensagens = v?.messages ?? [];
