@@ -2098,6 +2098,24 @@ export const pedidoExterno = pgTable('pedido_externo', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // sync v2 (LWW)
 });
 
+// Notificação IN-APP de mudança de status do pedido, para o cliente do CARDÁPIO (mig 237).
+// Usada quando o principal está na API OFICIAL e o cliente NÃO iniciou conversa no WhatsApp
+// (não podemos/queremos iniciar): em vez de mandar WhatsApp, o aviso aparece no histórico
+// de pedidos dele no cardápio (+ botão de rastreio). CLOUD-ONLY: o pedido vem da nuvem e é
+// lá que o cliente acompanha (o edge não serve o cardápio do cliente).
+export const pedidoNotificacao = pgTable('pedido_notificacao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  pedidoExternoId: uuid('pedido_externo_id').notNull(),
+  clienteId: uuid('cliente_id').notNull(), // a quem mostrar (link mágico do cardápio)
+  evento: text('evento').notNull(), // confirmado|pronto_retirada|saiu_entrega|entregue|cancelado|atrasado
+  titulo: text('titulo').notNull(),
+  texto: text('texto').notNull(),
+  rastreioUrl: text('rastreio_url'), // botão "acompanhar entrega" quando houver
+  lida: boolean('lida').notNull().default(false),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Split de pagamento do pedido de delivery/retirada/encomenda (mig 230). 1 linha por
 // forma — espelha comanda_pagamento, mas ligado ao pedido_externo. Quando o pedido é
 // pago em forma única, pode ter 0 linhas (usa pedido_externo.forma_pagamento) ou 1 linha.

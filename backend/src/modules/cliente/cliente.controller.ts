@@ -51,6 +51,19 @@ export class ClientePublicoController {
     return this.service.perfil(token, clienteToken);
   }
 
+  // Notificações in-app de status do pedido (aba Pedidos).
+  @Get(':token/cliente/notificacoes')
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  notificacoes(@Param('token') token: string, @Query('clienteToken') clienteToken?: string) {
+    return this.service.notificacoes(token, clienteToken);
+  }
+
+  @Post(':token/cliente/notificacoes/lidas')
+  @Throttle({ default: { ttl: 60000, limit: 60 } })
+  marcarLidas(@Param('token') token: string, @Body() dto: any) {
+    return this.service.marcarNotificacoesLidas(token, dto?.clienteToken, dto?.ids);
+  }
+
   @Post(':token/cliente/endereco')
   @Throttle({ default: { ttl: 60000, limit: 30 } })
   addEndereco(@Param('token') token: string, @Body() dto: any) {
