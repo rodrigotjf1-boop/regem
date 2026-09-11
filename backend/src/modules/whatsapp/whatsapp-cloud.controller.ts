@@ -128,6 +128,7 @@ export class WhatsappCloudController {
       template?: string;
       idioma?: string;
       params?: string[];
+      rastreio?: string;
     },
   ) {
     return this.service.enviarTemplatePeloBot(
@@ -137,6 +138,7 @@ export class WhatsappCloudController {
       dto?.template ?? '',
       dto?.idioma ?? 'pt_BR',
       Array.isArray(dto?.params) ? dto.params : [],
+      dto?.rastreio ?? null,
     );
   }
 

@@ -1856,7 +1856,7 @@ export class DeliveryService {
     // cardápio (sem iniciarmos conversa), e quem JÁ conversou recebe pelo n8n (o fluxo
     // manda texto na janela de 24h ou o template de utilidade fora dela).
     const [cfg] = await this.db
-      .select({ provedor: cardapioConfig.provedor })
+      .select({ provedor: cardapioConfig.provedor, waCloudPhoneId: cardapioConfig.waCloudPhoneId })
       .from(cardapioConfig)
       .where(eq(cardapioConfig.tenantId, tenantId));
     const provedor = (cfg?.provedor ?? 'evolution') as string;
@@ -1870,10 +1870,22 @@ export class DeliveryService {
     const conversaIniciada = tel ? await this.clienteJaConversou(tenantId, tel) : false;
     if (conversaIniciada) {
       // Janela aberta? (última entrada do cliente < 24h) — o n8n usa isto p/ escolher
-      // texto (chatbot) x template. Passamos também o nome do template do status aprovado.
+      // texto (chatbot) x template. Passamos também o phoneNumberId (o bot precisa dele),
+      // o nome do template do status aprovado e o token de rastreio (botão do template).
       const janelaAberta = tel ? await this.clienteJanelaAberta(tenantId, tel) : false;
       const templateNome = eventoStatus ? await this.templateDoEvento(tenantId, eventoStatus) : null;
-      await this.notificarN8n(tenantId, { ...payload, janelaAberta, templateNome });
+      const [pe] = await this.db
+        .select({ rastreioToken: pedidoExterno.rastreioToken })
+        .from(pedidoExterno)
+        .where(eq(pedidoExterno.id, ped.id));
+      await this.notificarN8n(tenantId, {
+        ...payload,
+        phoneNumberId: cfg?.waCloudPhoneId ?? null,
+        idioma: 'pt_BR',
+        janelaAberta,
+        templateNome,
+        rastreioToken: pe?.rastreioToken ?? null,
+      });
       return;
     }
     // Não iniciou conversa → notificação in-app (cloud-only).
