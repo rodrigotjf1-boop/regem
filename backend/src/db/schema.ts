@@ -2279,6 +2279,10 @@ export const whatsappTemplate = pgTable('whatsapp_template', {
   status: text('status').notNull().default('rascunho'), // rascunho|pendente|aprovado|rejeitado|pausado
   metaId: text('meta_id'),
   motivoRejeicao: text('motivo_rejeicao'),
+  // Utilidade: gatilho de status que dispara este modelo (confirmado|em_preparo|
+  // pronto_retirada|saiu_entrega|entregue|cancelado|atrasado|atendimento). null = não é
+  // de status (ex.: marketing). Usado pelo roteador de avisos ao cliente na API oficial.
+  evento: text('evento'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
