@@ -714,9 +714,16 @@ export class WhatsappCloudService {
       return null; // quick_reply/optout não levam parâmetro no envio
     };
 
-    const componentes: any[] = params.length
-      ? [{ type: 'body', parameters: params.map((t) => ({ type: 'text', text: String(t ?? '') })) }]
-      : [];
+    // A Meta exige EXATAMENTE o número de variáveis do corpo do modelo (senão 132000
+    // "Number of parameters does not match"). Normaliza pela contagem de {{n}} do corpo:
+    // completa faltantes e corta excedentes; nunca manda parâmetro vazio.
+    const nVars = (String(tplRow?.corpo ?? '').match(/\{\{\s*\d+\s*\}\}/g) ?? []).length;
+    const bodyParams: string[] = [];
+    for (let i = 0; i < nVars; i++) bodyParams.push(String(params[i] ?? '').trim() || 'Cliente');
+    const componentes: any[] =
+      bodyParams.length > 0
+        ? [{ type: 'body', parameters: bodyParams.map((t) => ({ type: 'text', text: t })) }]
+        : [];
 
     if (tplRow?.formato === 'carrossel') {
       const cards = (tplRow.cards as any[] | null) ?? [];

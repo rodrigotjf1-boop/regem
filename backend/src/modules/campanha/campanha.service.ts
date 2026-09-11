@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { campanha, campanhaEnvio, cliente, cupom, marketingOptout } from '../../db/schema';
+import { campanha, campanhaEnvio, cardapioConfig, cliente, cupom, marketingOptout } from '../../db/schema';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -135,18 +135,41 @@ export class CampanhaService {
 
   // Registra o CLIQUE no link rastreado (uma vez por envio) e devolve o link real p/
   // o redirect público fazer o 302. Best-effort — não quebra o redirect se algo falhar.
+  // URL pública do cardápio digital da loja (fallback do botão "Peça agora").
+  private async cardapioUrl(tenantId: string): Promise<string | null> {
+    const [cfg] = await this.db
+      .select({ token: cardapioConfig.token })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    if (!cfg?.token) return null;
+    const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+    return `${base}/c/${cfg.token}`;
+  }
+
   async registrarClique(envioId: string): Promise<string | null> {
     const cur: any = await this.db.execute(sql`
-      select e.campanha_id, e.clicou, c.link
+      select e.campanha_id, e.clicou, c.link, c.tenant_id
       from campanha_envio e join campanha c on c.id = e.campanha_id
       where e.id = ${envioId} limit 1`);
     const row = (cur.rows ?? cur)[0];
-    if (!row) return null;
-    if (!row.clicou) {
-      await this.db.execute(sql`update campanha_envio set clicou = true, clicado_em = now() where id = ${envioId}`);
-      await this.db.execute(sql`update campanha set cliques = cliques + 1, atualizado_em = now() where id = ${row.campanha_id}`);
+    if (row) {
+      if (!row.clicou) {
+        await this.db.execute(sql`update campanha_envio set clicou = true, clicado_em = now() where id = ${envioId}`);
+        await this.db.execute(sql`update campanha set cliques = cliques + 1, atualizado_em = now() where id = ${row.campanha_id}`);
+      }
+      // Link vazio → manda pro cardápio digital da loja (nunca pro site genérico).
+      return row.link || (await this.cardapioUrl(row.tenant_id));
     }
-    return row.link ?? null;
+    // Não é um envio real (ex.: TESTE) — o id é o TOKEN do cardápio: leva direto ao cardápio.
+    const [cfg] = await this.db
+      .select({ token: cardapioConfig.token })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.token, envioId));
+    if (cfg?.token) {
+      const base = (process.env.CARDAPIO_PUBLIC_URL || process.env.APP_URL || 'https://app.dmsregem.com').replace(/\/+$/, '');
+      return `${base}/c/${cfg.token}`;
+    }
+    return null;
   }
 
   // Cria (ou agenda) uma campanha e MATERIALIZA os destinatários numa única query
@@ -220,6 +243,10 @@ export class CampanhaService {
     // Cupom automático (frete grátis / cupom): cria se não existir e o lojista pediu.
     const cupomCodigo = await this.garantirCupom(tenantId, unidadeId, tipo, dto);
 
+    // Link do botão "Peça agora": o que o lojista informou OU, se vazio, o cardápio digital
+    // da loja (nunca deixa cair no site genérico).
+    const link = dto.link?.trim() || (await this.cardapioUrl(tenantId));
+
     const [camp] = await this.db
       .insert(campanha)
       .values({
@@ -229,7 +256,7 @@ export class CampanhaService {
         tipo,
         mensagem,
         mensagemB: dto.mensagemB?.trim() || null,
-        link: dto.link?.trim() || null,
+        link: link || null,
         imagemRef: dto.imagemRef?.trim() || null,
         intervaloSeg,
         tetoDia,
@@ -430,7 +457,13 @@ export class CampanhaService {
         const campo = String(vars[String(i)] ?? '');
         return campo === 'nome' ? 'Cliente' : campo || 'Cliente';
       });
+      // Botão "Peça agora" do teste → cardápio digital da loja (o redirect resolve o TOKEN).
+      const [cfgT] = await this.db
+        .select({ token: cardapioConfig.token })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId));
       await this.cloud.enviarTemplate(tenantId, numero, dto.templateNome, dto.templateIdioma || 'pt_BR', params, {
+        envioId: cfgT?.token || undefined,
         cupom: dto.cupomCodigo ?? null,
         phoneId: num.phoneId || undefined,
       });
