@@ -27,6 +27,7 @@ import {
   integracao,
   pedidoExterno,
   pedidoNotificacao,
+  whatsappMensagem,
 } from '../../db/schema';
 import { inArray } from 'drizzle-orm';
 import { assinarCliente, verificarCliente } from './cliente-token';
@@ -108,7 +109,34 @@ export class ClienteService {
   async enviarEventoWebhook(tenantId: string, payload: any): Promise<boolean> {
     const wh = await this.resolverWebhook(tenantId);
     if (!wh) return false;
-    return this.dispararWebhook(wh.url, payload, wh.secret);
+    const enriquecido = await this.enriquecerCanal(tenantId, payload);
+    return this.dispararWebhook(wh.url, enriquecido, wh.secret);
+  }
+
+  // Anexa o canal ao payload do webhook (rastreio/código/chegando): no EVOLUTION não muda
+  // nada (segue como hoje). Na API OFICIAL adiciona phoneNumberId + janelaAberta para o
+  // fluxo n8n decidir entre texto (janela aberta) e nada (fora da janela, sem template) —
+  // igual ao roteador de status. Não bloqueia o envio se algo falhar.
+  private async enriquecerCanal(tenantId: string, payload: any): Promise<any> {
+    try {
+      const tel = soDigitos(payload?.telefone);
+      if (!tel) return payload;
+      const [cfg] = await this.db
+        .select({ provedor: cardapioConfig.provedor, waCloudPhoneId: cardapioConfig.waCloudPhoneId })
+        .from(cardapioConfig)
+        .where(eq(cardapioConfig.tenantId, tenantId));
+      if (cfg?.provedor !== 'cloud' || !cfg.waCloudPhoneId) return payload; // Evolution: como hoje
+      const [ult] = await this.db
+        .select({ criadoEm: whatsappMensagem.criadoEm })
+        .from(whatsappMensagem)
+        .where(and(eq(whatsappMensagem.tenantId, tenantId), eq(whatsappMensagem.telefone, tel), eq(whatsappMensagem.direcao, 'entrada')))
+        .orderBy(desc(whatsappMensagem.criadoEm))
+        .limit(1);
+      const janelaAberta = ult?.criadoEm ? Date.now() - new Date(ult.criadoEm as any).getTime() < 24 * 60 * 60 * 1000 : false;
+      return { ...payload, provedor: 'cloud', phoneNumberId: cfg.waCloudPhoneId, conversaIniciada: !!ult, janelaAberta };
+    } catch {
+      return payload;
+    }
   }
 
   // Teste do webhook (presidente) — mostra exatamente o que o n8n responde.

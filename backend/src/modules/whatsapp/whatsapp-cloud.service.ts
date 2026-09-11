@@ -169,6 +169,7 @@ export class WhatsappCloudService {
     wamid?: string | null;
     status?: string | null;
     nomeContato?: string | null;
+    criadoEm?: Date; // histórico importado: preserva a data original (ordena o inbox)
   }) {
     try {
       await this.db
@@ -183,6 +184,7 @@ export class WhatsappCloudService {
           wamid: linha.wamid ?? null,
           status: linha.status ?? null,
           nomeContato: linha.nomeContato ?? null,
+          ...(linha.criadoEm ? { criadoEm: linha.criadoEm } : {}),
         })
         .onConflictDoNothing();
     } catch (e: any) {
@@ -262,6 +264,42 @@ export class WhatsappCloudService {
               });
               await this.pausarRoboConversa(cfgE.tenantId, cliente);
             }
+          }
+          continue;
+        }
+
+        // COEXISTÊNCIA — histórico (field 'history'): a Meta envia, em chunks, as conversas
+        // recentes do número quando ele entra em coexistência (se o lojista aceitou compartilhar).
+        // Materializa no inbox preservando a data original. Dedup por (tenant, wamid).
+        const historico = v?.history ?? [];
+        if (historico.length) {
+          const cfgH = await this.lojaPorPhoneId(phoneNumberId);
+          if (cfgH && cfgH.provedor === 'cloud') {
+            let n = 0;
+            for (const chunk of historico) {
+              for (const th of chunk?.threads ?? []) {
+                const cliente = soDigitos(th?.id);
+                if (!cliente) continue;
+                for (const m of th?.messages ?? []) {
+                  const de = soDigitos(m?.from);
+                  // Se veio do próprio cliente (from == thread) é entrada; senão, saída.
+                  const direcao = de && de === cliente ? 'entrada' : 'saida';
+                  const ts = Number(m?.timestamp ?? 0);
+                  await this.gravar({
+                    tenantId: cfgH.tenantId,
+                    telefone: cliente,
+                    direcao,
+                    tipo: String(m?.type ?? 'text'),
+                    texto: this.textoDe(m),
+                    midiaId: this.midiaDe(m),
+                    wamid: String(m?.id ?? '') || null,
+                    criadoEm: ts ? new Date(ts * 1000) : undefined,
+                  });
+                  n++;
+                }
+              }
+            }
+            this.logger.log(`coexistência: histórico importado (loja ${cfgH.tenantId}, ${n} msgs).`);
           }
           continue;
         }

@@ -44,6 +44,13 @@ export class CampanhaController {
     return this.service.criar(user.tenantId, user.colaboradorId ?? null, user.unidadeId ?? null, dto);
   }
 
+  // Envia a campanha (a mesma mensagem/modelo) para UM número, só para o gestor conferir
+  // como fica antes de disparar para o público. Não cria campanha nem grava envios.
+  @Post('teste')
+  teste(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.enviarTeste(user.tenantId, dto);
+  }
+
   // Opt-out de um CLIENTE cadastrado (toggle do flag).
   @Post('opt-out')
   optOut(@CurrentUser() user: AuthUser, @Body() dto: any) {
