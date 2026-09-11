@@ -266,13 +266,22 @@ function CardNumero({
       const FB = await carregarFB(cfg.appId, cfg.graphVersion || 'v25.0');
       let phoneNumberId = '';
       let wabaId = '';
+      let coexistence = false;
       const onMsg = (event: MessageEvent) => {
         try {
           if (!/(^|\.)facebook\.com$/.test(new URL(event.origin).hostname)) return;
           const d = JSON.parse(event.data);
-          if (d.type === 'WA_EMBEDDED_SIGNUP' && d.event === 'FINISH') {
+          if (d.type !== 'WA_EMBEDDED_SIGNUP') return;
+          // Número novo/migrado: devolve phone_number_id + waba_id.
+          if (d.event === 'FINISH') {
             phoneNumberId = d.data?.phone_number_id ?? '';
             wabaId = d.data?.waba_id ?? '';
+          }
+          // COEXISTÊNCIA (número já no app WhatsApp Business): devolve só o waba_id — o
+          // backend resolve o phone_number_id pela WABA. O número CONTINUA no celular.
+          else if (d.event === 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING') {
+            wabaId = d.data?.waba_id ?? '';
+            coexistence = true;
           }
         } catch {
           /* mensagem não-JSON do SDK */
@@ -289,9 +298,9 @@ function CardNumero({
             return;
           }
           api
-            .whatsappEmbeddedSignup({ code, phoneNumberId, wabaId, papel })
+            .whatsappEmbeddedSignup({ code, phoneNumberId, wabaId, papel, coexistence })
             .then(() => {
-              toast.success('WhatsApp oficial conectado!');
+              toast.success(coexistence ? 'WhatsApp conectado em coexistência!' : 'WhatsApp oficial conectado!');
               onMudou();
             })
             .catch((e) => toast.error(e instanceof Error ? e.message : 'Falha ao finalizar o cadastro.'))
@@ -366,7 +375,13 @@ function CardNumero({
               </Button>
               <p className="text-[11px] text-foreground">
                 Abre uma janela da Meta pra você conectar o número e cadastrar sua forma de pagamento (a Meta
-                cobra as mensagens direto de você). ⚠️ Este número sai do WhatsApp normal do celular — o
+                cobra as mensagens direto de você).
+              </p>
+              <p className="rounded-lg bg-primary/5 px-2 py-1.5 text-[11px] text-foreground">
+                💚 <strong>Já usa o WhatsApp Business neste número?</strong> Na janela da Meta, escolha{' '}
+                <strong>conectar sua conta existente (coexistência)</strong>: o número <strong>continua funcionando
+                no seu celular e no WhatsApp Web</strong> pra você atender à mão, e a Regem usa a API oficial por
+                trás pra campanhas e avisos. Se for um número novo (ou migração), ele sai do app comum e o
                 atendimento passa a ser feito aqui, na tela do Regem.
               </p>
               <details className="text-[11px] text-foreground/70">
