@@ -334,6 +334,15 @@ export class WhatsappController {
     return this.cloud.registrarNumeroPapel(user.tenantId, dto?.papel ?? 'marketing', dto?.pin ?? '');
   }
 
+  // Limite de envio (conversas iniciadas / 24h) + usado hoje — lido direto da Meta.
+  @Get('whatsapp/cloud/limite')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente')
+  @RequirePerm('delivery')
+  limiteEnvio(@CurrentUser() user: AuthUser) {
+    return this.cloud.limiteEnvio(user.tenantId);
+  }
+
   // Confere na Meta de qual numero e um Phone Number ID, antes de vincular.
   @Get('whatsapp/cloud/verificar-numero')
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)

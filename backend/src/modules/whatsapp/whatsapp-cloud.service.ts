@@ -1462,6 +1462,70 @@ export class WhatsappCloudService {
     return this.registrarNumeroCloud(phoneId, pin);
   }
 
+  // ===== Limite de envio (messaging limit tier) =====
+  // Quantas conversas INICIADAS pela empresa a loja pode abrir por 24h. Começa em 250 e
+  // sobe com verificação + nome aprovado + qualidade + volume (desde out/2025 é por
+  // Business Portfolio). Lido direto da Meta — o lojista não precisa abrir o Business Suite.
+  // O campo antigo messaging_limit_tier foi descontinuado → usa whatsapp_business_manager_messaging_limit.
+  private static tierParaNumero(tier: string | null): number | null {
+    switch (String(tier ?? '').toUpperCase()) {
+      case 'TIER_50': return 50;
+      case 'TIER_250': return 250;
+      case 'TIER_1K': return 1000;
+      case 'TIER_10K': return 10000;
+      case 'TIER_100K': return 100000;
+      case 'TIER_UNLIMITED': return null; // sem teto
+      default: return null;
+    }
+  }
+
+  private async phoneIdParaLimite(tenantId: string): Promise<string> {
+    const nums = await this.db
+      .select({ papel: whatsappNumero.papel, phoneId: whatsappNumero.phoneId })
+      .from(whatsappNumero)
+      .where(and(eq(whatsappNumero.tenantId, tenantId), eq(whatsappNumero.provedor, 'cloud'), isNull(whatsappNumero.unidadeId)));
+    const mkt = nums.find((n) => n.papel === 'marketing' && n.phoneId)?.phoneId;
+    const prin = nums.find((n) => n.papel === 'principal' && n.phoneId)?.phoneId;
+    if (mkt || prin) return (mkt || prin) as string;
+    const [cfg] = await this.db
+      .select({ p: cardapioConfig.waCloudPhoneId })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.tenantId, tenantId));
+    return cfg?.p ?? '';
+  }
+
+  async limiteEnvio(tenantId: string): Promise<{
+    conectado: boolean;
+    tier: string | null;
+    limite: number | null; // null = ilimitado (ou desconhecido)
+    usadoHoje: number;
+    qualidade: string | null;
+  }> {
+    const phoneId = await this.phoneIdParaLimite(tenantId);
+    // Conversas iniciadas por nós nas últimas 24h (aproxima o "usado hoje"): nº de
+    // clientes DISTINTOS que receberam um template de saída. Atendimento não conta.
+    const usoq: any = await this.db.execute(sql`
+      select count(distinct telefone)::int as n from whatsapp_mensagem
+      where tenant_id = ${tenantId} and direcao = 'saida' and tipo = 'template'
+        and criado_em > now() - interval '24 hours'`);
+    const usadoHoje = Number((usoq.rows ?? usoq)[0]?.n ?? 0);
+    if (!phoneId) return { conectado: false, tier: null, limite: null, usadoHoje, qualidade: null };
+    const res = await fetch(
+      `${GRAPH}/${phoneId}?fields=display_phone_number,quality_rating,whatsapp_business_manager_messaging_limit`,
+      { headers: { Authorization: `Bearer ${this.token()}` } },
+    ).catch(() => null);
+    if (!res || !res.ok) return { conectado: true, tier: null, limite: null, usadoHoje, qualidade: null };
+    const j: any = await res.json().catch(() => ({}));
+    const tier = j?.whatsapp_business_manager_messaging_limit ?? null;
+    return {
+      conectado: true,
+      tier,
+      limite: WhatsappCloudService.tierParaNumero(tier),
+      usadoHoje,
+      qualidade: j?.quality_rating ?? null,
+    };
+  }
+
   // ===== Conferencia do numero antes de vincular (Fase 3) =====
   // Sem isto, um Phone Number ID digitado errado e aceito em silencio e a loja so
   // descobre quando a primeira mensagem nao chega. Aqui o gestor VE de qual numero

@@ -217,7 +217,15 @@ export class CampanhaService {
     const segmento = String(dto.segmento ?? 'todos');
     const tipo = String(dto.tipo ?? 'avulsa');
     const intervaloSeg = Math.min(Math.max(Number(dto.intervaloSeg) || 7, 3), 120);
-    const tetoDia = dto.tetoDia != null && Number(dto.tetoDia) > 0 ? Number(dto.tetoDia) : null;
+    let tetoDia = dto.tetoDia != null && Number(dto.tetoDia) > 0 ? Number(dto.tetoDia) : null;
+    // Nunca deixa o teto/dia passar do LIMITE da Meta (conversas iniciadas/24h). Assim a
+    // campanha é PARCELADA automaticamente e não estoura o tier (250 no início). Best-effort.
+    try {
+      const lim = await this.cloud.limiteEnvio(tenantId);
+      if (lim?.limite) tetoDia = tetoDia ? Math.min(tetoDia, lim.limite) : lim.limite;
+    } catch {
+      /* sem o limite, segue com o que o lojista definiu */
+    }
     const tetoSemana = dto.tetoSemana != null && Number(dto.tetoSemana) > 0 ? Number(dto.tetoSemana) : null;
     const tetoMes = dto.tetoMes != null && Number(dto.tetoMes) > 0 ? Number(dto.tetoMes) : null;
     const instanciaTipo = dto.instanciaTipo === 'marketing' ? 'marketing' : 'loja';

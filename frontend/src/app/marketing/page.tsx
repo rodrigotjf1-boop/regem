@@ -99,6 +99,7 @@ export default function MarketingPage() {
   const [enviando, setEnviando] = useState(false);
   const [testeNumero, setTesteNumero] = useState('');
   const [testando, setTestando] = useState(false);
+  const [limite, setLimite] = useState<{ limite: number | null; usadoHoje: number; tier: string | null } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // Abas + provedor + templates (para campanha na API oficial)
   const [aba, setAba] = useState<'campanhas' | 'modelos'>('campanhas');
@@ -125,6 +126,13 @@ export default function MarketingPage() {
     setTemplateVars(init);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateNome]);
+
+  // Limite de envio da Meta (só faz sentido no número oficial). Carrega ao abrir o builder.
+  useEffect(() => {
+    if (!novo || !ehCloud) return;
+    api.whatsappLimite().then((l: any) => setLimite(l)).catch(() => setLimite(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [novo, ehCloud]);
   // Só faz sentido "Modelos (API oficial)" se a loja usa a API oficial em algum número.
   const temCloud = numeros?.principal?.provedor === 'cloud' || numeros?.marketing?.provedor === 'cloud';
   // Marketing só funciona com um número conectado — evita erro no disparo.
@@ -679,6 +687,67 @@ export default function MarketingPage() {
             <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-foreground/70">
               ⚠️ Disparo em massa pode marcar o número. Enviamos pausado, só para quem não optou por sair; a mensagem deve identificar a loja e incluir “responda SAIR”. Marketing em número Evolution tem risco alto — prefira um número descartável.
             </p>
+
+            {/* Limite de envio da Meta (número oficial) — evita ultrapassar o tier */}
+            {ehCloud && limite && (
+              <div className="rounded-lg border border-border bg-card p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    Limite de envio (Meta):{' '}
+                    <span className="font-mono">
+                      {limite.limite == null ? 'sem teto' : `${limite.limite.toLocaleString('pt-BR')} conversas / 24h`}
+                    </span>
+                  </p>
+                  <span className="rounded-full bg-secondary px-2 py-0.5 text-[11px] text-foreground/70">
+                    usado hoje: {limite.usadoHoje}
+                  </span>
+                </div>
+                {limite.limite != null && previa != null && previa > Math.max(0, limite.limite - limite.usadoHoje) && (
+                  <p className="mt-2 rounded-md bg-warn/10 px-3 py-2 text-xs text-foreground/80">
+                    ⏳ Este público ({previa}) é maior que o disponível hoje ({Math.max(0, limite.limite - limite.usadoHoje)}).
+                    Sem problema: enviamos até o limite por dia e continuamos nos próximos —{' '}
+                    <strong>~{Math.ceil(previa / limite.limite)} dia(s)</strong>. Nada é perdido, e não estoura o limite.
+                  </p>
+                )}
+                <details className="mt-2 text-xs text-foreground/70">
+                  <summary className="cursor-pointer font-semibold text-foreground">Como aumentar o limite</summary>
+                  <div className="mt-2 space-y-2">
+                    <p>
+                      Todo número novo começa em <strong>250 conversas iniciadas por dia</strong>. A Meta sobe o
+                      limite sozinha (em algumas horas) quando a empresa está <strong>verificada</strong>, com{' '}
+                      <strong>nome aprovado</strong>, boa <strong>qualidade</strong> (poucos bloqueios/denúncias) e
+                      <strong> volume</strong> (≥1.000 conversas em 30 dias). O atendimento (cliente que fala primeiro)
+                      não conta no limite.
+                    </p>
+                    <p className="text-foreground/80">
+                      A <strong>verificação da empresa</strong> é o que destrava o salto de 250 — e é feita no cadastro
+                      da Meta:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <a
+                        href="https://business.facebook.com/settings/security"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-md bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground"
+                      >
+                        Verificar minha empresa na Meta ↗
+                      </a>
+                      <a
+                        href="https://business.facebook.com/wa/manage/phone-numbers/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-foreground"
+                      >
+                        Aprovar nome do número ↗
+                      </a>
+                    </div>
+                    <p className="text-[11px] text-foreground/60">
+                      Abre no Gerenciador da Meta (Business Suite), já na tela certa. Faça login com a conta da loja.
+                    </p>
+                  </div>
+                </details>
+              </div>
+            )}
 
             {/* Enviar teste para UM número antes de disparar para o público */}
             <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3">
