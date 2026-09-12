@@ -250,10 +250,20 @@ export class WhatsappCloudService {
 
         // business_capability_update: a Meta mudou o LIMITE de envio (tier). Cacheia na
         // loja para o Regem mostrar sem chamada ao vivo (v24: max_daily_conversations_per_business;
-        // v23: max_daily_conversation_per_phone).
+        // v23: max_daily_conversation_per_phone — este SAI em fev/2026).
+        // ⚠️ A doc da Meta se contradiz: declara o campo como Integer e o exemplo de payload
+        // traz 2000, mas a tabela de valores do mesmo webhook lista strings TIER_*. Aceita as
+        // DUAS formas — com Number() cru, um "TIER_2K" virava NaN e o limite novo era jogado
+        // fora em silêncio. -1 = ilimitado na forma antiga (o > 0 também descartava).
         if (ch?.field === 'business_capability_update') {
-          const novo = Number(v?.max_daily_conversations_per_business ?? v?.max_daily_conversation_per_phone ?? 0) || 0;
-          if (novo > 0) await this.atualizarLimiteCache(String(entry?.id ?? ''), phoneNumberId || undefined, novo);
+          const bruto = v?.max_daily_conversations_per_business ?? v?.max_daily_conversation_per_phone ?? null;
+          const novo =
+            Number(bruto) === -1
+              ? ('ilimitado' as const)
+              : WhatsappCloudService.tierParaNumero(bruto == null ? null : String(bruto));
+          if (novo !== null) await this.atualizarLimiteCache(String(entry?.id ?? ''), phoneNumberId || undefined, novo);
+          else if (bruto != null)
+            this.logger.warn(`business_capability_update com limite não reconhecido: ${JSON.stringify(bruto)}`);
           continue;
         }
 
@@ -1694,8 +1704,9 @@ export class WhatsappCloudService {
   // sobe com verificação + nome aprovado + qualidade + volume (desde out/2025 é por
   // Business Portfolio). Lido direto da Meta — o lojista não precisa abrir o Business Suite.
   // O campo antigo messaging_limit_tier foi descontinuado → usa whatsapp_business_manager_messaging_limit.
-  // Degraus de hoje: 250 → 2.000 → 10.000 → 100.000 → ilimitado (TIER_1K/TIER_50 são da
-  // escada antiga e ainda aparecem em contas legadas). NÃO usa lista fixa de cases: era o
+  // Degraus de hoje: TIER_250 → TIER_2K → TIER_10K → TIER_100K → TIER_UNLIMITED. TIER_50 e
+  // TIER_NOT_SET seguem no enum (número restrito / que nunca enviou); só o TIER_1K saiu — a
+  // Meta trocou o 1º degrau de 1.000 p/ 2.000. NÃO usa lista fixa de cases: era o
   // que prendia a loja em 250 quando a Meta liberava 2.000 — o degrau novo não casava em
   // nenhum case, caía no default e o chamador voltava pro cache velho. Agora lê o NÚMERO do
   // próprio nome do tier (TIER_2K → 2000), então degrau novo funciona sem mexer no código.
@@ -1748,8 +1759,11 @@ export class WhatsappCloudService {
       .select({ cache: cardapioConfig.waMsgLimit })
       .from(cardapioConfig)
       .where(eq(cardapioConfig.tenantId, tenantId));
-    const cache = cfgCache?.cache ?? null;
-    if (!phoneId) return { conectado: false, tier: null, limite: cache, ilimitado: false, usadoHoje, qualidade: null };
+    // -1 no cache = a Meta já avisou (webhook) que a loja está SEM TETO.
+    const cacheBruto = cfgCache?.cache ?? null;
+    const cacheIlimitado = cacheBruto === -1;
+    const cache = cacheIlimitado ? null : cacheBruto;
+    if (!phoneId) return { conectado: false, tier: null, limite: cache, ilimitado: cacheIlimitado, usadoHoje, qualidade: null };
     const res = await fetch(
       `${GRAPH}/${phoneId}?fields=display_phone_number,quality_rating,whatsapp_business_manager_messaging_limit`,
       { headers: { Authorization: `Bearer ${this.token()}` } },
@@ -1758,16 +1772,17 @@ export class WhatsappCloudService {
       // Sem a leitura ao vivo o lojista fica com o cache e não sabe por quê — loga o motivo.
       const corpo = res ? await res.text().catch(() => '') : 'sem resposta';
       this.logger.warn(`limite de envio: falha ao ler da Meta (${res?.status ?? '-'}) ${String(corpo).slice(0, 160)}`);
-      return { conectado: true, tier: null, limite: cache, ilimitado: false, usadoHoje, qualidade: null };
+      return { conectado: true, tier: null, limite: cache, ilimitado: cacheIlimitado, usadoHoje, qualidade: null };
     }
     const j: any = await res.json().catch(() => ({}));
     const tier = j?.whatsapp_business_manager_messaging_limit ?? null;
     const lido = WhatsappCloudService.tierParaNumero(tier);
     // Tier que não sabemos ler: NÃO some em silêncio (foi assim que o 2.000 ficou preso em
     // 250). Loga o valor cru p/ a gente reconhecer o degrau novo na hora.
-    if (tier && lido === null)
+    // TIER_NOT_SET é esperado (número que ainda não enviou nada) — não vira ruído no log.
+    if (tier && lido === null && String(tier).toUpperCase() !== 'TIER_NOT_SET')
       this.logger.warn(`limite de envio: tier '${tier}' não reconhecido (phone=${phoneId}) — mantendo cache ${cache ?? 'vazio'}`);
-    const ilimitado = lido === 'ilimitado';
+    const ilimitado = lido === 'ilimitado' || (lido === null && cacheIlimitado);
     const limite = ilimitado ? null : ((lido as number | null) ?? cache);
     // Mantém o cache quente com o valor ao vivo (o webhook também atualiza).
     if (limite != null && limite !== cache) {
@@ -1789,7 +1804,13 @@ export class WhatsappCloudService {
 
   // Cacheia o novo limite (webhook business_capability_update). Resolve a loja pelo
   // phone_number_id (se veio) ou pela WABA (entry.id). Best-effort — nunca derruba o webhook.
-  private async atualizarLimiteCache(wabaId: string, phoneId: string | undefined, limite: number): Promise<void> {
+  // 'ilimitado' é guardado como -1 (a coluna é inteira) — assim o cache distingue "sem teto"
+  // de "não sei", que é o que fazia a tela mentir quando a leitura ao vivo falhava.
+  private async atualizarLimiteCache(
+    wabaId: string,
+    phoneId: string | undefined,
+    limite: number | 'ilimitado',
+  ): Promise<void> {
     try {
       let tenantId = '';
       if (phoneId) {
@@ -1816,9 +1837,11 @@ export class WhatsappCloudService {
       }
       await this.db
         .update(cardapioConfig)
-        .set({ waMsgLimit: limite, waMsgLimitEm: new Date() })
+        .set({ waMsgLimit: limite === 'ilimitado' ? -1 : limite, waMsgLimitEm: new Date() })
         .where(eq(cardapioConfig.tenantId, tenantId));
-      this.logger.log(`limite de envio atualizado por webhook (loja ${tenantId}): ${limite}/24h`);
+      this.logger.log(
+        `limite de envio atualizado por webhook (loja ${tenantId}): ${limite === 'ilimitado' ? 'sem teto' : `${limite}/24h`}`,
+      );
     } catch (e: any) {
       this.logger.warn(`falha ao cachear limite: ${e?.message ?? e}`);
     }
