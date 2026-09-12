@@ -252,6 +252,16 @@ export class CampanhaService {
     const tipo = String(dto.tipo ?? 'avulsa');
     const intervaloSeg = Math.min(Math.max(Number(dto.intervaloSeg) || 7, 3), 120);
     let tetoDia = dto.tetoDia != null && Number(dto.tetoDia) > 0 ? Number(dto.tetoDia) : null;
+    const tetoSemana = dto.tetoSemana != null && Number(dto.tetoSemana) > 0 ? Number(dto.tetoSemana) : null;
+    const tetoMes = dto.tetoMes != null && Number(dto.tetoMes) > 0 ? Number(dto.tetoMes) : null;
+    // Os tetos têm que ser CRESCENTES (dia ≤ semana ≤ mês). Senão o menor trava o maior e o
+    // teto maior nunca é atingido — config sem sentido. Valida só os que foram informados.
+    if (tetoDia && tetoSemana && tetoDia > tetoSemana)
+      throw new BadRequestException('O teto por dia não pode ser maior que o teto por semana.');
+    if (tetoSemana && tetoMes && tetoSemana > tetoMes)
+      throw new BadRequestException('O teto por semana não pode ser maior que o teto por mês.');
+    if (tetoDia && tetoMes && tetoDia > tetoMes)
+      throw new BadRequestException('O teto por dia não pode ser maior que o teto por mês.');
     // Nunca deixa o teto/dia passar do LIMITE da Meta (conversas iniciadas/24h). Assim a
     // campanha é PARCELADA automaticamente e não estoura o tier (250 no início). Best-effort.
     try {
@@ -260,8 +270,6 @@ export class CampanhaService {
     } catch {
       /* sem o limite, segue com o que o lojista definiu */
     }
-    const tetoSemana = dto.tetoSemana != null && Number(dto.tetoSemana) > 0 ? Number(dto.tetoSemana) : null;
-    const tetoMes = dto.tetoMes != null && Number(dto.tetoMes) > 0 ? Number(dto.tetoMes) : null;
     const instanciaTipo = dto.instanciaTipo === 'marketing' ? 'marketing' : 'loja';
     const papel = instanciaTipo === 'marketing' ? 'marketing' : 'principal';
 

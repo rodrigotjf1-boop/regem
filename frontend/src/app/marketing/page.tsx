@@ -114,6 +114,12 @@ export default function MarketingPage() {
   const provedorAtual: 'evolution' | 'cloud' =
     numeros?.marketing?.provedor ?? 'evolution';
   const ehCloud = provedorAtual === 'cloud';
+  // Tetos precisam ser crescentes (dia ≤ semana ≤ mês); só compara os informados.
+  const nDia = Number(tetoDia) || 0, nSem = Number(tetoSemana) || 0, nMes = Number(tetoMes) || 0;
+  const tetoInvalido =
+    (nDia > 0 && nSem > 0 && nDia > nSem) ||
+    (nSem > 0 && nMes > 0 && nSem > nMes) ||
+    (nDia > 0 && nMes > 0 && nDia > nMes);
   const templateSel = templates.find((t) => t.nome === templateNome);
   const templateVarsCount = templateSel ? (String(templateSel.corpo).match(/\{\{\d+\}\}/g) ?? []).length : 0;
   // Ao escolher um modelo, já preenche as variáveis: {{1}} = "nome" (primeiro nome do
@@ -626,24 +632,45 @@ export default function MarketingPage() {
               </div>
             )}
 
-            {/* Pacing + tetos (a campanha sai sempre pelo número de Marketing) */}
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="text-xs">
-                <span className="mb-1 block text-foreground/70">Pausa (s)</span>
-                <Input type="number" min={3} max={120} value={intervalo} onChange={(e) => setIntervalo(Number(e.target.value) || 30)} className="w-20" />
-              </label>
-              <label className="text-xs">
-                <span className="mb-1 block text-foreground/70">Teto/dia</span>
-                <Input type="number" value={tetoDia} onChange={(e) => setTetoDia(e.target.value)} placeholder="—" className="w-20" />
-              </label>
-              <label className="text-xs">
-                <span className="mb-1 block text-foreground/70">Teto/semana</span>
-                <Input type="number" value={tetoSemana} onChange={(e) => setTetoSemana(e.target.value)} placeholder="—" className="w-24" />
-              </label>
-              <label className="text-xs">
-                <span className="mb-1 block text-foreground/70">Teto/mês</span>
-                <Input type="number" value={tetoMes} onChange={(e) => setTetoMes(e.target.value)} placeholder="—" className="w-24" />
-              </label>
+            {/* Ritmo e limites de envio (anti-bloqueio) — sempre pelo número de Marketing */}
+            <div className="rounded-lg border border-border p-3">
+              <p className="text-xs font-semibold text-foreground/80">Ritmo e limites de envio (anti-bloqueio)</p>
+              <p className="mt-0.5 text-[11px] text-foreground/60">
+                Enviamos aos poucos para o número não ser marcado como spam. A <strong>pausa</strong> é o intervalo entre uma
+                mensagem e a próxima. Os <strong>máximos</strong> limitam quantas mensagens saem por período — deixe vazio para
+                sem limite. Os máximos devem ser <strong>crescentes</strong>: dia ≤ semana ≤ mês.
+              </p>
+              <div className="mt-2 flex flex-wrap items-end gap-3">
+                <label className="text-xs">
+                  <span className="mb-1 block text-foreground/70">Pausa entre envios</span>
+                  <div className="flex items-center gap-1">
+                    <Input type="number" min={3} max={120} value={intervalo} onChange={(e) => setIntervalo(Number(e.target.value) || 30)} className="w-20" />
+                    <span className="text-[11px] text-foreground/60">seg</span>
+                  </div>
+                </label>
+                <label className="text-xs">
+                  <span className="mb-1 block text-foreground/70">Máx. por dia</span>
+                  <Input type="number" min={1} value={tetoDia} onChange={(e) => setTetoDia(e.target.value)} placeholder="sem limite" className="w-24" />
+                </label>
+                <label className="text-xs">
+                  <span className="mb-1 block text-foreground/70">Máx. por semana</span>
+                  <Input type="number" min={1} value={tetoSemana} onChange={(e) => setTetoSemana(e.target.value)} placeholder="sem limite" className="w-28" />
+                </label>
+                <label className="text-xs">
+                  <span className="mb-1 block text-foreground/70">Máx. por mês</span>
+                  <Input type="number" min={1} value={tetoMes} onChange={(e) => setTetoMes(e.target.value)} placeholder="sem limite" className="w-28" />
+                </label>
+              </div>
+              {ehCloud && (
+                <p className="mt-2 text-[11px] text-foreground/60">
+                  💡 Na API oficial, o <strong>máximo por dia</strong> já é limitado automaticamente ao seu limite da Meta (a campanha se parcela sozinha).
+                </p>
+              )}
+              {tetoInvalido && (
+                <p className="mt-2 rounded-md bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+                  Os máximos precisam ser crescentes: <strong>dia ≤ semana ≤ mês</strong>. Ajuste os valores.
+                </p>
+              )}
             </div>
 
             {/* API oficial (cloud): campanha por MODELO aprovado */}
@@ -820,7 +847,7 @@ export default function MarketingPage() {
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setNovo(false)}>Cancelar</Button>
-              <Button onClick={criar} disabled={enviando || !previa || (ehCloud && !templateNome)}>
+              <Button onClick={criar} disabled={enviando || !previa || tetoInvalido || (ehCloud && !templateNome)}>
                 {enviando ? 'Criando…' : `Criar campanha (${previa ?? 0})`}
               </Button>
             </div>
