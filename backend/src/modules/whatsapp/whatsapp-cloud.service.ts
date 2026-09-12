@@ -946,6 +946,14 @@ export class WhatsappCloudService {
         // Botão de rastreio do delivery: URL dinâmica {app}/r/{{1}} = token de rastreio.
         const base = `${this.rastreioBase()}/r`;
         out.push({ type: 'URL', text: texto || 'Acompanhar entrega', url: `${base}/{{1}}`, example: [`${base}/exemplo`] });
+      } else if (b?.tipo === 'link') {
+        // URL ESTÁTICA informada pelo lojista (2º botão de site). Meta 2026 exige HTTPS.
+        const url = String(b?.url ?? '').trim();
+        if (url) out.push({ type: 'URL', text: texto || 'Visitar site', url });
+      } else if (b?.tipo === 'phone') {
+        // Botão de LIGAR — número em formato internacional (+55...).
+        const fone = String(b?.phone ?? '').replace(/[^\d+]/g, '');
+        if (fone) out.push({ type: 'PHONE_NUMBER', text: texto || 'Ligar', phone_number: fone });
       } else if (b?.tipo === 'copy_code') {
         out.push({ type: 'COPY_CODE', example: 'PROMO10' });
       } else if (b?.tipo === 'optout') {
