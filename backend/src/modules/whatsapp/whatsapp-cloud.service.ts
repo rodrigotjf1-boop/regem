@@ -712,7 +712,7 @@ export class WhatsappCloudService {
     const envioId = opts?.envioId || 'x';
     const cupom = opts?.cupom || 'CUPOM';
     const rastreio = opts?.rastreio || 'x';
-    const paramBotao = (b: any, idx: number) => {
+    const paramBotao = (b: any, idx: number, emCarrossel = false) => {
       // url = redirect de campanha (envioId); rastreio = página /r/{token} do delivery.
       if (b?.tipo === 'url')
         return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: envioId }] };
@@ -720,7 +720,16 @@ export class WhatsappCloudService {
         return { type: 'button', sub_type: 'url', index: String(idx), parameters: [{ type: 'text', text: rastreio }] };
       if (b?.tipo === 'copy_code')
         return { type: 'button', sub_type: 'copy_code', index: String(idx), parameters: [{ type: 'coupon_code', coupon_code: cupom }] };
-      return null; // quick_reply/optout não levam parâmetro no envio
+      // No CARROSSEL, todo botão exige um parâmetro no envio (senão a Meta aceita mas NÃO
+      // entrega). quick_reply/optout levam um `payload`. Fora do carrossel, não levam nada.
+      if (emCarrossel && (b?.tipo === 'quick_reply' || b?.tipo === 'optout'))
+        return {
+          type: 'button',
+          sub_type: 'quick_reply',
+          index: String(idx),
+          parameters: [{ type: 'payload', payload: String(b?.texto || (b?.tipo === 'optout' ? 'OPTOUT' : 'OK')).slice(0, 128) }],
+        };
+      return null; // quick_reply/optout fora de carrossel não levam parâmetro no envio
     };
 
     // A Meta exige EXATAMENTE o número de variáveis do corpo do modelo (senão 132000
@@ -742,8 +751,12 @@ export class WhatsappCloudService {
           const comps: any[] = [
             { type: 'header', parameters: [{ type: 'image', image: { link: String(card?.imagemRef ?? '') } }] },
           ];
+          // Corpo do card SÓ se tiver variável (senão a Meta não espera parâmetro e recusa).
+          const nCard = (String(card?.corpo ?? '').match(/\{\{\s*\d+\s*\}\}/g) ?? []).length;
+          if (nCard > 0)
+            comps.push({ type: 'body', parameters: Array.from({ length: nCard }, (_, i) => ({ type: 'text', text: String(params[i] ?? '').trim() || 'Cliente' })) });
           (card?.botoes ?? []).forEach((b: any, bi: number) => {
-            const p = paramBotao(b, bi);
+            const p = paramBotao(b, bi, true); // carrossel: quick_reply/optout levam payload
             if (p) comps.push(p);
           });
           return { card_index: ci, components: comps };
@@ -781,6 +794,9 @@ export class WhatsappCloudService {
     }
     const json: any = await res.json().catch(() => ({}));
     const wamid = json?.messages?.[0]?.id ?? null;
+    this.logger.log(
+      `template '${tpl}'${tplRow?.formato === 'carrossel' ? ' [carrossel]' : ''} enviado phone=${phoneEnvio} to=${mascarar(para)} wamid=${wamid ?? 'sem-id'}`,
+    );
     await this.gravar({
       tenantId,
       telefone: para,
