@@ -49,8 +49,11 @@ const CATALOGO_REGEM: Array<{ nome: string; cabecalho: string; corpo: string; bo
 // marketing). Cada modelo tem um `evento` = o status que o dispara. {{1}} = nome do
 // cliente (o corpo nunca começa/termina com variável — regra da Meta). O de "saiu para
 // entrega" leva o botão de rastreio (url .../r/{{1}} = envioId, medido).
-// atendimento_humano: como template só aceita 3 botões, o menu de 6 opções vai NUMERADO
-// no corpo (janela fechada); com janela aberta o n8n manda a LISTA interativa (até 10).
+// atendimento_humano: o menu de 6 opções vai em BOTÕES de resposta rápida — a Meta aceita
+// até 10 botões por template (o limite de 3 é da mensagem interativa, NÃO do template; o
+// código antes assumia 3 e por isso o menu ia numerado no corpo). Botão devolve o texto
+// pronto, então o n8n roteia sem interpretar número digitado. Com a janela já aberta o n8n
+// pode mandar a LISTA interativa (até 10 linhas, com descrição em cada).
 const CATALOGO_UTILIDADE: Array<{
   nome: string;
   evento: string;
@@ -66,7 +69,20 @@ const CATALOGO_UTILIDADE: Array<{
   { nome: 'pedido_entregue', evento: 'entregue', cabecalho: 'Pedido entregue', corpo: 'Oi {{1}}, seu pedido foi entregue! Bom apetite e muito obrigado por pedir na {loja}. 💛', botoes: [] },
   { nome: 'pedido_cancelado', evento: 'cancelado', cabecalho: 'Pedido cancelado', corpo: 'Oi {{1}}, seu pedido na {loja} foi cancelado. Se ficou alguma dúvida ou não reconhece isso, é só responder aqui que a gente ajuda.', botoes: [] },
   { nome: 'pedido_atrasado', evento: 'atrasado', cabecalho: 'Pedido atrasando', corpo: 'Oi {{1}}, seu pedido na {loja} está levando um pouco mais de tempo que o previsto. Pedimos desculpas pelo atraso — já estamos correndo para concluir e te entregar o quanto antes! 🙏', botoes: [] },
-  { nome: 'atendimento_humano', evento: 'atendimento', cabecalho: 'Como podemos ajudar', corpo: 'Oi {{1}}! Antes de te encaminhar para o atendimento, me conta o que você precisa? Responda com o número:\n1 Alterar endereço\n2 Alterar pedido\n3 Item faltando\n4 Item errado\n5 Cancelar pedido\n6 Sobre o pedido', botoes: [] },
+  {
+    nome: 'atendimento_humano',
+    evento: 'atendimento',
+    cabecalho: 'Como podemos ajudar',
+    corpo: 'Oi {{1}}! Antes de te encaminhar para o atendimento, me conta o que você precisa? É só tocar na opção abaixo.',
+    botoes: [
+      { tipo: 'quick_reply', texto: 'Alterar endereço' },
+      { tipo: 'quick_reply', texto: 'Alterar pedido' },
+      { tipo: 'quick_reply', texto: 'Item faltando' },
+      { tipo: 'quick_reply', texto: 'Item errado' },
+      { tipo: 'quick_reply', texto: 'Cancelar pedido' },
+      { tipo: 'quick_reply', texto: 'Sobre o pedido' },
+    ],
+  },
 ];
 
 // Injeta a identificação da loja ({loja}/{cidade}) nos textos do catálogo. {cidade} vira
@@ -1678,16 +1694,22 @@ export class WhatsappCloudService {
   // sobe com verificação + nome aprovado + qualidade + volume (desde out/2025 é por
   // Business Portfolio). Lido direto da Meta — o lojista não precisa abrir o Business Suite.
   // O campo antigo messaging_limit_tier foi descontinuado → usa whatsapp_business_manager_messaging_limit.
-  private static tierParaNumero(tier: string | null): number | null {
-    switch (String(tier ?? '').toUpperCase()) {
-      case 'TIER_50': return 50;
-      case 'TIER_250': return 250;
-      case 'TIER_1K': return 1000;
-      case 'TIER_10K': return 10000;
-      case 'TIER_100K': return 100000;
-      case 'TIER_UNLIMITED': return null; // sem teto
-      default: return null;
-    }
+  // Degraus de hoje: 250 → 2.000 → 10.000 → 100.000 → ilimitado (TIER_1K/TIER_50 são da
+  // escada antiga e ainda aparecem em contas legadas). NÃO usa lista fixa de cases: era o
+  // que prendia a loja em 250 quando a Meta liberava 2.000 — o degrau novo não casava em
+  // nenhum case, caía no default e o chamador voltava pro cache velho. Agora lê o NÚMERO do
+  // próprio nome do tier (TIER_2K → 2000), então degrau novo funciona sem mexer no código.
+  // Devolve: number = teto | 'ilimitado' | null = NÃO RECONHECIDO (aí o chamador usa cache).
+  private static tierParaNumero(tier: string | null): number | 'ilimitado' | null {
+    const t = String(tier ?? '').trim().toUpperCase();
+    if (!t) return null;
+    if (t.includes('UNLIMITED') || t.includes('ILIMIT')) return 'ilimitado';
+    // Aceita TIER_2K, TIER_250, TIER_100K e também um número cru ("2000").
+    const m = t.match(/^(?:TIER_)?(\d+)\s*([KM])?$/);
+    if (!m) return null;
+    const n = Number(m[1]);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return n * (m[2] === 'M' ? 1_000_000 : m[2] === 'K' ? 1_000 : 1);
   }
 
   private async phoneIdParaLimite(tenantId: string): Promise<string> {
@@ -1708,7 +1730,8 @@ export class WhatsappCloudService {
   async limiteEnvio(tenantId: string): Promise<{
     conectado: boolean;
     tier: string | null;
-    limite: number | null; // null = ilimitado (ou desconhecido)
+    limite: number | null; // teto por 24h; null = sem teto conhecido
+    ilimitado: boolean; // true = a Meta liberou sem teto (não confundir com desconhecido)
     usadoHoje: number;
     qualidade: string | null;
   }> {
@@ -1726,15 +1749,26 @@ export class WhatsappCloudService {
       .from(cardapioConfig)
       .where(eq(cardapioConfig.tenantId, tenantId));
     const cache = cfgCache?.cache ?? null;
-    if (!phoneId) return { conectado: false, tier: null, limite: cache, usadoHoje, qualidade: null };
+    if (!phoneId) return { conectado: false, tier: null, limite: cache, ilimitado: false, usadoHoje, qualidade: null };
     const res = await fetch(
       `${GRAPH}/${phoneId}?fields=display_phone_number,quality_rating,whatsapp_business_manager_messaging_limit`,
       { headers: { Authorization: `Bearer ${this.token()}` } },
     ).catch(() => null);
-    if (!res || !res.ok) return { conectado: true, tier: null, limite: cache, usadoHoje, qualidade: null };
+    if (!res || !res.ok) {
+      // Sem a leitura ao vivo o lojista fica com o cache e não sabe por quê — loga o motivo.
+      const corpo = res ? await res.text().catch(() => '') : 'sem resposta';
+      this.logger.warn(`limite de envio: falha ao ler da Meta (${res?.status ?? '-'}) ${String(corpo).slice(0, 160)}`);
+      return { conectado: true, tier: null, limite: cache, ilimitado: false, usadoHoje, qualidade: null };
+    }
     const j: any = await res.json().catch(() => ({}));
     const tier = j?.whatsapp_business_manager_messaging_limit ?? null;
-    const limite = WhatsappCloudService.tierParaNumero(tier) ?? cache;
+    const lido = WhatsappCloudService.tierParaNumero(tier);
+    // Tier que não sabemos ler: NÃO some em silêncio (foi assim que o 2.000 ficou preso em
+    // 250). Loga o valor cru p/ a gente reconhecer o degrau novo na hora.
+    if (tier && lido === null)
+      this.logger.warn(`limite de envio: tier '${tier}' não reconhecido (phone=${phoneId}) — mantendo cache ${cache ?? 'vazio'}`);
+    const ilimitado = lido === 'ilimitado';
+    const limite = ilimitado ? null : ((lido as number | null) ?? cache);
     // Mantém o cache quente com o valor ao vivo (o webhook também atualiza).
     if (limite != null && limite !== cache) {
       await this.db
@@ -1747,6 +1781,7 @@ export class WhatsappCloudService {
       conectado: true,
       tier,
       limite,
+      ilimitado,
       usadoHoje,
       qualidade: j?.quality_rating ?? null,
     };
