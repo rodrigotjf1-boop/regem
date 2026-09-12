@@ -2286,9 +2286,10 @@ export const whatsappTemplate = pgTable('whatsapp_template', {
   nome: text('nome').notNull(), // nome técnico (minúsculas/underscore)
   categoria: text('categoria').notNull().default('MARKETING'), // MARKETING | UTILITY | AUTHENTICATION
   idioma: text('idioma').notNull().default('pt_BR'),
-  cabecalho: text('cabecalho'), // header de TEXTO (opcional)
+  cabecalho: text('cabecalho'), // header de TEXTO (opcional; aceita 1 variável {{1}})
   cabecalhoFormato: text('cabecalho_formato'), // null/text | image | video | document (mig 239)
   cabecalhoMidiaRef: text('cabecalho_midia_ref'), // URL da mídia do cabeçalho (image/video/document)
+  cabecalhoExemplo: text('cabecalho_exemplo'), // exemplo do {{1}} do header TEXT (mig 240 — a Meta exige)
   corpo: text('corpo').notNull(), // body com {{1}}, {{2}}…
   rodape: text('rodape'), // footer (opcional)
   exemplo: jsonb('exemplo'), // valores de exemplo das variáveis
@@ -2303,6 +2304,12 @@ export const whatsappTemplate = pgTable('whatsapp_template', {
   // pronto_retirada|saiu_entrega|entregue|cancelado|atrasado|atendimento). null = não é
   // de status (ex.: marketing). Usado pelo roteador de avisos ao cliente na API oficial.
   evento: text('evento'),
+  // Oferta por tempo limitado (LTO da Meta — mig 240). Guardamos a DURAÇÃO, não a data:
+  // a Meta quer o instante de expiração no ENVIO, então mandamos `agora + ltoHoras`.
+  // Assim o modelo aprovado serve p/ qualquer campanha, sem reaprovar quando a data muda.
+  ltoAtivo: boolean('lto_ativo').notNull().default(false),
+  ltoTexto: text('lto_texto'), // rótulo da oferta (máx. 16 — limite da Meta)
+  ltoHoras: integer('lto_horas'), // validade em horas; null = padrão do código (3h)
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
