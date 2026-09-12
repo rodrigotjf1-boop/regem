@@ -201,9 +201,9 @@ export default function MarketingPage() {
 
   useEffect(() => {
     const cat = getCategoria();
-    const perms = getPermissoes();
-    setPode(cat === 'presidente' || cat === 'gerente' || perms.includes('delivery'));
-    setPodeExcluir(cat === 'presidente' || perms.includes('campanha_excluir'));
+    const perms = getPermissoes(); // objeto { chave: true }, não array
+    setPode(cat === 'presidente' || cat === 'gerente' || !!perms?.delivery);
+    setPodeExcluir(cat === 'presidente' || !!perms?.campanha_excluir);
     carregar();
     api.whatsappNumeros().then(setNumeros).catch(() => {});
     api

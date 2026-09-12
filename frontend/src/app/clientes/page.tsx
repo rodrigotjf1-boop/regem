@@ -65,6 +65,12 @@ export default function ClientesPage() {
   const [expModal, setExpModal] = useState<string | null>(null); // formato pendente de confirmação
   const [exportando, setExportando] = useState(false);
   const podeExportar = getCategoria() === 'presidente' || !!getPermissoes()?.clientes_exportar;
+  // Bloco — importação de contatos (.vcf).
+  const podeImportar = getCategoria() === 'presidente' || !!getPermissoes()?.clientes_importar;
+  const vcfRef = useRef<HTMLInputElement>(null);
+  const [impPrevia, setImpPrevia] = useState<any>(null);
+  const [impConsent, setImpConsent] = useState(false);
+  const [importando, setImportando] = useState(false);
   const buscaRef = useRef(busca);
   buscaRef.current = busca;
 
@@ -210,6 +216,56 @@ export default function ClientesPage() {
       toast.error(e instanceof Error ? e.message : 'Erro ao exportar');
     } finally {
       setExportando(false);
+    }
+  }
+
+  // Import de contatos (.vcf): 1) sobe o arquivo, o servidor parseia e devolve a prévia
+  // (novos × já existem); 2) o gestor declara consentimento e confirma → grava.
+  async function escolherVcf(f: File) {
+    setImportando(true);
+    try {
+      const p: any = await api.crmImportarVcfPrevia(f);
+      if (!p?.contatos?.length) {
+        toast.error('Nenhum contato com telefone válido encontrado no arquivo.');
+        return;
+      }
+      setImpConsent(false);
+      setImpPrevia(p);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não consegui ler o arquivo .vcf.');
+    } finally {
+      setImportando(false);
+      if (vcfRef.current) vcfRef.current.value = '';
+    }
+  }
+
+  async function confirmarImport() {
+    if (!impPrevia || !impConsent) return;
+    setImportando(true);
+    try {
+      // Envia só os novos da lista retornada (já limitada a `limite` pelo servidor) — o
+      // backend re-checa e dedup de qualquer forma. `novos` no topo é o total do arquivo;
+      // quando truncado, o que entra é o que está nesta lista.
+      const r: any = await api.crmImportarContatos(
+        impPrevia.contatos
+          .filter((c: any) => c.novo)
+          .map((c: any) => ({ nome: c.nome, telefone: c.telefone })),
+        true,
+      );
+      toast.success(
+        `${r.inseridos} contato(s) novo(s) importado(s)` +
+          (r.duplicados ? ` · ${r.duplicados} já estavam na base` : '') +
+          (r.invalidos ? ` · ${r.invalidos} inválido(s)` : '') +
+          '. Registrado na auditoria.',
+      );
+      setImpPrevia(null);
+      setImpConsent(false);
+      carregar();
+      carregarResumo();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível importar.');
+    } finally {
+      setImportando(false);
     }
   }
 
@@ -392,6 +448,20 @@ export default function ClientesPage() {
           <Button variant="outline" onClick={abrirCampanhas}>
             Campanhas
           </Button>
+          {podeImportar && (
+            <>
+              <input
+                ref={vcfRef}
+                type="file"
+                accept=".vcf,text/vcard,text/x-vcard"
+                hidden
+                onChange={(e) => e.target.files?.[0] && escolherVcf(e.target.files[0])}
+              />
+              <Button variant="outline" disabled={importando} onClick={() => vcfRef.current?.click()}>
+                {importando ? 'Lendo…' : 'Importar contatos'}
+              </Button>
+            </>
+          )}
           <Button onClick={abrirCampanha}>Nova campanha</Button>
         </div>
 
@@ -976,6 +1046,84 @@ export default function ClientesPage() {
                 <Button onClick={confirmarExport} disabled={exportando}>
                   {exportando ? 'Gerando…' : 'Concordo e exportar'}
                 </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: prévia + consentimento antes de importar contatos (.vcf) */}
+      {impPrevia && (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          onClick={() => !importando && setImpPrevia(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Importar contatos"
+        >
+          <div onClick={(e) => e.stopPropagation()} className="w-full max-w-md">
+            <Card className="overflow-hidden p-0">
+              <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+                <p className="font-display font-bold">Importar contatos</p>
+                <button
+                  type="button"
+                  onClick={() => setImpPrevia(null)}
+                  className="ml-auto text-muted-foreground hover:text-foreground"
+                  aria-label="Fechar"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="space-y-3 px-4 py-4">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-emerald-500/10 p-2">
+                    <p className="font-mono text-lg font-bold text-emerald-600">{impPrevia.novos}</p>
+                    <p className="text-[11px] text-muted-foreground">novos</p>
+                  </div>
+                  <div className="rounded-lg bg-muted p-2">
+                    <p className="font-mono text-lg font-bold text-foreground/70">{impPrevia.jaExistem}</p>
+                    <p className="text-[11px] text-muted-foreground">já na base</p>
+                  </div>
+                  <div className="rounded-lg bg-muted p-2">
+                    <p className="font-mono text-lg font-bold text-foreground/70">{impPrevia.invalidos}</p>
+                    <p className="text-[11px] text-muted-foreground">sem nº válido</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Lidos {impPrevia.total} contato(s); vamos gravar os <strong className="text-foreground">{impPrevia.novos} novos</strong> (os que já
+                  existem são ignorados, sem duplicar).
+                </p>
+                {impPrevia.truncado && (
+                  <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-foreground">
+                    O arquivo tem mais de {impPrevia.limite} contatos válidos. Nesta importação vamos gravar os
+                    primeiros <strong>{impPrevia.limite}</strong>; importe o restante em um novo arquivo.
+                  </p>
+                )}
+                <label className="flex items-start gap-2 rounded-md bg-warn/10 px-3 py-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={impConsent}
+                    onChange={(e) => setImpConsent(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <strong className="text-foreground">Declaro que tenho autorização</strong> destes contatos para enviar mensagens da
+                    minha loja, conforme a LGPD. Esta importação é <strong className="text-foreground">registrada na auditoria</strong>.
+                  </span>
+                </label>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+                <Button variant="outline" onClick={() => setImpPrevia(null)} disabled={importando}>
+                  Cancelar
+                </Button>
+                {(() => {
+                  const enviaveis = (impPrevia.contatos ?? []).filter((c: any) => c.novo).length;
+                  return (
+                    <Button onClick={confirmarImport} disabled={importando || !impConsent || enviaveis === 0}>
+                      {importando ? 'Importando…' : `Importar ${enviaveis} contato(s)`}
+                    </Button>
+                  );
+                })()}
               </div>
             </Card>
           </div>
