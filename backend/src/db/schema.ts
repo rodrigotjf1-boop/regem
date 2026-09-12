@@ -2286,7 +2286,9 @@ export const whatsappTemplate = pgTable('whatsapp_template', {
   nome: text('nome').notNull(), // nome técnico (minúsculas/underscore)
   categoria: text('categoria').notNull().default('MARKETING'), // MARKETING | UTILITY | AUTHENTICATION
   idioma: text('idioma').notNull().default('pt_BR'),
-  cabecalho: text('cabecalho'), // header de texto (opcional)
+  cabecalho: text('cabecalho'), // header de TEXTO (opcional)
+  cabecalhoFormato: text('cabecalho_formato'), // null/text | image | video | document (mig 239)
+  cabecalhoMidiaRef: text('cabecalho_midia_ref'), // URL da mídia do cabeçalho (image/video/document)
   corpo: text('corpo').notNull(), // body com {{1}}, {{2}}…
   rodape: text('rodape'), // footer (opcional)
   exemplo: jsonb('exemplo'), // valores de exemplo das variáveis

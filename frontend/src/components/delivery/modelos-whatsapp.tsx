@@ -19,7 +19,7 @@ const STATUS: Record<string, { t: string; c: string }> = {
   rejeitado: { t: 'rejeitado', c: 'bg-destructive/10 text-destructive' },
   pausado: { t: 'pausado', c: 'bg-amber-500/10 text-amber-600' },
 };
-const vazio = { id: '', nome: '', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: '', corpo: '', rodape: '' };
+const vazio = { id: '', nome: '', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: '', cabecalhoFormato: 'text', cabecalhoMidiaRef: '', corpo: '', rodape: '' };
 
 const PRESETS: { t: string; form: any; exemplo: string[]; peca?: boolean; cupom?: boolean }[] = [
   {
@@ -98,6 +98,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const [limite, setLimite] = useState<{ limite: number | null; usadoHoje: number } | null>(null);
   const cardFileRef = useRef<HTMLInputElement>(null);
   const cardAlvo = useRef<number>(-1);
+  const cabFileRef = useRef<HTMLInputElement>(null);
 
   const carregar = async () => {
     try { setLista(await api.whatsappTemplatesLocais()); } catch { /* ignore */ }
@@ -128,7 +129,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   }
 
   function editar(t: any) {
-    setForm({ id: t.id, nome: t.nome, categoria: t.categoria, idioma: t.idioma, cabecalho: t.cabecalho ?? '', corpo: t.corpo, rodape: t.rodape ?? '' });
+    setForm({ id: t.id, nome: t.nome, categoria: t.categoria, idioma: t.idioma, cabecalho: t.cabecalho ?? '', cabecalhoFormato: t.cabecalhoFormato ?? 'text', cabecalhoMidiaRef: t.cabecalhoMidiaRef ?? '', corpo: t.corpo, rodape: t.rodape ?? '' });
     setExemplos((t.exemplo as string[]) ?? []);
     setFormato(t.formato === 'carrossel' ? 'carrossel' : 'padrao');
     setCards(Array.isArray(t.cards) ? t.cards.map((c: any) => ({ imagemRef: c.imagemRef, corpo: c.corpo ?? '' })) : []);
@@ -171,8 +172,23 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
     }
   }
 
+  async function subirCabecalhoMidia(f: File) {
+    setBusy(true);
+    try {
+      const isImg = f.type.startsWith('image/');
+      const r: any = await api.upload(isImg ? await comprimir(f) : f);
+      setForm((fm: any) => ({ ...fm, cabecalhoMidiaRef: r?.url ?? '' }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Falha ao subir a mídia.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function salvar(submeter: boolean) {
     if (form.corpo.trim().length < 3) return toast.error(formato === 'carrossel' ? 'Escreva o texto do topo do carrossel.' : 'Escreva o corpo do modelo.');
+    if (formato === 'padrao' && form.cabecalhoFormato !== 'text' && !form.cabecalhoMidiaRef)
+      return toast.error('Envie a mídia do cabeçalho (ou escolha "Nenhum/Texto").');
     // Regras da Meta (só bloqueiam no ENVIO p/ aprovação; rascunho pode salvar).
     if (submeter) {
       const eCorpo = validarCorpo(form.corpo);
@@ -337,9 +353,36 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
             </div>
 
             {formato === 'padrao' && (
-              <label className="block text-xs"><span className="mb-0.5 block text-foreground/70">Cabeçalho (opcional) — sem emoji, quebra de linha ou * _ ~ ` (emoji só no corpo)</span>
-                <Input value={form.cabecalho} onChange={(e) => setForm({ ...form, cabecalho: e.target.value })} placeholder="Ex.: Oferta da semana" className={erroCabecalho ? 'border-destructive' : undefined} />
-                {erroCabecalho && <p className="mt-1 text-[11px] text-destructive">⚠️ {erroCabecalho}</p>}</label>
+              <div className="text-xs">
+                <span className="mb-1 block text-foreground/70">Cabeçalho (opcional)</span>
+                <div className="mb-1 flex flex-wrap gap-1">
+                  {([['text', 'Texto'], ['image', 'Imagem'], ['video', 'Vídeo'], ['document', 'Documento']] as const).map(([k, r]) => (
+                    <button key={k} type="button" onClick={() => setForm({ ...form, cabecalhoFormato: k })} aria-pressed={form.cabecalhoFormato === k}
+                      className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${form.cabecalhoFormato === k ? 'border-primary bg-primary/5 text-primary' : 'border-border text-foreground/70'}`}>{r}</button>
+                  ))}
+                </div>
+                {form.cabecalhoFormato === 'text' ? (
+                  <>
+                    <Input value={form.cabecalho} onChange={(e) => setForm({ ...form, cabecalho: e.target.value })} placeholder="Ex.: Oferta da semana" className={erroCabecalho ? 'border-destructive' : undefined} />
+                    <p className="mt-0.5 text-[11px] text-foreground/60">Sem emoji, quebra de linha ou <span className="font-mono">* _ ~ `</span> (emoji só no corpo).</p>
+                    {erroCabecalho && <p className="mt-1 text-[11px] text-destructive">⚠️ {erroCabecalho}</p>}
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <input ref={cabFileRef} type="file" hidden
+                      accept={form.cabecalhoFormato === 'image' ? 'image/*' : form.cabecalhoFormato === 'video' ? 'video/*' : '.pdf,application/pdf'}
+                      onChange={(e) => e.target.files?.[0] && subirCabecalhoMidia(e.target.files[0])} />
+                    <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => cabFileRef.current?.click()}>
+                      {busy ? 'Enviando…' : form.cabecalhoMidiaRef ? 'Trocar mídia' : `＋ ${form.cabecalhoFormato === 'image' ? 'Imagem' : form.cabecalhoFormato === 'video' ? 'Vídeo' : 'Documento (PDF)'}`}
+                    </Button>
+                    {form.cabecalhoMidiaRef && form.cabecalhoFormato === 'image' && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={form.cabecalhoMidiaRef} alt="" className="h-12 w-12 rounded object-cover" />
+                    )}
+                    {form.cabecalhoMidiaRef && form.cabecalhoFormato !== 'image' && <span className="text-[11px] text-emerald-600">✓ enviado</span>}
+                  </div>
+                )}
+              </div>
             )}
 
             <label className="block text-xs">
