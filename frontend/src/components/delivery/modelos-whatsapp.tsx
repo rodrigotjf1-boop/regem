@@ -104,7 +104,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const [respostas, setRespostas] = useState<string[]>([]); // respostas rápidas customizadas (até 3)
   const [busy, setBusy] = useState(false);
   const [aberto, setAberto] = useState(false);
-  const [limite, setLimite] = useState<{ limite: number | null; usadoHoje: number } | null>(null);
+  const [limite, setLimite] = useState<{ limite: number | null; ilimitado?: boolean; usadoHoje: number } | null>(null);
   const cardFileRef = useRef<HTMLInputElement>(null);
   const cardAlvo = useRef<number>(-1);
   const cabFileRef = useRef<HTMLInputElement>(null);
@@ -175,7 +175,8 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
     if (btnCupom) b.push({ tipo: 'copy_code', texto: 'Copiar cupom' });
     if (btnLink && linkUrl.trim()) b.push({ tipo: 'link', texto: (linkLabel || 'Visitar site').slice(0, 25), url: linkUrl.trim() });
     if (btnLigar && ligarFone.trim()) b.push({ tipo: 'phone', texto: (ligarLabel || 'Ligar').slice(0, 25), phone: ligarFone.trim() });
-    respostas.map((r) => r.trim()).filter(Boolean).slice(0, 3).forEach((r) => b.push({ tipo: 'quick_reply', texto: r.slice(0, 25) }));
+    // Até 10 respostas rápidas — o teto de 3 é da mensagem interativa, não do template.
+    respostas.map((r) => r.trim()).filter(Boolean).slice(0, 10).forEach((r) => b.push({ tipo: 'quick_reply', texto: r.slice(0, 25) }));
     if (btnOptout) b.push({ tipo: 'optout', texto: 'Sair das ofertas' });
     return b.slice(0, 10);
   }
@@ -270,9 +271,11 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
       const lim: any = await api.whatsappLimite().catch(() => null);
       if (lim) setLimite(lim);
       toast.success(
-        lim?.limite != null
-          ? `Sincronizado. Limite de envio: ${Number(lim.limite).toLocaleString('pt-BR')}/24h (usado hoje: ${lim.usadoHoje}).`
-          : 'Status sincronizado.',
+        lim?.ilimitado
+          ? `Sincronizado. Envio sem teto (usado hoje: ${lim.usadoHoje}).`
+          : lim?.limite != null
+            ? `Sincronizado. Limite de envio: ${Number(lim.limite).toLocaleString('pt-BR')}/24h (usado hoje: ${lim.usadoHoje}).`
+            : 'Status sincronizado.',
       );
     }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Falha ao sincronizar.'); }
@@ -327,6 +330,12 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   }
 
   const botoesPreview = montarBotoes();
+  // montarBotoes corta em 10 (teto da Meta). Conta quantos o lojista PEDIU para avisar do
+  // corte — antes o excedente simplesmente sumia sem ninguém perceber.
+  const botoesPedidos =
+    (btnPeca ? 1 : 0) + (btnCupom ? 1 : 0) + (btnLink && linkUrl.trim() ? 1 : 0) +
+    (btnLigar && ligarFone.trim() ? 1 : 0) + respostas.filter((r) => r.trim()).length + (btnOptout ? 1 : 0);
+  const botoesExcedente = Math.max(0, botoesPedidos - 10);
   const erroCorpo = validarCorpo(form.corpo);
   const lto = !!form.ltoAtivo;
   // O cabeçalho de TEXTO só existe no modelo padrão e sem oferta. Validar fora disso
@@ -357,7 +366,13 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
       {limite && (
         <p className="rounded-lg border border-border bg-card px-3 py-2 text-[12px] text-foreground/70">
           📨 <strong>Limite de envio:</strong>{' '}
-          {limite.limite == null ? 'sem teto' : `${Number(limite.limite).toLocaleString('pt-BR')} conversas iniciadas / 24h`}
+          {/* "sem teto" só quando a Meta REALMENTE liberou; se não conseguimos ler, diga isso
+              em vez de fingir que não há limite (antes os dois casos viravam "sem teto"). */}
+          {limite.ilimitado
+            ? 'sem teto'
+            : limite.limite == null
+              ? 'não consegui ler da Meta — tente sincronizar de novo'
+              : `${Number(limite.limite).toLocaleString('pt-BR')} conversas iniciadas / 24h`}
           {' '}· usado hoje: {limite.usadoHoje}. Só conta mensagem que a loja inicia (atendimento não conta). Atualizado ao sincronizar.
         </p>
       )}
@@ -529,7 +544,15 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
             {/* Botões */}
             <div className="rounded-lg border border-dashed border-border p-2 text-xs">
-              <p className="mb-1 font-semibold text-foreground/70">Botões {formato === 'carrossel' ? '(iguais em todos os cards)' : ''} — até 10 (máx. 2 links + 1 telefone)</p>
+              <p className="mb-1 font-semibold text-foreground/70">
+                Botões {formato === 'carrossel' ? '(iguais em todos os cards)' : ''} — até 10 (máx. 2 links + 1 telefone + 1 cupom)
+                {botoesPedidos > 0 && <span className="ml-1 font-normal text-foreground/60">· {Math.min(botoesPedidos, 10)}/10</span>}
+              </p>
+              {botoesExcedente > 0 && (
+                <p className="mb-1 rounded-md bg-warn/10 px-2 py-1.5 text-[11px] text-foreground/80">
+                  ⚠️ A Meta aceita no máximo <strong>10 botões</strong>. {botoesExcedente === 1 ? 'O último não será enviado' : `Os ${botoesExcedente} últimos não serão enviados`} — remova alguma resposta rápida.
+                </p>
+              )}
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center gap-2"><input type="checkbox" checked={btnPeca} onChange={(e) => setBtnPeca(e.target.checked)} /> <strong>Peça agora</strong> — leva ao link da campanha (clique medido)</label>
                 <label className="flex items-center gap-2"><input type="checkbox" checked={btnCupom} onChange={(e) => setBtnCupom(e.target.checked)} /> <strong>Copiar cupom</strong> — usa o cupom da campanha</label>
@@ -554,7 +577,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
                 {/* Respostas rápidas customizadas */}
                 <div className="rounded-md bg-muted/30 p-1.5">
-                  <p className="mb-1 text-foreground/70"><strong>Respostas rápidas</strong> — o cliente toca e responde (abre a conversa). Até 3.</p>
+                  <p className="mb-1 text-foreground/70"><strong>Respostas rápidas</strong> — o cliente toca e responde (abre a conversa). Até 10.</p>
                   <div className="flex flex-col gap-1">
                     {respostas.map((r, i) => (
                       <div key={i} className="flex items-center gap-1">
@@ -562,7 +585,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
                         <button type="button" className="text-[11px] text-destructive underline" onClick={() => setRespostas((c) => c.filter((_, j) => j !== i))}>remover</button>
                       </div>
                     ))}
-                    {respostas.length < 3 && (
+                    {respostas.length < 10 && (
                       <button type="button" className="self-start text-[11px] font-semibold text-primary underline" onClick={() => setRespostas((c) => [...c, ''])}>＋ resposta rápida</button>
                     )}
                   </div>
@@ -605,8 +628,20 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
             <p className="mb-2 text-xs font-semibold text-foreground/70">Prévia (como o cliente vê)</p>
             <div className="rounded-lg bg-[#e5ddd5] p-3">
               <div className="max-w-[320px] rounded-lg bg-white p-2 shadow">
-                {form.cabecalho && formato === 'padrao' && !lto && (
+                {form.cabecalho && formato === 'padrao' && form.cabecalhoFormato === 'text' && !lto && (
                   <p className="text-[13px] font-bold text-[#111]">{String(form.cabecalho).replace(/\{\{\s*1\s*\}\}/, form.cabecalhoExemplo || 'João')}</p>
+                )}
+                {/* Cabeçalho de MÍDIA. Faltava na prévia: como a oferta por tempo limitado
+                    exige imagem/vídeo, o lojista subia a mídia e a prévia não mudava nada. */}
+                {formato === 'padrao' && ['image', 'video', 'document'].includes(form.cabecalhoFormato) && form.cabecalhoMidiaRef && (
+                  form.cabecalhoFormato === 'image' ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={form.cabecalhoMidiaRef} alt="" className="mb-1 h-32 w-full rounded object-cover" />
+                  ) : form.cabecalhoFormato === 'video' ? (
+                    <video src={form.cabecalhoMidiaRef} className="mb-1 h-32 w-full rounded object-cover" muted playsInline />
+                  ) : (
+                    <div className="mb-1 flex items-center gap-2 rounded bg-[#f0f2f5] px-2 py-2 text-[11px] text-[#111]">📄 documento.pdf</div>
+                  )
                 )}
                 {/* Faixa da oferta + contador (a Meta desenha assim, acima do corpo). */}
                 {lto && formato === 'padrao' && (
