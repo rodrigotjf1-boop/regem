@@ -86,6 +86,13 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const [btnPeca, setBtnPeca] = useState(false);
   const [btnCupom, setBtnCupom] = useState(false);
   const [btnOptout, setBtnOptout] = useState(false);
+  const [btnLigar, setBtnLigar] = useState(false);
+  const [ligarFone, setLigarFone] = useState('');
+  const [ligarLabel, setLigarLabel] = useState('Ligar');
+  const [btnLink, setBtnLink] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkLabel, setLinkLabel] = useState('Visitar site');
+  const [respostas, setRespostas] = useState<string[]>([]); // respostas rápidas customizadas (até 3)
   const [busy, setBusy] = useState(false);
   const [aberto, setAberto] = useState(false);
   const [limite, setLimite] = useState<{ limite: number | null; usadoHoje: number } | null>(null);
@@ -102,13 +109,21 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const nVars = (form.corpo.match(/\{\{\d+\}\}/g) ?? []).length;
   useEffect(() => { setExemplos((cur) => Array.from({ length: nVars }, (_, i) => cur[i] ?? '')); }, [nVars]);
 
+  function limparBotoes() {
+    setBtnPeca(false); setBtnCupom(false); setBtnOptout(false);
+    setBtnLigar(false); setLigarFone(''); setLigarLabel('Ligar');
+    setBtnLink(false); setLinkUrl(''); setLinkLabel('Visitar site');
+    setRespostas([]);
+  }
+
   function resetar() {
     setForm(vazio); setExemplos([]); setFormato('padrao'); setCards([]);
-    setBtnPeca(false); setBtnCupom(false); setBtnOptout(false);
+    limparBotoes();
   }
 
   function aplicarPreset(p: any) {
     setForm({ ...p.form }); setExemplos([...p.exemplo]); setFormato('padrao'); setCards([]);
+    limparBotoes();
     setBtnPeca(!!p.peca); setBtnCupom(!!p.cupom); setBtnOptout(true);
   }
 
@@ -118,19 +133,30 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
     setFormato(t.formato === 'carrossel' ? 'carrossel' : 'padrao');
     setCards(Array.isArray(t.cards) ? t.cards.map((c: any) => ({ imagemRef: c.imagemRef, corpo: c.corpo ?? '' })) : []);
     const bt = (t.botoes as any[]) ?? [];
+    limparBotoes();
     setBtnPeca(bt.some((b) => b.tipo === 'url'));
     setBtnCupom(bt.some((b) => b.tipo === 'copy_code'));
     setBtnOptout(bt.some((b) => b.tipo === 'optout'));
+    const fone = bt.find((b) => b.tipo === 'phone');
+    if (fone) { setBtnLigar(true); setLigarFone(fone.phone ?? ''); setLigarLabel(fone.texto ?? 'Ligar'); }
+    const lk = bt.find((b) => b.tipo === 'link');
+    if (lk) { setBtnLink(true); setLinkUrl(lk.url ?? ''); setLinkLabel(lk.texto ?? 'Visitar site'); }
+    setRespostas(bt.filter((b) => b.tipo === 'quick_reply').map((b) => b.texto ?? ''));
     setAberto(true);
   }
 
   // Botões (mesma config aplicada ao template simples e a cada card do carrossel).
+  // Ordem/limites da Meta: até 2 URLs (Peça agora + site), 1 telefone, 1 cupom, respostas
+  // rápidas o resto; máx. 10 no total.
   function montarBotoes() {
     const b: any[] = [];
     if (btnPeca) b.push({ tipo: 'url', texto: 'Peça agora' });
     if (btnCupom) b.push({ tipo: 'copy_code', texto: 'Copiar cupom' });
+    if (btnLink && linkUrl.trim()) b.push({ tipo: 'link', texto: (linkLabel || 'Visitar site').slice(0, 25), url: linkUrl.trim() });
+    if (btnLigar && ligarFone.trim()) b.push({ tipo: 'phone', texto: (ligarLabel || 'Ligar').slice(0, 25), phone: ligarFone.trim() });
+    respostas.map((r) => r.trim()).filter(Boolean).slice(0, 3).forEach((r) => b.push({ tipo: 'quick_reply', texto: r.slice(0, 25) }));
     if (btnOptout) b.push({ tipo: 'optout', texto: 'Sair das ofertas' });
-    return b;
+    return b.slice(0, 10);
   }
 
   async function subirCardImg(i: number, f: File) {
@@ -338,10 +364,45 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
             {/* Botões */}
             <div className="rounded-lg border border-dashed border-border p-2 text-xs">
-              <p className="mb-1 font-semibold text-foreground/70">Botões {formato === 'carrossel' ? '(iguais em todos os cards)' : ''}</p>
-              <div className="flex flex-col gap-1">
+              <p className="mb-1 font-semibold text-foreground/70">Botões {formato === 'carrossel' ? '(iguais em todos os cards)' : ''} — até 10 (máx. 2 links + 1 telefone)</p>
+              <div className="flex flex-col gap-1.5">
                 <label className="flex items-center gap-2"><input type="checkbox" checked={btnPeca} onChange={(e) => setBtnPeca(e.target.checked)} /> <strong>Peça agora</strong> — leva ao link da campanha (clique medido)</label>
                 <label className="flex items-center gap-2"><input type="checkbox" checked={btnCupom} onChange={(e) => setBtnCupom(e.target.checked)} /> <strong>Copiar cupom</strong> — usa o cupom da campanha</label>
+
+                {/* Botão de site (2ª URL, estática) */}
+                <label className="flex items-center gap-2"><input type="checkbox" checked={btnLink} onChange={(e) => setBtnLink(e.target.checked)} /> <strong>Visitar site</strong> — abre um link fixo (ex.: localização, Instagram)</label>
+                {btnLink && (
+                  <div className="ml-6 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    <Input value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} placeholder="Texto do botão (máx. 25)" maxLength={25} />
+                    <Input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder="https://… (HTTPS)" />
+                  </div>
+                )}
+
+                {/* Botão de ligar */}
+                <label className="flex items-center gap-2"><input type="checkbox" checked={btnLigar} onChange={(e) => setBtnLigar(e.target.checked)} /> <strong>Ligar</strong> — o cliente liga para a loja com 1 toque</label>
+                {btnLigar && (
+                  <div className="ml-6 grid grid-cols-1 gap-1 sm:grid-cols-2">
+                    <Input value={ligarLabel} onChange={(e) => setLigarLabel(e.target.value)} placeholder="Texto do botão (máx. 25)" maxLength={25} />
+                    <Input value={ligarFone} onChange={(e) => setLigarFone(e.target.value)} placeholder="+5521999999999 (com país)" />
+                  </div>
+                )}
+
+                {/* Respostas rápidas customizadas */}
+                <div className="rounded-md bg-muted/30 p-1.5">
+                  <p className="mb-1 text-foreground/70"><strong>Respostas rápidas</strong> — o cliente toca e responde (abre a conversa). Até 3.</p>
+                  <div className="flex flex-col gap-1">
+                    {respostas.map((r, i) => (
+                      <div key={i} className="flex items-center gap-1">
+                        <Input value={r} onChange={(e) => setRespostas((c) => c.map((x, j) => (j === i ? e.target.value : x)))} placeholder="Ex.: Ver cardápio" maxLength={25} />
+                        <button type="button" className="text-[11px] text-destructive underline" onClick={() => setRespostas((c) => c.filter((_, j) => j !== i))}>remover</button>
+                      </div>
+                    ))}
+                    {respostas.length < 3 && (
+                      <button type="button" className="self-start text-[11px] font-semibold text-primary underline" onClick={() => setRespostas((c) => [...c, ''])}>＋ resposta rápida</button>
+                    )}
+                  </div>
+                </div>
+
                 <label className="flex items-center gap-2"><input type="checkbox" checked={btnOptout} onChange={(e) => setBtnOptout(e.target.checked)} /> <strong>Sair das ofertas</strong> — opt-out automático (LGPD)</label>
               </div>
             </div>
