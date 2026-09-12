@@ -41,6 +41,105 @@ import PDFDocument from 'pdfkit';
 const soDigitos = (s?: string) => (s ?? '').replace(/\D/g, '');
 const OTP_MIN = 5; // validade do código em minutos
 
+// ===== Import de contatos (.vcf / vCard) =====
+// Normalização ÚNICA do import: só dígitos e, se vier com DDI 55 (len>11), remove — alinha
+// com delivery.normTel e o formato dominante da base (DDD+numero, 10-11). Inválido → ''.
+function normTelImport(raw?: string): string {
+  let d = String(raw ?? '').replace(/\D/g, '');
+  if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
+  return d.length === 10 || d.length === 11 ? d : '';
+}
+
+// Teto de contatos por importação (prévia e commit): o .vcf entra por upload de 2 MB, mas
+// o commit é JSON (corpo ~10 MB) e um cliente malicioso poderia mandar centenas de milhares
+// de linhas. 5000 cobre bases reais de PME com folga; acima disso, importar em partes.
+const IMPORT_MAX = 5000;
+
+// Decodifica QUOTED-PRINTABLE (=C3=A9 → bytes) respeitando o CHARSET declarado:
+// UTF-8 (padrão dos exports Android/iOS) e ISO-8859-1/Windows-1252 (exports legados,
+// onde 'é' seria =E9 num único byte). Sem tratar o charset, latin1 vira mojibake.
+function decodeQP(s: string, charset?: string): string {
+  const semSoft = s.replace(/=\r?\n/g, '');
+  const bytes: number[] = [];
+  for (let i = 0; i < semSoft.length; i++) {
+    if (semSoft[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(semSoft.substr(i + 1, 2))) {
+      bytes.push(parseInt(semSoft.substr(i + 1, 2), 16));
+      i += 2;
+    } else {
+      bytes.push(semSoft.charCodeAt(i) & 0xff);
+    }
+  }
+  const cs = String(charset ?? '').toUpperCase();
+  // latin1 do Node cobre ISO-8859-1; Windows-1252 é aproximado (difere só em 0x80–0x9F,
+  // raríssimo em nomes) — bom o bastante e melhor que decodificar como UTF-8.
+  const latin = /8859-1|LATIN1|WINDOWS-125[02]|CP125[02]/.test(cs);
+  try {
+    return Buffer.from(bytes).toString(latin ? 'latin1' : 'utf8');
+  } catch {
+    return semSoft;
+  }
+}
+
+// Parser de vCard (2.1/3.0/4.0) — extrai nome + 1 telefone (prefere CELULAR VÁLIDO) por
+// contato. Trata folding (RFC, linha continuada com espaço/TAB), soft line break do
+// QUOTED-PRINTABLE do vCard 2.1 (linha do VALOR termina em '=' e continua na próxima
+// SEM espaço), item1.TEL, params TYPE= e CHARSET=.
+function parseVcf(texto: string): { nome: string; telefoneRaw: string }[] {
+  // Unfolding RFC (3.0/4.0): linha continuada começa com espaço/TAB → junta na anterior.
+  const unfolded = String(texto ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n[ \t]/g, '');
+  const cards = unfolded.split(/BEGIN:VCARD/i).slice(1);
+  const out: { nome: string; telefoneRaw: string }[] = [];
+  for (const card of cards) {
+    const body = card.split(/END:VCARD/i)[0] ?? '';
+    const linhas = body.split('\n');
+    let fn = '';
+    let nStruct = '';
+    const tels: { value: string; cell: boolean }[] = [];
+    for (let i = 0; i < linhas.length; i++) {
+      const line = linhas[i];
+      const idx = line.indexOf(':');
+      if (idx < 0) continue;
+      const left = line.slice(0, idx);
+      let value = line.slice(idx + 1);
+      const segs = left.split(';');
+      const prop = (segs[0].split('.').pop() ?? '').toUpperCase(); // item1.TEL → TEL
+      const params = segs.slice(1).map((p) => p.toUpperCase());
+      const isQP = params.some((p) => p.includes('QUOTED-PRINTABLE'));
+      // Soft line break do QP (2.1): valor termina em '=' → junta as próximas linhas
+      // físicas (que não têm ':', logo seriam descartadas) até fechar a sequência.
+      if (isQP) {
+        while (/=\s*$/.test(value) && i + 1 < linhas.length) {
+          value = value.replace(/=\s*$/, '') + linhas[++i];
+        }
+        const charset = (params.find((p) => p.startsWith('CHARSET=')) ?? '').slice(8);
+        value = decodeQP(value, charset);
+      }
+      if (prop === 'FN') fn = value.trim();
+      else if (prop === 'N' && !nStruct) nStruct = value;
+      else if (prop === 'TEL')
+        tels.push({ value, cell: params.some((p) => p.includes('CELL') || p.includes('MOBILE')) });
+    }
+    let nome = fn;
+    if (!nome && nStruct) {
+      const [sobrenome, prenome] = nStruct.split(';');
+      nome = [prenome, sobrenome].filter(Boolean).join(' ').trim();
+    }
+    // Escolhe o telefone que de fato NORMALIZA (não perde o contato quando o 1º CELL é
+    // um número curto/inválido mas há outro TEL válido). Cai no comportamento antigo
+    // (1º CELL, senão 1º TEL) só quando nenhum valida — aí sobe como inválido na contagem.
+    const escolhido =
+      (tels.find((t) => t.cell && normTelImport(t.value)) ||
+        tels.find((t) => normTelImport(t.value)) ||
+        tels.find((t) => t.cell) ||
+        tels[0])?.value ?? '';
+    out.push({ nome: (nome ?? '').trim().slice(0, 120), telefoneRaw: escolhido });
+  }
+  return out;
+}
+
 @Injectable()
 export class ClienteService {
   private readonly logger = new Logger('ClienteOtp');
@@ -283,6 +382,127 @@ export class ClienteService {
         .returning();
     }
     return c;
+  }
+
+  // ===== Import de contatos (.vcf) → base própria =====
+  // Prévia: parseia o .vcf, normaliza/dedup por telefone e marca quais já existem na base.
+  async previewVcf(tenantId: string, texto: string) {
+    if (!/BEGIN:VCARD/i.test(String(texto ?? '')))
+      throw new BadRequestException('Arquivo não parece um .vcf de contatos.');
+    const brutos = parseVcf(texto);
+    const porTel = new Map<string, { nome: string; telefone: string }>();
+    let invalidos = 0;
+    for (const b of brutos) {
+      const tel = normTelImport(b.telefoneRaw);
+      if (!tel) {
+        invalidos++;
+        continue;
+      }
+      const atual = porTel.get(tel);
+      if (!atual) porTel.set(tel, { nome: b.nome, telefone: tel });
+      else if (!atual.nome && b.nome) atual.nome = b.nome;
+    }
+    const contatos = [...porTel.values()];
+    const existentes = await this.telefonesExistentes(tenantId, contatos.map((c) => c.telefone));
+    const marcados = contatos.map((c) => ({ ...c, novo: !existentes.has(c.telefone) }));
+    const novos = marcados.filter((c) => c.novo).length;
+    return {
+      total: brutos.length,
+      validos: contatos.length,
+      invalidos,
+      novos,
+      jaExistem: contatos.length - novos,
+      limite: IMPORT_MAX,
+      truncado: contatos.length > IMPORT_MAX,
+      contatos: marcados.slice(0, IMPORT_MAX),
+    };
+  }
+
+  // Telefones já na base para um conjunto de números NORMALIZADOS (sem DDI 55). Consulta
+  // as duas formas (com e sem 55), porque a base mistura os dois — cardápio grava como
+  // veio (soDigitos) e pode ter 55; o import tira o 55. Retorna um Set normalizado, para
+  // a comparação e o dedup baterem no MESMO formato (senão o mesmo número entraria de novo
+  // → duplicado + disparo dobrado de campanha). Escopo por tenant.
+  private async telefonesExistentes(tenantId: string, tels: string[]): Promise<Set<string>> {
+    const existentes = new Set<string>();
+    const unicos = [...new Set(tels.filter(Boolean))];
+    for (let i = 0; i < unicos.length; i += 500) {
+      const fatia = unicos.slice(i, i + 500);
+      const formas = fatia.flatMap((t) => [t, `55${t}`]);
+      if (!formas.length) continue;
+      const rows = await this.db
+        .select({ telefone: cliente.telefone })
+        .from(cliente)
+        .where(and(eq(cliente.tenantId, tenantId), inArray(cliente.telefone, formas)));
+      rows.forEach((r) => {
+        const n = normTelImport(r.telefone ?? undefined);
+        if (n) existentes.add(n);
+      });
+    }
+    return existentes;
+  }
+
+  // Commit: grava os contatos revisados na base própria (dedup por telefone via onConflict).
+  // Option A: entram elegíveis a marketing (opt_out=false), com consentimento DECLARADO.
+  async importarContatos(
+    user: AuthUser,
+    contatos: { nome?: string; telefone?: string }[],
+    consentimento: boolean,
+  ) {
+    if (!consentimento)
+      throw new BadRequestException('É preciso declarar que você tem autorização destes contatos.');
+    if (!Array.isArray(contatos) || !contatos.length)
+      throw new BadRequestException('Nenhum contato para importar.');
+    if (contatos.length > IMPORT_MAX)
+      throw new BadRequestException(
+        `Máximo de ${IMPORT_MAX} contatos por importação. Divida o arquivo e importe em partes.`,
+      );
+    const recebidos = contatos.length;
+    const porTel = new Map<string, string | null>();
+    let invalidos = 0;
+    for (const c of contatos) {
+      const tel = normTelImport(c.telefone);
+      if (!tel) {
+        invalidos++;
+        continue;
+      }
+      const nome = String(c.nome ?? '').trim().slice(0, 120) || null;
+      if (!porTel.has(tel)) porTel.set(tel, nome);
+      else if (!porTel.get(tel) && nome) porTel.set(tel, nome);
+    }
+    // Dedup contra a base em CÓDIGO (não há unique em (tenant, telefone) — ON CONFLICT nesse
+    // alvo daria 42P10; e a base mistura com/sem DDI 55). Só entram os realmente novos.
+    const existentes = await this.telefonesExistentes(user.tenantId, [...porTel.keys()]);
+    const rows = [...porTel.entries()]
+      .filter(([telefone]) => !existentes.has(telefone))
+      .map(([telefone, nome]) => ({
+        tenantId: user.tenantId,
+        telefone,
+        nome,
+        // Marca a proveniência (LGPD): distingue/permite expurgar contatos importados vs.
+        // os que pediram pelo cardápio. origem_id fica nulo → uq_cliente_origem (parcial,
+        // where origem is not null) não colide (nulos são distintos entre si no índice).
+        origem: 'importado' as string | null,
+        consentimentoLgpd: true,
+      }));
+    const duplicados = porTel.size - rows.length;
+    let inseridos = 0;
+    for (let i = 0; i < rows.length; i += 500) {
+      const fatia = rows.slice(i, i + 500);
+      if (!fatia.length) continue;
+      const ret = await this.db.insert(cliente).values(fatia).returning({ id: cliente.id });
+      inseridos += ret.length;
+    }
+    await this.auditoria.registrar({
+      tenantId: user.tenantId,
+      atorId: user.colaboradorId,
+      atorPerfil: user.categoria,
+      tipo: 'importacao',
+      acao: 'clientes.importar',
+      origem: 'web',
+      detalhe: { recebidos, validos: porTel.size, inseridos, duplicados, invalidos, consentimento: true },
+    });
+    return { recebidos, inseridos, duplicados, invalidos };
   }
 
   // ===== CRM / segmentação (F3) — base do lojista, USO INTERNO, sempre por tenant =====

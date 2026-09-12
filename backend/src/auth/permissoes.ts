@@ -38,6 +38,7 @@ export interface Permissoes {
   financeiro?: boolean; // módulo Financeiro (DRE / fluxo)
   formas_pagamento?: boolean; // formas de pagamento (delivery + balcão)
   clientes_exportar?: boolean; // exportar a base de clientes (dado sensível/LGPD)
+  clientes_importar?: boolean; // importar contatos (.vcf) para a base — PII/LGPD, presidente por padrão
   // App do Entregador (E0) — o que o entregador vê no app (padrão mínimo: só scan +
   // geo do endereço + contato). O lojista libera o resto por estas chaves.
   entregador_pedidos?: boolean; // ver a lista de pedidos
@@ -192,6 +193,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'cupons', rotulo: 'Cupons', grupo: 'Operação', tipo: 'bool' },
   { chave: 'delivery', rotulo: 'Delivery', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'clientes_exportar', rotulo: 'Exportar base de clientes (LGPD)', grupo: 'Delivery', tipo: 'bool' },
+  { chave: 'clientes_importar', rotulo: 'Importar contatos (.vcf)', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'pedidos', rotulo: 'Pedidos · produção', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'fidelidade', rotulo: 'Fidelidade', grupo: 'Delivery', tipo: 'bool' },
   { chave: 'cashback', rotulo: 'Cashback', grupo: 'Delivery', tipo: 'bool' },

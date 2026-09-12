@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
@@ -81,6 +82,24 @@ export class ClienteAdminController {
   @Roles('presidente', 'gerente', 'supervisao')
   crmHistorico(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.crmHistorico(user.tenantId, id);
+  }
+
+  // Importação de contatos (.vcf) — PII/LGPD: presidente (sempre) e gerente quando o
+  // presidente conceder `clientes_importar`. Prévia: parseia em memória e NÃO grava.
+  @Post('importar-vcf/previa')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('clientes_importar')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  importarVcfPrevia(@CurrentUser() user: AuthUser, @UploadedFile() file?: { buffer?: Buffer }) {
+    return this.service.previewVcf(user.tenantId, file?.buffer?.toString('utf8') ?? '');
+  }
+
+  // Commit: grava os contatos revisados (Option A: elegíveis, com consentimento declarado).
+  @Post('importar')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('clientes_importar')
+  importar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.importarContatos(user, dto?.contatos ?? [], dto?.consentimento === true);
   }
 
   // Funil de conversão do cardápio (F4).

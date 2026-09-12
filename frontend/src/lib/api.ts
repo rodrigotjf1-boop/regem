@@ -1280,6 +1280,10 @@ export const api = {
     direcao?: string;
     ids?: string[];
   }) => req('/clientes/export', { method: 'POST', body: JSON.stringify(body) }),
+  // Import de contatos (.vcf): prévia (multipart, parseia no servidor) + commit (JSON revisado).
+  crmImportarVcfPrevia: (file: File) => uploadFile('/clientes/importar-vcf/previa', file) as unknown as Promise<any>,
+  crmImportarContatos: (contatos: any[], consentimento: boolean) =>
+    req('/clientes/importar', { method: 'POST', body: JSON.stringify({ contatos, consentimento }) }),
   crmHistorico: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/historico`),
   // Campanhas de WhatsApp por segmento (F5 + épico marketing) — só nuvem, só gestão.
   crmCampanhaPrevia: (segmento: string, recuperacaoDias?: number) =>
