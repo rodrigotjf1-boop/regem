@@ -19,7 +19,10 @@ const STATUS: Record<string, { t: string; c: string }> = {
   rejeitado: { t: 'rejeitado', c: 'bg-destructive/10 text-destructive' },
   pausado: { t: 'pausado', c: 'bg-amber-500/10 text-amber-600' },
 };
-const vazio = { id: '', nome: '', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: '', cabecalhoFormato: 'text', cabecalhoMidiaRef: '', corpo: '', rodape: '' };
+const vazio = { id: '', nome: '', categoria: 'MARKETING', idioma: 'pt_BR', cabecalho: '', cabecalhoFormato: 'text', cabecalhoMidiaRef: '', cabecalhoExemplo: '', corpo: '', rodape: '', ltoAtivo: false, ltoTexto: 'Oferta!', ltoHoras: 3 };
+// Oferta por tempo limitado (LTO): padrão de validade quando o lojista liga a oferta e não
+// informa as horas. Espelha LTO_HORAS_PADRAO do backend.
+const LTO_HORAS_PADRAO = 3;
 
 const PRESETS: { t: string; form: any; exemplo: string[]; peca?: boolean; cupom?: boolean }[] = [
   {
@@ -48,14 +51,20 @@ function validarCorpo(txt: string): string | null {
 }
 
 // Regras do CABEÇALHO (HEADER TEXT) da Meta: sem emoji, quebra de linha, asterisco ou
-// formatação (* _ ~ `), e até 60 caracteres. (Emoji é permitido só no corpo.)
-function validarCabecalho(txt: string): string | null {
+// formatação (* _ ~ `), e até 60 caracteres. (Emoji é permitido só no corpo.) Aceita NO
+// MÁXIMO 1 variável, que tem que ser {{1}} — e aí o exemplo vira obrigatório (a Meta exige
+// `example.header_text` na criação; sem ele o modelo é recusado).
+function validarCabecalho(txt: string, exemplo?: string): string | null {
   const s = String(txt ?? '');
   if (!s.trim()) return null; // opcional
   if (/[\r\n]/.test(s)) return 'O cabeçalho não pode ter quebra de linha (regra da Meta).';
   if (/[*_~`]/.test(s)) return 'O cabeçalho não pode ter formatação (* _ ~ `) — use só no corpo.';
   if (/\p{Extended_Pictographic}/u.test(s)) return 'O cabeçalho não pode ter emoji — use emoji só no corpo.';
   if (s.length > 60) return 'O cabeçalho deve ter até 60 caracteres.';
+  const vars = s.match(/\{\{\s*\d+\s*\}\}/g) ?? [];
+  if (vars.length > 1) return 'O cabeçalho aceita no máximo 1 variável (regra da Meta) — deixe só {{1}}.';
+  if (vars.length === 1 && !/\{\{\s*1\s*\}\}/.test(vars[0])) return `A variável do cabeçalho tem que ser {{1}} (encontrei ${vars[0]}).`;
+  if (vars.length === 1 && !String(exemplo ?? '').trim()) return 'Preencha o exemplo da variável do cabeçalho — a Meta exige para aprovar.';
   return null;
 }
 
@@ -99,6 +108,9 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
   const cardFileRef = useRef<HTMLInputElement>(null);
   const cardAlvo = useRef<number>(-1);
   const cabFileRef = useRef<HTMLInputElement>(null);
+  // Campos que a oferta por tempo limitado obriga a limpar — guardados p/ restaurar se o
+  // lojista desmarcar a oferta (senão o texto que ele já tinha escrito some sem aviso).
+  const backupLto = useRef<any>(null);
 
   const carregar = async () => {
     try { setLista(await api.whatsappTemplatesLocais()); } catch { /* ignore */ }
@@ -119,17 +131,25 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
   function resetar() {
     setForm(vazio); setExemplos([]); setFormato('padrao'); setCards([]);
+    backupLto.current = null;
     limparBotoes();
   }
 
   function aplicarPreset(p: any) {
-    setForm({ ...p.form }); setExemplos([...p.exemplo]); setFormato('padrao'); setCards([]);
+    setForm({ ...vazio, ...p.form }); setExemplos([...p.exemplo]); setFormato('padrao'); setCards([]);
     limparBotoes();
     setBtnPeca(!!p.peca); setBtnCupom(!!p.cupom); setBtnOptout(true);
   }
 
   function editar(t: any) {
-    setForm({ id: t.id, nome: t.nome, categoria: t.categoria, idioma: t.idioma, cabecalho: t.cabecalho ?? '', cabecalhoFormato: t.cabecalhoFormato ?? 'text', cabecalhoMidiaRef: t.cabecalhoMidiaRef ?? '', corpo: t.corpo, rodape: t.rodape ?? '' });
+    backupLto.current = null; // não vazar o backup de um modelo para outro
+    setForm({
+      id: t.id, nome: t.nome, categoria: t.categoria, idioma: t.idioma,
+      cabecalho: t.cabecalho ?? '', cabecalhoFormato: t.cabecalhoFormato ?? 'text',
+      cabecalhoMidiaRef: t.cabecalhoMidiaRef ?? '', cabecalhoExemplo: t.cabecalhoExemplo ?? '',
+      corpo: t.corpo, rodape: t.rodape ?? '',
+      ltoAtivo: !!t.ltoAtivo, ltoTexto: t.ltoTexto ?? 'Oferta!', ltoHoras: t.ltoHoras ?? LTO_HORAS_PADRAO,
+    });
     setExemplos((t.exemplo as string[]) ?? []);
     setFormato(t.formato === 'carrossel' ? 'carrossel' : 'padrao');
     setCards(Array.isArray(t.cards) ? t.cards.map((c: any) => ({ imagemRef: c.imagemRef, corpo: c.corpo ?? '' })) : []);
@@ -195,7 +215,19 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
       if (eCorpo) return toast.error(eCorpo);
       const eCard = cards.map((c, i) => (validarCorpo(c.corpo) ? `Card ${i + 1}: ${validarCorpo(c.corpo)}` : null)).find(Boolean);
       if (eCard) return toast.error(eCard);
+      // Mesma condição da tela: só valida o cabeçalho de texto quando ele é usado.
+      const eCab = formato === 'padrao' && form.cabecalhoFormato === 'text' && !form.ltoAtivo
+        ? validarCabecalho(form.cabecalho, form.cabecalhoExemplo)
+        : null;
+      if (eCab) return toast.error(eCab);
+      if (form.ltoAtivo && String(form.corpo ?? '').length > 600)
+        return toast.error(`Com oferta, o corpo pode ter até 600 caracteres (o seu tem ${String(form.corpo).length}).`);
+      // Sem botão, o cliente não tem como aproveitar a oferta (e a Meta espera a ação).
+      if (form.ltoAtivo && montarBotoes().length === 0)
+        return toast.error('Modelo com oferta precisa de pelo menos um botão (ex.: "Peça agora" ou "Copiar cupom").');
     }
+    if (form.ltoAtivo && formato === 'carrossel')
+      return toast.error('Oferta por tempo limitado não funciona com carrossel — escolha um dos dois.');
     if (formato === 'carrossel') {
       if (cards.length < 2) return toast.error('O carrossel precisa de pelo menos 2 cards.');
       if (cards.some((c) => !c.imagemRef)) return toast.error('Todo card precisa de uma imagem.');
@@ -205,6 +237,8 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
       const botoes = montarBotoes();
       const salvo: any = await api.whatsappTemplateSalvar({
         ...form,
+        // Horas vêm como texto do input numérico; vazio cai no padrão (3h).
+        ltoHoras: form.ltoAtivo ? Math.min(Math.max(Math.round(Number(form.ltoHoras) || LTO_HORAS_PADRAO), 1), 8760) : null,
         exemplo: exemplos,
         botoes,
         formato,
@@ -294,7 +328,15 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
   const botoesPreview = montarBotoes();
   const erroCorpo = validarCorpo(form.corpo);
-  const erroCabecalho = validarCabecalho(form.cabecalho);
+  const lto = !!form.ltoAtivo;
+  // O cabeçalho de TEXTO só existe no modelo padrão e sem oferta. Validar fora disso
+  // travava o botão de enviar por causa de um erro de um campo que a tela nem mostra
+  // (trocar p/ Imagem ou Carrossel com o exemplo em branco deixava o editor sem saída).
+  const usaCabTexto = formato === 'padrao' && form.cabecalhoFormato === 'text' && !lto;
+  const erroCabecalho = usaCabTexto ? validarCabecalho(form.cabecalho, form.cabecalhoExemplo) : null;
+  const cabTemVar = /\{\{\s*1\s*\}\}/.test(String(form.cabecalho ?? ''));
+  const corpoLen = String(form.corpo ?? '').length;
+  const erroCorpoLto = lto && corpoLen > 600 ? `Com oferta, o corpo pode ter até 600 caracteres (o seu tem ${corpoLen}).` : null;
 
   return (
     <div className="space-y-4">
@@ -331,11 +373,13 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
               ))}
             </div>
 
-            {/* Formato */}
-            <div className="flex gap-2">
+            {/* Formato — carrossel não combina com oferta por tempo limitado (a Meta não
+                documenta a combinação), então fica travado enquanto a oferta está ligada. */}
+            <div className="flex flex-wrap items-center gap-2">
               {(['padrao', 'carrossel'] as const).map((f) => (
-                <button key={f} type="button" onClick={() => setFormato(f)} aria-pressed={formato === f}
-                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${formato === f ? 'border-primary bg-primary/5 text-primary' : 'border-border text-foreground/70'}`}>
+                <button key={f} type="button" disabled={lto && f === 'carrossel'} onClick={() => setFormato(f)} aria-pressed={formato === f}
+                  title={lto && f === 'carrossel' ? 'Desligue a oferta por tempo limitado para usar carrossel.' : undefined}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${formato === f ? 'border-primary bg-primary/5 text-primary' : 'border-border text-foreground/70'}`}>
                   {f === 'padrao' ? 'Mensagem simples' : 'Carrossel (vários produtos)'}
                 </button>
               ))}
@@ -345,7 +389,9 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
               <label className="text-xs"><span className="mb-0.5 block text-foreground/70">Nome técnico</span>
                 <Input value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="promo_frete_gratis" /></label>
               <label className="text-xs"><span className="mb-0.5 block text-foreground/70">Categoria</span>
-                <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })} className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm">
+                {/* Oferta por tempo limitado só existe em MARKETING (regra da Meta). */}
+                <select value={form.categoria} disabled={lto} title={lto ? 'A oferta por tempo limitado só existe em Marketing (regra da Meta).' : undefined}
+                  onChange={(e) => setForm({ ...form, categoria: e.target.value })} className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm disabled:opacity-60">
                   <option value="MARKETING">Marketing</option><option value="UTILITY">Utilidade</option><option value="AUTHENTICATION">Autenticação</option>
                 </select></label>
               <label className="text-xs"><span className="mb-0.5 block text-foreground/70">Idioma</span>
@@ -356,17 +402,32 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
               <div className="text-xs">
                 <span className="mb-1 block text-foreground/70">Cabeçalho (opcional)</span>
                 <div className="mb-1 flex flex-wrap gap-1">
-                  {([['text', 'Texto'], ['image', 'Imagem'], ['video', 'Vídeo'], ['document', 'Documento']] as const).map(([k, r]) => (
+                  {/* Com oferta por tempo limitado a Meta só aceita cabeçalho de imagem ou
+                      vídeo — o de texto some e "Texto vazio" vira o "Nenhum". */}
+                  {((lto
+                    ? [['text', 'Nenhum'], ['image', 'Imagem'], ['video', 'Vídeo']]
+                    : [['text', 'Texto'], ['image', 'Imagem'], ['video', 'Vídeo'], ['document', 'Documento']]) as [string, string][]).map(([k, r]) => (
                     <button key={k} type="button" onClick={() => setForm({ ...form, cabecalhoFormato: k })} aria-pressed={form.cabecalhoFormato === k}
                       className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${form.cabecalhoFormato === k ? 'border-primary bg-primary/5 text-primary' : 'border-border text-foreground/70'}`}>{r}</button>
                   ))}
                 </div>
                 {form.cabecalhoFormato === 'text' ? (
+                  lto ? (
+                    <p className="text-[11px] text-foreground/60">Sem cabeçalho. A oferta por tempo limitado não aceita cabeçalho de texto (regra da Meta) — use imagem ou vídeo.</p>
+                  ) : (
                   <>
-                    <Input value={form.cabecalho} onChange={(e) => setForm({ ...form, cabecalho: e.target.value })} placeholder="Ex.: Oferta da semana" className={erroCabecalho ? 'border-destructive' : undefined} />
-                    <p className="mt-0.5 text-[11px] text-foreground/60">Sem emoji, quebra de linha ou <span className="font-mono">* _ ~ `</span> (emoji só no corpo).</p>
+                    <Input value={form.cabecalho} maxLength={60} onChange={(e) => setForm({ ...form, cabecalho: e.target.value })} placeholder="Ex.: Oferta da semana" className={erroCabecalho ? 'border-destructive' : undefined} />
+                    <p className="mt-0.5 text-[11px] text-foreground/60">Sem emoji, quebra de linha ou <span className="font-mono">* _ ~ `</span> (emoji só no corpo). Pode usar <span className="font-mono">{'{{1}}'}</span> uma vez (ex.: &quot;Oferta pra você, {'{{1}}'}&quot;).</p>
+                    {cabTemVar && (
+                      <label className="mt-1 block text-xs">
+                        <span className="mb-0.5 block text-foreground/70">Exemplo do {'{{1}}'} do cabeçalho <span className="text-destructive">*</span></span>
+                        <Input value={form.cabecalhoExemplo} onChange={(e) => setForm({ ...form, cabecalhoExemplo: e.target.value })} placeholder="João" />
+                        <span className="mt-0.5 block text-[11px] text-foreground/60">A Meta exige um valor de exemplo para aprovar o modelo.</span>
+                      </label>
+                    )}
                     {erroCabecalho && <p className="mt-1 text-[11px] text-destructive">⚠️ {erroCabecalho}</p>}
                   </>
+                  )
                 ) : (
                   <div className="flex items-center gap-2">
                     <input ref={cabFileRef} type="file" hidden
@@ -388,8 +449,10 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
             <label className="block text-xs">
               <span className="mb-0.5 block text-foreground/70">{formato === 'carrossel' ? 'Texto do topo (balão)' : 'Corpo'} — use {'{{1}}'} p/ o nome</span>
               <textarea value={form.corpo} onChange={(e) => setForm({ ...form, corpo: e.target.value })} rows={3}
-                className={`w-full rounded-md border bg-background px-3 py-2 text-sm ${erroCorpo ? 'border-destructive' : 'border-border'}`} placeholder="Olá {{1}}! Confira nossas ofertas 🍔" />
+                className={`w-full rounded-md border bg-background px-3 py-2 text-sm ${erroCorpo || erroCorpoLto ? 'border-destructive' : 'border-border'}`} placeholder="Olá {{1}}! Confira nossas ofertas 🍔" />
               {erroCorpo && <p className="mt-1 text-[11px] text-destructive">⚠️ {erroCorpo}</p>}
+              {/* A Meta aperta o corpo para 600 chars quando o modelo tem oferta. */}
+              {lto && <p className={`mt-0.5 text-[11px] ${erroCorpoLto ? 'text-destructive' : 'text-foreground/60'}`}>{corpoLen}/600 caracteres (limite da oferta)</p>}
             </label>
             {nVars > 0 && (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -400,7 +463,66 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
               </div>
             )}
 
+            {/* Oferta por tempo limitado (LTO) — contador regressivo no WhatsApp do cliente */}
             {formato === 'padrao' && (
+              <div className="rounded-lg border border-dashed border-border p-2 text-xs">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={lto} onChange={(e) => {
+                    const on = e.target.checked;
+                    if (on) {
+                      // Guarda o que a oferta obriga a remover, para devolver se o lojista
+                      // desmarcar — antes isso sumia em silêncio e ele perdia o texto.
+                      backupLto.current = {
+                        categoria: form.categoria, rodape: form.rodape,
+                        cabecalho: form.cabecalho, cabecalhoExemplo: form.cabecalhoExemplo,
+                        cabecalhoFormato: form.cabecalhoFormato,
+                      };
+                      setForm({
+                        ...form,
+                        ltoAtivo: true,
+                        // A Meta só aceita oferta em MARKETING, sem rodapé e sem cabeçalho de
+                        // texto/documento — já ajusta tudo para o lojista não ser recusado.
+                        categoria: 'MARKETING',
+                        rodape: '',
+                        cabecalho: '',
+                        cabecalhoExemplo: '',
+                        cabecalhoFormato: form.cabecalhoFormato === 'document' ? 'text' : form.cabecalhoFormato,
+                        ltoTexto: form.ltoTexto || 'Oferta!',
+                        ltoHoras: form.ltoHoras || LTO_HORAS_PADRAO,
+                      });
+                    } else {
+                      setForm({ ...form, ltoAtivo: false, ...(backupLto.current ?? {}) });
+                      backupLto.current = null;
+                    }
+                  }} />
+                  <strong>Oferta por tempo limitado</strong> — mostra um contador regressivo na mensagem
+                </label>
+                {lto && (
+                  <div className="ml-6 mt-1.5 space-y-1.5">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <label className="text-xs"><span className="mb-0.5 block text-foreground/70">Texto da oferta (máx. 16)</span>
+                        <Input value={form.ltoTexto} maxLength={16} onChange={(e) => setForm({ ...form, ltoTexto: e.target.value })} placeholder="Oferta!" /></label>
+                      <label className="text-xs"><span className="mb-0.5 block text-foreground/70">Válido por (horas) <span className="text-destructive">*</span></span>
+                        <Input type="number" min={1} max={8760} value={form.ltoHoras}
+                          onChange={(e) => setForm({ ...form, ltoHoras: e.target.value })}
+                          onBlur={(e) => setForm({ ...form, ltoHoras: Math.min(Math.max(Math.round(Number(e.target.value) || LTO_HORAS_PADRAO), 1), 8760) })}
+                          placeholder={String(LTO_HORAS_PADRAO)} /></label>
+                    </div>
+                    <p className="text-[11px] text-foreground/60">
+                      O prazo conta <strong>a partir do disparo</strong> de cada campanha — por isso o modelo vale sempre,
+                      sem precisar de nova aprovação. Em branco usamos <strong>{LTO_HORAS_PADRAO} horas</strong>.
+                    </p>
+                    <p className="rounded-md bg-warn/10 px-2 py-1.5 text-[11px] text-foreground/80">
+                      Com a oferta ligada a Meta exige: categoria <strong>Marketing</strong>, <strong>sem rodapé</strong>,
+                      cabeçalho só de <strong>imagem ou vídeo</strong> e <strong>sem carrossel</strong>. Quem abrir no
+                      WhatsApp Web/Desktop <strong>não vê a oferta</strong> (só no celular).
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {formato === 'padrao' && !lto && (
               <label className="block text-xs"><span className="mb-0.5 block text-foreground/70">Rodapé (opcional)</span>
                 <Input value={form.rodape} onChange={(e) => setForm({ ...form, rodape: e.target.value })} placeholder="Ex.: Válido só hoje" /></label>
             )}
@@ -474,7 +596,7 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
 
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" disabled={busy} onClick={() => salvar(false)}>Salvar rascunho</Button>
-              <Button size="sm" disabled={busy || !!erroCorpo || !!erroCabecalho} onClick={() => salvar(true)}>Salvar e enviar p/ aprovação</Button>
+              <Button size="sm" disabled={busy || !!erroCorpo || !!erroCabecalho || !!erroCorpoLto} onClick={() => salvar(true)}>Salvar e enviar p/ aprovação</Button>
             </div>
           </Card>
 
@@ -483,9 +605,20 @@ export function ModelosWhatsapp({ pode }: { pode: boolean }) {
             <p className="mb-2 text-xs font-semibold text-foreground/70">Prévia (como o cliente vê)</p>
             <div className="rounded-lg bg-[#e5ddd5] p-3">
               <div className="max-w-[320px] rounded-lg bg-white p-2 shadow">
-                {form.cabecalho && formato === 'padrao' && <p className="text-[13px] font-bold text-[#111]">{form.cabecalho}</p>}
+                {form.cabecalho && formato === 'padrao' && !lto && (
+                  <p className="text-[13px] font-bold text-[#111]">{String(form.cabecalho).replace(/\{\{\s*1\s*\}\}/, form.cabecalhoExemplo || 'João')}</p>
+                )}
+                {/* Faixa da oferta + contador (a Meta desenha assim, acima do corpo). */}
+                {lto && formato === 'padrao' && (
+                  <div className="mb-1 flex items-center justify-between gap-2 rounded bg-[#f0f2f5] px-2 py-1">
+                    <span className="text-[12px] font-bold text-[#111]">{form.ltoTexto || 'Oferta!'}</span>
+                    <span className="font-mono text-[11px] text-[#667781]">
+                      expira em {Math.min(Math.max(Math.round(Number(form.ltoHoras) || LTO_HORAS_PADRAO), 1), 8760)}h
+                    </span>
+                  </div>
+                )}
                 {form.corpo && <p className="whitespace-pre-wrap break-words text-[13px] leading-snug text-[#111]">{form.corpo.replace('{{1}}', exemplos[0] || 'João')}</p>}
-                {form.rodape && formato === 'padrao' && <p className="mt-1 text-[11px] text-[#667781]">{form.rodape}</p>}
+                {form.rodape && formato === 'padrao' && !lto && <p className="mt-1 text-[11px] text-[#667781]">{form.rodape}</p>}
                 {formato === 'carrossel' && (
                   <div className="mt-2 flex gap-2 overflow-x-auto">
                     {cards.map((c, i) => (

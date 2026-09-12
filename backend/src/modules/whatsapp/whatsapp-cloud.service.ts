@@ -22,6 +22,13 @@ const MAX_MIDIA = 20 * 1024 * 1024;
 // checagem, uma resposta adulterada transformaria o proxy num SSRF: o servidor
 // buscaria uma URL arbitraria COM o Bearer no header.
 const HOSTS_MIDIA = ['fbsbx.com', 'fbcdn.net', 'facebook.com', 'whatsapp.net'];
+// Oferta por tempo limitado (LTO): duração padrão quando o lojista liga a oferta e não
+// informa por quantas horas ela vale. Teto de 1 ano (a Meta não documenta mín/máx).
+const LTO_HORAS_PADRAO = 3;
+const LTO_HORAS_MAX = 8760;
+// Limites da Meta para o LTO (página de limited-time offer templates).
+const LTO_TEXTO_MAX = 16;
+const LTO_CORPO_MAX = 600;
 
 // Biblioteca de modelos do Regem (auto-submetidos à WABA da loja no onboarding). Textos
 // dentro das regras da Meta (texto antes/depois da variável). {{1}} = nome do cliente.
@@ -748,10 +755,39 @@ export class WhatsappCloudService {
 
     // Cabeçalho de MÍDIA no ENVIO (modelo simples): a Meta precisa do link da mídia por card.
     const cabFmtEnv = String(tplRow?.cabecalhoFormato ?? '').toLowerCase();
-    if (tplRow?.formato !== 'carrossel' && ['image', 'video', 'document'].includes(cabFmtEnv) && tplRow?.cabecalhoMidiaRef) {
+    const temMidiaCab = ['image', 'video', 'document'].includes(cabFmtEnv);
+    if (tplRow?.formato !== 'carrossel' && temMidiaCab && tplRow?.cabecalhoMidiaRef) {
       const link = String(tplRow.cabecalhoMidiaRef);
       const midia = cabFmtEnv === 'document' ? { link, filename: 'documento' } : { link };
       componentes.unshift({ type: 'header', parameters: [{ type: cabFmtEnv, [cabFmtEnv]: midia }] });
+    } else if (
+      tplRow?.formato !== 'carrossel' &&
+      !temMidiaCab &&
+      // Decide pelo MESMO texto que foi submetido à Meta (sanitizado). Testar o valor cru
+      // divergiria de linhas antigas gravadas antes da normalização: se o corte em 60 tivesse
+      // comido o {{1}}, mandaríamos um parâmetro que o modelo aprovado não tem → 132000.
+      /\{\{\s*1\s*\}\}/.test(this.sanitizarCabecalho(String(tplRow?.cabecalho ?? '')))
+    ) {
+      // Cabeçalho de TEXTO com variável: se o modelo tem {{1}} no header e o envio não manda
+      // o componente, a Meta devolve 132000. A variável do cabeçalho recebe o MESMO 1º
+      // parâmetro do corpo (o nome do cliente) — é o único dado que temos por destinatário.
+      componentes.unshift({
+        type: 'header',
+        parameters: [{ type: 'text', text: String(params[0] ?? '').trim() || 'Cliente' }],
+      });
+    }
+
+    // Oferta por tempo limitado: a Meta quer o INSTANTE de expiração (epoch ms). O modelo
+    // guarda a DURAÇÃO ("válido por N horas"), então o prazo é contado a partir do disparo —
+    // o mesmo modelo aprovado serve p/ qualquer campanha, sem reaprovar quando a data muda.
+    if (tplRow?.ltoAtivo && tplRow?.formato !== 'carrossel') {
+      const horas = Math.min(Math.max(Math.round(Number(tplRow.ltoHoras) || LTO_HORAS_PADRAO), 1), LTO_HORAS_MAX);
+      componentes.push({
+        type: 'limited_time_offer',
+        parameters: [
+          { type: 'limited_time_offer', limited_time_offer: { expiration_time_ms: Date.now() + horas * 3600_000 } },
+        ],
+      });
     }
 
     if (tplRow?.formato === 'carrossel') {
@@ -1000,6 +1036,13 @@ export class WhatsappCloudService {
     return uj.h;
   }
 
+  // Põe o botão de cupom (copy_code) à frente, preservando a ordem relativa do resto.
+  // Só usado no LTO — é o layout dos exemplos oficiais da Meta (cupom no índice 0).
+  private cupomPrimeiro(botoes: any[]): any[] {
+    const cupom = botoes.filter((b) => b?.tipo === 'copy_code');
+    return cupom.length ? [...cupom, ...botoes.filter((b) => b?.tipo !== 'copy_code')] : botoes;
+  }
+
   // Cria/edita um template em RASCUNHO no banco (ainda não vai à Meta).
   async salvarTemplate(
     tenantId: string,
@@ -1011,34 +1054,79 @@ export class WhatsappCloudService {
       cabecalho?: string | null;
       cabecalhoFormato?: string | null; // text|image|video|document
       cabecalhoMidiaRef?: string | null;
+      cabecalhoExemplo?: string | null;
       corpo?: string;
       rodape?: string | null;
       exemplo?: string[] | null;
       botoes?: any[] | null;
       formato?: string;
       cards?: any[] | null;
+      ltoAtivo?: boolean;
+      ltoTexto?: string | null;
+      ltoHoras?: number | string | null;
     },
   ) {
     const formato = dto.formato === 'carrossel' ? 'carrossel' : 'padrao';
     const cabFmt = ['image', 'video', 'document'].includes(String(dto.cabecalhoFormato)) ? String(dto.cabecalhoFormato) : 'text';
     const corpo = String(dto.corpo ?? '').trim();
     if (corpo.length < 3) throw new BadRequestException('Corpo do modelo muito curto.');
+    // O corpo de um modelo com oferta é limitado a 600 chars pela Meta (menor que o comum).
+    if (!!dto.ltoAtivo && corpo.length > LTO_CORPO_MAX)
+      throw new BadRequestException(
+        `Com oferta por tempo limitado o corpo pode ter no máximo ${LTO_CORPO_MAX} caracteres (o seu tem ${corpo.length}).`,
+      );
     if (formato === 'carrossel' && (!dto.cards || dto.cards.length < 2))
       throw new BadRequestException('Carrossel exige pelo menos 2 cards.');
-    const categoria = ['UTILITY', 'AUTHENTICATION'].includes(String(dto.categoria))
-      ? String(dto.categoria)
-      : 'MARKETING';
+    // Oferta por tempo limitado (LTO). A Meta só aceita em MARKETING, sem rodapé, sem
+    // carrossel e com cabeçalho de imagem/vídeo — então as regras são travadas aqui, no
+    // rascunho, para o lojista não descobrir só na recusa da Meta.
+    const lto = !!dto.ltoAtivo;
+    if (lto) {
+      if (formato === 'carrossel')
+        throw new BadRequestException('Oferta por tempo limitado não funciona com carrossel — escolha um dos dois.');
+      if (['text', 'document'].includes(cabFmt) && String(dto.cabecalho ?? '').trim())
+        throw new BadRequestException('Na oferta por tempo limitado o cabeçalho só pode ser imagem ou vídeo (ou nenhum).');
+      if (cabFmt === 'document')
+        throw new BadRequestException('Na oferta por tempo limitado o cabeçalho só pode ser imagem ou vídeo.');
+    }
+    // LTO é obrigatoriamente MARKETING (regra da Meta).
+    const categoria = lto
+      ? 'MARKETING'
+      : ['UTILITY', 'AUTHENTICATION'].includes(String(dto.categoria))
+        ? String(dto.categoria)
+        : 'MARKETING';
+    // Cabeçalho de TEXTO: só existe no modelo padrão (o carrossel nem lê este campo — se
+    // ficasse resíduo aqui, a validação na submissão barraria um carrossel válido).
+    // GRAVA JÁ SANITIZADO: é exatamente o texto que vai à Meta na submissão, e o envio
+    // decide o parâmetro do header por ele. Guardar o cru e sanitizar só na submissão fazia
+    // os dois lados divergirem (corte em 60 comia o {{1}} → 132000 em todo disparo).
+    const cabCru = formato === 'padrao' && cabFmt === 'text' ? String(dto.cabecalho ?? '').trim() : '';
+    if (cabCru.length > 60)
+      throw new BadRequestException(`O cabeçalho deve ter até 60 caracteres (o seu tem ${cabCru.length}).`);
+    const cabTexto = cabCru ? this.sanitizarCabecalho(cabCru) || null : null;
     const patch = {
       nome: this.normalizarNome(dto.nome || 'modelo'),
       categoria,
       idioma: dto.idioma || 'pt_BR',
-      cabecalho: cabFmt === 'text' ? (dto.cabecalho?.trim() || null) : null,
+      cabecalho: cabTexto,
       cabecalhoFormato: cabFmt === 'text' ? null : cabFmt,
       cabecalhoMidiaRef: cabFmt === 'text' ? null : (dto.cabecalhoMidiaRef?.trim() || null),
+      // Exemplo do {{1}} do cabeçalho — só faz sentido se o cabeçalho de texto tem variável.
+      cabecalhoExemplo: cabTexto && /\{\{\s*1\s*\}\}/.test(cabTexto) ? (dto.cabecalhoExemplo?.trim() || null) : null,
       corpo,
-      rodape: dto.rodape?.trim() || null,
+      // Rodapé é PROIBIDO em modelo com oferta por tempo limitado (regra da Meta).
+      rodape: lto ? null : dto.rodape?.trim() || null,
+      ltoAtivo: lto,
+      ltoTexto: lto ? String(dto.ltoTexto ?? '').trim().slice(0, LTO_TEXTO_MAX) || 'Oferta!' : null,
+      // "Válido por N horas". Vazio/zero cai no padrão (3h), conforme definido no produto.
+      ltoHoras: lto
+        ? Math.min(Math.max(Math.round(Number(dto.ltoHoras) || LTO_HORAS_PADRAO), 1), LTO_HORAS_MAX)
+        : null,
       exemplo: dto.exemplo && dto.exemplo.length ? dto.exemplo : null,
-      botoes: dto.botoes && dto.botoes.length ? dto.botoes : null,
+      // No LTO a Meta escreve a regra de índice a partir do cupom ("se o template usa
+      // copy_code, o índice do URL é 1") e todo exemplo oficial põe o cupom primeiro.
+      // Reordenamos na GRAVAÇÃO para criação e envio lerem o mesmo array já canônico.
+      botoes: dto.botoes && dto.botoes.length ? (lto ? this.cupomPrimeiro(dto.botoes) : dto.botoes) : null,
       formato,
       cards: formato === 'carrossel' && dto.cards?.length ? dto.cards : null,
       status: 'rascunho',
@@ -1070,7 +1158,31 @@ export class WhatsappCloudService {
       .replace(/[*_~`]/g, '')
       .replace(/\s{2,}/g, ' ')
       .trim()
-      .slice(0, 60);
+      .slice(0, 60)
+      // O corte em 60 pode partir uma variável ao meio e aí a Meta recusa — tira o pedaço
+      // quebrado em qualquer das formas ("{{", "{{1", "{{1}"). `[^{}]*\}?` casa no máximo UMA
+      // chave de fechamento, então um `{{1}}` COMPLETO no fim não casa (sobraria um `}`) e é
+      // preservado; um literal de chave simples como "{50}" também fica intacto.
+      .replace(/\{\{[^{}]*\}?$/, '')
+      .replace(/\{$/, '')
+      .trim();
+  }
+
+  // Regras da Meta para o CABEÇALHO DE TEXTO com variável: aceita NO MÁXIMO 1 parâmetro e
+  // ele tem que ser {{1}}. Quando há variável, a criação exige `example.header_text` —
+  // então o exemplo passa a ser obrigatório. Devolve o erro em pt-BR, ou null se ok.
+  private validarCabecalhoTemplate(txt: string | null, exemplo: string | null): string | null {
+    const cab = String(txt ?? '');
+    const vars = cab.match(/\{\{\s*\d+\s*\}\}/g) ?? [];
+    if (!vars.length) return null;
+    if (vars.length > 1)
+      return 'O cabeçalho aceita no máximo 1 variável (regra da Meta) — deixe só {{1}}.';
+    const unica = vars[0] ?? '';
+    if (!/\{\{\s*1\s*\}\}/.test(unica))
+      return `A variável do cabeçalho tem que ser {{1}} (encontrei ${unica}).`;
+    if (!String(exemplo ?? '').trim())
+      return 'Preencha o exemplo da variável do cabeçalho — a Meta exige um valor de exemplo para aprovar.';
+    return null;
   }
 
   async submeterTemplate(tenantId: string, id: string) {
@@ -1090,6 +1202,27 @@ export class WhatsappCloudService {
         const e = this.validarCorpoTemplate(String(card?.corpo ?? ''), `texto do card ${i + 1}`);
         if (e) throw new BadRequestException(e);
       });
+    }
+    // Só valida o cabeçalho quando ele é REALMENTE usado: modelo padrão, sem oferta e com
+    // cabeçalho de texto. No carrossel (e no LTO) o campo nem é lido na montagem — validá-lo
+    // travava um modelo válido por causa de texto residual que a tela nem mostra mais.
+    const usaCabTexto =
+      tpl.formato !== 'carrossel' &&
+      !tpl.ltoAtivo &&
+      !['image', 'video', 'document'].includes(String(tpl.cabecalhoFormato ?? '').toLowerCase());
+    if (usaCabTexto) {
+      const errCab = this.validarCabecalhoTemplate(tpl.cabecalho, tpl.cabecalhoExemplo);
+      if (errCab) throw new BadRequestException(errCab);
+    }
+    // Oferta por tempo limitado: a Meta só aceita em MARKETING e não documenta a combinação
+    // com carrossel. Sem botão a oferta não tem como ser usada pelo cliente.
+    if (tpl.ltoAtivo) {
+      if (tpl.formato === 'carrossel')
+        throw new BadRequestException('Oferta por tempo limitado não funciona com carrossel — escolha um dos dois.');
+      if (tpl.categoria !== 'MARKETING')
+        throw new BadRequestException('Oferta por tempo limitado só existe em modelo de Marketing (regra da Meta).');
+      if (!((tpl.botoes as any[] | null) ?? []).length)
+        throw new BadRequestException('Modelo com oferta precisa de pelo menos um botão (ex.: "Peça agora" ou "Copiar cupom").');
     }
 
     const exemploCorpo = (txt: string) => {
@@ -1119,20 +1252,42 @@ export class WhatsappCloudService {
       }
       componentes.push({ type: 'CAROUSEL', cards: cardsMeta });
     } else {
+      const ehLto = !!tpl.ltoAtivo;
       // Cabeçalho: MÍDIA (imagem/vídeo/documento) via header_handle, ou TEXTO (sanitizado).
       const cabFmt = String(tpl.cabecalhoFormato ?? '').toLowerCase();
       if (['image', 'video', 'document'].includes(cabFmt) && tpl.cabecalhoMidiaRef) {
         const handle = await this.uploadMidiaHandle(String(tpl.cabecalhoMidiaRef));
         componentes.push({ type: 'HEADER', format: cabFmt.toUpperCase(), example: { header_handle: [handle] } });
-      } else {
+      } else if (!ehLto) {
+        // A Meta não aceita cabeçalho de TEXTO em modelo com oferta por tempo limitado —
+        // por isso o texto só entra fora do LTO (no LTO o cabeçalho é imagem/vídeo ou nada).
         const cab = this.sanitizarCabecalho(tpl.cabecalho ?? '');
-        if (cab) componentes.push({ type: 'HEADER', format: 'TEXT', text: cab });
+        if (cab) {
+          const header: any = { type: 'HEADER', format: 'TEXT', text: cab };
+          // Header com variável exige `example.header_text` — e aqui é um array SIMPLES
+          // (["João"]), diferente do corpo, que é ANINHADO ([["João"]]). Trocar os dois é a
+          // causa mais comum de recusa do modelo.
+          if (/\{\{\s*1\s*\}\}/.test(cab))
+            header.example = { header_text: [String(tpl.cabecalhoExemplo ?? '').trim() || 'exemplo'] };
+          componentes.push(header);
+        }
       }
+      // Oferta por tempo limitado: entra ENTRE o cabeçalho e o corpo (ordem do exemplo
+      // oficial da Meta). has_expiration = true para o contador aparecer na mensagem.
+      if (ehLto)
+        componentes.push({
+          type: 'LIMITED_TIME_OFFER',
+          limited_time_offer: {
+            text: String(tpl.ltoTexto ?? '').trim().slice(0, LTO_TEXTO_MAX) || 'Oferta!',
+            has_expiration: true,
+          },
+        });
       const body: any = { type: 'BODY', text: tpl.corpo };
       const exB = exemploCorpo(tpl.corpo);
       if (exB) body.example = exB;
       componentes.push(body);
-      if (tpl.rodape) componentes.push({ type: 'FOOTER', text: tpl.rodape });
+      // FOOTER é proibido em modelo com oferta por tempo limitado (regra da Meta).
+      if (tpl.rodape && !ehLto) componentes.push({ type: 'FOOTER', text: tpl.rodape });
       const btns = this.montarBotoesTemplate(tpl.botoes as any[]);
       if (btns.length) componentes.push({ type: 'BUTTONS', buttons: btns });
     }
