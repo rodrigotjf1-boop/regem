@@ -235,14 +235,17 @@ export class WhatsappCloudService {
         }
 
         for (const st of v?.statuses ?? []) {
-          this.logger.log(`status phone=${phoneNumberId} ${st?.status} id=${st?.id}`);
-          // Marca no historico o que aconteceu com a mensagem que ENVIAMOS
-          // (entregue, lida, falhou) — e o que o painel mostra ao atendente.
+          // Em 'failed', a Meta manda o MOTIVO em st.errors — logamos para diagnóstico
+          // (ex.: imagem do card inacessível, número inválido, sem crédito). Grava o motivo
+          // no status ('failed: <código> <título>') para o painel/inbox mostrar.
+          const err = Array.isArray(st?.errors) ? st.errors[0] : null;
+          const motivo = err ? `${err.code ?? ''} ${err.title ?? err.message ?? ''} ${err.error_data?.details ?? ''}`.trim() : '';
+          this.logger.log(`status phone=${phoneNumberId} ${st?.status} id=${st?.id}${motivo ? ` — ${motivo}` : ''}`);
           if (st?.id && st?.status) {
             try {
               await this.db
                 .update(whatsappMensagem)
-                .set({ status: String(st.status) })
+                .set({ status: motivo ? `${st.status}: ${motivo}`.slice(0, 200) : String(st.status) })
                 .where(eq(whatsappMensagem.wamid, String(st.id)));
             } catch {
               /* status e informativo: nunca vale derrubar o processamento */
