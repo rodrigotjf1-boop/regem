@@ -696,9 +696,10 @@ export default function MarketingPage() {
                         className="w-full rounded-md border border-border bg-background px-2 py-2 text-sm"
                       >
                         <option value="">Selecione…</option>
-                        {templates.map((t) => (
-                          <option key={t.id} value={t.nome}>{t.nome}</option>
-                        ))}
+                        {templates.map((t) => {
+                          const cat = t.categoria === 'UTILITY' ? 'Utilidade' : t.categoria === 'AUTHENTICATION' ? 'Autenticação' : 'Marketing';
+                          return <option key={t.id} value={t.nome}>{t.nome} · {cat}</option>;
+                        })}
                       </select>
                     </label>
                     {templateSel && <p className="whitespace-pre-wrap text-xs text-foreground/70">{templateSel.corpo}</p>}
