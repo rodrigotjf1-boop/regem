@@ -264,7 +264,12 @@ export default function MarketingPage() {
   }
 
   async function criar() {
-    if (msg.trim().length < 3) {
+    // No oficial o conteúdo é o MODELO (o texto livre nem aparece); no grátis exige a mensagem.
+    if (ehCloud && !templateNome) {
+      toast.error('Selecione um modelo aprovado.');
+      return;
+    }
+    if (!ehCloud && msg.trim().length < 3) {
       toast.error('Escreva a mensagem.');
       return;
     }
@@ -274,7 +279,8 @@ export default function MarketingPage() {
         tipo,
         segmento: seg,
         recuperacaoDias: seg === 'recuperacao' ? recDias : undefined,
-        mensagem: msg,
+        // Cloud: guarda o texto do modelo (só para exibir na lista; ≤900 p/ o backend); o envio usa o template.
+        mensagem: ehCloud ? (templateSel?.corpo ?? `[modelo ${templateNome}]`).slice(0, 900) : msg,
         mensagemB: !ehCloud ? msgB.trim() || null : null,
         link: link.trim() || null,
         imagemRef,
@@ -520,7 +526,18 @@ export default function MarketingPage() {
               </p>
             </div>
 
-            {/* Conteúdo + prévia */}
+            {/* Conteúdo — no OFICIAL vem do modelo aprovado (texto travado pela Meta); no
+                GRÁTIS (Evolution) é o texto livre abaixo. */}
+            {ehCloud ? (
+              <div className="space-y-1 rounded-lg border border-dashed border-border p-3">
+                <p className="text-xs font-semibold text-foreground/70">Link do botão “Peça agora” (opcional)</p>
+                <Input value={link} onChange={(e) => setLink(e.target.value)} placeholder="Padrão: seu cardápio digital" />
+                <p className="text-[11px] text-foreground/60">
+                  O <strong>texto e a imagem</strong> vêm do <strong>modelo aprovado</strong> que você escolhe abaixo — na API oficial o texto é
+                  travado pela Meta. Deixe o link vazio para levar o cliente ao seu cardápio.
+                </p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-foreground/70">Mensagem</p>
@@ -581,6 +598,7 @@ export default function MarketingPage() {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Cupom automático */}
             {ehCupom && (
@@ -632,7 +650,7 @@ export default function MarketingPage() {
             {ehCloud && (
               <div className="space-y-2 rounded-lg border border-primary/40 bg-primary/5 p-3">
                 <p className="text-xs font-semibold text-primary">
-                  Número oficial (Meta) — a campanha vai por MODELO aprovado (o texto livre acima não é usado).
+                  Número oficial (Meta) — escolha o MODELO aprovado que será enviado. O texto e a imagem são do próprio modelo.
                 </p>
                 {templates.length === 0 ? (
                   <p className="text-xs text-foreground/70">
