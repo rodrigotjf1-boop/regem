@@ -746,6 +746,14 @@ export class WhatsappCloudService {
         ? [{ type: 'body', parameters: bodyParams.map((t) => ({ type: 'text', text: t })) }]
         : [];
 
+    // Cabeçalho de MÍDIA no ENVIO (modelo simples): a Meta precisa do link da mídia por card.
+    const cabFmtEnv = String(tplRow?.cabecalhoFormato ?? '').toLowerCase();
+    if (tplRow?.formato !== 'carrossel' && ['image', 'video', 'document'].includes(cabFmtEnv) && tplRow?.cabecalhoMidiaRef) {
+      const link = String(tplRow.cabecalhoMidiaRef);
+      const midia = cabFmtEnv === 'document' ? { link, filename: 'documento' } : { link };
+      componentes.unshift({ type: 'header', parameters: [{ type: cabFmtEnv, [cabFmtEnv]: midia }] });
+    }
+
     if (tplRow?.formato === 'carrossel') {
       const cards = (tplRow.cards as any[] | null) ?? [];
       componentes.push({
@@ -1001,6 +1009,8 @@ export class WhatsappCloudService {
       categoria?: string;
       idioma?: string;
       cabecalho?: string | null;
+      cabecalhoFormato?: string | null; // text|image|video|document
+      cabecalhoMidiaRef?: string | null;
       corpo?: string;
       rodape?: string | null;
       exemplo?: string[] | null;
@@ -1010,6 +1020,7 @@ export class WhatsappCloudService {
     },
   ) {
     const formato = dto.formato === 'carrossel' ? 'carrossel' : 'padrao';
+    const cabFmt = ['image', 'video', 'document'].includes(String(dto.cabecalhoFormato)) ? String(dto.cabecalhoFormato) : 'text';
     const corpo = String(dto.corpo ?? '').trim();
     if (corpo.length < 3) throw new BadRequestException('Corpo do modelo muito curto.');
     if (formato === 'carrossel' && (!dto.cards || dto.cards.length < 2))
@@ -1021,7 +1032,9 @@ export class WhatsappCloudService {
       nome: this.normalizarNome(dto.nome || 'modelo'),
       categoria,
       idioma: dto.idioma || 'pt_BR',
-      cabecalho: dto.cabecalho?.trim() || null,
+      cabecalho: cabFmt === 'text' ? (dto.cabecalho?.trim() || null) : null,
+      cabecalhoFormato: cabFmt === 'text' ? null : cabFmt,
+      cabecalhoMidiaRef: cabFmt === 'text' ? null : (dto.cabecalhoMidiaRef?.trim() || null),
       corpo,
       rodape: dto.rodape?.trim() || null,
       exemplo: dto.exemplo && dto.exemplo.length ? dto.exemplo : null,
@@ -1106,8 +1119,15 @@ export class WhatsappCloudService {
       }
       componentes.push({ type: 'CAROUSEL', cards: cardsMeta });
     } else {
-      const cab = this.sanitizarCabecalho(tpl.cabecalho ?? '');
-      if (cab) componentes.push({ type: 'HEADER', format: 'TEXT', text: cab });
+      // Cabeçalho: MÍDIA (imagem/vídeo/documento) via header_handle, ou TEXTO (sanitizado).
+      const cabFmt = String(tpl.cabecalhoFormato ?? '').toLowerCase();
+      if (['image', 'video', 'document'].includes(cabFmt) && tpl.cabecalhoMidiaRef) {
+        const handle = await this.uploadMidiaHandle(String(tpl.cabecalhoMidiaRef));
+        componentes.push({ type: 'HEADER', format: cabFmt.toUpperCase(), example: { header_handle: [handle] } });
+      } else {
+        const cab = this.sanitizarCabecalho(tpl.cabecalho ?? '');
+        if (cab) componentes.push({ type: 'HEADER', format: 'TEXT', text: cab });
+      }
       const body: any = { type: 'BODY', text: tpl.corpo };
       const exB = exemploCorpo(tpl.corpo);
       if (exB) body.example = exB;
