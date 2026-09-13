@@ -188,6 +188,31 @@ describe('adaptarIfood — quem banca o desconto', () => {
     expect(r.taxasExtras).toEqual([{ tipo: 'ifood_additional_fees', rotulo: 'Taxas do iFood', valor: 2 }]);
   });
 
+  // Campanhas reais de produção chegam com código interno opaco ("FD_DESPIT_27D7135_a63_647"),
+  // que jogava tudo no balde "outro". A classificação passa a sair do `target` (enum documentado).
+  it.each([
+    ['DELIVERY_FEE', 'frete'],
+    ['ITEM', 'promocao'],
+    ['PROGRESSIVE_DISCOUNT_ITEM', 'promocao'],
+    ['CART', 'cupom'],
+  ])('target %s classifica como %s mesmo com campanha de código opaco', (alvo, esperado) => {
+    const r = adaptarIfood(pedido([
+      { value: 5, target: alvo, campaign: { name: 'FD_DESPIT_27D7135_a63_647' },
+        sponsorshipValues: [{ name: 'MERCHANT', value: 5 }] },
+    ]));
+    expect(r.descontos![0].origem).toBe(esperado);
+    expect(r.descontos![0].campanha).toBe('FD_DESPIT_27D7135_a63_647'); // continua rastreável
+  });
+
+  it('campanha co-patrocinada real: loja entra com R$5 fixos e o iFood cobre o resto', () => {
+    const r = adaptarIfood(pedido([
+      { value: 17.79, target: 'CART', campaign: { name: 'FD_DESPIT_27D7135_a63_647' },
+        sponsorshipValues: [{ name: 'IFOOD', value: 12.80 }, { name: 'MERCHANT', value: 4.99 }] },
+    ]));
+    expect(r.descontos!.find((d) => d.quemBanca === 'loja')!.valor).toBe(4.99);
+    expect(r.descontos!.find((d) => d.quemBanca === 'marketplace')!.valor).toBe(12.8);
+  });
+
   it('usa o detalhe de additionalFees[] quando vem (nomeia cada taxa)', () => {
     const base = pedido([], 1);
     const r = adaptarIfood({

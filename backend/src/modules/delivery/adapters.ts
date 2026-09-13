@@ -110,6 +110,19 @@ export function formaPtBr(v: any): string {
 }
 
 // Mapeia um pedido do iFood (payload da API de pedidos) para o modelo interno.
+// `target` do benefit do iFood — enum documentado, ao contrário de campaign.name (texto
+// livre, que chega como código interno tipo "FD_DESPIT_27D7135"). null = não reconhecido,
+// e aí o chamador tenta pelo nome da campanha.
+function classificarAlvoIfood(alvo?: string): DescontoCanal['origem'] | null {
+  switch (String(alvo ?? '').toUpperCase()) {
+    case 'DELIVERY_FEE': return 'frete';
+    case 'ITEM':
+    case 'PROGRESSIVE_DISCOUNT_ITEM': return 'promocao'; // desconto no item / combo progressivo
+    case 'CART': return 'cupom'; // desconto no subtotal do carrinho
+    default: return null;
+  }
+}
+
 export function adaptarIfood(raw: any): PedidoNormalizado {
   const itens = (raw?.items ?? []).map((it: any) => {
     const opts = (it.options ?? []).map((o: any) => o.name).filter(Boolean);
@@ -177,7 +190,12 @@ export function adaptarIfood(raw: any): PedidoNormalizado {
       if (v <= 0) continue; // o iFood manda patrocinador com 0 — não é desconto
       const quem = String(s?.name ?? '').toUpperCase();
       descontos.push({
-        origem: classificarDesconto(campanha ?? s?.description),
+        // Classifica pelo `target`, que é ENUM DOCUMENTADO (CART / ITEM / DELIVERY_FEE /
+        // PROGRESSIVE_DISCOUNT_ITEM). O `campaign.name` do iFood é texto livre e vem como
+        // código interno opaco ("FD_DESPIT_27D7135_a63_647"), então classificar por ele
+        // jogava tudo em "outro". O nome continua guardado como rótulo/campanha, que é o
+        // que permite agrupar por campanha específica no relatório.
+        origem: classificarAlvoIfood(alvo) ?? classificarDesconto(campanha ?? s?.description),
         // Preserva o patrocinador no rótulo: é o que separa "promoção minha" de
         // "incentivo do iFood" no relatório, já que não existe campo de tipo.
         rotulo: `${quem || 'PATROCINADOR'}${campanha ? ` · ${campanha}` : ''}`,
