@@ -1,4 +1,11 @@
-import { adaptarAnotaAi, adaptarDidiFood, adaptarIfood, classificarDesconto } from './adapters';
+import {
+  adaptarAnotaAi,
+  adaptarCardapioWeb,
+  adaptarDidiFood,
+  adaptarIfood,
+  adaptarOpenDelivery,
+  classificarDesconto,
+} from './adapters';
 
 // Exemplo OFICIAL da doc do 99food (Order Delivered by the Store Couriers). Valores em
 // centavos. `shop_subside_price` é o campo que diz quanto a LOJA bancou; o resto é o 99food.
@@ -386,6 +393,101 @@ describe('adaptarAnotaAi — payload oficial da documentação', () => {
       },
     });
     expect(r.itens[0].precoUnitario).toBe(12.5); // 25 / 2
+  });
+});
+
+// Spec Open Delivery v1.7.1 (Abrasel). Canal `delivery_direto`/`open_delivery`.
+// Armadilha do padrão: em total/otherFees/discounts o valor é OBJETO {value,currency};
+// em payments.methods[].value é número puro.
+describe('adaptarOpenDelivery — sponsorshipValues e receivedBy', () => {
+  const brl = (v: number) => ({ value: v, currency: 'BRL' });
+  const pedido = (extra: any = {}) => ({
+    id: 'od1',
+    displayId: '77',
+    customer: { name: 'Cliente', phone: { number: '21999999999' } },
+    items: [{ name: 'Combo', quantity: 2, unitPrice: brl(20), optionsPrice: brl(5), totalPrice: brl(50) }],
+    total: { itemsPrice: brl(50), otherFees: brl(5), discount: brl(20), orderAmount: brl(35) },
+    payments: { prepaid: 0, pending: 35, methods: [{ value: 35, currency: 'BRL', type: 'PENDING', method: 'CASH', changeFor: 50 }] },
+    delivery: { deliveredBy: 'MERCHANT', deliveryAddress: { formattedAddress: 'Rua X, 1' } },
+    otherFees: [{ name: 'Taxa de entrega', type: 'DELIVERY_FEE', receivedBy: 'MERCHANT', price: brl(5) }],
+    ...extra,
+  });
+
+  it('desconto 50/50 entre marketplace e loja vira duas linhas', () => {
+    const r = adaptarOpenDelivery(pedido({
+      discounts: [{
+        amount: brl(20), target: 'DELIVERY_FEE',
+        sponsorshipValues: [
+          { name: 'MARKETPLACE', amount: brl(10) },
+          { name: 'MERCHANT', amount: brl(10) },
+        ],
+      }],
+    }));
+    expect(r.descontos).toHaveLength(2);
+    expect(r.descontos!.find((d) => d.quemBanca === 'loja')!.valor).toBe(10);
+    expect(r.descontos!.find((d) => d.quemBanca === 'marketplace')!.valor).toBe(10);
+  });
+
+  it('CHAIN (rede) é bancado por terceiro, não pela loja', () => {
+    const r = adaptarOpenDelivery(pedido({
+      discounts: [{ amount: brl(7), target: 'CART', sponsorshipValues: [{ name: 'CHAIN', amount: brl(7) }] }],
+    }));
+    expect(r.descontos![0].quemBanca).toBe('marketplace');
+  });
+
+  it('discountCode identifica cupom e vira o rótulo', () => {
+    const r = adaptarOpenDelivery(pedido({
+      discounts: [{
+        amount: brl(5), target: 'ITEM', targetId: 'item-1',
+        sponsorshipValues: [{ name: 'MERCHANT', amount: brl(5), discountCode: 'CUPOM500' }],
+      }],
+    }));
+    expect(r.descontos![0]).toMatchObject({ origem: 'cupom', quemBanca: 'loja', campanha: 'CUPOM500' });
+  });
+
+  it('receivedBy é o destino econômico da taxa, não quem coletou', () => {
+    expect(adaptarOpenDelivery(pedido()).taxaEntregaDono).toBe('loja');
+    const r = adaptarOpenDelivery(pedido({
+      otherFees: [{ name: 'Taxa', type: 'DELIVERY_FEE', receivedBy: 'LOGISTIC_SERVICES', price: brl(5) }],
+    }));
+    expect(r.taxaEntregaDono).toBe('marketplace');
+  });
+
+  it('item vale a linha COM adicionais: totalPrice 50 / 2 un = 25', () => {
+    const r = adaptarOpenDelivery(pedido());
+    expect(r.itens[0].precoUnitario).toBe(25);
+    expect(r.valorBruto).toBe(50); // total.itemsPrice
+  });
+
+  it('gorjeta e taxa de serviço saem do bruto; a de entrega não entra como taxa extra', () => {
+    const r = adaptarOpenDelivery(pedido({
+      otherFees: [
+        { name: 'Taxa de entrega', type: 'DELIVERY_FEE', receivedBy: 'MERCHANT', price: brl(5) },
+        { name: 'Gorjeta', type: 'TIP', receivedBy: 'MERCHANT', price: brl(3) },
+      ],
+    }));
+    expect(r.taxasExtras).toEqual([{ tipo: 'TIP', rotulo: 'Gorjeta', valor: 3 }]);
+  });
+
+  it('methods[].value é número puro (não objeto) e changeFor é o troco', () => {
+    const r = adaptarOpenDelivery(pedido());
+    expect(r.pagamentos![0].valor).toBe(35);
+    expect(r.pagamentos![0].troco).toBe(50);
+    expect(r.pagamentos![0].prepago).toBe(false); // PENDING = cobrar na entrega
+  });
+});
+
+describe('adaptarCardapioWeb — bug de multiplicação', () => {
+  it('sem unit_price, o total da linha é dividido pela quantidade', () => {
+    const r = adaptarCardapioWeb({
+      id: 'cw1',
+      order_type: 'delivery',
+      customer: { name: 'X', phone: '21999999999' },
+      items: [{ name: 'Refri', quantity: 3, total_price: 60 }], // sem unit_price
+      total: 60,
+    });
+    // Antes gravava 60 por unidade → 180 no caixa (3x o valor real).
+    expect(r.itens[0].precoUnitario).toBe(20);
   });
 });
 

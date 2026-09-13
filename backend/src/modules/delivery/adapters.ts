@@ -294,7 +294,17 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
       codigo: it.externalCode ?? it.sku ?? undefined,
       descricao: it.name ?? 'Item',
       quantidade: Number(it.quantity) || 1,
-      precoUnitario: Number(it.unitPrice?.value ?? it.unitPrice ?? it.price) || 0,
+      // Spec Open Delivery: totalPrice = quantity * (unitPrice + optionsPrice) — é a linha
+      // COM os adicionais, e é o que soma em total.itemsPrice. unitPrice sozinho perdia os
+      // complementos. A doc manda confiar no totalPrice recebido, não recalcular.
+      precoUnitario: (() => {
+        const qtd = Number(it.quantity) || 1;
+        const linha = Number(it.totalPrice?.value ?? it.totalPrice);
+        if (Number.isFinite(linha) && linha > 0) return Number((linha / qtd).toFixed(2));
+        const base = Number(it.unitPrice?.value ?? it.unitPrice ?? it.price) || 0;
+        const opc = Number(it.optionsPrice?.value ?? it.optionsPrice) || 0;
+        return Number((base + opc).toFixed(2));
+      })(),
       observacao: (it.observation ?? it.observations) || undefined,
       complementos: opts.join(' · ') || undefined,
     };
@@ -306,6 +316,72 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
     addr?.formattedAddress ||
     [addr?.street, addr?.number, addr?.neighborhood, addr?.city].filter(Boolean).join(', ') ||
     undefined;
+  // ===== Dinheiro detalhado (mig 241) — spec Open Delivery v1.7.1 (Abrasel) =====
+  // ARMADILHA do padrão: em `total.*`, `otherFees[].price` e `discounts[].amount` o valor é
+  // um OBJETO Price {value,currency}; já em `payments.methods[].value` é número puro.
+  const pv = (x: any) => Number(x?.value ?? x) || 0;
+
+  // discounts[].sponsorshipValues[] diz QUEM BANCA, com rateio explícito:
+  //   MERCHANT              → desconto da loja (sai do bolso dela)
+  //   MARKETPLACE / CHAIN   → bancado por terceiro (volta no acerto)
+  // O código do cupom vem em `discountCode` — é o único campo de rótulo que o padrão tem.
+  const descontosOD: DescontoCanal[] = [];
+  for (const d of raw?.discounts ?? []) {
+    const alvo = d?.target ? String(d.target) : undefined;
+    const patroc = Array.isArray(d?.sponsorshipValues) ? d.sponsorshipValues : [];
+    if (!patroc.length) {
+      const v = pv(d?.amount);
+      if (v > 0) descontosOD.push({ origem: 'promocao', rotulo: 'desconto', valor: v, alvo, quemBanca: 'indefinido' });
+      continue;
+    }
+    for (const s of patroc) {
+      const v = pv(s?.amount);
+      if (v <= 0) continue;
+      const quem = String(s?.name ?? '').toUpperCase();
+      const codigo = s?.discountCode ? String(s.discountCode) : undefined;
+      descontosOD.push({
+        origem: codigo ? 'cupom' : alvo === 'DELIVERY_FEE' ? 'frete' : 'promocao',
+        rotulo: `${quem || 'PATROCINADOR'}${codigo ? ` · ${codigo}` : ''}`,
+        valor: v,
+        alvo,
+        quemBanca: quem === 'MERCHANT' ? 'loja' : quem ? 'marketplace' : 'indefinido',
+        campanha: codigo,
+      });
+    }
+  }
+
+  // otherFees[]: a taxa de ENTREGA tem dono declarado em `receivedBy` — e a doc é explícita
+  // que é o destino ECONÔMICO final, não quem coletou o dinheiro. As demais (serviço,
+  // gorjeta, pedido mínimo) não são receita de produto.
+  const fees = raw?.otherFees ?? [];
+  const feeEntrega = fees.find((f: any) => String(f?.type ?? '').toUpperCase() === 'DELIVERY_FEE');
+  const recebedor = String(feeEntrega?.receivedBy ?? raw?.delivery?.deliveredBy ?? '').toUpperCase();
+  const taxasOD: TaxaExtraCanal[] = fees
+    .filter((f: any) => String(f?.type ?? '').toUpperCase() !== 'DELIVERY_FEE')
+    .map((f: any) => ({
+      tipo: String(f?.type ?? 'outro'),
+      rotulo: String(f?.name ?? f?.type ?? 'Taxa'),
+      valor: pv(f?.price),
+    }))
+    .filter((f: TaxaExtraCanal) => f.valor > 0);
+
+  const metodos = raw?.payments?.methods ?? (Array.isArray(raw?.payments) ? raw.payments : []);
+  const pagamentosOD: PagamentoCanal[] = metodos.map((m: any) => {
+    const t = String(m?.type ?? '').toUpperCase();
+    return {
+      codigo: m?.method ? String(m.method) : undefined,
+      rotulo: formaPtBr(m?.method),
+      valor: Number(m?.value) || 0, // número puro neste ponto do padrão
+      prepago: t === 'PREPAID' || t === 'ONLINE' || m?.prepaid === true,
+      // changeFor = a nota com que o cliente paga (o troco sai daí), não o troco.
+      troco: m?.changeFor != null && Number(m.changeFor) > 0 ? Number(m.changeFor) : null,
+      bandeira: m?.brand ?? m?.methodInfo ?? undefined,
+    };
+  });
+
+  const pagoClienteOD = pv(raw?.total?.orderAmount) || Number(raw?.totalAmount) || 0;
+  const itemsPrice = raw?.total?.itemsPrice != null ? pv(raw.total.itemsPrice) : undefined;
+
   return {
     externalId: raw?.id ? String(raw.id) : undefined,
     displayId: raw?.displayId ? String(raw.displayId) : raw?.orderExternalCode,
@@ -314,13 +390,19 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
     tipo,
     endereco,
     itens,
-    total: Number(raw?.total?.orderAmount?.value ?? raw?.total?.orderAmount ?? raw?.totalAmount) || 0,
+    total: pagoClienteOD,
     ...(() => {
-      const m: any = raw?.payments?.methods?.[0] ?? raw?.payments?.[0] ?? {};
+      const m: any = metodos[0] ?? {};
       const t = String(m?.type ?? m?.prepaid ?? '').toUpperCase();
       const pago = m?.prepaid === true || t === 'PREPAID' || t === 'ONLINE' || t === 'TRUE';
       return { formaPagamento: formaPtBr(m?.method ?? (pago ? 'online' : 'money')), pago };
     })(),
+    valorBruto: itemsPrice,
+    descontos: descontosOD.length ? descontosOD : undefined,
+    pagamentos: pagamentosOD.length ? pagamentosOD : undefined,
+    taxaEntregaDono: recebedor === 'MERCHANT' ? 'loja' : recebedor ? 'marketplace' : undefined,
+    valorPagoCliente: pagoClienteOD,
+    taxasExtras: taxasOD.length ? taxasOD : undefined,
   };
 }
 
@@ -340,7 +422,16 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
       codigo: it.external_code ?? (it.item_id != null ? 'cw' + it.item_id : undefined),
       descricao: it.name ?? 'Item',
       quantidade: Number(it.quantity) || 1,
-      precoUnitario: Number(it.unit_price ?? it.total_price) || 0,
+      // BUG corrigido: caía em `total_price` (o total da LINHA) sem dividir pela quantidade —
+      // 3 unidades a R$20 (linha R$60) viravam R$60 cada, R$180 no caixa. Os outros canais
+      // (99food e Anota Aí) já dividiam; este era o único fora do padrão.
+      precoUnitario: (() => {
+        const qtd = Number(it.quantity) || 1;
+        const un = Number(it.unit_price);
+        if (Number.isFinite(un) && un > 0) return un;
+        const linha = Number(it.total_price) || 0;
+        return Number((linha / qtd).toFixed(2));
+      })(),
       observacao: it.observation || undefined,
       complementos: opts.join(' · ') || undefined,
     };
