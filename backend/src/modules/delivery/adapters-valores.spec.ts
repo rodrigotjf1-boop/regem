@@ -183,9 +183,47 @@ describe('adaptarIfood — quem banca o desconto', () => {
     expect(r.valorBruto).toBe(50); // subTotal declarado pelo iFood
   });
 
-  it('additionalFees do iFood não é receita da loja', () => {
+  it('additionalFees do iFood não é receita da loja (fallback pelo somatório)', () => {
     const r = adaptarIfood(pedido([], 2));
     expect(r.taxasExtras).toEqual([{ tipo: 'ifood_additional_fees', rotulo: 'Taxas do iFood', valor: 2 }]);
+  });
+
+  it('usa o detalhe de additionalFees[] quando vem (nomeia cada taxa)', () => {
+    const base = pedido([], 1);
+    const r = adaptarIfood({
+      ...base,
+      additionalFees: [{
+        type: 'SMALL_ORDER_FEE', description: 'Taxa de Serviço',
+        fullDescription: 'Taxa de serviço cobrada quando o valor do pedido é inferior ao pedido mínimo.',
+        value: 1.0, liabilities: [{ name: 'IFOOD', percentage: 100 }],
+      }],
+    });
+    expect(r.taxasExtras).toEqual([{ tipo: 'SMALL_ORDER_FEE', rotulo: 'Taxa de Serviço', valor: 1 }]);
+  });
+
+  // Exemplo COMPLETO da doc oficial: 3 benefits co-patrocinados somando total.benefits 1,99.
+  it('exemplo oficial completo: 3 benefícios, soma bate com total.benefits', () => {
+    const r = adaptarIfood({
+      id: '63895716', displayId: 'XPTO',
+      customer: { name: 'Example', phone: { number: '123456789' } },
+      items: [{ index: 0, name: 'Example Item', quantity: 12, unitPrice: 0.12, price: 1.44, optionsPrice: 1.69, totalPrice: 3.13 }],
+      total: { subTotal: 3.13, deliveryFee: 5.99, additionalFees: 1, benefits: 1.99, orderAmount: 8.13 },
+      payments: { prepaid: 2.13, pending: 5, methods: [{ value: 5, method: 'CASH', type: 'OFFLINE' }] },
+      delivery: { deliveredBy: 'IFOOD' },
+      benefits: [
+        { value: 1.0, target: 'CART', sponsorshipValues: [{ name: 'IFOOD', value: 0.5 }, { name: 'MERCHANT', value: 0.5 }] },
+        { value: 0.5, target: 'ITEM', targetId: '1', sponsorshipValues: [{ name: 'IFOOD', value: 0.5 }, { name: 'MERCHANT', value: 0 }] },
+        { value: 0.49, target: 'DELIVERY_FEE', sponsorshipValues: [{ name: 'IFOOD', value: 0 }, { name: 'MERCHANT', value: 0.49 }] },
+      ],
+      additionalFees: [{ type: 'SMALL_ORDER_FEE', value: 1.0 }],
+    });
+    const soma = r.descontos!.reduce((a, d) => a + d.valor, 0);
+    expect(soma).toBeCloseTo(1.99, 2); // = total.benefits
+    const loja = r.descontos!.filter((d) => d.quemBanca === 'loja').reduce((a, d) => a + d.valor, 0);
+    expect(loja).toBeCloseTo(0.99, 2); // 0,50 + 0,49 de incentivo da LOJA
+    expect(r.valorBruto).toBe(3.13); // = subTotal = items[].totalPrice
+    expect(r.itens[0].precoUnitario).toBeCloseTo(3.13 / 12, 2); // linha com adicionais / qtd
+    expect(r.taxaEntregaDono).toBe('marketplace'); // deliveredBy IFOOD
   });
 
   it('logística do iFood: o frete cobrado do cliente não é receita da loja', () => {

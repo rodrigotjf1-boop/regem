@@ -190,11 +190,21 @@ export function adaptarIfood(raw: any): PedidoNormalizado {
   }
 
   // additionalFees do iFood são RECEITA DO IFOOD cobrada do cliente (serviço, intermediação).
-  // A doc é explícita: "não devem ser adicionadas à nota fiscal". Não é receita da loja.
-  const extraFees = Number(raw?.total?.additionalFees) || 0;
-  const taxasExtras: TaxaExtraCanal[] = extraFees > 0
-    ? [{ tipo: 'ifood_additional_fees', rotulo: 'Taxas do iFood', valor: extraFees }]
-    : [];
+  // A doc é explícita: "não devem ser adicionadas à nota fiscal" — logo não é receita da loja
+  // e não pode entrar no bruto. O array traz o detalhe (type/description); `total.additionalFees`
+  // é só o somatório. Guardamos o detalhe quando vier, para o relatório nomear cada taxa.
+  const lista = Array.isArray(raw?.additionalFees) ? raw.additionalFees : [];
+  const taxasExtras: TaxaExtraCanal[] = lista
+    .map((f: any) => ({
+      tipo: String(f?.type ?? 'ifood_fee'),
+      rotulo: String(f?.description ?? f?.fullDescription ?? f?.type ?? 'Taxa do iFood'),
+      valor: Number(f?.value) || 0,
+    }))
+    .filter((f: TaxaExtraCanal) => f.valor > 0);
+  // Sem o array (payload antigo), cai no somatório para não perder o valor.
+  const somaFees = Number(raw?.total?.additionalFees) || 0;
+  if (!taxasExtras.length && somaFees > 0)
+    taxasExtras.push({ tipo: 'ifood_additional_fees', rotulo: 'Taxas do iFood', valor: somaFees });
 
   const pagamentos: PagamentoCanal[] = (pay?.methods ?? []).map((m: any) => {
     const t = String(m?.type ?? '').toUpperCase();
