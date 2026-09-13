@@ -1,4 +1,124 @@
-import { adaptarAnotaAi, adaptarIfood, classificarDesconto } from './adapters';
+import { adaptarAnotaAi, adaptarDidiFood, adaptarIfood, classificarDesconto } from './adapters';
+
+// Exemplo OFICIAL da doc do 99food (Order Delivered by the Store Couriers). Valores em
+// centavos. `shop_subside_price` é o campo que diz quanto a LOJA bancou; o resto é o 99food.
+describe('adaptarDidiFood — quem banca a promoção', () => {
+  const oficial = {
+    order_id: 5764625173055605000,
+    order_index: 1,
+    pay_type: 2,
+    delivery_type: 2, // entrega da loja
+    fulfillment_mode: 0,
+    receive_address: { name: 'João Silva', calling_code: '+55', phone: '00016007722', city: 'Goiânia' },
+    order_items: [
+      { app_item_id: '39923', name: 'Combo 99Food', amount: 1, sku_price: 4830000, total_price: 5720000, sub_item_list: [] },
+    ],
+    price: {
+      order_price: 5720000,
+      items_discount: 2540000,
+      real_price: 4680700,
+      real_pay_price: 3180700,
+      store_charged_delivery_price: 700,
+      delivery_price: 700,
+      delivery_discount: 0,
+      others_fees: { small_order_price: 0, total_tip_money: 100000, service_price: 0, coupon_discount: 1040000 },
+      refund_price: 0,
+      customer_need_paying_money: 3280700,
+    },
+    promotions: [
+      { promo_type: 2, promo_discount: 1040000, shop_subside_price: 1040000 }, // 100% da loja
+      { promo_type: 11, promo_discount: 1500000, shop_subside_price: 0 }, // 100% do 99food
+    ],
+  };
+
+  it('separa o que a LOJA bancou do que o 99FOOD bancou', () => {
+    const r = adaptarDidiFood(oficial);
+    const loja = r.descontos!.filter((d) => d.quemBanca === 'loja').reduce((a, d) => a + d.valor, 0);
+    const app = r.descontos!.filter((d) => d.quemBanca === 'marketplace').reduce((a, d) => a + d.valor, 0);
+    expect(loja).toBe(10400); // shop_subside_price
+    expect(app).toBe(15000); // promo_discount − shop_subside_price
+    expect(loja + app).toBe(25400); // = items_discount (2540000 centavos)
+  });
+
+  it('bruto = order_price (itens sem promoção e sem entrega)', () => {
+    const r = adaptarDidiFood(oficial);
+    expect(r.valorBruto).toBe(57200);
+  });
+
+  it('a conta oficial fecha: bruto − o que a loja bancou + entrega = real_price', () => {
+    const r = adaptarDidiFood(oficial);
+    const loja = r.descontos!.filter((d) => d.quemBanca === 'loja').reduce((a, d) => a + d.valor, 0);
+    const entrega = oficial.price.delivery_price / 100;
+    expect(r.valorBruto! - loja + entrega).toBe(oficial.price.real_price / 100); // 46807
+  });
+
+  it('gorjeta do entregador não é receita de produto', () => {
+    const r = adaptarDidiFood(oficial);
+    expect(r.taxasExtras).toContainEqual({ tipo: 'total_tip_money', rotulo: 'Gorjeta do entregador', valor: 1000 });
+  });
+
+  it('entrega da loja (delivery_type 2) = taxa é da loja', () => {
+    expect(adaptarDidiFood(oficial).taxaEntregaDono).toBe('loja');
+  });
+
+  it('logística do 99food (delivery_type 1): o frete não é receita da loja', () => {
+    const r = adaptarDidiFood({ ...oficial, delivery_type: 1 });
+    expect(r.taxaEntregaDono).toBe('marketplace');
+  });
+
+  it('RETIRADA deixa de virar entrega (fulfillment_mode 1)', () => {
+    const r = adaptarDidiFood({
+      ...oficial,
+      fulfillment_mode: 1,
+      delivery_type: 0,
+      price: { order_price: 1000, real_price: 1000, real_pay_price: 1000, delivery_price: 0 },
+      promotions: [],
+    });
+    expect(r.tipo).toBe('retirada'); // antes era 'entrega' fixo para TODO pedido da 99
+    expect(r.taxaEntregaDono).toBeUndefined();
+  });
+
+  it('pedido sem promoção não inventa desconto', () => {
+    const r = adaptarDidiFood({ ...oficial, promotions: [], price: { ...oficial.price, delivery_discount: 0 } });
+    expect(r.descontos).toBeUndefined();
+  });
+
+  // Exemplo oficial nº 2 (99food Delivery com vários tipos de promoção). Prova que
+  // promotions[] JÁ CONTÉM a promoção de entrega — somar delivery_discount duplicaria.
+  const comEntrega = {
+    ...oficial,
+    delivery_type: 1,
+    price: { order_price: 5460000, items_discount: 2488000, delivery_discount: 400000, shop_paid_money: 0, refund_price: 0 },
+    promotions: [
+      { promo_type: 2, promo_discount: 168000, shop_subside_price: 0 },
+      { promo_type: 2, promo_discount: 1470000, shop_subside_price: 1470000 },
+      { promo_type: 3, promo_discount: 400000, shop_subside_price: 0 }, // Frete grátis
+      { promo_type: 11, promo_discount: 850000, shop_subside_price: 0 }, // Cupom em item
+    ],
+  };
+
+  it('NÃO conta o desconto de entrega duas vezes', () => {
+    const r = adaptarDidiFood(comEntrega);
+    const soma = r.descontos!.reduce((a, d) => a + d.valor, 0);
+    // items_discount 2.488.000 + delivery_discount 400.000 = 2.888.000 centavos
+    expect(soma).toBe(28880);
+  });
+
+  it('classifica pela tabela oficial de promo_type', () => {
+    const r = adaptarDidiFood(comEntrega);
+    expect(r.descontos!.find((d) => d.campanha === 'Frete grátis por valor')!.origem).toBe('frete');
+    expect(r.descontos!.find((d) => d.campanha === 'Cupom em item')!.origem).toBe('cupom');
+    expect(r.descontos!.find((d) => d.campanha === 'Item em promoção')).toBeDefined();
+  });
+
+  it('clube 99food (promo_type 34) é fidelidade, e bancado por eles', () => {
+    const r = adaptarDidiFood({
+      ...oficial,
+      promotions: [{ promo_type: 34, promo_discount: 500000, shop_subside_price: 0 }],
+    });
+    expect(r.descontos![0]).toMatchObject({ origem: 'fidelidade', quemBanca: 'marketplace', valor: 5000 });
+  });
+});
 
 // Payloads da DOCUMENTAÇÃO OFICIAL do iFood. A regra financeira é dele:
 //   MERCHANT             → desconto (sai do bolso da loja)

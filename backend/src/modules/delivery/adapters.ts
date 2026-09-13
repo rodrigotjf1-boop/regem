@@ -369,6 +369,24 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
 // do DiDi → modelo interno. Preços vêm em CENTAVOS (int) → dividimos por 100.
 // De-para de item por `app_item_id` (o código PDV que subimos no menu do 99food).
 // O externalId vem como STRING (order_id 64-bit — nunca convertido a number).
+// Tabela oficial de `promo_type` do 99food. Sem ela, toda promoção virava "promoção" genérica
+// e o lojista não conseguia saber quanto gastou com cupom vs. clube vs. frete grátis.
+// (Quem BANCA não sai daqui — sai de `shop_subside_price`, por promoção.)
+const PROMO_99: Record<number, { nome: string; origem: DescontoCanal['origem'] }> = {
+  1: { nome: 'Desconto por pedido mínimo', origem: 'promocao' },
+  2: { nome: 'Item em promoção', origem: 'promocao' },
+  3: { nome: 'Frete grátis por valor', origem: 'frete' },
+  4: { nome: 'Leve X pague Y', origem: 'promocao' },
+  10: { nome: 'Cupom no pedido', origem: 'cupom' },
+  11: { nome: 'Cupom em item', origem: 'cupom' },
+  12: { nome: 'Cupom de entrega', origem: 'cupom' },
+  20: { nome: 'Desconto de entrega (membro 99food)', origem: 'frete' },
+  30: { nome: 'Entrega compartilhada', origem: 'frete' },
+  34: { nome: 'Clube 99food', origem: 'fidelidade' },
+  100: { nome: 'Cliente novo', origem: 'promocao' },
+  101: { nome: 'Cliente recorrente', origem: 'promocao' },
+};
+
 export function adaptarDidiFood(raw: any): PedidoNormalizado {
   const itens = (raw?.order_items ?? []).map((it: any) => {
     const subs = (it.sub_item_list ?? [])
@@ -401,17 +419,82 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
   // pay_type: 1 online · 2 dinheiro · 3 pos(cartão) · 4 wallet(online).
   const PAY: Record<number, string> = { 1: 'online', 2: 'money', 3: 'cartao', 4: 'online' };
   const payType = Number(raw?.pay_type);
+  const pagoOnline = payType === 1 || payType === 4;
+  const p = raw?.price ?? {};
+  const cent = (v: any) => (Number(v) || 0) / 100;
+
+  // ===== Dinheiro detalhado (mig 241) =====
+  // `shop_subside_price` é o campo que diz QUEM BANCA: é a parte da promoção que a LOJA
+  // subsidiou. O resto (promo_discount − shop_subside_price) é o 99food que pagou e que
+  // volta no repasse. Sem isso, toda promoção do 99food virava custo da loja.
+  const promocoes = raw?.promotions ?? [];
+  const descontos: DescontoCanal[] = [];
+  for (const pr of promocoes) {
+    const total = Number(pr?.promo_discount) || 0;
+    const daLoja = Number(pr?.shop_subside_price) || 0;
+    const doApp = total - daLoja;
+    const t = Number(pr?.promo_type);
+    const nome = PROMO_99[t]?.nome ?? (pr?.promo_type != null ? `promo_type ${pr.promo_type}` : 'promoção');
+    const origem = PROMO_99[t]?.origem ?? 'promocao';
+    const alvo = origem === 'frete' ? 'DELIVERY_FEE' : undefined;
+    if (daLoja > 0)
+      descontos.push({ origem, rotulo: `Loja · ${nome}`, valor: cent(daLoja), alvo, quemBanca: 'loja', campanha: nome });
+    if (doApp > 0)
+      descontos.push({ origem, rotulo: `99food · ${nome}`, valor: cent(doApp), alvo, quemBanca: 'marketplace', campanha: nome });
+  }
+  // ATENÇÃO: `promotions[]` JÁ INCLUI as promoções de entrega (confirmado no exemplo oficial:
+  // items_discount 2.488.000 + delivery_discount 400.000 = soma de promotions[]). Somar
+  // `delivery_discount` por cima contaria o desconto de frete DUAS VEZES. Ele só entra como
+  // fallback quando o pedido vem sem `promotions[]` (modelo de preço 1, que não tem o array).
+  const descEntrega = Number(p?.delivery_discount) || 0;
+  if (!promocoes.length && descEntrega > 0)
+    descontos.push({ origem: 'frete', rotulo: 'Desconto na entrega', valor: cent(descEntrega), alvo: 'DELIVERY_FEE', quemBanca: 'indefinido' });
+
+  // others_fees: gorjeta do entregador, taxa de serviço e taxa de pedido mínimo. Nenhuma é
+  // receita de produto — a gorjeta inclusive é do entregador, não da loja.
+  const of = p?.others_fees ?? {};
+  const taxasExtras: TaxaExtraCanal[] = [
+    { tipo: 'total_tip_money', rotulo: 'Gorjeta do entregador', valor: cent(of?.total_tip_money) },
+    { tipo: 'service_price', rotulo: 'Taxa de serviço', valor: cent(of?.service_price ?? p?.service_price) },
+    { tipo: 'small_order_price', rotulo: 'Taxa de pedido mínimo', valor: cent(of?.small_order_price) },
+    { tipo: 'meal_top_up_price', rotulo: 'Complemento de pedido mínimo', valor: cent(of?.meal_top_up_price ?? p?.meal_top_up_price) },
+  ].filter((f) => f.valor > 0);
+
+  const pagamentos: PagamentoCanal[] = [
+    {
+      codigo: payType ? `pay_type_${payType}` : undefined,
+      rotulo: formaPtBr(PAY[payType] ?? 'online'),
+      valor: totalCents / 100,
+      prepago: pagoOnline,
+      troco: null, // o 99food não informa troco; o entregador recolhe shop_paid_money
+    },
+  ];
+
+  // delivery_type: 1 = entrega do 99food · 2 = entrega da loja · 0 = retirada.
+  // Com a logística do 99food, o frete cobrado do cliente NÃO é receita da loja.
+  const delivType = Number(raw?.delivery_type);
+  // fulfillment_mode 1 = retirada no balcão. Antes o tipo era 'entrega' fixo e TODO pedido
+  // de retirada da 99 entrava como entrega no Regem.
+  const retirada = Number(raw?.fulfillment_mode) === 1 || delivType === 0;
+
   return {
     externalId: raw?.order_id != null ? String(raw.order_id) : undefined,
     displayId: raw?.order_index != null ? String(raw.order_index) : undefined,
     clienteNome: addr.name ?? addr.first_name,
     clienteTelefone: tel,
-    tipo: 'entrega',
+    tipo: retirada ? 'retirada' : 'entrega',
     endereco,
     itens,
     total: totalCents / 100,
     formaPagamento: formaPtBr(PAY[payType] ?? 'online'),
-    pago: payType === 1 || payType === 4, // online/wallet = pago; dinheiro/pos = na entrega
+    pago: pagoOnline, // online/wallet = pago; dinheiro/pos = na entrega
+    // order_price = soma dos itens SEM promoção e SEM entrega: é o bruto do produto.
+    valorBruto: p?.order_price != null ? cent(p.order_price) : undefined,
+    descontos: descontos.length ? descontos : undefined,
+    pagamentos,
+    taxaEntregaDono: retirada ? undefined : delivType === 2 ? 'loja' : delivType === 1 ? 'marketplace' : undefined,
+    valorPagoCliente: totalCents / 100,
+    taxasExtras: taxasExtras.length ? taxasExtras : undefined,
   };
 }
 
