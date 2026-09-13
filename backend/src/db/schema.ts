@@ -2056,6 +2056,22 @@ export const pedidoExterno = pgTable('pedido_externo', {
   cupom: text('cupom'),
   desconto: numeric('desconto').notNull().default('0'),
   trocoPara: numeric('troco_para'),
+  // Valores separados por ORIGEM (mig 241). `total`/`desconto` acima seguem com o
+  // significado antigo p/ não quebrar consumidor; estes respondem o que faltava:
+  // quanto foi vendido, quem bancou cada desconto e quanto o cliente pagou.
+  valorBruto: numeric('valor_bruto'), // itens a preço cheio, antes de desconto
+  descontoLoja: numeric('desconto_loja').notNull().default('0'), // sai do bolso da loja
+  descontoMarketplace: numeric('desconto_marketplace').notNull().default('0'), // volta no repasse
+  // [{origem,rotulo,valor,alvo,quemBanca,campanha?}] — detalhe p/ relatório por programa
+  descontos: jsonb('descontos'),
+  // [{codigo,rotulo,valor,prepago,troco,bandeira}] — abre pagamento dividido e troco por método
+  pagamentos: jsonb('pagamentos'),
+  taxaEntregaDono: text('taxa_entrega_dono'), // 'loja' (receita) | 'marketplace' (custo) | null
+  valorPagoCliente: numeric('valor_pago_cliente'), // o que bate com o comprovante do cliente
+  // Gorjeta do garçom / taxa de serviço do pagamento online: o cliente paga, mas NÃO é
+  // receita de produto. Somar isso ao faturamento infla a margem.
+  taxasExtras: numeric('taxas_extras').notNull().default('0'),
+  taxasExtrasDetalhe: jsonb('taxas_extras_detalhe'), // [{tipo,rotulo,valor}]
   pago: boolean('pago').notNull().default(false),
   statusPagamento: text('status_pagamento').notNull().default('na_entrega'), // na_entrega|aguardando|aprovado|orcamento
   gatewayPaymentId: text('gateway_payment_id'), // id do pagamento no gateway (Mercado Pago) p/ webhook
