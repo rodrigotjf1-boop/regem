@@ -51,7 +51,7 @@ import { CardapioWebService } from '../integracoes/cardapio-web/cardapio-web.ser
 import { IfoodService } from '../integracoes/ifood/ifood.service';
 import { Food99Service } from '../integracoes/food99/food99.service';
 import { AnotaAiService } from '../integracoes/anotaai/anotaai.service';
-import { adaptar, PedidoNormalizado } from './adapters';
+import { adaptar, DescontoCanal, PedidoNormalizado } from './adapters';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -435,6 +435,11 @@ export class DeliveryService {
         enderecoReferencia: extra?.enderecoReferencia ?? null,
         enderecoBairro: extra?.enderecoBairro ?? null,
         bandeira: extra?.bandeira ?? null,
+        // ===== Valores separados por origem (mig 241) =====
+        // Aditivo: `total`, `desconto` e `taxa_entrega` acima seguem intocados. Estes campos
+        // só são preenchidos pelos canais que informam o detalhe — quem não informa fica
+        // null, e null aqui significa "o canal não disse", nunca "é zero".
+        ...this.valoresDoPedido(norm, extra),
         raw: raw as any,
       })
       .returning();
@@ -481,6 +486,62 @@ export class DeliveryService {
   }
 
   // Normaliza telefone BR p/ chave do cliente: só dígitos, sem DDI 55 (fica DDD+numero).
+  // Monta as colunas de valor separadas por origem (mig 241) a partir do que o adaptador
+  // do canal conseguiu extrair. Regras:
+  //  • só grava o que o canal DECLAROU — nada de estimar, senão o faturamento mente;
+  //  • separa desconto da LOJA (custo dela) do desconto do MARKETPLACE (volta no repasse);
+  //  • confere se o bruto declarado bate com a soma dos itens e LOGA a divergência — é assim
+  //    que a gente enxerga o preço de adicional que os marketplaces não mandam.
+  private valoresDoPedido(norm: PedidoNormalizado, extra?: any): Record<string, any> {
+    const descontos = norm.descontos ?? [];
+    const extras = norm.taxasExtras ?? [];
+    if (!descontos.length && norm.valorBruto == null && !norm.pagamentos?.length && !extras.length) {
+      // Canal ainda sem extração detalhada — não inventa nada.
+      return {};
+    }
+    const somaPor = (quem: DescontoCanal['quemBanca']) =>
+      descontos.filter((d) => d.quemBanca === quem).reduce((a, d) => a + (Number(d.valor) || 0), 0);
+    // 'indefinido' entra como desconto da LOJA por prudência contábil: assumir que o
+    // marketplace banca infla o "a receber" e cria cobrança indevida no repasse.
+    const descLoja = Number((somaPor('loja') + somaPor('indefinido')).toFixed(2));
+    const descMkt = Number(somaPor('marketplace').toFixed(2));
+
+    const somaItens = Number(
+      (norm.itens ?? [])
+        .reduce((a, i) => a + (Number(i.precoUnitario) || 0) * (Number(i.quantidade) || 1), 0)
+        .toFixed(2),
+    );
+    if (norm.valorBruto != null && Math.abs(norm.valorBruto - somaItens) > 0.01) {
+      // Não é erro fatal: os marketplaces mandam só o NOME do adicional, então a soma dos
+      // itens costuma ficar ABAIXO do bruto real. Logar expõe o tamanho do buraco.
+      this.logger.warn(
+        `valores: bruto declarado (${norm.valorBruto.toFixed(2)}) != soma dos itens ` +
+          `(${somaItens.toFixed(2)}) — diferença ${(norm.valorBruto - somaItens).toFixed(2)} ` +
+          `(provável preço de complemento não informado pelo canal)`,
+      );
+    }
+    return {
+      valorBruto: norm.valorBruto != null ? String(norm.valorBruto.toFixed(2)) : null,
+      descontoLoja: String(descLoja.toFixed(2)),
+      descontoMarketplace: String(descMkt.toFixed(2)),
+      descontos: descontos.length ? (descontos as any) : null,
+      pagamentos: norm.pagamentos?.length ? (norm.pagamentos as any) : null,
+      taxaEntregaDono: norm.taxaEntregaDono ?? null,
+      valorPagoCliente:
+        norm.valorPagoCliente != null ? String(norm.valorPagoCliente.toFixed(2)) : null,
+      taxasExtras: String(
+        extras.reduce((a, f) => a + (Number(f.valor) || 0), 0).toFixed(2),
+      ),
+      taxasExtrasDetalhe: extras.length ? (extras as any) : null,
+      // O troco vinha só do `extra`; agora o adaptador também pode trazê-lo no detalhe de
+      // pagamento (Anota Aí manda em `changeFor` e isso se perdia).
+      trocoPara:
+        extra?.trocoPara != null
+          ? String(extra.trocoPara)
+          : (norm.pagamentos ?? []).find((p) => p.troco != null)?.troco?.toString() ?? null,
+    };
+  }
+
   private static normTel(raw?: string | null): string {
     let d = String(raw ?? '').replace(/\D/g, '');
     if (d.length > 11 && d.startsWith('55')) d = d.slice(2);
