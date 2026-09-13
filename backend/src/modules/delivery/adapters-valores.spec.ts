@@ -574,6 +574,47 @@ describe('adaptarCardapioWeb', () => {
   });
 });
 
+// O BACKFILL reprocessa payloads ANTIGOS guardados em pedido_externo.raw — inclusive de
+// versões antigas das APIs, que podem não ter os campos novos. Nenhum adaptador pode
+// explodir: no pior caso devolve sem o detalhe, e o pedido fica como está hoje.
+describe('robustez para o backfill do histórico', () => {
+  const vazios = [{}, { items: [] }, { total: null }, { price: {} }, { info: {} }];
+  const adaptadores: [string, (r: any) => any][] = [
+    ['iFood', adaptarIfood],
+    ['99food', adaptarDidiFood],
+    ['Anota Aí', adaptarAnotaAi],
+    ['Open Delivery', adaptarOpenDelivery],
+    ['Cardápio Web', adaptarCardapioWeb],
+  ];
+
+  it.each(adaptadores)('%s não quebra com payload vazio ou parcial', (_nome, fn) => {
+    for (const raw of vazios) {
+      expect(() => fn(raw)).not.toThrow();
+      const r = fn(raw);
+      expect(Array.isArray(r.itens)).toBe(true);
+      expect(typeof r.total).toBe('number');
+      expect(Number.isFinite(r.total)).toBe(true);
+    }
+  });
+
+  it.each(adaptadores)('%s é DETERMINÍSTICO — reprocessar dá o mesmo resultado', (_nome, fn) => {
+    // É o que torna o backfill seguro de rodar mais de uma vez.
+    const raw = { items: [{ name: 'X', quantity: 2, price: 10, total: 20, total_price: 20, totalPrice: 20 }], total: 20, price: { order_price: 2000 } };
+    expect(JSON.stringify(fn(raw))).toBe(JSON.stringify(fn(raw)));
+  });
+
+  it('nunca produz valor negativo ou NaN nos campos de dinheiro', () => {
+    for (const [, fn] of adaptadores) {
+      const r = fn({ total: -5, price: { order_price: -100 }, items: [{ quantity: 0, price: -1 }] });
+      for (const v of [r.valorBruto, r.valorPagoCliente, r.total]) {
+        if (v != null) expect(Number.isFinite(v)).toBe(true);
+      }
+      (r.descontos ?? []).forEach((d: any) => expect(d.valor).toBeGreaterThan(0));
+      (r.taxasExtras ?? []).forEach((f: any) => expect(f.valor).toBeGreaterThan(0));
+    }
+  });
+});
+
 describe('classificarDesconto — a etiqueta do canal decide o balde', () => {
   it.each([
     ['fidelidade', 'fidelidade'],

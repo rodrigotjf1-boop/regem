@@ -429,4 +429,19 @@ export class DeliveryController {
       trocoPara: dto?.trocoPara,
     });
   }
+
+  // Recalcula os valores por origem (mig 241) dos pedidos ANTIGOS, a partir do payload cru
+  // guardado em pedido_externo.raw. Só PRESIDENTE: reescreve dado financeiro do histórico.
+  // Idempotente (só preenche linha ainda vazia) e em lotes — rode até `restam` vir false.
+  @Post('backfill-valores')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente')
+  @RequirePerm('delivery')
+  @CloudOnly()
+  backfillValores(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.backfillValores(user.tenantId, {
+      limite: Number(dto?.limite) || 500,
+      canal: dto?.canal,
+    });
+  }
 }

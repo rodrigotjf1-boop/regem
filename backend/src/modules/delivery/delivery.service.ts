@@ -486,6 +486,60 @@ export class DeliveryService {
   }
 
   // Normaliza telefone BR p/ chave do cliente: só dígitos, sem DDI 55 (fica DDD+numero).
+  // Recalcula os valores por origem (mig 241) dos pedidos ANTIGOS, a partir do payload cru
+  // que já guardávamos em pedido_externo.raw desde a mig 039. Nada se perdeu: o `benefits`
+  // do iFood, o `shop_subside_price` do 99food e o `discounts[]` do Anota Aí/CW estão todos
+  // lá — só nunca foram lidos. Reusa o MESMO adaptador do ingest (zero lógica duplicada),
+  // então o histórico fica idêntico ao que um pedido novo produziria.
+  // Idempotente: só toca em linha que ainda não foi preenchida (valor_bruto null).
+  async backfillValores(tenantId: string, opts?: { limite?: number; canal?: string }) {
+    const limite = Math.min(Math.max(Number(opts?.limite) || 500, 1), 5000);
+    const canal = String(opts?.canal ?? '').trim();
+    const linhas = await this.db
+      .select({ id: pedidoExterno.id, canal: pedidoExterno.canal, raw: pedidoExterno.raw })
+      .from(pedidoExterno)
+      .where(
+        and(
+          eq(pedidoExterno.tenantId, tenantId),
+          isNull(pedidoExterno.valorBruto),
+          isNotNull(pedidoExterno.raw),
+          canal ? eq(pedidoExterno.canal, canal) : undefined,
+        ),
+      )
+      .orderBy(desc(pedidoExterno.criadoEm))
+      .limit(limite);
+
+    let atualizados = 0;
+    let semDado = 0;
+    const falhas: { id: string; erro: string }[] = [];
+    for (const l of linhas) {
+      try {
+        // O ingest normaliza o envelope antes de adaptar; aqui o raw já é o pedido em si.
+        const norm = adaptar(l.canal, l.raw as any);
+        const valores = this.valoresDoPedido(norm);
+        if (!Object.keys(valores).length) {
+          semDado++; // canal sem extração detalhada (ou payload antigo sem os campos)
+          continue;
+        }
+        await this.db
+          .update(pedidoExterno)
+          .set(valores as any)
+          .where(and(eq(pedidoExterno.id, l.id), eq(pedidoExterno.tenantId, tenantId)));
+        atualizados++;
+      } catch (e: any) {
+        // Um payload estranho não pode derrubar o lote inteiro — registra e segue.
+        falhas.push({ id: l.id, erro: String(e?.message ?? e).slice(0, 160) });
+      }
+    }
+    const resumo = { lidos: linhas.length, atualizados, semDado, falhas: falhas.length };
+    this.logger.log(
+      `backfill de valores${canal ? ` [${canal}]` : ''}: ${JSON.stringify(resumo)}` +
+        (falhas.length ? ` primeiras falhas: ${JSON.stringify(falhas.slice(0, 3))}` : ''),
+    );
+    // `restam` diz se vale rodar de novo (o lote é limitado de propósito).
+    return { ...resumo, falhasDetalhe: falhas.slice(0, 20), restam: linhas.length === limite };
+  }
+
   // Monta as colunas de valor separadas por origem (mig 241) a partir do que o adaptador
   // do canal conseguiu extrair. Regras:
   //  • só grava o que o canal DECLAROU — nada de estimar, senão o faturamento mente;
