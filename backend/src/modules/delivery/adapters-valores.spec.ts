@@ -477,14 +477,97 @@ describe('adaptarOpenDelivery — sponsorshipValues e receivedBy', () => {
   });
 });
 
-describe('adaptarCardapioWeb — bug de multiplicação', () => {
+// Exemplo OFICIAL do spec api-pedidos.json do Cardápio Web. A equação é declarada na doc:
+// total = Σ items.total_price + delivery_fee + service_fee + additional_fee
+//         + Σ payments.payment_fee − Σ discounts.total
+describe('adaptarCardapioWeb', () => {
+  const oficial = {
+    id: 7637461,
+    display_id: 47,
+    order_type: 'delivery',
+    delivered_by: 'merchant',
+    customer: { name: 'Matheus Lessa', phone: '85994197929' },
+    delivery_address: { street: 'Av. Jovita Feitosa', number: '2992', neighborhood: 'Parquelândia', city: 'Fortaleza', state: 'CE' },
+    delivery_fee: 5,
+    service_fee: 0,
+    additional_fee: 8,
+    total: 181.3,
+    items: [
+      { item_id: 208907, name: 'Hamburguer', quantity: 1, unit_price: 12.9, total_price: 28.9, kind: 'regular_item', options: [] },
+      { item_id: 208909, name: 'Hamburguer + Pizza', quantity: 1, unit_price: 0, total_price: 137.9, kind: 'combo', options: [] },
+    ],
+    discounts: [{ kind: 'discount', category: 'other', total: 3, total_points: 0, coupon_id: null, coupon_name: null }],
+    payments: [
+      { total: 50, payment_fee: 0, payment_type: 'offline', change_of: null, status: 'pending', payment_method: 'pix' },
+      { total: 31.5, payment_fee: 1.5, payment_type: 'offline', status: 'pending', payment_method: 'credit_card' },
+      { total: 99.8, payment_fee: 3, payment_type: 'offline', status: 'pending', payment_method: 'debit_card' },
+    ],
+  };
+
+  it('a equação oficial fecha: 166,80 + 5 + 0 + 8 + 4,50 − 3 = 181,30', () => {
+    const r = adaptarCardapioWeb(oficial);
+    const taxas = r.taxasExtras!.reduce((a, f) => a + f.valor, 0);
+    const desc = r.descontos!.reduce((a, d) => a + d.valor, 0);
+    expect(r.valorBruto).toBe(166.8); // soma de items[].total_price (não existe subtotal)
+    expect(r.valorBruto! + oficial.delivery_fee + taxas - desc).toBeCloseTo(181.3, 2);
+    expect(r.valorPagoCliente).toBe(181.3);
+  });
+
+  it('pagamento DIVIDIDO em 3 métodos é preservado', () => {
+    const r = adaptarCardapioWeb(oficial);
+    expect(r.pagamentos).toHaveLength(3);
+    expect(r.pagamentos!.reduce((a, p) => a + p.valor, 0)).toBeCloseTo(181.3, 2);
+  });
+
+  it('payment_fee é taxa cobrada do cliente, não desconto', () => {
+    const r = adaptarCardapioWeb(oficial);
+    expect(r.taxasExtras).toContainEqual({ tipo: 'payment_fee', rotulo: 'Taxa da forma de pagamento', valor: 4.5 });
+  });
+
+  it('resgate de FIDELIDADE é reconhecido e guarda os pontos gastos', () => {
+    const r = adaptarCardapioWeb({
+      ...oficial,
+      discounts: [{ kind: 'item', category: 'loyalty', total: 32.5, total_points: 100, item_id: 9, item_name: 'Combo' }],
+    });
+    expect(r.descontos![0]).toMatchObject({
+      origem: 'fidelidade', rotulo: 'Resgate: Combo', valor: 32.5, alvo: 'ITEM',
+      quemBanca: 'loja', campanha: '100 pontos',
+    });
+  });
+
+  it('cupom patrocinado pelo iFood NÃO é custo da loja', () => {
+    const r = adaptarCardapioWeb({
+      ...oficial,
+      discounts: [{ kind: 'discount', category: 'coupon', total: 10, sponsorship: 'ifood', coupon_code: 'IF10', coupon_name: 'iFood 10' }],
+    });
+    expect(r.descontos![0]).toMatchObject({ origem: 'cupom', quemBanca: 'marketplace', campanha: 'IF10' });
+  });
+
+  it('pagamento ONLINE deixa de virar "a cobrar na entrega"', () => {
+    const r = adaptarCardapioWeb({
+      ...oficial,
+      payments: [{ total: 181.3, payment_fee: 0, payment_type: 'online', status: 'paid', payment_method: 'online_credit_card', card_brand: 'visa' }],
+    });
+    // Antes testava prepaid/paid/online — campos que NÃO existem nessa API.
+    expect(r.pago).toBe(true);
+    expect(r.pagamentos![0].prepago).toBe(true);
+    expect(r.pagamentos![0].bandeira).toBe('visa');
+  });
+
+  it('logística de terceiro: a taxa não é receita da loja', () => {
+    expect(adaptarCardapioWeb(oficial).taxaEntregaDono).toBe('loja');
+    expect(adaptarCardapioWeb({ ...oficial, delivered_by: 'ifood_shipping' }).taxaEntregaDono).toBe('marketplace');
+  });
+
+  it('troco aceita change_for E change_of (o spec diverge do próprio exemplo)', () => {
+    expect(adaptarCardapioWeb({ ...oficial, payments: [{ total: 50, payment_method: 'money', change_of: 100, payment_type: 'offline' }] }).pagamentos![0].troco).toBe(100);
+    expect(adaptarCardapioWeb({ ...oficial, payments: [{ total: 50, payment_method: 'money', change_for: 100, payment_type: 'offline' }] }).pagamentos![0].troco).toBe(100);
+  });
+
   it('sem unit_price, o total da linha é dividido pela quantidade', () => {
     const r = adaptarCardapioWeb({
-      id: 'cw1',
-      order_type: 'delivery',
-      customer: { name: 'X', phone: '21999999999' },
-      items: [{ name: 'Refri', quantity: 3, total_price: 60 }], // sem unit_price
-      total: 60,
+      id: 'cw1', order_type: 'delivery', customer: { name: 'X', phone: '21999999999' },
+      items: [{ name: 'Refri', quantity: 3, total_price: 60 }], total: 60,
     });
     // Antes gravava 60 por unidade → 180 no caixa (3x o valor real).
     expect(r.itens[0].precoUnitario).toBe(20);

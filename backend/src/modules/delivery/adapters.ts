@@ -441,7 +441,70 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
   const a = raw?.delivery_address ?? {};
   const endereco =
     [a.street, a.number, a.neighborhood, a.city, a.state].filter(Boolean).join(', ') || undefined;
-  const pgto = (raw?.payments ?? [])[0] ?? {};
+  const pgtos = raw?.payments ?? [];
+  const pgto = pgtos[0] ?? {};
+  // A API do CW usa payment_type 'online'|'offline' (e status 'paid'). Os campos
+  // prepaid/paid/online que checávamos antes NÃO EXISTEM nesse payload — todo pedido
+  // pré-pago do Cardápio Web entrava como "a cobrar na entrega".
+  const onlinePg = (p: any) =>
+    String(p?.payment_type ?? '').toLowerCase() === 'online' || String(p?.status ?? '').toLowerCase() === 'paid';
+
+  // ===== Dinheiro detalhado (mig 241) — spec oficial api-pedidos.json =====
+  // discounts[] é o mais bem classificado de todos os canais:
+  //   category    → coupon | loyalty | other  (a ORIGEM)
+  //   sponsorship → merchant | ifood          (QUEM BANCA)
+  //   total_points → pontos de fidelidade gastos (só em category 'loyalty')
+  const descontosCW: DescontoCanal[] = (raw?.discounts ?? [])
+    .map((d: any) => {
+      const cat = String(d?.category ?? '').toLowerCase();
+      const kind = String(d?.kind ?? '').toLowerCase();
+      const patroc = String(d?.sponsorship ?? '').toLowerCase();
+      const origem: DescontoCanal['origem'] =
+        cat === 'loyalty' ? 'fidelidade'
+        : cat === 'coupon' ? 'cupom'
+        : kind === 'free_delivery' ? 'frete'
+        : 'outro'; // 'other' = desconto avulso aplicado no pedido
+      const rotulo =
+        d?.coupon_name ?? d?.coupon_code ??
+        (cat === 'loyalty' ? (d?.item_name ? `Resgate: ${d.item_name}` : 'Fidelidade') : 'Desconto');
+      return {
+        origem,
+        rotulo: String(rotulo),
+        valor: Number(d?.total) || 0,
+        alvo: kind === 'free_delivery' ? 'DELIVERY_FEE' : kind === 'item' ? 'ITEM' : 'CART',
+        // O enum de sponsorship só tem merchant|ifood. Ausente = pedido nativo do CW, cujo
+        // cupom/fidelidade é programa DA LOJA — por isso 'loja' em vez de 'indefinido'.
+        quemBanca: (patroc === 'ifood' ? 'marketplace' : 'loja') as DescontoCanal['quemBanca'],
+        campanha: d?.coupon_code ?? (d?.total_points ? `${d.total_points} pontos` : undefined),
+      };
+    })
+    .filter((d: DescontoCanal) => d.valor > 0);
+
+  // Taxas que o cliente paga e NÃO são produto. Atenção: `payment_fee` SOMA no total (é taxa
+  // cobrada do cliente atrelada à forma de pagamento), não é desconto de adquirência.
+  const taxaPgto = pgtos.reduce((a: number, p: any) => a + (Number(p?.payment_fee) || 0), 0);
+  const taxasCW: TaxaExtraCanal[] = [
+    { tipo: 'service_fee', rotulo: 'Taxa de serviço', valor: Number(raw?.service_fee) || 0 },
+    { tipo: 'additional_fee', rotulo: 'Taxa adicional', valor: Number(raw?.additional_fee) || 0 },
+    { tipo: 'payment_fee', rotulo: 'Taxa da forma de pagamento', valor: taxaPgto },
+  ].filter((f) => f.valor > 0);
+
+  const pagamentosCW: PagamentoCanal[] = pgtos.map((p: any) => ({
+    codigo: p?.payment_method ? String(p.payment_method) : undefined,
+    rotulo: formaPtBr(p?.payment_method),
+    valor: Number(p?.total) || 0,
+    prepago: onlinePg(p),
+    // O schema declara `change_for`, mas um exemplo do próprio spec usa `change_of` —
+    // aceita os dois para não perder o troco por causa da inconsistência da doc.
+    troco: p?.change_for ?? p?.change_of ?? null,
+    bandeira: p?.card_brand ?? undefined,
+  }));
+
+  // NÃO existe subtotal nesse payload: o bruto é a soma da linha dos itens (a doc declara
+  // total = Σ items.total_price + taxas + payment_fee − Σ discounts.total).
+  const brutoCW = (raw?.items ?? []).reduce((a: number, it: any) => a + (Number(it?.total_price) || 0), 0);
+  const entregaPorCW = String(raw?.delivered_by ?? '').toLowerCase();
+
   return {
     externalId: raw?.id != null ? String(raw.id) : undefined,
     displayId: raw?.display_id != null ? String(raw.display_id) : undefined,
@@ -451,8 +514,15 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
     endereco,
     itens,
     total: Number(raw?.total) || 0,
-    formaPagamento: formaPtBr(pgto.payment_method ?? (pgto.prepaid || pgto.paid || pgto.online ? 'online' : 'money')),
-    pago: Boolean(pgto.prepaid ?? pgto.paid ?? pgto.online ?? (String(pgto.type ?? '').toUpperCase() === 'PREPAID')),
+    formaPagamento: formaPtBr(pgto.payment_method ?? (onlinePg(pgto) ? 'online' : 'money')),
+    pago: pgtos.length ? pgtos.every(onlinePg) : false,
+    valorBruto: brutoCW > 0 ? Number(brutoCW.toFixed(2)) : undefined,
+    descontos: descontosCW.length ? descontosCW : undefined,
+    pagamentos: pagamentosCW.length ? pagamentosCW : undefined,
+    taxaEntregaDono:
+      tipo !== 'entrega' ? undefined : entregaPorCW === 'merchant' ? 'loja' : entregaPorCW ? 'marketplace' : undefined,
+    valorPagoCliente: Number(raw?.total) || 0,
+    taxasExtras: taxasCW.length ? taxasCW : undefined,
   };
 }
 
