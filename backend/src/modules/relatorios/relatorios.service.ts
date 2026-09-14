@@ -468,6 +468,78 @@ export class RelatoriosService {
   }
 
   // Faturamento de delivery por plataforma (canal do pedido externo).
+  // CONFERÊNCIA DE VALORES (mig 241) — decompõe o pedido em quem ganhou o quê, por canal.
+  // Só lê as colunas NOVAS: não mexe em nenhum relatório existente.
+  //
+  // FATURAMENTO, pela definição do dono: total de venda de PRODUTOS + as taxas que são
+  // SERVIÇO PRESTADO PELA LOJA. Logo:
+  //   entra  → produto vendido, taxa de entrega QUANDO é da loja, taxa de serviço
+  //   NÃO entra → taxa da plataforma (é receita dela) e gorjeta (é do funcionário, repasse)
+  //
+  // E o desconto bancado pelo MARKETPLACE não reduz o faturamento: o cliente pagou menos,
+  // mas a loja recebe cheio (volta no repasse). Só o desconto da LOJA reduz.
+  async conferenciaValores(tenantId: string, inicio?: string, fim?: string) {
+    const { ini, fim: f } = this.periodo(inicio, fim);
+    const linhas = await this.rows(sql`
+      with base as (
+        select pe.canal,
+               coalesce(pe.valor_bruto, 0)                              as bruto,
+               coalesce(pe.desconto_loja, 0)                            as desc_loja,
+               coalesce(pe.desconto_marketplace, 0)                     as desc_mkt,
+               coalesce(pe.valor_pago_cliente, pe.total)                as pago,
+               case when pe.taxa_entrega_dono = 'loja'
+                    then coalesce(pe.taxa_entrega, 0) else 0 end        as taxa_loja,
+               case when pe.taxa_entrega_dono is distinct from 'loja'
+                    then coalesce(pe.taxa_entrega, 0) else 0 end        as taxa_terceiro,
+               -- gorjeta é repasse ao funcionário, não receita: separada das demais taxas
+               coalesce((select sum((t->>'valor')::numeric)
+                           from jsonb_array_elements(pe.taxas_extras_detalhe) t
+                          where t->>'tipo' ~* 'tip|gorjeta'), 0)        as gorjeta,
+               coalesce((select sum((t->>'valor')::numeric)
+                           from jsonb_array_elements(pe.taxas_extras_detalhe) t
+                          where t->>'tipo' !~* 'tip|gorjeta'), 0)       as taxas_outras
+        from pedido_externo pe
+        where pe.tenant_id = ${tenantId}
+          and pe.valor_bruto is not null
+          and pe.status not in ('novo','cancelado')
+          and pe.criado_em between ${ini} and ${f}
+      )
+      select canal,
+             count(*)::int                                  as pedidos,
+             round(sum(bruto), 2)                           as venda_bruta,
+             round(sum(desc_loja), 2)                       as desconto_loja,
+             round(sum(desc_mkt), 2)                        as desconto_marketplace,
+             round(sum(taxa_loja), 2)                       as taxa_entrega_loja,
+             round(sum(taxa_terceiro), 2)                   as taxa_entrega_terceiro,
+             round(sum(taxas_outras), 2)                    as taxas_servico,
+             round(sum(gorjeta), 2)                         as gorjeta,
+             -- FATURAMENTO = produto (líquido do desconto DA LOJA) + serviços da loja
+             round(sum(bruto - desc_loja + taxa_loja + taxas_outras), 2) as faturamento,
+             round(sum(pago), 2)                            as cliente_pagou
+      from base group by canal order by venda_bruta desc`);
+
+    const n = (v: any) => Number(v) || 0;
+    const soma = (k: string) => linhas.reduce((a: number, l: any) => a + n(l[k]), 0);
+    const arred = (v: number) => Number(v.toFixed(2));
+    return {
+      periodo: { inicio: ini, fim: f },
+      porCanal: linhas,
+      total: {
+        pedidos: linhas.reduce((a: number, l: any) => a + n(l.pedidos), 0),
+        vendaBruta: arred(soma('venda_bruta')),
+        descontoLoja: arred(soma('desconto_loja')),
+        // Quanto os marketplaces bancaram = o que deve voltar no repasse.
+        descontoMarketplace: arred(soma('desconto_marketplace')),
+        taxaEntregaLoja: arred(soma('taxa_entrega_loja')),
+        taxaEntregaTerceiro: arred(soma('taxa_entrega_terceiro')),
+        taxasServico: arred(soma('taxas_servico')),
+        gorjeta: arred(soma('gorjeta')),
+        faturamento: arred(soma('faturamento')),
+        clientePagou: arred(soma('cliente_pagou')),
+      },
+    };
+  }
+
   async faturamentoDelivery(tenantId: string, inicio?: string, fim?: string) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     // Faturado = pedidos aceitos (exclui 'novo' pendente e 'cancelado').
