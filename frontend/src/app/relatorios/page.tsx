@@ -79,12 +79,13 @@ export default function RelatoriosPage() {
   const [ordemAbc, setOrdemAbc] = useState<'valor' | 'qtd' | 'produto'>('valor');
   const [atendentes, setAtendentes] = useState<any>(null);
   const [erro, setErro] = useState('');
-  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'turnos' | 'caixa' | 'estoque' | 'producao' | 'fidelidade' | 'cashback' | 'financeiro'>('vendas');
+  const [aba, setAba] = useState<'vendas' | 'balcao' | 'delivery' | 'conferencia' | 'turnos' | 'caixa' | 'estoque' | 'producao' | 'fidelidade' | 'cashback' | 'financeiro'>('vendas');
   const [caixaOps, setCaixaOps] = useState<any>(null);
   const [fatAnual, setFatAnual] = useState<any>(null);
   const [fatDelivery, setFatDelivery] = useState<any>(null);
   const [balcao, setBalcao] = useState<any>(null);
   const [delivery, setDelivery] = useState<any>(null);
+  const [conferencia, setConferencia] = useState<any>(null);
   const [ranking, setRanking] = useState<any>(null);
   const [turnos, setTurnos] = useState<any>(null);
   const [estoque, setEstoque] = useState<any>(null);
@@ -139,6 +140,15 @@ export default function RelatoriosPage() {
     setErro('');
     try {
       setDelivery(await api.relatorioDelivery(iniTs, fimTs));
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+  }, [iniTs, fimTs]);
+
+  const reloadConferencia = useCallback(async () => {
+    setErro('');
+    try {
+      setConferencia(await api.relatorioConferencia(iniTs, fimTs));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -202,11 +212,12 @@ export default function RelatoriosPage() {
     if (aba === 'financeiro') reloadFin();
     else if (aba === 'balcao') reloadBalcao();
     else if (aba === 'delivery') reloadDelivery();
+    else if (aba === 'conferencia') reloadConferencia();
     else if (aba === 'turnos') reloadTurnos();
     else if (aba === 'caixa') reloadCaixa();
     else if (aba === 'estoque') reloadEstoque();
     else if (aba === 'producao') reloadProducao();
-  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadTurnos, reloadCaixa, reloadEstoque, reloadProducao]);
+  }, [aba, reloadFin, reloadBalcao, reloadDelivery, reloadConferencia, reloadTurnos, reloadCaixa, reloadEstoque, reloadProducao]);
 
   if (!isGestor) {
     return (
@@ -224,6 +235,7 @@ export default function RelatoriosPage() {
     if (aba === 'financeiro') reloadFin();
     else if (aba === 'balcao') reloadBalcao();
     else if (aba === 'delivery') reloadDelivery();
+    else if (aba === 'conferencia') reloadConferencia();
     else if (aba === 'turnos') reloadTurnos();
     else if (aba === 'caixa') reloadCaixa();
     else if (aba === 'estoque') reloadEstoque();
@@ -255,6 +267,7 @@ export default function RelatoriosPage() {
             { v: 'vendas', l: 'Vendas' },
             { v: 'balcao', l: 'Balcão / Salão' },
             { v: 'delivery', l: 'Delivery' },
+            { v: 'conferencia', l: 'Conferência de valores' },
             { v: 'turnos', l: 'Turnos / Caixa' },
             { v: 'caixa', l: 'Operações de caixa' },
             { v: 'estoque', l: 'Estoque' },
@@ -415,6 +428,121 @@ export default function RelatoriosPage() {
             <DetalheCanal data={balcao} nome="balcao" />
             <RankingGlobal data={ranking} />
           </>
+        )}
+
+        {/* CONFERÊNCIA DE VALORES — decompõe o pedido em quem ganhou o quê. Lê só as
+            colunas separadas por origem (mig 241); não altera nenhum outro relatório. */}
+        {aba === 'conferencia' && (
+          <div className="space-y-4">
+            {!conferencia ? (
+              <p className="text-sm text-muted-foreground">Carregando…</p>
+            ) : !conferencia.porCanal?.length ? (
+              <Card className="p-4">
+                <p className="text-sm text-muted-foreground">
+                  Nenhum pedido com valores detalhados no período. Os valores separados por origem
+                  existem a partir de setembro/2026 — pedidos anteriores precisam do backfill.
+                </p>
+              </Card>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Card className="p-4">
+                    <p className="text-xs text-muted-foreground">Faturamento</p>
+                    <p className="font-mono text-xl font-bold">{rs(conferencia.total.faturamento)}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">produtos + serviços da loja</p>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-xs text-muted-foreground">Você bancou em desconto</p>
+                    <p className="font-mono text-xl font-bold text-destructive">{rs(conferencia.total.descontoLoja)}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">sai do seu bolso</p>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-xs text-muted-foreground">Marketplace bancou</p>
+                    <p className="font-mono text-xl font-bold text-ok">{rs(conferencia.total.descontoMarketplace)}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">volta no repasse — confira no extrato</p>
+                  </Card>
+                  <Card className="p-4">
+                    <p className="text-xs text-muted-foreground">Cliente pagou</p>
+                    <p className="font-mono text-xl font-bold">{rs(conferencia.total.clientePagou)}</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground">{conferencia.total.pedidos} pedido(s)</p>
+                  </Card>
+                </div>
+
+                <Card className="p-0">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
+                    <p className="font-display font-bold">Por canal</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto"
+                      onClick={() => baixarCsv('conferencia-valores', conferencia.porCanal)}
+                    >
+                      Baixar CSV
+                    </Button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <caption className="sr-only">Conferência de valores por canal</caption>
+                      <thead className="bg-muted/40 text-xs text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Canal</th>
+                          <th className="px-3 py-2 text-right">Pedidos</th>
+                          <th className="px-3 py-2 text-right">Venda bruta</th>
+                          <th className="px-3 py-2 text-right">Você bancou</th>
+                          <th className="px-3 py-2 text-right">Eles bancaram</th>
+                          <th className="px-3 py-2 text-right">Entrega (sua)</th>
+                          <th className="px-3 py-2 text-right">Taxas serviço</th>
+                          <th className="px-3 py-2 text-right">Faturamento</th>
+                          <th className="px-3 py-2 text-right">Cliente pagou</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {conferencia.porCanal.map((c: any) => (
+                          <tr key={c.canal} className="border-t border-border">
+                            <td className="px-3 py-2 font-semibold capitalize">{c.canal}</td>
+                            <td className="px-3 py-2 text-right font-mono">{c.pedidos}</td>
+                            <td className="px-3 py-2 text-right font-mono">{rs(c.venda_bruta)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-destructive">{rs(c.desconto_loja)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-ok">{rs(c.desconto_marketplace)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{rs(c.taxa_entrega_loja)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{rs(c.taxas_servico)}</td>
+                            <td className="px-3 py-2 text-right font-mono font-bold">{rs(c.faturamento)}</td>
+                            <td className="px-3 py-2 text-right font-mono">{rs(c.cliente_pagou)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+
+                <Card className="space-y-2 p-4 text-[12px] text-foreground/70">
+                  <p>
+                    <strong className="text-foreground">Faturamento</strong> = venda de produtos (já
+                    descontado o que <strong>você</strong> bancou) + taxa de entrega quando a logística é
+                    sua + taxas de serviço. Desconto bancado pelo marketplace <strong>não reduz</strong> o
+                    faturamento: o cliente pagou menos, mas você recebe cheio.
+                  </p>
+                  <p>
+                    <strong className="text-foreground">Eles bancaram</strong> é o que deve voltar no
+                    repasse do período — compare com o extrato da plataforma. A comissão contratual
+                    não entra aqui: ela vive no extrato deles.
+                  </p>
+                  {conferencia.total.gorjeta > 0 && (
+                    <p>
+                      <strong className="text-foreground">Gorjeta ({rs(conferencia.total.gorjeta)})</strong> fica
+                      fora do faturamento — é repasse ao funcionário, não receita da loja.
+                    </p>
+                  )}
+                  {conferencia.total.taxaEntregaTerceiro > 0 && (
+                    <p>
+                      {rs(conferencia.total.taxaEntregaTerceiro)} de entrega foram por logística do
+                      marketplace — não é receita sua e por isso ficam fora do faturamento.
+                    </p>
+                  )}
+                </Card>
+              </>
+            )}
+          </div>
         )}
 
         {aba === 'delivery' && (

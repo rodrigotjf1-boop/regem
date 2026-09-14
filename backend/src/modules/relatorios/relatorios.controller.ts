@@ -76,6 +76,17 @@ export class RelatoriosController {
     return this.service.detalheCanal(user.tenantId, 'delivery', inicio, fim, this.verFin(user));
   }
 
+  // Conferência de valores por canal (mig 241): venda bruta, desconto por quem banca,
+  // taxas e faturamento. Só lê as colunas novas — não altera nenhum relatório existente.
+  @Get('conferencia-valores')
+  conferenciaValores(
+    @CurrentUser() user: AuthUser,
+    @Query('inicio') inicio?: string,
+    @Query('fim') fim?: string,
+  ) {
+    return this.service.conferenciaValores(user.tenantId, inicio, fim);
+  }
+
   @Get('ranking-produtos')
   ranking(
     @CurrentUser() user: AuthUser,

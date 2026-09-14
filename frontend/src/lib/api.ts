@@ -1171,6 +1171,15 @@ export const api = {
     const q = p.toString();
     return req(`/relatorios/delivery${q ? `?${q}` : ''}`);
   },
+  // Conferência de valores por canal: venda bruta, desconto por quem banca, taxas
+  // e faturamento. Lê só as colunas separadas por origem (mig 241).
+  relatorioConferencia: (inicio?: string, fim?: string) => {
+    const p = new URLSearchParams();
+    if (inicio) p.set('inicio', inicio);
+    if (fim) p.set('fim', fim);
+    const q = p.toString();
+    return req(`/relatorios/conferencia-valores${q ? `?${q}` : ''}`);
+  },
   relatorioRanking: (inicio?: string, fim?: string) => {
     const p = new URLSearchParams();
     if (inicio) p.set('inicio', inicio);
