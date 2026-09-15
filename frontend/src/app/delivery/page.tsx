@@ -819,7 +819,19 @@ export default function DeliveryPage() {
 }
 
 // ---- Listview de pedidos (tabela): seleção múltipla + ordenação por coluna ----
-type ColDef = { k: string; t: string };
+// `w` = largura fixa da coluna (classe Tailwind). Usada nas colunas de texto livre
+// (código do canal e endereço), que sem trava esticam a tabela e quebram a linha em duas.
+type ColDef = { k: string; t: string; w?: string };
+
+// Larguras travadas. Ficam aqui (e não soltas no JSX) porque o <th> e o <td> TÊM de
+// usar o mesmo valor — é o conteúdo com largura fixa que prende a coluna, já que numa
+// tabela `table-auto` a largura do <th> é só sugestão e o texto longo vence.
+// O código do canal é curto (mono, ~10 chars); o endereço é o campo mais longo da
+// linha e fica com a folga. O rótulo da coluna precisa caber na largura: com
+// `whitespace-nowrap` no <th>, um título longo vira o piso da coluna e impede o
+// estreitamento — por isso "Cód. ext." e não "Cod. externo".
+const W_COD_EXTERNO = 'w-[76px]';
+const W_ENDERECO = 'w-[280px]';
 function ListaPedidos({
   titulo, cor, variante, lista, selId, agora, cfg, corPorCanal, onSelecionar, className,
   marcados, onToggle, onToggleTodos,
@@ -839,8 +851,8 @@ function ListaPedidos({
   onToggleTodos: (marcar: boolean) => void;
 }) {
   const cols: ColDef[] = variante === 'andamento'
-    ? [{ k: 'numero', t: 'Pedido' }, { k: 'displayId', t: 'Cod. externo' }, { k: 'canal', t: 'Origem' }, { k: 'criadoEm', t: 'Hora' }, { k: 'clienteNome', t: 'Cliente' }, { k: 'entregadorNome', t: 'Entregador' }, { k: 'status', t: 'Status' }]
-    : [{ k: 'numero', t: 'Pedido' }, { k: 'displayId', t: 'Cod. externo' }, { k: 'canal', t: 'Origem' }, { k: 'criadoEm', t: 'Hora' }, { k: 'clienteNome', t: 'Cliente' }, { k: 'endereco', t: 'Endereço' }, { k: 'status', t: 'Status' }];
+    ? [{ k: 'numero', t: 'Pedido' }, { k: 'displayId', t: 'Cód. ext.', w: W_COD_EXTERNO }, { k: 'canal', t: 'Origem' }, { k: 'criadoEm', t: 'Hora' }, { k: 'clienteNome', t: 'Cliente' }, { k: 'entregadorNome', t: 'Entregador' }, { k: 'status', t: 'Status' }]
+    : [{ k: 'numero', t: 'Pedido' }, { k: 'displayId', t: 'Cód. ext.', w: W_COD_EXTERNO }, { k: 'canal', t: 'Origem' }, { k: 'criadoEm', t: 'Hora' }, { k: 'clienteNome', t: 'Cliente' }, { k: 'endereco', t: 'Endereço', w: W_ENDERECO }, { k: 'status', t: 'Status' }];
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   function clickHeader(k: string) {
@@ -882,7 +894,7 @@ function ListaPedidos({
                 <input type="checkbox" className="h-4 w-4 accent-primary align-middle" checked={todosMarcados} onChange={(e) => onToggleTodos(e.target.checked)} aria-label="Selecionar todos" />
               </th>
               {cols.map((c) => (
-                <th key={c.k} scope="col" className="px-2 font-semibold">
+                <th key={c.k} scope="col" className={`whitespace-nowrap px-2 font-semibold ${c.w ?? ''}`}>
                   <button type="button" onClick={() => clickHeader(c.k)} className="inline-flex items-center gap-1 hover:text-foreground" aria-label={`Ordenar por ${c.t}`}>
                     {c.t}
                     <span className="text-[9px] opacity-70">{sortKey === c.k ? (sortDir === 'asc' ? '▲' : '▼') : '↕'}</span>
@@ -911,6 +923,12 @@ function ListaPedidos({
               const cd = variante === 'pendentes' ? countdown(restanteMs) : null;
               const selecionado = selId === p.id;
               const marcado = marcados.has(p.id);
+              const enderecoTexto =
+                p.tipo === 'retirada'
+                  ? 'Retirada no balcão'
+                  : p.endereco ||
+                    [p.enderecoRua, p.enderecoNumero, p.enderecoBairro].filter(Boolean).join(', ') ||
+                    '—';
               return (
                 <tr
                   key={p.id}
@@ -929,14 +947,18 @@ function ListaPedidos({
                   <td className="w-8 px-2" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" className="h-4 w-4 accent-primary align-middle" checked={marcado} onChange={() => onToggle(p.id)} aria-label={`Selecionar pedido ${p.numero ?? ''}`} />
                   </td>
-                  <td className="px-3">
+                  {/* Conteúdo de forma fixa (nº, badge, hora, status): nunca deve quebrar
+                      — era isso que dobrava a altura da linha quando o espaço apertava. */}
+                  <td className="whitespace-nowrap px-3">
                     <span className="font-mono font-bold">#{p.numero ?? '—'}</span>
                     <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{p.tipo === 'retirada' ? '🏪' : '🛵'}</span>
                     {p.alterado && <span className="ml-1 rounded bg-warn/15 px-1 text-[9px] font-bold text-warn">ALT</span>}
                     {p.autoAceiteFalhou && <span className="ml-1 text-[10px] font-bold text-destructive" title="Falha no aceite automático">⚠️</span>}
                   </td>
-                  <td className="px-2 py-2 font-mono text-xs text-muted-foreground">{p.displayId ?? '—'}</td>
-                  <td className="px-2 py-2">
+                  <td className="px-2 py-2 font-mono text-xs text-muted-foreground">
+                    <div className={`${W_COD_EXTERNO} truncate`} title={p.displayId ?? ''}>{p.displayId ?? '—'}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2">
                     <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-bold" style={bg ? { background: bg, color: fg } : { background: 'hsl(var(--secondary))', color: 'hsl(var(--muted-foreground))' }}>
                       {CANAL_LOGO[p.canal] && (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -945,7 +967,7 @@ function ListaPedidos({
                       {canalLabel}
                     </span>
                   </td>
-                  <td className="px-2 py-2 font-mono text-xs">
+                  <td className="whitespace-nowrap px-2 py-2 font-mono text-xs">
                     <span>{hora(p.criadoEm)}</span>
                     {cd && <span className={`ml-1 ${atrasado ? 'text-destructive' : 'text-muted-foreground'}`}>{atrasado ? '⏱!' : ''}</span>}
                     <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{dataCurta(p.criadoEm)}</span>
@@ -960,16 +982,19 @@ function ListaPedidos({
                   </td>
                   {variante === 'pendentes' && (
                     <td className="px-2 py-2 text-xs text-muted-foreground">
-                      {p.tipo === 'retirada' ? 'Retirada no balcão' : (p.endereco || [p.enderecoRua, p.enderecoNumero, p.enderecoBairro].filter(Boolean).join(', ') || '—')}
+                      {/* Largura travada + truncate: mostra só o que cabe e não deixa o
+                          endereço longo esticar a coluna nem quebrar a linha em duas.
+                          O endereço inteiro fica no title (e no preview ao lado). */}
+                      <div className={`${W_ENDERECO} truncate`} title={enderecoTexto}>{enderecoTexto}</div>
                     </td>
                   )}
-                  <td className="px-3 py-2">
+                  <td className="whitespace-nowrap px-3 py-2">
                     {variante === 'andamento'
                       ? (p.entregadorNome ? <span className="text-xs font-medium">🛵 {p.entregadorNome}</span> : <span className="text-xs text-muted-foreground">—</span>)
                       : <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>}
                   </td>
                   {variante === 'andamento' && (
-                    <td className="px-3 py-2">
+                    <td className="whitespace-nowrap px-3 py-2">
                       <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>
                     </td>
                   )}
