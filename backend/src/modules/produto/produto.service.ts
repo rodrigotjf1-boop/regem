@@ -851,54 +851,95 @@ export class ProdutoService {
 
   // L-CAT-2 — Snapshot de catálogo para integração externa autenticada por
   // dispositivo (totem GoGeM), keyed por código PDV (produto.codigo) e
-  // codigoPdv da opção. Compõe leituras já existentes (listar/listarCategorias/
-  // complementosDe). Busca os grupos por produto (N+1) — aceitável num endpoint
-  // de importação. Somente leitura; tenant sempre do dispositivo.
+  // codigoPdv da opção. Somente leitura; tenant sempre do dispositivo.
+  // SET-BASED: 4 queries no total (categorias + produtos + grupos + opções),
+  // nunca 2×N. O poller do GoGeM chama isto a cada 5 min por loja com timeout
+  // de 15s — a versão N+1 (um `complementosDe` por produto, e cada um relendo
+  // TODAS as opções do tenant) estourava o timeout/gateway (aborted/502/500).
   async catalogoParaSync(tenantId: string, _unidadeId: string | null) {
     const [categorias, produtos] = await Promise.all([
       this.listarCategorias(tenantId),
       this.listar(tenantId),
     ]);
-    const itens = await Promise.all(
-      (produtos as any[]).map(async (p) => {
-        const grupos = await this.complementosDe(tenantId, p.id);
-        return {
-          id: p.id,
-          codigo: p.codigo,
-          nome: p.nome,
-          descricao: p.descricao,
-          // URL pública da foto (Supabase) — o `imagem_ref` já é reescrito para a
-          // URL pública pelo reconcile de mídia; o GoGeM grava direto em imagemUrl.
-          imagem: p.imagemRef ?? null,
-          precoVenda: p.precoVenda,
-          categoriaId: p.categoriaId,
-          disponivelCardapio: p.disponivelCardapio,
-          disponivelBalcao: p.disponivelBalcao,
-          // Canais de delivery pausados p/ este produto — o consumidor do sync
-          // (Orzuni→iFood, GoGeM) esconde/pausa o item no canal correspondente.
-          canaisPausados: p.canaisPausados ?? [],
-          // Pausado por estoque (esgotado) — o GoGeM reflete como indisponível.
-          pausadoEstoque: p.pausadoEstoque ?? false,
-          ativo: p.ativo,
-          grupos: (grupos as any[]).map((g) => ({
-            id: g.id,
-            nome: g.nome,
-            tipo: g.tipo,
-            min: g.min,
-            max: g.max,
-            obrigatorio: g.obrigatorio,
-            ordem: g.ordem,
-            opcoes: (g.opcoes as any[]).map((o) => ({
-              id: o.id,
-              nome: o.nome,
-              precoDelta: o.precoDelta,
-              codigoPdv: o.codigoPdv,
-              ordem: o.ordem,
-            })),
+    const produtoIds = (produtos as any[]).map((p) => p.id);
+    const grupos: any[] = produtoIds.length
+      ? await this.db
+          .select()
+          .from(complementoGrupo)
+          .where(
+            and(
+              eq(complementoGrupo.tenantId, tenantId),
+              inArray(complementoGrupo.produtoId, produtoIds),
+              isNull(complementoGrupo.deletedAt),
+            ),
+          )
+          .orderBy(complementoGrupo.ordem)
+      : [];
+    const grupoIds = grupos.map((g) => g.id);
+    const opcoes: any[] = grupoIds.length
+      ? await this.db
+          .select()
+          .from(complementoOpcao)
+          .where(
+            and(
+              eq(complementoOpcao.tenantId, tenantId),
+              inArray(complementoOpcao.grupoId, grupoIds),
+              isNull(complementoOpcao.deletedAt),
+            ),
+          )
+          .orderBy(complementoOpcao.ordem)
+      : [];
+    // Índices em memória (a ordem já vem do SQL).
+    const gruposPorProduto = new Map<string, any[]>();
+    for (const g of grupos) {
+      const lista = gruposPorProduto.get(g.produtoId);
+      if (lista) lista.push(g);
+      else gruposPorProduto.set(g.produtoId, [g]);
+    }
+    const opcoesPorGrupo = new Map<string, any[]>();
+    for (const o of opcoes) {
+      const lista = opcoesPorGrupo.get(o.grupoId);
+      if (lista) lista.push(o);
+      else opcoesPorGrupo.set(o.grupoId, [o]);
+    }
+    const itens = (produtos as any[]).map((p) => {
+      const gruposDoProduto = gruposPorProduto.get(p.id) ?? [];
+      return {
+        id: p.id,
+        codigo: p.codigo,
+        nome: p.nome,
+        descricao: p.descricao,
+        // URL pública da foto (Supabase) — o `imagem_ref` já é reescrito para a
+        // URL pública pelo reconcile de mídia; o GoGeM grava direto em imagemUrl.
+        imagem: p.imagemRef ?? null,
+        precoVenda: p.precoVenda,
+        categoriaId: p.categoriaId,
+        disponivelCardapio: p.disponivelCardapio,
+        disponivelBalcao: p.disponivelBalcao,
+        // Canais de delivery pausados p/ este produto — o consumidor do sync
+        // (Orzuni→iFood, GoGeM) esconde/pausa o item no canal correspondente.
+        canaisPausados: p.canaisPausados ?? [],
+        // Pausado por estoque (esgotado) — o GoGeM reflete como indisponível.
+        pausadoEstoque: p.pausadoEstoque ?? false,
+        ativo: p.ativo,
+        grupos: gruposDoProduto.map((g) => ({
+          id: g.id,
+          nome: g.nome,
+          tipo: g.tipo,
+          min: g.min,
+          max: g.max,
+          obrigatorio: g.obrigatorio,
+          ordem: g.ordem,
+          opcoes: (opcoesPorGrupo.get(g.id) ?? []).map((o) => ({
+            id: o.id,
+            nome: o.nome,
+            precoDelta: o.precoDelta,
+            codigoPdv: o.codigoPdv,
+            ordem: o.ordem,
           })),
-        };
-      }),
-    );
+        })),
+      };
+    });
     return {
       geradoEm: new Date().toISOString(),
       categorias,
@@ -1113,10 +1154,21 @@ export class ProdutoService {
       )
       .orderBy(complementoGrupo.ordem);
     if (!grupos.length) return [];
+    // Só as opções DESTES grupos — sem o filtro a query varria todas as opções
+    // do tenant a cada chamada (índice: complemento_opcao(grupo_id)).
     const opcoes = await this.db
       .select()
       .from(complementoOpcao)
-      .where(and(eq(complementoOpcao.tenantId, tenantId), isNull(complementoOpcao.deletedAt)))
+      .where(
+        and(
+          eq(complementoOpcao.tenantId, tenantId),
+          inArray(
+            complementoOpcao.grupoId,
+            grupos.map((g) => g.id),
+          ),
+          isNull(complementoOpcao.deletedAt),
+        ),
+      )
       .orderBy(complementoOpcao.ordem);
     return grupos.map((g) => ({
       ...g,
