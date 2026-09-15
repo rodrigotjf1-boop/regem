@@ -1,8 +1,9 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   contagemLista,
   contagemListaItem,
@@ -23,6 +24,7 @@ export class ContagemService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly events: EventEmitter2,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   // Saldo (ledger) por item, para o snapshot da contagem.
@@ -206,44 +208,76 @@ export class ContagemService {
     atorId: string,
     dto: { itens: SalvarContagemItemDto[]; aplicarAjuste?: boolean },
   ) {
-    const [exec] = await this.db
-      .select()
-      .from(contagemExecucao)
-      .where(and(eq(contagemExecucao.id, execId), eq(contagemExecucao.tenantId, tenantId)));
-    if (!exec) throw new NotFoundException('Contagem não encontrada');
+    // TUDO numa transação, com a execução TRAVADA. Antes cada update/insert ia solto:
+    // (a) falha no meio do laço deixava metade dos ajustes aplicados com a contagem ainda
+    // aberta; (b) sem guarda de status, reenviar o formulário lançava o MESMO ajuste de
+    // novo — o estoque andava duas vezes. O `ref` por linha (índice único da mig 024) é a
+    // trava final: mesmo com trava vencida, o banco recusa o segundo ajuste.
+    const resumo = await this.db.transaction(async (tx) => {
+      const [exec] = await tx
+        .select()
+        .from(contagemExecucao)
+        .where(and(eq(contagemExecucao.id, execId), eq(contagemExecucao.tenantId, tenantId)))
+        .for('update');
+      if (!exec) throw new NotFoundException('Contagem não encontrada');
+      if (exec.status === 'concluida')
+        throw new BadRequestException('Contagem já concluída — o ajuste não é lançado duas vezes.');
 
-    const atuais = await this.db
-      .select()
-      .from(contagemItem)
-      .where(eq(contagemItem.execucaoId, execId));
-    const saldoDe = new Map(atuais.map((a) => [a.itemId, Number(a.saldoSistema)]));
+      const atuais = await tx
+        .select()
+        .from(contagemItem)
+        .where(and(eq(contagemItem.execucaoId, execId), eq(contagemItem.tenantId, tenantId)));
+      const linhaDe = new Map(atuais.map((a) => [a.itemId, a]));
 
-    for (const it of dto.itens) {
-      if (!saldoDe.has(it.itemId)) continue;
-      await this.db
-        .update(contagemItem)
-        .set({ contado: String(it.contado) })
-        .where(
-          and(eq(contagemItem.execucaoId, execId), eq(contagemItem.itemId, it.itemId)),
-        );
-      if (dto.aplicarAjuste) {
-        const diff = Number(it.contado) - (saldoDe.get(it.itemId) ?? 0);
-        if (Math.abs(diff) > 1e-9)
-          await this.db.insert(movimentoEstoque).values({
-            tenantId,
-            itemId: it.itemId,
-            tipo: 'ajuste',
-            quantidade: String(diff),
-            motivo: 'contagem',
-            data: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
-          });
+      let ajustados = 0;
+      let contados = 0;
+      for (const it of dto.itens) {
+        const linha = linhaDe.get(it.itemId);
+        if (!linha) continue;
+        await tx
+          .update(contagemItem)
+          .set({ contado: String(it.contado) })
+          .where(
+            and(eq(contagemItem.execucaoId, execId), eq(contagemItem.itemId, it.itemId)),
+          );
+        contados++;
+        if (dto.aplicarAjuste) {
+          const diff = Number(it.contado) - (Number(linha.saldoSistema) || 0);
+          if (Math.abs(diff) > 1e-9) {
+            await tx.insert(movimentoEstoque).values({
+              tenantId,
+              itemId: it.itemId,
+              tipo: 'ajuste',
+              quantidade: String(diff),
+              motivo: 'contagem',
+              refTipo: 'contagem_item', // ref por LINHA da contagem
+              refId: linha.id,
+              data: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
+            });
+            ajustados++;
+          }
+        }
       }
-    }
 
-    await this.db
-      .update(contagemExecucao)
-      .set({ status: 'concluida', concluidaEm: new Date() })
-      .where(eq(contagemExecucao.id, execId));
+      await tx
+        .update(contagemExecucao)
+        .set({ status: 'concluida', concluidaEm: new Date() })
+        .where(and(eq(contagemExecucao.id, execId), eq(contagemExecucao.tenantId, tenantId)));
+      return { contados, ajustados, listaId: exec.listaId };
+    });
+
+    // Ajuste de saldo SEM rastro era o pior da contagem: o `atorId` chegava aqui e era
+    // ignorado, então ninguém sabia quem mudou o estoque nem em quanto.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: atorId ?? null,
+      atorPerfil: '',
+      tipo: 'estoque',
+      acao: dto.aplicarAjuste ? 'ajustou_estoque_por_contagem' : 'registrou_contagem',
+      entidadeTipo: 'contagem_execucao',
+      entidadeId: execId,
+      detalhe: { ...resumo, aplicarAjuste: !!dto.aplicarAjuste },
+    });
 
     // Avisa dashboard/KDS que a contagem foi concluída.
     this.events.emit('kds.alerta.sistema', {

@@ -118,12 +118,17 @@ export class RecebimentoService {
     atual: string | null = null,
   ) {
     const res = await this.db.transaction(async (tx) => {
+      // TRAVA a linha antes de ler o status. Sem `for update` isto é check-then-act:
+      // dois cliques simultâneos leem 'rascunho' ao mesmo tempo, os dois passam pela
+      // guarda e o estoque — mais a CONTA A PAGAR — entra em dobro. Com a trava, o
+      // segundo espera, relê a versão nova e cai no "já confirmado".
       const [rec] = await tx
         .select()
         .from(recebimento)
         .where(
           and(eq(recebimento.id, id), eq(recebimento.tenantId, tenantId), condUnidade(recebimento.unidadeId, atual)),
-        );
+        )
+        .for('update');
       if (!rec) throw new NotFoundException('Recebimento não encontrado');
       if (rec.status === 'conferido') {
         throw new BadRequestException('Recebimento já confirmado');
@@ -153,6 +158,10 @@ export class RecebimentoService {
             saldoAntes = Number((s.rows ?? s)[0].saldo);
           }
 
+          // ref = a LINHA do recebimento, não o recebimento. O índice único da mig 024
+          // é (tenant, ref_tipo, ref_id, item_id): usando o id do documento, duas linhas
+          // do MESMO item na mesma nota colidiriam. Com o id da linha, a idempotência
+          // fica garantida pelo banco, não só pela trava acima.
           await tx.insert(movimentoEstoque).values({
             tenantId,
             itemId: it.itemId,
@@ -160,6 +169,8 @@ export class RecebimentoService {
             quantidade: String(qtd),
             custoUnitario: custo != null ? String(custo) : undefined,
             motivo: 'recebimento',
+            refTipo: 'recebimento_item',
+            refId: it.id,
             data: rec.data,
           });
           entradas++;
