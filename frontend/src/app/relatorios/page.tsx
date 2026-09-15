@@ -297,17 +297,32 @@ export default function RelatoriosPage() {
         {vendas && (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {[
-              ...(verFin ? [{ l: 'Faturado', v: rs(vendas.resumo.faturado) }] : []),
+              ...(verFin
+                ? [{ l: 'Faturado', v: rs(vendas.resumo.faturado), sub: 'sem a taxa de serviço' }]
+                : []),
               { l: 'Vendas', v: vendas.resumo.vendas },
               ...(verFin ? [{ l: 'Ticket médio', v: rs(vendas.resumo.ticketMedio) }] : []),
-              { l: 'Canceladas', v: vendas.resumo.canceladas },
-            ].map((k) => (
+              ...(verFin && Number(vendas.resumo.gorjeta) > 0
+                ? [{ l: 'Gorjeta', v: rs(vendas.resumo.gorjeta), sub: 'repasse ao funcionário' }]
+                : [{ l: 'Canceladas', v: vendas.resumo.canceladas }]),
+            ].map((k: any) => (
               <Card key={k.l} className="p-4">
                 <p className="text-xs text-muted-foreground">{k.l}</p>
                 <p className="mt-1 font-mono text-xl font-bold">{k.v}</p>
+                {k.sub && <p className="mt-1 text-[11px] text-muted-foreground">{k.sub}</p>}
               </Card>
             ))}
           </div>
+        )}
+        {/* A taxa de serviço passa pelo caixa mas não é receita da empresa (Lei
+            13.419/2017). Dizer isso na tela evita a leitura errada do número. */}
+        {verFin && vendas && Number(vendas.resumo.gorjeta) > 0 && (
+          <p className="text-[11px] text-muted-foreground">
+            Faturado <strong className="text-foreground">{rs(vendas.resumo.faturado)}</strong> não inclui a
+            gorjeta de <strong className="text-foreground">{rs(vendas.resumo.gorjeta)}</strong> — ela é
+            repasse ao funcionário. Entrou no caixa{' '}
+            <strong className="text-foreground">{rs(vendas.resumo.recebido)}</strong>.
+          </p>
         )}
 
         {verFin && (
@@ -349,11 +364,13 @@ export default function RelatoriosPage() {
             <p className="text-sm text-muted-foreground">Sem vendas no período.</p>
           ) : (
             <div className="overflow-x-auto">
-              <div className="min-w-[560px]">
+              <div className="min-w-[720px]">
                 <div className="flex items-center gap-2 border-b border-border pb-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
                   <span className="w-5">ABC</span>
                   <span className="min-w-0 flex-1">Produto</span>
                   <span className="w-10 text-right">Qtd</span>
+                  <span className="w-24 text-right">Preço cheio</span>
+                  <span className="w-20 text-right">Desconto</span>
                   <span className="w-24 text-right">Faturamento</span>
                   <span className="w-24 text-right">Custo</span>
                   <span className="w-28 text-right">Lucro</span>
@@ -374,6 +391,10 @@ export default function RelatoriosPage() {
                         <span className={`w-5 rounded text-center text-xs font-bold ${CLASSE[p.classe] ?? ''}`}>{p.classe}</span>
                         <span className="min-w-0 flex-1 truncate">{p.descricao}</span>
                         <span className="w-10 text-right text-xs text-muted-foreground">{p.qtd}x</span>
+                        <span className="w-24 text-right font-mono text-muted-foreground">{p.bruto != null ? rs(p.bruto) : '—'}</span>
+                        <span className={`w-20 text-right font-mono ${Number(p.desconto) > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+                          {Number(p.desconto) > 0 ? `-${rs(p.desconto)}` : '—'}
+                        </span>
                         <span className="w-24 text-right font-mono">{rs(p.faturamento)}</span>
                         <span className="w-24 text-right font-mono text-muted-foreground">{p.custo != null ? rs(p.custo) : '—'}</span>
                         <span className={`w-28 text-right font-mono ${p.lucro != null && Number(p.lucro) < 0 ? 'text-danger' : p.lucro != null ? 'text-ok' : ''}`}>
@@ -400,6 +421,11 @@ export default function RelatoriosPage() {
                   <span className="min-w-0 flex-1 truncate">{a.nome}</span>
                   <span className="text-xs text-muted-foreground">{a.vendas} vendas</span>
                   <span className="w-24 text-right font-mono">{rs(a.total)}</span>
+                  {Number(a.gorjeta) > 0 && (
+                    <span className="w-20 text-right text-xs text-muted-foreground" title="Gorjeta gerada (repasse)">
+                      +{rs(a.gorjeta)}
+                    </span>
+                  )}
                   <span className="w-20 text-right text-xs text-muted-foreground">tm {rs(a.ticketMedio)}</span>
                 </div>
               ))}
@@ -441,6 +467,8 @@ export default function RelatoriosPage() {
                 <p className="text-sm text-muted-foreground">
                   Nenhum pedido com valores detalhados no período. Os valores separados por origem
                   existem a partir de setembro/2026 — pedidos anteriores precisam do backfill.
+                  {conferencia.cobertura?.pedidos > 0 &&
+                    ` Há ${conferencia.cobertura.pedidos} pedido(s) no período sem esse detalhe.`}
                 </p>
               </Card>
             ) : (
@@ -492,6 +520,7 @@ export default function RelatoriosPage() {
                           <th className="px-3 py-2 text-right">Eles bancaram</th>
                           <th className="px-3 py-2 text-right">Entrega (sua)</th>
                           <th className="px-3 py-2 text-right">Taxas serviço</th>
+                          <th className="px-3 py-2 text-right">Gorjeta</th>
                           <th className="px-3 py-2 text-right">Faturamento</th>
                           <th className="px-3 py-2 text-right">Cliente pagou</th>
                         </tr>
@@ -506,6 +535,9 @@ export default function RelatoriosPage() {
                             <td className="px-3 py-2 text-right font-mono text-ok">{rs(c.desconto_marketplace)}</td>
                             <td className="px-3 py-2 text-right font-mono">{rs(c.taxa_entrega_loja)}</td>
                             <td className="px-3 py-2 text-right font-mono">{rs(c.taxas_servico)}</td>
+                            <td className="px-3 py-2 text-right font-mono text-muted-foreground" title="Fora do faturamento — repasse ao funcionário">
+                              {rs(c.gorjeta)}
+                            </td>
                             <td className="px-3 py-2 text-right font-mono font-bold">{rs(c.faturamento)}</td>
                             <td className="px-3 py-2 text-right font-mono">{rs(c.cliente_pagou)}</td>
                           </tr>
@@ -539,7 +571,68 @@ export default function RelatoriosPage() {
                       marketplace — não é receita sua e por isso ficam fora do faturamento.
                     </p>
                   )}
+                  {conferencia.total.descontoLojaFrete > 0 && (
+                    <p>
+                      <strong className="text-foreground">
+                        {rs(conferencia.total.descontoLojaFrete)} de desconto na entrega
+                      </strong>{' '}
+                      você bancou, mas ele <strong>não</strong> reduz o faturamento de novo: a taxa de
+                      entrega já chega com o desconto aplicado. Descontar duas vezes era o que fazia a
+                      conta do 99food não fechar.
+                    </p>
+                  )}
+                  {conferencia.cobertura && conferencia.cobertura.pct < 100 && (
+                    <p className="text-warn">
+                      Atenção: {conferencia.cobertura.detalhados} de {conferencia.cobertura.pedidos}{' '}
+                      pedido(s) do período têm o detalhe por origem ({conferencia.cobertura.pct}%). O
+                      resto entra nos relatórios pelo valor total, sem separar quem bancou o desconto —
+                      rode o backfill para completar.
+                    </p>
+                  )}
                 </Card>
+
+                {/* Que taxas estão sendo contadas como serviço da loja, por código CRU do
+                    canal. É o que permite dizer "esta aqui não é minha" sem adivinhação. */}
+                {!!conferencia.taxasPorTipo?.length && (
+                  <Card className="p-0">
+                    <div className="border-b border-border px-4 py-3">
+                      <p className="font-display font-bold">Taxas cobradas no pedido, por tipo</p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Serviço entra no faturamento; gorjeta fica fora. Se alguma destas taxas for da
+                        plataforma e não sua, avise — a classificação é por código do canal.
+                      </p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <caption className="sr-only">Taxas extras por tipo e canal</caption>
+                        <thead className="bg-muted/40 text-xs text-muted-foreground">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Canal</th>
+                            <th className="px-3 py-2 text-left">Taxa</th>
+                            <th className="px-3 py-2 text-left">Código</th>
+                            <th className="px-3 py-2 text-right">Pedidos</th>
+                            <th className="px-3 py-2 text-right">Valor</th>
+                            <th className="px-3 py-2 text-left">Entra no faturamento?</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {conferencia.taxasPorTipo.map((t: any, i: number) => (
+                            <tr key={i} className="border-t border-border">
+                              <td className="px-3 py-2 capitalize">{t.canal}</td>
+                              <td className="px-3 py-2">{t.rotulo}</td>
+                              <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{t.tipo}</td>
+                              <td className="px-3 py-2 text-right font-mono">{t.ocorrencias}</td>
+                              <td className="px-3 py-2 text-right font-mono">{rs(t.valor)}</td>
+                              <td className={`px-3 py-2 ${t.ehGorjeta ? 'text-muted-foreground' : 'text-ok'}`}>
+                                {t.ehGorjeta ? 'Não — gorjeta' : 'Sim — serviço'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Card>
+                )}
               </>
             )}
           </div>
@@ -648,7 +741,10 @@ export default function RelatoriosPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="font-display text-sm font-bold">Faturamento por delivery (plataforma)</h2>
-                <p className="text-xs text-muted-foreground">Período De/Até acima · exclui pendentes e cancelados.</p>
+                <p className="text-xs text-muted-foreground">
+                  Período De/Até acima · exclui pendentes e cancelados · produto menos o desconto
+                  que você bancou, mais a entrega que é sua. Sem gorjeta.
+                </p>
               </div>
               {fatDelivery && fatDelivery.porPlataforma.length > 0 && (
                 <Button type="button" variant="outline" size="sm" onClick={() => baixarCsv('faturamento-delivery', fatDelivery.porPlataforma.map((p: any) => ({ plataforma: p.plataforma, pedidos: p.pedidos, total: p.total, ticketMedio: p.ticketMedio })))}>
@@ -672,6 +768,19 @@ export default function RelatoriosPage() {
                     <p className="mt-0.5 font-mono text-sm font-bold">{brl(fatDelivery.ticketMedio)}</p>
                   </div>
                 </div>
+                {/* Quantos pedidos já têm o detalhe por origem. Sem esse aviso, período
+                    sem backfill parece só "menor", em vez de parcialmente decomposto. */}
+                {fatDelivery.pedidos > 0 && fatDelivery.detalhados < fatDelivery.pedidos && (
+                  <p className="text-[11px] text-warn">
+                    {fatDelivery.detalhados} de {fatDelivery.pedidos} pedido(s) com desconto separado
+                    por origem; o resto entra pelo valor total.
+                  </p>
+                )}
+                {Number(fatDelivery.gorjeta) > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    + {brl(fatDelivery.gorjeta)} de gorjeta, fora do faturamento (repasse ao entregador).
+                  </p>
+                )}
                 {fatDelivery.porPlataforma.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Sem pedidos de delivery no período.</p>
                 ) : (
@@ -823,16 +932,23 @@ function BarChart({ pontos, label }: { pontos: { k: string; v: number; t: string
 function DetalheCanal({ data, nome, delivery }: { data: any; nome: string; delivery?: boolean }) {
   if (!data) return <p className="text-sm text-muted-foreground">Carregando…</p>;
   const vf = data.verFinanceiro !== false; // gerente: sem valores em R$
+  const temGorjeta = vf && Number(data.resumo.gorjeta) > 0;
   const kpis = vf
     ? [
         { l: 'Faturado', v: rs(data.resumo.faturado) },
         { l: 'Vendas', v: data.resumo.vendas },
         { l: 'Ticket médio', v: rs(data.resumo.ticketMedio) },
+        // Gorjeta só aparece quando existe — em loja sem taxa de serviço vira ruído.
+        ...(temGorjeta ? [{ l: 'Gorjeta (fora do faturamento)', v: rs(data.resumo.gorjeta) }] : []),
       ]
     : [{ l: 'Vendas', v: data.resumo.vendas }];
   return (
     <div className="space-y-4">
-      <div className={`grid gap-3 ${vf ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1'}`}>
+      <div
+        className={`grid gap-3 ${
+          !vf ? 'grid-cols-1' : temGorjeta ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'
+        }`}
+      >
         {kpis.map((k) => (
           <Card key={k.l} className="p-4">
             <p className="text-xs text-muted-foreground">{k.l}</p>
@@ -990,6 +1106,17 @@ function TurnosView({ data }: { data: any }) {
                     <div><p className="text-muted-foreground">Informado</p><p className="font-mono font-bold">{rs(det.sessao.informado)}</p></div>
                     <div><p className="text-muted-foreground">Diferença</p><p className="font-mono font-bold" style={{ color: (det.sessao.diferenca ?? 0) < 0 ? 'hsl(var(--destructive))' : undefined }}>{rs(det.sessao.diferenca)}</p></div>
                   </div>
+                  {/* A gaveta recebe o valor CHEIO (inclui a taxa de serviço) e é assim
+                      que o caixa fecha. Esta linha só abre o que dentro dele é venda e o
+                      que é repasse ao funcionário. */}
+                  {Number(det.composicao?.gorjeta ?? 0) > 0 && (
+                    <p className="rounded-md bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+                      Do que entrou no turno,{' '}
+                      <strong className="text-foreground">{rs(det.composicao.faturamento)}</strong> é venda e{' '}
+                      <strong className="text-foreground">{rs(det.composicao.gorjeta)}</strong> é taxa de
+                      serviço (repasse ao funcionário). O caixa fecha pelo valor cheio.
+                    </p>
+                  )}
                   <div>
                     <p className="mb-1 text-xs font-bold text-muted-foreground">Vendas por forma</p>
                     {det.porForma.length === 0 && <p className="text-xs text-muted-foreground">Sem vendas.</p>}

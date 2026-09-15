@@ -182,8 +182,18 @@ class _PedidoScreenState extends State<PedidoScreen> {
   Widget build(BuildContext context) {
     final p = widget.pedido;
     final itens = (p['itens'] as List?) ?? [];
-    final total = (p['total'] as num?)?.toStringAsFixed(2) ?? '0.00';
     final taxa = (p['taxaEntrega'] as num?) ?? 0;
+    // Quanto cobrar na porta vem CALCULADO do servidor (`aReceber`), que abre pagamento
+    // dividido e reconhece o pré-pago dos marketplaces. `total` só entra como reserva
+    // para app falando com servidor antigo — usá-lo direto fazia o entregador cobrar de
+    // novo de quem já tinha pago online.
+    final temCobranca = p['aReceber'] != null;
+    final aReceber = (p['aReceber'] as num?) ?? (p['total'] as num?) ?? 0;
+    final prepago = temCobranca ? (p['prepago'] == true) : (p['pago'] == true);
+    final jaPagoOnline = (p['jaPagoOnline'] as num?) ?? 0;
+    final troco = p['troco'] as num?;
+    final trocoPara = p['trocoPara'] as num?;
+    final formas = (p['formasNaEntrega'] as List?) ?? [];
     return Scaffold(
       appBar: AppBar(title: Text('Pedido #${p['numero'] ?? ''}')),
       body: ListView(
@@ -241,11 +251,34 @@ class _PedidoScreenState extends State<PedidoScreen> {
           }),
           const Divider(),
           Text(
-            p['pago'] == true
-                ? 'Pago online'
-                : 'A receber: R\$ $total  (${p['formaPagamento'] ?? ''})',
-            style: const TextStyle(fontWeight: FontWeight.bold),
+            prepago
+                ? 'Pago online — não cobrar'
+                : 'A receber: R\$ ${aReceber.toStringAsFixed(2)}'
+                    '  (${formas.isNotEmpty ? formas.map((f) => (f as Map)['rotulo']).join(' + ') : p['formaPagamento'] ?? ''})',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 16,
+              color: prepago ? Colors.green.shade800 : null,
+            ),
           ),
+          // Pedido parcialmente pago: sem esta linha, "A receber: R$ 40" num pedido de
+          // R$ 100 parece erro do app.
+          if (!prepago && jaPagoOnline > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'R\$ ${jaPagoOnline.toStringAsFixed(2)} já pago online — cobre só a diferença.',
+                style: TextStyle(color: Colors.green.shade800),
+              ),
+            ),
+          if (troco != null && trocoPara != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'Troco para R\$ ${trocoPara.toStringAsFixed(2)} → levar R\$ ${troco.toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
           if (taxa > 0)
             Padding(
               padding: const EdgeInsets.only(top: 4),

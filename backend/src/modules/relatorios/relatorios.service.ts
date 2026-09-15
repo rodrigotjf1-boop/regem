@@ -3,6 +3,21 @@ import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliza';
 import { ProdutoService } from '../produto/produto.service';
+import {
+  brutoPedido,
+  comandaEhDeCanal,
+  descontoLojaFrete,
+  descontoLojaProduto,
+  faturamentoComanda,
+  faturamentoPedido,
+  gorjetaComanda,
+  gorjetaPedido,
+  pedidoDetalhado,
+  pedidoVale,
+  taxaEntregaLoja,
+  taxaEntregaTerceiro,
+  taxasServicoPedido,
+} from '../../common/faturamento';
 
 // Re-agrupa linhas {forma,qtd,total} pelo rótulo UNIFICADO (dinheiro/pix/crédito/…)
 // — os canais gravavam N nomes p/ o mesmo método. '—' (sem forma) fica separado.
@@ -64,10 +79,17 @@ export class RelatoriosService {
         and c.status = 'fechada'
         and c.fechada_em between ${ini} and ${f}`;
 
+    // FATURAMENTO = total da comanda SEM a taxa de serviço. `comanda.total` é gravado
+    // como subtotal × (1 + taxa_servico_pct/100), então somá-lo cru contava a gorjeta
+    // do garçom como receita da empresa. O caixa segue recebendo o valor cheio — o que
+    // muda é só o que se chama de faturamento. Ver `common/faturamento.ts`.
+    const fat = faturamentoComanda('c');
+    const gorj = gorjetaComanda('c');
     const [resumo] = await this.rows(sql`
       select count(*)::int as vendas,
-             coalesce(sum(c.total),0) as faturado,
-             coalesce(avg(c.total),0) as ticket_medio
+             coalesce(sum(${fat}),0) as faturado,
+             coalesce(sum(${gorj}),0) as gorjeta,
+             coalesce(avg(${fat}),0) as ticket_medio
       ${base}`);
     const [{ canceladas }] = await this.rows(sql`
       select count(*)::int as canceladas from comanda c
@@ -75,19 +97,19 @@ export class RelatoriosService {
         and c.cancelada_em between ${ini} and ${f}`);
 
     const porForma = await this.rows(sql`
-      select coalesce(c.forma,'—') as forma, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+      select coalesce(c.forma,'—') as forma, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 3 desc`);
     const porCanal = await this.rows(sql`
       select case when c.mesa_id is not null then 'mesa'
                   when c.forma='online' then 'delivery/app'
                   else 'balcão' end as canal,
-             count(*)::int as qtd, coalesce(sum(c.total),0) as total
+             count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 3 desc`);
     const porDia = await this.rows(sql`
-      select c.fechada_em::date as dia, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+      select c.fechada_em::date as dia, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const porHora = await this.rows(sql`
-      select extract(hour from c.fechada_em)::int as hora, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+      select extract(hour from c.fechada_em)::int as hora, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
 
     return {
@@ -96,6 +118,10 @@ export class RelatoriosService {
       resumo: {
         vendas: Number(resumo.vendas),
         faturado: m(resumo.faturado),
+        // Gorjeta (taxa de serviço): entra no caixa, NÃO no faturamento — é repasse ao
+        // funcionário. Exposta para a soma "faturamento + gorjeta" bater com a gaveta.
+        gorjeta: m(Number(resumo.gorjeta ?? 0).toFixed(2)),
+        recebido: m((Number(resumo.faturado) + Number(resumo.gorjeta ?? 0)).toFixed(2)),
         ticketMedio: m(Number(resumo.ticket_medio).toFixed(2)),
         canceladas: Number(canceladas),
       },
@@ -107,19 +133,46 @@ export class RelatoriosService {
   }
 
   // Curva ABC dos produtos por faturamento (A<=80%, B<=95%, C resto).
+  //
+  // O desconto do pedido é RATEADO nos itens (proporcional ao valor da linha). Sem isso
+  // a margem mentia: o item entrava a preço cheio, o desconto bancado pela loja não
+  // aparecia em lugar nenhum, e produto vendido só em promoção parecia o mais lucrativo
+  // do cardápio. Só o desconto da LOJA rateia — o do marketplace volta no repasse, então
+  // a loja de fato recebeu o preço cheio por aquele item.
   async produtos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const rows = await this.rows(sql`
-      select ci.descricao,
-             max(ci.produto_id::text) as produto_id,
-             coalesce(sum(ci.quantidade),0) as qtd,
-             coalesce(sum(ci.quantidade * ci.preco_unitario),0) as faturamento
-      from comanda_item ci
-      join comanda c on c.id = ci.comanda_id
-      where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em between ${ini} and ${f}
-      group by ci.descricao
+      with pedido_desc as (
+        select pe.comanda_id, sum(${descontoLojaProduto('pe')}) as desc_loja
+          from pedido_externo pe
+         where pe.tenant_id = ${tenantId} and pe.comanda_id is not null and ${pedidoVale('pe')}
+         group by pe.comanda_id
+      ),
+      linhas as (
+        select ci.descricao, ci.produto_id, ci.quantidade,
+               ci.quantidade * ci.preco_unitario as bruto,
+               sum(ci.quantidade * ci.preco_unitario) over (partition by c.id) as bruto_comanda,
+               -- o desconto nunca pode passar do que foi vendido naquela comanda
+               least(coalesce(pd.desc_loja, 0),
+                     sum(ci.quantidade * ci.preco_unitario) over (partition by c.id)) as desc_comanda
+          from comanda_item ci
+          join comanda c on c.id = ci.comanda_id
+          left join pedido_desc pd on pd.comanda_id = c.id
+         where c.tenant_id = ${tenantId} and c.status = 'fechada'
+           and c.fechada_em between ${ini} and ${f}
+      )
+      select descricao,
+             max(produto_id::text) as produto_id,
+             coalesce(sum(quantidade),0) as qtd,
+             coalesce(sum(bruto),0) as bruto,
+             coalesce(sum(case when bruto_comanda > 0
+                               then desc_comanda * bruto / bruto_comanda else 0 end),0) as desconto,
+             coalesce(sum(bruto),0)
+               - coalesce(sum(case when bruto_comanda > 0
+                                   then desc_comanda * bruto / bruto_comanda else 0 end),0) as faturamento
+      from linhas
+      group by descricao
       order by faturamento desc`);
     const total = rows.reduce((s, r) => s + Number(r.faturamento), 0) || 1;
     // Custo efetivo por produto (override → ficha → item de estoque) — só p/ quem vê
@@ -143,6 +196,10 @@ export class RelatoriosService {
           descricao: r.descricao,
           qtd: Number(r.qtd),
           faturamento: m(fat.toFixed(2)),
+          // Preço cheio e quanto a loja abriu mão nele — a diferença entre os dois é
+          // exatamente o que a margem escondia antes do rateio.
+          bruto: m(Number(r.bruto).toFixed(2)),
+          desconto: m(Number(r.desconto).toFixed(2)),
           custo: custoTotal != null ? m(custoTotal.toFixed(2)) : null,
           lucro: lucro != null ? m(lucro.toFixed(2)) : null,
           margemPct: custoTotal != null && fat > 0 ? Number(((lucro! / fat) * 100).toFixed(1)) : null,
@@ -158,11 +215,14 @@ export class RelatoriosService {
   async atendentes(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
+    // Faturamento sem a gorjeta (ver `vendas`): comparar atendentes por um número que
+    // embute a taxa de serviço premiava quem atendeu mesa, não quem vendeu mais.
     const rows = await this.rows(sql`
       select coalesce(col.nome,'—') as nome,
              count(*)::int as vendas,
-             coalesce(sum(c.total),0) as total,
-             coalesce(avg(c.total),0) as ticket_medio
+             coalesce(sum(${faturamentoComanda('c')}),0) as total,
+             coalesce(sum(${gorjetaComanda('c')}),0) as gorjeta,
+             coalesce(avg(${faturamentoComanda('c')}),0) as ticket_medio
       from comanda c
       left join colaborador col on col.id = c.aberta_por_id
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
@@ -176,6 +236,8 @@ export class RelatoriosService {
         nome: r.nome,
         vendas: Number(r.vendas),
         total: m(r.total),
+        // Gorjeta gerada pelo atendente — informação de repasse, não de venda.
+        gorjeta: m(Number(r.gorjeta ?? 0).toFixed(2)),
         ticketMedio: m(Number(r.ticket_medio).toFixed(2)),
       })),
     };
@@ -240,9 +302,14 @@ export class RelatoriosService {
   // Faturamento por mês e por trimestre DENTRO do período (respeita De/Até).
   async faturamentoPeriodo(tenantId: string, inicio?: string, fim?: string) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    // Série histórica de faturamento, também sem a gorjeta. A recomposição é retroativa
+    // e vem de `taxa_servico_pct`, que é gravado em cada comanda — a série inteira desce
+    // junto, sem degrau artificial no meio do gráfico.
     const rows = await this.rows(sql`
       select to_char(c.fechada_em, 'YYYY-MM') as ym,
-             coalesce(sum(c.total),0) as total, count(*)::int as vendas
+             coalesce(sum(${faturamentoComanda('c')}),0) as total,
+             coalesce(sum(${gorjetaComanda('c')}),0) as gorjeta,
+             count(*)::int as vendas
       from comanda c
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
         and c.fechada_em between ${ini} and ${f}
@@ -250,15 +317,17 @@ export class RelatoriosService {
     const porMes = rows.map((r) => ({
       ym: r.ym as string,
       total: Number(r.total),
+      gorjeta: Number(r.gorjeta ?? 0),
       vendas: Number(r.vendas),
     }));
     // Trimestres agrupados por ano-Qn (funciona mesmo cruzando anos).
-    const tri = new Map<string, { trimestre: string; total: number; vendas: number }>();
+    const tri = new Map<string, { trimestre: string; total: number; gorjeta: number; vendas: number }>();
     for (const m of porMes) {
       const [y, mm] = m.ym.split('-').map(Number);
       const key = `${y}·T${Math.ceil(mm / 3)}`;
-      const cur = tri.get(key) ?? { trimestre: key, total: 0, vendas: 0 };
+      const cur = tri.get(key) ?? { trimestre: key, total: 0, gorjeta: 0, vendas: 0 };
       cur.total += m.total;
+      cur.gorjeta += m.gorjeta;
       cur.vendas += m.vendas;
       tri.set(key, cur);
     }
@@ -268,8 +337,10 @@ export class RelatoriosService {
       trimestres: [...tri.values()].map((t) => ({
         ...t,
         total: Number(t.total.toFixed(2)),
+        gorjeta: Number(t.gorjeta.toFixed(2)),
       })),
       total: Number(porMes.reduce((s, m) => s + m.total, 0).toFixed(2)),
+      gorjeta: Number(porMes.reduce((s, m) => s + m.gorjeta, 0).toFixed(2)),
     };
   }
 
@@ -285,20 +356,20 @@ export class RelatoriosService {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const deliv = canal === 'delivery';
-    const cond = deliv
-      ? sql`and exists (select 1 from pedido_externo pe where pe.comanda_id = c.id and pe.status not in ('novo','cancelado'))`
-      : sql`and not exists (select 1 from pedido_externo pe where pe.comanda_id = c.id and pe.status not in ('novo','cancelado'))`;
+    const cond = deliv ? sql`and ${comandaEhDeCanal('c')}` : sql`and not ${comandaEhDeCanal('c')}`;
     const base = sql`from comanda c
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
         and c.fechada_em between ${ini} and ${f} ${cond}`;
+    const fat = faturamentoComanda('c'); // sem gorjeta — mesma base do relatório de Vendas
     const [resumo] = await this.rows(sql`
-      select count(*)::int as vendas, coalesce(sum(c.total),0) as faturado,
-             coalesce(avg(c.total),0) as ticket_medio ${base}`);
+      select count(*)::int as vendas, coalesce(sum(${fat}),0) as faturado,
+             coalesce(sum(${gorjetaComanda('c')}),0) as gorjeta,
+             coalesce(avg(${fat}),0) as ticket_medio ${base}`);
     const porDia = await this.rows(sql`
-      select c.fechada_em::date as dia, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+      select c.fechada_em::date as dia, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const porHora = await this.rows(sql`
-      select extract(hour from c.fechada_em)::int as hora, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+      select extract(hour from c.fechada_em)::int as hora, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const maisVendidos = await this.rows(sql`
       select ci.descricao, coalesce(sum(ci.quantidade),0) as qtd,
@@ -317,10 +388,10 @@ export class RelatoriosService {
           and pe.status not in ('novo','cancelado')`;
       porRegiao = await this.rows(sql`
         select coalesce(nullif(pe.endereco_bairro,''),'—') as regiao,
-               count(*)::int as qtd, coalesce(sum(c.total),0) as total
+               count(*)::int as qtd, coalesce(sum(${fat}),0) as total
         ${baseD} group by 1 order by total desc`);
       porPlataforma = await this.rows(sql`
-        select pe.canal as plataforma, count(*)::int as qtd, coalesce(sum(c.total),0) as total
+        select pe.canal as plataforma, count(*)::int as qtd, coalesce(sum(${fat}),0) as total
         ${baseD} group by 1 order by total desc`);
     }
     return {
@@ -330,6 +401,7 @@ export class RelatoriosService {
       resumo: {
         vendas: Number(resumo.vendas),
         faturado: m(resumo.faturado),
+        gorjeta: m(Number(resumo.gorjeta ?? 0).toFixed(2)),
         ticketMedio: m(Number(resumo.ticket_medio).toFixed(2)),
       },
       porDia: porDia.map((r) => ({ dia: r.dia, qtd: Number(r.qtd), total: m(r.total) })),
@@ -344,21 +416,36 @@ export class RelatoriosService {
   async rankingProdutos(tenantId: string, inicio?: string, fim?: string, verFin = false) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
+    // Faturamento por produto já LÍQUIDO do desconto rateado (mesma base da curva ABC).
     const rows = await this.rows(sql`
-      select ci.descricao,
-             coalesce(sum(ci.quantidade),0) as qtd,
-             coalesce(sum(ci.quantidade * ci.preco_unitario),0) as fat,
-             coalesce(sum(case when d.is_deliv then ci.quantidade else 0 end),0) as qtd_delivery,
-             coalesce(sum(case when d.is_deliv then 0 else ci.quantidade end),0) as qtd_balcao
-      from comanda_item ci
-      join comanda c on c.id = ci.comanda_id
-      join lateral (
-        select exists(select 1 from pedido_externo pe
-          where pe.comanda_id = c.id and pe.status not in ('novo','cancelado')) as is_deliv
-      ) d on true
-      where c.tenant_id = ${tenantId} and c.status = 'fechada'
-        and c.fechada_em between ${ini} and ${f}
-      group by ci.descricao order by qtd desc limit 30`);
+      with pedido_desc as (
+        select pe.comanda_id, sum(${descontoLojaProduto('pe')}) as desc_loja
+          from pedido_externo pe
+         where pe.tenant_id = ${tenantId} and pe.comanda_id is not null and ${pedidoVale('pe')}
+         group by pe.comanda_id
+      ),
+      linhas as (
+        select ci.descricao, ci.quantidade,
+               ci.quantidade * ci.preco_unitario as bruto,
+               sum(ci.quantidade * ci.preco_unitario) over (partition by c.id) as bruto_comanda,
+               least(coalesce(pd.desc_loja, 0),
+                     sum(ci.quantidade * ci.preco_unitario) over (partition by c.id)) as desc_comanda,
+               (pd.comanda_id is not null) as is_deliv
+          from comanda_item ci
+          join comanda c on c.id = ci.comanda_id
+          left join pedido_desc pd on pd.comanda_id = c.id
+         where c.tenant_id = ${tenantId} and c.status = 'fechada'
+           and c.fechada_em between ${ini} and ${f}
+      )
+      select descricao,
+             coalesce(sum(quantidade),0) as qtd,
+             coalesce(sum(bruto),0)
+               - coalesce(sum(case when bruto_comanda > 0
+                                   then desc_comanda * bruto / bruto_comanda else 0 end),0) as fat,
+             coalesce(sum(case when is_deliv then quantidade else 0 end),0) as qtd_delivery,
+             coalesce(sum(case when is_deliv then 0 else quantidade end),0) as qtd_balcao
+      from linhas
+      group by descricao order by qtd desc limit 30`);
     return {
       periodo: { inicio: ini, fim: f },
       verFinanceiro: verFin,
@@ -435,6 +522,17 @@ export class RelatoriosService {
       where tenant_id = ${tenantId} and sessao_id = ${sessaoId} and estorno_de is null
         and coalesce(categoria,'') not in ('sangria','suprimento')
       group by 1 order by total desc`);
+    // Quanto do que entrou na gaveta é taxa de serviço (gorjeta). O caixa recebe o valor
+    // CHEIO — está certo, o dinheiro entra mesmo —, mas esse pedaço é repasse ao
+    // funcionário e não faturamento. Sem a linha, o fechamento parece maior que a venda.
+    const [gorj] = await this.rows(sql`
+      select coalesce(sum(${gorjetaComanda('c')}), 0) as gorjeta,
+             coalesce(sum(${faturamentoComanda('c')}), 0) as faturamento
+        from comanda c
+       where c.tenant_id = ${tenantId}
+         and c.id in (select distinct l.comanda_id from lancamento_caixa l
+                       where l.tenant_id = ${tenantId} and l.sessao_id = ${sessaoId}
+                         and l.comanda_id is not null and l.estorno_de is null)`);
     const movimentos = await this.rows(sql`
       select categoria, tipo, valor, descricao, created_at as "em"
       from lancamento_caixa
@@ -456,6 +554,13 @@ export class RelatoriosService {
         diferenca: s.diferenca != null ? m(s.diferenca) : null,
       },
       verFinanceiro: verFin,
+      // Decomposição do que a gaveta recebeu: venda + gorjeta. O caixa continua fechando
+      // pelo valor CHEIO (`porForma`); isto é só leitura, para o turno não parecer maior
+      // que o faturamento do dia.
+      composicao: {
+        faturamento: m(Number(gorj?.faturamento ?? 0).toFixed(2)),
+        gorjeta: m(Number(gorj?.gorjeta ?? 0).toFixed(2)),
+      },
       porForma: agruparPorForma(porForma).map((r) => ({ forma: r.forma, qtd: r.qtd, total: m(r.total) })),
       movimentos: movimentos.map((r) => ({
         categoria: r.categoria,
@@ -467,56 +572,73 @@ export class RelatoriosService {
     };
   }
 
-  // Faturamento de delivery por plataforma (canal do pedido externo).
   // CONFERÊNCIA DE VALORES (mig 241) — decompõe o pedido em quem ganhou o quê, por canal.
-  // Só lê as colunas NOVAS: não mexe em nenhum relatório existente.
+  // Usa as MESMAS fórmulas de `common/faturamento.ts` que o resto dos relatórios; é a
+  // tela onde a definição de faturamento aparece aberta, parcela por parcela.
   //
-  // FATURAMENTO, pela definição do dono: total de venda de PRODUTOS + as taxas que são
-  // SERVIÇO PRESTADO PELA LOJA. Logo:
-  //   entra  → produto vendido, taxa de entrega QUANDO é da loja, taxa de serviço
-  //   NÃO entra → taxa da plataforma (é receita dela) e gorjeta (é do funcionário, repasse)
-  //
-  // E o desconto bancado pelo MARKETPLACE não reduz o faturamento: o cliente pagou menos,
-  // mas a loja recebe cheio (volta no repasse). Só o desconto da LOJA reduz.
+  // Além do total por canal, devolve duas coisas que antes faltavam para conferir sem
+  // adivinhar: a COBERTURA (quantos pedidos já têm o detalhe por origem) e as TAXAS POR
+  // TIPO (qual código de taxa de cada canal está entrando como serviço da loja).
   async conferenciaValores(tenantId: string, inicio?: string, fim?: string) {
     const { ini, fim: f } = this.periodo(inicio, fim);
+    const janela = sql`pe.tenant_id = ${tenantId}
+        and ${pedidoVale('pe')}
+        and pe.criado_em between ${ini} and ${f}`;
     const linhas = await this.rows(sql`
       with base as (
         select pe.canal,
-               coalesce(pe.valor_bruto, 0)                              as bruto,
-               coalesce(pe.desconto_loja, 0)                            as desc_loja,
-               coalesce(pe.desconto_marketplace, 0)                     as desc_mkt,
-               coalesce(pe.valor_pago_cliente, pe.total)                as pago,
-               case when pe.taxa_entrega_dono = 'loja'
-                    then coalesce(pe.taxa_entrega, 0) else 0 end        as taxa_loja,
-               case when pe.taxa_entrega_dono is distinct from 'loja'
-                    then coalesce(pe.taxa_entrega, 0) else 0 end        as taxa_terceiro,
-               -- gorjeta é repasse ao funcionário, não receita: separada das demais taxas
-               coalesce((select sum((t->>'valor')::numeric)
-                           from jsonb_array_elements(pe.taxas_extras_detalhe) t
-                          where t->>'tipo' ~* 'tip|gorjeta'), 0)        as gorjeta,
-               coalesce((select sum((t->>'valor')::numeric)
-                           from jsonb_array_elements(pe.taxas_extras_detalhe) t
-                          where t->>'tipo' !~* 'tip|gorjeta'), 0)       as taxas_outras
+               ${pedidoDetalhado('pe')}                    as detalhado,
+               ${brutoPedido('pe')}                        as bruto,
+               ${descontoLojaProduto('pe')}                as desc_loja,
+               ${descontoLojaFrete('pe')}                  as desc_loja_frete,
+               coalesce(pe.desconto_marketplace, 0)        as desc_mkt,
+               coalesce(pe.valor_pago_cliente, pe.total)   as pago,
+               ${taxaEntregaLoja('pe')}                    as taxa_loja,
+               ${taxaEntregaTerceiro('pe')}                as taxa_terceiro,
+               ${gorjetaPedido('pe')}                      as gorjeta,
+               ${taxasServicoPedido('pe')}                 as taxas_outras,
+               ${faturamentoPedido('pe')}                  as faturamento
         from pedido_externo pe
-        where pe.tenant_id = ${tenantId}
-          and pe.valor_bruto is not null
-          and pe.status not in ('novo','cancelado')
-          and pe.criado_em between ${ini} and ${f}
+        where ${janela} and pe.valor_bruto is not null
       )
       select canal,
              count(*)::int                                  as pedidos,
              round(sum(bruto), 2)                           as venda_bruta,
              round(sum(desc_loja), 2)                       as desconto_loja,
+             round(sum(desc_loja_frete), 2)                 as desconto_loja_frete,
              round(sum(desc_mkt), 2)                        as desconto_marketplace,
              round(sum(taxa_loja), 2)                       as taxa_entrega_loja,
              round(sum(taxa_terceiro), 2)                   as taxa_entrega_terceiro,
              round(sum(taxas_outras), 2)                    as taxas_servico,
              round(sum(gorjeta), 2)                         as gorjeta,
-             -- FATURAMENTO = produto (líquido do desconto DA LOJA) + serviços da loja
-             round(sum(bruto - desc_loja + taxa_loja + taxas_outras), 2) as faturamento,
+             round(sum(faturamento), 2)                     as faturamento,
              round(sum(pago), 2)                            as cliente_pagou
       from base group by canal order by venda_bruta desc`);
+
+    // COBERTURA: quantos pedidos do período já têm a decomposição da mig 241. Sem este
+    // número o relatório parece completo quando na verdade está olhando só uma parte —
+    // pedido antigo sem backfill simplesmente não aparece nas linhas acima.
+    const [cob] = await this.rows(sql`
+      select count(*)::int as pedidos,
+             count(*) filter (where pe.valor_bruto is not null)::int as detalhados
+        from pedido_externo pe where ${janela}`);
+
+    // Que taxas estão sendo contadas como serviço da loja, por tipo. O nome do tipo é o
+    // código CRU do canal — é o que permite dizer "esta aqui não é minha" sem adivinhar.
+    const taxas = await this.rows(sql`
+      select pe.canal, x->>'tipo' as tipo,
+             coalesce(max(x->>'rotulo'), x->>'tipo') as rotulo,
+             count(*)::int as ocorrencias,
+             round(sum((x->>'valor')::numeric), 2) as valor,
+             bool_or(x->>'tipo' ~* '(^|_)tips?(_|$)|gorjeta') as eh_gorjeta
+        -- jsonb_array_elements estoura em valor que não seja array; uma linha
+        -- malformada não pode derrubar o relatório de dinheiro inteiro.
+        from pedido_externo pe,
+             jsonb_array_elements(case when jsonb_typeof(pe.taxas_extras_detalhe) = 'array'
+                                       then pe.taxas_extras_detalhe else '[]'::jsonb end) x
+       where ${janela}
+       group by pe.canal, x->>'tipo'
+       order by valor desc`);
 
     const n = (v: any) => Number(v) || 0;
     const soma = (k: string) => linhas.reduce((a: number, l: any) => a + n(l[k]), 0);
@@ -524,10 +646,30 @@ export class RelatoriosService {
     return {
       periodo: { inicio: ini, fim: f },
       porCanal: linhas,
+      // Por tipo de taxa: o que entrou como serviço e o que ficou de fora como gorjeta.
+      taxasPorTipo: taxas.map((t: any) => ({
+        canal: t.canal,
+        tipo: t.tipo,
+        rotulo: t.rotulo,
+        ocorrencias: Number(t.ocorrencias),
+        valor: n(t.valor),
+        ehGorjeta: !!t.eh_gorjeta,
+      })),
+      cobertura: {
+        pedidos: Number(cob?.pedidos ?? 0),
+        detalhados: Number(cob?.detalhados ?? 0),
+        pct: cob?.pedidos
+          ? Number(((Number(cob.detalhados) / Number(cob.pedidos)) * 100).toFixed(1))
+          : 0,
+      },
       total: {
         pedidos: linhas.reduce((a: number, l: any) => a + n(l.pedidos), 0),
         vendaBruta: arred(soma('venda_bruta')),
         descontoLoja: arred(soma('desconto_loja')),
+        // Desconto da loja que caiu no FRETE. Fica fora da conta do faturamento porque a
+        // taxa de entrega já chega líquida dele — descontar de novo tirava o mesmo
+        // dinheiro duas vezes (era a diferença de R$ 1.090,50 na conferência do 99food).
+        descontoLojaFrete: arred(soma('desconto_loja_frete')),
         // Quanto os marketplaces bancaram = o que deve voltar no repasse.
         descontoMarketplace: arred(soma('desconto_marketplace')),
         taxaEntregaLoja: arred(soma('taxa_entrega_loja')),
@@ -543,18 +685,24 @@ export class RelatoriosService {
   async faturamentoDelivery(tenantId: string, inicio?: string, fim?: string) {
     const { ini, fim: f } = this.periodo(inicio, fim);
     // Faturado = pedidos aceitos (exclui 'novo' pendente e 'cancelado').
+    // Passou a usar a MESMA fórmula da Conferência de valores: somar `pe.total` misturava
+    // o que o cliente pagou (já com desconto do marketplace e taxa de terceiro dentro)
+    // com o que a loja faturou — dois números diferentes com o mesmo rótulo.
     const base = sql`from pedido_externo pe
       where pe.tenant_id = ${tenantId}
-        and pe.status not in ('novo','cancelado')
+        and ${pedidoVale('pe')}
         and pe.criado_em between ${ini} and ${f}`;
+    const fat = faturamentoPedido('pe');
     const porPlataforma = await this.rows(sql`
       select pe.canal as plataforma, count(*)::int as pedidos,
-             coalesce(sum(pe.total),0) as total,
-             coalesce(avg(pe.total),0) as ticket_medio
+             coalesce(sum(${fat}),0) as total,
+             coalesce(avg(${fat}),0) as ticket_medio,
+             coalesce(sum(${gorjetaPedido('pe')}),0) as gorjeta,
+             count(*) filter (where ${pedidoDetalhado('pe')})::int as detalhados
       ${base} group by pe.canal order by total desc`);
     const porDia = await this.rows(sql`
       select pe.criado_em::date as dia, count(*)::int as pedidos,
-             coalesce(sum(pe.total),0) as total
+             coalesce(sum(${fat}),0) as total
       ${base} group by 1 order by 1`);
     const total = porPlataforma.reduce((s, r) => s + Number(r.total), 0);
     const pedidos = porPlataforma.reduce((s, r) => s + Number(r.pedidos), 0);
@@ -563,10 +711,19 @@ export class RelatoriosService {
       total: Number(total.toFixed(2)),
       pedidos,
       ticketMedio: Number((pedidos ? total / pedidos : 0).toFixed(2)),
+      // Gorjeta do canal (entregador/garçom) — fora do faturamento, mas o dinheiro passa.
+      gorjeta: Number(
+        porPlataforma.reduce((s, r) => s + Number(r.gorjeta ?? 0), 0).toFixed(2),
+      ),
+      // Quantos pedidos já têm a decomposição da mig 241 — o resto ainda soma o `total`
+      // cru como bruto. Sem isso, um período antigo pareceria simplesmente menor.
+      detalhados: porPlataforma.reduce((s, r) => s + Number(r.detalhados ?? 0), 0),
       porPlataforma: porPlataforma.map((r) => ({
         plataforma: r.plataforma,
         pedidos: Number(r.pedidos),
         total: Number(r.total),
+        gorjeta: Number(Number(r.gorjeta ?? 0).toFixed(2)),
+        detalhados: Number(r.detalhados ?? 0),
         ticketMedio: Number(Number(r.ticket_medio).toFixed(2)),
       })),
       porDia: porDia.map((r) => ({

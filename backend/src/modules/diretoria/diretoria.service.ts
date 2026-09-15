@@ -1,6 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import {
+  comandaEhDeCanal,
+  faturamentoComanda,
+  faturamentoPedido,
+  gorjetaComanda,
+  gorjetaPedido,
+  pedidoVale,
+} from '../../common/faturamento';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -54,12 +62,33 @@ export class DiretoriaService {
         group by i.id
       ) s where s.saldo < s.estoque_minimo group by unidade_id`);
 
-    // Faturamento do mês por loja (comandas fechadas). Vendas & Comandas já ativo.
+    // Faturamento do mês por loja, na definição única (ver `common/faturamento.ts`):
+    // balcão + canais, cada um contado uma vez. Antes somava só `comanda.total`, que
+    // (a) embutia a gorjeta do garçom como receita e (b) para pedido de canal continha
+    // apenas os itens — a taxa de entrega da loja ficava de fora da Visão C&O.
     const vendas = await this.rows(sql`
-      select unidade_id, coalesce(sum(total),0) as faturado, count(*)::int as vendas
-      from comanda
-      where tenant_id = ${tenantId} and status = 'fechada'
-        and fechada_em >= date_trunc('month', current_date)
+      select unidade_id,
+             coalesce(sum(faturado),0) as faturado,
+             coalesce(sum(gorjeta),0)  as gorjeta,
+             coalesce(sum(qtd),0)::int as vendas
+      from (
+        select c.unidade_id,
+               ${faturamentoComanda('c')} as faturado,
+               ${gorjetaComanda('c')}     as gorjeta,
+               1 as qtd
+          from comanda c
+         where c.tenant_id = ${tenantId} and c.status = 'fechada'
+           and c.fechada_em >= date_trunc('month', current_date)
+           and not ${comandaEhDeCanal('c')}
+        union all
+        select pe.unidade_id,
+               ${faturamentoPedido('pe')} as faturado,
+               ${gorjetaPedido('pe')}     as gorjeta,
+               1 as qtd
+          from pedido_externo pe
+         where pe.tenant_id = ${tenantId} and ${pedidoVale('pe')}
+           and pe.criado_em >= date_trunc('month', current_date)
+      ) u
       group by unidade_id`);
 
     const by = (arr: any[], id: string) => arr.find((r) => r.unidade_id === id);
@@ -76,6 +105,9 @@ export class DiretoriaService {
         id: u.id,
         nome: u.nome,
         faturamento: Number(Number(v?.faturado ?? 0).toFixed(2)),
+        // Gorjeta: passa pelo caixa da loja, mas é repasse ao funcionário — fora do
+        // faturamento. Exposta para a diretoria enxergar o valor em separado.
+        gorjeta: Number(Number(v?.gorjeta ?? 0).toFixed(2)),
         vendas: Number(v?.vendas ?? 0),
         tarefas: { total, feitas, pct: total ? Math.round((feitas / total) * 100) : 0 },
         desperdicio: { total: Number(d?.total ?? 0), quantidade: Number(d?.qtd ?? 0) },
@@ -90,6 +122,7 @@ export class DiretoriaService {
     const conclFeitas = soma((l) => l.tarefas.feitas);
     const rede = {
       faturamento: Number(soma((l) => l.faturamento).toFixed(2)),
+      gorjeta: Number(soma((l) => l.gorjeta).toFixed(2)),
       vendas: soma((l) => l.vendas),
       desperdicios: soma((l) => l.desperdicio.total),
       conclusaoMedia: conclTotal ? Math.round((conclFeitas / conclTotal) * 100) : 0,

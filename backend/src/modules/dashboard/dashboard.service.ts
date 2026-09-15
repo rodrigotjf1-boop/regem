@@ -1,6 +1,14 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import {
+  comandaEhDeCanal,
+  faturamentoComanda,
+  faturamentoPedido,
+  gorjetaComanda,
+  gorjetaPedido,
+  pedidoVale,
+} from '../../common/faturamento';
 
 @Injectable()
 export class DashboardService {
@@ -59,9 +67,7 @@ export class DashboardService {
 
     // Comercial: vendas do dia (comandas fechadas, no fuso SP) + delivery ativo.
     const vend = await this.row(sql`
-      select count(*)::int as vendas,
-             coalesce(sum(total), 0) as faturado,
-             coalesce(avg(total), 0) as ticket
+      select count(*)::int as vendas
       from comanda
       where tenant_id = ${tenantId} and status = 'fechada' ${uni}
         and (fechada_em at time zone 'America/Sao_Paulo')::date = ${data}::date`);
@@ -106,15 +112,37 @@ export class DashboardService {
     // Bloco COMERCIAL/FINANCEIRO — RBAC no servidor: só presidente/C&O recebe
     // valores em R$ (faturamento, ticket, delivery, custo). Gerente NUNCA recebe.
     if (verFinanceiro) {
-      const delivFat = await this.row(sql`
-        select coalesce(sum(total), 0) as faturado
-        from pedido_externo
-        where tenant_id = ${tenantId} and status not in ('novo', 'cancelado') ${uni}
-          and (criado_em at time zone 'America/Sao_Paulo')::date = ${data}::date`);
+      // FATURAMENTO do dia pela definição única (ver `common/faturamento.ts`): balcão e
+      // canais somados UMA vez cada. Antes, "Faturamento hoje" somava `comanda.total`
+      // (que embute a gorjeta do garçom) e "Delivery faturado" somava `pedido_externo.total`
+      // (o que o CLIENTE pagou, já com desconto do marketplace e taxa de terceiro dentro).
+      // Eram dois números de bases diferentes, e o de delivery já estava dentro do outro.
+      // Agora o delivery é um RECORTE do faturado, não um segundo total.
+      const balcao = await this.row(sql`
+        select count(*)::int as vendas,
+               coalesce(sum(${faturamentoComanda('c')}), 0) as faturado,
+               coalesce(sum(${gorjetaComanda('c')}), 0) as gorjeta
+        from comanda c
+        where c.tenant_id = ${tenantId} and c.status = 'fechada' ${uni}
+          and (c.fechada_em at time zone 'America/Sao_Paulo')::date = ${data}::date
+          and not ${comandaEhDeCanal('c')}`);
+      const canal = await this.row(sql`
+        select count(*)::int as pedidos,
+               coalesce(sum(${faturamentoPedido('pe')}), 0) as faturado,
+               coalesce(sum(${gorjetaPedido('pe')}), 0) as gorjeta
+        from pedido_externo pe
+        where pe.tenant_id = ${tenantId} and ${pedidoVale('pe')} ${uni}
+          and (pe.criado_em at time zone 'America/Sao_Paulo')::date = ${data}::date`);
+      const n = (v: any) => Number(v) || 0;
+      const faturado = n(balcao.faturado) + n(canal.faturado);
+      const transacoes = n(balcao.vendas) + n(canal.pedidos);
       base.comercial = {
-        faturado: Number(Number(vend.faturado).toFixed(2)),
-        ticketMedio: Number(Number(vend.ticket).toFixed(2)),
-        deliveryFaturado: Number(Number(delivFat.faturado).toFixed(2)),
+        faturado: Number(faturado.toFixed(2)),
+        balcaoFaturado: Number(n(balcao.faturado).toFixed(2)),
+        deliveryFaturado: Number(n(canal.faturado).toFixed(2)),
+        // Gorjeta entra no caixa mas NÃO no faturamento — é repasse ao funcionário.
+        gorjeta: Number((n(balcao.gorjeta) + n(canal.gorjeta)).toFixed(2)),
+        ticketMedio: Number((transacoes ? faturado / transacoes : 0).toFixed(2)),
         producaoCusto: Number(Number(prod.custo).toFixed(2)),
       };
     }

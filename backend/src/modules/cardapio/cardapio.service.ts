@@ -10,6 +10,7 @@ import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
+import { ratearCentavos } from '../../common/rateio';
 import { geocode, montarEndereco } from '../../common/geocode';
 
 // Estamos rodando no servidor EDGE (appliance da loja) e não na nuvem?
@@ -2640,6 +2641,7 @@ export class CardapioService {
     // Checkout: tipo, frete (bairro), cupom, pagamento.
     const tipo = dto.tipo === 'entrega' ? 'entrega' : 'retirada';
     let taxa = 0;
+    let taxaCheia = 0; // frete antes das promoções (mig 241 — quem banca o frete grátis)
     let bairroNome: string | undefined;
     if (tipo === 'entrega') {
       if (cfg.areaModo === 'raio') {
@@ -2685,6 +2687,9 @@ export class CardapioService {
         taxa = b ? Number(b.taxa) : 0;
         bairroNome = b?.nome;
       }
+      // Valor CHEIO do frete, antes de qualquer promoção. É o que a loja deixa de
+      // receber quando dá frete grátis — sem guardar aqui, esse desconto sumia.
+      taxaCheia = taxa;
       // frete grátis acima de X
       if (cfg.freteGratisAcima != null && total >= Number(cfg.freteGratisAcima)) taxa = 0;
     }
@@ -2785,6 +2790,50 @@ export class CardapioService {
     `);
     const senhaCardapio = String((seq.rows ?? seq)[0]?.ultimo ?? 1);
 
+    // ===== Valores separados por ORIGEM (mig 241) no canal PRÓPRIO =====
+    // Os marketplaces mandam esse detalhe pronto no payload; no cardápio da loja ele
+    // nasce aqui. Sem isso, justamente o canal onde a loja MAIS dá desconto (cupom,
+    // resgate de fidelidade, cashback, frete grátis) era o único a aparecer com
+    // desconto zero em todos os relatórios — e a margem por produto ficava inflada.
+    // Tudo aqui é bancado pela LOJA: não há marketplace para reembolsar nada.
+    const partesDesc = [
+      {
+        origem: 'cupom',
+        rotulo: `Cupom ${cup.codigo ?? ''}`.trim(),
+        campanha: cup.codigo as string | undefined,
+        cent: cup.valido ? paraCentavos(cup.desconto || 0) : 0,
+      },
+      {
+        origem: 'fidelidade',
+        rotulo: premio.plano ? `Resgate · ${premio.plano}` : 'Resgate de fidelidade',
+        campanha: premio.plano as string | undefined,
+        cent: paraCentavos(premio.desconto || 0),
+      },
+      { origem: 'cashback', rotulo: 'Cashback', campanha: undefined, cent: paraCentavos(cb.desconto || 0) },
+    ].filter((p) => p.cent > 0);
+    // O desconto total é limitado ao subtotal (trava contábil acima). Rateando o valor
+    // FINAL entre as partes, a soma do detalhe sempre fecha com o que foi gravado.
+    const centPorParte = ratearCentavos(partesDesc.map((p) => p.cent), descontoCent);
+    const descontosCanal: any[] = partesDesc
+      .map((p, i) => ({
+        origem: p.origem,
+        rotulo: p.rotulo,
+        valor: paraReais(centPorParte[i]),
+        quemBanca: 'loja',
+        campanha: p.campanha,
+      }))
+      .filter((d) => d.valor > 0);
+    if (taxaCheia > 0 && taxa === 0)
+      descontosCanal.push({
+        origem: 'frete',
+        rotulo: cup.valido && cup.freteGratis ? `Cupom ${cup.codigo} · frete grátis` : 'Frete grátis',
+        valor: taxaCheia,
+        // Mesmo alvo dos marketplaces: desconto de frete não abate o faturamento de
+        // produto — a taxa já entra líquida (aqui, zerada).
+        alvo: 'DELIVERY_FEE',
+        quemBanca: 'loja',
+      });
+
     const ped = await this.delivery.ingest(
       cfg.tenantId,
       cfg.unidadeId,
@@ -2798,6 +2847,13 @@ export class CardapioService {
         total: grande,
         displayId: senhaCardapio,
         itens: itensOut,
+        // Detalhe por origem — lido de volta por `adaptarGenerico`.
+        valorBruto: total,
+        descontos: descontosCanal,
+        pagamentos: [{ rotulo: forma, valor: grande, prepago: online, troco: dto.trocoPara ?? null }],
+        // Taxa de entrega do cardápio próprio é sempre da loja (ela definiu o valor).
+        taxaEntregaDono: tipo === 'entrega' && taxa > 0 ? 'loja' : undefined,
+        valorPagoCliente: grande,
       },
       {
         clientRef: dto.clientRef,

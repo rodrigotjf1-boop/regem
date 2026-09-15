@@ -219,6 +219,11 @@ export class FiscalService {
       aliqCofins: it.aliqCofins != null ? Number(it.aliqCofins) : undefined,
     }));
 
+    // Frete e desconto da NOTA. Ficam no pedido de canal (a comanda só guarda itens),
+    // então busca pelo vínculo comanda → pedido_externo. Sem pedido (venda de balcão),
+    // os dois são 0 e o XML sai como antes.
+    const { frete, desconto } = await this.valoresFiscaisDoPedido(tenantId, comandaId);
+
     // Reserva número + monta chave/XML/QR dentro de uma transação.
     const preparado = await this.db.transaction(async (tx) => {
       const { numero, config } = await this.reservarNumero(tx, tenantId, c.unidadeId);
@@ -243,8 +248,13 @@ export class FiscalService {
         urlConsulta: urlConsultaQr(config.uf || 'SP', config.ambiente || '2'),
       });
       const dhEmi = agora.toISOString().replace(/\.\d{3}Z$/, '-03:00');
-      const xml = montarNfceXml({ config, numero, chave, cNF, dhEmi, itens, forma: c.forma, qrCode });
-      const valorTotal = itens.reduce((s, it) => s + it.quantidade * it.precoUnitario, 0);
+      const xml = montarNfceXml({
+        config, numero, chave, cNF, dhEmi, itens, forma: c.forma, qrCode, frete, desconto,
+      });
+      // O valor da nota é o vNF (produtos − desconto + frete), não a soma dos itens —
+      // senão a listagem de notas diverge do que a SEFAZ autorizou.
+      const vProd = itens.reduce((s, it) => s + it.quantidade * it.precoUnitario, 0);
+      const valorTotal = vProd - Math.min(desconto, vProd) + frete;
 
       const [nota] = await tx
         .insert(notaFiscal)
@@ -308,9 +318,50 @@ export class FiscalService {
     });
 
     if (nota.status === 'autorizada') {
-      await this.imprimirDanfe(tenantId, nota, itens);
+      await this.imprimirDanfe(tenantId, nota, itens, { frete, desconto });
     }
     return nota;
+  }
+
+  // Frete e desconto que a NOTA deve declarar, lidos do pedido de canal da comanda.
+  //
+  //  • frete    → taxa de entrega SÓ quando a loja é dona do valor. Com a logística do
+  //               marketplace, a entrega é serviço DELE cobrado do cliente: não é
+  //               operação da loja e não vai na nota dela.
+  //  • desconto → só o bancado pela LOJA. O bancado pelo marketplace NÃO é desconto
+  //               fiscal: a loja recebe o valor cheio no repasse, então a base é cheia.
+  //               Desconto de FRETE também fica fora — a taxa já chega líquida dele
+  //               (o 99food grava a taxa após a promoção), e abater de novo criaria
+  //               uma nota com valor menor do que o cliente pagou.
+  private async valoresFiscaisDoPedido(tenantId: string, comandaId: string) {
+    const vazio = { frete: 0, desconto: 0 };
+    try {
+      const r: any = await this.db.execute(sql`
+        select coalesce(case when taxa_entrega_dono = 'loja'
+                             then taxa_entrega else 0 end, 0) as frete,
+               case when descontos is null then coalesce(desconto_loja, 0)
+                    else coalesce((select sum((d->>'valor')::numeric)
+                                     -- array malformado não pode impedir a emissão
+                                     from jsonb_array_elements(case when jsonb_typeof(descontos) = 'array'
+                                                                    then descontos else '[]'::jsonb end) d
+                                    where coalesce(d->>'quemBanca','indefinido') <> 'marketplace'
+                                      and coalesce(d->>'alvo','') <> 'DELIVERY_FEE'), 0)
+               end as desconto
+          from pedido_externo
+         where tenant_id = ${tenantId} and comanda_id = ${comandaId}
+           and status not in ('cancelado')
+         limit 1`);
+      const row = (r.rows ?? r)[0];
+      if (!row) return vazio;
+      return {
+        frete: Math.max(0, Number(row.frete) || 0),
+        desconto: Math.max(0, Number(row.desconto) || 0),
+      };
+    } catch {
+      // Base sem as colunas da mig 241 (edge ainda não atualizado): emite como antes,
+      // sem frete nem desconto. Nunca deixar a nota parar de sair por causa disso.
+      return vazio;
+    }
   }
 
   // Emite só se o fiscal estiver ativo na unidade (chamado automaticamente pela
@@ -419,7 +470,12 @@ export class FiscalService {
   }
 
   // DANFE NFC-e (cupom) → impressoras de papel 'cupom'.
-  private async imprimirDanfe(tenantId: string, nota: any, itens: NfceItem[]) {
+  private async imprimirDanfe(
+    tenantId: string,
+    nota: any,
+    itens: NfceItem[],
+    extras?: { frete: number; desconto: number },
+  ) {
     const printers = await this.db
       .select({ id: equipamento.id })
       .from(equipamento)
@@ -442,6 +498,10 @@ export class FiscalService {
       l.push(`   ${money(it.quantidade * it.precoUnitario)}`);
     }
     l.push('--------------------------------');
+    // Desconto e entrega aparecem no cupom porque agora estão na nota — sem isso o
+    // cliente vê um total que não bate com a soma dos itens impressos.
+    if (extras?.desconto) l.push(`DESCONTO: -${money(extras.desconto)}`);
+    if (extras?.frete) l.push(`ENTREGA: ${money(extras.frete)}`);
     l.push(`TOTAL: ${money(Number(nota.valorTotal))}`);
     l.push(`Chave: ${nota.chave}`);
     l.push(`Protocolo: ${nota.protocolo ?? '-'}`);
