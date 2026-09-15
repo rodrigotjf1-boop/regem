@@ -307,6 +307,20 @@ export function adaptarGenerico(raw: any): PedidoNormalizado {
     total: Number(raw?.total) || 0,
     formaPagamento: formaPtBr(raw?.formaPagamento ?? (raw?.pago ? 'online' : 'money')),
     pago: raw?.pago != null ? Boolean(raw.pago) : undefined,
+    // ===== Detalhe por origem (mig 241) =====
+    // O canal PRÓPRIO (cardápio/totem) é quem calcula os próprios descontos, então ele
+    // manda o detalhe pronto aqui — este adaptador só repassa. Quem não mandar continua
+    // undefined, e o ingest não inventa nada.
+    valorBruto: raw?.valorBruto != null ? Number(raw.valorBruto) : undefined,
+    descontos: Array.isArray(raw?.descontos) && raw.descontos.length ? raw.descontos : undefined,
+    pagamentos: Array.isArray(raw?.pagamentos) && raw.pagamentos.length ? raw.pagamentos : undefined,
+    taxaEntregaDono:
+      raw?.taxaEntregaDono === 'loja' || raw?.taxaEntregaDono === 'marketplace'
+        ? raw.taxaEntregaDono
+        : undefined,
+    valorPagoCliente: raw?.valorPagoCliente != null ? Number(raw.valorPagoCliente) : undefined,
+    taxasExtras:
+      Array.isArray(raw?.taxasExtras) && raw.taxasExtras.length ? raw.taxasExtras : undefined,
   };
 }
 

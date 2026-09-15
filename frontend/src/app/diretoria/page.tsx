@@ -115,7 +115,15 @@ export default function DiretoriaPage() {
         {rede && (
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {[
-              { l: 'Faturamento rede (mês)', v: brl(rede.faturamento), sub: `${rede.vendas} venda(s)`, cor: 'var(--ok)' },
+              // Balcão + canais, sem a gorjeta (repasse ao funcionário, não receita).
+              {
+                l: 'Faturamento rede (mês)',
+                v: brl(rede.faturamento),
+                sub: Number(rede.gorjeta ?? 0) > 0
+                  ? `${rede.vendas} venda(s) · ${brl(rede.gorjeta)} de gorjeta fora`
+                  : `${rede.vendas} venda(s)`,
+                cor: 'var(--ok)',
+              },
               { l: 'Desperdícios (mês)', v: rede.desperdicios, sub: 'registros na rede', cor: 'var(--destructive)' },
               { l: 'Conclusão média', v: `${rede.conclusaoMedia}%`, sub: 'tarefas do mês', cor: 'var(--info)' },
               { l: 'Estoque crítico', v: rede.estoqueCritico, sub: `${rede.lojas} loja(s)`, cor: 'var(--warn)' },

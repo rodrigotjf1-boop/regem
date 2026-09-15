@@ -14,6 +14,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { DeliveryService } from '../delivery/delivery.service';
 import { ClienteService } from '../cliente/cliente.service';
 import { geocode, montarEndereco } from '../../common/geocode';
+import { calcularCobranca } from './cobranca';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -55,6 +56,8 @@ export class EntregadorService {
       taxaEntrega: Number(p.taxaEntrega) || 0, // taxa da entrega (compõe os ganhos do entregador)
       pago: p.pago,
       formaPagamento: p.formaPagamento,
+      // O que cobrar na porta (aReceber/troco/formas) — ver `calcularCobranca`.
+      ...calcularCobranca(p),
       status: p.status,
       // Entrega própria (cardápio/local, não marketplace) com código de 4 díg. do cliente:
       // o app exige o código pra concluir. NÃO expõe o código em si (o cliente o informa).

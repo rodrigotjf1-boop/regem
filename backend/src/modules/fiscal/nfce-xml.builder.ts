@@ -4,6 +4,8 @@
 // + PIS/COFINS não tributados); os valores fiscais reais devem ser validados em
 // HOMOLOGAÇÃO com o certificado antes de produção.
 
+import { ratearReais } from '../../common/rateio';
+
 const esc = (s: any) =>
   String(s ?? '')
     .replace(/&/g, '&amp;')
@@ -26,6 +28,10 @@ const TPAG: Record<string, string> = {
 export interface NfceItem {
   codigo: string;
   descricao: string;
+  // Rateio do desconto/frete do PEDIDO nesta linha. Não vêm do chamador: o builder
+  // calcula (ver `montarNfceXml`), porque a soma tem de fechar com o total.
+  vDesc?: number;
+  vFrete?: number;
   ncm?: string;
   cfop?: string;
   cest?: string;
@@ -52,6 +58,10 @@ export interface NfceInput {
   itens: NfceItem[];
   forma?: string | null;
   qrCode: string;
+  // Valores do PEDIDO (não do item). O builder rateia entre os itens; ver a nota
+  // sobre as regras W14/W16 em `montarNfceXml`.
+  desconto?: number; // desconto bancado pela LOJA (o do marketplace não é desconto na nota)
+  frete?: number; // taxa de entrega QUANDO é da loja (receita dela, compõe a operação)
 }
 
 // PIS/COFINS: CST tributável (01/02) com alíquota → grupo Aliq; senão não-tributado.
@@ -69,6 +79,11 @@ function grupoPisCofins(tag: string, cst?: string, aliq?: number, vBC?: number):
 
 function detItem(it: NfceItem, i: number, crt: number): string {
   const vProd = Number(it.quantidade) * Number(it.precoUnitario);
+  const vDesc = Number(it.vDesc) || 0;
+  const vFrete = Number(it.vFrete) || 0;
+  // Base de PIS/COFINS é o valor LÍQUIDO da linha: desconto reduz, frete compõe.
+  // Usar o vProd cheio inflaria o imposto de quem tributa (CST 01/02).
+  const vBC = Math.max(0, vProd - vDesc + vFrete);
   const origem = it.origem ?? '0';
   const gtin = soDig(it.gtin) || 'SEM GTIN';
   // ICMS: Simples (CRT=1) → CSOSN; Normal → CST básico.
@@ -93,12 +108,16 @@ function detItem(it: NfceItem, i: number, crt: number): string {
     `<uTrib>${esc(it.unidadeTrib || 'UN')}</uTrib>` +
     `<qTrib>${n4(it.quantidade)}</qTrib>` +
     `<vUnTrib>${n4(it.precoUnitario)}</vUnTrib>` +
+    // Ordem fixada pelo layout NF-e 4.00: vFrete, vSeg, vDesc, vOutro — depois indTot.
+    // Só saem quando > 0 (campos opcionais; emitir "0.00" é ruído no XML).
+    (vFrete > 0 ? `<vFrete>${n2(vFrete)}</vFrete>` : '') +
+    (vDesc > 0 ? `<vDesc>${n2(vDesc)}</vDesc>` : '') +
     `<indTot>1</indTot>` +
     `</prod>` +
     `<imposto>` +
     icms +
-    grupoPisCofins('PIS', it.cstPis, it.aliqPis, vProd) +
-    grupoPisCofins('COFINS', it.cstCofins, it.aliqCofins, vProd) +
+    grupoPisCofins('PIS', it.cstPis, it.aliqPis, vBC) +
+    grupoPisCofins('COFINS', it.cstCofins, it.aliqCofins, vBC) +
     `</imposto>` +
     `</det>`
   );
@@ -108,11 +127,28 @@ function detItem(it: NfceItem, i: number, crt: number): string {
 export function montarNfceXml(inp: NfceInput): string {
   const c = inp.config;
   const crt = Number(c.crt) || 1;
-  const vTotal = inp.itens.reduce(
-    (s, it) => s + Number(it.quantidade) * Number(it.precoUnitario),
-    0,
+  const vProdItens = inp.itens.map(
+    (it) => Number(it.quantidade) * Number(it.precoUnitario),
   );
-  const dets = inp.itens.map((it, i) => detItem(it, i, crt)).join('');
+  const vProd = vProdItens.reduce((s, v) => s + v, 0);
+
+  // ===== Desconto e frete do PEDIDO → rateados nos itens =====
+  // A SEFAZ valida que `total/ICMSTot/vDesc` é o SOMATÓRIO dos `det/prod/vDesc`
+  // (regra W16-10) e o mesmo para vFrete (W14-10). Declarar só no total rejeita a
+  // nota. Por isso o rateio é em CENTAVOS: em float a soma não fecha.
+  // O desconto é limitado ao valor dos produtos — vNF negativo também é rejeitado.
+  const vDescTotal = Math.min(Math.max(0, Number(inp.desconto) || 0), vProd);
+  const vFreteTotal = Math.max(0, Number(inp.frete) || 0);
+  const descPorItem = ratearReais(vProdItens, vDescTotal);
+  const fretePorItem = ratearReais(vProdItens, vFreteTotal);
+
+  const dets = inp.itens
+    .map((it, i) =>
+      detItem({ ...it, vDesc: descPorItem[i], vFrete: fretePorItem[i] }, i, crt),
+    )
+    .join('');
+  // vNF = produtos − desconto + frete (os demais componentes são 0 neste layout).
+  const vNF = vProd - vDescTotal + vFreteTotal;
   const tPag = TPAG[String(inp.forma || 'dinheiro')] || '99';
 
   const ide =
@@ -160,15 +196,17 @@ export function montarNfceXml(inp: NfceInput): string {
     `<vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson>` +
     `<vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST>` +
     `<vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet>` +
-    `<vProd>${n2(vTotal)}</vProd>` +
-    `<vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>0.00</vDesc>` +
+    `<vProd>${n2(vProd)}</vProd>` +
+    `<vFrete>${n2(vFreteTotal)}</vFrete><vSeg>0.00</vSeg><vDesc>${n2(vDescTotal)}</vDesc>` +
     `<vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol>` +
     `<vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro>` +
-    `<vNF>${n2(vTotal)}</vNF>` +
+    `<vNF>${n2(vNF)}</vNF>` +
     `</ICMSTot></total>`;
 
+  // vPag TEM de fechar com o vNF (regra YA09) — com desconto/frete na nota, pagar o
+  // valor dos produtos deixaria a nota inconsistente.
   const pag =
-    `<pag><detPag><indPag>0</indPag><tPag>${tPag}</tPag><vPag>${n2(vTotal)}</vPag></detPag></pag>`;
+    `<pag><detPag><indPag>0</indPag><tPag>${tPag}</tPag><vPag>${n2(vNF)}</vPag></detPag></pag>`;
 
   const infNFe =
     `<infNFe versao="4.00" Id="NFe${inp.chave}">` +
@@ -176,7 +214,9 @@ export function montarNfceXml(inp: NfceInput): string {
     emit +
     dets +
     total +
-    `<transp><modFrete>9</modFrete></transp>` +
+    // modFrete 9 = sem ocorrência de transporte; 0 = frete por conta do remetente
+    // (a loja cobra a entrega e a contrata) — declarar 9 com vFrete > 0 é rejeição.
+    `<transp><modFrete>${vFreteTotal > 0 ? '0' : '9'}</modFrete></transp>` +
     pag +
     `<infAdic><infCpl>Documento emitido por Regem</infCpl></infAdic>` +
     `</infNFe>`;

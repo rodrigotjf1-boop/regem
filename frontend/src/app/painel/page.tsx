@@ -95,11 +95,18 @@ export default function DashboardPage() {
 
   // Faixa comercial/financeira: só existe quando o servidor envia `comercial`
   // (RBAC — presidente/C&O). Gerente não recebe o bloco, logo a faixa some.
+  // "Faturamento hoje" = balcão + canais, pela definição única (sem gorjeta, que é
+  // repasse ao funcionário). "Delivery faturado" é um RECORTE desse total, não um
+  // segundo número para somar — antes eram bases diferentes e o delivery já estava
+  // dentro do faturamento sem ninguém enxergar.
   const kpisFinanceiro = d?.comercial
     ? [
-        { label: 'Faturamento hoje', value: brl(d.comercial.faturado ?? 0), sub: `${d.vendas?.total ?? 0} venda(s)`, color: 'var(--ok)' },
+        { label: 'Faturamento hoje', value: brl(d.comercial.faturado ?? 0), sub: `${d.vendas?.total ?? 0} venda(s) · sem gorjeta`, color: 'var(--ok)' },
         { label: 'Ticket médio', value: brl(d.comercial.ticketMedio ?? 0), sub: 'por venda', color: 'var(--info)' },
-        { label: 'Delivery faturado', value: brl(d.comercial.deliveryFaturado ?? 0), sub: 'apps + retirada', color: 'var(--info)' },
+        { label: 'Delivery faturado', value: brl(d.comercial.deliveryFaturado ?? 0), sub: 'parte do total acima', color: 'var(--info)' },
+        ...(Number(d.comercial.gorjeta ?? 0) > 0
+          ? [{ label: 'Gorjeta', value: brl(d.comercial.gorjeta), sub: 'entra no caixa, não no faturamento', color: 'var(--warn)' }]
+          : []),
         { label: 'Custo de produção', value: brl(d.comercial.producaoCusto ?? 0), sub: 'fichas produzidas', color: 'var(--warn)' },
       ]
     : [];
