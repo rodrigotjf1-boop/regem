@@ -22,9 +22,22 @@
 
 alter table contagem_item add column if not exists contado_em timestamptz;
 
--- O cálculo do saldo no instante filtra por (tenant, item, created_at <= t). O índice
--- de cobertura da mig 216 é (tenant_id, item_id) INCLUDE (tipo, quantidade) e não ajuda
--- no recorte por tempo, que aqui é o que dói: uma contagem de 200 itens faz 200 somas
--- com filtro de data.
-create index if not exists idx_movimento_estoque_item_tempo
-  on movimento_estoque (tenant_id, item_id, created_at);
+-- ⚠️ SEM `create index` AQUI, de propósito.
+-- A primeira versão desta migration criava um índice em `movimento_estoque` para o
+-- recorte por tempo. Na nuvem isso ESTOUROU o tempo limite do editor e, como o arquivo
+-- roda como UMA query (o `apply-sql.mjs` faz um único `client.query`, e o SQL Editor do
+-- Supabase idem), a falha do índice desfez a transação inteira — inclusive o
+-- `add column` acima. O resultado era pior que um erro: a migration "passava" sem
+-- reclamar e a coluna simplesmente não existia.
+--
+-- O índice também não é necessário: o da mig 216, `(tenant_id, item_id)` INCLUDE
+-- (tipo, quantidade), já restringe ao item exato — o filtro `created_at <= t` corre
+-- sobre o conjunto pequeno que sobra. Se um dia a contagem ficar lenta em loja grande,
+-- o índice entra SOZINHO e com `concurrently` (que não pode dividir arquivo com outro
+-- comando, porque não roda dentro de transação):
+--
+--   create index concurrently if not exists idx_movimento_estoque_item_tempo
+--     on movimento_estoque (tenant_id, item_id, created_at);
+--
+-- REGRA que fica: comando que pode DEMORAR (índice em tabela grande, backfill) não
+-- divide arquivo com ALTER — senão derruba o ALTER junto.
