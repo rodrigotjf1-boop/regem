@@ -16,6 +16,7 @@ import {
   TABELAS_PULL,
   TABELAS_RESTORE,
   TABELAS_JANELA_MIRROR,
+  TABELAS_DESDE_ZERO,
   TabelaSync,
   modoPush,
   colunaLWW,
@@ -210,7 +211,8 @@ export class SyncService {
     desde?: string,
     cursores?: Record<string, string>,
   ) {
-    const desdeTs = desde || '1970-01-01T00:00:00Z';
+    const EPOCA = '1970-01-01T00:00:00Z';
+    const desdeTs = desde || EPOCA;
     const keyset = !!cursores && typeof cursores === 'object';
     const tabelas: Record<string, any[]> = {};
     const cursoresOut: Record<string, string> = {};
@@ -271,7 +273,10 @@ export class SyncService {
         // no soft-delete, então a exclusão anda pelo próprio cursor (mesma premissa do
         // LWW). Comparação sargável (usa índice em (cursor) / (cursor,id)).
         const raw = cursores![t.tabela];
-        let kts = desdeTs;
+        // Sem cursor próprio da tabela: normalmente cai no piso GLOBAL. Para tabela
+        // recém-adicionada ao sync isso é errado — num edge já instalado o piso está em
+        // "agora" e o histórico nunca desceria (ver TABELAS_DESDE_ZERO).
+        let kts = !raw && TABELAS_DESDE_ZERO.has(t.tabela) ? EPOCA : desdeTs;
         let kid = '';
         if (raw) {
           const p = raw.indexOf('|');

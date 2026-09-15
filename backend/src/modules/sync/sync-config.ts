@@ -67,6 +67,16 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // dado é o mesmo cadastro e o conflito real é raro.
   { tabela: 'item_estoque', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'fornecedor', direcao: 'ambos', cursor: 'updated_at' },
+  // ⚠️ CADEIA DA FICHA — sem estas três o edge NÃO BAIXA ESTOQUE NENHUM.
+  // A explosão (vendas.service → acumularFicha/acumularProduto) lê `ficha_ingrediente`,
+  // `produto_combo_item` e `produto_variacao`. Elas nunca estiveram aqui: no servidor
+  // local a ficha descia VAZIA, a venda não gerava movimento e — porque `consumo` vazio
+  // é tratado como "ilimitado" — nada nunca esgotava. Ficam DEPOIS de `item_estoque`
+  // (FK ficha_ingrediente.item_id) e depois de `produto` (FK das outras duas).
+  // 'desce': o catálogo é master na nuvem. Cursor/exclusão vêm da mig 242.
+  { tabela: 'ficha_ingrediente', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'produto_variacao', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'produto_combo_item', direcao: 'desce', cursor: 'updated_at' },
   // Operacional (local → nuvem) — usadas no push (slice 2); cursor por criação.
   // movimento_estoque e lancamento_caixa TAMBÉM DESCEM (espelho — ver TABELAS_PULL_APPEND),
   // mas continuam 'sobe' aqui p/ o push tratar como append puro (do-nothing, imutáveis).
@@ -121,8 +131,34 @@ export const TABELAS_JANELA_MIRROR = new Set<string>([
   'producao_pedido',
   'producao_pedido_item',
   'lancamento_caixa',
-  'movimento_estoque',
   'pedido_externo',
+]);
+// ⚠️ `movimento_estoque` FOI TIRADO da janela de propósito. Para um transacional de
+// evento (comanda, caixa) a janela é inócua — o edge só perde histórico de consulta.
+// Para o LEDGER de estoque não é: o SALDO É A SOMA DE TODO O LEDGER (estoque.service
+// e vendas.saldoItem), e não existe saldo materializado. Truncando em 60 dias, o saldo
+// local nasce errado pelo tamanho do histórico que ficou de fora — no banco de
+// desenvolvimento, 505 dos 509 movimentos estavam fora da janela. Em cadeia isso
+// dispara alerta de reposição do catálogo inteiro, zera a disponibilidade do atacado
+// e contamina o snapshot diário. Ledger cumulativo não pode ser janelado.
+
+// Tabelas cujo delta começa do ZERO quando o edge ainda não tem cursor PRÓPRIO delas.
+//
+// O pull tem um piso global (`pull_cursor`). Num edge já instalado esse piso está em
+// "agora", então uma tabela ADICIONADA depois desceria só com o que mudasse a partir de
+// hoje — as fichas que já existem nunca chegariam, e a loja seguiria sem baixar estoque
+// até alguém reeditar cada ficha. Para estas, o piso global é ignorado enquanto não
+// houver cursor da própria tabela; no ciclo seguinte o edge já grava o seu e a exceção
+// deixa de valer sozinha. Autocurável e sem intervenção manual.
+//
+// ⚠️ Isto NÃO rebobina cursor já existente. Edge que já sincronizava `movimento_estoque`
+// com a janela de 60 dias tem cursor gravado e não vai buscar o histórico anterior
+// sozinho — precisa do reset de uma vez do `.zip` (ver RELEASES.md).
+export const TABELAS_DESDE_ZERO = new Set<string>([
+  'ficha_ingrediente',
+  'produto_variacao',
+  'produto_combo_item',
+  'movimento_estoque',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
