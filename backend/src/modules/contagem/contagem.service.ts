@@ -181,6 +181,33 @@ export class ContagemService {
     return this.getExecucao(tenantId, exec.id);
   }
 
+  // Movimento líquido de cada item DESDE a abertura da contagem.
+  //
+  // É o dado que falta para o ajuste ser confiável. O `saldo_sistema` de cada item é
+  // congelado quando a contagem abre; o ajuste lançado é `contado − saldo_sistema`.
+  // Isso só está certo se o operador contou o item NO INSTANTE da abertura. Se houve
+  // venda/produção no meio, o resultado depende de o item ter sido contado antes ou
+  // depois desse movimento — e o sistema não sabe qual. Em vez de escolher em silêncio
+  // uma base errada, expomos o movimento e deixamos quem conta decidir.
+  private async movimentoDesde(tenantId: string, itemIds: string[], desde: Date) {
+    const mapa = new Map<string, { qtd: number; n: number }>();
+    if (!itemIds.length) return mapa;
+    const res: any = await this.db.execute(sql`
+      select item_id as "itemId",
+             coalesce(sum(case tipo when 'entrada' then quantidade
+               when 'saida' then -quantidade else quantidade end), 0) as qtd,
+             count(*)::int as n
+      from movimento_estoque
+      where tenant_id = ${tenantId} and item_id in ${itemIds}
+        and created_at > ${desde}
+        -- o próprio ajuste da contagem não conta como "movimento durante a contagem"
+        and coalesce(motivo, '') <> 'contagem'
+      group by item_id
+    `);
+    for (const r of res.rows ?? res) mapa.set(r.itemId, { qtd: Number(r.qtd), n: Number(r.n) });
+    return mapa;
+  }
+
   async getExecucao(tenantId: string, execId: string) {
     const [exec] = await this.db
       .select()
@@ -198,7 +225,22 @@ export class ContagemService {
       .from(contagemItem)
       .leftJoin(itemEstoque, eq(contagemItem.itemId, itemEstoque.id))
       .where(eq(contagemItem.execucaoId, execId));
-    return { ...exec, itens };
+    // Movimento desde a abertura: o operador vê, ENQUANTO conta, que aquele item saiu
+    // ou entrou depois do snapshot — e decide se conta de novo ou aceita a diferença.
+    const mov = await this.movimentoDesde(
+      tenantId,
+      itens.map((i) => i.itemId),
+      exec.createdAt,
+    );
+    return {
+      ...exec,
+      itens: itens.map((i) => ({
+        ...i,
+        movimentoDesdeAbertura: mov.get(i.itemId)?.qtd ?? 0,
+        movimentosDesdeAbertura: mov.get(i.itemId)?.n ?? 0,
+      })),
+      itensComMovimento: itens.filter((i) => (mov.get(i.itemId)?.n ?? 0) > 0).length,
+    };
   }
 
   // Salva os contados; opcionalmente ajusta o estoque (movimento 'ajuste').
@@ -228,9 +270,14 @@ export class ContagemService {
         .from(contagemItem)
         .where(and(eq(contagemItem.execucaoId, execId), eq(contagemItem.tenantId, tenantId)));
       const linhaDe = new Map(atuais.map((a) => [a.itemId, a]));
+      // Quais itens se moveram DURANTE a contagem. O ajuste segue sendo lançado contra o
+      // snapshot da abertura (é a base que o operador viu na tela), mas o que se moveu
+      // fica REGISTRADO: sem isso, um ajuste possivelmente errado some sem deixar pista.
+      const mov = await this.movimentoDesde(tenantId, [...linhaDe.keys()], exec.createdAt);
 
       let ajustados = 0;
       let contados = 0;
+      const suspeitos: { itemId: string; movimento: number; diff: number }[] = [];
       for (const it of dto.itens) {
         const linha = linhaDe.get(it.itemId);
         if (!linha) continue;
@@ -255,6 +302,8 @@ export class ContagemService {
               data: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
             });
             ajustados++;
+            const m = mov.get(it.itemId);
+            if (m && m.n > 0) suspeitos.push({ itemId: it.itemId, movimento: m.qtd, diff });
           }
         }
       }
@@ -263,7 +312,7 @@ export class ContagemService {
         .update(contagemExecucao)
         .set({ status: 'concluida', concluidaEm: new Date() })
         .where(and(eq(contagemExecucao.id, execId), eq(contagemExecucao.tenantId, tenantId)));
-      return { contados, ajustados, listaId: exec.listaId };
+      return { contados, ajustados, listaId: exec.listaId, suspeitos };
     });
 
     // Ajuste de saldo SEM rastro era o pior da contagem: o `atorId` chegava aqui e era
@@ -279,14 +328,28 @@ export class ContagemService {
       detalhe: { ...resumo, aplicarAjuste: !!dto.aplicarAjuste },
     });
 
-    // Avisa dashboard/KDS que a contagem foi concluída.
+    const nSusp = resumo.suspeitos.length;
+    // Avisa dashboard/KDS que a contagem foi concluída. Item que se moveu durante a
+    // contagem sobe a prioridade: é um ajuste que pode estar errado e alguém precisa ver.
     this.events.emit('kds.alerta.sistema', {
       tenantId,
-      titulo: 'Contagem concluída',
-      detalhe: dto.aplicarAjuste ? 'Estoque ajustado pela contagem.' : 'Contagem registrada.',
-      prioridade: 'baixa',
+      titulo: nSusp ? 'Contagem concluída — confira' : 'Contagem concluída',
+      detalhe: nSusp
+        ? `${nSusp} item(ns) tiveram movimento durante a contagem; o ajuste desses pode estar errado.`
+        : dto.aplicarAjuste
+          ? 'Estoque ajustado pela contagem.'
+          : 'Contagem registrada.',
+      prioridade: nSusp ? 'media' : 'baixa',
     });
-    return { ok: true };
+    return {
+      ok: true,
+      contados: resumo.contados,
+      ajustados: resumo.ajustados,
+      // O front avisa quem acabou de contar — é o único momento em que dá para conferir
+      // enquanto a informação ainda está fresca.
+      itensComMovimento: nSusp,
+      suspeitos: resumo.suspeitos,
+    };
   }
 
   // Alerta por horário: toda hora cheia, avisa as listas que vencem agora.

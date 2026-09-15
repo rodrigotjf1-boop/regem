@@ -100,8 +100,19 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
       const itensContados = (exec.itens ?? [])
         .filter((i: any) => contado[i.itemId] !== '' && contado[i.itemId] != null)
         .map((i: any) => ({ itemId: i.itemId, contado: Number(contado[i.itemId]) }));
-      await api.salvarContagem(exec.id, { itens: itensContados, aplicarAjuste: ajuste });
-      toast.success(ajuste ? 'Contagem salva e estoque ajustado.' : 'Contagem salva.');
+      const r: any = await api.salvarContagem(exec.id, { itens: itensContados, aplicarAjuste: ajuste });
+      const moveram = Number(r?.itensComMovimento) || 0;
+      if (ajuste && moveram > 0) {
+        // O ajuste foi lançado contra o saldo da ABERTURA. Se o item se moveu no meio da
+        // contagem, esse ajuste pode estar errado — e este é o único momento em que
+        // alguém ainda lembra o que contou.
+        toast.info(
+          `Contagem salva, mas ${moveram} item(ns) tiveram venda ou produção durante a contagem. ` +
+            'O ajuste desses pode estar errado — confira o saldo.',
+        );
+      } else {
+        toast.success(ajuste ? 'Contagem salva e estoque ajustado.' : 'Contagem salva.');
+      }
       setExec(null);
       await reload();
     } catch (e) {
@@ -237,6 +248,12 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
         <div className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4" onClick={() => setExec(null)}>
           <Card className="w-full max-w-md space-y-3 p-5" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-display font-semibold">Contar estoque</h3>
+            {Number(exec.itensComMovimento) > 0 && (
+              <p className="rounded-md bg-warn/10 px-3 py-2 text-[12px] text-warn">
+                {Number(exec.itensComMovimento)} item(ns) tiveram venda ou produção desde que esta
+                contagem abriu. O saldo do sistema abaixo é o da abertura — confira esses itens.
+              </p>
+            )}
             <div className="space-y-2">
               {(exec.itens ?? []).map((i: any) => {
                 const c = contado[i.itemId];
@@ -246,6 +263,15 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{i.nome}</p>
                       <p className="text-[11px] text-muted-foreground">sistema: {Number(i.saldoSistema)} {i.unidadeMedida}</p>
+                      {/* O saldo mostrado é o da ABERTURA da contagem. Se o item saiu ou
+                          entrou depois, quem está contando precisa saber — é ele quem
+                          sabe se contou antes ou depois do movimento. */}
+                      {Number(i.movimentosDesdeAbertura) > 0 && (
+                        <p className="text-[11px] font-medium text-warn">
+                          ⚠ {Number(i.movimentoDesdeAbertura) > 0 ? '+' : ''}
+                          {Number(i.movimentoDesdeAbertura)} desde que a contagem abriu
+                        </p>
+                      )}
                     </div>
                     <Input type="number" inputMode="decimal" value={c ?? ''} placeholder="contado" className="h-9 w-24"
                       onChange={(e) => setContado((s) => ({ ...s, [i.itemId]: e.target.value }))} />
