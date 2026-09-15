@@ -77,6 +77,25 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'ficha_ingrediente', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'produto_variacao', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'produto_combo_item', direcao: 'desce', cursor: 'updated_at' },
+  // ⚠️ DOCUMENTOS DE ESTOQUE — nascem no EDGE (Recebimento/Contagem/Compras/Desperdício
+  // são EDGE_CORE) e nunca estiveram aqui. O `movimento_estoque` subia, então o saldo na
+  // nuvem batia — mas a ORIGEM sumia: entrava estoque sem dizer de qual nota, de qual
+  // contagem, de qual perda. E `titulo_financeiro` (a CONTA A PAGAR que o recebimento
+  // cria) não chegava: quem abria o Financeiro não via a dívida com o fornecedor.
+  // 'ambos' com LWW: o documento pode nascer dos dois lados e MUDA DE ESTADO (recebimento
+  // confirma, contagem fecha, título é pago) — o gatilho da mig 243 faz o bump propagar.
+  // Ordem = pai antes do filho (fornecedor/item_estoque/colaborador já vieram acima).
+  { tabela: 'recebimento', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'recebimento_item', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'lote', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'desperdicio', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'contagem_lista', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'contagem_lista_item', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'contagem_execucao', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'contagem_item', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'compra_lista', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'compra_item', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'titulo_financeiro', direcao: 'ambos', cursor: 'updated_at' },
   // Operacional (local → nuvem) — usadas no push (slice 2); cursor por criação.
   // movimento_estoque e lancamento_caixa TAMBÉM DESCEM (espelho — ver TABELAS_PULL_APPEND),
   // mas continuam 'sobe' aqui p/ o push tratar como append puro (do-nothing, imutáveis).
@@ -159,6 +178,18 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'produto_variacao',
   'produto_combo_item',
   'movimento_estoque',
+  // Documentos de estoque (mig 243) — o histórico precisa descer uma vez.
+  'recebimento',
+  'recebimento_item',
+  'lote',
+  'desperdicio',
+  'contagem_lista',
+  'contagem_lista_item',
+  'contagem_execucao',
+  'contagem_item',
+  'compra_lista',
+  'compra_item',
+  'titulo_financeiro',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

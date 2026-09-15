@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   TABELAS_SYNC,
   TABELAS_PULL,
@@ -95,6 +97,87 @@ describe('sync-config — piso do cursor para tabela nova', () => {
   it('não afeta o catálogo que já descia (piso global segue valendo lá)', () => {
     ['produto', 'ficha_tecnica', 'item_estoque', 'colaborador']
       .forEach((t) => expect(TABELAS_DESDE_ZERO.has(t)).toBe(false));
+  });
+});
+
+describe('sync-config — documentos de estoque', () => {
+  const DOCS = [
+    'recebimento', 'recebimento_item', 'lote', 'desperdicio',
+    'contagem_lista', 'contagem_lista_item', 'contagem_execucao', 'contagem_item',
+    'compra_lista', 'compra_item', 'titulo_financeiro',
+  ];
+  const idx = (t: string) => TABELAS_SYNC.findIndex((x) => x.tabela === t);
+
+  it.each(DOCS)('%s sincroniza nos dois sentidos', (t) => {
+    expect(TABELAS_SYNC.find((x) => x.tabela === t)?.direcao).toBe('ambos');
+  });
+
+  it('sobem por LWW — o documento MUDA DE ESTADO depois de criado', () => {
+    // Recebimento confirma, contagem fecha, título é pago. Como append puro, a mudança
+    // de estado nunca chegaria do outro lado (é a razão escrita na mig 095).
+    DOCS.forEach((t) => {
+      expect(modoPush(t)).toBe('lww');
+      expect(colunaLWW(t)).toBe('updated_at');
+    });
+  });
+
+  it('a conta a pagar do recebimento chega ao Financeiro da nuvem', () => {
+    // `recebimento.confirmar()` insere em titulo_financeiro. Sem esta linha, a dívida
+    // com o fornecedor ficava presa no servidor local.
+    expect(TABELAS_PULL.map((t) => t.tabela)).toContain('titulo_financeiro');
+    expect(modoPush('titulo_financeiro')).toBe('lww');
+  });
+
+  it('filho vem depois do pai (ordem de FK no apply)', () => {
+    const pais: [string, string][] = [
+      ['recebimento_item', 'recebimento'],
+      ['lote', 'recebimento'],
+      ['contagem_lista_item', 'contagem_lista'],
+      ['contagem_execucao', 'contagem_lista'],
+      ['contagem_item', 'contagem_execucao'],
+      ['compra_item', 'compra_lista'],
+    ];
+    pais.forEach(([filho, pai]) => expect(idx(filho)).toBeGreaterThan(idx(pai)));
+  });
+
+  it('vêm depois de fornecedor e item_estoque (FK dos documentos)', () => {
+    DOCS.forEach((t) => {
+      expect(idx(t)).toBeGreaterThan(idx('item_estoque'));
+      expect(idx(t)).toBeGreaterThan(idx('fornecedor'));
+    });
+  });
+
+  it('o histórico desce uma vez em edge já instalado', () => {
+    DOCS.forEach((t) => expect(TABELAS_DESDE_ZERO.has(t)).toBe(true));
+  });
+
+  it('documento não é janelado — nota de um ano atrás continua visível', () => {
+    DOCS.forEach((t) => expect(TABELAS_JANELA_MIRROR.has(t)).toBe(false));
+  });
+});
+
+// A lista de PUSH do edge é HARDCODED no daemon, separada da whitelist do backend.
+// Foi exatamente assim que 11 tabelas ficaram de fora sem ninguém perceber: nada falha
+// quando as duas divergem — o dado só para de subir. Este teste é o alarme.
+describe('sync-config × PUSH_TABLES do daemon do edge', () => {
+  const fonte = readFileSync(join(__dirname, '../../../edge/sync-daemon.mjs'), 'utf8');
+  const bloco = fonte.slice(fonte.indexOf('const PUSH_TABLES'), fonte.indexOf('const SNAPSHOT_TABELAS'));
+  const doDaemon = new Set([...bloco.matchAll(/tabela:\s*'([a-z_]+)'/g)].map((m) => m[1]));
+
+  it('o daemon foi lido (guarda contra o regex parar de casar)', () => {
+    expect(doDaemon.size).toBeGreaterThan(10);
+    expect(doDaemon.has('comanda')).toBe(true);
+  });
+
+  it('TODA tabela que sobe no backend está na lista de push do daemon', () => {
+    const sobem = TABELAS_SYNC.filter((t) => t.direcao !== 'desce').map((t) => t.tabela);
+    const faltando = sobem.filter((t) => !doDaemon.has(t));
+    expect(faltando).toEqual([]);
+  });
+
+  it('o daemon não empurra tabela que o backend não aceita', () => {
+    const sobrando = [...doDaemon].filter((t) => modoPush(t) === null);
+    expect(sobrando).toEqual([]);
   });
 });
 

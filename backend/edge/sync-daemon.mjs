@@ -172,6 +172,22 @@ const PUSH_TABLES = [
   // e insumo localmente — precisam SUBIR (fornecedor antes de item_estoque por FK).
   { tabela: 'fornecedor', cursor: 'updated_at' },
   { tabela: 'item_estoque', cursor: 'updated_at' },
+  // DOCUMENTOS DE ESTOQUE (mig 243): nascem AQUI (Recebimento/Contagem/Compras/
+  // Desperdício rodam no edge) e nunca subiam — a nuvem via o movimento de estoque mas
+  // não a nota, a contagem nem a perda que o originou; e a CONTA A PAGAR criada pelo
+  // recebimento não chegava ao Financeiro. Depois de fornecedor/item_estoque por FK,
+  // e pai antes de filho dentro do bloco.
+  { tabela: 'recebimento', cursor: 'updated_at' },
+  { tabela: 'recebimento_item', cursor: 'updated_at' },
+  { tabela: 'lote', cursor: 'updated_at' },
+  { tabela: 'desperdicio', cursor: 'updated_at' },
+  { tabela: 'contagem_lista', cursor: 'updated_at' },
+  { tabela: 'contagem_lista_item', cursor: 'updated_at' },
+  { tabela: 'contagem_execucao', cursor: 'updated_at' },
+  { tabela: 'contagem_item', cursor: 'updated_at' },
+  { tabela: 'compra_lista', cursor: 'updated_at' },
+  { tabela: 'compra_item', cursor: 'updated_at' },
+  { tabela: 'titulo_financeiro', cursor: 'updated_at' },
   // Cliente do cardápio/CRM (bidirecional): cliente identificado no balcão sobe.
   // ANTES de pedido_externo (FK na nuvem: pedido_externo.cliente_id → cliente.id).
   // Cursor = atualizado_em (a tabela não tem updated_at).
