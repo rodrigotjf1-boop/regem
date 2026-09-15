@@ -36,6 +36,8 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
   **`.zip` obrigatório para o lado que sobe:** a lista de push é HARDCODED em `sync-daemon.mjs` (`PUSH_TABLES`), separada da whitelist do backend — foi assim que as 11 ficaram de fora sem nada falhar. O pull (nuvem → edge) funciona só com o autodeploy; o push (edge → nuvem) só com o `.zip`. Um teste novo compara as duas listas e quebra o CI se voltarem a divergir. Não tocou instalador → **sem `.exe` novo**.
   ⚠️ **Ordem de deploy:** mig 243 na NUVEM **antes** do merge (mesmo motivo da 242).
 
+- **Contagem com hora por item (migration 244, NÃO cloud-only):** `contagem_item` += `contado_em` + índice `(tenant_id, item_id, created_at)` em `movimento_estoque`. O `ContagemModule` é EDGE_CORE e `contagem_item` sincroniza desde a mig 243 → o edge precisa da coluna. Só schema aditivo + serviço, sem tocar `sync`/instalador → **`.zip`**, sem `.exe`.
+
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
 > **Épico trava anti-clone + suporte + self-service C&O é CLOUD-ONLY** (backend + front por autodeploy) — **NÃO** entra no `.exe`/`.zip`. Frentes: cadeado no console /distribuicao; suporte com "acesso total" opcional (presidente concede em config/acessos); self-service do C&O em /servidor (cadastra app autenticador); **trava anti-clone ON por padrão após a 1ª instalação**. Precisa da **migration 224** na nuvem (`empresa.suporte_acesso_total`). _(E — nuvem→edge de suporte — adiada.)_

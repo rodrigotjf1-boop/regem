@@ -28,6 +28,10 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
   const [novo, setNovo] = useState(false);
   const [exec, setExec] = useState<any>(null); // execução aberta (modal)
   const [contado, setContado] = useState<Record<string, string>>({});
+  // Hora em que CADA item foi informado. É o que permite o servidor usar o saldo do
+  // instante certo: o inventário roda durante o expediente e o operador conta item a
+  // item, andando entre câmara e freezer, enquanto a venda consome.
+  const [contadoEm, setContadoEm] = useState<Record<string, string>>({});
   const [ajuste, setAjuste] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
@@ -87,6 +91,7 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
       const ex: any = await api.iniciarContagem(listaId);
       setExec(ex);
       setContado(Object.fromEntries((ex.itens ?? []).map((i: any) => [i.itemId, ''])));
+      setContadoEm({}); // contagem nova começa sem carimbo de hora
       setAjuste(true);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao iniciar');
@@ -99,7 +104,11 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
     try {
       const itensContados = (exec.itens ?? [])
         .filter((i: any) => contado[i.itemId] !== '' && contado[i.itemId] != null)
-        .map((i: any) => ({ itemId: i.itemId, contado: Number(contado[i.itemId]) }));
+        .map((i: any) => ({
+          itemId: i.itemId,
+          contado: Number(contado[i.itemId]),
+          contadoEm: contadoEm[i.itemId],
+        }));
       const r: any = await api.salvarContagem(exec.id, { itens: itensContados, aplicarAjuste: ajuste });
       const moveram = Number(r?.itensComMovimento) || 0;
       if (ajuste && moveram > 0) {
@@ -257,7 +266,11 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
             <div className="space-y-2">
               {(exec.itens ?? []).map((i: any) => {
                 const c = contado[i.itemId];
-                const diff = c !== '' && c != null ? Number(c) - Number(i.saldoSistema) : null;
+                // O ajuste é calculado contra o saldo do INSTANTE da contagem, não o da
+                // abertura. Aqui a melhor aproximação é abertura + o que já se moveu —
+                // senão a tela mostraria um número e o servidor lançaria outro.
+                const saldoAgora = Number(i.saldoSistema) + (Number(i.movimentoDesdeAbertura) || 0);
+                const diff = c !== '' && c != null ? Number(c) - saldoAgora : null;
                 return (
                   <div key={i.itemId} className="flex items-center gap-2">
                     <div className="min-w-0 flex-1">
@@ -274,7 +287,12 @@ export function ContagemSecao({ itens }: { itens: any[] }) {
                       )}
                     </div>
                     <Input type="number" inputMode="decimal" value={c ?? ''} placeholder="contado" className="h-9 w-24"
-                      onChange={(e) => setContado((s) => ({ ...s, [i.itemId]: e.target.value }))} />
+                      onChange={(e) => {
+                        setContado((s) => ({ ...s, [i.itemId]: e.target.value }));
+                        // Recarimba a cada digitação: se o operador voltar e recontar o
+                        // item depois do aviso de movimento, a base acompanha.
+                        setContadoEm((s) => ({ ...s, [i.itemId]: new Date().toISOString() }));
+                      }} />
                     {diff != null && Math.abs(diff) > 1e-9 && (
                       <span className={`w-12 text-right text-xs ${diff < 0 ? 'text-destructive' : 'text-ok'}`}>
                         {diff > 0 ? '+' : ''}{diff}
