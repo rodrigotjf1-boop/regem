@@ -198,8 +198,9 @@ export class VendasService {
     const rendimento = Number(ficha?.rendimento) || 1;
     const ings = await tx
       .select()
+      // Ingrediente removido (soft-delete da mig 242) não baixa estoque.
       .from(fichaIngrediente)
-      .where(eq(fichaIngrediente.fichaId, fichaId));
+      .where(and(eq(fichaIngrediente.fichaId, fichaId), isNull(fichaIngrediente.deletedAt)));
     const proximos = new Set(visitados);
     proximos.add(fichaId);
     for (const ing of ings) {
@@ -288,7 +289,12 @@ export class VendasService {
           })
           .from(produtoComboItem)
           .innerJoin(produto, eq(produto.id, produtoComboItem.componenteProdutoId))
-          .where(eq(produtoComboItem.comboProdutoId, p.id));
+          .where(
+            and(
+              eq(produtoComboItem.comboProdutoId, p.id),
+              isNull(produtoComboItem.deletedAt), // componente retirado do combo (mig 242)
+            ),
+          );
         for (const c of comps) {
           if (c.fichaId && c.controla)
             await this.acumularFicha(

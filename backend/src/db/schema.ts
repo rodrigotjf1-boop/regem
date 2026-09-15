@@ -1155,6 +1155,11 @@ export const fichaIngrediente = pgTable('ficha_ingrediente', {
   somenteDelivery: boolean('somente_delivery').notNull().default(false),
   ordem: integer('ordem').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  // Cursor do sync + exclusão que PROPAGA para o edge (mig 242). A ficha é salva por
+  // "apaga tudo e reinsere": sem deleted_at o edge ficaria com os ingredientes antigos
+  // para sempre e baixaria insumo a mais.
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
 // ===== Ordem de produção (mig 130) — pedido de produção interna a partir de ficha.
@@ -1318,6 +1323,8 @@ export const produtoVariacao = pgTable('produto_variacao', {
   atributos: jsonb('atributos').notNull().default('{}'), // grade: {tamanho, cor} (L4)
   ativo: boolean('ativo').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 242)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
 export const produtoComboItem = pgTable('produto_combo_item', {
@@ -1332,6 +1339,10 @@ export const produtoComboItem = pgTable('produto_combo_item', {
     .notNull()
     .references(() => produto.id, { onDelete: 'cascade' }),
   quantidade: numeric('quantidade').notNull().default('1'),
+  // A tabela não tinha timestamp NENHUM — sem cursor não há como sincronizar (mig 242).
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
 // ===== Vendas & comandas (Fase J) =====

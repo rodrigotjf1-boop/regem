@@ -345,6 +345,34 @@ async function upsertLote(tabela, rows, exec = pool) {
   return rows.length;
 }
 
+// Reparos de UMA VEZ no mapa de cursores. Cada entrada é aplicada no máximo uma vez por
+// instalação (marca em sync_state) e serve para casos em que a NUVEM passou a mandar algo
+// que o edge precisa reler do começo — o cursor já gravado impediria sozinho.
+//
+// ledger_completo_v1: `movimento_estoque` era puxado com a janela de 60 dias. Como o SALDO
+// é a soma de TODO o ledger, o edge nascia com saldo errado pelo tamanho do histórico que
+// ficou de fora. A janela foi removida na nuvem, mas o cursor gravado aqui aponta para
+// "60 dias atrás" e o histórico anterior nunca viria. Rebobinamos uma vez; o catch-up é
+// paginado (1000 linhas/ciclo) e some sozinho quando alcança o presente.
+const REPAROS_CURSOR = [{ marca: 'reparo_ledger_completo_v1', tabelas: ['movimento_estoque'] }];
+
+async function repararCursores(cursores) {
+  let mudou = false;
+  for (const r of REPAROS_CURSOR) {
+    if ((await getState(r.marca, '')) === 'feito') continue;
+    for (const t of r.tabelas) {
+      if (cursores[t]) {
+        delete cursores[t]; // sem cursor próprio → a nuvem recomeça do zero (TABELAS_DESDE_ZERO)
+        mudou = true;
+      }
+    }
+    await setState(r.marca, 'feito');
+    if (mudou) console.log(`Sync: cursor rebobinado (${r.marca}) — rebaixando o histórico de ${r.tabelas.join(', ')}.`);
+  }
+  if (mudou) await setState('pull_cursores', JSON.stringify(cursores));
+  return cursores;
+}
+
 async function pull() {
   const desde = await getState('pull_cursor', '1970-01-01T00:00:00Z');
   // Keyset por tabela: mapa tabela→"<ts>|<id>" no sync_state. Enviamos SEMPRE o param
@@ -356,6 +384,12 @@ async function pull() {
     cursores = JSON.parse(await getState('pull_cursores', '{}')) || {};
   } catch {
     cursores = {};
+  }
+  // Nunca deixa um reparo derrubar o ciclo de sync — na falha, segue com o cursor atual.
+  try {
+    cursores = await repararCursores(cursores);
+  } catch (e) {
+    console.warn(`Sync: reparo de cursor falhou (segue normal): ${e.message}`);
   }
   const qs =
     `desde=${encodeURIComponent(desde)}` +

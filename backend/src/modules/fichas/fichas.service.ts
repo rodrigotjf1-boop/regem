@@ -147,7 +147,12 @@ export class FichasService {
       ? await this.db
           .select()
           .from(fichaIngrediente)
-          .where(inArray(fichaIngrediente.fichaId, fichas.map((f) => f.id)))
+          .where(
+            and(
+              inArray(fichaIngrediente.fichaId, fichas.map((f) => f.id)),
+              isNull(fichaIngrediente.deletedAt), // ingrediente removido não entra no custo
+            ),
+          )
       : [];
     const mapa: Record<string, FichaCusto> = {};
     const nome: Record<string, string> = {};
@@ -249,12 +254,17 @@ export class FichasService {
         .filter((x): x is string => !!x)) {
         await this.validarSubFicha(tenantId, id, s);
       }
+      // SOFT-delete (mig 242), não delete físico: a tabela sincroniza para o servidor
+      // local por delta de linha. Apagar de verdade some da nuvem mas NÃO some do edge
+      // — ele ficaria com o ingrediente antigo somado ao novo e baixaria insumo a mais.
       await this.db
-        .delete(fichaIngrediente)
+        .update(fichaIngrediente)
+        .set({ deletedAt: new Date() })
         .where(
           and(
             eq(fichaIngrediente.fichaId, id),
             eq(fichaIngrediente.tenantId, tenantId),
+            isNull(fichaIngrediente.deletedAt),
           ),
         );
       if (dto.ingredientes.length)
@@ -335,8 +345,10 @@ export class FichasService {
   }
 
   async removeIngrediente(tenantId: string, id: string) {
+    // Soft-delete: a exclusão precisa DESCER para o servidor local (ver mig 242).
     await this.db
-      .delete(fichaIngrediente)
+      .update(fichaIngrediente)
+      .set({ deletedAt: new Date() })
       .where(
         and(
           eq(fichaIngrediente.id, id),

@@ -994,11 +994,11 @@ export class ProdutoService {
     const variacoes = await this.db
       .select()
       .from(produtoVariacao)
-      .where(eq(produtoVariacao.produtoId, id));
+      .where(and(eq(produtoVariacao.produtoId, id), isNull(produtoVariacao.deletedAt)));
     const combo = await this.db
       .select()
       .from(produtoComboItem)
-      .where(eq(produtoComboItem.comboProdutoId, id));
+      .where(and(eq(produtoComboItem.comboProdutoId, id), isNull(produtoComboItem.deletedAt)));
     const complementos = await this.complementosDe(tenantId, id);
     const faixas = await this.db
       .select()
@@ -1030,11 +1030,18 @@ export class ProdutoService {
     // `chave` = propriedade JS que aponta pro produto pai (a coluna Drizzle usa
     // snake_case, mas o insert recebe a chave camelCase da linha selecionada).
     const clonar = async (tabela: any, coluna: any, chave: string) => {
-      const linhas: any[] = await this.db.select().from(tabela).where(eq(coluna, id));
+      // Ignora linha já excluída (mig 242) — senão duplicar o produto ressuscitaria a
+      // variação/componente que o lojista tinha apagado. `deleted_at` também não pode
+      // ser copiado para a cópia nova.
+      const vivo = (tabela as any).deletedAt ? isNull((tabela as any).deletedAt) : undefined;
+      const linhas: any[] = await this.db
+        .select()
+        .from(tabela)
+        .where(vivo ? and(eq(coluna, id), vivo) : eq(coluna, id));
       if (!linhas.length) return;
       await this.db.insert(tabela).values(
         linhas.map((l) => {
-          const { id: _x, ...r } = l;
+          const { id: _x, deletedAt: _d, ...r } = l;
           return { ...r, [chave]: novo.id };
         }),
       );
@@ -1438,10 +1445,20 @@ export class ProdutoService {
     void this.flash.flashProdutos([id]);
 
     // Substitui variações/combo quando enviados (edição completa).
+    // SOFT-delete (mig 242): as duas tabelas sincronizam para o servidor local por delta
+    // de linha. Delete físico some da nuvem e NÃO some do edge — a variação/componente
+    // antigo continuaria lá e a baixa da ficha sairia errada.
     if (dto.variacoes) {
       await this.db
-        .delete(produtoVariacao)
-        .where(eq(produtoVariacao.produtoId, id));
+        .update(produtoVariacao)
+        .set({ deletedAt: new Date() })
+        .where(
+          and(
+            eq(produtoVariacao.produtoId, id),
+            eq(produtoVariacao.tenantId, tenantId),
+            isNull(produtoVariacao.deletedAt),
+          ),
+        );
       if (dto.variacoes.length)
         await this.db.insert(produtoVariacao).values(
           dto.variacoes.map((v) => ({
@@ -1457,8 +1474,15 @@ export class ProdutoService {
     }
     if (dto.combo) {
       await this.db
-        .delete(produtoComboItem)
-        .where(eq(produtoComboItem.comboProdutoId, id));
+        .update(produtoComboItem)
+        .set({ deletedAt: new Date() })
+        .where(
+          and(
+            eq(produtoComboItem.comboProdutoId, id),
+            eq(produtoComboItem.tenantId, tenantId),
+            isNull(produtoComboItem.deletedAt),
+          ),
+        );
       if (dto.combo.length)
         await this.db.insert(produtoComboItem).values(
           dto.combo.map((c) => ({

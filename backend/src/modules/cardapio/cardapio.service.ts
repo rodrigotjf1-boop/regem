@@ -1149,7 +1149,13 @@ export class CardapioService {
             .orderBy(complementoOpcao.ordem)
         : Promise.resolve([] as any[]),
       ids.length
-        ? this.db.select().from(produtoVariacao).where(inArray(produtoVariacao.produtoId, ids))
+        ? // Variação removida (soft-delete da mig 242) sai do cardápio. Os lookups POR ID
+          // (preço da variação já escolhida) continuam sem filtro de propósito: um pedido
+          // em aberto não pode quebrar porque a variação foi apagada depois.
+          this.db
+            .select()
+            .from(produtoVariacao)
+            .where(and(inArray(produtoVariacao.produtoId, ids), isNull(produtoVariacao.deletedAt)))
         : Promise.resolve([] as any[]),
     ]);
     const opcoes = grupos.length ? opcoesRaw : ([] as any[]);

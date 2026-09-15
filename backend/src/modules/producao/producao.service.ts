@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -56,7 +56,8 @@ export class ProducaoService {
     const ings = await tx
       .select()
       .from(fichaIngrediente)
-      .where(eq(fichaIngrediente.fichaId, fichaId));
+      // Ingrediente removido (soft-delete da mig 242) não entra na produção nem no custo.
+      .where(and(eq(fichaIngrediente.fichaId, fichaId), isNull(fichaIngrediente.deletedAt)));
 
     const proximos = new Set(visitados);
     proximos.add(fichaId);
