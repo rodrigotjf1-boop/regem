@@ -7,6 +7,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   compraLista,
   compraItem,
@@ -23,6 +24,7 @@ export class ComprasService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly events: EventEmitter2,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   private async saldos(tenantId: string, itemIds: string[]) {
@@ -177,65 +179,87 @@ export class ComprasService {
 
   // Receber a compra: entra no estoque (movimento 'entrada' com custo) + atualiza
   // custo médio ponderado por item; marca recebida e avisa KDS/dashboard.
-  async receber(tenantId: string, id: string) {
-    const [lista] = await this.db
-      .select()
-      .from(compraLista)
-      .where(
-        and(
-          eq(compraLista.id, id),
-          eq(compraLista.tenantId, tenantId),
-          isNull(compraLista.deletedAt),
-        ),
-      );
-    if (!lista) throw new NotFoundException('Lista não encontrada');
-    if (lista.status === 'recebida')
-      throw new BadRequestException('Compra já recebida.');
+  async receber(tenantId: string, id: string, atorId?: string | null) {
+    // TUDO numa transação: antes, cada insert ia solto. Falha no meio do laço deixava
+    // parte dos itens no estoque com a lista ainda "pendente" — e o operador clicava de
+    // novo. A trava (`for update`) fecha o check-then-act do duplo clique, e o `ref` no
+    // movimento deixa o próprio banco recusar a segunda entrada (índice da mig 024).
+    const lista = await this.db.transaction(async (tx) => {
+      const [lista] = await tx
+        .select()
+        .from(compraLista)
+        .where(
+          and(
+            eq(compraLista.id, id),
+            eq(compraLista.tenantId, tenantId),
+            isNull(compraLista.deletedAt),
+          ),
+        )
+        .for('update');
+      if (!lista) throw new NotFoundException('Lista não encontrada');
+      if (lista.status === 'recebida')
+        throw new BadRequestException('Compra já recebida.');
 
-    const itens = await this.db
-      .select()
-      .from(compraItem)
-      .where(eq(compraItem.listaId, id));
-    const saldos = await this.saldos(tenantId, itens.map((i) => i.itemId));
-    const data =
-      lista.dataRecebimento ??
-      new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const itens = await tx
+        .select()
+        .from(compraItem)
+        .where(and(eq(compraItem.listaId, id), eq(compraItem.tenantId, tenantId)));
+      const saldos = await this.saldos(tenantId, itens.map((i) => i.itemId));
+      const data =
+        lista.dataRecebimento ??
+        new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 
-    for (const it of itens) {
-      const qtd = Number(it.quantidade);
-      if (qtd <= 0) continue;
-      const custo = it.custoUnitario != null ? Number(it.custoUnitario) : null;
-      await this.db.insert(movimentoEstoque).values({
-        tenantId,
-        itemId: it.itemId,
-        tipo: 'entrada',
-        quantidade: String(qtd),
-        custoUnitario: custo != null ? String(custo) : undefined,
-        motivo: 'recebimento',
-        data,
-      });
-      if (custo != null) {
-        const [cur] = await this.db
-          .select({ custoMedio: itemEstoque.custoMedio })
-          .from(itemEstoque)
-          .where(eq(itemEstoque.id, it.itemId));
-        const novo = custoMedioPonderado(
-          saldos.get(it.itemId) ?? 0,
-          Number(cur?.custoMedio ?? 0),
-          qtd,
-          custo,
-        );
-        await this.db
-          .update(itemEstoque)
-          .set({ custoMedio: String(novo), updatedAt: new Date() })
-          .where(eq(itemEstoque.id, it.itemId));
+      for (const it of itens) {
+        const qtd = Number(it.quantidade);
+        if (qtd <= 0) continue;
+        const custo = it.custoUnitario != null ? Number(it.custoUnitario) : null;
+        await tx.insert(movimentoEstoque).values({
+          tenantId,
+          itemId: it.itemId,
+          tipo: 'entrada',
+          quantidade: String(qtd),
+          custoUnitario: custo != null ? String(custo) : undefined,
+          motivo: 'compra',
+          refTipo: 'compra_item', // ref por LINHA: duas linhas do mesmo item não colidem
+          refId: it.id,
+          data,
+        });
+        if (custo != null) {
+          const [cur] = await tx
+            .select({ custoMedio: itemEstoque.custoMedio })
+            .from(itemEstoque)
+            .where(and(eq(itemEstoque.id, it.itemId), eq(itemEstoque.tenantId, tenantId)));
+          const novo = custoMedioPonderado(
+            saldos.get(it.itemId) ?? 0,
+            Number(cur?.custoMedio ?? 0),
+            qtd,
+            custo,
+          );
+          await tx
+            .update(itemEstoque)
+            .set({ custoMedio: String(novo), updatedAt: new Date() })
+            .where(and(eq(itemEstoque.id, it.itemId), eq(itemEstoque.tenantId, tenantId)));
+        }
       }
-    }
 
-    await this.db
-      .update(compraLista)
-      .set({ status: 'recebida', recebidaEm: new Date() })
-      .where(eq(compraLista.id, id));
+      await tx
+        .update(compraLista)
+        .set({ status: 'recebida', recebidaEm: new Date() })
+        .where(and(eq(compraLista.id, id), eq(compraLista.tenantId, tenantId)));
+      return { ...lista, itens: itens.length };
+    });
+
+    // Mexeu em saldo e em custo — tem de deixar rastro (regra do projeto).
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: atorId ?? null,
+      atorPerfil: '',
+      tipo: 'estoque',
+      acao: 'recebeu_compra',
+      entidadeTipo: 'compra_lista',
+      entidadeId: id,
+      detalhe: { nome: lista.nome, itens: lista.itens },
+    });
 
     if (lista.enviarKds)
       this.events.emit('kds.alerta.sistema', {

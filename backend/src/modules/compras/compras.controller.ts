@@ -59,6 +59,6 @@ export class ComprasController {
   @Post('listas/:id/receber')
   @RequirePerm('estoque', 'editar')
   receber(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.receber(user.tenantId, id);
+    return this.service.receber(user.tenantId, id, user.colaboradorId);
   }
 }

@@ -81,7 +81,11 @@ export default function EstoquePage() {
 
   const reload = useCallback(async () => {
     try {
-      const [it, ca, fo, de, vi, re, lo] = await Promise.all([
+      // allSettled, NÃO all: o hub carrega 7 seções e o perfil de supervisão não tem
+      // permissão em todas. Com `Promise.all`, um único 403 (ex.: /fornecedores)
+      // rejeitava tudo e a tela inteira ficava VAZIA — o operador achava que não havia
+      // estoque cadastrado. Agora cada seção falha sozinha e as demais aparecem.
+      const r = await Promise.allSettled([
         api.get('/estoque/itens'),
         api.estoqueCategorias(),
         api.fornecedores(),
@@ -90,13 +94,21 @@ export default function EstoquePage() {
         api.recebimentos(),
         api.lotes(),
       ]);
-      setItens(it);
-      setCategorias(ca);
-      setFornecedores(fo);
-      setDesperdicios(de);
-      setVistorias(vi);
-      setRecebimentos(re);
-      setLotes(lo);
+      const val = <T,>(i: number, vazio: T): T =>
+        r[i].status === 'fulfilled' ? ((r[i] as PromiseFulfilledResult<T>).value ?? vazio) : vazio;
+      setItens(val(0, [] as any));
+      setCategorias(val(1, [] as any));
+      setFornecedores(val(2, [] as any));
+      setDesperdicios(val(3, [] as any));
+      setVistorias(val(4, [] as any));
+      setRecebimentos(val(5, [] as any));
+      setLotes(val(6, [] as any));
+      // Só avisa se TUDO falhou — falha parcial por permissão é esperada e silenciosa.
+      const caiu = r.filter((x) => x.status === 'rejected');
+      if (caiu.length === r.length) {
+        const e = (caiu[0] as PromiseRejectedResult).reason;
+        setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+      }
       setVer((v) => v + 1);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
@@ -105,13 +117,21 @@ export default function EstoquePage() {
     }
   }, []);
 
+  // Trava de duplo clique: confirmar duas vezes dava entrada em dobro no estoque E
+  // criava duas contas a pagar ao fornecedor. O servidor agora recusa a segunda, mas
+  // o botão não pode nem deixar o usuário tentar (e nem parecer que travou).
+  const [confirmando, setConfirmando] = useState<string | null>(null);
   async function confirmarRecebimento(id: string) {
+    if (confirmando) return;
     setErro('');
+    setConfirmando(id);
     try {
       await api.confirmarRecebimento(id);
       await reload();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao confirmar');
+    } finally {
+      setConfirmando(null);
     }
   }
 
@@ -364,7 +384,14 @@ export default function EstoquePage() {
                 {r.status === 'conferido' ? (
                   <Badge className="bg-ok/10 text-ok">conferido</Badge>
                 ) : (
-                  <Button size="sm" variant="outline" onClick={() => confirmarRecebimento(r.id)}>Confirmar</Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={confirmando !== null}
+                    onClick={() => confirmarRecebimento(r.id)}
+                  >
+                    {confirmando === r.id ? 'Confirmando…' : 'Confirmar'}
+                  </Button>
                 )}
               </Card>
             ))}
