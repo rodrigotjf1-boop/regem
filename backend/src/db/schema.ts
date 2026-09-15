@@ -665,6 +665,8 @@ export const contagemListaItem = pgTable('contagem_lista_item', {
   itemId: uuid('item_id')
     .notNull()
     .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), // mig 243
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
 
 export const contagemExecucao = pgTable('contagem_execucao', {
@@ -681,6 +683,7 @@ export const contagemExecucao = pgTable('contagem_execucao', {
   criadaPorId: uuid('criada_por_id').references(() => colaborador.id, { onDelete: 'set null' }),
   concluidaEm: timestamp('concluida_em', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
 
 export const contagemItem = pgTable('contagem_item', {
@@ -697,6 +700,7 @@ export const contagemItem = pgTable('contagem_item', {
   saldoSistema: numeric('saldo_sistema').notNull().default('0'),
   contado: numeric('contado'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
 
 // ----- Lista de compras (E3) -----
@@ -732,6 +736,8 @@ export const compraItem = pgTable('compra_item', {
     .references(() => itemEstoque.id, { onDelete: 'cascade' }),
   quantidade: numeric('quantidade').notNull().default('0'),
   custoUnitario: numeric('custo_unitario'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), // mig 243
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
 
 export const tipoOcorrencia = pgTable('tipo_ocorrencia', {
@@ -926,6 +932,7 @@ export const tituloFinanceiro = pgTable('titulo_financeiro', {
   fotoRef: text('foto_ref'),
   criadoPorId: uuid('criado_por_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
 
 // Lançamento de caixa — ledger append-only do dinheiro. Estorno = lançamento inverso.
@@ -1090,6 +1097,7 @@ export const recebimentoItem = pgTable('recebimento_item', {
   fotoRef: text('foto_ref'),
   obs: text('obs'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
 
 export const lote = pgTable('lote', {
