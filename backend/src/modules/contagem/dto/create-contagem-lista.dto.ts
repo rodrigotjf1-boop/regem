@@ -2,8 +2,10 @@ import {
   ArrayNotEmpty,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
   IsInt,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -11,7 +13,9 @@ import {
   Max,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateContagemListaDto {
   @IsString()
@@ -60,5 +64,24 @@ export class SalvarContagemItemDto {
   @IsUUID()
   itemId!: string;
 
+  @IsNumber()
   contado!: number;
+
+  // Instante em que este item foi contado (ISO). O servidor limita ao intervalo
+  // [abertura da contagem, agora] — relógio de cliente não define base de estoque.
+  @IsOptional()
+  @IsDateString()
+  contadoEm?: string;
+}
+
+export class SalvarContagemDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @ValidateNested({ each: true })
+  @Type(() => SalvarContagemItemDto)
+  itens!: SalvarContagemItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  aplicarAjuste?: boolean;
 }

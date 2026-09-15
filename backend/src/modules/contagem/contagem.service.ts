@@ -15,7 +15,7 @@ import {
 } from '../../db/schema';
 import {
   CreateContagemListaDto,
-  SalvarContagemItemDto,
+  SalvarContagemDto,
 } from './dto/create-contagem-lista.dto';
 import { condUnidade } from '../../common/filtro-unidade';
 
@@ -208,6 +208,39 @@ export class ContagemService {
     return mapa;
   }
 
+  // Saldo de cada item NO INSTANTE em que ele foi contado (mig 244).
+  //
+  // É a base correta do ajuste. O snapshot da abertura só acerta se o item tiver sido
+  // contado no instante em que a contagem abriu — o que não acontece num inventário de
+  // expediente: conta-se item a item, andando entre câmara e freezer, enquanto a chapa
+  // consome. Com a hora de cada linha, cada item ganha a base do seu próprio momento.
+  //
+  // `instantes` é um mapa itemId → Date JÁ VALIDADA pelo chamador.
+  private async saldosNoInstante(
+    tenantId: string,
+    instantes: Map<string, Date>,
+  ): Promise<Map<string, number>> {
+    const saldos = new Map<string, number>();
+    if (!instantes.size) return saldos;
+    // Uma consulta só para todos os itens: `values` pareia item × instante e a soma
+    // corre por item. Um SELECT por item seria N viagens ao banco numa contagem de 200.
+    const pares = [...instantes.entries()].map(
+      ([itemId, t]) => sql`(${itemId}::uuid, ${t.toISOString()}::timestamptz)`,
+    );
+    const res: any = await this.db.execute(sql`
+      with alvo(item_id, ate) as (values ${sql.join(pares, sql`, `)})
+      select a.item_id as "itemId",
+             coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+               when 'saida' then -m.quantidade else m.quantidade end), 0) as saldo
+        from alvo a
+        left join movimento_estoque m
+          on m.tenant_id = ${tenantId} and m.item_id = a.item_id and m.created_at <= a.ate
+       group by a.item_id
+    `);
+    for (const r of res.rows ?? res) saldos.set(r.itemId, Number(r.saldo));
+    return saldos;
+  }
+
   async getExecucao(tenantId: string, execId: string) {
     const [exec] = await this.db
       .select()
@@ -248,7 +281,7 @@ export class ContagemService {
     tenantId: string,
     execId: string,
     atorId: string,
-    dto: { itens: SalvarContagemItemDto[]; aplicarAjuste?: boolean },
+    dto: SalvarContagemDto,
   ) {
     // TUDO numa transação, com a execução TRAVADA. Antes cada update/insert ia solto:
     // (a) falha no meio do laço deixava metade dos ajustes aplicados com a contagem ainda
@@ -275,21 +308,40 @@ export class ContagemService {
       // fica REGISTRADO: sem isso, um ajuste possivelmente errado some sem deixar pista.
       const mov = await this.movimentoDesde(tenantId, [...linhaDe.keys()], exec.createdAt);
 
+      // Hora de cada item, LIMITADA ao intervalo [abertura, agora]. O valor vem do
+      // cliente: relógio adiantado/atrasado — ou adulterado — não pode escolher a base
+      // do estoque. Sem hora (app antigo, ou digitação em lote), cai em "agora".
+      const agora = new Date();
+      const abertura = exec.createdAt;
+      const instantes = new Map<string, Date>();
+      for (const it of dto.itens) {
+        if (!linhaDe.has(it.itemId)) continue;
+        const bruto = it.contadoEm ? new Date(it.contadoEm) : agora;
+        const t = Number.isNaN(bruto.getTime()) ? agora : bruto;
+        instantes.set(it.itemId, t < abertura ? abertura : t > agora ? agora : t);
+      }
+      const saldoNo = await this.saldosNoInstante(tenantId, instantes);
+
       let ajustados = 0;
       let contados = 0;
-      const suspeitos: { itemId: string; movimento: number; diff: number }[] = [];
+      const suspeitos: { itemId: string; movimento: number; diff: number; base: number }[] = [];
       for (const it of dto.itens) {
         const linha = linhaDe.get(it.itemId);
         if (!linha) continue;
+        const quando = instantes.get(it.itemId) ?? agora;
         await tx
           .update(contagemItem)
-          .set({ contado: String(it.contado) })
+          .set({ contado: String(it.contado), contadoEm: quando })
           .where(
             and(eq(contagemItem.execucaoId, execId), eq(contagemItem.itemId, it.itemId)),
           );
         contados++;
         if (dto.aplicarAjuste) {
-          const diff = Number(it.contado) - (Number(linha.saldoSistema) || 0);
+          // Base = saldo no instante da contagem DAQUELE item. Caindo de volta no
+          // snapshot da abertura só se o item não tiver movimento nenhum no período
+          // (aí os dois valores são idênticos de qualquer forma).
+          const base = saldoNo.get(it.itemId) ?? (Number(linha.saldoSistema) || 0);
+          const diff = Number(it.contado) - base;
           if (Math.abs(diff) > 1e-9) {
             await tx.insert(movimentoEstoque).values({
               tenantId,
@@ -303,7 +355,7 @@ export class ContagemService {
             });
             ajustados++;
             const m = mov.get(it.itemId);
-            if (m && m.n > 0) suspeitos.push({ itemId: it.itemId, movimento: m.qtd, diff });
+            if (m && m.n > 0) suspeitos.push({ itemId: it.itemId, movimento: m.qtd, diff, base });
           }
         }
       }

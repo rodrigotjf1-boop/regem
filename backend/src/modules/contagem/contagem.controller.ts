@@ -16,7 +16,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ContagemService } from './contagem.service';
-import { CreateContagemListaDto } from './dto/create-contagem-lista.dto';
+import { CreateContagemListaDto, SalvarContagemDto } from './dto/create-contagem-lista.dto';
 
 // Contagem de estoque — listar/iniciar/salvar = qualquer autenticado (o
 // executor pode ser o colaborador delegado); criar/remover lista = gestão.
@@ -66,7 +66,9 @@ export class ContagemController {
   salvar(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
-    @Body() dto: any,
+    // DTO tipado, NÃO `any`: com `any` o ValidationPipe global não valida nada e o
+    // DTO que já existia nunca era usado — `contado` podia chegar como texto.
+    @Body() dto: SalvarContagemDto,
   ) {
     return this.service.salvarContagem(user.tenantId, id, user.colaboradorId, dto);
   }

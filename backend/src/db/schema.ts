@@ -699,6 +699,9 @@ export const contagemItem = pgTable('contagem_item', {
     .references(() => itemEstoque.id, { onDelete: 'cascade' }),
   saldoSistema: numeric('saldo_sistema').notNull().default('0'),
   contado: numeric('contado'),
+  // QUANDO este item foi contado (mig 244). O ajuste usa o saldo deste instante, não o
+  // da abertura — o inventário roda durante o expediente e item que vende muda no meio.
+  contadoEm: timestamp('contado_em', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
