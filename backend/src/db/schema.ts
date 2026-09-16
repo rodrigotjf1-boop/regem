@@ -716,6 +716,8 @@ export const compraLista = pgTable('compra_lista', {
   nome: text('nome').notNull(),
   fornecedorId: uuid('fornecedor_id').references(() => fornecedor.id, { onDelete: 'set null' }),
   dataRecebimento: date('data_recebimento'),
+  // Data de pagamento (mig 247) — definida na criação; a conferência pode sobrescrever.
+  vencimento: date('vencimento'),
   delegadoId: uuid('delegado_id').references(() => colaborador.id, { onDelete: 'set null' }),
   enviarKds: boolean('enviar_kds').notNull().default(true),
   enviarDashboard: boolean('enviar_dashboard').notNull().default(true),

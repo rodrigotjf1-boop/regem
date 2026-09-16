@@ -14,6 +14,7 @@ import {
   itemEstoque,
   lote,
   unidade,
+  tituloFinanceiro,
   movimentoEstoque,
   fornecedor,
   colaborador,
@@ -96,6 +97,7 @@ export class ComprasService {
         nome: dto.nome,
         fornecedorId: dto.fornecedorId,
         dataRecebimento: dto.dataRecebimento,
+        vencimento: dto.vencimento,
         delegadoId: dto.delegadoId,
         enviarKds: dto.enviarKds ?? true,
         enviarDashboard: dto.enviarDashboard ?? true,
@@ -299,6 +301,7 @@ export class ComprasService {
       // A conferência é OBRIGATÓRIA e tem de cobrir a lista inteira. Aceitar parcial
       // deixaria linha entrando pela quantidade pedida — exatamente o que este
       // conserto tira do caminho.
+      let valorConferido = 0;
       const conf = new Map<string, ConferenciaItemDto>();
       for (const c of dto?.itens ?? []) conf.set(c.compraItemId, c);
       const semConferencia = itens.filter((it) => !conf.has(it.id));
@@ -373,6 +376,8 @@ export class ComprasService {
           });
         }
 
+        if (custo != null) valorConferido += qtd * custo;
+
         if (custo != null) {
           const [cur] = await tx
             .select({ custoMedio: itemEstoque.custoMedio })
@@ -389,6 +394,44 @@ export class ComprasService {
             .set({ custoMedio: String(novo), updatedAt: new Date() })
             .where(and(eq(itemEstoque.id, it.itemId), eq(itemEstoque.tenantId, tenantId)));
         }
+      }
+
+      // CONTA A PAGAR — `compras.receber()` entrava com a mercadoria e não gerava
+      // dívida nenhuma: só o `recebimento.confirmar()` gerava, e aquele fluxo tem ZERO
+      // notas na base. O fornecedor e o valor já estavam na mão o tempo todo.
+      //
+      // O valor usa a quantidade CONFERIDA, nunca a pedida: pagar 10 caixas quando
+      // chegaram 7 é o mesmo erro do estoque, do lado do dinheiro.
+      if (lista.fornecedorId && valorConferido > 0) {
+        // Data de pagamento (decisão do dono): a da conferência vence a da criação;
+        // sem nenhuma das duas, o prazo do fornecedor a partir do recebimento. Título
+        // sem vencimento não entra em alerta de contas a pagar e some do radar.
+        let vencimento = dto?.vencimento ?? lista.vencimento ?? null;
+        if (!vencimento) {
+          const [f] = await tx
+            .select({ prazo: fornecedor.prazoPagamentoDias })
+            .from(fornecedor)
+            .where(and(eq(fornecedor.id, lista.fornecedorId), eq(fornecedor.tenantId, tenantId)));
+          const dias = Number(f?.prazo ?? 0);
+          if (dias > 0) {
+            const d = new Date(`${data}T12:00:00`);
+            d.setDate(d.getDate() + dias);
+            vencimento = d.toLocaleDateString('en-CA');
+          }
+        }
+        await tx.insert(tituloFinanceiro).values({
+          tenantId,
+          unidadeId: lista.unidadeId,
+          tipo: 'pagar',
+          descricao: `Compra: ${lista.nome}`,
+          categoria: 'fornecedor',
+          fornecedorId: lista.fornecedorId,
+          valor: String(valorConferido.toFixed(2)),
+          vencimento: vencimento ?? undefined,
+          origem: 'compra',
+          origemId: id,
+          criadoPorId: atorId ?? undefined,
+        });
       }
 
       await tx

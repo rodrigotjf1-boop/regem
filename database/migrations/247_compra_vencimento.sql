@@ -1,0 +1,22 @@
+-- 247_compra_vencimento.sql — Data de pagamento na lista de compras.
+--
+-- ⚠️ NÃO é @cloud-only: `compra_lista` existe no edge (ComprasModule é EDGE_CORE) e é
+-- lá que a compra é criada e conferida. Aplicar na nuvem E no edge.
+--
+-- POR QUÊ
+-- `compras.receber()` entrava com a mercadoria no estoque e NÃO criava conta a pagar —
+-- só o `recebimento.confirmar()` criava, e a base mostra esse fluxo com ZERO notas. Ou
+-- seja: hoje toda compra recebida vira estoque e NUNCA vira dívida no Financeiro, mesmo
+-- com o fornecedor e o valor já conhecidos (`compra_lista.fornecedor_id` e a soma das
+-- linhas conferidas).
+--
+-- Decisão do dono: a data de pagamento pode ser definida na CRIAÇÃO da lista ou no
+-- RECEBIMENTO. `compra_lista.vencimento` guarda a da criação; a conferência pode
+-- sobrescrever. Sem nenhuma das duas, cai no prazo do fornecedor
+-- (`fornecedor.prazo_pagamento_dias`, default 28) contado da data do recebimento — um
+-- título sem vencimento não entra em nenhum alerta de contas a pagar e some do radar.
+--
+-- O valor do título usa a quantidade CONFERIDA (mig 246), não a pedida: pagar 10 caixas
+-- quando chegaram 7 é o mesmo erro do estoque, do lado do dinheiro.
+
+alter table compra_lista add column if not exists vencimento date;

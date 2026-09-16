@@ -43,6 +43,12 @@ export class CreateCompraListaDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'dataRecebimento deve ser YYYY-MM-DD' })
   dataRecebimento?: string;
 
+  // Data de PAGAMENTO. Pode ficar para a conferência; sem nenhuma das duas, cai no
+  // prazo do fornecedor.
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'vencimento deve ser YYYY-MM-DD' })
+  vencimento?: string;
+
   @IsOptional()
   @IsUUID()
   delegadoId?: string;
