@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/comm
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { PermissoesGuard } from '../../auth/permissoes.guard';
+import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
@@ -10,9 +12,15 @@ import { EtiquetaValidadeService } from './etiqueta-validade.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const GESTAO = ['presidente', 'gerente', 'supervisao'];
 
+// #49: só `@Roles` (perfil) — o pacote de permissões CONFIGURÁVEL era ignorado, então
+// um supervisor com Estoque desligado no perfil seguia criando, abrindo e dando perda
+// em etiqueta. Leitura exige `estoque.ver`; o que muda estado exige `estoque.editar`
+// (o handler sobrescreve o da classe). Nos perfis padrão, gerente e supervisor têm os
+// dois — ninguém de gestão perde acesso.
 @Controller('etiquetas-validade')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
 @Roles(...GESTAO)
+@RequirePerm('estoque', 'ver')
 export class EtiquetaValidadeController {
   constructor(private readonly service: EtiquetaValidadeService) {}
 
@@ -22,6 +30,7 @@ export class EtiquetaValidadeController {
   }
 
   @Put('template')
+  @RequirePerm('estoque', 'editar')
   salvarTemplate(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.salvarTemplate(user.tenantId, dto);
   }
@@ -37,12 +46,14 @@ export class EtiquetaValidadeController {
   }
 
   @Post()
+  @RequirePerm('estoque', 'editar')
   criar(@CurrentUser() user: AuthUser, @Body() dto: any, @UnidadeAtual() atual: string | null) {
     return this.service.criar(user.tenantId, user.colaboradorId, dto, atual);
   }
 
   // Leitura do código (baixa por uso).
   @Post('ler')
+  @RequirePerm('estoque', 'editar')
   ler(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.lerCodigo(user.tenantId, user.colaboradorId, dto?.codigo);
   }
@@ -55,17 +66,26 @@ export class EtiquetaValidadeController {
 
   // Abrir por id (fechado → em uso; reimprime se a validade após aberto encurtar).
   @Post(':id/abrir')
+  @RequirePerm('estoque', 'editar')
   abrir(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.abrir(user.tenantId, user.colaboradorId, id);
   }
 
   @Post(':id/finalizar')
+  @RequirePerm('estoque', 'editar')
   finalizar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.finalizar(user.tenantId, user.colaboradorId, id);
   }
 
   @Post(':id/perda')
-  perda(@CurrentUser() user: AuthUser, @Param('id') id: string, @UnidadeAtual() atual: string | null) {
-    return this.service.perda(user.tenantId, user.colaboradorId, id, atual);
+  @RequirePerm('estoque', 'editar')
+  perda(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @UnidadeAtual() atual: string | null,
+    @Body() dto: any,
+  ) {
+    const q = dto?.quantidade != null && dto.quantidade !== '' ? Number(dto.quantidade) : undefined;
+    return this.service.perda(user.tenantId, user.colaboradorId, id, atual, q);
   }
 }

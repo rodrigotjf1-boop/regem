@@ -23,6 +23,7 @@ import {
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { hojeISO } from '../../common/data';
+import { DesperdicioService } from '../desperdicio/desperdicio.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // QUINTA cópia de `hojeISO` em UTC, achada depois do conserto das outras quatro:
@@ -60,7 +61,44 @@ export class EtiquetaValidadeService {
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
     private readonly events: EventEmitter2,
+    private readonly desperdicios: DesperdicioService,
   ) {}
+
+  // Estados em que a etiqueta ainda representa algo NA PRATELEIRA. `baixado`
+  // (consumido), `vencido` (já virou perda) e `substituida` são terminais: agir sobre
+  // eles gerava perda de algo já consumido, ou uma segunda perda do mesmo pote.
+  private static readonly VIVA = ['fechado', 'em_uso'];
+
+  // Carrega COM TRAVA de linha e roda `fn` no mesmo commit. Ler o status e agir em
+  // cima dele sem trava deixava dois cliques em "virou perda" gerarem dois desperdícios.
+  private async comTrava<T>(
+    tenantId: string,
+    id: string,
+    fn: (tx: any, e: any) => Promise<T>,
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      const [e] = await tx
+        .select()
+        .from(etiquetaValidade)
+        .where(
+          and(
+            eq(etiquetaValidade.id, id),
+            eq(etiquetaValidade.tenantId, tenantId),
+            isNull(etiquetaValidade.deletedAt),
+          ),
+        )
+        .for('update');
+      if (!e) throw new NotFoundException('Etiqueta não encontrada.');
+      return fn(tx, e);
+    });
+  }
+
+  private exigirViva(e: any, acao: string) {
+    if (!EtiquetaValidadeService.VIVA.includes(e.status))
+      throw new BadRequestException(
+        `Não dá para ${acao}: esta etiqueta já está "${e.status}".`,
+      );
+  }
 
   // ===== Template =====
   async getTemplate(tenantId: string) {
@@ -563,42 +601,77 @@ export class EtiquetaValidadeService {
   }
 
   // Vencida usada até o fim → finaliza (sem perda).
+  //
+  // Antes aceitava QUALQUER estado. Finalizar uma etiqueta que já tinha virado perda
+  // sobrescrevia `virouPerda: true` com `false` — o desperdício continuava lançado,
+  // mas a etiqueta passava a dizer que tinha sido consumida. Agora só a etiqueta viva.
   async finalizar(tenantId: string, atorId: string | null, id: string) {
-    await this.carregar(tenantId, id);
-    const [row] = await this.db
-      .update(etiquetaValidade)
-      .set({ status: 'baixado', baixadoEm: new Date(), baixadoPorId: atorId, virouPerda: false, updatedAt: new Date() })
-      .where(eq(etiquetaValidade.id, id))
-      .returning();
-    return row;
+    return this.comTrava(tenantId, id, async (tx, e) => {
+      this.exigirViva(e, 'finalizar');
+      const [row] = await tx
+        .update(etiquetaValidade)
+        .set({ status: 'baixado', baixadoEm: new Date(), baixadoPorId: atorId, virouPerda: false, updatedAt: new Date() })
+        .where(eq(etiquetaValidade.id, id))
+        .returning();
+      return row;
+    });
   }
 
-  // Venceu sem usar → vira PERDA (registra desperdício textual p/ CMV).
-  async perda(tenantId: string, atorId: string | null, id: string, atual: string | null = null) {
-    const e = await this.carregar(tenantId, id);
-    const [d] = await this.db
-      .insert(desperdicio)
-      .values({
+  // Venceu sem usar → vira PERDA.
+  //
+  // Dois defeitos antigos:
+  //  • #47 — sem guarda de estado nem trava: etiqueta já CONSUMIDA virava perda (um
+  //    desperdício de algo que foi usado), e dois cliques geravam dois desperdícios.
+  //  • #48 — gravava o desperdício direto na tabela, com `quantidade: '1'` fixo e SEM
+  //    movimento de estoque. O comentário dizia "p/ CMV", mas o CMV lê o ledger: a
+  //    perda não aparecia em lugar nenhum e o insumo jogado fora seguia no estoque.
+  //
+  // Agora passa pelo MESMO caminho do desperdício manual — custo médio, movimento de
+  // saída e consumo FEFO do lote de onde a etiqueta saiu. A quantidade vem de quem
+  // registra a perda: a etiqueta não sabe quanto representa (um pote de 500 g ou de
+  // 2 kg), e inventar um número seria pior do que não baixar. Sem quantidade, ou sem
+  // insumo resolvível (etiqueta de ficha), fica o registro textual — e a resposta diz.
+  async perda(
+    tenantId: string,
+    atorId: string | null,
+    id: string,
+    atual: string | null = null,
+    quantidade?: number,
+  ) {
+    const res = await this.comTrava(tenantId, id, async (tx, e) => {
+      this.exigirViva(e, 'registrar perda');
+      const qtd = Number(quantidade);
+      const baixa = !!e.itemId && qtd > 0;
+
+      const d: any = await this.desperdicios.create(
         tenantId,
-        unidadeId: atual ?? e.unidadeId ?? null,
-        colaboradorId: atorId ?? null,
-        descricao: `Etiqueta vencida: ${e.descricao}`,
-        quantidade: '1',
-        unidadeMedida: e.unidadeMedida ?? null,
-        motivo: 'validade',
-      })
-      .returning();
-    const [row] = await this.db
-      .update(etiquetaValidade)
-      .set({ status: 'vencido', virouPerda: true, desperdicioId: d.id, baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
-      .where(eq(etiquetaValidade.id, id))
-      .returning();
+        {
+          itemId: baixa ? e.itemId : undefined,
+          quantidade: baixa ? qtd : undefined,
+          unidadeMedida: e.unidadeMedida ?? undefined,
+          descricao: `Etiqueta vencida: ${e.descricao}`,
+          motivo: 'validade',
+          colaboradorId: atorId ?? undefined,
+          unidadeId: e.unidadeId ?? undefined,
+        } as any,
+        atual,
+        tx,
+      );
+
+      const [row] = await tx
+        .update(etiquetaValidade)
+        .set({ status: 'vencido', virouPerda: true, desperdicioId: d.id, baixadoEm: new Date(), baixadoPorId: atorId, updatedAt: new Date() })
+        .where(eq(etiquetaValidade.id, id))
+        .returning();
+      return { row, baixouEstoque: baixa, descricao: e.descricao, itemId: e.itemId };
+    });
+
     await this.auditoria.registrar({
       tenantId, atorId: atorId ?? undefined, atorPerfil: 'gestao',
       tipo: 'estoque', acao: 'etiqueta_perda', entidadeTipo: 'etiqueta_validade', entidadeId: id,
-      detalhe: { descricao: e.descricao },
+      detalhe: { descricao: res.descricao, quantidade: quantidade ?? null, baixouEstoque: res.baixouEstoque },
     });
-    return row;
+    return { ...res.row, baixouEstoque: res.baixouEstoque };
   }
 
   // ===== Job diário: alerta de a-vencer/vencidas (mig 136) =====
