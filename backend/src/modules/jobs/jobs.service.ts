@@ -3,7 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { dataNoFuso, hojeISO } from '../../common/data';
+import { dataNoFuso, hojeISO, horaAgora, somarDias } from '../../common/data';
 import { MidiaService } from '../midia/midia.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
@@ -237,17 +237,40 @@ export class JobsService {
   }
 
   // §1.3 — Snapshot DIÁRIO de estoque (fecha o dia → CMV real O(1) e preciso em
-  // qualquer período, não só na virada do mês). Upsert por (tenant,item,data),
-  // idempotente: reexecutar no mesmo dia atualiza. Um snapshot por unidade sai
-  // naturalmente porque gerarSnapshot grava item.unidade_id.
-  @Cron('0 2 * * *') // todo dia, 02:00
+  // qualquer período). Upsert por (tenant, item, data): reexecutar é inofensivo.
+  // Snapshot diário de estoque — base do CMV real (auditoria #15, mig 250).
+  //
+  // Antes: 02:00 fixas, fotografando o dia ATUAL — um dia que mal tinha começado. O CMV
+  // usava esse snapshot como estoque FINAL e perdia o movimento inteiro do último dia.
+  //
+  // Agora fotografa o dia ANTERIOR, já fechado, a partir da hora que cada empresa define
+  // (`empresa.snapshot_hora`, padrão 06:00). Como o snapshot do dia D soma os movimentos
+  // com data <= D, a hora não muda o resultado: dá tempo para as vendas da noite
+  // sincronizarem do servidor local da loja. Roda a cada 15 min porque cada empresa tem a
+  // sua hora; depois do primeiro disparo do dia, a checagem de existência encerra cedo.
+  @Cron('*/15 * * * *')
   async snapshotDiario() {
+    const agora = horaAgora();
+    const ontem = somarDias(hojeISO(), -1);
     let n = 0;
-    for (const tenantId of await this.tenantsAtivos()) {
-      await this.estoque.gerarSnapshot(tenantId);
-      n++;
+    const r: any = await this.db.execute(
+      sql`select id, to_char(snapshot_hora, 'HH24:MI') as hora from empresa where deleted_at is null`,
+    );
+    for (const e of (r.rows ?? r) as { id: string; hora: string }[]) {
+      if (agora < (e.hora || '06:00')) continue; // ainda não é a hora desta empresa
+      const ja: any = await this.db.execute(
+        sql`select 1 from estoque_snapshot where tenant_id = ${e.id} and data = ${ontem} limit 1`,
+      );
+      if ((ja.rows ?? ja).length) continue; // o de ontem já foi tirado
+      try {
+        await this.estoque.gerarSnapshot(e.id, ontem);
+        n++;
+      } catch (err: any) {
+        // Uma empresa com problema não pode impedir o snapshot das outras.
+        this.log.error(`snapshot ${e.id} (${ontem}): ${err?.message ?? err}`);
+      }
     }
-    this.log.log(`Snapshot diário de estoque gerado para ${n} tenant(s)`);
+    if (n) this.log.log(`Snapshot de estoque de ${ontem} gerado para ${n} empresa(s)`);
   }
 
   // §1.6 — Validades FEFO: alerta lotes vencidos/vencendo (≤2d crítico) por tenant.

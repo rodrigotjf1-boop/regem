@@ -21,3 +21,21 @@ export function hojeISO(): string {
 export function dataNoFuso(d: Date): string {
   return d.toLocaleDateString('en-CA', { timeZone: FUSO });
 }
+
+/** Soma `dias` a uma data YYYY-MM-DD, sem depender do fuso do servidor. */
+export function somarDias(iso: string, dias: number): string {
+  // Meio-dia UTC + aritmética em UTC: montar a data em hora local e ler de volta em UTC
+  // acerta por coincidência no Brasil e na nuvem, e erra um dia em servidor a leste.
+  const d = new Date(`${String(iso).slice(0, 10)}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  // Monta a string pelos campos UTC em vez de `toISOString()`: dá o mesmo resultado
+  // aqui, mas a guarda deste arquivo proíbe aquela chamada de propósito — é a forma
+  // clássica de devolver a data em UTC, e a regra vale sem precisar julgar caso a caso.
+  const p2 = (n: number) => String(n).padStart(2, '0');
+  return `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`;
+}
+
+/** Hora atual (HH:MM) no fuso da operação. */
+export function horaAgora(): string {
+  return new Date().toLocaleTimeString('en-GB', { timeZone: FUSO, hour12: false }).slice(0, 5);
+}
