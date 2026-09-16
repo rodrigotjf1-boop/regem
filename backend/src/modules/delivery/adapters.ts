@@ -19,6 +19,8 @@ export interface PedidoNormalizado {
     observacao?: string; // observação REAL do cliente ("sem cebola")
     complementos?: string; // complementos escolhidos (batata, bebida…) — NÃO é observação
     opcaoIds?: string[]; // ids das opções escolhidas (só origem interna: cardápio Regem/totem) — roteamento por opção/etapa (Fase 1). Marketplaces não mandam nossos ids.
+    // Adicionais COM código PDV — é por eles que o canal externo baixa estoque.
+    complementosItens?: ComplementoCanal[];
   }[];
   total: number;
   formaPagamento?: string;
@@ -34,6 +36,35 @@ export interface PedidoNormalizado {
   taxaEntregaDono?: 'loja' | 'marketplace';
   valorPagoCliente?: number;
   taxasExtras?: TaxaExtraCanal[];
+}
+
+// Complemento/adicional escolhido no canal.
+//
+// O CÓDIGO é o que importa: nos canais externos o produto é linkado por CÓDIGO PDV, e o
+// mesmo vale para o adicional. Sem código não há como achar a opção no nosso catálogo —
+// logo não há ficha, não há custo e não há baixa de estoque. Guardar só o nome (que era
+// o que os 5 adaptadores faziam) jogava fora exatamente o campo que liga as duas pontas.
+export interface ComplementoCanal {
+  nome: string;
+  codigo?: string; // código PDV da opção no canal
+  quantidade: number;
+}
+
+// Texto para impressão/KDS, derivado da lista estruturada (fonte única).
+export function textoComplementos(l: ComplementoCanal[]): string | undefined {
+  return (
+    l.map((c) => (c.quantidade > 1 ? `${c.quantidade}x ${c.nome}` : c.nome)).join(' · ') ||
+    undefined
+  );
+}
+
+// Normaliza a opção crua de qualquer canal. `campos` diz onde procurar código e qtd.
+function complementoDe(o: any, cod: string[], qtd: string[]): ComplementoCanal | null {
+  const nome = o?.name ?? o?.nome;
+  if (!nome) return null;
+  const codigo = cod.map((k) => o?.[k]).find((v) => v != null && v !== '');
+  const q = qtd.map((k) => Number(o?.[k])).find((v) => Number.isFinite(v) && v > 0);
+  return { nome: String(nome), codigo: codigo != null ? String(codigo) : undefined, quantidade: q ?? 1 };
 }
 
 // Taxa que o cliente paga mas NÃO é receita de produto: gorjeta do garçom (repassada a ele)
@@ -125,7 +156,9 @@ function classificarAlvoIfood(alvo?: string): DescontoCanal['origem'] | null {
 
 export function adaptarIfood(raw: any): PedidoNormalizado {
   const itens = (raw?.items ?? []).map((it: any) => {
-    const opts = (it.options ?? []).map((o: any) => o.name).filter(Boolean);
+    const compl: ComplementoCanal[] = (it.options ?? [])
+      .map((o: any) => complementoDe(o, ['externalCode', 'uniqueId', 'id'], ['quantity']))
+      .filter(Boolean) as ComplementoCanal[];
     return {
       codigo: it.externalCode ?? it.uniqueId ?? undefined,
       descricao: it.name ?? 'Item',
@@ -144,7 +177,8 @@ export function adaptarIfood(raw: any): PedidoNormalizado {
         return Number((base + add + compl).toFixed(2));
       })(),
       observacao: it.observations || undefined, // observação real do cliente
-      complementos: opts.join(' · ') || undefined, // complementos (não é observação)
+      complementos: textoComplementos(compl), // texto p/ KDS/impressão
+      complementosItens: compl.length ? compl : undefined,
     };
   });
   const tipo =
@@ -328,10 +362,10 @@ export function adaptarGenerico(raw: any): PedidoNormalizado {
 // Cobre marketplaces que falam Open Delivery (ex.: Cardápio Web).
 export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
   const itens = (raw?.items ?? []).map((it: any) => {
-    const opts = (it.options ?? it.optionsGroups ?? [])
+    const compl: ComplementoCanal[] = (it.options ?? it.optionsGroups ?? [])
       .flatMap((g: any) => (g?.options ? g.options : [g]))
-      .map((o: any) => o?.name)
-      .filter(Boolean);
+      .map((o: any) => complementoDe(o, ['externalCode', 'sku', 'id'], ['quantity']))
+      .filter(Boolean) as ComplementoCanal[];
     return {
       codigo: it.externalCode ?? it.sku ?? undefined,
       descricao: it.name ?? 'Item',
@@ -348,7 +382,8 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
         return Number((base + opc).toFixed(2));
       })(),
       observacao: (it.observation ?? it.observations) || undefined,
-      complementos: opts.join(' · ') || undefined,
+      complementos: textoComplementos(compl),
+      complementosItens: compl.length ? compl : undefined,
     };
   });
   const tipoRaw = String(raw?.type ?? raw?.orderType ?? 'DELIVERY').toUpperCase();
@@ -454,9 +489,15 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
 // item_id é o id interno do CW e NÃO casa com o produto do Regem.
 export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
   const itens = (raw?.items ?? []).map((it: any) => {
-    const opts = (it.options ?? [])
-      .map((o: any) => (o?.quantity > 1 ? `${o.quantity}x ${o.name}` : o?.name))
-      .filter(Boolean);
+    const compl: ComplementoCanal[] = (it.options ?? [])
+      .map((o: any) => {
+        const c = complementoDe(o, ['external_code'], ['quantity']);
+        // Mesma regra do item: sem código PDV, cai no id do CW prefixado — é o que o
+        // importador de catálogo grava, então casa sem cadastro manual.
+        if (c && !c.codigo && o?.item_id != null) c.codigo = 'cw' + o.item_id;
+        return c;
+      })
+      .filter(Boolean) as ComplementoCanal[];
     return {
       // De-para: código PDV (external_code) se a loja preencheu; senão o item_id
       // do Cardápio Web prefixado com "cw" — o importador de catálogo usa a mesma
@@ -475,7 +516,8 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
         return Number((linha / qtd).toFixed(2));
       })(),
       observacao: it.observation || undefined,
-      complementos: opts.join(' · ') || undefined,
+      complementos: textoComplementos(compl),
+      complementosItens: compl.length ? compl : undefined,
     };
   });
   const t = String(raw?.order_type ?? 'delivery').toLowerCase();
@@ -592,9 +634,9 @@ const PROMO_99: Record<number, { nome: string; origem: DescontoCanal['origem'] }
 
 export function adaptarDidiFood(raw: any): PedidoNormalizado {
   const itens = (raw?.order_items ?? []).map((it: any) => {
-    const subs = (it.sub_item_list ?? [])
-      .map((s: any) => (Number(s?.amount) > 1 ? `${s.amount}x ${s.name}` : s?.name))
-      .filter(Boolean);
+    const compl: ComplementoCanal[] = (it.sub_item_list ?? [])
+      .map((s: any) => complementoDe(s, ['app_item_id', 'sku_id'], ['amount']))
+      .filter(Boolean) as ComplementoCanal[];
     const qtd = Number(it.amount) || 1;
     const unitCents = Number(it.sku_price ?? (Number(it.total_price) || 0) / qtd) || 0;
     return {
@@ -603,7 +645,8 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
       quantidade: qtd,
       precoUnitario: unitCents / 100,
       observacao: it.remark || undefined,
-      complementos: subs.join(' · ') || undefined,
+      complementos: textoComplementos(compl),
+      complementosItens: compl.length ? compl : undefined,
     };
   });
   const addr = raw?.receive_address ?? {};
@@ -707,9 +750,9 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
 export function adaptarAnotaAi(raw: any): PedidoNormalizado {
   const o = raw?.info ?? raw ?? {};
   const itens = (o.items ?? []).map((it: any) => {
-    const subs = (it.subItems ?? [])
-      .map((s: any) => (Number(s?.quantity) > 1 ? `${s.quantity}x ${s.name}` : s?.name))
-      .filter(Boolean);
+    const compl: ComplementoCanal[] = (it.subItems ?? [])
+      .map((s: any) => complementoDe(s, ['externalId', 'internalId'], ['quantity']))
+      .filter(Boolean) as ComplementoCanal[];
     const qtd = Number(it.quantity) || 1;
     return {
       codigo: it.externalId ?? it.internalId ?? undefined,
@@ -734,7 +777,8 @@ export function adaptarAnotaAi(raw: any): PedidoNormalizado {
               ).toFixed(2),
             ),
       observacao: (it.observation ?? it.obs ?? it.note ?? it.comment) || undefined,
-      complementos: subs.join(' · ') || undefined,
+      complementos: textoComplementos(compl),
+      complementosItens: compl.length ? compl : undefined,
     };
   });
   // type: DELIVERY → entrega · TAKE (retirada no local) / LOCAL (consumo no local) → retirada

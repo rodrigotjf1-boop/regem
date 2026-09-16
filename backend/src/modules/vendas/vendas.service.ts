@@ -4,6 +4,7 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -53,6 +54,7 @@ function hojeISO() {
 
 @Injectable()
 export class VendasService {
+  private readonly logger = new Logger('Vendas');
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
@@ -382,6 +384,78 @@ export class VendasService {
     // listener recomputa do ledger; se rodar antes do commit, o próximo movimento
     // ou o render do menu (que também computa) corrige — sem estado inconsistente.
     if (consumo.size) this.events.emit('estoque.baixado', { tenantId });
+  }
+
+  // Resolve os complementos de um pedido de canal EXTERNO pelo CÓDIGO PDV.
+  //
+  // Irmão do `resolverComplementos` (que casa por opcaoId, nosso id interno). Marketplace
+  // não conhece nossos ids — o elo é o código PDV, o mesmo que já liga o PRODUTO.
+  //
+  // ⚠️ Opção SEM código não é erro: é o discriminador da mig 126 — "sem código PDV a
+  // opção é INFORMATIVA (ponto de carne, talheres): não baixa estoque, não soma preço".
+  // Por isso ela sai daqui em silêncio. Avisar sobre cada "sem cebola" encheria o log de
+  // falso positivo e enterraria o caso que importa.
+  //
+  // O que MERECE aviso é o outro: veio COM código e não casou com nada no catálogo. Aí
+  // sim há um adicional real vendido que não está linkado — e o lojista precisa saber.
+  private async resolverComplementosPorCodigo(
+    tx: any,
+    tenantId: string,
+    produtoId: string,
+    escolhidos: { nome: string; codigo?: string; quantidade: number }[],
+  ): Promise<{ snapshots: any[]; naoLigados: string[] }> {
+    const naoLigados: string[] = []; // só código que NÃO casou (ver nota acima)
+    const codigos = escolhidos.map((c) => c.codigo).filter(Boolean) as string[];
+    if (!codigos.length) return { snapshots: [], naoLigados };
+
+    const opcoes = await tx
+      .select({
+        id: complementoOpcao.id,
+        nome: complementoOpcao.nome,
+        precoDelta: complementoOpcao.precoDelta,
+        fichaIngredienteId: complementoOpcao.fichaIngredienteId,
+        itemId: complementoOpcao.itemId,
+        produtoRefId: complementoOpcao.produtoRefId,
+        quantidade: complementoOpcao.quantidade,
+        codigoPdv: complementoOpcao.codigoPdv,
+        tipo: complementoGrupo.tipo,
+      })
+      .from(complementoOpcao)
+      .innerJoin(complementoGrupo, eq(complementoGrupo.id, complementoOpcao.grupoId))
+      .where(
+        and(
+          eq(complementoOpcao.tenantId, tenantId),
+          // Escopo: só opção de um grupo DESTE produto — código repetido em outro
+          // produto não pode baixar o insumo errado.
+          eq(complementoGrupo.produtoId, produtoId),
+          inArray(complementoOpcao.codigoPdv, codigos),
+        ),
+      );
+    const porCodigo = new Map(opcoes.map((o: any) => [String(o.codigoPdv), o]));
+
+    const snapshots: any[] = [];
+    for (const esc of escolhidos) {
+      const o: any = esc.codigo ? porCodigo.get(String(esc.codigo)) : undefined;
+      if (!o) {
+        // Sem código = informativa (mig 126), silenciosa. Com código e sem par no
+        // catálogo = adicional real não linkado, que é o que o lojista precisa ver.
+        if (esc.codigo) naoLigados.push(`${esc.nome} (${esc.codigo})`);
+        continue;
+      }
+      snapshots.push({
+        opcaoId: o.id,
+        tipo: o.tipo === 'remover' ? 'remover' : 'adicionar',
+        nome: o.nome,
+        precoDelta: Number(o.precoDelta) || 0,
+        fichaIngredienteId: o.fichaIngredienteId,
+        itemId: o.itemId,
+        produtoRefId: o.produtoRefId,
+        // Quantidade do CANAL × a quantidade configurada na opção (ex.: "2x bacon"
+        // numa opção que já vale 2 fatias = 4 fatias).
+        quantidade: (Number(o.quantidade) || 1) * (Number(esc.quantidade) || 1),
+      });
+    }
+    return { snapshots, naoLigados };
   }
 
   // Resolve os complementos escolhidos (por opcaoId) validando que pertencem ao
@@ -1023,6 +1097,10 @@ export class VendasService {
         precoUnitario: number;
         observacao?: string | null;
         complementos?: string[] | null; // opcaoIds escolhidos (roteamento por opção/etapa — Fase 1)
+        variacaoId?: string | null; // resolvida pelo CÓDIGO PDV no canal externo
+        // Adicionais do canal externo, com código PDV. Resolvidos aqui contra
+        // `complemento_opcao.codigo_pdv` — é o que permite o adicional baixar estoque.
+        complementosCanal?: { nome: string; codigo?: string; quantidade: number }[] | null;
       }[];
     },
   ) {
@@ -1065,6 +1143,9 @@ export class VendasService {
             tenantId,
             comandaId: cmd.id,
             produtoId: p?.id ?? null,
+            // Variação resolvida pelo código PDV do canal: é o `fator_ficha` dela que
+            // faz a de 1L baixar mais que a de 500ml.
+            variacaoId: it.variacaoId ?? null,
             fichaId: p?.fichaId ?? null,
             descricao: it.descricao,
             quantidade: String(qtd),
@@ -1073,6 +1154,34 @@ export class VendasService {
             criadoPorId: atorId,
           })
           .returning();
+        // Adicionais do canal: resolve por código PDV e PERSISTE. A baixa do delivery
+        // acontece só na conclusão (`baixarEstoqueExterno`), que relê daqui — sem
+        // gravar, o adicional se perde entre o aceite e a entrega.
+        if (p && it.complementosCanal?.length) {
+          const { snapshots, naoLigados } = await this.resolverComplementosPorCodigo(
+            tx, tenantId, p.id, it.complementosCanal,
+          );
+          for (const sn of snapshots)
+            await tx.insert(comandaItemComplemento).values({
+              tenantId,
+              comandaItemId: ci.id,
+              opcaoId: sn.opcaoId,
+              tipo: sn.tipo,
+              nome: sn.nome,
+              precoDelta: String(sn.precoDelta),
+              fichaIngredienteId: sn.fichaIngredienteId,
+              itemId: sn.itemId,
+              produtoRefId: sn.produtoRefId,
+              quantidade: String(sn.quantidade),
+            });
+          if (naoLigados.length)
+            // Loga o MOTIVO real: o lojista precisa saber QUAL adicional não está
+            // linkado, senão o estoque some sem explicação.
+            this.logger.warn(
+              `${dto.plataforma ?? 'canal'}: adicional sem vínculo de código PDV em ` +
+                `"${it.descricao}" — não baixou estoque: ${naoLigados.join(', ')}`,
+            );
+        }
         if (p) {
           if (p.vaiParaProducao)
             itensProducao.push({
@@ -1487,17 +1596,42 @@ export class VendasService {
           .select()
           .from(produto)
           .where(and(eq(produto.id, it.produtoId), eq(produto.tenantId, tenantId)));
-        if (p)
-          await this.acumularProduto(
-            tx,
-            tenantId,
-            p,
-            1,
-            Number(it.quantidade) || 1,
-            [],
-            consumo,
-            true, // pedido externo → baixa também os custos/embalagens de delivery
+        if (!p) continue;
+        // ANTES: passava `1` de fator e `[]` de complementos — literalmente descartando
+        // a variação e TODOS os adicionais. Resultado: adicional vendido no canal saía
+        // do estoque sem registro, e a variação de 1L baixava a mesma ficha da de 500ml.
+        let fatorFicha = 1;
+        if (it.variacaoId) {
+          const [v] = await tx
+            .select({ fatorFicha: produtoVariacao.fatorFicha })
+            .from(produtoVariacao)
+            .where(
+              and(
+                eq(produtoVariacao.id, it.variacaoId),
+                eq(produtoVariacao.tenantId, tenantId),
+              ),
+            );
+          if (v) fatorFicha = Number(v.fatorFicha) || 1;
+        }
+        const comps = await tx
+          .select()
+          .from(comandaItemComplemento)
+          .where(
+            and(
+              eq(comandaItemComplemento.comandaItemId, it.id),
+              eq(comandaItemComplemento.tenantId, tenantId),
+            ),
           );
+        await this.acumularProduto(
+          tx,
+          tenantId,
+          p,
+          fatorFicha,
+          Number(it.quantidade) || 1,
+          comps,
+          consumo,
+          true, // pedido externo → baixa também os custos/embalagens de delivery
+        );
       }
       await this.lancarSaidas(tx, tenantId, consumo, comandaId);
     });
