@@ -4,6 +4,7 @@ import { RolesGuard } from '../../auth/roles.guard';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { LoteService } from './lote.service';
 
@@ -14,7 +15,7 @@ export class LoteController {
   constructor(private readonly service: LoteService) {}
 
   @Get()
-  listar(@CurrentUser() user: AuthUser) {
-    return this.service.listar(user.tenantId);
+  listar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.listar(user.tenantId, atual);
   }
 }
