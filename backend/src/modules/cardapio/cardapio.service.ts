@@ -74,6 +74,8 @@ import { AtendimentoService } from '../atendimento/atendimento.service';
 import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
+import { hojeISO } from '../../common/data';
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Distância entre duas coordenadas (km) — frete por raio.
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -617,10 +619,10 @@ export class CardapioService {
       );
     if (!c) return { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom inválido.' };
     // Janela de validade por DATA (fuso SP; dia final inclusivo) — mig 232.
-    const hojeISO = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-    if (c.validoDe && String(c.validoDe).slice(0, 10) > hojeISO)
+    const hoje = hojeISO();
+    if (c.validoDe && String(c.validoDe).slice(0, 10) > hoje)
       return { valido: false, desconto: 0, freteGratis: false, motivo: 'Este cupom ainda não está disponível.' };
-    if (c.validade && String(c.validade).slice(0, 10) < hojeISO)
+    if (c.validade && String(c.validade).slice(0, 10) < hoje)
       return { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom expirado.' };
     // Limite GLOBAL de usos (todos os clientes somados) — mig 232.
     if (c.maxUsos) {

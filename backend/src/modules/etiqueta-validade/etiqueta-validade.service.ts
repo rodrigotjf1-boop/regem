@@ -22,12 +22,24 @@ import {
 } from '../../db/schema';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+// QUINTA cópia de `hojeISO` em UTC, achada depois do conserto das outras quatro:
+// esta escapou da guarda de deriva porque é arrow function e o teste procurava
+// `function hojeISO`. A guarda foi ampliada junto com este conserto.
+//
+// O efeito aqui é direto: a validade da etiqueta nasce de `fabricacao`, que cai em
+// `hojeISO()` quando não vem no corpo. Às 21h em São Paulo o UTC já é o dia seguinte,
+// então a etiqueta impressa à noite dizia vencer um dia DEPOIS do certo — num controle
+// que existe exatamente para não usar alimento fora do prazo (RDC 216).
 const addDias = (iso: string, d: number) => {
-  const dt = new Date(iso + 'T00:00:00');
-  dt.setDate(dt.getDate() + d);
+  // Meio-dia UTC + aritmética em UTC: o cálculo não depende do fuso do servidor.
+  // Antes montava `iso + 'T00:00:00'` (hora LOCAL) e lia de volta com toISOString()
+  // (UTC) — acertava por coincidência no Brasil e na nuvem, e erraria um dia em
+  // qualquer servidor a leste de Greenwich.
+  const dt = new Date(`${iso}T12:00:00Z`);
+  dt.setUTCDate(dt.getUTCDate() + d);
   return dt.toISOString().slice(0, 10);
 };
 // Campos padrão da etiqueta (RDC 216): produto, validade e a data são obrigatórios.

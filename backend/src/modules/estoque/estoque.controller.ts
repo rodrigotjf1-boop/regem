@@ -37,6 +37,7 @@ export class EstoqueController {
   }
 
   @Get('itens')
+  @RequirePerm('estoque', 'ver')
   listItens(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     // Custo/valor em R$ conforme a permissão "ver_financeiro" do perfil.
     return this.service.listItens(user.tenantId, !!user.permissoes?.ver_financeiro, atual);
@@ -55,6 +56,7 @@ export class EstoqueController {
 
   // ----- Categorias de insumo (cadastro próprio) -----
   @Get('categorias-item')
+  @RequirePerm('estoque', 'ver')
   listCategorias(@CurrentUser() user: AuthUser) {
     return this.service.listCategorias(user.tenantId);
   }
@@ -85,6 +87,7 @@ export class EstoqueController {
   }
 
   @Get('movimentos')
+  @RequirePerm('estoque', 'ver')
   listMovimentos(
     @CurrentUser() user: AuthUser,
     @UnidadeAtual() atual: string | null,
@@ -96,6 +99,7 @@ export class EstoqueController {
   // Inteligência de estoque: valorização + reposição (ROP) + curva ABC no período.
   @Get('inteligencia')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'ver')
   inteligencia(
     @CurrentUser() user: AuthUser,
     @UnidadeAtual() atual: string | null,
@@ -118,6 +122,7 @@ export class EstoqueController {
   // Validades FEFO: lotes por vencimento com status.
   @Get('validades')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'ver')
   validades(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     return this.service.validades(user.tenantId, atual);
   }
@@ -151,6 +156,7 @@ export class EstoqueController {
   // Alertas persistidos (ROP/FEFO) — gerados pelos jobs, resolvidos pelo gestor.
   @Get('alertas')
   @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('estoque', 'ver')
   alertas(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
     return this.service.listarAlertas(user.tenantId, atual);
   }
