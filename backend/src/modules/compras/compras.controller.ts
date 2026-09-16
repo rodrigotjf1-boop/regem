@@ -13,9 +13,11 @@ import { Roles } from '../../auth/roles.decorator';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ComprasService } from './compras.service';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
+import { ReceberCompraDto } from './dto/receber-compra.dto';
 
 // Lista de compras — listar/receber = autenticado (o delegado pode receber);
 // criar/remover = gestão.
@@ -45,8 +47,12 @@ export class ComprasController {
   @Post('listas')
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('estoque', 'criar')
-  createLista(@CurrentUser() user: AuthUser, @Body() dto: CreateCompraListaDto) {
-    return this.service.createLista(user.tenantId, dto);
+  createLista(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Body() dto: CreateCompraListaDto,
+  ) {
+    return this.service.createLista(user.tenantId, dto, atual);
   }
 
   @Delete('listas/:id')
@@ -58,7 +64,11 @@ export class ComprasController {
 
   @Post('listas/:id/receber')
   @RequirePerm('estoque', 'editar')
-  receber(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.receber(user.tenantId, id, user.colaboradorId);
+  receber(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ReceberCompraDto,
+  ) {
+    return this.service.receber(user.tenantId, id, user.colaboradorId, dto);
   }
 }
