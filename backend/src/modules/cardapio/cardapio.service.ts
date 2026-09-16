@@ -92,7 +92,9 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 type MapasEstoque = {
   saldo: Map<string, number>;
   ingMap: Map<string, any[]>;
-  comboMap: Map<string, string[]>;
+  // Componentes do combo: ficha OU item de revenda. Guardar só `fichaId` (como era)
+  // perdia o componente industrializado — a bebida do combo nunca esgotava.
+  comboMap: Map<string, { fichaId: string | null; itemId: string | null }[]>;
 };
 
 @Injectable()
@@ -143,6 +145,7 @@ export class CardapioService {
         nome: produto.nome,
         tipo: produto.tipo,
         fichaId: produto.fichaId,
+        itemId: produto.itemId, // revenda (mig 148): sem isto o produto nunca esgota
         controlaEstoque: produto.controlaEstoque,
         pausadoEstoque: produto.pausadoEstoque,
         permiteNegativo: produto.permiteNegativo,
@@ -179,9 +182,26 @@ export class CardapioService {
       const detalhe = `${novos.join(', ')} — pausado(s) por falta de insumo em estoque.`;
       // Aviso geral em tempo real (KDS) + alerta persistido (dashboard).
       this.events.emit('kds.alerta.sistema', { tenantId, titulo, detalhe, prioridade: 'alta' });
-      await this.db
-        .insert(alertaEstoque)
-        .values({ tenantId, tipo: 'produto_esgotado', titulo, detalhe, prioridade: 'alta' });
+      // A mig 031 tem índice ÚNICO parcial (tenant_id, tipo) where resolvido_em is null:
+      // um segundo esgotamento com o alerta anterior ainda aberto estourava 23505 — e o
+      // erro sumia no `.catch` do gatilho. Atualiza o alerta ABERTO (assim o painel mostra
+      // os produtos de agora, não os da primeira vez) e só insere se não houver nenhum.
+      const abertos = await this.db
+        .update(alertaEstoque)
+        .set({ titulo, detalhe, prioridade: 'alta' })
+        .where(
+          and(
+            eq(alertaEstoque.tenantId, tenantId),
+            eq(alertaEstoque.tipo, 'produto_esgotado'),
+            isNull(alertaEstoque.resolvidoEm),
+          ),
+        )
+        .returning({ id: alertaEstoque.id });
+      if (!abertos.length)
+        await this.db
+          .insert(alertaEstoque)
+          .values({ tenantId, tipo: 'produto_esgotado', titulo, detalhe, prioridade: 'alta' })
+          .onConflictDoNothing(); // corrida entre dois gatilhos simultâneos
     }
   }
 
@@ -731,12 +751,16 @@ export class CardapioService {
         join ficha_tecnica ft on ft.id = fi.ficha_id
         where ft.tenant_id = ${tenantId}
       `),
-      // Itens de combo -> componentes.
+      // Itens de combo -> componentes. Traz TAMBÉM o item de revenda e o
+      // `controla_estoque` do componente, para espelhar exatamente o que a venda
+      // consome (`acumularProduto`). Componente retirado do combo (soft-delete da
+      // mig 242) fica de fora — senão o combo esgotaria por um item que não sai mais.
       this.db.execute(sql`
-        select pci.combo_produto_id as "comboId", p.ficha_id as "fichaId"
+        select pci.combo_produto_id as "comboId", p.ficha_id as "fichaId",
+               p.item_id as "itemId", p.controla_estoque as "controla"
         from produto_combo_item pci
         join produto p on p.id = pci.componente_produto_id
-        where p.tenant_id = ${tenantId}
+        where p.tenant_id = ${tenantId} and pci.deleted_at is null
       `),
     ]);
 
@@ -750,11 +774,14 @@ export class CardapioService {
       ingMap.set(r.fichaId, arr);
     }
 
-    const comboMap = new Map<string, string[]>();
+    const comboMap = new Map<string, { fichaId: string | null; itemId: string | null }[]>();
     for (const r of comboRows.rows ?? comboRows) {
-      if (!r.fichaId) continue;
+      // Componente que não controla estoque não é consumido pela venda — então
+      // também não pode esgotar o combo.
+      if (r.controla === false) continue;
+      if (!r.fichaId && !r.itemId) continue;
       const arr = comboMap.get(r.comboId) ?? [];
-      arr.push(r.fichaId);
+      arr.push({ fichaId: r.fichaId ?? null, itemId: r.itemId ?? null });
       comboMap.set(r.comboId, arr);
     }
 
@@ -797,11 +824,25 @@ export class CardapioService {
       return out;
     };
 
+    // Espelha os TRÊS ramos de `acumularProduto` (vendas.service). Faltava o
+    // terceiro: produto de REVENDA (industrializado, ligado a `produto.item_id` pela
+    // mig 148 — a lata de refrigerante). A venda baixava o item, mas o esgotamento
+    // não olhava para ele: o saldo ia a zero e o produto seguia vendendo para sempre,
+    // empurrando o estoque para negativo. Mesma coisa dentro do combo.
+    const itensDoProduto = (p: any): string[] => {
+      if (p.tipo === 'combo') {
+        return (comboMap.get(p.id) ?? []).flatMap((c) =>
+          c.fichaId ? itensDaFicha(c.fichaId, new Set()) : c.itemId ? [c.itemId] : [],
+        );
+      }
+      if (p.fichaId) return itensDaFicha(p.fichaId, new Set());
+      if (p.itemId) return [p.itemId]; // revenda: baixa direta do item vinculado
+      return [];
+    };
+
     const esgotados = new Set<string>();
     for (const p of alvo) {
-      const fichas =
-        p.tipo === 'combo' ? comboMap.get(p.id) ?? [] : p.fichaId ? [p.fichaId] : [];
-      const itens = fichas.flatMap((f) => itensDaFicha(f, new Set()));
+      const itens = itensDoProduto(p);
       if (itens.length && itens.some((it) => (saldo.get(it) ?? 0) <= 0))
         esgotados.add(p.id);
     }
@@ -2574,6 +2615,7 @@ export class CardapioService {
         precoPromocional: produto.precoPromocional,
         ativo: produto.ativo,
         disponivelCardapio: produto.disponivelCardapio,
+        pausadoEstoque: produto.pausadoEstoque,
         atacadoAtivo: produto.atacadoAtivo,
       })
       .from(produto)
@@ -2586,6 +2628,11 @@ export class CardapioService {
       // Só entra no cardápio produto ativo E marcado para o canal cardápio digital.
       if (!p || p.ativo === false || p.disponivelCardapio === false)
         throw new BadRequestException('Produto indisponível no pedido.');
+      // A auto-pausa por estoque era checada só na MONTAGEM do menu: quem estava com a
+      // página aberta desde antes de esgotar — ou quem chama a API direto — passava
+      // batido e o pedido entrava. A trava tem de estar aqui, no checkout.
+      if (p.pausadoEstoque === true)
+        throw new BadRequestException(`${p.nome} está sem estoque no momento.`);
     }
 
     // Modo MESA (QR na mesa): itens vão para a comanda (adicionarItem resolve
