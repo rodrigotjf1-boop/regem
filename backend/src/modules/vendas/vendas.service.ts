@@ -382,6 +382,17 @@ export class VendasService {
         // Idempotência real: índice único parcial idx_movimento_ref
         // (tenant, ref_tipo, ref_id, item_id). Uma 2ª baixa do mesmo pedido
         // (ex.: delivery concluído duas vezes) é ignorada em vez de estourar.
+        //
+        // ⚠️ O índice guarda UMA saída por (comanda, insumo) e o conflito é tratado como
+        // "já baixado". Isso só está certo porque hoje a baixa roda sempre com o TOTAL
+        // da comanda e nenhuma comanda fechada volta a receber item (`adicionarItem`
+        // exige 'aberta', nada reabre; o delivery não sai de concluido/cancelado).
+        // Quem criar "reabrir comanda" ou "reabrir pedido" precisa baixar a DIFERENÇA
+        // entre o total novo e o já baixado — senão o acréscimo nunca sai do estoque,
+        // e um pedido estornado e reconcluído fica com o estoque inflado (auditoria
+        // #68 e #41, latentes até lá). Não resolver com UPDATE na quantidade: o ledger
+        // é append-only e sincroniza por `created_at`, e `movimento_lote` aponta para a
+        // linha com quantidade fixa — o update não subiria e desalinharia o lote.
         .onConflictDoNothing()
         .returning({ id: movimentoEstoque.id });
       // PVPS/FEFO (mig 248). `mov` vazio = a baixa JÁ existia (o índice acima
