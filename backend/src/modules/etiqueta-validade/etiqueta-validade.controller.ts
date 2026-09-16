@@ -27,8 +27,8 @@ export class EtiquetaValidadeController {
   }
 
   @Get('fontes')
-  fontes(@CurrentUser() user: AuthUser) {
-    return this.service.fontes(user.tenantId);
+  fontes(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.fontes(user.tenantId, atual);
   }
 
   @Get()
