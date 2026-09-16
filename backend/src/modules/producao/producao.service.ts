@@ -63,6 +63,12 @@ export class ProducaoService {
     let custoTotal = 0;
 
     for (const ing of ings) {
+      // Linha `somente_delivery` (mig 147) é embalagem de pedido EXTERNO: só a venda de
+      // delivery a consome. A venda já pulava (`vendas.acumularFicha`); a produção não,
+      // então produzir uma ficha com caixa de delivery baixava caixa do estoque e ainda
+      // somava o custo dela no custo do item produzido. Vale para sub-fichas também,
+      // porque a recursão passa por aqui.
+      if (ing.somenteDelivery) continue;
       const baixa = qtdBaixaExplosao(
         Number(ing.quantidade),
         Number(ing.fatorCorrecao),
