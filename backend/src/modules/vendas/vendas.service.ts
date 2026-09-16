@@ -389,17 +389,22 @@ export class VendasService {
   // Resolve os complementos de um pedido de canal EXTERNO pelo CÓDIGO PDV.
   //
   // Irmão do `resolverComplementos` (que casa por opcaoId, nosso id interno). Marketplace
-  // não conhece nossos ids — o elo é o código PDV, o mesmo que já liga o PRODUTO. Opção
-  // sem código, ou com código que não existe no catálogo, NÃO baixa estoque: é o
-  // comportamento correto, não um caso a contornar com casamento por nome. O que não
-  // casou volta em `naoLigados` para virar aviso — o lojista precisa saber o que linkar.
+  // não conhece nossos ids — o elo é o código PDV, o mesmo que já liga o PRODUTO.
+  //
+  // ⚠️ Opção SEM código não é erro: é o discriminador da mig 126 — "sem código PDV a
+  // opção é INFORMATIVA (ponto de carne, talheres): não baixa estoque, não soma preço".
+  // Por isso ela sai daqui em silêncio. Avisar sobre cada "sem cebola" encheria o log de
+  // falso positivo e enterraria o caso que importa.
+  //
+  // O que MERECE aviso é o outro: veio COM código e não casou com nada no catálogo. Aí
+  // sim há um adicional real vendido que não está linkado — e o lojista precisa saber.
   private async resolverComplementosPorCodigo(
     tx: any,
     tenantId: string,
     produtoId: string,
     escolhidos: { nome: string; codigo?: string; quantidade: number }[],
   ): Promise<{ snapshots: any[]; naoLigados: string[] }> {
-    const naoLigados = escolhidos.filter((c) => !c.codigo).map((c) => c.nome);
+    const naoLigados: string[] = []; // só código que NÃO casou (ver nota acima)
     const codigos = escolhidos.map((c) => c.codigo).filter(Boolean) as string[];
     if (!codigos.length) return { snapshots: [], naoLigados };
 
@@ -432,6 +437,8 @@ export class VendasService {
     for (const esc of escolhidos) {
       const o: any = esc.codigo ? porCodigo.get(String(esc.codigo)) : undefined;
       if (!o) {
+        // Sem código = informativa (mig 126), silenciosa. Com código e sem par no
+        // catálogo = adicional real não linkado, que é o que o lojista precisa ver.
         if (esc.codigo) naoLigados.push(`${esc.nome} (${esc.codigo})`);
         continue;
       }
