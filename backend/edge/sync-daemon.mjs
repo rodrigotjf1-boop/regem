@@ -162,6 +162,7 @@ const PUSH_TABLES = [
   // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.
   { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao')" },
   { tabela: 'delivery_config', cursor: 'updated_at' },
+  { tabela: 'etiqueta_template', cursor: 'updated_at' },
   { tabela: 'opcao', cursor: 'updated_at' },
   { tabela: 'complemento', cursor: 'updated_at' },
   { tabela: 'complemento_item', cursor: 'updated_at' },
@@ -181,6 +182,8 @@ const PUSH_TABLES = [
   { tabela: 'recebimento_item', cursor: 'updated_at' },
   { tabela: 'lote', cursor: 'updated_at' },
   { tabela: 'desperdicio', cursor: 'updated_at' },
+  // Etiqueta de validade (mig 245): depois de desperdicio — a vencida vira perda.
+  { tabela: 'etiqueta_validade', cursor: 'updated_at' },
   { tabela: 'contagem_lista', cursor: 'updated_at' },
   { tabela: 'contagem_lista_item', cursor: 'updated_at' },
   { tabela: 'contagem_execucao', cursor: 'updated_at' },

@@ -37,6 +37,9 @@ export const TABELAS_SYNC: TabelaSync[] = [
     filtroSql: "tipo in ('impressora','pdv','salao')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
+  // Template da etiqueta de validade (mig 245): config espelhada como as de cima —
+  // desenhada na gestão, usada pela impressora da loja, e volta num banco novo.
+  { tabela: 'etiqueta_template', direcao: 'ambos', cursor: 'updated_at' },
   // Categoria: BIDIRECIONAL (P3 completo) — editada no edge, espelha na nuvem.
   { tabela: 'categoria_produto', direcao: 'ambos', cursor: 'updated_at' },
   // Produto é BIDIRECIONAL: no modo híbrido (local prioritário) o catálogo é editado
@@ -89,6 +92,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'recebimento_item', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'lote', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'desperdicio', direcao: 'ambos', cursor: 'updated_at' },
+  // Etiqueta de validade (mig 245): nasce na loja e MUDA DE ESTADO (fechado → em_uso
+  // → baixado/vencido). Depois de `desperdicio`: a etiqueta vencida vira perda e
+  // aponta para o desperdício que a consumiu.
+  { tabela: 'etiqueta_validade', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'contagem_lista', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'contagem_lista_item', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'contagem_execucao', direcao: 'ambos', cursor: 'updated_at' },
@@ -190,6 +197,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'compra_lista',
   'compra_item',
   'titulo_financeiro',
+  // Etiquetas de validade (mig 245) — mesma razão.
+  'etiqueta_validade',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

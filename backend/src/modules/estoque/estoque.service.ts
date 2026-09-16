@@ -17,7 +17,7 @@ import {
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
-import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
+import { sqlUnidade, sqlUnidadeOuRede, condUnidade } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
 // Ator da operação (para auditoria) — vem do @CurrentUser do controller.
@@ -439,6 +439,10 @@ export class EstoqueService {
 
   // §1.6 — Validades FEFO: lotes por vencimento com status (crítico/atenção/vencido).
   // (Obs.: saídas ainda não decrementam lotes; usa lote.quantidade como saldo aproximado.)
+  //
+  // Escopo igual ao de `GET /lotes`: insumo DA LOJA ou da REDE. Com `= atual` puro, o
+  // insumo de unidade nula — que é a maioria em quem nunca separou catálogo por filial —
+  // sumia da tela, enquanto o job das 06:10 (que chama sem `atual`) alertava sobre ele.
   async validades(tenantId: string, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
       select l.id, l.item_id as "itemId", i.nome as "itemNome",
@@ -448,7 +452,7 @@ export class EstoqueService {
       from lote l
       join item_estoque i on i.id = l.item_id
       where l.tenant_id = ${tenantId} and l.esgotado = false
-        and l.validade is not null and l.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
+        and l.validade is not null and l.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
       order by l.validade asc
     `);
     const rows = res.rows ?? res;
