@@ -202,6 +202,8 @@ const PUSH_TABLES = [
   { tabela: 'producao_pedido_item', cursor: 'updated_at' },
   { tabela: 'pedido_externo', cursor: 'updated_at' },
   { tabela: 'movimento_estoque', cursor: 'created_at' },
+  // De qual lote saiu cada baixa (mig 248) — append-only, acompanha o ledger.
+  { tabela: 'movimento_lote', cursor: 'created_at' },
   { tabela: 'ponto_marcacao', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', cursor: 'created_at' },
   { tabela: 'audit_log', cursor: 'created_at' },

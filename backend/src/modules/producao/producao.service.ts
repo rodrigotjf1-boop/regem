@@ -20,6 +20,7 @@ import {
 } from '../../common/regras-negocio';
 import { ProduzirDto } from './dto/produzir.dto';
 import { hojeISO } from '../../common/data';
+import { consumirLotes } from '../../common/lotes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -136,17 +137,22 @@ export class ProducaoService {
             .select({ custoMedio: itemEstoque.custoMedio })
             .from(itemEstoque)
             .where(eq(itemEstoque.id, itemId));
-          await tx.insert(movimentoEstoque).values({
-            tenantId,
-            itemId,
-            tipo: 'saida',
-            quantidade: String(quantidade),
-            custoUnitario: item?.custoMedio ?? undefined,
-            motivo: 'producao',
-            refTipo: 'producao',
-            refId,
-            data: hojeISO(),
-          });
+          const [mov] = await tx
+            .insert(movimentoEstoque)
+            .values({
+              tenantId,
+              itemId,
+              tipo: 'saida',
+              quantidade: String(quantidade),
+              custoUnitario: item?.custoMedio ?? undefined,
+              motivo: 'producao',
+              refTipo: 'producao',
+              refId,
+              data: hojeISO(),
+            })
+            .returning({ id: movimentoEstoque.id });
+          // PVPS/FEFO (mig 248): o insumo que entra na receita sai do lote mais velho.
+          await consumirLotes(tx, tenantId, itemId, quantidade, mov.id);
           baixados++;
         }
 
