@@ -26,23 +26,21 @@ export class OrdemProducaoController {
     @Query('ate') ate?: string,
     @Query('pendentes') pendentes?: string,
   ) {
-    return this.service.listar(user.tenantId, {
-      status,
-      setorId,
-      de,
-      ate,
-      pendentes: pendentes === 'true',
-    });
+    return this.service.listar(
+      user.tenantId,
+      { status, setorId, de, ate, pendentes: pendentes === 'true' },
+      user.unidadeId ?? null,
+    );
   }
 
   @Get('relatorio')
   relatorio(@CurrentUser() user: AuthUser, @Query('de') de?: string, @Query('ate') ate?: string) {
-    return this.service.relatorio(user.tenantId, de, ate);
+    return this.service.relatorio(user.tenantId, de, ate, user.unidadeId ?? null);
   }
 
   @Post()
   criar(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.criar(user.tenantId, user.colaboradorId, dto);
+    return this.service.criar(user.tenantId, user.colaboradorId, dto, user.unidadeId ?? null);
   }
 
   // Recorrência (reaproveita tarefa_def) — cria a definição + a ordem de hoje.
@@ -54,12 +52,12 @@ export class OrdemProducaoController {
 
   @Post(':id/liberar')
   liberar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.liberar(user.tenantId, id);
+    return this.service.liberar(user.tenantId, id, user.unidadeId ?? null);
   }
 
   @Post(':id/iniciar')
   iniciar(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.iniciar(user.tenantId, id);
+    return this.service.iniciar(user.tenantId, id, user.unidadeId ?? null);
   }
 
   // Conclusão (total | parcial | nao) — assinatura por PIN. viaImpressa adia p/ lançamento.
@@ -71,13 +69,13 @@ export class OrdemProducaoController {
       pin: dto?.pin,
       motivo: dto?.motivo,
       viaImpressa: !!dto?.viaImpressa,
-    });
+    }, user.unidadeId ?? null);
   }
 
   // Cancelar / forçar desfecho de pendência — só gestão.
   @Post(':id/cancelar')
   @Roles('presidente', 'gerente', 'supervisao')
   cancelar(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.cancelar(user.tenantId, user.colaboradorId, id, dto?.motivo);
+    return this.service.cancelar(user.tenantId, user.colaboradorId, id, dto?.motivo, user.unidadeId ?? null);
   }
 }

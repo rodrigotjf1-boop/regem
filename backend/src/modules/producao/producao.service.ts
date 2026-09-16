@@ -101,17 +101,23 @@ export class ProducaoService {
 
   // Explosão de ficha (§1.2): baixa insumos (saída ao custo médio) e, se houver
   // item de saída, dá entrada do produto ao custo teórico. Idempotente por refId.
+  //
+  // `txExterna`: quando o chamador já está numa transação (a ordem de produção trava
+  // a linha e conclui no mesmo commit), a explosão roda NA MESMA transação. Abrir uma
+  // transação própria aqui significaria commit independente — estoque baixado com a
+  // ordem não encerrada se o passo seguinte falhasse.
   async produzir(
     tenantId: string,
     atorId: string,
     atorPerfil: string,
     dto: ProduzirDto,
+    txExterna?: any,
   ) {
     const refId = dto.refId ?? randomUUID();
     const qtd = Number(dto.quantidade);
 
     try {
-      const res = await this.db.transaction(async (tx) => {
+      const corpo = async (tx: any) => {
         // Explosão recursiva (fichas aninhadas): agrega consumo nos itens-raiz.
         const consumoPorItem = new Map<string, number>();
         const custoTotal = await this.explodir(
@@ -192,7 +198,10 @@ export class ProducaoService {
           custoTotal: Number(custoTotal.toFixed(2)),
           custoUnitProduzido: Number(custoUnitProduzido.toFixed(2)),
         };
-      });
+      };
+      const res = txExterna
+        ? await corpo(txExterna)
+        : await this.db.transaction(corpo);
 
       await this.auditoria.registrar({
         tenantId,
