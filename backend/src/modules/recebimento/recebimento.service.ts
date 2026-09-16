@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   recebimento,
@@ -12,12 +12,14 @@ import {
   movimentoEstoque,
   lote,
   itemEstoque,
+  fornecedor,
+  unidade,
   tituloFinanceiro,
 } from '../../db/schema';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { custoMedioPonderado } from '../../common/regras-negocio';
-import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
+import { sqlUnidade, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -29,14 +31,69 @@ export class RecebimentoService {
     private readonly events: EventEmitter2,
   ) {}
 
+  // Nada que venha do corpo do request e aponte para outra tabela entra sem conferência
+  // de dono: `itemId` e `fornecedorId` chegavam só com `@IsUUID()`, então o id de OUTRO
+  // tenant passava. O `desperdicio` já fazia essa checagem — o recebimento era o
+  // fora-da-curva. Uma consulta por tabela (não uma por item): a nota tem dezenas de linhas.
+  private async conferirDonos(
+    tenantId: string,
+    dto: CreateRecebimentoDto,
+    unidadeIdRec: string | null,
+  ) {
+    if (dto.fornecedorId) {
+      const [f] = await this.db
+        .select({ id: fornecedor.id })
+        .from(fornecedor)
+        .where(and(eq(fornecedor.id, dto.fornecedorId), eq(fornecedor.tenantId, tenantId)));
+      if (!f) throw new BadRequestException('Fornecedor inválido.');
+    }
+
+    const ids = [...new Set((dto.itens ?? []).map((i) => i.itemId).filter(Boolean))];
+    if (!ids.length) return;
+    // Unidade do ITEM: a da nota, ou nula (catálogo da rede, herdado pelas filiais).
+    // Assim a loja A não dá entrada num insumo que pertence à loja B.
+    const achados = await this.db
+      .select({ id: itemEstoque.id, nome: itemEstoque.nome })
+      .from(itemEstoque)
+      .where(
+        and(
+          eq(itemEstoque.tenantId, tenantId),
+          inArray(itemEstoque.id, ids),
+          isNull(itemEstoque.deletedAt),
+          condUnidadeOuRede(itemEstoque.unidadeId, unidadeIdRec),
+        ),
+      );
+    if (achados.length !== ids.length) {
+      const ok = new Set(achados.map((i) => i.id));
+      const faltando = ids.filter((i) => !ok.has(i));
+      // Recusa nomeando, em vez de descartar a linha em silêncio: nota com item
+      // descartado sem aviso vira estoque que não entrou e ninguém procura.
+      throw new BadRequestException(
+        `${faltando.length} item(ns) não pertencem a esta loja ou não existem mais.`,
+      );
+    }
+  }
+
   // Cria o recebimento como rascunho (status 'aberto') — ainda NÃO mexe no estoque.
   async create(tenantId: string, dto: CreateRecebimentoDto, atual: string | null = null) {
+    // Usuário preso a uma loja recebe SEMPRE na dele; a rede informa e nós conferimos.
+    let unidadeIdRec = atual ?? dto.unidadeId ?? null;
+    if (!atual && dto.unidadeId) {
+      const [u] = await this.db
+        .select({ id: unidade.id })
+        .from(unidade)
+        .where(and(eq(unidade.id, dto.unidadeId), eq(unidade.tenantId, tenantId)));
+      if (!u) throw new BadRequestException('Unidade inválida.');
+      unidadeIdRec = u.id;
+    }
+    await this.conferirDonos(tenantId, dto, unidadeIdRec);
+
     return this.db.transaction(async (tx) => {
       const [rec] = await tx
         .insert(recebimento)
         .values({
           tenantId,
-          unidadeId: atual ?? dto.unidadeId,
+          unidadeId: unidadeIdRec ?? undefined,
           fornecedorId: dto.fornecedorId,
           data: dto.data ?? undefined,
           vencimento: dto.vencimento ?? undefined,
@@ -76,7 +133,7 @@ export class RecebimentoService {
         (select count(*) from recebimento_item ri
           where ri.recebimento_id = r.id and ri.divergencia <> 'ok') as "divergencias"
       from recebimento r
-      left join fornecedor f on f.id = r.fornecedor_id
+      left join fornecedor f on f.id = r.fornecedor_id and f.tenant_id = r.tenant_id
       where r.tenant_id = ${tenantId} and r.deleted_at is null ${sqlUnidade('r.unidade_id', atual)}
       order by r.data desc, r.created_at desc
     `);
@@ -91,7 +148,7 @@ export class RecebimentoService {
     const h: any = await this.db.execute(sql`
       select r.*, f.nome as "fornecedorNome"
       from recebimento r
-      left join fornecedor f on f.id = r.fornecedor_id
+      left join fornecedor f on f.id = r.fornecedor_id and f.tenant_id = r.tenant_id
       where r.id = ${id} and r.tenant_id = ${tenantId} and r.deleted_at is null ${sqlUnidade('r.unidade_id', atual)}
     `);
     const header = (h.rows ?? h)[0];
@@ -102,7 +159,7 @@ export class RecebimentoService {
         ri.qtd_recebida as "qtdRecebida", ri.divergencia, ri.validade,
         ri.obs, i.nome as "itemNome", i.unidade_medida as "unidade"
       from recebimento_item ri
-      join item_estoque i on i.id = ri.item_id
+      join item_estoque i on i.id = ri.item_id and i.tenant_id = ri.tenant_id
       where ri.recebimento_id = ${id}
       order by i.nome
     `);
