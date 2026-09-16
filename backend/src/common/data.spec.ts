@@ -35,15 +35,32 @@ describe('nenhuma cópia local de hojeISO', () => {
     try {
       // `--untracked` para enxergar também uma cópia nova ainda não commitada. Sem
       // isso o teste passa local (arquivo novo não é rastreado) e só quebra no CI.
-      saida = execSync('git grep -n --untracked "function hojeISO" -- "*.ts"', {
-        encoding: 'utf8',
-      });
+      // `-E` com as DUAS formas: a busca original só via `function hojeISO`, e a
+      // quinta cópia (etiqueta-validade) era `const hojeISO = () =>` — passou por
+      // baixo da guarda e ficou meses devolvendo a data em UTC.
+      saida = execSync(
+        'git grep -nE --untracked "(function hojeISO|const hojeISO\\s*=)" -- "*.ts"',
+        { encoding: 'utf8' },
+      );
     } catch {
       saida = ''; // git grep sai != 0 quando não encontra nada
     }
     const permitido = /common[\/]data(\.spec)?\.ts/; // a definição real e ESTE arquivo
-    const fora = saida.split('\n').filter(Boolean).filter((l) => !permitido.test(l));
+    // Linha de COMENTÁRIO não é definição: sem esta exclusão, um comentário que
+    // cita o nome do helper derruba a guarda — foi o que aconteceu ao ampliá-la
+    // para a forma arrow.
+    const comentario = /:\s*(\/\/|\*)/;
+    const fora = saida
+      .split('\n')
+      .filter(Boolean)
+      .filter((l) => !permitido.test(l) && !comentario.test(l));
     expect(fora).toEqual([]);
+  });
+
+  it('a guarda enxerga a forma arrow, não só `function`', () => {
+    // Meta-teste: sem isto, ampliar a busca e quebrá-la de novo passaria calado.
+    const re = /\(function hojeISO\|const hojeISO/;
+    expect(readFileSync(__filename, 'utf8')).toMatch(re);
   });
 
   it('o helper não usa toISOString para montar a data', () => {

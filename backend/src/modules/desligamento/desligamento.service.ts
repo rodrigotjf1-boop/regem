@@ -10,13 +10,15 @@ import { colaborador, contador, integracao } from '../../db/schema';
 import { EscalaService } from '../escala/escala.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
+import { hojeISO } from '../../common/data';
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const addDays = (iso: string, d: number) => {
   const dt = new Date(iso + 'T00:00:00');
   dt.setDate(dt.getDate() + d);
   return dt.toISOString().slice(0, 10);
 };
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+
 
 @Injectable()
 export class DesligamentoService {
