@@ -27,11 +27,9 @@ import { sqlUnidade, condUnidade } from '../../common/filtro-unidade';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
+import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 @Injectable()
 export class FinanceiroService {

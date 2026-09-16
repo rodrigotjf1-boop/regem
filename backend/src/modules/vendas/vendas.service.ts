@@ -46,11 +46,9 @@ import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
+import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 @Injectable()
 export class VendasService {
@@ -68,11 +66,17 @@ export class VendasService {
 
   // Saldo atual de UM item de estoque no ledger (entrada − saída), opcionalmente
   // por unidade. Base para decidir quanto dá pra vender no ato.
-  private async saldoItem(
-    tenantId: string,
-    itemId: string,
-    unidadeId?: string | null,
-  ): Promise<number> {
+  // ⚠️ SEM filtro por unidade, de propósito. Havia aqui um
+  // `and (unidade_id = ... or unidade_id is null)` sobre `movimento_estoque` — coluna
+  // que NÃO EXISTE nessa tabela (conferido no schema, nas migrations e no dump real).
+  // Com unidade preenchida a query devolvia 42703 e derrubava dois caminhos:
+  //   • POST /vendas/atacado/preview → 500 (o front engolia e o preview nunca aparecia);
+  //   • venda de balcão com encomenda de atacado → a exceção estourava DENTRO da
+  //     transação da venda, revertendo comanda, itens e caixa com o dinheiro já cobrado.
+  // Quem carrega a unidade é `item_estoque`, e a query já filtra por `item_id` — logo a
+  // unidade está implícita no item. (Insumo com `unidade_id` NULO somando a rede toda é
+  // outro assunto, do achado "ficha da REDE × insumo da LOJA", que é decisão de modelo.)
+  private async saldoItem(tenantId: string, itemId: string): Promise<number> {
     const r: any = await this.db.execute(sql`
       select coalesce(sum(case tipo
                when 'entrada' then quantidade
@@ -80,7 +84,6 @@ export class VendasService {
                else quantidade end), 0) as saldo
       from movimento_estoque
       where tenant_id = ${tenantId} and item_id = ${itemId}
-        ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
     `);
     return Number((r?.rows ?? r)?.[0]?.saldo ?? 0);
   }
@@ -89,10 +92,12 @@ export class VendasService {
   // `disponivel: null` = produto sem controle de estoque (ilimitado). Explode a
   // ficha para 1 unidade e divide o saldo de cada insumo pelo consumo por unidade
   // (piso do gargalo). `podeEncomendar` = tem ficha → o excedente pode virar ordem.
+  // Sem `unidadeId`: o saldo sai do ledger do ITEM, e o item já pertence a uma unidade.
+  // O parâmetro existia só para alimentar o filtro quebrado do `saldoItem` — manter um
+  // argumento que não faz nada é convite para o mesmo bug voltar.
   async disponibilidadeProduto(
     tenantId: string,
     produtoId: string,
-    unidadeId?: string | null,
   ): Promise<{ disponivel: number | null; podeEncomendar: boolean }> {
     const [p] = await this.db
       .select()
@@ -106,7 +111,7 @@ export class VendasService {
     let disp = Infinity;
     for (const [itemId, porUn] of consumo) {
       if (!(porUn > 0)) continue;
-      const saldo = await this.saldoItem(tenantId, itemId, unidadeId);
+      const saldo = await this.saldoItem(tenantId, itemId);
       disp = Math.min(disp, Math.floor(saldo / porUn));
     }
     const disponivel = Number.isFinite(disp) ? Math.max(disp, 0) : null;
@@ -118,7 +123,6 @@ export class VendasService {
   async preverEncomendaAtacado(
     tenantId: string,
     itens: { produtoId: string; quantidade: number }[],
-    unidadeId?: string | null,
   ) {
     const out: any[] = [];
     for (const it of itens ?? []) {
@@ -131,7 +135,6 @@ export class VendasService {
       const { disponivel, podeEncomendar } = await this.disponibilidadeProduto(
         tenantId,
         it.produtoId,
-        unidadeId,
       );
       // Ilimitado (disponivel null) → tudo imediato, sem encomenda.
       const imediato = disponivel == null ? qtd : Math.min(qtd, Math.max(disponivel, 0));
@@ -618,11 +621,7 @@ export class VendasService {
         // ordem de produção agendada; vende só o disponível no ato.
         let qtdVenda = qtd;
         if (dto.encomendaDataEntrega && p.atacadoAtivo && p.fichaId) {
-          const { disponivel } = await this.disponibilidadeProduto(
-            tenantId,
-            p.id,
-            dto.unidadeId ?? null,
-          );
+          const { disponivel } = await this.disponibilidadeProduto(tenantId, p.id);
           if (disponivel != null && qtd > disponivel) {
             qtdVenda = Math.max(disponivel, 0);
             const encQtd = qtd - qtdVenda;
