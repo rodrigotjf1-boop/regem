@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -13,12 +13,14 @@ import {
   fichaTecnica,
   colaborador,
   setor,
+  unidade,
   impressaoJob,
   tarefaInstancia,
   tarefaDef,
 } from '../../db/schema';
 import { ProducaoService } from '../producao/producao.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { dataNoFuso, hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -32,17 +34,83 @@ export class OrdemProducaoService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  // porções (un) → múltiplo da ficha que o produzir() entende.
-  // Se a ficha define porcaoTamanho: 1 ficha = rendimento / porcaoTamanho porções.
-  // Sem porção: a quantidade já é o múltiplo da ficha.
+  // Escopo multi-loja. Quem tem unidade no JWT só enxerga e só age na PRÓPRIA loja
+  // (mais as ordens de rede, sem unidade); quem não tem unidade é rede e vê o tenant
+  // inteiro. Sem isso, o gerente da loja A listava, concluía e cancelava ordem da loja B.
+  private escopoUnidade(escopoUnidadeId?: string | null) {
+    return escopoUnidadeId
+      ? or(isNull(ordemProducao.unidadeId), eq(ordemProducao.unidadeId, escopoUnidadeId))
+      : null;
+  }
+
+  // A unidade gravada na ordem nunca é aceita crua do corpo do request: ou vem do
+  // escopo do usuário, ou é conferida contra o tenant.
+  private async unidadeDoTenant(tenantId: string, unidadeId?: string | null) {
+    if (!unidadeId) return null;
+    const [u] = await this.db
+      .select({ id: unidade.id })
+      .from(unidade)
+      .where(and(eq(unidade.id, unidadeId), eq(unidade.tenantId, tenantId)));
+    if (!u) throw new BadRequestException('Unidade inválida.');
+    return u.id;
+  }
+
+  private encerrada(o: any): boolean {
+    return (
+      o.status === 'cancelada' ||
+      ['concluida_total', 'concluida_parcial', 'nao_concluida'].includes(o.status)
+    );
+  }
+
+  // Carrega a ordem COM TRAVA de linha e roda `fn` no mesmo commit. Ler o status e
+  // depois agir em cima dele, sem trava, deixava duas conclusões simultâneas passarem
+  // pela mesma guarda — e cada uma baixava o estoque inteiro.
+  private async comTrava<T>(
+    tenantId: string,
+    id: string,
+    escopoUnidadeId: string | null,
+    fn: (tx: any, o: any) => Promise<T>,
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => {
+      const cond: any[] = [
+        eq(ordemProducao.id, id),
+        eq(ordemProducao.tenantId, tenantId),
+        isNull(ordemProducao.deletedAt),
+      ];
+      const esc = this.escopoUnidade(escopoUnidadeId);
+      if (esc) cond.push(esc);
+      const [o] = await tx
+        .select()
+        .from(ordemProducao)
+        .where(and(...cond))
+        .for('update');
+      if (!o) throw new NotFoundException('Ordem de produção não encontrada.');
+      return fn(tx, o);
+    });
+  }
+
+  // Quantidade da ordem → quantidade NA UNIDADE DE RENDIMENTO, que é o que o
+  // produzir() entende. A explosão (§1.2) é `qtd_liquida × fc × quantidade ÷ rendimento`:
+  // produzir uma ficha inteira é passar `rendimento`, não `1`.
+  //   • com porcaoTamanho: a ordem é em PORÇÕES → 1 porção = porcaoTamanho de rendimento.
+  //     Ex.: rende 1000 ml, porção 100 ml, ordem de 10 porções → 1000 (a ficha inteira).
+  //   • sem porcaoTamanho: a ordem é MÚLTIPLO da ficha (mig 130) → × rendimento.
+  //     Ex.: rende 1000 ml, ordem de 2 → 2000.
+  // Dividir por `rendimento` aqui dividia de novo o que a explosão já divide: a baixa
+  // saía `rendimento` vezes menor que o real (ficha de 1000 ml consumia 1/1000 dos insumos).
   private multiplicadorFicha(ficha: any, quantidade: number): number {
     const porcao = Number(ficha?.porcaoTamanho) || 0;
     const rend = Number(ficha?.rendimento) || 0;
-    if (porcao > 0 && rend > 0) return (quantidade * porcao) / rend;
-    return quantidade;
+    if (porcao > 0) return quantidade * porcao;
+    return rend > 0 ? quantidade * rend : quantidade;
   }
 
-  async criar(tenantId: string, atorId: string, dto: any) {
+  async criar(
+    tenantId: string,
+    atorId: string,
+    dto: any,
+    escopoUnidadeId: string | null = null,
+  ) {
     const [ficha] = await this.db
       .select()
       .from(fichaTecnica)
@@ -51,6 +119,11 @@ export class OrdemProducaoService {
     const qtd = Number(dto?.quantidadePlanejada);
     if (!(qtd > 0)) throw new BadRequestException('Informe a quantidade planejada.');
     if (!dto?.dataProducao) throw new BadRequestException('Informe a data de produção.');
+
+    // Usuário preso a uma loja cria SEMPRE na dele; rede informa e nós conferimos.
+    const unidadeIdOrdem = escopoUnidadeId
+      ? escopoUnidadeId
+      : await this.unidadeDoTenant(tenantId, dto?.unidadeId ?? null);
 
     const canais: string[] = Array.isArray(dto?.canais)
       ? dto.canais.filter((c: string) =>
@@ -62,7 +135,7 @@ export class OrdemProducaoService {
       .insert(ordemProducao)
       .values({
         tenantId,
-        unidadeId: dto?.unidadeId ?? null,
+        unidadeId: unidadeIdOrdem,
         fichaId: dto.fichaId,
         itemSaidaId: dto?.itemSaidaId ?? null,
         quantidadePlanejada: String(qtd),
@@ -164,8 +237,11 @@ export class OrdemProducaoService {
   async listar(
     tenantId: string,
     filtro: { status?: string; setorId?: string; de?: string; ate?: string; pendentes?: boolean } = {},
+    escopoUnidadeId: string | null = null,
   ) {
-    const cond = [eq(ordemProducao.tenantId, tenantId), isNull(ordemProducao.deletedAt)];
+    const cond: any[] = [eq(ordemProducao.tenantId, tenantId), isNull(ordemProducao.deletedAt)];
+    const esc = this.escopoUnidade(escopoUnidadeId);
+    if (esc) cond.push(esc);
     if (filtro.status) cond.push(eq(ordemProducao.status, filtro.status));
     if (filtro.setorId) cond.push(eq(ordemProducao.setorId, filtro.setorId));
     if (filtro.de) cond.push(gte(ordemProducao.dataProducao, filtro.de));
@@ -207,17 +283,14 @@ export class OrdemProducaoService {
     return rows;
   }
 
-  private async carregar(tenantId: string, id: string) {
-    const [o] = await this.db
-      .select()
-      .from(ordemProducao)
-      .where(and(eq(ordemProducao.id, id), eq(ordemProducao.tenantId, tenantId), isNull(ordemProducao.deletedAt)));
-    if (!o) throw new NotFoundException('Ordem de produção não encontrada.');
-    return o;
-  }
-
-  async mudarStatus(tenantId: string, id: string, novo: string, patch: any = {}) {
-    const [row] = await this.db
+  async mudarStatus(
+    tenantId: string,
+    id: string,
+    novo: string,
+    patch: any = {},
+    tx: any = this.db,
+  ) {
+    const [row] = await tx
       .update(ordemProducao)
       .set({ status: novo, updatedAt: new Date(), ...patch })
       .where(and(eq(ordemProducao.id, id), eq(ordemProducao.tenantId, tenantId)))
@@ -225,18 +298,20 @@ export class OrdemProducaoService {
     return row;
   }
 
-  async liberar(tenantId: string, id: string) {
-    const o = await this.carregar(tenantId, id);
-    if (!['planejada', 'liberada'].includes(o.status))
-      throw new BadRequestException('Ordem não pode ser liberada neste estado.');
-    return this.mudarStatus(tenantId, id, 'liberada');
+  async liberar(tenantId: string, id: string, escopoUnidadeId: string | null = null) {
+    return this.comTrava(tenantId, id, escopoUnidadeId, async (tx, o) => {
+      if (!['planejada', 'liberada'].includes(o.status))
+        throw new BadRequestException('Ordem não pode ser liberada neste estado.');
+      return this.mudarStatus(tenantId, id, 'liberada', {}, tx);
+    });
   }
 
-  async iniciar(tenantId: string, id: string) {
-    const o = await this.carregar(tenantId, id);
-    if (o.status === 'cancelada' || o.status.startsWith('conclu'))
-      throw new BadRequestException('Ordem já encerrada.');
-    return this.mudarStatus(tenantId, id, 'em_producao', { iniciadaEm: new Date() });
+  async iniciar(tenantId: string, id: string, escopoUnidadeId: string | null = null) {
+    return this.comTrava(tenantId, id, escopoUnidadeId, async (tx, o) => {
+      if (o.status === 'cancelada' || o.status.startsWith('conclu'))
+        throw new BadRequestException('Ordem já encerrada.');
+      return this.mudarStatus(tenantId, id, 'em_producao', { iniciadaEm: new Date() }, tx);
+    });
   }
 
   // Confirma a assinatura por PIN de um colaborador do tenant e devolve seu id.
@@ -270,60 +345,98 @@ export class OrdemProducaoService {
       motivo?: string;
       viaImpressa?: boolean;
     },
+    escopoUnidadeId: string | null = null,
   ) {
-    const o = await this.carregar(tenantId, id);
-    if (o.status === 'cancelada' || ['concluida_total', 'concluida_parcial', 'nao_concluida'].includes(o.status))
-      throw new BadRequestException('Ordem já encerrada.');
-
     // Via impressa: não movimenta agora; fica aguardando lançamento manual.
     if (dto.viaImpressa) {
-      return this.mudarStatus(tenantId, id, 'aguardando_lancamento');
+      return this.comTrava(tenantId, id, escopoUnidadeId, async (tx, o) => {
+        if (this.encerrada(o)) throw new BadRequestException('Ordem já encerrada.');
+        return this.mudarStatus(tenantId, id, 'aguardando_lancamento', {}, tx);
+      });
     }
 
-    // Assinatura digital: PIN de quem executou.
+    // Assinatura digital: PIN de quem executou. Fica FORA da trava de propósito — é
+    // um bcrypt por colaborador do tenant, e segurar a linha durante isso serializaria
+    // a loja inteira atrás de uma conclusão.
     const assinanteId = await this.validarPin(tenantId, dto.pin);
 
     if (dto.tipo === 'nao') {
       if (!dto.motivo?.trim()) throw new BadRequestException('Informe o motivo da não conclusão.');
-      const row = await this.mudarStatus(tenantId, id, 'nao_concluida', {
-        concluidaEm: new Date(),
-        concluidaPorId: assinanteId,
-        motivo: dto.motivo.trim(),
+      const row = await this.comTrava(tenantId, id, escopoUnidadeId, async (tx, o) => {
+        if (this.encerrada(o)) throw new BadRequestException('Ordem já encerrada.');
+        return this.mudarStatus(
+          tenantId,
+          id,
+          'nao_concluida',
+          {
+            concluidaEm: new Date(),
+            concluidaPorId: assinanteId,
+            motivo: dto.motivo!.trim(),
+          },
+          tx,
+        );
       });
       await this.auditar(tenantId, assinanteId, id, 'nao_concluida', { motivo: dto.motivo });
       return { ...row, estoque: null };
     }
 
-    const planejada = Number(o.quantidadePlanejada) || 0;
-    const real =
-      dto.tipo === 'total'
-        ? planejada
-        : Number(dto.quantidadeProduzida);
-    if (!(real > 0)) throw new BadRequestException('Informe a quantidade produzida.');
-    if (dto.tipo === 'parcial' && real >= planejada)
-      throw new BadRequestException('Parcial deve ser menor que o planejado. Use "total".');
+    // Baixa de insumos e encerramento da ordem no MESMO commit, com a linha travada:
+    // duas conclusões simultâneas não passam mais as duas pela guarda de status.
+    const { row, estoque, planejada, real, novoStatus } = await this.comTrava(
+      tenantId,
+      id,
+      escopoUnidadeId,
+      async (tx, o) => {
+        if (this.encerrada(o)) throw new BadRequestException('Ordem já encerrada.');
 
-    // Converte porções → múltiplo da ficha e dispara a execução real.
-    const [ficha] = await this.db
-      .select()
-      .from(fichaTecnica)
-      .where(eq(fichaTecnica.id, o.fichaId));
-    const mult = this.multiplicadorFicha(ficha, real);
-    const refId = o.refId ?? undefined;
-    const estoque = await this.producao.produzir(tenantId, assinanteId, 'colaborador', {
-      fichaId: o.fichaId,
-      quantidade: mult,
-      itemSaidaId: o.itemSaidaId ?? undefined,
-      refId,
-    } as any);
+        const planejada = Number(o.quantidadePlanejada) || 0;
+        const real = dto.tipo === 'total' ? planejada : Number(dto.quantidadeProduzida);
+        if (!(real > 0)) throw new BadRequestException('Informe a quantidade produzida.');
+        if (dto.tipo === 'parcial' && real >= planejada)
+          throw new BadRequestException('Parcial deve ser menor que o planejado. Use "total".');
 
-    const novoStatus = dto.tipo === 'total' ? 'concluida_total' : 'concluida_parcial';
-    const row = await this.mudarStatus(tenantId, id, novoStatus, {
-      quantidadeProduzida: String(real),
-      concluidaEm: new Date(),
-      concluidaPorId: assinanteId,
-      refId: estoque?.refId ?? refId ?? null,
-    });
+        // Converte a quantidade da ordem -> unidade de rendimento e executa.
+        const [ficha] = await tx
+          .select()
+          .from(fichaTecnica)
+          .where(and(eq(fichaTecnica.id, o.fichaId), eq(fichaTecnica.tenantId, tenantId)));
+        if (!ficha) throw new NotFoundException('Ficha técnica não encontrada.');
+        const mult = this.multiplicadorFicha(ficha, real);
+
+        // Idempotência (mig 024, índice único por ref): a ordem É a referência. Antes
+        // `refId` nunca era gravado na criação, então o produzir() sorteava um UUID novo
+        // a cada chamada e o índice nunca via duplicata — a trava do banco não existia.
+        const refId = o.refId ?? o.id;
+        const estoque = await this.producao.produzir(
+          tenantId,
+          assinanteId,
+          'colaborador',
+          {
+            fichaId: o.fichaId,
+            quantidade: mult,
+            itemSaidaId: o.itemSaidaId ?? undefined,
+            refId,
+          } as any,
+          tx,
+        );
+
+        const novoStatus = dto.tipo === 'total' ? 'concluida_total' : 'concluida_parcial';
+        const row = await this.mudarStatus(
+          tenantId,
+          id,
+          novoStatus,
+          {
+            quantidadeProduzida: String(real),
+            concluidaEm: new Date(),
+            concluidaPorId: assinanteId,
+            refId: estoque?.refId ?? refId,
+          },
+          tx,
+        );
+        return { row, estoque, planejada, real, novoStatus };
+      },
+    );
+
     await this.auditar(tenantId, assinanteId, id, novoStatus, {
       planejada,
       produzida: real,
@@ -332,13 +445,29 @@ export class OrdemProducaoService {
     return { ...row, estoque };
   }
 
-  async cancelar(tenantId: string, atorId: string, id: string, motivo?: string) {
-    const o = await this.carregar(tenantId, id);
-    if (o.status.startsWith('conclu')) throw new BadRequestException('Ordem concluída não é cancelada.');
-    const row = await this.mudarStatus(tenantId, id, 'cancelada', {
-      motivo: motivo?.trim() || 'cancelada',
-      concluidaEm: new Date(),
-      concluidaPorId: atorId ?? null,
+  async cancelar(
+    tenantId: string,
+    atorId: string,
+    id: string,
+    motivo?: string,
+    escopoUnidadeId: string | null = null,
+  ) {
+    // Sob trava: cancelar e concluir ao mesmo tempo baixava o estoque de uma ordem
+    // que terminava cancelada.
+    const row = await this.comTrava(tenantId, id, escopoUnidadeId, async (tx, o) => {
+      if (o.status.startsWith('conclu'))
+        throw new BadRequestException('Ordem concluída não é cancelada.');
+      return this.mudarStatus(
+        tenantId,
+        id,
+        'cancelada',
+        {
+          motivo: motivo?.trim() || 'cancelada',
+          concluidaEm: new Date(),
+          concluidaPorId: atorId ?? null,
+        },
+        tx,
+      );
     });
     await this.auditar(tenantId, atorId, id, 'cancelada', { motivo });
     return row;
@@ -394,7 +523,8 @@ export class OrdemProducaoService {
       })
       .returning();
     // Já gera a de hoje se se aplicar.
-    await this.gerarRecorrentes(tenantId, new Date().toISOString().slice(0, 10)).catch(() => {});
+    // Data no fuso da loja: às 21h em SP o UTC já é amanhã e a ordem de hoje não nascia.
+    await this.gerarRecorrentes(tenantId, hojeISO()).catch(() => {});
     return def;
   }
 
@@ -444,14 +574,21 @@ export class OrdemProducaoService {
   }
 
   // ── Fase 3 — Relatório planejado × produzido (onde a quebra aparece) ──────────
-  async relatorio(tenantId: string, de?: string, ate?: string) {
-    const cond = [
+  async relatorio(
+    tenantId: string,
+    de?: string,
+    ate?: string,
+    escopoUnidadeId: string | null = null,
+  ) {
+    const cond: any[] = [
       eq(ordemProducao.tenantId, tenantId),
       isNull(ordemProducao.deletedAt),
       inArray(ordemProducao.status, ['concluida_total', 'concluida_parcial']),
     ];
     if (de) cond.push(gte(ordemProducao.dataProducao, de));
     if (ate) cond.push(lte(ordemProducao.dataProducao, ate));
+    const escRel = this.escopoUnidade(escopoUnidadeId);
+    if (escRel) cond.push(escRel);
     const rows = await this.db
       .select({
         id: ordemProducao.id,
@@ -489,7 +626,7 @@ export class OrdemProducaoService {
   // Job diário: ordens em aguardando_lancamento cuja data prevista passou de 1 dia
   // viram pendencia_critica (sobem no painel do gerente/C&O; exigem desfecho).
   async promoverPendenciasCriticas() {
-    const corte = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const corte = dataNoFuso(new Date(Date.now() - 24 * 3600 * 1000));
     const rows = await this.db
       .update(ordemProducao)
       .set({ status: 'pendencia_critica', updatedAt: new Date() })
