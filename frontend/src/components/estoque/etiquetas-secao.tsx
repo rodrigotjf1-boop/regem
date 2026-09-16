@@ -181,7 +181,11 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
 function Ativas({ lista, onChange }: { lista: any[]; onChange: () => void }) {
   const [codigo, setCodigo] = useState('');
   const ativas = lista.filter((e) => e.status === 'fechado' || e.status === 'em_uso');
-  const vencidas = lista.filter((e) => e.vencida && e.status !== 'baixado');
+  // Só a etiqueta VIVA oferece "usei"/"perda". Antes a lista incluía as já `vencido`
+  // (que já tinham virado perda), e o botão estava lá para gerar a segunda.
+  const vencidas = lista.filter((e) => e.vencida && (e.status === 'fechado' || e.status === 'em_uso'));
+  const [perdendo, setPerdendo] = useState<string | null>(null);
+  const [qtdPerda, setQtdPerda] = useState('');
 
   async function ler(e: React.FormEvent) {
     e.preventDefault();
@@ -193,6 +197,27 @@ function Ativas({ lista, onChange }: { lista: any[]; onChange: () => void }) {
       onChange();
     } catch (err: any) {
       toast.error(err?.message || 'Código não encontrado.');
+    }
+  }
+
+  // A etiqueta não sabe quanto representa (um pote de 500 g ou de 2 kg): quem registra
+  // a perda informa. Com quantidade, a perda baixa o estoque pelo mesmo caminho do
+  // desperdício manual; sem ela, fica só o registro — e a pessoa é avisada disso.
+  async function confirmarPerda(e: any) {
+    const q = qtdPerda.trim() ? Number(qtdPerda.replace(',', '.')) : undefined;
+    if (q !== undefined && !(q > 0)) return toast.error('Informe uma quantidade maior que zero, ou deixe em branco.');
+    try {
+      const r: any = await api.perdaEtiqueta(e.id, q);
+      toast.success(
+        r?.baixouEstoque
+          ? `Perda registrada e ${q} ${e.unidadeMedida ?? ''} baixado(s) do estoque.`
+          : 'Perda registrada sem baixa de estoque (sem quantidade informada).',
+      );
+      setPerdendo(null);
+      setQtdPerda('');
+      onChange();
+    } catch (err: any) {
+      toast.error(err?.message || 'Falha ao registrar a perda.');
     }
   }
 
@@ -224,8 +249,40 @@ function Ativas({ lista, onChange }: { lista: any[]; onChange: () => void }) {
                 <span className="min-w-0 truncate">{e.descricao} · venceu {brDate(e.validade)}</span>
                 <span className="flex gap-1.5">
                   <button className="text-xs font-semibold text-ok" onClick={() => acao(() => api.finalizarEtiqueta(e.id), 'Finalizado (usado).')}>usei → finalizar</button>
-                  <button className="text-xs font-semibold text-danger" onClick={() => acao(() => api.perdaEtiqueta(e.id), 'Registrado como perda.')}>venceu → perda</button>
+                  <button
+                    className="text-xs font-semibold text-danger"
+                    aria-expanded={perdendo === e.id}
+                    onClick={() => { setPerdendo(perdendo === e.id ? null : e.id); setQtdPerda(''); }}
+                  >
+                    venceu → perda
+                  </button>
                 </span>
+                {perdendo === e.id && (
+                  <div className="flex w-full flex-wrap items-center gap-2 rounded-md bg-card p-2">
+                    {e.itemId ? (
+                      <label className="flex items-center gap-1.5 text-xs">
+                        Quanto foi perdido?
+                        <Input
+                          type="number"
+                          inputMode="decimal"
+                          className="h-8 w-24"
+                          value={qtdPerda}
+                          placeholder="opcional"
+                          aria-label={`Quantidade perdida de ${e.descricao}`}
+                          onChange={(ev) => setQtdPerda(ev.target.value)}
+                        />
+                        <span className="text-muted-foreground">{e.unidadeMedida ?? ''}</span>
+                      </label>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Etiqueta sem insumo vinculado: a perda fica registrada, sem baixa de estoque.
+                      </span>
+                    )}
+                    <Button type="button" size="sm" variant="outline" className="h-8 text-danger" onClick={() => confirmarPerda(e)}>
+                      Confirmar perda
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

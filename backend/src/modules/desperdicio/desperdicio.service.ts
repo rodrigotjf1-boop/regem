@@ -9,19 +9,29 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { consumirLotes } from '../../common/lotes';
 import { desperdicio, itemEstoque, movimentoEstoque } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
-import { condUnidade } from '../../common/filtro-unidade';
+import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
 
 @Injectable()
 export class DesperdicioService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
-  async create(tenantId: string, dto: CreateDesperdicioDto, atual: string | null = null) {
+  // `txExterna`: quem já está numa transação (a perda de etiqueta trava a linha e
+  // muda o status no mesmo commit) passa a dela. Sem isto o desperdício commitaria
+  // sozinho e uma falha logo depois deixaria perda registrada com etiqueta aberta —
+  // mesmo motivo do `produzir(…, txExterna)` da ordem de produção.
+  async create(
+    tenantId: string,
+    dto: CreateDesperdicioDto,
+    atual: string | null = null,
+    txExterna?: any,
+  ) {
+    const db: any = txExterna ?? this.db;
     // Desperdício vinculado a item baixa o estoque de verdade (movimento saída
     // motivo 'desperdicio') ao custo médio, e é valorizado por custo_unitario.
     // Sem item, permanece apenas um log textual (comportamento antigo).
     if (!dto.itemId) {
-      const [row] = await this.db
+      const [row] = await db
         .insert(desperdicio)
         .values({
           tenantId,
@@ -45,7 +55,7 @@ export class DesperdicioService {
         'Informe a quantidade para desperdício vinculado a item.',
       );
     }
-    const [item] = await this.db
+    const [item] = await db
       .select({
         id: itemEstoque.id,
         custoMedio: itemEstoque.custoMedio,
@@ -56,13 +66,16 @@ export class DesperdicioService {
         and(
           eq(itemEstoque.id, dto.itemId),
           eq(itemEstoque.tenantId, tenantId),
-          condUnidade(itemEstoque.unidadeId, atual),
+          // Insumo da loja OU da rede (unidade nula) — a mesma regra do recebimento
+          // e dos lotes. Com `= atual` estrito, o insumo de rede (a maioria em quem
+          // nunca separou catálogo por filial) dava 404 para o usuário de loja.
+          condUnidadeOuRede(itemEstoque.unidadeId, atual),
           isNull(itemEstoque.deletedAt),
         ),
       );
     if (!item) throw new NotFoundException('Item de estoque não encontrado.');
 
-    return this.db.transaction(async (tx) => {
+    const corpo = async (tx: any) => {
       const [row] = await tx
         .insert(desperdicio)
         .values({
@@ -99,7 +112,8 @@ export class DesperdicioService {
       // trava a perda — o registro do desperdício é o que importa.
       await consumirLotes(tx, tenantId, dto.itemId!, Number(dto.quantidade), mov.id);
       return row;
-    });
+    };
+    return txExterna ? corpo(txExterna) : this.db.transaction(corpo);
   }
 
   // Escopo RBAC: supervisor vê só o próprio setor; demais perfis veem tudo do tenant.

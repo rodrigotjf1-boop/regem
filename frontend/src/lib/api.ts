@@ -857,7 +857,8 @@ export const api = {
     req('/etiquetas-validade/buscar', { method: 'POST', body: JSON.stringify({ codigo }) }),
   abrirEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/abrir`, { method: 'POST', body: '{}' }),
   finalizarEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/finalizar`, { method: 'POST', body: '{}' }),
-  perdaEtiqueta: (id: string) => req(`/etiquetas-validade/${id}/perda`, { method: 'POST', body: '{}' }),
+  perdaEtiqueta: (id: string, quantidade?: number) =>
+    req(`/etiquetas-validade/${id}/perda`, { method: 'POST', body: JSON.stringify({ quantidade }) }),
   // Desligamento + contador (Fase 4, mig 135)
   contadores: () => req('/contadores'),
   salvarContador: (body: Record<string, unknown>) =>
