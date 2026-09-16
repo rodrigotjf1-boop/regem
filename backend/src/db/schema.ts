@@ -739,6 +739,14 @@ export const compraItem = pgTable('compra_item', {
     .references(() => itemEstoque.id, { onDelete: 'cascade' }),
   quantidade: numeric('quantidade').notNull().default('0'),
   custoUnitario: numeric('custo_unitario'),
+  // Conferência do que de fato chegou (mig 246). `qtdRecebida` null = ainda não
+  // conferida; antes o estoque entrava sempre pela quantidade PEDIDA.
+  qtdRecebida: numeric('qtd_recebida'),
+  validade: date('validade'),
+  // Escolha explícita de "não tem validade" — diferente de campo em branco.
+  validadeIndefinida: boolean('validade_indefinida').notNull().default(false),
+  loteCodigo: text('lote_codigo'), // código do lote do fabricante
+  divergencia: text('divergencia').notNull().default('ok'), // ok|parcial|nao_veio|danificado|excedente
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(), // mig 243
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(), // cursor do sync (mig 243)
 });
@@ -1112,6 +1120,13 @@ export const lote = pgTable('lote', {
     .notNull()
     .references(() => itemEstoque.id, { onDelete: 'cascade' }),
   recebimentoId: uuid('recebimento_id'),
+  // Identidade e escopo do lote (mig 246). Sem `codigo` não dá para separar
+  // mercadoria numa troca/recall sem abrir embalagem, que é a razão do lote existir.
+  compraItemId: uuid('compra_item_id'),
+  codigo: text('codigo'),
+  fornecedorId: uuid('fornecedor_id'),
+  unidadeId: uuid('unidade_id'),
+  validadeIndefinida: boolean('validade_indefinida').notNull().default(false),
   validade: date('validade'),
   quantidade: numeric('quantidade').notNull().default('0'),
   custoUnitario: numeric('custo_unitario'),
@@ -3122,6 +3137,7 @@ export const etiquetaValidade = pgTable('etiqueta_validade', {
   produtoId: uuid('produto_id'),
   fichaId: uuid('ficha_id'),
   itemId: uuid('item_id'), // insumo de origem (mig 182) — p/ recalcular validade ao abrir
+  loteId: uuid('lote_id'), // lote de origem (mig 246) — recall alcança o que já foi aberto
   substituidaPorId: uuid('substituida_por_id'), // etiqueta nova que a sobrepôs (mig 183)
   templateId: uuid('template_id'),
   descricao: text('descricao').notNull(), // snapshot do nome

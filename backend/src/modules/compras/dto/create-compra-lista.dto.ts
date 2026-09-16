@@ -33,6 +33,12 @@ export class CreateCompraListaDto {
   @IsUUID()
   fornecedorId?: string;
 
+  // Só usado por quem é REDE (sem unidade no JWT); o usuário de loja tem a dele
+  // imposta pelo servidor.
+  @IsOptional()
+  @IsUUID()
+  unidadeId?: string;
+
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'dataRecebimento deve ser YYYY-MM-DD' })
   dataRecebimento?: string;

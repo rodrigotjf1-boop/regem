@@ -13,6 +13,8 @@ import { Badge } from '@/components/ui/badge';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Linha = { itemId: string; quantidade: string; custoUnitario: string };
+// Conferência: o que de fato chegou, por linha da compra.
+type Conf = { qtdRecebida: string; validade: string; indefinida: boolean; loteCodigo: string };
 
 // Seção Compras do hub: gerar lista (produtos + quantidades, com filtro),
 // data de recebimento + delegação, e receber (entra no estoque).
@@ -31,6 +33,10 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
   const [enviarDashboard, setEnviarDashboard] = useState(true);
   const [filtro, setFiltro] = useState('');
   const [linhas, setLinhas] = useState<Record<string, Linha>>({});
+
+  // conferência (abre ao clicar em Receber)
+  const [conferindo, setConferindo] = useState<any | null>(null);
+  const [conf, setConf] = useState<Record<string, Conf>>({});
 
   const reload = useCallback(async () => {
     try {
@@ -99,14 +105,61 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
     }
   }
 
-  async function receber(id: string) {
-    if (!confirm('Confirmar recebimento? Os itens entram no estoque.')) return;
+  // Receber deixou de ser um `confirm()`: a quantidade PEDIDA entrava no estoque
+  // mesmo quando chegava outra coisa. Agora abre a conferência do que chegou.
+  async function abrirConferencia(id: string) {
     try {
-      await api.receberCompra(id);
-      toast.success('Compra recebida — estoque atualizado.');
+      const l: any = await api.compraLista(id);
+      const inicial: Record<string, Conf> = {};
+      for (const it of l.itens ?? []) {
+        inicial[it.id] = {
+          qtdRecebida: String(it.quantidade ?? ''), // parte-se do pedido; corrige quem confere
+          validade: '',
+          // Memória por insumo: como ele foi conferido da última vez. A decisão
+          // continua na tela para ser confirmada — só não se redigita.
+          indefinida: !!it.sugestao?.validadeIndefinida,
+          loteCodigo: '',
+        };
+      }
+      setConf(inicial);
+      setConferindo(l);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao abrir a conferência');
+    }
+  }
+
+  function setConfLinha(id: string, patch: Partial<Conf>) {
+    setConf((c) => ({ ...c, [id]: { ...c[id], ...patch } }));
+  }
+
+  async function confirmarConferencia() {
+    const itens = conferindo?.itens ?? [];
+    const pendente = itens.find((it: any) => {
+      const c = conf[it.id];
+      return !c || !(Number(c.qtdRecebida) >= 0) || (!c.validade && !c.indefinida);
+    });
+    if (pendente) {
+      toast.error(`Confira "${pendente.nome}": quantidade recebida e validade (ou indefinida).`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.receberCompra(conferindo.id, {
+        itens: itens.map((it: any) => ({
+          compraItemId: it.id,
+          qtdRecebida: Number(conf[it.id].qtdRecebida),
+          validade: conf[it.id].indefinida ? undefined : conf[it.id].validade,
+          validadeIndefinida: conf[it.id].indefinida || undefined,
+          loteCodigo: conf[it.id].loteCodigo.trim() || undefined,
+        })),
+      });
+      toast.success('Compra conferida e recebida — estoque atualizado.');
+      setConferindo(null);
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao receber');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -201,6 +254,88 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
         </Card>
       )}
 
+      {conferindo && (
+        <Card className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="font-display font-semibold">Conferir: {conferindo.nome}</h3>
+              <p className="text-xs text-muted-foreground">
+                Confira o que realmente chegou. Só a quantidade recebida entra no estoque.
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setConferindo(null)}>
+              Cancelar
+            </Button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <caption className="sr-only">Conferência dos itens da compra</caption>
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground">
+                  <th className="pb-1.5 pr-2 font-medium">Item</th>
+                  <th className="pb-1.5 pr-2 font-medium">Pedido</th>
+                  <th className="pb-1.5 pr-2 font-medium">Recebido *</th>
+                  <th className="pb-1.5 pr-2 font-medium">Validade *</th>
+                  <th className="pb-1.5 pr-2 font-medium">Lote</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(conferindo.itens ?? []).map((it: any) => {
+                  const c = conf[it.id];
+                  if (!c) return null;
+                  const pedida = Number(it.quantidade);
+                  const rec = Number(c.qtdRecebida);
+                  const difere = c.qtdRecebida !== '' && rec !== pedida;
+                  return (
+                    <tr key={it.id} className="border-t border-border align-top">
+                      <td className="py-2 pr-2">
+                        <span className="font-medium">{it.nome}</span>
+                        <span className="text-xs text-muted-foreground"> {it.unidadeMedida}</span>
+                      </td>
+                      <td className="py-2 pr-2 tabular-nums text-muted-foreground">{pedida}</td>
+                      <td className="py-2 pr-2">
+                        <Input type="number" inputMode="decimal" className={`h-9 w-24 ${difere ? 'border-warn' : ''}`}
+                          value={c.qtdRecebida} aria-label={`Quantidade recebida de ${it.nome}`}
+                          onChange={(e) => setConfLinha(it.id, { qtdRecebida: e.target.value })} />
+                        {difere && (
+                          <p className="mt-0.5 text-[11px] text-warn">
+                            {rec === 0 ? 'não veio' : rec < pedida ? 'veio menos' : 'veio mais'}
+                          </p>
+                        )}
+                      </td>
+                      <td className="py-2 pr-2">
+                        <Input type="date" className="h-9 w-40" value={c.validade} disabled={c.indefinida}
+                          aria-label={`Validade de ${it.nome}`}
+                          onChange={(e) => setConfLinha(it.id, { validade: e.target.value })} />
+                        <label className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={c.indefinida}
+                            onChange={(e) => setConfLinha(it.id, { indefinida: e.target.checked, validade: '' })} />
+                          sem validade
+                        </label>
+                      </td>
+                      <td className="py-2 pr-2">
+                        <Input className="h-9 w-32" value={c.loteCodigo} placeholder="opcional"
+                          aria-label={`Código do lote de ${it.nome}`}
+                          onChange={(e) => setConfLinha(it.id, { loteCodigo: e.target.value })} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-[11px] text-muted-foreground">
+            O código do lote é opcional, mas é ele que permite separar a mercadoria numa
+            troca ou num recall sem abrir embalagem.
+          </p>
+          <Button type="button" className="w-full" disabled={busy} onClick={confirmarConferencia}>
+            Confirmar recebimento
+          </Button>
+        </Card>
+      )}
+
       {listas.length === 0 && !novo && (
         <Card className="p-6 text-center text-sm text-muted-foreground">Nenhuma lista de compras.</Card>
       )}
@@ -222,7 +357,7 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
           </div>
           <div className="flex items-center gap-1.5">
             {l.status !== 'recebida' && (
-              <Button size="sm" onClick={() => receber(l.id)}>Receber</Button>
+              <Button size="sm" onClick={() => abrirConferencia(l.id)}>Conferir e receber</Button>
             )}
             <Button type="button" variant="ghost" size="icon" aria-label="Remover lista" className="text-destructive"
               onClick={async () => { if (confirm('Remover esta lista?')) { await api.removerCompraLista(l.id); reload(); } }}>

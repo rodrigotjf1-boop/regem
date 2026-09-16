@@ -581,8 +581,9 @@ export const api = {
     req('/compras/listas', { method: 'POST', body: JSON.stringify(body) }),
   removerCompraLista: (id: string) =>
     req(`/compras/listas/${id}`, { method: 'DELETE' }),
-  receberCompra: (id: string) =>
-    req(`/compras/listas/${id}/receber`, { method: 'POST', body: '{}' }),
+  receberCompra: (id: string, body: unknown) =>
+    req(`/compras/listas/${id}/receber`, { method: 'POST', body: JSON.stringify(body) }),
+  compraLista: (id: string) => req(`/compras/listas/${id}`),
   diasEspeciais: (de?: string, ate?: string) => {
     const p = new URLSearchParams();
     if (de) p.set('de', de);
