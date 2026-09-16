@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { dataNoFuso, hojeISO } from '../../common/data';
 import { MidiaService } from '../midia/midia.service';
 import { EstoqueService } from '../estoque/estoque.service';
 import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
@@ -106,6 +107,22 @@ export class JobsService {
     }
   }
 
+  // Para quem calcular o alerta de estoque (auditoria #45, mig 249).
+  //  • Rede de UMA loja (ou nenhuma cadastrada): um alerta só, de unidade nula — igual
+  //    a antes. O `UnidadeUnicaInterceptor` zera o filtro nesses tenants, então a tela
+  //    enxerga o alerta de qualquer jeito.
+  //  • Rede de VÁRIAS lojas: um alerta POR LOJA, calculado com o MESMO escopo da tela
+  //    que aquela loja já usa. Antes o alerta era do tenant inteiro e gravado sem
+  //    unidade: a loja não via nada, e a correção óbvia (mostrar o de rede) exporia a
+  //    lista de insumos das outras lojas.
+  private async alvosDeAlerta(tenantId: string): Promise<(string | null)[]> {
+    const r: any = await this.db.execute(
+      sql`select id from unidade where tenant_id = ${tenantId} and deleted_at is null order by id`,
+    );
+    const ids = (r.rows ?? r).map((x: any) => x.id as string);
+    return ids.length > 1 ? ids : [null];
+  }
+
   private async tenantsAtivos(): Promise<string[]> {
     const r: any = await this.db.execute(
       sql`select id from empresa where deleted_at is null`,
@@ -188,24 +205,34 @@ export class JobsService {
   // §1.4 — Ponto de pedido: alerta os itens no/abaixo do ROP (por tenant, em tempo real).
   @Cron('0 6 * * *') // 06:00
   async pontoDePedido() {
-    const hoje = new Date().toISOString().slice(0, 10);
-    const ini = new Date(Date.now() - 27 * 86400000).toISOString().slice(0, 10); // janela 28d
+    // Fuso da operação (common/data). `toISOString()` dava o dia certo só porque o job
+    // roda às 06:00; era a mesma armadilha das seis cópias de `hojeISO`.
+    const hoje = hojeISO();
+    const ini = dataNoFuso(new Date(Date.now() - 27 * 86400000)); // janela 28d
     for (const tenantId of await this.tenantsAtivos()) {
-      const { itens } = await this.estoque.inteligencia(tenantId, ini, hoje);
-      const repor = itens.filter((i: any) => i.repor);
-      if (!repor.length) {
-        await this.estoque.resolverAlertasSistema(tenantId, 'ponto_pedido');
-        continue;
+      const alvos = await this.alvosDeAlerta(tenantId);
+      // Virou multi-loja: o alerta antigo, de unidade nula e calculado sobre todas as
+      // lojas, é substituído pelos por loja — senão ficaria aberto para sempre.
+      if (alvos[0] !== null) await this.estoque.resolverAlertasSistema(tenantId, 'ponto_pedido', null);
+
+      for (const unidadeId of alvos) {
+        const { itens } = await this.estoque.inteligencia(tenantId, ini, hoje, true, unidadeId);
+        const repor = itens.filter((i: any) => i.repor);
+        if (!repor.length) {
+          await this.estoque.resolverAlertasSistema(tenantId, 'ponto_pedido', unidadeId);
+          continue;
+        }
+        const titulo = `${repor.length} item(ns) no ponto de pedido`;
+        const detalhe = repor.slice(0, 6).map((i: any) => i.nome).join(', ');
+        await this.estoque.registrarAlerta(tenantId, 'ponto_pedido', {
+          titulo,
+          detalhe,
+          prioridade: 'alta',
+          unidadeId,
+        });
+        this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade: 'alta' });
+        this.log.log(`ROP tenant ${tenantId}${unidadeId ? ` loja ${unidadeId}` : ''}: ${repor.length} item(ns) a repor`);
       }
-      const titulo = `${repor.length} item(ns) no ponto de pedido`;
-      const detalhe = repor.slice(0, 6).map((i: any) => i.nome).join(', ');
-      await this.estoque.registrarAlerta(tenantId, 'ponto_pedido', {
-        titulo,
-        detalhe,
-        prioridade: 'alta',
-      });
-      this.events.emit('kds.alerta.sistema', { tenantId, titulo, detalhe, prioridade: 'alta' });
-      this.log.log(`ROP tenant ${tenantId}: ${repor.length} item(ns) a repor`);
     }
   }
 
@@ -227,21 +254,26 @@ export class JobsService {
   @Cron('10 6 * * *') // 06:10
   async validadesFefo() {
     for (const tenantId of await this.tenantsAtivos()) {
-      const lotes = await this.estoque.validades(tenantId);
-      const criticos = lotes.filter(
-        (l: any) => l.status === 'vencido' || l.status === 'critico',
-      );
-      if (!criticos.length) {
-        await this.estoque.resolverAlertasSistema(tenantId, 'validade');
-        continue;
+      const alvos = await this.alvosDeAlerta(tenantId);
+      if (alvos[0] !== null) await this.estoque.resolverAlertasSistema(tenantId, 'validade', null);
+
+      for (const unidadeId of alvos) {
+        const lotes = await this.estoque.validades(tenantId, unidadeId);
+        const criticos = lotes.filter(
+          (l: any) => l.status === 'vencido' || l.status === 'critico',
+        );
+        if (!criticos.length) {
+          await this.estoque.resolverAlertasSistema(tenantId, 'validade', unidadeId);
+          continue;
+        }
+        const vencidos = criticos.filter((l: any) => l.status === 'vencido').length;
+        const titulo = `${criticos.length} lote(s) vencendo${vencidos ? ` · ${vencidos} vencido(s)` : ''}`;
+        const detalhe = criticos.slice(0, 6).map((l: any) => l.itemNome).join(', ');
+        const prioridade = vencidos ? 'danger' : 'alta';
+        await this.estoque.registrarAlerta(tenantId, 'validade', { titulo, detalhe, prioridade, unidadeId });
+        this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade });
+        this.log.log(`FEFO tenant ${tenantId}${unidadeId ? ` loja ${unidadeId}` : ''}: ${criticos.length} lote(s) crítico(s)`);
       }
-      const vencidos = criticos.filter((l: any) => l.status === 'vencido').length;
-      const titulo = `${criticos.length} lote(s) vencendo${vencidos ? ` · ${vencidos} vencido(s)` : ''}`;
-      const detalhe = criticos.slice(0, 6).map((l: any) => l.itemNome).join(', ');
-      const prioridade = vencidos ? 'danger' : 'alta';
-      await this.estoque.registrarAlerta(tenantId, 'validade', { titulo, detalhe, prioridade });
-      this.events.emit('kds.alerta.sistema', { tenantId, titulo, detalhe, prioridade });
-      this.log.log(`FEFO tenant ${tenantId}: ${criticos.length} lote(s) crítico(s)`);
     }
   }
 }

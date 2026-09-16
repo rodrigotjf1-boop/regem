@@ -159,13 +159,18 @@ export class RealtimeGateway
   @OnEvent('kds.alerta.sistema')
   onAlertaSistema(p: {
     tenantId: string;
+    unidadeId?: string | null;
     titulo: string;
     detalhe?: string;
     prioridade?: string;
     duracaoSeg?: number; // quanto tempo fica no rodapé do KDS (motor de alertas, Fase B)
   }) {
     if (!this.server) return;
-    this.server.to(`tenant:${p.tenantId}`).emit('kds:alerta', {
+    // Alerta de LOJA vai só para a sala da loja (mig 249). Na sala do tenant, o KDS de
+    // todas as lojas tocaria o alerta de uma — com a lista de insumos dela. Sem unidade
+    // (loja única, e os demais emissores deste evento), segue para o tenant como antes.
+    const sala = p.unidadeId ? `unidade:${p.unidadeId}` : `tenant:${p.tenantId}`;
+    this.server.to(sala).emit('kds:alerta', {
       id: randomUUID(),
       titulo: p.titulo,
       detalhe: p.detalhe ?? '',

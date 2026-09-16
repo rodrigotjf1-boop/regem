@@ -28,20 +28,24 @@ export class ComprasController {
 
   @Get('listas')
   @RequirePerm('estoque', 'ver')
-  listListas(@CurrentUser() user: AuthUser) {
-    return this.service.listListas(user.tenantId);
+  listListas(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.listListas(user.tenantId, atual);
   }
 
   @Get('sugestao')
   @RequirePerm('estoque', 'ver')
-  sugerir(@CurrentUser() user: AuthUser) {
-    return this.service.sugerir(user.tenantId);
+  sugerir(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.sugerir(user.tenantId, atual);
   }
 
   @Get('listas/:id')
   @RequirePerm('estoque', 'ver')
-  getLista(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.getLista(user.tenantId, id);
+  getLista(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id') id: string,
+  ) {
+    return this.service.getLista(user.tenantId, id, atual);
   }
 
   @Post('listas')
@@ -58,17 +62,22 @@ export class ComprasController {
   @Delete('listas/:id')
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('estoque', 'excluir')
-  removerLista(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.service.removerLista(user.tenantId, id);
+  removerLista(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
+    @Param('id') id: string,
+  ) {
+    return this.service.removerLista(user.tenantId, id, atual);
   }
 
   @Post('listas/:id/receber')
   @RequirePerm('estoque', 'editar')
   receber(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Param('id') id: string,
     @Body() dto: ReceberCompraDto,
   ) {
-    return this.service.receber(user.tenantId, id, user.colaboradorId, dto);
+    return this.service.receber(user.tenantId, id, user.colaboradorId, dto, atual);
   }
 }

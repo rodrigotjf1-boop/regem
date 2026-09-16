@@ -20,6 +20,7 @@ import {
   colaborador,
 } from '../../db/schema';
 import { custoMedioPonderado } from '../../common/regras-negocio';
+import { condUnidadeOuRede, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto, ConferenciaItemDto } from './dto/receber-compra.dto';
@@ -52,30 +53,6 @@ export class ComprasService {
     dto: CreateCompraListaDto,
     escopoUnidadeId: string | null = null,
   ) {
-    const ids = dto.itens.map((i) => i.itemId);
-    const validos = new Set(
-      (
-        await this.db
-          .select({ id: itemEstoque.id })
-          .from(itemEstoque)
-          .where(
-            and(
-              eq(itemEstoque.tenantId, tenantId),
-              inArray(itemEstoque.id, ids),
-              isNull(itemEstoque.deletedAt),
-            ),
-          )
-      ).map((i) => i.id),
-    );
-    // Antes, item inválido era DESCARTADO em silêncio (`filter`) e a lista saía menor
-    // do que o comprador montou: ele não compra o que sumiu e ninguém sabe por quê.
-    const invalidos = dto.itens.filter((i) => !validos.has(i.itemId));
-    if (invalidos.length)
-      throw new BadRequestException(
-        `${invalidos.length} item(ns) não pertencem a esta empresa ou não existem mais.`,
-      );
-    const linhas = dto.itens;
-
     // Unidade da lista: a do usuário vence o corpo; a informada pela rede é conferida
     // contra o tenant. Sem isso a lista nascia sem loja — e o LOTE criado no
     // recebimento herdava essa ausência, ficando fora do escopo de qualquer filial.
@@ -88,6 +65,33 @@ export class ComprasService {
       if (!u) throw new BadRequestException('Unidade inválida.');
       unidadeIdLista = u.id;
     }
+
+    const ids = dto.itens.map((i) => i.itemId);
+    const validos = new Set(
+      (
+        await this.db
+          .select({ id: itemEstoque.id })
+          .from(itemEstoque)
+          .where(
+            and(
+              eq(itemEstoque.tenantId, tenantId),
+              inArray(itemEstoque.id, ids),
+              isNull(itemEstoque.deletedAt),
+              // Insumo da loja da lista OU da rede — não de outra filial.
+              condUnidadeOuRede(itemEstoque.unidadeId, unidadeIdLista),
+            ),
+          )
+      ).map((i) => i.id),
+    );
+    // Antes, item inválido era DESCARTADO em silêncio (`filter`) e a lista saía menor
+    // do que o comprador montou: ele não compra o que sumiu e ninguém sabe por quê.
+    const invalidos = dto.itens.filter((i) => !validos.has(i.itemId));
+    if (invalidos.length)
+      throw new BadRequestException(
+        `${invalidos.length} item(ns) não pertencem a esta loja ou não existem mais.`,
+      );
+    const linhas = dto.itens;
+
 
     const [lista] = await this.db
       .insert(compraLista)
@@ -115,7 +119,7 @@ export class ComprasService {
     return { ...lista, itens: linhas.length };
   }
 
-  async listListas(tenantId: string) {
+  async listListas(tenantId: string, atual: string | null = null) {
     const listas = await this.db
       .select({
         id: compraLista.id,
@@ -129,7 +133,9 @@ export class ComprasService {
       .from(compraLista)
       .leftJoin(fornecedor, eq(compraLista.fornecedorId, fornecedor.id))
       .leftJoin(colaborador, eq(compraLista.delegadoId, colaborador.id))
-      .where(and(eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt)))
+      // Escopo por loja (auditoria #6/#33): antes a lista da Filial A aparecia — e podia
+      // ser removida — na tela da Filial B.
+      .where(and(eq(compraLista.tenantId, tenantId), isNull(compraLista.deletedAt), condUnidadeOuRede(compraLista.unidadeId, atual)))
       .orderBy(desc(compraLista.createdAt));
     const ids = listas.map((l) => l.id);
     const cnt = ids.length
@@ -143,7 +149,7 @@ export class ComprasService {
     return listas.map((l) => ({ ...l, itens: nItens.get(l.id) ?? 0 }));
   }
 
-  async getLista(tenantId: string, id: string) {
+  async getLista(tenantId: string, id: string, atual: string | null = null) {
     const [lista] = await this.db
       .select()
       .from(compraLista)
@@ -152,6 +158,7 @@ export class ComprasService {
           eq(compraLista.id, id),
           eq(compraLista.tenantId, tenantId),
           isNull(compraLista.deletedAt),
+          condUnidadeOuRede(compraLista.unidadeId, atual),
         ),
       );
     if (!lista) throw new NotFoundException('Lista não encontrada');
@@ -209,7 +216,7 @@ export class ComprasService {
   }
 
   // Sugestão: itens abaixo do mínimo, com quantidade sugerida (mínimo − saldo).
-  async sugerir(tenantId: string) {
+  async sugerir(tenantId: string, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
       select i.id as "itemId", i.nome, i.unidade_medida as "unidadeMedida",
              i.estoque_minimo as "estoqueMinimo",
@@ -217,7 +224,10 @@ export class ComprasService {
                when 'saida' then -m.quantidade else m.quantidade end), 0) as saldo
       from item_estoque i
       left join movimento_estoque m on m.item_id = i.id
-      where i.tenant_id = ${tenantId} and i.deleted_at is null
+      -- Insumo da loja ou da rede. Antes vinha o do tenant INTEIRO, sem rótulo de loja:
+      -- dois "Farinha de trigo", um de cada filial, e o gerente marcava o da outra — o
+      -- recebimento dava entrada e reescrevia o custo médio no estoque que não era dele.
+      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
       group by i.id
       order by i.nome
     `);
@@ -230,7 +240,7 @@ export class ComprasService {
       .filter((r: any) => r.sugerido > 0);
   }
 
-  async removerLista(tenantId: string, id: string) {
+  async removerLista(tenantId: string, id: string, atual: string | null = null) {
     const [row] = await this.db
       .update(compraLista)
       .set({ deletedAt: new Date() })
@@ -239,6 +249,7 @@ export class ComprasService {
           eq(compraLista.id, id),
           eq(compraLista.tenantId, tenantId),
           isNull(compraLista.deletedAt),
+          condUnidadeOuRede(compraLista.unidadeId, atual),
         ),
       )
       .returning();
@@ -270,6 +281,7 @@ export class ComprasService {
     id: string,
     atorId?: string | null,
     dto?: ReceberCompraDto,
+    atual: string | null = null,
   ) {
     // TUDO numa transação: antes, cada insert ia solto. Falha no meio do laço deixava
     // parte dos itens no estoque com a lista ainda "pendente" — e o operador clicava de
@@ -284,6 +296,7 @@ export class ComprasService {
             eq(compraLista.id, id),
             eq(compraLista.tenantId, tenantId),
             isNull(compraLista.deletedAt),
+            condUnidadeOuRede(compraLista.unidadeId, atual),
           ),
         )
         .for('update');
