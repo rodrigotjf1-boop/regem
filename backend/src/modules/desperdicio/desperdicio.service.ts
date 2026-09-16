@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull, desc } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { consumirLotes } from '../../common/lotes';
 import { desperdicio, itemEstoque, movimentoEstoque } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { condUnidade } from '../../common/filtro-unidade';
@@ -80,17 +81,23 @@ export class DesperdicioService {
         })
         .returning();
 
-      await tx.insert(movimentoEstoque).values({
-        tenantId,
-        itemId: dto.itemId!,
-        tipo: 'saida',
-        quantidade: String(dto.quantidade),
-        custoUnitario: item.custoMedio,
-        motivo: 'desperdicio',
-        refTipo: 'desperdicio',
-        refId: row.id,
-        data: dto.data ?? undefined,
-      });
+      const [mov] = await tx
+        .insert(movimentoEstoque)
+        .values({
+          tenantId,
+          itemId: dto.itemId!,
+          tipo: 'saida',
+          quantidade: String(dto.quantidade),
+          custoUnitario: item.custoMedio,
+          motivo: 'desperdicio',
+          refTipo: 'desperdicio',
+          refId: row.id,
+          data: dto.data ?? undefined,
+        })
+        .returning({ id: movimentoEstoque.id });
+      // PVPS/FEFO (mig 248): tira do lote que vence primeiro. Sobra sem lote não
+      // trava a perda — o registro do desperdício é o que importa.
+      await consumirLotes(tx, tenantId, dto.itemId!, Number(dto.quantidade), mov.id);
       return row;
     });
   }

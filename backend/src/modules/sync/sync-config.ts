@@ -107,6 +107,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // movimento_estoque e lancamento_caixa TAMBÉM DESCEM (espelho — ver TABELAS_PULL_APPEND),
   // mas continuam 'sobe' aqui p/ o push tratar como append puro (do-nothing, imutáveis).
   { tabela: 'movimento_estoque', direcao: 'sobe', cursor: 'created_at' },
+  // De qual lote saiu cada baixa (mig 248). Append-only como o ledger, e pela MESMA
+  // razão: o saldo do lote é a soma destas linhas, não um campo mutável que o LWW
+  // sobrescreveria perdendo baixa concorrente.
+  { tabela: 'movimento_lote', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'ponto_marcacao', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'audit_log', direcao: 'sobe', cursor: 'created_at' },
@@ -139,6 +143,7 @@ export const TABELAS_SYNC: TabelaSync[] = [
 export const TABELAS_PULL_APPEND: TabelaSync[] = [
   { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' },
+  { tabela: 'movimento_lote', direcao: 'desce', cursor: 'created_at' },
 ];
 
 // O servidor local PUXA o que a nuvem manda pra baixo (desce/ambos) + os append-que-descem.

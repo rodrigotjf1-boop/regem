@@ -438,7 +438,8 @@ export class EstoqueService {
   }
 
   // §1.6 — Validades FEFO: lotes por vencimento com status (crítico/atenção/vencido).
-  // (Obs.: saídas ainda não decrementam lotes; usa lote.quantidade como saldo aproximado.)
+  // O saldo do lote é o que ENTROU menos o que saiu dele (mig 248), não mais o valor
+  // congelado da entrada.
   //
   // Escopo igual ao de `GET /lotes`: insumo DA LOJA ou da REDE. Com `= atual` puro, o
   // insumo de unidade nula — que é a maioria em quem nunca separou catálogo por filial —
@@ -446,13 +447,18 @@ export class EstoqueService {
   async validades(tenantId: string, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
       select l.id, l.item_id as "itemId", i.nome as "itemNome",
-             i.unidade_medida as "unidadeMedida", l.validade,
-             l.quantidade, l.custo_unitario as "custoUnitario",
+             i.unidade_medida as "unidadeMedida", l.validade, l.codigo,
+             (l.quantidade - coalesce((select sum(ml.quantidade) from movimento_lote ml where ml.lote_id = l.id), 0)) as quantidade,
+             l.custo_unitario as "custoUnitario",
              (l.validade - current_date) as "diasParaVencer"
       from lote l
       join item_estoque i on i.id = l.item_id
       where l.tenant_id = ${tenantId} and l.esgotado = false
-        and l.validade is not null and l.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
+        and l.validade is not null and l.deleted_at is null
+        -- Saldo DERIVADO (mig 248). Sem isto o alerta das 06:10 avisava "vence em 2
+        -- dias, 10 kg" de um lote já inteiramente consumido — e alerta que mente é
+        -- pior do que alerta nenhum, porque o lojista para de olhar.
+        and (l.quantidade - coalesce((select sum(ml.quantidade) from movimento_lote ml where ml.lote_id = l.id), 0)) > 0 ${sqlUnidadeOuRede('i.unidade_id', atual)}
       order by l.validade asc
     `);
     const rows = res.rows ?? res;
@@ -463,6 +469,7 @@ export class EstoqueService {
         id: r.id,
         itemId: r.itemId,
         itemNome: r.itemNome,
+        codigo: r.codigo ?? null,
         unidadeMedida: r.unidadeMedida,
         validade: r.validade,
         quantidade: Number(r.quantidade),

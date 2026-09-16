@@ -1139,6 +1139,21 @@ export const lote = pgTable('lote', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// De qual LOTE saiu cada baixa (mig 248). APPEND-ONLY: o saldo do lote é
+// `lote.quantidade` (o que entrou, imutável) menos a soma daqui. Positivo = consumiu,
+// negativo = devolveu (estorno). Um saldo mutável em `lote` perderia baixa concorrente
+// no LWW do sync — mesma razão pela qual o saldo do estoque é a soma do ledger.
+export const movimentoLote = pgTable('movimento_lote', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  movimentoId: uuid('movimento_id').notNull(),
+  loteId: uuid('lote_id').notNull(),
+  quantidade: numeric('quantidade').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const fichaTecnica = pgTable('ficha_tecnica', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

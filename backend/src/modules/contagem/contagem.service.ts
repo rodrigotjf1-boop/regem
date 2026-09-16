@@ -3,6 +3,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Cron } from '@nestjs/schedule';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { consumirLotes } from '../../common/lotes';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import {
   contagemLista,
@@ -343,16 +344,25 @@ export class ContagemService {
           const base = saldoNo.get(it.itemId) ?? (Number(linha.saldoSistema) || 0);
           const diff = Number(it.contado) - base;
           if (Math.abs(diff) > 1e-9) {
-            await tx.insert(movimentoEstoque).values({
-              tenantId,
-              itemId: it.itemId,
-              tipo: 'ajuste',
-              quantidade: String(diff),
-              motivo: 'contagem',
-              refTipo: 'contagem_item', // ref por LINHA da contagem
-              refId: linha.id,
-              data: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
-            });
+            const [movAj] = await tx
+              .insert(movimentoEstoque)
+              .values({
+                tenantId,
+                itemId: it.itemId,
+                tipo: 'ajuste',
+                quantidade: String(diff),
+                motivo: 'contagem',
+                refTipo: 'contagem_item', // ref por LINHA da contagem
+                refId: linha.id,
+                data: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }),
+              })
+              .returning({ id: movimentoEstoque.id });
+            // Ajuste NEGATIVO (contou menos do que o sistema tinha) sai de lote em
+            // FEFO (mig 248) — senão a perda sumiria do estoque mas o lote seguiria
+            // "cheio" alertando validade de mercadoria que não existe mais. Ajuste
+            // positivo é sobra sem origem conhecida: não inventa lote.
+            if (movAj && diff < 0)
+              await consumirLotes(tx, tenantId, it.itemId, -diff, movAj.id);
             ajustados++;
             const m = mov.get(it.itemId);
             if (m && m.n > 0) suspeitos.push({ itemId: it.itemId, movimento: m.qtd, diff, base });

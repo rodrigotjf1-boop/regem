@@ -47,6 +47,7 @@ import { VendaBalcaoDto } from './dto/venda-balcao.dto';
 import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
 import { hojeISO } from '../../common/data';
+import { consumirLotes, devolverLotes } from '../../common/lotes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -365,7 +366,7 @@ export class VendasService {
         .select({ custoMedio: itemEstoque.custoMedio })
         .from(itemEstoque)
         .where(eq(itemEstoque.id, itemId));
-      await tx
+      const [mov] = await tx
         .insert(movimentoEstoque)
         .values({
           tenantId,
@@ -381,7 +382,12 @@ export class VendasService {
         // Idempotência real: índice único parcial idx_movimento_ref
         // (tenant, ref_tipo, ref_id, item_id). Uma 2ª baixa do mesmo pedido
         // (ex.: delivery concluído duas vezes) é ignorada em vez de estourar.
-        .onConflictDoNothing();
+        .onConflictDoNothing()
+        .returning({ id: movimentoEstoque.id });
+      // PVPS/FEFO (mig 248). `mov` vazio = a baixa JÁ existia (o índice acima
+      // recusou a segunda): o consumo do lote herda essa idempotência de graça, em
+      // vez de consumir duas vezes o mesmo lote no delivery concluído em dobro.
+      if (mov) await consumirLotes(tx, tenantId, itemId, qtd, mov.id);
     }
     // Avisa o cardápio para recomputar esgotados (auto-pausa por estoque). O
     // listener recomputa do ledger; se rodar antes do commit, o próximo movimento
@@ -1499,17 +1505,24 @@ export class VendasService {
       // original permanece (o insumo realmente se perdeu) — nada a estornar.
       if (reaproveitado) {
         for (const m of saidas) {
-          await tx.insert(movimentoEstoque).values({
-            tenantId,
-            itemId: m.itemId,
-            tipo: 'entrada',
-            quantidade: m.quantidade,
-            custoUnitario: m.custoUnitario ?? undefined,
-            motivo: 'estorno',
-            refTipo: 'estorno',
-            refId: comandaId,
-            data: hojeISO(),
-          });
+          const [volta] = await tx
+            .insert(movimentoEstoque)
+            .values({
+              tenantId,
+              itemId: m.itemId,
+              tipo: 'entrada',
+              quantidade: m.quantidade,
+              custoUnitario: m.custoUnitario ?? undefined,
+              motivo: 'estorno',
+              refTipo: 'estorno',
+              refId: comandaId,
+              data: hojeISO(),
+            })
+            .returning({ id: movimentoEstoque.id });
+          // Volta para o lote de ORIGEM (mig 248). Devolver só ao estoque geral
+          // deixaria o lote consumido para sempre e o alerta de validade cego para
+          // mercadoria que voltou à prateleira.
+          if (volta) await devolverLotes(tx, tenantId, m.id, volta.id);
         }
       }
       // Registra a decisão (só quando houve baixa de fato) para relatório/auditoria.
@@ -2792,17 +2805,24 @@ export class VendasService {
         );
       if (reaproveitado) {
         for (const m of saidas) {
-          await tx.insert(movimentoEstoque).values({
-            tenantId,
-            itemId: m.itemId,
-            tipo: 'entrada',
-            quantidade: m.quantidade,
-            custoUnitario: m.custoUnitario ?? undefined,
-            motivo: 'estorno',
-            refTipo: 'estorno',
-            refId: comandaId,
-            data: hojeISO(),
-          });
+          const [volta] = await tx
+            .insert(movimentoEstoque)
+            .values({
+              tenantId,
+              itemId: m.itemId,
+              tipo: 'entrada',
+              quantidade: m.quantidade,
+              custoUnitario: m.custoUnitario ?? undefined,
+              motivo: 'estorno',
+              refTipo: 'estorno',
+              refId: comandaId,
+              data: hojeISO(),
+            })
+            .returning({ id: movimentoEstoque.id });
+          // Volta para o lote de ORIGEM (mig 248). Devolver só ao estoque geral
+          // deixaria o lote consumido para sempre e o alerta de validade cego para
+          // mercadoria que voltou à prateleira.
+          if (volta) await devolverLotes(tx, tenantId, m.id, volta.id);
         }
       }
 
