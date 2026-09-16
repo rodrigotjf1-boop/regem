@@ -22,14 +22,9 @@ import { PontoService } from './ponto.service';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
 import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
 import { CriarAjusteDto } from './dto/criar-ajuste.dto';
+import { hojeISO } from '../../common/data';
 
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
-function hojeISO() {
-  // Data "de hoje" no fuso da operação (BRT), não UTC.
-  return new Date().toLocaleDateString('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-  });
-}
 
 @Controller('ponto')
 @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)

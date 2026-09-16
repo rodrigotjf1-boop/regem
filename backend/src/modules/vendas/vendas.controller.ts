@@ -51,12 +51,11 @@ export class VendasController {
   @RequirePerm('pdv')
   previewAtacado(
     @CurrentUser() user: AuthUser,
-    @UnidadeAtual() unidadeAtual: string | null,
-    @Body() dto: { itens: { produtoId: string; quantidade: number }[]; unidadeId?: string },
+    @Body() dto: { itens: { produtoId: string; quantidade: number }[] },
   ) {
-    const unidade =
-      (user.categoria === 'presidente' ? dto.unidadeId || unidadeAtual : unidadeAtual) || null;
-    return this.service.preverEncomendaAtacado(user.tenantId, dto.itens ?? [], unidade);
+    // Sem escopo de unidade: o saldo vem do ledger do item, e o item já é de uma
+    // unidade. O escopo que existia aqui alimentava um filtro sobre coluna inexistente.
+    return this.service.preverEncomendaAtacado(user.tenantId, dto.itens ?? []);
   }
 
   // ----- Mesas (Fase F2) -----

@@ -258,7 +258,16 @@ export class DeliveryService {
       .returning();
     // Conclusão baixa o estoque e concilia o dinheiro (igual ao avanço manual).
     if (novoStatus === 'concluido' && upd.comandaId) {
-      await this.vendas.baixarEstoqueExterno(tenantId, upd.comandaId).catch(() => {});
+      await this.vendas
+        .baixarEstoqueExterno(tenantId, upd.comandaId)
+        // NUNCA engolir em silêncio: o pedido conclui de qualquer jeito (não dá para
+        // segurar a entrega por causa do estoque), mas sem o MOTIVO ninguém descobre
+        // por que o insumo não saiu — o saldo simplesmente para de bater.
+        .catch((e) =>
+          this.logger.error(
+            `baixa de estoque FALHOU no pedido ${upd.id} (comanda ${upd.comandaId}): ${e?.message ?? e}`,
+          ),
+        );
       await this.reconciliarDinheiro(tenantId, upd).catch(() => {});
     }
     this.logger.log(`reflexo ${canal} ${externalId.slice(0, 8)} → ${novoStatus}`);
@@ -1029,7 +1038,16 @@ export class DeliveryService {
       .returning();
     // Ao concluir (entrega): baixa o estoque e concilia o dinheiro na gaveta.
     if (novo === 'concluido' && row.comandaId) {
-      await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
+      await this.vendas
+        .baixarEstoqueExterno(tenantId, row.comandaId)
+        // NUNCA engolir em silêncio: o pedido conclui de qualquer jeito (não dá para
+        // segurar a entrega por causa do estoque), mas sem o MOTIVO ninguém descobre
+        // por que o insumo não saiu — o saldo simplesmente para de bater.
+        .catch((e) =>
+          this.logger.error(
+            `baixa de estoque FALHOU no pedido ${row.id} (comanda ${row.comandaId}): ${e?.message ?? e}`,
+          ),
+        );
       await this.reconciliarDinheiro(tenantId, row);
     }
     void this.flash.flashPedidos([row.id]); // push IMEDIATO p/ a nuvem (app do entregador vê em segundos)
@@ -1478,7 +1496,16 @@ export class DeliveryService {
       .returning();
     // Baixa o estoque na conclusão (idempotente por ref do movimento).
     if (row.comandaId)
-      await this.vendas.baixarEstoqueExterno(tenantId, row.comandaId).catch(() => {});
+      await this.vendas
+        .baixarEstoqueExterno(tenantId, row.comandaId)
+        // NUNCA engolir em silêncio: o pedido conclui de qualquer jeito (não dá para
+        // segurar a entrega por causa do estoque), mas sem o MOTIVO ninguém descobre
+        // por que o insumo não saiu — o saldo simplesmente para de bater.
+        .catch((e) =>
+          this.logger.error(
+            `baixa de estoque FALHOU no pedido ${row.id} (comanda ${row.comandaId}): ${e?.message ?? e}`,
+          ),
+        );
     // Aponta o lançamento da venda para o caixa do atendente, com a forma cobrada.
     if (sessaoId && row.comandaId) {
       const forma = formaCobrada || 'dinheiro';

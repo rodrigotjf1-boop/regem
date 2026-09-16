@@ -19,11 +19,9 @@ import {
   custoMedioPonderado,
 } from '../../common/regras-negocio';
 import { ProduzirDto } from './dto/produzir.dto';
+import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function hojeISO() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 @Injectable()
 export class ProducaoService {
