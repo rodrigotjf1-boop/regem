@@ -33,14 +33,16 @@ describe('nenhuma cópia local de hojeISO', () => {
   it('só existe a definição em common/data.ts', () => {
     let saida = '';
     try {
-      saida = execSync('git grep -n "function hojeISO" -- "*.ts"', { encoding: 'utf8' });
+      // `--untracked` para enxergar também uma cópia nova ainda não commitada. Sem
+      // isso o teste passa local (arquivo novo não é rastreado) e só quebra no CI.
+      saida = execSync('git grep -n --untracked "function hojeISO" -- "*.ts"', {
+        encoding: 'utf8',
+      });
     } catch {
       saida = ''; // git grep sai != 0 quando não encontra nada
     }
-    const fora = saida
-      .split('\n')
-      .filter(Boolean)
-      .filter((l) => !l.includes('common/data.ts'));
+    const permitido = /common[\/]data(\.spec)?\.ts/; // a definição real e ESTE arquivo
+    const fora = saida.split('\n').filter(Boolean).filter((l) => !permitido.test(l));
     expect(fora).toEqual([]);
   });
 
