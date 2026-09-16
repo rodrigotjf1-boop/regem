@@ -33,6 +33,7 @@ import {
   whatsappTemplate,
   edgeHeartbeat,
   produto,
+  produtoVariacao,
 } from '../../db/schema';
 import { condUnidadeOuRede } from '../../common/filtro-unidade';
 import { edgeAtivo } from '../../common/edge-ativo';
@@ -843,6 +844,30 @@ export class DeliveryService {
     const porCodigo = new Map(prods.filter((p) => p.codigo).map((p) => [p.codigo, p.id]));
     const porNome = new Map(prods.map((p) => [String(p.nome).trim().toLowerCase(), p.id]));
 
+    // VARIAÇÃO por código PDV. No marketplace cada tamanho é um SKU próprio ("Coca 500ml"
+    // x "Coca 1L"), então o código do item pode apontar para uma VARIAÇÃO, não para o
+    // produto base. Sem isto o pedido externo baixava sempre a ficha base ×1 — a de 1L
+    // consumia o mesmo que a de 500ml.
+    const codigosItens = itens.map((i: any) => i.codigo).filter(Boolean);
+    const variacoes: any[] = codigosItens.length
+      ? await this.db
+          .select({
+            id: produtoVariacao.id,
+            produtoId: produtoVariacao.produtoId,
+            codigo: produtoVariacao.codigo,
+            fatorFicha: produtoVariacao.fatorFicha,
+          })
+          .from(produtoVariacao)
+          .where(
+            and(
+              eq(produtoVariacao.tenantId, tenantId),
+              inArray(produtoVariacao.codigo, codigosItens),
+              isNull(produtoVariacao.deletedAt),
+            ),
+          )
+      : [];
+    const porCodigoVariacao = new Map(variacoes.map((v) => [String(v.codigo), v]));
+
     const PLAT: Record<string, string> = { cardapio: 'Cardápio', ifood: 'iFood', totem: 'Totem' };
     const cfg = await this.configRaw(tenantId, ped.unidadeId);
     // Retirada/consumo no local = produção do BALCÃO; entrega (courier) = DELIVERY.
@@ -857,23 +882,32 @@ export class DeliveryService {
       setorId: (cfg as any)?.setorId ?? null,
       plataforma: PLAT[ped.canal] ?? ped.canal,
       senhaPlataforma: ped.displayId ?? null,
-      itens: itens.map((it) => ({
-        produtoId:
-          it.produtoId ??
-          (it.codigo ? porCodigo.get(it.codigo) : undefined) ??
-          porNome.get(String(it.descricao).trim().toLowerCase()) ??
-          null,
-        descricao: it.descricao,
-        quantidade: Number(it.quantidade) || 1,
-        precoUnitario: Number(it.precoUnitario) || 0,
-        observacao: it.observacao ?? null,
-        // Complementos (batata/bebida) NÃO são observação — vão para o campo próprio,
-        // que o KDS mostra em dourado (não no vermelho de OBS).
-        complementosTexto: (it as any).complementos ?? null,
-        // Ids das opções escolhidas (só origem interna: cardápio/totem) → roteamento
-        // por opção/etapa no criarPedidos (Fase 1). Marketplaces não mandam nossos ids.
-        complementos: (it as any).opcaoIds ?? [],
-      })),
+      itens: itens.map((it) => {
+        const varia = it.codigo ? porCodigoVariacao.get(String(it.codigo)) : undefined;
+        return {
+          // O código do canal pode ser de uma VARIAÇÃO; nesse caso o produto é o pai dela.
+          produtoId:
+            it.produtoId ??
+            varia?.produtoId ??
+            (it.codigo ? porCodigo.get(it.codigo) : undefined) ??
+            porNome.get(String(it.descricao).trim().toLowerCase()) ??
+            null,
+          variacaoId: varia?.id ?? null,
+          descricao: it.descricao,
+          quantidade: Number(it.quantidade) || 1,
+          precoUnitario: Number(it.precoUnitario) || 0,
+          observacao: it.observacao ?? null,
+          // Complementos (batata/bebida) NÃO são observação — vão para o campo próprio,
+          // que o KDS mostra em dourado (não no vermelho de OBS).
+          complementosTexto: (it as any).complementos ?? null,
+          // Ids das opções escolhidas (só origem interna: cardápio/totem) → roteamento
+          // por opção/etapa no criarPedidos (Fase 1). Marketplaces não mandam nossos ids.
+          complementos: (it as any).opcaoIds ?? [],
+          // Adicionais do canal EXTERNO, com código PDV: é por eles que o adicional
+          // vendido no iFood/99food/Anota Aí/CW passa a baixar estoque.
+          complementosCanal: (it as any).complementosItens ?? [],
+        };
+      }),
     });
 
     const [row] = await this.db
