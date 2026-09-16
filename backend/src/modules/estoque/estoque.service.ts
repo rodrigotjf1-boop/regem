@@ -17,7 +17,7 @@ import {
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
-import { sqlUnidade, sqlUnidadeOuRede, condUnidade } from '../../common/filtro-unidade';
+import { sqlUnidade, sqlUnidadeOuRede, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
 // Ator da operação (para auditoria) — vem do @CurrentUser do controller.
@@ -583,10 +583,16 @@ export class EstoqueService {
 
   // ── Alertas de estoque (ROP/FEFO) persistidos ────────────────────────────────
   // Mantém UM alerta aberto por (tenant, tipo): atualiza o existente ou cria.
+  // Alerta de sistema é UM aberto por (empresa, LOJA, tipo) — mig 249. A chave inclui a
+  // unidade, e unidade nula é uma chave própria (rede de loja única), não um coringa.
+  private condAlertaUnidade(unidadeId: string | null | undefined) {
+    return unidadeId ? eq(alertaEstoque.unidadeId, unidadeId) : isNull(alertaEstoque.unidadeId);
+  }
+
   async registrarAlerta(
     tenantId: string,
     tipo: 'ponto_pedido' | 'validade',
-    dados: { titulo: string; detalhe?: string; prioridade?: string; unidadeId?: string },
+    dados: { titulo: string; detalhe?: string; prioridade?: string; unidadeId?: string | null },
   ) {
     const atualizado = await this.db
       .update(alertaEstoque)
@@ -600,6 +606,7 @@ export class EstoqueService {
         and(
           eq(alertaEstoque.tenantId, tenantId),
           eq(alertaEstoque.tipo, tipo),
+          this.condAlertaUnidade(dados.unidadeId),
           isNull(alertaEstoque.resolvidoEm),
         ),
       )
@@ -609,12 +616,14 @@ export class EstoqueService {
       .insert(alertaEstoque)
       .values({
         tenantId,
-        unidadeId: dados.unidadeId,
+        unidadeId: dados.unidadeId ?? null,
         tipo,
         titulo: dados.titulo,
         detalhe: dados.detalhe,
         prioridade: dados.prioridade ?? 'alta',
       })
+      // Corrida entre dois disparos do mesmo job: o índice da mig 249 barra a duplicata.
+      .onConflictDoNothing()
       .returning();
     return novo;
   }
@@ -626,7 +635,7 @@ export class EstoqueService {
       .where(
         and(
           eq(alertaEstoque.tenantId, tenantId),
-          condUnidade(alertaEstoque.unidadeId, atual),
+          condUnidadeOuRede(alertaEstoque.unidadeId, atual),
           isNull(alertaEstoque.resolvidoEm),
         ),
       )
@@ -634,7 +643,9 @@ export class EstoqueService {
   }
 
   // Auto-resolve (pelo sistema) quando a condição some — mantém a lista limpa.
-  async resolverAlertasSistema(tenantId: string, tipo: string) {
+  // Resolve o alerta DAQUELA loja. Sem a unidade na chave, a loja A que zerou as
+  // pendências fecharia também o alerta da loja B, que ainda tem.
+  async resolverAlertasSistema(tenantId: string, tipo: string, unidadeId: string | null = null) {
     await this.db
       .update(alertaEstoque)
       .set({ resolvidoEm: new Date() })
@@ -642,6 +653,7 @@ export class EstoqueService {
         and(
           eq(alertaEstoque.tenantId, tenantId),
           eq(alertaEstoque.tipo, tipo),
+          this.condAlertaUnidade(unidadeId),
           isNull(alertaEstoque.resolvidoEm),
         ),
       );
@@ -655,7 +667,7 @@ export class EstoqueService {
         and(
           eq(alertaEstoque.id, id),
           eq(alertaEstoque.tenantId, tenantId),
-          condUnidade(alertaEstoque.unidadeId, atual),
+          condUnidadeOuRede(alertaEstoque.unidadeId, atual),
         ),
       );
     return { ok: true };
