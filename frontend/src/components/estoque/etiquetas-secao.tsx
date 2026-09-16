@@ -24,13 +24,13 @@ const STATUS_LABEL: Record<string, { txt: string; cls: string }> = {
 
 export function EtiquetasSecao() {
   const [aba, setAba] = useState<'gerar' | 'ativas' | 'template'>('gerar');
-  const [fontes, setFontes] = useState<{ produtos: any[]; fichas: any[]; itens: any[] }>({ produtos: [], fichas: [], itens: [] });
+  const [fontes, setFontes] = useState<{ produtos: any[]; fichas: any[]; itens: any[]; lotes: any[] }>({ produtos: [], fichas: [], itens: [], lotes: [] });
   const [lista, setLista] = useState<any[]>([]);
   const [template, setTemplate] = useState<any>(null);
 
   const reload = useCallback(async () => {
     const [f, l, t] = await Promise.all([
-      api.etiquetaFontes().catch(() => ({ produtos: [], fichas: [], itens: [] })),
+      api.etiquetaFontes().catch(() => ({ produtos: [], fichas: [], itens: [], lotes: [] })),
       api.etiquetasValidade().catch(() => []),
       api.etiquetaTemplate().catch(() => null),
     ]);
@@ -78,12 +78,13 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
     const p = (fontes.produtos ?? []).map((x: any) => ({ ...x, key: `produto:${x.id}` }));
     const f = (fontes.fichas ?? []).map((x: any) => ({ ...x, key: `ficha:${x.id}` }));
     const it = (fontes.itens ?? []).map((x: any) => ({ ...x, key: `item:${x.id}` }));
-    return [...p, ...f, ...it];
+    const lo = (fontes.lotes ?? []).map((x: any) => ({ ...x, key: `lote:${x.id}` }));
+    return [...p, ...f, ...it, ...lo];
   }, [fontes]);
 
   async function gerar(e: React.FormEvent) {
     e.preventDefault();
-    if (!fonteKey) return toast.error('Escolha o produto, ficha ou insumo.');
+    if (!fonteKey) return toast.error('Escolha o produto, ficha, insumo ou lote.');
     const [tipo, id] = fonteKey.split(':');
     setBusy(true);
     try {
@@ -91,6 +92,7 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
         produtoId: tipo === 'produto' ? id : undefined,
         fichaId: tipo === 'ficha' ? id : undefined,
         itemId: tipo === 'item' ? id : undefined,
+        loteId: tipo === 'lote' ? id : undefined,
         tipoUso,
         quantidade: Number(quantidade) || 1,
         fabricacao,
@@ -107,7 +109,7 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
   if (opcoes.length === 0)
     return (
       <Card className="p-6 text-center text-sm text-muted-foreground">
-        Nenhuma fonte com validade. Ative “Controla validade” num produto, informe a validade numa ficha ou cadastre a validade num insumo.
+        Nenhuma fonte com validade. Ative “Controla validade” num produto, informe a validade numa ficha, cadastre a validade num insumo — ou confira uma compra, que cada lote recebido vira uma fonte aqui.
       </Card>
     );
 
@@ -115,7 +117,7 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
     <Card className="p-4">
       <form onSubmit={gerar} className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5 sm:col-span-2">
-          <Label>Produto / ficha</Label>
+          <Label>Produto / ficha / lote</Label>
           <select className={selectCls} value={fonteKey} onChange={(e) => setFonteKey(e.target.value)} required>
             <option value="">— escolha —</option>
             <optgroup label="Produtos">
@@ -131,6 +133,16 @@ function GerarEtiqueta({ fontes, onDone }: { fontes: any; onDone: () => void }) 
             <optgroup label="Insumos">
               {(fontes.itens ?? []).map((i: any) => (
                 <option key={i.id} value={`item:${i.id}`}>{i.nome}</option>
+              ))}
+            </optgroup>
+            {/* Lote da compra conferida: a validade é a DAQUELA entrega, não uma data
+                fixa do cadastro — e a etiqueta guarda o vínculo, então um recall
+                alcança até o que já foi aberto. */}
+            <optgroup label="Lotes recebidos">
+              {(fontes.lotes ?? []).map((l: any) => (
+                <option key={l.id} value={`lote:${l.id}`}>
+                  {l.nome}{l.codigo ? ` · lote ${l.codigo}` : ''} · vence {String(l.validade).slice(0, 10).split('-').reverse().join('/')}
+                </option>
               ))}
             </optgroup>
           </select>

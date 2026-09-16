@@ -13,13 +13,14 @@ import {
   produto,
   fichaTecnica,
   itemEstoque,
+  lote,
   empresa,
   cardapioConfig,
   impressaoJob,
   equipamento,
   desperdicio,
 } from '../../db/schema';
-import { condUnidade } from '../../common/filtro-unidade';
+import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -99,7 +100,7 @@ export class EtiquetaValidadeService {
   }
 
   // ===== Fontes (produtos com validade + fichas) =====
-  async fontes(tenantId: string) {
+  async fontes(tenantId: string, atual: string | null = null) {
     const prods = await this.db
       .select({
         id: produto.id, nome: produto.nome, unidade: produto.unidadeMedida,
@@ -126,12 +127,42 @@ export class EtiquetaValidadeService {
       .from(itemEstoque)
       .where(and(eq(itemEstoque.tenantId, tenantId), isNotNull(itemEstoque.validade), isNull(itemEstoque.deletedAt)))
       .orderBy(itemEstoque.nome);
+    // LOTES (mig 246) — a fonte que faltava. Etiquetar um insumo comprado exigia
+    // `item_estoque.validade`, uma data FIXA no cadastro; mas cada compra do mesmo
+    // insumo chega com uma validade diferente, então essa data nunca serviria. O lote
+    // carrega a validade daquela entrega, e a etiqueta que sai dele guarda o vínculo:
+    // é o que faz um recall alcançar até o que já foi ABERTO.
+    const lotesAtivos = await this.db
+      .select({
+        id: lote.id,
+        itemId: lote.itemId,
+        nome: itemEstoque.nome,
+        unidade: itemEstoque.unidadeMedida,
+        validade: lote.validade,
+        codigo: lote.codigo,
+        quantidade: lote.quantidade,
+      })
+      .from(lote)
+      .innerJoin(itemEstoque, eq(itemEstoque.id, lote.itemId))
+      .where(
+        and(
+          eq(lote.tenantId, tenantId),
+          isNull(lote.deletedAt),
+          eq(lote.esgotado, false),
+          // Sem validade não há etiqueta de validade para imprimir (a coluna é NOT NULL).
+          isNotNull(lote.validade),
+          condUnidadeOuRede(itemEstoque.unidadeId, atual),
+        ),
+      )
+      .orderBy(lote.validade);
+
     return {
       produtos: prods.map((p) => ({ tipo: 'produto', ...p })),
       fichas: fichas
         .filter((f) => f.fechado != null || f.aberto != null)
         .map((f) => ({ tipo: 'ficha', ...f })),
       itens: itens.map((i) => ({ tipo: 'item', ...i })),
+      lotes: lotesAtivos.map((l) => ({ tipo: 'lote', ...l })),
     };
   }
 
@@ -143,6 +174,7 @@ export class EtiquetaValidadeService {
       produtoId?: string;
       fichaId?: string;
       itemId?: string; // insumo (item_estoque) — validade absoluta
+      loteId?: string; // lote da compra (mig 246) — validade DAQUELA entrega
       tipoUso?: 'novo' | 'usado';
       quantidade?: number;
       fabricacao?: string;
@@ -152,8 +184,8 @@ export class EtiquetaValidadeService {
     },
     atual: string | null = null,
   ) {
-    if (!dto.produtoId && !dto.fichaId && !dto.itemId)
-      throw new BadRequestException('Escolha um produto, ficha ou insumo.');
+    if (!dto.produtoId && !dto.fichaId && !dto.itemId && !dto.loteId)
+      throw new BadRequestException('Escolha um produto, ficha, insumo ou lote.');
     const usado = dto.tipoUso === 'usado';
     const fabricacao = dto.fabricacao || hojeISO();
 
@@ -162,7 +194,29 @@ export class EtiquetaValidadeService {
     let descricao = 'Produto';
     let unidadeMedida: string | null = null;
     let validade: string;
-    if (dto.itemId) {
+    let loteIdOk: string | null = null;
+    let itemIdOk: string | null = dto.itemId ?? null;
+    if (dto.loteId) {
+      const [lt] = await this.db
+        .select({
+          id: lote.id, itemId: lote.itemId, validade: lote.validade,
+          nome: itemEstoque.nome, unidadeMedida: itemEstoque.unidadeMedida,
+        })
+        .from(lote)
+        .innerJoin(itemEstoque, eq(itemEstoque.id, lote.itemId))
+        .where(and(eq(lote.id, dto.loteId), eq(lote.tenantId, tenantId), isNull(lote.deletedAt)));
+      if (!lt) throw new NotFoundException('Lote não encontrado.');
+      if (!lt.validade)
+        throw new BadRequestException(
+          'Este lote foi recebido com validade indefinida — não há data para a etiqueta.',
+        );
+      descricao = lt.nome;
+      unidadeMedida = lt.unidadeMedida;
+      validade = String(lt.validade).slice(0, 10);
+      // O insumo vai junto: é por ele que `abrir()` recalcula a validade após aberto.
+      itemIdOk = lt.itemId;
+      loteIdOk = lt.id;
+    } else if (dto.itemId) {
       const [it] = await this.db.select().from(itemEstoque).where(and(eq(itemEstoque.id, dto.itemId), eq(itemEstoque.tenantId, tenantId)));
       if (!it) throw new NotFoundException('Insumo não encontrado.');
       if (!it.validade)
@@ -220,7 +274,8 @@ export class EtiquetaValidadeService {
           unidadeId: atual ?? dto.unidadeId ?? null,
           produtoId: dto.produtoId ?? null,
           fichaId: dto.fichaId ?? null,
-          itemId: dto.itemId ?? null,
+          itemId: itemIdOk,
+          loteId: loteIdOk,
           templateId: (template as any).id ?? null,
           descricao,
           unidadeMedida,
