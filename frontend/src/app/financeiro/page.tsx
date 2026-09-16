@@ -375,7 +375,7 @@ export default function FinanceiroPage() {
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {t.fornecedorNome ? `${t.fornecedorNome} · ` : ''}
                   {t.vencimento ? `vence ${t.vencimento}` : 'sem vencimento'}
-                  {t.origem === 'recebimento' ? ' · do recebimento' : ''}
+                  {t.origem === 'recebimento' ? ' · do recebimento' : t.origem === 'compra' ? ' · da compra' : ''}
                 </p>
               </div>
               <p

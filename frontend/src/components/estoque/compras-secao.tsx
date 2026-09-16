@@ -28,6 +28,7 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
   const [nome, setNome] = useState('');
   const [fornecedorId, setFornecedorId] = useState('');
   const [dataRecebimento, setDataRecebimento] = useState('');
+  const [vencimento, setVencimento] = useState('');
   const [delegadoId, setDelegadoId] = useState('');
   const [enviarKds, setEnviarKds] = useState(true);
   const [enviarDashboard, setEnviarDashboard] = useState(true);
@@ -37,6 +38,7 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
   // conferência (abre ao clicar em Receber)
   const [conferindo, setConferindo] = useState<any | null>(null);
   const [conf, setConf] = useState<Record<string, Conf>>({});
+  const [confVenc, setConfVenc] = useState('');
 
   const reload = useCallback(async () => {
     try {
@@ -86,6 +88,7 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
         nome: nome.trim(),
         fornecedorId: fornecedorId || undefined,
         dataRecebimento: dataRecebimento || undefined,
+        vencimento: vencimento || undefined,
         delegadoId: delegadoId || undefined,
         enviarKds,
         enviarDashboard,
@@ -96,7 +99,7 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
         })),
       });
       toast.success('Lista de compras criada.');
-      setNovo(false); setNome(''); setLinhas({}); setFiltro('');
+      setNovo(false); setNome(''); setLinhas({}); setFiltro(''); setVencimento('');
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao criar');
@@ -122,6 +125,7 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
         };
       }
       setConf(inicial);
+      setConfVenc(l.vencimento ? String(l.vencimento).slice(0, 10) : '');
       setConferindo(l);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao abrir a conferência');
@@ -145,6 +149,7 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
     setBusy(true);
     try {
       await api.receberCompra(conferindo.id, {
+        vencimento: confVenc || undefined,
         itens: itens.map((it: any) => ({
           compraItemId: it.id,
           qtdRecebida: Number(conf[it.id].qtdRecebida),
@@ -196,6 +201,13 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
             <div className="space-y-1.5">
               <Label>Data de recebimento</Label>
               <Input type="date" value={dataRecebimento} onChange={(e) => setDataRecebimento(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Data de pagamento</Label>
+              <Input type="date" value={vencimento} onChange={(e) => setVencimento(e.target.value)} />
+              <p className="text-[11px] text-muted-foreground">
+                Pode ficar para a conferência. Em branco nos dois, usa o prazo do fornecedor.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label>Delegar recebimento a (opcional)</Label>
@@ -330,6 +342,15 @@ export function ComprasSecao({ itens, fornecedores }: { itens: any[]; fornecedor
             O código do lote é opcional, mas é ele que permite separar a mercadoria numa
             troca ou num recall sem abrir embalagem.
           </p>
+
+          <div className="space-y-1.5 sm:max-w-xs">
+            <Label className="text-xs">Data de pagamento</Label>
+            <Input type="date" value={confVenc} onChange={(e) => setConfVenc(e.target.value)} />
+            <p className="text-[11px] text-muted-foreground">
+              Gera a conta a pagar do fornecedor pelo valor CONFERIDO. Em branco, usa o
+              prazo cadastrado do fornecedor.
+            </p>
+          </div>
           <Button type="button" className="w-full" disabled={busy} onClick={confirmarConferencia}>
             Confirmar recebimento
           </Button>
