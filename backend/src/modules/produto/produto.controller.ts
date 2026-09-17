@@ -17,6 +17,7 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { ProdutoService } from './produto.service';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { CreateProdutoDto } from './dto/create-produto.dto';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 
@@ -182,8 +183,8 @@ export class ProdutoController {
   }
 
   @Get()
-  listar(@CurrentUser() user: AuthUser) {
-    return this.service.listar(user.tenantId, !!user.permissoes?.ver_financeiro);
+  listar(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null) {
+    return this.service.listar(user.tenantId, !!user.permissoes?.ver_financeiro, atual);
   }
 
   @Get(':id')

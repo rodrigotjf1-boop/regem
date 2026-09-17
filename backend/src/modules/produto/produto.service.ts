@@ -20,6 +20,7 @@ import {
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { EdgeFlashSyncService } from '../sync/edge-flash-sync.service';
+import { lojasAtivas, pausasPorProduto } from '../../common/pausa-loja';
 import { FichasService } from '../fichas/fichas.service';
 import { CreateCategoriaDto } from './dto/create-categoria.dto';
 import { CreateProdutoDto } from './dto/create-produto.dto';
@@ -756,7 +757,7 @@ export class ProdutoService {
   // ----- Produtos -----
   // verFin: o perfil pode ver valores financeiros? Só então o custo (custo efetivo
   // derivado da ficha / item de estoque / override) é devolvido — senão vem null.
-  async listar(tenantId: string, verFin = false) {
+  async listar(tenantId: string, verFin = false, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
       select p.id, p.codigo, p.nome, p.descricao, p.tipo,
              p.unidade_medida as "unidadeMedida", p.preco_venda as "precoVenda",
@@ -782,7 +783,20 @@ export class ProdutoService {
       where p.tenant_id = ${tenantId} and p.deleted_at is null
       order by p.nome
     `);
-    const rows = (res.rows ?? res) as any[];
+    const rows0 = (res.rows ?? res) as any[];
+    // Pausa por estoque POR LOJA (mig 260). `pausadoEstoque` = pausado na loja escolhida; em
+    // "todas as lojas", pausado em alguma delas, com `lojasPausadas` dizendo em quais.
+    // Empresa sem loja cadastrada: o campo antigo do produto.
+    const [lojas, pausas] = await Promise.all([lojasAtivas(this.db, tenantId), pausasPorProduto(this.db, tenantId)]);
+    const rows = rows0.map((p) => {
+      if (!lojas.length) return { ...p, lojasPausadas: [] };
+      const emQuais = pausas.get(p.id) ?? [];
+      return {
+        ...p,
+        pausadoEstoque: atual ? emQuais.some((l) => l.id === atual) : emQuais.length > 0,
+        lojasPausadas: lojas.length > 1 && !atual ? emQuais.map((l) => l.nome) : [],
+      };
+    });
     // Custo derivado: só quem pode ver financeiro recebe os valores.
     if (!verFin) {
       return rows.map((p) => ({
@@ -856,7 +870,7 @@ export class ProdutoService {
   // nunca 2×N. O poller do GoGeM chama isto a cada 5 min por loja com timeout
   // de 15s — a versão N+1 (um `complementosDe` por produto, e cada um relendo
   // TODAS as opções do tenant) estourava o timeout/gateway (aborted/502/500).
-  async catalogoParaSync(tenantId: string, _unidadeId: string | null) {
+  async catalogoParaSync(tenantId: string, unidadeId: string | null) {
     const [categorias, produtos] = await Promise.all([
       this.listarCategorias(tenantId),
       this.listar(tenantId),
@@ -902,6 +916,8 @@ export class ProdutoService {
       if (lista) lista.push(o);
       else opcoesPorGrupo.set(o.grupoId, [o]);
     }
+    // Pausa por estoque DA LOJA do dispositivo (mig 260); sem loja, o campo antigo.
+    const pausasCat = unidadeId ? await pausasPorProduto(this.db, tenantId) : null;
     const itens = (produtos as any[]).map((p) => {
       const gruposDoProduto = gruposPorProduto.get(p.id) ?? [];
       return {
@@ -920,7 +936,9 @@ export class ProdutoService {
         // (Orzuni→iFood, GoGeM) esconde/pausa o item no canal correspondente.
         canaisPausados: p.canaisPausados ?? [],
         // Pausado por estoque (esgotado) — o GoGeM reflete como indisponível.
-        pausadoEstoque: p.pausadoEstoque ?? false,
+        pausadoEstoque: pausasCat
+          ? (pausasCat.get(p.id) ?? []).some((l) => l.id === unidadeId)
+          : p.pausadoEstoque ?? false,
         ativo: p.ativo,
         grupos: gruposDoProduto.map((g) => ({
           id: g.id,
@@ -1072,6 +1090,11 @@ export class ProdutoService {
       .where(and(eq(produto.id, id), eq(produto.tenantId, tenantId)))
       .returning({ id: produto.id });
     if (!row) throw new NotFoundException('Produto não encontrado');
+    // A reativação vale para o produto inteiro: tira a pausa por estoque de TODAS as lojas.
+    if (ativo)
+      await this.db.execute(sql`
+        update produto_pausa_estoque set pausado = false, motivo = null
+         where tenant_id = ${tenantId} and produto_id = ${id} and pausado = true`);
     // Reativar/despausar reflete no cardápio online já (bloqueio/liberação do item).
     void this.flash.flashProdutos([id]);
     return { ok: true, permiteNegativo: ativo };

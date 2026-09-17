@@ -158,6 +158,8 @@ const PUSH_TABLES = [
   // Ordem = pais antes dos filhos (FK na nuvem; daemon ainda tem retry de 23503).
   { tabela: 'categoria_produto', cursor: 'updated_at' },
   { tabela: 'produto', cursor: 'updated_at' },
+  // Pausa por estoque POR LOJA (mig 260): a loja calcula a própria pausa aqui. Depois de produto.
+  { tabela: 'produto_pausa_estoque', cursor: 'updated_at' },
   { tabela: 'cardapio_config', cursor: 'updated_at' },
   // Configs espelhadas (P1, mig 181): impressoras/terminais e cupom/perfis sobem
   // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.

@@ -75,6 +75,8 @@ import { FidelidadeService } from '../fidelidade/fidelidade.service';
 import { CashbackService } from '../cashback/cashback.service';
 
 import { hojeISO } from '../../common/data';
+import { edgeAtivo } from '../../common/edge-ativo';
+import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Distância entre duas coordenadas (km) — frete por raio.
@@ -135,10 +137,16 @@ export class CardapioService {
     return { ativo };
   }
 
-  // Recalcula o esgotado por estoque e sincroniza `pausado_estoque`:
-  //  - virou esgotado → pausa + aviso geral (KDS + alerta persistido);
-  //  - voltou a ter estoque → despausa sozinho (só o que foi auto-pausado).
+  // Recalcula o esgotado por estoque e sincroniza a pausa — POR LOJA (mig 260):
+  //  - virou esgotado NA LOJA → pausa naquela loja + aviso para aquela loja (KDS + alerta);
+  //  - voltou a ter estoque NA LOJA → despausa sozinho naquela loja.
   // A pausa MANUAL (disponivel_cardapio=false) é independente e não é mexida aqui.
+  //
+  // Quem calcula cada loja: o servidor local, só a PRÓPRIA loja (é ele que tem o ledger
+  // dela em dia); a nuvem, só as lojas SEM servidor local ativo. Se os dois calculassem a
+  // mesma loja, o que tem o ledger atrasado venceria pela regra da mais nova.
+  //
+  // Empresa sem loja cadastrada: segue no campo `produto.pausado_estoque`, como antes.
   async sincronizarEsgotados(tenantId: string) {
     if (!(await this.autoPausaConfig(tenantId)).ativo) return;
     const produtos = await this.db
@@ -154,10 +162,95 @@ export class CardapioService {
       })
       .from(produto)
       .where(and(eq(produto.tenantId, tenantId), isNull(produto.deletedAt)));
-    const esgotados = await this.computeEsgotados(tenantId, produtos);
 
-    const novos: string[] = []; // nomes que acabaram de esgotar
-    const idsMudados: string[] = []; // p/ flash-sync (refletir no cardápio online já)
+    const lojas = await lojasAtivas(this.db, tenantId);
+    if (!lojas.length) return this.sincronizarEsgotadosSemLoja(tenantId, produtos);
+
+    const noEdge = process.env.EDGE_MODE === 'true';
+    const lojaDoEdge = process.env.EDGE_UNIDADE_ID || null;
+    const calcular: string[] = [];
+    for (const l of lojas) {
+      if (noEdge) {
+        if (!lojaDoEdge || lojaDoEdge === l) calcular.push(l);
+      } else if (!(await edgeAtivo(this.db, tenantId, l))) {
+        calcular.push(l);
+      }
+    }
+
+    // Estado atual de todas as lojas (para o "pausado em todas" do campo antigo).
+    const atuais: any = await this.db.execute(sql`
+      select produto_id, unidade_id, pausado from produto_pausa_estoque
+       where tenant_id = ${tenantId} and deleted_at is null`);
+    const pausado = new Map<string, boolean>();
+    for (const x of atuais.rows ?? atuais) pausado.set(`${x.produto_id}|${x.unidade_id}`, x.pausado === true);
+
+    const pausasMudadas: string[] = []; // ids das linhas (flash-sync)
+    for (const loja of calcular) {
+      const esgotados = await this.computeEsgotados(tenantId, produtos, loja);
+      const novos: string[] = [];
+      const mudar: { produtoId: string; pausar: boolean }[] = [];
+      for (const p of produtos) {
+        const agora = esgotados.has(p.id);
+        const antes = pausado.get(`${p.id}|${loja}`) ?? false;
+        if (agora === antes) continue;
+        mudar.push({ produtoId: p.id, pausar: agora });
+        pausado.set(`${p.id}|${loja}`, agora);
+        if (agora) novos.push(p.nome);
+      }
+      if (mudar.length) {
+        // Set-based: uma ida ao banco por loja. id = md5 do par (mesma regra da mig 261),
+        // para servidor local e nuvem gravarem a MESMA linha.
+        const r: any = await this.db.execute(sql`
+          insert into produto_pausa_estoque (id, tenant_id, produto_id, unidade_id, pausado, motivo)
+          values ${sql.join(
+            mudar.map(
+              (m) => sql`(md5(${m.produtoId}::text || ${loja}::text)::uuid, ${tenantId}, ${m.produtoId}, ${loja},
+                ${m.pausar}, ${m.pausar ? 'Estoque do insumo esgotado' : null})`,
+            ),
+            sql`, `,
+          )}
+          on conflict (id) do update set pausado = excluded.pausado, motivo = excluded.motivo,
+            deleted_at = null
+          returning id`);
+        for (const x of r.rows ?? r) pausasMudadas.push(x.id);
+      }
+      if (novos.length) await this.avisarEsgotados(tenantId, loja, novos);
+    }
+
+    // Campo antigo = pausado em TODAS as lojas (quem ainda não conhece a loja erra para o
+    // lado de não bloquear a loja abastecida).
+    const idsMudados: string[] = [];
+    const ligar: string[] = [];
+    const desligar: string[] = [];
+    for (const p of produtos) {
+      const todas = lojas.every((l) => pausado.get(`${p.id}|${l}`) === true);
+      if (todas && !p.pausadoEstoque) ligar.push(p.id);
+      else if (!todas && p.pausadoEstoque) desligar.push(p.id);
+    }
+    if (ligar.length) {
+      await this.db
+        .update(produto)
+        .set({ pausadoEstoque: true, pausaMotivo: 'Estoque do insumo esgotado', updatedAt: new Date() })
+        .where(and(eq(produto.tenantId, tenantId), inArray(produto.id, ligar)));
+      idsMudados.push(...ligar);
+    }
+    if (desligar.length) {
+      await this.db
+        .update(produto)
+        .set({ pausadoEstoque: false, pausaMotivo: null, updatedAt: new Date() })
+        .where(and(eq(produto.tenantId, tenantId), inArray(produto.id, desligar)));
+      idsMudados.push(...desligar);
+    }
+    // Flash-sync: no edge, empurra a disponibilidade para o cardápio ONLINE em segundos.
+    if (idsMudados.length) void this.flash.flashProdutos(idsMudados);
+    if (pausasMudadas.length) void this.flash.flashPausas(pausasMudadas);
+  }
+
+  // Empresa sem loja cadastrada: a pausa é do produto, pelo saldo da empresa (como sempre foi).
+  private async sincronizarEsgotadosSemLoja(tenantId: string, produtos: any[]) {
+    const esgotados = await this.computeEsgotados(tenantId, produtos, null);
+    const novos: string[] = [];
+    const idsMudados: string[] = [];
     for (const p of produtos) {
       const agora = esgotados.has(p.id);
       if (agora && !p.pausadoEstoque) {
@@ -175,36 +268,34 @@ export class CardapioService {
         idsMudados.push(p.id);
       }
     }
-    // Flash-sync: no edge, empurra a disponibilidade para o cardápio ONLINE em
-    // segundos (bloqueia novos pedidos do item esgotado) sem esperar o ciclo do sync.
     if (idsMudados.length) void this.flash.flashProdutos(idsMudados);
+    if (novos.length) await this.avisarEsgotados(tenantId, null, novos);
+  }
 
-    if (novos.length) {
-      const titulo = `Produto esgotado no cardápio`;
-      const detalhe = `${novos.join(', ')} — pausado(s) por falta de insumo em estoque.`;
-      // Aviso geral em tempo real (KDS) + alerta persistido (dashboard).
-      this.events.emit('kds.alerta.sistema', { tenantId, titulo, detalhe, prioridade: 'alta' });
-      // A mig 031 tem índice ÚNICO parcial (tenant_id, tipo) where resolvido_em is null:
-      // um segundo esgotamento com o alerta anterior ainda aberto estourava 23505 — e o
-      // erro sumia no `.catch` do gatilho. Atualiza o alerta ABERTO (assim o painel mostra
-      // os produtos de agora, não os da primeira vez) e só insere se não houver nenhum.
-      const abertos = await this.db
-        .update(alertaEstoque)
-        .set({ titulo, detalhe, prioridade: 'alta' })
-        .where(
-          and(
-            eq(alertaEstoque.tenantId, tenantId),
-            eq(alertaEstoque.tipo, 'produto_esgotado'),
-            isNull(alertaEstoque.resolvidoEm),
-          ),
-        )
-        .returning({ id: alertaEstoque.id });
-      if (!abertos.length)
-        await this.db
-          .insert(alertaEstoque)
-          .values({ tenantId, tipo: 'produto_esgotado', titulo, detalhe, prioridade: 'alta' })
-          .onConflictDoNothing(); // corrida entre dois gatilhos simultâneos
-    }
+  // Aviso geral em tempo real (KDS da loja) + alerta persistido (painel da loja).
+  private async avisarEsgotados(tenantId: string, unidadeId: string | null, nomes: string[]) {
+    const titulo = `Produto esgotado no cardápio`;
+    const detalhe = `${nomes.join(', ')} — pausado(s) por falta de insumo em estoque.`;
+    this.events.emit('kds.alerta.sistema', { tenantId, unidadeId, titulo, detalhe, prioridade: 'alta' });
+    // Um alerta ABERTO por (empresa, loja, tipo) — índice da mig 249. Atualiza o aberto
+    // (o painel mostra os produtos de agora) e só insere se não houver nenhum.
+    const abertos = await this.db
+      .update(alertaEstoque)
+      .set({ titulo, detalhe, prioridade: 'alta' })
+      .where(
+        and(
+          eq(alertaEstoque.tenantId, tenantId),
+          eq(alertaEstoque.tipo, 'produto_esgotado'),
+          unidadeId ? eq(alertaEstoque.unidadeId, unidadeId) : isNull(alertaEstoque.unidadeId),
+          isNull(alertaEstoque.resolvidoEm),
+        ),
+      )
+      .returning({ id: alertaEstoque.id });
+    if (!abertos.length)
+      await this.db
+        .insert(alertaEstoque)
+        .values({ tenantId, unidadeId, tipo: 'produto_esgotado', titulo, detalhe, prioridade: 'alta' })
+        .onConflictDoNothing(); // corrida entre dois gatilhos simultâneos
   }
 
   // Gatilho: qualquer baixa/entrada de estoque dispara a sincronização.
@@ -726,11 +817,13 @@ export class CardapioService {
   private static readonly ESTOQUE_TTL_PADRAO = 30_000;
   private cacheEstoque = new Map<string, { exp: number; dados: MapasEstoque }>();
 
-  private async mapasEstoque(tenantId: string): Promise<MapasEstoque> {
+  // `unidadeId`: saldo DA LOJA (mig 253); null = saldo somado da empresa.
+  private async mapasEstoque(tenantId: string, unidadeId: string | null = null): Promise<MapasEstoque> {
     const ttl = Number(process.env.CARDAPIO_ESTOQUE_TTL_MS ?? CardapioService.ESTOQUE_TTL_PADRAO);
     const agora = Date.now();
+    const chave = `${tenantId}|${unidadeId ?? ''}`;
     if (ttl > 0) {
-      const hit = this.cacheEstoque.get(tenantId);
+      const hit = this.cacheEstoque.get(chave);
       if (hit && hit.exp > agora) return hit.dados;
     }
 
@@ -743,6 +836,7 @@ export class CardapioService {
                coalesce(sum(case when tipo = 'saida' then -quantidade else quantidade end), 0) as saldo
         from movimento_estoque
         where tenant_id = ${tenantId}
+          ${unidadeId ? sql`and unidade_id = ${unidadeId}` : sql``}
         group by item_id
       `),
       // Mapa de ingredientes por ficha (carregado uma vez para o tenant).
@@ -794,7 +888,7 @@ export class CardapioService {
       if (this.cacheEstoque.size > 100) {
         for (const [k, v] of this.cacheEstoque) if (v.exp <= agora) this.cacheEstoque.delete(k);
       }
-      this.cacheEstoque.set(tenantId, { exp: agora + ttl, dados });
+      this.cacheEstoque.set(chave, { exp: agora + ttl, dados });
     }
     return dados;
   }
@@ -802,18 +896,19 @@ export class CardapioService {
   // Zera o cache de uma loja. Existe para quem quiser refletir uma movimentacao na
   // hora (ex.: apos baixa manual) sem esperar o TTL.
   invalidarEstoque(tenantId: string) {
-    this.cacheEstoque.delete(tenantId);
+    for (const k of this.cacheEstoque.keys()) if (k.startsWith(`${tenantId}|`)) this.cacheEstoque.delete(k);
   }
 
   private async computeEsgotados(
     tenantId: string,
     produtos: any[],
+    unidadeId: string | null = null,
   ): Promise<Set<string>> {
     // permite_negativo = reativado sem estoque: não bloqueia por saldo (contagem negativa).
     const alvo = produtos.filter((p) => p.controlaEstoque && !p.permiteNegativo);
     if (!alvo.length) return new Set();
 
-    const { saldo, ingMap, comboMap } = await this.mapasEstoque(tenantId);
+    const { saldo, ingMap, comboMap } = await this.mapasEstoque(tenantId, unidadeId);
 
     const itensDaFicha = (fichaId: string, vis: Set<string>): string[] => {
       if (!fichaId || vis.has(fichaId)) return [];
@@ -1161,15 +1256,21 @@ export class CardapioService {
     const lista = ((prods as any).rows ?? prods) as any[];
     const ids = lista.map((p) => p.id);
 
+    // Loja do cardápio (a pausa por estoque é por loja — mig 260) e o que está pausado nela.
+    const lojaCardapio = lojaDoCanal(this.db, cfg.tenantId, cfg.unidadeId);
+    const pausadosAqui = lojaCardapio.then((loja) =>
+      loja ? pausadosNaLoja(this.db, cfg.tenantId, loja) : null,
+    );
+
     // NIVEL 2 — precisam dos produtos (ids/lista).
     // `opcoes` nao depende dos grupos (filtra so por tenant); o guard por
     // grupos.length e aplicado DEPOIS, para o resultado ficar identico ao de antes.
     const [faixasAtacado, esgotados, grupos, opcoesRaw, variacoes] = await Promise.all([
       // Faixas de atacado (mig 184) para exibir "a partir de N un, -X%" no cardápio.
       this.faixasAtacadoPorProduto(cfg.tenantId, ids),
-      // Esgotado automático pelo ledger: produto que controla estoque e cujo
-      // insumo (item) tem saldo <= 0 fica marcado como esgotado no cardápio.
-      this.computeEsgotados(cfg.tenantId, lista),
+      // Esgotado automático pelo ledger DA LOJA do cardápio: produto que controla estoque e
+      // cujo insumo (item) tem saldo <= 0 naquela loja fica esgotado no cardápio dela.
+      lojaCardapio.then((loja) => this.computeEsgotados(cfg.tenantId, lista, loja)),
       // Complementos (grupos + opções) e variações em lote.
       ids.length
         ? this.db
@@ -1201,6 +1302,7 @@ export class CardapioService {
             .where(and(inArray(produtoVariacao.produtoId, ids), isNull(produtoVariacao.deletedAt)))
         : Promise.resolve([] as any[]),
     ]);
+    const pausados = await pausadosAqui;
     const opcoes = grupos.length ? opcoesRaw : ([] as any[]);
     // Regra de cada grupo (uma / várias sem / várias COM repetição) — vem do
     // complemento reutilizável de origem (o grupo materializado não a guarda).
@@ -1367,8 +1469,12 @@ export class CardapioService {
           // Atacado por volume (mig 184): faixas "a partir de N un → -X%" (só se ligado).
           atacado:
             p.atacadoAtivo === true ? faixasAtacado.get(p.id) ?? [] : [],
-          // Esgotado = auto por estoque OU pausa manual OU auto-pausa por estoque.
-          esgotado: esgotados.has(p.id) || p.disponivelCardapio === false || p.pausadoEstoque === true,
+          // Esgotado = auto por estoque OU pausa manual OU auto-pausa por estoque DA LOJA
+          // (sem loja definida, vale o campo antigo do produto).
+          esgotado:
+            esgotados.has(p.id) ||
+            p.disponivelCardapio === false ||
+            (pausados ? pausados.has(p.id) : p.pausadoEstoque === true),
           variacoes: variacoes
             .filter((v) => v.produtoId === p.id && v.ativo !== false)
             .map((v) => ({
@@ -2623,6 +2729,9 @@ export class CardapioService {
       .from(produto)
       .where(and(eq(produto.tenantId, cfg.tenantId), inArray(produto.id, ids)));
     const porId = new Map(prods.map((p) => [p.id, p]));
+    // Pausa por estoque DA LOJA do cardápio (mig 260); sem loja, o campo antigo do produto.
+    const lojaPedido = await lojaDoCanal(this.db, cfg.tenantId, cfg.unidadeId);
+    const pausadosPedido = lojaPedido ? await pausadosNaLoja(this.db, cfg.tenantId, lojaPedido, ids) : null;
     // Faixas de atacado (mig 184) para aplicar o desconto por quantidade na linha.
     const faixasAtacado = await this.faixasAtacadoPorProduto(cfg.tenantId, ids);
     for (const it of dto.itens) {
@@ -2633,7 +2742,7 @@ export class CardapioService {
       // A auto-pausa por estoque era checada só na MONTAGEM do menu: quem estava com a
       // página aberta desde antes de esgotar — ou quem chama a API direto — passava
       // batido e o pedido entrava. A trava tem de estar aqui, no checkout.
-      if (p.pausadoEstoque === true)
+      if (pausadosPedido ? pausadosPedido.has(p.id) : p.pausadoEstoque === true)
         throw new BadRequestException(`${p.nome} está sem estoque no momento.`);
     }
 

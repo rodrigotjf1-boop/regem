@@ -1,7 +1,7 @@
 import { Global, Inject, Injectable, Logger, Module } from '@nestjs/common';
 import { inArray } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { produto, pedidoExterno } from '../../db/schema';
+import { produto, pedidoExterno, produtoPausaEstoque } from '../../db/schema';
 
 /**
  * Flash-sync (P3/híbrido): push IMEDIATO de produtos para a nuvem, fora do ciclo do
@@ -41,6 +41,27 @@ export class EdgeFlashSyncService {
         else this.logger.log(`flash: ${linhas.length} produto(s) → cardápio online`);
       } catch (e: any) {
         this.logger.warn(`flash falhou (daemon recupera no ciclo): ${e?.message ?? e}`);
+      }
+    })();
+  }
+
+  // Push IMEDIATO da pausa por estoque POR LOJA (mig 260, por id da linha): a loja que
+  // esgotou precisa sumir do cardápio ONLINE dela em segundos, como o produto.
+  async flashPausas(ids: string[]): Promise<void> {
+    if (!this.ligado || !ids?.length) return;
+    void (async () => {
+      try {
+        const linhas = await this.db.select().from(produtoPausaEstoque).where(inArray(produtoPausaEstoque.id, ids));
+        if (!linhas.length) return;
+        const res = await fetch(`${this.cloud}/sync/push`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-token': this.token },
+          body: JSON.stringify({ lotes: [{ tabela: 'produto_pausa_estoque', linhas }] }),
+        });
+        if (!res.ok) this.logger.warn(`flash pausa push HTTP ${res.status}`);
+        else this.logger.log(`flash: ${linhas.length} pausa(s) por loja → cardápio online`);
+      } catch (e: any) {
+        this.logger.warn(`flash pausa falhou (daemon recupera no ciclo): ${e?.message ?? e}`);
       }
     })();
   }
