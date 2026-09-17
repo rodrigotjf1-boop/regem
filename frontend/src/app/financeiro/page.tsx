@@ -47,6 +47,9 @@ export default function FinanceiroPage() {
   const [editVals, setEditVals] = useState<any>(null);
   // Config: janela de espelho que o servidor local puxa da nuvem (empresa.mirror_dias).
   const [mirrorDias, setMirrorDias] = useState<number>(60);
+  const [snapshotHora, setSnapshotHora] = useState('06:00');
+  const [savingSnap, setSavingSnap] = useState(false);
+  const [snapMsg, setSnapMsg] = useState('');
   const [savingMirror, setSavingMirror] = useState(false);
   const [mirrorMsg, setMirrorMsg] = useState('');
 
@@ -67,6 +70,7 @@ export default function FinanceiroPage() {
       setFluxo(flx);
       setDre(dr);
       setMirrorDias(Number((emp as any)?.mirrorDias) || 60);
+      setSnapshotHora(String((emp as any)?.snapshotHora ?? '06:00').slice(0, 5));
       const t =
         f === 'pago'
           ? await api.financeiroTitulos(undefined, 'pago')
@@ -133,6 +137,19 @@ export default function FinanceiroPage() {
       setErro(e instanceof Error ? e.message : 'Erro ao excluir');
     }
   }
+  async function salvarSnapshotHora() {
+    setSavingSnap(true);
+    setSnapMsg('');
+    try {
+      await api.atualizarConfigEmpresa({ snapshotHora });
+      setSnapMsg(`Salvo. A partir de amanhã, o estoque do dia anterior é fechado às ${snapshotHora}.`);
+    } catch (e) {
+      setSnapMsg(e instanceof Error ? e.message : 'Erro ao salvar');
+    } finally {
+      setSavingSnap(false);
+    }
+  }
+
   async function salvarMirror() {
     setSavingMirror(true);
     setMirrorMsg('');
@@ -410,6 +427,34 @@ export default function FinanceiroPage() {
             </Card>
           ))}
         </div>
+
+        {/* Fechamento do estoque — hora do snapshot diário do CMV (empresa.snapshot_hora, mig 250) */}
+        <Card className="p-5">
+          <h2 className="font-display text-lg font-semibold">Fechamento do estoque</h2>
+          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            Todo dia, a partir deste horário, o sistema registra quanto havia em estoque no{' '}
+            <strong className="text-foreground">fim do dia anterior</strong>. É esse registro que
+            o CMV real usa como estoque inicial e final. Escolha um horário em que a loja já
+            fechou e o servidor local já teve tempo de enviar as vendas da noite.
+          </p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <label className="block w-full sm:w-auto">
+              <span className="mb-1 block font-display text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">
+                Horário do fechamento
+              </span>
+              <input
+                type="time"
+                value={snapshotHora}
+                onChange={(e) => setSnapshotHora(e.target.value)}
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm sm:w-40"
+              />
+            </label>
+            <Button type="button" onClick={salvarSnapshotHora} disabled={savingSnap || !snapshotHora}>
+              {savingSnap ? 'Salvando…' : 'Salvar'}
+            </Button>
+            {snapMsg && <span className="text-sm text-muted-foreground">{snapMsg}</span>}
+          </div>
+        </Card>
 
         {/* Sincronização com a nuvem — janela do servidor local (empresa.mirror_dias) */}
         <Card className="p-5">

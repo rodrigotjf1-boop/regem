@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
-import { hojeISO, dataNoFuso } from './data';
+import { hojeISO, dataNoFuso, somarDias, horaAgora } from './data';
 
 // Data de REGISTRO em UTC é o erro que já aconteceu duas vezes neste projeto: foi
 // corrigido só no ponto.controller e as outras três cópias seguiram erradas.
@@ -25,6 +25,31 @@ describe('data — hoje no fuso da operação', () => {
   it('meia-noite e meia em SP é o dia novo', () => {
     const d = new Date('2026-03-10T03:30:00Z'); // 00:30 em SP
     expect(dataNoFuso(d)).toBe('2026-03-10');
+  });
+});
+
+describe('data — aritmética sem fuso', () => {
+  it('soma e subtrai dias', () => {
+    expect(somarDias('2026-09-16', -1)).toBe('2026-09-15');
+    expect(somarDias('2026-09-16', 20)).toBe('2026-10-06');
+  });
+
+  it('atravessa mês e ano', () => {
+    expect(somarDias('2026-03-01', -1)).toBe('2026-02-28');
+    expect(somarDias('2028-03-01', -1)).toBe('2028-02-29'); // bissexto
+    expect(somarDias('2026-12-31', 1)).toBe('2027-01-01');
+  });
+
+  // A véspera do início do período é o estoque inicial do CMV: errar um dia aqui conta
+  // as compras do primeiro dia duas vezes.
+  it('a véspera é sempre o dia anterior, qualquer que seja o fuso do servidor', () => {
+    for (const d of ['2026-01-01', '2026-06-15', '2026-11-02']) {
+      expect(somarDias(somarDias(d, -1), 1)).toBe(d);
+    }
+  });
+
+  it('horaAgora devolve HH:MM', () => {
+    expect(horaAgora()).toMatch(/^([01]\d|2[0-3]):[0-5]\d$/);
   });
 });
 

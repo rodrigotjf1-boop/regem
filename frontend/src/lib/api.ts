@@ -1518,7 +1518,7 @@ export const api = {
   formasPagamento: () => req('/financeiro/formas-pagamento'),
   // Empresa do token (própria) + config do presidente (janela de espelho do edge).
   empresaMinha: () => req('/empresas'),
-  atualizarConfigEmpresa: (body: { mirrorDias: number }) =>
+  atualizarConfigEmpresa: (body: { mirrorDias?: number; snapshotHora?: string }) =>
     req('/empresas/config', { method: 'PATCH', body: JSON.stringify(body) }),
   criarFormaPagamento: (body: Record<string, unknown>) =>
     req('/financeiro/formas-pagamento', { method: 'POST', body: JSON.stringify(body) }),

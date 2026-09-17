@@ -55,6 +55,10 @@ export const empresa = pgTable('empresa', {
   // Janela (dias) que o SERVIDOR LOCAL puxa das transacionais pesadas da nuvem no sync
   // espelhado (mig 175). Config no Financeiro (presidente). Nuvem mantém histórico integral.
   mirrorDias: integer('mirror_dias').notNull().default(60),
+  // Hora (fuso SP) em que o dia é considerado FECHADO para o snapshot de estoque do CMV
+  // (mig 250). O snapshot fotografa o dia ANTERIOR; a hora só dá tempo para o sync da
+  // loja chegar. Padrão 06:00, editável pelo presidente.
+  snapshotHora: time('snapshot_hora').notNull().default('06:00'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

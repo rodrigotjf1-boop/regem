@@ -17,6 +17,7 @@ import {
 import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
+import { hojeISO, somarDias } from '../../common/data';
 import { sqlUnidade, sqlUnidadeOuRede, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -344,7 +345,7 @@ export class EstoqueService {
                when 'saida' then -m.quantidade else m.quantidade end),0) as saldo,
              coalesce(sum(case when m.tipo='saida' and m.data between ${inicio} and ${fim}
                then m.quantidade else 0 end),0) as "saidaPeriodo",
-             coalesce(sum(case when m.tipo='entrada' and m.motivo='recebimento'
+             coalesce(sum(case when m.tipo='entrada' and m.motivo in ('recebimento','compra')
                and m.data between ${inicio} and ${fim}
                then m.quantidade * coalesce(m.custo_unitario, i.custo_medio) else 0 end),0) as "comprasValor"
       from item_estoque i
@@ -484,7 +485,7 @@ export class EstoqueService {
   // §1.3 — Grava o snapshot de estoque de UMA data (saldo até a data × custo médio atual).
   // Upsert: reexecutar no mesmo dia atualiza. (custo_medio é o cache atual — snapshot é "ao vivo".)
   async gerarSnapshot(tenantId: string, data?: string, atual: string | null = null) {
-    const d = data ?? new Date().toISOString().slice(0, 10);
+    const d = data ?? hojeISO();
     await this.db.execute(sql`
       insert into estoque_snapshot (tenant_id, unidade_id, item_id, data, saldo, custo_medio)
       select i.tenant_id, i.unidade_id, i.id, ${d}::date,
@@ -532,7 +533,11 @@ export class EstoqueService {
       return Number((r.rows ?? r)[0].v);
     };
 
-    const estoqueInicial = await valorSnapshot(inicio);
+    // Estoque INICIAL = fechamento da VÉSPERA. O snapshot do dia D soma os movimentos com
+    // data <= D; usar o do próprio `inicio` punha as compras do 1º dia dentro do estoque
+    // inicial E dentro de `compras` — contadas duas vezes. O erro ficava escondido porque
+    // o job das 02:00 fotografava o dia recém-começado; consertar só a hora o exporia.
+    const estoqueInicial = await valorSnapshot(somarDias(inicio, -1));
     const semSnapshotInicial = estoqueInicial === 0;
 
     let estoqueFinal = await valorSnapshot(fim);
@@ -552,7 +557,10 @@ export class EstoqueService {
       `);
       return Number((r.rows ?? r)[0].v);
     };
-    const compras = await somaMov(sql`m.tipo='entrada' and m.motivo='recebimento'`);
+    // Compras do período. A loja compra por `compras.receber()`, que grava motivo 'compra';
+    // o CMV só somava 'recebimento' — o fluxo com ZERO notas em produção. Resultado: toda
+    // compra ficava FORA do CMV, que virava estoque inicial menos final e nada mais.
+    const compras = await somaMov(sql`m.tipo='entrada' and m.motivo in ('recebimento','compra')`);
     const cmvTeorico = await somaMov(
       sql`m.tipo='saida' and m.motivo in ('venda','producao')`,
     );
