@@ -149,7 +149,10 @@ function ProdutoRow({
             <span className="rounded bg-warn/10 px-1.5 py-0.5 text-[10px] font-medium text-warn">sem ficha</span>
           )}
           {esgotado && (
-            <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive">esgotado</span>
+            // Em "todas as lojas", diz em quais esgotou (a pausa por estoque é por loja).
+            <span className="rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-bold text-destructive">
+              {p.lojasPausadas?.length ? `esgotado em ${p.lojasPausadas.join(', ')}` : 'esgotado'}
+            </span>
           )}
         </div>
       </div>

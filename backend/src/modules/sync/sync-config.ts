@@ -48,6 +48,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // no edge; disponibilidade/esgotado/preço SOBEM para o cardápio ONLINE (nuvem) por
   // LWW (updated_at, bumpado em atualizar/sincronizarEsgotados). Flash-sync acelera.
   { tabela: 'produto', direcao: 'ambos', cursor: 'updated_at' },
+  // Pausa por falta de estoque POR LOJA (mig 260). 'ambos': o servidor local calcula a pausa
+  // da própria loja; a nuvem, a das lojas sem servidor local. id = md5 do par. Depois de
+  // `produto` e `unidade` (FK).
+  { tabela: 'produto_pausa_estoque', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'ficha_tecnica', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'bot_regra', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'feriado', direcao: 'desce', cursor: 'created_at' },
@@ -211,6 +215,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'titulo_financeiro',
   // Etiquetas de validade (mig 245) — mesma razão.
   'etiqueta_validade',
+  // Pausa por estoque por loja (mig 260): a 261 cria o estado inicial, que precisa descer.
+  'produto_pausa_estoque',
   // Custo/mínimo por loja (mig 257): os valores iniciais da 258 precisam descer uma vez.
   'item_estoque_unidade',
 ]);

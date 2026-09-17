@@ -1367,6 +1367,24 @@ export const produto = pgTable('produto', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// Pausa por falta de estoque POR LOJA (mig 260). Uma linha por (produto, loja); id =
+// md5(produto_id || unidade_id). `produto.pausado_estoque` = pausado em TODAS as lojas.
+export const produtoPausaEstoque = pgTable('produto_pausa_estoque', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  produtoId: uuid('produto_id')
+    .notNull()
+    .references(() => produto.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id').notNull(),
+  pausado: boolean('pausado').notNull().default(false),
+  motivo: text('motivo'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
 // "Peça também": sugestões vinculadas ao produto (cadastro). Prioridade sobre a
 // sugestão automática (mais vendidos) no cardápio público.
 export const produtoSugestao = pgTable('produto_sugestao', {

@@ -31,7 +31,7 @@
 // Página do pull da nuvem (sync.service `PAGINA`). Página menor = a tabela chegou ao fim.
 export const PAGINA_PULL = 1000;
 
-// O que a nuvem tem e a 1.29.0 não recebia (migrations 224–258, só tabelas sincronizadas).
+// O que a nuvem tem e a 1.29.0 não recebia (migrations 224–261, só tabelas sincronizadas).
 // `null` = tabela inteira nova. Levantado cruzando as migrations com a whitelist do sync.
 // `movimento_estoque.unidade_id` (253) fica de fora de propósito: a mig 254 preenche a loja
 // do histórico no próprio edge, pela mesma função da nuvem.
@@ -57,6 +57,7 @@ export const COLUNAS_POS_1_29 = {
   titulo_financeiro: ['updated_at'],
   movimento_lote: null,
   item_estoque_unidade: null,
+  produto_pausa_estoque: null, // mig 260 — entrou antes do mesmo corte de release
 };
 
 const MARCA_1_29 = 'reconciliacao_pos_1_29_v1';

@@ -78,6 +78,8 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
   ⚠️ **Ordem de deploy:** a **259 pode ir a qualquer momento** (sem a marca de sessão o gatilho age como antes) — aplicar na nuvem já, porque sozinha ela já interrompe o pingue-pongue das lojas atuais. O código da nuvem sobe no merge (autodeploy).
   ⚠️ **COMO ENTREGAR ÀS LOJAS NA 1.29.0 — `.exe`, não `.zip`:** o `.zip` é aplicado pelo `atualizar.ps1` JÁ INSTALADO, e o da 1.29.0 aborta em "Parando serviços" (o fix #457 não está nele). O `.exe` roda o instalador novo, que primeiro **descarrega** o que só existe na loja (`sync-daemon --descarregar`) e só então reinstala limpo; se a descarga falhar (sem internet, nuvem fora, linha recusada), **reinstala sem apagar o banco** e a reconciliação completa os dados. Log em `logs\descarregar.*.log`. Recomendado: uma loja primeiro.
   ℹ️ No edge, as migs 236 e 239 são puladas (tocam `whatsapp_template`, cloud-only) — o runner já tolera (42P01), sem efeito.
+- 🔴 **Pausa por falta de estoque por loja (migrations 260 e 261, NÃO cloud-only):** tabela nova `produto_pausa_estoque` sincronizada nos dois sentidos → mexe em **`sync-config.ts` e `edge/sync-daemon.mjs`** (`PUSH_TABLES`) → **`.zip` e `.exe`**. O cardápio e o esgotamento rodam no edge.
+  ⚠️ **Ordem de deploy:** **260 e depois 261, as duas ANTES do merge** (tabela nova lida pelo cardápio). Enquanto o edge não receber o pacote, ele segue pausando pelo campo antigo do produto, que a nuvem passa a manter como "pausado em todas as lojas".
 
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
