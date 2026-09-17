@@ -8,6 +8,11 @@ import {
 } from 'class-validator';
 
 export class CreateDesperdicioDto {
+  // Ponto de registro: o equipamento `ponto_baixa` (leitor óptico) de onde veio a leitura.
+  @IsOptional()
+  @IsUUID()
+  equipamentoId?: string;
+
   @IsString()
   @MinLength(2)
   descricao!: string;

@@ -62,6 +62,8 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
 
 - 🔴 **CMV real: compras entram, estoque inicial é a véspera, fechamento com hora configurável (migration 250, NÃO cloud-only):** `EstoqueModule` e `JobsModule` rodam no edge → **`.zip`**. As compras feitas pela lista (motivo `compra`) não entravam no CMV, o estoque final era um dia recém-começado e o estoque inicial contava o 1º dia duas vezes. `empresa.snapshot_hora` (padrão 06:00, editável pelo presidente no Financeiro). Sem `.exe` novo.
   ⚠️ **Ordem de deploy — CRÍTICA:** a mig 250 **adiciona coluna em `empresa`**, que é lida em praticamente toda requisição. Sem ela na nuvem, **a API inteira responde 42703**. **Nuvem ANTES do merge.**
+- **Desperdício e ponto de baixa com permissão própria + rastro de ponto e quem (migrations 251 e 252, NÃO cloud-only):** `DesperdicioModule`, `EtiquetaValidadeModule` e `EquipamentoModule` rodam no edge → **`.zip`**. Permissão nova `desperdicio` (gestão ligada; execução só se o presidente liberar); tipo novo de equipamento `ponto_baixa`; o desperdício grava o ponto e quem registrou. **`.zip` obrigatório para o lado que sobe:** o filtro de tipo do `equipamento` no `sync-daemon.mjs` ganhou `ponto_baixa`. Sem `.exe` novo.
+  ⚠️ **Ordem de deploy:** a mig 251 adiciona colunas em `desperdicio` (42703) e a **mig 252 grava a permissão nos perfis existentes** — sem ela, a gerência perde o registro de desperdício no deploy. **As duas na nuvem antes do merge.** ✓ 251 aplicada 16/09.
 
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 

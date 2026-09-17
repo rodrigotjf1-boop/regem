@@ -10,7 +10,7 @@ import {
 } from 'class-validator';
 
 export class CreateEquipamentoDto {
-  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv', 'salao'])
+  @IsIn(['kds', 'terminal_ponto', 'servidor_local', 'impressora', 'pdv', 'salao', 'ponto_baixa'])
   tipo!: string;
 
   @IsString()

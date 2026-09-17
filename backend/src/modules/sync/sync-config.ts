@@ -34,7 +34,9 @@ export const TABELAS_SYNC: TabelaSync[] = [
     tabela: 'equipamento',
     direcao: 'ambos',
     cursor: 'updated_at',
-    filtroSql: "tipo in ('impressora','pdv','salao')",
+    // `ponto_baixa` (mig 251): o desperdício aponta para o ponto que o registrou; sem
+    // subir, a nuvem teria desperdício apontando para um equipamento que não conhece.
+    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Template da etiqueta de validade (mig 245): config espelhada como as de cima —

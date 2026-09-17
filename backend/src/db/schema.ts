@@ -546,6 +546,10 @@ export const desperdicio = pgTable('desperdicio', {
   unidadeMedida: text('unidade_medida'),
   motivo: text('motivo'),
   fotoRef: text('foto_ref'),
+  // Ponto de registro (mig 251): o equipamento `ponto_baixa` onde o desperdício foi lido.
+  equipamentoId: uuid('equipamento_id'),
+  // Quem registrou — do LOGIN. `colaboradorId` é o "responsável informado", separado.
+  registradoPorId: uuid('registrado_por_id'),
   data: date('data').notNull().default(sql`current_date`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

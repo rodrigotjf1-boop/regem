@@ -32,6 +32,10 @@ export interface Permissoes {
   mural?: boolean;
   guias?: boolean; // POP & guias + documentos/ciência
   vistoria?: boolean; // vistorias (Operação)
+  // Registrar desperdício e operar o PONTO DE BAIXA (leitor óptico) — decisão do dono:
+  // ligado na gestão; na execução só quando o presidente libera no perfil. Perfis salvos
+  // antes desta chave a recebem pela mig 252, conforme o nível.
+  desperdicio?: boolean;
   desempenho?: boolean; // ocorrências / gamificação / ranking
   // Financeiro / Fiscal
   ver_financeiro?: boolean; // mostra valores em R$
@@ -99,7 +103,7 @@ export const PACOTE_SUPORTE_TOTAL: Permissoes = {
   delivery: true, pedidos: true, fidelidade: true, cashback: true,
   // Rotina
   meu_dia: true, manutencao: true, escalas: CRUD_TOTAL, checklist: true, mural: true,
-  guias: true, vistoria: true, desempenho: true,
+  guias: true, vistoria: true, desempenho: true, desperdicio: true,
   // Financeiro / Fiscal
   ver_financeiro: true, financeiro: true, formas_pagamento: true, clientes_exportar: true,
   fiscal: true, tef: true, fiscal_config: true,
@@ -208,6 +212,7 @@ export const CATALOGO_PERMISSOES: CatalogoItem[] = [
   { chave: 'manutencao', rotulo: 'Pedidos de manutenção', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'escalas', rotulo: 'Escalas', grupo: 'Rotina', tipo: 'crud' },
   { chave: 'estoque', rotulo: 'Estoque', grupo: 'Rotina', tipo: 'crud' },
+  { chave: 'desperdicio', rotulo: 'Desperdício e ponto de baixa', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'checklist', rotulo: 'Checklist & registros', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'mural', rotulo: 'Mural & clima', grupo: 'Rotina', tipo: 'bool' },
   { chave: 'guias', rotulo: 'POP & guias', grupo: 'Rotina', tipo: 'bool' },
@@ -278,7 +283,7 @@ export const PERFIS_PADRAO: {
         'cashback', 'meu_dia', 'manutencao', 'checklist', 'mural', 'cadastros', 'loja',
         'formas_pagamento', 'ponto_gerencial', 'producao_kds', 'servidor',
         'impressoras', 'kds', 'direcionamento_impressao', 'cupom_layout',
-        'fichas', 'bot', 'desligamento', 'guias', 'vistoria', 'desempenho',
+        'fichas', 'bot', 'desligamento', 'guias', 'vistoria', 'desempenho', 'desperdicio',
       ]),
       ponto: CRUD_ALL,
       estoque: { ver: true, criar: true, editar: true, excluir: false },
@@ -293,6 +298,7 @@ export const PERFIS_PADRAO: {
       ...bools([
         'pdv', 'mesas', 'cupons', 'delivery', 'pedidos', 'fidelidade', 'cashback',
         'checklist', 'mural', 'manutencao', 'fichas', 'guias', 'vistoria', 'desempenho',
+        'desperdicio',
       ]),
       ponto: { ver: true, criar: false, editar: true, excluir: false },
       estoque: { ver: true, criar: false, editar: true, excluir: false },
@@ -310,6 +316,8 @@ export const PERFIS_PADRAO: {
     loginWeb: true,
     permissoes: {
       ...bools(['pdv', 'mesas', 'cupons', 'pedidos', 'checklist', 'mural', 'manutencao', 'guias', 'vistoria']),
+      // `desperdicio` fica DE FORA de propósito (decisão do dono): a execução só registra
+      // desperdício / opera o ponto de baixa se o presidente liberar no perfil.
       ponto: CRUD_NONE,
       estoque: CRUD_NONE,
       // Execução só VISUALIZA a escala (a escala é a fonte da verdade do dia dele);

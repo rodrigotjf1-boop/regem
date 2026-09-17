@@ -656,6 +656,7 @@ export class EtiquetaValidadeService {
         } as any,
         atual,
         tx,
+        atorId,
       );
 
       const [row] = await tx
