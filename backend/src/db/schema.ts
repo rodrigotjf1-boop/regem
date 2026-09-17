@@ -598,6 +598,25 @@ export const itemEstoque = pgTable('item_estoque', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
 });
 
+// Custo médio, estoque mínimo e dias de segurança POR LOJA (mig 257). Coluna nula = vale o
+// do cadastro (`item_estoque`). O id é md5(item_id || unidade_id) — ver common/custo-loja.ts.
+export const itemEstoqueUnidade = pgTable('item_estoque_unidade', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  itemId: uuid('item_id')
+    .notNull()
+    .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id').notNull(),
+  custoMedio: numeric('custo_medio'),
+  estoqueMinimo: numeric('estoque_minimo'),
+  diasSeguranca: integer('dias_seguranca'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+});
+
 // Fornecedores de um insumo (N:N — mig 178). item_estoque.fornecedor_id segue como principal.
 export const itemFornecedor = pgTable('item_fornecedor', {
   id: uuid('id').primaryKey().defaultRandom(),

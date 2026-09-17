@@ -306,7 +306,9 @@ export default function EstoquePage() {
               </Card>
             )}
             {itens.map((i: any) => {
-              const abaixo = Number(i.saldo) < Number(i.estoqueMinimo);
+              // Abaixo do mínimo vem do servidor, loja por loja: em "todas", o saldo somado
+              // pode cobrir a soma dos mínimos com uma loja em falta.
+              const abaixo = i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueMinimo);
               return (
                 <Card key={i.id} className="flex items-center justify-between gap-3 p-4">
                   <div className="min-w-0">

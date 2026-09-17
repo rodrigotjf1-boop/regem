@@ -250,7 +250,16 @@ export function InsumoForm({
 
           <div className="space-y-1.5">
             <Label htmlFor="min">Estoque mínimo</Label>
-            <Input id="min" type="number" inputMode="decimal" value={estoqueMinimo} onChange={(e) => setEstoqueMinimo(e.target.value)} placeholder="0" />
+            <Input id="min" type="number" inputMode="decimal" value={estoqueMinimo} onChange={(e) => setEstoqueMinimo(e.target.value)} placeholder="0"
+              disabled={!!item?.minimoPorLoja} aria-describedby={item?.minimoPorLoja || item?.minimoDaLoja ? 'min-ajuda' : undefined} />
+            {item?.minimoPorLoja && (
+              <p id="min-ajuda" className="text-[11px] text-muted-foreground">Soma das lojas. Cada loja tem o próprio mínimo — escolha a loja para editar.</p>
+            )}
+            {item?.minimoDaLoja && (
+              <p id="min-ajuda" className="text-[11px] text-muted-foreground">
+                Mínimo desta loja.{item?.unidadeId == null ? ' Cadastro compartilhado: nesta loja só o estoque mínimo é salvo.' : ''}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

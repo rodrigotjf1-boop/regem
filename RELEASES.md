@@ -71,6 +71,9 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
 - 🔴 **Estoque por loja — fase B1: saldo, lote, snapshot e CMV por loja (migrations 255 e 256, NÃO cloud-only):** o job de snapshot e as leituras de estoque rodam no edge → **`.zip`**. Sem `.exe` novo.
   ⚠️ **Ordem de deploy:** **255 e depois 256, as duas ANTES do merge** (sem a 256 o CMV soma o snapshot antigo sem loja com o novo por loja). No edge, o `.zip` aplica as duas na ordem.
 
+- 🔴 **Estoque por loja — fase B2: custo médio, mínimo e dias de segurança por loja (migrations 257 e 258, NÃO cloud-only):** tabela nova `item_estoque_unidade` sincronizada nos dois sentidos → mexe em **`sync-config.ts` e `edge/sync-daemon.mjs`** (`PUSH_TABLES`) → **`.zip` e `.exe`**.
+  ⚠️ **Ordem de deploy:** 257 e 258 já aplicadas na nuvem antes do merge. No edge, o `.zip` aplica as duas; enquanto o edge não atualizar, ele não envia a tabela e pondera o custo no cadastro (comportamento antigo) — sem erro, só sem separação até o `.zip`.
+
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
 > **Épico trava anti-clone + suporte + self-service C&O é CLOUD-ONLY** (backend + front por autodeploy) — **NÃO** entra no `.exe`/`.zip`. Frentes: cadeado no console /distribuicao; suporte com "acesso total" opcional (presidente concede em config/acessos); self-service do C&O em /servidor (cadastra app autenticador); **trava anti-clone ON por padrão após a 1ª instalação**. Precisa da **migration 224** na nuvem (`empresa.suporte_acesso_total`). _(E — nuvem→edge de suporte — adiada.)_

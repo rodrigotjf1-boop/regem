@@ -18,7 +18,7 @@ import {
 } from '../../db/schema';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import { custoMedioPonderado } from '../../common/regras-negocio';
+import { ponderarCustoDaEntrada } from '../../common/custo-loja';
 import { sqlUnidade, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { CreateRecebimentoDto } from './dto/create-recebimento.dto';
 
@@ -205,21 +205,11 @@ export class RecebimentoService {
             it.custoUnitario != null ? Number(it.custoUnitario) : null;
           if (custo != null) valorTotal += qtd * custo;
 
-          // Saldo do item ANTES desta entrada (para o custo médio ponderado).
-          let saldoAntes = 0;
-          if (custo != null) {
-            const s: any = await tx.execute(
-              sql`select coalesce(sum(case tipo when 'entrada' then quantidade when 'saida' then -quantidade else quantidade end),0) as saldo
-                  from movimento_estoque where tenant_id=${tenantId} and item_id=${it.itemId}`,
-            );
-            saldoAntes = Number((s.rows ?? s)[0].saldo);
-          }
-
           // ref = a LINHA do recebimento, não o recebimento. O índice único da mig 024
           // é (tenant, ref_tipo, ref_id, item_id): usando o id do documento, duas linhas
           // do MESMO item na mesma nota colidiriam. Com o id da linha, a idempotência
           // fica garantida pelo banco, não só pela trava acima.
-          await tx.insert(movimentoEstoque).values({
+          const [mov] = await tx.insert(movimentoEstoque).values({
             tenantId,
             itemId: it.itemId,
             tipo: 'entrada',
@@ -229,7 +219,7 @@ export class RecebimentoService {
             refTipo: 'recebimento_item',
             refId: it.id,
             data: rec.data,
-          });
+          }).returning({ id: movimentoEstoque.id });
           entradas++;
 
           if (it.validade) {
@@ -244,25 +234,10 @@ export class RecebimentoService {
             });
           }
 
-          // Custo médio ponderado móvel:
+          // Custo médio ponderado móvel DA LOJA da nota (mig 257):
           // novo = (saldoAntes×custoMédioAtual + qtd×custoEntrada) / (saldoAntes + qtd)
-          if (custo != null) {
-            const [item] = await tx
-              .select({ custoMedio: itemEstoque.custoMedio })
-              .from(itemEstoque)
-              .where(eq(itemEstoque.id, it.itemId));
-            const cmAtual = Number(item?.custoMedio ?? 0);
-            const novo = custoMedioPonderado(saldoAntes, cmAtual, qtd, custo);
-            await tx
-              .update(itemEstoque)
-              .set({ custoMedio: String(novo), updatedAt: new Date() })
-              .where(
-                and(
-                  eq(itemEstoque.id, it.itemId),
-                  eq(itemEstoque.tenantId, tenantId),
-                ),
-              );
-          }
+          if (custo != null)
+            await ponderarCustoDaEntrada(tx, tenantId, mov.id, it.itemId, qtd, custo);
         }
       }
 

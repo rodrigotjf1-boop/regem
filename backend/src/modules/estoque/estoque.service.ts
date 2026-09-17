@@ -19,6 +19,14 @@ import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
 import { hojeISO, somarDias } from '../../common/data';
 import { exigirLojaParaLancar } from '../../common/loja-lancamento';
+import {
+  contarLojas,
+  gravarEstoqueMinimoDaLoja,
+  sqlCustoDaLoja,
+  sqlDiasSegurancaDaLoja,
+  sqlLojasDoItem,
+  sqlMinimoDaLoja,
+} from '../../common/custo-loja';
 import { sqlUnidade, sqlUnidadeOuRede, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -103,10 +111,49 @@ export class EstoqueService {
     atual: string | null = null,
     ator?: Ator,
   ) {
+    // Estoque mínimo é DA LOJA numa empresa de duas lojas (mig 257):
+    //  • com loja escolhida, grava o da loja — inclusive em insumo de cadastro compartilhado,
+    //    em que a loja não edita o cadastro (continua só do dono do cadastro), só o mínimo dela;
+    //  • em "todas", a tela mostra a SOMA das lojas e trava o campo; o valor que vier é
+    //    ignorado para não gravar a soma como mínimo do cadastro.
+    // Empresa de uma loja: segue no cadastro, como sempre.
+    const lojas = await contarLojas(this.db, tenantId);
+    const minimoDaLoja = lojas > 1 && !!atual && dto.estoqueMinimo != null;
+    if (minimoDaLoja) {
+      const [alvo] = await this.db
+        .select({ id: itemEstoque.id, unidadeId: itemEstoque.unidadeId })
+        .from(itemEstoque)
+        .where(
+          and(
+            eq(itemEstoque.id, id),
+            eq(itemEstoque.tenantId, tenantId),
+            condUnidadeOuRede(itemEstoque.unidadeId, atual),
+            isNull(itemEstoque.deletedAt),
+          ),
+        );
+      if (!alvo) throw new NotFoundException('Item não encontrado');
+      await gravarEstoqueMinimoDaLoja(this.db, tenantId, id, atual!, Number(dto.estoqueMinimo));
+      if (alvo.unidadeId == null) {
+        await this.auditoria.registrar({
+          tenantId,
+          atorId: ator?.colaboradorId,
+          atorPerfil: ator?.categoria,
+          tipo: 'estoque',
+          acao: 'item_minimo_loja',
+          entidadeTipo: 'item_estoque',
+          entidadeId: id,
+          detalhe: { unidadeId: atual, estoqueMinimo: Number(dto.estoqueMinimo) },
+          origem: 'web',
+        });
+        const [row] = await this.db.select().from(itemEstoque).where(eq(itemEstoque.id, id));
+        return { ...row, estoqueMinimo: String(dto.estoqueMinimo) };
+      }
+    }
+
     const patch: Record<string, unknown> = { updatedAt: new Date() };
     if (dto.nome !== undefined) patch.nome = dto.nome;
     if (dto.unidadeMedida !== undefined) patch.unidadeMedida = dto.unidadeMedida;
-    if (dto.estoqueMinimo != null) patch.estoqueMinimo = String(dto.estoqueMinimo);
+    if (dto.estoqueMinimo != null && lojas <= 1) patch.estoqueMinimo = String(dto.estoqueMinimo);
     if (dto.categoria !== undefined) patch.categoria = dto.categoria;
     // Fornecedor principal segue o 1º da lista N:N (quando enviada); senão o campo legado.
     if (dto.fornecedorIds !== undefined) patch.fornecedorId = dto.fornecedorIds[0] ?? null;
@@ -210,9 +257,17 @@ export class EstoqueService {
   // Saldo derivado do ledger (entrada +, saida -, ajuste sinalizado).
   async listItens(tenantId: string, verFin = true, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
-      select i.id, i.nome, i.unidade_medida as "unidadeMedida",
-             i.estoque_minimo as "estoqueMinimo",
-             i.custo_medio as "custoMedio",
+      -- Por LOJA (migs 253 e 257): cada insumo é expandido nas lojas que o usam, com o saldo,
+      -- o custo e o mínimo de cada uma, e somado. Com loja escolhida é uma linha só (a dela);
+      -- em "todas", o valor é a soma de saldo × custo de CADA loja (nunca o saldo total vezes
+      -- um custo único) e o mínimo é a soma dos mínimos.
+      select i.id, i.nome, i.unidade_medida as "unidadeMedida", i.unidade_id as "unidadeId",
+             sum(${sqlMinimoDaLoja}) as "estoqueMinimo",
+             case when sum(greatest(mv.saldo, 0)) > 0
+                  then sum(greatest(mv.saldo, 0) * ${sqlCustoDaLoja}) / sum(greatest(mv.saldo, 0))
+                  else max(${sqlCustoDaLoja}) end::float8 as "custoMedio",
+             sum(mv.saldo * ${sqlCustoDaLoja}) as "valorEstoque",
+             coalesce(bool_or(not u.orfao and mv.saldo < ${sqlMinimoDaLoja}), false) as "abaixoMinimo",
              i.categoria_item_id as "categoriaItemId",
              i.fornecedor_id as "fornecedorId",
              i.setor_id as "setorId",
@@ -220,14 +275,16 @@ export class EstoqueService {
              cat.nome as "categoriaNome", cat.cor as "categoriaCor",
              f.nome as "fornecedorNome",
              st.nome as "setorNome",
-             coalesce(sum(case m.tipo
-               when 'entrada' then m.quantidade
-               when 'saida'   then -m.quantidade
-               else m.quantidade end), 0) as saldo
+             sum(mv.saldo) as saldo
       from item_estoque i
-      -- Saldo da LOJA (mig 253): só os movimentos dela. Sem loja (presidente em "todas",
-      -- ou empresa de uma loja só) soma todas — a soma das lojas, nunca uma média.
-      left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
+      ${sqlLojasDoItem(atual)}
+      cross join lateral (
+        select coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                  when 'saida'   then -m.quantidade
+                                  else m.quantidade end), 0) as saldo
+          from movimento_estoque m
+         where m.item_id = i.id and m.unidade_id is not distinct from u.uid
+      ) mv
       left join categoria_item cat on cat.id = i.categoria_item_id
       left join fornecedor f on f.id = i.fornecedor_id
       left join setor st on st.id = i.setor_id
@@ -260,12 +317,17 @@ export class EstoqueService {
       arr.push(x.fornecedorId);
       fornPorItem.set(x.itemId, arr);
     }
-    // Valor em estoque = saldo × custo médio (derivado, nunca armazenado).
+    // Em "todas" numa empresa de duas lojas o mínimo mostrado é a SOMA das lojas: não é um
+    // valor editável (cada loja tem o seu). A tela trava o campo e pede a loja.
+    const lojas = await contarLojas(this.db, tenantId);
+    // Valor em estoque = Σ saldo × custo médio de cada loja (derivado, nunca armazenado).
     // Valores em R$ (custo médio e valor) são financeiros → só presidente/C&O.
     return rows.map((r: any) => ({
       ...r,
       custoMedio: verFin ? r.custoMedio : null,
-      valorEstoque: verFin ? Number(r.saldo) * Number(r.custoMedio ?? 0) : null,
+      valorEstoque: verFin ? Number(r.valorEstoque ?? 0) : null,
+      minimoPorLoja: lojas > 1 && !atual,
+      minimoDaLoja: lojas > 1 && !!atual,
       conversoes: porItem.get(r.id) ?? [],
       // Lista completa de fornecedores; cai no principal quando ainda não há N:N.
       fornecedorIds: fornPorItem.get(r.id) ?? (r.fornecedorId ? [r.fornecedorId] : []),
@@ -351,21 +413,39 @@ export class EstoqueService {
     const LEAD_TIME_PADRAO = 7;
     const COBERTURA_ALVO_DIAS = 7;
     const res: any = await this.db.execute(sql`
+      -- Saldo, consumo, compras, custo, mínimo e dias de segurança DA LOJA (migs 253 e 257)
+      -- — é o que decide o ponto de pedido dela. Em "todas", soma por loja: o estoque de
+      -- segurança é Σ consumo × dias de cada loja (dias ponderados pelo consumo), o valor
+      -- consumido é Σ saída × custo de cada loja.
       select i.id, i.nome, i.unidade_medida as "unidadeMedida",
-             i.estoque_minimo as "estoqueMinimo", i.custo_medio as "custoMedio",
-             i.dias_seguranca as "diasSeguranca",
+             sum(${sqlMinimoDaLoja}) as "estoqueMinimo",
+             case when sum(greatest(mv.saldo, 0)) > 0
+                  then sum(greatest(mv.saldo, 0) * ${sqlCustoDaLoja}) / sum(greatest(mv.saldo, 0))
+                  else max(${sqlCustoDaLoja}) end as "custoMedio",
+             coalesce(sum(mv.saida * ${sqlDiasSegurancaDaLoja}) / nullif(sum(mv.saida), 0),
+                      max(${sqlDiasSegurancaDaLoja})) as "diasSeguranca",
              f.lead_time_dias as "leadTimeDias", f.nome as "fornecedorNome",
-             coalesce(sum(case m.tipo when 'entrada' then m.quantidade
-               when 'saida' then -m.quantidade else m.quantidade end),0) as saldo,
-             coalesce(sum(case when m.tipo='saida' and m.data between ${inicio} and ${fim}
-               then m.quantidade else 0 end),0) as "saidaPeriodo",
-             coalesce(sum(case when m.tipo='entrada' and m.motivo in ('recebimento','compra')
-               and m.data between ${inicio} and ${fim}
-               then m.quantidade * coalesce(m.custo_unitario, i.custo_medio) else 0 end),0) as "comprasValor"
+             sum(mv.saldo) as saldo,
+             sum(mv.saida) as "saidaPeriodo",
+             sum(mv.saldo * ${sqlCustoDaLoja}) as "valorEstoque",
+             sum(mv.saida * ${sqlCustoDaLoja}) as "valorConsumido",
+             coalesce(bool_or(not u.orfao and mv.saldo < ${sqlMinimoDaLoja}), false) as "abaixoMinimo",
+             sum(mv.compras) as "comprasValor"
       from item_estoque i
       left join fornecedor f on f.id = i.fornecedor_id and f.deleted_at is null
-      -- Saldo, consumo e compras DA LOJA (mig 253) — é o que decide o ponto de pedido dela.
-      left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
+      ${sqlLojasDoItem(atual)}
+      cross join lateral (
+        select coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                  when 'saida'   then -m.quantidade
+                                  else m.quantidade end), 0) as saldo,
+               coalesce(sum(case when m.tipo = 'saida' and m.data between ${inicio} and ${fim}
+                 then m.quantidade else 0 end), 0) as saida,
+               coalesce(sum(case when m.tipo = 'entrada' and m.motivo in ('recebimento', 'compra')
+                 and m.data between ${inicio} and ${fim}
+                 then m.quantidade * coalesce(m.custo_unitario, ${sqlCustoDaLoja}) else 0 end), 0) as compras
+          from movimento_estoque m
+         where m.item_id = i.id and m.unidade_id is not distinct from u.uid
+      ) mv
       where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
       group by i.id, f.lead_time_dias, f.nome
       order by i.nome
@@ -402,17 +482,17 @@ export class EstoqueService {
         estoqueMinimo: Number(r.estoqueMinimo ?? 0),
         custoMedio,
         saldo,
-        valorEstoque: saldo * custoMedio,
+        valorEstoque: Number(r.valorEstoque ?? 0),
         consumoDiario: Number(consumoDiario.toFixed(3)),
         diasCobertura: diasCobertura != null ? Number(diasCobertura.toFixed(1)) : null,
-        valorConsumido: saidaPeriodo * custoMedio,
+        valorConsumido: Number(r.valorConsumido ?? 0),
         estoqueSeguranca: Number(es.toFixed(2)),
         leadTime,
         fornecedorNome: r.fornecedorNome ?? null,
         rop: Number(rop.toFixed(2)),
         qtdSugerida: Number(qtdSugerida.toFixed(2)),
         repor: saldo <= rop && rop > 0,
-        abaixoMinimo: saldo < Number(r.estoqueMinimo ?? 0),
+        abaixoMinimo: !!r.abaixoMinimo,
         comprasValor: Number(r.comprasValor),
       };
     });
@@ -515,7 +595,8 @@ export class EstoqueService {
       select i.tenant_id, u.uid, i.id, ${d}::date,
         coalesce(sum(case m.tipo when 'entrada' then m.quantidade
           when 'saida' then -m.quantidade else m.quantidade end),0),
-        i.custo_medio
+        -- Custo médio DA LOJA naquele dia (mig 257).
+        coalesce(max(iu.custo_medio), i.custo_medio)
       from item_estoque i
       cross join lateral (
         select un.id as uid from unidade un
@@ -527,6 +608,8 @@ export class EstoqueService {
            select 1 from unidade un2 where un2.tenant_id = i.tenant_id and un2.deleted_at is null
          )
       ) u
+      left join item_estoque_unidade iu
+        on iu.item_id = i.id and iu.unidade_id = u.uid and iu.deleted_at is null
       left join movimento_estoque m
         on m.item_id = i.id and m.data <= ${d} and m.unidade_id is not distinct from u.uid
       where i.tenant_id = ${tenantId} and i.deleted_at is null
@@ -560,15 +643,18 @@ export class EstoqueService {
     };
     const valorAtual = async (): Promise<number> => {
       const r: any = await this.db.execute(sql`
-        select coalesce(sum(saldo * custo_medio),0) as v from (
-          select i.custo_medio,
-            coalesce(sum(case m.tipo when 'entrada' then m.quantidade
-              when 'saida' then -m.quantidade else m.quantidade end),0) as saldo
+        -- Σ saldo × custo médio de CADA loja (mig 257).
+        select coalesce(sum(mv.saldo * ${sqlCustoDaLoja}),0) as v
           from item_estoque i
-          left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
+          ${sqlLojasDoItem(atual)}
+          cross join lateral (
+            select coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                  when 'saida'   then -m.quantidade
+                                  else m.quantidade end), 0) as saldo
+              from movimento_estoque m
+             where m.item_id = i.id and m.unidade_id is not distinct from u.uid
+          ) mv
           where i.tenant_id=${tenantId} and i.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
-          group by i.id
-        ) t
       `);
       return Number((r.rows ?? r)[0].v);
     };
@@ -591,8 +677,10 @@ export class EstoqueService {
       cond: any,
     ): Promise<number> => {
       const r: any = await this.db.execute(sql`
-        select coalesce(sum(m.quantidade * coalesce(m.custo_unitario, i.custo_medio)),0) as v
+        select coalesce(sum(m.quantidade * coalesce(m.custo_unitario, iu.custo_medio, i.custo_medio)),0) as v
         from movimento_estoque m join item_estoque i on i.id = m.item_id
+        left join item_estoque_unidade iu
+          on iu.item_id = m.item_id and iu.unidade_id = m.unidade_id and iu.deleted_at is null
         -- Compras, consumo e desperdício DA LOJA: pela loja do movimento, não do insumo.
         where m.tenant_id=${tenantId} and m.data between ${inicio} and ${fim} ${sqlUnidade('m.unidade_id', atual)} and ${cond}
       `);

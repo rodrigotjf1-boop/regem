@@ -72,6 +72,11 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // dado é o mesmo cadastro e o conflito real é raro.
   { tabela: 'item_estoque', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'fornecedor', direcao: 'ambos', cursor: 'updated_at' },
+  // Custo médio, mínimo e dias de segurança POR LOJA (mig 257). 'ambos': o recebimento e a
+  // produção no edge ponderam o custo; o mínimo pode ser editado na nuvem. O id vem do par
+  // (insumo, loja), então as duas pontas geram a MESMA linha e o LWW resolve. Depois de
+  // `item_estoque` e `unidade` (FK).
+  { tabela: 'item_estoque_unidade', direcao: 'ambos', cursor: 'updated_at' },
   // ⚠️ CADEIA DA FICHA — sem estas três o edge NÃO BAIXA ESTOQUE NENHUM.
   // A explosão (vendas.service → acumularFicha/acumularProduto) lê `ficha_ingrediente`,
   // `produto_combo_item` e `produto_variacao`. Elas nunca estiveram aqui: no servidor
@@ -206,6 +211,8 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'titulo_financeiro',
   // Etiquetas de validade (mig 245) — mesma razão.
   'etiqueta_validade',
+  // Custo/mínimo por loja (mig 257): os valores iniciais da 258 precisam descer uma vez.
+  'item_estoque_unidade',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

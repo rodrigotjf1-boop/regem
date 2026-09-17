@@ -10,6 +10,7 @@ import { consumirLotes } from '../../common/lotes';
 import { colaborador, desperdicio, equipamento, itemEstoque, movimentoEstoque } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
+import { custoMedioDaSaida } from '../../common/custo-loja';
 import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
 
 @Injectable()
@@ -84,7 +85,6 @@ export class DesperdicioService {
     const [item] = await db
       .select({
         id: itemEstoque.id,
-        custoMedio: itemEstoque.custoMedio,
         unidadeMedida: itemEstoque.unidadeMedida,
       })
       .from(itemEstoque)
@@ -100,6 +100,8 @@ export class DesperdicioService {
         ),
       );
     if (!item) throw new NotFoundException('Item de estoque não encontrado.');
+    // Custo médio DA LOJA do registro (mig 257): a perda da loja B vale pelo custo da B.
+    const custoMedio = await custoMedioDaSaida(db, tenantId, item.id, atual ?? dto.unidadeId ?? null);
 
     const corpo = async (tx: any) => {
       const [row] = await tx
@@ -111,7 +113,7 @@ export class DesperdicioService {
           colaboradorId: dto.colaboradorId,
           descricao: dto.descricao,
           itemId: dto.itemId,
-          custoUnitario: item.custoMedio,
+          custoUnitario: custoMedio ?? undefined,
           quantidade: String(dto.quantidade),
           unidadeMedida: dto.unidadeMedida ?? item.unidadeMedida,
           motivo: dto.motivo,
@@ -128,7 +130,7 @@ export class DesperdicioService {
           itemId: dto.itemId!,
           tipo: 'saida',
           quantidade: String(dto.quantidade),
-          custoUnitario: item.custoMedio,
+          custoUnitario: custoMedio ?? undefined,
           motivo: 'desperdicio',
           refTipo: 'desperdicio',
           refId: row.id,

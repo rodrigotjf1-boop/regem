@@ -23,7 +23,6 @@ import {
   produtoComboItem,
   fichaTecnica,
   fichaIngrediente,
-  itemEstoque,
   movimentoEstoque,
   lancamentoCaixa,
   acertoSubpdv,
@@ -48,6 +47,7 @@ import { VendaExternaPdvDto } from './dto/venda-externa-pdv.dto';
 import { VendaExternaFalhaDto } from './dto/venda-externa-falha.dto';
 import { hojeISO } from '../../common/data';
 import { consumirLotes, devolverLotes } from '../../common/lotes';
+import { custoMedioDaSaida } from '../../common/custo-loja';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -373,10 +373,9 @@ export class VendasService {
   ) {
     for (const [itemId, qtd] of consumo) {
       if (qtd <= 0) continue;
-      const [item] = await tx
-        .select({ custoMedio: itemEstoque.custoMedio })
-        .from(itemEstoque)
-        .where(eq(itemEstoque.id, itemId));
+      // Custo médio DA LOJA da comanda (mig 257), pela mesma função que o gatilho usa para
+      // gravar a loja do movimento — o custo e a loja gravados nunca divergem.
+      const custoMedio = await custoMedioDaSaida(tx, tenantId, itemId, null, 'venda', comandaId);
       // A LOJA do movimento não é passada aqui de propósito: o gatilho da mig 253 a tira da
       // própria comanda (`ref_id`), que é a fonte da verdade — uma definição só, a mesma
       // que preenche o histórico e os movimentos que chegam do servidor local.
@@ -387,7 +386,7 @@ export class VendasService {
           itemId,
           tipo: 'saida',
           quantidade: String(qtd),
-          custoUnitario: item?.custoMedio != null ? String(item.custoMedio) : undefined,
+          custoUnitario: custoMedio ?? undefined,
           motivo: 'venda',
           refTipo: 'venda',
           refId: comandaId,
