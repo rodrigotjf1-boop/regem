@@ -42,6 +42,7 @@ for (const _m of ['log', 'warn', 'error']) {
 // DPAPI — senao a EDGE_DATABASE_URL fica cifrada e o pg conecta como a conta da
 // maquina (28P01 "password authentication failed for user <MAQUINA>$").
 import { carregarEnvLocal } from './decifrar-env.mjs';
+import { criarReconciliacao } from './sync-reconciliacao.mjs';
 carregarEnvLocal(import.meta.url);
 
 const EDGE_DB = req('EDGE_DATABASE_URL');
@@ -245,7 +246,25 @@ const pool = new pg.Pool({
 // update) emite 'error' na conexao OCIOSA do pool -> SEM handler o Node derruba o
 // daemon. So logamos; o pg descarta a conexao morta e reabre na proxima query.
 pool.on('error', (e) => console.error(`[sync] pool: conexao ociosa caiu (${e?.code ?? e?.message}) - descartada, segue no ar`));
+// Toda conexão do daemon é "aplicação de sync" (mig 259): o gatilho de updated_at mantém o
+// carimbo que veio da nuvem. Sem isto ele trocava pela hora local, a linha voltava à nuvem
+// como mais nova e ficava indo e voltando a cada ciclo (e podia vencer uma edição real).
+// O daemon não faz edição de negócio — só aplica o que veio e grava sync_state/fila de
+// impressão, que não têm esse gatilho.
+pool.on('connect', (c) => {
+  c.query(`select set_config('regem.sync', 'on', false)`).catch((e) =>
+    console.error(`[sync] não marcou a sessão como sync (${e?.code ?? e?.message})`),
+  );
+});
 const colCache = new Map();
+// Reconciliação pós-atualização (ver sync-reconciliacao.mjs): colunas/tabelas que a nuvem
+// mandou enquanto este servidor ainda não as tinha.
+const recon = criarReconciliacao({
+  query: (sql, params) => pool.query(sql, params),
+  getState: (k, d) => getState(k, d),
+  setState: (k, v) => setState(k, v),
+  colunas: (t) => colunas(t),
+});
 
 function req(k) {
   const v = process.env[k];
@@ -415,6 +434,15 @@ async function pull() {
   } catch (e) {
     console.warn(`Sync: reparo de cursor falhou (segue normal): ${e.message}`);
   }
+  // Reconciliação: semeia a transição da 1.29.0 (uma vez), promove o que a atualização
+  // acabou de criar e rebobina as tabelas enfileiradas. Falha aqui não derruba o pull.
+  try {
+    await recon.semear();
+    await recon.promoverAusentes();
+    cursores = await recon.prepararCursores(cursores);
+  } catch (e) {
+    console.warn(`Sync: reconciliação não preparou (segue normal): ${e.message}`);
+  }
   const qs =
     `desde=${encodeURIComponent(desde)}` +
     `&cursores=${encodeURIComponent(JSON.stringify(cursores))}`;
@@ -426,10 +454,31 @@ async function pull() {
   let aplicadas = 0;
   let pendentes = []; // linhas cujo pai (FK) ainda não chegou → retry
   const falhas = [];  // linhas com erro DURO (coluna/valor) → pular, NÃO travar o pull
+  let fila = {};
+  try { fila = await recon.fila(); } catch { fila = {}; }
+  // Upsert normal + as colunas em reconciliação (se a tabela está na fila).
+  const aplicar = async (tabela, row) => {
+    await upsertLocal(tabela, row);
+    await recon.aplicarLinha(fila, tabela, row);
+  };
+  // O que a nuvem mandou e este servidor não tem (tabela → null, ou → colunas).
+  const ausentes = {};
   for (const [tabela, rows] of Object.entries(data.tabelas)) {
+    const locais = await colunas(tabela);
+    if (!locais.size) {
+      // Tabela que ainda não existe aqui (atualização pendente): antes a linha era
+      // descartada em silêncio, contada como aplicada, e o cursor AVANÇAVA — o histórico
+      // nunca mais descia. Agora não aplica nem avança; entra na reconciliação quando a
+      // tabela for criada.
+      if (rows.length) ausentes[tabela] = null;
+      if (data.cursores) delete data.cursores[tabela];
+      continue;
+    }
+    const faltando = rows.length ? Object.keys(rows[0]).filter((k) => !locais.has(k)) : [];
+    if (faltando.length) ausentes[tabela] = faltando;
     for (const row of rows) {
       try {
-        await upsertLocal(tabela, row);
+        await aplicar(tabela, row);
         aplicadas++;
       } catch (e) {
         if (e.code === '23503') pendentes.push([tabela, row]);
@@ -442,7 +491,7 @@ async function pull() {
     const resta = [];
     for (const [tabela, row] of pendentes) {
       try {
-        await upsertLocal(tabela, row);
+        await aplicar(tabela, row);
         aplicadas++;
       } catch (e) {
         if (e.code === '23503') resta.push([tabela, row]);
@@ -486,6 +535,12 @@ async function pull() {
   }
   // Mantém o cursor legado (piso p/ tabelas novas + compat caso o daemon seja rebaixado).
   if (data.proximoCursor) await setState('pull_cursor', data.proximoCursor);
+  try {
+    await recon.registrarAusentes(ausentes);
+    await recon.concluirPull(data.tabelas);
+  } catch (e) {
+    console.warn(`Sync: reconciliação não registrou o fim do pull (tenta no próximo): ${e.message}`);
+  }
   return aplicadas;
 }
 
@@ -529,23 +584,26 @@ function parseCursorPush(s) {
 // Reenvia um lote REJEITADO (4xx definitivo) linha a linha, isolando a "veneno": as boas sobem;
 // a que ainda falhar 4xx é logada (DEAD-LETTER) e pulada; 5xx/rede no meio → para (o cursor já
 // persistido reflete o progresso, retoma no próximo ciclo). Persiste o cursor por linha PROCESSADA.
-async function enviarLinhaALinha(t, linhas) {
-  for (const linha of linhas) {
+let deadLetters = 0; // linhas puladas por 4xx (o --descarregar não pode apagar o banco com isso)
+async function enviarLinhaALinha(t, linhas, enviadas, chave, cursorDe) {
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i];
     try {
-      await enviarLote({ tabela: t.tabela, linhas: [linha] });
+      await enviarLote({ tabela: t.tabela, linhas: [enviadas[i]] });
     } catch (e) {
       const st = e?.status;
       const definitivo = typeof st === 'number' && st >= 400 && st < 500 && st !== 429 && st !== 408;
       if (!definitivo) throw e; // transitório → para; retoma no próximo ciclo sem perder posição
+      deadLetters++;
       console.error(
-        `[push dead-letter] ${t.tabela} id=${linha.id} cursor=${linha[t.cursor]} — PULADA (HTTP ${st}): ${String(e?.message ?? '').slice(0, 160)}`,
+        `[push dead-letter] ${t.tabela} id=${linha.id} cursor=${cursorDe(linha)} — PULADA (HTTP ${st}): ${String(e?.message ?? '').slice(0, 160)}`,
       );
     }
-    await setState(`push_${t.tabela}`, `${new Date(linha[t.cursor]).toISOString()}|${linha.id}`);
+    await setState(chave, cursorDe(linha));
   }
 }
 
-async function push() {
+async function push(limiteMs = null) {
   // Páginas pequenas: cada tabela sobe em blocos de PUSH_MAX linhas, UM request por
   // bloco. Menos chance de 413 e progresso persistido (o cursor só avança após o
   // request do bloco dar certo — se cair no meio, retoma de onde parou).
@@ -554,32 +612,64 @@ async function push() {
   // (ex.: re-push das ~25k linhas do snapshot) rodava minutos numa chamada só e o PULL não
   // rodava nesse tempo → pedido novo não descia. Fatia de 20s por ciclo; o cursor persiste
   // (setState por bloco), então o próximo ciclo continua de onde parou.
-  const PUSH_LIMITE_MS = Number(process.env.SYNC_PUSH_LIMITE_MS || 20000);
+  const PUSH_LIMITE_MS = limiteMs ?? Number(process.env.SYNC_PUSH_LIMITE_MS || 20000);
   const push_inicio = Date.now();
   let total = 0;
+  let fila = {};
+  try { fila = await recon.fila(); } catch { fila = {}; }
   for (const t of PUSH_TABLES) {
-    if (!(await colunas(t.tabela)).size) continue;
-    let cur = await getState(`push_${t.tabela}`, '1970-01-01T00:00:00Z');
+    const locais = await colunas(t.tabela);
+    if (!locais.size) continue;
+    // Reconciliação em curso nesta tabela: espera, ou sobe sem as colunas que este servidor
+    // ainda não recebeu da nuvem (senão sobrescreveria a nuvem com vazio).
+    const modo = await recon.modoPush(t.tabela, fila);
+    if (modo === 'esperar') continue;
+    const tirar = Array.isArray(modo) ? modo : null;
+    const semColunas = (rows) =>
+      rows.map((row) => {
+        const c = { ...row };
+        delete c.__kc_push; // auxiliar do cursor, não é coluna
+        if (tirar) for (const k of tirar) delete c[k];
+        return c;
+      });
+    // Banco sem a coluna de cursor (instalação antiga: ex. compra_item antes da mig 243, no
+    // --descarregar do instalador) → keyset só por id, com estado próprio.
+    const porId = !locais.has(t.cursor);
+    const chave = porId ? `push_${t.tabela}__id` : `push_${t.tabela}`;
+    // Cursor em TEXTO do próprio Postgres (precisão de microssegundo). Antes passava por Date
+    // do JS (milissegundo): a última linha de cada página tinha valor maior que o cursor
+    // truncado e era REENVIADA em todo ciclo, para sempre.
+    const cursorDe = (row) => (porId ? String(row.id) : `${row.__kc_push}|${row.id}`);
+    let cur = await getState(chave, porId ? '' : '1970-01-01T00:00:00Z');
     for (let pagina = 0; pagina < 10000; pagina++) {
       const filtro = t.filtro ? ` and (${t.filtro})` : ''; // constante do PUSH_TABLES, não é entrada de usuário
-      const { ts, id } = parseCursorPush(cur);
-      // Keyset COMPOSTO (cursor, id) — mesma forma expandida/sargável do PULL da nuvem. SEM o
-      // desempate por id, ≥PUSH_MAX linhas com o MESMO timestamp na fronteira da página eram
-      // PULADAS pra sempre (perda silenciosa): now()=início da tx → uma transação grande
-      // (audit_log, movimento_estoque, comanda_item…) gera muitos timestamps idênticos.
-      const r = await pool.query(
-        `select * from ${q(t.tabela)}
-           where (${q(t.cursor)} > $1::timestamptz
-                  or (${q(t.cursor)} = $1::timestamptz and ${q('id')} > $2))${filtro}
-           order by ${q(t.cursor)} asc, ${q('id')} asc limit $3`,
-        [ts, id, PUSH_MAX],
-      );
+      let r;
+      if (porId) {
+        r = await pool.query(
+          `select * from ${q(t.tabela)} where ${q('id')}::text > $1${filtro} order by ${q('id')}::text asc limit $2`,
+          [cur, PUSH_MAX],
+        );
+      } else {
+        const { ts, id } = parseCursorPush(cur);
+        // Keyset COMPOSTO (cursor, id) — mesma forma expandida/sargável do PULL da nuvem. SEM o
+        // desempate por id, ≥PUSH_MAX linhas com o MESMO timestamp na fronteira da página eram
+        // PULADAS pra sempre (perda silenciosa): now()=início da tx → uma transação grande
+        // (audit_log, movimento_estoque, comanda_item…) gera muitos timestamps idênticos.
+        r = await pool.query(
+          `select *, ${q(t.cursor)}::text as __kc_push from ${q(t.tabela)}
+             where (${q(t.cursor)} > $1::timestamptz
+                    or (${q(t.cursor)} = $1::timestamptz and ${q('id')} > $2))${filtro}
+             order by ${q(t.cursor)} asc, ${q('id')} asc limit $3`,
+          [ts, id, PUSH_MAX],
+        );
+      }
       if (!r.rows.length) break;
+      const enviadas = semColunas(r.rows);
       try {
-        await enviarLote({ tabela: t.tabela, linhas: r.rows });
-        const ultima = r.rows[r.rows.length - 1]; // ordenado por (cursor, id) → a última é o máximo
-        cur = `${new Date(ultima[t.cursor]).toISOString()}|${ultima.id}`;
-        await setState(`push_${t.tabela}`, cur);
+        await enviarLote({ tabela: t.tabela, linhas: enviadas });
+        const ultima = r.rows[r.rows.length - 1]; // ordenado pelo keyset → a última é o máximo
+        cur = cursorDe(ultima);
+        await setState(chave, cur);
       } catch (e) {
         const st = e?.status;
         const definitivo = typeof st === 'number' && st >= 400 && st < 500 && st !== 429 && st !== 408;
@@ -588,8 +678,8 @@ async function push() {
         // Isola linha a linha (as boas sobem; a veneno vira dead-letter e é pulada) — não bloqueia
         // o resto do sync (vendas de outras tabelas continuam subindo).
         console.warn(`  push: lote de ${t.tabela} rejeitado (HTTP ${st}) — reenviando linha a linha p/ isolar a veneno`);
-        await enviarLinhaALinha(t, r.rows);
-        cur = await getState(`push_${t.tabela}`, cur); // recarrega o cursor avançado pelo row-by-row
+        await enviarLinhaALinha(t, r.rows, enviadas, chave, cursorDe);
+        cur = await getState(chave, cur); // recarrega o cursor avançado pelo row-by-row
       }
       total += r.rows.length;
       if (Date.now() - push_inicio > PUSH_LIMITE_MS) {
@@ -744,7 +834,7 @@ async function heartbeat(pullN, pushN, erro, comSaude) {
 // OPACO → gunzip explícito) com TODO o transacional da loja (escopado pelo token) e carrega
 // numa TRANSAÇÃO com session_replication_role=replica (FK/triggers OFF → sem ordem
 // pai/filho, fim do "sem pai (FK)"). Substitui o restore linha-a-linha; se falhar, o
-// chamador cai no restaurar() antigo. Só COMMITA se recebeu o __fim (parcial = rollback).
+// chamador loga e o gestor re-dispara. Só COMMITA se recebeu o __fim (parcial = rollback).
 async function restaurarSnapshot() {
   console.log('Restore (snapshot): baixando o arquivo da nuvem…');
   await setState('restaurar_solicitado', '0');
@@ -830,10 +920,7 @@ async function restaurarSnapshot() {
           if (!hw.rows?.length) continue;
           _cur[tb] = `${hw.rows[0].kc}|${hw.rows[0].id}`;
           _n++;
-          if (fresco) {
-            const _iso = new Date(hw.rows[0].kc);
-            if (!isNaN(_iso.getTime())) await setState(`push_${tb}`, _iso.toISOString());
-          }
+          if (fresco) await setState(`push_${tb}`, `${hw.rows[0].kc}|${hw.rows[0].id}`);
         }
         await setState('pull_cursores', JSON.stringify(_cur));
         console.log(`Restore: cursores posicionados (${_n} tabela(s), ${fresco ? 'pull+push' : 'só pull'}) — próximo ciclo baixa só o novo.`);
@@ -850,75 +937,6 @@ async function restaurarSnapshot() {
     // Push do pendente por último — best-effort, NUNCA trava o download.
     try { await push(); } catch (e) { console.warn(`  push pós-snapshot (best-effort): ${e.message}`); }
     return total;
-  } finally {
-    await setState('restaurando', '0');
-  }
-}
-
-// RESTAURAÇÃO sob demanda (botão do app): volta ao modo local após operar na
-// nuvem. 2 tempos, aditivo (upsert por id, nunca apaga o que é só local):
-//   1) EMPURRA o operacional local pendente pra nuvem (não perde venda de antes
-//      da queda); 2) PUXA as tabelas transacionais da nuvem e aplica localmente.
-async function restaurar() {
-  console.log('Restauração solicitada — subindo pendências e puxando a nuvem...');
-  await setState('restaurar_solicitado', '0'); // consome o pedido (não repete se travar)
-  await setState('restaurando', '1');
-  try {
-    // DOWNLOAD PRIMEIRO — é o que a loja precisa. O push (upload) foi pro FIM (best-effort):
-    // rodando aqui na frente, com a nuvem em 502 + fila de push grande, ele SEGURAVA o
-    // download e o restore ficava preso (potitjf 31/08 — "solicitada" sem nunca puxar).
-    // E SEMPRE COMPLETO (desde 1970): o botão Restaurar é catch-up total; não confia num
-    // restore_cursor adiantado que faz concluir com 0 linha (bug real do potitjf: dado na
-    // nuvem, cursor à frente → restore "conclui" sem baixar nada).
-    let cursor = '1970-01-01T00:00:00Z';
-    let total = 0;
-    console.log(`  restore: baixando da nuvem desde ${cursor} (completo)…`);
-    // FK sem pai: ACUMULA entre páginas. O restore pagina por tabela (1000/tabela) com
-    // cursor por tabela, então uma FILHA (comanda_item, producao_pedido_item) pode chegar
-    // numa página ANTES do PAI (comanda, producao_pedido), que vem numa página posterior.
-    // Antes descartávamos por página → a filha sumia (vendas/comandas de hoje não desciam).
-    // Agora guardamos e re-tentamos no FIM, com todos os pais já presentes.
-    const orfaos = [];
-    for (let pagina = 0; pagina < 5000; pagina++) {
-      const res = await fetchT(`${CLOUD}/sync/restore?desde=${encodeURIComponent(cursor)}`, {
-        headers: { 'x-sync-token': TOKEN },
-      }, RESTORE_TIMEOUT_MS);
-      if (!res.ok) throw new Error(`restore HTTP ${res.status}: ${await res.text()}`);
-      const data = await res.json();
-      const linhas = Object.values(data.tabelas).reduce((s, r) => s + r.length, 0);
-      for (const [tabela, rows] of Object.entries(data.tabelas)) {
-        for (const row of rows) {
-          try { await upsertLocal(tabela, row); total++; }
-          catch (e) { if (e.code === '23503') orfaos.push([tabela, row]); else throw e; }
-        }
-      }
-      // Visibilidade: sem isto o restore era caixa-preta (nem o gestor nem o suporte
-      // sabiam se baixava, travava ou dava erro). Loga a cada página + grava o progresso
-      // em sync_state p/ a UI (/servidor) mostrar "Restaurando… N linha(s)".
-      console.log(`  restore: página ${pagina} → +${linhas} linha(s) (total ${total}${orfaos.length ? `, ${orfaos.length} p/ varredura FK` : ''})`);
-      try { await setState('restore_progresso', String(total)); } catch { /* best-effort */ }
-      if (!data.proximoCursor || data.proximoCursor === cursor || linhas === 0) break;
-      cursor = data.proximoCursor;
-      await setState('restore_cursor', cursor);
-    }
-    // Varredura final dos órfãos (os pais de páginas posteriores já entraram). Várias
-    // passadas porque um órfão pode depender de outro (cadeia comanda→item→…); para quando
-    // uma passada não resolve mais nada (pai genuinamente ausente na nuvem = fica de fora).
-    let resta = orfaos;
-    for (let passe = 0; passe < 6 && resta.length; passe++) {
-      const proximo = [];
-      for (const [tabela, row] of resta) {
-        try { await upsertLocal(tabela, row); total++; }
-        catch (e) { if (e.code === '23503') proximo.push([tabela, row]); else throw e; }
-      }
-      if (proximo.length === resta.length) { resta = proximo; break; }
-      resta = proximo;
-    }
-    if (resta.length) console.warn(`  ${resta.length} linha(s) sem pai (FK) mesmo após varredura final do restore`);
-    await setState('restaurado_em', new Date().toISOString());
-    console.log(`Restauração concluída — ${total} linha(s) aplicadas.`);
-    // Push do pendente local por ÚLTIMO — best-effort, NUNCA trava o download acima.
-    try { await push(); } catch (e) { console.warn(`  push pós-restore (best-effort): ${e.message}`); }
   } finally {
     await setState('restaurando', '0');
   }
@@ -1136,6 +1154,33 @@ console.log(`Daemon de sync — edge=${EDGE_DB.replace(/:[^:@/]*@/, ':****@')} c
 // o daemon caía e o NSSM reiniciava em loop (dezenas de "Daemon de sync —" sem "sync ok").
 process.on('unhandledRejection', (e) => console.error(`[unhandledRejection] ${e?.message ?? e}`));
 process.on('uncaughtException', (e) => console.error(`[uncaughtException] ${e?.message ?? e}`));
+
+// --descarregar (usado pelo INSTALADOR antes de apagar o banco local numa reinstalação
+// limpa): sobe para a nuvem TUDO o que ainda não subiu e sai. Código de saída 0 = tudo na
+// nuvem; 1 = falha de rede/nuvem; 2 = alguma linha foi recusada (dead-letter). Qualquer
+// coisa diferente de 0 → o instalador NÃO apaga o banco.
+//
+// Por quê: o .exe reinstala limpo e os dados voltam da nuvem — premissa que só vale se tudo
+// que nasceu na loja já subiu. Tabelas que entraram na lista de push depois da versão
+// instalada (documentos de estoque, etiquetas…) nunca subiram; apagar o banco as perderia.
+if (process.argv.includes('--descarregar')) {
+  let codigo = 0;
+  try {
+    await ensureState();
+    const n = await push(Number.POSITIVE_INFINITY);
+    if (deadLetters) {
+      console.error(`descarregar: ${n} linha(s) enviadas, mas ${deadLetters} recusada(s) pela nuvem — NÃO apagar o banco.`);
+      codigo = 2;
+    } else {
+      console.log(`descarregar: ${n} linha(s) enviadas — tudo o que é local está na nuvem.`);
+    }
+  } catch (e) {
+    console.error(`descarregar FALHOU: ${causaErro(e)}`);
+    codigo = 1;
+  }
+  try { await pool.end(); } catch { /* ignore */ }
+  process.exit(codigo);
+}
 
 // ensureState e o 1º ciclo NÃO podem crashar o boot (ex.: PG recuperando = 57P03).
 // Se falharem, loga e segue — o setInterval reexecuta o ciclo quando o PG estabilizar.

@@ -422,29 +422,42 @@ export class SyncService {
         // da Cloudflare → 502. Um bloco só resolve em ~1 ida. Regra "operação em massa =
         // query set-based, nunca loop N". Se o bloco falhar (FK fora de ordem, id repetido),
         // cai no FALLBACK linha-a-linha (ignora 23503/23505 por linha, sem derrubar o lote).
-        try {
-          const r: any = await this.db.execute(
-            sql`insert into ${sql.identifier(lote.tabela)} (${colsSql}) values ${sql.join(linhas.map(linhaVals), sql`, `)} ${conflito}`,
-          );
-          aplicadas += r?.rowCount ?? 0;
-          ignoradas += linhas.length - (r?.rowCount ?? 0);
-        } catch {
-          for (const linha of linhas) {
-            try {
-              const r: any = await this.db.execute(
-                sql`insert into ${sql.identifier(lote.tabela)} (${colsSql}) values ${linhaVals(linha)} ${conflito}`,
-              );
-              if ((r?.rowCount ?? 0) > 0) aplicadas++;
-              else ignoradas++;
-            } catch (e: any) {
-              if (e?.code === '23505' || e?.code === '23503') {
-                ignoradas++;
-                continue;
+        //
+        // Tudo numa transação marcada com `regem.sync = on` (mig 259): o gatilho de
+        // updated_at mantém o carimbo que veio do edge. Sem a marca ele trocava pela hora da
+        // nuvem, a linha voltava ao edge como "mais nova" e ficava indo e voltando a cada
+        // ciclo — e o carimbo falso podia vencer uma edição real feita aqui no meio. O bloco
+        // e cada linha do fallback rodam em SAVEPOINT, para uma falha não abortar a transação.
+        await this.db.transaction(async (tx) => {
+          await tx.execute(sql`select set_config('regem.sync', 'on', true)`);
+          try {
+            const r: any = await tx.transaction((sp) =>
+              sp.execute(
+                sql`insert into ${sql.identifier(lote.tabela)} (${colsSql}) values ${sql.join(linhas.map(linhaVals), sql`, `)} ${conflito}`,
+              ),
+            );
+            aplicadas += r?.rowCount ?? 0;
+            ignoradas += linhas.length - (r?.rowCount ?? 0);
+          } catch {
+            for (const linha of linhas) {
+              try {
+                const r: any = await tx.transaction((sp) =>
+                  sp.execute(
+                    sql`insert into ${sql.identifier(lote.tabela)} (${colsSql}) values ${linhaVals(linha)} ${conflito}`,
+                  ),
+                );
+                if ((r?.rowCount ?? 0) > 0) aplicadas++;
+                else ignoradas++;
+              } catch (e: any) {
+                if (e?.code === '23505' || e?.code === '23503') {
+                  ignoradas++;
+                  continue;
+                }
+                throw e;
               }
-              throw e;
             }
           }
-        }
+        });
       }
       resultado[lote.tabela] = { aplicadas, ignoradas };
     }
