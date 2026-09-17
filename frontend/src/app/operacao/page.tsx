@@ -460,6 +460,19 @@ export default function EstoquePage() {
                     {d.quantidade ?? '—'} {d.unidadeMedida ?? ''}{d.motivo ? ` · ${d.motivo}` : ''} · {d.data}
                     {d.custoUnitario && d.quantidade ? ` · perda ${brl(Number(d.custoUnitario) * Number(d.quantidade))}` : ''}
                   </p>
+                  {/* Rastro do registro (mig 251): a hora do servidor, o ponto de leitura e
+                      quem estava logado. O desperdício é registrado por qualquer colaborador,
+                      então o controle está aqui, não na permissão. */}
+                  <p className="text-xs text-muted-foreground">
+                    registrado{' '}
+                    {d.createdAt
+                      ? new Date(d.createdAt).toLocaleString('pt-BR', {
+                          day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+                        })
+                      : '—'}
+                    {d.pontoNome ? ` · ponto ${d.pontoNome}` : ''}
+                    {d.registradoPorNome ? ` · por ${d.registradoPorNome}` : ''}
+                  </p>
                 </div>
               </Card>
             ))}

@@ -160,7 +160,7 @@ const PUSH_TABLES = [
   { tabela: 'cardapio_config', cursor: 'updated_at' },
   // Configs espelhadas (P1, mig 181): impressoras/terminais e cupom/perfis sobem
   // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.
-  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao')" },
+  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa')" },
   { tabela: 'delivery_config', cursor: 'updated_at' },
   { tabela: 'etiqueta_template', cursor: 'updated_at' },
   { tabela: 'opcao', cursor: 'updated_at' },

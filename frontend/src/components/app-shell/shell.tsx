@@ -114,7 +114,9 @@ const NAV: NavNode[] = [
   },
   { href: '/escala', label: 'Escalas', icon: CalendarDays, perm: 'escalas' },
   { href: '/operacao', label: 'Estoque', icon: Boxes, perm: 'estoque' },
-  { href: '/ponto-baixa', label: 'Ponto de baixa (QR)', icon: ScanLine, perm: 'estoque' },
+  // Permissão própria (não `estoque`): ligada na gestão; na execução, só quando o presidente
+  // libera no perfil — mesma regra das rotas do ponto de baixa e do registro de desperdício.
+  { href: '/ponto-baixa', label: 'Ponto de baixa (QR)', icon: ScanLine, perm: 'desperdicio' },
   { href: '/docs', label: 'Checklist & registros', icon: ClipboardList, perm: 'checklist' },
   { href: '/mural', label: 'Mural & clima', icon: Megaphone, perm: 'mural' },
   {

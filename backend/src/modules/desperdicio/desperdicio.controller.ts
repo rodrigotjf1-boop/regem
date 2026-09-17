@@ -15,15 +15,19 @@ import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
 export class DesperdicioController {
   constructor(private readonly service: DesperdicioService) {}
 
+  // Registro de desperdício: gestão com a permissão `desperdicio` e, quando o presidente
+  // libera no perfil, a execução (decisão do dono). Antes a rota listava execucao nos
+  // papéis mas exigia `estoque.criar` — permissão ampla demais (também cria insumo) e que
+  // nem a supervisão padrão tinha. O rastro (quem, onde, quando) é gravado sempre.
   @Post()
   @Roles('presidente', 'gerente', 'supervisao', 'execucao')
-  @RequirePerm('estoque', 'criar')
+  @RequirePerm('desperdicio')
   create(
     @CurrentUser() user: AuthUser,
     @UnidadeAtual() atual: string | null,
     @Body() dto: CreateDesperdicioDto,
   ) {
-    return this.service.create(user.tenantId, dto, atual);
+    return this.service.create(user.tenantId, dto, atual, undefined, user.colaboradorId);
   }
 
   @Get()

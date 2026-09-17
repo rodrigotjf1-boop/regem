@@ -4,10 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull, desc } from 'drizzle-orm';
+import { and, eq, isNull, desc, getTableColumns } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { consumirLotes } from '../../common/lotes';
-import { desperdicio, itemEstoque, movimentoEstoque } from '../../db/schema';
+import { colaborador, desperdicio, equipamento, itemEstoque, movimentoEstoque } from '../../db/schema';
 import { AuthUser } from '../../auth/auth-user';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { CreateDesperdicioDto } from './dto/create-desperdicio.dto';
@@ -25,8 +25,33 @@ export class DesperdicioService {
     dto: CreateDesperdicioDto,
     atual: string | null = null,
     txExterna?: any,
+    atorId?: string | null,
   ) {
     const db: any = txExterna ?? this.db;
+    const unidadeRegistro = atual ?? dto.unidadeId ?? null;
+
+    // O ponto informado tem de ser um `ponto_baixa` DESTA empresa e desta loja (ou de
+    // rede). O id vem do corpo porque é o próprio aparelho que se identifica — então é
+    // conferido, nunca gravado cru.
+    if (dto.equipamentoId) {
+      const [eq_] = await db
+        .select({ id: equipamento.id })
+        .from(equipamento)
+        .where(
+          and(
+            eq(equipamento.id, dto.equipamentoId),
+            eq(equipamento.tenantId, tenantId),
+            eq(equipamento.tipo, 'ponto_baixa'),
+            condUnidadeOuRede(equipamento.unidadeId, unidadeRegistro),
+          ),
+        );
+      if (!eq_) throw new BadRequestException('Ponto de registro inválido para esta loja.');
+    }
+    // Rastro do registro. `created_at` já é a hora do servidor; faltavam onde e quem.
+    const rastro = {
+      equipamentoId: dto.equipamentoId ?? null,
+      registradoPorId: atorId ?? null,
+    };
     // Desperdício vinculado a item baixa o estoque de verdade (movimento saída
     // motivo 'desperdicio') ao custo médio, e é valorizado por custo_unitario.
     // Sem item, permanece apenas um log textual (comportamento antigo).
@@ -45,6 +70,7 @@ export class DesperdicioService {
           motivo: dto.motivo,
           fotoRef: dto.fotoRef,
           data: dto.data,
+          ...rastro,
         })
         .returning();
       return row;
@@ -91,6 +117,7 @@ export class DesperdicioService {
           motivo: dto.motivo,
           fotoRef: dto.fotoRef,
           data: dto.data,
+          ...rastro,
         })
         .returning();
 
@@ -128,8 +155,21 @@ export class DesperdicioService {
       conds.push(eq(desperdicio.setorId, user.setorId));
     }
     return this.db
-      .select()
+      .select({
+        ...getTableColumns(desperdicio),
+        // Onde e por quem (mig 251). `createdAt` é a hora do registro.
+        pontoNome: equipamento.nome,
+        registradoPorNome: colaborador.nome,
+      })
       .from(desperdicio)
+      .leftJoin(
+        equipamento,
+        and(eq(equipamento.id, desperdicio.equipamentoId), eq(equipamento.tenantId, desperdicio.tenantId)),
+      )
+      .leftJoin(
+        colaborador,
+        and(eq(colaborador.id, desperdicio.registradoPorId), eq(colaborador.tenantId, desperdicio.tenantId)),
+      )
       .where(and(...conds))
       .orderBy(desc(desperdicio.createdAt));
   }
