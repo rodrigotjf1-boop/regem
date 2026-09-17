@@ -87,6 +87,9 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
 - 🔴 **Sync: carga inicial sem perda e rápida + relógio vigiado:** **sem migration**. Tocou **`sync-daemon.mjs`** (pull em conexão reservada e em lote, fila de órfãos, push da instalação nova, medição do relógio) e a nuvem (registro aberto fora da janela; selo no console) → **`.zip` e `.exe`**.
   ℹ️ **Depois que TODAS as lojas estiverem no pacote novo:** ligar `SYNC_REQUIRE_SIG=true` no serviço `regem-api` do EasyPanel (push sem assinatura passa a ser recusado — item da auditoria de segurança). Antes disso, uma loja antiga que não assina pararia de subir dados.
 
+- **Pull por loja (CLOUD-ONLY, sem migration):** o servidor local de uma empresa com MAIS DE UMA loja passa a baixar só o transacional da própria loja (cadastro e configuração continuam inteiros). É tudo no backend da nuvem (`sync-config.ts`/`sync.service.ts`) → **autodeploy, sem `.zip`/`.exe`**. O daemon não muda.
+  ℹ️ O que já foi baixado antes fica no banco da loja (não é apagado); é inofensivo e some numa reinstalação limpa. Empresa de uma loja: nada muda.
+
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
 > **Épico trava anti-clone + suporte + self-service C&O é CLOUD-ONLY** (backend + front por autodeploy) — **NÃO** entra no `.exe`/`.zip`. Frentes: cadeado no console /distribuicao; suporte com "acesso total" opcional (presidente concede em config/acessos); self-service do C&O em /servidor (cadastra app autenticador); **trava anti-clone ON por padrão após a 1ª instalação**. Precisa da **migration 224** na nuvem (`empresa.suporte_acesso_total`). _(E — nuvem→edge de suporte — adiada.)_

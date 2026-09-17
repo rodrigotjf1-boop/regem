@@ -17,6 +17,7 @@ import {
   TABELAS_RESTORE,
   TABELAS_JANELA_MIRROR,
   JANELA_ABERTOS,
+  filtroLoja,
   TABELAS_DESDE_ZERO,
   TabelaSync,
   modoPush,
@@ -117,15 +118,30 @@ export class SyncService {
   // Identificadores (tabela/cursor) vêm da whitelist TABELAS_PULL — nunca do usuário.
   // `cursores` (opcional): mapa tabela→"<ts>|<id>" p/ o pull KEYSET por tabela (edge
   // novo). Ausente = caminho legado (cursor único), edge antigo inalterado.
-  async pull(tenantId: string, desde?: string, cursores?: Record<string, string>) {
-    return this.deltas(tenantId, TABELAS_PULL, desde, cursores);
+  async pull(
+    tenantId: string,
+    desde?: string,
+    cursores?: Record<string, string>,
+    unidadeId?: string | null,
+  ) {
+    return this.deltas(tenantId, TABELAS_PULL, desde, cursores, await this.lojaDoEdge(tenantId, unidadeId));
+  }
+
+  // A loja pela qual filtrar o pull: a do servidor local, e SÓ quando a empresa tem mais de
+  // uma (decisão do dono). Uma loja só, ou edge sem loja definida → null = desce tudo.
+  private async lojaDoEdge(tenantId: string, unidadeId?: string | null): Promise<string | null> {
+    if (!unidadeId) return null;
+    const r: any = await this.db.execute(
+      sql`select count(*)::int as n from unidade where tenant_id = ${tenantId} and deleted_at is null`,
+    );
+    return Number((r.rows ?? r)[0]?.n ?? 0) > 1 ? unidadeId : null;
   }
 
   // RESTAURAÇÃO (nuvem → edge, sob demanda): deltas das tabelas TRANSACIONAIS.
   // Mesma mecânica do pull, outra whitelist (TABELAS_RESTORE). O edge faz UPSERT
   // por id (aditivo). Autenticado pelo mesmo sync token (tenant forçado).
-  async restore(tenantId: string, desde?: string) {
-    return this.deltas(tenantId, TABELAS_RESTORE, desde);
+  async restore(tenantId: string, desde?: string, unidadeId?: string | null) {
+    return this.deltas(tenantId, TABELAS_RESTORE, desde, undefined, await this.lojaDoEdge(tenantId, unidadeId));
   }
 
   // ===== SNAPSHOT (Trilha A) — restore por ARQUIVO, robusto =====
@@ -135,7 +151,7 @@ export class SyncService {
   // adiantado). Keyset por `id` NATIVO (uuid, usa o índice da PK; sem tie/skip); respeita
   // a janela mirror_dias do transacional pesado. Cada tabela vem precedida de {"__t":nome};
   // o fim é {"__fim":true,...} — o edge só aplica se recebeu o __fim (senão descarta).
-  async snapshot(tenantId: string, res: Response) {
+  async snapshot(tenantId: string, res: Response, unidadeId?: string | null) {
     // gzip como CORPO OPACO (octet-stream), NÃO Content-Encoding: assim nem o cliente nem
     // a Cloudflare descomprimem/recomprimem sozinhos — o edge gunzipa explícito (determinístico).
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -149,6 +165,8 @@ export class SyncService {
     const UUID_MIN = '00000000-0000-0000-0000-000000000000';
     try {
       const dias = await this.mirrorDias(tenantId);
+      // Mesmo escopo por loja do pull: o arquivo do restore não leva o movimento da outra loja.
+      const loja = await this.lojaDoEdge(tenantId, unidadeId);
       let total = 0;
       for (const t of TABELAS_RESTORE) {
         const colunas = await this.colunasDe(t.tabela);
@@ -160,12 +178,13 @@ export class SyncService {
           TABELAS_JANELA_MIRROR.has(t.tabela) && colunas.has(janelaCol)
             ? sql` and (${sql.identifier(janelaCol)} >= now() - (${dias} * interval '1 day')${abertoOu(t.tabela, colunas)})`
             : sql``;
+        const porLoja = filtroLoja(t.tabela, colunas, loja);
         await escrever({ __t: t.tabela });
         let ultimoId = UUID_MIN;
         for (;;) {
           const r: any = await this.db.execute(sql`
             select * from ${sql.identifier(t.tabela)}
-            where tenant_id = ${tenantId}${janela} and id > ${ultimoId}::uuid
+            where tenant_id = ${tenantId}${janela}${porLoja} and id > ${ultimoId}::uuid
             order by id asc limit 1000`);
           const rows = (r.rows ?? r) as any[];
           if (!rows.length) break;
@@ -212,6 +231,8 @@ export class SyncService {
     lista: TabelaSync[],
     desde?: string,
     cursores?: Record<string, string>,
+    // Loja do servidor local (já resolvida por lojaDoEdge): filtra o transacional.
+    loja: string | null = null,
   ) {
     const EPOCA = '1970-01-01T00:00:00Z';
     const desdeTs = desde || EPOCA;
@@ -258,6 +279,9 @@ export class SyncService {
       // Filtro FIXO por tabela (constante do sync-config, nunca do usuário): ex.:
       // equipamento só sincroniza impressora/pdv/salao (nunca servidor_local).
       const filtro = t.filtroSql ? sql` and (${sql.raw(t.filtroSql)})` : sql``;
+      // Escopo por LOJA do transacional (decisão do dono): a filial não baixa o movimento
+      // da matriz. Cadastro e configuração seguem inteiros.
+      const porLoja = filtroLoja(t.tabela, colunas, loja);
       const escopo = t.escopo ?? 'tenant_id';
       const segredos = REDIGIR[t.tabela];
       // Limpa: remove o cursor auxiliar __kc e eventuais segredos antes de devolver.
@@ -292,7 +316,7 @@ export class SyncService {
         const r: any = await this.db.execute(sql`
           select *, ${sql.identifier(cursor)}::text as __kc
           from ${sql.identifier(t.tabela)}
-          where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}${filtro}
+          where ${sql.identifier(escopo)} = ${tenantId} and ${cond}${janela}${filtro}${porLoja}${porLoja}
           order by ${sql.identifier(cursor)} asc, ${sql.identifier('id')} asc
           limit ${PAGINA}
         `);

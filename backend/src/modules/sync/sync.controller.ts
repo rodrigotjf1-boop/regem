@@ -17,20 +17,20 @@ export class SyncController {
     @Query('desde') desde?: string,
     @Query('cursores') cursores?: string,
   ) {
-    return this.service.pull(ctx.tenantId, desde, parseCursores(cursores));
+    return this.service.pull(ctx.tenantId, desde, parseCursores(cursores), ctx.unidadeId);
   }
 
   // Restauração sob demanda: deltas das tabelas transacionais (nuvem → edge).
   @Get('restore')
   restore(@SyncCtx() ctx: SyncCtxData, @Query('desde') desde?: string) {
-    return this.service.restore(ctx.tenantId, desde);
+    return this.service.restore(ctx.tenantId, desde, ctx.unidadeId);
   }
 
   // SNAPSHOT (Trilha A): estado transacional da loja como UM arquivo NDJSON gzip. O edge
   // baixa e carrega de uma vez (FK desligada). @Res() → o service streama a resposta.
   @Get('snapshot')
   snapshot(@SyncCtx() ctx: SyncCtxData, @Res() res: Response) {
-    return this.service.snapshot(ctx.tenantId, res);
+    return this.service.snapshot(ctx.tenantId, res, ctx.unidadeId);
   }
 
   @Post('push')
