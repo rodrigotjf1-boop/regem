@@ -11,6 +11,8 @@ import {
   TABELAS_EXCLUIVEIS,
   TABELAS_PULL_APPEND,
   JANELA_ABERTOS,
+  LOJA_COLUNA,
+  LOJA_PELO_PAI,
 } from './sync-config';
 
 // A config do sync é um contrato silencioso: nada falha quando uma tabela está
@@ -250,5 +252,29 @@ describe('janela do espelho — registro aberto', () => {
   it.each(['caixa_sessao', 'comanda'])('%s aberta desce mesmo fora da janela', (t) => {
     expect(TABELAS_JANELA_MIRROR.has(t)).toBe(true);
     expect(JANELA_ABERTOS[t]).toMatch(/status = 'aberta'/);
+  });
+});
+
+// Escopo por loja no pull (decisão do dono): o transacional da outra loja não desce. Tabela
+// transacional sem filtro volta a trazer o movimento da outra loja; tabela FILHA sem filtro
+// desce e quebra por FK, engordando a fila de órfãos. Cadastro NÃO pode ser filtrado (o PDV
+// ficaria sem produto e o login sem gente).
+describe('escopo por loja no pull', () => {
+  const temFiltro = (t: string) => LOJA_COLUNA.has(t) || !!LOJA_PELO_PAI[t];
+  const TRANSACIONAIS = [
+    'comanda', 'comanda_item', 'comanda_item_complemento', 'caixa_sessao', 'lancamento_caixa',
+    'producao_pedido', 'producao_pedido_item', 'pedido_externo', 'pedido_externo_pagamento',
+    'movimento_estoque', 'movimento_lote', 'desperdicio', 'recebimento', 'recebimento_item',
+    'lote', 'etiqueta_validade', 'contagem_lista', 'contagem_lista_item', 'contagem_execucao',
+    'contagem_item', 'compra_lista', 'compra_item', 'titulo_financeiro',
+  ];
+  const CADASTROS = ['produto', 'item_estoque', 'colaborador', 'ficha_ingrediente', 'complemento_grupo', 'cliente'];
+
+  it.each(TRANSACIONAIS)('%s é filtrado pela loja', (t) => expect(temFiltro(t)).toBe(true));
+  it.each(CADASTROS)('%s desce inteiro (cadastro)', (t) => expect(temFiltro(t)).toBe(false));
+
+  it('toda tabela janelada (transacional pesado) tem filtro de loja', () => {
+    const faltando = [...TABELAS_JANELA_MIRROR].filter((t) => !temFiltro(t));
+    expect(faltando).toEqual([]);
   });
 });

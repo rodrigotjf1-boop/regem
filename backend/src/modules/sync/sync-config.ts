@@ -1,3 +1,5 @@
+import { sql, type SQL } from 'drizzle-orm';
+
 // Config direcional do sync (ver docs/arquitetura-edge.md §2).
 // Cada tabela tem um dono e uma direção. O cursor é o campo de delta.
 export type Direcao = 'sobe' | 'desce' | 'ambos';
@@ -288,6 +290,63 @@ export const TABELAS_PUSH_LWW = new Set(
 export const TABELAS_EXCLUIVEIS = new Set(
   TABELAS_SYNC.filter((t) => t.direcao !== 'sobe' && t.tabela !== 'empresa').map((t) => t.tabela),
 );
+
+// ── ESCOPO POR LOJA NO PULL (decisão do dono, 17/09/2026) ──────────────────────────────────
+// "Ele só baixa os dados da unidade caso a empresa tenha mais de uma. Em casos de grande volume
+// em cada unidade vai ser um tráfego de informações desnecessárias e riscos de bugs e erros."
+//
+// O que é filtrado: o TRANSACIONAL e os DOCUMENTOS — o que cresce com o movimento da loja.
+// O que NÃO é filtrado: cadastro e configuração (pessoas, perfis, catálogo, fichas,
+// complementos, insumos, equipamentos, configs). São poucas linhas e valem para a rede;
+// filtrar pessoa/perfil arriscaria o login de quem atende as duas lojas, e filtrar catálogo
+// deixaria o PDV sem produto.
+// Linha SEM loja (`unidade_id is null` = da rede) sempre desce — é o insumo/lançamento que
+// pertence à empresa, não a uma loja.
+// Empresa de UMA loja não filtra nada (o comportamento de hoje), e edge sem loja definida
+// (instalação antiga, sem EDGE_UNIDADE_ID no equipamento) também não.
+//
+// Tabela filha (sem `unidade_id` próprio) é filtrada PELO PAI — senão desceria a filha da
+// outra loja, que falharia por FK e engordaria a fila de órfãos.
+export const LOJA_COLUNA = new Set<string>([
+  'comanda', 'caixa_sessao', 'lancamento_caixa', 'producao_pedido', 'pedido_externo',
+  'movimento_estoque', 'desperdicio', 'recebimento', 'lote', 'etiqueta_validade',
+  'contagem_lista', 'compra_lista', 'titulo_financeiro',
+]);
+
+export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {
+  comanda_item: (uid) => sql`exists (select 1 from comanda p
+    where p.id = comanda_item.comanda_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  comanda_item_complemento: (uid) => sql`exists (select 1 from comanda_item ci
+    join comanda p on p.id = ci.comanda_id
+    where ci.id = comanda_item_complemento.comanda_item_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  producao_pedido_item: (uid) => sql`exists (select 1 from producao_pedido p
+    where p.id = producao_pedido_item.pedido_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  pedido_externo_pagamento: (uid) => sql`exists (select 1 from pedido_externo p
+    where p.id = pedido_externo_pagamento.pedido_externo_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  movimento_lote: (uid) => sql`exists (select 1 from movimento_estoque m
+    where m.id = movimento_lote.movimento_id and (m.unidade_id = ${uid} or m.unidade_id is null))`,
+  recebimento_item: (uid) => sql`exists (select 1 from recebimento p
+    where p.id = recebimento_item.recebimento_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  contagem_lista_item: (uid) => sql`exists (select 1 from contagem_lista p
+    where p.id = contagem_lista_item.lista_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  contagem_execucao: (uid) => sql`exists (select 1 from contagem_lista p
+    where p.id = contagem_execucao.lista_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  contagem_item: (uid) => sql`exists (select 1 from contagem_execucao ce
+    join contagem_lista p on p.id = ce.lista_id
+    where ce.id = contagem_item.execucao_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  compra_item: (uid) => sql`exists (select 1 from compra_lista p
+    where p.id = compra_item.lista_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+};
+
+// Filtro por loja de uma tabela (vazio = desce inteira).
+export function filtroLoja(tabela: string, colunas: Set<string>, uid: string | null): SQL {
+  if (!uid) return sql``;
+  if (LOJA_COLUNA.has(tabela) && colunas.has('unidade_id')) {
+    return sql` and (${sql.identifier('unidade_id')} = ${uid} or ${sql.identifier('unidade_id')} is null)`;
+  }
+  const pelaPai = LOJA_PELO_PAI[tabela];
+  return pelaPai ? sql` and ${pelaPai(uid)}` : sql``;
+}
 
 export function modoPush(tabela: string): 'append' | 'lww' | null {
   if (TABELAS_PUSH_APPEND.has(tabela)) return 'append';
