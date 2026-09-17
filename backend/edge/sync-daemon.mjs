@@ -204,15 +204,21 @@ const PUSH_TABLES = [
   { tabela: 'caixa_sessao', cursor: 'updated_at' },
   { tabela: 'comanda', cursor: 'updated_at' },
   { tabela: 'comanda_item', cursor: 'updated_at' },
+  // Complementos do item (mig 262): nunca subiam. Depois de comanda_item (FK).
+  { tabela: 'comanda_item_complemento', cursor: 'created_at' },
   { tabela: 'producao_pedido', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', cursor: 'updated_at' },
   { tabela: 'pedido_externo', cursor: 'updated_at' },
+  // Pagamento dividido (mig 230/262): nunca subia. Depois do pedido (FK).
+  { tabela: 'pedido_externo_pagamento', cursor: 'created_at' },
   { tabela: 'movimento_estoque', cursor: 'created_at' },
   // De qual lote saiu cada baixa (mig 248) — append-only, acompanha o ledger.
   { tabela: 'movimento_lote', cursor: 'created_at' },
   { tabela: 'ponto_marcacao', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', cursor: 'created_at' },
   { tabela: 'audit_log', cursor: 'created_at' },
+  // Exclusões físicas feitas aqui (mig 262). POR ÚLTIMO: chegam à nuvem depois das linhas.
+  { tabela: 'sync_exclusao', cursor: 'created_at' },
 ];
 
 // Tabelas do SNAPSHOT (espelha TABELAS_RESTORE do backend) + a coluna de cursor de cada.
@@ -226,9 +232,11 @@ const SNAPSHOT_TABELAS = [
   ['caixa_sessao', 'updated_at'],
   ['comanda', 'updated_at'],
   ['comanda_item', 'updated_at'],
+  ['comanda_item_complemento', 'created_at'],
   ['producao_pedido', 'updated_at'],
   ['producao_pedido_item', 'updated_at'],
   ['pedido_externo', 'updated_at'],
+  ['pedido_externo_pagamento', 'created_at'],
   ['lancamento_caixa', 'created_at'],
   ['movimento_estoque', 'created_at'],
 ];
@@ -519,6 +527,13 @@ async function pull() {
     pendentes = resta2;
   }
   if (pendentes.length) console.warn(`  ${pendentes.length} linha(s) sem pai (FK) após retries`);
+  // Exclusões feitas na nuvem (mig 262): apaga a mesma linha aqui, DEPOIS de aplicar as linhas
+  // desta resposta. A sessão do daemon é marcada como sync, então não gera registro de volta.
+  try {
+    await aplicarExclusoes(data.tabelas?.sync_exclusao ?? []);
+  } catch (e) {
+    console.warn(`  exclusões não aplicadas (tenta no próximo ciclo): ${e.message}`);
+  }
   // RESILIÊNCIA: um registro "veneno" (coluna/tipo/valor que o edge não aceita — ex.:
   // coluna @cloud-only ainda não migrada) NÃO pode abortar o pull inteiro. Antes o
   // `throw e` interrompia o laço, o cursor não avançava e NADA descia (nem catálogo,
@@ -544,6 +559,30 @@ async function pull() {
     console.warn(`Sync: reconciliação não registrou o fim do pull (tenta no próximo): ${e.message}`);
   }
   return aplicadas;
+}
+
+// Aplica exclusões recebidas. Só em tabela que existe aqui e tem tenant_id; a nuvem só gera
+// registro para tabela sincronizada. Apagar o pai antes do filho sem cascata dá 23503 (ex.:
+// cliente "esquecido" cujo pedido ainda não chegou desvinculado): fica numa fila em sync_state
+// e é retentado nos próximos ciclos, até 50 vezes.
+async function aplicarExclusoes(novas) {
+  let fila = [];
+  try { fila = JSON.parse(await getState('exclusoes_pendentes', '[]')) || []; } catch { fila = []; }
+  const todas = [...fila, ...novas.map((x) => ({ tabela: x.tabela, id: x.registro_id, tenant: x.tenant_id, n: 0 }))];
+  if (!todas.length) return;
+  const resta = [];
+  for (const x of todas) {
+    if (!x?.tabela || !x?.id || x.tabela === 'sync_exclusao' || x.tabela === 'sync_state') continue;
+    const cols = await colunas(x.tabela);
+    if (!cols.has('tenant_id')) continue;
+    try {
+      await pool.query(`delete from ${q(x.tabela)} where ${q('id')} = $1 and ${q('tenant_id')} = $2`, [x.id, x.tenant]);
+    } catch (e) {
+      if (e.code === '23503' && (x.n ?? 0) < 50) resta.push({ ...x, n: (x.n ?? 0) + 1 });
+      else console.warn(`  exclusão ${x.tabela}/${x.id} descartada: ${e.code || ''} ${e.message}`);
+    }
+  }
+  if (resta.length || fila.length) await setState('exclusoes_pendentes', JSON.stringify(resta.slice(0, 5000)));
 }
 
 // Envia UM request de push (assina + POST). Isolado p/ o push mandar em páginas

@@ -21,6 +21,7 @@ import {
   modoPush,
   colunaLWW,
   REDIGIR,
+  TABELAS_EXCLUIVEIS,
 } from './sync-config';
 import { LoteSyncDto } from './dto/push.dto';
 import { assinarSync } from './sync-sig';
@@ -363,6 +364,10 @@ export class SyncService {
   // - só colunas reais (introspecção); jsonb serializado;
   // - append: on conflict (id) do nothing (idempotente);
   // - lww: on conflict (id) do update SÓ se a recebida for mais nova, e SÓ do mesmo tenant.
+  private aplicarExclusoes(tx: any, tenantId: string, linhas: any[]) {
+    return aplicarExclusoesTx(tx, tenantId, linhas);
+  }
+
   async push(
     ctx: SyncCtxData,
     lotes: LoteSyncDto[],
@@ -457,6 +462,10 @@ export class SyncService {
               }
             }
           }
+          // Exclusões que vieram do edge (mig 262): apaga a mesma linha aqui, na MESMA
+          // transação marcada — então não gera outro registro de exclusão (sem eco). Só em
+          // tabela sincronizada com estado e só dentro da empresa do token.
+          if (lote.tabela === 'sync_exclusao') await this.aplicarExclusoes(tx, tenantId, linhas);
         });
       }
       resultado[lote.tabela] = { aplicadas, ignoradas };
@@ -466,6 +475,32 @@ export class SyncService {
     } finally {
       this.pushEmCurso.delete(ctx.equipamentoId); // libera SEMPRE (sucesso ou erro)
     }
+  }
+}
+
+// Aplica exclusões recebidas (sync_exclusao). Em savepoint por linha: apagar o pai antes do
+// filho que não tem cascata dá 23503; as que falham são retentadas em mais passadas (a ordem
+// entre elas é arbitrária) e, se ainda falharem, ficam de fora sem derrubar o lote.
+async function aplicarExclusoesTx(tx: any, tenantId: string, linhas: any[]): Promise<void> {
+  let pendentes = linhas.filter(
+    (l: any) => l && TABELAS_EXCLUIVEIS.has(String(l.tabela)) && l.registro_id,
+  );
+  for (let passe = 0; passe < 3 && pendentes.length; passe++) {
+    const resta: any[] = [];
+    for (const l of pendentes) {
+      try {
+        await tx.transaction((sp: any) =>
+          sp.execute(
+            sql`delete from ${sql.identifier(String(l.tabela))} where id = ${l.registro_id} and tenant_id = ${tenantId}`,
+          ),
+        );
+      } catch (e: any) {
+        if (e?.code === '23503') resta.push(l);
+        else throw e;
+      }
+    }
+    if (resta.length === pendentes.length) break;
+    pendentes = resta;
   }
 }
 

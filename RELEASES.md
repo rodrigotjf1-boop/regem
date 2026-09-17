@@ -81,6 +81,9 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
 - 🔴 **Pausa por falta de estoque por loja (migrations 260 e 261, NÃO cloud-only):** tabela nova `produto_pausa_estoque` sincronizada nos dois sentidos → mexe em **`sync-config.ts` e `edge/sync-daemon.mjs`** (`PUSH_TABLES`) → **`.zip` e `.exe`**. O cardápio e o esgotamento rodam no edge.
   ⚠️ **Ordem de deploy:** **260 e depois 261, as duas ANTES do merge** (tabela nova lida pelo cardápio). Enquanto o edge não receber o pacote, ele segue pausando pelo campo antigo do produto, que a nuvem passa a manter como "pausado em todas as lojas".
 
+- 🔴 **Sync: exclusões e edições sem carimbo sincronizam; complementos e pagamento dividido entram no sync (migration 262, NÃO cloud-only):** tocou **`sync-daemon.mjs`, `sync-reconciliacao.mjs`, `sync-config.ts`** e o push da nuvem → **`.zip` e `.exe`**. Enquanto a loja não recebe o pacote, a exclusão feita nela não sobe e a exclusão feita na nuvem não desce (o comportamento de hoje); a nuvem já aplica as duas regras no deploy.
+  ⚠️ **Ordem de deploy:** **262 ANTES do merge** (tabela `sync_exclusao` lida pelo push/pull). Depende da 259 (já aplicada).
+
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
 > **Épico trava anti-clone + suporte + self-service C&O é CLOUD-ONLY** (backend + front por autodeploy) — **NÃO** entra no `.exe`/`.zip`. Frentes: cadeado no console /distribuicao; suporte com "acesso total" opcional (presidente concede em config/acessos); self-service do C&O em /servidor (cadastra app autenticador); **trava anti-clone ON por padrão após a 1ª instalação**. Precisa da **migration 224** na nuvem (`empresa.suporte_acesso_total`). _(E — nuvem→edge de suporte — adiada.)_
