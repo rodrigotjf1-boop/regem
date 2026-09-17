@@ -16,6 +16,7 @@ import {
   TABELAS_PULL,
   TABELAS_RESTORE,
   TABELAS_JANELA_MIRROR,
+  JANELA_ABERTOS,
   TABELAS_DESDE_ZERO,
   TabelaSync,
   modoPush,
@@ -157,7 +158,7 @@ export class SyncService {
         const janelaCol = colunas.has('created_at') ? 'created_at' : t.cursor;
         const janela =
           TABELAS_JANELA_MIRROR.has(t.tabela) && colunas.has(janelaCol)
-            ? sql` and ${sql.identifier(janelaCol)} >= now() - (${dias} * interval '1 day')`
+            ? sql` and (${sql.identifier(janelaCol)} >= now() - (${dias} * interval '1 day')${abertoOu(t.tabela, colunas)})`
             : sql``;
         await escrever({ __t: t.tabela });
         let ultimoId = UUID_MIN;
@@ -252,7 +253,7 @@ export class SyncService {
       // nuvem guarda tudo; isto só limita o que o edge puxa. Controle/catálogo = sem janela.
       const janelaCol = colunas.has('created_at') ? 'created_at' : cursor;
       const janela = TABELAS_JANELA_MIRROR.has(t.tabela)
-        ? sql` and ${sql.identifier(janelaCol)} >= now() - (${mirrorDias} * interval '1 day')`
+        ? sql` and (${sql.identifier(janelaCol)} >= now() - (${mirrorDias} * interval '1 day')${abertoOu(t.tabela, colunas)})`
         : sql``;
       // Filtro FIXO por tabela (constante do sync-config, nunca do usuário): ex.:
       // equipamento só sincroniza impressora/pdv/salao (nunca servidor_local).
@@ -502,6 +503,12 @@ async function aplicarExclusoesTx(tx: any, tenantId: string, linhas: any[]): Pro
     if (resta.length === pendentes.length) break;
     pendentes = resta;
   }
+}
+
+// Exceção da janela: registro ainda aberto desce mesmo antigo (ver JANELA_ABERTOS).
+function abertoOu(tabela: string, colunas: Set<string>) {
+  const cond = JANELA_ABERTOS[tabela];
+  return cond && colunas.has('status') ? sql` or (${sql.raw(cond)})` : sql``;
 }
 
 // jsonb/arrays viram string; o resto passa como está (pg casta pelo tipo da coluna).

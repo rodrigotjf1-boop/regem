@@ -192,6 +192,14 @@ export const TABELAS_JANELA_MIRROR = new Set<string>([
   'comanda_item_complemento',
   'pedido_externo_pagamento',
 ]);
+// Registro ainda ABERTO desce mesmo fora da janela: a janela corta pela data de CRIAÇÃO, e uma
+// sessão de caixa aberta há 64 dias (com 480 lançamentos recentes, na loja de teste) não descia
+// — o PDV local não enxergava o caixa aberto e os lançamentos dela ficavam órfãos. Tabela →
+// condição SQL fixa (constante daqui, nunca do usuário).
+export const JANELA_ABERTOS: Record<string, string> = {
+  caixa_sessao: "status = 'aberta'",
+  comanda: "status = 'aberta'",
+};
 // ⚠️ `movimento_estoque` FOI TIRADO da janela de propósito. Para um transacional de
 // evento (comanda, caixa) a janela é inócua — o edge só perde histórico de consulta.
 // Para o LEDGER de estoque não é: o SALDO É A SOMA DE TODO O LEDGER (estoque.service

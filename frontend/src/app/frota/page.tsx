@@ -32,6 +32,11 @@ function saudeBadges(f: any) {
           </span>
         );
       })}
+      {Math.abs(Number(f.saude?.relogioDesvioS ?? 0)) > 120 && (
+        // Relógio do PC da loja fora de hora: a regra "a mais nova vence" do sync descarta edições.
+        <span title={`relógio ${Number(f.saude.relogioDesvioS) > 0 ? 'adiantado' : 'atrasado'} ${Math.abs(Number(f.saude.relogioDesvioS))}s em relação à nuvem`}
+          className="rounded bg-warn/15 text-warn px-1.5 py-0.5 text-[10px]">relógio</span>
+      )}
       {f.saude?.restaurando && <span title={`restaurando (${f.saude.restoreProgresso ?? 0} linhas)`} className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">restore</span>}
     </div>
   );

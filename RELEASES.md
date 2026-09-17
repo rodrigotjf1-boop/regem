@@ -84,6 +84,9 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
 - 🔴 **Sync: exclusões e edições sem carimbo sincronizam; complementos e pagamento dividido entram no sync (migration 262, NÃO cloud-only):** tocou **`sync-daemon.mjs`, `sync-reconciliacao.mjs`, `sync-config.ts`** e o push da nuvem → **`.zip` e `.exe`**. Enquanto a loja não recebe o pacote, a exclusão feita nela não sobe e a exclusão feita na nuvem não desce (o comportamento de hoje); a nuvem já aplica as duas regras no deploy.
   ⚠️ **Ordem de deploy:** **262 ANTES do merge** (tabela `sync_exclusao` lida pelo push/pull). Depende da 259 (já aplicada).
 
+- 🔴 **Sync: carga inicial sem perda e rápida + relógio vigiado:** **sem migration**. Tocou **`sync-daemon.mjs`** (pull em conexão reservada e em lote, fila de órfãos, push da instalação nova, medição do relógio) e a nuvem (registro aberto fora da janela; selo no console) → **`.zip` e `.exe`**.
+  ℹ️ **Depois que TODAS as lojas estiverem no pacote novo:** ligar `SYNC_REQUIRE_SIG=true` no serviço `regem-api` do EasyPanel (push sem assinatura passa a ser recusado — item da auditoria de segurança). Antes disso, uma loja antiga que não assina pararia de subir dados.
+
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
 > **Épico trava anti-clone + suporte + self-service C&O é CLOUD-ONLY** (backend + front por autodeploy) — **NÃO** entra no `.exe`/`.zip`. Frentes: cadeado no console /distribuicao; suporte com "acesso total" opcional (presidente concede em config/acessos); self-service do C&O em /servidor (cadastra app autenticador); **trava anti-clone ON por padrão após a 1ª instalação**. Precisa da **migration 224** na nuvem (`empresa.suporte_acesso_total`). _(E — nuvem→edge de suporte — adiada.)_
