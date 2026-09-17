@@ -8,6 +8,8 @@ import {
   TABELAS_RESTORE,
   modoPush,
   colunaLWW,
+  TABELAS_EXCLUIVEIS,
+  TABELAS_PULL_APPEND,
 } from './sync-config';
 
 // A config do sync é um contrato silencioso: nada falha quando uma tabela está
@@ -204,4 +206,39 @@ describe('sync-reconciliacao — lista da transição 1.29.0', () => {
   it('a lista foi lida do módulo', () => expect(tabelas.length).toBeGreaterThan(10));
 
   it.each(tabelas.length ? tabelas : ['(vazia)'])('%s desce da nuvem', (t) => expect(pull.has(t)).toBe(true));
+});
+
+// Exclusões (mig 262). Tabela sincronizada sem o gatilho de exclusão volta a ter linha
+// fantasma do outro lado — e nada falha. E a ordem importa: a exclusão tem de ser aplicada
+// DEPOIS das linhas do mesmo ciclo, senão uma linha criada e apagada no intervalo ressuscita.
+describe('sync_exclusao — cobertura e ordem', () => {
+  const mig = readFileSync(
+    join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '262_sync_exclusao_e_carimbo.sql'),
+    'utf8',
+  );
+  const blocoGatilho = mig.slice(mig.indexOf('── 1)'), mig.indexOf('── 2)'));
+  const comGatilho = new Set([...blocoGatilho.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+
+  it('toda tabela em que a exclusão pode ser aplicada tem o gatilho na mig 262', () => {
+    const faltando = [...TABELAS_EXCLUIVEIS].filter((t) => !comGatilho.has(t));
+    expect(faltando).toEqual([]);
+  });
+
+  it('a exclusão desce por último no pull', () => {
+    expect(TABELAS_PULL_APPEND[TABELAS_PULL_APPEND.length - 1].tabela).toBe('sync_exclusao');
+  });
+
+  it('a exclusão sobe por último no push do daemon', () => {
+    const fonte = readFileSync(join(__dirname, '../../../edge/sync-daemon.mjs'), 'utf8');
+    const bloco = fonte.slice(fonte.indexOf('const PUSH_TABLES'), fonte.indexOf('const SNAPSHOT_TABELAS'));
+    const tabelas = [...bloco.matchAll(/tabela:\s*'([a-z_]+)'/g)].map((m) => m[1]);
+    expect(tabelas[tabelas.length - 1]).toBe('sync_exclusao');
+  });
+
+  it('não apaga em empresa, nem em tabela só-anexar', () => {
+    expect(TABELAS_EXCLUIVEIS.has('empresa')).toBe(false);
+    ['movimento_estoque', 'movimento_lote', 'lancamento_caixa', 'audit_log', 'ponto_marcacao', 'sync_exclusao'].forEach((t) =>
+      expect(TABELAS_EXCLUIVEIS.has(t)).toBe(false),
+    );
+  });
 });

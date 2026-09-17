@@ -140,12 +140,23 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'caixa_sessao', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'comanda', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'comanda_item', direcao: 'ambos', cursor: 'updated_at' },
+  // Complementos escolhidos em cada item (adicional, "sem cebola"). Nunca estiveram no sync:
+  // a nuvem via o item sem o complemento. Linha imutável (só insere/apaga) → cursor created_at;
+  // a exclusão chega pelo `sync_exclusao`. Depois de comanda_item (FK).
+  { tabela: 'comanda_item_complemento', direcao: 'ambos', cursor: 'created_at' },
   { tabela: 'producao_pedido', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', direcao: 'ambos', cursor: 'updated_at' },
   // Pedido externo é BIDIRECIONAL (P1): pedidos ONLINE nascem na nuvem (cardápio/
   // marketplaces) e precisam DESCER para o edge processá-los localmente (KDS/garçom);
   // pedidos locais SOBEM. LWW por updated_at resolve conflito de estado.
   { tabela: 'pedido_externo', direcao: 'ambos', cursor: 'updated_at' },
+  // Pagamento dividido do PDV (mig 230): gravado no edge, nunca sincronizava. Refeito com
+  // delete + insert a cada alteração → cursor created_at + `sync_exclusao`. Depois do pedido (FK).
+  { tabela: 'pedido_externo_pagamento', direcao: 'ambos', cursor: 'created_at' },
+  // Exclusões físicas (mig 262): o gatilho grava (tabela, id) aqui e quem recebe apaga a mesma
+  // linha do seu lado. Sobe como anexo e desce pelo TABELAS_PULL_APPEND. Por ÚLTIMO no push,
+  // para a exclusão chegar depois das linhas do mesmo ciclo.
+  { tabela: 'sync_exclusao', direcao: 'sobe', cursor: 'created_at' },
 ];
 
 // Append-only que TAMBÉM DESCEM no espelho (S1). Ficam 'sobe' no push (imutáveis),
@@ -155,6 +166,9 @@ export const TABELAS_PULL_APPEND: TabelaSync[] = [
   { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'movimento_lote', direcao: 'desce', cursor: 'created_at' },
+  // Exclusões feitas na nuvem descem para o edge. ÚLTIMA da lista: o edge aplica as exclusões
+  // depois das linhas da mesma resposta.
+  { tabela: 'sync_exclusao', direcao: 'desce', cursor: 'created_at' },
 ];
 
 // O servidor local PUXA o que a nuvem manda pra baixo (desce/ambos) + os append-que-descem.
@@ -174,6 +188,9 @@ export const TABELAS_JANELA_MIRROR = new Set<string>([
   'producao_pedido_item',
   'lancamento_caixa',
   'pedido_externo',
+  // Filhas do transacional janelado acompanham a janela dos pais.
+  'comanda_item_complemento',
+  'pedido_externo_pagamento',
 ]);
 // ⚠️ `movimento_estoque` FOI TIRADO da janela de propósito. Para um transacional de
 // evento (comanda, caixa) a janela é inócua — o edge só perde histórico de consulta.
@@ -217,6 +234,10 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'etiqueta_validade',
   // Pausa por estoque por loja (mig 260): a 261 cria o estado inicial, que precisa descer.
   'produto_pausa_estoque',
+  // Entraram no sync com a mig 262.
+  'comanda_item_complemento',
+  'pedido_externo_pagamento',
+  'sync_exclusao',
   // Custo/mínimo por loja (mig 257): os valores iniciais da 258 precisam descer uma vez.
   'item_estoque_unidade',
 ]);
@@ -235,9 +256,11 @@ export const TABELAS_RESTORE: TabelaSync[] = [
   { tabela: 'caixa_sessao', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'comanda', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'comanda_item', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'comanda_item_complemento', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'producao_pedido', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'pedido_externo', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'pedido_externo_pagamento', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', direcao: 'desce', cursor: 'created_at' }, // append (sem updated_at)
   { tabela: 'movimento_estoque', direcao: 'desce', cursor: 'created_at' }, // append
 ];
@@ -250,6 +273,14 @@ export const TABELAS_PUSH_APPEND = new Set(
 export const TABELAS_PUSH_LWW = new Set(
   TABELAS_SYNC.filter((t) => t.direcao === 'ambos').map((t) => t.tabela),
 );
+// Tabelas em que uma exclusão recebida pelo `sync_exclusao` pode apagar linha (mig 262): as
+// sincronizadas com estado. Nunca as de só-anexar (ledger, caixa, ponto, auditoria), nunca
+// `empresa` e nunca o próprio registro de exclusões. É a trava de segurança do push: o id da
+// tabela vem do edge, e só apaga dentro da empresa do token.
+export const TABELAS_EXCLUIVEIS = new Set(
+  TABELAS_SYNC.filter((t) => t.direcao !== 'sobe' && t.tabela !== 'empresa').map((t) => t.tabela),
+);
+
 export function modoPush(tabela: string): 'append' | 'lww' | null {
   if (TABELAS_PUSH_APPEND.has(tabela)) return 'append';
   if (TABELAS_PUSH_LWW.has(tabela)) return 'lww';
