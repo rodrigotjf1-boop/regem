@@ -60,8 +60,11 @@ export class DashboardService {
             when 'saida'   then -m.quantidade
             else m.quantidade end), 0) as saldo
         from item_estoque i
+        -- Saldo DA LOJA (mig 253); insumo da loja ou compartilhado.
         left join movimento_estoque m on m.item_id = i.id
-        where i.tenant_id = ${tenantId} and i.deleted_at is null ${uniI}
+          ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}
+        where i.tenant_id = ${tenantId} and i.deleted_at is null
+          ${unidadeId ? sql`and (i.unidade_id = ${unidadeId} or i.unidade_id is null)` : sql``}
         group by i.id
       ) s where s.saldo < s.estoque_minimo`);
 

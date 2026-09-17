@@ -51,11 +51,13 @@ export class VendasController {
   @RequirePerm('pdv')
   previewAtacado(
     @CurrentUser() user: AuthUser,
+    @UnidadeAtual() atual: string | null,
     @Body() dto: { itens: { produtoId: string; quantidade: number }[] },
   ) {
-    // Sem escopo de unidade: o saldo vem do ledger do item, e o item já é de uma
-    // unidade. O escopo que existia aqui alimentava um filtro sobre coluna inexistente.
-    return this.service.preverEncomendaAtacado(user.tenantId, dto.itens ?? []);
+    // Pela loja da sessão (mig 253). O escopo que existia antes filtrava uma coluna que
+    // ainda não existia em `movimento_estoque` e foi removido (#514); agora a coluna existe
+    // e a disponibilidade é a do estoque desta loja, não o das duas somado.
+    return this.service.preverEncomendaAtacado(user.tenantId, dto.itens ?? [], atual);
   }
 
   // ----- Mesas (Fase F2) -----

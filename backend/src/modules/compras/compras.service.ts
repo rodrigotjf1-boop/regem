@@ -20,7 +20,7 @@ import {
   colaborador,
 } from '../../db/schema';
 import { custoMedioPonderado } from '../../common/regras-negocio';
-import { condUnidadeOuRede, sqlUnidadeOuRede } from '../../common/filtro-unidade';
+import { condUnidadeOuRede, sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
 import { ReceberCompraDto, ConferenciaItemDto } from './dto/receber-compra.dto';
@@ -223,7 +223,8 @@ export class ComprasService {
              coalesce(sum(case m.tipo when 'entrada' then m.quantidade
                when 'saida' then -m.quantidade else m.quantidade end), 0) as saldo
       from item_estoque i
-      left join movimento_estoque m on m.item_id = i.id
+      -- Saldo DA LOJA (mig 253): a sugestão de compra é do estoque dela.
+      left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
       -- Insumo da loja ou da rede. Antes vinha o do tenant INTEIRO, sem rótulo de loja:
       -- dois "Farinha de trigo", um de cada filial, e o gerente marcava o da outra — o
       -- recebimento dava entrada e reescrevia o custo médio no estoque que não era dele.

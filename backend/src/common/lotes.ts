@@ -37,6 +37,14 @@ export async function consumirLotes(
   //
   // `for update` mesmo sem UPDATE na linha: serializa o consumo DESTE lote.
   // `nulls last` = lote sem validade é o último a sair (FEFO).
+  // Loja do movimento (mig 253 — o gatilho já a gravou neste mesmo INSERT). A baixa da loja
+  // A não pode consumir o lote da loja B: cada loja tem o próprio estoque. Lote antigo sem
+  // loja serve às duas; movimento sem loja (raro, antigo) consome de qualquer lote.
+  const mv: any = await tx.execute(
+    sql`select unidade_id from movimento_estoque where id = ${movimentoId}`,
+  );
+  const lojaMov: string | null = (mv.rows ?? mv)[0]?.unidade_id ?? null;
+
   const trava: any = await tx.execute(sql`
     select l.id, l.quantidade
       from lote l
@@ -44,6 +52,7 @@ export async function consumirLotes(
        and l.item_id = ${itemId}
        and l.deleted_at is null
        and l.esgotado = false
+       and (${lojaMov}::uuid is null or l.unidade_id is null or l.unidade_id = ${lojaMov}::uuid)
      order by l.validade asc nulls last, l.entrada asc, l.id asc
      for update
   `);
