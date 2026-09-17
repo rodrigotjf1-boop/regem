@@ -426,6 +426,54 @@ async function repararCursores(cursores) {
   return cursores;
 }
 
+// Linhas por INSERT no pull em lote. 200 × ~60 colunas fica longe do limite de 65.535
+// parâmetros do Postgres, mesmo na tabela mais larga (produto).
+const LOTE_PULL = Number(process.env.SYNC_PULL_LOTE || 200);
+
+// RELÓGIO: a regra "a mais nova vence" compara o updated_at gravado pelo relógio DESTE PC com
+// o da nuvem. PC atrasado → a edição feita aqui parece velha e perde; adiantado → vence o que
+// não devia. O pull devolve o cabeçalho HTTP `Date` da nuvem: medimos o desvio a cada ciclo,
+// guardamos em sync_state (vai no heartbeat de saúde) e avisamos quando passa do limite.
+const RELOGIO_LIMITE_S = Number(process.env.SYNC_RELOGIO_LIMITE_S || 120);
+let relogioAvisadoEm = 0;
+async function verificarRelogio(res, enviadoEm) {
+  try {
+    const hdr = res.headers.get('date');
+    if (!hdr) return;
+    const servidor = new Date(hdr).getTime();
+    if (!Number.isFinite(servidor)) return;
+    // Meio do caminho entre envio e resposta: desconta a latência. O cabeçalho tem precisão de
+    // segundo, então só desvios de alguns segundos para cima significam alguma coisa.
+    const local = (enviadoEm + Date.now()) / 2;
+    const desvio = Math.round((local - servidor) / 1000);
+    await setState('relogio_desvio_s', String(desvio));
+    if (Math.abs(desvio) > RELOGIO_LIMITE_S && Date.now() - relogioAvisadoEm > 30 * 60 * 1000) {
+      relogioAvisadoEm = Date.now();
+      const msg = `relógio deste servidor está ${Math.abs(desvio)}s ${desvio > 0 ? 'ADIANTADO' : 'ATRASADO'} em relação à nuvem — acerte a data/hora do Windows (sincronizar com time.windows.com); com o relógio errado, edições podem ser descartadas pelo sync`;
+      console.warn(`  ⚠️ ${msg}`);
+      await reportarTelemetria('sync', 'relogio_desvio', msg);
+    }
+  } catch { /* best-effort */ }
+}
+
+async function semearPushInstalacaoNova(cursores) {
+  if ((await getState('push_instalacao_nova', '')) === 'feito') return;
+  const temCursor = Object.keys(cursores).length > 0 || (await getState('pull_cursor', '')) !== '';
+  let vazio = !temCursor;
+  for (const t of PUSH_TABLES) {
+    if (!vazio) break;
+    if (!(await colunas(t.tabela)).size) continue;
+    const r = await pool.query(`select exists(select 1 from ${q(t.tabela)}) as tem`);
+    if (r.rows[0]?.tem) vazio = false;
+  }
+  if (vazio) {
+    const agora = (await pool.query(`select now()::text as t`)).rows[0].t;
+    for (const t of PUSH_TABLES) await setState(`push_${t.tabela}`, `${agora}|00000000-0000-0000-0000-000000000000`);
+    console.log('Sync: instalação nova — o push começa agora (o que descer da nuvem não volta).');
+  }
+  await setState('push_instalacao_nova', 'feito');
+}
+
 async function pull() {
   const desde = await getState('pull_cursor', '1970-01-01T00:00:00Z');
   // Keyset por tabela: mapa tabela→"<ts>|<id>" no sync_state. Enviamos SEMPRE o param
@@ -444,6 +492,15 @@ async function pull() {
   } catch (e) {
     console.warn(`Sync: reparo de cursor falhou (segue normal): ${e.message}`);
   }
+  // Instalação nova: o que vai descer da nuvem não pode voltar a subir (na carga inicial de uma
+  // loja de teste, 6.900 linhas eram devolvidas no primeiro ciclo — a nuvem ignorava, mas o
+  // tráfego e a carga eram reais). Só vale com o banco COMPLETAMENTE vazio e sem nenhum
+  // cursor: não existe linha local a preservar. Uma vez por instalação.
+  try {
+    await semearPushInstalacaoNova(cursores);
+  } catch (e) {
+    console.warn(`Sync: não posicionou o push da instalação nova (segue normal): ${e.message}`);
+  }
   // Reconciliação: semeia a transição da 1.29.0 (uma vez), promove o que a atualização
   // acabou de criar e rebobina as tabelas enfileiradas. Falha aqui não derruba o pull.
   try {
@@ -456,11 +513,27 @@ async function pull() {
   const qs =
     `desde=${encodeURIComponent(desde)}` +
     `&cursores=${encodeURIComponent(JSON.stringify(cursores))}`;
+  const enviadoEm = Date.now();
   const res = await fetchT(`${CLOUD}/sync/pull?${qs}`, {
     headers: { 'x-sync-token': TOKEN },
   });
   if (!res.ok) throw new Error(`pull HTTP ${res.status}: ${await res.text()}`);
+  await verificarRelogio(res, enviadoEm);
   const data = await res.json();
+  // UMA conexão reservada para aplicar a resposta inteira. No pg.Pool, a consulta que FALHA
+  // descarta a conexão (`release(err)`) e a próxima abre outra — ~250 ms no Windows. Linha que
+  // falha por vínculo (pai fora da janela, ainda não chegou) pagava uma reconexão cada: 12
+  // grupos de complemento levavam 3 s e uma página de pedidos, mais de 30 s. Erro numa conexão
+  // reservada não a derruba. A marca `regem.sync` vem do evento 'connect' do pool.
+  const cli = await pool.connect();
+  try {
+    return await aplicarPull(data, cursores, cli);
+  } finally {
+    cli.release();
+  }
+}
+
+async function aplicarPull(data, cursores, cli) {
   let aplicadas = 0;
   let pendentes = []; // linhas cujo pai (FK) ainda não chegou → retry
   const falhas = [];  // linhas com erro DURO (coluna/valor) → pular, NÃO travar o pull
@@ -468,8 +541,8 @@ async function pull() {
   try { fila = await recon.fila(); } catch { fila = {}; }
   // Upsert normal + as colunas em reconciliação (se a tabela está na fila).
   const aplicar = async (tabela, row) => {
-    await upsertLocal(tabela, row);
-    await recon.aplicarLinha(fila, tabela, row);
+    await upsertLocal(tabela, row, cli);
+    await recon.aplicarLinha(fila, tabela, row, cli);
   };
   // O que a nuvem mandou e este servidor não tem (tabela → null, ou → colunas).
   const ausentes = {};
@@ -486,7 +559,27 @@ async function pull() {
     }
     const faltando = rows.length ? Object.keys(rows[0]).filter((k) => !locais.has(k)) : [];
     if (faltando.length) ausentes[tabela] = faltando;
-    for (const row of rows) {
+    // EM LOTE: um INSERT por bloco (mesma regra da mais nova e de estado terminal do
+    // upsertLocal). Linha a linha eram até 1.000 idas ao banco por tabela por ciclo — numa
+    // recarga grande o ciclo inteiro ficava parado aqui. Se o bloco falhar (pai ainda não
+    // chegou, linha "veneno", id repetido na página), cai no linha a linha para isolar.
+    // Bloco que falha é dividido ao meio até isolar as linhas ruins (bloco de 1 = linha a
+    // linha), para poucas linhas com pai ausente não jogarem a página inteira no caminho lento.
+    const aplicarBloco = async (bloco) => {
+      if (bloco.length > 1) {
+        try {
+          await upsertLote(tabela, bloco, cli);
+          for (const row of bloco) await recon.aplicarLinha(fila, tabela, row, cli);
+          aplicadas += bloco.length;
+          return;
+        } catch {
+          const meio = Math.ceil(bloco.length / 2);
+          await aplicarBloco(bloco.slice(0, meio));
+          await aplicarBloco(bloco.slice(meio));
+          return;
+        }
+      }
+      const row = bloco[0];
       try {
         await aplicar(tabela, row);
         aplicadas++;
@@ -494,7 +587,21 @@ async function pull() {
         if (e.code === '23503') pendentes.push([tabela, row]);
         else falhas.push([tabela, row, e]);
       }
-    }
+    };
+    for (let i = 0; i < rows.length; i += LOTE_PULL) await aplicarBloco(rows.slice(i, i + LOTE_PULL));
+  }
+  // ÓRFÃOS DE CICLOS ANTERIORES: linha que chegou antes do pai (pedido de produção antes da
+  // comanda que vem na página seguinte, numa carga grande). Antes as 3 tentativas eram só
+  // NESTE ciclo: a linha era descartada, o cursor avançava e ela nunca mais descia (27 pedidos
+  // de produção perdidos na carga inicial de uma loja de teste). Agora fica numa fila e é
+  // retentada nos próximos ciclos — o mesmo que o restore já fazia.
+  let orfaosAntes = [];
+  try { orfaosAntes = JSON.parse(await getState('pull_orfaos', '[]')) || []; } catch { orfaosAntes = []; }
+  const tentativas = new Map(); // row.id → nº de ciclos em que já falhou
+  for (const o of orfaosAntes) {
+    if (!o?.tabela || !o?.row?.id) continue;
+    pendentes.push([o.tabela, o.row]);
+    tentativas.set(o.row.id, Number(o.n) || 0);
   }
   // Reprocessa dependências fora de ordem (pais já aplicados neste ciclo).
   for (let passe = 0; passe < 3 && pendentes.length; passe++) {
@@ -519,18 +626,35 @@ async function pull() {
     const resta2 = [];
     for (const [tabela, row] of pendentes) {
       if (tabela === 'pedido_externo' && row.cliente_id) {
-        try { await upsertLocal(tabela, { ...row, cliente_id: null }); aplicadas++; continue; }
+        try { await upsertLocal(tabela, { ...row, cliente_id: null }, cli); aplicadas++; continue; }
         catch { /* cai no resta2 abaixo */ }
       }
       resta2.push([tabela, row]);
     }
     pendentes = resta2;
   }
-  if (pendentes.length) console.warn(`  ${pendentes.length} linha(s) sem pai (FK) após retries`);
+  // Guarda os que ainda não entraram para os próximos ciclos. Depois de 20 ciclos o pai não vai
+  // chegar (ex.: lançamento de caixa de sessão fora da janela de 60 dias): descarta com aviso.
+  // A linha guardada é a da nuvem; se uma versão mais nova chegar antes, a regra da mais nova
+  // impede a velha de sobrescrevê-la.
+  const LIMITE_CICLOS = 20;
+  const guardar = [];
+  let descartados = 0;
+  const vistos = new Set();
+  for (const [tabela, row] of pendentes) {
+    if (vistos.has(row.id)) continue;
+    vistos.add(row.id);
+    const n = (tentativas.get(row.id) ?? 0) + 1;
+    if (n > LIMITE_CICLOS) descartados++;
+    else guardar.push({ tabela, row, n });
+  }
+  if (guardar.length || orfaosAntes.length) await setState('pull_orfaos', JSON.stringify(guardar.slice(0, 5000)));
+  if (guardar.length) console.warn(`  ${guardar.length} linha(s) aguardando o pai (FK) — nova tentativa no próximo ciclo`);
+  if (descartados) console.warn(`  ${descartados} linha(s) descartada(s): o pai não chegou em ${LIMITE_CICLOS} ciclos (fora da janela ou ausente na nuvem)`);
   // Exclusões feitas na nuvem (mig 262): apaga a mesma linha aqui, DEPOIS de aplicar as linhas
   // desta resposta. A sessão do daemon é marcada como sync, então não gera registro de volta.
   try {
-    await aplicarExclusoes(data.tabelas?.sync_exclusao ?? []);
+    await aplicarExclusoes(data.tabelas?.sync_exclusao ?? [], cli);
   } catch (e) {
     console.warn(`  exclusões não aplicadas (tenta no próximo ciclo): ${e.message}`);
   }
@@ -565,7 +689,7 @@ async function pull() {
 // registro para tabela sincronizada. Apagar o pai antes do filho sem cascata dá 23503 (ex.:
 // cliente "esquecido" cujo pedido ainda não chegou desvinculado): fica numa fila em sync_state
 // e é retentado nos próximos ciclos, até 50 vezes.
-async function aplicarExclusoes(novas) {
+async function aplicarExclusoes(novas, exec = pool) {
   let fila = [];
   try { fila = JSON.parse(await getState('exclusoes_pendentes', '[]')) || []; } catch { fila = []; }
   const todas = [...fila, ...novas.map((x) => ({ tabela: x.tabela, id: x.registro_id, tenant: x.tenant_id, n: 0 }))];
@@ -576,7 +700,7 @@ async function aplicarExclusoes(novas) {
     const cols = await colunas(x.tabela);
     if (!cols.has('tenant_id')) continue;
     try {
-      await pool.query(`delete from ${q(x.tabela)} where ${q('id')} = $1 and ${q('tenant_id')} = $2`, [x.id, x.tenant]);
+      await exec.query(`delete from ${q(x.tabela)} where ${q('id')} = $1 and ${q('tenant_id')} = $2`, [x.id, x.tenant]);
     } catch (e) {
       if (e.code === '23503' && (x.n ?? 0) < 50) resta.push({ ...x, n: (x.n ?? 0) + 1 });
       else console.warn(`  exclusão ${x.tabela}/${x.id} descartada: ${e.code || ''} ${e.message}`);
@@ -826,6 +950,10 @@ async function coletarSaude() {
     const os = await import('node:os');
     saude.ramLivreMb = Math.round(os.freemem() / 1048576);
     saude.ramTotalMb = Math.round(os.totalmem() / 1048576);
+  } catch { /* */ }
+  try {
+    const d = await getState('relogio_desvio_s', '');
+    if (d !== '') saude.relogioDesvioS = Number(d); // + adiantado, − atrasado (segundos)
   } catch { /* */ }
   try {
     saude.restaurando = (await getState('restaurando', '0')) === '1';

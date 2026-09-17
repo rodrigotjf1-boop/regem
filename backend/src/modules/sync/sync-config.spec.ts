@@ -10,6 +10,7 @@ import {
   colunaLWW,
   TABELAS_EXCLUIVEIS,
   TABELAS_PULL_APPEND,
+  JANELA_ABERTOS,
 } from './sync-config';
 
 // A config do sync é um contrato silencioso: nada falha quando uma tabela está
@@ -240,5 +241,14 @@ describe('sync_exclusao — cobertura e ordem', () => {
     ['movimento_estoque', 'movimento_lote', 'lancamento_caixa', 'audit_log', 'ponto_marcacao', 'sync_exclusao'].forEach((t) =>
       expect(TABELAS_EXCLUIVEIS.has(t)).toBe(false),
     );
+  });
+});
+
+// Janela de 60 dias corta pela CRIAÇÃO. Caixa ou comanda ainda abertos têm de descer mesmo
+// antigos — senão o PDV local não enxerga o caixa aberto e os lançamentos dele ficam órfãos.
+describe('janela do espelho — registro aberto', () => {
+  it.each(['caixa_sessao', 'comanda'])('%s aberta desce mesmo fora da janela', (t) => {
+    expect(TABELAS_JANELA_MIRROR.has(t)).toBe(true);
+    expect(JANELA_ABERTOS[t]).toMatch(/status = 'aberta'/);
   });
 });
