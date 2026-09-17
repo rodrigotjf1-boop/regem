@@ -366,6 +366,9 @@ export class VendasService {
         .select({ custoMedio: itemEstoque.custoMedio })
         .from(itemEstoque)
         .where(eq(itemEstoque.id, itemId));
+      // A LOJA do movimento não é passada aqui de propósito: o gatilho da mig 253 a tira da
+      // própria comanda (`ref_id`), que é a fonte da verdade — uma definição só, a mesma
+      // que preenche o histórico e os movimentos que chegam do servidor local.
       const [mov] = await tx
         .insert(movimentoEstoque)
         .values({

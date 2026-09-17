@@ -805,6 +805,12 @@ export const movimentoEstoque = pgTable('movimento_estoque', {
   itemId: uuid('item_id')
     .notNull()
     .references(() => itemEstoque.id, { onDelete: 'cascade' }),
+  // Loja a que o movimento pertence (mig 253) — separação total por loja. Quando o código
+  // não passa, o gatilho `trg_movimento_estoque_unidade` resolve pela ORIGEM (comanda,
+  // lista, nota, desperdício, contagem, ordem), depois pelo insumo exclusivo, depois pela
+  // loja única da empresa. É o gatilho que garante a loja também nos movimentos que o
+  // servidor local ainda envia sem ela, até receber o `.zip`.
+  unidadeId: uuid('unidade_id'),
   tipo: text('tipo').notNull(),
   quantidade: numeric('quantidade').notNull(),
   custoUnitario: numeric('custo_unitario'),

@@ -418,6 +418,7 @@ export class OrdemProducaoService {
             refId,
           } as any,
           tx,
+          o.unidadeId,
         );
 
         const novoStatus = dto.tipo === 'total' ? 'concluida_total' : 'concluida_parcial';
