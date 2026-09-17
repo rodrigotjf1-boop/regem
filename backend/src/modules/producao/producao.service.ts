@@ -119,6 +119,9 @@ export class ProducaoService {
     atorPerfil: string,
     dto: ProduzirDto,
     txExterna?: any,
+    // Loja da produção (mig 253). Vem do CÓDIGO, nunca do corpo do request: a ordem passa
+    // a dela; a produção manual, a loja da sessão. Sem ela, o gatilho resolve pela ordem.
+    unidadeId?: string | null,
   ) {
     const refId = dto.refId ?? randomUUID();
     const qtd = Number(dto.quantidade);
@@ -147,6 +150,7 @@ export class ProducaoService {
             .insert(movimentoEstoque)
             .values({
               tenantId,
+              unidadeId: unidadeId ?? undefined,
               itemId,
               tipo: 'saida',
               quantidade: String(quantidade),
@@ -172,6 +176,7 @@ export class ProducaoService {
           const saldoAntes = Number((s.rows ?? s)[0].saldo);
           await tx.insert(movimentoEstoque).values({
             tenantId,
+            unidadeId: unidadeId ?? undefined,
             itemId: dto.itemSaidaId,
             tipo: 'entrada',
             quantidade: String(qtd),

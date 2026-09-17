@@ -18,6 +18,7 @@ import { CreateItemDto } from './dto/create-item.dto';
 import { CreateMovimentoDto } from './dto/create-movimento.dto';
 import { furoCmv } from '../../common/regras-negocio';
 import { hojeISO, somarDias } from '../../common/data';
+import { exigirLojaParaLancar } from '../../common/loja-lancamento';
 import { sqlUnidade, sqlUnidadeOuRede, condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -274,22 +275,31 @@ export class EstoqueService {
     ator?: Ator,
   ) {
     const [it] = await this.db
-      .select({ id: itemEstoque.id })
+      .select({ id: itemEstoque.id, unidadeId: itemEstoque.unidadeId })
       .from(itemEstoque)
       .where(
         and(
           eq(itemEstoque.id, dto.itemId),
           eq(itemEstoque.tenantId, tenantId),
-          condUnidade(itemEstoque.unidadeId, atual), // item precisa ser da unidade atual
+          // Insumo da loja OU compartilhado. Com o filtro estrito, a loja não conseguia
+          // ajustar o saldo de um insumo de cadastro compartilhado — e o modelo é justamente
+          // cadastro compartilhado com estoque separado por loja.
+          condUnidadeOuRede(itemEstoque.unidadeId, atual),
           isNull(itemEstoque.deletedAt),
         ),
       );
     if (!it) throw new BadRequestException('Item inválido para esta unidade');
 
+    // Loja do lançamento: a da sessão; sem ela, a do insumo exclusivo. Insumo compartilhado
+    // sem loja escolhida, em empresa de duas lojas, é recusado — não há como saber de qual
+    // loja é o saldo.
+    const unidadeId = await exigirLojaParaLancar(this.db, tenantId, atual ?? it.unidadeId);
+
     const [row] = await this.db
       .insert(movimentoEstoque)
       .values({
         tenantId,
+        unidadeId: unidadeId ?? undefined,
         itemId: dto.itemId,
         tipo: dto.tipo,
         quantidade: String(dto.quantidade),
