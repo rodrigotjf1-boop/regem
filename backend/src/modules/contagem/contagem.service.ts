@@ -18,7 +18,7 @@ import {
   CreateContagemListaDto,
   SalvarContagemDto,
 } from './dto/create-contagem-lista.dto';
-import { condUnidade } from '../../common/filtro-unidade';
+import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 
 @Injectable()
 export class ContagemService {
@@ -29,7 +29,17 @@ export class ContagemService {
   ) {}
 
   // Saldo (ledger) por item, para o snapshot da contagem.
-  private async saldos(tenantId: string, itemIds: string[]) {
+  // Loja da lista de contagem. A contagem é de UMA loja: saldo, movimento durante a
+  // contagem e saldo no instante são todos dela (mig 253).
+  private async lojaDaLista(tenantId: string, listaId: string): Promise<string | null> {
+    const [l] = await this.db
+      .select({ unidadeId: contagemLista.unidadeId })
+      .from(contagemLista)
+      .where(and(eq(contagemLista.id, listaId), eq(contagemLista.tenantId, tenantId)));
+    return l?.unidadeId ?? null;
+  }
+
+  private async saldos(tenantId: string, itemIds: string[], unidadeId: string | null = null) {
     const map = new Map<string, number>();
     if (!itemIds.length) return map;
     const res: any = await this.db.execute(sql`
@@ -38,6 +48,7 @@ export class ContagemService {
                when 'saida' then -quantidade else quantidade end), 0) as saldo
       from movimento_estoque
       where tenant_id = ${tenantId} and item_id in ${itemIds}
+        ${unidadeId ? sql`and unidade_id = ${unidadeId}` : sql``}
       group by item_id
     `);
     for (const r of res.rows ?? res) map.set(r.itemId, Number(r.saldo));
@@ -53,7 +64,9 @@ export class ContagemService {
         .where(
           and(
             eq(itemEstoque.tenantId, tenantId),
-            condUnidade(itemEstoque.unidadeId, atual),
+            // Insumo da loja OU compartilhado: com estoque por loja, a loja precisa poder
+            // contar o insumo de cadastro compartilhado (o saldo dele é dela).
+            condUnidadeOuRede(itemEstoque.unidadeId, atual),
             inArray(itemEstoque.id, dto.itemIds),
             isNull(itemEstoque.deletedAt),
           ),
@@ -165,7 +178,7 @@ export class ContagemService {
       .from(contagemListaItem)
       .where(eq(contagemListaItem.listaId, listaId));
     const itemIds = itens.map((i) => i.itemId);
-    const saldos = await this.saldos(tenantId, itemIds);
+    const saldos = await this.saldos(tenantId, itemIds, lista.unidadeId ?? null);
     const [exec] = await this.db
       .insert(contagemExecucao)
       .values({ tenantId, listaId, delegadoId: lista.delegadoId, criadaPorId: atorId })
@@ -190,7 +203,12 @@ export class ContagemService {
   // venda/produção no meio, o resultado depende de o item ter sido contado antes ou
   // depois desse movimento — e o sistema não sabe qual. Em vez de escolher em silêncio
   // uma base errada, expomos o movimento e deixamos quem conta decidir.
-  private async movimentoDesde(tenantId: string, itemIds: string[], desde: Date) {
+  private async movimentoDesde(
+    tenantId: string,
+    itemIds: string[],
+    desde: Date,
+    unidadeId: string | null = null,
+  ) {
     const mapa = new Map<string, { qtd: number; n: number }>();
     if (!itemIds.length) return mapa;
     const res: any = await this.db.execute(sql`
@@ -200,6 +218,7 @@ export class ContagemService {
              count(*)::int as n
       from movimento_estoque
       where tenant_id = ${tenantId} and item_id in ${itemIds}
+        ${unidadeId ? sql`and unidade_id = ${unidadeId}` : sql``}
         and created_at > ${desde}
         -- o próprio ajuste da contagem não conta como "movimento durante a contagem"
         and coalesce(motivo, '') <> 'contagem'
@@ -220,6 +239,7 @@ export class ContagemService {
   private async saldosNoInstante(
     tenantId: string,
     instantes: Map<string, Date>,
+    unidadeId: string | null = null,
   ): Promise<Map<string, number>> {
     const saldos = new Map<string, number>();
     if (!instantes.size) return saldos;
@@ -236,6 +256,7 @@ export class ContagemService {
         from alvo a
         left join movimento_estoque m
           on m.tenant_id = ${tenantId} and m.item_id = a.item_id and m.created_at <= a.ate
+             ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}
        group by a.item_id
     `);
     for (const r of res.rows ?? res) saldos.set(r.itemId, Number(r.saldo));
@@ -265,6 +286,7 @@ export class ContagemService {
       tenantId,
       itens.map((i) => i.itemId),
       exec.createdAt,
+      await this.lojaDaLista(tenantId, exec.listaId),
     );
     return {
       ...exec,
@@ -307,7 +329,8 @@ export class ContagemService {
       // Quais itens se moveram DURANTE a contagem. O ajuste segue sendo lançado contra o
       // snapshot da abertura (é a base que o operador viu na tela), mas o que se moveu
       // fica REGISTRADO: sem isso, um ajuste possivelmente errado some sem deixar pista.
-      const mov = await this.movimentoDesde(tenantId, [...linhaDe.keys()], exec.createdAt);
+      const lojaExec = await this.lojaDaLista(tenantId, exec.listaId);
+      const mov = await this.movimentoDesde(tenantId, [...linhaDe.keys()], exec.createdAt, lojaExec);
 
       // Hora de cada item, LIMITADA ao intervalo [abertura, agora]. O valor vem do
       // cliente: relógio adiantado/atrasado — ou adulterado — não pode escolher a base
@@ -321,7 +344,7 @@ export class ContagemService {
         const t = Number.isNaN(bruto.getTime()) ? agora : bruto;
         instantes.set(it.itemId, t < abertura ? abertura : t > agora ? agora : t);
       }
-      const saldoNo = await this.saldosNoInstante(tenantId, instantes);
+      const saldoNo = await this.saldosNoInstante(tenantId, instantes, lojaExec);
 
       let ajustados = 0;
       let contados = 0;

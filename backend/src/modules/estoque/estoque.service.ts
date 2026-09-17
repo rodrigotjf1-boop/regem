@@ -225,11 +225,15 @@ export class EstoqueService {
                when 'saida'   then -m.quantidade
                else m.quantidade end), 0) as saldo
       from item_estoque i
-      left join movimento_estoque m on m.item_id = i.id
+      -- Saldo da LOJA (mig 253): só os movimentos dela. Sem loja (presidente em "todas",
+      -- ou empresa de uma loja só) soma todas — a soma das lojas, nunca uma média.
+      left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
       left join categoria_item cat on cat.id = i.categoria_item_id
       left join fornecedor f on f.id = i.fornecedor_id
       left join setor st on st.id = i.setor_id
-      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
+      -- Insumo da loja OU de cadastro compartilhado: o cadastro pode servir às duas lojas,
+      -- o saldo é que é de cada uma.
+      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
       group by i.id, cat.nome, cat.cor, f.nome, st.nome
       order by i.nome
     `);
@@ -360,8 +364,9 @@ export class EstoqueService {
                then m.quantidade * coalesce(m.custo_unitario, i.custo_medio) else 0 end),0) as "comprasValor"
       from item_estoque i
       left join fornecedor f on f.id = i.fornecedor_id and f.deleted_at is null
-      left join movimento_estoque m on m.item_id = i.id
-      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
+      -- Saldo, consumo e compras DA LOJA (mig 253) — é o que decide o ponto de pedido dela.
+      left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
+      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
       group by i.id, f.lead_time_dias, f.nome
       order by i.nome
     `);
@@ -469,7 +474,9 @@ export class EstoqueService {
         -- Saldo DERIVADO (mig 248). Sem isto o alerta das 06:10 avisava "vence em 2
         -- dias, 10 kg" de um lote já inteiramente consumido — e alerta que mente é
         -- pior do que alerta nenhum, porque o lojista para de olhar.
-        and (l.quantidade - coalesce((select sum(ml.quantidade) from movimento_lote ml where ml.lote_id = l.id), 0)) > 0 ${sqlUnidadeOuRede('i.unidade_id', atual)}
+        -- Pela loja do LOTE (mig 246): o lote da loja B não aparece na validade da loja A,
+        -- mesmo sendo de um insumo compartilhado. Lote antigo sem loja aparece para as duas.
+        and (l.quantidade - coalesce((select sum(ml.quantidade) from movimento_lote ml where ml.lote_id = l.id), 0)) > 0 ${sqlUnidadeOuRede('l.unidade_id', atual)}
       order by l.validade asc
     `);
     const rows = res.rows ?? res;
@@ -496,17 +503,36 @@ export class EstoqueService {
   // Upsert: reexecutar no mesmo dia atualiza. (custo_medio é o cache atual — snapshot é "ao vivo".)
   async gerarSnapshot(tenantId: string, data?: string, atual: string | null = null) {
     const d = data ?? hojeISO();
+    // Um snapshot POR LOJA (mig 255). Insumo compartilhado gera uma linha em cada loja,
+    // com o saldo dos movimentos daquela loja; insumo exclusivo, só na loja dele; empresa
+    // sem loja cadastrada fica com a linha sem loja. Movimento sem loja (antigo, sem origem,
+    // insumo compartilhado em empresa de duas lojas) não entra em loja nenhuma — a próxima
+    // contagem restabelece o saldo (decisão do dono: não se atribui por palpite).
+    //
+    // A mesma expansão por loja está na mig 256, que reconstruiu os snapshots antigos.
     await this.db.execute(sql`
       insert into estoque_snapshot (tenant_id, unidade_id, item_id, data, saldo, custo_medio)
-      select i.tenant_id, i.unidade_id, i.id, ${d}::date,
+      select i.tenant_id, u.uid, i.id, ${d}::date,
         coalesce(sum(case m.tipo when 'entrada' then m.quantidade
           when 'saida' then -m.quantidade else m.quantidade end),0),
         i.custo_medio
       from item_estoque i
-      left join movimento_estoque m on m.item_id = i.id and m.data <= ${d}
-      where i.tenant_id = ${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
-      group by i.id
-      on conflict (tenant_id, item_id, data)
+      cross join lateral (
+        select un.id as uid from unidade un
+         where un.tenant_id = i.tenant_id and un.deleted_at is null
+           and (i.unidade_id is null or un.id = i.unidade_id)
+        union all
+        select null::uuid
+         where not exists (
+           select 1 from unidade un2 where un2.tenant_id = i.tenant_id and un2.deleted_at is null
+         )
+      ) u
+      left join movimento_estoque m
+        on m.item_id = i.id and m.data <= ${d} and m.unidade_id is not distinct from u.uid
+      where i.tenant_id = ${tenantId} and i.deleted_at is null
+        ${atual ? sql`and u.uid = ${atual}` : sql``}
+      group by i.id, u.uid
+      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid), item_id, data)
         do update set saldo = excluded.saldo, custo_medio = excluded.custo_medio
     `);
     return { ok: true, data: d };
@@ -517,13 +543,17 @@ export class EstoqueService {
     // Valor do snapshot mais recente com data <= alvo (EI/EF).
     const valorSnapshot = async (alvo: string): Promise<number> => {
       const r: any = await this.db.execute(sql`
+        -- Snapshot mais recente POR INSUMO E LOJA (mig 255). Agrupando só por insumo, a loja
+        -- A com snapshot num dia e a B noutro pegaria a data errada para uma delas.
         with ult as (
-          select item_id, max(data) as data from estoque_snapshot
-          where tenant_id=${tenantId} and data <= ${alvo} ${sqlUnidade('unidade_id', atual)} group by item_id
+          select item_id, unidade_id, max(data) as data from estoque_snapshot
+          where tenant_id=${tenantId} and data <= ${alvo} ${sqlUnidade('unidade_id', atual)}
+          group by item_id, unidade_id
         )
         select coalesce(sum(s.saldo * s.custo_medio),0) as v
         from estoque_snapshot s
         join ult on ult.item_id = s.item_id and ult.data = s.data
+                and ult.unidade_id is not distinct from s.unidade_id
         where s.tenant_id = ${tenantId} ${sqlUnidade('s.unidade_id', atual)}
       `);
       return Number((r.rows ?? r)[0].v);
@@ -535,8 +565,8 @@ export class EstoqueService {
             coalesce(sum(case m.tipo when 'entrada' then m.quantidade
               when 'saida' then -m.quantidade else m.quantidade end),0) as saldo
           from item_estoque i
-          left join movimento_estoque m on m.item_id = i.id
-          where i.tenant_id=${tenantId} and i.deleted_at is null ${sqlUnidade('i.unidade_id', atual)}
+          left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
+          where i.tenant_id=${tenantId} and i.deleted_at is null ${sqlUnidadeOuRede('i.unidade_id', atual)}
           group by i.id
         ) t
       `);
@@ -563,7 +593,8 @@ export class EstoqueService {
       const r: any = await this.db.execute(sql`
         select coalesce(sum(m.quantidade * coalesce(m.custo_unitario, i.custo_medio)),0) as v
         from movimento_estoque m join item_estoque i on i.id = m.item_id
-        where m.tenant_id=${tenantId} and m.data between ${inicio} and ${fim} ${sqlUnidade('i.unidade_id', atual)} and ${cond}
+        -- Compras, consumo e desperdício DA LOJA: pela loja do movimento, não do insumo.
+        where m.tenant_id=${tenantId} and m.data between ${inicio} and ${fim} ${sqlUnidade('m.unidade_id', atual)} and ${cond}
       `);
       return Number((r.rows ?? r)[0].v);
     };
