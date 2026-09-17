@@ -9,6 +9,7 @@ import {
   gorjetaPedido,
   pedidoVale,
 } from '../../common/faturamento';
+import { sqlLojasDoItem, sqlMinimoDaLoja } from '../../common/custo-loja';
 
 @Injectable()
 export class DashboardService {
@@ -53,20 +54,21 @@ export class DashboardService {
       where tenant_id = ${tenantId} and data = ${data} and deleted_at is null ${uni}`);
 
     const est = await this.row(sql`
-      select count(*) as total from (
-        select i.id, i.estoque_minimo,
-          coalesce(sum(case m.tipo
-            when 'entrada' then m.quantidade
-            when 'saida'   then -m.quantidade
-            else m.quantidade end), 0) as saldo
+      -- Saldo e mínimo DA LOJA (migs 253 e 257); insumo da loja ou compartilhado. Sem loja,
+      -- conta cada (insumo, loja) abaixo do mínimo — a mesma conta da Visão C&O.
+      select count(*) as total
         from item_estoque i
-        -- Saldo DA LOJA (mig 253); insumo da loja ou compartilhado.
-        left join movimento_estoque m on m.item_id = i.id
-          ${unidadeId ? sql`and m.unidade_id = ${unidadeId}` : sql``}
-        where i.tenant_id = ${tenantId} and i.deleted_at is null
-          ${unidadeId ? sql`and (i.unidade_id = ${unidadeId} or i.unidade_id is null)` : sql``}
-        group by i.id
-      ) s where s.saldo < s.estoque_minimo`);
+        ${sqlLojasDoItem(unidadeId ?? null)}
+        cross join lateral (
+          select coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                  when 'saida'   then -m.quantidade
+                                  else m.quantidade end), 0) as saldo
+            from movimento_estoque m
+           where m.item_id = i.id and m.unidade_id is not distinct from u.uid
+        ) mv
+       where i.tenant_id = ${tenantId} and i.deleted_at is null
+         ${unidadeId ? sql`and (i.unidade_id = ${unidadeId} or i.unidade_id is null)` : sql``}
+         and not u.orfao and mv.saldo < ${sqlMinimoDaLoja}`);
 
     // Comercial: vendas do dia (comandas fechadas, no fuso SP) + delivery ativo.
     const vend = await this.row(sql`

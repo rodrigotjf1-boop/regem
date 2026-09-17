@@ -4,20 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { randomUUID } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   fichaTecnica,
   fichaIngrediente,
-  itemEstoque,
   movimentoEstoque,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
-import {
-  qtdBaixaExplosao,
-  custoMedioPonderado,
-} from '../../common/regras-negocio';
+import { qtdBaixaExplosao } from '../../common/regras-negocio';
+import { custoMedioDaSaida, ponderarCustoDaEntrada } from '../../common/custo-loja';
 import { ProduzirDto } from './dto/produzir.dto';
 import { hojeISO } from '../../common/data';
 import { consumirLotes } from '../../common/lotes';
@@ -41,6 +38,8 @@ export class ProducaoService {
     qtdProduzir: number,
     consumoPorItem: Map<string, number>,
     visitados: Set<string>,
+    // Loja da produção e a origem (mig 257): o custo do insumo é o DA LOJA que produz.
+    loja: { unidadeId: string | null; refId: string },
   ): Promise<number> {
     if (visitados.has(fichaId)) {
       throw new BadRequestException('Ciclo de fichas detectado na explosão.');
@@ -86,13 +85,13 @@ export class ProducaoService {
           baixa,
           consumoPorItem,
           proximos,
+          loja,
         );
       } else if (ing.itemId) {
-        const [item] = await tx
-          .select({ custoMedio: itemEstoque.custoMedio })
-          .from(itemEstoque)
-          .where(eq(itemEstoque.id, ing.itemId));
-        const custoUnit = Number(item?.custoMedio ?? ing.custoUnitario) || 0;
+        const cm = await custoMedioDaSaida(
+          tx, tenantId, ing.itemId, loja.unidadeId, 'producao', loja.refId,
+        );
+        const custoUnit = Number(cm ?? ing.custoUnitario) || 0;
         consumoPorItem.set(
           ing.itemId,
           (consumoPorItem.get(ing.itemId) ?? 0) + baixa,
@@ -137,15 +136,15 @@ export class ProducaoService {
           qtd,
           consumoPorItem,
           new Set(),
+          { unidadeId: unidadeId ?? null, refId },
         );
 
         // Lança a saída (uma por item agregado).
         let baixados = 0;
         for (const [itemId, quantidade] of consumoPorItem) {
-          const [item] = await tx
-            .select({ custoMedio: itemEstoque.custoMedio })
-            .from(itemEstoque)
-            .where(eq(itemEstoque.id, itemId));
+          const custoMedio = await custoMedioDaSaida(
+            tx, tenantId, itemId, unidadeId, 'producao', refId,
+          );
           const [mov] = await tx
             .insert(movimentoEstoque)
             .values({
@@ -154,7 +153,7 @@ export class ProducaoService {
               itemId,
               tipo: 'saida',
               quantidade: String(quantidade),
-              custoUnitario: item?.custoMedio ?? undefined,
+              custoUnitario: custoMedio ?? undefined,
               motivo: 'producao',
               refTipo: 'producao',
               refId,
@@ -169,12 +168,7 @@ export class ProducaoService {
         // Entrada do produto acabado ao custo teórico (opcional).
         const custoUnitProduzido = qtd > 0 ? custoTotal / qtd : 0;
         if (dto.itemSaidaId) {
-          const s: any = await tx.execute(
-            sql`select coalesce(sum(case tipo when 'entrada' then quantidade when 'saida' then -quantidade else quantidade end),0) as saldo
-                from movimento_estoque where tenant_id=${tenantId} and item_id=${dto.itemSaidaId}`,
-          );
-          const saldoAntes = Number((s.rows ?? s)[0].saldo);
-          await tx.insert(movimentoEstoque).values({
+          const [entrada] = await tx.insert(movimentoEstoque).values({
             tenantId,
             unidadeId: unidadeId ?? undefined,
             itemId: dto.itemSaidaId,
@@ -185,26 +179,11 @@ export class ProducaoService {
             refTipo: 'producao',
             refId,
             data: hojeISO(),
-          });
-          const [prod] = await tx
-            .select({ custoMedio: itemEstoque.custoMedio })
-            .from(itemEstoque)
-            .where(eq(itemEstoque.id, dto.itemSaidaId));
-          const novo = custoMedioPonderado(
-            saldoAntes,
-            Number(prod?.custoMedio ?? 0),
-            qtd,
-            custoUnitProduzido,
+          }).returning({ id: movimentoEstoque.id });
+          // Custo médio do produzido DA LOJA que produziu (mig 257).
+          await ponderarCustoDaEntrada(
+            tx, tenantId, entrada.id, dto.itemSaidaId, qtd, custoUnitProduzido,
           );
-          await tx
-            .update(itemEstoque)
-            .set({ custoMedio: String(novo), updatedAt: new Date() })
-            .where(
-              and(
-                eq(itemEstoque.id, dto.itemSaidaId),
-                eq(itemEstoque.tenantId, tenantId),
-              ),
-            );
         }
 
         return {

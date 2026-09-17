@@ -9,6 +9,7 @@ import {
   gorjetaPedido,
   pedidoVale,
 } from '../../common/faturamento';
+import { sqlLojasDoItem, sqlMinimoDaLoja } from '../../common/custo-loja';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 @Injectable()
@@ -54,19 +55,20 @@ export class DiretoriaService {
       -- todas: insumo compartilhado caía na linha "sem loja" e não contava em loja nenhuma,
       -- e o saldo era o das duas juntas. Agora cada insumo é avaliado em cada loja que o usa,
       -- com o saldo dela.
-      select uid as unidade_id, count(*) as total from (
-        select i.id, u.id as uid, i.estoque_minimo,
-          coalesce(sum(case m.tipo
-            when 'entrada' then m.quantidade
-            when 'saida'   then -m.quantidade
-            else m.quantidade end), 0) as saldo
+      -- Mínimo DA LOJA (mig 257): o de cada uma, não o do cadastro.
+      select u.uid as unidade_id, count(*) as total
         from item_estoque i
-        join unidade u on u.tenant_id = i.tenant_id and u.deleted_at is null
-                      and (i.unidade_id is null or u.id = i.unidade_id)
-        left join movimento_estoque m on m.item_id = i.id and m.unidade_id = u.id
-        where i.tenant_id = ${tenantId} and i.deleted_at is null
-        group by i.id, u.id
-      ) s where s.saldo < s.estoque_minimo group by uid`);
+        ${sqlLojasDoItem(null)}
+        cross join lateral (
+          select coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                  when 'saida'   then -m.quantidade
+                                  else m.quantidade end), 0) as saldo
+            from movimento_estoque m
+           where m.item_id = i.id and m.unidade_id = u.uid
+        ) mv
+       where i.tenant_id = ${tenantId} and i.deleted_at is null
+         and u.uid is not null and mv.saldo < ${sqlMinimoDaLoja}
+       group by u.uid`);
 
     // Faturamento do mês por loja, na definição única (ver `common/faturamento.ts`):
     // balcão + canais, cada um contado uma vez. Antes somava só `comanda.total`, que

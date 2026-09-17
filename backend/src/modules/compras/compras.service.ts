@@ -19,7 +19,11 @@ import {
   fornecedor,
   colaborador,
 } from '../../db/schema';
-import { custoMedioPonderado } from '../../common/regras-negocio';
+import {
+  ponderarCustoDaEntrada,
+  sqlLojasDoItem,
+  sqlMinimoDaLoja,
+} from '../../common/custo-loja';
 import { condUnidadeOuRede, sqlUnidade, sqlUnidadeOuRede } from '../../common/filtro-unidade';
 import { hojeISO } from '../../common/data';
 import { CreateCompraListaDto } from './dto/create-compra-lista.dto';
@@ -32,21 +36,6 @@ export class ComprasService {
     private readonly events: EventEmitter2,
     private readonly auditoria: AuditoriaService,
   ) {}
-
-  private async saldos(tenantId: string, itemIds: string[]) {
-    const map = new Map<string, number>();
-    if (!itemIds.length) return map;
-    const res: any = await this.db.execute(sql`
-      select item_id as "itemId",
-             coalesce(sum(case tipo when 'entrada' then quantidade
-               when 'saida' then -quantidade else quantidade end), 0) as saldo
-      from movimento_estoque
-      where tenant_id = ${tenantId} and item_id in ${itemIds}
-      group by item_id
-    `);
-    for (const r of res.rows ?? res) map.set(r.itemId, Number(r.saldo));
-    return map;
-  }
 
   async createLista(
     tenantId: string,
@@ -218,13 +207,21 @@ export class ComprasService {
   // Sugestão: itens abaixo do mínimo, com quantidade sugerida (mínimo − saldo).
   async sugerir(tenantId: string, atual: string | null = null) {
     const res: any = await this.db.execute(sql`
+      -- Saldo e mínimo DA LOJA (migs 253 e 257): a sugestão de compra é do estoque dela. Em
+      -- "todas", soma o que falta em cada loja — a sobra de uma não cobre a falta da outra.
       select i.id as "itemId", i.nome, i.unidade_medida as "unidadeMedida",
-             i.estoque_minimo as "estoqueMinimo",
-             coalesce(sum(case m.tipo when 'entrada' then m.quantidade
-               when 'saida' then -m.quantidade else m.quantidade end), 0) as saldo
+             sum(${sqlMinimoDaLoja}) as "estoqueMinimo",
+             sum(mv.saldo) as saldo,
+             sum(case when u.orfao then 0 else greatest(0, ${sqlMinimoDaLoja} - mv.saldo) end) as falta
       from item_estoque i
-      -- Saldo DA LOJA (mig 253): a sugestão de compra é do estoque dela.
-      left join movimento_estoque m on m.item_id = i.id ${sqlUnidade('m.unidade_id', atual)}
+      ${sqlLojasDoItem(atual)}
+      cross join lateral (
+        select coalesce(sum(case m.tipo when 'entrada' then m.quantidade
+                                  when 'saida'   then -m.quantidade
+                                  else m.quantidade end), 0) as saldo
+          from movimento_estoque m
+         where m.item_id = i.id and m.unidade_id is not distinct from u.uid
+      ) mv
       -- Insumo da loja ou da rede. Antes vinha o do tenant INTEIRO, sem rótulo de loja:
       -- dois "Farinha de trigo", um de cada filial, e o gerente marcava o da outra — o
       -- recebimento dava entrada e reescrevia o custo médio no estoque que não era dele.
@@ -234,9 +231,8 @@ export class ComprasService {
     `);
     return (res.rows ?? res)
       .map((r: any) => {
-        const saldo = Number(r.saldo);
-        const min = Number(r.estoqueMinimo);
-        return { ...r, saldo, sugerido: Math.max(0, min - saldo) };
+        const { falta, ...resto } = r;
+        return { ...resto, saldo: Number(r.saldo), sugerido: Number(falta) };
       })
       .filter((r: any) => r.sugerido > 0);
   }
@@ -309,7 +305,6 @@ export class ComprasService {
         .select()
         .from(compraItem)
         .where(and(eq(compraItem.listaId, id), eq(compraItem.tenantId, tenantId)));
-      const saldos = await this.saldos(tenantId, itens.map((i) => i.itemId));
       const data = lista.dataRecebimento ?? hojeISO();
 
       // A conferência é OBRIGATÓRIA e tem de cobrir a lista inteira. Aceitar parcial
@@ -358,7 +353,7 @@ export class ComprasService {
           .where(and(eq(compraItem.id, it.id), eq(compraItem.tenantId, tenantId)));
 
         if (qtd <= 0) continue; // não veio: conferência registrada, estoque intocado
-        await tx.insert(movimentoEstoque).values({
+        const [mov] = await tx.insert(movimentoEstoque).values({
           tenantId,
           itemId: it.itemId,
           tipo: 'entrada',
@@ -368,7 +363,7 @@ export class ComprasService {
           refTipo: 'compra_item', // ref por LINHA: duas linhas do mesmo item não colidem
           refId: it.id,
           data,
-        });
+        }).returning({ id: movimentoEstoque.id });
 
         // LOTE — só quando há o que rastrear: uma validade, ou um código de lote do
         // fabricante. Sem nenhum dos dois (o guardanapo sem código), a linha já diz
@@ -392,22 +387,10 @@ export class ComprasService {
 
         if (custo != null) valorConferido += qtd * custo;
 
-        if (custo != null) {
-          const [cur] = await tx
-            .select({ custoMedio: itemEstoque.custoMedio })
-            .from(itemEstoque)
-            .where(and(eq(itemEstoque.id, it.itemId), eq(itemEstoque.tenantId, tenantId)));
-          const novo = custoMedioPonderado(
-            saldos.get(it.itemId) ?? 0,
-            Number(cur?.custoMedio ?? 0),
-            qtd,
-            custo,
-          );
-          await tx
-            .update(itemEstoque)
-            .set({ custoMedio: String(novo), updatedAt: new Date() })
-            .where(and(eq(itemEstoque.id, it.itemId), eq(itemEstoque.tenantId, tenantId)));
-        }
+        // Custo médio DA LOJA da lista (mig 257): a compra da loja A não mexe no custo da B.
+        // O saldo "antes" sai da transação, então a 2ª linha do mesmo insumo na lista já
+        // pondera sobre a 1ª (antes lia um saldo tirado fora da transação, antes do laço).
+        if (custo != null) await ponderarCustoDaEntrada(tx, tenantId, mov.id, it.itemId, qtd, custo);
       }
 
       // CONTA A PAGAR — `compras.receber()` entrava com a mercadoria e não gerava

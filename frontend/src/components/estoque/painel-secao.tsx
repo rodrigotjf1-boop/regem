@@ -21,7 +21,7 @@ export function PainelSecao({ itens }: { itens: any[] }) {
   }, [verFin]);
 
   const valorTotal = itens.reduce((s, i) => s + Number(i.valorEstoque ?? 0), 0);
-  const criticos = itens.filter((i) => Number(i.saldo) < Number(i.estoqueMinimo)).length;
+  const criticos = itens.filter((i) => i.abaixoMinimo ?? Number(i.saldo) < Number(i.estoqueMinimo)).length;
   const zerados = itens.filter((i) => Number(i.saldo) <= 0).length;
 
   const cat: Record<string, { nome: string; cor: string | null; valor: number; n: number }> = {};

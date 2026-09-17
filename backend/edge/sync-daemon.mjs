@@ -173,6 +173,9 @@ const PUSH_TABLES = [
   // e insumo localmente — precisam SUBIR (fornecedor antes de item_estoque por FK).
   { tabela: 'fornecedor', cursor: 'updated_at' },
   { tabela: 'item_estoque', cursor: 'updated_at' },
+  // Custo médio/mínimo POR LOJA (mig 257): o recebimento e a produção daqui ponderam o
+  // custo da loja. Depois de item_estoque (FK).
+  { tabela: 'item_estoque_unidade', cursor: 'updated_at' },
   // DOCUMENTOS DE ESTOQUE (mig 243): nascem AQUI (Recebimento/Contagem/Compras/
   // Desperdício rodam no edge) e nunca subiam — a nuvem via o movimento de estoque mas
   // não a nota, a contagem nem a perda que o originou; e a CONTA A PAGAR criada pelo
