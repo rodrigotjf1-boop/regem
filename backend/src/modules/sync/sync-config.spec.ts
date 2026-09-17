@@ -191,3 +191,17 @@ describe('sync-config — invariantes gerais', () => {
     TABELAS_PULL.forEach((t) => expect(t.cursor).toBeTruthy());
   });
 });
+
+// A reconciliação pós-atualização (edge/sync-reconciliacao.mjs) rebaixa e completa as
+// tabelas da lista fixa da transição 1.29.0. Tabela ali que não desce da nuvem nunca seria
+// reconciliada e a fila ficaria parada nela — e o push dela, esperando para sempre.
+describe('sync-reconciliacao — lista da transição 1.29.0', () => {
+  const fonte = readFileSync(join(__dirname, '..', '..', '..', 'edge', 'sync-reconciliacao.mjs'), 'utf8');
+  const bloco = fonte.slice(fonte.indexOf('export const COLUNAS_POS_1_29'), fonte.indexOf('};', fonte.indexOf('export const COLUNAS_POS_1_29')));
+  const tabelas = [...bloco.matchAll(/^\s{2}([a-z_]+):/gm)].map((m) => m[1]);
+  const pull = new Set(TABELAS_PULL.map((t) => t.tabela));
+
+  it('a lista foi lida do módulo', () => expect(tabelas.length).toBeGreaterThan(10));
+
+  it.each(tabelas.length ? tabelas : ['(vazia)'])('%s desce da nuvem', (t) => expect(pull.has(t)).toBe(true));
+});

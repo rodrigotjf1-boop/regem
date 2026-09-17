@@ -250,6 +250,57 @@ if ($reinstalacao) {
   # -Limpar: REMOCAO TOTAL da instalacao anterior (nuke). Remove servicos+tarefas,
   # mata os processos presos (postgres/node) e APAGA o pgdata/backups/.env. Depois
   # segue como instalacao NOVA (initdb do zero). Os dados vem da nuvem pelo sync.
+  # ANTES DE APAGAR: sobe para a nuvem o que so existe neste servidor. A reinstalacao limpa
+  # parte da premissa de que tudo o que nasceu na loja ja subiu - e isso NAO vale para as
+  # tabelas que entraram na lista de envio depois da versao instalada (documentos de
+  # estoque, etiquetas, lotes...): elas nunca subiram, e apagar o banco as perderia.
+  # O sync-daemon NOVO (ja copiado pelo instalador) roda em modo --descarregar contra o
+  # banco ANTIGO e sai com 0 so se tudo chegou. Qualquer falha (sem internet, nuvem fora,
+  # linha recusada) -> NAO apaga: segue como reinstalacao que preserva o banco, e as
+  # migrations + a reconciliacao do sync atualizam os dados no lugar.
+  if ($Limpar -and (Test-Path (Join-Path $base 'pgdata')) -and (Test-Path $envAntigo)) {
+    Diga "  Enviando para a nuvem o que so existe neste servidor (antes de apagar o banco)..."
+    $descarregou = $false
+    # Stop + redirecionar stderr de nativo (2>$null) vira erro TERMINANTE no PS 5.1 (licao
+    # do #457): neste bloco os nativos rodam com Continue e o resultado e lido pelo codigo.
+    $eapAnterior = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      try { & sc.exe start RegemEdgePg 2>$null | Out-Null } catch {}
+      $pgIsReady = Join-Path $base 'pgsql\bin\pg_isready.exe'
+      $pronto = $false
+      for ($i = 0; $i -lt 30; $i++) {
+        if (Test-Path $pgIsReady) {
+          & $pgIsReady -h localhost -p $PgPorta 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { $pronto = $true; break }
+        }
+        Start-Sleep -Seconds 2
+      }
+      if (-not $pronto) { throw "o banco local nao respondeu" }
+      $nodeExe = Join-Path $base 'node\node.exe'; if (-not (Test-Path $nodeExe)) { $nodeExe = 'node' }
+      $daemon = Join-Path $root 'edge\sync-daemon.mjs'
+      $saida = Join-Path $logDir 'descarregar.out.log'
+      $erros = Join-Path $logDir 'descarregar.err.log'
+      $proc = Start-Process -FilePath $nodeExe -ArgumentList @("`"$daemon`"", '--descarregar') `
+        -WorkingDirectory $root -PassThru -NoNewWindow `
+        -RedirectStandardOutput $saida -RedirectStandardError $erros
+      if (-not $proc.WaitForExit(1800000)) { try { $proc.Kill() } catch {}; throw "tempo esgotado (30 min)" }
+      if ($proc.ExitCode -eq 0) { $descarregou = $true }
+      else { throw ("codigo de saida {0} - veja {1}" -f $proc.ExitCode, $erros) }
+    } catch {
+      Diga ("  (aviso) nao consegui enviar os dados locais para a nuvem: {0}" -f $_.Exception.Message)
+    } finally {
+      $ErrorActionPreference = $eapAnterior
+    }
+    if ($descarregou) {
+      Diga "  Dados locais conferidos na nuvem."
+    } else {
+      Diga "  O banco local NAO sera apagado: seguindo como reinstalacao que PRESERVA os dados."
+      try { & sc.exe stop RegemEdgePg 2>$null | Out-Null } catch {}
+      $Limpar = $false
+    }
+  }
+
   if ($Limpar) {
     Diga "  -Limpar: REMOVENDO por completo a instalacao anterior (servicos, tarefas, banco)..."
     $nssmC = Join-Path $base 'nssm\nssm.exe'; if (-not (Test-Path $nssmC)) { $nssmC = 'nssm' }
