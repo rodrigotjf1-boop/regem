@@ -918,12 +918,15 @@ async function licenca() {
 // Fase E-D: pergunta à nuvem se há versão nova. NÃO aplica sozinho (troca de
 // binário/serviço é do instalador) — só registra e loga um aviso claro para o
 // operador. Guarda em sync_state pra a UI/painel poder mostrar depois.
-async function updateCheck() {
+async function updateCheck(jaRecebido) {
   try {
     const atual = process.env.APP_VERSION || '1';
-    const res = await fetchT(`${CLOUD}/edge/update-check?versao=${encodeURIComponent(atual)}`);
-    if (!res.ok) return;
-    const j = await res.json();
+    let j = jaRecebido;
+    if (!j) {
+      const res = await fetchT(`${CLOUD}/edge/update-check?versao=${encodeURIComponent(atual)}`);
+      if (!res.ok) return;
+      j = await res.json();
+    }
     if (j.atualizar) {
       await setState('update_disponivel', j.ultima || '');
       await setState('update_url', j.url || '');
@@ -1000,6 +1003,7 @@ async function heartbeat(pullN, pushN, erro, comSaude) {
   try {
     const corpo = {
       versao: process.env.APP_VERSION || '1',
+      comSaude: !!comSaude, // a nuvem só anexa comandos/atualização na batida do fim do ciclo
       estado: erro ? 'erro' : 'sync_ok',
       ultimoSync: new Date().toISOString(),
       clientes: Number(process.env.EDGE_CLIENTES || 0) || null,
@@ -1013,12 +1017,16 @@ async function heartbeat(pullN, pushN, erro, comSaude) {
       corpo.saude = saude;
       if (discoLivreMb != null) corpo.discoLivreMb = discoLivreMb;
     }
-    await fetchT(`${CLOUD}/edge/heartbeat`, {
+    const res = await fetchT(`${CLOUD}/edge/heartbeat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-sync-token': TOKEN },
       body: JSON.stringify(corpo),
     });
+    // A nuvem manda comandos pendentes e aviso de atualização JUNTO (2 requisições a menos
+    // por ciclo). Edge contra nuvem antiga não recebe nada e cai nos endpoints de sempre.
+    if (res.ok) return await res.json().catch(() => null);
   } catch { /* heartbeat é best-effort */ }
+  return null;
 }
 
 // Restore por SNAPSHOT (Trilha A) — robusto. Baixa /sync/snapshot (NDJSON gzip, corpo
@@ -1182,11 +1190,15 @@ async function enfileirarTesteLocal() {
 
 // Comandos remotos (Fase 4): a distribuição enfileira (ex.: rollback); o edge busca
 // e executa localmente. Best-effort; confirma o resultado na nuvem.
-async function verificarComandos() {
+async function verificarComandos(jaRecebidos) {
   try {
-    const res = await fetchT(`${CLOUD}/edge/comandos`, { headers: { 'x-sync-token': TOKEN } });
-    if (!res.ok) return;
-    const cmds = await res.json();
+    let cmds = jaRecebidos;
+    if (!cmds) {
+      const res = await fetchT(`${CLOUD}/edge/comandos`, { headers: { 'x-sync-token': TOKEN } });
+      if (!res.ok) return;
+      cmds = await res.json();
+    }
+    if (!Array.isArray(cmds) || !cmds.length) return;
     for (const c of cmds) {
       let ok = true, resultado = '';
       try {
@@ -1214,6 +1226,8 @@ async function verificarComandos() {
 // pushes CONCORRENTES (seq fora de ordem, dados duplicados) que sobrecarregam a nuvem
 // e causam 502 em cascata. Um ciclo por vez; o próximo tick pula se ainda está rodando.
 let cicloRodando = false;
+let cicloAnteriorMs = 0;
+let falhasSeguidas = 0;
 async function ciclo() {
   if (cicloRodando) {
     console.warn(`ciclo anterior ainda em execução — pulando este tick`);
@@ -1229,13 +1243,21 @@ async function ciclo() {
     // ou o CloudFallbackProcessor o assumia → ao descer com comanda_id preenchido, o
     // EdgePedidosProcessor (que só pega comanda_id NULL) nunca materializava local:
     // "o pedido não entra no servidor edge". O ping antecipado mantém a nuvem deferindo.
-    await heartbeat(0, 0, null);
+    // Batida ANTECIPADA só quando ela importa: restauração pedida ou ciclo anterior longo
+    // (a nuvem precisa saber que a loja está viva antes de uma operação demorada). Fora
+    // disso é uma requisição por minuto por loja sem função — em 5.000 lojas, 83 por segundo.
+    const precisaPingCedo =
+      cicloAnteriorMs > 30000 || (await getState('restaurar_solicitado', '0')) === '1';
+    if (precisaPingCedo) await heartbeat(0, 0, null);
+    const inicioCiclo = Date.now();
     try {
       p = await pull();
       u = await push();
+      falhasSeguidas = 0;
       console.log(`sync ok — pull ${p} linha(s), push ${u} linha(s)`);
     } catch (e) {
       erro = e.message;
+      falhasSeguidas++;
       console.error(`sync FALHOU: ${causaErro(e)}`);
       await reportarTelemetria('sync', 'sync_erro', causaErro(e));
     }
@@ -1256,13 +1278,17 @@ async function ciclo() {
       }
     }
     await licenca();
-    await verificarComandos();
-    // Verificação de update: nas janelas de abertura E a cada ~10 min (o gestor
-    // pediu aviso mais frequente). Não aplica sozinho — só marca `update_disponivel`
-    // em sync_state; o app mostra o aviso e o botão de baixar/instalar.
-    await updateCheckSeJanela();
-    await updateCheckPeriodico();
-    await heartbeat(p, u, erro, true); // heartbeat RICO (saúde dos 5 serviços) no FIM do ciclo
+    // Batida RICA do fim do ciclo: traz de carona os comandos pendentes e o aviso de
+    // atualização, então as duas consultas separadas só acontecem se a nuvem não mandar nada.
+    const resposta = await heartbeat(p, u, erro, true);
+    await verificarComandos(resposta?.comandos);
+    if (resposta?.atualizacao) await updateCheck(resposta.atualizacao);
+    else {
+      // Nuvem antiga (sem carona): mantém as janelas de abertura e o check periódico.
+      await updateCheckSeJanela();
+      await updateCheckPeriodico();
+    }
+    cicloAnteriorMs = Date.now() - inicioCiclo;
   } catch (e) {
     // BLINDAGEM: NENHUM erro de ciclo pode derrubar o daemon. O try interno cobre só
     // pull/push; um throw de licenca/verificarComandos/updateCheck/heartbeat (aqui fora)
@@ -1375,6 +1401,26 @@ if (process.argv.includes('--descarregar')) {
 
 // ensureState e o 1º ciclo NÃO podem crashar o boot (ex.: PG recuperando = 57P03).
 // Se falharem, loga e segue — o setInterval reexecuta o ciclo quando o PG estabilizar.
+// AGENDAMENTO com ESPALHAMENTO e RECUO, no lugar do setInterval fixo:
+//  • espalhamento (±20%): sem ele, todas as lojas batem no mesmo instante do minuto e, depois
+//    de uma queda da nuvem, voltam todas juntas — o primeiro minuto concentra tudo (é o
+//    "thundering herd" que os SDKs de Firestore e Couchbase evitam com recuo aleatório);
+//  • recuo progressivo enquanto a nuvem não responde (até 5 min), em vez de insistir a cada
+//    minuto com 3 tentativas cada — a loja offline parava de ajudar e só gerava carga.
+// Loja saudável mantém o ciclo de sempre: o pedido de delivery desce pelo pull.
+const INTERVALO_MAX_MS = Number(process.env.SYNC_INTERVAL_MAX_MS || 300000);
+function proximoIntervalo() {
+  const base = falhasSeguidas > 0
+    ? Math.min(INTERVAL * Math.pow(2, Math.min(falhasSeguidas, 5)), INTERVALO_MAX_MS)
+    : INTERVAL;
+  return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+async function agendar() {
+  try { await ciclo(); } catch (e) { console.error(`ciclo falhou (segue): ${e?.message ?? e}`); }
+  setTimeout(agendar, proximoIntervalo());
+}
+
 try { await ensureState(); } catch (e) { console.error(`ensureState falhou no boot (segue): ${e?.message ?? e}`); }
-try { await ciclo(); } catch (e) { console.error(`primeiro ciclo falhou no boot (segue): ${e?.message ?? e}`); }
-setInterval(ciclo, INTERVAL);
+// Primeiro ciclo com atraso aleatório curto: 5.000 lojas voltando juntas depois de uma queda
+// não podem bater no mesmo segundo.
+setTimeout(agendar, Math.round(Math.random() * Math.min(INTERVAL, 15000)));

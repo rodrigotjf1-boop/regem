@@ -28,7 +28,7 @@ function valoresDoHeartbeat(db: ReturnType<typeof fakeDb>) {
 describe('LicencaService.heartbeat — F1 (saúde/unidade/fingerprint)', () => {
   it('grava a unidade do TOKEN (não do dto) + fingerprint + saude + disco', async () => {
     const db = fakeDb();
-    const svc = new LicencaService(db as any, {} as any);
+    const svc = new LicencaService(db as any, {} as any, {} as any);
     await svc.heartbeat('t1', 'u-token', {
       versao: '1.23.0',
       estado: 'sync_ok',
@@ -46,14 +46,14 @@ describe('LicencaService.heartbeat — F1 (saúde/unidade/fingerprint)', () => {
 
   it('cai no dto.unidadeId quando o token não tem unidade (edge antigo/1 loja)', async () => {
     const db = fakeDb();
-    const svc = new LicencaService(db as any, {} as any);
+    const svc = new LicencaService(db as any, {} as any, {} as any);
     await svc.heartbeat('t1', null, { unidadeId: 'u-dto' });
     expect(valoresDoHeartbeat(db).unidadeId).toBe('u-dto');
   });
 
   it('sem unidade em lugar nenhum → null (não quebra)', async () => {
     const db = fakeDb();
-    const svc = new LicencaService(db as any, {} as any);
+    const svc = new LicencaService(db as any, {} as any, {} as any);
     await svc.heartbeat('t1', null, { versao: '1' });
     const v = valoresDoHeartbeat(db);
     expect(v.unidadeId).toBeNull();

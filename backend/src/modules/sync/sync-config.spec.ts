@@ -302,3 +302,22 @@ describe('atrasadoDemais — janela de retenção', () => {
     expect(atrasadoDemais(diasAtras(1), { comanda: `${diasAtras(60)}|x` })).toBe(true);
   });
 });
+
+// Marcador (mig 264): o pull PULA a tabela cujo marcador é mais antigo que o cursor. Tabela
+// com marcador semeado e SEM gatilho ficaria parada para sempre — o marcador nunca subiria e
+// o pull nunca mais consultaria aquela tabela. Este teste é o alarme dessa armadilha.
+describe('sync_marcador — cobertura dos gatilhos', () => {
+  const mig = readFileSync(
+    join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '264_sync_marcador_status_fila.sql'),
+    'utf8',
+  );
+  const bloco = mig.slice(mig.indexOf('Gatilhos nas tabelas que DESCEM'), mig.indexOf('-- Semente'));
+  const comGatilho = new Set([...bloco.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+
+  it('a lista de gatilhos foi lida', () => expect(comGatilho.size).toBeGreaterThan(40));
+
+  it('TODA tabela do pull tem gatilho de marcador', () => {
+    const faltando = TABELAS_PULL.map((t) => t.tabela).filter((t) => !comGatilho.has(t));
+    expect(faltando).toEqual([]);
+  });
+});

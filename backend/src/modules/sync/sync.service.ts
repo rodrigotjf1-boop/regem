@@ -114,6 +114,20 @@ export class SyncService {
     return set;
   }
 
+  // Marcador de mudança por tabela (mig 264) — uma leitura por pull. `balde` existe para a
+  // gravação não serializar numa linha só; aqui pegamos o maior de cada tabela.
+  private async marcadoresDe(tenantId: string): Promise<Map<string, string>> {
+    try {
+      const r: any = await this.db.execute(sql`
+        select tabela, max(mudou_em)::text as m from sync_marcador
+         where tenant_id = ${tenantId} group by tabela`);
+      return new Map((r.rows ?? r).map((x: any) => [x.tabela as string, x.m as string]));
+    } catch {
+      // Sem a tabela (banco ainda sem a mig 264) o pull segue como antes.
+      return new Map();
+    }
+  }
+
   // Deltas de controle (desce/ambos) desde o cursor, escopados ao tenant.
   // Identificadores (tabela/cursor) vêm da whitelist TABELAS_PULL — nunca do usuário.
   // `cursores` (opcional): mapa tabela→"<ts>|<id>" p/ o pull KEYSET por tabela (edge
@@ -248,6 +262,13 @@ export class SyncService {
     const EPOCA = '1970-01-01T00:00:00Z';
     const desdeTs = desde || EPOCA;
     const keyset = !!cursores && typeof cursores === 'object';
+    // MARCADOR (mig 264): "esta tabela desta empresa mudou quando?". Antes o pull consultava
+    // as 59 tabelas TODA vez, mesmo sem nada ter mudado — medido: 56 consultas, 16.546 linhas
+    // lidas e 897 blocos para devolver ZERO (e em 5.000 lojas isso projeta ~1,4 milhão de
+    // linhas por segundo). O SymmetricDS lê UMA tabela de mudanças, o AppSync lê UMA tabela
+    // delta e o Firestore empurra. Aqui: uma leitura do marcador e só consultamos as tabelas
+    // cujo marcador é MAIS NOVO que o cursor daquele servidor local.
+    const marcadores = await this.marcadoresDe(tenantId);
     const tabelas: Record<string, any[]> = {};
     const cursoresOut: Record<string, string> = {};
     const PAGINA = 1000; // linhas por tabela por request (evita 413)
@@ -305,6 +326,18 @@ export class SyncService {
         });
 
       if (keyset) {
+        const raw0 = cursores![t.tabela];
+        const marca = marcadores.get(t.tabela);
+        // Pula a tabela SEM CONSULTAR quando o marcador é estritamente anterior ao cursor: toda
+        // linha dela tem `cursor <= marcador`, então não há nada depois do que este servidor já
+        // tem. Na igualdade NÃO pula (pode haver linha com o mesmo instante e id maior).
+        // Sem marcador (tabela nunca escrita nesta empresa, ou gatilho ausente) consulta como
+        // antes — o silêncio nunca vira "não precisa sincronizar".
+        if (raw0 && marca && marca < String(raw0).split('|')[0]) {
+          tabelas[t.tabela] = [];
+          cursoresOut[t.tabela] = raw0;
+          continue;
+        }
         // ── KEYSET por tabela. Cursor = "<timestamp texto full-precision>|<id>".
         // Sem `greatest(cursor, deleted_at)` aqui: o gatilho (mig 095) bumpa updated_at
         // no soft-delete, então a exclusão anda pelo próprio cursor (mesma premissa do
