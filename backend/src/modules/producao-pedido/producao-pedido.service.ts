@@ -292,9 +292,15 @@ export class ProducaoPedidoService {
           eq(equipamento.tipo, 'impressora'),
           eq(equipamento.ativo, true),
           eq(equipamento.fazProducao, true), // mig 167 (antes: papel null|'producao')
-          unidadeId ? eq(equipamento.unidadeId, unidadeId) : sql`true`,
+          // Da loja OU sem loja ("da rede"). Era `unidade_id = loja` ESTRITO: a impressora
+          // cadastrada sem loja — comum em empresa de uma loja, e o que o cupom já aceitava —
+          // nunca recebia a via da cozinha. Reproduzido (set/2026): venda da Matriz saía só com
+          // o cupom, embora a impressora fosse a padrão e atendesse o setor do produto.
+          lojaOuRede(unidadeId),
         ),
-      );
+      )
+      // Com duas padrão (uma da loja e uma da rede), a DA LOJA vence.
+      .orderBy(sql`${equipamento.unidadeId} is null`);
     const padraoId: string | null = printers.find((p) => p.padrao)?.id ?? null;
     const impressoras = new Map<string, Set<ItemProducao>>();
     const addImp = (eqId: string, it: ItemProducao) => {
@@ -1407,7 +1413,7 @@ export class ProducaoPedidoService {
         from produto p
         join setor s on s.id = p.setor_producao_id and s.unidade_id is not null
         join unidade u on u.tenant_id = p.tenant_id and u.id <> s.unidade_id
-                      and u.deleted_at is null and u.ativo is not false
+                      and u.deleted_at is null -- (unidade NÃO tem coluna ativo — era 500 em todo lugar)
        where p.tenant_id = ${tenantId} and p.vai_para_producao and p.ativo is not false
          ${unidadeId ? sql`and u.id = ${unidadeId}` : sql``}
          and not exists (
@@ -1816,7 +1822,8 @@ export class ProducaoPedidoService {
           eq(equipamento.tipo, 'kds'),
           eq(equipamento.escopo, 'entrega'),
           eq(equipamento.ativo, true),
-          unidadeId ? eq(equipamento.unidadeId, unidadeId) : sql`true`,
+          // Da loja OU sem loja (rede) — era estrito: KDS de entrega cadastrado sem loja era ignorado.
+          lojaOuRede(unidadeId ?? null),
         ),
       );
     return rows.length > 0;

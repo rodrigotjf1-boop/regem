@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
@@ -126,8 +127,10 @@ export class EdgeController {
     return this.service.ackComando(ctx.tenantId, id, body?.ok !== false, body?.resultado);
   }
 
-  // C&O da loja vê os erros do próprio edge (histórico + ocorrências).
+  // C&O da loja vê os erros do próprio edge (histórico + ocorrências). Só na NUVEM: a tabela
+  // telemetria_evento não existe no servidor local (lá a rota dava 500).
   @Get('edge/telemetria')
+  @CloudOnly()
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
   @RequirePerm('servidor')

@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from './roles.decorator';
+import { PERM_OPERADOR, ehGestor } from './niveis';
+import { podeAcessar, type Permissoes } from './permissoes';
 
 // Checa a categoria da hierarquia (RBAC) contra o que o endpoint exige.
 @Injectable()
@@ -30,6 +32,14 @@ export class RolesGuard implements CanActivate {
     const categoria = req.user?.categoria === 'suporte' ? 'gerente' : req.user?.categoria;
     if (!req.user || !required.includes(categoria)) {
       throw new ForbiddenException('Permissão insuficiente');
+    }
+    // Operação de caixa (@OperadorDeCaixa): supervisão/execução só com a permissão do perfil.
+    const perm = this.reflector.getAllAndOverride<string | undefined>(PERM_OPERADOR, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (perm && !ehGestor(req.user.categoria) && !podeAcessar(req.user.permissoes, perm as keyof Permissoes)) {
+      throw new ForbiddenException('Seu perfil não tem acesso ao caixa (permissão de PDV).');
     }
     return true;
   }

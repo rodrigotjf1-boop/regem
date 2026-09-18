@@ -538,7 +538,7 @@ export default function DeliveryPage() {
         <Card className="px-3 py-2">
           {/* Turno (esq.) + matriz · modo nuvem · hora (dir.) na MESMA linha */}
           <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border pb-2">
-            {(isGestor || cat === 'atendente') && (
+            {(isGestor || cat === 'execucao') && (
               <div className="min-w-0 flex-1">
                 <CaixaPanel
                   caixa={caixa}
@@ -603,7 +603,7 @@ export default function DeliveryPage() {
                 <button type="button" aria-label="Aumentar lote" onClick={() => salvarMaxLote((Number(entCfg.maxPedidosEntregador) || 1) + 1)} disabled={(Number(entCfg.maxPedidosEntregador) || 1) >= 15} className="grid h-6 w-6 place-items-center rounded border border-border disabled:opacity-40">＋</button>
               </div>
             )}
-            {(isGestor || cat === 'atendente') && (
+            {(isGestor || cat === 'execucao') && (
               <Link
                 href="/delivery/relatorios"
                 className="flex h-8 items-center gap-1.5 rounded-md border border-border px-2 text-sm font-medium hover:bg-muted"

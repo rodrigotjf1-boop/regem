@@ -117,7 +117,7 @@ export class EntregadorController {
   // Atendente: a fila da loja (nome + iniciais + status) — painel de delivery (RBAC delivery).
   @Get('fila')
   @UseGuards(RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   @RequirePerm('delivery')
   fila(@CurrentUser() user: AuthUser) {
     return this.service.listarFila(user.tenantId, (user as any).unidadeId ?? null);
@@ -127,7 +127,7 @@ export class EntregadorController {
   // ?inicio=YYYY-MM-DD&fim=YYYY-MM-DD (dia/semana/mês/personalizado resolvidos no front).
   @Get('relatorio')
   @UseGuards(RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   @RequirePerm('delivery')
   relatorio(
     @CurrentUser() user: AuthUser,
@@ -207,7 +207,7 @@ export class EntregadorController {
   // cada entregador) — quanto pagar por entregador sobre as entregas ainda não acertadas.
   @Get('pagamento/fechamento')
   @UseGuards(RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   @RequirePerm('delivery')
   fechamento(@CurrentUser() user: AuthUser) {
     return this.service.fechamentoEntregadores(user.tenantId);
@@ -217,7 +217,7 @@ export class EntregadorController {
   // entregas + marca os pedidos como acertados.
   @Post('pagamento/fechar')
   @UseGuards(RolesGuard, PermissoesGuard)
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   @RequirePerm('delivery')
   fechar(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.pagarEntregador(user.tenantId, user.colaboradorId, dto?.colaboradorId ?? '');

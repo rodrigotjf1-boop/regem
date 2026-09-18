@@ -19,6 +19,7 @@ import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { VendasService } from './vendas.service';
 import { VendaBalcaoDto } from './dto/venda-balcao.dto';
+import { exigirBooleano } from '../../common/exigir';
 
 // PDV — operador de balcão. Guarda de perfil no servidor: as áreas pdv/mesas/cupons
 // exigem a permissão do perfil (@RequirePerm). Sem @RequirePerm/@Roles no método,
@@ -126,8 +127,10 @@ export class VendasController {
 
   @Post('comandas')
   @RequirePerm('mesas')
-  abrir(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.abrirComanda(user.tenantId, user.colaboradorId, dto);
+  abrir(@CurrentUser() user: AuthUser, @UnidadeAtual() atual: string | null, @Body() dto: any) {
+    // Sem loja no corpo → a loja atual do usuário. Comanda SEM loja é "da rede": desce para os
+    // servidores de TODAS as lojas e fica fora do CMV por loja (reproduzido set/2026).
+    return this.service.abrirComanda(user.tenantId, user.colaboradorId, { ...dto, unidadeId: dto?.unidadeId ?? atual ?? undefined });
   }
 
   @Get('comandas/:id')
@@ -237,7 +240,7 @@ export class VendasController {
   @UseGuards(RolesGuard)
   @Roles('presidente')
   setCancelamentoLivre(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.setCancelamentoLivre(user.tenantId, !!dto.ativo);
+    return this.service.setCancelamentoLivre(user.tenantId, exigirBooleano(dto?.ativo, 'ativo'));
   }
 
   // ----- Cupons & cancelamento -----
@@ -273,6 +276,7 @@ export class VendasController {
   @RequirePerm('mesas')
   cancelar(
     @CurrentUser() user: AuthUser,
+    @TerminalAtual() terminalId: string | null,
     @Param('id') id: string,
     @Body() dto: any,
   ) {
@@ -282,6 +286,7 @@ export class VendasController {
       user.categoria,
       id,
       dto,
+      terminalId, // o estorno entra no caixa deste terminal (como a venda)
     );
   }
 }

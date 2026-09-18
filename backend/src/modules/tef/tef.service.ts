@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { tefConfig, pagamentoTef } from '../../db/schema';
+import { comanda, tefConfig, pagamentoTef } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -69,11 +69,22 @@ export class TefService {
       .limit(limite);
   }
 
+  // Antes: corpo vazio → `update ... set {}` → 500 ("No values to set"); comanda de OUTRA empresa
+  // era aceita (sem conferir o tenant); e respondia ok mesmo sem o pagamento existir.
   async vincularComanda(tenantId: string, id: string, comandaId: string) {
-    await this.db
+    if (!comandaId || !/^[0-9a-f-]{36}$/i.test(String(comandaId)))
+      throw new BadRequestException('Informe a comanda (comandaId).');
+    const [c] = await this.db
+      .select({ id: comanda.id })
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+    if (!c) throw new NotFoundException('Comanda não encontrada.');
+    const [p] = await this.db
       .update(pagamentoTef)
       .set({ comandaId })
-      .where(and(eq(pagamentoTef.id, id), eq(pagamentoTef.tenantId, tenantId)));
+      .where(and(eq(pagamentoTef.id, id), eq(pagamentoTef.tenantId, tenantId)))
+      .returning({ id: pagamentoTef.id });
+    if (!p) throw new NotFoundException('Pagamento não encontrado');
     return { ok: true };
   }
 

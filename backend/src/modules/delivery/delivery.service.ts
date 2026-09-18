@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -13,6 +14,7 @@ import { createHmac, randomBytes } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { ehServidorLocal } from '../../common/modo';
 import {
   caixaSessao,
   cardapioBairro,
@@ -1998,12 +2000,103 @@ export class DeliveryService {
 
   // Avisa o webhook (n8n) quando o pedido muda de status. Fire-and-forget:
   // nunca quebra o fluxo do pedido. Assina o corpo com HMAC-SHA256 (X-Regem-Signature).
+  // AVISO DE STATUS ao cliente — ponto de entrada. É chamado em segundo plano
+  // (`void this.dispararWebhook(...)`) e por isso NUNCA pode rejeitar: reproduzido (set/2026)
+  // que uma rejeição aqui derrubava a API do servidor local inteira a cada mudança de status.
+  //  • NUVEM: envia (enviarAvisoStatus).
+  //  • SERVIDOR LOCAL: pede à NUVEM que envie (encaminharAvisoParaNuvem). A loja não tem o que o
+  //    aviso precisa: a tabela `integracao` (URL + segredo do n8n da loja) não sincroniza, e o
+  //    WhatsApp oficial depende do histórico de conversas e dos modelos, que só existem na nuvem.
   private async dispararWebhook(tenantId: string, ped: any, evento = 'status') {
-    // O AVISO DE STATUS ao cliente (WhatsApp pelo bot Regem) é SÓ para o Cardápio Regem.
-    // Marketplace/integrado (Anota Aí, iFood, Cardápio Web…) notificam o próprio cliente —
-    // não devem receber o status do Regem (nem o código de entrega, que é feature nossa).
-    // O status-back para o canal (statusBackAnotaAi/CW/Food99) é chamado à parte e segue.
-    if (DeliveryService.grupoCanal(ped.canal) !== 'regem') return;
+    try {
+      // O AVISO DE STATUS ao cliente (WhatsApp pelo bot Regem) é SÓ para o Cardápio Regem.
+      // Marketplace/integrado (Anota Aí, iFood, Cardápio Web…) notificam o próprio cliente —
+      // não devem receber o status do Regem (nem o código de entrega, que é feature nossa).
+      // O status-back para o canal (statusBackAnotaAi/CW/Food99) é chamado à parte e segue.
+      if (DeliveryService.grupoCanal(ped.canal) !== 'regem') return;
+      if (ehServidorLocal()) {
+        await this.encaminharAvisoParaNuvem(tenantId, ped, evento);
+        return;
+      }
+      await this.enviarAvisoStatus(tenantId, ped, evento);
+    } catch (e: any) {
+      this.logger.warn(`[aviso-status] pedido ${ped?.id ?? '?'} evento=${evento}: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`);
+    }
+  }
+
+  // SERVIDOR LOCAL → NUVEM. Tentativas espaçadas (0 s, 5 s, 20 s, 60 s, 120 s): cobre a nuvem fora
+  // do ar por pouco tempo e o pedido criado na loja que ainda não subiu pelo sync (a nuvem responde
+  // 409 até ele chegar — ela só aceita aviso de pedido que conhece). Esgotadas as tentativas, envia
+  // pelo n8n direto da loja quando dá (provedor gratuito com URL global); senão registra que o
+  // cliente ficou sem este aviso.
+  private async encaminharAvisoParaNuvem(tenantId: string, ped: any, evento: string) {
+    const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
+    const token = process.env.SYNC_TOKEN ?? '';
+    const corpo = JSON.stringify({
+      pedidoId: ped.id,
+      evento,
+      // O que MUDOU na loja e talvez ainda não tenha subido pelo sync.
+      status: ped.status,
+      entregadorNome: ped.entregadorNome ?? null,
+      motivoCancelamento: ped.motivoCancelamento ?? null,
+    });
+    const esperas = [0, 5_000, 20_000, 60_000, 120_000];
+    let ultimo = 'sem CLOUD_API/SYNC_TOKEN no servidor local';
+    if (nuvem && token) {
+      for (const ms of esperas) {
+        if (ms) await new Promise((r) => setTimeout(r, ms));
+        try {
+          const res = await fetch(`${nuvem}/delivery/aviso-da-loja`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-sync-token': token },
+            body: corpo,
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (res.ok) return;
+          ultimo = `HTTP ${res.status}`;
+          if (res.status !== 409 && res.status < 500) break; // recusa definitiva: não insiste
+        } catch (e: any) {
+          ultimo = e?.cause?.code ?? e?.message ?? String(e);
+        }
+      }
+    }
+    this.logger.warn(`[aviso-status] nuvem não enviou o aviso do pedido ${ped.id} (${ultimo}) — tentando pela loja`);
+    await this.enviarAvisoStatus(tenantId, ped, evento);
+  }
+
+  // NUVEM ← SERVIDOR LOCAL: a loja pede o aviso de um pedido dela. Só pedido que a nuvem CONHECE
+  // (de onde vêm cliente e telefone — o que a loja manda é só o que mudou). Pedido ainda não
+  // sincronizado → 409 (a loja tenta de novo). Repetição do mesmo aviso em 10 min é ignorada:
+  // a loja pode reenviar se a resposta se perder, e o cliente não pode receber duas vezes.
+  private readonly avisosRecentes = new Map<string, number>();
+  async avisoVindoDaLoja(tenantId: string, dto: any) {
+    const id = String(dto?.pedidoId ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new BadRequestException('pedidoId inválido');
+    const [row] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId)));
+    if (!row) throw new ConflictException('Pedido ainda não chegou à nuvem — tente de novo.');
+    const evento = typeof dto?.evento === 'string' ? dto.evento.slice(0, 40) : 'status';
+    const status = typeof dto?.status === 'string' ? dto.status.slice(0, 40) : row.status;
+    const chave = `${id}:${status}:${evento}`;
+    const agora = Date.now();
+    for (const [k, em] of this.avisosRecentes) if (agora - em > 10 * 60_000) this.avisosRecentes.delete(k);
+    if (this.avisosRecentes.has(chave)) return { ok: true, repetido: true };
+    this.avisosRecentes.set(chave, agora);
+    const ped: any = {
+      ...row,
+      status,
+      entregadorNome: dto?.entregadorNome ?? (row as any).entregadorNome ?? null,
+      motivoCancelamento: dto?.motivoCancelamento ?? (row as any).motivoCancelamento ?? null,
+    };
+    if (DeliveryService.grupoCanal(ped.canal) !== 'regem') return { ok: true, ignorado: 'canal' };
+    await this.enviarAvisoStatus(tenantId, ped, evento);
+    return { ok: true };
+  }
+
+  // Monta e envia o aviso (n8n / WhatsApp oficial / notificação no cardápio).
+  private async enviarAvisoStatus(tenantId: string, ped: any, evento = 'status') {
     // Cancelamento vira evento dedicado 'cancelado' e leva o MOTIVO — o cliente
     // precisa saber por que o pedido foi cancelado (o fluxo n8n trata esse ramo).
     const cancelado = ped.status === 'cancelado';
@@ -2039,6 +2132,12 @@ export class DeliveryService {
 
     if (provedor !== 'cloud') {
       await this.notificarN8n(tenantId, payload);
+      return;
+    }
+    // WhatsApp OFICIAL depende do histórico de conversas e dos modelos — só existem na nuvem.
+    // Aqui só se chega no servidor local quando a nuvem não atendeu (encaminharAvisoParaNuvem).
+    if (ehServidorLocal()) {
+      this.logger.warn(`[aviso-status] pedido ${ped.id}: WhatsApp oficial precisa da nuvem — cliente ficou sem este aviso`);
       return;
     }
 
@@ -2123,7 +2222,7 @@ export class DeliveryService {
   // Grava a notificação IN-APP do status no histórico do cliente (cardápio). Cloud-only:
   // no edge a tabela não existe e o cliente não acompanha por lá. Best-effort.
   private async gravarNotificacaoPedido(tenantId: string, ped: any, eventoStatus: string | null): Promise<void> {
-    if (process.env.EDGE_MODE === '1') return;
+    if (ehServidorLocal()) return; // era `EDGE_MODE === '1'` — nunca verdadeiro (o instalador grava 'true')
     if (!eventoStatus) return;
     try {
       const [row] = await this.db
@@ -2332,7 +2431,10 @@ export class DeliveryService {
   }
 
   async setPixPrioritario(tenantId: string, gateway: string) {
-    const g = gateway === 'pagseguro' ? 'pagseguro' : 'mercadopago';
+    // Ausente/desconhecido virava 'mercadopago' em silêncio (trocava o gateway da loja).
+    if (gateway !== 'pagseguro' && gateway !== 'mercadopago')
+      throw new BadRequestException('Informe o gateway: mercadopago ou pagseguro.');
+    const g = gateway;
     await this.db
       .update(cardapioConfig)
       .set({ pixGatewayPrioritario: g })

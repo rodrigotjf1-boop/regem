@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, HttpException, HttpStatus } from '@nestjs/common';
+import { ArgumentsHost, Catch, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import { TelemetriaBridge } from './telemetria-bridge';
 import { AppError } from './errors/app-error';
@@ -13,6 +13,8 @@ import { mapPgError } from './errors/pg-error';
    - normaliza erros CRUS do pg → AppError (23505→409 etc.) sem vazar SQL;
    - mascara falhas inesperadas (5xx) — nunca devolve stack/SQL/mensagem interna;
    - reporta à telemetria da distribuição as 5xx / não tratadas (comportamento preservado). */
+const logErro = new Logger('HTTP 5xx');
+
 @Catch()
 export class TelemetriaExceptionFilter extends BaseExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
@@ -33,6 +35,28 @@ export class TelemetriaExceptionFilter extends BaseExceptionFilter {
       if (mapped) ex = mapped;
     }
     const status = ex instanceof HttpException ? ex.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+    // Erro CRU do banco convertido em 4xx (formato inválido, duplicado, FK…): a resposta fica
+    // genérica, então a causa real vai para o log como aviso — senão um defeito que caia aqui
+    // (ex.: coluna de data montada errada no código) ficaria invisível.
+    if (ex !== exception && status < 500) {
+      const err = exception as any;
+      logErro.warn(
+        `${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} → ${status}` +
+          `${requestId ? ` [${requestId}]` : ''} (erro do banco): ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`,
+      );
+    }
+
+    // 1b) LOG LOCAL de todo 5xx, com a causa REAL e o requestId que vai na resposta. A resposta
+    //     é mascarada ("Ocorreu um erro interno.") e a telemetria só existe quando o sink da nuvem
+    //     está armado: reproduzido (set/2026) — três 500 no servidor local e ZERO linhas no log.
+    if (status >= 500) {
+      const err = exception as any;
+      logErro.error(
+        `${req?.method ?? '?'} ${req?.originalUrl ?? req?.url ?? '?'} → ${status}` +
+          `${requestId ? ` [${requestId}]` : ''}: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`,
+        err?.stack,
+      );
+    }
 
     // 2) Telemetria — só 5xx / não tratadas, quando o sink da nuvem está armado. Reporta o
     //    erro ORIGINAL (stack real). Nunca interfere na resposta.

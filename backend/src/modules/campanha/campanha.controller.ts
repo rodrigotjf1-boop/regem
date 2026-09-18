@@ -8,6 +8,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { CampanhaService } from './campanha.service';
+import { exigirBooleano } from '../../common/exigir';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Campanhas de WhatsApp por segmento — só nuvem, só gestão (dado de cliente é PII).
@@ -68,7 +69,7 @@ export class CampanhaController {
   // Opt-out de um CLIENTE cadastrado (toggle do flag).
   @Post('opt-out')
   optOut(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.toggleOptOut(user.tenantId, String(dto?.clienteId ?? ''), !!dto?.optOut);
+    return this.service.toggleOptOut(user.tenantId, String(dto?.clienteId ?? ''), exigirBooleano(dto?.optOut, 'optOut'));
   }
 
   // Lista de exclusão (opt-out) — só leitura, para o lojista visualizar quem saiu.

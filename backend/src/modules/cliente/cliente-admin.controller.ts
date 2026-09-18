@@ -18,7 +18,7 @@ export class ClienteAdminController {
   constructor(private readonly service: ClienteService) {}
 
   @Get('buscar')
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   buscar(@CurrentUser() user: AuthUser, @Query('telefone') telefone?: string) {
     return this.service.buscarPorTelefone(user.tenantId, telefone ?? '');
   }

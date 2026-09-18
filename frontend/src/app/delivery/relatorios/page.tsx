@@ -81,7 +81,7 @@ export default function RelatoriosEntregaPage() {
       return;
     }
     const cat = getCategoria();
-    if (!['presidente', 'gerente', 'supervisao', 'atendente'].includes(cat ?? '')) {
+    if (!['presidente', 'gerente', 'supervisao', 'execucao'].includes(cat ?? '')) {
       router.replace('/painel');
     }
   }, [router]);

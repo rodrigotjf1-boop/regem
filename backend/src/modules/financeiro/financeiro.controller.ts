@@ -12,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { RolesGuard } from '../../auth/roles.guard';
 import { Roles } from '../../auth/roles.decorator';
+import { OperadorDeCaixa } from '../../auth/niveis';
 import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
@@ -21,6 +22,7 @@ import { AuthUser } from '../../auth/auth-user';
 import { FinanceiroService } from './financeiro.service';
 import { CreateTituloDto } from './dto/create-titulo.dto';
 import { PagarTituloDto } from './dto/pagar-titulo.dto';
+import { exigirBooleano } from '../../common/exigir';
 
 // Financeiro. Contas a pagar/receber, resumo, fluxo e DRE exigem a permissão
 // "financeiro" do perfil; o caixa/turno e as formas de pagamento são operacionais
@@ -110,7 +112,7 @@ export class FinanceiroController {
 
   // ----- Caixa (sessão) — atendente também opera o caixa (Fase A). -----
   @Get('caixa')
-  @Roles('presidente', 'gerente', 'atendente')
+  @OperadorDeCaixa()
   caixa(
     @CurrentUser() user: AuthUser,
     @TerminalAtual() terminalId: string | null,
@@ -124,7 +126,7 @@ export class FinanceiroController {
   }
 
   @Post('caixa/abrir')
-  @Roles('presidente', 'gerente', 'atendente')
+  @OperadorDeCaixa()
   abrirCaixa(
     @CurrentUser() user: AuthUser,
     @TerminalAtual() terminalId: string | null,
@@ -137,7 +139,7 @@ export class FinanceiroController {
   }
 
   @Post('caixa/movimentar')
-  @Roles('presidente', 'gerente', 'atendente')
+  @OperadorDeCaixa()
   movimentarCaixa(
     @CurrentUser() user: AuthUser,
     @TerminalAtual() terminalId: string | null,
@@ -153,7 +155,7 @@ export class FinanceiroController {
 
   // ----- Formas de pagamento (cadastro) — leitura liberada ao operador. -----
   @Get('formas-pagamento')
-  @Roles('presidente', 'gerente', 'atendente')
+  @OperadorDeCaixa()
   formasPagamento(@CurrentUser() user: AuthUser) {
     return this.service.listarFormasPagamento(user.tenantId);
   }
@@ -183,12 +185,12 @@ export class FinanceiroController {
   @Roles('presidente', 'gerente')
   @RequirePerm('formas_pagamento')
   ativarFormaPagamento(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
-    return this.service.setFormaPagamentoAtiva(user.tenantId, id, !!dto.ativo);
+    return this.service.setFormaPagamentoAtiva(user.tenantId, id, exigirBooleano(dto?.ativo, 'ativo'));
   }
 
   // Config do caixa: liberar sangria/suprimento pelo atendente (presidente).
   @Get('caixa/config')
-  @Roles('presidente', 'gerente', 'atendente')
+  @OperadorDeCaixa()
   configCaixa(@CurrentUser() user: AuthUser) {
     return this.service.getConfigCaixa(user.tenantId);
   }
@@ -196,11 +198,11 @@ export class FinanceiroController {
   @Post('caixa/config/livre')
   @Roles('presidente')
   setCaixaLivre(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.setCaixaLivre(user.tenantId, !!dto.ativo);
+    return this.service.setCaixaLivre(user.tenantId, exigirBooleano(dto?.ativo, 'ativo'));
   }
 
   @Post('caixa/fechar')
-  @Roles('presidente', 'gerente', 'atendente')
+  @OperadorDeCaixa()
   fecharCaixa(
     @CurrentUser() user: AuthUser,
     @TerminalAtual() terminalId: string | null,

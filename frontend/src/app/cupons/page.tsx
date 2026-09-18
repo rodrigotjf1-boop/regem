@@ -120,8 +120,9 @@ export default function CuponsPage() {
     }
   }
 
-  // Atendente sem liberação vê o botão, mas o servidor bloqueia; avisamos antes.
-  const atendenteBloqueado = cat === 'atendente' && cancelLivre === false;
+  // Supervisão/execução sem liberação vê o botão, mas o servidor bloqueia; avisamos antes.
+  // (Comparava com 'atendente', nível que não existe — o aviso nunca aparecia.)
+  const atendenteBloqueado = !['presidente', 'gerente'].includes(cat ?? '') && cancelLivre === false;
 
   return (
     <Shell eyebrow="PDV · vendas" title="Cupons">

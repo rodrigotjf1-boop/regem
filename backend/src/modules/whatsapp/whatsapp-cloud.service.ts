@@ -1,5 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
+import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -1557,7 +1558,7 @@ export class WhatsappCloudService {
   // apaga whatsapp_mensagem além do prazo (wa_retencao_dias > 0). Best-effort.
   @Interval(6 * 60 * 60 * 1000)
   async expurgarHistorico() {
-    if (process.env.EDGE_MODE === '1') return;
+    if (ehServidorLocal()) return; // era `EDGE_MODE === '1'` — nunca verdadeiro (o instalador grava 'true')
     try {
       await this.db.execute(sql`
         delete from whatsapp_mensagem m

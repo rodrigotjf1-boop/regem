@@ -16,13 +16,13 @@ export class AtendimentoController {
   constructor(private readonly service: AtendimentoService) {}
 
   @Get()
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   listar(@CurrentUser() user: AuthUser) {
     return this.service.listar(user.tenantId);
   }
 
   @Post(':id/resolver')
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   resolver(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.service.resolver(user.tenantId, id, user.colaboradorId);
   }
@@ -30,7 +30,7 @@ export class AtendimentoController {
   // Veredito de um pedido de cancelamento feito pelo cliente: aceita (cancela o
   // pedido de fato — exige senha de gestor) ou recusa (só encerra o chamado).
   @Post(':id/cancelamento')
-  @Roles('presidente', 'gerente', 'supervisao', 'atendente')
+  @Roles('presidente', 'gerente', 'supervisao', 'execucao')
   decidirCancelamento(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

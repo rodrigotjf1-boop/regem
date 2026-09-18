@@ -311,14 +311,19 @@ export class CardapioWebService {
   ): Promise<{ ok: boolean }> {
     // A chave gerada no painel da loja é do ambiente daquela conta (a loja real
     // fica em produção). Default: CARDAPIOWEB_ENV.
-    const env: Ambiente =
-      ambiente === 'producao' ? 'producao' : ambiente === 'sandbox' ? 'sandbox' : this.env;
     const existente = await this.doTenant(tenantId);
+    // Sem `ambiente` no pedido: MANTÉM o da integração existente. Antes caía no padrão do servidor
+    // (CARDAPIOWEB_ENV — sandbox quando ausente) e SUBSTITUÍA a config: reproduzido (set/2026) que
+    // salvar de novo o formulário levava a loja de produção para sandbox e apagava o resto da config.
+    const envAtual = (existente?.config as any)?.env as Ambiente | undefined;
+    const env: Ambiente =
+      ambiente === 'producao' ? 'producao' : ambiente === 'sandbox' ? 'sandbox' : envAtual ?? this.env;
     // Modo chave: a chave vai na coluna `token` (convenção das integrações);
     // config guarda só o ambiente (sem resíduo do fluxo OAuth). Chave vazia
     // mantém a atual (padrão do painel: "deixe em branco para manter").
     const tokenNovo = apiKey && apiKey.trim() ? apiKey.trim() : undefined;
-    const config = { env };
+    // Troca de AMBIENTE zera o que era do outro ambiente; mesmo ambiente preserva o resto.
+    const config = envAtual === env ? { ...((existente?.config as any) ?? {}), env } : { env };
     if (existente) {
       await this.db
         .update(integracao)

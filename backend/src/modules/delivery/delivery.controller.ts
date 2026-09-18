@@ -21,6 +21,7 @@ import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { DeliveryService } from './delivery.service';
+import { exigirBooleano } from '../../common/exigir';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
@@ -216,7 +217,7 @@ export class DeliveryController {
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('delivery')
   totemModo(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.setTotemModo(user.tenantId, !!dto?.aposPagamento);
+    return this.service.setTotemModo(user.tenantId, exigirBooleano(dto?.aposPagamento, 'aposPagamento'));
   }
 
   // Avisar pronto (robô / status-back do canal).

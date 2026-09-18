@@ -66,6 +66,13 @@ export class CashbackService {
         : [],
       prazoResgateDias: dto.prazoResgateDias ? Number(dto.prazoResgateDias) || null : null,
     };
+    // Plano NOVO vazio (sem percentual / sem regras) criava um plano ATIVO de 0% (lixo no cadastro).
+    // (Plano de pontos vale com regras "R$ → pontos" OU com pontos por produto.)
+    const temPontosPorProduto = (dto.produtos ?? []).some((p: any) => p?.produtoId && Number(p.pontos) > 0);
+    if (!dto.id && (tipo === 'valor' ? !(Number(vals.percentual) > 0) : !(vals.regras as any[]).length && !temPontosPorProduto))
+      throw new BadRequestException(
+        tipo === 'valor' ? 'Informe o percentual do cashback.' : 'Informe as regras de pontos ou os pontos por produto.',
+      );
     let planoId = dto.id;
     if (planoId) {
       const [row] = await this.db
