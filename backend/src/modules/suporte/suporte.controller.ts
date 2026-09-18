@@ -5,6 +5,7 @@ import { Roles } from '../../auth/roles.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SuporteService } from './suporte.service';
+import { exigirBooleano } from '../../common/exigir';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -28,12 +29,12 @@ export class SuporteController {
 
   @Patch('bloquear')
   bloquear(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.bloquear(user.tenantId, user.colaboradorId, user.categoria, !!dto?.bloquear);
+    return this.service.bloquear(user.tenantId, user.colaboradorId, user.categoria, exigirBooleano(dto?.bloquear, 'bloquear'));
   }
 
   // F9 (D) — conceder/retirar acesso TOTAL ao suporte (só presidente).
   @Patch('acesso-total')
   acessoTotal(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.acessoTotal(user.tenantId, user.colaboradorId, user.categoria, !!dto?.total);
+    return this.service.acessoTotal(user.tenantId, user.colaboradorId, user.categoria, exigirBooleano(dto?.total, 'total'));
   }
 }

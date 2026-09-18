@@ -9,6 +9,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { Bonjour } from 'bonjour-service';
+import { hostname } from 'os';
 import { sql } from 'drizzle-orm';
 import { comandosDoServidor } from '../../common/edge-comando';
 import { execFile } from 'child_process';
@@ -489,14 +490,29 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       const porta = Number(process.env.PORT) || 3001;
       this.bonjour = new Bonjour();
-      this.bonjour.publish({
-        name: 'Regem Edge',
+      // Nome da INSTÂNCIA único por máquina: com o nome fixo 'Regem Edge', dois servidores na
+      // mesma rede (ex.: Matriz e Filial no mesmo prédio, ou um reserva) colidem e o segundo
+      // DESISTE de anunciar — a biblioteca só escreve no console. Os apps procuram pelo TIPO
+      // (_regem._tcp), que não muda.
+      const nome = `Regem Edge ${hostname()}`.slice(0, 63);
+      const svc: any = this.bonjour.publish({
+        name: nome,
         type: 'regem',
         port: porta,
         host: 'regem.local',
         txt: { versao: process.env.APP_VERSION ?? '1', unidade: process.env.EDGE_UNIDADE_ID ?? '' },
       });
-      this.logger.log(`mDNS publicado: _regem._tcp em regem.local:${porta}`);
+      // Antes logava "publicado" ANTES de saber: com conflito, o log dizia publicado e o servidor
+      // ficava invisível para o KDS/Ponto. Agora só confirma no 'up'; sem 'up' em 15 s, avisa.
+      let anunciado = false;
+      svc?.on?.('up', () => {
+        anunciado = true;
+        this.logger.log(`mDNS publicado: "${nome}" _regem._tcp em regem.local:${porta}`);
+      });
+      setTimeout(() => {
+        if (!anunciado)
+          this.logger.warn(`mDNS NÃO anunciado em 15 s ("${nome}") — nome em uso na rede ou mDNS bloqueado; KDS/Ponto não acharão o servidor sozinhos`);
+      }, 15_000).unref();
     } catch (e: any) {
       this.logger.warn(`mDNS não pôde publicar: ${e?.message ?? e}`);
     }

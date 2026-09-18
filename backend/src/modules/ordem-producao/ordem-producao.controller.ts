@@ -68,7 +68,7 @@ export class OrdemProducaoController {
       quantidadeProduzida: dto?.quantidadeProduzida != null ? Number(dto.quantidadeProduzida) : undefined,
       pin: dto?.pin,
       motivo: dto?.motivo,
-      viaImpressa: !!dto?.viaImpressa,
+      viaImpressa: dto?.viaImpressa === true, // opção: ausente = não (mesmo comportamento)
     }, user.unidadeId ?? null);
   }
 

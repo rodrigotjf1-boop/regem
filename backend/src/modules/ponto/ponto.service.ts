@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { eq, sql } from 'drizzle-orm';
 import { createHash } from 'crypto';
@@ -77,6 +77,16 @@ function turnoMin(inicio: string, fim: string): number {
 
 // ---- Fechamento mensal de ponto (Épico #2) ----
 // Competência = 1º dia do mês (YYYY-MM-01). Último dia do mês da competência.
+// Competência vinda de fora (URL/corpo): aceita AAAA-MM ou AAAA-MM-01 e devolve AAAA-MM-01.
+// Antes ia crua para o SQL — `2026-08` ou um texto qualquer virava 500 ("sintaxe de entrada
+// inválida para tipo date") em vez de uma resposta clara (reproduzido set/2026).
+function competenciaValida(c?: string | null): string | undefined {
+  if (c == null || c === '') return undefined;
+  const m = /^(\d{4})-(0[1-9]|1[0-2])(-01)?$/.exec(String(c).trim());
+  if (!m) throw new BadRequestException('Competência inválida — use AAAA-MM (ex.: 2026-08).');
+  return `${m[1]}-${m[2]}-01`;
+}
+
 function fimDoMes(competencia: string): string {
   const [y, m] = competencia.split('-').map(Number);
   const ultimo = new Date(Date.UTC(y, m, 0)).getUTCDate(); // dia 0 do mês seguinte = último
@@ -564,7 +574,7 @@ export class PontoService {
   // Materializa/atualiza o fechamento do mês (idempotente por tenant+competência).
   // Preserva 'enviado'; senão status = 'pendente' (há pendência) ou 'ok'.
   async gerarFechamento(tenantId: string, competencia?: string) {
-    const comp = competencia || competenciaAnterior();
+    const comp = competenciaValida(competencia) || competenciaAnterior();
     const { totalColaboradores, pendencias } = await this.detectarPendenciasMes(
       tenantId,
       comp,
@@ -614,7 +624,7 @@ export class PontoService {
     tenantId: string,
     competencia?: string,
   ): Promise<{ buffer: Buffer; competencia: string; nomeArquivo: string }> {
-    const comp = competencia || competenciaAnterior();
+    const comp = competenciaValida(competencia) || competenciaAnterior();
     const inicio = comp;
     const fim = fimDoMes(comp);
     const emp: any = await this.db.execute(
@@ -656,7 +666,7 @@ export class PontoService {
     competencia: string,
     opts: { contadorId?: string; nome?: string; telefone?: string } = {},
   ) {
-    const comp = competencia || competenciaAnterior();
+    const comp = competenciaValida(competencia) || competenciaAnterior();
     // Destino: contador informado > novo (nome+telefone) > contador ativo cadastrado.
     let contadorId = opts.contadorId ?? null;
     let telefone = '';

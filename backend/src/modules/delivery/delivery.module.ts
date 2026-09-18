@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { DeliveryController } from './delivery.controller';
 import { DespachoPublicoController } from './despacho-publico.controller';
+import { DeliveryLojaController } from './delivery-loja.controller';
 import { DeliveryService } from './delivery.service';
 import { EdgePedidosProcessor } from './edge-pedidos.processor';
 import { CloudFallbackProcessor } from './cloud-fallback.processor';
@@ -21,7 +22,7 @@ import { IntegracoesModule } from '../integracoes/integracoes.module';
     FidelidadeModule,
     forwardRef(() => IntegracoesModule),
   ],
-  controllers: [DeliveryController, DespachoPublicoController],
+  controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController],
   providers: [DeliveryService, SyncTokenGuard, EdgePedidosProcessor, CloudFallbackProcessor],
   exports: [DeliveryService],
 })

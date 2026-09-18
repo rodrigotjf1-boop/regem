@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ehGestor } from '../../auth/niveis';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { perfilEfetivo } from '../delivery/cupom-perfis';
@@ -276,6 +277,49 @@ export class VendasService {
       );
     }
     return s.id;
+  }
+
+  // ESTORNO DE CAIXA de uma comanda: uma SAÍDA para cada lançamento de ENTRADA ainda não
+  // estornado, com a MESMA forma e o mesmo valor.
+  // Antes: só o PRIMEIRO lançamento e SEM a forma. Reproduzido (set/2026): venda de R$ 50 em
+  // dinheiro + R$ 41,70 em PIX cancelada → estornou só R$ 50, e como "forma nula" (o fechamento
+  // conta forma nula como DINHEIRO) — o PIX seguia como entrada e o fechamento acusava diferença.
+  //  `sessaoId`: caixa onde o estorno entra; `undefined` = o mesmo do lançamento original.
+  private async estornarLancamentos(
+    tx: any,
+    tenantId: string,
+    comandaId: string,
+    sessaoId: string | null | undefined,
+    descricao: string,
+    atorId: string,
+  ) {
+    const entradas = await tx
+      .select()
+      .from(lancamentoCaixa)
+      .where(
+        and(
+          eq(lancamentoCaixa.tenantId, tenantId),
+          eq(lancamentoCaixa.comandaId, comandaId),
+          eq(lancamentoCaixa.tipo, 'entrada'),
+          sql`not exists (select 1 from lancamento_caixa e where e.estorno_de = ${lancamentoCaixa.id})`,
+        ),
+      );
+    for (const l of entradas) {
+      await tx.insert(lancamentoCaixa).values({
+        tenantId,
+        unidadeId: l.unidadeId,
+        sessaoId: sessaoId === undefined ? l.sessaoId : sessaoId,
+        comandaId,
+        tipo: 'saida',
+        valor: l.valor,
+        data: hojeISO(),
+        categoria: 'estorno',
+        forma: l.forma,
+        estornoDe: l.id,
+        descricao,
+        criadoPorId: atorId,
+      });
+    }
   }
 
   // ACUMULA o consumo por item de um produto vendido (simples/variável/combo)
@@ -1556,30 +1600,9 @@ export class VendasService {
           .set({ estoqueReaproveitado: reaproveitado, updatedAt: new Date() })
           .where(eq(comanda.id, comandaId));
       }
-      const [lanc] = await tx
-        .select()
-        .from(lancamentoCaixa)
-        .where(
-          and(
-            eq(lancamentoCaixa.tenantId, tenantId),
-            eq(lancamentoCaixa.comandaId, comandaId),
-            eq(lancamentoCaixa.tipo, 'entrada'),
-          ),
-        );
-      if (lanc) {
-        await tx.insert(lancamentoCaixa).values({
-          tenantId,
-          unidadeId: lanc.unidadeId,
-          comandaId,
-          tipo: 'saida',
-          valor: lanc.valor,
-          data: hojeISO(),
-          categoria: 'estorno',
-          estornoDe: lanc.id,
-          descricao: 'Estorno · delivery cancelado',
-          criadoPorId: atorId,
-        });
-      }
+      // Venda externa não passa pelo caixa: o estorno fica fora de sessão, como o lançamento
+      // original. Todos os lançamentos de entrada, cada um na sua forma.
+      await this.estornarLancamentos(tx, tenantId, comandaId, undefined, 'Estorno · delivery cancelado', atorId);
       await tx
         .update(comanda)
         .set({
@@ -2246,7 +2269,7 @@ export class VendasService {
     // Autorização: atendente só remove se o presidente liberou (mesmo gate do
     // cancelamento); gerente+ sempre. E a justificativa é SEMPRE obrigatória
     // (alimenta o relatório de retiradas).
-    if (atorPerfil === 'atendente' && !(await this.cancelamentoLivre(tenantId))) {
+    if (!ehGestor(atorPerfil) && !(await this.cancelamentoLivre(tenantId))) {
       throw new ForbiddenException('Remoção de item requer autorização de um gerente.');
     }
     const just = (justificativa ?? '').trim();
@@ -2788,10 +2811,11 @@ export class VendasService {
     atorPerfil: string,
     comandaId: string,
     dto: { motivo?: string; reaproveitado?: boolean },
+    terminalId: string | null = null,
   ) {
     const reaproveitado = dto.reaproveitado !== false;
     // Autorização: atendente só cancela se o presidente liberou; gerente+ sempre.
-    if (atorPerfil === 'atendente' && !(await this.cancelamentoLivre(tenantId))) {
+    if (!ehGestor(atorPerfil) && !(await this.cancelamentoLivre(tenantId))) {
       throw new ForbiddenException(
         'Cancelamento requer autorização de um gerente.',
       );
@@ -2808,10 +2832,30 @@ export class VendasService {
           c.status === 'cancelada' ? 'Já cancelado.' : 'Só cancela venda fechada.',
         );
 
-      const sessaoId = await this.sessaoAbertaId(tx, tenantId, null, {
+      // O estorno entra no caixa ABERTO: o deste terminal (como a venda) — antes passava
+      // `null` e procurava um caixa SEM terminal, que não existe quando o PDV abre o caixa no
+      // terminal pareado: todo cancelamento respondia "Abra o caixa" (reproduzido set/2026).
+      // Sem terminal (gestor pelo navegador) → o caixa aberto da LOJA da venda.
+      let sessaoId = await this.sessaoAbertaId(tx, tenantId, terminalId, {
         id: atorId,
         categoria: atorPerfil,
       });
+      if (!sessaoId && !terminalId) {
+        const [s] = await tx
+          .select({ id: caixaSessao.id })
+          .from(caixaSessao)
+          .where(
+            and(
+              eq(caixaSessao.tenantId, tenantId),
+              eq(caixaSessao.status, 'aberta'),
+              eq(caixaSessao.origem, 'pdv'),
+              c.unidadeId ? eq(caixaSessao.unidadeId, c.unidadeId) : sql`true`,
+            ),
+          )
+          .orderBy(desc(caixaSessao.abertaEm))
+          .limit(1);
+        sessaoId = s?.id ?? null;
+      }
       if (!sessaoId)
         throw new BadRequestException('Abra o caixa para cancelar a venda.');
 
@@ -2850,32 +2894,9 @@ export class VendasService {
         }
       }
 
-      // Estorna caixa: saída de estorno referente ao lançamento da venda.
-      const [lanc] = await tx
-        .select()
-        .from(lancamentoCaixa)
-        .where(
-          and(
-            eq(lancamentoCaixa.tenantId, tenantId),
-            eq(lancamentoCaixa.comandaId, comandaId),
-            eq(lancamentoCaixa.tipo, 'entrada'),
-          ),
-        );
-      if (lanc) {
-        await tx.insert(lancamentoCaixa).values({
-          tenantId,
-          unidadeId: lanc.unidadeId,
-          sessaoId,
-          comandaId,
-          tipo: 'saida',
-          valor: lanc.valor,
-          data: hojeISO(),
-          categoria: 'estorno',
-          estornoDe: lanc.id,
-          descricao: `Estorno · cancelamento venda`,
-          criadoPorId: atorId,
-        });
-      }
+      // Estorna o caixa: TODOS os lançamentos de entrada da venda, cada um na sua forma,
+      // no caixa aberto (sessaoId).
+      await this.estornarLancamentos(tx, tenantId, comandaId, sessaoId, 'Estorno · cancelamento venda', atorId);
 
       await tx
         .update(comanda)

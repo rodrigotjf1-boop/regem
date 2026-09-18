@@ -23,6 +23,7 @@ import { CardapioService } from './cardapio.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { CloudOnly } from '../../common/cloud-only.decorator';
+import { exigirBooleano } from '../../common/exigir';
 
 // Público (sem login): o token na URL identifica o cardápio/loja.
 // Cardápio ONLINE = sempre nuvem (cardapioBaseUrl) → não roda no edge.
@@ -247,7 +248,7 @@ export class CardapioController {
   @Roles('presidente', 'gerente')
   @RequirePerm('loja')
   setAutoPausa(@CurrentUser() user: AuthUser, @Body() dto: { ativo?: boolean }) {
-    return this.service.setAutoPausa(user.tenantId, !!dto?.ativo);
+    return this.service.setAutoPausa(user.tenantId, exigirBooleano(dto?.ativo, 'ativo'));
   }
 
   @Get('bairros')

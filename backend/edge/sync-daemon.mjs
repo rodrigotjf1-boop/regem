@@ -255,6 +255,11 @@ const pool = new pg.Pool({
   query_timeout: 30000,           // desiste de uma QUERY após 30s (lock preso)
   statement_timeout: 30000,       // idem, no lado do servidor
   idleTimeoutMillis: 30000,
+  // Toda conexão do daemon nasce marcada como "aplicação de sync" (mig 259) — parâmetro de
+  // ABERTURA da conexão. Antes era um `c.query(set_config...)` no evento 'connect' sem esperar,
+  // e o pool já entregava a mesma conexão para outra consulta: o pg avisa "Calling client.query()
+  // when the client is already executing a query" (será erro no pg@9) — reproduzido set/2026.
+  options: '-c regem.sync=on',
 });
 // Resiliencia (auditoria ago/2026): o Postgres reiniciado (57P01, a cada install/
 // update) emite 'error' na conexao OCIOSA do pool -> SEM handler o Node derruba o
@@ -265,11 +270,7 @@ pool.on('error', (e) => console.error(`[sync] pool: conexao ociosa caiu (${e?.co
 // como mais nova e ficava indo e voltando a cada ciclo (e podia vencer uma edição real).
 // O daemon não faz edição de negócio — só aplica o que veio e grava sync_state/fila de
 // impressão, que não têm esse gatilho.
-pool.on('connect', (c) => {
-  c.query(`select set_config('regem.sync', 'on', false)`).catch((e) =>
-    console.error(`[sync] não marcou a sessão como sync (${e?.code ?? e?.message})`),
-  );
-});
+// (a marca `regem.sync=on` vai na abertura da conexão — ver `options` do pool acima)
 const colCache = new Map();
 // Reconciliação pós-atualização (ver sync-reconciliacao.mjs): colunas/tabelas que a nuvem
 // mandou enquanto este servidor ainda não as tinha.

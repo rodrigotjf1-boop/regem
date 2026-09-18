@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { and, desc, eq, isNull, sql } from 'drizzle-orm';
+import { ehGestor } from '../../auth/niveis';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   tituloFinanceiro,
@@ -661,7 +662,7 @@ export class FinanceiroService {
     },
   ) {
     // Autorização: atendente só sangra/supre se o presidente liberou.
-    if (atorPerfil === 'atendente' && !(await this.caixaLivre(tenantId))) {
+    if (!ehGestor(atorPerfil) && !(await this.caixaLivre(tenantId))) {
       throw new ForbiddenException(
         'Sangria/suprimento requer autorização de um gerente.',
       );
@@ -737,6 +738,11 @@ export class FinanceiroService {
       dto.terminalId,
     );
     if (!s) throw new BadRequestException('Nenhum caixa aberto.');
+    // Chamada sem os valores contados (corpo vazio/malformado) FECHAVA o caixa como se tivessem
+    // contado R$ 0 — reproduzido (set/2026): diferença de −R$ 283,40 registrada. O PDV sempre
+    // manda `valoresInformados` (mesmo vazio, no fechamento sem contagem).
+    if (dto?.valoresInformados == null && dto?.valorInformado == null)
+      throw new BadRequestException('Informe os valores contados (valoresInformados).');
     this.exigeDonoDoTurno(s, atorId, atorPerfil);
 
     // Esperado por forma = movimentos (entrada − saída) da sessão agrupados por

@@ -1,6 +1,6 @@
 import { HttpAdapterHost, NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 // `compression` é CommonJS sem exportação padrão: o import default compila para algo que não
@@ -20,6 +20,24 @@ import { setDefaultResultOrder } from 'node:dns';
 // telemetria quebram. Preferir IPv4 (o MESMO fix do sync-daemon desde a 1.22) elimina isso; o Happy
 // Eyeballs ainda tenta IPv6 como fallback. Global — vale p/ todo fetch/http do backend.
 setDefaultResultOrder('ipv4first');
+
+// REDE DE SEGURANÇA DO PROCESSO. No Node 15+, uma promessa rejeitada sem tratamento ENCERRA o
+// processo. Reproduzido no servidor local (set/2026): o aviso de status do delivery, disparado com
+// `void this.dispararWebhook(...)`, leu uma tabela só-da-nuvem, rejeitou — e a API da loja inteira
+// caiu (a cada mudança de status). O backend tem dezenas de `void promessa` sem .catch; um erro
+// num trabalho de fundo não pode derrubar a operação da loja nem a nuvem.
+//  • unhandledRejection: registra com a pilha e SEGUE (o trabalho que falhou já não tem a quem
+//    responder; derrubar o processo só piora);
+//  • uncaughtException: estado desconhecido → registra e SAI(1) para o gerenciador de serviço
+//    (NSSM no servidor local, EasyPanel na nuvem) reiniciar limpo — como os daemons (E1).
+const logProcesso = new Logger('Processo');
+process.on('unhandledRejection', (e: any) => {
+  logProcesso.error(`promessa rejeitada sem tratamento: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`, e?.stack);
+});
+process.on('uncaughtException', (e: any) => {
+  logProcesso.error(`exceção não tratada — reiniciando: ${e?.message ?? e}`, e?.stack);
+  process.exit(1);
+});
 
 async function bootstrap() {
   // Fase 1 (proteção): decifra segredos do .env cifrados com DPAPI (enc:), se houver.

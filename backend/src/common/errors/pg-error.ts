@@ -15,6 +15,15 @@ export function mapPgError(err: unknown): AppError | null {
       return new AppError({ code: ErrorCodes.DATABASE_CONFLICT, message: 'Referência inválida ou registro em uso.', statusCode: HttpStatus.CONFLICT, cause: err, isOperational: true });
     case '23502': // not_null_violation
       return new AppError({ code: ErrorCodes.VALIDATION_ERROR, message: 'Campo obrigatório ausente.', statusCode: HttpStatus.BAD_REQUEST, cause: err, isOperational: true });
+    // Dado de ENTRADA em formato inválido (id vazio, data/numero malformado, texto longo demais).
+    // Reproduzido (set/2026): `entregador/pagamento/fechar` com id "" → 22P02 → 500. O filtro
+    // registra estes casos como AVISO com a causa (não somem: um defeito real também cai aqui).
+    case '22P02': // invalid_text_representation (ex.: uuid "")
+    case '22007': // invalid_datetime_format
+    case '22008': // datetime_field_overflow
+    case '22003': // numeric_value_out_of_range
+    case '22001': // string_data_right_truncation
+      return new AppError({ code: ErrorCodes.VALIDATION_ERROR, message: 'Valor em formato inválido.', statusCode: HttpStatus.BAD_REQUEST, cause: err, isOperational: true });
     case '23514': // check_violation
       return new AppError({ code: ErrorCodes.VALIDATION_ERROR, message: 'Valor fora do permitido.', statusCode: HttpStatus.BAD_REQUEST, cause: err, isOperational: true });
     case '40001': // serialization_failure

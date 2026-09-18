@@ -981,21 +981,4 @@ export class LicencaService {
       return { ativa: true, tipo: 'edge_erro' }; // fail-open
     }
   }
-
-  // Entitlements atuais de uma loja (para enforcement de módulos).
-  async entitlements(tenantId: string) {
-    const [a] = await this.db
-      .select()
-      .from(ativacao)
-      .where(and(eq(ativacao.tenantId, tenantId), eq(ativacao.status, 'ativado')))
-      .limit(1);
-    if (!a) return { ativo: false, ramo: null, plano: null, modulos: [] as string[] };
-    const expirada = a.validadeAte && new Date(a.validadeAte) < new Date();
-    return {
-      ativo: !expirada,
-      ramo: a.ramo,
-      plano: a.plano,
-      modulos: (a.modulos as string[]) ?? [],
-    };
-  }
 }
