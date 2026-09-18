@@ -22,6 +22,7 @@ import {
 } from '../../db/schema';
 import { condUnidade, condUnidadeOuRede } from '../../common/filtro-unidade';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { hojeISO } from '../../common/data';
 import { DesperdicioService } from '../desperdicio/desperdicio.service';
 
@@ -385,21 +386,30 @@ export class EtiquetaValidadeService {
         conds.push(or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))!);
       const [etiq] = await this.db.select({ id: equipamento.id }).from(equipamento).where(and(...conds)).limit(1);
       equipamentoId = etiq?.id ?? null;
-      // (2) fallback: nenhuma impressora de etiqueta designada → 1ª ativa qualquer
-      // (não perde a impressão; o ideal é marcar uma impressora como "Etiqueta").
+      // (2) fallback: nenhuma impressora de etiqueta designada → 1ª ativa DA LOJA (ou sem loja)
+      // (não perde a impressão; o ideal é marcar uma impressora como "Etiqueta"). Antes era a 1ª
+      // da EMPRESA — numa rede com duas lojas a etiqueta ia para a impressora da outra loja.
       if (!equipamentoId) {
         const [imp] = await this.db
           .select({ id: equipamento.id })
           .from(equipamento)
-          .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'impressora'), eq(equipamento.ativo, true)))
+          .where(
+            and(
+              eq(equipamento.tenantId, tenantId),
+              eq(equipamento.tipo, 'impressora'),
+              eq(equipamento.ativo, true),
+              unidadeId ? or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId)) : undefined,
+            ),
+          )
           .limit(1);
         equipamentoId = imp?.id ?? null;
       }
     }
     if (!equipamentoId) return; // sem impressora cadastrada: etiqueta fica só no sistema
     const conteudo = this.renderEtiqueta(template, dados);
-    await this.db.insert(impressaoJob).values({
-      tenantId, unidadeId: unidadeId ?? undefined, equipamentoId, via: 'etiqueta', conteudo,
+    // Loja com servidor local ativo: vai por comando para ele (a fila da nuvem não é lida lá).
+    await gravarOuEncaminharImpressao(this.db, {
+      tenantId, unidadeId: unidadeId ?? null, equipamentoId, via: 'etiqueta', conteudo,
     });
   }
 

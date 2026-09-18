@@ -43,6 +43,10 @@ for (const _m of ['log', 'warn', 'error']) {
 // maquina (28P01 "password authentication failed for user <MAQUINA>$").
 import { carregarEnvLocal } from './decifrar-env.mjs';
 import { criarReconciliacao } from './sync-reconciliacao.mjs';
+import {
+  SQL_SEM_RESPONDER, SQL_DANFE_JA_NA_FILA, SQL_DANFE_ALVO, SQL_DANFE_INSERIR, SQL_JOB_DO_COMANDO,
+  SQL_FILA_POR_IMPRESSORA,
+} from './impressao-fila.mjs';
 carregarEnvLocal(import.meta.url);
 
 const EDGE_DB = req('EDGE_DATABASE_URL');
@@ -1125,6 +1129,16 @@ async function coletarSaude() {
     saude.impressaoErros = r.rows?.[0]?.erros ?? 0;
     saude.impressaoPendentes = r.rows?.[0]?.pend ?? 0;
   } catch { /* */ }
+  try {
+    // Impressoras que pararam de responder (mig 269) — o console mostra qual, desde quando e por quê.
+    const minha = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
+    const r = await pool.query(SQL_SEM_RESPONDER, [minha]);
+    saude.impressorasSemResponder = r.rows.map((x) => ({
+      id: x.id, nome: x.nome, desde: x.desde, erro: x.erro ? String(x.erro).slice(0, 120) : null, falhas: x.falhas,
+    }));
+    const f = await pool.query(SQL_FILA_POR_IMPRESSORA, [minha]);
+    saude.filaPorImpressora = f.rows;
+  } catch { /* banco sem a mig 269 */ }
   return { saude, discoLivreMb: sd.discoLivreMb };
 }
 
@@ -1288,14 +1302,54 @@ async function reportarTelemetria(origem, tipo, mensagem) {
   } catch { /* best-effort */ }
 }
 
+// Comando 'imprimir_danfe' (nuvem→edge, mig 269): a NFC-e foi emitida na nuvem para uma venda
+// desta loja, mas a impressora está aqui. A nuvem manda o texto pronto; aqui escolhemos a
+// impressora com a MESMA regra da nuvem: a que imprimiu o cupom desta venda; senão uma de cupom
+// da loja (a padrão primeiro). Não duplica: se a comanda já tem DANFE na fila local, não repete.
+async function imprimirDanfeLocal(dados) {
+  const conteudo = dados?.conteudo;
+  if (!conteudo) return 'sem conteúdo';
+  const comandaId = dados?.comandaId ?? null;
+  const minha = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
+  if (comandaId) {
+    const ja = await pool.query(SQL_DANFE_JA_NA_FILA, [comandaId]);
+    if (ja.rowCount) return 'DANFE já estava na fila';
+  }
+  const r = await pool.query(SQL_DANFE_ALVO, [comandaId, minha]);
+  const alvo = r.rows[0]?.id;
+  if (!alvo) return 'sem impressora de cupom nesta loja';
+  await pool.query(SQL_DANFE_INSERIR, [alvo, minha, comandaId, conteudo]);
+  return 'DANFE enfileirada';
+}
+
 // Comando 'testar_impressora' (nuvem→edge): a impressora vive na LAN (a nuvem não a
 // alcança direto), então a nuvem manda um comando e o EDGE imprime um teste em CADA
 // impressora configurada localmente. Reusa a fila local (impressao_job) — o worker de
 // impressão pega via LISTEN/poll e envia por TCP 9100 / winspool. Só o edge tem a
 // config de impressora (equipamento é edge-local). Retorna quantas foram enfileiradas.
-async function enfileirarTesteLocal() {
+// Comando 'imprimir' (nuvem→edge, mig 269): etiqueta de validade, ordem de produção ou via de
+// etapa do KDS criada pelo app da NUVEM para esta loja. Antes ia para a fila da nuvem, que
+// ninguém lê aqui — reproduzido: a etiqueta ficava 'pendente' para sempre.
+async function imprimirDaNuvem(d) {
+  if (!d?.equipamentoId || !d?.conteudo) return 'sem impressora ou sem conteúdo';
+  const minha = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
+  const r = await pool.query(SQL_JOB_DO_COMANDO, [
+    d.equipamentoId, minha, d.pedidoId ?? null, d.comandaId ?? null, String(d.via || 'producao'), String(d.conteudo),
+  ]);
+  return r.rowCount ? 'enfileirado' : 'já estava na fila (ou impressora inexistente neste servidor)';
+}
+
+async function enfileirarTesteLocal(soEsta = null) {
+  // Só as impressoras DESTA loja (e as sem loja). As de todas as lojas descem para cá (config
+  // da rede): testar as da outra loja mandava papel para um IP que aqui é outro aparelho — e o
+  // job ficava pendente para sempre, inflando `impressaoPendentes` na saúde do servidor.
+  const minha = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
   const { rows } = await pool.query(
-    `select id, tenant_id, unidade_id, nome, host, porta, largura from equipamento where tipo='impressora'`,
+    `select id, tenant_id, unidade_id, nome, host, porta, largura from equipamento
+      where tipo='impressora' and ativo is not false
+        and ($1::uuid is null or unidade_id is null or unidade_id = $1::uuid)
+        and ($2::uuid is null or id = $2::uuid)`, // só a impressora clicada no painel, se veio
+    [minha, soEsta],
   );
   for (const p of rows) {
     const linha = '-'.repeat(Number(p.largura) === 58 ? 32 : 48);
@@ -1335,8 +1389,12 @@ async function verificarComandos(jaRecebidos) {
           await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeRollback']);
           resultado = 'rollback disparado';
         } else if (c.comando === 'testar_impressora') {
-          const n = await enfileirarTesteLocal();
+          const n = await enfileirarTesteLocal(c.dados?.equipamentoId ?? null);
           resultado = `teste enfileirado em ${n} impressora(s)`;
+        } else if (c.comando === 'imprimir_danfe') {
+          resultado = await imprimirDanfeLocal(c.dados);
+        } else if (c.comando === 'imprimir') {
+          resultado = await imprimirDaNuvem(c.dados);
         } else {
           resultado = 'ignorado';
         }

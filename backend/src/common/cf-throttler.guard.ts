@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
+import { rotaDaFilaDeImpressao, tokenJaValidado } from './dispositivo-limite';
 
 /**
  * Rate limit contando pelo IP REAL do cliente quando a nuvem está atrás da
@@ -17,6 +18,18 @@ import { ThrottlerGuard } from '@nestjs/throttler';
  */
 @Injectable()
 export class CfThrottlerGuard extends ThrottlerGuard {
+  // Fila de impressão com token JÁ validado pelo SyncTokenGuard: sai do balde do IP (que a
+  // loja divide entre caixas, sync e app) e fica no limite por dispositivo
+  // (common/dispositivo-limite.ts). Token desconhecido segue limitado por IP.
+  protected async shouldSkip(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest();
+    if (rotaDaFilaDeImpressao(req?.originalUrl ?? req?.url)) {
+      const raw = req?.headers?.['x-sync-token'];
+      if (tokenJaValidado(Array.isArray(raw) ? raw[0] : raw)) return true;
+    }
+    return super.shouldSkip(context);
+  }
+
   protected async getTracker(req: Record<string, any>): Promise<string> {
     if (process.env.TRUST_CLOUDFLARE === 'true') {
       const cf = req?.headers?.['cf-connecting-ip'];

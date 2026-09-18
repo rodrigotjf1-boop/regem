@@ -1,11 +1,18 @@
 import {
   CanActivate,
   ExecutionContext,
+  HttpException,
+  HttpStatus,
   Injectable,
   UnauthorizedException,
   createParamDecorator,
 } from '@nestjs/common';
 import { EquipamentoService } from '../equipamento/equipamento.service';
+import {
+  dentroDoLimite,
+  registrarTokenValidado,
+  rotaDaFilaDeImpressao,
+} from '../../common/dispositivo-limite';
 
 export type SyncCtxData = {
   tenantId: string;
@@ -29,6 +36,12 @@ export class SyncTokenGuard implements CanActivate {
     const dev = await this.equipamentos.validarToken(String(token));
     if (!dev || dev.tipo !== 'servidor_local') {
       throw new UnauthorizedException('Token de sync inválido.');
+    }
+    registrarTokenValidado(String(token));
+    // Fila de impressão: isenta do limite por IP (cf-throttler.guard) → limite próprio por
+    // dispositivo. As demais rotas de sync seguem no limite por IP de sempre.
+    if (rotaDaFilaDeImpressao(req.originalUrl ?? req.url) && !dentroDoLimite(dev.id)) {
+      throw new HttpException('Muitas requisições deste dispositivo — aguarde um minuto.', HttpStatus.TOO_MANY_REQUESTS);
     }
     req.sync = {
       tenantId: dev.tenantId,

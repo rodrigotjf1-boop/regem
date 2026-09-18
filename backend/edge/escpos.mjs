@@ -42,6 +42,65 @@ function ascii(s) {
     .replace(/[^\x20-\x7e]/g, ''); // descarta o que nao for ASCII imprimivel
 }
 
+// ---- Página de código (acentos) — mig 269, por impressora ----
+// Sem página configurada, os acentos viram letra sem acento (seguro em qualquer impressora —
+// comportamento de sempre). Com a página, o ticket sai acentuado: ESC t n seleciona a tabela
+// (numeração Epson, seguida pelas térmicas ESC/POS nacionais — Elgin, Bematech em modo ESC/POS,
+// Epson, Daruma) e cada caractere vira o byte dela. O que não existe na tabela cai na letra
+// sem acento, então nunca sai lixo.
+const PAGINAS = {
+  // PC860 — Português
+  cp860: {
+    n: 3,
+    mapa: {
+      'Ç': 0x80, 'ü': 0x81, 'é': 0x82, 'â': 0x83, 'ã': 0x84, 'à': 0x85, 'Á': 0x86, 'ç': 0x87,
+      'ê': 0x88, 'Ê': 0x89, 'è': 0x8a, 'Í': 0x8b, 'Ô': 0x8c, 'ì': 0x8d, 'Ã': 0x8e, 'Â': 0x8f,
+      'É': 0x90, 'À': 0x91, 'È': 0x92, 'ô': 0x93, 'õ': 0x94, 'ò': 0x95, 'Ú': 0x96, 'ù': 0x97,
+      'Ì': 0x98, 'Õ': 0x99, 'Ü': 0x9a, '¢': 0x9b, '£': 0x9c, 'Ù': 0x9d, 'Ó': 0x9f, 'á': 0xa0,
+      'í': 0xa1, 'ó': 0xa2, 'ú': 0xa3, 'ñ': 0xa4, 'Ñ': 0xa5, 'ª': 0xa6, 'º': 0xa7, '¿': 0xa8,
+      'Ò': 0xa9, '°': 0xf8,
+    },
+  },
+  // PC850 — Multilíngue (Europa ocidental)
+  cp850: {
+    n: 2,
+    mapa: {
+      'Ç': 0x80, 'ü': 0x81, 'é': 0x82, 'â': 0x83, 'ä': 0x84, 'à': 0x85, 'ç': 0x87, 'ê': 0x88,
+      'ë': 0x89, 'è': 0x8a, 'ï': 0x8b, 'î': 0x8c, 'ì': 0x8d, 'Ä': 0x8e, 'É': 0x90, 'ô': 0x93,
+      'ö': 0x94, 'ò': 0x95, 'û': 0x96, 'ù': 0x97, 'Ö': 0x99, 'Ü': 0x9a, '£': 0x9c, 'á': 0xa0,
+      'í': 0xa1, 'ó': 0xa2, 'ú': 0xa3, 'ñ': 0xa4, 'Ñ': 0xa5, 'ª': 0xa6, 'º': 0xa7, '¿': 0xa8,
+      'Á': 0xb5, 'Â': 0xb6, 'À': 0xb7, 'ã': 0xc6, 'Ã': 0xc7, 'Ê': 0xd2, 'Ë': 0xd3, 'È': 0xd4,
+      'Í': 0xd6, 'Î': 0xd7, 'Ï': 0xd8, 'Ì': 0xde, 'Ó': 0xe0, 'Ô': 0xe2, 'Ò': 0xe3, 'õ': 0xe4,
+      'Õ': 0xe5, 'Ú': 0xe9, 'Û': 0xea, 'Ù': 0xeb, '°': 0xf8,
+    },
+  },
+};
+export function paginaDeCodigo(codepage) {
+  return PAGINAS[String(codepage || '').toLowerCase()] ?? null;
+}
+// Texto → bytes: ASCII imprimível direto; acento pela página (se houver); o resto sem acento.
+function codificar(s, pagina) {
+  if (!pagina) return [...Buffer.from(ascii(s), 'ascii')];
+  const out = [];
+  for (const ch of String(s == null ? '' : s).normalize('NFC')) {
+    const c = ch.charCodeAt(0);
+    if (c >= 0x20 && c <= 0x7e) out.push(c);
+    else if (pagina.mapa[ch] != null) out.push(pagina.mapa[ch]);
+    else out.push(...Buffer.from(ascii(ch), 'ascii'));
+  }
+  return out;
+}
+// Mesmo comprimento que o texto impresso (para alinhar colunas): um caractere = um byte.
+function limpo(s, pagina) {
+  if (!pagina) return ascii(s);
+  let r = '';
+  for (const ch of String(s == null ? '' : s).normalize('NFC')) {
+    const c = ch.charCodeAt(0);
+    r += (c >= 0x20 && c <= 0x7e) || pagina.mapa[ch] != null ? ch : ascii(ch);
+  }
+  return r;
+}
+
 const colsDe = (largura) => (Number(largura) === 58 ? 32 : 48);
 
 // Quebra a linha em varias respeitando a largura e preservando o recuo.
@@ -137,7 +196,7 @@ function renderEtiqueta(conteudo, largura) {
 // Monta o Buffer completo de um ticket a partir do texto do job.
 // `linguagem` (mig 180) roteia a ETIQUETA por modelo de impressora:
 //   'zpl' (Zebra/Elgin L42/Argox) | 'epl' (EPL2/PPLB) | 'escpos'/undefined (bobina).
-export function renderEscpos(conteudo, largura = 80, linguagem) {
+export function renderEscpos(conteudo, largura = 80, linguagem, codepage) {
   const s = String(conteudo ?? '');
   // Etiqueta de validade: caminho próprio por MODELO da impressora.
   if (s.startsWith('@ETIQUETA')) {
@@ -149,9 +208,11 @@ export function renderEscpos(conteudo, largura = 80, linguagem) {
   const cols = colsDe(largura);
   const out = [];
   const push = (arr) => out.push(...arr);
-  const texto = (s) => push([...Buffer.from(ascii(s), 'ascii')]);
+  const pagina = paginaDeCodigo(codepage);
+  const texto = (s) => push(codificar(s, pagina));
 
   push(init());
+  if (pagina) push([ESC, 0x74, pagina.n]); // ESC t n — seleciona a página de código
   const linhas = String(conteudo ?? '').split(/\r?\n/);
   for (const linhaRaw of linhas) {
     // Gaveta de dinheiro (P4): linha '@GAVETA' abre a gaveta (kick drawer) sem imprimir nada.
@@ -169,8 +230,8 @@ export function renderEscpos(conteudo, largura = 80, linguagem) {
     if (linhaRaw.startsWith('@LR')) {
       const body = linhaRaw.slice(3);
       const bar = body.indexOf('|');
-      const left = ascii(bar >= 0 ? body.slice(0, bar) : body);
-      const right = ascii(bar >= 0 ? body.slice(bar + 1) : '');
+      const left = limpo(bar >= 0 ? body.slice(0, bar) : body, pagina);
+      const right = limpo(bar >= 0 ? body.slice(bar + 1) : '', pagina);
       const combined =
         left.length + right.length >= cols
           ? `${left} ${right}`.slice(0, cols)

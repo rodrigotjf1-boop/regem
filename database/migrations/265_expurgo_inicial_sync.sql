@@ -18,7 +18,14 @@
 --
 -- Rodar de novo é inofensivo (só apaga o que já passou da janela).
 
-delete from edge_heartbeat where recebido_em < now() - interval '30 days';
+-- `edge_heartbeat` é só-nuvem: no servidor local a tabela não existe e, sem o guard, o arquivo
+-- INTEIRO era pulado na instalação (junto com a limpeza de `sync_exclusao`, que existe lá).
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'edge_heartbeat') then
+    delete from edge_heartbeat where recebido_em < now() - interval '30 days';
+  end if;
+end $$;
 delete from sync_exclusao where created_at < now() - interval '30 days';
 
 -- `edge_telemetria` (erros do servidor local) tem o mesmo perfil: guardar 90 dias basta para

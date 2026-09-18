@@ -1,11 +1,12 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { equipamento } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateEquipamentoDto } from './dto/create-equipamento.dto';
 import { edgeAtivo } from '../../common/edge-ativo';
+import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { ForbiddenException } from '@nestjs/common';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -212,6 +213,8 @@ export class EquipamentoService {
   ) {
     // F10 — impressora/KDS são config de impressão: com edge ativo, cria no edge.
     if (dto.tipo === 'impressora' || dto.tipo === 'kds') await this.garantirConfigLocal(tenantId);
+    if (dto.tipo === 'pdv')
+      await garantirImpressoraDaLoja(this.db, tenantId, dto.impressoraPadraoId ?? null, dto.unidadeId ?? null);
     const token = this.novoToken();
     const [row] = await this.db
       .insert(equipamento)
@@ -241,6 +244,7 @@ export class EquipamentoService {
         porta: dto.tipo === 'impressora' && dto.conexao === 'local' ? null : dto.porta,
         dispositivo: dto.tipo === 'impressora' && dto.conexao === 'local' ? dto.dispositivo : undefined,
         largura: dto.tipo === 'impressora' ? dto.largura ?? 80 : undefined,
+        codepage: dto.tipo === 'impressora' ? dto.codepage ?? null : undefined, // acentos (mig 269)
         setoresAtendidos:
           dto.tipo === 'impressora' && Array.isArray(dto.setoresAtendidos)
             ? dto.setoresAtendidos
@@ -290,6 +294,11 @@ export class EquipamentoService {
     id: string,
     impressoraId: string | null,
   ) {
+    const [term] = await this.db
+      .select({ unidadeId: equipamento.unidadeId })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, id)));
+    await garantirImpressoraDaLoja(this.db, tenantId, impressoraId, term?.unidadeId ?? null);
     const [row] = await this.db
       .update(equipamento)
       .set({ impressoraPadraoId: impressoraId || null })
@@ -504,6 +513,8 @@ export class EquipamentoService {
       host: r.host,
       porta: r.porta,
       dispositivo: r.dispositivo ?? null,
+      agenteMaquina: r.agenteMaquina ?? null, // máquina do agente dona da USB (mig 267)
+      codepage: r.codepage ?? null, // acentos: cp860 | cp850 | null (mig 269)
       setorId: r.setorId,
       largura: r.largura,
       setoresAtendidos: r.setoresAtendidos ?? [],
@@ -555,6 +566,8 @@ export class EquipamentoService {
       linguagemEtiqueta: ['zpl', 'epl', 'escpos'].includes(dto.linguagemEtiqueta)
         ? dto.linguagemEtiqueta
         : 'escpos',
+      // Acentos (mig 269): página de código da impressora; vazio = sem acento (seguro).
+      codepage: ['cp860', 'cp850'].includes(dto.codepage) ? dto.codepage : null,
       setorId: dto.setorId || null,
       conexao: local ? 'local' : 'rede',
       // Rede → host:porta; Local → nome da impressora no Windows (limpa o outro par).
@@ -573,7 +586,12 @@ export class EquipamentoService {
     if (dto.id) {
       const [row] = await this.db
         .update(equipamento)
-        .set(vals)
+        .set({
+          ...vals,
+          // Trocou o nome no Windows (ou virou rede) → a máquina aprendida não vale mais (mig 267).
+          agenteMaquina: sql`case when ${equipamento.dispositivo} is distinct from ${vals.dispositivo}
+                                  then null else ${equipamento.agenteMaquina} end`,
+        })
         .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, dto.id), eq(equipamento.tipo, 'impressora')))
         .returning();
       if (!row) throw new NotFoundException('Impressora não encontrada');

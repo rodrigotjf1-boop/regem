@@ -69,6 +69,11 @@ export class CreateEquipamentoDto {
   @IsIn([58, 80])
   largura?: number;
 
+  // Acentos (mig 269): página de código da impressora. Vazio = sem acento (seguro).
+  @IsOptional()
+  @IsIn(['cp860', 'cp850'])
+  codepage?: string;
+
   @IsOptional()
   @IsArray()
   @IsUUID('all', { each: true })

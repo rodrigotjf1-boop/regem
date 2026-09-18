@@ -49,6 +49,11 @@ export default function EquipamentosPage() {
   const [porta, setPorta] = useState('9100');
   const [dispositivo, setDispositivo] = useState('');
   const [largura, setLargura] = useState('80');
+  // Acentos no ticket (mig 269): '' = sem acento (funciona em qualquer impressora).
+  const [acentos, setAcentos] = useState('');
+  // Estado de cada impressora (última impressão certa / sem responder) e avisos de roteamento.
+  const [estado, setEstado] = useState<Record<string, any>>({});
+  const [avisosRota, setAvisosRota] = useState<any[]>([]);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [setoresAtendidos, setSetoresAtendidos] = useState<string[]>([]);
   const [padrao, setPadrao] = useState(false);
@@ -66,6 +71,9 @@ export default function EquipamentosPage() {
   const [copiado, setCopiado] = useState(false);
   const [retarget, setRetarget] = useState<Record<string, string>>({}); // job → impressora escolhida (override)
   const [edgeOn, setEdgeOn] = useState(false); // F10 — loja tem servidor local ativo
+  // Minutos desde um horário (fila parada por impressora).
+  const minutosDesde = (iso?: string | null) =>
+    iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000)) : 0;
   // Impressora só tem "alvo" imprimível: rede → tem IP; local → tem nome no Windows.
   const alvoValido = (e: any) => (e.conexao === 'local' ? !!e.dispositivo : !!e.host);
 
@@ -82,6 +90,14 @@ export default function EquipamentosPage() {
       setSetores(sets as any[]);
       setFila(f as any[]);
       api.edgeAtivo().then((r: any) => setEdgeOn(!!r?.ativo)).catch(() => {});
+      api
+        .impressorasEstado()
+        .then((r: any) => setEstado(Object.fromEntries(((r as any[]) ?? []).map((x) => [x.id, x]))))
+        .catch(() => {});
+      api
+        .avisosRoteamento()
+        .then((r: any) => setAvisosRota((r as any[]) ?? []))
+        .catch(() => {});
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
     }
@@ -104,6 +120,7 @@ export default function EquipamentosPage() {
     setPorta('9100');
     setDispositivo('');
     setLargura('80');
+    setAcentos('');
     setFazCupom(false);
     setFazProducao(true);
     setEditandoId(null);
@@ -124,6 +141,7 @@ export default function EquipamentosPage() {
     setPorta(String(eq.porta ?? 9100));
     setDispositivo(eq.dispositivo ?? '');
     setLargura(String(eq.largura ?? 80));
+    setAcentos(eq.codepage ?? '');
     setSetoresAtendidos(eq.setoresAtendidos ?? []);
     setPadrao(!!eq.padrao);
     setTokenNovo(null);
@@ -149,6 +167,7 @@ export default function EquipamentosPage() {
           porta: local ? null : porta ? Number(porta) : null,
           dispositivo: local ? dispositivo || null : null,
           largura: Number(largura),
+          codepage: acentos || null,
           setoresAtendidos,
           padrao,
         });
@@ -170,6 +189,7 @@ export default function EquipamentosPage() {
         porta: tipo === 'impressora' && !local && porta ? Number(porta) : undefined,
         dispositivo: tipo === 'impressora' && local && dispositivo ? dispositivo : undefined,
         largura: tipo === 'impressora' ? Number(largura) : undefined,
+        codepage: tipo === 'impressora' && acentos ? acentos : undefined,
         setoresAtendidos:
           tipo === 'impressora' && setoresAtendidos.length ? setoresAtendidos : undefined,
         padrao: tipo === 'impressora' ? padrao : undefined,
@@ -305,6 +325,22 @@ export default function EquipamentosPage() {
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
             <span aria-hidden>🖥️</span>
             <span>Esta loja tem <strong>servidor local (edge) ativo</strong> — a configuração de impressão é gerenciada por ele. Aqui na nuvem a config fica <strong>somente leitura</strong>; edite as impressoras/KDS e teste no servidor local da loja.</span>
+          </div>
+        )}
+        {avisosRota.length > 0 && (
+          <div role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700">
+            <p>
+              <strong>{avisosRota.length} produto(s) com setor que não existe na loja</strong> — a via de produção
+              deles sai na impressora padrão da loja. Crie o setor com o mesmo nome na loja para direcionar.
+            </p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs">
+              {avisosRota.slice(0, 8).map((a: any) => (
+                <li key={`${a.unidadeId}-${a.produtoId}`}>
+                  {a.loja}: {a.produto} (setor &quot;{a.setor}&quot;)
+                </li>
+              ))}
+              {avisosRota.length > 8 && <li>… e mais {avisosRota.length - 8}</li>}
+            </ul>
           </div>
         )}
         <p className="text-sm text-muted-foreground">
@@ -454,7 +490,14 @@ export default function EquipamentosPage() {
                 >
                   <option value="">— definir depois —</option>
                   {(lista ?? [])
-                    .filter((e: any) => e.tipo === 'impressora' && e.fazCupom && e.ativo)
+                    .filter(
+                      (e: any) =>
+                        e.tipo === 'impressora' &&
+                        e.fazCupom &&
+                        e.ativo &&
+                        // só as desta loja (ou sem loja) — o servidor recusa a de outra loja
+                        (!unidadeId || !e.unidadeId || e.unidadeId === unidadeId),
+                    )
                     .map((imp: any) => (
                       <option key={imp.id} value={imp.id}>{imp.nome}</option>
                     ))}
@@ -589,6 +632,18 @@ export default function EquipamentosPage() {
                     </div>
                   </div>
                 )}
+                {/* Acentos no ticket (mig 269) */}
+                <div className="space-y-1.5">
+                  <Label htmlFor="acentos">Acentos no ticket</Label>
+                  <select id="acentos" value={acentos} onChange={(e) => setAcentos(e.target.value)} className={selectCls}>
+                    <option value="">Sem acento (funciona em qualquer impressora)</option>
+                    <option value="cp860">Com acento — português (CP860)</option>
+                    <option value="cp850">Com acento — multilíngue (CP850)</option>
+                  </select>
+                  <p className="text-xs text-muted-foreground">
+                    Imprima um teste depois de trocar. Se sair com símbolos estranhos, volte para &quot;Sem acento&quot;.
+                  </p>
+                </div>
                 {/* Produção: setores que a impressora atende (cozinha, bar…) */}
                 {fazProducao && (
                   <div className="space-y-1.5">
@@ -706,6 +761,34 @@ export default function EquipamentosPage() {
                       ? ` · último acesso ${new Date(eq.ultimoPing).toLocaleString('pt-BR')}`
                       : ' · nunca conectou'}
                   </div>
+                  {eq.tipo === 'impressora' && estado[eq.id]?.pendentes > 0 && (
+                    <div
+                      className={`mt-1 text-xs ${
+                        minutosDesde(estado[eq.id].maisAntigoEm) >= 2 ? 'text-amber-700' : 'text-muted-foreground'
+                      }`}
+                    >
+                      {estado[eq.id].pendentes} ticket(s) esperando
+                      {estado[eq.id].maisAntigoEm ? ` há ${minutosDesde(estado[eq.id].maisAntigoEm)} min` : ''}
+                    </div>
+                  )}
+                  {eq.tipo === 'impressora' && estado[eq.id] && (estado[eq.id].semResponder || estado[eq.id].ultimoOkEm) && (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs">
+                      <span
+                        aria-hidden
+                        className={`h-2 w-2 flex-none rounded-full ${estado[eq.id].semResponder ? 'bg-red-500' : 'bg-emerald-500'}`}
+                      />
+                      {estado[eq.id].semResponder ? (
+                        <span className="text-destructive">
+                          Sem responder desde {new Date(estado[eq.id].ultimaFalhaEm).toLocaleString('pt-BR')}
+                          {estado[eq.id].ultimoErro ? ` — ${estado[eq.id].ultimoErro}` : ''}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">
+                          Última impressão {new Date(estado[eq.id].ultimoOkEm).toLocaleString('pt-BR')}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   {eq.tipo === 'pdv' && eq.ativo && (
                     <div className="mt-2 flex items-center gap-2 text-xs">
                       <span className="text-muted-foreground">Impressora de cupom:</span>
@@ -717,7 +800,13 @@ export default function EquipamentosPage() {
                       >
                         <option value="">— nenhuma —</option>
                         {(lista ?? [])
-                          .filter((p: any) => p.tipo === 'impressora' && p.fazCupom && p.ativo)
+                          .filter(
+                            (p: any) =>
+                              p.tipo === 'impressora' &&
+                              p.fazCupom &&
+                              p.ativo &&
+                              (!eq.unidadeId || !p.unidadeId || p.unidadeId === eq.unidadeId),
+                          )
                           .map((p: any) => (
                             <option key={p.id} value={p.id}>{p.nome}</option>
                           ))}
@@ -897,7 +986,13 @@ export default function EquipamentosPage() {
                     >
                       <option value="">mesma impressora</option>
                       {(lista ?? [])
-                        .filter((e: any) => e.tipo === 'impressora' && e.ativo && alvoValido(e))
+                        .filter(
+                          (e: any) =>
+                            e.tipo === 'impressora' &&
+                            e.ativo &&
+                            alvoValido(e) &&
+                            (!j.unidadeId || !e.unidadeId || e.unidadeId === j.unidadeId),
+                        )
                         .map((e: any) => (
                           <option key={e.id} value={e.id}>{e.nome}</option>
                         ))}

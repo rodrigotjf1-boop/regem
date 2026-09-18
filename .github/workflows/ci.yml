@@ -10,6 +10,16 @@ jobs:
   build:
     name: build & test (${{ matrix.dir }})
     runs-on: ubuntu-latest
+    # Postgres para os testes que precisam rodar SQL de verdade (ex.: fila de impressão —
+    # a 1.29.0 saiu com a consulta do worker quebrada e nenhum teste a executava).
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
     strategy:
       fail-fast: false
       matrix:
@@ -34,6 +44,22 @@ jobs:
           # Necessário para o build do Next embutir a URL (valor placeholder no CI).
           NEXT_PUBLIC_API_URL: https://api.example.com/api/v1
 
+      # Banco COMPLETO como numa instalação nova do servidor local: todas as migrations num
+      # Postgres vazio (o mesmo runner do instalador, EDGE_MODE=true). Também pega migration que
+      # quebra instalação nova. Usado pelos testes que rodam SQL de verdade (fila e roteamento
+      # da impressão).
+      - name: Banco de teste (todas as migrations)
+        if: matrix.dir == 'backend'
+        working-directory: backend
+        run: |
+          node -e "const pg=require('pg');(async()=>{const c=new pg.Client({connectionString:'postgresql://postgres:postgres@localhost:5432/postgres'});await c.connect();await c.query('create database regem_ci');await c.end()})()"
+          node scripts/apply-all-local.mjs
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/regem_ci
+          EDGE_MODE: 'true'
+
       - name: Test (se existir)
         working-directory: ${{ matrix.dir }}
         run: npm test --if-present
+        env:
+          TEST_PG_URL: postgresql://postgres:postgres@localhost:5432/regem_ci

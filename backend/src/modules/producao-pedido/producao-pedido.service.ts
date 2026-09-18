@@ -34,6 +34,9 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { perfilEfetivo } from '../delivery/cupom-perfis';
 import { edgeAtivo } from '../../common/edge-ativo';
+import { enfileirarComandoEdge } from '../../common/edge-comando';
+import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
+import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -57,6 +60,14 @@ interface Destino {
   setorId: string | null;
 }
 
+// Equipamento que serve a LOJA da venda: o dela ou o sem loja (cadastro de rede / empresa de
+// uma loja). Sem loja na venda → não filtra. As impressoras de todas as lojas convivem no mesmo
+// cadastro (e descem para todos os servidores locais): sem este filtro, o destino de um produto
+// da rede apontava a venda da loja B para o forno da loja A — reproduzido.
+function lojaOuRede(unidadeId: string | null | undefined) {
+  return unidadeId ? or(eq(equipamento.unidadeId, unidadeId), isNull(equipamento.unidadeId))! : undefined;
+}
+
 // Status válidos, em ordem de avanço.
 const JANELA_ACAO_MIN = 30; // atendente pode agir até 30min após "pronto"
 
@@ -69,13 +80,18 @@ export class ProducaoPedidoService {
   ) {}
 
   // ===== Roteamento =====
-  // Resolve os destinos de um produto: (1) destinos próprios; (2) padrão do setor;
-  // (3) legado (setor sem device); (4) genérico (sem setor).
+  // Resolve os destinos de um produto NA LOJA DA VENDA: (1) destinos próprios; (2) padrão do
+  // setor; (3) legado (setor sem device); (4) genérico (sem setor).
+  // `unidadeId` = loja da venda (só equipamentos dela ou sem loja). `setorLocal` = o setor do
+  // produto já traduzido para a loja (ver `setorNaLoja`) — undefined = usa o do produto.
   private async resolverDestinos(
     tx: any,
     tenantId: string,
     p: any,
+    unidadeId: string | null = null,
+    setorLocal?: string | null,
   ): Promise<Destino[]> {
+    const setorProd = setorLocal !== undefined ? setorLocal : p.setorProducaoId;
     // (1) destinos explícitos do produto
     const proprios = await tx
       .select({
@@ -93,12 +109,13 @@ export class ProducaoPedidoService {
           eq(produtoDestinoProducao.tenantId, tenantId),
           eq(produtoDestinoProducao.produtoId, p.id),
           eq(equipamento.ativo, true),
+          lojaOuRede(unidadeId),
         ),
       );
     if (proprios.length) return proprios.map(this.normalizaDestino);
 
-    // (2) padrão do setor do produto
-    if (p.setorProducaoId) {
+    // (2) padrão do setor do produto (o setor desta loja)
+    if (setorProd) {
       const doSetor = await tx
         .select({
           equipamentoId: equipamento.id,
@@ -113,16 +130,18 @@ export class ProducaoPedidoService {
         .where(
           and(
             eq(setorDestinoProducao.tenantId, tenantId),
-            eq(setorDestinoProducao.setorId, p.setorProducaoId),
+            eq(setorDestinoProducao.setorId, setorProd),
             eq(equipamento.ativo, true),
+            lojaOuRede(unidadeId),
           ),
         );
       if (doSetor.length) return doSetor.map(this.normalizaDestino);
       // (3) legado: setor sem device → pedido de KDS filtrável por setor
-      return [{ equipamentoId: null, tipo: 'kds', setorId: p.setorProducaoId }];
+      return [{ equipamentoId: null, tipo: 'kds', setorId: setorProd }];
     }
     // (3b) impressora ÚNICA da loja vira destino automático: se a loja só tem uma
     // impressora ativa e nada foi definido, não faz sentido exigir configuração.
+    // Conta as DA LOJA (antes contava as da empresa: a loja sem impressora herdava a da outra).
     const impressoras = await tx
       .select({
         equipamentoId: equipamento.id,
@@ -135,6 +154,7 @@ export class ProducaoPedidoService {
           eq(equipamento.tenantId, tenantId),
           eq(equipamento.tipo, 'impressora'),
           eq(equipamento.ativo, true),
+          lojaOuRede(unidadeId),
         ),
       );
     if (impressoras.length === 1) return impressoras.map(this.normalizaDestino);
@@ -154,6 +174,7 @@ export class ProducaoPedidoService {
     tx: any,
     tenantId: string,
     opcaoIds: string[] | undefined,
+    unidadeId: string | null = null,
   ): Promise<Destino[]> {
     const ids = [...new Set((opcaoIds ?? []).filter(Boolean))];
     if (!ids.length) return [];
@@ -182,6 +203,7 @@ export class ProducaoPedidoService {
             eq(complementoOpcao.tenantId, tenantId),
             inArray(complementoOpcao.id, ids),
             eq(equipamento.ativo, true),
+            lojaOuRede(unidadeId),
           ),
         ),
     );
@@ -201,10 +223,118 @@ export class ProducaoPedidoService {
             eq(complementoOpcao.tenantId, tenantId),
             inArray(complementoOpcao.id, ids),
             eq(equipamento.ativo, true),
+            lojaOuRede(unidadeId),
           ),
         ),
     );
     return out;
+  }
+
+  // O SETOR do produto traduzido para a loja da venda.
+  // Setor é POR LOJA (setor.unidade_id), mas o catálogo é da REDE e o produto aponta um setor
+  // só — o de uma das lojas. Numa empresa com 2 lojas, a "Cozinha" da Pizza é a Cozinha da loja
+  // A; vendida na loja B, o roteamento procurava impressoras da Cozinha da A.
+  // Regra: setor da própria loja (ou sem loja) → ele mesmo; setor de OUTRA loja → o setor desta
+  // loja com o MESMO NOME (sem diferenciar maiúsculas/espaços); sem equivalente → null (o item
+  // é tratado como "sem setor" e cai na impressora padrão da loja, em vez de não sair).
+  // `cache` evita repetir a consulta para cada item da mesma venda.
+  private async setorNaLoja(
+    tx: any,
+    tenantId: string,
+    setorId: string | null | undefined,
+    unidadeId: string | null,
+    cache: Map<string, string | null>,
+  ): Promise<string | null> {
+    if (!setorId) return null;
+    if (!unidadeId) return setorId;
+    if (cache.has(setorId)) return cache.get(setorId)!;
+    const r: any = await tx.execute(sql`
+      select coalesce(
+        (select s.id from setor s where s.id = ${setorId} and s.tenant_id = ${tenantId}
+            and (s.unidade_id = ${unidadeId} or s.unidade_id is null)),
+        (select eq.id from setor s
+           join setor eq on eq.tenant_id = s.tenant_id and eq.unidade_id = ${unidadeId}
+                        and lower(btrim(eq.nome)) = lower(btrim(s.nome))
+          where s.id = ${setorId} and s.tenant_id = ${tenantId}
+          order by eq.id limit 1)
+      ) as id`);
+    const id = ((r.rows ?? r)[0]?.id as string | null) ?? null;
+    cache.set(setorId, id);
+    return id;
+  }
+
+  // Roteamento das VIAS DE PRODUÇÃO de uma venda — UMA implementação para a venda local
+  // (`criarPedidos`) e para a venda da nuvem materializada no servidor local
+  // (`materializarProducaoLocal`); antes eram duas cópias "a manter em sincronia".
+  // Para cada item, os destinos SOMAM (dedup por impressora):
+  //  (a) destinos do produto/setor (resolverDestinos) — só equipamentos da loja;
+  //  (a2) destinos das opções/complementos escolhidos — só da loja;
+  //  (b) impressoras de produção da loja que atendem o setor (setores_atendidos);
+  //  (c) item sem setor (ou sem setor equivalente nesta loja) e sem destino → padrão da loja.
+  // Item com setor DESTA loja que só vai para KDS continua sem via (decisão da loja).
+  private async rotearProducao(
+    db: any,
+    tenantId: string,
+    unidadeId: string | null,
+    daProducao: ItemProducao[],
+  ): Promise<{ impressoras: Map<string, Set<ItemProducao>>; padraoId: string | null }> {
+    // Impressoras de PRODUÇÃO ativas da loja — para `setores_atendidos` e a PADRÃO (fallback).
+    const printers: any[] = await db
+      .select({
+        id: equipamento.id,
+        setoresAtendidos: equipamento.setoresAtendidos,
+        padrao: equipamento.padrao,
+      })
+      .from(equipamento)
+      .where(
+        and(
+          eq(equipamento.tenantId, tenantId),
+          eq(equipamento.tipo, 'impressora'),
+          eq(equipamento.ativo, true),
+          eq(equipamento.fazProducao, true), // mig 167 (antes: papel null|'producao')
+          unidadeId ? eq(equipamento.unidadeId, unidadeId) : sql`true`,
+        ),
+      );
+    const padraoId: string | null = printers.find((p) => p.padrao)?.id ?? null;
+    const impressoras = new Map<string, Set<ItemProducao>>();
+    const addImp = (eqId: string, it: ItemProducao) => {
+      const s = impressoras.get(eqId) ?? new Set<ItemProducao>();
+      s.add(it);
+      impressoras.set(eqId, s);
+    };
+    const setores = new Map<string, string | null>();
+    for (const it of daProducao) {
+      let roteado = false;
+      const setor = await this.setorNaLoja(db, tenantId, it.produto?.setorProducaoId, unidadeId, setores);
+      // (a) destinos explícitos do produto/setor → equipamento
+      for (const d of await this.resolverDestinos(db, tenantId, it.produto, unidadeId, setor)) {
+        if (d.tipo === 'impressora' && d.equipamentoId) {
+          addImp(d.equipamentoId, it);
+          roteado = true;
+        }
+      }
+      // (a2) destinos próprios das OPÇÕES/COMPLEMENTOS escolhidos (mig 127/Fase 1): SOMAM ao
+      // destino do produto — um adicional direcionado (ex.: bebida → bar) também recebe a via.
+      for (const d of await this.destinosPorOpcoes(db, tenantId, it.opcaoIds, unidadeId)) {
+        if (d.tipo === 'impressora' && d.equipamentoId) {
+          addImp(d.equipamentoId, it);
+          roteado = true;
+        }
+      }
+      // (b) impressoras que atendem o setor do produto (setores_atendidos)
+      if (setor) {
+        for (const pr of printers) {
+          const sa = Array.isArray(pr.setoresAtendidos) ? pr.setoresAtendidos : [];
+          if (sa.includes(setor)) {
+            addImp(pr.id, it);
+            roteado = true;
+          }
+        }
+      }
+      // (c) fallback: sem setor (ou sem equivalente nesta loja) e sem impressora → PADRÃO.
+      if (!roteado && !setor && padraoId) addImp(padraoId, it);
+    }
+    return { impressoras, padraoId };
   }
 
   private normalizaDestino = (d: any): Destino => ({
@@ -240,66 +370,7 @@ export class ProducaoPedidoService {
     // Impressoras de PRODUÇÃO ativas da unidade — para roteamento por
     // `setores_atendidos` (upgrade) e para a impressora PADRÃO (fallback). NÃO
     // remove o roteamento por produto/setor (`resolverDestinos`), só o complementa.
-    const printers: any[] = await tx
-      .select({
-        id: equipamento.id,
-        setoresAtendidos: equipamento.setoresAtendidos,
-        padrao: equipamento.padrao,
-      })
-      .from(equipamento)
-      .where(
-        and(
-          eq(equipamento.tenantId, ctx.tenantId),
-          eq(equipamento.tipo, 'impressora'),
-          eq(equipamento.ativo, true),
-          eq(equipamento.fazProducao, true), // mig 167 (antes: papel null|'producao')
-          ctx.unidadeId ? eq(equipamento.unidadeId, ctx.unidadeId) : sql`true`,
-        ),
-      );
-    const padraoId: string | null = printers.find((p) => p.padrao)?.id ?? null;
-
-    const impressoras = new Map<string, Set<ItemProducao>>();
-    const addImp = (eqId: string, it: ItemProducao) => {
-      const s = impressoras.get(eqId) ?? new Set<ItemProducao>();
-      s.add(it);
-      impressoras.set(eqId, s);
-    };
-    for (const it of daProducao) {
-      let roteado = false;
-      // (a) destinos explícitos do produto/setor → equipamento (como já existia)
-      const destinos = await this.resolverDestinos(tx, ctx.tenantId, it.produto);
-      for (const d of destinos) {
-        if (d.tipo === 'impressora' && d.equipamentoId) {
-          addImp(d.equipamentoId, it);
-          roteado = true;
-        }
-      }
-      // (a2) destinos próprios das OPÇÕES/COMPLEMENTOS escolhidos (mig 127/Fase 1):
-      // impressora específica de uma opção/etapa SOMA ao destino do produto — assim
-      // um adicional direcionado (ex.: bebida → bar) também recebe a via.
-      const destinosOpcoes = await this.destinosPorOpcoes(tx, ctx.tenantId, it.opcaoIds);
-      for (const d of destinosOpcoes) {
-        if (d.tipo === 'impressora' && d.equipamentoId) {
-          addImp(d.equipamentoId, it);
-          roteado = true;
-        }
-      }
-      // (b) impressoras que atendem o setor do produto (setores_atendidos)
-      const setor = it.produto?.setorProducaoId;
-      if (setor) {
-        for (const pr of printers) {
-          const sa = Array.isArray(pr.setoresAtendidos) ? pr.setoresAtendidos : [];
-          if (sa.includes(setor)) {
-            addImp(pr.id, it);
-            roteado = true;
-          }
-        }
-      }
-      // (c) fallback: item SEM setor e sem impressora → impressora PADRÃO da
-      // unidade. Item com setor que só vai pra KDS continua sem imprimir (não
-      // forçamos na padrão para não gerar via indevida).
-      if (!roteado && !setor && padraoId) addImp(padraoId, it);
-    }
+    const { impressoras, padraoId } = await this.rotearProducao(tx, ctx.tenantId, ctx.unidadeId ?? null, daProducao);
 
     const numero = await this.proximoNumero(tx, ctx.tenantId, ctx.unidadeId);
     const tempo = daProducao.reduce(
@@ -363,8 +434,14 @@ export class ProducaoPedidoService {
         .limit(1);
       if (armados.length) emitirProducaoAgora = false;
     }
+    // Venda feita na NUVEM para loja com servidor local ATIVO: as vias e etiquetas NÃO são
+    // gravadas aqui — o servidor da loja gera as dele quando a comanda desce
+    // (EdgeImpressaoProcessor → materializarProducaoLocal). A cópia da nuvem ficava órfã (ninguém
+    // lê a fila da nuvem nessa loja) e, com um agente de impressão instalado junto, saía EM DOBRO.
+    // No próprio servidor local `edgeAtivo` é sempre false.
+    const imprimeNesteBanco = !(await edgeAtivo(this.db, ctx.tenantId, ctx.unidadeId ?? null));
     // Vias de produção por impressora (uma por equipamento), quando houver.
-    if (emitirProducaoAgora) {
+    if (emitirProducaoAgora && imprimeNesteBanco) {
       for (const [equipamentoId, its] of impressoras) {
         await tx.insert(impressaoJob).values({
           tenantId: ctx.tenantId,
@@ -383,7 +460,7 @@ export class ProducaoPedidoService {
     // (senha/nº + item + complemento/obs) para colar no produto. Roteada pela
     // impressora da etapa (mig 127/Fase 1); sem destino próprio, cai nas impressoras
     // de produção do item; por último, na padrão.
-    for (const it of daProducao) {
+    for (const it of imprimeNesteBanco ? daProducao : []) {
       if (!it.opcaoIds?.length) continue;
       const flagged = await tx
         .select({ id: complementoOpcao.id })
@@ -398,7 +475,7 @@ export class ProducaoPedidoService {
           ),
         );
       if (!flagged.length) continue;
-      let alvos = (await this.destinosPorOpcoes(tx, ctx.tenantId, flagged.map((f) => f.id)))
+      let alvos = (await this.destinosPorOpcoes(tx, ctx.tenantId, flagged.map((f) => f.id), ctx.unidadeId ?? null))
         .filter((d) => d.tipo === 'impressora' && d.equipamentoId)
         .map((d) => d.equipamentoId as string);
       if (!alvos.length)
@@ -495,56 +572,8 @@ export class ProducaoPedidoService {
     const numero = ped.numero ?? null;
     const db = this.db;
 
-    // Impressoras de PRODUÇÃO locais + roteamento (idêntico a criarPedidos).
-    const printers: any[] = await db
-      .select({
-        id: equipamento.id,
-        setoresAtendidos: equipamento.setoresAtendidos,
-        padrao: equipamento.padrao,
-      })
-      .from(equipamento)
-      .where(
-        and(
-          eq(equipamento.tenantId, tenantId),
-          eq(equipamento.tipo, 'impressora'),
-          eq(equipamento.ativo, true),
-          eq(equipamento.fazProducao, true),
-          ctx.unidadeId ? eq(equipamento.unidadeId, ctx.unidadeId) : sql`true`,
-        ),
-      );
-    const padraoId: string | null = printers.find((p) => p.padrao)?.id ?? null;
-
-    const impressoras = new Map<string, Set<ItemProducao>>();
-    const addImp = (eqId: string, it: ItemProducao) => {
-      const s = impressoras.get(eqId) ?? new Set<ItemProducao>();
-      s.add(it);
-      impressoras.set(eqId, s);
-    };
-    for (const it of daProducao) {
-      let roteado = false;
-      const destinos = await this.resolverDestinos(db, tenantId, it.produto);
-      for (const d of destinos)
-        if (d.tipo === 'impressora' && d.equipamentoId) {
-          addImp(d.equipamentoId, it);
-          roteado = true;
-        }
-      const destinosOpcoes = await this.destinosPorOpcoes(db, tenantId, it.opcaoIds);
-      for (const d of destinosOpcoes)
-        if (d.tipo === 'impressora' && d.equipamentoId) {
-          addImp(d.equipamentoId, it);
-          roteado = true;
-        }
-      const setorP = it.produto?.setorProducaoId;
-      if (setorP)
-        for (const pr of printers) {
-          const sa = Array.isArray(pr.setoresAtendidos) ? pr.setoresAtendidos : [];
-          if (sa.includes(setorP)) {
-            addImp(pr.id, it);
-            roteado = true;
-          }
-        }
-      if (!roteado && !setorP && padraoId) addImp(padraoId, it);
-    }
+    // Mesmo roteamento da venda local (uma implementação só).
+    const { impressoras, padraoId } = await this.rotearProducao(db, tenantId, ctx.unidadeId ?? null, daProducao);
 
     const cfgCupom = await this.carregarConfigCupom(db, tenantId, ctx.unidadeId ?? null);
     const idProd = ctx.origem === 'delivery' ? 'producao_delivery' : 'producao_balcao';
@@ -604,7 +633,7 @@ export class ProducaoPedidoService {
           ),
         );
       if (!flagged.length) continue;
-      let alvos = (await this.destinosPorOpcoes(db, tenantId, flagged.map((f) => f.id)))
+      let alvos = (await this.destinosPorOpcoes(db, tenantId, flagged.map((f) => f.id), ctx.unidadeId ?? null))
         .filter((d) => d.tipo === 'impressora' && d.equipamentoId)
         .map((d) => d.equipamentoId as string);
       if (!alvos.length)
@@ -981,6 +1010,17 @@ export class ProducaoPedidoService {
     via: string = 'cliente',
     impressorasPerfil?: string[] | null, // S5 — impressoras direcionadas ao perfil deste cupom
   ): Promise<{ enfileirados: number; aviso: string | null }> {
+    // Loja com servidor local ATIVO: a impressora está na rede dela e quem imprime é o worker
+    // do servidor (a venda feita na nuvem desce e o EdgeImpressaoProcessor gera o cupom lá).
+    // O job da nuvem ficava 'pendente' até o expurgo de 2 dias sem ninguém consumir — e, se a
+    // loja tivesse também um agente de nuvem instalado, a mesma venda saía DUAS vezes (duas
+    // filas, sem nada que as ligue). No próprio servidor local `edgeAtivo` é sempre false.
+    if (await edgeAtivo(this.db, tenantId, unidadeId)) {
+      return {
+        enfileirados: 0,
+        aviso: 'Esta loja imprime pelo servidor local — o cupom sai por ele (para reimprimir, use o app da loja).',
+      };
+    }
     const cols = {
       id: equipamento.id,
       conexao: equipamento.conexao,
@@ -1028,6 +1068,7 @@ export class ProducaoPedidoService {
             eq(equipamento.tenantId, tenantId),
             eq(equipamento.tipo, 'impressora'),
             eq(equipamento.ativo, true),
+            lojaOuRede(unidadeId), // perfil da REDE pode listar impressoras das duas lojas
           ),
         );
     }
@@ -1138,34 +1179,82 @@ export class ProducaoPedidoService {
   // marca 'enviando' + lease de 120s na entrega — se o worker morrer no meio, o job só volta a
   // ser pegável quando a lease vence (não reimprime a cada ciclo se o ACK falhar). F2: filtro
   // pela unidade do edge (+ os "da rede", unidade_id null). Vias por tipo (mig 168).
-  async jobsPendentes(tenantId: string, unidadeId: string | null = null, limite = 20) {
+  //
+  // MÁQUINA DO AGENTE (mig 267): numa loja com dois caixas, os dois agentes usam o mesmo token
+  // e a fila entregava qualquer job a qualquer um — medido: 20 de 30 jobs de impressora USB
+  // foram para a máquina errada (lá a impressora não existe, ou sai no balcão errado). A
+  // impressora de REDE continua indo para qualquer agente (todos alcançam o IP); a USB só vai
+  // para a máquina dona (`agente_maquina`) ou, enquanto ela não foi aprendida, para o agente que
+  // tem uma impressora com aquele nome instalada. Agente antigo (sem se identificar) segue como
+  // antes.
+  //
+  // LOTE de 5 (era 20): a reserva é de 120 s e um job com a impressora fora do ar leva até
+  // ~25 s — com 20, do 5º em diante a reserva vencia no meio do lote e outro agente repegava.
+  async jobsPendentes(
+    tenantId: string,
+    unidadeId: string | null = null,
+    agente: { maquina?: string | null; dispositivos?: string[] | null; excluir?: string[] | null } = {},
+    limite = 5,
+  ) {
     const filtro = unidadeId
       ? sql`and (j.unidade_id = ${unidadeId} or j.unidade_id is null)`
+      : sql``;
+    const maquina = agente.maquina?.trim() || null;
+    const dispositivos = Array.isArray(agente.dispositivos)
+      ? agente.dispositivos.map((d) => String(d)).filter(Boolean).slice(0, 100)
+      : null;
+    // Nome instalado no Windows do agente (Get-Printer). Lista vazia = nenhuma USB aqui.
+    const instalada = dispositivos?.length
+      ? sql`e.dispositivo in (${sql.join(dispositivos.map((d) => sql`${d}`), sql`, `)})`
+      : sql`false`;
+    const filtroMaquina = !maquina
+      ? sql``
+      : dispositivos
+        ? sql`and (e.conexao is distinct from 'local'
+                   or e.agente_maquina = ${maquina}
+                   or (e.agente_maquina is null
+                       and ${instalada}))`
+        : sql`and (e.conexao is distinct from 'local'
+                   or e.agente_maquina = ${maquina}
+                   or e.agente_maquina is null)`;
+    // Impressoras que o agente NÃO quer agora: as que ele está imprimindo (cada impressora tem a
+    // sua fila lá) e as "fora do ar" (disjuntor). Só ids válidos — o resto é descartado.
+    const excluir = (Array.isArray(agente.excluir) ? agente.excluir : [])
+      .filter((x) => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x))
+      .slice(0, 200);
+    const filtroExcluir = excluir.length
+      ? sql`and (j.equipamento_id is null or j.equipamento_id not in (${sql.join(excluir.map((x) => sql`${x}::uuid`), sql`, `)}))`
       : sql``;
     const r: any = await this.db.execute(sql`
       with alvo as (
         select j.id from impressao_job j
+        left join equipamento e on e.id = j.equipamento_id
         where j.tenant_id = ${tenantId}
           and ((j.status = 'pendente' and (j.claim_ate is null or j.claim_ate < now()))
                or (j.status = 'enviando' and j.claim_ate < now()))
           ${filtro}
+          ${filtroMaquina}
+          ${filtroExcluir}
         order by j.criado_em asc
         limit ${limite}
-        for update skip locked
+        for update of j skip locked
       ),
       claimed as (
         update impressao_job
-        set status = 'enviando', claim_por = 'cloud', claim_ate = now() + interval '120 seconds'
+        set status = 'enviando', claim_por = ${maquina ?? 'cloud'}, claim_ate = now() + interval '120 seconds'
         where id in (select id from alvo)
         returning id, equipamento_id, pedido_id, via, conteudo, tentativas, criado_em
       )
       select c.id, c.equipamento_id as "equipamentoId", c.pedido_id as "pedidoId",
              c.conteudo, c.tentativas, c.criado_em as "criadoEm",
-             e.conexao, e.host, e.porta, e.dispositivo, e.largura,
+             e.conexao, e.host, e.porta, e.dispositivo, e.largura, e.codepage,
+             -- DANFE, etiqueta e teste: UMA via (antes seguiam as vias gerais da impressora).
              case
                when c.via = 'cliente' then coalesce(e.vias_cliente, e.vias)
                when c.via = 'producao' then coalesce(e.vias_producao, e.vias)
+               when c.via in ('fiscal', 'etiqueta', 'teste') then 1
                else e.vias end as vias,
+             e.ativo,
              e.nome as impressora, e.linguagem_etiqueta as linguagem
       from claimed c
       left join equipamento e on e.id = c.equipamento_id
@@ -1173,35 +1262,231 @@ export class ProducaoPedidoService {
     return (r.rows ?? r) as any[];
   }
 
-  async marcarImpresso(tenantId: string, jobId: string) {
-    await this.db
+  // Agentes vistos recentemente, por empresa: máquina → impressoras do Windows + quando.
+  // Só serve para NÃO aprender a máquina errada quando duas máquinas têm uma impressora com o
+  // MESMO nome (ex.: "ELGIN i8" nos dois caixas) — aí a primeira que imprimisse ficaria dona.
+  // Em memória por processo, poucas linhas por loja; some sozinho em 10 min.
+  private readonly agentesVistos = new Map<string, Map<string, { dispositivos: string[]; em: number }>>();
+
+  registrarAgente(tenantId: string, maquina?: string | null, dispositivos?: string[] | null) {
+    const m = maquina?.trim();
+    if (!m || !Array.isArray(dispositivos)) return;
+    let porMaquina = this.agentesVistos.get(tenantId);
+    if (!porMaquina) this.agentesVistos.set(tenantId, (porMaquina = new Map()));
+    porMaquina.set(m, { dispositivos: dispositivos.map(String).slice(0, 100), em: Date.now() });
+    if (this.agentesVistos.size > 20_000) {
+      const corte = Date.now() - 10 * 60_000;
+      for (const [t, mm] of this.agentesVistos) {
+        for (const [k, v] of mm) if (v.em < corte) mm.delete(k);
+        if (!mm.size) this.agentesVistos.delete(t);
+      }
+    }
+  }
+
+  private nomeRepetidoEmOutraMaquina(tenantId: string, maquina: string, dispositivo: string) {
+    const corte = Date.now() - 10 * 60_000;
+    for (const [m, v] of this.agentesVistos.get(tenantId) ?? []) {
+      if (m !== maquina && v.em >= corte && v.dispositivos.includes(dispositivo)) return true;
+    }
+    return false;
+  }
+
+  async marcarImpresso(tenantId: string, jobId: string, maquina?: string | null) {
+    const [job] = await this.db
       .update(impressaoJob)
       .set({ status: 'impresso', impressoEm: new Date(), claimPor: null, claimAte: null })
       .where(
         and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)),
-      );
+      )
+      .returning({ equipamentoId: impressaoJob.equipamentoId });
+    // Aprende a máquina dona da impressora USB na primeira impressão CONFIRMADA (mig 267) —
+    // a loja não configura nada. Não aprende quando outra máquina tem o mesmo nome instalado.
+    await this.registrarEstadoImpressora(job?.equipamentoId ?? null, true, null);
+    const m = maquina?.trim();
+    if (m && job?.equipamentoId) {
+      const [imp] = await this.db
+        .select({ conexao: equipamento.conexao, dispositivo: equipamento.dispositivo, agenteMaquina: equipamento.agenteMaquina })
+        .from(equipamento)
+        .where(and(eq(equipamento.id, job.equipamentoId), eq(equipamento.tenantId, tenantId)));
+      if (imp?.conexao === 'local' && !imp.agenteMaquina && imp.dispositivo) {
+        if (this.nomeRepetidoEmOutraMaquina(tenantId, m, imp.dispositivo)) {
+          logImpressao.warn(
+            `impressora "${imp.dispositivo}" instalada em mais de um caixa — não fixei a máquina; renomeie uma delas no Windows`,
+          );
+        } else {
+          await this.db
+            .update(equipamento)
+            .set({ agenteMaquina: m })
+            .where(
+              and(
+                eq(equipamento.id, job.equipamentoId),
+                eq(equipamento.tenantId, tenantId),
+                isNull(equipamento.agenteMaquina),
+              ),
+            );
+        }
+      }
+    }
     return { ok: true };
   }
 
-  async marcarErro(tenantId: string, jobId: string, erro?: string) {
-    // Auto-retry (P2): re-enfileira 'pendente' com backoff crescente (reusa claim_ate como "não
-    // pegar antes de") até 5 rounds; depois 'erro' terminal (reimpressão manual). CASE atômico.
+  // `definitivo` = erro de CONFIGURAÇÃO (sem IP, sem nome no Windows): não adianta tentar de
+  // novo — antes eram 5 rodadas em ~5 min até cair em 'erro'.
+  async marcarErro(tenantId: string, jobId: string, erro?: string, definitivo = false) {
+    const motivo = (erro ?? 'falha').slice(0, 400);
+    let r: any;
+    if (definitivo) {
+      r = await this.db.execute(sql`
+        update impressao_job set tentativas = tentativas + 1, erro = ${motivo}, status = 'erro',
+               claim_por = null, claim_ate = null
+         where id = ${jobId} and tenant_id = ${tenantId}
+        returning equipamento_id`);
+    } else {
+      // Auto-retry (P2): re-enfileira 'pendente' com backoff crescente (reusa claim_ate como "não
+      // pegar antes de") até 5 rounds; depois 'erro' terminal (reimpressão manual). CASE atômico.
+      r = await this.db.execute(sql`
+        update impressao_job set
+          tentativas = tentativas + 1,
+          erro = ${motivo},
+          claim_por = null,
+          status = case when tentativas + 1 < 5 then 'pendente' else 'erro' end,
+          claim_ate = case when tentativas + 1 < 5 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
+        where id = ${jobId} and tenant_id = ${tenantId}
+        returning equipamento_id`);
+    }
+    await this.registrarEstadoImpressora((r.rows ?? r)[0]?.equipamento_id ?? null, false, motivo);
+    return { ok: true };
+  }
+
+  // Devolve o job à fila SEM gastar tentativa — o agente abriu o disjuntor da impressora e
+  // estes esperavam a vez dela. Só um job que está reservado ('enviando').
+  // Só quem RESERVOU devolve (claim_por = máquina do agente): um agente com defeito não pode
+  // soltar o job que outro está imprimindo — ele seria repegado e sairia em dobro.
+  async devolverJob(tenantId: string, jobId: string, maquina?: string | null) {
     await this.db.execute(sql`
-      update impressao_job set
-        tentativas = tentativas + 1,
-        erro = ${(erro ?? 'falha').slice(0, 400)},
-        claim_por = null,
-        status = case when tentativas + 1 < 5 then 'pendente' else 'erro' end,
-        claim_ate = case when tentativas + 1 < 5 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
-      where id = ${jobId} and tenant_id = ${tenantId}`);
+      update impressao_job set status = 'pendente', claim_por = null, claim_ate = null
+       where id = ${jobId} and tenant_id = ${tenantId} and status = 'enviando'
+         and claim_por = ${maquina?.trim() || 'cloud'}`);
     return { ok: true };
   }
 
-  // Fila recente para o painel (status + impressora). Gestor logado.
-  async filaRecente(tenantId: string, limite = 40) {
+  // Estado da impressora (mig 269) — última impressão certa, última falha, falhas seguidas. É o
+  // mesmo registro que o worker do servidor local grava no banco dele. Best-effort.
+  private async registrarEstadoImpressora(equipamentoId: string | null, saiu: boolean, erro: string | null) {
+    if (!equipamentoId) return;
+    try {
+      await this.db.execute(sql`
+        insert into impressora_status as s
+               (equipamento_id, tenant_id, unidade_id, ultimo_ok_em, ultima_falha_em, ultimo_erro, falhas_seguidas, atualizado_em)
+        select e.id, e.tenant_id, e.unidade_id,
+               case when ${saiu} then now() end,
+               case when ${saiu} then null else now() end,
+               case when ${saiu} then null else ${erro ?? 'falha'}::text end,
+               case when ${saiu} then 0 else 1 end,
+               now()
+          from equipamento e where e.id = ${equipamentoId}
+        on conflict (equipamento_id) do update set
+           ultimo_ok_em    = coalesce(excluded.ultimo_ok_em, s.ultimo_ok_em),
+           ultima_falha_em = coalesce(excluded.ultima_falha_em, s.ultima_falha_em),
+           ultimo_erro     = case when ${saiu} then s.ultimo_erro else excluded.ultimo_erro end,
+           falhas_seguidas = case when ${saiu} then 0 else s.falhas_seguidas + 1 end,
+           atualizado_em   = now()`);
+    } catch {
+      /* banco sem a mig 269: segue sem o estado */
+    }
+  }
+
+  // AVISOS DE ROTEAMENTO (rede com 2+ lojas): produtos de produção cujo setor é de OUTRA loja e
+  // que, nesta loja, não têm setor de mesmo nome — a via deles cai na impressora padrão da loja
+  // (`setorNaLoja`). Sem este aviso, renomear "Cozinha" para "Cozinha Central" numa loja mudaria
+  // o destino sem ninguém saber. Usuário com loja vê só a dele.
+  async avisosRoteamento(tenantId: string, unidadeId: string | null = null) {
+    const r: any = await this.db.execute(sql`
+      select u.id as "unidadeId", u.nome as loja, p.id as "produtoId", p.nome as produto,
+             s.nome as setor
+        from produto p
+        join setor s on s.id = p.setor_producao_id and s.unidade_id is not null
+        join unidade u on u.tenant_id = p.tenant_id and u.id <> s.unidade_id
+                      and u.deleted_at is null and u.ativo is not false
+       where p.tenant_id = ${tenantId} and p.vai_para_producao and p.ativo is not false
+         ${unidadeId ? sql`and u.id = ${unidadeId}` : sql``}
+         and not exists (
+           select 1 from setor x
+            where x.tenant_id = p.tenant_id and x.unidade_id = u.id and x.deleted_at is null
+              and lower(btrim(x.nome)) = lower(btrim(s.nome)))
+       order by u.nome, s.nome, p.nome
+       limit 200`);
+    return r.rows ?? r;
+  }
+
+  // Estado das impressoras para o painel: da loja do usuário (ou todas, sem loja). Só leitura.
+  //  • última impressão certa / sem responder (impressora_status, mig 269);
+  //  • FILA PARADA: quantos tickets esperam e desde quando — mostra o que o estado não mostra
+  //    (disjuntor aberto há 20 min; impressora USB de um caixa desligado, que ninguém tentou);
+  //  • loja com SERVIDOR LOCAL: a fila e o estado vivem lá. A nuvem usa a saúde mais recente que
+  //    o servidor enviou (edge_status.saude) — antes a tela da nuvem ficava vazia para essas lojas.
+  async estadoImpressoras(tenantId: string, unidadeId: string | null = null) {
+    let base: any[];
+    try {
+      const r: any = await this.db.execute(sql`
+        select e.id, e.nome, e.unidade_id as "unidadeId", s.ultimo_ok_em as "ultimoOkEm",
+               s.ultima_falha_em as "ultimaFalhaEm", s.ultimo_erro as "ultimoErro",
+               coalesce(s.falhas_seguidas, 0) as "falhasSeguidas",
+               (s.falhas_seguidas > 0 and (s.ultimo_ok_em is null or s.ultima_falha_em > s.ultimo_ok_em)) as "semResponder",
+               f.pendentes, f.mais_antigo as "maisAntigoEm"
+          from equipamento e
+          left join impressora_status s on s.equipamento_id = e.id
+          left join lateral (
+            select count(*)::int as pendentes, min(j.criado_em) as mais_antigo
+              from impressao_job j
+             where j.equipamento_id = e.id and j.status in ('pendente', 'enviando')
+          ) f on true
+         where e.tenant_id = ${tenantId} and e.tipo = 'impressora' and e.ativo
+           ${unidadeId ? sql`and (e.unidade_id = ${unidadeId} or e.unidade_id is null)` : sql``}
+         order by e.nome`);
+      base = (r.rows ?? r).map((x: any) => ({
+        ...x,
+        semResponder: !!x.semResponder,
+        pendentes: Number(x.pendentes ?? 0),
+        origem: 'nuvem',
+      }));
+    } catch {
+      return [];
+    }
+    if (String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true') return base;
+    // Saúde recente dos servidores locais da empresa (da loja, se o usuário tem loja).
+    let saudes: any[] = [];
+    try {
+      const r: any = await this.db.execute(sql`
+        select saude from edge_status
+         where tenant_id = ${tenantId} and recebido_em >= now() - interval '10 minutes'
+           ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}`);
+      saudes = (r.rows ?? r).map((x: any) => (typeof x.saude === 'string' ? JSON.parse(x.saude) : x.saude)).filter(Boolean);
+    } catch {
+      /* sem edge_status: fica só com o que a nuvem sabe */
+    }
+    if (!saudes.length) return base;
+    const porId = new Map(base.map((x) => [x.id, x]));
+    for (const sd of saudes) {
+      for (const f of Array.isArray(sd.filaPorImpressora) ? sd.filaPorImpressora : []) {
+        const x = porId.get(f.id);
+        if (x) Object.assign(x, { pendentes: Number(f.pendentes ?? 0), maisAntigoEm: f.maisAntigoEm ?? null, origem: 'servidor_local' });
+      }
+      for (const m of Array.isArray(sd.impressorasSemResponder) ? sd.impressorasSemResponder : []) {
+        const x = m.id ? porId.get(m.id) : base.find((b) => b.nome === m.nome);
+        if (x) Object.assign(x, { semResponder: true, ultimaFalhaEm: m.desde ?? null, ultimoErro: m.erro ?? null, origem: 'servidor_local' });
+      }
+    }
+    return base;
+  }
+
+  // Fila recente para o painel (status + impressora). Gestor logado. Usuário com loja vê só a
+  // fila DELA (e os jobs sem loja) — antes o gerente da loja A via a fila da loja B.
+  async filaRecente(tenantId: string, unidadeId: string | null = null, limite = 40) {
     return this.db
       .select({
         id: impressaoJob.id,
+        unidadeId: impressaoJob.unidadeId, // o "Imprimir em…" do painel oferece só as da loja do job
         via: impressaoJob.via,
         status: impressaoJob.status,
         tentativas: impressaoJob.tentativas,
@@ -1212,7 +1497,14 @@ export class ProducaoPedidoService {
       })
       .from(impressaoJob)
       .leftJoin(equipamento, eq(equipamento.id, impressaoJob.equipamentoId))
-      .where(eq(impressaoJob.tenantId, tenantId))
+      .where(
+        and(
+          eq(impressaoJob.tenantId, tenantId),
+          unidadeId
+            ? or(eq(impressaoJob.unidadeId, unidadeId), isNull(impressaoJob.unidadeId))
+            : undefined,
+        ),
+      )
       .orderBy(desc(impressaoJob.criadoEm))
       .limit(limite);
   }
@@ -1245,14 +1537,22 @@ export class ProducaoPedidoService {
     // rollback). O `equipamentoId` clicado é ignorado (a config de impressora vive no
     // edge; a nuvem não tem os ids dele) — testa todas, que é o que valida "imprime?".
     if (await edgeAtivo(this.db, tenantId)) {
-      await this.db.execute(sql`
-        insert into edge_comando (tenant_id, comando, solicitado_por)
-        values (${tenantId}, 'testar_impressora', 'nuvem')`);
+      // Vai para o servidor da LOJA da impressora clicada (mig 269) — antes ia para a empresa e
+      // quem buscava primeiro testava (numa rede com duas lojas, podia ser a outra).
+      const [clicada] = await this.db
+        .select({ unidadeId: equipamento.unidadeId })
+        .from(equipamento)
+        .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.id, equipamentoId)));
+      await enfileirarComandoEdge(this.db, tenantId, 'testar_impressora', {
+        unidadeId: clicada?.unidadeId ?? null,
+        solicitadoPor: 'nuvem',
+        dados: { equipamentoId }, // só a impressora clicada (antes testava todas da loja)
+      });
       return {
         ok: true,
         edge: true,
         aviso:
-          'Servidor local ativo — enviei um teste para as impressoras configuradas nele. ' +
+          'Servidor local ativo — enviei o teste desta impressora para ele. ' +
           'O papel sai em alguns segundos (no próximo ciclo do servidor).',
       };
     }
@@ -1294,7 +1594,7 @@ export class ProducaoPedidoService {
 
   // Reenfileira um job com erro (gestor). `equipamentoId` opcional ("Imprimir em…")
   // reroteia o job para outra impressora com alvo válido (mig 167).
-  async reimprimir(tenantId: string, jobId: string, equipamentoId?: string | null) {
+  async reimprimir(tenantId: string, jobId: string, equipamentoId?: string | null, unidadeId: string | null = null) {
     // F10 — com edge ativo, reimpressão é feita pelo servidor local (evita job órfão).
     if (await edgeAtivo(this.db, tenantId)) {
       return { ok: false, edge: true, aviso: 'Esta loja usa servidor local (edge). Reimprima pelo servidor local.' };
@@ -1304,12 +1604,16 @@ export class ProducaoPedidoService {
       erro: null;
       claimPor: null;
       claimAte: null;
+      tentativas: number;
       equipamentoId?: string;
     } = {
       status: 'pendente',
       erro: null,
       claimPor: null,
       claimAte: null,
+      // Reimprimir recomeça a contagem: antes o job voltava com as 5 tentativas gastas e, na
+      // primeira falha, ia direto para 'erro' sem as novas tentativas com espera.
+      tentativas: 0,
     };
     if (equipamentoId) {
       const [imp] = await this.db
@@ -1326,12 +1630,29 @@ export class ProducaoPedidoService {
       if (!imp) throw new NotFoundException('Impressora não encontrada');
       if (!this.alvoValido(imp))
         throw new BadRequestException('Impressora sem alvo — configure o IP (rede) ou o nome no Windows (local).');
+      // "Imprimir em…" só para impressora da loja do job.
+      const [jobLoja] = await this.db
+        .select({ unidadeId: impressaoJob.unidadeId })
+        .from(impressaoJob)
+        .where(and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)));
+      await garantirImpressoraDaLoja(this.db, tenantId, imp.id, jobLoja?.unidadeId ?? null);
       set.equipamentoId = imp.id;
     }
-    await this.db
+    const [feito] = await this.db
       .update(impressaoJob)
       .set(set)
-      .where(and(eq(impressaoJob.id, jobId), eq(impressaoJob.tenantId, tenantId)));
+      .where(
+        and(
+          eq(impressaoJob.id, jobId),
+          eq(impressaoJob.tenantId, tenantId),
+          // Usuário com loja só reimprime job da própria loja (ou sem loja).
+          unidadeId
+            ? or(eq(impressaoJob.unidadeId, unidadeId), isNull(impressaoJob.unidadeId))
+            : undefined,
+        ),
+      )
+      .returning({ id: impressaoJob.id });
+    if (!feito) throw new NotFoundException('Job de impressão não encontrado');
     return { ok: true };
   }
 
@@ -1753,6 +2074,8 @@ export class ProducaoPedidoService {
       eq(equipamento.imprimeAoAvancar, true),
       eq(equipamento.imprimeNoStatus, novoStatus),
     ];
+    const daLoja = lojaOuRede(p.unidadeId);
+    if (daLoja) cond.push(daLoja);
     if (p.destinoEquipamentoId) cond.push(eq(equipamento.id, p.destinoEquipamentoId));
     else if (p.setorId) cond.push(eq(equipamento.setorId, p.setorId));
     else return; // sem como identificar o KDS de origem
@@ -1790,7 +2113,7 @@ export class ProducaoPedidoService {
       ppEtapa,
     );
     for (const k of kdss) {
-      // Sem impressora explícita, cai na padrão do setor do pedido.
+      // Sem impressora explícita, cai na padrão do setor do pedido — DA LOJA do pedido.
       let alvo = k.impressoraDestinoId;
       if (!alvo && p.setorId) {
         const [padrao] = await this.db
@@ -1802,17 +2125,20 @@ export class ProducaoPedidoService {
               eq(equipamento.tipo, 'impressora'),
               eq(equipamento.ativo, true),
               eq(equipamento.setorId, p.setorId),
+              lojaOuRede(p.unidadeId),
             ),
           )
           .limit(1);
         alvo = padrao?.id ?? null;
       }
       if (!alvo) continue;
-      await this.db.insert(impressaoJob).values({
+      // KDS avançado pela nuvem numa loja com servidor local: vai por comando para ele.
+      await gravarOuEncaminharImpressao(this.db, {
         tenantId,
         unidadeId: p.unidadeId ?? null,
         equipamentoId: alvo,
         pedidoId: p.id,
+        comandaId: p.comandaId ?? null,
         via: 'producao',
         conteudo,
       });

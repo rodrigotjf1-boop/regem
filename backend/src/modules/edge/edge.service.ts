@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { Bonjour } from 'bonjour-service';
 import { sql } from 'drizzle-orm';
+import { comandosDoServidor } from '../../common/edge-comando';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, readFileSync, readdirSync } from 'fs';
@@ -390,12 +391,9 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
 
   // ===== Comandos remotos (Fase 4) — o edge busca e confirma =====
   // O daemon do edge chama isto (x-sync-token) e executa o comando localmente.
-  async comandosPendentes(tenantId: string) {
-    const r: any = await this.db.execute(sql`
-      select id, comando from edge_comando
-      where tenant_id = ${tenantId} and status = 'pendente'
-      order by criado_em asc limit 10`);
-    return r.rows ?? r;
+  // Só os comandos DESTE servidor (mig 269) + os antigos sem destino.
+  async comandosPendentes(tenantId: string, equipamentoId?: string | null) {
+    return comandosDoServidor(this.db, tenantId, equipamentoId);
   }
   async ackComando(tenantId: string, id: string, ok: boolean, resultado?: string) {
     await this.db.execute(sql`

@@ -1537,6 +1537,10 @@ export const api = {
   reimprimir: (id: string, equipamentoId?: string | null) =>
     req(`/impressao/${id}/reimprimir`, { method: 'POST', body: JSON.stringify({ equipamentoId: equipamentoId ?? null }) }),
   impressaoFila: () => req('/impressao/fila'),
+  // Estado de cada impressora (última impressão certa / falha / sem responder) — mig 269.
+  impressorasEstado: () => req('/impressao/impressoras/estado'),
+  // Produtos cujo setor não existe nesta loja (a via cai na impressora padrão).
+  avisosRoteamento: () => req('/impressao/avisos-roteamento'),
   impressoraTeste: (id: string) =>
     req(`/impressao/impressoras/${id}/teste`, { method: 'POST', body: '{}' }),
   abrirCaixa: (body: Record<string, unknown>) =>

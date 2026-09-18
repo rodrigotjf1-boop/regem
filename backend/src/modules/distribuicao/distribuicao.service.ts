@@ -10,6 +10,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { sql } from 'drizzle-orm';
+import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { gerarSegredoBase32, verificarTotp, otpauthUri } from './totp';
@@ -294,9 +295,9 @@ export class DistribuicaoService {
   // Enfileira um comando remoto p/ o edge de uma loja (o daemon busca e executa).
   async comandoRemoto(tenantId: string, comando: string, autor: any) {
     if (!['rollback', 'reprocessar'].includes(comando)) throw new BadRequestException('Comando inválido.');
-    await this.db.execute(sql`
-      insert into edge_comando (tenant_id, comando, solicitado_por)
-      values (${tenantId}, ${comando}, ${autor?.nome ?? null})`);
+    // Uma linha por servidor local da empresa (mig 269): numa rede com duas lojas, antes só o
+    // primeiro servidor que buscava recebia o rollback.
+    await enfileirarComandoEdge(this.db, tenantId, comando, { solicitadoPor: autor?.nome ?? null });
     await this.auditar(autor, `comando_${comando}`, tenantId);
     return { ok: true };
   }

@@ -21,6 +21,8 @@ import {
 import { ProducaoService } from '../producao/producao.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { dataNoFuso, hojeISO } from '../../common/data';
+import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
+import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -130,6 +132,7 @@ export class OrdemProducaoService {
           ['app', 'kds', 'linha_tempo', 'impressao'].includes(c),
         )
       : [];
+    await garantirImpressoraDaLoja(this.db, tenantId, dto?.impressoraId ?? null, unidadeIdOrdem);
 
     const [row] = await this.db
       .insert(ordemProducao)
@@ -181,11 +184,11 @@ export class OrdemProducaoService {
 
     if (canais.includes('impressao') && ordem.impressoraId) {
       try {
-        await this.db.insert(impressaoJob).values({
+        // Loja com servidor local ativo: vai por comando para ele (a fila da nuvem não é lida lá).
+        await gravarOuEncaminharImpressao(this.db, {
           tenantId,
           unidadeId: ordem.unidadeId ?? null,
           equipamentoId: ordem.impressoraId,
-          pedidoId: null,
           via: 'producao',
           conteudo: this.renderOrdemTicket(ordem, ficha),
         });
