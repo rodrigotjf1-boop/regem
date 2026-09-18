@@ -439,13 +439,17 @@ export class SyncService {
     // Circuit-breaker anti-tempestade: recusa push CONCORRENTE do mesmo dispositivo
     // (barato, 429) ANTES do trabalho pesado — a origem não afoga (evita o 502 em
     // cascata quando o daemon do edge sobrepõe ciclos). O edge reenvia no próximo ciclo.
-    // Trava NO BANCO (advisory lock por dispositivo), não mais um conjunto em memória: com
-    // mais de uma réplica da API, o conjunto só protegia dentro de cada processo e dois pushes
-    // do mesmo servidor local passavam em paralelo. `pg_try_advisory_xact_lock` é barato e some
-    // sozinho no fim da transação; a chave é o hash do id do equipamento.
-    const travou: any = await this.db.execute(
-      sql`select pg_try_advisory_lock(hashtext('sync_push'), hashtext(${ctx.equipamentoId})) as ok`,
-    );
+    // Trava NO BANCO por LINHA (mig 266). Já foi um conjunto em memória (valia só dentro de
+    // cada réplica) e depois uma trava consultiva — que é por SESSÃO e, com pool de conexões,
+    // não serve: testado com 20 envios simultâneos do mesmo dispositivo, TODOS passaram (a
+    // trava é reentrante na mesma sessão) e o destravar podia cair noutra conexão, deixando a
+    // trava presa. A linha resolve a disputa no banco, independe da conexão e expira sozinha
+    // se a API morrer no meio do envio.
+    const travou: any = await this.db.execute(sql`
+      insert into sync_push_lock (equipamento_id, em) values (${ctx.equipamentoId}, now())
+      on conflict (equipamento_id) do update set em = now()
+       where sync_push_lock.em < now() - make_interval(secs => ${PUSH_LOCK_SEG})
+      returning 1 as ok`);
     if (!((travou.rows ?? travou)[0]?.ok)) {
       throw new HttpException('Já há um push deste dispositivo em curso.', HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -564,7 +568,7 @@ export class SyncService {
       // Libera SEMPRE (sucesso ou erro). A conexão é do pool: sem o unlock explícito a trava
       // ficaria presa na sessão reaproveitada e o dispositivo não empurraria mais nada.
       await this.db
-        .execute(sql`select pg_advisory_unlock(hashtext('sync_push'), hashtext(${ctx.equipamentoId}))`)
+        .execute(sql`delete from sync_push_lock where equipamento_id = ${ctx.equipamentoId}`)
         .catch(() => undefined);
     }
   }
@@ -572,6 +576,11 @@ export class SyncService {
 
 // O servidor local está mais atrasado que a janela de retenção das exclusões (mig 265)?
 // Olha a posição MAIS VELHA que ele mandou: é a partir dela que ele ainda vai pedir dados.
+// Janela da trava de envio (mig 266): se a API cair no meio de um push, o dispositivo volta a
+// enviar depois disto. Curto o bastante para não segurar a loja, longo o bastante para cobrir
+// um push grande (o time-box do daemon é de 20 s por ciclo).
+const PUSH_LOCK_SEG = Number(process.env.SYNC_PUSH_LOCK_SEG ?? 120);
+
 export const RETENCAO_EXCLUSAO_DIAS = Number(process.env.SYNC_RETENCAO_DIAS ?? 30);
 export function atrasadoDemais(desde?: string, cursores?: Record<string, string>): boolean {
   const limite = Date.now() - RETENCAO_EXCLUSAO_DIAS * 86400000;

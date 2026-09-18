@@ -99,6 +99,9 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
 - 🔴 **Sync — robustez (sem migration nova; usa `sync_fila` da 264):** tocou **`sync-daemon.mjs`** (transação na aplicação, filas em tabela, limpeza do escopo, trava de relógio) e a nuvem (trava do push no banco) → **`.zip` e `.exe`**.
   ℹ️ Na primeira execução após o pacote, o servidor local apaga o transacional de OUTRAS lojas (só em empresa com 2+ lojas e com `EDGE_UNIDADE_ID` definido).
 
+- **Trava do envio por linha (migration 266, NÃO cloud-only):** só backend da nuvem → **autodeploy**; o daemon não muda (não precisa de `.zip` por causa disto).
+  ⚠️ **Ordem de deploy:** 266 aditiva, pode ir antes do código.
+
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
 > **Épico trava anti-clone + suporte + self-service C&O é CLOUD-ONLY** (backend + front por autodeploy) — **NÃO** entra no `.exe`/`.zip`. Frentes: cadeado no console /distribuicao; suporte com "acesso total" opcional (presidente concede em config/acessos); self-service do C&O em /servidor (cadastra app autenticador); **trava anti-clone ON por padrão após a 1ª instalação**. Precisa da **migration 224** na nuvem (`empresa.suporte_acesso_total`). _(E — nuvem→edge de suporte — adiada.)_
