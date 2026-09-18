@@ -763,7 +763,7 @@ export class LicencaService {
     const extra: any = {};
     if (dto?.comSaude) {
       try {
-        extra.comandos = await this.edge.comandosPendentes(tenantId);
+        extra.comandos = await this.edge.comandosPendentes(tenantId, equipamentoId ?? null);
       } catch { /* best-effort: o daemon cai no endpoint */ }
       try {
         extra.atualizacao = await this.edge.atualizacao(dto?.versao ?? undefined);

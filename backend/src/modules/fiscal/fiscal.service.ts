@@ -16,6 +16,8 @@ import {
   impressaoJob,
 } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { edgeAtivo } from '../../common/edge-ativo';
+import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { gerarCNF, montarChave, montarQrCode } from './chave';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
 import {
@@ -469,25 +471,17 @@ export class FiscalService {
       .then((r) => r[0] ?? null);
   }
 
-  // DANFE NFC-e (cupom) → impressoras de papel 'cupom'.
+  // DANFE NFC-e → UMA impressora: a que imprimiu o cupom desta venda; sem ela, uma impressora de
+  // cupom da LOJA da nota (a marcada como padrão primeiro).
+  // Antes: TODAS as impressoras com o `papel` antigo 'cupom' DA EMPRESA — numa rede com duas
+  // lojas cada nota saía nas duas, e numa loja com dois caixas, nos dois. `faz_cupom` (mig 167)
+  // é o campo que o cadastro mantém hoje.
   private async imprimirDanfe(
     tenantId: string,
     nota: any,
     itens: NfceItem[],
     extras?: { frete: number; desconto: number },
   ) {
-    const printers = await this.db
-      .select({ id: equipamento.id })
-      .from(equipamento)
-      .where(
-        and(
-          eq(equipamento.tenantId, tenantId),
-          eq(equipamento.tipo, 'impressora'),
-          eq(equipamento.papel, 'cupom'),
-          eq(equipamento.ativo, true),
-        ),
-      );
-    if (!printers.length) return;
     const money = (n: number) =>
       Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const l: string[] = ['DANFE NFC-e', `Serie ${nota.serie} No ${nota.numero}`];
@@ -505,17 +499,48 @@ export class FiscalService {
     l.push(`TOTAL: ${money(Number(nota.valorTotal))}`);
     l.push(`Chave: ${nota.chave}`);
     l.push(`Protocolo: ${nota.protocolo ?? '-'}`);
-    l.push(`Consulte pela chave. QRCode:`);
-    l.push(nota.qrcode ?? '');
-    for (const p of printers) {
-      await this.db.insert(impressaoJob).values({
-        tenantId,
-        unidadeId: nota.unidadeId,
-        equipamentoId: p.id,
-        pedidoId: null,
-        via: 'fiscal',
-        conteudo: l.join('\n'),
-      });
+    l.push('Consulte pela chave ou pelo QR Code:');
+    // O QR Code DESENHADO (o conversor transforma '@QR:' em QR). Antes saía o endereço como
+    // texto — o cliente não tinha como escanear para consultar a nota.
+    if (nota.qrcode) l.push(`@QR:${nota.qrcode}`);
+    const conteudo = l.join('\n');
+
+    // Loja com servidor local ATIVO: a impressora está na rede dela e a fila da nuvem não é lida
+    // por ninguém ali. A DANFE vai por COMANDO para o servidor da loja (mig 269), que escolhe a
+    // impressora local com a mesma regra abaixo. Antes a nota emitida na nuvem para essa loja
+    // nunca saía no papel. No próprio servidor local `edgeAtivo` é sempre false.
+    if (await edgeAtivo(this.db, tenantId, nota.unidadeId ?? null)) {
+      await enfileirarComandoEdge(this.db, tenantId, 'imprimir_danfe', {
+        unidadeId: nota.unidadeId ?? null,
+        dados: { conteudo, comandaId: nota.comandaId ?? null },
+        solicitadoPor: 'fiscal',
+      }).catch(() => { /* a nota está emitida; a impressão é best-effort */ });
+      return;
     }
+    const r: any = await this.db.execute(sql`
+      select coalesce(
+        (select j.equipamento_id from impressao_job j
+           join equipamento e on e.id = j.equipamento_id and e.ativo
+          where j.tenant_id = ${tenantId} and j.comanda_id = ${nota.comandaId ?? null}
+            and j.via = 'cliente'
+          order by j.criado_em desc limit 1),
+        (select e.id from equipamento e
+          where e.tenant_id = ${tenantId} and e.tipo = 'impressora' and e.ativo and e.faz_cupom
+            and (${nota.unidadeId ?? null}::uuid is null or e.unidade_id = ${nota.unidadeId ?? null}::uuid
+                 or e.unidade_id is null)
+          order by e.padrao desc, (e.unidade_id is null), e.created_at
+          limit 1)
+      ) as id`);
+    const alvo = ((r.rows ?? r)[0]?.id as string | null) ?? null;
+    if (!alvo) return;
+    await this.db.insert(impressaoJob).values({
+      tenantId,
+      unidadeId: nota.unidadeId,
+      equipamentoId: alvo,
+      pedidoId: null,
+      comandaId: nota.comandaId ?? null, // liga à venda (reimpressão / não duplicar)
+      via: 'fiscal',
+      conteudo,
+    });
   }
 }

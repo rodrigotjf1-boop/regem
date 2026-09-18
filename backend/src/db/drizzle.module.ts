@@ -38,7 +38,7 @@ type SslOpt = false | { ca?: string[]; rejectUnauthorized: boolean };
 //                  quanto para o pooler/Supavisor (cert de CA pública).
 // Sem DB_SSL, INFERE pelo host: *.supabase.co / *.pooler.supabase.com → verify-full;
 // qualquer outro (localhost, IP do edge) → disable. DB_SSL_CA (PEM) troca a CA.
-function resolverSsl(connStr?: string): SslOpt {
+export function resolverSsl(connStr?: string): SslOpt {
   const modo = (process.env.DB_SSL || '').toLowerCase().trim();
   let host = '';
   try {

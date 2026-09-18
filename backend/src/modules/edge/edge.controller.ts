@@ -117,7 +117,7 @@ export class EdgeController {
   @Get('edge/comandos')
   @UseGuards(SyncTokenGuard)
   comandos(@SyncCtx() ctx: SyncCtxData) {
-    return this.service.comandosPendentes(ctx.tenantId);
+    return this.service.comandosPendentes(ctx.tenantId, ctx.equipamentoId);
   }
 
   @Post('edge/comandos/:id/ack')

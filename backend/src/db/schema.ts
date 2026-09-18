@@ -868,6 +868,11 @@ export const equipamento = pgTable('equipamento', {
   host: text('host'), // IP da impressora de rede (conexao='rede')
   porta: integer('porta'), // porta ESC/POS (padrão 9100)
   dispositivo: text('dispositivo'), // nome da impressora no Windows (conexao='local')
+  // Máquina do agente de impressão dona desta impressora USB (mig 267). Aprendida na 1ª
+  // impressão confirmada; a fila só entrega o job USB para ela.
+  agenteMaquina: text('agente_maquina'),
+  // Página de código da impressora para sair COM acento (mig 269): cp860 | cp850; null = sem acento.
+  codepage: text('codepage'),
   largura: integer('largura').notNull().default(80), // 58 | 80 (mm) — impressora
   setoresAtendidos: jsonb('setores_atendidos').notNull().default('[]'), // [setor_id,...] (impressora)
   vias: integer('vias').notNull().default(1), // nº de vias (impressora) — legado/fallback

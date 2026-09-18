@@ -19,6 +19,10 @@ import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { renderEscpos } from './escpos.mjs';
+import {
+  SQL_RESERVAR, SQL_OUTRA_LOJA, SQL_RENOVAR, SQL_IMPRESSO, SQL_ERRO, SQL_ERRO_DEFINITIVO,
+  SQL_DEVOLVER, SQL_STATUS,
+} from './impressao-fila.mjs';
 
 // Servico do Windows nao tem shell que exporte envs: carrega o .env.local na mao
 // e DECIFRA os enc: DPAPI (senao a EDGE_DATABASE_URL fica cifrada -> pg 28P01).
@@ -59,6 +63,10 @@ process.on('uncaughtException', (e) => {
 });
 
 // Envia bytes crus por TCP para host:porta (protocolo RAW/9100 das termicas).
+// Duas esperas: CONECTAR (3 s — impressora desligada/IP errado não responde nada, e esperar 8 s
+// por tentativa travava a fila dela por ~25 s por job) e ENVIAR (8 s depois de conectada — uma
+// impressora ligada e lenta, ou sem papel segurando o buffer, ainda tem folga).
+const CONECTAR_MS = Number(process.env.PRINT_CONECTAR_MS || 3000);
 function enviarTcp(host, porta, buffer) {
   return new Promise((resolve, reject) => {
     const sock = net.createConnection({ host, port: porta || PORTA_PADRAO });
@@ -66,11 +74,16 @@ function enviarTcp(host, porta, buffer) {
     const fim = (err) => {
       if (feito) return;
       feito = true;
+      clearTimeout(tConectar);
       sock.destroy();
       err ? reject(err) : resolve();
     };
+    const tConectar = setTimeout(() => fim(new Error(`impressora não respondeu (sem conexão em ${CONECTAR_MS / 1000} s)`)), CONECTAR_MS);
     sock.setTimeout(8000);
-    sock.on('connect', () => sock.write(buffer, () => sock.end()));
+    sock.on('connect', () => {
+      clearTimeout(tConectar);
+      sock.write(buffer, () => sock.end());
+    });
     sock.on('close', () => fim());
     sock.on('timeout', () => fim(new Error('timeout na conexao com a impressora')));
     sock.on('error', (e) => fim(e));
@@ -116,107 +129,190 @@ function enviarWindows(dispositivo, buffer) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Marca 'impresso' com insistência: o papel JÁ saiu — se esta gravação falhar e o job voltar
+// para a fila, ele sai de novo. Três tentativas curtas antes de desistir (e logar).
 async function marcarImpresso(id) {
-  await pool.query(
-    `update impressao_job set status='impresso', impresso_em=now(), claim_por=null, claim_ate=null where id=$1`,
-    [id],
-  );
+  for (let t = 1; t <= 3; t++) {
+    try {
+      await pool.query(SQL_IMPRESSO, [id]);
+      return;
+    } catch (e) {
+      if (t === 3) console.error(`  ! job ${id.slice(0, 8)} impresso, mas não consegui gravar: ${e.message} — pode sair de novo`);
+      else await sleep(300 * t);
+    }
+  }
 }
+// Os dois marcadores de erro NUNCA estouram: uma exceção aqui subia até o `ouvir()`, que
+// abria um SEGUNDO cliente LISTEN com o primeiro ainda conectado.
 async function marcarErro(id, msg) {
-  // Auto-retry (P2): re-enfileira como 'pendente' com backoff crescente (reusa claim_ate como
-  // "não pegar antes de") até AUTO_RETRY_CAP; depois vira 'erro' terminal (reimpressão manual).
-  await pool.query(
-    `update impressao_job set
-       tentativas = tentativas + 1,
-       erro = $2,
-       claim_por = null,
-       status = case when tentativas + 1 < $3 then 'pendente' else 'erro' end,
-       claim_ate = case when tentativas + 1 < $3 then now() + (interval '30 seconds' * (tentativas + 1)) else null end
-     where id = $1`,
-    [id, String(msg || 'falha').slice(0, 400), AUTO_RETRY_CAP],
-  );
+  try {
+    await pool.query(SQL_ERRO, [id, String(msg || 'falha').slice(0, 400), AUTO_RETRY_CAP]);
+  } catch (e) {
+    console.error(`  ! não gravei o erro do job ${id.slice(0, 8)}: ${e.message} (a reserva vence e ele volta)`);
+  }
+}
+async function marcarErroDefinitivo(id, msg) {
+  try {
+    await pool.query(SQL_ERRO_DEFINITIVO, [id, String(msg).slice(0, 400)]);
+  } catch (e) {
+    console.error(`  ! não gravei o erro do job ${id.slice(0, 8)}: ${e.message}`);
+  }
 }
 
-// Imprime um job com retry/backoff. Devolve true se saiu, false se falhou de vez.
+// Estado da impressora (mig 269) — best-effort: banco antigo sem a tabela não atrapalha a impressão.
+async function registrarEstado(equipamentoId, saiu, erro) {
+  if (!equipamentoId) return;
+  try {
+    await pool.query(SQL_STATUS, [equipamentoId, !!saiu, saiu ? null : String(erro || 'falha').slice(0, 300)]);
+  } catch { /* sem a mig 269: segue sem o estado */ }
+}
+
+// Imprime um job com retry/backoff. Devolve 'ok' (saiu), 'config' (erro de cadastro — não é
+// a impressora que caiu), 'falha' (a impressora não recebeu) ou 'perdida' (a reserva não é mais
+// deste worker; não imprimiu).
 async function imprimirJob(job) {
   const local = job.conexao === 'local';
-  // Valida o alvo conforme o tipo de conexão da impressora.
+  // Erro de CONFIGURAÇÃO não melhora tentando de novo: vai direto para 'erro' com o motivo.
+  if (!job.conexao && !job.host && !job.dispositivo) {
+    await marcarErroDefinitivo(job.id, 'impressora não encontrada (removida ou sem cadastro)');
+    console.error(`  job ${job.id.slice(0, 8)} — impressora inexistente`);
+    return 'config';
+  }
+  // Desativada no cadastro: não imprime o que ficou na fila dela (antes saía mesmo assim —
+  // medido). O gestor redireciona pelo "Imprimir em…".
+  if (job.ativo === false) {
+    await marcarErroDefinitivo(job.id, 'impressora desativada — use "Imprimir em…" para outra');
+    console.error(`  job ${job.id.slice(0, 8)} — impressora "${job.impressora || '?'}" desativada`);
+    return 'config';
+  }
   if (local && !job.dispositivo) {
-    await marcarErro(job.id, 'impressora local sem nome do Windows');
+    await marcarErroDefinitivo(job.id, 'impressora local sem nome do Windows');
+    await registrarEstado(job.equipamento_id, false, 'sem nome do Windows no cadastro');
     console.error(`  job ${job.id.slice(0, 8)} — impressora "${job.impressora || '?'}" local sem nome`);
-    return false;
+    return 'config';
   }
   if (!local && !job.host) {
-    await marcarErro(job.id, 'impressora de rede sem IP configurado');
+    await marcarErroDefinitivo(job.id, 'impressora de rede sem IP configurado');
+    await registrarEstado(job.equipamento_id, false, 'sem IP no cadastro');
     console.error(`  job ${job.id.slice(0, 8)} — impressora "${job.impressora || '?'}" sem IP`);
-    return false;
+    return 'config';
+  }
+  // A reserva do lote pode ter vencido enquanto os jobs anteriores esperavam uma impressora
+  // fora do ar: renova ESTE job agora; se ele não é mais nosso, não imprime.
+  try {
+    const r = await pool.query(SQL_RENOVAR, [job.id, WORKER_ID]);
+    if (!r.rowCount) return 'perdida';
+  } catch (e) {
+    console.error(`  job ${job.id.slice(0, 8)} — não renovei a reserva (${e.message}); fica para o próximo ciclo`);
+    return 'perdida';
   }
   const vias = Math.max(1, Number(job.vias) || 1);
-  const buffer = renderEscpos(job.conteudo, job.largura || 80, job.linguagem);
+  const buffer = renderEscpos(job.conteudo, job.largura || 80, job.linguagem, job.codepage);
   const enviar = local
     ? () => enviarWindows(job.dispositivo, buffer)
     : () => enviarTcp(job.host, job.porta, buffer);
   const alvo = local ? `win:${job.dispositivo}` : `${job.impressora || job.host}:${job.porta || PORTA_PADRAO}`;
   let ultimoErro = null;
   let enviadas = 0; // via-a-via: uma via que já saiu NÃO é reimpressa no retry
-  for (let t = 1; t <= TENTATIVAS; t++) {
+  for (let t = 1; t <= TENTATIVAS && enviadas < vias; t++) {
     try {
       while (enviadas < vias) {
         await enviar();
         enviadas++;
       }
-      await marcarImpresso(job.id);
-      console.log(`  ✓ job ${job.id.slice(0, 8)} -> ${alvo}` + (vias > 1 ? ` (${vias} vias)` : ''));
-      return true;
     } catch (e) {
       ultimoErro = e.message;
       if (t < TENTATIVAS) await sleep(500 * t); // backoff 0.5s, 1s
     }
   }
+  if (enviadas >= vias) {
+    // Fora do laço de envio: falha AO GRAVAR não pode virar reenvio do papel.
+    await marcarImpresso(job.id);
+    await registrarEstado(job.equipamento_id, true);
+    console.log(`  ✓ job ${job.id.slice(0, 8)} -> ${alvo}` + (vias > 1 ? ` (${vias} vias)` : ''));
+    return 'ok';
+  }
   await marcarErro(job.id, ultimoErro);
+  await registrarEstado(job.equipamento_id, false, ultimoErro);
   console.error(`  ✗ job ${job.id.slice(0, 8)} falhou apos ${TENTATIVAS} tentativas (${enviadas}/${vias} vias): ${ultimoErro}`);
-  return false;
+  return 'falha';
 }
 
-// Busca a fila (join com equipamento para host/porta/largura/vias).
-// F2 (roteamento por loja): unidade DESTE edge. Setada → só imprime os jobs DELA + os
-// "da rede" (unidade_id null). O banco local tem o tenant inteiro (sync tenant-wide), então
-// o filtro é aqui. Vazio (1 loja / edge antigo) → tenant-wide, comportamento atual.
+// F2 (roteamento por loja): unidade DESTE edge. Setada → só imprime os jobs DELA e os "da
+// rede", e só em impressoras DELA ou sem loja (ver SQL_RESERVAR). Vazio (1 loja / edge
+// antigo) → sem filtro de loja, comportamento de sempre.
 const EDGE_UNIDADE = (process.env.EDGE_UNIDADE_ID || '').trim() || null;
 async function pendentes() {
-  // Reserva atômica (claim/lease, mig 221): pega até 20 jobs marcando 'enviando' + lease de
-  // 120s; `for update skip locked` impede outro worker pegar o mesmo (fim do duplo-print) e
-  // re-pega os 'enviando' com lease VENCIDA (worker que morreu no meio). Vias por tipo (mig 168):
-  // cupom do cliente vs produção (antes usava só `e.vias` flat — ignorava viasCliente/Producao).
-  const filtro = EDGE_UNIDADE ? 'and (j.unidade_id = $2 or j.unidade_id is null)' : '';
-  const params = EDGE_UNIDADE ? [WORKER_ID, EDGE_UNIDADE] : [WORKER_ID];
-  const r = await pool.query(`
-    with alvo as (
-      select j.id from impressao_job j
-      where ((j.status = 'pendente' and (j.claim_ate is null or j.claim_ate < now()))
-             or (j.status = 'enviando' and j.claim_ate < now())) ${filtro}
-      order by j.criado_em asc
-      limit 20
-      for update skip locked
-    ),
-    claimed as (
-      update impressao_job
-      set status='enviando', claim_por=$1, claim_ate=now() + interval '120 seconds'
-      where id in (select id from alvo)
-      returning id, conteudo, via, tentativas, equipamento_id
-    )
-    select c.id, c.conteudo, c.via, c.tentativas,
-           e.conexao, e.host, e.porta, e.dispositivo, e.largura,
-           e.nome as impressora, e.linguagem_etiqueta as linguagem,
-           case
-             when c.via = 'cliente' then coalesce(e.vias_cliente, e.vias)
-             when c.via = 'producao' then coalesce(e.vias_producao, e.vias)
-             else e.vias end as vias
-    from claimed c
-    left join equipamento e on e.id = c.equipamento_id
-    order by c.criado_em asc
-  `, params);
+  if (EDGE_UNIDADE) {
+    const r = await pool.query(SQL_OUTRA_LOJA, [EDGE_UNIDADE]);
+    if (r.rowCount) console.error(`  ${r.rowCount} job(s) apontando para impressora de OUTRA loja — encerrados com erro (redirecione pelo painel)`);
+  }
+  const r = await pool.query(SQL_RESERVAR, [WORKER_ID, EDGE_UNIDADE, foraDaReserva()]);
   return r.rows;
+}
+
+// ===== UMA FILA POR IMPRESSORA (em paralelo) + DISJUNTOR =====
+// Antes: uma fila só para todas as impressoras, um job de cada vez. Impressora desligada prendia
+// o worker ~25 s por job — medido: via da COZINHA esperou 77 s atrás de três cupons de um caixa
+// desligado. Agora cada impressora tem a sua fila (ordem de chegada dentro dela) e as filas andam
+// ao mesmo tempo; o que acontece com uma não atrasa as outras — como o spooler do Windows/CUPS.
+//
+// DISJUNTOR: a impressora que não recebeu um job fica "fora do ar" por 30 s (dobra a cada nova
+// falha, até 5 min). Enquanto isso: os jobs dela que estavam na fila voltam para a fila do banco
+// sem contar tentativa, e a reserva não pega jobs dela. Vencido o prazo, UM job testa: saiu →
+// fecha o disjuntor; não saiu → reabre mais longo. Sem isso, cada job de uma impressora sem
+// papel gastaria as suas tentativas uma a uma e iria para 'erro' antes de alguém trocar o papel.
+const DISJUNTOR_MIN_MS = 30_000;
+const DISJUNTOR_MAX_MS = 5 * 60_000;
+const filas = new Map(); // equipamento_id → { jobs: [], rodando: bool }
+const disjuntor = new Map(); // equipamento_id → { ate: ms, falhas: n }
+
+function foraDaReserva() {
+  const agora = Date.now();
+  const ids = [];
+  for (const [id, f] of filas) if (f.rodando || f.jobs.length) ids.push(id);
+  for (const [id, d] of disjuntor) if (d.ate > agora) ids.push(id);
+  return ids;
+}
+
+function abrirDisjuntor(id) {
+  const d = disjuntor.get(id) ?? { falhas: 0, ate: 0 };
+  d.falhas++;
+  const ms = Math.min(DISJUNTOR_MAX_MS, DISJUNTOR_MIN_MS * 2 ** (d.falhas - 1));
+  d.ate = Date.now() + ms;
+  disjuntor.set(id, d);
+  console.error(`  impressora ${id.slice(0, 8)} fora do ar — pausa de ${ms / 1000}s (as outras seguem)`);
+}
+
+async function rodarFila(chave) {
+  const f = filas.get(chave);
+  if (!f || f.rodando) return;
+  f.rodando = true;
+  try {
+    while (f.jobs.length) {
+      const job = f.jobs.shift();
+      let r;
+      try {
+        r = await imprimirJob(job);
+      } catch (e) {
+        // Rede de segurança: um job com problema inesperado não derruba a fila da impressora.
+        console.error(`  job ${String(job.id).slice(0, 8)} — erro inesperado: ${e?.message ?? e}`);
+        continue;
+      }
+      if (r === 'ok') disjuntor.delete(chave);
+      if (r === 'falha' && chave !== '-') {
+        abrirDisjuntor(chave);
+        // Os que esperavam a vez nesta impressora voltam para o banco sem gastar tentativa.
+        for (const resto of f.jobs.splice(0)) {
+          await pool.query(SQL_DEVOLVER, [resto.id, WORKER_ID]).catch(() => {});
+        }
+      }
+    }
+  } finally {
+    f.rodando = false;
+    if (!f.jobs.length) filas.delete(chave);
+    drenar(); // a impressora ficou livre: pega o próximo dela (e o que mais houver)
+  }
 }
 
 let drenando = false;
@@ -240,7 +336,17 @@ async function drenar() {
         break;
       }
       if (!fila.length) break;
-      for (const job of fila) await imprimirJob(job);
+      // Distribui nas filas das impressoras e deixa cada uma andar sozinha. A reserva seguinte
+      // já exclui as impressoras que receberam jobs agora (foraDaReserva).
+      const tocadas = new Set();
+      for (const job of fila) {
+        const chave = job.equipamento_id || '-';
+        const f = filas.get(chave) ?? { jobs: [], rodando: false };
+        f.jobs.push(job);
+        filas.set(chave, f);
+        tocadas.add(chave);
+      }
+      for (const chave of tocadas) rodarFila(chave);
     }
   } finally {
     drenando = false;
@@ -251,25 +357,43 @@ async function drenar() {
   }
 }
 
-// LISTEN dedicado (client separado do pool) com reconexao automatica.
+// LISTEN dedicado (client separado do pool) com reconexao automatica. UM cliente por vez:
+// antes, uma falha na drenagem inicial (dentro do mesmo try) agendava outro ouvir() com este
+// cliente ainda conectado — cada falha somava um LISTEN que nunca era fechado.
+let ouvinte = null;
+let reconectando = false;
+function reconectar(motivo) {
+  if (reconectando) return;
+  reconectando = true;
+  const velho = ouvinte;
+  ouvinte = null;
+  if (velho) velho.end().catch(() => {});
+  console.error(`  LISTEN caiu: ${motivo} — reconectando em 3s`);
+  setTimeout(() => {
+    reconectando = false;
+    ouvir();
+  }, 3000);
+}
 async function ouvir() {
   const client = new pg.Client({ connectionString: EDGE_DB });
   client.on('notification', () => drenar());
-  client.on('error', (e) => {
-    console.error(`  LISTEN caiu: ${e.message} — reconectando em 3s`);
-    setTimeout(ouvir, 3000);
+  client.on('error', (e) => reconectar(e.message));
+  client.on('end', () => {
+    if (ouvinte === client) reconectar('conexão encerrada');
   });
   try {
     await client.connect();
     await client.query('LISTEN impressao_nova');
+    ouvinte = client;
     console.log('  LISTEN impressao_nova ativo (impressao instantanea)');
-    await drenar(); // pega o que ja estava na fila ao subir
   } catch (e) {
-    console.error(`  falha no LISTEN: ${e.message} — retry em 3s`);
-    setTimeout(ouvir, 3000);
+    client.end().catch(() => {});
+    reconectar(`falha no LISTEN: ${e.message}`);
+    return;
   }
+  drenar(); // pega o que ja estava na fila ao subir (fora do try: não mexe no LISTEN)
 }
 
-console.log(`Worker de impressao — edge=${mask} poll=${POLL_MS}ms porta_padrao=${PORTA_PADRAO}`);
+console.log(`Worker de impressao — edge=${mask} poll=${POLL_MS}ms porta_padrao=${PORTA_PADRAO}` + (EDGE_UNIDADE ? ` loja=${EDGE_UNIDADE.slice(0, 8)}` : ''));
 await ouvir();
 setInterval(drenar, POLL_MS); // rede de seguranca

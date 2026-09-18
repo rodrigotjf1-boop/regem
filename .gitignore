@@ -41,3 +41,6 @@ desktop/signing/
 # Assinatura de update (Ed25519, Fase 3): a chave PRIVADA nunca vai pro git.
 # Só o update-pub.pem (público) é versionado; update-priv.pem fica só com a distribuição.
 backend/edge/update-priv.pem
+
+# Memória local do agente de impressão (ids já impressos)
+backend/edge/.impressos.log
