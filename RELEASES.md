@@ -90,6 +90,9 @@ Mudanças **do edge** já na `main` aguardando o próximo corte:
 - **Pull por loja (CLOUD-ONLY, sem migration):** o servidor local de uma empresa com MAIS DE UMA loja passa a baixar só o transacional da própria loja (cadastro e configuração continuam inteiros). É tudo no backend da nuvem (`sync-config.ts`/`sync.service.ts`) → **autodeploy, sem `.zip`/`.exe`**. O daemon não muda.
   ℹ️ O que já foi baixado antes fica no banco da loja (não é apagado); é inofensivo e some numa reinstalação limpa. Empresa de uma loja: nada muda.
 
+- 🔴 **Sync P0: exclusão vence, estado do edge, expurgo e reinicialização (migrations 263, 264 e 265, NÃO cloud-only):** tocou **`sync-daemon.mjs`** (rebobinar e pedir restauração) + nuvem → **`.zip` e `.exe`**. A parte da nuvem (exclusão vence, `edge_status`, expurgo diário) vale no deploy; a da loja, no pacote.
+  ⚠️ **Ordem de deploy:** as três migrations são **aditivas e independentes do código** — podem ir para a nuvem antes. A 264 cria `sync_marcador`, `edge_status` e `sync_fila`; a 265 faz a primeira limpeza. ⚠️ Em base grande, os índices da 263 devem ser criados com `CREATE INDEX CONCURRENTLY`, linha a linha.
+
 > **OSRM Fase 0/1 (#417) é CLOUD-ONLY** (rota no rastreio do cliente + backend por autodeploy) — **NÃO** entra no `.exe`/`.zip` do edge; sobe por autodeploy. Precisa de `OSRM_URL` no `regem-api`.
 
 > **Épico trava anti-clone + suporte + self-service C&O é CLOUD-ONLY** (backend + front por autodeploy) — **NÃO** entra no `.exe`/`.zip`. Frentes: cadeado no console /distribuicao; suporte com "acesso total" opcional (presidente concede em config/acessos); self-service do C&O em /servidor (cadastra app autenticador); **trava anti-clone ON por padrão após a 1ª instalação**. Precisa da **migration 224** na nuvem (`empresa.suporte_acesso_total`). _(E — nuvem→edge de suporte — adiada.)_

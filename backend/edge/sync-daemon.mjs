@@ -676,6 +676,28 @@ async function aplicarPull(data, cursores, cli) {
   }
   // Mantém o cursor legado (piso p/ tabelas novas + compat caso o daemon seja rebaixado).
   if (data.proximoCursor) await setState('pull_cursor', data.proximoCursor);
+  // A nuvem avisa que este servidor está mais atrasado que a janela de retenção das exclusões
+  // (mig 265): dados apagados lá podem não ter mais registro, e seguir no delta deixaria linha
+  // fantasma para sempre. O caminho é recomeçar pelo arquivo (restauração), que o próprio
+  // ciclo dispara — e o push sobe o que é local antes, então nada se perde.
+  if (data.reinicializar && (await getState('reinicializando', '0')) !== '1') {
+    // Ressincronização completa: rebobina TODOS os cursores para o começo (é o que a nuvem
+    // faria num reprovisionamento) e pede o arquivo do transacional. Sem rebobinar, os
+    // cursores velhos continuariam velhos depois do arquivo e a nuvem pediria reinicialização
+    // a cada ciclo — laço de restauração.
+    await setState('reinicializando', '1');
+    await setState('pull_cursores', '{}');
+    await setState('pull_cursor', '1970-01-01T00:00:00Z');
+    await setState('restaurar_solicitado', '1');
+    await setState('reinicializado_em', new Date().toISOString());
+    const msg = 'servidor local atrasado além da janela de retenção — ressincronizando do começo + restauração por arquivo';
+    console.warn(`  ⚠️ ${msg}`);
+    try { await reportarTelemetria('sync', 'reinicializar', msg); } catch { /* best-effort */ }
+    return aplicadas; // o ciclo seguinte já baixa tudo com os cursores zerados
+  }
+  if (!data.reinicializar && (await getState('reinicializando', '0')) === '1') {
+    await setState('reinicializando', '0'); // voltou à janela: volta ao delta normal
+  }
   try {
     await recon.registrarAusentes(ausentes);
     await recon.concluirPull(data.tabelas);

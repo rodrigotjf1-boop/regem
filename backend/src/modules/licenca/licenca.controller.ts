@@ -198,6 +198,6 @@ export class LicencaController {
   @Post('edge/heartbeat')
   @UseGuards(SyncTokenGuard)
   heartbeat(@SyncCtx() ctx: SyncCtxData, @Body() dto: any) {
-    return this.service.heartbeat(ctx.tenantId, ctx.unidadeId ?? null, dto);
+    return this.service.heartbeat(ctx.tenantId, ctx.unidadeId ?? null, dto, ctx.equipamentoId);
   }
 }

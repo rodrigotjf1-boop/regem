@@ -124,7 +124,18 @@ export class SyncService {
     cursores?: Record<string, string>,
     unidadeId?: string | null,
   ) {
-    return this.deltas(tenantId, TABELAS_PULL, desde, cursores, await this.lojaDoEdge(tenantId, unidadeId));
+    const saida: any = await this.deltas(
+      tenantId, TABELAS_PULL, desde, cursores, await this.lojaDoEdge(tenantId, unidadeId),
+    );
+    // JANELA DE RETENÇÃO (mig 265): registro de exclusão vive 30 dias. Servidor local parado
+    // mais que isso perdeu exclusões e não tem como saber — o sync seguiria com linha fantasma
+    // para sempre. O mercado trata isso como reinicialização explícita: o Sync Gateway avisa
+    // que o cliente offline além do expurgo perde a exclusão, o SQL Data Sync marca o grupo
+    // como desatualizado e manda reprovisionar, e o AppSync cai na consulta base. Aqui pedimos
+    // a restauração por arquivo, que é o nosso "recomeçar limpo" (e não perde o que é local:
+    // o push sobe antes).
+    if (atrasadoDemais(desde, cursores)) saida.reinicializar = true;
+    return saida;
   }
 
   // A loja pela qual filtrar o pull: a do servidor local, e SÓ quando a empresa tem mais de
@@ -420,10 +431,29 @@ export class SyncService {
       let ignoradas = 0;
 
       // Linhas válidas (com id). O tenant_id é FORÇADO ao do token (ignora o da linha).
-      const linhas = (lote.linhas ?? []).filter(
+      let linhas = (lote.linhas ?? []).filter(
         (l: any) => l && typeof l === 'object' && l.id,
       );
       ignoradas += (lote.linhas?.length ?? 0) - linhas.length;
+
+      // EXCLUSÃO VENCE (reproduzido em teste): a nuvem apaga a linha, a loja edita a mesma
+      // linha ANTES de receber a exclusão e o push a recria aqui — a linha apagada reaparece
+      // e conta em relatório até a loja receber a exclusão e devolvê-la. É a regra "delete
+      // always wins" do Atlas Device Sync e do GoldenGate. Linha com exclusão registrada é
+      // descartada no push.
+      if (linhas.length && TABELAS_EXCLUIVEIS.has(lote.tabela)) {
+        const ids = linhas.map((l: any) => String(l.id));
+        const rex: any = await this.db.execute(sql`
+          select registro_id from sync_exclusao
+           where tenant_id = ${tenantId} and tabela = ${lote.tabela}
+             and registro_id in ${ids}`);
+        const apagadas = new Set((rex.rows ?? rex).map((x: any) => String(x.registro_id)));
+        if (apagadas.size) {
+          const antes = linhas.length;
+          linhas = linhas.filter((l: any) => !apagadas.has(String(l.id)));
+          ignoradas += antes - linhas.length;
+        }
+      }
 
       if (linhas.length) {
         // Colunas do LOTE: do 1º registro (o edge manda `select *` → colunas consistentes).
@@ -501,6 +531,24 @@ export class SyncService {
       this.pushEmCurso.delete(ctx.equipamentoId); // libera SEMPRE (sucesso ou erro)
     }
   }
+}
+
+// O servidor local está mais atrasado que a janela de retenção das exclusões (mig 265)?
+// Olha a posição MAIS VELHA que ele mandou: é a partir dela que ele ainda vai pedir dados.
+export const RETENCAO_EXCLUSAO_DIAS = Number(process.env.SYNC_RETENCAO_DIAS ?? 30);
+export function atrasadoDemais(desde?: string, cursores?: Record<string, string>): boolean {
+  const limite = Date.now() - RETENCAO_EXCLUSAO_DIAS * 86400000;
+  const quando = (v?: string) => {
+    const t = new Date(String(v ?? '').split('|')[0]).getTime();
+    return Number.isFinite(t) ? t : null;
+  };
+  const marcas = [quando(desde), ...Object.values(cursores ?? {}).map(quando)].filter(
+    (x): x is number => x != null,
+  );
+  if (!marcas.length) return false; // 1ª sincronização (sem cursor) já vem completa
+  // A época (1970) é o edge NOVO pedindo tudo desde o começo — não é atraso.
+  const maisVelha = Math.min(...marcas);
+  return maisVelha > new Date('1971-01-01').getTime() && maisVelha < limite;
 }
 
 // Aplica exclusões recebidas (sync_exclusao). Em savepoint por linha: apagar o pai antes do

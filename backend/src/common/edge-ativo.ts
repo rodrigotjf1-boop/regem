@@ -22,7 +22,16 @@ export async function edgeAtivo(
   // não basta o tenant ter algum edge (senão a filial materializaria o pedido da matriz).
   // `unidade_id is null` cobre a transição: edge ainda no formato antigo de heartbeat
   // (sem unidade) conta como tenant-wide até atualizar p/ o heartbeat rico (F1).
+  // `edge_status` (mig 264) tem UMA linha por servidor local, atualizada a cada batida. O
+  // `edge_heartbeat` continua no OR durante a transição: entre o deploy e a primeira batida
+  // (≤1 min) o status ainda não existe, e sem isso a loja seria dada como offline e a nuvem
+  // assumiria os pedidos dela.
   const r: any = await db.execute(sql`
+    select 1 from edge_status
+    where tenant_id = ${tenantId}
+      and recebido_em >= now() - make_interval(mins => ${janelaMin})
+      ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
+    union all
     select 1 from edge_heartbeat
     where tenant_id = ${tenantId}
       and recebido_em >= now() - make_interval(mins => ${janelaMin})

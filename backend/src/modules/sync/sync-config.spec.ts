@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { atrasadoDemais } from './sync.service';
 import {
   TABELAS_SYNC,
   TABELAS_PULL,
@@ -276,5 +277,28 @@ describe('escopo por loja no pull', () => {
   it('toda tabela janelada (transacional pesado) tem filtro de loja', () => {
     const faltando = [...TABELAS_JANELA_MIRROR].filter((t) => !temFiltro(t));
     expect(faltando).toEqual([]);
+  });
+});
+
+// Janela de retenção (migs 262/265): quem passou dela perdeu exclusões e precisa recomeçar.
+// Errar para mais reinicializaria loja saudável (crawl inteiro à toa); errar para menos
+// deixaria linha fantasma para sempre.
+describe('atrasadoDemais — janela de retenção', () => {
+  const diasAtras = (d: number) => new Date(Date.now() - d * 86400000).toISOString();
+
+  it('sem cursor (1ª sincronização) não é atraso', () => {
+    expect(atrasadoDemais(undefined, {})).toBe(false);
+  });
+
+  it('cursor na época (edge novo pedindo tudo) não é atraso', () => {
+    expect(atrasadoDemais('1970-01-01T00:00:00Z', {})).toBe(false);
+  });
+
+  it('cursor de ontem não é atraso', () => {
+    expect(atrasadoDemais(diasAtras(1), { comanda: `${diasAtras(1)}|x` })).toBe(false);
+  });
+
+  it('a tabela MAIS ATRASADA manda: 60 dias pede reinicialização', () => {
+    expect(atrasadoDemais(diasAtras(1), { comanda: `${diasAtras(60)}|x` })).toBe(true);
   });
 });

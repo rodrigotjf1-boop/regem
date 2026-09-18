@@ -155,7 +155,7 @@ export class DistribuicaoService {
              (select count(*) from telemetria_evento t where t.tenant_id = e.id and t.resolvido = false)::int as "errosAbertos"
       from empresa e
       left join lateral (
-        select * from edge_heartbeat hb where hb.tenant_id = e.id order by hb.recebido_em desc limit 1
+        select * from edge_status hb where hb.tenant_id = e.id order by hb.recebido_em desc limit 1
       ) h on true
       left join lateral (
         select * from ativacao a2 where a2.tenant_id = e.id order by a2.criado_em desc limit 1
@@ -228,7 +228,7 @@ export class DistribuicaoService {
              h.versao as "edgeVersao", h.recebido_em as "ultimoHeartbeat"
       from empresa e
       left join lateral (
-        select versao, recebido_em from edge_heartbeat hb where hb.tenant_id = e.id order by hb.recebido_em desc limit 1
+        select versao, recebido_em from edge_status hb where hb.tenant_id = e.id order by hb.recebido_em desc limit 1
       ) h on true
       order by e.nome`);
     return r.rows ?? r;
