@@ -228,9 +228,11 @@ export class LicencaService {
              h.versao, h.ultimo_sync as "ultimoSync",
              (h.recebido_em is not null and h.recebido_em > now() - interval '5 minutes') as "online"
       from ativacao a
+      -- Status do servidor local: edge_status (mig 264) tem uma linha por servidor, atualizada
+      -- a cada batida. O histórico (edge_heartbeat) virou amostra de 30 em 30 minutos.
       left join lateral (
-        select * from edge_heartbeat hb where hb.ativacao_id = a.id
-        order by hb.recebido_em desc limit 1
+        select * from edge_status es where es.tenant_id = a.tenant_id
+        order by es.recebido_em desc limit 1
       ) h on true
       where a.tenant_id = ${tenantId}
       order by a.criado_em desc limit 1`);
@@ -267,8 +269,8 @@ export class LicencaService {
                 where al.tenant_id = a.tenant_id and al.acao = 'login') as "ultimoLogin"
       from ativacao a
       left join lateral (
-        select * from edge_heartbeat hb
-        where hb.ativacao_id = a.id order by hb.recebido_em desc limit 1
+        select * from edge_status es
+        where es.tenant_id = a.tenant_id order by es.recebido_em desc limit 1
       ) h on true
       order by a.criado_em desc
       limit 500`);
@@ -727,12 +729,52 @@ export class LicencaService {
   }
 
   // ===== Heartbeat (telemetria) =====
-  async heartbeat(tenantId: string, unidadeId: string | null, dto: any) {
+  // A batida do servidor local (2 por ciclo de 1 minuto) INSERIA uma linha por vez: em 5.000
+  // lojas são 14,4 milhões de linhas por dia (~14 GB pela medida de ~1 KB por linha), sem
+  // expurgo. Agora o estado vive em `edge_status` (UMA linha por servidor local, atualizada) e
+  // o histórico em `edge_heartbeat` é AMOSTRADO (no máximo 1 a cada 30 min por servidor), que
+  // é o suficiente para investigar incidente.
+  async heartbeat(tenantId: string, unidadeId: string | null, dto: any, equipamentoId?: string) {
     const [a] = await this.db
       .select({ id: ativacao.id })
       .from(ativacao)
       .where(eq(ativacao.tenantId, tenantId))
       .limit(1);
+
+    const estado = {
+      versao: dto?.versao ?? null,
+      estado: dto?.estado ?? null,
+      ultimoSync: dto?.ultimoSync ? new Date(dto.ultimoSync) : null,
+      discoLivreMb: dto?.discoLivreMb != null ? Number(dto.discoLivreMb) : null,
+      clientes: dto?.clientes != null ? Number(dto.clientes) : null,
+      fingerprint: dto?.fingerprint ?? null,
+      saude: dto?.saude ?? null,
+      erro: dto?.erro ?? null,
+    };
+
+    if (equipamentoId) {
+      await this.db.execute(sql`
+        insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, estado, ultimo_sync,
+          disco_livre_mb, clientes, fingerprint, saude, erro, recebido_em)
+        values (${equipamentoId}, ${tenantId}, ${unidadeId ?? dto?.unidadeId ?? null}, ${estado.versao},
+          ${estado.estado}, ${estado.ultimoSync}, ${estado.discoLivreMb}, ${estado.clientes},
+          ${estado.fingerprint}, ${estado.saude ? JSON.stringify(estado.saude) : null}, ${estado.erro}, now())
+        on conflict (equipamento_id) do update set
+          tenant_id = excluded.tenant_id, unidade_id = excluded.unidade_id, versao = excluded.versao,
+          estado = excluded.estado, ultimo_sync = excluded.ultimo_sync,
+          disco_livre_mb = excluded.disco_livre_mb, clientes = excluded.clientes,
+          fingerprint = coalesce(excluded.fingerprint, edge_status.fingerprint),
+          saude = coalesce(excluded.saude, edge_status.saude), erro = excluded.erro,
+          recebido_em = now()`);
+      // Histórico amostrado: só grava se a última linha deste servidor tem mais de 30 min.
+      const r: any = await this.db.execute(sql`
+        select 1 from edge_heartbeat
+         where tenant_id = ${tenantId} and recebido_em > now() - interval '30 minutes'
+           and (${unidadeId ?? null}::uuid is null or unidade_id is not distinct from ${unidadeId ?? null}::uuid)
+         limit 1`);
+      if ((r.rows ?? r).length) return { ok: true };
+    }
+
     await this.db.insert(edgeHeartbeat).values({
       ativacaoId: a?.id ?? null,
       tenantId,

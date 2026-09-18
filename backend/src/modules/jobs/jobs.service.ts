@@ -59,6 +59,33 @@ export class JobsService {
   }
 
   // Alertas de etiquetas de validade (a vencer / vencidas) ao C&O/gerente. Mig 136.
+  // Expurgo das tabelas de sync que crescem sem fim (janela da mig 265). Sem isto:
+  //  • `sync_exclusao` guarda um registro por exclusão para sempre — o Sync Gateway do
+  //    Couchbase expurga em 3 dias, o SQL Data Sync da Azure em 45, o AppSync usa TTL;
+  //  • `edge_heartbeat` crescia 2 linhas por minuto por loja (14,4 milhões/dia em 5.000).
+  // Quem ficar parado além da janela é mandado para a restauração por arquivo pelo pull
+  // (bandeira `reinicializar`), em vez de seguir com exclusão perdida em silêncio.
+  @Cron('50 4 * * *') // 04:50 todos os dias, fora do movimento
+  async expurgarMetadadosSync() {
+    const dias = Number(process.env.SYNC_RETENCAO_DIAS ?? 30);
+    for (const [tabela, coluna, janela] of [
+      ['sync_exclusao', 'created_at', dias],
+      ['edge_heartbeat', 'recebido_em', dias],
+      ['edge_telemetria', 'criado_em', 90],
+    ] as [string, string, number][]) {
+      try {
+        const r: any = await this.db.execute(
+          sql`delete from ${sql.identifier(tabela)} where ${sql.identifier(coluna)} < now() - make_interval(days => ${janela})`,
+        );
+        const n = r?.rowCount ?? 0;
+        if (n) this.log.log(`expurgo ${tabela}: ${n} linha(s) acima de ${janela} dias`);
+      } catch (e: any) {
+        // Tabela só-nuvem ausente no edge (42P01) é esperado — o job roda nos dois.
+        if (e?.code !== '42P01') this.log.error(`expurgo ${tabela}: ${e?.message ?? e}`);
+      }
+    }
+  }
+
   @Cron('15 6 * * *') // 06:15 todos os dias
   async alertasEtiquetas() {
     try {
