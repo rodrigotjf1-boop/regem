@@ -34,12 +34,6 @@ export class SyncService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
   private readonly logger = new Logger('Sync');
   private colunasCache = new Map<string, Set<string>>();
-  // Circuit-breaker anti-tempestade: 1 push por vez por dispositivo. Se o edge (com
-  // daemon sem trava de reentrância) manda pushes SOBREPOSTOS, os concorrentes são
-  // rejeitados BARATO (429) antes do upsert pesado — a origem não afoga (evita o 502
-  // em cascata). O edge trata como falha e reenvia no próximo ciclo. In-memory basta
-  // (1 instância); com réplicas, ainda limita a concorrência por instância.
-  private readonly pushEmCurso = new Set<string>();
 
   // Verifica a ASSINATURA do push (integridade/autenticidade) + a JANELA de tempo
   // (anti-replay) + a SEQUÊNCIA por dispositivo (anti-omissão). A chave HMAC é
@@ -445,10 +439,16 @@ export class SyncService {
     // Circuit-breaker anti-tempestade: recusa push CONCORRENTE do mesmo dispositivo
     // (barato, 429) ANTES do trabalho pesado — a origem não afoga (evita o 502 em
     // cascata quando o daemon do edge sobrepõe ciclos). O edge reenvia no próximo ciclo.
-    if (this.pushEmCurso.has(ctx.equipamentoId)) {
+    // Trava NO BANCO (advisory lock por dispositivo), não mais um conjunto em memória: com
+    // mais de uma réplica da API, o conjunto só protegia dentro de cada processo e dois pushes
+    // do mesmo servidor local passavam em paralelo. `pg_try_advisory_xact_lock` é barato e some
+    // sozinho no fim da transação; a chave é o hash do id do equipamento.
+    const travou: any = await this.db.execute(
+      sql`select pg_try_advisory_lock(hashtext('sync_push'), hashtext(${ctx.equipamentoId})) as ok`,
+    );
+    if (!((travou.rows ?? travou)[0]?.ok)) {
       throw new HttpException('Já há um push deste dispositivo em curso.', HttpStatus.TOO_MANY_REQUESTS);
     }
-    this.pushEmCurso.add(ctx.equipamentoId);
     try {
     await this.verificarAssinatura(ctx, lotes, assin);
     const tenantId = ctx.tenantId;
@@ -561,7 +561,11 @@ export class SyncService {
 
     return { serverTime: new Date().toISOString(), resultado };
     } finally {
-      this.pushEmCurso.delete(ctx.equipamentoId); // libera SEMPRE (sucesso ou erro)
+      // Libera SEMPRE (sucesso ou erro). A conexão é do pool: sem o unlock explícito a trava
+      // ficaria presa na sessão reaproveitada e o dispositivo não empurraria mais nada.
+      await this.db
+        .execute(sql`select pg_advisory_unlock(hashtext('sync_push'), hashtext(${ctx.equipamentoId}))`)
+        .catch(() => undefined);
     }
   }
 }
