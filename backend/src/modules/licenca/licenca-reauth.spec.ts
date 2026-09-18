@@ -69,7 +69,7 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
 
   it('código correto → ROTACIONA o token (novo syncToken) + aprova o pedido', async () => {
     const caps: any[] = [];
-    const svc = new LicencaService(fakeDb(baseEstado(), caps) as any, {} as any);
+    const svc = new LicencaService(fakeDb(baseEstado(), caps) as any, {} as any, {} as any);
     // leaseDe usa a chave de licença; stub p/ não exigir env.
     (svc as any).leaseDe = () => 'lease-fake';
     const r: any = await svc.reautorizarConfirmar({ email: 'a@b.com', senha: 'senha123', fingerprint: 'fp-nova', codigo: '123456' });
@@ -86,7 +86,7 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
 
   it('código ERRADO → 401 e NÃO rotaciona o token', async () => {
     const caps: any[] = [];
-    const svc = new LicencaService(fakeDb(baseEstado(), caps) as any, {} as any);
+    const svc = new LicencaService(fakeDb(baseEstado(), caps) as any, {} as any, {} as any);
     (svc as any).leaseDe = () => 'lease-fake';
     await expect(
       svc.reautorizarConfirmar({ email: 'a@b.com', senha: 'senha123', fingerprint: 'fp-nova', codigo: '000000' }),
@@ -97,7 +97,7 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
 
   it('senha ERRADA → 401 antes de qualquer coisa', async () => {
     const caps: any[] = [];
-    const svc = new LicencaService(fakeDb(baseEstado(), caps) as any, {} as any);
+    const svc = new LicencaService(fakeDb(baseEstado(), caps) as any, {} as any, {} as any);
     await expect(
       svc.reautorizarConfirmar({ email: 'a@b.com', senha: 'errada', fingerprint: 'fp-nova', codigo: '123456' }),
     ).rejects.toThrow();
@@ -106,7 +106,7 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
 
   it('sem pedido pendente → erro (reinicie a instalação)', async () => {
     const caps: any[] = [];
-    const svc = new LicencaService(fakeDb(baseEstado({ pend: null }), caps) as any, {} as any);
+    const svc = new LicencaService(fakeDb(baseEstado({ pend: null }), caps) as any, {} as any, {} as any);
     await expect(
       svc.reautorizarConfirmar({ email: 'a@b.com', senha: 'senha123', fingerprint: 'fp-nova', codigo: '123456' }),
     ).rejects.toThrow();
@@ -117,7 +117,7 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
 // colunas reauth_* ausentes tratando a trava como desligada, em vez de 500 (incidente
 // potitjf 31/08 16:14). ehColunaAusente é o discriminador que decide o que engolir.
 describe('LicencaService.ehColunaAusente — F3 tolerância a migration-lag', () => {
-  const svc: any = new LicencaService({} as any, {} as any);
+  const svc: any = new LicencaService({} as any, {} as any, {} as any);
   it('reconhece 42703 (Postgres column does not exist)', () => {
     expect(svc.ehColunaAusente({ code: '42703' })).toBe(true);
   });

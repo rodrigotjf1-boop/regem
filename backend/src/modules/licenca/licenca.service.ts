@@ -27,6 +27,7 @@ import {
   revenda,
   unidade,
 } from '../../db/schema';
+import { EdgeService } from '../edge/edge.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease, licencaConfigurada } from './lease';
 import { precisaReautorizar, gerarCodigoReauth, hashCodigoReauth } from './reauth-instalacao';
@@ -46,6 +47,9 @@ export class LicencaService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly equip: EquipamentoService,
+    // Comandos e aviso de atualização viajam JUNTO na resposta da batida (2 requisições a
+    // menos por ciclo, por loja).
+    private readonly edge: EdgeService,
   ) {}
 
   // ===== Revenda (portal) =====
@@ -752,6 +756,20 @@ export class LicencaService {
       erro: dto?.erro ?? null,
     };
 
+    // O ciclo do daemon fazia 5 requisições por minuto (pull, 2 batidas, licença, comandos).
+    // Comandos e aviso de atualização são leituras baratas e vão JUNTO na resposta da batida:
+    // em 5.000 lojas são ~167 requisições por segundo a menos. Os endpoints continuam de pé
+    // (compatibilidade com o edge antigo e caminho de recuperação).
+    const extra: any = {};
+    if (dto?.comSaude) {
+      try {
+        extra.comandos = await this.edge.comandosPendentes(tenantId);
+      } catch { /* best-effort: o daemon cai no endpoint */ }
+      try {
+        extra.atualizacao = await this.edge.atualizacao(dto?.versao ?? undefined);
+      } catch { /* idem */ }
+    }
+
     if (equipamentoId) {
       await this.db.execute(sql`
         insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, estado, ultimo_sync,
@@ -772,7 +790,7 @@ export class LicencaService {
          where tenant_id = ${tenantId} and recebido_em > now() - interval '30 minutes'
            and (${unidadeId ?? null}::uuid is null or unidade_id is not distinct from ${unidadeId ?? null}::uuid)
          limit 1`);
-      if ((r.rows ?? r).length) return { ok: true };
+      if ((r.rows ?? r).length) return { ok: true, ...extra };
     }
 
     await this.db.insert(edgeHeartbeat).values({
@@ -789,7 +807,7 @@ export class LicencaService {
       saude: dto?.saude ?? null, // status dos 5 serviços + uptime + restore + impressora
       erro: dto?.erro ?? null,
     });
-    return { ok: true };
+    return { ok: true, ...extra };
   }
 
   // Status da CONTA na nuvem (trial/assinatura) — base do bloqueio duro (G-1).

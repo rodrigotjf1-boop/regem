@@ -3,6 +3,10 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+// `compression` é CommonJS sem exportação padrão: o import default compila para algo que não
+// é função e derruba o boot. Resolve nos dois formatos.
+import * as compressionNs from 'compression';
+const compression: () => any = (compressionNs as any).default ?? (compressionNs as any);
 import { readFileSync } from 'fs';
 import { AppModule } from './app.module';
 import { carregarEnvSeguro } from './secure-env';
@@ -90,6 +94,12 @@ async function bootstrap() {
 
   // Cabeçalhos de segurança.
   app.use(helmet());
+
+  // COMPRESSÃO: a primeira carga de uma loja mede 7,48 MB numa resposta e ia SEM compressão
+  // (medido: o mesmo tamanho com e sem `Accept-Encoding: gzip`). Em 5.000 lojas voltando
+  // juntas depois de um incidente são ~37 GB de saída. O `/sync/snapshot` já comprime na mão
+  // (corpo opaco) e continua fora daqui — o filtro padrão não comprime octet-stream.
+  app.use(compression());
 
   // CORS: '*' libera qualquer origem (edge/appliance na LAN — o app em :3001 chama
   // a API em :3002, e o host varia por loja); lista separada por vírgula em
