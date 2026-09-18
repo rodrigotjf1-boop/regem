@@ -527,9 +527,67 @@ async function pull() {
   // reservada não a derruba. A marca `regem.sync` vem do evento 'connect' do pool.
   const cli = await pool.connect();
   try {
-    return await aplicarPull(data, cursores, cli);
+    // TRANSAÇÃO na aplicação: o PowerSync só troca de estado num ponto consistente e o
+    // SymmetricDS mantém a transação de origem dentro do lote. Aqui, sem transação, quem
+    // consultava o banco local no meio da aplicação via estado pela metade (comanda sem
+    // itens, pedido sem pagamento). Um erro volta tudo e o ciclo seguinte reaplica — o
+    // cursor só avança no fim, então nada se perde.
+    await cli.query('begin');
+    const n = await aplicarPull(data, cursores, cli);
+    await cli.query('commit');
+    return n;
+  } catch (e) {
+    try { await cli.query('rollback'); } catch { /* ignore */ }
+    throw e;
   } finally {
     cli.release();
+  }
+}
+
+// LIMPEZA DE ESCOPO (uma vez por instalação): a nuvem passou a mandar só o transacional
+// DESTA loja, mas o que desceu antes continua aqui. Electric e PowerSync removem do cliente o
+// que sai do recorte; fazemos o mesmo, em uma passada. Só roda quando o servidor tem loja
+// definida e a empresa tem mais de uma. As filhas somem por cascata; a sessão do daemon está
+// marcada como sync, então isto NÃO gera registro de exclusão (é limpeza local, não exclusão
+// de negócio).
+const TABELAS_ESCOPO_LOJA = [
+  'comanda', 'caixa_sessao', 'lancamento_caixa', 'producao_pedido', 'pedido_externo',
+  'movimento_estoque', 'desperdicio', 'recebimento', 'lote', 'etiqueta_validade',
+  'contagem_lista', 'compra_lista', 'titulo_financeiro',
+];
+async function limparEscopoDeOutrasLojas() {
+  if ((await getState('limpeza_escopo_v1', '')) === 'feito') return;
+  const minha = (process.env.EDGE_UNIDADE_ID || '').trim();
+  if (!minha) return; // servidor sem loja definida: não há o que separar
+  const u = await pool.query('select count(*)::int as n from unidade where deleted_at is null');
+  if ((u.rows[0]?.n ?? 0) < 2) { await setState('limpeza_escopo_v1', 'feito'); return; }
+  let total = 0;
+  for (const t of TABELAS_ESCOPO_LOJA) {
+    const cols = await colunas(t);
+    if (!cols.has('unidade_id')) continue;
+    try {
+      const r = await pool.query(
+        `delete from ${q(t)} where ${q('unidade_id')} is not null and ${q('unidade_id')} <> $1`,
+        [minha],
+      );
+      total += r.rowCount ?? 0;
+    } catch (e) {
+      console.warn(`  limpeza de escopo em ${t}: ${e.code || ''} ${e.message}`);
+    }
+  }
+  await setState('limpeza_escopo_v1', 'feito');
+  if (total) console.log(`Sync: ${total} linha(s) de OUTRAS lojas removidas deste servidor (escopo por loja).`);
+}
+
+// Ponto de salvamento avulso (fora do laço de blocos, que tem o seu).
+async function tentarSp(cli, fn) {
+  await cli.query('savepoint sp_sync2');
+  try {
+    await fn();
+    await cli.query('release savepoint sp_sync2');
+  } catch (e) {
+    await cli.query('rollback to savepoint sp_sync2');
+    throw e;
   }
 }
 
@@ -565,11 +623,25 @@ async function aplicarPull(data, cursores, cli) {
     // chegou, linha "veneno", id repetido na página), cai no linha a linha para isolar.
     // Bloco que falha é dividido ao meio até isolar as linhas ruins (bloco de 1 = linha a
     // linha), para poucas linhas com pai ausente não jogarem a página inteira no caminho lento.
+    // Cada tentativa roda em PONTO DE SALVAMENTO: dentro de uma transação, um erro aborta
+    // tudo até o ponto salvo — sem isso a primeira linha ruim derrubaria a resposta inteira.
+    const tentar = async (fn) => {
+      await cli.query('savepoint sp_sync');
+      try {
+        await fn();
+        await cli.query('release savepoint sp_sync');
+      } catch (e) {
+        await cli.query('rollback to savepoint sp_sync');
+        throw e;
+      }
+    };
     const aplicarBloco = async (bloco) => {
       if (bloco.length > 1) {
         try {
-          await upsertLote(tabela, bloco, cli);
-          for (const row of bloco) await recon.aplicarLinha(fila, tabela, row, cli);
+          await tentar(async () => {
+            await upsertLote(tabela, bloco, cli);
+            for (const row of bloco) await recon.aplicarLinha(fila, tabela, row, cli);
+          });
           aplicadas += bloco.length;
           return;
         } catch {
@@ -581,7 +653,7 @@ async function aplicarPull(data, cursores, cli) {
       }
       const row = bloco[0];
       try {
-        await aplicar(tabela, row);
+        await tentar(() => aplicar(tabela, row));
         aplicadas++;
       } catch (e) {
         if (e.code === '23503') pendentes.push([tabela, row]);
@@ -595,8 +667,13 @@ async function aplicarPull(data, cursores, cli) {
   // NESTE ciclo: a linha era descartada, o cursor avançava e ela nunca mais descia (27 pedidos
   // de produção perdidos na carga inicial de uma loja de teste). Agora fica numa fila e é
   // retentada nos próximos ciclos — o mesmo que o restore já fazia.
+  // Fila em TABELA (mig 264), não mais um texto JSON dentro de uma linha de sync_state
+  // reescrito a cada ciclo: dá para indexar, contar e diagnosticar.
   let orfaosAntes = [];
-  try { orfaosAntes = JSON.parse(await getState('pull_orfaos', '[]')) || []; } catch { orfaosAntes = []; }
+  try {
+    const r = await pool.query(`select tabela, conteudo, tentativas from sync_fila where tipo = 'orfao'`);
+    orfaosAntes = r.rows.map((x) => ({ tabela: x.tabela, row: x.conteudo, n: x.tentativas }));
+  } catch { orfaosAntes = []; }
   const tentativas = new Map(); // row.id → nº de ciclos em que já falhou
   for (const o of orfaosAntes) {
     if (!o?.tabela || !o?.row?.id) continue;
@@ -608,7 +685,7 @@ async function aplicarPull(data, cursores, cli) {
     const resta = [];
     for (const [tabela, row] of pendentes) {
       try {
-        await aplicar(tabela, row);
+        await tentarSp(cli, () => aplicar(tabela, row));
         aplicadas++;
       } catch (e) {
         if (e.code === '23503') resta.push([tabela, row]);
@@ -626,8 +703,11 @@ async function aplicarPull(data, cursores, cli) {
     const resta2 = [];
     for (const [tabela, row] of pendentes) {
       if (tabela === 'pedido_externo' && row.cliente_id) {
-        try { await upsertLocal(tabela, { ...row, cliente_id: null }, cli); aplicadas++; continue; }
-        catch { /* cai no resta2 abaixo */ }
+        try {
+          await tentarSp(cli, () => upsertLocal(tabela, { ...row, cliente_id: null }, cli));
+          aplicadas++;
+          continue;
+        } catch { /* cai no resta2 abaixo */ }
       }
       resta2.push([tabela, row]);
     }
@@ -648,7 +728,19 @@ async function aplicarPull(data, cursores, cli) {
     if (n > LIMITE_CICLOS) descartados++;
     else guardar.push({ tabela, row, n });
   }
-  if (guardar.length || orfaosAntes.length) await setState('pull_orfaos', JSON.stringify(guardar.slice(0, 5000)));
+  if (guardar.length || orfaosAntes.length) {
+    const manter = guardar.slice(0, 5000);
+    await pool.query(`delete from sync_fila where tipo = 'orfao'`);
+    for (const g of manter) {
+      await pool.query(
+        `insert into sync_fila (tipo, tabela, registro_id, conteudo, tentativas)
+         values ('orfao', $1, $2, $3, $4)
+         on conflict (tipo, tabela, registro_id) do update set conteudo = excluded.conteudo,
+           tentativas = excluded.tentativas, atualizado_em = now()`,
+        [g.tabela, g.row.id, JSON.stringify(g.row), g.n],
+      );
+    }
+  }
   if (guardar.length) console.warn(`  ${guardar.length} linha(s) aguardando o pai (FK) — nova tentativa no próximo ciclo`);
   if (descartados) console.warn(`  ${descartados} linha(s) descartada(s): o pai não chegou em ${LIMITE_CICLOS} ciclos (fora da janela ou ausente na nuvem)`);
   // Exclusões feitas na nuvem (mig 262): apaga a mesma linha aqui, DEPOIS de aplicar as linhas
@@ -713,7 +805,10 @@ async function aplicarPull(data, cursores, cli) {
 // e é retentado nos próximos ciclos, até 50 vezes.
 async function aplicarExclusoes(novas, exec = pool) {
   let fila = [];
-  try { fila = JSON.parse(await getState('exclusoes_pendentes', '[]')) || []; } catch { fila = []; }
+  try {
+    const r = await pool.query(`select tabela, registro_id, tentativas from sync_fila where tipo = 'exclusao'`);
+    fila = r.rows.map((x) => ({ tabela: x.tabela, id: x.registro_id, tenant: null, n: x.tentativas }));
+  } catch { fila = []; }
   const todas = [...fila, ...novas.map((x) => ({ tabela: x.tabela, id: x.registro_id, tenant: x.tenant_id, n: 0 }))];
   if (!todas.length) return;
   const resta = [];
@@ -722,13 +817,30 @@ async function aplicarExclusoes(novas, exec = pool) {
     const cols = await colunas(x.tabela);
     if (!cols.has('tenant_id')) continue;
     try {
-      await exec.query(`delete from ${q(x.tabela)} where ${q('id')} = $1 and ${q('tenant_id')} = $2`, [x.id, x.tenant]);
+      // Sem o tenant (fila relida da tabela), apaga pelo id — que é único e veio da nuvem.
+      await exec.query(
+        x.tenant
+          ? `delete from ${q(x.tabela)} where ${q('id')} = $1 and ${q('tenant_id')} = $2`
+          : `delete from ${q(x.tabela)} where ${q('id')} = $1`,
+        x.tenant ? [x.id, x.tenant] : [x.id],
+      );
     } catch (e) {
       if (e.code === '23503' && (x.n ?? 0) < 50) resta.push({ ...x, n: (x.n ?? 0) + 1 });
       else console.warn(`  exclusão ${x.tabela}/${x.id} descartada: ${e.code || ''} ${e.message}`);
     }
   }
-  if (resta.length || fila.length) await setState('exclusoes_pendentes', JSON.stringify(resta.slice(0, 5000)));
+  if (resta.length || fila.length) {
+    await pool.query(`delete from sync_fila where tipo = 'exclusao'`);
+    for (const x of resta.slice(0, 5000)) {
+      await pool.query(
+        `insert into sync_fila (tipo, tabela, registro_id, conteudo, tentativas)
+         values ('exclusao', $1, $2, $3, $4)
+         on conflict (tipo, tabela, registro_id) do update set tentativas = excluded.tentativas,
+           atualizado_em = now()`,
+        [x.tabela, x.id, JSON.stringify({ tenant: x.tenant ?? null }), x.n ?? 0],
+      );
+    }
+  }
 }
 
 // Envia UM request de push (assina + POST). Isolado p/ o push mandar em páginas
@@ -790,7 +902,24 @@ async function enviarLinhaALinha(t, linhas, enviadas, chave, cursorDe) {
   }
 }
 
+// Relógio MUITO fora trava o envio: a regra "a mais nova vence" compara o updated_at gravado
+// pelo relógio DESTE PC com o da nuvem. Com horas de diferença, cada linha enviada pode
+// descartar em silêncio a versão certa do outro lado (é o problema que os relógios lógicos
+// híbridos resolvem). Preferimos SEGURAR o envio e gritar a corromper o histórico; o pull
+// continua, então a loja segue recebendo.
+const RELOGIO_TRAVA_S = Number(process.env.SYNC_RELOGIO_TRAVA_S || 900);
+async function relogioConfiavel() {
+  const d = Number(await getState('relogio_desvio_s', '0')) || 0;
+  if (Math.abs(d) <= RELOGIO_TRAVA_S) return true;
+  console.error(
+    `  ⛔ envio SUSPENSO: relógio ${Math.abs(d)}s ${d > 0 ? 'adiantado' : 'atrasado'} — acerte a data/hora do Windows; nada é enviado até normalizar (o recebimento continua).`,
+  );
+  try { await reportarTelemetria('sync', 'relogio_trava', `push suspenso: desvio de ${d}s`); } catch { /* best-effort */ }
+  return false;
+}
+
 async function push(limiteMs = null) {
+  if (!(await relogioConfiavel())) return 0;
   // Páginas pequenas: cada tabela sobe em blocos de PUSH_MAX linhas, UM request por
   // bloco. Menos chance de 413 e progresso persistido (o cursor só avança após o
   // request do bloco dar certo — se cair no meio, retoma de onde parou).
@@ -1250,6 +1379,9 @@ async function ciclo() {
       cicloAnteriorMs > 30000 || (await getState('restaurar_solicitado', '0')) === '1';
     if (precisaPingCedo) await heartbeat(0, 0, null);
     const inicioCiclo = Date.now();
+    // Antes de qualquer troca: tira do banco o que é de OUTRA loja (uma vez por instalação).
+    // Rodando depois do push, a loja chegaria a empurrar linhas que vai apagar na sequência.
+    try { await limparEscopoDeOutrasLojas(); } catch (e) { console.warn(`limpeza de escopo: ${e.message}`); }
     try {
       p = await pull();
       u = await push();
