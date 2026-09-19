@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -10,12 +10,16 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { SyncCtx, SyncCtxData, SyncTokenGuard } from '../sync/sync-token.guard';
 import { EdgeService } from './edge.service';
+import { EquipamentoService } from '../equipamento/equipamento.service';
 
 // Rota pública de identificação: o cliente confirma que achou o servidor Regem
 // (na LAN via mDNS/IP, ou a nuvem). Sem auth — só diz "sou o Regem".
 @Controller()
 export class EdgeController {
-  constructor(private readonly service: EdgeService) {}
+  constructor(
+    private readonly service: EdgeService,
+    private readonly equipamentos: EquipamentoService,
+  ) {}
 
   @Get('ping')
   ping() {
@@ -30,11 +34,22 @@ export class EdgeController {
     return this.service.handshake();
   }
 
-  // O edge consulta se há versão nova publicada (Fase E-D). Só informa versão +
-  // url/sha do pacote — nada sensível, por isso público.
+  // O edge consulta se há versão nova publicada. Só informa versão + url/sha/assinaturas do
+  // pacote — nada sensível, por isso público. O token do servidor (x-sync-token) é OPCIONAL:
+  // com ele a loja entra no piloto/percentual do release; sem ele (ou inválido) só vê release
+  // em 100% — servidores na 1.29.x não mandam token e seguem funcionando.
   @Get('edge/update-check')
-  updateCheck(@Query('versao') versao?: string) {
-    return this.service.atualizacao(versao);
+  async updateCheck(@Query('versao') versao?: string, @Headers('x-sync-token') token?: string) {
+    let tenantId: string | null = null;
+    if (token) {
+      try {
+        const dev = await this.equipamentos.validarToken(String(token));
+        if (dev?.tipo === 'servidor_local') tenantId = dev.tenantId;
+      } catch {
+        /* token ilegível: segue anônimo */
+      }
+    }
+    return this.service.atualizacao(versao, tenantId);
   }
 
   // ----- Atualização pelo app (só no edge; gestão) -----
@@ -58,8 +73,8 @@ export class EdgeController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
   @RequirePerm('servidor')
-  atualizacaoAplicar() {
-    return this.service.aplicarAtualizacao();
+  atualizacaoAplicar(@Body() dto: any) {
+    return this.service.aplicarAtualizacao(dto ?? {});
   }
 
   @Post('edge/atualizacao/reverter')

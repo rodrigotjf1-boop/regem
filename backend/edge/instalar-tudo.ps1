@@ -294,6 +294,37 @@ if ($reinstalacao) {
     }
     if ($descarregou) {
       Diga "  Dados locais conferidos na nuvem."
+      # Copia FINAL do banco antes de apagar (cifrada com DPAPI, em backups\ - pasta que o
+      # -Limpar preserva; o backup diario a poda em 14 dias). A nuvem ja tem tudo, mas uma
+      # reinstalacao sem nenhuma copia local nao tem volta se algo der errado depois.
+      try {
+        $eapD = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+        $urlAntiga = $null
+        foreach ($l in (Get-Content $envAntigo -ErrorAction SilentlyContinue)) {
+          if ($l -match '^\s*EDGE_DATABASE_URL\s*=\s*(.+)$') { $urlAntiga = $Matches[1].Trim() }
+        }
+        if ($urlAntiga -and $urlAntiga.StartsWith('enc:')) {
+          Add-Type -AssemblyName System.Security
+          $urlAntiga = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect(
+            [Convert]::FromBase64String($urlAntiga.Substring(4)), $null, 'LocalMachine'))
+        }
+        $pgDumpExe = Join-Path $base 'pgsql\bin\pg_dump.exe'
+        if ($urlAntiga -and (Test-Path $pgDumpExe)) {
+          $dirBk = Join-Path $base 'backups'
+          New-Item -ItemType Directory -Force $dirBk | Out-Null
+          $tmpDump = Join-Path $env:TEMP ("regem-reinstalar-{0}.dump" -f (Get-Random))
+          & $pgDumpExe --format=custom --file $tmpDump $urlAntiga 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpDump)) {
+            Add-Type -AssemblyName System.Security
+            $encD = [Security.Cryptography.ProtectedData]::Protect([IO.File]::ReadAllBytes($tmpDump), $null, 'LocalMachine')
+            $destD = Join-Path $dirBk ("db-reinstalar-{0}.dump.enc" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+            [IO.File]::WriteAllBytes($destD, $encD)
+            Diga ("  Copia final do banco guardada (cifrada): {0}" -f (Split-Path $destD -Leaf))
+          } else { Diga "  (aviso) nao consegui a copia final do banco - seguindo (os dados ja estao na nuvem)." }
+          Remove-Item $tmpDump -Force -ErrorAction SilentlyContinue
+        }
+      } catch { Diga ("  (aviso) copia final do banco: {0}" -f $_.Exception.Message) }
+      finally { $ErrorActionPreference = $eapD }
     } else {
       Diga "  O banco local NAO sera apagado: seguindo como reinstalacao que PRESERVA os dados."
       try { & sc.exe stop RegemEdgePg 2>$null | Out-Null } catch {}
@@ -758,7 +789,6 @@ SYNC_TOKEN=$SyncToken
 OTP_WEBHOOK_URL=$OtpWebhookUrl
 SYNC_INTERVAL_MS=60000
 EDGE_CLIENTES=0
-EDGE_REQUIRE_SIGNED_UPDATE=false
 "@ | Set-Content -Path $envLocal -Encoding ascii
 Diga ".env.local escrito."
 

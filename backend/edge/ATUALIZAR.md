@@ -1,80 +1,88 @@
 # Regem Edge — como funciona a atualização
 
-> Documento **informativo**: explica a **lógica** de como o servidor edge (o
-> backend do Regem no PC da loja) recebe atualizações. Não é um checklist rígido —
-> é o mapa mental para entender o mecanismo.
+> Documento **informativo** (fica no repositório; `.md` não vai para a loja): a lógica de
+> como o servidor local recebe atualizações, quem faz o quê e por quê.
 
-## A ideia central: nuvem e edge são separados
+## Nuvem e servidor local: o mesmo código, entregues separados
 
-- **Nuvem** (`api`/`app.dmsregem.com`): atualiza **sozinha** a cada `git push` na
-  `main` (EasyPanel auto-deploy). Não tem nada a ver com o PC da loja.
-- **Edge** (PC da loja): é uma **cópia empacotada** do backend rodando localmente.
-  Ele **não puxa código da nuvem** — só atualiza quando você **publica um pacote
-  novo**. Mesmo código-fonte, distribuído à parte.
+- **Nuvem** (`api`/`app.dmsregem.com`): atualiza sozinha a cada merge na `main` (EasyPanel).
+- **Servidor local** (PC da loja): cópia empacotada do mesmo backend. Só muda quando a
+  distribuição **publica um pacote** (`.zip`) e o gestor **instala** (ou agenda).
 
-> Ou seja: **mudar a nuvem NÃO atualiza o edge.** São dois artefatos.
+## Quem decide qual versão cada loja recebe
 
-## Como o edge decide se atualiza: por VERSÃO (não por diff)
+O servidor local pergunta `GET {nuvem}/edge/update-check?versao=<APP_VERSION>` mandando o
+token do servidor (`x-sync-token`). A nuvem olha os releases publicados no **console da
+distribuição** (tabela `edge_release`) e devolve **a MAIOR versão liberada para aquela loja**:
 
-O edge nunca compara arquivos. Ele compara **números de versão**:
-
-```
-edge  →  GET {nuvem}/edge/update-check?versao=<APP_VERSION do edge>
-nuvem →  atualizar = ( EDGE_LATEST_VERSION  >  versao do edge )
-```
-
-- A **versão instalada** fica em `APP_VERSION` no `.env.local` do PC da loja.
-- A **"última versão" de referência** é a variável **`EDGE_LATEST_VERSION`** que
-  **você define manualmente** no serviço `regem-api` (nuvem). A nuvem **não** tem
-  um número que sobe sozinho — você **declara** qual é a última.
-- Comparação **numérica por segmento**: `1.4.10` é maior que `1.4.2`.
-
-> Se `EDGE_LATEST_VERSION` nunca for setada, **nenhum edge atualiza** — mesmo que a
-> nuvem mude. É o que "liga" o update para as lojas.
-
-## As variáveis (no `regem-api` → Environment)
-
-| Variável | O que é |
+| Campo do release | Efeito |
 |---|---|
-| `EDGE_LATEST_VERSION` | a última versão de edge publicada (ex.: `1.4.0`) — é o gatilho |
-| `EDGE_UPDATE_URL` | URL HTTPS pública do `.zip` do pacote |
-| `EDGE_UPDATE_SHA256` | impressão digital do `.zip` (a loja recusa se não bater) |
-| `EDGE_UPDATE_NOTAS` | texto "o que mudou" (opcional; aparece pro lojista) |
+| `percentual` | fatia das lojas que recebe (sorteio estável por empresa + versão; subir de 10% para 30% mantém quem já recebeu) |
+| `lojas_piloto` | recebem antes, independente do percentual |
+| `pausado` | ninguém novo recebe |
+| `recolhido` | nunca mais é oferecido; quem está nele vê o aviso para atualizar ou reverter |
 
-E no **PC da loja**: `APP_VERSION` (no `.env.local`) = a versão instalada.
+Servidor sem token (versões até a 1.29.x pelo endpoint direto) só vê release em 100%. O
+heartbeat autenticado também leva o aviso e já respeita piloto/percentual.
 
-## Publicar uma versão (resumo)
+Para "voltar" uma versão ruim em todas as lojas: **recolher** e publicar uma versão **maior**
+(o servidor local recusa versão menor).
 
-1. Na sua máquina, na pasta `backend`: `.\edge\publicar.ps1 -Versao 1.4.0`
-   → gera o `regem-edge-1.4.0.zip` e imprime o **SHA-256**.
-2. Sobe esse `.zip` num **HTTPS público** (ex.: um bucket público do Supabase
-   Storage). O bucket você cria **uma vez**; nas próximas versões, só sobe o novo
-   `.zip`.
-3. No `regem-api` (EasyPanel → Environment), atualiza `EDGE_LATEST_VERSION`,
-   `EDGE_UPDATE_URL` e `EDGE_UPDATE_SHA256` → **Deploy**.
+## Publicar uma versão (distribuição)
 
-> Isso só é necessário **quando há um edge instalado que você quer atualizar**.
+1. `.\edge\publicar.ps1 -Versao 1.30.0` → gera `regem-edge-1.30.0.zip` (com `node_modules.tar` e
+   `web.tar`), confere o conteúdo e imprime o SHA-256.
+2. Sobe o `.zip` no Supabase Storage (bucket `edge-updates`, nome exato).
+3. `.\edge\publicar.ps1 -Versao 1.30.0 -SoAssinar -Url <url do zip>` → assina o MESMO arquivo
+   (Ed25519 v1 + v2 com validade de 180 dias) com `edge/update-priv.pem` e confere com a chave
+   pública.
+4. Console da distribuição → Atualizações → **Publicar release**: versão, URL, SHA, as duas
+   assinaturas e a validade; comece pelas **lojas piloto** e um percentual baixo. A API
+   **recusa** release sem as duas assinaturas válidas.
+5. Acompanhe na lista "servidores na versão" e na telemetria (`update_falha`,
+   `update_revertido`); suba o percentual, pause ou recolha.
 
-## Aplicar na loja (resumo)
+## Instalar na loja (gestor)
 
-- **Automático (só avisa):** o servidor verifica se há versão nova **ao abrir a
-  loja** (nos 10 primeiros min e ~30 min depois; sem horário cadastrado, ~04:00).
-  Ele **notifica**, mas **não instala sozinho**.
-- **Manual (instala):** app → **Servidor local** (`/servidor`) → **Verificar
-  atualização** → **Instalar atualização**. Isso dispara o `atualizar.ps1`, que
-  baixa, confere o SHA, faz **backup**, troca os arquivos, roda as **migrations
-  locais** (no edge são automáticas), sobe os serviços e faz **health-check** —
-  com **rollback** automático se algo falhar.
-- ⚠️ A instalação **reinicia os serviços por 1–2 min** (KDS/PDV/ponto ficam fora).
-  Faça com a **loja fechada**.
+Tela **Servidor** → **Instalar agora** ou **Agendar**. A faixa de aviso do topo só leva até lá.
 
-## Detalhes que valem lembrar
+- Com **caixa aberto** (últimas 16 h) ou **pedido em produção** (últimas 3 h), "Instalar agora"
+  pede confirmação; o agendamento espera a loja parar (até 12 h depois do horário).
+- Instalar de novo uma versão que o gestor **reverteu** também pede confirmação.
 
-- **Migrations:** no **edge** rodam sozinhas no update; na **nuvem** são **manuais**
-  (aplicar o `.sql` no Supabase → SQL Editor).
-- **Bootstrap:** a propagação automática dos scripts do `edge/` (ex.: o worker de
-  impressão) vale para updates **futuros**. Um edge instalado **antes** dessa
-  melhoria precisa de **1 reinstalação** para pegá-la; depois disso, propaga sozinho.
-- **Possível evolução:** dá para o `push` na `main` **publicar o pacote de edge
-  automaticamente** (CI gera o `.zip`, hospeda e seta as variáveis), mantendo a
-  **instalação manual** na loja. Hoje a publicação é manual de propósito.
+## O que o `atualizar.ps1` faz (tarefa SYSTEM `RegemEdgeUpdate`)
+
+1. **Preparação — a loja segue operando, nada instalado é tocado:** consulta a nuvem, confere a
+   **assinatura** (obrigatória quando `edge\update-pub.pem` existe — `EDGE_ALLOW_UNSIGNED_UPDATE=true`
+   só em bancada), baixa com teto de tamanho, confere o **SHA-256**, monta a versão nova INTEIRA
+   em `..\atualizacao-<versão>\` (dependências e app extraídos dos `.tar`), valida o que precisa
+   existir e faz o **backup do banco cifrado** (DPAPI). Qualquer falha aqui: nada mudou.
+2. **Troca — serviços parados por 1–2 min:** renomeia o conjunto atual para `backup-<data>\` e o
+   novo para o lugar (dist, node_modules, web, scripts, database, package*.json, manifesto,
+   version.txt), sobrepõe os scripts do `edge\` (guardando os antigos), grava `APP_VERSION`, roda
+   as migrations (conexão decifrada), sobe os serviços.
+3. **Saúde:** `/ping` respondendo **na versão nova** e os 4 serviços de pé — de novo 30 s depois.
+4. **Falhou na troca ou na saúde:** volta o conjunto inteiro, `APP_VERSION` e os scripts; sobe;
+   confere a saúde da versão anterior; avisa a distribuição. O backup incompleto vira `falhou-*`.
+
+Uma atualização/reversão por vez (trava em `logs\atualizacao.lock`). Mantém os 2 últimos
+`backup-*`. Progresso em `logs\update-status.json` (a tela lê).
+
+## Reverter (`reverter.ps1`, tarefa `RegemEdgeRollback`)
+
+Volta o conjunto inteiro do `backup-*` mais novo e o `APP_VERSION`; o banco fica (use
+`-ComBanco` só se o problema for de dados). Marca a versão revertida e avisa a distribuição.
+As migrations são aditivas: o código anterior roda no banco novo.
+
+## Transição a partir da 1.29.x
+
+A loja na 1.29.x aplica o primeiro pacote novo com o `atualizar.ps1` ANTIGO (é o que está
+instalado): ele não confere assinatura (não tem a chave) e ainda roda `npm ci` essa única vez;
+as migrations passam porque o `apply-all-local.mjs` novo decifra a conexão. A partir dele, o
+fluxo acima vale inteiro — e a assinatura passa a ser obrigatória.
+
+## Troca da chave de assinatura
+
+Acrescente a chave pública NOVA ao `edge/update-pub.pem` (o arquivo aceita vários blocos),
+publique um release assinado com a chave ANTIGA; quando a frota estiver nele, passe a assinar
+com a nova e depois tire a antiga do arquivo.

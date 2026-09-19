@@ -20,6 +20,18 @@ if (!connectionString) {
   console.error('DATABASE_URL ausente (nem na env nem no .env.local)');
   process.exit(1);
 }
+// .env.local da LOJA é cifrado (DPAPI, prefixo enc:). Quem chamava sem passar a conexão em
+// texto (o atualizar.ps1 das versões até a 1.29.x) mandava "enc:..." para o pg e TODA
+// atualização por .zip falhava nas migrations (ERR-056). Decifra aqui, como os daemons.
+if (connectionString.startsWith('enc:')) {
+  const { carregarEnvLocal } = await import('../edge/decifrar-env.mjs');
+  carregarEnvLocal(import.meta.url); // .env.local ao lado de scripts/ (backend/)
+  connectionString = process.env.DATABASE_URL;
+  if (!connectionString || connectionString.startsWith('enc:')) {
+    console.error('DATABASE_URL cifrada e não consegui decifrar (DPAPI) nesta máquina.');
+    process.exit(1);
+  }
+}
 
 // No EDGE (EDGE_MODE=true no .env.local) pulamos migrations marcadas `@cloud-only`
 // no topo — são tabelas SÓ da distribuição (ex.: telemetria, frota), que vivem na

@@ -7,6 +7,10 @@ import { join, relative } from 'path';
 import { createHash } from 'node:crypto';
 
 const raiz = process.cwd(); // backend/
+// tar do WINDOWS (bsdtar): com o Git no PATH, `tar` pode ser o GNU tar, que lê "C:" como host remoto.
+const TAR = process.env.SystemRoot && existsSync(join(process.env.SystemRoot, 'System32', 'tar.exe'))
+  ? join(process.env.SystemRoot, 'System32', 'tar.exe')
+  : 'tar';
 const out = join(raiz, '..', 'regem-edge-dist');
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
@@ -23,8 +27,20 @@ const VAZA_LOGICA = /\.map$|\.d\.ts$|\.md$/i;
 // Chaves PRIVADAS nunca vão para a loja (só a pública update-pub.pem vai, p/ o
 // verify-update.mjs conferir a assinatura). Barra update-priv.pem e qualquer .pfx.
 const SEGREDO = /(^|[\\/])update-priv\.pem$|\.pfx$/i;
+// Ferramentas da DISTRIBUIÇÃO (publicar, assinar, gerar CA/licença, buildar, seed de cobrança,
+// migrations de produção) não vão para o PC da loja (ERR-053 — plano USUÁRIO × DISTRIBUIÇÃO).
+export const FERRAMENTAS_DISTRIBUICAO = new Set([
+  'publicar.ps1', 'sign-update.mjs', 'gerar-ca-assinatura.mjs', 'build-release.ps1', 'package.mjs',
+  'preflight-release.mjs', 'build-web.mjs', 'regem-edge.iss', 'update-priv.pem',
+  'gen-license-keys.mjs', 'apply-all-prod.mjs', 'stripe-seed-prices.mjs', 'gen-openapi.js',
+  'backfill-clientes.mjs',
+]);
+const nomeDe = (s) => s.split(/[\\/]/).pop();
 const semBundle = (s) =>
-  !/[\\/](bundle|node_modules|Output)([\\/]|$)/.test(s) && !VAZA_LOGICA.test(s) && !SEGREDO.test(s);
+  !/[\\/](bundle|node_modules|Output)([\\/]|$)/.test(s) &&
+  !VAZA_LOGICA.test(s) &&
+  !SEGREDO.test(s) &&
+  !FERRAMENTAS_DISTRIBUICAO.has(nomeDe(s));
 
 const copiar = (rel) => {
   const src = join(raiz, rel);
@@ -90,7 +106,7 @@ if (existsSync(join(saDir, 'server.js'))) {
   // (MAX_PATH) → "Cannot find module 'next'" e o RegemEdgeWeb cai em loop. O tar
   // (bsdtar do Windows 10+) preserva caminhos longos. Limpa .md do standalone antes.
   limparMd(saDir);
-  execSync(`tar -cf "${join(out, 'web.tar')}" -C "${saDir}" .`, { stdio: 'inherit' });
+  execSync(`"${TAR}" -cf "${join(out, 'web.tar')}" -C "${saDir}" .`, { stdio: 'inherit' });
   console.log('  + web.tar (standalone empacotado; extraído no install)');
 } else {
   console.warn('  (AVISO) web nao encontrado — rode sem SKIP_WEB_BUILD para gerar o app.');

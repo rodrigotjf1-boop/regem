@@ -80,7 +80,8 @@ export default function DistHome() {
   const [auditoria, setAuditoria] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [novo, setNovo] = useState({ nome: '', email: '', senha: '', perfil: 'tecnico' });
-  const [rel, setRel] = useState({ versao: '', url: '', sha256: '', assinatura: '', notas: '' });
+  const [rel, setRel] = useState({ versao: '', url: '', sha256: '', assinatura: '', assinaturaV2: '', expiraEm: '', notas: '', percentual: '10', lojasPiloto: [] as string[] });
+  const [pctEdit, setPctEdit] = useState<Record<string, string>>({});
 
   const sair = useCallback(() => { clearDistToken(); router.replace('/distribuicao/login'); }, [router]);
 
@@ -112,8 +113,19 @@ export default function DistHome() {
 
   async function publicar(e: React.FormEvent) {
     e.preventDefault(); setErro('');
-    try { await distApi.publicarRelease(rel); setRel({ versao: '', url: '', sha256: '', assinatura: '', notas: '' }); setReleases(await distApi.releases()); }
+    try {
+      await distApi.publicarRelease({ ...rel, percentual: Number(rel.percentual) });
+      setRel({ versao: '', url: '', sha256: '', assinatura: '', assinaturaV2: '', expiraEm: '', notas: '', percentual: '10', lojasPiloto: [] as string[] });
+      setReleases(await distApi.releases());
+    }
     catch (err) { setErro(err instanceof Error ? err.message : 'Erro ao publicar.'); }
+  }
+  // Distribuição escalonada de um release já publicado (percentual, pausar, recolher).
+  async function ajustarRelease(r: any, dto: any, confirmacao?: string) {
+    if (confirmacao && !confirm(confirmacao)) return;
+    setErro('');
+    try { await distApi.ajustarRelease(r.id, dto); setReleases(await distApi.releases()); }
+    catch (err) { setErro(err instanceof Error ? err.message : 'Erro ao ajustar o release.'); }
   }
   async function rollback(id: string, nome: string) {
     if (!confirm(`Disparar ROLLBACK remoto no edge de "${nome}"?\nO servidor reverte à versão anterior no próximo ciclo (reinicia serviços). Use só se a última atualização causou problema.`)) return;
@@ -442,12 +454,24 @@ export default function DistHome() {
             {ehDiretoria && (
               <form onSubmit={publicar} className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
                 <h2 className="font-bold">Publicar release</h2>
-                <p className="mt-1 text-xs text-slate-400">O edge lê o último release aqui no update-check (dispensa mexer no EasyPanel). O gestor da loja instala pelo botão dele.</p>
+                <p className="mt-1 text-xs text-slate-400">Gere o pacote e as assinaturas com <code>edge/publicar.ps1</code> (depois <code>-SoAssinar -Url</code>) e cole aqui. A API confere as assinaturas antes de publicar. Cada loja recebe a MAIOR versão liberada para ela; o gestor instala ou agenda pela tela Servidor.</p>
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <input required placeholder="Versão (ex.: 1.1.6)" value={rel.versao} onChange={(e) => setRel({ ...rel, versao: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm" />
                   <input required placeholder="SHA-256 do .zip" value={rel.sha256} onChange={(e) => setRel({ ...rel, sha256: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono" />
                   <input required placeholder="URL do .zip (https)" value={rel.url} onChange={(e) => setRel({ ...rel, url: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm sm:col-span-2" />
-                  <input placeholder="Assinatura Ed25519 (base64, opcional) — assine versao|sha256|url offline" value={rel.assinatura} onChange={(e) => setRel({ ...rel, assinatura: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono sm:col-span-2" />
+                  <input required placeholder="Assinatura v1 (EDGE_UPDATE_SIG)" value={rel.assinatura} onChange={(e) => setRel({ ...rel, assinatura: e.target.value.trim() })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono sm:col-span-2" />
+                  <input required placeholder="Assinatura v2 (EDGE_UPDATE_SIG_V2)" value={rel.assinaturaV2} onChange={(e) => setRel({ ...rel, assinaturaV2: e.target.value.trim() })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono sm:col-span-2" />
+                  <input required placeholder="Validade da v2 (EDGE_UPDATE_EXPIRA, ex.: 2027-03-17T12:00:00.000Z)" value={rel.expiraEm} onChange={(e) => setRel({ ...rel, expiraEm: e.target.value.trim() })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono sm:col-span-2" />
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    Lojas que recebem (%) — as piloto recebem sempre
+                    <input type="number" min={0} max={100} step={1} required value={rel.percentual} onChange={(e) => setRel({ ...rel, percentual: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm font-mono" />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-slate-400">
+                    Lojas piloto (Ctrl+clique para várias)
+                    <select multiple value={rel.lojasPiloto} onChange={(e) => setRel({ ...rel, lojasPiloto: Array.from(e.target.selectedOptions).map((o) => o.value) })} className="min-h-[5.5rem] rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-sm">
+                      {(licencas ?? []).map((l: any) => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                    </select>
+                  </label>
                   <input placeholder="Notas (o que muda)" value={rel.notas} onChange={(e) => setRel({ ...rel, notas: e.target.value })} className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm sm:col-span-2" />
                 </div>
                 <button type="submit" className="mt-3 rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400">Publicar release</button>
@@ -455,17 +479,44 @@ export default function DistHome() {
             )}
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
-                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Versão</th><th className="p-3">Notas</th><th className="p-3">Por</th><th className="p-3">Quando</th></tr></thead>
+                <caption className="sr-only">Releases publicados e a distribuição de cada um</caption>
+                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Versão</th><th className="p-3">Distribuição</th><th className="p-3">Servidores na versão</th><th className="p-3">Notas</th><th className="p-3">Quando</th>{ehDiretoria && <th className="p-3">Ações</th>}</tr></thead>
                 <tbody>
                   {(releases ?? []).map((r, i) => (
-                    <tr key={i} className="border-t border-slate-800/70">
-                      <td className="p-3 font-mono">{r.versao}{i === 0 && <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-400">atual</span>}</td>
+                    <tr key={r.id ?? i} className="border-t border-slate-800/70 align-top">
+                      <td className="p-3 font-mono">
+                        {r.versao}
+                        {r.assinadaV2 ? <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-400">assinada</span>
+                          : <span className="ml-2 rounded bg-rose-500/15 px-1.5 py-0.5 text-[10px] text-rose-300">{r.assinada ? 'só v1' : 'sem assinatura'}</span>}
+                      </td>
+                      <td className="p-3 text-xs">
+                        {r.recolhido ? <span className="rounded bg-rose-500/15 px-1.5 py-0.5 text-rose-300">recolhido</span>
+                          : r.pausado ? <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-300">pausado em {r.percentual ?? 100}%</span>
+                          : <span className="font-mono text-slate-300">{r.percentual ?? 100}%</span>}
+                        {(r.lojasPiloto?.length ?? 0) > 0 && <span className="ml-2 text-slate-500">+ {r.lojasPiloto.length} piloto(s)</span>}
+                        {r.expiraEm && <div className="mt-1 text-[11px] text-slate-500">assinatura vale até {quando(r.expiraEm)}</div>}
+                      </td>
+                      <td className="p-3 font-mono text-xs text-slate-300">{r.servidoresNaVersao != null ? `${r.servidoresNaVersao} de ${r.servidoresAtivos}` : '—'}</td>
                       <td className="p-3 text-slate-400">{r.notas ?? '—'}</td>
-                      <td className="p-3 text-xs text-slate-500">{r.publicadoPor ?? '—'}</td>
-                      <td className="p-3 text-xs text-slate-500">{quando(r.publicadoEm)}</td>
+                      <td className="p-3 text-xs text-slate-500">{quando(r.publicadoEm)}<div>{r.publicadoPor ?? ''}</div></td>
+                      {ehDiretoria && (
+                        <td className="p-3">
+                          {r.id && !r.recolhido && (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <input aria-label={`Percentual do release ${r.versao}`} type="number" min={0} max={100} value={pctEdit[r.id] ?? String(r.percentual ?? 100)} onChange={(e) => setPctEdit({ ...pctEdit, [r.id]: e.target.value })} className="h-8 w-16 rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs font-mono" />
+                              <button type="button" onClick={() => ajustarRelease(r, { percentual: Number(pctEdit[r.id] ?? r.percentual ?? 100) })} className="rounded-lg border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800">Aplicar %</button>
+                              <button type="button" onClick={() => ajustarRelease(r, { pausado: !r.pausado })} className="rounded-lg border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800">{r.pausado ? 'Retomar' : 'Pausar'}</button>
+                              <button type="button" onClick={() => ajustarRelease(r, { recolhido: true }, `Recolher a versão ${r.versao}?\nNinguém mais recebe; quem já instalou vê o aviso para atualizar ou reverter. Para corrigir, publique uma versão MAIOR.`)} className="rounded-lg border border-rose-800 px-2 py-1 text-xs text-rose-300 hover:bg-rose-950">Recolher</button>
+                            </div>
+                          )}
+                          {r.recolhido && (
+                            <button type="button" onClick={() => ajustarRelease(r, { recolhido: false })} className="rounded-lg border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800">Reativar</button>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))}
-                  {releases && releases.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-slate-500">Nenhum release publicado (usa o env do EasyPanel).</td></tr>}
+                  {releases && releases.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">Nenhum release publicado (usa o env do EasyPanel).</td></tr>}
                 </tbody>
               </table>
             </div>

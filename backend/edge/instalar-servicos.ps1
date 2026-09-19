@@ -129,14 +129,14 @@ try {
       -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $atualizar, $Raiz)
     $conta = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
     # -ExecutionTimeLimit PT15M: se a execução travar (ex.: pg_dump pendurado), o
-    # Windows mata a tarefa sozinho após 15 min — não fica "Running" por dias
+    # Windows mata a tarefa sozinho após 45 min — não fica "Running" por dias
     # ("nada acontece"). NÃO usar -MultipleInstances StopExisting: esse nome de enum
     # NÃO existe em todas as versões do Windows/PowerShell (só Parallel/Queue/IgnoreNew)
     # e, quando ausente, FAZ O Register-ScheduledTask INTEIRO FALHAR (a tarefa nem é
     # criada). O "matar a execução presa antes de re-disparar" é feito pelo
     # edge.service.aplicarAtualizacao (schtasks /end antes do /run), que é portável.
     $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
-      -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+      -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
     Register-ScheduledTask -TaskName "RegemEdgeUpdate" -Action $acao `
       -Principal $conta -Settings $cfg -Force | Out-Null
     Write-Host "-> Auto-update registrado SOB DEMANDA (RegemEdgeUpdate) - disparado pelo botão do app."
@@ -153,7 +153,7 @@ try {
       -Argument ("-ExecutionPolicy Bypass -NoProfile -File `"{0}`" -Raiz `"{1}`"" -f $reverter, $Raiz)
     $contaR = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
     $cfgR = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
-      -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
+      -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
     Register-ScheduledTask -TaskName "RegemEdgeRollback" -Action $acaoR `
       -Principal $contaR -Settings $cfgR -Force | Out-Null
     Write-Host "-> Rollback registrado SOB DEMANDA (RegemEdgeRollback) - disparado pelo botão do app."

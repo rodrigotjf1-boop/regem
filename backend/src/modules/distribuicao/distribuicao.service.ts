@@ -14,11 +14,16 @@ import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { gerarSegredoBase32, verificarTotp, otpauthUri } from './totp';
+import { assinaturaConfere, mensagemV1, mensagemV2 } from '../../common/update-assinatura';
+import { exigirBooleano } from '../../common/exigir';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export type PerfilDist = 'diretoria' | 'tecnico' | 'financeiro';
 const PERFIS: PerfilDist[] = ['diretoria', 'tecnico', 'financeiro'];
+
+// Lista de uuids (JÁ validados) como literal de array do Postgres, passada como PARÂMETRO.
+const listaPg = (ids: string[]) => `{${ids.join(',')}}`;
 
 // Console da distribuição (Fase 1): realm de auth SEPARADO das lojas. Token assinado
 // com `escopo: 'distribuicao'` e secret próprio (DIST_JWT_SECRET, cai no JWT_SECRET em
@@ -266,30 +271,119 @@ export class DistribuicaoService {
   // ===== Fase 4: publicar release + comandos remotos =====
 
   // Publica um release (o edge lê daqui no update-check em vez do env do EasyPanel).
+  // As duas assinaturas são OBRIGATÓRIAS e conferidas AQUI com a chave pública — o que as lojas
+  // vão recusar nunca chega a ser publicado (ERR-046). Geradas OFFLINE com edge/sign-update.mjs:
+  //   v1 "versao|sha256|url" (servidores na versão anterior) e
+  //   v2 "regem-edge-v2|versao|sha256|url|expiraEm" (com validade).
+  // Distribuição escalonada (ERR-051): percentual + lojas piloto; ausente = 100%.
   async publicarRelease(dto: any, autor: any) {
     const versao = String(dto?.versao ?? '').trim();
     const url = String(dto?.url ?? '').trim();
     const sha256 = String(dto?.sha256 ?? '').trim().toLowerCase();
     const notas = dto?.notas ? String(dto.notas).slice(0, 1000) : null;
-    // Assinatura Ed25519 de "versao|sha256|url" (base64), gerada OFFLINE com a chave
-    // privada da distribuição. Opcional enquanto a assinatura é adotada (o edge é
-    // tolerante até EDGE_REQUIRE_SIGNED_UPDATE).
-    const assinatura = dto?.assinatura ? String(dto.assinatura).trim().slice(0, 200) : null;
-    if (!versao || !/^https?:\/\//.test(url) || !/^[0-9a-f]{64}$/.test(sha256)) {
-      throw new BadRequestException('Informe versão, URL (https) e SHA-256 válidos.');
+    const assinatura = String(dto?.assinatura ?? '').trim();
+    const assinaturaV2 = String(dto?.assinaturaV2 ?? '').trim();
+    const expiraEm = String(dto?.expiraEm ?? '').trim();
+    if (!/^\d+\.\d+\.\d+$/.test(versao)) throw new BadRequestException('Versão no formato 1.30.0.');
+    if (!/^https:\/\/\S+$/.test(url)) throw new BadRequestException('A URL do pacote tem de ser https.');
+    if (!/^[0-9a-f]{64}$/.test(sha256)) throw new BadRequestException('SHA-256 inválido (64 caracteres hexadecimais).');
+    if (!assinatura || !assinaturaV2 || !expiraEm) {
+      throw new BadRequestException(
+        'Informe as duas assinaturas e a validade (saída do edge/sign-update.mjs: EDGE_UPDATE_SIG, EDGE_UPDATE_SIG_V2 e EDGE_UPDATE_EXPIRA).',
+      );
     }
+    const t = Date.parse(expiraEm);
+    if (!Number.isFinite(t) || t <= Date.now()) throw new BadRequestException('A validade da assinatura já passou ou é inválida.');
+    if (!assinaturaConfere(mensagemV1(versao, sha256, url), assinatura)) {
+      throw new BadRequestException('Assinatura (v1) não confere com versão + SHA-256 + URL. Assine de novo com a URL definitiva.');
+    }
+    if (!assinaturaConfere(mensagemV2(versao, sha256, url, expiraEm), assinaturaV2)) {
+      throw new BadRequestException('Assinatura (v2) não confere — cole a validade exatamente como o sign-update.mjs imprimiu.');
+    }
+    const { percentual, lojasPiloto } = await this.lerDistribuicao(dto, { percentual: 100, lojasPiloto: [] });
     await this.db.execute(sql`
-      insert into edge_release (versao, url, sha256, assinatura, notas, publicado_por)
-      values (${versao}, ${url}, ${sha256}, ${assinatura}, ${notas}, ${autor?.nome ?? null})`);
-    await this.auditar(autor, 'publicou_release', versao, { url });
-    return { ok: true, versao };
+      insert into edge_release (versao, url, sha256, assinatura, assinatura_v2, expira_em, notas,
+                                publicado_por, percentual, lojas_piloto)
+      values (${versao}, ${url}, ${sha256}, ${assinatura}, ${assinaturaV2}, ${expiraEm}, ${notas},
+              ${autor?.nome ?? null}, ${percentual}, ${listaPg(lojasPiloto)}::uuid[])`);
+    await this.auditar(autor, 'publicou_release', versao, { url, percentual, lojasPiloto: lojasPiloto.length });
+    return { ok: true, versao, percentual };
   }
 
+  // Ajusta a distribuição de um release já publicado: percentual, lojas piloto, pausar,
+  // recolher. Campo AUSENTE mantém o valor atual (V16); liga/desliga exige true/false (V15).
+  async ajustarRelease(id: string, dto: any, autor: any) {
+    if (!/^[0-9a-f-]{36}$/i.test(String(id ?? ''))) throw new BadRequestException('Release inválido.');
+    const r: any = await this.db.execute(
+      sql`select versao, percentual, lojas_piloto as "lojasPiloto", pausado, recolhido from edge_release where id = ${id}`,
+    );
+    const atual = (r.rows ?? r)[0];
+    if (!atual) throw new NotFoundException('Release não encontrado.');
+    const { percentual, lojasPiloto } = await this.lerDistribuicao(dto, {
+      percentual: Number(atual.percentual ?? 100),
+      lojasPiloto: (atual.lojasPiloto ?? []) as string[],
+    });
+    const pausado = dto?.pausado === undefined ? !!atual.pausado : exigirBooleano(dto.pausado, 'pausado');
+    const recolhido = dto?.recolhido === undefined ? !!atual.recolhido : exigirBooleano(dto.recolhido, 'recolhido');
+    await this.db.execute(sql`
+      update edge_release
+         set percentual = ${percentual}, lojas_piloto = ${listaPg(lojasPiloto)}::uuid[],
+             pausado = ${pausado}, recolhido = ${recolhido}, atualizado_em = now()
+       where id = ${id}`);
+    await this.auditar(autor, 'ajustou_release', atual.versao, { percentual, lojasPiloto: lojasPiloto.length, pausado, recolhido });
+    return { ok: true, versao: atual.versao, percentual, pausado, recolhido };
+  }
+
+  // percentual 0..100 e lojas piloto (empresas que existem). Ausente = valor de `padrao`.
+  private async lerDistribuicao(dto: any, padrao: { percentual: number; lojasPiloto: string[] }) {
+    let percentual = padrao.percentual;
+    if (dto?.percentual !== undefined && dto?.percentual !== null && dto?.percentual !== '') {
+      const p = Number(dto.percentual);
+      if (!Number.isInteger(p) || p < 0 || p > 100) throw new BadRequestException('Percentual entre 0 e 100.');
+      percentual = p;
+    }
+    let lojasPiloto = padrao.lojasPiloto;
+    if (dto?.lojasPiloto !== undefined) {
+      if (!Array.isArray(dto.lojasPiloto)) throw new BadRequestException('lojasPiloto tem de ser uma lista.');
+      const ids = [...new Set(dto.lojasPiloto.map((x: any) => String(x).trim()).filter(Boolean))] as string[];
+      if (ids.some((x) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(x))) {
+        throw new BadRequestException('Loja piloto inválida.');
+      }
+      if (ids.length) {
+        const e: any = await this.db.execute(
+          sql`select count(*)::int as n from empresa where id = any(${listaPg(ids)}::uuid[])`,
+        );
+        if (Number((e.rows ?? e)[0]?.n ?? 0) !== ids.length) throw new BadRequestException('Alguma loja piloto não existe.');
+      }
+      lojasPiloto = ids;
+    }
+    return { percentual, lojasPiloto };
+  }
+
+  // Lista com o estado da distribuição: servidores (ativos nos últimos 2 dias) já em cada versão.
   async releases() {
-    const r: any = await this.db.execute(sql`
-      select versao, url, sha256, notas, publicado_por as "publicadoPor", publicado_em as "publicadoEm"
-      from edge_release order by publicado_em desc limit 30`);
-    return r.rows ?? r;
+    try {
+      const r: any = await this.db.execute(sql`
+        with ativos as (
+          select versao from edge_status where recebido_em > now() - interval '2 days'
+        )
+        select rl.id, rl.versao, rl.url, rl.sha256, rl.notas, rl.publicado_por as "publicadoPor",
+               rl.publicado_em as "publicadoEm", rl.percentual, rl.lojas_piloto as "lojasPiloto",
+               rl.pausado, rl.recolhido, rl.expira_em as "expiraEm",
+               (rl.assinatura is not null) as assinada, (rl.assinatura_v2 is not null) as "assinadaV2",
+               (select count(*)::int from ativos a where a.versao = rl.versao) as "servidoresNaVersao",
+               (select count(*)::int from ativos) as "servidoresAtivos"
+          from edge_release rl order by rl.publicado_em desc limit 30`);
+      return r.rows ?? r;
+    } catch (e: any) {
+      if (e?.code !== '42703' && e?.cause?.code !== '42703') throw e;
+      // Migration 270 ainda não aplicada: lista no formato antigo.
+      const r: any = await this.db.execute(sql`
+        select versao, url, sha256, notas, publicado_por as "publicadoPor", publicado_em as "publicadoEm",
+               (assinatura is not null) as assinada
+        from edge_release order by publicado_em desc limit 30`);
+      return r.rows ?? r;
+    }
   }
 
   // Enfileira um comando remoto p/ o edge de uma loja (o daemon busca e executa).

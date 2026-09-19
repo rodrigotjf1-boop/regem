@@ -480,6 +480,9 @@ export const distApi = {
   releases: () => distReq('/distribuicao/releases'),
   publicarRelease: (dto: any) =>
     distReq('/distribuicao/releases', { method: 'POST', body: JSON.stringify(dto) }),
+  // Distribuição escalonada: { percentual?, lojasPiloto?, pausado?, recolhido? } (ausente mantém).
+  ajustarRelease: (id: string, dto: any) =>
+    distReq(`/distribuicao/releases/${id}/distribuicao`, { method: 'POST', body: JSON.stringify(dto) }),
   // Pedidos de integração (loja pede token → distribuição conecta no portal do canal)
   pedidosIntegracao: () => distReq('/distribuicao/pedidos-integracao'),
   resolverPedidoIntegracao: (
@@ -920,7 +923,9 @@ export const api = {
   // Atualização do servidor local (só no edge; gestão)
   edgeAtualizacaoStatus: () => req('/edge/atualizacao/status'),
   edgeVerificarAtualizacao: () => req('/edge/atualizacao/verificar', { method: 'POST', body: '{}' }),
-  edgeAplicarAtualizacao: () => req('/edge/atualizacao/aplicar', { method: 'POST', body: '{}' }),
+  // forcar = instalar mesmo com a loja operando / versão já revertida; agendarPara = ISO (null cancela).
+  edgeAplicarAtualizacao: (opts: { forcar?: boolean; agendarPara?: string | null } = {}) =>
+    req('/edge/atualizacao/aplicar', { method: 'POST', body: JSON.stringify(opts) }),
   edgeReverterAtualizacao: () => req('/edge/atualizacao/reverter', { method: 'POST', body: '{}' }),
   edgeInstalador: () => req('/edge/instalador'),
   edgeRestaurarStatus: () => req('/edge/restaurar/status'),

@@ -160,6 +160,14 @@ export class DistribuicaoController {
     return this.service.publicarRelease(dto, u);
   }
 
+  // Distribuição escalonada de um release: percentual, lojas piloto, pausar, recolher.
+  @Post('releases/:id/distribuicao')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  ajustarRelease(@DistUser() u: DistCtx, @Param('id') id: string, @Body() dto: any) {
+    return this.service.ajustarRelease(id, dto, u);
+  }
+
   // Rollback remoto — Diretoria+Técnico (o edge executa no próximo ciclo).
   @Post('licencas/:tenantId/rollback')
   @UseGuards(DistribuicaoGuard, PerfilDistGuard)
