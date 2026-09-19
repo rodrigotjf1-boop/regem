@@ -33,6 +33,16 @@ const SEGS: { k: string; t: string; c: string }[] = [
   { k: 'sem_60', t: '+60d sem pedir', c: 'sem60' },
   { k: 'campeoes', t: 'Campeões', c: 'campeoes' },
 ];
+// Base importada (ex.: Anota Aí) — abas só aparecem quando há clientes nelas.
+const SEGS_IMPORT: { k: string; t: string; c: string }[] = [
+  { k: 'anotaai_ativo', t: 'Anota Aí · ativos', c: 'anotaai_ativo' },
+  { k: 'anotaai_inativo', t: 'Anota Aí · inativos', c: 'anotaai_inativo' },
+  { k: 'anotaai_potencial', t: 'Anota Aí · potenciais', c: 'anotaai_potencial' },
+  { k: 'importados', t: 'Importados', c: 'importados' },
+];
+const SEG_ANOTA: Record<string, string> = { ativo: 'Ativos', inativo: 'Inativos', potencial: 'Potenciais (não finalizaram)' };
+// Gravação em partes (o servidor aceita até 5.000 por vez).
+const LOTE_IMPORT = 5000;
 
 export default function ClientesPage() {
   const [resumo, setResumo] = useState<any>({});
@@ -71,6 +81,7 @@ export default function ClientesPage() {
   const [impPrevia, setImpPrevia] = useState<any>(null);
   const [impConsent, setImpConsent] = useState(false);
   const [importando, setImportando] = useState(false);
+  const [impProgresso, setImpProgresso] = useState<string>('');
   const buscaRef = useRef(busca);
   buscaRef.current = busca;
 
@@ -224,7 +235,9 @@ export default function ClientesPage() {
   async function escolherVcf(f: File) {
     setImportando(true);
     try {
-      const p: any = await api.crmImportarVcfPrevia(f);
+      const planilha = /\.(csv|xlsx)$/i.test(f.name) || f.type === 'text/csv';
+      const p: any = planilha ? await api.crmImportarPlanilhaPrevia(f) : await api.crmImportarVcfPrevia(f);
+      if (planilha) p.arquivo = f;
       if (!p?.contatos?.length) {
         toast.error('Nenhum contato com telefone válido encontrado no arquivo.');
         return;
@@ -232,7 +245,7 @@ export default function ClientesPage() {
       setImpConsent(false);
       setImpPrevia(p);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Não consegui ler o arquivo .vcf.');
+      toast.error(e instanceof Error ? e.message : 'Não consegui ler o arquivo.');
     } finally {
       setImportando(false);
       if (vcfRef.current) vcfRef.current.value = '';
@@ -246,16 +259,23 @@ export default function ClientesPage() {
       // Envia só os novos da lista retornada (já limitada a `limite` pelo servidor) — o
       // backend re-checa e dedup de qualquer forma. `novos` no topo é o total do arquivo;
       // quando truncado, o que entra é o que está nesta lista.
-      const r: any = await api.crmImportarContatos(
-        impPrevia.contatos
-          .filter((c: any) => c.novo)
-          .map((c: any) => ({ nome: c.nome, telefone: c.telefone })),
-        true,
-      );
+      const novos = impPrevia.contatos
+        .filter((c: any) => c.novo)
+        .map((c: any) => ({ nome: c.nome, telefone: c.telefone, pedidos: c.pedidos, diasInatividade: c.diasInatividade }));
+      const origem = impPrevia.fonte ? { fonte: impPrevia.fonte, segmento: impPrevia.segmento ?? null } : undefined;
+      const tot = { inseridos: 0, duplicados: 0, invalidos: 0 };
+      // Planilha grande (a aba de inativos da Anota Aí passa de 13 mil): grava em partes.
+      for (let i = 0; i < novos.length; i += LOTE_IMPORT) {
+        if (novos.length > LOTE_IMPORT) setImpProgresso(`${Math.min(i + LOTE_IMPORT, novos.length)} de ${novos.length}`);
+        const r: any = await api.crmImportarContatos(novos.slice(i, i + LOTE_IMPORT), true, origem);
+        tot.inseridos += r.inseridos ?? 0;
+        tot.duplicados += r.duplicados ?? 0;
+        tot.invalidos += r.invalidos ?? 0;
+      }
       toast.success(
-        `${r.inseridos} contato(s) novo(s) importado(s)` +
-          (r.duplicados ? ` · ${r.duplicados} já estavam na base` : '') +
-          (r.invalidos ? ` · ${r.invalidos} inválido(s)` : '') +
+        `${tot.inseridos} contato(s) novo(s) importado(s)` +
+          (tot.duplicados ? ` · ${tot.duplicados} já estavam na base` : '') +
+          (tot.invalidos ? ` · ${tot.invalidos} inválido(s)` : '') +
           '. Registrado na auditoria.',
       );
       setImpPrevia(null);
@@ -266,7 +286,13 @@ export default function ClientesPage() {
       toast.error(e instanceof Error ? e.message : 'Não foi possível importar.');
     } finally {
       setImportando(false);
+      setImpProgresso('');
     }
+  }
+
+  // Troca o segmento da planilha na prévia (a Anota Aí exporta um arquivo por aba).
+  function trocarSegmentoImport(segmento: string) {
+    setImpPrevia((p: any) => (p ? { ...p, segmento: segmento || null } : p));
   }
 
   async function abrirCampanha() {
@@ -411,7 +437,7 @@ export default function ClientesPage() {
 
         {/* Segmentos */}
         <div className="flex flex-wrap gap-2">
-          {SEGS.map((s) => {
+          {[...SEGS, ...SEGS_IMPORT.filter((x) => Number(resumo?.[x.c]) > 0)].map((s) => {
             const n = resumo?.[s.c];
             const ativo = seg === s.k;
             return (
@@ -453,11 +479,16 @@ export default function ClientesPage() {
               <input
                 ref={vcfRef}
                 type="file"
-                accept=".vcf,text/vcard,text/x-vcard"
+                accept=".vcf,text/vcard,text/x-vcard,.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 hidden
                 onChange={(e) => e.target.files?.[0] && escolherVcf(e.target.files[0])}
               />
-              <Button variant="outline" disabled={importando} onClick={() => vcfRef.current?.click()}>
+              <Button
+                variant="outline"
+                disabled={importando}
+                onClick={() => vcfRef.current?.click()}
+                title="Contatos do celular (.vcf) ou clientes exportados da Anota Aí (Excel .xlsx ou CSV)"
+              >
                 {importando ? 'Lendo…' : 'Importar contatos'}
               </Button>
             </>
@@ -795,7 +826,7 @@ export default function ClientesPage() {
               <div className="space-y-3 px-4 py-3">
                 <p className="text-sm text-muted-foreground">
                   Segmento{' '}
-                  <strong className="text-foreground">{SEGS.find((s) => s.k === seg)?.t}</strong> ·{' '}
+                  <strong className="text-foreground">{[...SEGS, ...SEGS_IMPORT].find((s) => s.k === seg)?.t}</strong> ·{' '}
                   {campPrevia == null ? (
                     'calculando público…'
                   ) : (
@@ -923,7 +954,7 @@ export default function ClientesPage() {
                     <li key={k.id} className="rounded-md border border-border p-3 text-sm">
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase">
-                          {SEGS.find((s) => s.k === k.segmento)?.t ?? k.segmento}
+                          {[...SEGS, ...SEGS_IMPORT].find((s) => s.k === k.segmento)?.t ?? k.segmento}
                         </span>
                         <span
                           className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-bold ${
@@ -1091,8 +1122,38 @@ export default function ClientesPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   Lidos {impPrevia.total} contato(s); vamos gravar os <strong className="text-foreground">{impPrevia.novos} novos</strong> (os que já
-                  existem são ignorados, sem duplicar).
+                  existem ficam como estão — nome, telefone e histórico não são alterados).
                 </p>
+                {impPrevia.fonte === 'anotaai' && (
+                  <div className="space-y-2 rounded-md border border-border px-3 py-3 text-sm">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs font-semibold text-muted-foreground">Clientes da Anota Aí — qual lista é este arquivo?</span>
+                      <select
+                        value={impPrevia.segmento ?? ''}
+                        onChange={(e) => trocarSegmentoImport(e.target.value)}
+                        className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                      >
+                        <option value="">Escolha…</option>
+                        {Object.entries(SEG_ANOTA).map(([k, v]) => (
+                          <option key={k} value={k}>{v}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Vira público de campanha (ex.: &quot;Anota Aí · inativos&quot;). Importe na ordem{' '}
+                      <strong>ativos → inativos → potenciais</strong>: quem aparece em mais de uma lista fica com a primeira.
+                    </p>
+                    {impPrevia.semNome > 0 && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {impPrevia.semNome} contato(s) sem nome utilizável (&quot;cliente&quot;, &quot;.&quot;, vazio) entram sem nome — a
+                        campanha usa saudação genérica.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {impProgresso && (
+                  <p className="text-xs font-medium text-foreground" aria-live="polite">Gravando {impProgresso}…</p>
+                )}
                 {impPrevia.truncado && (
                   <p className="rounded-md bg-warn/10 px-3 py-2 text-xs text-foreground">
                     O arquivo tem mais de {impPrevia.limite} contatos válidos. Nesta importação vamos gravar os
@@ -1119,7 +1180,10 @@ export default function ClientesPage() {
                 {(() => {
                   const enviaveis = (impPrevia.contatos ?? []).filter((c: any) => c.novo).length;
                   return (
-                    <Button onClick={confirmarImport} disabled={importando || !impConsent || enviaveis === 0}>
+                    <Button
+                      onClick={confirmarImport}
+                      disabled={importando || !impConsent || enviaveis === 0 || (impPrevia.fonte === 'anotaai' && !impPrevia.segmento)}
+                    >
                       {importando ? 'Importando…' : `Importar ${enviaveis} contato(s)`}
                     </Button>
                   );

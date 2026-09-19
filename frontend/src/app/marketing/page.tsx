@@ -24,6 +24,11 @@ const SEGS = [
   { k: 'sem_60', t: '+60 dias sem pedir' },
   { k: 'campeoes', t: 'Campeões (3+ no mês)' },
   { k: 'recuperacao', t: 'Recuperação (X dias)' },
+  // Base importada (Clientes → Importar contatos → CSV da Anota Aí).
+  { k: 'anotaai_ativo', t: 'Anota Aí · ativos' },
+  { k: 'anotaai_inativo', t: 'Anota Aí · inativos' },
+  { k: 'anotaai_potencial', t: 'Anota Aí · potenciais (não finalizaram)' },
+  { k: 'importados', t: 'Todos os importados' },
 ];
 
 // Tipos prontos: pré-preenchem mensagem e público (o lojista ajusta).

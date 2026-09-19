@@ -2280,6 +2280,9 @@ export const cliente = pgTable('cliente', {
   totalPedidos: integer('total_pedidos').notNull().default(0),
   totalGasto: numeric('total_gasto').notNull().default('0'),
   optOutMarketing: boolean('opt_out_marketing').notNull().default(false),
+  // Procedência da importação (mig 271): { fonte, segmento, pedidos, diasInatividade,
+  // importadoEm } — só em cliente criado por importação (ex.: base da Anota Aí).
+  importacao: jsonb('importacao'),
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
   atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });

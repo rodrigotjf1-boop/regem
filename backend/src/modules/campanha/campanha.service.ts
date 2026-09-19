@@ -37,6 +37,11 @@ export class CampanhaService {
       sem_30: sql`and c.ultimo_pedido_em < now() - interval '30 days'`,
       sem_60: sql`and c.ultimo_pedido_em < now() - interval '60 days'`,
       campeoes: sql`and (select count(*) from pedido_externo p where p.cliente_id = c.id and p.status <> 'cancelado' and p.criado_em >= now() - interval '30 days') >= 3`,
+      // Base importada (mig 271) — ex.: clientes exportados da Anota Aí, por segmento de lá.
+      importados: sql`and c.importacao is not null`,
+      anotaai_ativo: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'ativo'`,
+      anotaai_inativo: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'inativo'`,
+      anotaai_potencial: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'potencial'`,
     };
     return m[String(segmento ?? '')] ?? sql``;
   }

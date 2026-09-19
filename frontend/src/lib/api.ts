@@ -497,10 +497,11 @@ export const distApi = {
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
-async function uploadFile(path: string, file: File) {
+async function uploadFile(path: string, file: File, campos?: Record<string, string>) {
   const token = getJwt();
   const form = new FormData();
   form.append('file', file);
+  for (const [k, v] of Object.entries(campos ?? {})) form.append(k, v);
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, {
@@ -1298,8 +1299,12 @@ export const api = {
   }) => req('/clientes/export', { method: 'POST', body: JSON.stringify(body) }),
   // Import de contatos (.vcf): prévia (multipart, parseia no servidor) + commit (JSON revisado).
   crmImportarVcfPrevia: (file: File) => uploadFile('/clientes/importar-vcf/previa', file) as unknown as Promise<any>,
-  crmImportarContatos: (contatos: any[], consentimento: boolean) =>
-    req('/clientes/importar', { method: 'POST', body: JSON.stringify({ contatos, consentimento }) }),
+  // Planilha CSV (ex.: clientes exportados da Anota Aí) — prévia com o segmento de lá.
+  crmImportarPlanilhaPrevia: (file: File, segmento?: string) =>
+    uploadFile('/clientes/importar-planilha/previa', file, segmento ? { segmento, fonte: 'anotaai' } : { fonte: 'anotaai' }) as unknown as Promise<any>,
+  // origem = { fonte, segmento } da planilha (grava a procedência só nos clientes NOVOS).
+  crmImportarContatos: (contatos: any[], consentimento: boolean, origem?: { fonte: string; segmento: string | null }) =>
+    req('/clientes/importar', { method: 'POST', body: JSON.stringify({ contatos, consentimento, origem }) }),
   crmHistorico: (id: string) => req(`/clientes/crm/${encodeURIComponent(id)}/historico`),
   // Campanhas de WhatsApp por segmento (F5 + épico marketing) — só nuvem, só gestão.
   crmCampanhaPrevia: (segmento: string, recuperacaoDias?: number) =>
