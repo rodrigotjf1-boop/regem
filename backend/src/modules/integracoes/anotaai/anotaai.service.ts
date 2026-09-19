@@ -169,17 +169,18 @@ export class AnotaAiService {
         let raw: any = null;
         if (!seenSet.has(orderId)) {
           raw = await this.pedido(ig, orderId);
-          if (raw) {
-            seenSet.add(orderId); // marca ANTES de ingerir (evita re-GET/dup nos próximos ciclos)
-            await this.delivery
-              .ingest(tenantId, unidadeId, CANAL, raw, {
-                taxaEntrega: Number(raw?.deliveryFee) || 0,
-                agendamento: agendamentoAnotaAi(raw) ?? undefined,
-              })
-              .catch(() => {}); // duplicado (constraint) = ok, já existe
-            if (check === 0 || check === -2) await this.aceitar(ig, orderId);
-            n++;
-          }
+          if (!raw) continue; // detalhe indisponível: não marca como visto → tenta no próximo ciclo
+          // Grava PRIMEIRO. Só depois marca como visto e aceita na Anota Aí. Antes marcava
+          // antes, engolia o erro do ingest e aceitava: numa falha passageira do banco o
+          // cliente via o pedido ACEITO e a loja nunca o recebia (ERR-061). O ingest já é
+          // idempotente (índice único) — duplicado não lança; erro aqui é falha real.
+          await this.delivery.ingest(tenantId, unidadeId, CANAL, raw, {
+            taxaEntrega: Number(raw?.deliveryFee) || 0,
+            agendamento: agendamentoAnotaAi(raw) ?? undefined,
+          });
+          seenSet.add(orderId);
+          if (check === 0 || check === -2) await this.aceitar(ig, orderId);
+          n++;
         }
         // 2) Reflete o status vindo DA Anota Aí (bidirecional; vale p/ já ingeridos).
         //    A Anota Aí só expõe o `check` numérico (a LIST não traz status textual):

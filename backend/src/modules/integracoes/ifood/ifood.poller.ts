@@ -43,9 +43,15 @@ export class IfoodPoller {
     }
   }
 
+  // Regra oficial do iFood: PERSISTIR antes do acknowledgment — evento reconhecido não volta.
+  // Só entra no ACK o evento processado com sucesso (ou que não exige nada); o que falhou
+  // (detalhe indisponível, erro ao gravar) fica sem ACK e volta no próximo polling (o iFood
+  // guarda por 8 h). Reprocessar é seguro: o ingest é idempotente (índice único por pedido).
+  // Antes TODOS eram reconhecidos no fim e o pedido se perdia numa falha passageira (ERR-061).
   private async processar(ig: IntegIfood) {
     const eventos = await this.ifood.polling(ig);
     if (!eventos.length) return;
+    const processados: any[] = [];
     for (const ev of eventos) {
       const code = String(ev.code ?? ev.fullCode ?? '').toUpperCase();
       try {
@@ -53,7 +59,10 @@ export class IfoodPoller {
           // Pedido novo: busca os detalhes e ingere (idempotente por externalId).
           // O confirm no iFood sai do fluxo do Regem (delivery.aceitar → statusBack).
           const raw = await this.ifood.pedido(ig, ev.orderId);
-          if (!raw) continue;
+          if (!raw) {
+            this.logger.warn(`pedido ${ev.orderId}: detalhe indisponível — sem ACK, volta no próximo polling`);
+            continue;
+          }
           await this.delivery.ingest(ig.tenantId, ig.unidadeId, 'ifood', raw, {
             taxaEntrega: Number(raw?.total?.deliveryFee ?? raw?.deliveryFee) || 0,
             // Pedido agendado: guarda a janela p/ não despachar antes da hora.
@@ -79,12 +88,14 @@ export class IfoodPoller {
           await this.delivery.materializarSeNovoExterno(ig.tenantId, 'ifood', String(ev.orderId));
           await this.delivery.refletirStatusExterno(ig.tenantId, 'ifood', String(ev.orderId), 'concluido');
         }
-        // Demais códigos apenas reconhecemos abaixo.
+        // Demais códigos: nada a fazer — reconhecidos.
+        processados.push(ev);
       } catch (e: any) {
-        this.logger.warn(`evento ${code} ${ev.orderId}: ${e?.message ?? e}`);
+        this.logger.warn(`evento ${code} ${ev.orderId}: ${e?.message ?? e} — sem ACK, volta no próximo polling`);
       }
     }
-    await this.ifood.acknowledge(ig, eventos);
-    this.logger.log(`loja ${ig.tenantId}: ${eventos.length} evento(s)`);
+    await this.ifood.acknowledge(ig, processados);
+    const pendentes = eventos.length - processados.length;
+    this.logger.log(`loja ${ig.tenantId}: ${processados.length} evento(s)${pendentes ? `, ${pendentes} para repetir` : ''}`);
   }
 }

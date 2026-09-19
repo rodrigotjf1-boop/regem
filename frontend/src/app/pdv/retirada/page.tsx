@@ -338,6 +338,15 @@ function PedidoCard({
             <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium">
               {p.retiradaTipo === 'encomenda' ? '📅 Encomenda' : '🏪 Retirada'}
             </span>
+            {/* 99Food: o cliente mostra este código na retirada — confira antes de entregar. */}
+            {p.codigoRetirada && (
+              <span
+                className="rounded-full bg-primary/15 px-2 py-0.5 font-mono text-[11px] font-bold text-primary"
+                title="Código de retirada da 99Food — confira com o cliente antes de entregar"
+              >
+                Código {p.codigoRetirada}
+              </span>
+            )}
             {/* Senha do TOTEM (a que o cliente leva) — vem no displayId; o operador casa
                 o pedido por ela, não pelo nº sequencial do Regem. Esconde o fallback (#nº). */}
             {p.grupoCanal === 'totem' && p.displayId && p.displayId !== `#${p.numero}` && (

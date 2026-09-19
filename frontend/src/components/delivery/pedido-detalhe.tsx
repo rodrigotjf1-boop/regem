@@ -191,6 +191,14 @@ export function PedidoDetalhe({
                   <span className="rounded bg-secondary px-1.5 py-0.5 text-[11px] text-muted-foreground">{STATUS_LABEL[p.status]}</span>
                 )}
                 {p.numero != null && <span className="text-xs text-muted-foreground">#{p.numero}</span>}
+                {p.canal === '99food' && p.tipo === 'retirada' && (p.codigoRetirada ?? p.raw?.takeaway_code) && (
+                  <span
+                    className="rounded bg-primary/15 px-1.5 py-0.5 font-mono text-[11px] font-bold text-primary"
+                    title="Código de retirada da 99Food — confira com o cliente antes de entregar"
+                  >
+                    Código de retirada {p.codigoRetirada ?? p.raw?.takeaway_code}
+                  </span>
+                )}
                 <span className="ml-auto font-mono text-[11px] text-muted-foreground">{dataHora(p.criadoEm)}</span>
               </p>
               <p className="font-medium">

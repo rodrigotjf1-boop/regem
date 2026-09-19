@@ -175,7 +175,19 @@ export class DeliveryService {
       if (!ig) return;
       if (acao === 'confirm') await this.food99.confirmar(ig, id);
       else if (acao === 'ready') await this.food99.pronto(ig, id);
-      else if (acao === 'delivered') await this.food99.entregue(ig, id);
+      else if (acao === 'delivered') {
+        // Conclusão depende de COMO o pedido é atendido (doc oficial 99Food):
+        //  • retirada (fulfillment_mode=1) → POST /order/order/finish (ERR-060);
+        //  • entrega da 99 (delivery_type=1) → quem conclui é a 99 (orderFinish);
+        //  • entrega própria (delivery_type=2) → /order/order/delivered (se o código do
+        //    cliente já concluiu, a 99 só recusa — sem efeito).
+        const raw = (row?.raw ?? {}) as any;
+        if (row?.tipo === 'retirada' || Number(raw?.fulfillment_mode) === 1) {
+          await this.food99.finalizarRetirada(ig, id);
+        } else if (Number(raw?.delivery_type) !== 1) {
+          await this.food99.entregue(ig, id);
+        }
+      }
     } catch {
       /* nunca quebra o fluxo por causa do status back */
     }
@@ -797,12 +809,14 @@ export class DeliveryService {
 
     let valid = false;
     let errno99: number | null = null;
+    let errmsg99: string | undefined;
     if (ped.canal === '99food' && this.food99) {
       const ig = await this.food99.integracaoDoTenant(tenantId);
       if (!ig) throw new BadRequestException('Integração 99Food não conectada.');
       const r = await this.food99.verificarCodigoEntrega(ig, extId, cod);
       valid = r.ok;
       errno99 = r.errno;
+      errmsg99 = r.errmsg;
     } else if (ped.canal === 'ifood' && this.ifood) {
       const ig = await this.ifood.integracaoDoTenant(tenantId);
       if (!ig) throw new BadRequestException('Integração iFood não conectada.');
@@ -814,7 +828,11 @@ export class DeliveryService {
     if (!valid) {
       // Expõe o errno da 99Food p/ diagnóstico (o mesmo código funciona no app da 99,
       // então quando o Regem falha o errno diz o motivo — ex.: estado do pedido, order_id).
-      const extra = errno99 != null && errno99 !== 0 ? ` (99Food errno=${errno99})` : '';
+      if (ped.canal === 'ifood') {
+        return { ok: false, valid: false, msg: 'Código não aceito pelo iFood — confira o código com o cliente.' };
+      }
+      const motivo = errmsg99 ? `: ${errmsg99}` : '';
+      const extra = errno99 != null && errno99 !== 0 ? ` (errno ${errno99}${motivo})` : '';
       return { ok: false, valid: false, msg: `Código não aceito pela 99Food${extra} — confira o código ou o estado do pedido.` };
     }
     // Código válido → o canal registrou a entrega. No Regem, marca ENTREGUE (o cliente
@@ -1261,6 +1279,12 @@ export class DeliveryService {
         ...r,
         grupoCanal: DeliveryService.grupoCanal(r.canal),
         retiradaTipo: r.agendamento != null ? 'encomenda' : 'retirada',
+        // 99Food: código de 4 dígitos que o CLIENTE mostra na retirada (`takeaway_code`,
+        // fulfillment_mode=1) — a loja confere antes de entregar.
+        codigoRetirada:
+          r.canal === '99food' && (r.raw as any)?.takeaway_code
+            ? String((r.raw as any).takeaway_code)
+            : null,
       }));
     const origensEmUso = await this.origensEmUso(tenantId);
     const totemAposPagamento = await this.totemAposPagamento(tenantId);
