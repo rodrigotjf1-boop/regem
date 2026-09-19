@@ -115,6 +115,129 @@ function RestaurarServidor() {
   );
 }
 
+// ===== Saúde do servidor (visão do lojista) =====
+// Mostra, em linguagem de dono de loja, o que ele precisa saber do computador da loja:
+// quando foi o último backup e se ainda cabe espaço. Diagnóstico de infraestrutura
+// (checksum, limite de transações do banco) NÃO aparece aqui — vira uma única linha
+// "precisa de manutenção", porque essa parte é da distribuição, não do cliente.
+function espaco(mb: any) {
+  const n = Number(mb);
+  if (!Number.isFinite(n)) return null;
+  return n >= 1024 ? `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} GB` : `${Math.round(n)} MB`;
+}
+// "hoje às 03:00" · "ontem às 03:00" · "há 3 dias".
+function quandoBackup(iso?: string | null) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const dia = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const dias = Math.round((dia(new Date()) - dia(d)) / 86400000);
+  if (dias <= 0) return `hoje às ${hora}`;
+  if (dias === 1) return `ontem às ${hora}`;
+  if (dias < 30) return `há ${dias} dias`;
+  return d.toLocaleDateString('pt-BR');
+}
+
+function SaudeServidor() {
+  const [srv, setSrv] = useState<any>(null);
+  const [carregando, setCarregando] = useState(true);
+
+  useEffect(() => {
+    let vivo = true;
+    api
+      .meuServidor()
+      .then((r) => { if (vivo) setSrv(r); })
+      .catch(() => { if (vivo) setSrv(null); })
+      .finally(() => { if (vivo) setCarregando(false); });
+    return () => { vivo = false; };
+  }, []);
+
+  if (carregando || !srv?.instalado) return null; // sem servidor local não há o que mostrar
+
+  const b = srv.backup ?? null;
+  const horas = Number(b?.horas);
+  const backupAtrasado = !b || b.ok === false || (Number.isFinite(horas) && horas > 48);
+  const discoMb = Number(srv.discoLivreMb);
+  const discoBaixo = Number.isFinite(discoMb) && discoMb < 2048;
+  const quandoTxt = b?.ok !== false ? quandoBackup(b?.em) : null;
+
+  return (
+    <Card className="p-6 lg:col-span-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold">Saúde do servidor</h2>
+          <p className="max-w-prose text-sm text-muted-foreground">
+            O computador da loja guarda uma cópia dos seus dados todo dia. Aqui você confere se está tudo em dia.
+          </p>
+        </div>
+        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${srv.online ? 'bg-ok/15 text-ok' : 'bg-secondary text-muted-foreground'}`}>
+          {srv.online ? '● servidor online' : '○ servidor offline'}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-lg border border-border p-3">
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Último backup</dt>
+          <dd className={`mt-1 font-semibold ${backupAtrasado ? 'text-destructive' : ''}`}>
+            {!b ? 'Nunca foi feito' : b.ok === false ? 'Não foi concluído' : (quandoTxt ?? 'Concluído')}
+          </dd>
+          {b?.ok !== false && b?.mb ? (
+            <p className="mt-1 text-xs text-muted-foreground">Cópia de {espaco(b.mb)}</p>
+          ) : null}
+        </div>
+
+        <div className="rounded-lg border border-border p-3">
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Espaço livre no computador</dt>
+          <dd className={`mt-1 font-semibold ${discoBaixo ? 'text-destructive' : ''}`}>
+            {espaco(srv.discoLivreMb) ?? '—'}
+          </dd>
+          {discoBaixo && <p className="mt-1 text-xs text-destructive">Está acabando o espaço.</p>}
+        </div>
+
+        <div className="rounded-lg border border-border p-3">
+          <dt className="text-xs uppercase tracking-wide text-muted-foreground">Tamanho dos seus dados</dt>
+          <dd className="mt-1 font-semibold">{espaco(srv.bancoMb) ?? '—'}</dd>
+        </div>
+      </dl>
+
+      {backupAtrasado && (
+        <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm" role="alert">
+          <p className="font-semibold text-destructive">O backup do seu servidor não está em dia.</p>
+          <p className="mt-1 text-muted-foreground">
+            {!b
+              ? 'Ainda não recebemos nenhuma cópia de segurança deste computador.'
+              : b.ok === false
+                ? 'A última tentativa de cópia não terminou.'
+                : 'A última cópia tem mais de dois dias.'}{' '}
+            Se o computador da loja der problema agora, você pode perder o que foi feito desde então — acione o suporte.
+          </p>
+        </div>
+      )}
+
+      {discoBaixo && (
+        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+          <p className="font-semibold">Falta espaço no computador da loja ({espaco(srv.discoLivreMb)} livres).</p>
+          <p className="mt-1 text-muted-foreground">
+            Sem espaço, o servidor para de gravar vendas e de fazer backup. Apague arquivos que não usa
+            (fotos, vídeos, downloads) ou acione o suporte.
+          </p>
+        </div>
+      )}
+
+      {srv.precisaManutencao && (
+        <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm font-medium" role="alert">
+          O servidor precisa de manutenção — acione o suporte.
+        </p>
+      )}
+
+      {!backupAtrasado && !discoBaixo && !srv.precisaManutencao && (
+        <p className="mt-4 text-sm text-ok">✓ Está tudo em dia com o servidor da sua loja.</p>
+      )}
+    </Card>
+  );
+}
+
 // Suporte: envia o log recente do servidor local para a distribuição (sob demanda),
 // pra o técnico diagnosticar um problema. Só no edge.
 function SuporteServidor() {
@@ -652,6 +775,8 @@ export default function ServidorPage() {
   return (
     <Shell eyebrow="Instalação" title="Servidor local">
       <div className="grid gap-4 lg:grid-cols-3">
+        {/* Saúde do servidor (backup/disco) — vale na nuvem e no edge; some se não há servidor. */}
+        <SaudeServidor />
         {process.env.NEXT_PUBLIC_EDGE === '1' && <AtualizacaoServidor />}
         {process.env.NEXT_PUBLIC_EDGE === '1' && <RestaurarServidor />}
         {process.env.NEXT_PUBLIC_EDGE === '1' && <SuporteServidor />}

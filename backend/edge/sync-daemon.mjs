@@ -168,7 +168,7 @@ const PUSH_TABLES = [
   { tabela: 'cardapio_config', cursor: 'updated_at' },
   // Configs espelhadas (P1, mig 181): impressoras/terminais e cupom/perfis sobem
   // (backup + volta num banco novo). equipamento FILTRADO: nunca 'servidor_local'.
-  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa')" },
+  { tabela: 'equipamento', cursor: 'updated_at', filtro: "tipo in ('impressora','pdv','salao','ponto_baixa','kds')" },
   { tabela: 'delivery_config', cursor: 'updated_at' },
   { tabela: 'etiqueta_template', cursor: 'updated_at' },
   { tabela: 'opcao', cursor: 'updated_at' },
@@ -177,6 +177,44 @@ const PUSH_TABLES = [
   { tabela: 'produto_complemento', cursor: 'updated_at' },
   { tabela: 'complemento_grupo', cursor: 'updated_at' },
   { tabela: 'complemento_opcao', cursor: 'updated_at' },
+  // ── PARIDADE (mig 272/273) — o que a loja produz e nunca subia ───────────────────────
+  // Espelha a mesma ordem do sync-config da nuvem (pai antes do filho). Config e cadastro
+  // primeiro; os documentos que dependem de comanda/caixa ficam lá embaixo.
+  { tabela: 'produto_sugestao', cursor: 'created_at' },
+  { tabela: 'produto_faixa_preco', cursor: 'created_at' },
+  { tabela: 'produto_destino_producao', cursor: 'created_at' },
+  { tabela: 'setor_destino_producao', cursor: 'created_at' },
+  { tabela: 'complemento_destino_producao', cursor: 'created_at' },
+  { tabela: 'opcao_destino_producao', cursor: 'created_at' },
+  { tabela: 'entitlement', cursor: 'updated_at' },
+  { tabela: 'janela_pico', cursor: 'updated_at' },
+  { tabela: 'contador', cursor: 'updated_at' },
+  { tabela: 'categoria_item', cursor: 'updated_at' },
+  { tabela: 'forma_pagamento', cursor: 'updated_at' },
+  { tabela: 'kds_cor_config', cursor: 'updated_at' },
+  { tabela: 'tef_config', cursor: 'updated_at' },
+  { tabela: 'mesa', cursor: 'updated_at' },
+  { tabela: 'documento_controlado', cursor: 'updated_at' },
+  { tabela: 'ciencia', cursor: 'created_at' },
+  { tabela: 'checklist', cursor: 'updated_at' },
+  { tabela: 'checklist_item', cursor: 'updated_at' },
+  { tabela: 'pop', cursor: 'updated_at' },
+  { tabela: 'tarefa_def', cursor: 'updated_at' },
+  { tabela: 'guia', cursor: 'updated_at' },
+  { tabela: 'guia_passo', cursor: 'created_at' },
+  { tabela: 'comunicado', cursor: 'updated_at' },
+  { tabela: 'comunicado_leitura', cursor: 'created_at' },
+  { tabela: 'clima_pesquisa', cursor: 'updated_at' },
+  { tabela: 'clima_resposta', cursor: 'created_at' },
+  { tabela: 'clima_participacao', cursor: 'created_at' },
+  { tabela: 'escala_regra', cursor: 'updated_at' },
+  { tabela: 'dia_especial', cursor: 'updated_at' },
+  { tabela: 'vistoria', cursor: 'updated_at' },
+  { tabela: 'ocorrencia', cursor: 'updated_at' },
+  { tabela: 'pedido_manutencao', cursor: 'updated_at' },
+  { tabela: 'atendimento_chamado', cursor: 'atualizado_em' },
+  { tabela: 'alerta_estoque', cursor: 'atualizado_em' },
+  { tabela: 'cupom_uso', cursor: 'created_at' }, // o estorno feito aqui precisa voltar o uso
   // Cadastros bidirecionais (LWW): compra/recebimento no edge cria/edita fornecedor
   // e insumo localmente — precisam SUBIR (fornecedor antes de item_estoque por FK).
   { tabela: 'fornecedor', cursor: 'updated_at' },
@@ -184,6 +222,9 @@ const PUSH_TABLES = [
   // Custo médio/mínimo POR LOJA (mig 257): o recebimento e a produção daqui ponderam o
   // custo da loja. Depois de item_estoque (FK).
   { tabela: 'item_estoque_unidade', cursor: 'updated_at' },
+  // Filhas do insumo (mig 272): fornecedores do item e conversão de unidade de compra.
+  { tabela: 'item_fornecedor', cursor: 'created_at' },
+  { tabela: 'item_conversao', cursor: 'created_at' },
   // DOCUMENTOS DE ESTOQUE (mig 243): nascem AQUI (Recebimento/Contagem/Compras/
   // Desperdício rodam no edge) e nunca subiam — a nuvem via o movimento de estoque mas
   // não a nota, a contagem nem a perda que o originou; e a CONTA A PAGAR criada pelo
@@ -211,6 +252,11 @@ const PUSH_TABLES = [
   { tabela: 'comanda_item', cursor: 'updated_at' },
   // Complementos do item (mig 262): nunca subiam. Depois de comanda_item (FK).
   { tabela: 'comanda_item_complemento', cursor: 'created_at' },
+  // PARIDADE (mig 272): documentos que dependem da comanda/caixa.
+  { tabela: 'comanda_pagamento', cursor: 'created_at' },
+  { tabela: 'acerto_subpdv', cursor: 'updated_at' },
+  { tabela: 'nota_fiscal', cursor: 'updated_at' }, // NFC-e emitida no PDV local
+  { tabela: 'ordem_producao', cursor: 'updated_at' },
   { tabela: 'producao_pedido', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', cursor: 'updated_at' },
   { tabela: 'pedido_externo', cursor: 'updated_at' },
@@ -220,6 +266,8 @@ const PUSH_TABLES = [
   // De qual lote saiu cada baixa (mig 248) — append-only, acompanha o ledger.
   { tabela: 'movimento_lote', cursor: 'created_at' },
   { tabela: 'ponto_marcacao', cursor: 'created_at' },
+  { tabela: 'ponto_ajuste', cursor: 'created_at' }, // depois da marcação que ele ajusta (FK)
+  { tabela: 'pagamento_tef', cursor: 'atualizado_em' },
   { tabela: 'lancamento_caixa', cursor: 'created_at' },
   { tabela: 'audit_log', cursor: 'created_at' },
   // Exclusões físicas feitas aqui (mig 262). POR ÚLTIMO: chegam à nuvem depois das linhas.
@@ -238,6 +286,7 @@ const SNAPSHOT_TABELAS = [
   ['comanda', 'updated_at'],
   ['comanda_item', 'updated_at'],
   ['comanda_item_complemento', 'created_at'],
+  ['comanda_pagamento', 'created_at'],
   ['producao_pedido', 'updated_at'],
   ['producao_pedido_item', 'updated_at'],
   ['pedido_externo', 'updated_at'],
@@ -1192,6 +1241,76 @@ async function coletarSaude() {
     const f = await pool.query(SQL_FILA_POR_IMPRESSORA, [minha]);
     saude.filaPorImpressora = f.rows;
   } catch { /* banco sem a mig 269 */ }
+  // ── SAÚDE DO BANCO LOCAL ────────────────────────────────────────────────────
+  // Três números que ninguém enxergava e que explicam as duas formas de a loja parar:
+  //  • tamanho do banco — cresce para sempre (nada é expurgado) até encher o disco;
+  //  • corrupção de página — com checksums ligados o Postgres CONTA a falha em vez de
+  //    servir dado podre em silêncio; contador > 0 é incidente, não curiosidade;
+  //  • contador de transações — Postgres sem manutenção PARA DE ACEITAR ESCRITA quando
+  //    ele se esgota (a loja simplesmente não vende mais). 100% = parada.
+  try {
+    const r = await pool.query(
+      `select pg_database_size(current_database())::bigint as bytes,
+              (select coalesce(sum(checksum_failures), 0)::bigint from pg_stat_database) as falhas_checksum,
+              (select round(100.0 * max(age(datfrozenxid)) / 2000000000, 1) from pg_database) as pct_transacoes`,
+    );
+    const x = r.rows?.[0] ?? {};
+    saude.bancoMb = Math.round(Number(x.bytes || 0) / 1048576);
+    saude.bancoFalhasChecksum = Number(x.falhas_checksum || 0);
+    saude.bancoPctTransacoes = x.pct_transacoes == null ? null : Number(x.pct_transacoes);
+  } catch { /* sem permissão/versão antiga: segue sem os números */ }
+  // ── BACKUP ──────────────────────────────────────────────────────────────────
+  // Lido do arquivo que o backup.ps1 grava (não do banco): se o Postgres estiver fora, o
+  // backup do dia anterior ainda precisa ser reportado. Sem isto a nuvem não tinha como
+  // saber que uma loja passou meses sem backup — foi o que aconteceu.
+  try {
+    const { readFileSync: lerArq, existsSync: temArq, readdirSync: lerDir, statSync } = await import('node:fs');
+    const { join: p, dirname } = await import('node:path');
+    const raizBackend = process.cwd();
+    const dirBk = p(dirname(raizBackend), 'backups');
+    const marcador = p(dirBk, 'ultimo-backup.json');
+    if (temArq(marcador)) {
+      const m = JSON.parse(lerArq(marcador, 'utf8'));
+      saude.backup = {
+        ok: !!m.ok,
+        em: m.em ?? null,
+        horas: m.em ? Math.round((Date.now() - new Date(m.em).getTime()) / 36e5) : null,
+        mb: m.bytes ? Math.round(Number(m.bytes) / 1048576) : null,
+        erro: m.erro ? String(m.erro).slice(0, 200) : null,
+      };
+    } else if (temArq(dirBk)) {
+      // Instalação anterior ao marcador: usa o arquivo mais novo da pasta.
+      const arquivos = lerDir(dirBk).filter((f) => f.startsWith('db-') && f.endsWith('.dump.enc'));
+      let maisNovo = null;
+      for (const f of arquivos) {
+        const st = statSync(p(dirBk, f));
+        if (!maisNovo || st.mtimeMs > maisNovo.mtimeMs) maisNovo = { nome: f, mtimeMs: st.mtimeMs, size: st.size };
+      }
+      saude.backup = maisNovo
+        ? { ok: true, em: new Date(maisNovo.mtimeMs).toISOString(), horas: Math.round((Date.now() - maisNovo.mtimeMs) / 36e5), mb: Math.round(maisNovo.size / 1048576), erro: null }
+        : { ok: false, em: null, horas: null, mb: null, erro: 'nenhum backup encontrado' };
+    } else {
+      saude.backup = { ok: false, em: null, horas: null, mb: null, erro: 'pasta de backups inexistente' };
+    }
+  } catch (e) {
+    saude.backup = { ok: false, em: null, horas: null, mb: null, erro: `não consegui ler: ${e.message}` };
+  }
+  // Dado que só existe aqui (ver --pendencias): a nuvem passa a saber ANTES de alguém
+  // mandar reinstalar a loja. Varrer ~90 tabelas é caro, então roda a cada 6h e o
+  // resultado fica guardado — o heartbeat manda sempre o último apurado.
+  try {
+    const ULTIMO = 'pendencias_ultimo_ms';
+    const CACHE = 'pendencias_cache';
+    const agora = Date.now();
+    const quando = Number(await getState(ULTIMO, '0')) || 0;
+    if (agora - quando > 6 * 60 * 60 * 1000) {
+      const pend = await pendenciasLocais(false); // só "tem dado?", sem contar
+      await setState(CACHE, JSON.stringify(pend.map((p) => p.tabela)));
+      await setState(ULTIMO, String(agora));
+    }
+    const cache = await getState(CACHE, '');
+    if (cache) saude.pendenciasLocais = JSON.parse(cache);
+  } catch { /* best-effort */ }
   return { saude, discoLivreMb: sd.discoLivreMb };
 }
 
@@ -1572,6 +1691,94 @@ async function aberturaHojeMin(diaSemana) {
   return 240; // 04:00
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PENDÊNCIAS: o que existe SÓ aqui e não tem como voltar da nuvem.
+//
+// O --descarregar sobe as tabelas de PUSH_TABLES. Ele sai 0 mesmo quando o banco
+// guarda dado de uma tabela que NINGUÉM sincroniza (NFC-e, tarefa, checklist,
+// vistoria, escala…) — e o instalador apaga o banco confiando nesse 0. Isto aqui
+// fecha esse buraco: antes de liberar o apagamento, varre o banco e exige que toda
+// tabela com dado da loja esteja em uma destas três situações:
+//   • sobe (está em PUSH_TABLES — o --descarregar acabou de enviar);
+//   • volta da nuvem (catálogo/controle que o pull rebaixa, listado abaixo);
+//   • é descartável (fila de trabalho da máquina, recalculável).
+// Qualquer outra com pelo menos uma linha BLOQUEIA o apagamento. A regra é ao
+// contrário de uma lista de proibidas de propósito: tabela nova que ninguém
+// classificou trava o wipe em vez de ser apagada em silêncio.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Volta da nuvem no pull (direção 'desce' no sync-config): apagar é seguro.
+const VOLTA_DA_NUVEM = new Set([
+  'empresa', 'unidade', 'setor', 'funcao', 'perfil_acesso', 'colaborador', 'turno',
+  'etiqueta', 'kds_alerta_config', 'ficha_tecnica', 'ficha_ingrediente', 'produto_variacao',
+  'produto_combo_item', 'bot_regra', 'feriado', 'tipo_ocorrencia',
+  // Paridade (mig 272): vínculos de cadastro, módulos, cupom e encomenda também são
+  // master na nuvem. Tem de bater com a direção declarada no sync-config — o teste
+  // pendencias-wipe.spec.ts falha se as duas listas se separarem.
+  'funcao_setor', 'colaborador_funcao', 'modulo_ativacao', 'cupom',
+  'encomenda_regra_sinal', 'encomenda_recorrencia', 'banner',
+]);
+
+// DONA É A NUVEM (regra de distribuição): licença, telemetria, campanhas, credenciais de
+// integração e o app do entregador. A cópia local, quando existe, é criada só para as
+// consultas não quebrarem — o dado verdadeiro está na nuvem, então apagar não perde nada.
+const SO_NUVEM = new Set([
+  'ativacao', 'revenda', 'reautorizacao_edge', 'cadastro_pendente', 'edge_heartbeat', 'suporte_sessao',
+  'telemetria_evento', 'api_client', 'webhook_subscription', 'integracao', 'integracao_token',
+  'campanha', 'campanha_envio', 'marketing_optout', 'whatsapp_numero', 'whatsapp_template', 'whatsapp_mensagem',
+  'cliente_otp', 'cliente_link', 'cardapio_evento', 'cardapio_senha_seq', 'pedido_notificacao', 'bot_atendimento',
+  'entregador_dispositivo', 'entregador_chegada', 'entregador_localizacao', 'entregador_posicao', 'entregador_fila',
+  'entregador_config', 'entregador_saida', 'entregador_fechamento', 'entregador_perfil_pagamento', 'entregador_preferencia',
+  'edge_comando', 'edge_release', 'no_local',
+]);
+
+// Descartável: fila/estado de trabalho desta máquina ou dado recalculável. Apagar
+// não perde informação de negócio — e sincronizar de volta causaria efeito colateral
+// (a fila de impressão voltaria a imprimir pedido velho).
+const DESCARTAVEL = new Set([
+  // Fila de impressão desta máquina (com reserva por lease): descer de volta faria a
+  // impressora cuspir pedido antigo, e quebraria a guarda anti-reimpressão do edge.
+  'impressao_job', 'impressao_edge_feito',
+  // Infraestrutura do próprio sincronismo e estado da máquina (mig 264 e 269).
+  'sync_exclusao', 'sync_fila', 'sync_dead_letter', 'sync_marcador', 'edge_status', 'impressora_status',
+  // Fotografia diária do estoque: é SOMA de `movimento_estoque` + custo do insumo, e as
+  // duas sincronizam. Recalculável pela rotina diária (o custo histórico pode divergir —
+  // decisão registrada em docs/paridade-sync-tabelas.md §4).
+  'estoque_snapshot',
+  // Contador da senha do balcão: gerador de sequência com trava, por máquina. Sincronizar
+  // faria o número andar para trás e a loja emitir senha repetida; reinicia todo dia.
+  'senha_contador',
+]);
+
+// Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].
+// `contar=false` troca o count(*) por "existe alguma linha?" — é o modo usado no sinal de
+// saúde, que roda o tempo todo; o count completo fica para a hora de decidir apagar.
+async function pendenciasLocais(contar = true) {
+  const sobe = new Set(PUSH_TABLES.map((t) => t.tabela));
+  const r = await pool.query(
+    `select table_name from information_schema.columns
+      where table_schema = current_schema() and column_name = 'tenant_id'
+      order by table_name`,
+  );
+  const pendentes = [];
+  for (const row of r.rows) {
+    const t = row.table_name;
+    if (!/^[a-z_][a-z0-9_]*$/.test(t)) continue; // nome fora do padrão: não interpolar
+    if (sobe.has(t) || VOLTA_DA_NUVEM.has(t) || SO_NUVEM.has(t) || DESCARTAVEL.has(t)) continue;
+    try {
+      const c = contar
+        ? await pool.query(`select count(*)::int as n from "${t}"`)
+        : await pool.query(`select 1 as n from "${t}" limit 1`);
+      const n = contar ? (c.rows[0]?.n ?? 0) : c.rowCount;
+      if (n > 0) pendentes.push({ tabela: t, linhas: contar ? n : -2 }); // -2 = "tem dado", sem contar
+    } catch (e) {
+      // Não conseguir contar é motivo para BLOQUEAR, não para liberar.
+      pendentes.push({ tabela: t, linhas: -1, erro: e.message });
+    }
+  }
+  return pendentes;
+}
+
 // Verificação periódica: a cada ~10 min pergunta à nuvem se há versão nova. O
 // daemon roda a cada INTERVAL (30s), então guardamos o último check em sync_state
 // e só refazemos passados 10 min. Assim o aviso de atualização aparece rápido no
@@ -1633,10 +1840,47 @@ if (process.argv.includes('--descarregar')) {
       console.error(`descarregar: ${n} linha(s) enviadas, mas ${deadLetters} recusada(s) pela nuvem — NÃO apagar o banco.`);
       codigo = 2;
     } else {
-      console.log(`descarregar: ${n} linha(s) enviadas — tudo o que é local está na nuvem.`);
+      // Enviar tudo o que SOBE não basta: pode haver dado de uma tabela que ninguém
+      // sincroniza. Aí o banco só existe aqui, e apagá-lo é perda definitiva.
+      const pend = await pendenciasLocais();
+      if (pend.length) {
+        console.error(
+          `descarregar: ${n} linha(s) enviadas, mas ESTE SERVIDOR guarda dado que não vai para a nuvem — NÃO apagar o banco:`,
+        );
+        for (const p of pend) {
+          console.error(`  • ${p.tabela}: ${p.linhas < 0 ? `não consegui contar (${p.erro})` : `${p.linhas} registro(s)`}`);
+        }
+        codigo = 3;
+      } else {
+        console.log(`descarregar: ${n} linha(s) enviadas — tudo o que é local está na nuvem.`);
+      }
     }
   } catch (e) {
     console.error(`descarregar FALHOU: ${causaErro(e)}`);
+    codigo = 1;
+  }
+  try { await pool.end(); } catch { /* ignore */ }
+  process.exit(codigo);
+}
+
+// --pendencias: só relata (não envia nada). Usado no diagnóstico e pelo instalador
+// quando não há como rodar o --descarregar (ex.: configuração antiga ilegível).
+// 0 = nada preso aqui; 3 = há dado que não vai para a nuvem; 1 = não consegui verificar.
+if (process.argv.includes('--pendencias')) {
+  let codigo = 0;
+  try {
+    const pend = await pendenciasLocais();
+    if (pend.length) {
+      console.error('Dado que existe SÓ neste servidor (não sobe e não volta da nuvem):');
+      for (const p of pend) {
+        console.error(`  • ${p.tabela}: ${p.linhas < 0 ? `não consegui contar (${p.erro})` : `${p.linhas} registro(s)`}`);
+      }
+      codigo = 3;
+    } else {
+      console.log('Nada preso: tudo o que é local sobe para a nuvem ou volta dela.');
+    }
+  } catch (e) {
+    console.error(`pendencias FALHOU: ${causaErro(e)}`);
     codigo = 1;
   }
   try { await pool.end(); } catch { /* ignore */ }

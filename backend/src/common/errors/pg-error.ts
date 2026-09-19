@@ -30,6 +30,11 @@ export function mapPgError(err: unknown): AppError | null {
     case '40P01': // deadlock_detected
       return new AppError({ code: ErrorCodes.DATABASE_CONFLICT, message: 'Conflito de concorrência. Tente novamente.', statusCode: HttpStatus.CONFLICT, cause: err, isOperational: true, retryable: true });
     case '57P01': // admin_shutdown
+    // Postgres AINDA SUBINDO ou em recuperação ("the database system is starting up").
+    // É exatamente o que acontece no boot do PC da loja: o serviço da API sobe antes do
+    // Postgres terminar a recuperação e TODA rota devolvia 500 genérico por alguns segundos.
+    // 503 + retryable diz ao cliente o que é: temporário, pode tentar de novo.
+    case '57P03': // cannot_connect_now
     case '08006': // connection_failure
     case '08003': // connection_does_not_exist
     case '08001': // sqlclient_unable_to_establish_sqlconnection

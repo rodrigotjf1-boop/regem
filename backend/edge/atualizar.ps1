@@ -299,6 +299,33 @@ try {
       Register-ScheduledTask -TaskName $t[0] -Action $acao -Principal $conta -Settings $cfgT -Force | Out-Null
     } catch { Diga "(aviso) nao registrei a tarefa $($t[0]): $($_.Exception.Message)" }
   }
+  # AFINACAO do Postgres: idempotente (o script marca o bloco no postgresql.conf) e so
+  # com ajustes que recarregam sem reiniciar. Aqui a loja que ja esta instalada tambem
+  # recebe - antes nenhuma recebia, porque ninguem chamava o script.
+  try {
+    $afinarPg = Join-Path $Raiz 'edge\afinar-postgres.ps1'
+    $pgDataL = Join-Path (Split-Path $Raiz -Parent) 'pgdata'
+    $pgBinL = Join-Path (Split-Path $Raiz -Parent) 'pgsql\bin'
+    if ((Test-Path $afinarPg) -and (Test-Path $pgDataL) -and (Test-Path $pgBinL)) {
+      & powershell -ExecutionPolicy Bypass -NoProfile -File $afinarPg -PgData $pgDataL -PgBin $pgBinL | Out-Null
+    }
+  } catch { Diga "(aviso) nao consegui afinar o Postgres: $($_.Exception.Message)" }
+
+  # BACKUP DIARIO: ate aqui so o instalador (.exe) criava esta tarefa. Loja atualizada
+  # apenas por .zip recebia o backup.ps1 e NUNCA ganhava a tarefa - ficava sem backup e
+  # sem aviso. Agora toda atualizacao garante a tarefa (idempotente, -Force).
+  try {
+    $scrBk = Join-Path $Raiz 'edge\backup.ps1'
+    if (Test-Path $scrBk) {
+      $acaoBk = New-ScheduledTaskAction -Execute "powershell.exe" `
+        -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`" -Raiz `"{1}`"" -f $scrBk, $Raiz)
+      $contaBk = New-ScheduledTaskPrincipal -UserId "SYSTEM" -RunLevel Highest
+      $cfgBk = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 60) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+      Register-ScheduledTask -TaskName 'RegemEdgeBackup' -Action $acaoBk -Trigger (New-ScheduledTaskTrigger -Daily -At 3am) `
+        -Principal $contaBk -Settings $cfgBk -Force | Out-Null
+    }
+  } catch { Diga "(aviso) nao registrei a tarefa RegemEdgeBackup: $($_.Exception.Message)" }
 
   Diga "Subindo servicos..."; Prog "subindo" 80
   Subir-Servicos

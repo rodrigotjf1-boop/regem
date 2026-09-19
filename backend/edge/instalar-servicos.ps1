@@ -59,19 +59,11 @@ function Svc($nome, $appArgs, $cwd) {
   # cada .log/.err.log é cortado ao passar de 10 MB mesmo com o serviço em execução.
   & $Nssm set $nome AppRotateOnline 1 | Out-Null
   & $Nssm set $nome AppRotateBytes 10485760 | Out-Null
-  # Postgres loga checkpoint a cada 5 min (volume principal do .err.log). Desligar reduz
-  # MUITO o crescimento — mantém só avisos/erros. Best-effort (append no postgresql.conf).
-  if ($nome -eq 'RegemEdgePg') {
-    try {
-      $pgConf = Join-Path (Split-Path $cwd -Parent) 'pgdata\postgresql.conf'
-      if (Test-Path $pgConf -PathType Leaf) {
-        $confTxt = Get-Content $pgConf -Raw
-        if ($confTxt -notmatch '(?m)^\s*log_checkpoints\s*=\s*off') {
-          Add-Content -Path $pgConf -Value "`nlog_checkpoints = off  # Regem: reduz volume do log (checkpoints)"
-        }
-      }
-    } catch {}
-  }
+  # NOTA: aqui havia um bloco que desligaria o log de checkpoint do Postgres. Ele estava
+  # DENTRO desta funcao, que so e chamada para Api/Sync/Impressao/Web — o RegemEdgePg e
+  # registrado no instalar-tudo.ps1. Era codigo morto: nunca rodou em loja nenhuma, e o
+  # log seguiu crescendo (445 MB no incidente). Agora isso e feito pelo afinar-postgres.ps1,
+  # chamado pelo instalador e pela atualizacao.
 }
 
 New-Item -ItemType Directory -Force "$Raiz\logs" | Out-Null
