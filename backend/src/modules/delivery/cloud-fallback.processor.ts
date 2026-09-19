@@ -44,8 +44,17 @@ export class CloudFallbackProcessor {
       const corteIdade = new Date(Date.now() - CloudFallbackProcessor.TETO_MIN * 60 * 1000);
       const corteHb = new Date(Date.now() - CloudFallbackProcessor.HB_MIN * 60 * 1000);
 
-      // Pedidos online presos há mais de TETO_MIN, sem comanda, cujo tenant não tem
-      // heartbeat recente do edge (não existe edge ativo processando pra aquela loja).
+      // Pedidos online presos há mais de TETO_MIN, sem comanda, de loja que TEM servidor
+      // local cadastrado e cujo servidor está SEM batida. Duas correções (ERR-062):
+      //  • "vivo" = batida recente em `edge_status` (fonte atual, 1 linha por servidor, a
+      //    cada ciclo) OU em `edge_heartbeat` (transição) — igual a common/edge-ativo.ts.
+      //    Antes olhava só `edge_heartbeat`, que o servidor com token grava a cada 30 min:
+      //    a nuvem dava a loja por morta e aceitava os pedidos no lugar dela;
+      //  • loja SEM servidor local não entra: lá o pedido nunca é adiado para o edge — está
+      //    'novo' porque a LOJA ainda não aceitou. Antes a nuvem aceitava (e confirmava no
+      //    iFood/99) todo pedido não aceito em 5 min.
+      // F2: o servidor da matriz NÃO "cobre" a filial (unidade do pedido ou servidor sem
+      // unidade = da rede, na transição).
       const presos = await this.db
         .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId })
         .from(pedidoExterno)
@@ -55,9 +64,13 @@ export class CloudFallbackProcessor {
             isNull(pedidoExterno.comandaId),
             lt(pedidoExterno.criadoEm, corteIdade),
             sql`(${pedidoExterno.canal} is not null and ${pedidoExterno.canal} <> 'balcao')`,
-            // F2: resgata só se a UNIDADE do pedido não tem edge vivo — o edge da matriz
-            // NÃO "cobre" a filial (senão um pedido da filial com edge caído nunca seria
-            // resgatado). `hb.unidade_id is null` = heartbeat antigo (tenant-wide, transição).
+            sql`exists (select 1 from equipamento e
+                         where e.tenant_id = ${pedidoExterno.tenantId} and e.tipo = 'servidor_local'
+                           and e.ativo = true
+                           and (e.unidade_id = ${pedidoExterno.unidadeId} or e.unidade_id is null))`,
+            sql`not exists (select 1 from edge_status es
+                             where es.tenant_id = ${pedidoExterno.tenantId} and es.recebido_em >= ${corteHb}
+                               and (es.unidade_id = ${pedidoExterno.unidadeId} or es.unidade_id is null))`,
             sql`not exists (select 1 from ${edgeHeartbeat} hb where hb.tenant_id = ${pedidoExterno.tenantId} and hb.recebido_em >= ${corteHb} and (hb.unidade_id = ${pedidoExterno.unidadeId} or hb.unidade_id is null))`,
           ),
         )

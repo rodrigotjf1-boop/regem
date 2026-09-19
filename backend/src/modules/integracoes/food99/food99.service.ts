@@ -455,19 +455,43 @@ export class Food99Service {
     return res ? await res.json().catch(() => ({ errno: -1 })) : { errno: -1 };
   }
 
-  // POST /v1/order/selfdelivery/verifyDeliveryCode {auth_token, order_id, takeaway_code}
-  // — self-delivery (changelog 23/07): valida o código do cliente → pedido vira 600.
-  async verificarCodigoEntrega(ig: IntegFood99, orderId: string, codigo: string): Promise<{ ok: boolean; errno: number }> {
-    if (!this.soDigitos(orderId)) return { ok: false, errno: -1 };
+  // POST /v1/order/selfdelivery/verifyDeliveryCode {auth_token, order_id, delivery_code}
+  // — ENTREGA PRÓPRIA: valida o código que o cliente passa ao entregador → pedido vira 600.
+  // Doc oficial: `delivery_code` é INTEIRO. Até set/2026 o Regem mandava `takeaway_code`
+  // (que é o código de RETIRADA, campo de resposta do detalhe) e a 99 recusava todo código
+  // válido (ERR-059).
+  async verificarCodigoEntrega(
+    ig: IntegFood99,
+    orderId: string,
+    codigo: string,
+  ): Promise<{ ok: boolean; errno: number; errmsg?: string }> {
+    if (!this.soDigitos(orderId)) return { ok: false, errno: -1, errmsg: 'pedido sem id numérico da 99' };
+    const cod = String(codigo ?? '').replace(/\D/g, '');
+    if (!cod || cod.length > 9) return { ok: false, errno: -1, errmsg: 'código deve ter só números' };
     const tk = await this.authToken(ig);
-    if (!tk) return { ok: false, errno: -1 };
+    if (!tk) return { ok: false, errno: -1, errmsg: 'sem autorização da loja na 99' };
     const j = await this.postJson('/v1/order/selfdelivery/verifyDeliveryCode', tk, [
       `"order_id":${orderId}`,
-      `"takeaway_code":${JSON.stringify(String(codigo))}`,
+      `"delivery_code":${Number(cod)}`, // número JSON (sem zero à esquerda)
     ]);
-    if (j?.errno === 0) this.logger.log(`verifyDeliveryCode ${orderId} OK`);
-    else this.logger.warn(`verifyDeliveryCode ${orderId} errno=${j?.errno}`);
-    return { ok: j?.errno === 0, errno: Number(j?.errno ?? -1) };
+    const errno = Number(j?.errno ?? -1);
+    const errmsg = j?.errmsg ? String(j.errmsg).slice(0, 200) : undefined;
+    if (errno === 0) this.logger.log(`verifyDeliveryCode ${orderId} OK`);
+    else this.logger.warn(`verifyDeliveryCode ${orderId} errno=${errno} ${errmsg ?? ''}`);
+    return { ok: errno === 0, errno, errmsg };
+  }
+
+  // POST /v1/order/order/finish — RETIRADA (fulfillment_mode=1): a loja confirma que o
+  // cliente retirou. Só depois de confirm/ready. Sucesso = pedido 600. (Confirm Order Pickup,
+  // 28/08/2026 — a 99 exige a implementação até 12/10/2026.)
+  async finalizarRetirada(ig: IntegFood99, orderId: string): Promise<boolean> {
+    if (!this.soDigitos(orderId)) return false;
+    const tk = await this.authToken(ig);
+    if (!tk) return false;
+    const j = await this.postJson('/v1/order/order/finish', tk, [`"order_id":${orderId}`]);
+    if (j?.errno === 0) this.logger.log(`finish (retirada) ${orderId} OK`);
+    else this.logger.warn(`finish (retirada) ${orderId} errno=${j?.errno} ${j?.errmsg ?? ''}`);
+    return j?.errno === 0;
   }
 
   // POST /v1/shop/apply/set — LIGA o recebimento de cancelamento/reembolso do cliente
@@ -577,7 +601,7 @@ export class Food99Service {
   }
 
   // Confirma a entrega self-delivery pelo código do cliente (verifyDeliveryCode → 600).
-  async verificarEntregaPorTenant(tenantId: string, orderId: string, codigo: string): Promise<{ ok: boolean; errno: number }> {
+  async verificarEntregaPorTenant(tenantId: string, orderId: string, codigo: string): Promise<{ ok: boolean; errno: number; errmsg?: string }> {
     const ig = await this.integracaoDoTenant(tenantId);
     if (!ig) throw new BadRequestException('99Food não configurado para esta loja.');
     return this.verificarCodigoEntrega(ig, orderId, codigo);
@@ -707,8 +731,12 @@ export class Food99Service {
       } else if (ev === 'orderfinish') {
         if (orderId) await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'concluido');
       } else if (ev === 'ordernew' || (!ev && orderId)) {
-        // orderNew: ingere. Primário = GET detail; fallback = data.order_info do corpo.
-        if (orderId) await this.ingerirNovo(ig, orderId, raw);
+        // orderNew: ingere pelo GET detail autenticado. NÃO gravou → errno≠0: a 99 reenvia
+        // o webhook ("keep sending it for several times" — doc oficial). Antes respondia 0 e
+        // o pedido se perdia (o poller da 99 só reenvia cancelamentos) — ERR-061.
+        if (orderId && !(await this.ingerirNovo(ig, orderId, raw))) {
+          return { errno: 1, errmsg: 'pedido ainda não gravado — reenviar' };
+        }
       } else if (ev === 'orderconfirm' || ev === 'orderready' || ev === 'deliverystatus') {
         // Ecos do nosso próprio status / progresso de entrega — só reconhece.
         this.logger.log(`webhook: ${type} order=${orderId} (ack)`);
@@ -718,22 +746,25 @@ export class Food99Service {
         this.logger.log(`webhook: evento ${type} reconhecido (sem ação)`);
       }
     } catch (e: any) {
-      this.logger.warn(`webhook ${type} ${orderId}: ${e?.message ?? e}`);
+      // Falhou ao processar (banco, rede): errno≠0 faz a 99 reenviar o evento. Tudo que
+      // este switch faz é idempotente (ingest por índice único, refletir status, responder
+      // cancelamento), então o reenvio é seguro.
+      this.logger.warn(`webhook ${type} ${orderId}: ${e?.message ?? e} — pedindo reenvio`);
+      return { errno: 1, errmsg: 'falha ao processar — reenviar' };
     }
     return { errno: 0, errmsg: 'ok' };
   }
 
-  // Ingestão de um pedido novo (orderNew): detail como primário, corpo como fallback.
-  private async ingerirNovo(ig: IntegFood99, orderId: string, raw: string): Promise<void> {
+  // Ingestão de um pedido novo (orderNew) pelo detail. true = gravado (ou já existia).
+  private async ingerirNovo(ig: IntegFood99, orderId: string, raw: string): Promise<boolean> {
+    void raw;
     const unidadeId = await this.unidadeDestino(ig.tenantId, ig.unidadeId);
     // CL-3: ingere SOMENTE do GET detail autenticado — nunca do corpo do webhook
-    // (forjável). Se o detail não retornar agora, o poller reconcilia depois.
+    // (forjável). Sem detail agora → false → a 99 reenvia o webhook.
     const order: any = await this.pedido(ig, orderId);
     if (!order) {
-      this.logger.warn(
-        `webhook: pedido ${orderId} sem detail autenticado — ignorando corpo (poller reconcilia)`,
-      );
-      return;
+      this.logger.warn(`webhook: pedido ${orderId} sem detail autenticado — pedindo reenvio à 99`);
+      return false;
     }
     await this.delivery.ingest(
       ig.tenantId,
@@ -742,6 +773,7 @@ export class Food99Service {
       { ...order, order_id: orderId }, // externalId string (bigint-safe)
       { taxaEntrega: (Number(order?.price?.delivery_price) || 0) / 100 },
     );
+    return true;
   }
 
   // ===== Persistência das credenciais (tela do gestor) =====

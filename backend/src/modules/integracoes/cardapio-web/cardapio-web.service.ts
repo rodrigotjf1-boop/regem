@@ -365,12 +365,23 @@ export class CardapioWebService {
 
   // Ingere uma lista de LiteOrders: detalhe → delivery.ingest → aceita no CW.
   // Idempotente por externalId (re-puxar não duplica).
-  private async ingerirLista(tenantId: string, unidadeId: string | null, lite: any[]): Promise<number> {
+  // Retorna quantos entraram e quantos FALHARAM (detalhe indisponível ou erro ao gravar) —
+  // com falha, o poller não avança o cursor e a lista volta no próximo ciclo (ERR-061).
+  private async ingerirLista(
+    tenantId: string,
+    unidadeId: string | null,
+    lite: any[],
+  ): Promise<{ n: number; falhas: number }> {
     let n = 0;
+    let falhas = 0;
     for (const o of lite) {
       try {
         const raw = await this.pedido(tenantId, String(o.id));
-        if (!raw) continue;
+        if (!raw) {
+          falhas++;
+          this.logger.warn(`pedido ${o?.id}: detalhe indisponível — volta no próximo ciclo`);
+          continue;
+        }
         await this.delivery.ingest(tenantId, unidadeId, 'cardapio_web', raw, {
           taxaEntrega: Number(raw?.delivery_fee) || 0,
           trocoPara: raw?.payments?.[0]?.change_for ?? undefined,
@@ -384,10 +395,11 @@ export class CardapioWebService {
         if (st) await this.delivery.refletirStatusExterno(tenantId, 'cardapio_web', String(o.id), st).catch(() => {});
         n++;
       } catch (e: any) {
-        this.logger.warn(`pedido ${o?.id}: ${e?.message ?? e}`);
+        falhas++;
+        this.logger.warn(`pedido ${o?.id}: ${e?.message ?? e} — volta no próximo ciclo`);
       }
     }
-    return n;
+    return { n, falhas };
   }
 
   // Puxa manualmente os pedidos recentes (botão) — janela de 6h, sem filtro de
@@ -398,7 +410,7 @@ export class CardapioWebService {
     const unidadeId = await this.unidadeDestino(tenantId, ig.unidadeId);
     const desde = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
     const lite = await this.listarDesde(tenantId, desde);
-    const ingeridos = await this.ingerirLista(tenantId, unidadeId, lite);
+    const { n: ingeridos } = await this.ingerirLista(tenantId, unidadeId, lite);
     this.logger.log(`puxarAgora tenant=${tenantId}: ${ingeridos}/${lite.length}`);
     return { total: lite.length, ingeridos };
   }
@@ -423,11 +435,24 @@ export class CardapioWebService {
       : Date.now() - 15 * 60 * 1000;
     // -60s de folga; teto de 23h (o CW exige updated_since dentro de 24h).
     const desdeMs = Math.max(anterior - 60 * 1000, Date.now() - 23 * 3600 * 1000);
+    // Marca o início ANTES de listar: o que for criado durante a listagem entra no próximo.
+    const inicio = new Date().toISOString();
     const lite = await this.listarDesde(tenantId, new Date(desdeMs).toISOString());
-    const n = await this.ingerirLista(tenantId, unidadeId, lite);
+    const { n, falhas } = await this.ingerirLista(tenantId, unidadeId, lite);
+    // Com falha, o cursor NÃO avança: a mesma janela é relida no próximo ciclo (o ingest é
+    // idempotente). Antes avançava e o pedido que falhou só voltava se mudasse de status.
+    // Teto de 2 h preso: uma falha PERMANENTE (pedido que nunca grava) não pode fazer a janela
+    // relida crescer até 23 h a cada 30 s — aí avança e registra erro para a distribuição.
+    if (falhas && Date.now() - anterior < 2 * 3600 * 1000) {
+      this.logger.warn(`tenant ${tenantId}: ${falhas} pedido(s) com falha — cursor mantido para repetir`);
+      return n;
+    }
+    if (falhas) {
+      this.logger.error(`tenant ${tenantId}: ${falhas} pedido(s) do Cardápio Web falhando há 2 h — cursor avançado; conferir no painel do CW`);
+    }
     await this.db
       .update(integracao)
-      .set({ config: { ...(ig.config ?? {}), lastPollAt: new Date().toISOString() } })
+      .set({ config: { ...(ig.config ?? {}), lastPollAt: inicio } })
       .where(eq(integracao.id, ig.id));
     return n;
   }

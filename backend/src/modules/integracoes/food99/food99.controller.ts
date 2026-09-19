@@ -30,9 +30,11 @@ export class Food99Controller {
     // Assinatura do 99food: MD5(corpo_cru + app_secret) no header didi-header-sign.
     const rawSign = req.headers['didi-header-sign'];
     const sign = Array.isArray(rawSign) ? rawSign[0] : rawSign;
+    // Erro inesperado (ex.: banco fora ao resolver a loja) → errno≠0: a 99 reenvia. Com
+    // errno 0 o evento era dado como entregue e o pedido se perdia (ERR-061).
     return this.service
       .processarWebhook(raw, sign)
-      .catch(() => ({ errno: 0, errmsg: 'error-handled' }));
+      .catch(() => ({ errno: 1, errmsg: 'falha ao processar — reenviar' }));
   }
 
   // Salva as credenciais do app (app_id + app_secret + app_shop_id). Só gestor.
