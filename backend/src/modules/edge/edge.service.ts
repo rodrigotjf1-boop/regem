@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -20,6 +21,13 @@ import { createHash } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { MIN_CLIENT_VERSION, MIN_SERVER_VERSION } from './versao';
 import { TelemetriaBridge } from '../../common/telemetria-bridge';
+import { exigirBooleano } from '../../common/exigir';
+import {
+  ReleaseLinha,
+  compararVersao,
+  escolherRelease,
+  versaoRecolhida,
+} from './release-selecao';
 
 const pExecFile = promisify(execFile);
 
@@ -43,6 +51,8 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   private bonjour?: InstanceType<typeof Bonjour>;
 
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
+
+  private static cacheReleases: { em: number; rels: ReleaseLinha[] } | null = null;
 
   static get ehEdge(): boolean {
     return String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
@@ -91,7 +101,9 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       const f = join(process.cwd(), 'logs', 'update-status.json');
       if (!existsSync(f)) return null;
-      const j = JSON.parse(readFileSync(f, 'utf8'));
+      // O PowerShell 5.1 grava UTF-8 COM BOM: sem tirar, o JSON.parse falhava e a barra de
+      // progresso nunca aparecia (ERR-055).
+      const j = JSON.parse(readFileSync(f, 'utf8').replace(/^\uFEFF/, ''));
       const estagio = String(j.estagio ?? '');
       // `fase` deriva do estágio (compat com pacotes antigos que não a gravam):
       // baixando → download; ok/erro → terminal; o resto → instalação.
@@ -118,17 +130,68 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  // Estado conhecido (última verificação do daemon) + progresso da instalação.
+  // Estado conhecido (última verificação do daemon) + progresso da instalação + o que a tela
+  // precisa para decidir (agendada? versão revertida/recolhida? loja em operação?).
   async statusAtualizacao() {
     this.garanteEdge();
     const disp = await this.getState('update_disponivel');
+    const revertida = this.versaoRevertida();
     return {
       atual: process.env.APP_VERSION ?? '1',
       disponivel: !!disp,
       ultima: disp || null,
       notas: (await this.getState('update_notas')) || null,
+      agendadaPara: (await this.getState('update_agendado_para')) || null,
+      // O gestor reverteu ESTA versão antes — instalar de novo exige confirmação.
+      revertida: !!disp && revertida === disp,
+      // A distribuição RECOLHEU a versão que este servidor roda (a tela avisa).
+      versaoAtualRecolhida: (await this.getState('update_atual_recolhida')) === '1',
+      emOperacao: await this.operacaoEmAndamento(),
       progresso: this.lerProgresso(),
     };
+  }
+
+  // A loja está operando? (caixa aberto nas últimas 16 h ou pedido em produção nas últimas
+  // 3 h, desta loja ou "da rede"). Instalar reinicia os serviços por 1–2 min — como as travas
+  // de atualização do balena (updates.lock), a instalação espera a operação terminar; o gestor
+  // pode forçar ou agendar. Caixa esquecido aberto há dias NÃO trava para sempre (janela de 16 h).
+  async operacaoEmAndamento(): Promise<{ caixasAbertos: number; pedidosEmProducao: number }> {
+    const loja = process.env.EDGE_UNIDADE_ID || null;
+    try {
+      const r: any = await this.db.execute(sql`
+        select
+          (select count(*)::int from caixa_sessao
+            where status = 'aberta' and aberta_em > now() - interval '16 hours'
+              and (${loja}::uuid is null or unidade_id = ${loja}::uuid or unidade_id is null)) as caixas,
+          (select count(*)::int from producao_pedido
+            where status in ('recebido', 'preparo') and created_at > now() - interval '3 hours'
+              and (${loja}::uuid is null or unidade_id = ${loja}::uuid or unidade_id is null)) as pedidos`);
+      const row = (r.rows ?? r)[0] ?? {};
+      return { caixasAbertos: Number(row.caixas ?? 0), pedidosEmProducao: Number(row.pedidos ?? 0) };
+    } catch (e: any) {
+      this.logger.warn(`operacaoEmAndamento: ${e?.message ?? e}`);
+      return { caixasAbertos: 0, pedidosEmProducao: 0 };
+    }
+  }
+
+  // Versão que o gestor REVERTEU por último (o reverter.ps1 grava logs/update-revertida.txt;
+  // o atualizar.ps1 apaga ao instalar outra com sucesso).
+  private versaoRevertida(): string | null {
+    try {
+      const f = join(process.cwd(), 'logs', 'update-revertida.txt');
+      return existsSync(f) ? readFileSync(f, 'utf8').replace(/^\uFEFF/, '').trim() || null : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Uma instalação/reversão está rodando AGORA? (status gravado pelo atualizar.ps1 nos
+  // últimos 20 min e ainda não terminou). Evita o clique duplo matar a execução em curso.
+  private atualizacaoEmCurso(): boolean {
+    const p = this.lerProgresso();
+    if (!p || p.fase === 'ok' || p.fase === 'erro') return false;
+    const ts = p.ts ? Date.parse(p.ts) : NaN;
+    return Number.isFinite(ts) && Date.now() - ts < 20 * 60 * 1000;
   }
 
   // Disponibilidade do instalador (.exe). Roda na NUVEM: faz um HEAD no
@@ -170,18 +233,20 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     return { ok: true };
   }
 
-  // Verifica AO VIVO na nuvem agora (botão "Verificar atualização").
+  // Verifica AO VIVO na nuvem agora (botão "Verificar atualização"). Manda o token do
+  // servidor: a nuvem decide se ESTA loja já está na fatia do release (distribuição escalonada).
   async verificarAtualizacao() {
     this.garanteEdge();
     const cloud = (process.env.CLOUD_API ?? '').replace(/\/$/, '');
     if (!cloud)
       throw new InternalServerErrorException('CLOUD_API não configurada no servidor local.');
     const atual = process.env.APP_VERSION ?? '1';
+    const token = process.env.SYNC_TOKEN ?? '';
     let info: any;
     try {
-      const res = await fetch(
-        `${cloud}/edge/update-check?versao=${encodeURIComponent(atual)}`,
-      );
+      const res = await fetch(`${cloud}/edge/update-check?versao=${encodeURIComponent(atual)}`, {
+        headers: token ? { 'x-sync-token': token } : {},
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       info = await res.json();
     } catch (e: any) {
@@ -194,12 +259,14 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     } else {
       await this.setState('update_disponivel', '');
     }
+    await this.setState('update_atual_recolhida', info.versaoAtualRecolhida ? '1' : '');
     return {
       ok: true,
       atual,
       disponivel: !!info.atualizar,
       ultima: info.ultima ?? null,
       notas: info.notas ?? null,
+      versaoAtualRecolhida: !!info.versaoAtualRecolhida,
     };
   }
 
@@ -227,18 +294,53 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     };
   }
 
-  // Dispara a instalação (a tarefa SYSTEM faz o trabalho pesado com rollback).
-  async aplicarAtualizacao() {
+  // Dispara a instalação (a tarefa SYSTEM faz o trabalho pesado com rollback) ou AGENDA.
+  //   { forcar?: boolean, agendarPara?: ISO | null }
+  //   • instalação/reversão já em curso → 409 (antes o clique duplo fazia /end e matava a que
+  //     estava rodando — ERR-052);
+  //   • versão que o gestor já reverteu → 409 com revertida:true (confirmar com forcar);
+  //   • loja operando (caixa aberto / pedido em produção) → 409 com emOperacao (forcar ou agendar);
+  //   • agendarPara → grava; o sync-daemon dispara na hora, se a loja estiver parada.
+  async aplicarAtualizacao(dto: any = {}) {
     this.garanteEdge();
     const disp = await this.getState('update_disponivel');
     if (!disp)
       throw new BadRequestException('Não há atualização disponível. Verifique primeiro.');
-    // Mata uma execução ANTERIOR presa antes de disparar. Edges instalados antes do
-    // fix tinham a tarefa sem -MultipleInstances (default IgnoreNew): se um update
-    // travou (ex.: pg_dump), a tarefa fica "Running" por até 3 dias e IGNORA todo
-    // /run novo → "nada acontece", sem log. O /end libera; best-effort (ignora erro
-    // se não houver execução presa). O fix definitivo (StopExisting) já vem no
-    // instalar-servicos/atualizar, mas isto destrava o edge de campo agora.
+    if (this.atualizacaoEmCurso())
+      throw new ConflictException({ message: 'Uma atualização já está em andamento. Acompanhe o progresso.', details: { emCurso: true } });
+
+    const forcar = dto?.forcar === undefined ? false : exigirBooleano(dto.forcar, 'forcar');
+    if (dto?.agendarPara !== undefined) {
+      if (dto.agendarPara === null || dto.agendarPara === '') {
+        await this.setState('update_agendado_para', '');
+        return { agendadaPara: null };
+      }
+      const t = Date.parse(String(dto.agendarPara));
+      const agora = Date.now();
+      if (!Number.isFinite(t) || t < agora - 60_000 || t > agora + 7 * 86400_000)
+        throw new BadRequestException('Escolha um horário entre agora e os próximos 7 dias.');
+      const iso = new Date(t).toISOString();
+      await this.setState('update_agendado_para', iso);
+      return { agendadaPara: iso, versao: disp };
+    }
+
+    if (!forcar) {
+      const revertida = this.versaoRevertida();
+      if (revertida && revertida === disp)
+        throw new ConflictException({
+          message: `Você reverteu a versão ${disp} antes. Confirme para instalar de novo.`,
+          details: { revertida: true, versao: disp },
+        });
+      const op = await this.operacaoEmAndamento();
+      if (op.caixasAbertos || op.pedidosEmProducao)
+        throw new ConflictException({
+          message: 'A loja está em operação: a instalação reinicia os serviços por 1–2 minutos. Agende para depois do fechamento ou confirme para instalar agora.',
+          details: { emOperacao: op },
+        });
+    }
+    await this.setState('update_agendado_para', '');
+    // Só uma execução PRESA (status parado há mais de 20 min, ou sem status) é encerrada antes
+    // do novo disparo; uma em curso nunca chega aqui (409 acima).
     try {
       await pExecFile('schtasks', ['/end', '/tn', 'RegemEdgeUpdate']);
     } catch {
@@ -254,11 +356,12 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
-  // Dispara o ROLLBACK manual (tarefa SYSTEM RegemEdgeRollback → reverter.ps1
-  // restaura o dist/web do último backup). Só o gestor decide, e só faz sentido se
-  // houve atualização recente que causou problema.
+  // Dispara o ROLLBACK manual (tarefa SYSTEM RegemEdgeRollback → reverter.ps1 devolve o
+  // conjunto inteiro da versão anterior). Nunca junto com uma instalação em curso.
   async reverterAtualizacao() {
     this.garanteEdge();
+    if (this.atualizacaoEmCurso())
+      throw new ConflictException({ message: 'Uma atualização está em andamento. Aguarde terminar para reverter.', details: { emCurso: true } });
     try {
       await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeRollback']);
       return { iniciada: true };
@@ -434,45 +537,67 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     };
   }
 
-  // Compara "1.4.2" > "1.4.0" numericamente por segmento (não string).
-  private static maior(a: string, b: string): boolean {
-    const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
-    const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-      const x = pa[i] ?? 0;
-      const y = pb[i] ?? 0;
-      if (x !== y) return x > y;
-    }
-    return false;
-  }
-
-  // O edge pergunta "tem versão nova?". A nuvem responde com a última publicada
-  // (env EDGE_LATEST_VERSION) + url do pacote assinado + notas. Sem segredo → público.
-  // A aplicação em si (baixar/trocar/reiniciar) é feita pelo daemon/instalador no PC.
-  async atualizacao(versaoCliente?: string) {
-    // Prioridade: o ÚLTIMO release publicado pelo console (tabela edge_release);
-    // se não houver, cai no env (EDGE_LATEST_VERSION/URL/SHA/NOTAS) — compat.
-    let rel: any = null;
+  // Releases publicados, com cache de 30 s (o heartbeat de TODAS as lojas passa por aqui a
+  // cada minuto). Sem a migration 270 (42703) lê as colunas antigas — tudo em 100%. No servidor
+  // local a tabela não existe (42P01) → lista vazia → env.
+  private async carregarReleases(): Promise<ReleaseLinha[]> {
+    const agora = Date.now();
+    const c = EdgeService.cacheReleases;
+    if (c && agora - c.em < 30_000) return c.rels;
+    let rels: ReleaseLinha[] = [];
     try {
       const r: any = await this.db.execute(
-        sql`select versao, url, sha256, assinatura, notas from edge_release order by publicado_em desc limit 1`,
+        sql`select versao, url, sha256, assinatura, assinatura_v2, expira_em, notas, percentual,
+                   lojas_piloto, pausado, recolhido, publicado_em
+              from edge_release order by publicado_em desc limit 50`,
       );
-      rel = (r.rows ?? r)[0] ?? null;
-    } catch {
-      /* tabela pode não existir em edge — usa env */
+      rels = (r.rows ?? r) as ReleaseLinha[];
+    } catch (e: any) {
+      if (e?.code === '42703' || e?.cause?.code === '42703') {
+        try {
+          const r: any = await this.db.execute(
+            sql`select versao, url, sha256, assinatura, notas, publicado_em
+                  from edge_release order by publicado_em desc limit 50`,
+          );
+          rels = (r.rows ?? r) as ReleaseLinha[];
+        } catch {
+          /* segue para o env */
+        }
+      }
     }
-    const ultima = rel?.versao ?? process.env.EDGE_LATEST_VERSION ?? process.env.APP_VERSION ?? '1';
+    EdgeService.cacheReleases = { em: agora, rels };
+    return rels;
+  }
+
+  // O edge pergunta "tem versão nova?". Sem segredo → público. Responde com o release que
+  // ESTA loja deve receber (distribuição escalonada — release-selecao.ts): quem manda o token do
+  // servidor (x-sync-token) entra no piloto/percentual; sem token (servidores na 1.29.x) só vê
+  // release em 100%. A aplicação em si (baixar/trocar/reiniciar) é do atualizar.ps1 no PC.
+  async atualizacao(versaoCliente?: string, tenantId: string | null = null) {
+    // Prioridade: os releases publicados pelo console (tabela edge_release); sem nenhum,
+    // cai no env (EDGE_LATEST_VERSION/URL/SHA/NOTAS) — compat.
+    const rels = await this.carregarReleases();
     const atual = versaoCliente || '0';
+    const rel = rels.length ? escolherRelease(rels, tenantId) : null;
+    const expira = rel?.expira_em ? new Date(rel.expira_em as any).toISOString() : null;
+    const ultima =
+      rel?.versao ??
+      (rels.length ? atual : (process.env.EDGE_LATEST_VERSION ?? process.env.APP_VERSION ?? '1'));
+    const doEnv = !rels.length;
     return {
       atual,
       ultima,
-      atualizar: EdgeService.maior(ultima, atual),
-      url: rel?.url ?? process.env.EDGE_UPDATE_URL ?? null,
-      sha256: rel?.sha256 ?? process.env.EDGE_UPDATE_SHA256 ?? null,
-      // Assinatura Ed25519 de "versao|sha256|url" (Fase 3). O atualizar.ps1 verifica
-      // com a chave pública embutida antes de aplicar. Null = release não assinado.
-      assinatura: rel?.assinatura ?? process.env.EDGE_UPDATE_SIG ?? null,
-      notas: rel?.notas ?? process.env.EDGE_UPDATE_NOTAS ?? null,
+      atualizar: compararVersao(ultima, atual) > 0,
+      url: rel?.url ?? (doEnv ? process.env.EDGE_UPDATE_URL ?? null : null),
+      sha256: rel?.sha256 ?? (doEnv ? process.env.EDGE_UPDATE_SHA256 ?? null : null),
+      // v1 = Ed25519 de "versao|sha256|url" (servidores na versão anterior conferem esta);
+      // v2 = de "regem-edge-v2|versao|sha256|url|expiraEm" (com validade). Ver verify-update.mjs.
+      assinatura: rel?.assinatura ?? (doEnv ? process.env.EDGE_UPDATE_SIG ?? null : null),
+      assinaturaV2: rel?.assinatura_v2 ?? null,
+      expiraEm: rel?.assinatura_v2 ? expira : null,
+      notas: rel?.notas ?? (doEnv ? process.env.EDGE_UPDATE_NOTAS ?? null : null),
+      // A versão que a loja roda foi RECOLHIDA pela distribuição (a tela avisa o gestor).
+      versaoAtualRecolhida: versaoRecolhida(rels, versaoCliente),
       ts: new Date().toISOString(),
     };
   }

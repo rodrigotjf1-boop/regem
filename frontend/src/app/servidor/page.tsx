@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import QRCode from 'qrcode';
-import { api, getToken, getCategoria } from '@/lib/api';
+import { api, ApiError, getToken, getCategoria, handleApiError } from '@/lib/api';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -159,14 +159,36 @@ const ESTAGIO_LABEL: Record<string, string> = {
   iniciando: 'Iniciando…',
   baixando: 'Baixando a atualização…',
   conferindo: 'Conferindo integridade…',
+  preparando: 'Montando a versão nova (a loja segue operando)…',
   backup: 'Fazendo backup…',
-  trocando: 'Trocando os arquivos…',
+  trocando: 'Trocando a versão…',
   migrando: 'Atualizando o banco…',
   subindo: 'Reiniciando os serviços…',
-  verificando: 'Verificando se subiu…',
+  verificando: 'Conferindo se a versão nova subiu…',
+  revertendo: 'Voltando a versão anterior…',
   ok: 'Concluído!',
   erro: 'Falhou',
 };
+
+// datetime-local (horário local) → ISO; e o inverso para mostrar.
+function paraIso(local: string): string | null {
+  const t = Date.parse(local);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+function hojeAs(h: number, m = 0): string {
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function formatarHora(iso: string): string {
+  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+type Bloqueio =
+  | { tipo: 'operacao'; caixasAbertos: number; pedidosEmProducao: number; mensagem: string }
+  | { tipo: 'revertida'; mensagem: string };
 
 function AtualizacaoServidor() {
   const [status, setStatus] = useState<any>(null);
@@ -176,6 +198,9 @@ function AtualizacaoServidor() {
   const [monitorando, setMonitorando] = useState(false);
   const [reconectando, setReconectando] = useState(false);
   const [msg, setMsg] = useState('');
+  const [bloqueio, setBloqueio] = useState<Bloqueio | null>(null);
+  const [agendarAberto, setAgendarAberto] = useState(false);
+  const [horaAgenda, setHoraAgenda] = useState(() => hojeAs(23, 30));
 
   const carregar = useCallback(async () => {
     try {
@@ -193,17 +218,21 @@ function AtualizacaoServidor() {
     carregar();
   }, [carregar]);
 
+  // Uma instalação/reversão já em curso (outra aba, agendamento): acompanha também.
+  useEffect(() => {
+    const f = status?.progresso?.fase;
+    if (f === 'baixando' || f === 'instalando') setMonitorando(true);
+  }, [status?.progresso?.fase]);
+
   // Enquanto instala/reverte: acompanha o progresso (e reconecta no reinício).
-  // Termina quando o estágio é 'ok' ou 'erro' e a API já respondeu de novo.
   useEffect(() => {
     if (!monitorando) return;
     const id = setInterval(async () => {
       const s = await carregar();
-      const est = s?.progresso?.estagio;
-      if (s && (est === 'ok' || est === 'erro')) {
+      const fase = s?.progresso?.fase;
+      if (s && (fase === 'ok' || fase === 'erro')) {
         setMonitorando(false);
-        if (est === 'ok') setMsg('Atualização concluída. O servidor já está na versão nova.');
-        else setMsg(`A atualização falhou: ${s.progresso?.erro || 'erro desconhecido'}. O código foi revertido automaticamente — se o problema persistir, use "Reverter atualização".`);
+        setMsg(s.progresso?.acaoFinal || (fase === 'ok' ? 'Concluído.' : `Falhou: ${s.progresso?.erro || 'erro desconhecido'}.`));
       }
     }, 2500);
     return () => clearInterval(id);
@@ -211,57 +240,95 @@ function AtualizacaoServidor() {
 
   async function verificar() {
     setMsg('');
+    setBloqueio(null);
     setCarregando(true);
     try {
       const r: any = await api.edgeVerificarAtualizacao();
       if (r.ok === false) setMsg(r.erro || 'Não consegui verificar agora. Tente de novo.');
-      else if (!r.disponivel) setMsg('Você já está com a versão mais recente.');
-      setStatus(r);
+      else if (!r.disponivel) setMsg('Você já está com a versão mais recente liberada para esta loja.');
+      await carregar();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Erro ao verificar');
+      setMsg(handleApiError(e, 'Erro ao verificar'));
     } finally {
       setCarregando(false);
     }
   }
 
-  async function aplicar() {
+  async function instalar(forcar: boolean) {
     if (
+      !forcar &&
       !confirm(
-        'Instalar a atualização agora? Os serviços do servidor vão reiniciar por 1–2 minutos (KDS, PDV e ponto ficam indisponíveis nesse intervalo). Recomendado com a loja fechada.',
+        'Instalar a atualização agora? Os serviços do servidor reiniciam por 1–2 minutos (KDS, PDV e ponto ficam indisponíveis nesse intervalo). A versão nova é montada antes, com a loja operando; se algo falhar, a anterior volta sozinha.',
       )
     )
       return;
     setAplicando(true);
     setMsg('');
     try {
-      await api.edgeAplicarAtualizacao();
-      setMsg('');
+      await api.edgeAplicarAtualizacao({ forcar });
+      setBloqueio(null);
       setMonitorando(true); // acompanha a barra de progresso + reconexão
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Erro ao iniciar');
+      const d: any = e instanceof ApiError ? e.details : null;
+      if (d?.emOperacao) {
+        setBloqueio({ tipo: 'operacao', ...d.emOperacao, mensagem: handleApiError(e) });
+      } else if (d?.revertida) {
+        setBloqueio({ tipo: 'revertida', mensagem: handleApiError(e) });
+      } else if (d?.emCurso) {
+        setMonitorando(true);
+      } else {
+        setMsg(handleApiError(e, 'Erro ao iniciar'));
+      }
     } finally {
       setAplicando(false);
+    }
+  }
+
+  async function agendar() {
+    const iso = paraIso(horaAgenda);
+    if (!iso) return setMsg('Escolha data e hora.');
+    try {
+      await api.edgeAplicarAtualizacao({ agendarPara: iso });
+      setAgendarAberto(false);
+      setBloqueio(null);
+      setMsg(`Instalação agendada para ${formatarHora(iso)}. Ela só começa com a loja parada (sem caixa aberto nem pedido em produção).`);
+      await carregar();
+    } catch (e) {
+      setMsg(handleApiError(e, 'Não consegui agendar.'));
+    }
+  }
+
+  async function cancelarAgenda() {
+    try {
+      await api.edgeAplicarAtualizacao({ agendarPara: null });
+      setMsg('Agendamento cancelado.');
+      await carregar();
+    } catch (e) {
+      setMsg(handleApiError(e, 'Não consegui cancelar o agendamento.'));
     }
   }
 
   async function reverter() {
     if (
       !confirm(
-        'Reverter para a versão anterior?\n\nIsto desfaz a ÚLTIMA atualização e volta o servidor à versão que estava antes dela (código e app; o banco é mantido). Os serviços reiniciam por 1–2 minutos.\n\nSó confirme se algo passou a dar problema DEPOIS da última atualização. Recomendado com a loja fechada.',
+        'Reverter para a versão anterior?\n\nIsto desfaz a ÚLTIMA atualização e volta o servidor à versão que estava antes dela (código, app e dependências; o banco é mantido). Os serviços reiniciam por 1–2 minutos.\n\nSó confirme se algo passou a dar problema DEPOIS da última atualização.',
       )
     )
       return;
     setRevertendo(true);
-    setMsg('Rollback iniciado. O servidor vai reiniciar na versão anterior — aguarde 1–2 minutos.');
+    setMsg('');
     try {
       await api.edgeReverterAtualizacao();
-      setReconectando(true); // os serviços reiniciam; a tela reconecta sozinha
+      setMonitorando(true); // o reverter grava o mesmo progresso; a tela reconecta sozinha
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Erro ao reverter');
+      setMsg(handleApiError(e, 'Erro ao reverter'));
     } finally {
       setRevertendo(false);
     }
   }
+
+  const progresso = status?.progresso;
+  const emAndamento = monitorando && progresso && progresso.fase !== 'ok' && progresso.fase !== 'erro';
 
   return (
     <Card className="p-6 lg:col-span-3">
@@ -278,60 +345,138 @@ function AtualizacaoServidor() {
             ) : null}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button type="button" variant="outline" onClick={verificar} disabled={carregando}>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={verificar} disabled={carregando || !!emAndamento}>
             {carregando ? 'Verificando…' : 'Verificar atualização'}
           </Button>
           {status?.disponivel && (
-            <Button type="button" onClick={aplicar} disabled={aplicando}>
-              {aplicando ? 'Iniciando…' : 'Instalar atualização'}
-            </Button>
+            <>
+              <Button type="button" onClick={() => instalar(false)} disabled={aplicando || !!emAndamento}>
+                {aplicando ? 'Iniciando…' : 'Instalar agora'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAgendarAberto((v) => !v)}
+                aria-expanded={agendarAberto}
+                disabled={!!emAndamento}
+              >
+                Agendar
+              </Button>
+            </>
           )}
-          <Button type="button" variant="ghost" onClick={reverter} disabled={revertendo} className="text-muted-foreground">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={reverter}
+            disabled={revertendo || !!emAndamento}
+            className="text-muted-foreground"
+          >
             {revertendo ? 'Revertendo…' : 'Reverter atualização'}
           </Button>
         </div>
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">
-        <strong>Reverter atualização</strong> volta o servidor à versão anterior à última atualização (código e app; o banco é mantido). Use só se algo passou a dar problema depois de atualizar.
+        <strong>Reverter atualização</strong> volta o servidor à versão anterior à última atualização (código, app e dependências; o banco é mantido). Use só se algo passou a dar problema depois de atualizar.
       </p>
-      {status?.disponivel && status?.notas && !monitorando && (
+
+      {status?.versaoAtualRecolhida && (
+        <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+          <p className="font-semibold text-destructive">A versão instalada ({status.atual}) foi recolhida pela distribuição.</p>
+          <p className="mt-1 text-muted-foreground">
+            {status?.disponivel
+              ? 'Instale a versão nova assim que possível.'
+              : 'Se algo não estiver funcionando, use "Reverter atualização" e fale com o suporte.'}
+          </p>
+        </div>
+      )}
+
+      {status?.agendadaPara && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-secondary/40 p-3 text-sm">
+          <span>
+            Instalação agendada para <strong className="font-mono">{formatarHora(status.agendadaPara)}</strong> — começa só com a loja parada.
+          </span>
+          <Button type="button" variant="ghost" onClick={cancelarAgenda} className="text-muted-foreground">
+            Cancelar agendamento
+          </Button>
+        </div>
+      )}
+
+      {agendarAberto && status?.disponivel && (
+        <div className="mt-3 flex flex-wrap items-end gap-3 rounded-lg border border-border p-3">
+          <div className="w-full max-w-xs">
+            <Label htmlFor="hora-agenda">Instalar em</Label>
+            <Input
+              id="hora-agenda"
+              type="datetime-local"
+              value={horaAgenda}
+              onChange={(e) => setHoraAgenda(e.target.value)}
+            />
+          </div>
+          <Button type="button" onClick={agendar}>Confirmar agendamento</Button>
+          <p className="w-full text-[11px] text-muted-foreground">
+            No horário, a instalação espera não haver caixa aberto nem pedido em produção (por até 12 h).
+          </p>
+        </div>
+      )}
+
+      {bloqueio && (
+        <div className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+          <p className="font-semibold">{bloqueio.mensagem}</p>
+          {bloqueio.tipo === 'operacao' && (
+            <p className="mt-1 text-muted-foreground">
+              Agora: {bloqueio.caixasAbertos} caixa(s) aberto(s) e {bloqueio.pedidosEmProducao} pedido(s) em produção.
+            </p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {bloqueio.tipo === 'operacao' && (
+              <Button type="button" variant="outline" onClick={() => { setBloqueio(null); setAgendarAberto(true); }}>
+                Agendar para depois do fechamento
+              </Button>
+            )}
+            <Button type="button" variant="ghost" onClick={() => instalar(true)} disabled={aplicando}>
+              {bloqueio.tipo === 'revertida' ? 'Instalar de novo mesmo assim' : 'Instalar agora mesmo assim'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {status?.disponivel && status?.notas && !emAndamento && (
         <div className="mt-3 rounded-lg border border-border bg-secondary/40 p-3 text-sm">
           <p className="mb-1 text-xs font-bold uppercase text-muted-foreground">O que muda</p>
           <p className="whitespace-pre-line text-muted-foreground">{status.notas}</p>
         </div>
       )}
 
-      {/* Barra de progresso durante a instalação (com reconexão no reinício) */}
-      {monitorando && status?.progresso && status.progresso.estagio !== 'erro' && (
-        <div className="mt-4">
+      {/* Barra de progresso durante a instalação/reversão (com reconexão no reinício) */}
+      {emAndamento && (
+        <div className="mt-4" aria-live="polite">
           <div className="mb-1 flex items-center justify-between text-xs">
             <span className="font-medium">
-              {ESTAGIO_LABEL[status.progresso.estagio] ?? status.progresso.estagio}
+              {ESTAGIO_LABEL[progresso.estagio] ?? progresso.estagio}
               {reconectando && ' · reconectando…'}
             </span>
-            <span className="font-mono text-muted-foreground">{status.progresso.pct}%</span>
+            <span className="font-mono text-muted-foreground">{progresso.pct}%</span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-secondary">
             <div
-              className="h-2 rounded-full bg-primary transition-all duration-500"
-              style={{ width: `${Math.min(100, Math.max(0, status.progresso.pct))}%` }}
+              className="h-2 rounded-full bg-primary transition-all duration-500 motion-reduce:transition-none"
+              style={{ width: `${Math.min(100, Math.max(0, progresso.pct))}%` }}
             />
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            Os serviços (KDS, PDV, ponto) reiniciam por 1–2 minutos. Não feche esta tela — ela reconecta sozinha ao terminar.
+            Os serviços (KDS, PDV, ponto) reiniciam por 1–2 minutos só na troca. Não feche esta tela — ela reconecta sozinha ao terminar.
           </p>
         </div>
       )}
 
-      {/* Falhou: mostra o erro e recomenda o rollback */}
-      {status?.progresso?.estagio === 'erro' && !monitorando && (
+      {/* Falhou: mostra o erro e o que o script fez (voltou sozinho ou não) */}
+      {progresso?.fase === 'erro' && !monitorando && (
         <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
           <p className="font-semibold text-destructive">A última atualização falhou.</p>
-          <p className="mt-1 text-muted-foreground">{status.progresso.erro || 'Erro desconhecido.'}</p>
-          <p className="mt-1 text-[12px] text-muted-foreground">
-            O código foi revertido automaticamente. Se o servidor não voltar ao normal, clique em <strong>Reverter atualização</strong> acima. A distribuição do Regem já foi avisada do erro.
-          </p>
+          <p className="mt-1 text-muted-foreground">{progresso.erro || 'Erro desconhecido.'}</p>
+          {progresso.acaoFinal && <p className="mt-1 text-[12px] text-muted-foreground">{progresso.acaoFinal}</p>}
+          <p className="mt-1 text-[12px] text-muted-foreground">A distribuição do Regem já foi avisada do erro.</p>
         </div>
       )}
 

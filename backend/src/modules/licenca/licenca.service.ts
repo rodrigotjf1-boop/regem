@@ -766,7 +766,8 @@ export class LicencaService {
         extra.comandos = await this.edge.comandosPendentes(tenantId, equipamentoId ?? null);
       } catch { /* best-effort: o daemon cai no endpoint */ }
       try {
-        extra.atualizacao = await this.edge.atualizacao(dto?.versao ?? undefined);
+        // Com a empresa: a loja entra no piloto/percentual do release (distribuição escalonada).
+        extra.atualizacao = await this.edge.atualizacao(dto?.versao ?? undefined, tenantId);
       } catch { /* idem */ }
     }
 

@@ -92,6 +92,19 @@ if (!existsSync(daemon)) {
   else erro('sync-daemon SEM don\'t-abort — uma linha ruim aborta o pull e o transacional PARA de descer. Regenere do origin/main.');
 }
 
+// ── 4b) atualização segura: chave pública, scripts novos, dependências, nada da distribuição ──
+secao('4b) Atualização segura (assinatura, troca do conjunto, ferramentas fora)');
+for (const rel of ['edge/update-pub.pem', 'edge/verify-update.mjs', 'edge/atualizar.ps1', 'edge/atualizacao-comum.ps1', 'edge/reverter.ps1', 'edge/saude-local.mjs']) {
+  if (existsSync(join(DIST, rel))) ok(`${rel} presente`);
+  else erro(`${rel} AUSENTE — sem ele a loja não confere a assinatura / não troca o conjunto com segurança.`);
+}
+if (existsSync(join(DIST, 'node_modules', 'pg', 'package.json'))) ok('node_modules de produção presente (vai no .exe e como node_modules.tar no .zip)');
+else erro('regem-edge-dist/node_modules sem pg — o package.mjs não embutiu as dependências.');
+for (const rel of ['edge/update-priv.pem', 'edge/sign-update.mjs', 'edge/publicar.ps1', 'edge/gerar-ca-assinatura.mjs', 'scripts/gen-license-keys.mjs', 'scripts/apply-all-prod.mjs']) {
+  if (existsSync(join(DIST, rel))) erro(`${rel} entrou no pacote — ferramenta/segredo da DISTRIBUIÇÃO não vai para a loja.`);
+}
+ok('conferidas as ferramentas da distribuição fora do pacote');
+
 // ── 5) versões batem: version.txt == .iss AppVer == esperada ─────────────────
 secao('5) Versão consistente');
 let vTxt = '';

@@ -14,6 +14,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { join } from 'path';
 import { createHash, createHmac } from 'node:crypto';
 import zlib from 'node:zlib';
 import { Readable } from 'node:stream';
@@ -1057,7 +1058,11 @@ async function updateCheck(jaRecebido) {
     const atual = process.env.APP_VERSION || '1';
     let j = jaRecebido;
     if (!j) {
-      const res = await fetchT(`${CLOUD}/edge/update-check?versao=${encodeURIComponent(atual)}`);
+      // Com o token do servidor: a nuvem decide se esta loja já está na fatia do release
+      // (distribuição escalonada — piloto/percentual).
+      const res = await fetchT(`${CLOUD}/edge/update-check?versao=${encodeURIComponent(atual)}`, {
+        headers: { 'x-sync-token': TOKEN },
+      });
       if (!res.ok) return;
       j = await res.json();
     }
@@ -1069,7 +1074,54 @@ async function updateCheck(jaRecebido) {
     } else {
       await setState('update_disponivel', '');
     }
+    await setState('update_atual_recolhida', j.versaoAtualRecolhida ? '1' : '');
   } catch { /* best-effort: sem rede, ignora */ }
+}
+
+// Instalação AGENDADA pelo gestor (tela Servidor → "Agendar"): chegada a hora, dispara a
+// tarefa RegemEdgeUpdate — mas só com a loja PARADA (sem caixa aberto nas últimas 16 h nem
+// pedido em produção nas últimas 3 h; a mesma regra da API). Ocupada: espera e tenta de novo
+// a cada ciclo, por até 12 h depois do horário; aí desiste e registra (o gestor reagenda).
+const AGENDA_TOLERANCIA_MS = 12 * 3600 * 1000;
+async function atualizacaoAgendada() {
+  try {
+    const ag = await getState('update_agendado_para', '');
+    if (!ag) return;
+    const hora = Date.parse(ag);
+    if (!Number.isFinite(hora)) { await setState('update_agendado_para', ''); return; }
+    if (Date.now() < hora) return;
+    if (!(await getState('update_disponivel', ''))) { await setState('update_agendado_para', ''); return; }
+    if (Date.now() - hora > AGENDA_TOLERANCIA_MS) {
+      await setState('update_agendado_para', '');
+      console.warn('  ⏰ atualização agendada NÃO instalada: a loja ficou em operação por 12 h depois do horário. Reagende.');
+      await reportarTelemetria('update', 'agenda_expirada', `agendada para ${ag}; loja em operação`);
+      return;
+    }
+    // Já há uma instalação rodando (status recente e não terminado)? Não dispara outra.
+    try {
+      const st = JSON.parse(readFileSync(join(process.cwd(), 'logs', 'update-status.json'), 'utf8').replace(/^\uFEFF/, ''));
+      const ts = Date.parse(st.ts ?? '');
+      if (st.fase !== 'ok' && st.fase !== 'erro' && Number.isFinite(ts) && Date.now() - ts < 20 * 60 * 1000) return;
+    } catch { /* sem status: segue */ }
+    const loja = process.env.EDGE_UNIDADE_ID || null;
+    const r = await pool.query(
+      `select
+         (select count(*)::int from caixa_sessao
+           where status = 'aberta' and aberta_em > now() - interval '16 hours'
+             and ($1::uuid is null or unidade_id = $1::uuid or unidade_id is null)) as caixas,
+         (select count(*)::int from producao_pedido
+           where status in ('recebido', 'preparo') and created_at > now() - interval '3 hours'
+             and ($1::uuid is null or unidade_id = $1::uuid or unidade_id is null)) as pedidos`,
+      [loja],
+    );
+    const { caixas, pedidos } = r.rows[0] ?? {};
+    if (caixas || pedidos) return; // ainda operando: tenta no próximo ciclo
+    await setState('update_agendado_para', '');
+    await pExecFile('schtasks', ['/run', '/tn', 'RegemEdgeUpdate']);
+    console.log(`  ⬆️ atualização agendada (${ag}) iniciada — loja sem operação.`);
+  } catch (e) {
+    console.warn(`  atualizacaoAgendada: ${e?.message ?? e}`);
+  }
 }
 
 // Fingerprint é estável por instalação → cacheia (evita reg query a cada heartbeat).
@@ -1479,6 +1531,7 @@ async function ciclo() {
       await updateCheckSeJanela();
       await updateCheckPeriodico();
     }
+    await atualizacaoAgendada();
     cicloAnteriorMs = Date.now() - inicioCiclo;
   } catch (e) {
     // BLINDAGEM: NENHUM erro de ciclo pode derrubar o daemon. O try interno cobre só
