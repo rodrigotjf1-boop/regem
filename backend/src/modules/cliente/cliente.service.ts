@@ -31,6 +31,8 @@ import {
 } from '../../db/schema';
 import { inArray } from 'drizzle-orm';
 import { assinarCliente, verificarCliente } from './cliente-token';
+import { SegmentoImport, mapearTabela, nomeUtil, parseCsvClientes, segmentoPeloArquivo } from './importar-planilha';
+import { lerXlsx } from './ler-xlsx';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
 import { AtendimentoService } from '../atendimento/atendimento.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -54,6 +56,11 @@ function normTelImport(raw?: string): string {
 // o commit é JSON (corpo ~10 MB) e um cliente malicioso poderia mandar centenas de milhares
 // de linhas. 5000 cobre bases reais de PME com folga; acima disso, importar em partes.
 const IMPORT_MAX = 5000;
+// Planilha (ex.: Anota Aí): a prévia aceita o arquivo inteiro; a gravação segue em partes
+// de IMPORT_MAX (a tela divide).
+const PLANILHA_MAX = 30000;
+const SEGMENTOS_IMPORT: SegmentoImport[] = ['ativo', 'inativo', 'potencial'];
+const FONTES_IMPORT = ['anotaai'];
 
 // Decodifica QUOTED-PRINTABLE (=C3=A9 → bytes) respeitando o CHARSET declarado:
 // UTF-8 (padrão dos exports Android/iOS) e ISO-8859-1/Windows-1252 (exports legados,
@@ -442,12 +449,94 @@ export class ClienteService {
     return existentes;
   }
 
+  // Prévia de PLANILHA CSV (ex.: clientes da Anota Aí). Mesmo contrato da prévia do .vcf
+  // (a tela reaproveita a revisão e o commit), com o segmento e os dados da base de origem.
+  // Teto maior que o do .vcf (a aba de inativos da Anota Aí passa de 13 mil): a prévia
+  // devolve tudo e a TELA grava em partes de IMPORT_MAX.
+  async previewPlanilha(
+    tenantId: string,
+    buffer: Buffer,
+    opts: { nomeArquivo?: string; segmento?: string; fonte?: string } = {},
+  ) {
+    const nome = String(opts.nomeArquivo ?? '').toLowerCase();
+    // PDF é layout de impressão (colunas viram texto corrido) e o .xls antigo é binário:
+    // não dá para ler com segurança — a Anota Aí exporta Excel (.xlsx) e CSV no mesmo menu.
+    if (/\.(xls|pdf)$/.test(nome) || buffer.subarray(0, 4).toString('latin1') === '%PDF') {
+      throw new BadRequestException(
+        'Envie em Excel (.xlsx) ou CSV. Na Anota Aí: Relatórios → Clientes → Exportar → Excel ou CSV.',
+      );
+    }
+    let parsed: ReturnType<typeof parseCsvClientes>;
+    try {
+      if (buffer.subarray(0, 2).toString('latin1') === 'PK') {
+        parsed = mapearTabela(lerXlsx(buffer)); // Excel (.xlsx)
+      } else {
+        // CSV: UTF-8 por padrão; em Latin-1/Windows-1252 (acentos viram \uFFFD), relê assim.
+        let texto = buffer.toString('utf8');
+        if (texto.includes('\uFFFD')) texto = buffer.toString('latin1');
+        parsed = parseCsvClientes(texto);
+      }
+    } catch (e: any) {
+      throw new BadRequestException(e?.message ?? 'Não consegui ler a planilha.');
+    }
+    if (parsed.linhas.length > PLANILHA_MAX) {
+      throw new BadRequestException(`Máximo de ${PLANILHA_MAX} linhas por arquivo. Divida a planilha.`);
+    }
+    const segmento =
+      (SEGMENTOS_IMPORT.includes(opts.segmento as SegmentoImport) ? (opts.segmento as SegmentoImport) : null) ??
+      segmentoPeloArquivo(opts.nomeArquivo ?? '');
+    const fonte = FONTES_IMPORT.includes(String(opts.fonte)) ? String(opts.fonte) : 'anotaai';
+
+    type C = { nome: string; telefone: string; pedidos: number | null; diasInatividade: number | null };
+    const porTel = new Map<string, C>();
+    let invalidos = 0;
+    let semNome = 0;
+    for (const l of parsed.linhas) {
+      // Identidade = telefone; WhatsApp só quando o telefone não serve (vem às vezes sem o 9).
+      const tel = normTelImport(l.telefoneRaw) || normTelImport(l.whatsappRaw);
+      if (!tel) {
+        invalidos++;
+        continue;
+      }
+      const nomeOk = nomeUtil(l.nome);
+      const atual = porTel.get(tel);
+      if (!atual) {
+        porTel.set(tel, { nome: nomeOk, telefone: tel, pedidos: l.pedidos, diasInatividade: l.diasInatividade });
+      } else {
+        if (!atual.nome && nomeOk) atual.nome = nomeOk;
+        atual.pedidos = Math.max(atual.pedidos ?? 0, l.pedidos ?? 0);
+      }
+    }
+    const contatos = [...porTel.values()];
+    semNome = contatos.filter((c) => !c.nome).length;
+    const existentes = await this.telefonesExistentes(tenantId, contatos.map((c) => c.telefone));
+    const marcados = contatos.map((c) => ({ ...c, novo: !existentes.has(c.telefone) }));
+    const novos = marcados.filter((c) => c.novo).length;
+    return {
+      fonte,
+      segmento,
+      colunas: parsed.colunas,
+      total: parsed.linhas.length,
+      validos: contatos.length,
+      invalidos,
+      semNome,
+      novos,
+      jaExistem: contatos.length - novos,
+      limite: IMPORT_MAX, // por gravação — a tela divide
+      truncado: false,
+      contatos: marcados,
+    };
+  }
+
   // Commit: grava os contatos revisados na base própria (dedup por telefone via onConflict).
   // Option A: entram elegíveis a marketing (opt_out=false), com consentimento DECLARADO.
+  // `origem` (planilha): { fonte, segmento } → gravado em cliente.importacao junto com os
+  // pedidos/dias de inatividade de cada contato. Cliente que JÁ existe não é tocado.
   async importarContatos(
     user: AuthUser,
-    contatos: { nome?: string; telefone?: string }[],
+    contatos: { nome?: string; telefone?: string; pedidos?: number | null; diasInatividade?: number | null }[],
     consentimento: boolean,
+    origemImport?: { fonte?: string; segmento?: string } | null,
   ) {
     if (!consentimento)
       throw new BadRequestException('É preciso declarar que você tem autorização destes contatos.');
@@ -457,8 +546,15 @@ export class ClienteService {
       throw new BadRequestException(
         `Máximo de ${IMPORT_MAX} contatos por importação. Divida o arquivo e importe em partes.`,
       );
+    // Procedência da planilha (mig 271): só fontes/segmentos conhecidos.
+    const segOk = SEGMENTOS_IMPORT.includes(origemImport?.segmento as SegmentoImport)
+      ? (origemImport!.segmento as SegmentoImport)
+      : null;
+    const fonteOk = origemImport && FONTES_IMPORT.includes(String(origemImport.fonte)) ? String(origemImport.fonte) : null;
+    const importadoEm = new Date().toISOString();
+    const inteiro = (v: any) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Math.max(0, Math.trunc(Number(v))) : null);
     const recebidos = contatos.length;
-    const porTel = new Map<string, string | null>();
+    const porTel = new Map<string, { nome: string | null; pedidos: number | null; dias: number | null }>();
     let invalidos = 0;
     for (const c of contatos) {
       const tel = normTelImport(c.telefone);
@@ -467,18 +563,22 @@ export class ClienteService {
         continue;
       }
       const nome = String(c.nome ?? '').trim().slice(0, 120) || null;
-      if (!porTel.has(tel)) porTel.set(tel, nome);
-      else if (!porTel.get(tel) && nome) porTel.set(tel, nome);
+      const atual = porTel.get(tel);
+      if (!atual) porTel.set(tel, { nome, pedidos: inteiro(c.pedidos), dias: inteiro(c.diasInatividade) });
+      else if (!atual.nome && nome) atual.nome = nome;
     }
     // Dedup contra a base em CÓDIGO (não há unique em (tenant, telefone) — ON CONFLICT nesse
     // alvo daria 42P10; e a base mistura com/sem DDI 55). Só entram os realmente novos.
     const existentes = await this.telefonesExistentes(user.tenantId, [...porTel.keys()]);
     const rows = [...porTel.entries()]
       .filter(([telefone]) => !existentes.has(telefone))
-      .map(([telefone, nome]) => ({
+      .map(([telefone, c]) => ({
         tenantId: user.tenantId,
         telefone,
-        nome,
+        nome: c.nome,
+        importacao: fonteOk
+          ? { fonte: fonteOk, segmento: segOk, pedidos: c.pedidos, diasInatividade: c.dias, importadoEm }
+          : null,
         // Marca a proveniência (LGPD): distingue/permite expurgar contatos importados vs.
         // os que pediram pelo cardápio. origem_id fica nulo → uq_cliente_origem (parcial,
         // where origem is not null) não colide (nulos são distintos entre si no índice).
@@ -500,7 +600,10 @@ export class ClienteService {
       tipo: 'importacao',
       acao: 'clientes.importar',
       origem: 'web',
-      detalhe: { recebidos, validos: porTel.size, inseridos, duplicados, invalidos, consentimento: true },
+      detalhe: {
+        recebidos, validos: porTel.size, inseridos, duplicados, invalidos, consentimento: true,
+        ...(fonteOk ? { fonte: fonteOk, segmento: segOk } : {}),
+      },
     });
     return { recebidos, inseridos, duplicados, invalidos };
   }
@@ -521,9 +624,13 @@ export class ClienteService {
         count(*) filter (where c.ultimo_pedido_em >= now() - interval '30 days')::int as d30,
         count(*) filter (where c.ultimo_pedido_em < now() - interval '30 days')::int as sem30,
         count(*) filter (where c.ultimo_pedido_em < now() - interval '60 days')::int as sem60,
-        (select count(*)::int from camp) as campeoes
+        (select count(*)::int from camp) as campeoes,
+        count(*) filter (where c.importacao is not null)::int as importados,
+        count(*) filter (where c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'ativo')::int as anotaai_ativo,
+        count(*) filter (where c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'inativo')::int as anotaai_inativo,
+        count(*) filter (where c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'potencial')::int as anotaai_potencial
       from cliente c where c.tenant_id = ${tenantId}`);
-    return (r.rows ?? r)[0] ?? { total: 0, mes: 0, d30: 0, sem30: 0, sem60: 0, campeoes: 0 };
+    return (r.rows ?? r)[0] ?? { total: 0, mes: 0, d30: 0, sem30: 0, sem60: 0, campeoes: 0, importados: 0, anotaai_ativo: 0, anotaai_inativo: 0, anotaai_potencial: 0 };
   }
 
   // Lista de clientes por segmento + busca (nome/telefone). Escopo por tenant.
@@ -542,6 +649,11 @@ export class ClienteService {
       sem_30: sql`and c.ultimo_pedido_em < now() - interval '30 days'`,
       sem_60: sql`and c.ultimo_pedido_em < now() - interval '60 days'`,
       campeoes: sql`and (select count(*) from pedido_externo p where p.cliente_id = c.id and p.status <> 'cancelado' and p.criado_em >= now() - interval '30 days') >= 3`,
+      // Base importada (mig 271) — ex.: clientes exportados da Anota Aí, por segmento de lá.
+      importados: sql`and c.importacao is not null`,
+      anotaai_ativo: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'ativo'`,
+      anotaai_inativo: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'inativo'`,
+      anotaai_potencial: sql`and c.importacao->>'fonte' = 'anotaai' and c.importacao->>'segmento' = 'potencial'`,
     };
     const segFrag = seg[String(opts.segmento ?? '')] ?? sql``;
     const busca = (opts.busca ?? '').trim();

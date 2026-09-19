@@ -94,12 +94,33 @@ export class ClienteAdminController {
     return this.service.previewVcf(user.tenantId, file?.buffer?.toString('utf8') ?? '');
   }
 
+  // Importação por PLANILHA CSV (ex.: clientes exportados da Anota Aí). Mesma regra do .vcf:
+  // prévia em memória, NÃO grava. `segmento` (ativo|inativo|potencial) é opcional — sem ele,
+  // é deduzido do nome do arquivo da Anota Aí.
+  @Post('importar-planilha/previa')
+  @Roles('presidente', 'gerente')
+  @RequirePerm('clientes_importar')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  importarPlanilhaPrevia(
+    @CurrentUser() user: AuthUser,
+    @UploadedFile() file?: { buffer?: Buffer; originalname?: string },
+    @Body() dto?: any,
+  ) {
+    return this.service.previewPlanilha(user.tenantId, file?.buffer ?? Buffer.alloc(0), {
+      nomeArquivo: file?.originalname ?? '',
+      segmento: dto?.segmento,
+      fonte: dto?.fonte,
+    });
+  }
+
   // Commit: grava os contatos revisados (Option A: elegíveis, com consentimento declarado).
+  // Só entram os NOVOS — cliente que já existe não é tocado. `origem` (opcional) guarda a
+  // procedência da planilha: { fonte: 'anotaai', segmento }.
   @Post('importar')
   @Roles('presidente', 'gerente')
   @RequirePerm('clientes_importar')
   importar(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.importarContatos(user, dto?.contatos ?? [], dto?.consentimento === true);
+    return this.service.importarContatos(user, dto?.contatos ?? [], dto?.consentimento === true, dto?.origem);
   }
 
   // Funil de conversão do cardápio (F4).
