@@ -1,3 +1,4 @@
+import { PREFIXO_BALCAO, PREFIXO_DELIVERY } from '../../common/senha-origem';
 import {
   BadRequestException,
   ForbiddenException,
@@ -655,7 +656,7 @@ export class VendasService {
       // Senha central (F4): só no balcão (mesa usa o número da mesa).
       const senha = dto.mesa
         ? null
-        : await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null);
+        : await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null, PREFIXO_BALCAO);
       const [cmd] = await tx
         .insert(comanda)
         .values({
@@ -663,6 +664,7 @@ export class VendasService {
           unidadeId: dto.unidadeId,
           mesa: dto.mesa,
           senha,
+          senhaPrefixo: dto.mesa ? null : PREFIXO_BALCAO,
           status: 'fechada',
           idempotencyKey: dto.idempotencyKey,
           taxaServicoPct: String(taxa),
@@ -811,6 +813,7 @@ export class VendasService {
           unidadeId: dto.unidadeId ?? null,
           comandaId: cmd.id,
           senha,
+          senhaPrefixo: dto.mesa ? null : PREFIXO_BALCAO,
           origem: dto.mesa ? 'mesa' : 'balcao',
           mesa: dto.mesa ?? null,
         },
@@ -876,6 +879,7 @@ export class VendasService {
       return {
         comandaId: cmd.id,
         senha,
+        senhaPrefixo: dto.mesa ? null : PREFIXO_BALCAO,
         subtotal: Number(total.toFixed(2)),
         taxaServicoPct: taxa,
         total: Number(totalComTaxa.toFixed(2)),
@@ -955,6 +959,7 @@ export class VendasService {
       atorId,
       {
         senha: res.senha,
+      senhaPrefixo: res.senhaPrefixo ?? null,
         mesa: dto.mesa ?? null,
         itens: res.viaClienteItens,
         total: res.total,
@@ -983,7 +988,7 @@ export class VendasService {
     comandaId: string,
     unidadeId: string | null,
     atorId: string | null,
-    dados: { senha?: number | null; mesa?: string | null; itens: any[]; total: number; forma?: string | null },
+    dados: { senha?: number | null; senhaPrefixo?: string | null; mesa?: string | null; itens: any[]; total: number; forma?: string | null },
     terminalId?: string | null,
     alvoPreferido?: string | null,
     qrData?: string | null,
@@ -1079,6 +1084,7 @@ export class VendasService {
       c.abertaPorId ?? null,
       {
         senha: c.senha,
+        senhaPrefixo: c.senhaPrefixo ?? null,
         mesa: c.mesa,
         itens: viaClienteItens,
         total: Number(c.total),
@@ -1142,7 +1148,7 @@ export class VendasService {
       comandaId,
       c.unidadeId ?? null,
       c.abertaPorId ?? null,
-      { senha: c.senha, mesa: c.mesa, itens: viaClienteItens, total: Number(c.total), forma: c.forma ?? null },
+      { senha: c.senha, senhaPrefixo: c.senhaPrefixo ?? null, mesa: c.mesa, itens: viaClienteItens, total: Number(c.total), forma: c.forma ?? null },
       null,
       null,
       qrData,
@@ -1182,7 +1188,10 @@ export class VendasService {
     const res = await this.db.transaction(async (tx) => {
       // Senha LOCAL do PDV (sequência central) — o KDS exibe esta; a senha da
       // plataforma vai como metadado ao lado.
-      const senha = await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null);
+      // Delivery numera a PRÓPRIA sequência (mig 275): com um contador só, a nuvem e o
+      // PDV local chegam ao mesmo número quando a internet da loja cai.
+      const senha = await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null, PREFIXO_DELIVERY);
+      const senhaPrefixo = PREFIXO_DELIVERY;
       const [cmd] = await tx
         .insert(comanda)
         .values({
@@ -1191,6 +1200,7 @@ export class VendasService {
           cliente: dto.cliente,
           status: 'fechada',
           senha,
+          senhaPrefixo,
           forma: dto.forma ?? 'online',
           fechadaEm: new Date(),
           abertaPorId: atorId,
@@ -1280,6 +1290,7 @@ export class VendasService {
           setorId: dto.setorId ?? null,
           mesa: null,
           senha,
+          senhaPrefixo,
           plataforma: dto.plataforma ?? null,
           senhaPlataforma: dto.senhaPlataforma ?? null,
         },
@@ -1369,7 +1380,7 @@ export class VendasService {
     try {
       res = await this.db.transaction(async (tx) => {
         const taxa = Number(dto.taxaServicoPct) || 0;
-        const senha = await this.producao.proximaSenha(tx, tenantId, unidadeId);
+        const senha = await this.producao.proximaSenha(tx, tenantId, unidadeId, PREFIXO_BALCAO);
         const formaResumo =
           dto.pagamentos.length > 1 ? 'multiplo' : dto.pagamentos[0].forma;
         const [cmd] = await tx
@@ -1381,6 +1392,7 @@ export class VendasService {
             cpf: dto.cpf ?? null,
             consumo: dto.consumo ?? null,
             senha,
+            senhaPrefixo: PREFIXO_BALCAO,
             status: 'fechada',
             idempotencyKey: dto.idempotencyKey,
             taxaServicoPct: String(taxa),
@@ -1439,6 +1451,7 @@ export class VendasService {
             setorId: null,
             mesa: null,
             senha,
+            senhaPrefixo: PREFIXO_BALCAO,
             plataforma: dto.plataforma ?? 'Totem',
             senhaPlataforma: dto.senhaPlataforma ?? null,
           },
@@ -1490,6 +1503,7 @@ export class VendasService {
         return {
           comandaId: cmd.id,
           senha,
+          senhaPrefixo: PREFIXO_BALCAO,
           subtotal: Number(total.toFixed(2)),
           taxaServicoPct: taxa,
           total: Number(totalComTaxa.toFixed(2)),
@@ -1725,6 +1739,7 @@ export class VendasService {
       atorId,
       {
         senha: c.senha,
+        senhaPrefixo: c.senhaPrefixo ?? null,
         mesa: c.mesa,
         itens: itens.map((it) => ({
           quantidade: Number(it.quantidade),
@@ -1808,6 +1823,7 @@ export class VendasService {
             unidadeId: c.unidadeId,
             comandaId,
             senha: c.senha,
+            senhaPrefixo: c.senhaPrefixo ?? null,
             origem: 'delivery',
           },
           [
@@ -1869,7 +1885,7 @@ export class VendasService {
       // Comanda avulsa (sem mesa) recebe senha central; comanda de mesa não.
       const senha = dto.mesa
         ? null
-        : await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null);
+        : await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null, PREFIXO_BALCAO);
       const [c] = await tx
         .insert(comanda)
         .values({
@@ -1877,6 +1893,7 @@ export class VendasService {
           unidadeId: dto.unidadeId,
           mesa: dto.mesa,
           senha,
+          senhaPrefixo: dto.mesa ? null : PREFIXO_BALCAO,
           cliente: dto.cliente,
           status: 'aberta',
           abertaPorId: atorId,
@@ -2216,6 +2233,7 @@ export class VendasService {
           unidadeId: c.unidadeId,
           comandaId,
           senha: c.senha,
+          senhaPrefixo: c.senhaPrefixo ?? null,
           origem: c.mesa ? 'mesa' : 'comanda',
           mesa: c.mesa,
           emitidoDe: salao ? salao.nome : null,
@@ -2531,6 +2549,7 @@ export class VendasService {
         taxaServicoPct: taxa,
         total: Number(totalComTaxa.toFixed(2)),
         senha: c.senha,
+        senhaPrefixo: c.senhaPrefixo ?? null,
         mesa: c.mesa,
         unidadeId: c.unidadeId,
         viaClienteItens: itens.map((it) => ({
@@ -2555,6 +2574,7 @@ export class VendasService {
     // Via do cliente sai ao fechar a conta (mesa/comanda).
     await this.imprimirViaCliente(tenantId, comandaId, res.unidadeId, atorId, {
       senha: res.senha,
+      senhaPrefixo: res.senhaPrefixo ?? null,
       mesa: res.mesa,
       itens: res.viaClienteItens,
       total: res.total,

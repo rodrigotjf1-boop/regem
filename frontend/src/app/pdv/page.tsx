@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken } from '@/lib/api';
+import { rotuloSenha } from '@/lib/senha';
 import { toast } from '@/lib/toast';
 import { uuid } from '@/lib/uuid';
 import { Shell } from '@/components/app-shell/shell';
@@ -755,7 +756,7 @@ export default function PdvPage() {
             {comprovante.senha != null && (
               <div className="mt-3 rounded-xl border border-primary/40 bg-primary/10 py-3">
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">Senha</p>
-                <p className="font-mono text-4xl font-bold text-primary">{comprovante.senha}</p>
+                <p className="font-mono text-4xl font-bold text-primary">{rotuloSenha(comprovante.senha, comprovante.senhaPrefixo)}</p>
               </div>
             )}
             <p className="mt-3 font-mono text-3xl font-bold">{brl(comprovante.total)}</p>
