@@ -1473,6 +1473,7 @@ export const comanda = pgTable('comanda', {
   unidadeId: uuid('unidade_id'),
   mesa: text('mesa'),
   senha: integer('senha'), // senha sequencial central (Fase F4) — via do cliente
+  senhaPrefixo: text('senha_prefixo'), // origem da senha (mig 275): B balcão, D delivery
   mesaId: uuid('mesa_id'), // agrupador (Fase F2) — comanda pertence a uma mesa
   identificador: text('identificador'), // cliente/pulseira/nº da comanda na mesa
   cliente: text('cliente'),
@@ -1915,6 +1916,10 @@ export const producaoPedido = pgTable('producao_pedido', {
   senha: integer('senha'), // senha da comanda/venda (Fase F4) — exibida no KDS/entrega
   origem: text('origem').notNull().default('balcao'), // balcao|mesa|comanda|garcom|delivery
   plataforma: text('plataforma'), // origem externa (ex.: "Cardápio", "iFood")
+  // Origem da senha (mig 275): B balcão, D delivery. Cada origem numera a PRÓPRIA
+  // sequência — com um contador só, os dois lados chegam ao mesmo número quando a
+  // internet da loja cai (o PDV segue no balcão, a nuvem segue no delivery).
+  senhaPrefixo: text('senha_prefixo'),
   senhaPlataforma: text('senha_plataforma'), // senha/nº do pedido na plataforma
   mesa: text('mesa'),
   status: text('status').notNull().default('recebido'), // recebido|preparo|pronto|entregue|cancelado

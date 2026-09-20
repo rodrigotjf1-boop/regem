@@ -157,8 +157,13 @@ sincroniza:
 1. **`fiscal_config.proximo_numero`** — hoje nuvem e loja emitem com a mesma série e
    numeração independente, o que a SEFAZ rejeita por duplicidade. É um problema **anterior**
    ao sync. Saídas: série distinta por origem, ou emissão fiscal exclusiva de um lado.
-2. **`senha_contador`** — a linha mistura configuração (período de reinício, que deve descer)
-   e o contador (que é local). Separar exige migration.
+2. **`senha_contador`** — **RESOLVIDO na mig 275: prefixo por origem** (balcão `B-12`, delivery
+   `D-07`). Cada origem numera a própria sequência, então não há nada a coordenar entre a loja
+   e a nuvem — a duplicidade fica impossível por construção, inclusive com a internet caída
+   (era exatamente quando acontecia: o PDV seguia no balcão e a nuvem assumia o delivery após
+   3 minutos, e os dois chegavam ao mesmo número). O contador passou a ser por (empresa, loja,
+   origem) e `comanda`/`producao_pedido` guardam de onde veio a senha; o contador em si segue
+   fora do sincronismo, porque é sequência de máquina.
 3. **`ponto_fechamento`** — o cron mensal roda nos dois lados, sem guarda. No servidor local
    ele calcularia sobre a janela de espelho (60 dias) e produziria um fechamento incompleto
    que venceria por última-escrita. Precisa de guarda antes de qualquer sincronismo.

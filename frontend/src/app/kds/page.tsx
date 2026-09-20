@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, getToken } from '@/lib/api';
+import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -333,7 +334,7 @@ export default function KdsPage() {
       if (p?.tipo === 'cancelado') {
         const alvo = pedidosRef.current.find((x) => x.id === p.pedidoId);
         const ref = alvo?.senha
-          ? `Senha ${alvo.senha}`
+          ? `Senha ${rotuloSenha(alvo.senha, alvo.senhaPrefixo)}`
           : alvo?.mesa
             ? `Mesa ${alvo.mesa}`
             : alvo?.plataforma
@@ -406,7 +407,9 @@ export default function KdsPage() {
   function avancarPorSenha() {
     const s = senhaDigitadaRef.current.trim();
     if (!s) return;
-    const alvo = pedidosRef.current.find((p) => String(p.senha ?? '') === s && p.status !== 'cancelado');
+    // Digitar só o número encontra as duas origens; digitar D12 ou D-12 separa o delivery
+    // do balcão (mig 275 — cada origem tem a própria sequência).
+    const alvo = pedidosRef.current.find((p) => senhaCasa(s, p.senha, p.senhaPrefixo) && p.status !== 'cancelado');
     if (!alvo) {
       setSenhaErro(true);
       return;
@@ -798,7 +801,7 @@ export default function KdsPage() {
                       style={{ fontFamily: 'Archivo, sans-serif', fontSize: Math.round(17 * esc), color: view.corSenha || undefined, textDecoration: cancelado ? 'line-through' : 'none', opacity: cancelado ? 0.7 : 1 }}
                     >
                       {p.senha
-                        ? `Senha ${p.senha}`
+                        ? `Senha ${rotuloSenha(p.senha, p.senhaPrefixo)}`
                         : p.mesa
                           ? `Mesa ${p.mesa}`
                           : p.numero
@@ -976,7 +979,8 @@ function EntregaBoard({
   T: { panel: string; panel2: string; border: string; text: string; muted: string };
   esc: number;
 }) {
-  const rotulo = (p: any) => (p.senha ? p.senha : p.mesa ? p.mesa : p.numero ? `#${p.numero}` : '—');
+  const rotulo = (p: any) =>
+    p.senha ? rotuloSenha(p.senha, p.senhaPrefixo) : p.mesa ? p.mesa : p.numero ? `#${p.numero}` : '—';
   const preparando = pedidos.filter((p) => p.status === 'recebido' || p.status === 'preparo');
   const pronto = pedidos.filter((p) => p.status === 'pronto');
   const Coluna = ({ titulo, itens, cor, tocavel }: { titulo: string; itens: any[]; cor: string; tocavel?: boolean }) => (

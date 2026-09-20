@@ -10,6 +10,7 @@ import { Cron } from '@nestjs/schedule';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { PREFIXO_BALCAO, rotuloSenha } from '../../common/senha-origem';
 import {
   equipamento,
   produtoDestinoProducao,
@@ -360,6 +361,7 @@ export class ProducaoPedidoService {
       origem: string;
       mesa?: string | null;
       senha?: number | null;
+      senhaPrefixo?: string | null; // origem da senha (mig 275): B balcão, D delivery
       plataforma?: string | null;
       senhaPlataforma?: string | null;
       setorId?: string | null; // setor do card (ex.: setor do delivery)
@@ -394,6 +396,7 @@ export class ProducaoPedidoService {
         setorId: ctx.setorId ?? null,
         numero,
         senha: ctx.senha ?? null,
+        senhaPrefixo: ctx.senhaPrefixo ?? null,
         origem: ctx.origem,
         plataforma: ctx.plataforma ?? null,
         senhaPlataforma: ctx.senhaPlataforma ?? null,
@@ -571,6 +574,7 @@ export class ProducaoPedidoService {
       origem: ped.origem,
       mesa: ped.mesa ?? null,
       senha: ped.senha ?? null,
+      senhaPrefixo: ped.senhaPrefixo ?? null,
       plataforma: ped.plataforma ?? null,
       senhaPlataforma: ped.senhaPlataforma ?? null,
       setorId: ped.setorId ?? null,
@@ -741,6 +745,7 @@ export class ProducaoPedidoService {
         pp.perfil,
         {
           senha: ctx.senha,
+          senhaPrefixo: ctx.senhaPrefixo ?? null,
           mesa: ctx.mesa,
           dataHora: new Date().toLocaleString('pt-BR'),
           ticket: numero ? `#${numero}` : undefined,
@@ -759,7 +764,7 @@ export class ProducaoPedidoService {
     const linha = '--------------------------------';
     const cab = ctx.mesa ? `MESA ${ctx.mesa}` : 'BALCAO';
     const l: string[] = ['*** PRODUCAO ***'];
-    if (ctx.senha) l.push(`>>> SENHA ${ctx.senha} <<<`);
+    if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
     l.push(`${cab}${numero ? ` · #${numero}` : ''}`);
     // Sub-PDV salão (mig 133): cabeçalho de onde o pedido foi emitido.
     if (ctx.emitidoDe) l.push(`EMITIDO: ${ctx.emitidoDe}`);
@@ -781,6 +786,7 @@ export class ProducaoPedidoService {
   renderViaCliente(
     dados: {
       senha?: number | null;
+      senhaPrefixo?: string | null; // origem da senha (mig 275)
       mesa?: string | null;
       itens: { quantidade: number; descricao: string; precoUnitario: number; complementosTexto?: string | null }[];
       total: number;
@@ -798,6 +804,7 @@ export class ProducaoPedidoService {
         perfilCaixa,
         {
           senha: dados.senha,
+          senhaPrefixo: dados.senhaPrefixo ?? null,
           itens: dados.itens,
           subtotal: dados.total,
           totalGeral: dados.total,
@@ -867,7 +874,7 @@ export class ProducaoPedidoService {
     const sep = '--------------------------------';
     // Texto (uma ou mais linhas) de cada campo a partir dos dados. [] = não imprime.
     const CAMPO: Record<string, () => string[]> = {
-      senha: () => (dados.senha != null ? [`SENHA ${dados.senha}`] : []),
+      senha: () => (dados.senha != null ? [`SENHA ${rotuloSenha(dados.senha, dados.senhaPrefixo)}`] : []),
       tipoFiscal: () => [dados.fiscal ? 'CUPOM FISCAL' : 'CUPOM NAO FISCAL'],
       nomeLoja: () => (dados.nomeLoja ? [String(dados.nomeLoja)] : []),
       dataHora: () => [dados.dataHora ?? new Date().toLocaleString('pt-BR')],
@@ -985,7 +992,7 @@ export class ProducaoPedidoService {
   // já destaca (centralizado, negrito, fonte dupla).
   private renderEtiquetaItem(ctx: any, it: any, numero?: number | null): string {
     const l: string[] = ['*** COLAR NO PRODUTO ***'];
-    if (ctx.senha) l.push(`>>> SENHA ${ctx.senha} <<<`);
+    if (ctx.senha) l.push(`>>> SENHA ${rotuloSenha(ctx.senha, ctx.senhaPrefixo)} <<<`);
     else if (numero) l.push(`>>> #${numero} <<<`);
     l.push(`${Number(it.quantidade)}x ${it.descricao}`);
     if (it.complementosTexto) l.push(String(it.complementosTexto));
@@ -1686,21 +1693,29 @@ export class ProducaoPedidoService {
 
   // ===== Senha central (atômica, com reset diário/semanal) =====
   // Puxa a próxima senha da unidade travando a linha (dois PDVs não duplicam).
+  //
+  // PREFIXO POR ORIGEM (mig 275): cada origem tem a PRÓPRIA sequência — balcão `B`,
+  // delivery `D`. Antes era um contador só por loja, e quando a internet caía os dois
+  // lados continuavam atendendo (o PDV local no balcão, a nuvem no delivery): cada um
+  // incrementava o seu e os dois chegavam ao mesmo número. Com sequências separadas a
+  // duplicidade fica impossível por construção, sem ninguém precisar conversar.
   async proximaSenha(
     tx: any,
     tenantId: string,
     unidadeId?: string | null,
+    prefixo: string = PREFIXO_BALCAO,
   ): Promise<number> {
     await tx.execute(sql`
-      insert into senha_contador (tenant_id, unidade_id)
-      values (${tenantId}, ${unidadeId ?? null})
-      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid))
+      insert into senha_contador (tenant_id, unidade_id, prefixo)
+      values (${tenantId}, ${unidadeId ?? null}, ${prefixo})
+      on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid), prefixo)
       do nothing
     `);
     const cur: any = await tx.execute(sql`
       select id, valor, periodo, ultimo_reset as "ultimoReset"
       from senha_contador
       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+        and prefixo = ${prefixo}
       for update
     `);
     const row = (cur.rows ?? cur)[0];
