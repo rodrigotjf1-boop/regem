@@ -111,6 +111,22 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'encomenda_regra_sinal', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'encomenda_recorrencia', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'banner', direcao: 'desce', cursor: 'created_at' },
+  // ── DINHEIRO DO CLIENTE (mig 274) — cashback e fidelidade ────────────────────────────
+  // O crédito acontece nos DOIS lados (o painel de delivery roda no servidor local) e o
+  // gasto só na nuvem. Sem sincronismo: cashback creditado na loja que o cliente nunca
+  // consegue gastar, estorno que não chega, prêmio usado duas vezes e plano criado na loja
+  // que não existe para o cliente.
+  // ⚠️ O SALDO (`cashback_saldo`, `fidelidade_cliente`) NÃO entra aqui de propósito: é um
+  // número, e número sincronizado por última-escrita-vence faz um crédito apagar o outro.
+  // Ele é recalculado do extrato por gatilho (mig 274) nos dois lados.
+  { tabela: 'cashback_plano', direcao: 'ambos', cursor: 'atualizado_em' },
+  { tabela: 'cashback_produto_valor', direcao: 'ambos', cursor: 'criado_em' }, // depois do plano e do produto
+  { tabela: 'cashback_movimento', direcao: 'ambos', cursor: 'criado_em' }, // o EXTRATO: só anexa
+  { tabela: 'cashback_vale', direcao: 'ambos', cursor: 'atualizado_em' }, // muda de estado (usado)
+  { tabela: 'fidelidade_plano', direcao: 'ambos', cursor: 'atualizado_em' },
+  { tabela: 'fidelidade_ponto', direcao: 'ambos', cursor: 'atualizado_em' }, // `estornado` muda
+  { tabela: 'fidelidade_resgate', direcao: 'ambos', cursor: 'atualizado_em' }, // o prêmio
+  { tabela: 'fidelidade_ajuste', direcao: 'ambos', cursor: 'criado_em' }, // ajuste manual (só anexa)
   { tabela: 'cardapio_config', direcao: 'ambos', cursor: 'updated_at' }, // bidirecional: config/horários editados no edge sobem p/ o cardápio online
   // ── Catálogo reutilizável (P3 completo) — BIDIRECIONAL. Editado no edge (modo
   // híbrido) e espelhado na nuvem p/ o cardápio online + editor. LWW por updated_at,
@@ -352,6 +368,10 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'complemento_destino_producao', 'opcao_destino_producao',
   'item_fornecedor', 'item_conversao', 'ordem_producao', 'comanda_pagamento', 'acerto_subpdv',
   'ponto_ajuste',
+  // Dinheiro do cliente (mig 274): o histórico tem de descer uma vez, senão o saldo
+  // recalculado na loja nasceria só com o que mudou de hoje em diante.
+  'cashback_plano', 'cashback_produto_valor', 'cashback_movimento', 'cashback_vale',
+  'fidelidade_plano', 'fidelidade_ponto', 'fidelidade_resgate', 'fidelidade_ajuste',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
