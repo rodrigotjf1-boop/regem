@@ -257,6 +257,8 @@ const PUSH_TABLES = [
   // ANTES de pedido_externo (FK na nuvem: pedido_externo.cliente_id → cliente.id).
   // Cursor = atualizado_em (a tabela não tem updated_at).
   { tabela: 'cliente', cursor: 'atualizado_em' },
+  { tabela: 'cliente_endereco', cursor: 'atualizado_em' }, // endereço salvo do cliente (mig 276)
+  { tabela: 'cardapio_bairro', cursor: 'atualizado_em' }, // frete por bairro (mig 276)
   { tabela: 'caixa_sessao', cursor: 'updated_at' },
   { tabela: 'comanda', cursor: 'updated_at' },
   { tabela: 'comanda_item', cursor: 'updated_at' },

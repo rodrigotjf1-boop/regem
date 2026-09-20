@@ -225,6 +225,14 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // CRM o bumpa a cada pedido → cliente recorrente re-desce junto com o pedido).
   // Vem ANTES dos transacionais (pai antes dos filhos p/ FK).
   { tabela: 'cliente', direcao: 'ambos', cursor: 'atualizado_em' },
+  // Endereço de entrega (mig 276): sem ele, o atendente digita o telefone de um cliente
+  // recorrente no balcão e NÃO vem nada — redigita o endereço inteiro a cada pedido.
+  // Depois de `cliente` (chave estrangeira).
+  { tabela: 'cliente_endereco', direcao: 'ambos', cursor: 'atualizado_em' },
+  // Frete por bairro (mig 276): o painel de Delivery da loja LÊ esta tabela para montar o
+  // seletor de bairro e recalcular a taxa quando alguém corrige o endereço. Vazia no
+  // servidor local, o pedido saía com a taxa antiga ou zero — cobrança errada, calada.
+  { tabela: 'cardapio_bairro', direcao: 'ambos', cursor: 'atualizado_em' },
   // ESPELHO (S1, ago/2026): transacionais viram BIDIRECIONAIS (antes só 'sobe').
   // Descem também p/ o edge espelhar o que o presidente faz na nuvem e o que a nuvem
   // materializou (pedido online → comanda). LWW por updated_at (gatilho da mig 095); o
@@ -372,6 +380,9 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   // recalculado na loja nasceria só com o que mudou de hoje em diante.
   'cashback_plano', 'cashback_produto_valor', 'cashback_movimento', 'cashback_vale',
   'fidelidade_plano', 'fidelidade_ponto', 'fidelidade_resgate', 'fidelidade_ajuste',
+  // Endereço do cliente e frete por bairro (mig 276): o que já existe precisa descer uma
+  // vez, senão a loja ficaria com a lista de bairros só do que mudar de hoje em diante.
+  'cliente_endereco', 'cardapio_bairro',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter

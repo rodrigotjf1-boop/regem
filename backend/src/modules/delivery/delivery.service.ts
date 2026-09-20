@@ -20,6 +20,7 @@ import {
   cardapioBairro,
   cardapioConfig,
   cliente,
+  clienteEndereco,
   colaborador,
   comandaItem,
   cupomUso,
@@ -1840,6 +1841,29 @@ export class DeliveryService {
       .from(cardapioBairro)
       .where(and(eq(cardapioBairro.tenantId, tenantId), eq(cardapioBairro.ativo, true)))
       .orderBy(cardapioBairro.ordem, cardapioBairro.nome);
+  }
+
+  // Busca do atendente por telefone — autopreenchimento do "Novo pedido".
+  //
+  // Existe aqui porque o módulo de clientes NÃO é servido no servidor local: a tela
+  // chamava a rota da nuvem, o servidor local devolvia 404, o front engolia o erro e o
+  // atendente redigitava nome e endereço a cada pedido de um cliente conhecido. Com
+  // `cliente` e `cliente_endereco` sincronizando (mig 276), a mesma busca passa a
+  // responder offline. Mesmo contrato da rota da nuvem.
+  async buscarClientePorTelefone(tenantId: string, telefone: string) {
+    const tel = (telefone ?? '').replace(/\D/g, '');
+    if (tel.length < 8) return null;
+    const [c] = await this.db
+      .select({ id: cliente.id, nome: cliente.nome, telefone: cliente.telefone })
+      .from(cliente)
+      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+    if (!c) return null;
+    const enderecos = await this.db
+      .select()
+      .from(clienteEndereco)
+      .where(and(eq(clienteEndereco.tenantId, tenantId), eq(clienteEndereco.clienteId, c.id)))
+      .orderBy(desc(clienteEndereco.principal), desc(clienteEndereco.criadoEm));
+    return { cliente: c, enderecos };
   }
 
   // Mapa de calor de entregas por bairro (todos os canais). Agrega pedidos de

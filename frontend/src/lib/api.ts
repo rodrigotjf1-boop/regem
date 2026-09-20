@@ -1264,8 +1264,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ sessao, tipo, meta }),
     }),
-  buscarClienteTelefone: (telefone: string) =>
-    req(`/clientes/buscar?telefone=${encodeURIComponent(telefone)}`),
+  // Busca do atendente por telefone (autopreenchimento do "Novo pedido").
+  // Tenta primeiro a rota do Delivery, que é servida TAMBÉM pelo servidor local (mig 276):
+  // o módulo de clientes só existe na nuvem, então, com a internet da loja fora, a busca
+  // devolvia 404, o erro era engolido e o atendente redigitava nome e endereço a cada
+  // pedido de um cliente conhecido. A rota antiga fica como reserva (instalação que ainda
+  // não recebeu a atualização).
+  buscarClienteTelefone: async (telefone: string) => {
+    const q = encodeURIComponent(telefone);
+    try {
+      return await req(`/delivery/clientes/buscar?telefone=${q}`);
+    } catch {
+      return req(`/clientes/buscar?telefone=${q}`);
+    }
+  },
   // CRM / segmentação (F3) — base do lojista, uso interno.
   crmResumo: () => req('/clientes/crm/resumo'),
   crmClientes: (params: {

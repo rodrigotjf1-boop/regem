@@ -1,6 +1,21 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { atrasadoDemais } from './sync.service';
+
+// Tabelas que ganham um gatilho (`registrar_exclusao_sync` ou `marcar_mudanca_sync`) em
+// QUALQUER migration. As migrations declaram a lista dentro de `array[...]`, e é dali que
+// os nomes saem — assim uma migration nova entra na cobertura sozinha, sem editar o teste.
+function tabelasDeGatilho(migDir: string, funcao: string): string[] {
+  const nomes: string[] = [];
+  for (const arquivo of readdirSync(migDir).filter((f) => f.endsWith('.sql'))) {
+    const sql = readFileSync(join(migDir, arquivo), 'utf8');
+    if (!sql.includes(funcao)) continue;
+    for (const bloco of sql.matchAll(/array\[([\s\S]*?)\]/g)) {
+      nomes.push(...[...bloco[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+    }
+  }
+  return nomes;
+}
 import {
   TABELAS_SYNC,
   TABELAS_PULL,
@@ -221,20 +236,15 @@ describe('sync_exclusao — cobertura e ordem', () => {
   const blocoGatilho = mig.slice(mig.indexOf('── 1)'), mig.indexOf('── 2)'));
   // A paridade (mig 272) acrescentou o mesmo gatilho nas tabelas que passaram a
   // sincronizar; a cobertura é a UNIÃO das duas migrations.
-  const mig272 = readFileSync(join(migDir, '272_paridade_cursores_e_exclusao.sql'), 'utf8');
-  const bloco272 = mig272.slice(mig272.indexOf('── 5) Exclusão'));
-  // A 274 (cashback e fidelidade) liga marcador e exclusão no mesmo bloco.
-  const mig274 = readFileSync(join(migDir, '274_paridade_cashback_fidelidade.sql'), 'utf8');
-  const bloco274 = mig274.slice(mig274.indexOf('── 5) Marcador'));
-  const comGatilho = new Set(
-    [
-      ...blocoGatilho.matchAll(/'([a-z_]+)'/g),
-      ...bloco272.matchAll(/'([a-z_]+)'/g),
-      ...bloco274.matchAll(/'([a-z_]+)'/g),
-    ].map((m) => m[1]),
-  );
+  // As migrations da paridade (272 em diante) ligam o mesmo gatilho nas tabelas que
+  // passaram a sincronizar. Em vez de listar arquivo por arquivo — e esquecer o próximo —
+  // varre TODA migration que cria o gatilho e junta os nomes declarados nos blocos.
+  const comGatilho = new Set([
+    ...[...blocoGatilho.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
+    ...tabelasDeGatilho(migDir, 'registrar_exclusao_sync'),
+  ]);
 
-  it('toda tabela em que a exclusão pode ser aplicada tem o gatilho na mig 262, 272 ou 274', () => {
+  it('toda tabela em que a exclusão pode ser aplicada tem o gatilho registrado numa migration', () => {
     const faltando = [...TABELAS_EXCLUIVEIS].filter((t) => !comGatilho.has(t));
     expect(faltando).toEqual([]);
   });
@@ -323,16 +333,11 @@ describe('sync_marcador — cobertura dos gatilhos', () => {
   const bloco = mig.slice(mig.indexOf('Gatilhos nas tabelas que DESCEM'), mig.indexOf('-- Semente'));
   // A paridade (mig 272) ligou o mesmo gatilho nas tabelas novas — união das duas.
   const mig272 = readFileSync(join(migDir, '272_paridade_cursores_e_exclusao.sql'), 'utf8');
-  const bloco272 = mig272.slice(mig272.indexOf('── 4) Marcador'), mig272.indexOf('── 5) Exclusão'));
-  const mig274 = readFileSync(join(migDir, '274_paridade_cashback_fidelidade.sql'), 'utf8');
-  const bloco274 = mig274.slice(mig274.indexOf('── 5) Marcador'));
-  const comGatilho = new Set(
-    [
-      ...bloco.matchAll(/'([a-z_]+)'/g),
-      ...bloco272.matchAll(/'([a-z_]+)'/g),
-      ...bloco274.matchAll(/'([a-z_]+)'/g),
-    ].map((m) => m[1]),
-  );
+  // Mesma ideia da cobertura de exclusão: varre toda migration que cria o marcador.
+  const comGatilho = new Set([
+    ...[...bloco.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
+    ...tabelasDeGatilho(migDir, 'marcar_mudanca_sync'),
+  ]);
 
   it('a lista de gatilhos foi lida', () => expect(comGatilho.size).toBeGreaterThan(40));
 

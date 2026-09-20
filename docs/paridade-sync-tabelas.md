@@ -171,9 +171,12 @@ sincroniza:
    Ou aceita-se divergência de custo histórico, ou a tabela passa a descer da nuvem.
 5. **`tarefa_instancia` e `escala_alocacao`** — são materializadas por rotina nos dois lados.
    Sem uma chave única de negócio, sincronizar **duplica** em vez de conciliar.
-6. **`cliente_endereco`** — sincronizar não basta: a busca de cliente por telefone vive num
-   módulo que não é servido no servidor local, então a tela ficaria com a tabela cheia e sem
-   uso. Precisa mover a rota para um módulo do edge.
+6. **`cliente_endereco` e `cardapio_bairro`** — **RESOLVIDO na mig 276.** As duas passaram a
+   sincronizar **e** a busca por telefone ganhou rota no módulo do Delivery, que é servido no
+   servidor local (o módulo de clientes só existe na nuvem: a tela levava 404 e o erro era
+   engolido em silêncio). Agora o atendente digita o telefone e vêm nome e endereços mesmo sem
+   internet, e o frete por bairro volta a ser recalculado na loja — antes o pedido corrigido
+   saía com a taxa antiga ou zero.
 7. **`ativacao`** — o plano contratado é lido no edge, mas a tabela nunca é populada, então
    **o plano não limita nada na loja**. Ela não deve descer (carrega segredo): o certo é
    descer um derivado (lista de módulos do plano) junto com `empresa`.
