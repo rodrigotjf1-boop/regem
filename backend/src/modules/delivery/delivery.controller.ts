@@ -272,6 +272,18 @@ export class DeliveryController {
     return this.service.listarBairros(user.tenantId);
   }
 
+  // Busca do atendente por telefone (autopreenchimento do "Novo pedido").
+  // Existe aqui, e não só no módulo de clientes, porque aquele NÃO é servido no servidor
+  // local: com a internet da loja fora, o atendente digitava o telefone de um cliente
+  // recorrente e não vinha nada — nem o nome — e redigitava o endereço a cada pedido.
+  // Mesmo contrato da rota da nuvem: { cliente, enderecos } ou null.
+  @Get('clientes/buscar')
+  @UseGuards(JwtAuthGuard, PermissoesGuard)
+  @RequirePerm('delivery')
+  buscarCliente(@CurrentUser() user: AuthUser, @Query('telefone') telefone?: string) {
+    return this.service.buscarClientePorTelefone(user.tenantId, telefone ?? '');
+  }
+
   // Mapa de calor de entregas por bairro (gestão) — só presidente/gerente.
   // RBAC no servidor: supervisão/execução não recebem o payload.
   @Get('mapa-calor')
