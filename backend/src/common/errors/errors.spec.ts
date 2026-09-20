@@ -34,6 +34,17 @@ describe('mapPgError', () => {
     expect(e.retryable).toBe(true);
   });
 
+  // Boot do PC da loja: a API sobe antes do Postgres terminar a recuperação e o driver
+  // devolve 57P03 ("the database system is starting up"). Antes caía no 500 genérico —
+  // o cliente não tinha como saber que era temporário.
+  it('57P03 (banco subindo/em recuperação) → 503 DATABASE_UNAVAILABLE retryable', () => {
+    const e = mapPgError({ code: '57P03', message: 'the database system is starting up' })!;
+    expect(e.getStatus()).toBe(503);
+    expect(e.code).toBe(ErrorCodes.DATABASE_UNAVAILABLE);
+    expect(e.retryable).toBe(true);
+    expect(e.message).toBe('Banco de dados temporariamente indisponível.'); // não vaza o texto do pg
+  });
+
   it('código desconhecido e erro não-pg → null (vira 500 mascarado no filtro)', () => {
     expect(mapPgError({ code: '99999' })).toBeNull();
     expect(mapPgError(new Error('qualquer'))).toBeNull();

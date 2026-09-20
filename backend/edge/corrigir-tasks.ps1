@@ -20,6 +20,21 @@ if (Test-Path $upd) {
   Write-Host "-> RegemEdgeUpdate registrada."
 } else { Write-Warning "atualizar.ps1 nao encontrado em $upd" }
 
+# BACKUP DIARIO: antes so o instalador (.exe) registrava esta tarefa. Loja que recebeu
+# o codigo novo por .zip ficava com o backup.ps1 no disco e SEM tarefa nenhuma - isto e,
+# sem backup, sem aviso. Aqui ela e criada/consertada tambem.
+$bk = Join-Path $Raiz 'edge\backup.ps1'
+if (Test-Path $bk) {
+  $ab = New-ScheduledTaskAction -Execute "powershell.exe" `
+         -Argument ("-NoProfile -ExecutionPolicy Bypass -File `"{0}`" -Raiz `"{1}`"" -f $bk, $Raiz)
+  $tb = New-ScheduledTaskTrigger -Daily -At 3am
+  $cb = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+          -ExecutionTimeLimit (New-TimeSpan -Minutes 60) `
+          -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+  Register-ScheduledTask -TaskName "RegemEdgeBackup" -Action $ab -Trigger $tb -Settings $cb -Principal $conta -Force | Out-Null
+  Write-Host "-> RegemEdgeBackup registrada (03:00, recupera execucao perdida)."
+} else { Write-Warning "backup.ps1 nao encontrado em $bk" }
+
 $rev = Join-Path $Raiz 'edge\reverter.ps1'
 if (Test-Path $rev) {
   $ar = New-ScheduledTaskAction -Execute "powershell.exe" `

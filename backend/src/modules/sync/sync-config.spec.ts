@@ -216,14 +216,18 @@ describe('sync-reconciliacao — lista da transição 1.29.0', () => {
 // fantasma do outro lado — e nada falha. E a ordem importa: a exclusão tem de ser aplicada
 // DEPOIS das linhas do mesmo ciclo, senão uma linha criada e apagada no intervalo ressuscita.
 describe('sync_exclusao — cobertura e ordem', () => {
-  const mig = readFileSync(
-    join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '262_sync_exclusao_e_carimbo.sql'),
-    'utf8',
-  );
+  const migDir = join(__dirname, '..', '..', '..', '..', 'database', 'migrations');
+  const mig = readFileSync(join(migDir, '262_sync_exclusao_e_carimbo.sql'), 'utf8');
   const blocoGatilho = mig.slice(mig.indexOf('── 1)'), mig.indexOf('── 2)'));
-  const comGatilho = new Set([...blocoGatilho.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+  // A paridade (mig 272) acrescentou o mesmo gatilho nas tabelas que passaram a
+  // sincronizar; a cobertura é a UNIÃO das duas migrations.
+  const mig272 = readFileSync(join(migDir, '272_paridade_cursores_e_exclusao.sql'), 'utf8');
+  const bloco272 = mig272.slice(mig272.indexOf('── 5) Exclusão'));
+  const comGatilho = new Set(
+    [...blocoGatilho.matchAll(/'([a-z_]+)'/g), ...bloco272.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
+  );
 
-  it('toda tabela em que a exclusão pode ser aplicada tem o gatilho na mig 262', () => {
+  it('toda tabela em que a exclusão pode ser aplicada tem o gatilho na mig 262 ou 272', () => {
     const faltando = [...TABELAS_EXCLUIVEIS].filter((t) => !comGatilho.has(t));
     expect(faltando).toEqual([]);
   });
@@ -307,12 +311,15 @@ describe('atrasadoDemais — janela de retenção', () => {
 // com marcador semeado e SEM gatilho ficaria parada para sempre — o marcador nunca subiria e
 // o pull nunca mais consultaria aquela tabela. Este teste é o alarme dessa armadilha.
 describe('sync_marcador — cobertura dos gatilhos', () => {
-  const mig = readFileSync(
-    join(__dirname, '..', '..', '..', '..', 'database', 'migrations', '264_sync_marcador_status_fila.sql'),
-    'utf8',
-  );
+  const migDir = join(__dirname, '..', '..', '..', '..', 'database', 'migrations');
+  const mig = readFileSync(join(migDir, '264_sync_marcador_status_fila.sql'), 'utf8');
   const bloco = mig.slice(mig.indexOf('Gatilhos nas tabelas que DESCEM'), mig.indexOf('-- Semente'));
-  const comGatilho = new Set([...bloco.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]));
+  // A paridade (mig 272) ligou o mesmo gatilho nas tabelas novas — união das duas.
+  const mig272 = readFileSync(join(migDir, '272_paridade_cursores_e_exclusao.sql'), 'utf8');
+  const bloco272 = mig272.slice(mig272.indexOf('── 4) Marcador'), mig272.indexOf('── 5) Exclusão'));
+  const comGatilho = new Set(
+    [...bloco.matchAll(/'([a-z_]+)'/g), ...bloco272.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
+  );
 
   it('a lista de gatilhos foi lida', () => expect(comGatilho.size).toBeGreaterThan(40));
 

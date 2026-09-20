@@ -55,7 +55,8 @@ param(
   # INSTALACAO LIMPA (nuke): para e REMOVE servicos/tarefas de uma instalacao anterior
   # e APAGA o banco local (pgdata) + backups + .env antes de instalar do zero. Usar
   # quando o banco local ficou corrompido/travado. Os dados do edge vem da NUVEM (o
-  # sync repopula sozinho). Implica -SemProteger (sem DPAPI/ACL restrita) por padrao.
+  # sync repopula sozinho). So apaga se o servidor provar que NADA ficou preso aqui
+  # (sync-daemon --descarregar sai 0); qualquer pendencia preserva o banco.
   [switch]$Limpar
 )
 
@@ -80,8 +81,13 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 $ErrorActionPreference = "Stop"
 $root = $Raiz
 $base = Split-Path $root -Parent          # C:\regem-edge
-# Instalacao LIMPA => sem hardening (DPAPI/ACL restrita), para nada travar o funcionamento.
-if ($Limpar) { $SemProteger = $true }
+# ANTES: instalacao limpa forcava -SemProteger "para nada travar o funcionamento". Como o
+# .exe passa -Limpar SEMPRE (regem-edge.iss), o efeito real era que TODA loja instalada
+# pelo instalador ficava com o .env.local em TEXTO PURO - senha do Postgres e JWT_SECRET
+# legiveis por qualquer conta do Windows daquele PC, com heranca de ACL normal.
+# Agora a protecao vale tambem na instalacao limpa. Ela e best-effort dos dois lados
+# (cifrar e restringir a ACL estao em try/catch): se algo falhar, a instalacao SEGUE e
+# avisa - nunca trava a loja. Para depurar sem protecao, passe -SemProteger na mao.
 Set-Location $root                        # cwd = raiz do backend (resolve node_modules + caminhos relativos)
 $logDir = Join-Path $root "logs"; New-Item -ItemType Directory -Force $logDir | Out-Null
 # Marcadores de resultado que o INSTALADOR (Inno) lê no fim: a presença de
@@ -258,6 +264,16 @@ if ($reinstalacao) {
   # banco ANTIGO e sai com 0 so se tudo chegou. Qualquer falha (sem internet, nuvem fora,
   # linha recusada) -> NAO apaga: segue como reinstalacao que preserva o banco, e as
   # migrations + a reconciliacao do sync atualizam os dados no lugar.
+  # Banco antigo SEM a configuracao antiga: nao ha como conectar nele para provar que os
+  # dados ja estao na nuvem. Antes este caso caia fora do bloco abaixo e o banco era
+  # apagado sem nenhuma tentativa de salvar nada. Agora PRESERVA (o pior que acontece e
+  # uma reinstalacao que mantem os dados; o contrario e perda definitiva).
+  if ($Limpar -and (Test-Path (Join-Path $base 'pgdata')) -and (-not (Test-Path $envAntigo))) {
+    Diga "  Existe um banco local, mas a configuracao antiga sumiu: NAO da para provar que os dados ja estao na nuvem."
+    Diga "  O banco local NAO sera apagado: seguindo como reinstalacao que PRESERVA os dados."
+    $Limpar = $false
+  }
+
   if ($Limpar -and (Test-Path (Join-Path $base 'pgdata')) -and (Test-Path $envAntigo)) {
     Diga "  Enviando para a nuvem o que so existe neste servidor (antes de apagar o banco)..."
     $descarregou = $false
@@ -286,6 +302,14 @@ if ($reinstalacao) {
         -RedirectStandardOutput $saida -RedirectStandardError $erros
       if (-not $proc.WaitForExit(1800000)) { try { $proc.Kill() } catch {}; throw "tempo esgotado (30 min)" }
       if ($proc.ExitCode -eq 0) { $descarregou = $true }
+      elseif ($proc.ExitCode -eq 3) {
+        # Enviou o que sobe, mas sobrou dado de tabela que NINGUEM sincroniza (NFC-e,
+        # tarefa, checklist, vistoria, escala...). Apagar o banco seria perda definitiva.
+        $lista = ''
+        try { $lista = ((Get-Content $erros -ErrorAction SilentlyContinue) -join "`n") } catch {}
+        if ($lista) { Diga $lista }
+        throw "ha dado neste servidor que nao vai para a nuvem (veja a lista acima e $erros)"
+      }
       else { throw ("codigo de saida {0} - veja {1}" -f $proc.ExitCode, $erros) }
     } catch {
       Diga ("  (aviso) nao consegui enviar os dados locais para a nuvem: {0}" -f $_.Exception.Message)
@@ -317,7 +341,10 @@ if ($reinstalacao) {
           if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpDump)) {
             Add-Type -AssemblyName System.Security
             $encD = [Security.Cryptography.ProtectedData]::Protect([IO.File]::ReadAllBytes($tmpDump), $null, 'LocalMachine')
-            $destD = Join-Path $dirBk ("db-reinstalar-{0}.dump.enc" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+            # Prefixo FORA do padrao 'db-*' de proposito: a retencao do backup diario
+            # (backup.ps1, 14 dias) filtra 'db-*.dump.enc' e apagava tambem esta copia,
+            # que e o unico seguro de uma reinstalacao. Esta nao e podada por idade.
+            $destD = Join-Path $dirBk ("pre-reinstalacao-{0}.dump.enc" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
             [IO.File]::WriteAllBytes($destD, $encD)
             Diga ("  Copia final do banco guardada (cifrada): {0}" -f (Split-Path $destD -Leaf))
           } else { Diga "  (aviso) nao consegui a copia final do banco - seguindo (os dados ja estao na nuvem)." }
@@ -499,10 +526,23 @@ $pgSenha = Rand 24
 $envLocalPrev = Join-Path $root ".env.local"
 if ((Test-Path (Join-Path $pgData "PG_VERSION")) -and (Test-Path $envLocalPrev)) {
   foreach ($l in Get-Content $envLocalPrev) {
-    if ($l -match '^DATABASE_URL=postgresql://postgres:([^@]+)@') {
-      $pgSenha = $Matches[1]
-      Diga "Reinstalacao: reusando a senha do banco existente (.env.local)."
-      break
+    if ($l -match '^DATABASE_URL=(.+)$') {
+      $valAntigo = $Matches[1].Trim()
+      # A instalacao anterior pode ter cifrado o .env.local (DPAPI). Sem decifrar aqui, o
+      # padrao nao casava, a senha antiga se perdia e a instalacao caia no reset de senha
+      # (e, se ele falhasse, no ramo de recomecar do zero). Decifra best-effort.
+      if ($valAntigo.StartsWith('enc:')) {
+        try {
+          Add-Type -AssemblyName System.Security
+          $valAntigo = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect(
+            [Convert]::FromBase64String($valAntigo.Substring(4)), $null, 'LocalMachine'))
+        } catch { $valAntigo = '' }
+      }
+      if ($valAntigo -match '^postgresql://postgres:([^@]+)@') {
+        $pgSenha = $Matches[1]
+        Diga "Reinstalacao: reusando a senha do banco existente (.env.local)."
+        break
+      }
     }
   }
 }
@@ -606,14 +646,28 @@ if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSIO
   }
 }
 
-# Ultimo recurso: o reset preservador FALHOU (banco realmente corrompido) -> zera.
+# Ultimo recurso: o reset preservador FALHOU -> comeca um banco NOVO, mas o antigo e
+# GUARDADO AO LADO (renomeado), nunca apagado.
+#
+# Por que nao apaga mais: "nao conectou" NAO prova corrupcao. As causas comuns sao outro
+# Postgres ocupando a 5432, servico que nao subiu, senha ilegivel ou binario de versao
+# diferente recusando o pgdata - em todas elas os dados estao intactos e o apagamento era
+# perda definitiva do que ainda nao tinha subido. Renomear custa disco; apagar custa a loja.
 if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSION"))) {
-  Diga "Reset falhou - banco inacessivel/corrompido, recomecando do zero."
+  Diga "Reset falhou - banco inacessivel. Guardando o banco antigo AO LADO e comecando um novo."
   try { & $nssm stop RegemEdgePg 2>$null | Out-Null } catch {}
   try { & $nssm remove RegemEdgePg confirm 2>$null | Out-Null } catch {}
   try { Get-CimInstance Win32_Process -Filter "name='postgres.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$pgData*" } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } } catch {}
   Start-Sleep -Seconds 2
-  Remove-Item -Recurse -Force $pgData -ErrorAction SilentlyContinue
+  $pgGuardado = "$pgData-inacessivel-{0}" -f (Get-Date -Format 'yyyyMMdd-HHmmss')
+  try {
+    Rename-Item -Path $pgData -NewName (Split-Path $pgGuardado -Leaf) -ErrorAction Stop
+    Diga ("  Banco antigo guardado em: {0} (nao e apagado por nenhuma rotina)." -f $pgGuardado)
+  } catch {
+    # So chega aqui se ate renomear falhar (arquivo preso). Nao apaga: aborta e deixa o
+    # operador decidir - melhor uma instalacao que falha do que um banco perdido.
+    throw ("nao consegui nem conectar nem guardar o banco antigo ({0}). Nada foi apagado. Verifique se outro Postgres esta usando a porta {1} e tente de novo." -f $_.Exception.Message, $PgPorta)
+  }
   $pgSenha = Rand 24
   $connPg = "postgresql://postgres:$pgSenha@localhost:$PgPorta/postgres"
   $pwfile = Join-Path $env:TEMP ("pgpw-{0}.txt" -f (Get-Random))
@@ -904,8 +958,22 @@ if (Test-Path $ca) {
 try { [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true } } catch {}
 # Tenta o /ping real (HTTPS). Se o TLS do PS 5.1 falhar com o cert local, cai para
 # um teste de porta TCP (o servico esta aceitando conexao = no ar).
+# Desde set/2026 o /ping confere o BANCO: 503 com "banco":false quer dizer API de pe e
+# Postgres fora. Antes isso caia no teste de porta TCP e voltava "OK - API respondeu" -
+# a instalacao terminava dizendo que estava tudo certo com o banco fora. Agora o 503 e
+# tratado como FALHA explicita, e o teste de porta so vale quando nem houve resposta HTTP
+# (caso do TLS do PS 5.1 com o certificado local).
 function Testa-Ping($porta) {
-  try { $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $porta) -TimeoutSec 5 -UseBasicParsing; if ($r.StatusCode -eq 200) { return $true } } catch {}
+  try {
+    $r = Invoke-WebRequest -Uri ("https://localhost:{0}/api/v1/ping" -f $porta) -TimeoutSec 5 -UseBasicParsing
+    if ($r.StatusCode -eq 200) { return $true }
+  } catch {
+    $resp = $_.Exception.Response
+    if ($resp -and [int]$resp.StatusCode -eq 503) {
+      Diga "  (aviso) a API respondeu, mas o BANCO local esta fora (503 no /ping)."
+      return $false
+    }
+  }
   try { $c = New-Object System.Net.Sockets.TcpClient; $c.Connect('localhost', [int]$porta); $ok = $c.Connected; $c.Close(); return $ok } catch { return $false }
 }
 function Testa-Porta($porta) {
@@ -981,6 +1049,19 @@ try {
   Atalho "Regem (nuvem)"          "https://app.dmsregem.com/entrar"
 } catch { Diga "AVISO: nao consegui criar os atalhos na area de trabalho: $($_.Exception.Message)" }
 
+# AFINACAO do Postgres local. O afinar-postgres.ps1 existia, era copiado para a loja e
+# NUNCA era executado por ninguem: todas as lojas rodavam com a configuracao de fabrica
+# (work_mem 4MB, vacuum a 20% de lixo, log de checkpoint a cada 5 min engordando o disco).
+# So ajustes que recarregam por SIGHUP e NAO alocam memoria compartilhada - o Postgres nao
+# corre risco de nao subir. Idempotente (o proprio script marca o bloco) e best-effort.
+try {
+  $afinar = Join-Path $root 'edge\afinar-postgres.ps1'
+  if ((Test-Path $afinar) -and $embutido.pg) {
+    & powershell -ExecutionPolicy Bypass -NoProfile -File $afinar -PgData $pgData -PgBin (Join-Path $pgDir 'bin') | Out-Null
+    Diga "Postgres local afinado (memoria de consulta, vacuum mais frequente, menos log)."
+  }
+} catch { Diga "(aviso) nao consegui afinar o Postgres: $($_.Exception.Message)" }
+
 # Fase 4: backup diario cifrado (DPAPI) do banco local, com retencao. Tarefa agendada
 # como SYSTEM as 03:00. Restauracao local; DR entre-maquinas usa a nuvem (ver roadmap §5).
 try {
@@ -988,8 +1069,16 @@ try {
   if (Test-Path $bkScript) {
     $act = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -Raiz "{1}"' -f $bkScript, $root)
     $trg = New-ScheduledTaskTrigger -Daily -At 3am
-    Register-ScheduledTask -TaskName 'RegemEdgeBackup' -Action $act -Trigger $trg -RunLevel Highest -User 'SYSTEM' -Force | Out-Null
-    Diga "Backup diario cifrado registrado (RegemEdgeBackup, 03:00)."
+    # -StartWhenAvailable: restaurante costuma DESLIGAR o PC ao fechar. Sem isto o Windows
+    # simplesmente PULA a execucao das 03:00 e nao a recupera - a loja passava meses sem
+    # backup nenhum e ninguem ficava sabendo. Com isto, roda assim que a maquina liga.
+    # -DontStopOnIdleEnd e a bateria: a tarefa nao pode ser cancelada por ociosidade nem
+    # ignorada num notebook fora da tomada (o padrao do Windows ignora em bateria).
+    $cfgBk = New-ScheduledTaskSettingsSet -StartWhenAvailable -DontStopOnIdleEnd `
+               -ExecutionTimeLimit (New-TimeSpan -Minutes 60) `
+               -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+    Register-ScheduledTask -TaskName 'RegemEdgeBackup' -Action $act -Trigger $trg -Settings $cfgBk -RunLevel Highest -User 'SYSTEM' -Force | Out-Null
+    Diga "Backup diario cifrado registrado (RegemEdgeBackup, 03:00, recupera execucao perdida)."
   }
 } catch { Diga "(aviso) nao registrei o backup agendado: $($_.Exception.Message)" }
 

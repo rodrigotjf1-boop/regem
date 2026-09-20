@@ -230,6 +230,7 @@ export class LicencaService {
              (a.reauth_totp_secret is not null) as "temTotp",
              (a.device_fingerprint is not null) as "instalado",
              h.versao, h.ultimo_sync as "ultimoSync",
+             h.disco_livre_mb as "discoLivreMb", h.saude,
              (h.recebido_em is not null and h.recebido_em > now() - interval '5 minutes') as "online"
       from ativacao a
       -- Status do servidor local: edge_status (mig 264) tem uma linha por servidor, atualizada
@@ -242,7 +243,38 @@ export class LicencaService {
       order by a.criado_em desc limit 1`);
     const row = (r.rows ?? r)[0];
     if (!row) return { instalado: false };
-    return { ...row, instalado: !!row.instalado, online: !!row.online };
+    const { saude, ...base } = row;
+    return {
+      ...base,
+      instalado: !!row.instalado,
+      online: !!row.online,
+      ...this.saudeDoLojista(saude, row.discoLivreMb),
+    };
+  }
+
+  // Traduz o `saude` do heartbeat para o que a LOJA pode ver na tela "Servidor local".
+  // Diagnóstico de infraestrutura (falha de checksum de página, proximidade do limite de
+  // transações do Postgres) é da DISTRIBUIÇÃO: não sai daqui em número nem em nome —
+  // vira só `precisaManutencao`, que na tela vira "acione o suporte".
+  private saudeDoLojista(saude: any, discoLivreMb: any) {
+    const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
+    const b = saude?.backup ?? null;
+    const backup = b
+      ? {
+          ok: b.ok !== false && !b.erro,
+          em: b.em ?? null,
+          horas: num(b.horas),
+          mb: num(b.mb),
+        }
+      : null;
+    const checksum = num(saude?.bancoFalhasChecksum) ?? 0;
+    const pctTransacoes = num(saude?.bancoPctTransacoes) ?? 0;
+    return {
+      bancoMb: num(saude?.bancoMb),
+      discoLivreMb: num(discoLivreMb),
+      backup,
+      precisaManutencao: checksum > 0 || pctTransacoes > 50,
+    };
   }
 
   // Enrola o app autenticador da própria loja (gera QR). Inerte até confirmar.

@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpStatus, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -21,9 +22,15 @@ export class EdgeController {
     private readonly equipamentos: EquipamentoService,
   ) {}
 
+  // Heartbeat dos clientes (app da loja, KDS, PDV, Ponto) e health-check da atualização.
+  // Responde o MESMO corpo sempre — só o status muda: banco fora → 503, para que
+  // `r.ok === false` no front derrube o indicador e ofereça o modo nuvem, e para que o
+  // `edge/saude-local.mjs` (que já descarta status != 200) REPROVE a atualização.
   @Get('ping')
-  ping() {
-    return this.service.info();
+  async ping(@Res({ passthrough: true }) res: Response) {
+    const corpo = await this.service.info();
+    if (!corpo.banco) res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    return corpo;
   }
 
   // Handshake de compatibilidade cliente↔servidor (Fase 1.3). Público (LAN): o

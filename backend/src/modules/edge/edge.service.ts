@@ -22,6 +22,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { MIN_CLIENT_VERSION, MIN_SERVER_VERSION } from './versao';
 import { TelemetriaBridge } from '../../common/telemetria-bridge';
 import { exigirBooleano } from '../../common/exigir';
+import { checarBanco } from '../../common/saude-banco';
 import {
   ReleaseLinha,
   compararVersao,
@@ -517,12 +518,19 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     return r.rows ?? r;
   }
 
-  info() {
+  // Identificação do servidor + SAÚDE REAL. Antes devolvia só variáveis de ambiente: com o
+  // Postgres da loja parado o /ping respondia 200 e o app mostrava "servidor online" para
+  // sempre, sem nunca oferecer o modo nuvem (e o saude-local.mjs aprovava a atualização).
+  // Agora confere o banco (`select 1`, prazo de 2 s, resultado em cache por ~3 s — o ping é
+  // chamado por TODOS os terminais a cada 12 s). `banco:false` → o controller responde 503.
+  async info() {
+    const banco = await checarBanco(this.db);
     return {
       regem: true,
       edge: EdgeService.ehEdge,
       versao: process.env.APP_VERSION ?? '1',
       unidadeId: process.env.EDGE_UNIDADE_ID ?? null,
+      banco: banco.ok,
       ts: new Date().toISOString(),
     };
   }

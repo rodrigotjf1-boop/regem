@@ -38,7 +38,11 @@ export const TABELAS_SYNC: TabelaSync[] = [
     cursor: 'updated_at',
     // `ponto_baixa` (mig 251): o desperdício aponta para o ponto que o registrou; sem
     // subir, a nuvem teria desperdício apontando para um equipamento que não conhece.
-    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa')",
+    // `kds` entrou com a paridade (mig 272/273): as tabelas de DESTINO DE PRODUÇÃO
+    // (produto/setor/complemento/opção → equipamento) apontam para o KDS. Sem o tipo aqui,
+    // toda linha de destino que aponta para um KDS morreria por chave estrangeira do outro
+    // lado — o mesmo sintoma do cliente em instalação nova.
+    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Template da etiqueta de validade (mig 245): config espelhada como as de cima —
@@ -58,6 +62,55 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'bot_regra', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'feriado', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'tipo_ocorrencia', direcao: 'desce', cursor: 'updated_at' },
+  // ── PARIDADE (mig 272/273) — o que a loja PRODUZ e antes só existia nela ─────────────
+  // Estas tabelas nunca sincronizaram: a nuvem não via a operação da loja, e a
+  // reinstalação apagava tudo. Ordem = pai antes do filho (chave estrangeira).
+  // Vínculos de cadastro: master na nuvem, regravados por apagar-e-inserir — por isso
+  // dependem do gatilho de exclusão da mig 272 para o vínculo removido não ressuscitar.
+  { tabela: 'funcao_setor', direcao: 'desce', cursor: 'created_at' },
+  { tabela: 'colaborador_funcao', direcao: 'desce', cursor: 'created_at' },
+  // Módulos ligados/desligados pelo presidente: o edge LÊ para cortar acesso offline e
+  // nunca escreve — se subisse, reativaria por última-escrita o que a nuvem desligou.
+  { tabela: 'modulo_ativacao', direcao: 'desce', cursor: 'updated_at' },
+  // Configuração e cadastro da própria loja, editáveis dos dois lados.
+  { tabela: 'entitlement', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'janela_pico', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'contador', direcao: 'ambos', cursor: 'updated_at' }, // o contabilista da empresa
+  { tabela: 'categoria_item', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'forma_pagamento', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'kds_cor_config', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'tef_config', direcao: 'ambos', cursor: 'updated_at' },
+  // `mesa` vem ANTES de `comanda` (a comanda aponta para a mesa).
+  { tabela: 'mesa', direcao: 'ambos', cursor: 'updated_at' },
+  // Documentos e rotina da operação (nascem dos dois lados e mudam de estado).
+  { tabela: 'documento_controlado', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'ciencia', direcao: 'ambos', cursor: 'created_at' }, // prova de treinamento (só anexa)
+  { tabela: 'checklist', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'checklist_item', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'pop', direcao: 'ambos', cursor: 'updated_at' }, // publicação do checklist
+  { tabela: 'tarefa_def', direcao: 'ambos', cursor: 'updated_at' }, // depois de checklist/pop (FK)
+  { tabela: 'guia', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'guia_passo', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'comunicado', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'comunicado_leitura', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'clima_pesquisa', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'clima_resposta', direcao: 'ambos', cursor: 'created_at' }, // anônima por desenho
+  { tabela: 'clima_participacao', direcao: 'ambos', cursor: 'created_at' }, // trava de voto duplo
+  { tabela: 'escala_regra', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'dia_especial', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'vistoria', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'ocorrencia', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'pedido_manutencao', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'atendimento_chamado', direcao: 'ambos', cursor: 'atualizado_em' },
+  { tabela: 'alerta_estoque', direcao: 'ambos', cursor: 'atualizado_em' },
+  // Cupom: criado na nuvem (campanha/marketing) e precisa ser honrado no PDV local —
+  // sem ele o caixa offline não consegue nem validar. O USO sobe (o estorno acontece no
+  // edge e hoje não voltava, deixando o limite consumido para sempre).
+  { tabela: 'cupom', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'cupom_uso', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'encomenda_regra_sinal', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'encomenda_recorrencia', direcao: 'desce', cursor: 'updated_at' },
+  { tabela: 'banner', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'cardapio_config', direcao: 'ambos', cursor: 'updated_at' }, // bidirecional: config/horários editados no edge sobem p/ o cardápio online
   // ── Catálogo reutilizável (P3 completo) — BIDIRECIONAL. Editado no edge (modo
   // híbrido) e espelhado na nuvem p/ o cardápio online + editor. LWW por updated_at,
@@ -71,6 +124,16 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // online. Regeração/exclusão propaga por deleted_at; updated_at (mig 118) guia o push.
   { tabela: 'complemento_grupo', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'complemento_opcao', direcao: 'ambos', cursor: 'updated_at' },
+  // Filhas do catálogo que faltavam (mig 272/273). Sugestão e faixa de atacado são do
+  // produto; os DESTINOS dizem em qual impressora/KDS cada coisa sai — sem eles, a loja
+  // reinstalada perde o roteamento inteiro da cozinha. Depois de produto/complemento/
+  // opção/equipamento (chave estrangeira).
+  { tabela: 'produto_sugestao', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'produto_faixa_preco', direcao: 'ambos', cursor: 'created_at' }, // preço do atacado
+  { tabela: 'produto_destino_producao', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'setor_destino_producao', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'complemento_destino_producao', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'opcao_destino_producao', direcao: 'ambos', cursor: 'created_at' },
   // Bidirecional (LWW) — INTENCIONAL: são cadastros, mas editáveis TANTO na nuvem
   // quanto no edge (compra/recebimento no local cria item/fornecedor). Diferente de
   // empresa/colaborador (só descem), aqui a última escrita vence por updated_at, então
@@ -83,6 +146,11 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // (insumo, loja), então as duas pontas geram a MESMA linha e o LWW resolve. Depois de
   // `item_estoque` e `unidade` (FK).
   { tabela: 'item_estoque_unidade', direcao: 'ambos', cursor: 'updated_at' },
+  // Filhas do insumo (mig 272/273): de quais fornecedores ele vem e como converter a
+  // unidade de compra. Sem a conversão, o recebimento feito na loja calcula quantidade
+  // errada — e ela nunca chegava à nuvem.
+  { tabela: 'item_fornecedor', direcao: 'ambos', cursor: 'created_at' },
+  { tabela: 'item_conversao', direcao: 'ambos', cursor: 'created_at' },
   // ⚠️ CADEIA DA FICHA — sem estas três o edge NÃO BAIXA ESTOQUE NENHUM.
   // A explosão (vendas.service → acumularFicha/acumularProduto) lê `ficha_ingrediente`,
   // `produto_combo_item` e `produto_variacao`. Elas nunca estiveram aqui: no servidor
@@ -125,8 +193,14 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // sobrescreveria perdendo baixa concorrente.
   { tabela: 'movimento_lote', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'ponto_marcacao', direcao: 'sobe', cursor: 'created_at' },
+  // Abono/atestado lançado pela gestão (mig 272): o espelho local precisa ver. Depois de
+  // `ponto_marcacao` (aponta para a marcação ajustada).
+  { tabela: 'ponto_ajuste', direcao: 'ambos', cursor: 'created_at' },
   { tabela: 'lancamento_caixa', direcao: 'sobe', cursor: 'created_at' },
   { tabela: 'audit_log', direcao: 'sobe', cursor: 'created_at' },
+  // Comprovante do TEF (NSU/autorização) — nasce no terminal da loja e a conciliação na
+  // nuvem não enxergava. Só sobe: o terminal físico é de lá.
+  { tabela: 'pagamento_tef', direcao: 'sobe', cursor: 'atualizado_em' },
   // Cliente do cardápio/CRM (mig 071 em diante): BIDIRECIONAL. Nasce na nuvem
   // (link mágico, marketplaces, ingest de CRM) e PRECISA DESCER — pedido_externo.
   // cliente_id tem FK para cliente(id), então sem essa tabela o edge dropava todo
@@ -146,6 +220,20 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // a nuvem via o item sem o complemento. Linha imutável (só insere/apaga) → cursor created_at;
   // a exclusão chega pelo `sync_exclusao`. Depois de comanda_item (FK).
   { tabela: 'comanda_item_complemento', direcao: 'ambos', cursor: 'created_at' },
+  // Como a conta foi dividida (mig 272): sem isto o Financeiro na nuvem via o total e não
+  // sabia em quais formas de pagamento a comanda foi quitada. Depois de `comanda` (FK).
+  { tabela: 'comanda_pagamento', direcao: 'ambos', cursor: 'created_at' },
+  // Acerto do subcaixa do garçom: dinheiro pendente que nasce na loja e muda de estado
+  // (pendente → baixado). Depois de caixa_sessao/comanda/mesa/equipamento (FK).
+  { tabela: 'acerto_subpdv', direcao: 'ambos', cursor: 'updated_at' },
+  // NFC-e emitida no PDV local. SOBE: o documento nasce na loja, e é guarda obrigatória
+  // de 5 anos que vivia num PC sem backup — a reinstalação apagava. Não desce: a nuvem
+  // não precisa reescrever nota no servidor local. ⚠️ A NUMERAÇÃO (série por origem) é
+  // outro assunto, ainda pendente — ver docs/paridade-sync-tabelas.md §4.
+  { tabela: 'nota_fiscal', direcao: 'sobe', cursor: 'updated_at' },
+  // Ordem de produção (mig 272): documento que muda de estado (planejada → concluída) e
+  // nasce dos dois lados. Depois de `ficha_tecnica` (FK).
+  { tabela: 'ordem_producao', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'producao_pedido', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', direcao: 'ambos', cursor: 'updated_at' },
   // Pedido externo é BIDIRECIONAL (P1): pedidos ONLINE nascem na nuvem (cardápio/
@@ -250,6 +338,20 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'sync_exclusao',
   // Custo/mínimo por loja (mig 257): os valores iniciais da 258 precisam descer uma vez.
   'item_estoque_unidade',
+  // PARIDADE (mig 272/273): tudo isto já existe nos dois bancos há tempo. Sem a exceção,
+  // o edge já instalado só receberia o que mudasse a partir de hoje — o checklist, o guia,
+  // o cupom e a forma de pagamento que já existem nunca chegariam.
+  'funcao_setor', 'colaborador_funcao', 'modulo_ativacao', 'entitlement', 'janela_pico', 'contador',
+  'categoria_item', 'forma_pagamento', 'kds_cor_config', 'tef_config', 'mesa',
+  'documento_controlado', 'ciencia', 'checklist', 'checklist_item', 'pop', 'tarefa_def',
+  'guia', 'guia_passo', 'comunicado', 'comunicado_leitura', 'clima_pesquisa', 'clima_resposta',
+  'clima_participacao', 'escala_regra', 'dia_especial', 'vistoria', 'ocorrencia',
+  'pedido_manutencao', 'atendimento_chamado', 'alerta_estoque',
+  'cupom', 'cupom_uso', 'encomenda_regra_sinal', 'encomenda_recorrencia', 'banner',
+  'produto_sugestao', 'produto_faixa_preco', 'produto_destino_producao', 'setor_destino_producao',
+  'complemento_destino_producao', 'opcao_destino_producao',
+  'item_fornecedor', 'item_conversao', 'ordem_producao', 'comanda_pagamento', 'acerto_subpdv',
+  'ponto_ajuste',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
@@ -267,6 +369,9 @@ export const TABELAS_RESTORE: TabelaSync[] = [
   { tabela: 'comanda', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'comanda_item', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'comanda_item_complemento', direcao: 'desce', cursor: 'created_at' },
+  // Como a conta foi dividida (mig 272): a nuvem cria isto quando assume a loja caída, e
+  // sem descer no restore a comanda voltava sem saber em que formas foi paga.
+  { tabela: 'comanda_pagamento', direcao: 'desce', cursor: 'created_at' },
   { tabela: 'producao_pedido', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', direcao: 'desce', cursor: 'updated_at' },
   { tabela: 'pedido_externo', direcao: 'desce', cursor: 'updated_at' },
@@ -311,6 +416,9 @@ export const LOJA_COLUNA = new Set<string>([
   'comanda', 'caixa_sessao', 'lancamento_caixa', 'producao_pedido', 'pedido_externo',
   'movimento_estoque', 'desperdicio', 'recebimento', 'lote', 'etiqueta_validade',
   'contagem_lista', 'compra_lista', 'titulo_financeiro',
+  // PARIDADE (mig 272): documentos que CRESCEM com o movimento da loja. Cadastro e
+  // configuração continuam de fora (valem para a rede inteira).
+  'nota_fiscal', 'ordem_producao', 'acerto_subpdv', 'vistoria', 'pagamento_tef', 'alerta_estoque',
 ]);
 
 export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {
@@ -336,6 +444,9 @@ export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {
     where ce.id = contagem_item.execucao_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
   compra_item: (uid) => sql`exists (select 1 from compra_lista p
     where p.id = compra_item.lista_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
+  // PARIDADE (mig 272): como a conta foi dividida acompanha a comanda da loja.
+  comanda_pagamento: (uid) => sql`exists (select 1 from comanda p
+    where p.id = comanda_pagamento.comanda_id and (p.unidade_id = ${uid} or p.unidade_id is null))`,
 };
 
 // Filtro por loja de uma tabela (vazio = desce inteira).

@@ -55,6 +55,75 @@ function saudeBadges(l: any) {
   );
 }
 
+// Infra da loja (disco, banco e backup) — vem no heartbeat: `discoLivreMb` na raiz e
+// `saude.{bancoMb,bancoFalhasChecksum,bancoPctTransacoes,backup}`. Nada disso era
+// exibido: o suporte só descobria disco cheio ou backup parado quando a loja quebrava.
+function mb(v: any) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return null;
+  return n >= 1024 ? `${(n / 1024).toFixed(n >= 10240 ? 0 : 1)} GB` : `${Math.round(n)} MB`;
+}
+// "há 3 h" / "há 2 d" a partir das horas do último backup.
+function idadeBackup(horas: any) {
+  const h = Number(horas);
+  if (!Number.isFinite(h)) return null;
+  if (h < 1) return 'agora';
+  return h < 48 ? `${Math.round(h)} h` : `${Math.floor(h / 24)} d`;
+}
+function selo(cor: 'ok' | 'alerta' | 'ruim' | 'neutro', texto: string, titulo: string, key: string) {
+  const cls = {
+    ok: 'bg-emerald-500/15 text-emerald-400',
+    alerta: 'bg-amber-500/15 text-amber-400',
+    ruim: 'bg-red-500/15 text-red-400',
+    neutro: 'bg-slate-800 text-slate-400',
+  }[cor];
+  return <span key={key} title={titulo} className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${cls}`}>{texto}</span>;
+}
+function infraBadges(l: any) {
+  const s = l?.saude ?? {};
+  const itens: JSX.Element[] = [];
+
+  // Disco livre — abaixo de 2 GB o Postgres e o backup começam a falhar.
+  const disco = Number(l?.discoLivreMb);
+  if (Number.isFinite(disco)) {
+    itens.push(selo(disco < 2048 ? 'ruim' : 'neutro', `disco ${mb(disco)}`, `espaço livre em disco: ${mb(disco)}${disco < 2048 ? ' — abaixo de 2 GB' : ''}`, 'disco'));
+  }
+
+  // Tamanho do banco local (informativo).
+  const banco = Number(s.bancoMb);
+  if (Number.isFinite(banco)) itens.push(selo('neutro', `bd ${mb(banco)}`, `tamanho do banco local: ${mb(banco)}`, 'bd'));
+
+  // Último backup diário: falha ou mais de 48 h sem backup = vermelho.
+  const b = s.backup;
+  if (b) {
+    const falhou = b.ok === false || !!b.erro;
+    const h = Number(b.horas);
+    const velho = Number.isFinite(h) && h > 48;
+    itens.push(selo(falhou || velho ? 'ruim' : 'ok',
+      `bkp ${falhou ? 'falhou' : (idadeBackup(b.horas) ?? '?')}`,
+      falhou ? `último backup falhou: ${b.erro ?? 'erro não informado'}` : `último backup ${b.em ? quando(b.em) : '—'}${b.mb ? ` · ${mb(b.mb)}` : ''}${velho ? ' — mais de 48 h' : ''}`,
+      'bkp'));
+  } else {
+    itens.push(selo('ruim', 'bkp —', 'a loja nunca reportou backup', 'bkp'));
+  }
+
+  // Falha de checksum de página = corrupção de disco. Qualquer valor > 0 é grave.
+  const chk = Number(s.bancoFalhasChecksum);
+  if (Number.isFinite(chk) && chk > 0) {
+    itens.push(selo('ruim', `checksum ${chk}`, `${chk} falha(s) de checksum de página — suspeita de corrupção de disco, agir agora`, 'chk'));
+  }
+
+  // Quão perto o Postgres está de parar de aceitar escrita (wraparound).
+  const pct = Number(s.bancoPctTransacoes);
+  if (Number.isFinite(pct) && pct > 50) {
+    itens.push(selo(pct > 80 ? 'ruim' : 'alerta', `tx ${Math.round(pct)}%`,
+      `${Math.round(pct)}% do limite de transações do Postgres${pct > 80 ? ' — crítico, o banco pode parar de aceitar escrita' : ' — acompanhar'}`, 'tx'));
+  }
+
+  if (!itens.length) return <span className="text-xs text-slate-600">—</span>;
+  return <div className="flex flex-wrap gap-1">{itens}</div>;
+}
+
 export default function DistHome() {
   const router = useRouter();
   const [me, setMe] = useState<any>(null);
@@ -258,13 +327,14 @@ export default function DistHome() {
             {filtroBar(false)}
             <div className="overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full text-sm">
-                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Serviços</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último login</th><th className="p-3">Último sinal</th>{podeTelemetria && <th className="p-3"></th>}</tr></thead>
+                <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400"><tr><th className="p-3">Loja</th><th className="p-3">Edge</th><th className="p-3">Serviços</th><th className="p-3">Disco · banco · backup</th><th className="p-3">Versão</th><th className="p-3">Clientes</th><th className="p-3">Erros</th><th className="p-3">Licença</th><th className="p-3">Último login</th><th className="p-3">Último sinal</th>{podeTelemetria && <th className="p-3"></th>}</tr></thead>
                 <tbody>
                   {frota && filtrar(frota).map((l) => (
                     <tr key={l.id} className="border-t border-slate-800/70">
                       <td className="p-3"><div className="font-medium">{l.nome}</div><div className="text-xs text-slate-500">{l.cnpj ?? '(teste)'}</div></td>
                       <td className="p-3"><span className={online(l.ultimoHeartbeat) ? 'text-emerald-400' : 'text-slate-500'}>● {online(l.ultimoHeartbeat) ? 'online' : 'offline'}</span></td>
                       <td className="p-3">{saudeBadges(l)}</td>
+                      <td className="p-3">{infraBadges(l)}</td>
                       <td className="p-3 font-mono text-xs">{l.edgeVersao ?? '—'}</td>
                       <td className="p-3">{l.clientes ?? '—'}</td>
                       <td className="p-3">{l.errosAbertos > 0 ? <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs text-red-400">{l.errosAbertos}</span> : <span className="text-slate-600">0</span>}</td>
@@ -279,7 +349,7 @@ export default function DistHome() {
                       </div></td>}
                     </tr>
                   ))}
-                  {frota && filtrar(frota).length === 0 && <tr><td colSpan={podeTelemetria ? 9 : 8} className="p-6 text-center text-slate-500">Nenhuma loja no filtro.</td></tr>}
+                  {frota && filtrar(frota).length === 0 && <tr><td colSpan={podeTelemetria ? 10 : 9} className="p-6 text-center text-slate-500">Nenhuma loja no filtro.</td></tr>}
                 </tbody>
               </table>
             </div>
