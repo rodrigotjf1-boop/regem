@@ -3065,6 +3065,27 @@ export const fidelidadeResgate = pgTable('fidelidade_resgate', {
   pedidoId: uuid('pedido_id'), // pedido em que o prêmio foi USADO
   geradoPorPedidoId: uuid('gerado_por_pedido_id'), // pedido que GEROU o prêmio (rollback no cancelamento, mig 125)
   status: text('status').notNull().default('disponivel'), // disponivel | resgatado | usado | expirado
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Ajuste manual de pontos (mig 274): o gerente soma ou tira pontos na mão. Virou
+// LANÇAMENTO em vez de escrita direta no saldo — assim entra na conta do recálculo,
+// sincroniza com a nuvem e fica o histórico de quem mexeu no saldo do cliente.
+export const fidelidadeAjuste = pgTable('fidelidade_ajuste', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  planoId: uuid('plano_id')
+    .notNull()
+    .references(() => fidelidadePlano.id, { onDelete: 'cascade' }),
+  telefone: text('telefone').notNull(),
+  clienteId: uuid('cliente_id'),
+  delta: integer('delta').notNull(), // + adiciona | − retira
+  motivo: text('motivo'),
+  criadoPorId: uuid('criado_por_id'),
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+  atualizadoEm: timestamp('atualizado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ===== Cashback (concorre com Fidelidade) =====

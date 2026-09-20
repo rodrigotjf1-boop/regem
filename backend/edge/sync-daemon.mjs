@@ -215,6 +215,16 @@ const PUSH_TABLES = [
   { tabela: 'atendimento_chamado', cursor: 'atualizado_em' },
   { tabela: 'alerta_estoque', cursor: 'atualizado_em' },
   { tabela: 'cupom_uso', cursor: 'created_at' }, // o estorno feito aqui precisa voltar o uso
+  // Dinheiro do cliente (mig 274). O SALDO não sobe: é recalculado do extrato por gatilho
+  // dos dois lados — número sincronizado por última-escrita faria um crédito apagar o outro.
+  { tabela: 'cashback_plano', cursor: 'atualizado_em' },
+  { tabela: 'cashback_produto_valor', cursor: 'criado_em' },
+  { tabela: 'cashback_movimento', cursor: 'criado_em' },
+  { tabela: 'cashback_vale', cursor: 'atualizado_em' },
+  { tabela: 'fidelidade_plano', cursor: 'atualizado_em' },
+  { tabela: 'fidelidade_ponto', cursor: 'atualizado_em' },
+  { tabela: 'fidelidade_resgate', cursor: 'atualizado_em' },
+  { tabela: 'fidelidade_ajuste', cursor: 'criado_em' },
   // Cadastros bidirecionais (LWW): compra/recebimento no edge cria/edita fornecedor
   // e insumo localmente — precisam SUBIR (fornecedor antes de item_estoque por FK).
   { tabela: 'fornecedor', cursor: 'updated_at' },
@@ -1748,6 +1758,10 @@ const DESCARTAVEL = new Set([
   // Contador da senha do balcão: gerador de sequência com trava, por máquina. Sincronizar
   // faria o número andar para trás e a loja emitir senha repetida; reinicia todo dia.
   'senha_contador',
+  // Saldo de cashback e pontos de fidelidade: CACHE recalculado do extrato por gatilho
+  // (mig 274). O extrato (`cashback_movimento`, `fidelidade_ponto`, `fidelidade_resgate`)
+  // é que sincroniza — número sincronizado por última-escrita apagaria crédito.
+  'cashback_saldo', 'fidelidade_cliente',
 ]);
 
 // Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].

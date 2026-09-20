@@ -3,6 +3,7 @@ import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
   categoriaProduto,
+  fidelidadeAjuste,
   fidelidadeCliente,
   fidelidadePlano,
   fidelidadePonto,
@@ -128,16 +129,30 @@ export class FidelidadeService {
       .from(fidelidadePlano)
       .where(and(eq(fidelidadePlano.id, planoId), eq(fidelidadePlano.tenantId, tenantId)));
     if (!plano) throw new NotFoundException('Plano não encontrado.');
+    // O ajuste manual virou LANÇAMENTO (mig 274). Antes era escrito direto no número do
+    // saldo — não aparecia em lugar nenhum, não sincronizava e, com o saldo passando a ser
+    // recalculado do extrato, sumiria no ponto seguinte. O gatilho recalcula o saldo a
+    // partir daqui; este método não escreve mais o número.
     const saldo = await this.saldo(tenantId, planoId, tel);
+    await this.db.insert(fidelidadeAjuste).values({
+      tenantId,
+      planoId,
+      telefone: tel,
+      clienteId: dto.clienteId ?? null,
+      delta,
+      motivo: typeof dto?.motivo === 'string' ? dto.motivo.slice(0, 200) : null,
+    });
     let novo = Math.max(0, saldo + delta);
     let premios = 0;
-    // Crédito manual pode cruzar a meta (gera prêmio) uma ou mais vezes.
+    // Crédito manual pode cruzar a meta (gera prêmio) uma ou mais vezes — cada prêmio
+    // gerado desconta a meta no recálculo do gatilho.
     while (novo >= plano.pontosMeta) {
       novo -= plano.pontosMeta;
       premios++;
       await this.gerarResgate(tenantId, plano, tel, dto.clienteId);
     }
-    await this.setSaldo(tenantId, planoId, tel, novo, dto.nome, dto.clienteId);
+    // Só o cadastro (nome/cliente) — o número vem do recálculo.
+    await this.marcarCliente(tenantId, planoId, tel, dto.nome, dto.clienteId);
     return { ok: true, saldo: novo, premiosGerados: premios };
   }
 
@@ -274,13 +289,15 @@ export class FidelidadeService {
         .returning({ id: fidelidadePonto.id });
       if (!ins.length) continue; // pedido já pontuou nesse plano
       pontosGanhos++;
-      let novo = (await this.saldo(tenantId, plano.id, tel)) + 1;
+      // ⚠️ Ler DEPOIS do insert: desde a mig 274 o gatilho já somou este ponto ao saldo.
+      // Somar +1 aqui daria o prêmio um ponto antes da meta.
+      let novo = await this.saldo(tenantId, plano.id, tel);
       if (novo >= plano.pontosMeta) {
         novo -= plano.pontosMeta;
         const resg = await this.gerarResgate(tenantId, plano, tel, dados.clienteId, dados.pedidoId);
         premios.push({ plano: plano.nome, recompensa: descreverRecompensa(plano), resgateId: resg.id });
       }
-      await this.setSaldo(tenantId, plano.id, tel, novo, dados.nome, dados.clienteId);
+      await this.marcarCliente(tenantId, plano.id, tel, dados.nome, dados.clienteId);
     }
     return { pontosGanhos, premios, aguardeIntervalo: false };
   }
@@ -331,9 +348,9 @@ export class FidelidadeService {
           inArray(fidelidadeResgate.id, gerados.map((g) => g.id)),
         );
         premiosPerdidos += gerados.length;
-        await this.setSaldo(tenantId, pt.planoId, pt.telefone, Math.max(0, saldo - 1 + meta * gerados.length));
+        // saldo recalculado pelo gatilho (ponto estornado + prêmio removido)
       } else {
-        await this.setSaldo(tenantId, pt.planoId, pt.telefone, Math.max(0, saldo - 1));
+        // saldo recalculado pelo gatilho (ponto estornado)
       }
       await this.db
         .update(fidelidadePonto)
@@ -561,14 +578,18 @@ export class FidelidadeService {
     return row?.pontos ?? 0;
   }
 
-  private async setSaldo(
+  // Guarda só o CADASTRO do participante (nome e ligação com o cliente). O número de
+  // pontos NÃO é escrito aqui desde a mig 274: ele é recalculado por gatilho a partir dos
+  // pontos, dos ajustes e dos prêmios — que sincronizam. Escrever o número à mão aqui
+  // significaria somar duas vezes (o gatilho já somou) e desfazer o que chegou da nuvem.
+  private async marcarCliente(
     tenantId: string,
     planoId: string,
     tel: string,
-    pontos: number,
     nome?: string,
     clienteId?: string,
   ) {
+    if (!nome && !clienteId) return;
     const [ja] = await this.db
       .select({ id: fidelidadeCliente.id })
       .from(fidelidadeCliente)
@@ -582,13 +603,13 @@ export class FidelidadeService {
     if (ja) {
       await this.db
         .update(fidelidadeCliente)
-        .set({ pontos, nome: nome ?? undefined, clienteId: clienteId ?? undefined, atualizadoEm: new Date() })
+        .set({ nome: nome ?? undefined, clienteId: clienteId ?? undefined })
         .where(eq(fidelidadeCliente.id, ja.id));
       return;
     }
     await this.db
       .insert(fidelidadeCliente)
-      .values({ tenantId, planoId, telefone: tel, nome: nome ?? null, clienteId: clienteId ?? null, pontos });
+      .values({ tenantId, planoId, telefone: tel, nome: nome ?? null, clienteId: clienteId ?? null, pontos: 0 });
   }
 
   private async gerarResgate(

@@ -118,7 +118,24 @@ sincronismo — quase sempre uma coluna de data que sirva de marca-d'água.
 | `ponto_fechamento` | desce | guarda para o cálculo só rodar na nuvem | Ver §4. |
 | `atendimento_chamado` | ambos | `atualizado_em` | Nasce na nuvem e é resolvido na loja; o "resolvido" não volta. |
 
-## 3. Dinheiro do cliente — cashback e fidelidade
+## 3. Dinheiro do cliente — cashback e fidelidade (RESOLVIDO na mig 274)
+
+> **Feito em 20/09/2026.** As nove tabelas passaram a sincronizar e o saldo virou CACHE: ele é
+> recalculado por gatilho a partir do extrato, que só anexa e não tem conflito. Número
+> sincronizado por última-escrita-vence faria um crédito apagar o outro.
+>
+> - `cashback_movimento`, `cashback_vale`, `cashback_plano`, `cashback_produto_valor`,
+>   `fidelidade_plano`, `fidelidade_ponto`, `fidelidade_resgate` e a nova `fidelidade_ajuste`: sincronizam.
+> - `cashback_saldo` e `fidelidade_cliente`: **não** sincronizam — são recalculados.
+> - O **ajuste manual de pontos** virou lançamento próprio (`fidelidade_ajuste`): antes era
+>   escrito direto no número, não aparecia em lugar nenhum e sumiria no recálculo.
+> - **Medido na produção antes de aplicar:** 2.428 saldos, 1 divergência real (R$ 3,06 de um crédito
+>   apagado por gravação concorrente) e o resto poeira de ponto flutuante. A migration corrige de uma vez.
+> - Dois defeitos que o gatilho criaria foram corrigidos junto: o serviço somava o crédito
+>   de novo depois do gatilho (R$ 10 viravam R$ 20) e o prêmio saía um ponto antes da meta.
+
+### 3.1 O diagnóstico que levou a isso
+
 
 O crédito de cashback acontece **nos dois lados** (o painel de delivery roda no servidor
 local), mas o **débito só existe na nuvem** (cardápio online). Como nenhuma das nove tabelas

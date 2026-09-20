@@ -314,6 +314,13 @@ export class CashbackService {
     origem: string,
     extra: { planoId?: string; pedidoId?: string; expiraEm?: Date | null } = {},
   ) {
+    // O EXTRATO é a verdade. Desde a mig 274 um gatilho recalcula `cashback_saldo` como a
+    // soma dos movimentos a cada linha inserida — inclusive a que chega pelo sincronismo,
+    // que é como o crédito feito na loja passa a existir para o cliente.
+    //
+    // ⚠️ Por isso este método NÃO soma mais o delta no saldo: quando ele lesse a linha, o
+    // gatilho JÁ teria somado, e o crédito entraria duas vezes. O que sobra aqui é o PRAZO
+    // de validade, que é regra de negócio e não sai do extrato.
     await this.db.insert(cashbackMovimento).values({
       tenantId,
       telefone: tel,
@@ -324,35 +331,18 @@ export class CashbackService {
       planoId: extra.planoId ?? null,
       pedidoId: extra.pedidoId ?? null,
     });
-    const [row] = await this.db
-      .select()
-      .from(cashbackSaldo)
-      .where(
-        and(
-          eq(cashbackSaldo.tenantId, tenantId),
-          eq(cashbackSaldo.telefone, tel),
-          eq(cashbackSaldo.tipo, tipo),
-        ),
-      );
-    if (row) {
-      const novo = Math.max(0, Number(row.saldo) + delta);
-      const expira =
-        delta > 0 && extra.expiraEm
-          ? extra.expiraEm // renova o prazo a cada crédito
-          : row.expiraEm;
+    if (delta > 0 && extra.expiraEm) {
+      // Crédito renova o prazo. (O gatilho já criou/atualizou a linha do saldo.)
       await this.db
         .update(cashbackSaldo)
-        .set({ saldo: String(novo), expiraEm: expira, atualizadoEm: new Date() })
-        .where(eq(cashbackSaldo.id, row.id));
-    } else {
-      await this.db.insert(cashbackSaldo).values({
-        tenantId,
-        telefone: tel,
-        clienteId: clienteId ?? null,
-        tipo,
-        saldo: String(Math.max(0, delta)),
-        expiraEm: delta > 0 ? extra.expiraEm ?? null : null,
-      });
+        .set({ expiraEm: extra.expiraEm })
+        .where(
+          and(
+            eq(cashbackSaldo.tenantId, tenantId),
+            eq(cashbackSaldo.telefone, tel),
+            eq(cashbackSaldo.tipo, tipo),
+          ),
+        );
     }
   }
 

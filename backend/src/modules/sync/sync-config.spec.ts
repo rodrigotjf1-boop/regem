@@ -223,11 +223,18 @@ describe('sync_exclusao — cobertura e ordem', () => {
   // sincronizar; a cobertura é a UNIÃO das duas migrations.
   const mig272 = readFileSync(join(migDir, '272_paridade_cursores_e_exclusao.sql'), 'utf8');
   const bloco272 = mig272.slice(mig272.indexOf('── 5) Exclusão'));
+  // A 274 (cashback e fidelidade) liga marcador e exclusão no mesmo bloco.
+  const mig274 = readFileSync(join(migDir, '274_paridade_cashback_fidelidade.sql'), 'utf8');
+  const bloco274 = mig274.slice(mig274.indexOf('── 5) Marcador'));
   const comGatilho = new Set(
-    [...blocoGatilho.matchAll(/'([a-z_]+)'/g), ...bloco272.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
+    [
+      ...blocoGatilho.matchAll(/'([a-z_]+)'/g),
+      ...bloco272.matchAll(/'([a-z_]+)'/g),
+      ...bloco274.matchAll(/'([a-z_]+)'/g),
+    ].map((m) => m[1]),
   );
 
-  it('toda tabela em que a exclusão pode ser aplicada tem o gatilho na mig 262 ou 272', () => {
+  it('toda tabela em que a exclusão pode ser aplicada tem o gatilho na mig 262, 272 ou 274', () => {
     const faltando = [...TABELAS_EXCLUIVEIS].filter((t) => !comGatilho.has(t));
     expect(faltando).toEqual([]);
   });
@@ -317,8 +324,14 @@ describe('sync_marcador — cobertura dos gatilhos', () => {
   // A paridade (mig 272) ligou o mesmo gatilho nas tabelas novas — união das duas.
   const mig272 = readFileSync(join(migDir, '272_paridade_cursores_e_exclusao.sql'), 'utf8');
   const bloco272 = mig272.slice(mig272.indexOf('── 4) Marcador'), mig272.indexOf('── 5) Exclusão'));
+  const mig274 = readFileSync(join(migDir, '274_paridade_cashback_fidelidade.sql'), 'utf8');
+  const bloco274 = mig274.slice(mig274.indexOf('── 5) Marcador'));
   const comGatilho = new Set(
-    [...bloco.matchAll(/'([a-z_]+)'/g), ...bloco272.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]),
+    [
+      ...bloco.matchAll(/'([a-z_]+)'/g),
+      ...bloco272.matchAll(/'([a-z_]+)'/g),
+      ...bloco274.matchAll(/'([a-z_]+)'/g),
+    ].map((m) => m[1]),
   );
 
   it('a lista de gatilhos foi lida', () => expect(comGatilho.size).toBeGreaterThan(40));
