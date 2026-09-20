@@ -8,6 +8,7 @@ import {
 import { and, desc, eq, gte, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import * as bcrypt from 'bcryptjs';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { uuidDeChave } from '../../common/id-deterministico';
 import {
   ordemProducao,
   fichaTecnica,
@@ -200,6 +201,9 @@ export class OrdemProducaoService {
         const [ti] = await this.db
           .insert(tarefaInstancia)
           .values({
+            // Uma tarefa de linha do tempo por ordem de produção (mig 277): o id sai da
+            // própria ordem, então a rotina rodando nos dois lados não cria duas.
+            id: uuidDeChave(ordem.id, 'linha_tempo'),
             tenantId,
             unidadeId: ordem.unidadeId,
             data: ordem.dataProducao,

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { and, asc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { idEscalaAlocacao } from '../../common/id-deterministico';
 import {
   escalaAlocacao,
   escalaRegra,
@@ -163,6 +164,13 @@ export class EscalaService {
       const [row] = await this.db
         .insert(escalaAlocacao)
         .values({
+          // id nasce da chave de negócio (mig 277) quando há pessoa: a nuvem e o servidor
+          // local geram o MESMO id para a mesma pessoa no mesmo turno, então o sincronismo
+          // concilia em vez de criar a segunda escala da mesma pessoa. Vaga em aberto
+          // (sem pessoa) mantém id próprio — várias vagas no turno são legítimas.
+          id: dto.colaboradorId
+            ? idEscalaAlocacao(et.unidadeId, dto.data, dto.turnoId, dto.colaboradorId)
+            : undefined,
           tenantId,
           unidadeId: et.unidadeId,
           data: dto.data,
@@ -324,6 +332,9 @@ export class EscalaService {
         .insert(escalaAlocacao)
         .values(
           novas.map((d) => ({
+            // Mesmo id dos dois lados (mig 277) — a recorrência é gerada na nuvem e no
+            // servidor local, e sem isso o mesmo dia viraria duas escalas.
+            id: dto.colaboradorId ? idEscalaAlocacao(et.unidadeId, d, turnoId, dto.colaboradorId) : undefined,
             tenantId,
             unidadeId: et.unidadeId,
             data: d,
