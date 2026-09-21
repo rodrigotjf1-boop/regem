@@ -67,7 +67,7 @@ Ver `backend/src/modules/sync/sync-config.ts`. Não repetidas aqui.
 
 Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_fiscal` (sobe), `tarefa_def`, `checklist`, `checklist_item`, `pop`, `documento_controlado`, `ciencia`, `vistoria`, `ocorrencia`, `ponto_ajuste`, `guia`, `guia_passo`, `comunicado`, `comunicado_leitura`, as três de clima, `escala_regra`, `dia_especial`, `entitlement`, `janela_pico`, `contador`, `funcao_setor`, `colaborador_funcao`, `modulo_ativacao`, `categoria_item`, `item_fornecedor`, `item_conversao`, `forma_pagamento`, `comanda_pagamento`, `ordem_producao`, `mesa`, `alerta_estoque`, `produto_sugestao`, `produto_faixa_preco`, as quatro de destino de produção, `kds_cor_config`, `tef_config`, `pagamento_tef` (sobe), `cupom`, `cupom_uso`, `encomenda_regra_sinal`, `encomenda_recorrencia`, `banner`, `acerto_subpdv`, `pedido_manutencao` e `atendimento_chamado`.
 
-**Ainda bloqueia a reinstalação:** só `fiscal_config` (§4.1 — a pendência da numeração fiscal). Tudo o mais foi resolvido nas migs 272 a 277: cashback e fidelidade (§3), endereço e frete por bairro (§4.6), e tarefa e escala (§4.5).
+**Ainda bloqueia a reinstalação:** nada. O último caso, `fiscal_config`, foi resolvido na mig 278 (§4.1) — ela desce da nuvem, `nota_fiscal` passou a voltar e o contador da numeração (`fiscal_serie`) é por ponto de emissão, descartável e auto-recuperável. Os demais foram resolvidos nas migs 272 a 277: cashback e fidelidade (§3), endereço e frete por bairro (§4.6), e tarefa e escala (§4.5).
 
 ### 2.5 Fila de trabalho — referência completa
 
@@ -78,7 +78,7 @@ sincronismo — quase sempre uma coluna de data que sirva de marca-d'água.
 
 | Tabela | Direção | Migration necessária | Por que importa |
 |---|---|---|---|
-| `nota_fiscal` | sobe | `updated_at` + gatilho | NFC-e emitida no PDV local. Hoje só existe na loja; a guarda de 5 anos mora num PC sem backup. Sem cursor de atualização, a nota subiria eternamente "pendente". |
+| `nota_fiscal` | **ambos** (mig 278; era `sobe`) | `updated_at` + gatilho | NFC-e. Sobe porque a guarda de 5 anos morava num PC sem backup; **volta** porque a reinstalação apagava o arquivo fiscal da loja e porque é dela que o contador da numeração se recupera num banco novo. Loja e nuvem emitem em séries diferentes, então as duas pontas nunca disputam a mesma linha. |
 | `tarefa_def`, `tarefa_instancia` | ambos | — (ver §4) | Tarefa delegada na gestão e executada na ponta. |
 | `checklist`, `checklist_item`, `pop` | ambos | gatilho de exclusão em `checklist_item` | Item apagado ressuscita sem o gatilho. |
 | `escala_alocacao` | ambos | — | Escala planejada na gestão, presença marcada na loja. |
@@ -103,7 +103,8 @@ sincronismo — quase sempre uma coluna de data que sirva de marca-d'água.
 | `produto_destino_producao`, `setor_destino_producao`, `complemento_destino_producao`, `opcao_destino_producao` | ambos | incluir `kds` no filtro de `equipamento` (ver §4) | Roteamento de impressão e KDS. |
 | `kds_cor_config`, `tef_config` | ambos | gatilho | Configuração espelhada, como impressora e cupom. |
 | `pagamento_tef` | sobe | `updated_at` | Comprovante (NSU/autorização) nascido no terminal da loja. |
-| `fiscal_config` | desce, **sem** `proximo_numero` | gatilho + redação da coluna | O edge precisa do certificado para emitir offline, mas o contador é por lado. Ver §4. |
+| `fiscal_config` | **desce** (mig 278) | gatilho + cursor | Configuração do emitente (CNPJ, IE, endereço, CSC, série de cada origem): master na nuvem. `proximo_numero` ficou como histórico — o contador vivo é `fiscal_serie`, por origem, e **não** sincroniza. Ver §4.1 e `docs/cupom-fiscal.md`. |
+| `fiscal_serie` | **não sincroniza** (descartável) | — | Contador da numeração DESTE ponto de emissão. Sincronizar o número por última-escrita faria a sequência andar para trás e repetir chave de acesso. Num banco novo se refaz do maior número já emitido na série. |
 | `cupom`, `cupom_uso` | desce / ambos | `updated_at`; gatilho de exclusão | Hoje o PDV local nem consegue validar cupom, e o estorno feito na loja não devolve o uso. |
 | `encomenda_regra_sinal`, `encomenda_recorrencia` | desce | `updated_at` na recorrência | A loja precisa cobrar o sinal e produzir a assinatura. |
 | `banner` | desce | gatilho de exclusão | Só importa se o edge servir cardápio/totem. |
@@ -154,9 +155,15 @@ sincroniza:
 
 ## 4. Decisões que precisam do dono antes da implementação
 
-1. **`fiscal_config.proximo_numero`** — hoje nuvem e loja emitem com a mesma série e
-   numeração independente, o que a SEFAZ rejeita por duplicidade. É um problema **anterior**
-   ao sync. Saídas: série distinta por origem, ou emissão fiscal exclusiva de um lado.
+1. **`fiscal_config.proximo_numero`** — **RESOLVIDO na mig 278: série por origem.** Era um
+   contador único para a nuvem e a loja; com o link caído os dois andavam a mesma sequência
+   às cegas e emitiam notas com o mesmo número — a mesma chave de acesso, rejeitada por
+   duplicidade. Agora cada ponto de emissão tem a própria série (`fiscal_serie`, `origem` =
+   'loja' | 'nuvem'), o que o Ajuste SINIEF 19/16, cl. 4ª, §1º permite sem comunicar ao
+   Fisco. O contador **não** sincroniza (cada lado é dono do seu) e se refaz sozinho a
+   partir do maior número já emitido na série — por isso `nota_fiscal` passou a **voltar**
+   da nuvem, e não só subir. `fiscal_config` passou a **descer**: sem ela a loja não tinha
+   CNPJ, endereço nem CSC para montar o cupom. Detalhe e base legal em `docs/cupom-fiscal.md`.
 2. **`senha_contador`** — **RESOLVIDO na mig 275: prefixo por origem** (balcão `B-12`, delivery
    `D-07`). Cada origem numera a própria sequência, então não há nada a coordenar entre a loja
    e a nuvem — a duplicidade fica impossível por construção, inclusive com a internet caída

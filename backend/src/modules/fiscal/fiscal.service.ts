@@ -20,23 +20,13 @@ import { edgeAtivo } from '../../common/edge-ativo';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { gerarCNF, montarChave, montarQrCode } from './chave';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
-import {
-  FiscalTransmitter,
-  SefazMockTransmitter,
-  SefazDiretoTransmitter,
-} from './transmitter';
+import { FiscalTransmitter, escolherTransmissor } from './transmitter';
+import { camposFaltando, urlConsultaQr } from './emitente';
+import { competenciaChave, dhEmiSefaz } from './fuso-fiscal';
+import { idFiscalSerie } from '../../common/id-deterministico';
+import { ehServidorLocal } from '../../common/modo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-// URL de consulta do QR (varia por UF/ambiente). Default SP — ajustar por UF ao
-// plugar. tpAmb: 1 produção, 2 homologação.
-function urlConsultaQr(uf: string, ambiente: string): string {
-  const homolog =
-    'https://www.homologacao.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx';
-  const prod =
-    'https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx';
-  return ambiente === '1' ? prod : homolog;
-}
 
 @Injectable()
 export class FiscalService {
@@ -45,12 +35,18 @@ export class FiscalService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
-  // Seleciona o transmissor: com certificado configurado → SEFAZ direto (plug);
-  // sem certificado → homologação simulada (pipeline testável).
+  // Seleciona o transmissor. A regra (e o porquê) estão em `transmitter.ts`: sem
+  // certificado, a emissão é RECUSADA — nunca "autorizada" por simulação.
   private transmitter(config: any): FiscalTransmitter {
-    return config?.certRef
-      ? new SefazDiretoTransmitter()
-      : new SefazMockTransmitter();
+    return escolherTransmissor(config);
+  }
+
+  // ONDE este processo roda — é o que define a série da nota. Único critério à prova de
+  // partição: o servidor local e a nuvem nunca compartilham contador (docs/cupom-fiscal.md,
+  // decisões D2/D3). Com um contador só, o link caído fazia os dois lados andarem a mesma
+  // sequência às cegas e emitirem duas notas com o MESMO número.
+  private origemEmissao(): 'loja' | 'nuvem' {
+    return ehServidorLocal() ? 'loja' : 'nuvem';
   }
 
   // ===== Config fiscal por unidade =====
@@ -73,7 +69,7 @@ export class FiscalService {
 
   async setConfig(tenantId: string, unidadeId: string | null, dto: any) {
     const [existente] = await this.db
-      .select({ id: fiscalConfig.id })
+      .select({ id: fiscalConfig.id, serie: fiscalConfig.serie, serieNuvem: fiscalConfig.serieNuvem })
       .from(fiscalConfig)
       .where(
         and(
@@ -89,6 +85,7 @@ export class FiscalService {
       regime: dto.regime,
       crt: dto.crt != null ? Number(dto.crt) : undefined,
       serie: dto.serie != null ? Number(dto.serie) : undefined,
+      serieNuvem: dto.serieNuvem != null ? Number(dto.serieNuvem) : undefined,
       cnpj: dto.cnpj,
       razaoSocial: dto.razaoSocial,
       nomeFantasia: dto.nomeFantasia,
@@ -98,9 +95,26 @@ export class FiscalService {
       codigoMunicipio:
         dto.codigoMunicipio != null ? Number(dto.codigoMunicipio) : undefined,
       endereco: dto.endereco,
+      municipio: dto.municipio,
+      bairro: dto.bairro,
+      numero: dto.numero,
+      cep: dto.cep,
+      // URL pública de consulta do QR da UF (não é segredo). Fica aqui até existir a
+      // tabela por UF no código — ver docs/cupom-fiscal.md, pendência P12.
+      urlQrcodeProd: dto.urlQrcodeProd,
+      urlQrcodeHomolog: dto.urlQrcodeHomolog,
       cscId: dto.cscId,
       certRef: dto.certRef,
     };
+    // Duas origens na mesma série seria o contador compartilhado de novo, com outro nome.
+    // Compara o valor EFETIVO (o que veio no corpo ou, se ausente, o que já está gravado):
+    // mandar só um dos dois campos também pode colidir.
+    const serieFinal = vals.serie ?? existente?.serie ?? 1;
+    const serieNuvemFinal = vals.serieNuvem ?? existente?.serieNuvem ?? 2;
+    if (serieFinal === serieNuvemFinal)
+      throw new BadRequestException('A série da loja e a da nuvem têm de ser diferentes.');
+    if ([serieFinal, serieNuvemFinal].some((s) => s < 1 || s > 999))
+      throw new BadRequestException('Série fiscal: use de 1 a 999 (a série 0 é vedada).');
     // CSC só sobrescreve se veio um valor real (não o mascarado).
     if (dto.cscToken && dto.cscToken !== '••••••') vals.cscToken = dto.cscToken;
     Object.keys(vals).forEach((k) => vals[k] === undefined && delete vals[k]);
@@ -116,28 +130,63 @@ export class FiscalService {
     return this.getConfig(tenantId, unidadeId);
   }
 
-  // Reserva atômica do próximo número da série (dois PDVs não duplicam).
+  // Reserva atômica do próximo número DA SÉRIE DESTA ORIGEM.
+  //
+  // Duas garantias:
+  //  • a trava (`for update`) é no contador da própria origem — dois PDVs da mesma loja
+  //    nunca tiram o mesmo número, e a nuvem não espera pela loja (nem o contrário);
+  //  • o número nunca volta atrás: é `max(contador, maior número já emitido na série + 1)`.
+  //    O contador sozinho não sobrevive a uma reinstalação ou a uma restauração, e repetir
+  //    número significa repetir CHAVE DE ACESSO — rejeição por duplicidade e venda sem
+  //    documento. O índice único `uq_nota_fiscal_numero` (mig 278) é a última trava.
   private async reservarNumero(
     tx: any,
     tenantId: string,
     unidadeId: string | null,
-  ): Promise<{ numero: number; config: any }> {
+  ): Promise<{ numero: number; serie: number; config: any }> {
     const cur: any = await tx.execute(sql`
       select * from fiscal_config
       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
-      for update
     `);
     const cfg = (cur.rows ?? cur)[0];
     if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
     if (!cfg.ativo) throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
-    const numero = Number(cfg.proximo_numero);
+
+    const origem = this.origemEmissao();
+    // A série 0 é reservada a "série única" no texto nacional e vedada em ES/AL.
+    const serie = Number(origem === 'loja' ? cfg.serie : cfg.serie_nuvem) || (origem === 'loja' ? 1 : 2);
+    if (serie < 1 || serie > 999)
+      throw new BadRequestException(`Série fiscal inválida (${serie}): use de 1 a 999.`);
+
+    // O id vem da chave de negócio: nuvem e loja materializam a MESMA linha.
+    const id = idFiscalSerie(tenantId, unidadeId, origem);
     await tx.execute(sql`
-      update fiscal_config set proximo_numero = ${numero + 1}, updated_at = now()
-      where id = ${cfg.id}
-    `);
+      insert into fiscal_serie (id, tenant_id, unidade_id, origem, serie, proximo_numero)
+      values (${id}, ${tenantId}, ${unidadeId ?? null}, ${origem}, ${serie}, 1)
+      on conflict do nothing`);
+    const r: any = await tx.execute(sql`select * from fiscal_serie where id = ${id} for update`);
+    const linha = (r.rows ?? r)[0];
+    if (!linha)
+      throw new BadRequestException(
+        `Série ${serie} já está em uso por outra origem nesta loja. Configure uma série própria para "${origem}".`,
+      );
+
+    const m: any = await tx.execute(sql`
+      select coalesce(max(numero), 0) as maior from nota_fiscal
+       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+         and serie = ${serie}`);
+    const maior = Number((m.rows ?? m)[0]?.maior ?? 0);
+    // Série trocada na configuração: o contador da série anterior não vale para a nova.
+    const base = Number(linha.serie) === serie ? Number(linha.proximo_numero) || 1 : 1;
+    const numero = Math.max(base, maior + 1);
+    await tx.execute(sql`
+      update fiscal_serie set serie = ${serie}, proximo_numero = ${numero + 1}, updated_at = now()
+      where id = ${id}`);
+
     // normaliza camelCase p/ o builder
     return {
       numero,
+      serie,
       config: {
         ...cfg,
         codigoUf: cfg.codigo_uf,
@@ -147,6 +196,8 @@ export class FiscalService {
         cscId: cfg.csc_id,
         cscToken: cfg.csc_token,
         certRef: cfg.cert_ref,
+        urlQrcodeProd: cfg.url_qrcode_prod,
+        urlQrcodeHomolog: cfg.url_qrcode_homolog,
       },
     };
   }
@@ -169,6 +220,21 @@ export class FiscalService {
         ),
       );
     if (ja) return ja; // já emitida
+
+    // PRÉ-VOO ANTES DE RESERVAR O NÚMERO.
+    // Número reservado é número gasto: se a emissão falhar depois disso, fica um BURACO na
+    // sequência — e buraco não inutilizado até o 10º dia do mês seguinte é presumido pelo
+    // Fisco como "documento emitido em contingência e não transmitido" (Ajuste SINIEF
+    // 19/16, cl. 11ª, §5º). Então tudo que dá para conferir antes, confere-se antes.
+    const cfgPre = await this.configRaw(tenantId, c.unidadeId);
+    if (!cfgPre) throw new BadRequestException('Configure o fiscal desta unidade.');
+    if (!cfgPre.ativo) throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
+    const faltandoPre = camposFaltando(cfgPre);
+    if (faltandoPre.length)
+      throw new BadRequestException(
+        `Configuração fiscal incompleta — falta: ${faltandoPre.join(', ')}.`,
+      );
+    this.transmitter(cfgPre); // sem certificado/transmissão: recusa aqui, sem gastar número
 
     const itensDb = await this.db
       .select({
@@ -228,16 +294,30 @@ export class FiscalService {
 
     // Reserva número + monta chave/XML/QR dentro de uma transação.
     const preparado = await this.db.transaction(async (tx) => {
-      const { numero, config } = await this.reservarNumero(tx, tenantId, c.unidadeId);
+      const { numero, serie, config } = await this.reservarNumero(tx, tenantId, c.unidadeId);
+
+      // PRÉ-VOO: emitente incompleto não emite. Antes, cada campo que faltava tinha um
+      // padrão (CNPJ zerado, logradouro "N/D", município de São Paulo) e a nota saía assim
+      // mesmo, gravada como emitida. Documento fiscal não se completa por conta própria.
+      const faltando = camposFaltando(config);
+      if (faltando.length)
+        throw new BadRequestException(
+          `Configuração fiscal incompleta — falta: ${faltando.join(', ')}.`,
+        );
+
       const agora = new Date();
+      // Data-hora e competência no fuso da UF do emitente (ver fuso-fiscal.ts): o código
+      // antigo declarava UTC como horário de Brasília e emitia 3 horas no futuro.
+      const { ano2, mes2 } = competenciaChave(agora, config.uf);
+      const dhEmi = dhEmiSefaz(agora, config.uf);
       const cNF = gerarCNF();
       const chave = montarChave({
-        codigoUf: Number(config.codigoUf) || 35,
-        ano2: String(agora.getFullYear()).slice(-2),
-        mes2: String(agora.getMonth() + 1).padStart(2, '0'),
-        cnpj: config.cnpj || '00000000000000',
+        codigoUf: Number(config.codigoUf),
+        ano2,
+        mes2,
+        cnpj: config.cnpj,
         modelo: '65',
-        serie: Number(config.serie) || 1,
+        serie,
         numero,
         tpEmis: 1,
         cNF,
@@ -245,13 +325,12 @@ export class FiscalService {
       const { qrCode } = montarQrCode({
         chave,
         tpAmb: config.ambiente || '2',
-        cscId: config.cscId || '',
-        cscToken: config.cscToken || '',
-        urlConsulta: urlConsultaQr(config.uf || 'SP', config.ambiente || '2'),
+        cscId: config.cscId,
+        cscToken: config.cscToken,
+        urlConsulta: urlConsultaQr(config)!,
       });
-      const dhEmi = agora.toISOString().replace(/\.\d{3}Z$/, '-03:00');
       const xml = montarNfceXml({
-        config, numero, chave, cNF, dhEmi, itens, forma: c.forma, qrCode, frete, desconto,
+        config, serie, numero, chave, cNF, dhEmi, itens, forma: c.forma, qrCode, frete, desconto,
       });
       // O valor da nota é o vNF (produtos − desconto + frete), não a soma dos itens —
       // senão a listagem de notas diverge do que a SEFAZ autorizou.
@@ -265,7 +344,7 @@ export class FiscalService {
           unidadeId: c.unidadeId,
           comandaId,
           modelo: '65',
-          serie: Number(config.serie) || 1,
+          serie,
           numero,
           chave,
           ambiente: config.ambiente || '2',
@@ -300,6 +379,9 @@ export class FiscalService {
       .update(notaFiscal)
       .set({
         status,
+        // Marca a nota que NÃO passou pela SEFAZ. Sem isto, simulada e real ficam
+        // indistinguíveis na listagem, no cupom e na auditoria.
+        simulada: !!ret.simulado,
         protocolo: ret.protocolo,
         motivo: ret.motivo,
         xml: ret.xmlAutorizado ?? preparado.xml,
@@ -395,12 +477,19 @@ export class FiscalService {
       throw new BadRequestException('Só cancela nota autorizada.');
 
     const config = await this.configRaw(tenantId, nota.unidadeId);
-    const ret = await this.transmitter(config).cancelar(
-      nota.chave!,
-      nota.protocolo!,
-      justificativa,
-      config,
-    );
+    let ret;
+    try {
+      ret = await this.transmitter(config).cancelar(
+        nota.chave!,
+        nota.protocolo!,
+        justificativa,
+        config,
+      );
+    } catch (e: any) {
+      // Sem transmissão real, o cancelamento não acontece — e a nota NÃO pode ser marcada
+      // como cancelada no nosso banco, senão diverge do que a SEFAZ tem.
+      throw new BadRequestException(e?.message ?? 'Falha ao cancelar na SEFAZ.');
+    }
     if (ret.status !== 'cancelada')
       throw new BadRequestException(ret.motivo || 'Cancelamento rejeitado.');
 
@@ -452,6 +541,7 @@ export class FiscalService {
         chave: notaFiscal.chave,
         status: notaFiscal.status,
         ambiente: notaFiscal.ambiente,
+        simulada: notaFiscal.simulada, // a listagem precisa distinguir o que não é fiscal
         valorTotal: notaFiscal.valorTotal,
         motivo: notaFiscal.motivo,
         emitidaEm: notaFiscal.emitidaEm,
@@ -485,7 +575,10 @@ export class FiscalService {
     const money = (n: number) =>
       Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const l: string[] = ['DANFE NFC-e', `Serie ${nota.serie} No ${nota.numero}`];
-    if (nota.ambiente === '2') l.push('*** HOMOLOGACAO - SEM VALOR FISCAL ***');
+    // A tarja olhava SÓ o ambiente. Nota simulada em ambiente de produção saía com cara de
+    // cupom fiscal válido — é exatamente o caso que não pode existir.
+    if (nota.ambiente === '2' || nota.simulada)
+      l.push('*** SEM VALOR FISCAL ***');
     l.push('--------------------------------');
     for (const it of itens) {
       l.push(`${it.quantidade}x ${it.descricao}`);

@@ -256,11 +256,20 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // Acerto do subcaixa do garçom: dinheiro pendente que nasce na loja e muda de estado
   // (pendente → baixado). Depois de caixa_sessao/comanda/mesa/equipamento (FK).
   { tabela: 'acerto_subpdv', direcao: 'ambos', cursor: 'updated_at' },
-  // NFC-e emitida no PDV local. SOBE: o documento nasce na loja, e é guarda obrigatória
-  // de 5 anos que vivia num PC sem backup — a reinstalação apagava. Não desce: a nuvem
-  // não precisa reescrever nota no servidor local. ⚠️ A NUMERAÇÃO (série por origem) é
-  // outro assunto, ainda pendente — ver docs/paridade-sync-tabelas.md §4.
-  { tabela: 'nota_fiscal', direcao: 'sobe', cursor: 'updated_at' },
+  // NFC-e. 'ambos' desde a mig 278 — era 'sobe', e isso deixava dois furos:
+  //  • guarda de 5 anos: o documento subia, mas NÃO voltava. Reinstalar o servidor local
+  //    apagava o arquivo fiscal da loja, que é justamente quem tem a obrigação de guardar;
+  //  • numeração: a reserva de número se recupera lendo o maior número já emitido na série
+  //    (fiscal.service). Num banco novo, sem as notas de volta, o contador reiniciaria em 1
+  //    e repetiria CHAVE DE ACESSO.
+  // A loja e a nuvem emitem em SÉRIES DIFERENTES (fiscal_serie), então as duas pontas nunca
+  // disputam a mesma linha — 'ambos' aqui é espelho, não concorrência.
+  { tabela: 'nota_fiscal', direcao: 'ambos', cursor: 'updated_at' },
+  // Configuração do emitente (CNPJ, IE, endereço, CSC, série de cada origem). DESCE: é
+  // configuração de distribuição, master na nuvem. Sem ela no servidor local a loja não
+  // tinha como montar o cupom — a tabela simplesmente não existia lá, e ainda bloqueava a
+  // reinstalação por não estar classificada.
+  { tabela: 'fiscal_config', direcao: 'desce', cursor: 'updated_at' },
   // Ordem de produção (mig 272): documento que muda de estado (planejada → concluída) e
   // nasce dos dois lados. Depois de `ficha_tecnica` (FK).
   { tabela: 'ordem_producao', direcao: 'ambos', cursor: 'updated_at' },

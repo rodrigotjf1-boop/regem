@@ -66,6 +66,7 @@ export default function FiscalConfigPage() {
         regime: f.regime,
         crt: f.regime === 'simples' ? 1 : 3,
         serie: f.serie ? Number(f.serie) : 1,
+        serieNuvem: f.serieNuvem ? Number(f.serieNuvem) : 2,
         cnpj: f.cnpj,
         razaoSocial: f.razaoSocial,
         nomeFantasia: f.nomeFantasia,
@@ -74,6 +75,12 @@ export default function FiscalConfigPage() {
         codigoUf: f.codigoUf ? Number(f.codigoUf) : undefined,
         codigoMunicipio: f.codigoMunicipio ? Number(f.codigoMunicipio) : undefined,
         endereco: f.endereco,
+        municipio: f.municipio,
+        bairro: f.bairro,
+        numero: f.numero,
+        cep: f.cep,
+        urlQrcodeProd: f.urlQrcodeProd,
+        urlQrcodeHomolog: f.urlQrcodeHomolog,
         cscId: f.cscId,
         cscToken: f.cscToken,
         certRef: f.certRef,
@@ -109,11 +116,12 @@ export default function FiscalConfigPage() {
         {erro && <p className="text-destructive">{erro}</p>}
 
         <Card className="border-warn/40 bg-warn/5 p-4 text-sm">
-          <p className="font-semibold">Emissão SEFAZ direto (pronto para plugar)</p>
+          <p className="font-semibold">A emissão ainda não está disponível</p>
           <p className="mt-1 text-muted-foreground">
-            Sem o certificado A1 configurado, o sistema opera em <b>homologação simulada</b>
-            (valida o fluxo, sem valor fiscal). Para emitir de verdade: informe o certificado
-            (referência), CSC e mantenha o ambiente em produção só após validar em homologação.
+            Falta a assinatura digital e a transmissão à SEFAZ. Enquanto isso, <b>nenhuma nota é
+            emitida</b> — a venda continua normal, e o sistema recusa a emissão em vez de registrar
+            uma nota que não existe na SEFAZ. Preencha os dados abaixo: eles já são conferidos antes
+            de qualquer tentativa.
           </p>
         </Card>
 
@@ -138,9 +146,16 @@ export default function FiscalConfigPage() {
                 <option value="normal">Regime Normal</option>
               </select>
             </div>
+            {/* Séries distintas por ponto de emissão: o balcão numera na série da loja e o
+                delivery na da nuvem, então uma queda de internet não faz os dois emitirem
+                notas com o mesmo número. As duas têm de ser diferentes, e nunca 0. */}
             <div className="space-y-1">
-              <Label className="text-xs">Série</Label>
+              <Label className="text-xs">Série do balcão (servidor local)</Label>
               <Input value={f.serie ?? ''} onChange={(e) => set({ serie: e.target.value })} placeholder="1" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Série da nuvem (delivery e pedido online)</Label>
+              <Input value={f.serieNuvem ?? ''} onChange={(e) => set({ serieNuvem: e.target.value })} placeholder="2" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs">CNPJ</Label>
@@ -171,8 +186,42 @@ export default function FiscalConfigPage() {
               <Input value={f.codigoMunicipio ?? ''} onChange={(e) => set({ codigoMunicipio: e.target.value })} placeholder="3550308" />
             </div>
             <div className="space-y-1 sm:col-span-2">
-              <Label className="text-xs">Endereço</Label>
-              <Input value={f.endereco ?? ''} onChange={(e) => set({ endereco: e.target.value })} />
+              <Label className="text-xs">Município</Label>
+              <Input value={f.municipio ?? ''} onChange={(e) => set({ municipio: e.target.value })} placeholder="São Paulo" />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Logradouro</Label>
+              <Input value={f.endereco ?? ''} onChange={(e) => set({ endereco: e.target.value })} placeholder="Rua das Flores" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Número</Label>
+              <Input value={f.numero ?? ''} onChange={(e) => set({ numero: e.target.value })} placeholder="100" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Bairro</Label>
+              <Input value={f.bairro ?? ''} onChange={(e) => set({ bairro: e.target.value })} placeholder="Centro" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">CEP</Label>
+              <Input value={f.cep ?? ''} onChange={(e) => set({ cep: e.target.value })} placeholder="00000-000" />
+            </div>
+            {/* A URL de consulta do QR Code muda de estado para estado — não existe uma
+                nacional. Sem a da UF da loja, o QR do cupom não é conferível. */}
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">URL de consulta do QR Code — homologação</Label>
+              <Input
+                value={f.urlQrcodeHomolog ?? ''}
+                onChange={(e) => set({ urlQrcodeHomolog: e.target.value })}
+                placeholder="https://…/ConsultaQRCode.aspx (da SEFAZ do seu estado)"
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">URL de consulta do QR Code — produção</Label>
+              <Input
+                value={f.urlQrcodeProd ?? ''}
+                onChange={(e) => set({ urlQrcodeProd: e.target.value })}
+                placeholder="https://…/ConsultaQRCode.aspx (da SEFAZ do seu estado)"
+              />
             </div>
           </div>
 

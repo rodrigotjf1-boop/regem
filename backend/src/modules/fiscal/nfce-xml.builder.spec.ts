@@ -11,6 +11,9 @@ import { montarNfceXml, NfceItem } from './nfce-xml.builder';
 const config = {
   crt: 1, serie: 1, ambiente: '2', cnpj: '11222333000181',
   razaoSocial: 'LOJA TESTE', uf: 'SP', codigoUf: 35, codigoMunicipio: 3550308,
+  // Endereço completo do emitente (mig 278): o grupo enderEmit exige bairro e número, e
+  // o município é campo próprio — antes o XML levava a UF no lugar dele.
+  municipio: 'Sao Paulo', bairro: 'Centro', numero: '100', endereco: 'Rua A', cep: '01001000',
 };
 
 const item = (o: Partial<NfceItem> = {}): NfceItem => ({
@@ -20,7 +23,7 @@ const item = (o: Partial<NfceItem> = {}): NfceItem => ({
 
 function montar(itens: NfceItem[], desconto?: number, frete?: number) {
   return montarNfceXml({
-    config, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
+    config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
     dhEmi: '2026-09-14T12:00:00-03:00', itens, forma: 'dinheiro',
     qrCode: 'http://q', desconto, frete,
   });
@@ -132,5 +135,30 @@ describe('NFC-e — desconto e frete', () => {
     // base = 100 − 20 + 10 = 90 → PIS 10% = 9,00
     expect(xml).toContain('<PISAliq><CST>01</CST><vBC>90.00</vBC>');
     expect(xml).toContain('<vPIS>9.00</vPIS>');
+  });
+});
+
+// ENDEREÇO DO EMITENTE (mig 278).
+// O XML levava a UF dentro de <xMun> (o campo do MUNICÍPIO), não emitia <xBairro> — que é
+// obrigatório no leiaute 4.00 — e escrevia <nro>SN</nro> fixo. Emitente errado no cupom é
+// rejeição na SEFAZ, e nada disso aparecia em teste.
+describe('NFC-e — grupo enderEmit', () => {
+  it('município, bairro e número saem nos campos certos', () => {
+    const xml = montar([item()]);
+    expect(xml).toContain('<xMun>Sao Paulo</xMun>');
+    expect(xml).toContain('<UF>SP</UF>');
+    expect(xml).toContain('<xBairro>Centro</xBairro>');
+    expect(xml).toContain('<nro>100</nro>');
+    expect(xml).toContain('<CEP>01001000</CEP>');
+    // A UF não pode mais aparecer como se fosse o município.
+    expect(xml).not.toContain('<xMun>SP</xMun>');
+  });
+
+  it('a série do XML é a de quem reservou o número, não a da config', () => {
+    const xml = montarNfceXml({
+      config, serie: 7, numero: 3, chave: '3'.repeat(44), cNF: '12345678',
+      dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro', qrCode: 'http://q',
+    });
+    expect(xml).toContain('<serie>7</serie>'); // config.serie é 1
   });
 });
