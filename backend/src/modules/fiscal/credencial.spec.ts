@@ -9,6 +9,7 @@ import {
   resumoPublico,
   salvarCertificado,
   salvarCsc,
+  testarAssinatura,
 } from './credencial';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -98,6 +99,26 @@ descrever('credenciais fiscais cifradas, contra o Postgres', () => {
     const cert = certificadoParaAssinar(await obterCredencial(db, tenant, unidade));
     expect(cert.cnpj).toBe(CNPJ);
     expect(cert.chavePrivadaPem).toContain('PRIVATE KEY');
+  }, 60000);
+
+  it('o TESTE do certificado guardado assina e confere — e não devolve segredo', async () => {
+    const r = await testarAssinatura(db, tenant, unidade);
+    expect(r.ok).toBe(true);
+    expect(r.cnpj).toBe(CNPJ);
+    expect(r.avisos).toEqual([]);
+    const txt = JSON.stringify(r);
+    expect(txt).not.toContain(SENHA);
+    expect(txt).not.toMatch(/PRIVATE KEY|<Signature|v1:/);
+  }, 60000);
+
+  it('com a chave do servidor TROCADA, o teste avisa em vez de assinar', async () => {
+    const k = process.env.SEGREDOS_CHAVE;
+    process.env.SEGREDOS_CHAVE = randomBytes(32).toString('base64');
+    try {
+      await expect(testarAssinatura(db, tenant, unidade)).rejects.toThrow(/chave diferente/);
+    } finally {
+      process.env.SEGREDOS_CHAVE = k;
+    }
   }, 60000);
 
   it('certificado de OUTRA empresa não é guardado', async () => {

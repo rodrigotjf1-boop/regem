@@ -42,6 +42,8 @@ export function CredencialFiscal() {
   const [cscId, setCscId] = useState('');
   const [csc, setCsc] = useState('');
   const [salvandoCsc, setSalvandoCsc] = useState(false);
+  const [testando, setTestando] = useState(false);
+  const [resultadoTeste, setResultadoTeste] = useState<{ ok: boolean; texto: string } | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -70,6 +72,26 @@ export function CredencialFiscal() {
     } finally {
       setSenha(''); // a senha não fica na tela, deu certo ou não
       setEnviandoCert(false);
+    }
+  }
+
+  // Prova que o certificado GUARDADO abre e assina — antes de a primeira nota real depender dele.
+  async function testarCertificado() {
+    setTestando(true);
+    setResultadoTeste(null);
+    try {
+      const r: any = await api.testarCertificadoFiscal();
+      const avisos: string[] = r?.avisos ?? [];
+      setResultadoTeste({
+        ok: avisos.length === 0,
+        texto: avisos.length
+          ? `Assinou, mas atenção: ${avisos.join(' ')}`
+          : 'Certificado funcionando: abriu com a senha guardada, assinou uma nota de exemplo e a assinatura conferiu.',
+      });
+    } catch (e) {
+      setResultadoTeste({ ok: false, texto: e instanceof Error ? e.message : 'O teste falhou.' });
+    } finally {
+      setTestando(false);
     }
   }
 
@@ -185,6 +207,21 @@ export function CredencialFiscal() {
         >
           {enviandoCert ? 'Enviando…' : 'Enviar certificado'}
         </Button>
+        {cert && (
+          <div className="space-y-2">
+            <Button type="button" variant="outline" onClick={testarCertificado} disabled={testando}>
+              {testando ? 'Testando…' : 'Testar certificado'}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Assina uma nota de exemplo e confere a assinatura. Não fala com a SEFAZ e não emite nada.
+            </p>
+            {resultadoTeste && (
+              <p role="status" className={`text-sm ${resultadoTeste.ok ? 'text-ok' : 'text-destructive'}`}>
+                {resultadoTeste.texto}
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       {/* ---- CSC ---- */}

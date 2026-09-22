@@ -70,6 +70,14 @@ export class FiscalController {
     return this.service.setCertificado(user.tenantId, user.colaboradorId, dto?.unidadeId || null, dto);
   }
 
+  // Prova o certificado guardado: assina uma nota de exemplo e confere. Sem SEFAZ, sem gravar.
+  @CloudOnly()
+  @Post('credencial/testar')
+  @Roles('presidente')
+  testarCertificado(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.testarCertificado(user.tenantId, dto?.unidadeId || null);
+  }
+
   @CloudOnly()
   @Put('credencial/csc')
   @Roles('presidente')

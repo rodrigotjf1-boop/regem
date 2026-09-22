@@ -14,6 +14,10 @@ import {
   lerCertificadoA1,
   problemasDoCertificado,
 } from './certificado';
+import { assinarNfe, assinaturaValida } from './assinatura';
+import { montarChave } from './chave';
+import { competenciaChave, dhEmiSefaz } from './fuso-fiscal';
+import { montarNfceXml } from './nfce-xml.builder';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -202,7 +206,73 @@ export function credencialParaEmissao(row: any | undefined, ambiente: string) {
 export function certificadoParaAssinar(row: any | undefined): CertificadoA1 {
   if (!row?.cert_pfx_cifrado || !row?.cert_senha_cifrada)
     throw new BadRequestException('Nenhum certificado digital cadastrado para esta loja.');
-  return comoRequisicaoInvalida(() =>
-    lerCertificadoA1(decifrarBytes(row.cert_pfx_cifrado), decifrar(row.cert_senha_cifrada)),
-  );
+  let pfx: Buffer;
+  let senha: string;
+  try {
+    pfx = decifrarBytes(row.cert_pfx_cifrado);
+    senha = decifrar(row.cert_senha_cifrada);
+  } catch (e: any) {
+    if (e instanceof ChaveSegredosAusente) throw new BadRequestException(e.message);
+    // Chave de proteção trocada neste servidor, ou o valor foi alterado no banco. Não é erro
+    // interno (500): tem causa conhecida e o usuário resolve reenviando o certificado.
+    throw new BadRequestException(
+      `Não consegui abrir o certificado guardado (${e?.message ?? 'falha'}). ` +
+        'Se a chave de proteção deste servidor foi trocada, envie o certificado de novo.',
+    );
+  }
+  return comoRequisicaoInvalida(() => lerCertificadoA1(pfx, senha));
+}
+
+/**
+ * Prova, sem falar com a SEFAZ, que o certificado GUARDADO funciona: decifra o .pfx e a senha
+ * com a chave deste servidor, abre, assina uma NFC-e de exemplo e confere a assinatura.
+ * Nada é gravado nem transmitido. Devolve só o público — nunca o XML, a chave ou a senha.
+ *
+ * Existe para que o primeiro teste com o certificado REAL não seja a própria transmissão:
+ * senha errada, chave de proteção trocada ou .pfx num formato que a biblioteca não abre
+ * aparecem aqui, com a mensagem certa, antes da etapa de envio.
+ */
+export async function testarAssinatura(db: any, tenantId: string, unidadeId: string | null) {
+  const row = await obterCredencial(db, tenantId, unidadeId);
+  const cert = certificadoParaAssinar(row);
+  const agora = new Date();
+  const chave = montarChave({
+    codigoUf: 33,
+    ...competenciaChave(agora, 'RJ'),
+    cnpj: cert.cnpj,
+    modelo: '65',
+    serie: 999, // exemplo: nunca é transmitido nem gravado
+    numero: 1,
+    tpEmis: 1,
+    cNF: '00000001',
+  });
+  const xml = montarNfceXml({
+    config: {
+      crt: 1, ambiente: '2', cnpj: cert.cnpj, razaoSocial: cert.titular, ie: 'ISENTO', uf: 'RJ',
+      codigoUf: 33, codigoMunicipio: 3304557, municipio: 'TESTE', endereco: 'TESTE', numero: '0',
+      bairro: 'TESTE',
+    },
+    serie: 999, numero: 1, chave, cNF: '00000001', dhEmi: dhEmiSefaz(agora, 'RJ'),
+    itens: [{ codigo: '1', descricao: 'TESTE DE ASSINATURA', ncm: '21069090', quantidade: 1, precoUnitario: 1 }],
+    forma: 'dinheiro', qrCode: 'teste', urlChave: 'teste.local',
+  });
+  const assinado = assinarNfe(xml, cert);
+  if (!assinaturaValida(assinado))
+    throw new BadRequestException('A assinatura com este certificado não conferiu. Envie o certificado de novo.');
+  const cfg = linhas(
+    await db.execute(sql`
+      select cnpj from fiscal_config
+       where tenant_id = ${tenantId}
+         and (unidade_id is not distinct from ${unidadeId ?? null} or unidade_id is null)
+       order by (unidade_id is null) limit 1`),
+  )[0];
+  return {
+    ok: true,
+    titular: cert.titular,
+    cnpj: cert.cnpj,
+    validoAte: cert.validoAte,
+    diasParaVencer: diasParaVencer(cert.validoAte, agora),
+    // Continua valendo? (vencimento e raiz do CNPJ contra o emitente configurado AGORA)
+    avisos: problemasDoCertificado(cert, cfg?.cnpj ?? null, agora),
+  };
 }

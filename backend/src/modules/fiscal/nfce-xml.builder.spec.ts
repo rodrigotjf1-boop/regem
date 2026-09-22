@@ -25,7 +25,7 @@ function montar(itens: NfceItem[], desconto?: number, frete?: number) {
   return montarNfceXml({
     config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
     dhEmi: '2026-09-14T12:00:00-03:00', itens, forma: 'dinheiro',
-    qrCode: 'http://q', desconto, frete,
+    qrCode: 'http://q', urlChave: 'www.sefaz.uf.gov.br/nfce/consulta', desconto, frete,
   });
 }
 
@@ -157,8 +157,38 @@ describe('NFC-e — grupo enderEmit', () => {
   it('a série do XML é a de quem reservou o número, não a da config', () => {
     const xml = montarNfceXml({
       config, serie: 7, numero: 3, chave: '3'.repeat(44), cNF: '12345678',
-      dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro', qrCode: 'http://q',
+      dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro', qrCode: 'http://q', urlChave: 'www.sefaz.uf.gov.br/nfce/consulta',
     });
     expect(xml).toContain('<serie>7</serie>'); // config.serie é 1
+  });
+});
+
+// GRUPO <infNFeSupl> (etapa B do P2).
+// O builder recebia o QR Code e NÃO o escrevia no XML — a NFC-e sairia sem QR, que é rejeição.
+// E a URL de consulta pela chave era a do QR reaproveitada.
+describe('NFC-e — grupo infNFeSupl', () => {
+  const qr = 'https://sefaz.uf.gov.br/qrcode?p=3326|2|2|1|ABC&x=1';
+
+  it('leva o QR Code (em CDATA, com & e |) e a URL de consulta pela chave', () => {
+    const xml = montarNfceXml({
+      config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
+      dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro',
+      qrCode: qr, urlChave: 'www.fazenda.rj.gov.br/nfce/consulta',
+    });
+    expect(xml).toContain(`<qrCode><![CDATA[${qr}]]></qrCode>`);
+    expect(xml).toContain('<urlChave>www.fazenda.rj.gov.br/nfce/consulta</urlChave>');
+  });
+
+  it('fica FORA do infNFe e depois dele (não entra na assinatura)', () => {
+    const xml = montar([item()]);
+    const fimInf = xml.indexOf('</infNFe>');
+    const supl = xml.indexOf('<infNFeSupl>');
+    expect(fimInf).toBeGreaterThan(0);
+    expect(supl).toBeGreaterThan(fimInf);
+    expect(xml.slice(0, fimInf)).not.toContain('infNFeSupl');
+  });
+
+  it('o XML inteiro sai numa linha só (quebra de linha entre tags é rejeição)', () => {
+    expect(montar([item()])).not.toMatch(/[\r\n\t]/);
   });
 });

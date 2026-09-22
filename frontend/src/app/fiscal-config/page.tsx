@@ -83,6 +83,8 @@ export default function FiscalConfigPage() {
         cep: f.cep,
         urlQrcodeProd: f.urlQrcodeProd,
         urlQrcodeHomolog: f.urlQrcodeHomolog,
+        urlChaveProd: f.urlChaveProd,
+        urlChaveHomolog: f.urlChaveHomolog,
       });
       toast.success('Configuração fiscal salva.');
       await reload();
@@ -224,6 +226,24 @@ export default function FiscalConfigPage() {
                 value={f.urlQrcodeProd ?? ''}
                 onChange={(e) => set({ urlQrcodeProd: e.target.value })}
                 placeholder="https://…/ConsultaQRCode.aspx (da SEFAZ do seu estado)"
+              />
+            </div>
+            {/* A consulta PELA CHAVE é outro endereço, diferente do QR Code — é o que aparece
+                impresso no cupom em "Consulte pela chave de acesso em…". */}
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">URL de consulta pela chave de acesso — homologação</Label>
+              <Input
+                value={f.urlChaveHomolog ?? ''}
+                onChange={(e) => set({ urlChaveHomolog: e.target.value })}
+                placeholder="a que a SEFAZ do seu estado publica para homologação"
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">URL de consulta pela chave de acesso — produção</Label>
+              <Input
+                value={f.urlChaveProd ?? ''}
+                onChange={(e) => set({ urlChaveProd: e.target.value })}
+                placeholder="ex.: www.fazenda.rj.gov.br/nfce/consulta"
               />
             </div>
           </div>

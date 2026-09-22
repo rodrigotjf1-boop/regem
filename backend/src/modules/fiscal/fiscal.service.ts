@@ -21,7 +21,7 @@ import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { gerarCNF, montarChave, montarQrCode } from './chave';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
 import { FiscalTransmitter, escolherTransmissor } from './transmitter';
-import { camposFaltando, urlConsultaQr } from './emitente';
+import { camposFaltando, urlConsultaChave, urlConsultaQr } from './emitente';
 import { competenciaChave, dhEmiSefaz } from './fuso-fiscal';
 import { idFiscalSerie } from '../../common/id-deterministico';
 import { ehServidorLocal } from '../../common/modo';
@@ -31,6 +31,7 @@ import {
   resumoPublico,
   salvarCertificado,
   salvarCsc,
+  testarAssinatura,
 } from './credencial';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -113,6 +114,8 @@ export class FiscalService {
       // tabela por UF no código — ver docs/cupom-fiscal.md, pendência P12.
       urlQrcodeProd: dto.urlQrcodeProd,
       urlQrcodeHomolog: dto.urlQrcodeHomolog,
+      urlChaveProd: dto.urlChaveProd,
+      urlChaveHomolog: dto.urlChaveHomolog,
       complemento: dto.complemento,
       // CSC e certificado NAO entram mais por aqui: rotas proprias, que guardam cifrado
       // (PUT /fiscal/credencial/*). Aceitar aqui gravaria o segredo em texto puro numa tabela
@@ -163,6 +166,11 @@ export class FiscalService {
       detalhe: { unidadeId, titular: r.titular, cnpj: r.cnpj, serial: r.serial, validoAte: r.validoAte },
     });
     return this.getCredencial(tenantId, unidadeId);
+  }
+
+  // Assina uma NFC-e de exemplo com o certificado GUARDADO e confere — sem SEFAZ, sem gravar.
+  testarCertificado(tenantId: string, unidadeId: string | null) {
+    return testarAssinatura(this.db, tenantId, unidadeId);
   }
 
   async setCsc(tenantId: string, atorId: string, unidadeId: string | null, dto: any) {
@@ -249,6 +257,8 @@ export class FiscalService {
         certRef: cfg.cert_ref,
         urlQrcodeProd: cfg.url_qrcode_prod,
         urlQrcodeHomolog: cfg.url_qrcode_homolog,
+        urlChaveProd: cfg.url_chave_prod,
+        urlChaveHomolog: cfg.url_chave_homolog,
       },
     };
   }
@@ -391,6 +401,7 @@ export class FiscalService {
       });
       const xml = montarNfceXml({
         config, serie, numero, chave, cNF, dhEmi, itens, forma: c.forma, qrCode, frete, desconto,
+        urlChave: urlConsultaChave(config)!,
       });
       // O valor da nota é o vNF (produtos − desconto + frete), não a soma dos itens —
       // senão a listagem de notas diverge do que a SEFAZ autorizou.

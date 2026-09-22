@@ -696,6 +696,9 @@ export const api = {
     req('/fiscal/credencial/certificado', { method: 'PUT', body: JSON.stringify(body) }),
   salvarCscFiscal: (body: { ambiente: '1' | '2'; cscId: string; csc: string; unidadeId?: string }) =>
     req('/fiscal/credencial/csc', { method: 'PUT', body: JSON.stringify(body) }),
+  // Assina uma nota de EXEMPLO com o certificado guardado e confere. Sem SEFAZ, sem gravar.
+  testarCertificadoFiscal: () =>
+    req('/fiscal/credencial/testar', { method: 'POST', body: '{}' }),
   emitirNfce: (comandaId: string) =>
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),
