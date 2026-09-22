@@ -89,6 +89,12 @@ export const TABELAS_SYNC: TabelaSync[] = [
   { tabela: 'checklist_item', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'pop', direcao: 'ambos', cursor: 'updated_at' }, // publicação do checklist
   { tabela: 'tarefa_def', direcao: 'ambos', cursor: 'updated_at' }, // depois de checklist/pop (FK)
+  // Tarefa do dia e escala (mig 277): ficaram por último porque são MATERIALIZADAS por
+  // rotina, e a rotina roda nos dois lados. Agora o id nasce da chave de negócio
+  // (definição + loja + dia; loja + dia + turno + pessoa), então os dois lados chegam à
+  // MESMA linha e o sincronismo concilia em vez de duplicar.
+  { tabela: 'tarefa_instancia', direcao: 'ambos', cursor: 'updated_at' },
+  { tabela: 'escala_alocacao', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'guia', direcao: 'ambos', cursor: 'updated_at' },
   { tabela: 'guia_passo', direcao: 'ambos', cursor: 'created_at' },
   { tabela: 'comunicado', direcao: 'ambos', cursor: 'updated_at' },
@@ -382,7 +388,7 @@ export const TABELAS_DESDE_ZERO = new Set<string>([
   'fidelidade_plano', 'fidelidade_ponto', 'fidelidade_resgate', 'fidelidade_ajuste',
   // Endereço do cliente e frete por bairro (mig 276): o que já existe precisa descer uma
   // vez, senão a loja ficaria com a lista de bairros só do que mudar de hoje em diante.
-  'cliente_endereco', 'cardapio_bairro',
+  'cliente_endereco', 'cardapio_bairro', 'tarefa_instancia', 'escala_alocacao',
 ]);
 
 // RESTAURAÇÃO (nuvem → edge, SÓ sob demanda): tabelas TRANSACIONAIS que podem ter
@@ -450,6 +456,7 @@ export const LOJA_COLUNA = new Set<string>([
   // PARIDADE (mig 272): documentos que CRESCEM com o movimento da loja. Cadastro e
   // configuração continuam de fora (valem para a rede inteira).
   'nota_fiscal', 'ordem_producao', 'acerto_subpdv', 'vistoria', 'pagamento_tef', 'alerta_estoque',
+  'tarefa_instancia', 'escala_alocacao',
 ]);
 
 export const LOJA_PELO_PAI: Record<string, (uid: string) => SQL> = {

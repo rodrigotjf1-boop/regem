@@ -200,6 +200,8 @@ const PUSH_TABLES = [
   { tabela: 'checklist_item', cursor: 'updated_at' },
   { tabela: 'pop', cursor: 'updated_at' },
   { tabela: 'tarefa_def', cursor: 'updated_at' },
+  { tabela: 'tarefa_instancia', cursor: 'updated_at' }, // id da chave de negócio (mig 277)
+  { tabela: 'escala_alocacao', cursor: 'updated_at' },
   { tabela: 'guia', cursor: 'updated_at' },
   { tabela: 'guia_passo', cursor: 'created_at' },
   { tabela: 'comunicado', cursor: 'updated_at' },

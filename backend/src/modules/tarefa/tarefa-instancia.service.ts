@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { idTarefaInstancia } from '../../common/id-deterministico';
 import {
   tarefaDef,
   tarefaInstancia,
@@ -68,6 +69,10 @@ export class TarefaInstanciaService {
     const [row] = await this.db
       .insert(tarefaInstancia)
       .values({
+        // id nasce da chave de negócio (mig 277): definição + loja + dia. A rotina que
+        // materializa a tarefa do dia roda na nuvem E no servidor local; com id aleatório,
+        // os dois criariam a mesma tarefa duas vezes e ela apareceria duplicada no Meu Dia.
+        id: idTarefaInstancia(def.id, def.unidadeId, dto.data),
         tenantId,
         unidadeId: def.unidadeId,
         tarefaDefId: def.id,

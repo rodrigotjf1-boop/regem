@@ -67,7 +67,7 @@ Ver `backend/src/modules/sync/sync-config.ts`. Não repetidas aqui.
 
 Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_fiscal` (sobe), `tarefa_def`, `checklist`, `checklist_item`, `pop`, `documento_controlado`, `ciencia`, `vistoria`, `ocorrencia`, `ponto_ajuste`, `guia`, `guia_passo`, `comunicado`, `comunicado_leitura`, as três de clima, `escala_regra`, `dia_especial`, `entitlement`, `janela_pico`, `contador`, `funcao_setor`, `colaborador_funcao`, `modulo_ativacao`, `categoria_item`, `item_fornecedor`, `item_conversao`, `forma_pagamento`, `comanda_pagamento`, `ordem_producao`, `mesa`, `alerta_estoque`, `produto_sugestao`, `produto_faixa_preco`, as quatro de destino de produção, `kds_cor_config`, `tef_config`, `pagamento_tef` (sobe), `cupom`, `cupom_uso`, `encomenda_regra_sinal`, `encomenda_recorrencia`, `banner`, `acerto_subpdv`, `pedido_manutencao` e `atendimento_chamado`.
 
-**Ainda bloqueiam a reinstalação** (cada uma com fase própria, abaixo): `escala_alocacao` e `tarefa_instancia` (esperam a chave única de negócio), `cashback_*` e `fidelidade_*` (§3), `cliente_endereco` e `cardapio_bairro` (§4.6) e `fiscal_config` (§4.1).
+**Ainda bloqueia a reinstalação:** só `fiscal_config` (§4.1 — a pendência da numeração fiscal). Tudo o mais foi resolvido nas migs 272 a 277: cashback e fidelidade (§3), endereço e frete por bairro (§4.6), e tarefa e escala (§4.5).
 
 ### 2.5 Fila de trabalho — referência completa
 
@@ -169,8 +169,14 @@ sincroniza:
    que venceria por última-escrita. Precisa de guarda antes de qualquer sincronismo.
 4. **`estoque_snapshot`** — recalculável, mas o custo médio usado é o atual, não o da data.
    Ou aceita-se divergência de custo histórico, ou a tabela passa a descer da nuvem.
-5. **`tarefa_instancia` e `escala_alocacao`** — são materializadas por rotina nos dois lados.
-   Sem uma chave única de negócio, sincronizar **duplica** em vez de conciliar.
+5. **`tarefa_instancia` e `escala_alocacao`** — **RESOLVIDO na mig 277.** As duas são
+   materializadas por rotina, e a rotina roda nos dois lados: com `id` aleatório, cada lado
+   criava a mesma tarefa do mesmo dia com um id diferente e o sincronismo, que casa linha por
+   id, duplicaria em vez de conciliar. Agora o **id nasce da chave de negócio** (definição +
+   loja + dia; loja + dia + turno + pessoa — a mesma conta em SQL e no código), então os dois
+   lados chegam à mesma linha. Uma chave única parcial (ignora excluídas e vagas em aberto)
+   barra a duplicata que venha por outro caminho, e a migration **aborta com mensagem clara**
+   se encontrar duplicata já existente no banco.
 6. **`cliente_endereco` e `cardapio_bairro`** — **RESOLVIDO na mig 276.** As duas passaram a
    sincronizar **e** a busca por telefone ganhou rota no módulo do Delivery, que é servido no
    servidor local (o módulo de clientes só existe na nuvem: a tela levava 404 e o erro era
