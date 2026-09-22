@@ -78,6 +78,15 @@ export class FiscalController {
     return this.service.testarCertificado(user.tenantId, dto?.unidadeId || null);
   }
 
+  // NFC-e de TESTE — só em HOMOLOGAÇÃO (a rota recusa produção). Um item de R$ 1,00, sem
+  // comanda, sem impressão: a primeira nota de verdade, sem inventar venda.
+  @CloudOnly()
+  @Post('sefaz/teste-homologacao')
+  @Roles('presidente')
+  emitirTesteHomologacao(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.emitirTesteHomologacao(user.tenantId, user.colaboradorId, dto?.unidadeId || null);
+  }
+
   // Consulta de STATUS da SEFAZ com o certificado guardado. Não emite nada.
   @CloudOnly()
   @Post('sefaz/status')

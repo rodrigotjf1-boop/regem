@@ -62,17 +62,23 @@ describe('escolha do transmissor', () => {
     );
   });
 
-  it('com certificado, mas SEM a transmissão pronta: recusa já na ESCOLHA (antes de gastar número)', () => {
-    // Antes a recusa só vinha em autorizar(), depois de o número ter sido reservado — cada venda
-    // com a emissão automática ligada deixaria um buraco na série.
-    expect(TRANSMISSAO_SEFAZ_PRONTA).toBe(false);
-    expect(() => escolherTransmissor({ ambiente: '2', certRef: 'credencial' })).toThrow(
-      /transmissão à SEFAZ ainda não está disponível/,
+  it('com certificado e UF com autorizador CONFIRMADO (RJ): vai para o transmissor direto', () => {
+    expect(TRANSMISSAO_SEFAZ_PRONTA).toBe(true);
+    expect(escolherTransmissor({ ambiente: '2', uf: 'RJ', certRef: 'credencial' })).toBeInstanceOf(
+      SefazDiretoTransmitter,
     );
   });
 
-  it('o transmissor direto, se chamado, também não finge autorizar', async () => {
-    await expect(new SefazDiretoTransmitter().autorizar()).rejects.toThrow(/Nenhuma nota foi emitida/);
+  it('com certificado e UF SEM autorizador confirmado: recusa já na ESCOLHA (antes de gastar número)', () => {
+    expect(() => escolherTransmissor({ ambiente: '2', uf: 'SP', certRef: 'credencial' })).toThrow(
+      /ainda não está habilitada/,
+    );
+  });
+
+  it('o transmissor direto sem o certificado carregado não transmite nem finge autorizar', async () => {
+    await expect(new SefazDiretoTransmitter().autorizar('<NFe/>', '', { uf: 'RJ' })).rejects.toThrow(
+      /Nenhuma nota foi emitida/,
+    );
   });
 
   it('a nota do simulado vem marcada como simulada', async () => {

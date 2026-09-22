@@ -46,6 +46,8 @@ export function CredencialFiscal() {
   const [resultadoTeste, setResultadoTeste] = useState<{ ok: boolean; texto: string } | null>(null);
   const [consultandoSefaz, setConsultandoSefaz] = useState(false);
   const [resultadoSefaz, setResultadoSefaz] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [emitindoTeste, setEmitindoTeste] = useState(false);
+  const [resultadoNota, setResultadoNota] = useState<{ ok: boolean; texto: string } | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -113,6 +115,25 @@ export function CredencialFiscal() {
       setResultadoSefaz({ ok: false, texto: e instanceof Error ? e.message : 'A consulta falhou.' });
     } finally {
       setConsultandoSefaz(false);
+    }
+  }
+
+  // Primeira nota de verdade, em HOMOLOGAÇÃO (sem valor fiscal): mostra o que a SEFAZ respondeu.
+  async function emitirNotaTeste() {
+    setEmitindoTeste(true);
+    setResultadoNota(null);
+    try {
+      const r: any = await api.emitirNfceTeste();
+      const id = `NFC-e nº ${r?.numero} série ${r?.serie}`;
+      setResultadoNota(
+        r?.status === 'autorizada'
+          ? { ok: true, texto: `${id} AUTORIZADA — protocolo ${r?.protocolo}. (${r?.motivo})` }
+          : { ok: false, texto: `${id}: ${r?.status} — ${r?.motivo}` },
+      );
+    } catch (e) {
+      setResultadoNota({ ok: false, texto: e instanceof Error ? e.message : 'A emissão de teste falhou.' });
+    } finally {
+      setEmitindoTeste(false);
     }
   }
 
@@ -250,6 +271,18 @@ export function CredencialFiscal() {
             {resultadoSefaz && (
               <p role="status" className={`text-sm ${resultadoSefaz.ok ? 'text-ok' : 'text-destructive'}`}>
                 {resultadoSefaz.texto}
+              </p>
+            )}
+            <Button type="button" variant="outline" onClick={emitirNotaTeste} disabled={emitindoTeste}>
+              {emitindoTeste ? 'Emitindo na SEFAZ…' : 'Emitir NFC-e de teste (homologação)'}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Emite de verdade, mas no ambiente de TESTE da SEFAZ: 1 item de R$ 1,00, sem valor fiscal. Só
+              funciona com o ambiente em &quot;Homologação&quot;.
+            </p>
+            {resultadoNota && (
+              <p role="status" className={`text-sm ${resultadoNota.ok ? 'text-ok' : 'text-destructive'}`}>
+                {resultadoNota.texto}
               </p>
             )}
           </div>

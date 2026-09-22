@@ -62,6 +62,10 @@ export interface NfceInput {
   // URL de "consulta pela chave de acesso" da UF (vai no <urlChave>). É DIFERENTE da URL
   // do QR Code — no RJ, a nota real imprime www.fazenda.rj.gov.br/nfce/consulta.
   urlChave: string;
+  // Responsável técnico pelo sistema emissor (grupo <infRespTec>, NT 2018.005). É a
+  // DISTRIBUIÇÃO (Regem), não a loja — vem da configuração do servidor. Sem ele o grupo não sai;
+  // se a UF exigir, a SEFAZ rejeita com 972 e é aí que ele passa a ser obrigatório para nós.
+  respTec?: { cnpj: string; contato: string; email: string; fone: string } | null;
   // Valores do PEDIDO (não do item). O builder rateia entre os itens; ver a nota
   // sobre as regras W14/W16 em `montarNfceXml`.
   desconto?: number; // desconto bancado pela LOJA (o do marketplace não é desconto na nota)
@@ -128,8 +132,13 @@ function detItem(it: NfceItem, i: number, crt: number): string {
 }
 
 // Monta o <NFe><infNFe ...>…</infNFe></NFe> (sem <Signature>).
+// Em HOMOLOGAÇÃO a descrição do PRIMEIRO item tem de ser exatamente esta (regra I04-10 —
+// rejeição 373). É o que marca, dentro do próprio documento, que ele não vale como fiscal.
+export const DESCRICAO_HOMOLOGACAO = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
+
 export function montarNfceXml(inp: NfceInput): string {
   const c = inp.config;
+  const homologacao = String(c.ambiente ?? '2') !== '1';
   const crt = Number(c.crt) || 1;
   const vProdItens = inp.itens.map(
     (it) => Number(it.quantidade) * Number(it.precoUnitario),
@@ -148,7 +157,16 @@ export function montarNfceXml(inp: NfceInput): string {
 
   const dets = inp.itens
     .map((it, i) =>
-      detItem({ ...it, vDesc: descPorItem[i], vFrete: fretePorItem[i] }, i, crt),
+      detItem(
+        {
+          ...it,
+          descricao: homologacao && i === 0 ? DESCRICAO_HOMOLOGACAO : it.descricao,
+          vDesc: descPorItem[i],
+          vFrete: fretePorItem[i],
+        },
+        i,
+        crt,
+      ),
     )
     .join('');
   // vNF = produtos − desconto + frete (os demais componentes são 0 neste layout).
@@ -232,6 +250,7 @@ export function montarNfceXml(inp: NfceInput): string {
     `<transp><modFrete>${vFreteTotal > 0 ? '0' : '9'}</modFrete></transp>` +
     pag +
     `<infAdic><infCpl>Documento emitido por Regem</infCpl></infAdic>` +
+    grupoRespTec(inp.respTec) +
     `</infNFe>`;
 
   // NFC-e: o QR Code e a URL de consulta vão num grupo PRÓPRIO, fora do <infNFe> — por isso
@@ -242,4 +261,16 @@ export function montarNfceXml(inp: NfceInput): string {
     `<urlChave>${esc(inp.urlChave)}</urlChave></infNFeSupl>`;
 
   return `<?xml version="1.0" encoding="UTF-8"?><NFe xmlns="http://www.portalfiscal.inf.br/nfe">${infNFe}${infNFeSupl}</NFe>`;
+}
+
+// <infRespTec>: vem DEPOIS de <infAdic> no leiaute. Só sai com os quatro campos preenchidos —
+// grupo pela metade é rejeição de schema.
+function grupoRespTec(r: NfceInput['respTec']): string {
+  const cnpj = soDig(r?.cnpj);
+  const fone = soDig(r?.fone);
+  if (!r || cnpj.length !== 14 || !r.contato || !r.email || fone.length < 6) return '';
+  return (
+    `<infRespTec><CNPJ>${cnpj}</CNPJ><xContato>${esc(r.contato)}</xContato>` +
+    `<email>${esc(r.email)}</email><fone>${fone}</fone></infRespTec>`
+  );
 }
