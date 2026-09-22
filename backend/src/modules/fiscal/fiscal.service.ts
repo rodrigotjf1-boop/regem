@@ -25,6 +25,13 @@ import { camposFaltando, urlConsultaQr } from './emitente';
 import { competenciaChave, dhEmiSefaz } from './fuso-fiscal';
 import { idFiscalSerie } from '../../common/id-deterministico';
 import { ehServidorLocal } from '../../common/modo';
+import {
+  credencialParaEmissao,
+  obterCredencial,
+  resumoPublico,
+  salvarCertificado,
+  salvarCsc,
+} from './credencial';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -64,7 +71,10 @@ export class FiscalService {
       );
     // Nunca devolve o CSC/token cru para o front (segredo).
     if (!row) return { ativo: false, ambiente: '2', regime: 'simples' };
-    return { ...row, cscToken: row.cscToken ? '••••••' : null };
+    // O CSC e o certificado moram em `fiscal_credencial`, cifrados (mig 279). As colunas
+    // antigas desta tabela nao sao mais usadas e nunca saem daqui.
+    const { cscToken: _c, certRef: _r, ...publico } = row as any;
+    return publico;
   }
 
   async setConfig(tenantId: string, unidadeId: string | null, dto: any) {
@@ -103,8 +113,10 @@ export class FiscalService {
       // tabela por UF no código — ver docs/cupom-fiscal.md, pendência P12.
       urlQrcodeProd: dto.urlQrcodeProd,
       urlQrcodeHomolog: dto.urlQrcodeHomolog,
-      cscId: dto.cscId,
-      certRef: dto.certRef,
+      complemento: dto.complemento,
+      // CSC e certificado NAO entram mais por aqui: rotas proprias, que guardam cifrado
+      // (PUT /fiscal/credencial/*). Aceitar aqui gravaria o segredo em texto puro numa tabela
+      // que desce para todas as lojas.
     };
     // Duas origens na mesma série seria o contador compartilhado de novo, com outro nome.
     // Compara o valor EFETIVO (o que veio no corpo ou, se ausente, o que já está gravado):
@@ -116,7 +128,6 @@ export class FiscalService {
     if ([serieFinal, serieNuvemFinal].some((s) => s < 1 || s > 999))
       throw new BadRequestException('Série fiscal: use de 1 a 999 (a série 0 é vedada).');
     // CSC só sobrescreve se veio um valor real (não o mascarado).
-    if (dto.cscToken && dto.cscToken !== '••••••') vals.cscToken = dto.cscToken;
     Object.keys(vals).forEach((k) => vals[k] === undefined && delete vals[k]);
 
     if (existente) {
@@ -128,6 +139,46 @@ export class FiscalService {
       await this.db.insert(fiscalConfig).values({ tenantId, unidadeId, ...vals });
     }
     return this.getConfig(tenantId, unidadeId);
+  }
+
+  // ===== Credenciais (certificado A1 e CSC) — sempre cifradas (mig 279) =====
+  // As rotas que ESCREVEM são só-nuvem: a cópia-mestra mora lá, cifrada com a chave da nuvem;
+  // o servidor local recebe a dele pelo canal autenticado do sync (etapa seguinte do P2).
+
+  async getCredencial(tenantId: string, unidadeId: string | null) {
+    return resumoPublico(await obterCredencial(this.db, tenantId, unidadeId));
+  }
+
+  async setCertificado(tenantId: string, atorId: string, unidadeId: string | null, dto: any) {
+    const r = await salvarCertificado(this.db, tenantId, unidadeId, dto);
+    // Auditoria com o que IDENTIFICA o certificado, nunca com o arquivo nem a senha.
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil: '',
+      tipo: 'fiscal',
+      acao: 'cadastrou_certificado',
+      entidadeTipo: 'fiscal_credencial',
+      entidadeId: null,
+      detalhe: { unidadeId, titular: r.titular, cnpj: r.cnpj, serial: r.serial, validoAte: r.validoAte },
+    });
+    return this.getCredencial(tenantId, unidadeId);
+  }
+
+  async setCsc(tenantId: string, atorId: string, unidadeId: string | null, dto: any) {
+    const r = await salvarCsc(this.db, tenantId, unidadeId, dto);
+    await this.auditoria.registrar({
+      tenantId,
+      atorId,
+      atorPerfil: '',
+      tipo: 'fiscal',
+      acao: 'cadastrou_csc',
+      entidadeTipo: 'fiscal_credencial',
+      entidadeId: null,
+      // Só o ambiente e o ID (que vai impresso no QR). O CSC em si, nunca.
+      detalhe: { unidadeId, ambiente: r.ambiente, cscId: r.id },
+    });
+    return this.getCredencial(tenantId, unidadeId);
   }
 
   // Reserva atômica do próximo número DA SÉRIE DESTA ORIGEM.
@@ -226,9 +277,15 @@ export class FiscalService {
     // sequência — e buraco não inutilizado até o 10º dia do mês seguinte é presumido pelo
     // Fisco como "documento emitido em contingência e não transmitido" (Ajuste SINIEF
     // 19/16, cl. 11ª, §5º). Então tudo que dá para conferir antes, confere-se antes.
-    const cfgPre = await this.configRaw(tenantId, c.unidadeId);
-    if (!cfgPre) throw new BadRequestException('Configure o fiscal desta unidade.');
-    if (!cfgPre.ativo) throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
+    const cfgRaw = await this.configRaw(tenantId, c.unidadeId);
+    if (!cfgRaw) throw new BadRequestException('Configure o fiscal desta unidade.');
+    if (!cfgRaw.ativo) throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
+    // CSC do AMBIENTE da config + se há certificado, vindos da credencial cifrada (mig 279).
+    const credencial = await obterCredencial(this.db, tenantId, c.unidadeId ?? null);
+    const cfgPre: any = {
+      ...cfgRaw,
+      ...credencialParaEmissao(credencial, String(cfgRaw.ambiente ?? '2')),
+    };
     const faltandoPre = camposFaltando(cfgPre);
     if (faltandoPre.length)
       throw new BadRequestException(
@@ -295,6 +352,9 @@ export class FiscalService {
     // Reserva número + monta chave/XML/QR dentro de uma transação.
     const preparado = await this.db.transaction(async (tx) => {
       const { numero, serie, config } = await this.reservarNumero(tx, tenantId, c.unidadeId);
+      // A config lida sob trava vem da tabela; o CSC e o certificado vêm da credencial
+      // (a coluna antiga `csc_token` foi esvaziada na mig 279 e não é mais lida).
+      Object.assign(config, credencialParaEmissao(credencial, String(config.ambiente ?? '2')));
 
       // PRÉ-VOO: emitente incompleto não emite. Antes, cada campo que faltava tinha um
       // padrão (CNPJ zerado, logradouro "N/D", município de São Paulo) e a nota saía assim

@@ -2062,6 +2062,7 @@ export const fiscalConfig = pgTable('fiscal_config', {
   municipio: text('municipio'),
   bairro: text('bairro'),
   numero: text('numero'),
+  complemento: text('complemento'), // xCpl — ex.: "LOJA 02" (mig 279)
   cep: text('cep'),
   // URL de consulta do QR Code: varia por UF e por ambiente. Preenchida pela DISTRIBUIÇÃO.
   urlQrcodeProd: text('url_qrcode_prod'),
@@ -2069,6 +2070,32 @@ export const fiscalConfig = pgTable('fiscal_config', {
   cscId: text('csc_id'),
   cscToken: text('csc_token'),
   certRef: text('cert_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// CERTIFICADO A1 E CSC — SÓ CIFRADOS, E FORA DO SINCRONISMO (mig 279).
+// Cada lado cifra com a sua `SEGREDOS_CHAVE` (common/cifra-segredo.ts), então o valor
+// cifrado de um banco não abre no outro — uma loja comprometida não expõe as demais. Os
+// campos `cert_*` sem "cifrado" são dados PÚBLICOS do certificado, para a tela mostrar.
+// NUNCA devolver as colunas `*_cifrado`/`*_cifrada` por rota nenhuma.
+export const fiscalCredencial = pgTable('fiscal_credencial', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  certPfxCifrado: text('cert_pfx_cifrado'),
+  certSenhaCifrada: text('cert_senha_cifrada'),
+  certTitular: text('cert_titular'),
+  certCnpj: text('cert_cnpj'),
+  certSerial: text('cert_serial'),
+  certValidoDe: timestamp('cert_valido_de', { withTimezone: true }),
+  certValidoAte: timestamp('cert_valido_ate', { withTimezone: true }),
+  cscIdHomolog: text('csc_id_homolog'),
+  cscHomologCifrado: text('csc_homolog_cifrado'),
+  cscIdProd: text('csc_id_prod'),
+  cscProdCifrado: text('csc_prod_cifrado'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { CredencialFiscal } from '@/components/fiscal/credencial-fiscal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
@@ -78,12 +79,10 @@ export default function FiscalConfigPage() {
         municipio: f.municipio,
         bairro: f.bairro,
         numero: f.numero,
+        complemento: f.complemento,
         cep: f.cep,
         urlQrcodeProd: f.urlQrcodeProd,
         urlQrcodeHomolog: f.urlQrcodeHomolog,
-        cscId: f.cscId,
-        cscToken: f.cscToken,
-        certRef: f.certRef,
       });
       toast.success('Configuração fiscal salva.');
       await reload();
@@ -198,6 +197,10 @@ export default function FiscalConfigPage() {
               <Input value={f.numero ?? ''} onChange={(e) => set({ numero: e.target.value })} placeholder="100" />
             </div>
             <div className="space-y-1">
+              <Label className="text-xs">Complemento</Label>
+              <Input value={f.complemento ?? ''} onChange={(e) => set({ complemento: e.target.value })} placeholder="LOJA 02" />
+            </div>
+            <div className="space-y-1">
               <Label className="text-xs">Bairro</Label>
               <Input value={f.bairro ?? ''} onChange={(e) => set({ bairro: e.target.value })} placeholder="Centro" />
             </div>
@@ -225,28 +228,12 @@ export default function FiscalConfigPage() {
             </div>
           </div>
 
-          <div className="border-t border-border pt-3">
-            <p className="mb-2 text-xs font-semibold text-muted-foreground">Credenciais (NFC-e)</p>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="space-y-1">
-                <Label className="text-xs">CSC — idToken</Label>
-                <Input value={f.cscId ?? ''} onChange={(e) => set({ cscId: e.target.value })} placeholder="000001" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">CSC — token</Label>
-                <Input value={f.cscToken ?? ''} onChange={(e) => set({ cscToken: e.target.value })} placeholder="•••• (segredo)" />
-              </div>
-              <div className="space-y-1 sm:col-span-2">
-                <Label className="text-xs">Certificado A1 (referência no edge)</Label>
-                <Input value={f.certRef ?? ''} onChange={(e) => set({ certRef: e.target.value })} placeholder="deixe vazio p/ homologação simulada" />
-              </div>
-            </div>
-          </div>
-
           <Button type="button" onClick={salvar} disabled={salvando}>
             {salvando ? 'Salvando…' : 'Salvar configuração'}
           </Button>
         </Card>
+
+        <CredencialFiscal />
 
         <Card className="p-4">
           <h2 className="mb-1 font-display text-sm font-bold">Autorização de caixa</h2>
