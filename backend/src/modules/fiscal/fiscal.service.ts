@@ -1,5 +1,7 @@
 import {
+  BadGatewayException,
   BadRequestException,
+  ServiceUnavailableException,
   Inject,
   Injectable,
   NotFoundException,
@@ -32,7 +34,11 @@ import {
   salvarCertificado,
   salvarCsc,
   testarAssinatura,
+  certificadoParaAssinar,
 } from './credencial';
+import { consultarStatusServico } from './sefaz/status-servico';
+import { SefazInalcancavel, SefazRecusouChamada } from './sefaz/soap';
+import { UfSemAutorizador } from './sefaz/webservices';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -171,6 +177,28 @@ export class FiscalService {
   // Assina uma NFC-e de exemplo com o certificado GUARDADO e confere — sem SEFAZ, sem gravar.
   testarCertificado(tenantId: string, unidadeId: string | null) {
     return testarAssinatura(this.db, tenantId, unidadeId);
+  }
+
+  // "A SEFAZ está no ar e me aceita?" — consulta de STATUS com o certificado guardado.
+  // Não emite, não gasta número, não grava nada. Prova o caminho inteiro até a autorização:
+  // endereço da UF, certificado no TLS, verificação do servidor pela raiz ICP-Brasil, SOAP.
+  async statusSefaz(tenantId: string, unidadeId: string | null) {
+    const cfg: any = await this.configRaw(tenantId, unidadeId);
+    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
+    if (!cfg.uf || !cfg.codigoUf)
+      throw new BadRequestException('Informe a UF e o código IBGE da UF na configuração fiscal.');
+    const cert = certificadoParaAssinar(await obterCredencial(this.db, tenantId, unidadeId));
+    try {
+      return await consultarStatusServico({
+        uf: cfg.uf, codigoUf: cfg.codigoUf, ambiente: String(cfg.ambiente ?? '2'), cert,
+      });
+    } catch (e: any) {
+      // Cada causa com o código certo: a tela e o log precisam distinguir.
+      if (e instanceof UfSemAutorizador) throw new BadRequestException(e.message);
+      if (e instanceof SefazInalcancavel) throw new ServiceUnavailableException(e.message);
+      if (e instanceof SefazRecusouChamada) throw new BadGatewayException(e.message);
+      throw e;
+    }
   }
 
   async setCsc(tenantId: string, atorId: string, unidadeId: string | null, dto: any) {

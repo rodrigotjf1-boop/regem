@@ -26,7 +26,8 @@
 | Entrega do certificado ao servidor LOCAL | NÃO EXISTE (etapa seguinte do P2) |
 | **Assinatura XML-DSig com o A1** | Existe — `assinatura.ts` (etapa B), conferida por dois caminhos independentes |
 | Grupo `<infNFeSupl>` (QR Code + URL de consulta pela chave) | Existe — etapa B (antes o QR nunca ia para o XML) |
-| **Transmissão real à SEFAZ** (`NFeAutorizacao4`) | **NÃO EXISTE** |
+| Conexão com a SEFAZ: SOAP 1.2, certificado de cliente, raiz ICP-Brasil, consulta de status | Existe — `sefaz/` (etapa C1) |
+| **Transmissão real à SEFAZ** (`NFeAutorizacao4`) | **NÃO EXISTE** (etapa C2) |
 | Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
 | Inutilização de faixa | NÃO EXISTE |
 | Grupos IBS/CBS/IS (reforma) | NÃO EXISTE |
@@ -199,6 +200,15 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   de `<NFe>`: `infNFe` → `infNFeSupl` → `Signature`. O teste confere cada assinatura também por um
   caminho SEM a biblioteca (C14N reconstruída para o XML do nosso builder) — com aspas, `&`, `<`,
   `>`, acentos e apóstrofo no nome do produto; sabotar a regra das aspas faz o teste reprovar.
+- **Conexão com a SEFAZ (etapa C1)** — `sefaz/soap.ts`: SOAP 1.2 com a ação no Content-Type, o
+  **certificado A1 no aperto de mão TLS** e o servidor **verificado pela raiz ICP-Brasil v10**
+  (`sefaz/icp-brasil.ts`). O Node não traz essa raiz (ela não está na lista da Mozilla), e a
+  saída é somá-la às raízes do Node SÓ nestas conexões — nunca desligar a verificação. A raiz
+  foi baixada do repositório do ITI, provada criptograficamente contra a cadeia que a SVRS
+  apresenta e conferida pelo SHA-256 publicado; o teste reprova se ela for trocada.
+  Endereços da SVRS copiados do portal oficial; **UF sem autorizador confirmado é recusada**
+  (hoje só o RJ). Falhas separadas: "SEFAZ não respondeu" (503) × "SEFAZ recusou" (502).
+  Botão **"Testar conexão com a SEFAZ"**: consulta de status, sem emitir nada.
 - **"Testar certificado"** — assina uma NFC-e de exemplo com o certificado GUARDADO e confere,
   sem SEFAZ e sem gravar nada: senha, chave de proteção e formato do .pfx aparecem antes da
   primeira transmissão.
@@ -231,6 +241,7 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Só o mecanismo de expiração está documentado, não o prazo |
 | P14 | Regras estaduais de **AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO** | Sabe-se apenas que autorizam via SVRS |
 | P15 | **`cIdToken` no QR: com ou sem zeros à esquerda** ("000001" × "1") — guardamos como digitado | Conferir no Manual do DANFE NFC-e e QR Code v6.0 antes de montar o QR real (etapa C) |
+| P17 | **RJ → SVRS na NFC-e**: deduzido por exclusão (portal da SVRS) e por avisos da SEFAZ-RJ; o site da SEFAZ-RJ bloqueia IP estrangeiro e não pude ler a página oficial | O "Testar conexão com a SEFAZ" confirma: a SVRS só responde 107 para UF que atende |
 | ~~P16~~ | ~~.pfx exportado pelo Windows~~ — **RESOLVIDO 22/09/2026**: o certificado real da loja-piloto, exportado do Windows, foi cadastrado em produção e abriu no `node-forge`. O botão "Testar certificado" (etapa B) prova também a assinatura com ele. | — |
 
 ---
@@ -239,6 +250,7 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 
 | Data | O que mudou |
 |---|---|
+| 22/09/2026 | Etapa C1 do P2: conexão com a SEFAZ (SOAP 1.2, certificado de cliente, raiz ICP-Brasil v10), consulta de status. Pendência P17. |
 | 22/09/2026 | Etapa B do P2: assinatura XML-DSig, grupo `infNFeSupl` com QR e `urlChave` (mig 280), "Testar certificado". P16 resolvido. |
 | 22/09/2026 | Etapa A do P2: certificado A1 e CSC cifrados (mig 279), leitura do .pfx, tela de cadastro. Pendências P15 e P16. |
 | 21/09/2026 | Documento criado. Pesquisa de 20/09/2026 consolidada; auditoria do emissor; decisões D1-D8; mig 278 (emissão *fail-closed* + série por origem). |
