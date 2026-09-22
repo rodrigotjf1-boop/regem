@@ -2043,7 +2043,11 @@ export const fiscalConfig = pgTable('fiscal_config', {
   ambiente: text('ambiente').notNull().default('2'), // 1 produção | 2 homologação
   regime: text('regime').notNull().default('simples'), // simples | normal
   crt: integer('crt').notNull().default(1),
+  // Série da LOJA (servidor local). A da nuvem é `serieNuvem`. Os contadores vivem em
+  // `fiscal_serie` (mig 278) — `proximoNumero` aqui ficou só como histórico do contador
+  // único que existia antes, e não é mais usado para reservar número.
   serie: integer('serie').notNull().default(1),
+  serieNuvem: integer('serie_nuvem').notNull().default(2),
   proximoNumero: integer('proximo_numero').notNull().default(1),
   cnpj: text('cnpj'),
   razaoSocial: text('razao_social'),
@@ -2053,9 +2057,37 @@ export const fiscalConfig = pgTable('fiscal_config', {
   codigoUf: integer('codigo_uf'),
   codigoMunicipio: integer('codigo_municipio'),
   endereco: text('endereco'),
+  // Endereço completo do emitente: o grupo `enderEmit` do leiaute 4.00 exige bairro e
+  // número, e o município é campo próprio (antes o XML levava a UF no lugar dele).
+  municipio: text('municipio'),
+  bairro: text('bairro'),
+  numero: text('numero'),
+  cep: text('cep'),
+  // URL de consulta do QR Code: varia por UF e por ambiente. Preenchida pela DISTRIBUIÇÃO.
+  urlQrcodeProd: text('url_qrcode_prod'),
+  urlQrcodeHomolog: text('url_qrcode_homolog'),
   cscId: text('csc_id'),
   cscToken: text('csc_token'),
   certRef: text('cert_ref'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// CONTADOR DA NUMERAÇÃO, POR ORIGEM (mig 278).
+// `origem` é ONDE o código roda: 'loja' (servidor local) ou 'nuvem'. Séries distintas são
+// expressamente permitidas (Ajuste SINIEF 19/16, cl. 4ª, §1º) e não se comunicam ao Fisco.
+// Com um contador só, nuvem e loja separadas pela queda do link emitiriam duas notas com o
+// MESMO número — mesma chave, rejeição por duplicidade. Esta tabela NÃO sincroniza: cada
+// lado é dono do seu contador (ver docs/cupom-fiscal.md §5, decisões D2 e D3).
+export const fiscalSerie = pgTable('fiscal_serie', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  origem: text('origem').notNull(), // loja | nuvem
+  serie: integer('serie').notNull(),
+  proximoNumero: integer('proximo_numero').notNull().default(1),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2073,6 +2105,9 @@ export const notaFiscal = pgTable('nota_fiscal', {
   chave: text('chave'),
   ambiente: text('ambiente').notNull().default('2'),
   status: text('status').notNull().default('pendente'), // pendente|autorizada|rejeitada|cancelada|contingencia
+  // true = a "autorização" veio do transmissor SIMULADO, sem passar pela SEFAZ. Nota
+  // simulada nunca é documento fiscal, e o cupom dela sai com tarja.
+  simulada: boolean('simulada').notNull().default(false),
   protocolo: text('protocolo'),
   motivo: text('motivo'),
   qrcode: text('qrcode'),

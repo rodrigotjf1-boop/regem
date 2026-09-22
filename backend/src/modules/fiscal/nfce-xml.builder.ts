@@ -51,6 +51,7 @@ export interface NfceItem {
 
 export interface NfceInput {
   config: any; // fiscal_config
+  serie: number; // série do ponto de emissão (fiscal_serie), não a da config
   numero: number;
   chave: string; // 44 díg (sem "NFe")
   cNF: string;
@@ -153,16 +154,18 @@ export function montarNfceXml(inp: NfceInput): string {
 
   const ide =
     `<ide>` +
-    `<cUF>${c.codigoUf ?? 35}</cUF>` +
+    `<cUF>${soDig(c.codigoUf)}</cUF>` +
     `<cNF>${inp.cNF}</cNF>` +
     `<natOp>Venda</natOp>` +
     `<mod>65</mod>` +
-    `<serie>${c.serie ?? 1}</serie>` +
+    // A série vem de quem reservou o número (`fiscal_serie`, por origem), não da config:
+    // a nuvem e a loja usam séries diferentes e a chave tem de bater com o `ide`.
+    `<serie>${Number(inp.serie)}</serie>` +
     `<nNF>${inp.numero}</nNF>` +
     `<dhEmi>${inp.dhEmi}</dhEmi>` +
     `<tpNF>1</tpNF>` +
     `<idDest>1</idDest>` +
-    `<cMunFG>${c.codigoMunicipio ?? 3550308}</cMunFG>` +
+    `<cMunFG>${soDig(c.codigoMunicipio)}</cMunFG>` +
     `<tpImp>4</tpImp>` + // 4 = DANFE NFC-e
     `<tpEmis>1</tpEmis>` +
     `<cDV>${inp.chave.slice(-1)}</cDV>` +
@@ -179,12 +182,19 @@ export function montarNfceXml(inp: NfceInput): string {
     `<CNPJ>${soDig(c.cnpj)}</CNPJ>` +
     `<xNome>${esc(c.razaoSocial || 'EMITENTE')}</xNome>` +
     (c.nomeFantasia ? `<xFant>${esc(c.nomeFantasia)}</xFant>` : '') +
+    // Ordem fixada pelo leiaute 4.00: xLgr, nro, xCpl, xBairro, cMun, xMun, UF, CEP…
+    // `xBairro` é OBRIGATÓRIO e não era emitido. `xMun` é o nome do MUNICÍPIO — levava a
+    // UF, que é o campo seguinte. Nada aqui tem padrão: `emitente.camposFaltando()` barra
+    // a emissão antes de chegar neste ponto (documento fiscal não se completa por conta
+    // própria).
     `<enderEmit>` +
-    `<xLgr>${esc(c.endereco || 'N/D')}</xLgr>` +
-    `<nro>SN</nro>` +
-    `<xMun>${esc(c.uf || 'N/D')}</xMun>` +
-    `<UF>${esc(c.uf || 'SP')}</UF>` +
-    `<cMun>${c.codigoMunicipio ?? 3550308}</cMun>` +
+    `<xLgr>${esc(c.endereco)}</xLgr>` +
+    `<nro>${esc(c.numero)}</nro>` +
+    `<xBairro>${esc(c.bairro)}</xBairro>` +
+    `<cMun>${soDig(c.codigoMunicipio)}</cMun>` +
+    `<xMun>${esc(c.municipio)}</xMun>` +
+    `<UF>${esc(c.uf)}</UF>` +
+    (soDig(c.cep) ? `<CEP>${soDig(c.cep).padStart(8, '0')}</CEP>` : '') +
     `<cPais>1058</cPais><xPais>BRASIL</xPais>` +
     `</enderEmit>` +
     `<IE>${soDig(c.ie) || 'ISENTO'}</IE>` +

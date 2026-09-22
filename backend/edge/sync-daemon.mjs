@@ -1731,6 +1731,12 @@ const VOLTA_DA_NUVEM = new Set([
   // pendencias-wipe.spec.ts falha se as duas listas se separarem.
   'funcao_setor', 'colaborador_funcao', 'modulo_ativacao', 'cupom',
   'encomenda_regra_sinal', 'encomenda_recorrencia', 'banner',
+  // Fiscal (mig 278): a configuração do emitente é master na nuvem e DESCE — sem ela a
+  // loja não tem CNPJ, endereço nem CSC para montar o cupom. A NFC-e passou a voltar
+  // também: é guarda obrigatória de 5 anos do emitente, e é dela que a numeração se
+  // recupera num banco novo (sem as notas de volta, o contador reiniciaria em 1 e
+  // repetiria chave de acesso).
+  'fiscal_config', 'nota_fiscal',
 ]);
 
 // DONA É A NUVEM (regra de distribuição): licença, telemetria, campanhas, credenciais de
@@ -1766,6 +1772,12 @@ const DESCARTAVEL = new Set([
   // (mig 274). O extrato (`cashback_movimento`, `fidelidade_ponto`, `fidelidade_resgate`)
   // é que sincroniza — número sincronizado por última-escrita apagaria crédito.
   'cashback_saldo', 'fidelidade_cliente',
+  // Contador da numeração fiscal DESTE ponto de emissão (mig 278). Cada lado é dono do
+  // seu: a loja emite na série dela, a nuvem na dela, e sincronizar o número por
+  // última-escrita faria a sequência andar para trás e repetir chave de acesso. Num banco
+  // novo ele se refaz sozinho a partir do maior número já emitido na série — por isso
+  // `nota_fiscal` precisa VOLTAR (lista acima).
+  'fiscal_serie',
 ]);
 
 // Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].

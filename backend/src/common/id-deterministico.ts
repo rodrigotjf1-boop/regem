@@ -30,3 +30,9 @@ export const idEscalaAlocacao = (
   turnoId: string,
   colaboradorId: string,
 ) => uuidDeChave(unidadeId, data, turnoId, colaboradorId);
+
+// Série fiscal: a empresa, a loja e a ORIGEM ('loja' | 'nuvem'). A linha é criada sob
+// demanda pelo lado que for emitir primeiro; derivando o id, os dois lados criam a MESMA
+// linha — e a migration 278 semeia com esta mesma conta.
+export const idFiscalSerie = (tenantId: string, unidadeId: string | null, origem: string) =>
+  uuidDeChave(tenantId, unidadeId, origem);
