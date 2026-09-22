@@ -19,7 +19,10 @@ const env = {
   ...process.env,
   NEXT_PUBLIC_EDGE: '1', // liga a descoberta da API pela origem
   NEXT_PUBLIC_API_URL: '', // sem URL chumbada (edge)
-  NEXT_PUBLIC_EDGE_API_PORT: '3002', // porta da API no edge
+  // Porta da API no edge. ⚠️ Fica CHUMBADA no app: o navegador dos aparelhos vai chamar
+  // exatamente esta. Mudar aqui obriga a instalar com o mesmo valor — o instalar-tudo.ps1
+  // recusa qualquer -Porta diferente ($PORTA_API_DO_APP) justamente por causa disto.
+  NEXT_PUBLIC_EDGE_API_PORT: '3002',
 };
 
 if (!existsSync(join(front, 'node_modules', 'next'))) {

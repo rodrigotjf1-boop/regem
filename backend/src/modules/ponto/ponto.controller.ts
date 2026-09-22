@@ -18,6 +18,7 @@ import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 import { PontoService } from './ponto.service';
 import { MarcarPontoDto } from './dto/marcar-ponto.dto';
 import { IncluirMarcacaoDto } from './dto/incluir-marcacao.dto';
@@ -134,6 +135,10 @@ export class PontoController {
   }
 
   // Gera/recalcula o fechamento do mês (sem competência = mês anterior). Idempotente.
+  // SÓ NA NUVEM: o servidor local tem apenas a janela de espelho (~60 dias) do ponto e
+  // fecharia o mês sobre dado incompleto — e o fechamento não sobe de lá (a tabela é da
+  // nuvem). Vale a mesma razão do cron `fecharPontoMensal`.
+  @CloudOnly()
   @Post('fechamentos/gerar')
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('ponto_gerencial')
@@ -164,6 +169,9 @@ export class PontoController {
 
   // Encaminha o espelho do mês ao RH (contador) por WhatsApp. Sem responsável
   // cadastrado e sem nome/telefone no corpo → responde { precisaResponsavel: true }.
+  // SÓ NA NUVEM: ela grava o fechamento (mesma razão acima) e o envio usa as tabelas
+  // de WhatsApp, que não existem no servidor local.
+  @CloudOnly()
   @Post('fechamentos/:competencia/enviar')
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('ponto_gerencial')

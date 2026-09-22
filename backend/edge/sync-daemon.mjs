@@ -1750,6 +1750,22 @@ const SO_NUVEM = new Set([
   'entregador_dispositivo', 'entregador_chegada', 'entregador_localizacao', 'entregador_posicao', 'entregador_fila',
   'entregador_config', 'entregador_saida', 'entregador_fechamento', 'entregador_perfil_pagamento', 'entregador_preferencia',
   'edge_comando', 'edge_release', 'no_local',
+  // Fechamento mensal do ponto: a nuvem tem o histórico inteiro, o servidor local só a
+  // janela de espelho (~60 dias) — fechar o mês aqui daria um mês incompleto. O cron e a
+  // rota que o geram passaram a ser só-nuvem; a cópia local, se existir de uma versão
+  // antiga, é justamente a errada e não faz falta.
+  'ponto_fechamento',
+]);
+
+// LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que
+// nunca foram construídos — não estão no `schema.ts`, nenhum serviço as lê ou escreve e
+// elas nunca recebem linha. Ficavam FORA de toda lista e, por desenho, uma tabela não
+// classificada BLOQUEIA a reinstalação: bastaria uma linha aparecer ali para travar a
+// loja sem ninguém entender por quê. Classificadas para tirar a trava do acaso. Candidatas
+// a serem removidas por migration quando alguém confirmar que não há dado nelas em nuvem
+// nenhuma.
+const LEGADO_SEM_USO = new Set([
+  'ausencia', 'colaborador_unidade', 'equipe', 'equipe_membro',
 ]);
 
 // Descartável: fila/estado de trabalho desta máquina ou dado recalculável. Apagar
@@ -1794,7 +1810,10 @@ async function pendenciasLocais(contar = true) {
   for (const row of r.rows) {
     const t = row.table_name;
     if (!/^[a-z_][a-z0-9_]*$/.test(t)) continue; // nome fora do padrão: não interpolar
-    if (sobe.has(t) || VOLTA_DA_NUVEM.has(t) || SO_NUVEM.has(t) || DESCARTAVEL.has(t)) continue;
+    if (
+      sobe.has(t) || VOLTA_DA_NUVEM.has(t) || SO_NUVEM.has(t) ||
+      DESCARTAVEL.has(t) || LEGADO_SEM_USO.has(t)
+    ) continue;
     try {
       const c = contar
         ? await pool.query(`select count(*)::int as n from "${t}"`)

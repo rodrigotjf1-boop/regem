@@ -10,6 +10,7 @@ import { OrdemProducaoService } from '../ordem-producao/ordem-producao.service';
 import { PedidoManutencaoService } from '../pedido-manutencao/pedido-manutencao.service';
 import { EtiquetaValidadeService } from '../etiqueta-validade/etiqueta-validade.service';
 import { PontoService, competenciaMesAnterior } from '../ponto/ponto.service';
+import { ehServidorLocal } from '../../common/modo';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Agendador de jobs do backend. (Instância única no EasyPanel — sem lock distribuído.)
@@ -33,6 +34,12 @@ export class JobsService {
   // pendências, alerta o gestor (Gerenciamento de ponto).
   @Cron('0 6 1 * *') // 06:00 do dia 1 de cada mês
   async fecharPontoMensal() {
+    // SÓ NA NUVEM. O servidor local guarda apenas a janela de espelho (~60 dias) do
+    // ponto, então aqui ele calcularia o fechamento sobre um mês INCOMPLETO e gravaria
+    // um `ponto_fechamento` errado — que não sobe para lugar nenhum (a tabela é da
+    // nuvem) e ainda ficava travando a reinstalação do servidor local, por ser dado
+    // que não sai dali. A nuvem tem o histórico inteiro e é quem fecha.
+    if (ehServidorLocal()) return;
     const competencia = competenciaMesAnterior();
     const [ano, mes] = competencia.split('-');
     for (const tenantId of await this.tenantsAtivos()) {
