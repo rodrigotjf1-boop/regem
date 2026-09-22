@@ -1755,6 +1755,12 @@ const SO_NUVEM = new Set([
   // rota que o geram passaram a ser só-nuvem; a cópia local, se existir de uma versão
   // antiga, é justamente a errada e não faz falta.
   'ponto_fechamento',
+  // Certificado A1 e CSC (mig 279). A cópia-MESTRA fica na nuvem, cifrada com a chave dela.
+  // NUNCA sincroniza: cada lado cifra com a SUA `SEGREDOS_CHAVE`, então o valor de um banco
+  // não abre no outro. Hoje a loja NÃO tem cópia (as rotas de cadastro são só-nuvem); a
+  // entrega à loja, cifrada com a chave DELA, é a etapa seguinte do P2. Apagar a cópia local
+  // numa reinstalação não perde nada — a mestra está na nuvem.
+  'fiscal_credencial',
 ]);
 
 // LEGADO SEM USO: tabelas criadas nas migrations de fundação (002/003) para recursos que

@@ -689,6 +689,13 @@ export const api = {
     req(`/fiscal/config${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   setFiscalConfig: (body: Record<string, unknown>) =>
     req('/fiscal/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Certificado A1 e CSC: a leitura traz só dados públicos; a escrita guarda cifrado (mig 279).
+  fiscalCredencial: (unidadeId?: string) =>
+    req(`/fiscal/credencial${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
+  enviarCertificadoFiscal: (body: { pfxBase64: string; senha: string; unidadeId?: string }) =>
+    req('/fiscal/credencial/certificado', { method: 'PUT', body: JSON.stringify(body) }),
+  salvarCscFiscal: (body: { ambiente: '1' | '2'; cscId: string; csc: string; unidadeId?: string }) =>
+    req('/fiscal/credencial/csc', { method: 'PUT', body: JSON.stringify(body) }),
   emitirNfce: (comandaId: string) =>
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),

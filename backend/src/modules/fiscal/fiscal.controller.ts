@@ -17,6 +17,7 @@ import { CurrentUser } from '../../auth/current-user.decorator';
 import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { AuthUser } from '../../auth/auth-user';
 import { FiscalService } from './fiscal.service';
+import { CloudOnly } from '../../common/cloud-only.decorator';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // A GESTÃO fiscal (config, lista de notas, cancelamento) exige a permissão "fiscal".
@@ -43,6 +44,37 @@ export class FiscalController {
   @Roles('presidente')
   setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.service.setConfig(user.tenantId, dto?.unidadeId || null, dto);
+  }
+
+  // ===== Certificado A1 e CSC (mig 279) =====
+  // Leitura: só dados PÚBLICOS (titular, CNPJ, validade, IDs de CSC) — nunca segredo.
+  @Get('credencial')
+  @RequirePerm('fiscal_config')
+  credencial(
+    @CurrentUser() user: AuthUser,
+    @UnidadeAtual() unidadeAtual: string | null,
+    @Query('unidadeId') unidadeId?: string,
+  ) {
+    return this.service.getCredencial(
+      user.tenantId,
+      (user.categoria === 'presidente' ? unidadeId || unidadeAtual : unidadeAtual) || null,
+    );
+  }
+
+  // Escrita: SÓ NA NUVEM e só o presidente. A cópia-mestra fica cifrada na nuvem; o servidor
+  // local recebe a sua pelo canal autenticado do sync, cifrada com a chave DELE.
+  @CloudOnly()
+  @Put('credencial/certificado')
+  @Roles('presidente')
+  setCertificado(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setCertificado(user.tenantId, user.colaboradorId, dto?.unidadeId || null, dto);
+  }
+
+  @CloudOnly()
+  @Put('credencial/csc')
+  @Roles('presidente')
+  setCsc(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.setCsc(user.tenantId, user.colaboradorId, dto?.unidadeId || null, dto);
   }
 
   @Post('comandas/:id/emitir')

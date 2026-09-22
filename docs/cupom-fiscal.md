@@ -21,6 +21,9 @@
 | Chave de 44 dígitos, DV módulo 11, QR Code (NT 2015/002 v2, SHA-1 + CSC) | Existe — `chave.ts` |
 | Numeração por série, com reserva atômica | Existe — `fiscal_serie` (mig 278) |
 | Emissão à prova de configuração faltando (*fail-closed*) | Existe — mig 278 / `transmitter.ts` |
+| **Certificado A1 e CSC guardados cifrados** (AES-256-GCM, fora do sync) | Existe — mig 279 / `credencial.ts`, `cifra-segredo.ts` |
+| Leitura do .pfx (cadeia, CNPJ, validade, raiz do CNPJ × emitente) | Existe — `certificado.ts` |
+| Entrega do certificado ao servidor LOCAL | NÃO EXISTE (etapa seguinte do P2) |
 | **Assinatura XML-DSig com o A1** | **NÃO EXISTE** |
 | **Transmissão real à SEFAZ** (`NFeAutorizacao4`) | **NÃO EXISTE** |
 | Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
@@ -173,6 +176,25 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 - **`dhEmi` no fuso da UF** (`fuso-fiscal.ts`): AC −05:00; AM, MT, MS, RO, RR −04:00; demais −03:00.
   A competência `AAMM` da chave vem **do mesmo instante local**, senão vira o mês errado na virada.
 - **`cStat`** já viaja no retorno do transmissor, e `ehAutorizado()` aceita **100, 120 e 150**.
+- **Certificado A1 e CSC — `fiscal_credencial`** (mig 279):
+  - cifrados com **AES-256-GCM** e a chave `SEGREDOS_CHAVE` **deste** servidor (a nuvem tem a
+    sua; cada loja terá a dela). GCM autentica: dado alterado no banco é **recusado**, não lido;
+  - a tabela **não sincroniza** — com chaves diferentes, o valor de um lado não abre no outro, e
+    uma loja comprometida não expõe as demais;
+  - **sem a chave, nada é guardado** (recusa com a instrução de como gerar), nunca "em texto puro";
+  - o **público** fica em claro para a tela: titular, CNPJ, série, validade e o ID de cada CSC;
+  - **um CSC por ambiente** (homologação e produção têm ID e valor diferentes) — a emissão pega o
+    do ambiente da config;
+  - vale **por loja ou para a rede**: o CSC e o certificado são da empresa (o portal da SEFAZ-RJ
+    diz "o CSC é único para empresa"); a credencial da loja, se existir, tem prioridade;
+  - o certificado é conferido **antes** de guardar: senha, se é e-CNPJ, validade e se a **raiz do
+    CNPJ** é a do emitente (rejeição **213** da SEFAZ);
+  - o .pfx vem com a cadeia da autoridade: o certificado usado é o que **casa com a chave
+    privada**, não o primeiro do arquivo;
+  - as rotas de cadastro são **só-nuvem** e só do presidente; a auditoria registra titular, série
+    e validade — nunca o arquivo, a senha ou o CSC.
+- **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
+  para as lojas, e o segredo seria copiado para cada uma.
 
 ---
 
@@ -197,6 +219,8 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 | P12 | **URLs de QR Code das 27 UFs** | Preencher a partir do **Manual do DANFE NFC-e e QR Code v6.0**; até lá é configuração por loja, e sem ela a emissão é recusada |
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Só o mecanismo de expiração está documentado, não o prazo |
 | P14 | Regras estaduais de **AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO** | Sabe-se apenas que autorizam via SVRS |
+| P15 | **`cIdToken` no QR: com ou sem zeros à esquerda** ("000001" × "1") — guardamos como digitado | Conferir no Manual do DANFE NFC-e e QR Code v6.0 antes de montar o QR real (etapa C) |
+| P16 | **.pfx exportado pelo Windows com AES-256 e MAC SHA-256** — o `node-forge` abre o AES-256 que ele mesmo gera (testado), mas o formato do Windows ainda não foi provado | Confirmar com o arquivo real na homologação; se falhar, a mensagem pede para exportar em TripleDES-SHA1 |
 
 ---
 
@@ -204,4 +228,5 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 
 | Data | O que mudou |
 |---|---|
+| 22/09/2026 | Etapa A do P2: certificado A1 e CSC cifrados (mig 279), leitura do .pfx, tela de cadastro. Pendências P15 e P16. |
 | 21/09/2026 | Documento criado. Pesquisa de 20/09/2026 consolidada; auditoria do emissor; decisões D1-D8; mig 278 (emissão *fail-closed* + série por origem). |
