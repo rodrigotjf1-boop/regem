@@ -27,6 +27,7 @@ const CONFIG_OK = {
   endereco: 'Rua das Flores',
   bairro: 'Centro',
   numero: '100',
+  cep: '01001-000',
   cscId: '000001',
   cscToken: 'CSC-SECRETO',
   ambiente: '2',
@@ -117,6 +118,7 @@ describe('pré-voo do emitente', () => {
     ['municipio', 'município'],
     ['bairro', 'bairro'],
     ['numero', 'número'],
+    ['cep', 'CEP'],
     ['cscToken', 'CSC'],
     ['codigoMunicipio', 'código do município (IBGE)'],
   ])('sem %s a emissão não passa', (chave, rotulo) => {
@@ -125,6 +127,13 @@ describe('pré-voo do emitente', () => {
 
   it('CNPJ com menos de 14 dígitos não passa', () => {
     expect(camposFaltando({ ...CONFIG_OK, cnpj: '1234' })).toContain('CNPJ');
+  });
+
+  // O CEP do emitente é obrigatório no leiaute (1-1, 8 dígitos). Faltava na lista: a nota saía
+  // sem ele, a SEFAZ rejeitava com 225 e o número já tinha sido gasto (ERR-086).
+  it('CEP incompleto não passa — a falta tem de aparecer aqui, não na SEFAZ', () => {
+    expect(camposFaltando({ ...CONFIG_OK, cep: '2122' })).toContain('CEP');
+    expect(camposFaltando({ ...CONFIG_OK, cep: '21221-240' })).toEqual([]);
   });
 
   it('a URL do QR é por AMBIENTE — a de produção não serve para homologação', () => {

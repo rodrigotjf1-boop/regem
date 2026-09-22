@@ -29,6 +29,8 @@
 | Conexão com a SEFAZ: SOAP 1.2, certificado de cliente, raiz ICP-Brasil, consulta de status | Existe — `sefaz/` (etapa C1) |
 | **Transmissão real à SEFAZ** (`NFeAutorizacao4`, lote síncrono) | Existe — `sefaz/autorizacao.ts` (etapa C2) |
 | NFC-e de teste em homologação (1 item de R$ 1,00, sem venda) | Existe — rota só-nuvem + botão na tela (etapa C2) |
+| Validação do XML contra o **XSD oficial** (PL_009_V4) dentro da suíte | Existe — `nfce-xsd.spec.ts` |
+| **NFC-e AUTORIZADA pela SEFAZ** (homologação, SVRS/RJ) | ✅ 22/09/2026 — nº 2, série 51, protocolo `333260002547395`, cStat 100 |
 | Consulta de recibo/protocolo para nota que ficou `pendente` | NÃO EXISTE (P18) |
 | Reaproveitamento ou **inutilização** do número de nota rejeitada | NÃO EXISTE (P19) |
 | Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
@@ -238,6 +240,17 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 - **Série usada em homologação não vai para produção:** o contador é por série, não por ambiente — a
   produção começaria no número seguinte ao último teste, e os números dos testes seriam, para o Fisco,
   buraco na sequência de produção. A reserva recusa e manda usar outra série (ERR-085).
+- **O XML é validado contra o SCHEMA OFICIAL nos testes** (`nfce-xsd.spec.ts`, XSDs do pacote
+  PL_009_V4 em `backend/src/modules/fiscal/xsd/`, sem edição): venda simples, nota com frete,
+  desconto, complemento e responsável técnico, e a de homologação. Motivo: a primeira nota
+  transmitida foi rejeitada com **225 — Falha no Schema XML** apontando `enderEmit/cPais`, e o
+  elemento apontado não era o errado — era o que apareceu **no lugar** do que faltava. Cada
+  descoberta dessas na SEFAZ custa um número gasto; no teste custa 40 segundos. Confere forma,
+  ordem e tipo — regra de negócio da SEFAZ (duplicidade, CSC, horário) continua sendo outra coisa.
+- **`CEP` do emitente é obrigatório** (TEnderEmi 1-1, 8 dígitos) e vem **antes** de `cPais`:
+  sai sempre no XML e é exigido no pré-voo, antes de reservar número (ERR-086).
+- **`xCpl` (complemento, "LOJA 02")** era recebido da configuração e nunca escrito — o endereço
+  da nota saía diferente do cadastrado na SEFAZ. Agora sai quando existe.
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -276,6 +289,8 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 
 | Data | O que mudou |
 |---|---|
+| 22/09/2026 | **PRIMEIRA NFC-e AUTORIZADA** (homologação, SVRS/RJ): nº 2 série 51, protocolo 333260002547395, "100 - Autorizado o uso da NF-e". Montagem, assinatura, QR v3, transmissão e leitura do protocolo provados de ponta a ponta com o certificado real. |
+| 22/09/2026 | **Primeira transmissão real**: rejeição 225 (CEP do emitente faltando). Corrigido CEP + `xCpl`, CEP no pré-voo, e o XML passou a ser validado contra o XSD oficial na suíte (ERR-086). |
 | 22/09/2026 | Etapa C2 do P2: **transmissão real** (`NFeAutorizacao4`, lote síncrono), leitura dos dois níveis de resposta, `nfeProc` guardado, QR v3 no RJ, frase de homologação, `infRespTec`, NFC-e de teste. P17 resolvido; P18 e P19 abertos. |
 | 22/09/2026 | Etapa C1 do P2: conexão com a SEFAZ (SOAP 1.2, certificado de cliente, raiz ICP-Brasil v10), consulta de status. Pendência P17. |
 | 22/09/2026 | Etapa B do P2: assinatura XML-DSig, grupo `infNFeSupl` com QR e `urlChave` (mig 280), "Testar certificado". P16 resolvido. |
