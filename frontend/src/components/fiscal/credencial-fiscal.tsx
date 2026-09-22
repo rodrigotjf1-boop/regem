@@ -44,6 +44,8 @@ export function CredencialFiscal() {
   const [salvandoCsc, setSalvandoCsc] = useState(false);
   const [testando, setTestando] = useState(false);
   const [resultadoTeste, setResultadoTeste] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [consultandoSefaz, setConsultandoSefaz] = useState(false);
+  const [resultadoSefaz, setResultadoSefaz] = useState<{ ok: boolean; texto: string } | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -92,6 +94,25 @@ export function CredencialFiscal() {
       setResultadoTeste({ ok: false, texto: e instanceof Error ? e.message : 'O teste falhou.' });
     } finally {
       setTestando(false);
+    }
+  }
+
+  // Fala de verdade com a SEFAZ (consulta de status) usando o certificado guardado.
+  async function testarSefaz() {
+    setConsultandoSefaz(true);
+    setResultadoSefaz(null);
+    try {
+      const r: any = await api.statusSefaz();
+      const amb = r?.tpAmb === '1' ? 'produção' : 'homologação';
+      const seg = typeof r?.msResposta === 'number' ? ` em ${(r.msResposta / 1000).toFixed(1)} s` : '';
+      setResultadoSefaz({
+        ok: !!r?.emOperacao,
+        texto: `${r?.cStat} — ${r?.xMotivo} (${amb}${seg})`,
+      });
+    } catch (e) {
+      setResultadoSefaz({ ok: false, texto: e instanceof Error ? e.message : 'A consulta falhou.' });
+    } finally {
+      setConsultandoSefaz(false);
     }
   }
 
@@ -218,6 +239,17 @@ export function CredencialFiscal() {
             {resultadoTeste && (
               <p role="status" className={`text-sm ${resultadoTeste.ok ? 'text-ok' : 'text-destructive'}`}>
                 {resultadoTeste.texto}
+              </p>
+            )}
+            <Button type="button" variant="outline" onClick={testarSefaz} disabled={consultandoSefaz}>
+              {consultandoSefaz ? 'Consultando a SEFAZ…' : 'Testar conexão com a SEFAZ'}
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Pergunta à SEFAZ se o serviço está no ar, usando este certificado. Não emite nada.
+            </p>
+            {resultadoSefaz && (
+              <p role="status" className={`text-sm ${resultadoSefaz.ok ? 'text-ok' : 'text-destructive'}`}>
+                {resultadoSefaz.texto}
               </p>
             )}
           </div>

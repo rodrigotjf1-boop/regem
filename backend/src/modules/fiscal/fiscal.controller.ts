@@ -78,6 +78,14 @@ export class FiscalController {
     return this.service.testarCertificado(user.tenantId, dto?.unidadeId || null);
   }
 
+  // Consulta de STATUS da SEFAZ com o certificado guardado. Não emite nada.
+  @CloudOnly()
+  @Post('sefaz/status')
+  @Roles('presidente')
+  statusSefaz(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.statusSefaz(user.tenantId, dto?.unidadeId || null);
+  }
+
   @CloudOnly()
   @Put('credencial/csc')
   @Roles('presidente')

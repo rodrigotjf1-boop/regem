@@ -699,6 +699,8 @@ export const api = {
   // Assina uma nota de EXEMPLO com o certificado guardado e confere. Sem SEFAZ, sem gravar.
   testarCertificadoFiscal: () =>
     req('/fiscal/credencial/testar', { method: 'POST', body: '{}' }),
+  // Consulta de status da SEFAZ com o certificado guardado. Não emite nada.
+  statusSefaz: () => req('/fiscal/sefaz/status', { method: 'POST', body: '{}' }),
   emitirNfce: (comandaId: string) =>
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),
