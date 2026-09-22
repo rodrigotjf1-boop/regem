@@ -26,6 +26,8 @@ linha esteja em uma destas situações:
 | Sobe para a nuvem | `PUSH_TABLES` (`backend/edge/sync-daemon.mjs`) | o `--descarregar` acabou de enviar |
 | Volta da nuvem | `VOLTA_DA_NUVEM` (idem) | apagar é seguro: o pull rebaixa |
 | Descartável | `DESCARTAVEL` (idem) | fila/estado da máquina ou recalculável |
+| Dona é a nuvem | `SO_NUVEM` (idem) | a cópia local, se existe, é só para a consulta não quebrar |
+| Legado sem uso | `LEGADO_SEM_USO` (idem) | tabela das migrations de fundação que nenhum código usa |
 
 Qualquer outra tabela com dado **bloqueia o apagamento** (código de saída 3) e é listada
 pelo nome. A regra é propositalmente ao contrário de uma lista de proibidas: **tabela nova
@@ -67,7 +69,7 @@ Ver `backend/src/modules/sync/sync-config.ts`. Não repetidas aqui.
 
 Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_fiscal` (sobe), `tarefa_def`, `checklist`, `checklist_item`, `pop`, `documento_controlado`, `ciencia`, `vistoria`, `ocorrencia`, `ponto_ajuste`, `guia`, `guia_passo`, `comunicado`, `comunicado_leitura`, as três de clima, `escala_regra`, `dia_especial`, `entitlement`, `janela_pico`, `contador`, `funcao_setor`, `colaborador_funcao`, `modulo_ativacao`, `categoria_item`, `item_fornecedor`, `item_conversao`, `forma_pagamento`, `comanda_pagamento`, `ordem_producao`, `mesa`, `alerta_estoque`, `produto_sugestao`, `produto_faixa_preco`, as quatro de destino de produção, `kds_cor_config`, `tef_config`, `pagamento_tef` (sobe), `cupom`, `cupom_uso`, `encomenda_regra_sinal`, `encomenda_recorrencia`, `banner`, `acerto_subpdv`, `pedido_manutencao` e `atendimento_chamado`.
 
-**Ainda bloqueia a reinstalação:** nada. O último caso, `fiscal_config`, foi resolvido na mig 278 (§4.1) — ela desce da nuvem, `nota_fiscal` passou a voltar e o contador da numeração (`fiscal_serie`) é por ponto de emissão, descartável e auto-recuperável. Os demais foram resolvidos nas migs 272 a 277: cashback e fidelidade (§3), endereço e frete por bairro (§4.6), e tarefa e escala (§4.5).
+**Ainda bloqueia a reinstalação:** nada — mas a afirmação anterior de que `fiscal_config` era "o último caso" estava ERRADA. Ao varrer o schema REAL do servidor local (e não o de dev, que tem forma de nuvem) apareceram mais cinco tabelas com `tenant_id` fora de toda lista: `ponto_fechamento` — que uma loja com a folha do mês fechada tem preenchida — e quatro herdadas das migrations de fundação que nunca foram usadas (`ausencia`, `equipe`, `equipe_membro`, `colaborador_unidade`). O fechamento de ponto virou só-nuvem (o cron e a rota ganharam guarda: no local ele fecharia o mês sobre a janela de espelho, ~60 dias) e as quatro entraram em `LEGADO_SEM_USO`. O que faltava era um teste que perguntasse "e as tabelas de verdade, estão TODAS classificadas?" — agora existe, em `pendencias-wipe.spec.ts`. O caso do `fiscal_config` foi resolvido na mig 278 (§4.1): ela desce da nuvem, `nota_fiscal` passou a voltar e o contador da numeração (`fiscal_serie`) é por ponto de emissão, descartável e auto-recuperável. Os demais saíram nas migs 272 a 277: cashback e fidelidade (§3), endereço e frete por bairro (§4.6), e tarefa e escala (§4.5).
 
 ### 2.5 Fila de trabalho — referência completa
 

@@ -41,7 +41,10 @@ param(
   # falar com o n8n (a tabela `integracao` NAO desce pro edge). Vazio = sem WhatsApp
   # no modo local. Em reinstalacao, reusa o valor do .env.local atual se nao vier.
   [string]$OtpWebhookUrl = "",
-  [int]$Porta = 3002,       # API (NestJS) - atras do app
+  # API (NestJS) - atras do app. ATENCAO: 3002 e o UNICO valor suportado hoje: o app e
+  # compilado com essa porta embutida (edge/build-web.mjs, NEXT_PUBLIC_EDGE_API_PORT),
+  # entao o navegador dos aparelhos SEMPRE chama a 3002. Ver a checagem logo abaixo.
+  [int]$Porta = 3002,
   [int]$PortaWeb = 3001,    # App (Next) - porta que os aparelhos/atalho abrem
   [int]$PgPorta = 5432,
   # Fase 2 (proteção): cifra os segredos do .env em repouso com DPAPI (LocalMachine)
@@ -121,6 +124,22 @@ trap {
   } catch { }
 }
 function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
+
+# PORTA DA API: recusar cedo em vez de instalar quebrado.
+# Ela era decidida em TRES lugares que nao conversavam: aqui (vai para o PORT do
+# .env.local, onde a API escuta), no instalar-servicos.ps1 (que abria o firewall na
+# default dele) e no build do app (edge/build-web.mjs chumba NEXT_PUBLIC_EDGE_API_PORT).
+# Como o .iss nunca passa -Porta, os tres batiam por coincidencia no 3002; quem
+# instalasse a mao com outra porta ficava com a API escutando num lugar, o firewall
+# aberto em outro e o navegador chamando um terceiro - loja fora do ar, sem erro que
+# explicasse. O firewall agora recebe a porta certa (ver a chamada do instalar-servicos),
+# e o app, que e compilado com a porta dentro, so aceita 3002.
+$PORTA_API_DO_APP = 3002
+if ($Porta -ne $PORTA_API_DO_APP) {
+  throw ("-Porta $Porta nao e suportada: o app e compilado com a porta $PORTA_API_DO_APP embutida " +
+         "(edge/build-web.mjs), entao os aparelhos chamariam a $PORTA_API_DO_APP enquanto a API " +
+         "escutaria na $Porta. Instale sem -Porta, ou recompile o app com a porta nova antes.")
+}
 # Segredos com CSPRNG (LE-6, auditoria ago/2026): NUNCA usar Get-Random/System.Random
 # (PRNG previsivel) para material criptografico — o JWT_SECRET e a senha do Postgres
 # saem daqui. RandomNumberGenerator (CSPRNG) + rejeicao de bytes fora do multiplo do
@@ -911,7 +930,9 @@ if (Test-Path $webTar) {
   Diga "(aviso) web.tar nao encontrado no pacote - o app (RegemEdgeWeb) pode nao subir."
 }
 
-Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb
+# -PortaApi vai junto: sem ele o instalar-servicos usava a PROPRIA default e abria o
+# firewall numa porta que podia nao ser a que a API escuta (ver a checagem $PORTA_API_DO_APP).
+Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" -Raiz $root -Nssm $nssm -PortaWeb $PortaWeb -PortaApi $Porta
 
 # ---- 3.5) restore assistido (-Restaurar): marca o pedido no estado local ----
 # So grava a flag; quem faz o trabalho pesado (2 tempos: push pendente -> pull full

@@ -25,12 +25,24 @@ const conjunto = (nome: string): Set<string> => {
   const i = fonte.indexOf(`const ${nome} = new Set([`);
   const j = fonte.indexOf(']);', i);
   if (i < 0 || j < 0) return new Set();
-  return new Set([...fonte.slice(i, j).matchAll(/'([a-z_]{3,})'/g)].map((m) => m[1]));
+  // Linhas de comentário FORA: uma entrada comentada continha o nome entre aspas e era
+  // lida como se estivesse classificada — o teste diria "está na lista" para uma tabela
+  // que o daemon não conhece mais. Pego ao conferir que a trava nova realmente reprova.
+  const corpo = fonte
+    .slice(i, j)
+    .split('\n')
+    .filter((l) => !l.trim().startsWith('//'))
+    .join('\n');
+  return new Set([...corpo.matchAll(/'([a-z_]{3,})'/g)].map((m) => m[1]));
 };
 
 const VOLTA_DA_NUVEM = conjunto('VOLTA_DA_NUVEM');
 const DESCARTAVEL = conjunto('DESCARTAVEL');
 const SO_NUVEM = conjunto('SO_NUVEM');
+const LEGADO_SEM_USO = conjunto('LEGADO_SEM_USO');
+// O que o daemon empurra (PUSH_TABLES). Lido da fonte dele, e não do sync-config, porque
+// é esta lista que a trava consulta em tempo de execução.
+const SOBE = new Set([...fonte.matchAll(/\{\s*tabela:\s*'([a-z_]{3,})'/g)].map((m) => m[1]));
 
 describe('trava do apagamento — listas do daemon', () => {
   it('as listas foram lidas do daemon (guarda contra o regex parar de casar)', () => {
@@ -146,6 +158,31 @@ descrever('trava do apagamento — contra o Postgres', () => {
       if (!cols.includes(t.cursor)) problemas.push(`${t.tabela}: cursor "${t.cursor}" não existe`);
     }
     expect(problemas).toEqual([]);
+  }, 60000);
+
+  it('TODA tabela com tenant_id está classificada em alguma lista do daemon', async () => {
+    // Este é o teste que faltava, e a falta custou caro: os outros conferem o MECANISMO
+    // (tabela sintética com dado trava) e a COERÊNCIA entre as listas, mas nenhum
+    // perguntava "e as tabelas de verdade, estão todas classificadas?". Cinco não
+    // estavam — entre elas `ponto_fechamento`, que uma loja que fechou a folha do mês
+    // tem preenchida: a reinstalação pelo .exe travava e ninguém sabia por quê.
+    //
+    // Tabela nova sem classificação cai aqui, na hora de escrever o código, e não na
+    // loja do cliente com o instalador parado.
+    const r = await pool.query(
+      `select table_name from information_schema.columns
+        where table_schema = current_schema() and column_name = 'tenant_id'
+        order by table_name`,
+    );
+    const semClasse = r.rows
+      .map((x: any) => x.table_name as string)
+      .filter((t) => t !== TABELA) // a sintética deste próprio arquivo
+      .filter(
+        (t) =>
+          !SOBE.has(t) && !VOLTA_DA_NUVEM.has(t) && !SO_NUVEM.has(t) &&
+          !DESCARTAVEL.has(t) && !LEGADO_SEM_USO.has(t),
+      );
+    expect(semClasse).toEqual([]);
   }, 60000);
 
   it('a mesma tabela VAZIA sai da lista (a trava olha dado, não a existência da tabela)', async () => {

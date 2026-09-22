@@ -13,7 +13,7 @@
 // Uso:  node backend/edge/preflight-release.mjs [versao-esperada]
 //   (rode de qualquer cwd; os caminhos são ancorados neste arquivo)
 
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { execSync } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -36,9 +36,18 @@ secao('1) Fonte do build (git)');
 try {
   execSync('git fetch origin --quiet', { cwd: REPO, stdio: 'ignore' });
   const atras = execSync('git rev-list --count HEAD..origin/main', { cwd: REPO }).toString().trim();
-  const head = execSync("git log -1 --format=%h", { cwd: REPO }).toString().trim();
-  if (atras === '0') ok(`HEAD (${head}) == origin/main — 0 commits atrás`);
-  else erro(`HEAD está ${atras} commit(s) ATRÁS do origin/main — sincronize (git merge --ff-only origin/main) e regenere o dist. NÃO builde daqui.`);
+  // ADIANTE também reprova. Medir só o "atrás" deixava passar o build feito de uma branch
+  // NÃO MESCLADA: o release sairia com código que não está na main, e o RELEASES.md diria
+  // uma coisa enquanto o .exe teria outra. É a mesma classe de falha do 1.20 — a origem
+  // do build não confere com a fonte da verdade.
+  const adiante = execSync('git rev-list --count origin/main..HEAD', { cwd: REPO }).toString().trim();
+  const head = execSync('git log -1 --format=%h', { cwd: REPO }).toString().trim();
+  const ramo = execSync('git rev-parse --abbrev-ref HEAD', { cwd: REPO }).toString().trim();
+  if (atras !== '0')
+    erro(`HEAD está ${atras} commit(s) ATRÁS do origin/main — sincronize (git merge --ff-only origin/main) e regenere o dist. NÃO builde daqui.`);
+  else if (adiante !== '0')
+    erro(`HEAD (${ramo}) está ${adiante} commit(s) À FRENTE do origin/main — é código NÃO MESCLADO. Mescle o PR antes de cortar o release, ou builde de um worktree em origin/main.`);
+  else ok(`HEAD (${head}) == origin/main — nem atrás, nem à frente`);
   const sujo = execSync('git status --porcelain', { cwd: REPO }).toString().trim();
   const relevante = sujo.split('\n').filter((l) => /backend\/(edge|src)|frontend\/src|database/.test(l));
   if (relevante.length) aviso(`árvore tem ${relevante.length} mudança(s) não-commitada(s) em código do build — confirme que o dist reflete o que você quer distribuir.`);
@@ -60,6 +69,34 @@ if (!existsSync(DIST)) {
   }
 }
 
+// ── 2b) O dist é MAIS NOVO que o repositório? ────────────────────────────────
+// A seção 1 confere o REPOSITÓRIO, não o dist. Com o repo em dia e um
+// `regem-edge-dist` antigo na pasta, tudo ficava verde e o Inno compilaria um
+// instalador com migrations velhas — a loja nasceria com o banco atrás. Foi assim que
+// o 1.20 saiu quebrado. Aqui a conferência é pelo arquivo que mais denuncia atraso: a
+// última migration que foi junto no pacote.
+secao('2b) Dist na mesma altura do repositório');
+try {
+  const migs = (d) =>
+    readdirSync(d)
+      .filter((f) => /^\d+_.*\.sql$/.test(f))
+      .sort();
+  const noRepo = migs(join(REPO, 'database', 'migrations'));
+  const noDist = migs(join(DIST, 'database', 'migrations'));
+  const ultimaRepo = noRepo[noRepo.length - 1] ?? '(nenhuma)';
+  const ultimaDist = noDist[noDist.length - 1] ?? '(nenhuma)';
+  if (ultimaRepo === ultimaDist) ok(`migrations em dia (${noDist.length}, última ${ultimaDist})`);
+  else {
+    const faltam = noRepo.filter((m) => !noDist.includes(m));
+    erro(
+      `dist ATRASADO: leva ${noDist.length} migration(s) (última ${ultimaDist}) e o repo tem ${noRepo.length} (última ${ultimaRepo}). ` +
+        `Faltam ${faltam.length}: ${faltam.slice(0, 5).join(', ')}${faltam.length > 5 ? '…' : ''}. Regenere com o package.mjs.`,
+    );
+  }
+} catch (e) {
+  erro(`não consegui comparar as migrations do dist com as do repo: ${e.message}`);
+}
+
 // ── 3) web.tar existe e CONTÉM node_modules/next ─────────────────────────────
 secao('3) App (web.tar) com o next dentro');
 const webTar = join(DIST, 'web.tar');
@@ -69,7 +106,13 @@ if (!existsSync(webTar)) {
   const mb = (statSync(webTar).size / 1048576).toFixed(1);
   ok(`web.tar presente (${mb} MB)`);
   try {
-    const lista = execSync(`tar -tf "${webTar}"`, { maxBuffer: 64 * 1024 * 1024 }).toString();
+    // O tar do WINDOWS, com caminho absoluto. Chamando `tar` puro, quem atende é o
+    // primeiro do PATH — e no Git Bash/MSYS o `C:` de "C:\...\web.tar" é lido como NOME
+    // DE HOST remoto ("Cannot connect to C: resolve failed"), reprovando um release que
+    // estava bom. O publicar.ps1 já resolvia assim; aqui tinha ficado para trás.
+    const tarWin = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe');
+    const tarExe = existsSync(tarWin) ? `"${tarWin}"` : 'tar';
+    const lista = execSync(`${tarExe} -tf "${webTar}"`, { maxBuffer: 64 * 1024 * 1024 }).toString();
     if (/(^|\/)node_modules\/next\/package\.json/m.test(lista)) ok('web.tar contém node_modules/next (o app vai subir)');
     else erro('web.tar NÃO contém node_modules/next — RegemEdgeWeb cairá em loop "Cannot find module \'next\'". Rebuild do frontend (npm run build) antes do package.mjs.');
     if (/(^|\/)server\.js$/m.test(lista) || /(^|\/)\.\/server\.js$/m.test(lista)) ok('web.tar contém server.js (standalone)');
