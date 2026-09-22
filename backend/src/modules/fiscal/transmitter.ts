@@ -104,8 +104,22 @@ export function simuladoLiberado(): boolean {
  *  - sem certificado, em homologação e com `FISCAL_SIMULADO=true` → simulado;
  *  - qualquer outro caso → lança. Nunca devolve "autorizada" sem ter emitido.
  */
+// A transmissão real à SEFAZ (etapa C do P2) ainda não existe. Enquanto for `false`, ter
+// certificado cadastrado NÃO basta para emitir — e a recusa acontece AQUI, na escolha, ANTES de
+// reservar o número. Sem isto, o transmissor direto só recusava na hora de transmitir: com a
+// emissão automática ligada, cada venda gastaria um número e deixaria um buraco na série (que a
+// lei manda inutilizar). Vira `true` junto com a implementação da transmissão.
+export const TRANSMISSAO_SEFAZ_PRONTA = false;
+
 export function escolherTransmissor(config: any): FiscalTransmitter {
-  if (String(config?.certRef ?? '').trim()) return new SefazDiretoTransmitter();
+  if (String(config?.certRef ?? '').trim()) {
+    if (!TRANSMISSAO_SEFAZ_PRONTA)
+      throw new Error(
+        'Certificado cadastrado, mas a transmissão à SEFAZ ainda não está disponível. ' +
+          'Nenhuma nota foi emitida.',
+      );
+    return new SefazDiretoTransmitter();
+  }
   if (String(config?.ambiente ?? '2') === '2' && simuladoLiberado()) {
     return new SefazMockTransmitter();
   }

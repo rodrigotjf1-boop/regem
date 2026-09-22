@@ -60,7 +60,7 @@ export function montarQrCode(p: {
   cscToken: string;
   urlConsulta: string; // ex.: https://www.homologacao.nfce.fazenda.sp.gov.br/qrcode
   versao?: string;
-}): { qrCode: string; urlChave: string } {
+}): { qrCode: string } {
   const versao = p.versao ?? '2';
   const semHash = `${p.chave}|${versao}|${p.tpAmb}|${p.cscId}`;
   const hash = createHash('sha1')
@@ -69,5 +69,7 @@ export function montarQrCode(p: {
     .toUpperCase();
   const dados = `${semHash}|${hash}`;
   const sep = p.urlConsulta.includes('?') ? '&' : '?';
-  return { qrCode: `${p.urlConsulta}${sep}p=${dados}`, urlChave: p.urlConsulta };
+  // A URL de "consulta por chave" (urlChave) é OUTRO endereço, próprio de cada UF — vem da
+  // configuração, não daqui. Antes esta função devolvia a URL do QR no lugar dela.
+  return { qrCode: `${p.urlConsulta}${sep}p=${dados}` };
 }

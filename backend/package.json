@@ -26,6 +26,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^10.4.22",
     "@types/compression": "^1.8.1",
+    "@xmldom/xmldom": "^0.9.12",
     "bcryptjs": "^2.4.3",
     "bonjour-service": "^1.4.3",
     "class-transformer": "^0.5.1",
@@ -39,7 +40,8 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "socket.io": "^4.8.3",
-    "stripe": "^22.3.1"
+    "stripe": "^22.3.1",
+    "xml-crypto": "^6.3.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.4.0",

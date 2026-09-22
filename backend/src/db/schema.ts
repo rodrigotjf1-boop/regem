@@ -2067,6 +2067,9 @@ export const fiscalConfig = pgTable('fiscal_config', {
   // URL de consulta do QR Code: varia por UF e por ambiente. Preenchida pela DISTRIBUIÇÃO.
   urlQrcodeProd: text('url_qrcode_prod'),
   urlQrcodeHomolog: text('url_qrcode_homolog'),
+  // URL de "consulta pela chave de acesso" (<urlChave>) — OUTRA, diferente da do QR (mig 280).
+  urlChaveProd: text('url_chave_prod'),
+  urlChaveHomolog: text('url_chave_homolog'),
   cscId: text('csc_id'),
   cscToken: text('csc_token'),
   certRef: text('cert_ref'),

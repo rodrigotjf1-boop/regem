@@ -37,6 +37,12 @@ const CAMPOS: Campo[] = [
     rotulo: 'URL de consulta do QR Code desta UF',
     ok: (c) => !!urlConsultaQr(c),
   },
+  {
+    chave: 'urlChave',
+    // Vai no <urlChave> da NFC-e; é obrigatória no grupo <infNFeSupl>.
+    rotulo: 'URL de consulta pela chave de acesso desta UF',
+    ok: (c) => !!urlConsultaChave(c),
+  },
 ];
 
 /** Campos do emitente que faltam para emitir. Vazio = pode emitir. */
@@ -56,4 +62,17 @@ export function urlConsultaQr(config: any): string | null {
       : config?.urlQrcodeHomolog;
   const s = String(url ?? '').trim();
   return /^https?:\/\//i.test(s) ? s : null;
+}
+
+/**
+ * URL de "consulta pela chave de acesso" da UF, conforme o ambiente — vai no <urlChave>.
+ * NÃO é a URL do QR Code: são endereços diferentes (no RJ, a de consulta é
+ * www.fazenda.rj.gov.br/nfce/consulta). Aceita com ou sem "http(s)://", porque é assim que
+ * cada SEFAZ publica o seu valor — e ele tem de ir exatamente como publicado.
+ */
+export function urlConsultaChave(config: any): string | null {
+  const url =
+    String(config?.ambiente ?? '2') === '1' ? config?.urlChaveProd : config?.urlChaveHomolog;
+  const s = String(url ?? '').trim();
+  return s && !/\s/.test(s) && s.includes('.') ? s : null;
 }

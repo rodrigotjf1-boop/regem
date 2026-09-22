@@ -59,6 +59,9 @@ export interface NfceInput {
   itens: NfceItem[];
   forma?: string | null;
   qrCode: string;
+  // URL de "consulta pela chave de acesso" da UF (vai no <urlChave>). É DIFERENTE da URL
+  // do QR Code — no RJ, a nota real imprime www.fazenda.rj.gov.br/nfce/consulta.
+  urlChave: string;
   // Valores do PEDIDO (não do item). O builder rateia entre os itens; ver a nota
   // sobre as regras W14/W16 em `montarNfceXml`.
   desconto?: number; // desconto bancado pela LOJA (o do marketplace não é desconto na nota)
@@ -231,5 +234,12 @@ export function montarNfceXml(inp: NfceInput): string {
     `<infAdic><infCpl>Documento emitido por Regem</infCpl></infAdic>` +
     `</infNFe>`;
 
-  return `<?xml version="1.0" encoding="UTF-8"?><NFe xmlns="http://www.portalfiscal.inf.br/nfe">${infNFe}</NFe>`;
+  // NFC-e: o QR Code e a URL de consulta vão num grupo PRÓPRIO, fora do <infNFe> — por isso
+  // não entram na assinatura, que vem depois dele. O builder recebia o QR e NÃO o escrevia:
+  // a nota sairia sem QR Code, que é rejeição. CDATA porque o QR tem '&', '?' e '|'.
+  const infNFeSupl =
+    `<infNFeSupl><qrCode><![CDATA[${inp.qrCode}]]></qrCode>` +
+    `<urlChave>${esc(inp.urlChave)}</urlChave></infNFeSupl>`;
+
+  return `<?xml version="1.0" encoding="UTF-8"?><NFe xmlns="http://www.portalfiscal.inf.br/nfe">${infNFe}${infNFeSupl}</NFe>`;
 }

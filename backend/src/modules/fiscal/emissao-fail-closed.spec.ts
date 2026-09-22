@@ -1,7 +1,8 @@
-import { camposFaltando, urlConsultaQr } from './emitente';
+import { camposFaltando, urlConsultaChave, urlConsultaQr } from './emitente';
 import {
   SefazDiretoTransmitter,
   SefazMockTransmitter,
+  TRANSMISSAO_SEFAZ_PRONTA,
   ehAutorizado,
   escolherTransmissor,
 } from './transmitter';
@@ -31,6 +32,8 @@ const CONFIG_OK = {
   ambiente: '2',
   urlQrcodeHomolog: 'https://www.homologacao.nfce.fazenda.sp.gov.br/qrcode',
   urlQrcodeProd: 'https://www.nfce.fazenda.sp.gov.br/qrcode',
+  urlChaveHomolog: 'www.homologacao.nfce.fazenda.sp.gov.br/consulta',
+  urlChaveProd: 'www.nfce.fazenda.sp.gov.br/consulta',
 };
 
 describe('escolha do transmissor', () => {
@@ -59,10 +62,17 @@ describe('escolha do transmissor', () => {
     );
   });
 
-  it('com certificado vai para o transmissor direto (que ainda recusa, por não existir)', async () => {
-    const t = escolherTransmissor({ ambiente: '1', certRef: 'loja-a.pfx' });
-    expect(t).toBeInstanceOf(SefazDiretoTransmitter);
-    await expect(t.autorizar('', '', {})).rejects.toThrow(/Nenhuma nota foi emitida/);
+  it('com certificado, mas SEM a transmissão pronta: recusa já na ESCOLHA (antes de gastar número)', () => {
+    // Antes a recusa só vinha em autorizar(), depois de o número ter sido reservado — cada venda
+    // com a emissão automática ligada deixaria um buraco na série.
+    expect(TRANSMISSAO_SEFAZ_PRONTA).toBe(false);
+    expect(() => escolherTransmissor({ ambiente: '2', certRef: 'credencial' })).toThrow(
+      /transmissão à SEFAZ ainda não está disponível/,
+    );
+  });
+
+  it('o transmissor direto, se chamado, também não finge autorizar', async () => {
+    await expect(new SefazDiretoTransmitter().autorizar()).rejects.toThrow(/Nenhuma nota foi emitida/);
   });
 
   it('a nota do simulado vem marcada como simulada', async () => {
@@ -118,6 +128,16 @@ describe('pré-voo do emitente', () => {
     expect(urlConsultaQr({ ...CONFIG_OK, urlQrcodeHomolog: null })).toBeNull();
     expect(camposFaltando({ ...CONFIG_OK, urlQrcodeHomolog: '' })).toContain(
       'URL de consulta do QR Code desta UF',
+    );
+  });
+
+  it('a URL de consulta pela CHAVE é outra, também por ambiente, e é obrigatória', () => {
+    // Antes a URL do QR era reaproveitada no <urlChave> — são endereços diferentes na SEFAZ.
+    expect(urlConsultaChave({ ...CONFIG_OK, ambiente: '1' })).toBe(CONFIG_OK.urlChaveProd);
+    expect(urlConsultaChave({ ...CONFIG_OK, ambiente: '2' })).toBe(CONFIG_OK.urlChaveHomolog);
+    expect(urlConsultaChave(CONFIG_OK)).not.toBe(urlConsultaQr(CONFIG_OK));
+    expect(camposFaltando({ ...CONFIG_OK, urlChaveHomolog: '' })).toContain(
+      'URL de consulta pela chave de acesso desta UF',
     );
   });
 });
