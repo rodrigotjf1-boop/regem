@@ -701,6 +701,8 @@ export const api = {
     req('/fiscal/credencial/testar', { method: 'POST', body: '{}' }),
   // Consulta de status da SEFAZ com o certificado guardado. Não emite nada.
   statusSefaz: () => req('/fiscal/sefaz/status', { method: 'POST', body: '{}' }),
+  // NFC-e de teste — só em homologação. Devolve o que a SEFAZ respondeu (autorizada ou o motivo).
+  emitirNfceTeste: () => req('/fiscal/sefaz/teste-homologacao', { method: 'POST', body: '{}' }),
   emitirNfce: (comandaId: string) =>
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),

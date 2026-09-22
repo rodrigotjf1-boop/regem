@@ -48,6 +48,18 @@ export class UfSemAutorizador extends Error {
   }
 }
 
+// VERSÃO DO QR CODE da NFC-e online, por UF.
+// v3 (NT 2025.001 + Manual do DANFE NFC-e v6.0, §4.4.1): `?p=<chave>|3|<tpAmb>` — SEM CSC. As
+// UFs tinham até 01/09/2025 para aceitá-la em produção; a que não aceita rejeita com 407.
+// v2 (com o hash do CSC) continua aceita para CNPJ e fica como alternativa se a UF recusar a v3.
+export const QR_VERSAO_NFCE: Record<string, 2 | 3> = {
+  RJ: 3,
+};
+
+export function qrVersaoNfce(uf: string): 2 | 3 {
+  return QR_VERSAO_NFCE[String(uf ?? '').trim().toUpperCase()] ?? 2;
+}
+
 export function urlServicoNfce(uf: string, ambiente: string, servico: ServicoSefaz): string {
   const amb: Ambiente = String(ambiente) === '1' ? '1' : '2';
   const tabela = AUTORIZADOR_NFCE[String(uf ?? '').trim().toUpperCase()];

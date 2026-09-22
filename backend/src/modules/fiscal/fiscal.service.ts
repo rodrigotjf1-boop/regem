@@ -20,7 +20,7 @@ import {
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
-import { gerarCNF, montarChave, montarQrCode } from './chave';
+import { gerarCNF, montarChave, montarQrCode, montarQrCodeV3 } from './chave';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
 import { FiscalTransmitter, escolherTransmissor } from './transmitter';
 import { camposFaltando, urlConsultaChave, urlConsultaQr } from './emitente';
@@ -38,7 +38,9 @@ import {
 } from './credencial';
 import { consultarStatusServico } from './sefaz/status-servico';
 import { SefazInalcancavel, SefazRecusouChamada } from './sefaz/soap';
-import { UfSemAutorizador } from './sefaz/webservices';
+import { UfSemAutorizador, qrVersaoNfce } from './sefaz/webservices';
+import { assinarNfe } from './assinatura';
+import { responsavelTecnico } from './responsavel-tecnico';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -230,20 +232,40 @@ export class FiscalService {
     tx: any,
     tenantId: string,
     unidadeId: string | null,
+    exigirAtivo = true, // a nota de TESTE de homologação não depende da emissão automática
   ): Promise<{ numero: number; serie: number; config: any }> {
+    // Da loja, ou a da empresa (mesma regra do configRaw — V4).
     const cur: any = await tx.execute(sql`
       select * from fiscal_config
-      where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+      where tenant_id = ${tenantId}
+        and (unidade_id is not distinct from ${unidadeId ?? null} or unidade_id is null)
+      order by (unidade_id is null) limit 1
     `);
     const cfg = (cur.rows ?? cur)[0];
     if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
-    if (!cfg.ativo) throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
+    if (exigirAtivo && !cfg.ativo)
+      throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
 
     const origem = this.origemEmissao();
     // A série 0 é reservada a "série única" no texto nacional e vedada em ES/AL.
     const serie = Number(origem === 'loja' ? cfg.serie : cfg.serie_nuvem) || (origem === 'loja' ? 1 : 2);
     if (serie < 1 || serie > 999)
       throw new BadRequestException(`Série fiscal inválida (${serie}): use de 1 a 999.`);
+
+    // Série usada em HOMOLOGAÇÃO não vai para PRODUÇÃO. O contador é por série, não por
+    // ambiente: a produção começaria no número seguinte ao último teste, e os números dos
+    // testes seriam, para o Fisco, um buraco na sequência de produção (que a lei manda
+    // inutilizar). Série nova em produção começa do 1, limpa.
+    if (String(cfg.ambiente) === '1') {
+      const h: any = await tx.execute(sql`
+        select 1 from nota_fiscal
+         where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+           and serie = ${serie} and ambiente = '2' limit 1`);
+      if ((h.rows ?? h).length)
+        throw new BadRequestException(
+          `A série ${serie} foi usada em homologação — em produção use outra série (ex.: ${serie + 1}).`,
+        );
+    }
 
     // O id vem da chave de negócio: nuvem e loja materializam a MESMA linha.
     const id = idFiscalSerie(tenantId, unidadeId, origem);
@@ -305,31 +327,18 @@ export class FiscalService {
       .where(
         and(
           eq(notaFiscal.comandaId, comandaId),
-          inArray(notaFiscal.status, ['autorizada', 'contingencia']),
+          inArray(notaFiscal.status, ['autorizada', 'contingencia', 'pendente']),
         ),
       );
-    if (ja) return ja; // já emitida
-
-    // PRÉ-VOO ANTES DE RESERVAR O NÚMERO.
-    // Número reservado é número gasto: se a emissão falhar depois disso, fica um BURACO na
-    // sequência — e buraco não inutilizado até o 10º dia do mês seguinte é presumido pelo
-    // Fisco como "documento emitido em contingência e não transmitido" (Ajuste SINIEF
-    // 19/16, cl. 11ª, §5º). Então tudo que dá para conferir antes, confere-se antes.
-    const cfgRaw = await this.configRaw(tenantId, c.unidadeId);
-    if (!cfgRaw) throw new BadRequestException('Configure o fiscal desta unidade.');
-    if (!cfgRaw.ativo) throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
-    // CSC do AMBIENTE da config + se há certificado, vindos da credencial cifrada (mig 279).
-    const credencial = await obterCredencial(this.db, tenantId, c.unidadeId ?? null);
-    const cfgPre: any = {
-      ...cfgRaw,
-      ...credencialParaEmissao(credencial, String(cfgRaw.ambiente ?? '2')),
-    };
-    const faltandoPre = camposFaltando(cfgPre);
-    if (faltandoPre.length)
+    if (ja?.status === 'pendente')
+      // Situação DESCONHECIDA: a nota foi enviada e a SEFAZ não confirmou (caiu a conexão,
+      // estourou o tempo). Emitir de novo poderia gerar DUAS notas para a mesma venda — se a
+      // primeira tiver sido autorizada. Primeiro se descobre o que aconteceu.
       throw new BadRequestException(
-        `Configuração fiscal incompleta — falta: ${faltandoPre.join(', ')}.`,
+        `A NFC-e nº ${ja.numero} desta venda foi enviada e a SEFAZ não confirmou o resultado. ` +
+          'Consulte a situação dela antes de emitir de novo.',
       );
-    this.transmitter(cfgPre); // sem certificado/transmissão: recusa aqui, sem gastar número
+    if (ja) return ja; // já emitida
 
     const itensDb = await this.db
       .select({
@@ -387,105 +396,196 @@ export class FiscalService {
     // os dois são 0 e o XML sai como antes.
     const { frete, desconto } = await this.valoresFiscaisDoPedido(tenantId, comandaId);
 
-    // Reserva número + monta chave/XML/QR dentro de uma transação.
-    const preparado = await this.db.transaction(async (tx) => {
-      const { numero, serie, config } = await this.reservarNumero(tx, tenantId, c.unidadeId);
-      // A config lida sob trava vem da tabela; o CSC e o certificado vêm da credencial
-      // (a coluna antiga `csc_token` foi esvaziada na mig 279 e não é mais lida).
-      Object.assign(config, credencialParaEmissao(credencial, String(config.ambiente ?? '2')));
+    const r = await this.emitirNucleo({
+      tenantId, atorId, unidadeId: c.unidadeId ?? null, comandaId, itens, forma: c.forma,
+      frete, desconto, exigirAtivo: true,
+    });
+    // Na venda, o que não autorizou é ERRO para quem chamou (a tela do delivery mostra; a venda
+    // automática registra). A nota fica gravada com o motivo, do mesmo jeito.
+    if (r.falha) throw r.falha;
+    if (r.nota.status === 'autorizada') {
+      await this.imprimirDanfe(tenantId, r.nota, itens, { frete, desconto });
+    }
+    return r.nota;
+  }
 
-      // PRÉ-VOO: emitente incompleto não emite. Antes, cada campo que faltava tinha um
-      // padrão (CNPJ zerado, logradouro "N/D", município de São Paulo) e a nota saía assim
-      // mesmo, gravada como emitida. Documento fiscal não se completa por conta própria.
+  /**
+   * NFC-e de TESTE, só em HOMOLOGAÇÃO: um item de R$ 1,00, sem comanda, sem impressão. Serve para
+   * a primeira conversa de verdade com a SEFAZ sem inventar venda. Devolve o resultado inteiro
+   * (autorizada, rejeitada com o motivo, ou sem resposta) — em vez de lançar —, porque o objetivo
+   * é justamente ler o que a SEFAZ respondeu.
+   */
+  async emitirTesteHomologacao(tenantId: string, atorId: string | null, unidadeIdPedida: string | null) {
+    const unidadeId = await this.resolverUnidadeEmissao(tenantId, unidadeIdPedida);
+    const cfg: any = await this.configRaw(tenantId, unidadeId);
+    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
+    if (String(cfg.ambiente) !== '2')
+      throw new BadRequestException(
+        'A nota de teste só existe em HOMOLOGAÇÃO. Mude o ambiente para "Homologação (teste)" antes.',
+      );
+    const itens: NfceItem[] = [
+      {
+        codigo: 'TESTE',
+        descricao: 'PRODUTO DE TESTE', // em homologação o builder troca pela frase obrigatória
+        ncm: '21069090',
+        cfop: '5102',
+        origem: '0',
+        csosn: '102',
+        unidadeTrib: 'UN',
+        quantidade: 1,
+        precoUnitario: 1,
+      },
+    ];
+    const r = await this.emitirNucleo({
+      tenantId, atorId, unidadeId, comandaId: null, itens, forma: 'dinheiro',
+      frete: 0, desconto: 0, exigirAtivo: false,
+    });
+    const n: any = r.nota;
+    return {
+      status: n.status,
+      motivo: n.motivo,
+      serie: n.serie,
+      numero: n.numero,
+      chave: n.chave,
+      protocolo: n.protocolo ?? null,
+      ambiente: n.ambiente,
+    };
+  }
+
+  // A nota de teste precisa cair na MESMA sequência das vendas. A série é por estabelecimento, e
+  // numa rede de uma loja só a venda carrega a loja: sem isto, a nota de teste (sem loja) teria um
+  // contador próprio da série 51 e repetiria números das vendas.
+  private async resolverUnidadeEmissao(tenantId: string, unidadeId: string | null): Promise<string | null> {
+    if (unidadeId) return unidadeId;
+    const r: any = await this.db.execute(
+      sql`select id from unidade where tenant_id = ${tenantId} order by created_at limit 2`,
+    );
+    const lojas = (r.rows ?? r) as { id: string }[];
+    if (lojas.length === 1) return lojas[0].id;
+    if (!lojas.length) return null;
+    throw new BadRequestException('A empresa tem mais de uma loja: escolha em qual emitir a nota de teste.');
+  }
+
+  // O CAMINHO DA EMISSÃO, comum à venda e à nota de teste:
+  //   pré-voo (tudo que dá para conferir ANTES de gastar número) → reserva o número → monta,
+  //   ASSINA e grava como 'pendente' → transmite → grava o resultado.
+  // Nunca devolve "autorizada" sem a SEFAZ ter autorizado. Uma falha vem em `falha` (com a nota
+  // já gravada com o motivo), para cada chamador decidir se lança ou mostra.
+  private async emitirNucleo(p: {
+    tenantId: string;
+    atorId: string | null;
+    unidadeId: string | null;
+    comandaId: string | null;
+    itens: NfceItem[];
+    forma: string | null;
+    frete: number;
+    desconto: number;
+    exigirAtivo: boolean;
+  }): Promise<{ nota: any; falha: Error | null }> {
+    const { tenantId, atorId, unidadeId, comandaId, itens, frete, desconto } = p;
+
+    // PRÉ-VOO ANTES DE RESERVAR O NÚMERO.
+    // Número reservado é número gasto: se a emissão falhar depois disso, fica um BURACO na
+    // sequência — e buraco não inutilizado até o 10º dia do mês seguinte é presumido pelo
+    // Fisco como "documento emitido em contingência e não transmitido" (Ajuste SINIEF
+    // 19/16, cl. 11ª, §5º). Então tudo que dá para conferir antes, confere-se antes.
+    const cfgRaw = await this.configRaw(tenantId, unidadeId);
+    if (!cfgRaw) throw new BadRequestException('Configure o fiscal desta unidade.');
+    if (p.exigirAtivo && !cfgRaw.ativo)
+      throw new BadRequestException('Emissão fiscal desativada nesta unidade.');
+    const credencial = await obterCredencial(this.db, tenantId, unidadeId);
+    const qrVersao = qrVersaoNfce(String(cfgRaw.uf ?? ''));
+    const cfgPre: any = {
+      ...cfgRaw,
+      ...credencialParaEmissao(credencial, String(cfgRaw.ambiente ?? '2')),
+      qrVersao,
+    };
+    const faltandoPre = camposFaltando(cfgPre);
+    if (faltandoPre.length)
+      throw new BadRequestException(`Configuração fiscal incompleta — falta: ${faltandoPre.join(', ')}.`);
+    // Sem transmissão possível (sem certificado, UF sem autorizador…): recusa aqui.
+    const transmissor = this.transmitter(cfgPre);
+    // Com certificado, ele é aberto AGORA — senha errada ou chave trocada param aqui, sem número.
+    const cert = cfgPre.certRef ? certificadoParaAssinar(credencial) : null;
+
+    const preparado = await this.db.transaction(async (tx) => {
+      const { numero, serie, config } = await this.reservarNumero(tx, tenantId, unidadeId, p.exigirAtivo);
+      Object.assign(config, credencialParaEmissao(credencial, String(config.ambiente ?? '2')), { qrVersao });
       const faltando = camposFaltando(config);
       if (faltando.length)
-        throw new BadRequestException(
-          `Configuração fiscal incompleta — falta: ${faltando.join(', ')}.`,
-        );
+        throw new BadRequestException(`Configuração fiscal incompleta — falta: ${faltando.join(', ')}.`);
 
       const agora = new Date();
-      // Data-hora e competência no fuso da UF do emitente (ver fuso-fiscal.ts): o código
-      // antigo declarava UTC como horário de Brasília e emitia 3 horas no futuro.
+      // Data-hora e competência no fuso da UF do emitente (ver fuso-fiscal.ts).
       const { ano2, mes2 } = competenciaChave(agora, config.uf);
       const dhEmi = dhEmiSefaz(agora, config.uf);
       const cNF = gerarCNF();
       const chave = montarChave({
-        codigoUf: Number(config.codigoUf),
-        ano2,
-        mes2,
-        cnpj: config.cnpj,
-        modelo: '65',
-        serie,
-        numero,
-        tpEmis: 1,
-        cNF,
+        codigoUf: Number(config.codigoUf), ano2, mes2, cnpj: config.cnpj, modelo: '65',
+        serie, numero, tpEmis: 1, cNF,
       });
-      const { qrCode } = montarQrCode({
-        chave,
-        tpAmb: config.ambiente || '2',
-        cscId: config.cscId,
-        cscToken: config.cscToken,
-        urlConsulta: urlConsultaQr(config)!,
-      });
-      const xml = montarNfceXml({
-        config, serie, numero, chave, cNF, dhEmi, itens, forma: c.forma, qrCode, frete, desconto,
+      const tpAmb = config.ambiente || '2';
+      const { qrCode } =
+        qrVersao === 3
+          ? montarQrCodeV3({ chave, tpAmb, urlConsulta: urlConsultaQr(config)! })
+          : montarQrCode({
+              chave, tpAmb, cscId: config.cscId, cscToken: config.cscToken, urlConsulta: urlConsultaQr(config)!,
+            });
+      const xmlSemAssinatura = montarNfceXml({
+        config, serie, numero, chave, cNF, dhEmi, itens, forma: p.forma, qrCode, frete, desconto,
         urlChave: urlConsultaChave(config)!,
+        respTec: responsavelTecnico(),
       });
-      // O valor da nota é o vNF (produtos − desconto + frete), não a soma dos itens —
-      // senão a listagem de notas diverge do que a SEFAZ autorizou.
+      // Assina ANTES de gravar: o que fica no banco é exatamente o que foi (ou vai ser) enviado.
+      const xml = cert ? assinarNfe(xmlSemAssinatura, cert) : xmlSemAssinatura;
       const vProd = itens.reduce((s, it) => s + it.quantidade * it.precoUnitario, 0);
       const valorTotal = vProd - Math.min(desconto, vProd) + frete;
 
       const [nota] = await tx
         .insert(notaFiscal)
         .values({
-          tenantId,
-          unidadeId: c.unidadeId,
-          comandaId,
-          modelo: '65',
-          serie,
-          numero,
-          chave,
-          ambiente: config.ambiente || '2',
-          status: 'pendente',
-          qrcode: qrCode,
-          xml,
-          valorTotal: String(valorTotal.toFixed(2)),
-          emitidaPorId: atorId,
+          tenantId, unidadeId, comandaId, modelo: '65', serie, numero, chave,
+          ambiente: tpAmb, status: 'pendente', qrcode: qrCode, xml,
+          valorTotal: String(valorTotal.toFixed(2)), emitidaPorId: atorId,
         })
         .returning();
-      return { nota, config, xml, chave };
+      return { nota, config: { ...config, cert }, xml };
     });
 
-    // Transmite (fora da transação). Mock autoriza; direto exige certificado.
-    let ret;
+    // Transmite (fora da transação — a SEFAZ pode demorar e não se segura trava esperando rede).
+    let falha: Error | null = null;
+    let atualizacao: Record<string, unknown>;
     try {
-      ret = await this.transmitter(preparado.config).autorizar(
-        preparado.xml,
-        preparado.chave,
-        preparado.config,
-      );
-    } catch (e: any) {
-      await this.db
-        .update(notaFiscal)
-        .set({ status: 'rejeitada', motivo: e?.message?.slice(0, 400) ?? 'falha' })
-        .where(eq(notaFiscal.id, preparado.nota.id));
-      throw new BadRequestException(e?.message ?? 'Falha na transmissão fiscal.');
-    }
-
-    const status = ret.status === 'autorizada' ? 'autorizada' : ret.status;
-    const [nota] = await this.db
-      .update(notaFiscal)
-      .set({
-        status,
-        // Marca a nota que NÃO passou pela SEFAZ. Sem isto, simulada e real ficam
-        // indistinguíveis na listagem, no cupom e na auditoria.
+      const ret = await transmissor.autorizar(preparado.xml, preparado.nota.chave ?? '', preparado.config);
+      atualizacao = {
+        status: ret.status,
         simulada: !!ret.simulado,
-        protocolo: ret.protocolo,
+        protocolo: ret.protocolo ?? null,
         motivo: ret.motivo,
         xml: ret.xmlAutorizado ?? preparado.xml,
-        emitidaEm: new Date(),
-      })
+        emitidaEm: ret.status === 'autorizada' ? new Date() : null,
+      };
+      if (ret.status === 'rejeitada') falha = new BadRequestException(`NFC-e rejeitada pela SEFAZ: ${ret.motivo}`);
+      if (ret.status === 'pendente')
+        falha = new ServiceUnavailableException(`A SEFAZ recebeu a NFC-e e ainda não decidiu: ${ret.motivo}`);
+    } catch (e: any) {
+      if (e instanceof SefazInalcancavel) {
+        // Enviada e sem resposta: pode ter sido autorizada ou não. Fica 'pendente' — e a venda
+        // não pode emitir de novo às cegas (ver `emitir`).
+        atualizacao = { status: 'pendente', motivo: `Sem resposta da SEFAZ — situação desconhecida. ${e.message}`.slice(0, 400) };
+        falha = new ServiceUnavailableException(e.message);
+      } else {
+        // A SEFAZ recusou a CHAMADA (ou erro antes do envio): a nota não foi processada.
+        atualizacao = { status: 'rejeitada', motivo: String(e?.message ?? 'falha').slice(0, 400) };
+        falha =
+          e instanceof SefazRecusouChamada
+            ? new BadGatewayException(e.message)
+            : new BadRequestException(e?.message ?? 'Falha na transmissão fiscal.');
+      }
+    }
+    const [nota] = await this.db
+      .update(notaFiscal)
+      .set(atualizacao)
       .where(eq(notaFiscal.id, preparado.nota.id))
       .returning();
 
@@ -494,16 +594,12 @@ export class FiscalService {
       atorId,
       atorPerfil: '',
       tipo: 'fiscal',
-      acao: 'emitiu_nfce',
+      acao: comandaId ? 'emitiu_nfce' : 'emitiu_nfce_teste',
       entidadeTipo: 'nota_fiscal',
       entidadeId: nota.id,
-      detalhe: { chave: nota.chave, status: nota.status, numero: nota.numero },
+      detalhe: { chave: nota.chave, status: nota.status, numero: nota.numero, serie: nota.serie, motivo: nota.motivo },
     });
-
-    if (nota.status === 'autorizada') {
-      await this.imprimirDanfe(tenantId, nota, itens, { frete, desconto });
-    }
-    return nota;
+    return { nota, falha };
   }
 
   // Frete e desconto que a NOTA deve declarar, lidos do pedido de canal da comanda.
@@ -616,6 +712,10 @@ export class FiscalService {
     return row;
   }
 
+  // Configuração que vale para esta LOJA: a própria, ou — sem ela — a da EMPRESA (regra V4,
+  // "da loja OU sem loja"). A tela grava no nível da empresa quando a rede tem uma loja só,
+  // mas a comanda pertence à loja: com a busca estrita, toda venda recebia "Configure o fiscal
+  // desta unidade" mesmo com tudo configurado.
   private async configRaw(tenantId: string, unidadeId?: string | null) {
     const [row] = await this.db
       .select()
@@ -624,10 +724,12 @@ export class FiscalService {
         and(
           eq(fiscalConfig.tenantId, tenantId),
           unidadeId
-            ? eq(fiscalConfig.unidadeId, unidadeId)
+            ? sql`(unidade_id = ${unidadeId} or unidade_id is null)`
             : sql`unidade_id is null`,
         ),
-      );
+      )
+      .orderBy(sql`(unidade_id is null)`)
+      .limit(1);
     return row;
   }
 

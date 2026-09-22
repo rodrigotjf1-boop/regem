@@ -28,9 +28,10 @@ const CAMPOS: Campo[] = [
   // O grupo `enderEmit` do leiaute 4.00 exige o bairro: sem ele o XML nem valida.
   { chave: 'bairro', rotulo: 'bairro', ok: (c) => !!String(c.bairro ?? '').trim() },
   { chave: 'numero', rotulo: 'número', ok: (c) => !!String(c.numero ?? '').trim() },
-  // CSC é o que assina o QR Code (NT 2015/002). Sem ele o QR não é conferível.
-  { chave: 'cscId', rotulo: 'ID do CSC', ok: (c) => !!String(c.cscId ?? '').trim() },
-  { chave: 'cscToken', rotulo: 'CSC', ok: (c) => !!String(c.cscToken ?? '').trim() },
+  // CSC: só o QR Code VERSÃO 2 usa (hash do CSC). Na v3 (NT 2025.001) ele não existe — por isso
+  // só é exigido quando a UF ainda estiver na v2 (`qrVersao` vem de sefaz/webservices.ts).
+  { chave: 'cscId', rotulo: 'ID do CSC', ok: (c) => c.qrVersao === 3 || !!String(c.cscId ?? '').trim() },
+  { chave: 'cscToken', rotulo: 'CSC', ok: (c) => c.qrVersao === 3 || !!String(c.cscToken ?? '').trim() },
   {
     chave: 'urlQrcode',
     // A URL de consulta do QR é POR UF e por ambiente — não existe uma nacional.

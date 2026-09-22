@@ -18,7 +18,7 @@
 | Área | Situação |
 |---|---|
 | Montagem do XML (infNFe 4.00) | Existe — `nfce-xml.builder.ts` |
-| Chave de 44 dígitos, DV módulo 11, QR Code (NT 2015/002 v2, SHA-1 + CSC) | Existe — `chave.ts` |
+| Chave de 44 dígitos, DV módulo 11, QR Code **v2** (SHA-1 + CSC) e **v3** (NT 2025.001, sem CSC) | Existe — `chave.ts`; a versão por UF em `sefaz/webservices.ts` |
 | Numeração por série, com reserva atômica | Existe — `fiscal_serie` (mig 278) |
 | Emissão à prova de configuração faltando (*fail-closed*) | Existe — mig 278 / `transmitter.ts` |
 | **Certificado A1 e CSC guardados cifrados** (AES-256-GCM, fora do sync) | Existe — mig 279 / `credencial.ts`, `cifra-segredo.ts` |
@@ -27,13 +27,17 @@
 | **Assinatura XML-DSig com o A1** | Existe — `assinatura.ts` (etapa B), conferida por dois caminhos independentes |
 | Grupo `<infNFeSupl>` (QR Code + URL de consulta pela chave) | Existe — etapa B (antes o QR nunca ia para o XML) |
 | Conexão com a SEFAZ: SOAP 1.2, certificado de cliente, raiz ICP-Brasil, consulta de status | Existe — `sefaz/` (etapa C1) |
-| **Transmissão real à SEFAZ** (`NFeAutorizacao4`) | **NÃO EXISTE** (etapa C2) |
+| **Transmissão real à SEFAZ** (`NFeAutorizacao4`, lote síncrono) | Existe — `sefaz/autorizacao.ts` (etapa C2) |
+| NFC-e de teste em homologação (1 item de R$ 1,00, sem venda) | Existe — rota só-nuvem + botão na tela (etapa C2) |
+| Consulta de recibo/protocolo para nota que ficou `pendente` | NÃO EXISTE (P18) |
+| Reaproveitamento ou **inutilização** do número de nota rejeitada | NÃO EXISTE (P19) |
 | Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
 | Inutilização de faixa | NÃO EXISTE |
 | Grupos IBS/CBS/IS (reforma) | NÃO EXISTE |
 
-**Enquanto a assinatura e a transmissão não existirem, o sistema NÃO emite documento fiscal válido.**
-A emissão só opera em modo simulado, e o modo simulado é recusado em produção (§5).
+**O emissor já fala com a SEFAZ de verdade**: monta, assina, transmite e só grava "autorizada" com
+protocolo na mão. Em produção ainda faltam duas coisas do §7: resolver a nota que fica `pendente`
+(P18) e tratar o número queimado por rejeição (P19). O modo simulado continua recusado em produção (§5).
 
 ---
 
@@ -212,8 +216,28 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 - **"Testar certificado"** — assina uma NFC-e de exemplo com o certificado GUARDADO e confere,
   sem SEFAZ e sem gravar nada: senha, chave de proteção e formato do .pfx aparecem antes da
   primeira transmissão.
-- **Transmissão ainda recusada na escolha** (`TRANSMISSAO_SEFAZ_PRONTA = false`): com certificado
-  cadastrado, a emissão para ANTES de reservar número — senão cada venda gastaria um número.
+- **Autorização (etapa C2)** — `sefaz/autorizacao.ts`: `nfeAutorizacaoLote` com **um lote de uma nota**
+  e **`indSinc=1`** (assíncrono com nota única é rejeição **452**). A resposta tem dois níveis, e os dois
+  são lidos: o do LOTE (`retEnviNFe`) e o da NOTA (`protNFe`) — `104` no lote só quer dizer "processei".
+  Autorizada é **100, 120 ou 150**; o que fica guardado é o **`nfeProc`** (nota + protocolo), que é o
+  documento que vale. `103` ("lote recebido") não é autorização: fica **pendente**.
+- **Nunca "autorizada" por otimismo:** a nota nasce `pendente` e só muda com resposta da SEFAZ. Sem
+  resposta (rede caiu depois do envio) ela **continua pendente** — pode ter sido autorizada lá — e a
+  venda é impedida de emitir de novo às cegas, que duplicaria o documento.
+- **Homologação:** o primeiro item sai com a frase obrigatória `NOTA FISCAL EMITIDA EM AMBIENTE DE
+  HOMOLOGACAO - SEM VALOR FISCAL` (rejeição **373** sem ela). O resto da nota é idêntico ao de produção.
+- **QR Code v3 no RJ** (NT 2025.001): o parâmetro é só `chave|3|tpAmb` — **sem CSC**. Por isso o CSC
+  deixou de ser exigido no pré-voo quando a UF está na v3. A versão é por UF (`qrVersaoNfce`), porque
+  UF que ainda não aceita a v3 rejeita com **407**.
+- **Responsável técnico** (`<infRespTec>`, NT 2018.005): é a DISTRIBUIÇÃO, não a loja — vem das
+  variáveis `RESP_TEC_*` do servidor e o lojista não vê nem edita. Sem elas o grupo não sai; se a UF
+  exigir, a SEFAZ rejeita com **972** e aí elas passam a ser obrigatórias.
+- **NFC-e de teste**, só em homologação e só do presidente: um item de R$ 1,00, sem comanda e sem
+  impressão, na **mesma série e no mesmo contador** das vendas da loja. Serve para a primeira conversa
+  real com a SEFAZ sem inventar venda; devolve o que a SEFAZ respondeu, inclusive a rejeição.
+- **Série usada em homologação não vai para produção:** o contador é por série, não por ambiente — a
+  produção começaria no número seguinte ao último teste, e os números dos testes seriam, para o Fisco,
+  buraco na sequência de produção. A reserva recusa e manda usar outra série (ERR-085).
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -241,7 +265,9 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Só o mecanismo de expiração está documentado, não o prazo |
 | P14 | Regras estaduais de **AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO** | Sabe-se apenas que autorizam via SVRS |
 | P15 | **`cIdToken` no QR: com ou sem zeros à esquerda** ("000001" × "1") — guardamos como digitado | Conferir no Manual do DANFE NFC-e e QR Code v6.0 antes de montar o QR real (etapa C) |
-| P17 | **RJ → SVRS na NFC-e**: deduzido por exclusão (portal da SVRS) e por avisos da SEFAZ-RJ; o site da SEFAZ-RJ bloqueia IP estrangeiro e não pude ler a página oficial | O "Testar conexão com a SEFAZ" confirma: a SVRS só responde 107 para UF que atende |
+| P18 | **Nota que fica `pendente`** (enviada, sem resposta): hoje ela fica parada e a venda não emite outra. Falta consultar o recibo/chave na SEFAZ e concluir sozinho | Implementar `NfeConsultaProtocolo4` antes de produção |
+| P19 | **Número queimado por rejeição** vira buraco na sequência, que a lei manda **inutilizar** até o 10º dia do mês seguinte (Ajuste SINIEF 19/16, cl. 11ª, §5º). Hoje não reaproveitamos nem inutilizamos | Decidir entre reaproveitar o número na mesma emissão ou implementar `NfeInutilizacao4`. **Obrigatório antes de produção** |
+| ~~P17~~ | ~~RJ → SVRS na NFC-e~~ — **RESOLVIDO 22/09/2026**: o "Testar conexão com a SEFAZ" com o certificado real trouxe **107 — Serviço em Operação** da SVRS para `cUF=33`. A SVRS só responde 107 para UF que atende. | — |
 | ~~P16~~ | ~~.pfx exportado pelo Windows~~ — **RESOLVIDO 22/09/2026**: o certificado real da loja-piloto, exportado do Windows, foi cadastrado em produção e abriu no `node-forge`. O botão "Testar certificado" (etapa B) prova também a assinatura com ele. | — |
 
 ---
@@ -250,6 +276,7 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 
 | Data | O que mudou |
 |---|---|
+| 22/09/2026 | Etapa C2 do P2: **transmissão real** (`NFeAutorizacao4`, lote síncrono), leitura dos dois níveis de resposta, `nfeProc` guardado, QR v3 no RJ, frase de homologação, `infRespTec`, NFC-e de teste. P17 resolvido; P18 e P19 abertos. |
 | 22/09/2026 | Etapa C1 do P2: conexão com a SEFAZ (SOAP 1.2, certificado de cliente, raiz ICP-Brasil v10), consulta de status. Pendência P17. |
 | 22/09/2026 | Etapa B do P2: assinatura XML-DSig, grupo `infNFeSupl` com QR e `urlChave` (mig 280), "Testar certificado". P16 resolvido. |
 | 22/09/2026 | Etapa A do P2: certificado A1 e CSC cifrados (mig 279), leitura do .pfx, tela de cadastro. Pendências P15 e P16. |

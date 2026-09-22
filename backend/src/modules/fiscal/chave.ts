@@ -73,3 +73,14 @@ export function montarQrCode(p: {
   // configuração, não daqui. Antes esta função devolvia a URL do QR no lugar dela.
   return { qrCode: `${p.urlConsulta}${sep}p=${dados}` };
 }
+
+// QR Code VERSÃO 3 — emissão ONLINE (NT 2025.001; Manual do DANFE NFC-e v6.0, §4.4.1, Tabela 6):
+//   <url>?p=<chave de 44>|3|<tpAmb>
+// Sem CSC e sem hash: a autenticidade da nota online vem da assinatura do XML. (A v3 OFFLINE é
+// outra — leva dia, valor, destinatário e uma assinatura RSA-SHA1 — e entra com a contingência.)
+export function montarQrCodeV3(p: { chave: string; tpAmb: string; urlConsulta: string }): { qrCode: string } {
+  if (!/^\d{44}$/.test(p.chave)) throw new Error('QR Code v3: chave de acesso precisa ter 44 dígitos.');
+  const tpAmb = String(p.tpAmb) === '1' ? '1' : '2';
+  const sep = p.urlConsulta.includes('?') ? '&' : '?';
+  return { qrCode: `${p.urlConsulta}${sep}p=${p.chave}|3|${tpAmb}` };
+}

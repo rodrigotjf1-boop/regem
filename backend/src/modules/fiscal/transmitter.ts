@@ -1,4 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { autorizarNfce } from './sefaz/autorizacao';
+import { urlServicoNfce } from './sefaz/webservices';
 // Transmissão da NFC-e à SEFAZ. Interface para trocar a implementação:
 // - SefazDiretoTransmitter: assina o XML (XML-DSig com o A1) e chama o webservice da UF.
 //   É o "plug" do certificado — ainda NÃO implementado.
@@ -13,7 +15,8 @@
 //    Fora disso, sem certificado a emissão é RECUSADA — nunca "autorizada".
 
 export interface RetornoAutorizacao {
-  status: 'autorizada' | 'rejeitada' | 'contingencia';
+  // pendente = a SEFAZ recebeu mas ainda não decidiu (resposta assíncrona) — não é rejeição.
+  status: 'autorizada' | 'rejeitada' | 'contingencia' | 'pendente';
   cStat?: string; // código de status da SEFAZ (100, 120, 150, 1115…)
   protocolo?: string;
   motivo: string; // xMotivo
@@ -79,11 +82,22 @@ export class SefazMockTransmitter implements FiscalTransmitter {
 // (2) montagem do envelope SOAP e chamada ao webservice NFeAutorizacao4 da UF,
 // (3) tratamento do retorno (`ehAutorizado(cStat)`, nunca `cStat === '100'`).
 export class SefazDiretoTransmitter implements FiscalTransmitter {
-  async autorizar(): Promise<RetornoAutorizacao> {
-    throw new Error(
-      'Emissão fiscal indisponível: falta a assinatura digital e a transmissão à SEFAZ. ' +
-        'Nenhuma nota foi emitida.',
-    );
+  // Recebe o XML JÁ ASSINADO e, em `config`, a UF, o ambiente e o certificado (para o TLS).
+  // Erros de rede/TLS sobem como estão (SefazInalcancavel / SefazRecusouChamada): quem chama
+  // precisa distinguir "não sei se autorizou" de "foi recusada".
+  async autorizar(xml: string, _chave: string, config: any): Promise<RetornoAutorizacao> {
+    if (!config?.cert) throw new Error('Transmissão sem o certificado carregado. Nenhuma nota foi emitida.');
+    const r = await autorizarNfce({
+      uf: config.uf,
+      ambiente: String(config.ambiente ?? '2'),
+      xmlAssinado: xml,
+      cert: config.cert,
+    });
+    const motivo = `${r.cStat} - ${r.xMotivo}`;
+    if (r.situacao === 'autorizada')
+      return { status: 'autorizada', cStat: r.cStat, protocolo: r.protocolo, motivo, xmlAutorizado: r.nfeProc };
+    if (r.situacao === 'pendente') return { status: 'pendente', cStat: r.cStat, motivo };
+    return { status: 'rejeitada', cStat: r.cStat, motivo };
   }
   async cancelar(): Promise<RetornoCancelamento> {
     throw new Error(
@@ -109,7 +123,7 @@ export function simuladoLiberado(): boolean {
 // reservar o número. Sem isto, o transmissor direto só recusava na hora de transmitir: com a
 // emissão automática ligada, cada venda gastaria um número e deixaria um buraco na série (que a
 // lei manda inutilizar). Vira `true` junto com a implementação da transmissão.
-export const TRANSMISSAO_SEFAZ_PRONTA = false;
+export const TRANSMISSAO_SEFAZ_PRONTA = true;
 
 export function escolherTransmissor(config: any): FiscalTransmitter {
   if (String(config?.certRef ?? '').trim()) {
@@ -118,6 +132,9 @@ export function escolherTransmissor(config: any): FiscalTransmitter {
         'Certificado cadastrado, mas a transmissão à SEFAZ ainda não está disponível. ' +
           'Nenhuma nota foi emitida.',
       );
+    // UF sem autorizador CONFIRMADO: recusa aqui, antes de reservar número (lança
+    // UfSemAutorizador). Autorizador errado seria rejeição — não se chuta endereço.
+    urlServicoNfce(String(config?.uf ?? ''), String(config?.ambiente ?? '2'), 'NFeAutorizacao4');
     return new SefazDiretoTransmitter();
   }
   if (String(config?.ambiente ?? '2') === '2' && simuladoLiberado()) {
