@@ -38,6 +38,7 @@ import { edgeAtivo } from '../../common/edge-ativo';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
+import { hojeISO } from '../../common/data';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1711,44 +1712,53 @@ export class ProducaoPedidoService {
       on conflict (tenant_id, coalesce(unidade_id, '00000000-0000-0000-0000-000000000000'::uuid), prefixo)
       do nothing
     `);
+    // `ultimo_reset::text` de propósito: lido como Date, o driver devolve MEIA-NOITE DO FUSO
+    // DO SERVIDOR, e comparar isso com a data da operação erra um dia dependendo do fuso em
+    // que o processo roda. Como texto 'AAAA-MM-DD', a comparação é a mesma em qualquer lugar.
     const cur: any = await tx.execute(sql`
-      select id, valor, periodo, ultimo_reset as "ultimoReset"
+      select id, valor, periodo, ultimo_reset::text as "ultimoReset"
       from senha_contador
       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
         and prefixo = ${prefixo}
       for update
     `);
     const row = (cur.rows ?? cur)[0];
-    const reset = this.precisaReset(row.periodo, row.ultimoReset);
+    const hoje = hojeISO(); // dia da OPERAÇÃO (fuso da loja), nunca UTC
+    const reset = this.precisaReset(row.periodo, row.ultimoReset, hoje);
     const valor = (reset ? 0 : Number(row.valor)) + 1;
     await tx.execute(sql`
       update senha_contador
       set valor = ${valor},
-          ultimo_reset = ${reset ? sql`current_date` : sql`ultimo_reset`},
+          ultimo_reset = ${reset ? sql`${hoje}::date` : sql`ultimo_reset`},
           updated_at = now()
       where id = ${row.id}
     `);
     return valor;
   }
 
-  private toDate(d: any): Date {
-    return d instanceof Date ? d : new Date(String(d) + 'T00:00:00');
+  // Segunda-feira da semana de uma data 'AAAA-MM-DD'. A conta é feita ao MEIO-DIA UTC: a
+  // data não tem hora, e qualquer outra âncora escorrega um dia em algum fuso.
+  private inicioSemanaISO(iso: string): string {
+    const d = new Date(`${String(iso).slice(0, 10)}T12:00:00Z`);
+    const dow = (d.getUTCDay() + 6) % 7; // segunda = 0
+    d.setUTCDate(d.getUTCDate() - dow);
+    return d.toISOString().slice(0, 10); // aqui é seguro: a data foi montada em UTC
   }
-  private diaStr(d: Date) {
-    return d.toISOString().slice(0, 10);
-  }
-  private inicioSemana(d: Date) {
-    const x = new Date(d);
-    const dow = (x.getDay() + 6) % 7; // segunda = 0
-    x.setDate(x.getDate() - dow);
-    return this.diaStr(x);
-  }
-  private precisaReset(periodo: string, ultimoReset: any): boolean {
+
+  /**
+   * Virou o dia (ou a semana) da OPERAÇÃO desde o último reset?
+   *
+   * ⚠️ Isto já errou: comparava a data gravada pelo banco com `new Date().toISOString()`, que é
+   * a data em UTC. O Brasil é UTC−3, então das 21h à meia-noite as duas discordavam e o
+   * contador concluía "virou o dia" a CADA pedido — todo pedido do horário de pico saía com a
+   * senha 1 (ERR-087). As duas pontas da comparação têm de vir do mesmo relógio: o da loja.
+   */
+  private precisaReset(periodo: string, ultimoReset: any, hoje: string): boolean {
     if (periodo === 'nunca') return false;
-    const ur = this.toDate(ultimoReset);
-    const hoje = new Date();
-    if (periodo === 'semanal') return this.inicioSemana(ur) < this.inicioSemana(hoje);
-    return this.diaStr(ur) < this.diaStr(hoje); // diario (padrão)
+    const ur = String(ultimoReset ?? '').slice(0, 10);
+    if (!ur) return false; // sem data gravada não há o que zerar
+    if (periodo === 'semanal') return this.inicioSemanaISO(ur) < this.inicioSemanaISO(hoje);
+    return ur < hoje; // diario (padrão) — comparação de texto AAAA-MM-DD
   }
 
   async getSenhaConfig(tenantId: string, unidadeId?: string | null) {

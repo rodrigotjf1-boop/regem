@@ -88,6 +88,43 @@ describe('nenhuma cópia local de hojeISO', () => {
     expect(readFileSync(__filename, 'utf8')).toMatch(re);
   });
 
+  // A guarda acima procura pelo NOME (`hojeISO`) — e foi por isso que ela não viu a cópia do
+  // contador de senha, que se chamava `diaStr` e devolvia a data em UTC. Das 21h à meia-noite
+  // ela discordava da data gravada pelo banco, o contador concluía "virou o dia" a CADA pedido
+  // e toda senha do horário de pico saía 1 (ERR-087). Esta guarda procura pelo PADRÃO, que
+  // nenhum nome disfarça: "agora" transformado em data pelo caminho do UTC.
+  it('ninguém monta a data de HOJE pelo UTC', () => {
+    let saida = '';
+    try {
+      saida = execSync(
+        'git grep -nE --untracked "new Date\\((Date\\.now\\(\\)[^)]*)?\\)\\.toISOString\\(\\)\\.slice\\(0, ?10\\)" -- "*.ts"',
+        { encoding: 'utf8' },
+      );
+    } catch {
+      saida = '';
+    }
+    // Dívida CONHECIDA: filtros e carimbos que erram no máximo um dia depois das 21h (período
+    // padrão de relatório/estoque, semana inicial da escala, nome do arquivo de exportação,
+    // data de expurgo de foto, dia do job de ordens recorrentes). Nenhum deles decide dinheiro
+    // ou numeração. A lista existe para que NENHUM caso NOVO entre — não para abençoar estes.
+    const dividaConhecida = [
+      'src/modules/relatorios/relatorios.service.ts',
+      'src/modules/estoque/estoque.controller.ts',
+      'src/modules/escala/escala.controller.ts',
+      'src/modules/cliente/cliente.service.ts',
+      'src/modules/jobs/jobs.service.ts',
+      'src/modules/tarefa/tarefa-instancia.service.ts',
+    ];
+    const comentario = /:\s*(\/\/|\*)/;
+    const fora = saida
+      .split('\n')
+      .filter(Boolean)
+      .filter((l) => !comentario.test(l))
+      .filter((l) => !/common[\/]data(\.spec)?\.ts/.test(l))
+      .filter((l) => !dividaConhecida.some((d) => l.startsWith(d)));
+    expect(fora).toEqual([]);
+  });
+
   it('o helper não usa toISOString para montar a data', () => {
     // Só as linhas de CÓDIGO: o arquivo cita `toISOString` no comentário justamente
     // para explicar o que NÃO fazer, e isso não pode derrubar o teste.

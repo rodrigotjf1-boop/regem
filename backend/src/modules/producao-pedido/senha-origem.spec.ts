@@ -118,3 +118,43 @@ descrever('contador por origem, contra o Postgres', () => {
     expect(rotuloSenha(r.rows[0].senha, r.rows[0].senha_prefixo)).toBe('D-9');
   }, 60000);
 });
+
+// ERR-087 — QUANDO O CONTADOR ZERA.
+//
+// A decisão era tomada comparando a data gravada pelo banco (dia da loja) com
+// `new Date().toISOString()` (dia em UTC). Das 21h à meia-noite as duas discordam, e o contador
+// concluía "virou o dia" a CADA pedido: toda senha do horário de pico saía 1. Aqui a função é
+// exercitada com datas fixas, então o teste vale a qualquer hora do dia em que for rodado — o
+// teste antigo, que dependia do relógio, só reprovava depois das 21h.
+describe('quando o contador de senha zera', () => {
+  const decidir = (periodo: string, ultimoReset: string, hoje: string) =>
+    (new ProducaoPedidoService({} as any, {} as any, {} as any) as any).precisaReset(periodo, ultimoReset, hoje);
+
+  it('mesmo dia da operação: NÃO zera (era o caso quebrado depois das 21h)', () => {
+    expect(decidir('diario', '2026-09-22', '2026-09-22')).toBe(false);
+  });
+
+  it('dia seguinte: zera', () => {
+    expect(decidir('diario', '2026-09-22', '2026-09-23')).toBe(true);
+  });
+
+  it('semanal: dentro da mesma semana não zera; na semana seguinte zera', () => {
+    // 21/09/2026 é SEGUNDA e 27/09 é domingo: a semana vai de 21 a 27 (começa na segunda).
+    expect(decidir('semanal', '2026-09-21', '2026-09-27')).toBe(false); // seg → dom, mesma semana
+    expect(decidir('semanal', '2026-09-22', '2026-09-27')).toBe(false); // ter → dom, mesma semana
+    expect(decidir('semanal', '2026-09-20', '2026-09-21')).toBe(true); // dom → seg, semana nova
+    expect(decidir('semanal', '2026-09-22', '2026-09-28')).toBe(true); // segunda seguinte
+  });
+
+  it("'nunca' não zera, e data ausente não inventa reset", () => {
+    expect(decidir('nunca', '2020-01-01', '2026-09-22')).toBe(false);
+    expect(decidir('diario', '', '2026-09-22')).toBe(false);
+  });
+
+  it('a data do banco vem como TEXTO — lida como Date, escorregaria um dia', () => {
+    // Prova do motivo da mudança: o mesmo instante dá datas diferentes nos dois caminhos.
+    const instante = new Date('2026-09-23T02:30:00Z'); // 23h30 de 22/09 em São Paulo
+    expect(instante.toISOString().slice(0, 10)).toBe('2026-09-23'); // caminho antigo (UTC)
+    expect(instante.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })).toBe('2026-09-22');
+  });
+});
