@@ -88,6 +88,7 @@ export default function FiscalConfigPage() {
         // Vazio = volta ao padrão da UF (no RJ, R$ 2.000).
         limiteIdentificacao: String(f.limiteIdentificacao ?? '').trim() === '' ? null : Number(f.limiteIdentificacao),
         deliverySemCpf: f.deliverySemCpf || 'presencial',
+        contingenciaViaEstabelecimento: !!f.contingenciaViaEstabelecimento,
       });
       toast.success('Configuração fiscal salva.');
       await reload();
@@ -153,6 +154,26 @@ export default function FiscalConfigPage() {
             {/* Séries distintas por ponto de emissão: o balcão numera na série da loja e o
                 delivery na da nuvem, então uma queda de internet não faz os dois emitirem
                 notas com o mesmo número. As duas têm de ser diferentes, e nunca 0. */}
+            {/* Contingência: o cupom do cliente sai sempre. A 2ª via de papel é a exceção —
+                ela fica com o estabelecimento até a nota ser autorizada. Restaurante não
+                arquiva cupom, e o MOC aceita no lugar a guarda eletrônica do XML, que é o que
+                já fazemos. */}
+            <label className="flex items-start gap-2 text-sm sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={!!f.contingenciaViaEstabelecimento}
+                onChange={(e) => set({ contingenciaViaEstabelecimento: e.target.checked })}
+                className="mt-1 h-4 w-4 accent-primary"
+              />
+              <span>
+                Imprimir a 2ª via (&ldquo;via do estabelecimento&rdquo;) nas notas de contingência
+                <span className="block text-xs text-muted-foreground">
+                  Desligado, a guarda é o XML da nota, que já fica arquivado e pode ser reimpresso
+                  quando o Fisco pedir. Para usar a guarda eletrônica, a loja precisa lavrar o
+                  termo no livro Registro de Utilização de Documentos Fiscais (modelo 6).
+                </span>
+              </span>
+            </label>
             {/* Pedido de entrega sem CPF: emitir declarando operação presencial (a taxa entra
                 como despesa acessória, e o total continua batendo com o que o cliente pagou) ou
                 não emitir. Venda sem nota nenhuma é infração; nota sem o CPF que o cliente não

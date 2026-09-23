@@ -438,9 +438,16 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
     resta por nota, e o log registra quando alguma passa do prazo. No RJ, não transmitir é
     **multa de 5% do valor da operação** (RICMS, art. 62-C, III) e transmitir fora do prazo,
     100 UFIR-RJ por obrigação (XIII) — por isso a fila não é acessório.
-  - **DANFE**: sai com **"EMITIDA EM CONTINGENCIA"** e uma **segunda via** marcada como "VIA DO
-    ESTABELECIMENTO" (Anexo IV, §4). A alternativa à 2ª via — guarda eletrônica do XML — exige
-    que a loja lavre termo no livro modelo 6; enquanto não lavrar, o papel é o caminho seguro.
+  - **DANFE**: sai com **"EMITIDA EM CONTINGENCIA"**. A **segunda via** ("VIA DO
+    ESTABELECIMENTO", Anexo IV, §4) é **opcional e vem desligada** (mig 287): restaurante não
+    arquiva cupom em papel, e o próprio manual dá a alternativa que nós já cumprimos por
+    desenho — *"poderá optar pela guarda eletrônica, em local seguro, do respectivo arquivo XML
+    da NFC-e… possibilitar a impressão do respectivo DANFE NFC-e para apresentação ao fisco
+    quando solicitado"*. O XML assinado fica em `nota_fiscal.xml` desde a emissão, sobe para a
+    nuvem e volta. ⚠️ O que **não** é software: para usar a guarda eletrônica, a loja "deverá,
+    previamente, lavrar termo no livro Registro de Utilização de Documentos Fiscais e Termos de
+    Ocorrência - modelo 6". Quem precisar do papel (UF que exija, ou termo ainda não lavrado)
+    liga o interruptor na configuração fiscal.
   - **O estado é por PONTO DE EMISSÃO** (`tenant`, `unidade`, `origem`): a loja pode estar sem
     internet enquanto a nuvem emite normalmente. A tabela **não sincroniza** — sincronizar faria
     a nuvem, que está bem, desligar a contingência da loja que continua fora do ar.
@@ -520,6 +527,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 23/09/2026 | **A 2ª via de papel da contingência virou opção, desligada por padrão** (mig 287). Restaurante entrega só a via do cliente; a guarda passa a ser o XML, que o MOC aceita expressamente (Anexo IV, §4) e que já fica arquivado e reimprimível. Quem precisar do papel liga na configuração fiscal. ⚠️ A guarda eletrônica exige termo lavrado no livro modelo 6 — isso é da loja, não do sistema. |
 | 23/09/2026 | **Contingência off-line COMPLETA** (mig 286). Quando a SEFAZ fica muda, o ponto de emissão entra em contingência sozinho, a venda sai com `tpEmis=9` num número NOVO (o da nota pendente não se reaproveita), nenhuma venda seguinte tenta a SEFAZ (era a espera que travava o caixa), e um job de 5 minutos sai da contingência assim que o status do serviço volta `107` e transmite a fila com o XML original. **Rejeição na transmissão não tira a nota da fila** — número de contingência não pode ser inutilizado. DANFE com "EMITIDA EM CONTINGENCIA" e 2ª via; a tela de notas mostra o prazo de cada uma. **P21 resolvido.** |
 | 23/09/2026 | **Contingência off-line, parte 1** (sem migration): a NFC-e com `tpEmis=9`, `dhCont` e `xJust`, e o **QR Code v3 off-line assinado** (oito parâmetros; RSA-SHA1 dos parâmetros 1 a 7 com o A1 da loja). Sem efeito na emissão ainda — é a base das partes 2 e 3. Junto, uma trava que faltava: a chave de acesso e o `ide` têm de concordar no `tpEmis`, que é o 35º dígito da chave. |
 | 23/09/2026 | **Denegação separada da rejeição e o aviso da SEFAZ lido** (sem migration). A denegação vinda da autorização virava `rejeitada`, e o número denegado — que a SEFAZ **já tem na base** — entraria no relatório de lacunas para ser inutilizado (ERR-094). Agora `110/301/302` gravam `denegada`, com o protocolo do registro. Junto: o grupo **`cMsg`/`xMsg`** (aviso da SEFAZ ao emissor, confirmado no XSD oficial) passou a ser lido na autorização e na consulta, entrar no `motivo` e sair no log. **P22 e P23 resolvidos** — e a premissa do P22 estava errada: 781 (rejeição) e 301 (denegação) estão **as duas vigentes**, cada UF com a sua. |

@@ -2077,6 +2077,10 @@ export const fiscalConfig = pgTable('fiscal_config', {
   // Pedido não presencial SEM documento do cliente: 'presencial' (emite declarando operação
   // presencial, com a taxa de entrega em outras despesas) | 'nao_emitir'.
   deliverySemCpf: text('delivery_sem_cpf').notNull().default('presencial'),
+  // Contingência: imprimir a 2ª via de papel ("VIA DO ESTABELECIMENTO")? Padrão FALSE — o
+  // restaurante entrega só a via do cliente, e a guarda é o XML que já fica em `nota_fiscal`
+  // (MOC 7.0, Anexo IV, §4, alternativa da guarda eletrônica; mig 287).
+  contingenciaViaEstabelecimento: boolean('contingencia_via_estabelecimento').notNull().default(false),
   cscId: text('csc_id'),
   cscToken: text('csc_token'),
   certRef: text('cert_ref'),

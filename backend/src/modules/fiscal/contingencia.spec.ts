@@ -185,6 +185,13 @@ descrever('a venda não trava quando a SEFAZ fica muda', () => {
                'https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode','www.fazenda.rj.gov.br/nfce/consulta')`,
       [tenant, CNPJ],
     );
+    // Uma impressora de cupom na loja: sem ela a DANFE não é enfileirada e os testes de via
+    // passariam por engano (nenhuma via é "nenhuma via a mais").
+    await pool.query(
+      `insert into equipamento (tenant_id, unidade_id, nome, tipo, token, ativo, faz_cupom, padrao)
+       values ($1,$2,'Caixa 1','impressora',$3,true,true,true)`,
+      [tenant, unidade, randomBytes(8).toString('hex')],
+    );
     await salvarCertificado(db, tenant, null, { pfxBase64: pfxDeTeste().toString('base64'), senha: SENHA });
   }, 60000);
 
@@ -298,5 +305,30 @@ descrever('a venda não trava quando a SEFAZ fica muda', () => {
     expect(fila.length).toBeGreaterThan(0);
     expect(fila[0]).toHaveProperty('horasRestantes');
     expect(fila[0].vencida).toBe(false);
+  }, 60000);
+
+  it('por padrão NÃO imprime a 2ª via: restaurante entrega só o cupom do cliente', async () => {
+    chamarSefaz.mockRejectedValue(new SefazInalcancavel('timeout'));
+    const comanda = await venda();
+    const nota: any = await servico.emitir(tenant, null, comanda);
+
+    const vias = await pool.query(`select conteudo from impressao_job where comanda_id = $1`, [comanda]);
+    expect(nota.status).toBe('contingencia');
+    // A via do cliente sai, com a mensagem obrigatória…
+    expect(vias.rows).toHaveLength(1);
+    expect(vias.rows[0].conteudo).toContain('EMITIDA EM CONTINGENCIA');
+    // …e a do estabelecimento, não.
+    expect(vias.rows.filter((v: any) => v.conteudo.includes('VIA DO ESTABELECIMENTO'))).toHaveLength(0);
+  }, 60000);
+
+  it('com o interruptor ligado, a 2ª via sai — para a UF que exigir papel', async () => {
+    await pool.query(`update fiscal_config set contingencia_via_estabelecimento = true where tenant_id = $1`, [tenant]);
+    chamarSefaz.mockRejectedValue(new SefazInalcancavel('timeout'));
+    const comanda = await venda();
+    await servico.emitir(tenant, null, comanda);
+
+    const vias = await pool.query(`select conteudo from impressao_job where comanda_id = $1`, [comanda]);
+    expect(vias.rows.filter((v: any) => v.conteudo.includes('VIA DO ESTABELECIMENTO'))).toHaveLength(1);
+    await pool.query(`update fiscal_config set contingencia_via_estabelecimento = false where tenant_id = $1`, [tenant]);
   }, 60000);
 });
