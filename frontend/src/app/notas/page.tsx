@@ -19,6 +19,7 @@ const COR: Record<string, string> = {
   cancelada: 'bg-destructive/10 text-destructive',
   rejeitada: 'bg-warn/10 text-warn',
   pendente: 'bg-secondary text-muted-foreground',
+  denegada: 'bg-destructive/10 text-destructive',
   contingencia: 'bg-info/10 text-info',
 };
 
@@ -29,6 +30,7 @@ export default function NotasPage() {
   const isGestor = ['presidente', 'gerente'].includes(cat ?? '');
   const [notas, setNotas] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
+  const [consultando, setConsultando] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -46,6 +48,22 @@ export default function NotasPage() {
     setCat(getCategoria());
     reload();
   }, [reload, router]);
+
+  // "Pendente" quer dizer que a SEFAZ não confirmou o resultado — e só ela pode dizer.
+  async function consultar(n: any) {
+    setConsultando(n.id);
+    try {
+      const r: any = await api.consultarNota(n.id);
+      if (r?.status === 'autorizada') toast.success(`Autorizada na SEFAZ — protocolo ${r.protocolo}.`);
+      else if (r?.status === 'pendente') toast.info(`Ainda sem resposta conclusiva: ${r?.motivo ?? ''}`);
+      else toast.info(`Situação na SEFAZ: ${r?.status} — ${r?.motivo ?? ''}`);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao consultar');
+    } finally {
+      setConsultando(null);
+    }
+  }
 
   async function cancelar(n: any) {
     const justificativa = window.prompt('Justificativa do cancelamento (mín. 15 caracteres):') ?? '';
@@ -93,6 +111,17 @@ export default function NotasPage() {
                   {n.motivo && <p className="text-[11px] text-muted-foreground">{n.motivo}</p>}
                 </div>
                 <span className="font-mono text-sm font-bold">{brl(Number(n.valorTotal))}</span>
+                {n.status === 'pendente' && isGestor && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => consultar(n)}
+                    disabled={consultando === n.id}
+                  >
+                    {consultando === n.id ? 'Consultando…' : 'Consultar na SEFAZ'}
+                  </Button>
+                )}
                 {n.status === 'autorizada' && isGestor && (
                   <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => cancelar(n)}>
                     Cancelar

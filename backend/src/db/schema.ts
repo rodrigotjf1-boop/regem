@@ -2140,6 +2140,11 @@ export const notaFiscal = pgTable('nota_fiscal', {
   simulada: boolean('simulada').notNull().default(false),
   protocolo: text('protocolo'),
   motivo: text('motivo'),
+  // Código de situação da ÚLTIMA resposta da SEFAZ (mig 281). É ele que diz se o número
+  // pode voltar para a fila: rejeição comum sim, duplicidade e denegação não.
+  cstat: text('cstat'),
+  consultadaEm: timestamp('consultada_em', { withTimezone: true }),
+  tentativasConsulta: integer('tentativas_consulta').notNull().default(0),
   qrcode: text('qrcode'),
   xml: text('xml'),
   valorTotal: numeric('valor_total').notNull().default('0'),

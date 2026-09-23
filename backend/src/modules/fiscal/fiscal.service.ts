@@ -4,8 +4,10 @@ import {
   ServiceUnavailableException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import {
@@ -41,11 +43,15 @@ import { SefazInalcancavel, SefazRecusouChamada } from './sefaz/soap';
 import { UfSemAutorizador, qrVersaoNfce } from './sefaz/webservices';
 import { assinarNfe } from './assinatura';
 import { responsavelTecnico } from './responsavel-tecnico';
+import { SituacaoNaSefaz, consultarSituacaoNfce } from './sefaz/consulta-protocolo';
+import { montarNfeProc } from './sefaz/autorizacao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 @Injectable()
 export class FiscalService {
+  private readonly log = new Logger(FiscalService.name);
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
@@ -330,15 +336,31 @@ export class FiscalService {
           inArray(notaFiscal.status, ['autorizada', 'contingencia', 'pendente']),
         ),
       );
-    if (ja?.status === 'pendente')
+    if (ja?.status === 'pendente') {
       // Situação DESCONHECIDA: a nota foi enviada e a SEFAZ não confirmou (caiu a conexão,
-      // estourou o tempo). Emitir de novo poderia gerar DUAS notas para a mesma venda — se a
-      // primeira tiver sido autorizada. Primeiro se descobre o que aconteceu.
-      throw new BadRequestException(
-        `A NFC-e nº ${ja.numero} desta venda foi enviada e a SEFAZ não confirmou o resultado. ` +
-          'Consulte a situação dela antes de emitir de novo.',
-      );
-    if (ja) return ja; // já emitida
+      // estourou o tempo). Emitir de novo às cegas geraria DUAS notas para a mesma venda — se
+      // a primeira tiver sido autorizada. Então PERGUNTA-SE à SEFAZ o que aconteceu, que é a
+      // única resposta possível; só depois se decide.
+      const r = await this.resolverNaSefaz(ja, atorId).catch((e) => ({ erro: e as Error }) as any);
+      if (r?.erro)
+        throw new BadRequestException(
+          `A NFC-e nº ${ja.numero} desta venda foi enviada e a SEFAZ não confirmou o resultado, ` +
+            `e a consulta falhou: ${r.erro.message}. Tente de novo em instantes.`,
+        );
+      if (r.status === 'autorizada' || r.status === 'cancelada' || r.status === 'denegada') {
+        const [atual] = await this.db.select().from(notaFiscal).where(eq(notaFiscal.id, ja.id));
+        if (r.status === 'autorizada') return atual; // já tinha documento: nada a emitir
+        throw new BadRequestException(
+          `A NFC-e nº ${ja.numero} desta venda está ${r.status} na SEFAZ (${r.motivo}).`,
+        );
+      }
+      if (r.status === 'pendente')
+        throw new BadRequestException(
+          `A NFC-e nº ${ja.numero} desta venda continua sem resposta conclusiva da SEFAZ ` +
+            `(${r.motivo}). Consulte de novo em alguns minutos antes de emitir outra.`,
+        );
+      // r.status === 'rejeitada' (217 — a SEFAZ nunca a registrou): segue e emite de novo.
+    } else if (ja) return ja; // já emitida
 
     const itensDb = await this.db
       .select({
@@ -450,6 +472,177 @@ export class FiscalService {
       protocolo: n.protocolo ?? null,
       ambiente: n.ambiente,
     };
+  }
+
+  // ===== P18 — A NOTA QUE FICOU "PENDENTE" =====
+  //
+  // `pendente` quer dizer: foi enviada e NÃO sabemos o que virou. É o único estado que não se
+  // resolve sozinho — e enquanto ele durar, aquele número fica travado (índice da mig 281) e a
+  // venda não pode emitir outra nota. Quem desfaz o nó é a consulta pela chave.
+
+  // Carência antes de ACREDITAR num "não consta" (217). A autorização é síncrona, mas o nosso
+  // tempo pode estourar enquanto a SEFAZ ainda processa: perguntar no segundo seguinte pode
+  // ouvir "não existe" de uma nota que está nascendo. Os outros desfechos (autorizada,
+  // cancelada, denegada) são definitivos a qualquer momento — só o 217 espera.
+  private static readonly CARENCIA_INEXISTENTE_MS = 2 * 60_000;
+  private static readonly MAX_TENTATIVAS_CONSULTA = 20;
+  private static readonly INTERVALO_ENTRE_CONSULTAS_MS = 5 * 60_000;
+
+  /** Consulta UMA nota na SEFAZ e grava o desfecho. Idempotente: repetir não muda o resultado. */
+  async consultarNota(tenantId: string, notaId: string, atorId: string | null) {
+    const [nota] = await this.db
+      .select()
+      .from(notaFiscal)
+      .where(and(eq(notaFiscal.id, notaId), eq(notaFiscal.tenantId, tenantId)));
+    if (!nota) throw new NotFoundException('Nota não encontrada');
+    return this.resolverNaSefaz(nota, atorId);
+  }
+
+  private async resolverNaSefaz(nota: any, atorId: string | null) {
+    if (!nota.chave) throw new BadRequestException('Nota sem chave de acesso: não há o que consultar.');
+    if (nota.simulada) throw new BadRequestException('Nota simulada não existe na SEFAZ.');
+    const cfg: any = await this.configRaw(nota.tenantId, nota.unidadeId);
+    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
+    const cert = certificadoParaAssinar(await obterCredencial(this.db, nota.tenantId, nota.unidadeId));
+
+    let situacao: SituacaoNaSefaz;
+    try {
+      situacao = await consultarSituacaoNfce({
+        uf: cfg.uf,
+        // O ambiente é o DA NOTA, não o da configuração: trocar o ambiente depois não pode
+        // fazer a gente consultar a nota antiga na base errada (lá ela "não consta").
+        ambiente: String(nota.ambiente ?? cfg.ambiente ?? '2'),
+        chave: nota.chave,
+        cert,
+      });
+    } catch (e: any) {
+      if (e instanceof UfSemAutorizador) throw new BadRequestException(e.message);
+      if (e instanceof SefazInalcancavel) throw new ServiceUnavailableException(e.message);
+      if (e instanceof SefazRecusouChamada) throw new BadGatewayException(e.message);
+      throw e;
+    }
+    return this.aplicarSituacao(nota, situacao, atorId);
+  }
+
+  /** Traduz o que a SEFAZ disse para o estado da nota — e só grava se ela AINDA estiver pendente. */
+  private async aplicarSituacao(nota: any, sit: SituacaoNaSefaz, atorId: string | null) {
+    const agora = new Date();
+    const motivo = `${sit.cStat} - ${sit.xMotivo}`.slice(0, 400);
+    const idadeMs = agora.getTime() - new Date(nota.createdAt ?? agora).getTime();
+    let campos: Record<string, unknown>;
+
+    if (sit.situacao === 'autorizada') {
+      campos = {
+        status: 'autorizada',
+        cstat: sit.cStat,
+        protocolo: sit.protocolo,
+        motivo,
+        // O documento que vale é o nfeProc (nota + protocolo). O que estava guardado era a
+        // NFe assinada que foi enviada; agora ela ganha o protocolo que faltava.
+        xml: nota.xml && !nota.xml.includes('<nfeProc') ? montarNfeProc(nota.xml, sit.protNFe) : nota.xml,
+        emitidaEm: sit.dhRecbto ? new Date(sit.dhRecbto) : agora,
+      };
+    } else if (sit.situacao === 'cancelada') {
+      campos = { status: 'cancelada', cstat: sit.cStat, protocolo: sit.protocolo, motivo, canceladaEm: agora };
+    } else if (sit.situacao === 'denegada') {
+      // Denegada EXISTE na base da SEFAZ: o número está consumido e nunca volta para a fila.
+      // Por isso não vira 'rejeitada' — é o estado que a mantém fora do reaproveitamento.
+      campos = { status: 'denegada', cstat: sit.cStat, protocolo: sit.protocolo, motivo };
+    } else if (sit.situacao === 'inexistente' && idadeMs >= FiscalService.CARENCIA_INEXISTENTE_MS) {
+      // A SEFAZ nunca registrou esta nota: a venda ficou sem documento e o número está livre.
+      campos = { status: 'rejeitada', cstat: sit.cStat, motivo };
+    } else {
+      // Indefinido — ou 217 cedo demais para acreditar. Continua pendente, conta a tentativa.
+      campos = {
+        consultadaEm: agora,
+        tentativasConsulta: Number(nota.tentativasConsulta ?? 0) + 1,
+        motivo:
+          sit.situacao === 'inexistente'
+            ? `${motivo} (ainda dentro da carência — pode estar sendo processada)`.slice(0, 400)
+            : motivo,
+      };
+    }
+
+    const [atualizada] = await this.db
+      .update(notaFiscal)
+      .set({ ...campos, consultadaEm: agora })
+      .where(and(eq(notaFiscal.id, nota.id), eq(notaFiscal.status, 'pendente')))
+      .returning();
+
+    // Outro processo (ou outra aba) resolveu antes: o desfecho dele vale, não o nosso.
+    if (!atualizada) {
+      const [atual] = await this.db.select().from(notaFiscal).where(eq(notaFiscal.id, nota.id));
+      return this.resumoDaNota(atual, sit);
+    }
+
+    if (atualizada.status !== 'pendente')
+      await this.auditoria.registrar({
+        tenantId: nota.tenantId,
+        atorId,
+        atorPerfil: '',
+        tipo: 'fiscal',
+        acao: 'consultou_nfce',
+        entidadeTipo: 'nota_fiscal',
+        entidadeId: nota.id,
+        detalhe: { chave: nota.chave, numero: nota.numero, serie: nota.serie, situacao: atualizada.status, cstat: sit.cStat },
+      });
+    return this.resumoDaNota(atualizada, sit);
+  }
+
+  private resumoDaNota(n: any, sit?: SituacaoNaSefaz) {
+    return {
+      id: n?.id,
+      status: n?.status,
+      cstat: n?.cstat ?? sit?.cStat ?? null,
+      motivo: n?.motivo ?? null,
+      protocolo: n?.protocolo ?? null,
+      serie: n?.serie ?? null,
+      numero: n?.numero ?? null,
+      chave: n?.chave ?? null,
+    };
+  }
+
+  /**
+   * Job: resolve as notas pendentes DESTA instalação. Roda na loja e na nuvem — de propósito,
+   * ao contrário da maioria dos crons (ver ERR-075): cada lado emite as suas notas e só ele
+   * tem como resolvê-las. O recorte é a ORIGEM da série (`fiscal_serie`), então um lado nunca
+   * mexe na pendência do outro.
+   */
+  @Cron('*/5 * * * *')
+  async reconciliarPendentes(limite = 20) {
+    const origem = this.origemEmissao();
+    const r: any = await this.db.execute(sql`
+      select n.* from nota_fiscal n
+        join fiscal_serie s
+          on s.tenant_id = n.tenant_id
+         and s.unidade_id is not distinct from n.unidade_id
+         and s.serie = n.serie
+         and s.origem = ${origem}
+       where n.status = 'pendente'
+         and coalesce(n.simulada, false) = false
+         and n.chave is not null
+         and n.created_at < now() - interval '2 minutes'
+         and n.tentativas_consulta < ${FiscalService.MAX_TENTATIVAS_CONSULTA}
+         and (n.consultada_em is null
+              or n.consultada_em < now() - interval '5 minutes')
+       order by n.created_at
+       limit ${limite}`);
+    const pendentes = (r.rows ?? r) as any[];
+    const resolvidas: any[] = [];
+    for (const linha of pendentes) {
+      // Uma nota que não resolve (SEFAZ fora do ar, certificado vencido) não pode impedir as
+      // outras: o motivo vai para o log e o laço segue.
+      try {
+        const nota = { ...linha, tenantId: linha.tenant_id, unidadeId: linha.unidade_id, createdAt: linha.created_at, tentativasConsulta: linha.tentativas_consulta };
+        const res = await this.resolverNaSefaz(nota, null);
+        if (res.status !== 'pendente') resolvidas.push(res);
+      } catch (e: any) {
+        this.log.warn(`nota ${linha.id} (nº ${linha.numero}/${linha.serie}) não resolvida: ${e?.message ?? e}`);
+      }
+    }
+    if (pendentes.length)
+      this.log.log(`pendentes ${origem}: ${resolvidas.length} de ${pendentes.length} resolvida(s)`);
+    return { consultadas: pendentes.length, resolvidas: resolvidas.length, detalhe: resolvidas };
   }
 
   // A nota de teste precisa cair na MESMA sequência das vendas. A série é por estabelecimento, e
