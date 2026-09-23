@@ -2202,6 +2202,9 @@ export const notaFiscal = pgTable('nota_fiscal', {
   cstat: text('cstat'),
   consultadaEm: timestamp('consultada_em', { withTimezone: true }),
   tentativasConsulta: integer('tentativas_consulta').notNull().default(0),
+  // Quantas vezes já tentamos transmitir a nota emitida em CONTINGÊNCIA (mig 286). Ela não
+  // sai da fila até ser autorizada — número de contingência não pode ser inutilizado.
+  tentativasTransmissao: integer('tentativas_transmissao').notNull().default(0),
   qrcode: text('qrcode'),
   xml: text('xml'),
   valorTotal: numeric('valor_total').notNull().default('0'),
@@ -2216,6 +2219,37 @@ export const notaFiscal = pgTable('nota_fiscal', {
   indPres: text('ind_pres'),
   semDocumentoCliente: boolean('sem_documento_cliente').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// CONTINGÊNCIA OFF-LINE (mig 286) — estado POR PONTO DE EMISSÃO.
+//
+// A loja pode estar sem internet enquanto a nuvem emite normalmente, e cada lado tem a sua
+// série: um estado só para os dois desligaria a emissão normal de quem está bem. A chave é a
+// mesma da `fiscal_serie` (tenant, unidade, origem).
+//
+// ⚠️ NÃO sincroniza (entra em DESCARTAVEL no `sync-daemon.mjs`): o estado é de QUEM está sem
+// SEFAZ. Sincronizar por última-escrita faria a nuvem desligar a contingência da loja que
+// continua sem internet.
+export const fiscalContingencia = pgTable('fiscal_contingencia', {
+  id: uuid('id').primaryKey(), // derivado da chave de negócio (uuidDeChave)
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  origem: text('origem').notNull(), // loja | nuvem
+  ativa: boolean('ativa').notNull().default(false),
+  // Vão no XML: dhCont (B28) e xJust (B29) — faltando qualquer um, a SEFAZ rejeita com 557.
+  dhCont: timestamp('dh_cont', { withTimezone: true }),
+  justificativa: text('justificativa'),
+  // O erro técnico de verdade (timeout, DNS, TLS). NÃO vai no XML — é para o log e o suporte.
+  motivoTecnico: text('motivo_tecnico'),
+  entrouEm: timestamp('entrou_em', { withTimezone: true }),
+  saiuEm: timestamp('saiu_em', { withTimezone: true }),
+  // Última vez que perguntamos à SEFAZ se voltou. O caixa não espera rede para imprimir.
+  ultimaVerificacao: timestamp('ultima_verificacao', { withTimezone: true }),
+  notasEmitidas: integer('notas_emitidas').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ===== Delivery / canais externos (Fase H) =====

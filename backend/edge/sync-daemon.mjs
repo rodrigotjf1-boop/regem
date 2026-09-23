@@ -1809,6 +1809,11 @@ const DESCARTAVEL = new Set([
   // novo ele se refaz sozinho a partir do maior número já emitido na série — por isso
   // `nota_fiscal` precisa VOLTAR (lista acima).
   'fiscal_serie',
+  // Estado da contingência off-line DESTE ponto de emissão (mig 286): "estou sem SEFAZ agora".
+  // Quem está sem internet é a máquina; sincronizar por última-escrita faria a nuvem, que está
+  // bem, desligar a contingência da loja que continua fora do ar. As notas emitidas nela estão
+  // em `nota_fiscal`, que sobe e volta — apagar este estado não perde nada.
+  'fiscal_contingencia',
 ]);
 
 // Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].
