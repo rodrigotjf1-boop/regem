@@ -707,6 +707,8 @@ export const api = {
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),
   notaFiscal: (id: string) => req(`/fiscal/notas/${id}`),
+  // Consulta a situação da nota na SEFAZ (resolve a que ficou "pendente").
+  consultarNota: (id: string) => req(`/fiscal/notas/${id}/consultar`, { method: 'POST', body: '{}' }),
   cancelarNota: (id: string, justificativa: string) =>
     req(`/fiscal/notas/${id}/cancelar`, {
       method: 'POST',

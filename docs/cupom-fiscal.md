@@ -31,7 +31,7 @@
 | NFC-e de teste em homologação (1 item de R$ 1,00, sem venda) | Existe — rota só-nuvem + botão na tela (etapa C2) |
 | Validação do XML contra o **XSD oficial** (PL_009_V4) dentro da suíte | Existe — `nfce-xsd.spec.ts` |
 | **NFC-e AUTORIZADA pela SEFAZ** (homologação, SVRS/RJ) | ✅ 22/09/2026 — nº 2, série 51, protocolo `333260002547395`, cStat 100 |
-| Consulta de recibo/protocolo para nota que ficou `pendente` | NÃO EXISTE (P18) |
+| Consulta da situação pela chave (`NFeConsultaProtocolo4`) + resolução da nota `pendente` | Existe — `sefaz/consulta-protocolo.ts`, rota, botão e job (P18) |
 | Reaproveitamento ou **inutilização** do número de nota rejeitada | NÃO EXISTE (P19) |
 | Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
 | Inutilização de faixa | NÃO EXISTE |
@@ -251,6 +251,26 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   sai sempre no XML e é exigido no pré-voo, antes de reservar número (ERR-086).
 - **`xCpl` (complemento, "LOJA 02")** era recebido da configuração e nunca escrito — o endereço
   da nota saía diferente do cadastrado na SEFAZ. Agora sai quando existe.
+- **A nota `pendente` se resolve pela CONSULTA (P18)** — `sefaz/consulta-protocolo.ts`:
+  `nfeConsultaNF` pela **chave**, que funciona mesmo quando a conexão caiu antes de qualquer
+  recibo chegar (por isso não é a consulta por recibo, `NFeRetAutorizacao4`). O que a SEFAZ
+  responde decide: **100/150** autorizada (grava protocolo e monta o `nfeProc`), **101/135/151/155**
+  cancelada, **110/301/302** denegada — número CONSUMIDO, nunca volta —, **217** "não consta na
+  base" (nunca registrada: o número está livre), e qualquer outro código é **indefinido**: não se
+  decide nada, a nota segue pendente e tenta de novo.
+- **Carência de 2 minutos para acreditar no 217.** A autorização é síncrona, mas o NOSSO tempo
+  pode estourar enquanto a SEFAZ ainda processa — perguntar no segundo seguinte pode ouvir "não
+  existe" de uma nota que está nascendo. Os outros desfechos são definitivos a qualquer momento.
+- **Gravação condicional** (`where status = 'pendente'`): duas consultas simultâneas, ou o job e o
+  botão ao mesmo tempo, não se atropelam — quem chegou primeiro decide.
+- **Job a cada 5 min**, na loja E na nuvem (ao contrário da maioria dos crons — ver ERR-075):
+  cada lado só consegue resolver as notas que ele emitiu. O recorte é a ORIGEM da série
+  (`fiscal_serie`), então um lado nunca mexe na pendência do outro. Limite de tentativas e
+  intervalo entre consultas para não girar em falso.
+- **A venda deixou de travar na pendência:** ao emitir, se a comanda tem nota pendente, ela é
+  consultada primeiro — autorizada devolve aquela nota (nunca emite a segunda), "não consta"
+  libera para emitir de novo, e indefinido continua recusando (duas notas para a mesma venda é
+  o pior desfecho possível).
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -278,8 +298,8 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Só o mecanismo de expiração está documentado, não o prazo |
 | P14 | Regras estaduais de **AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO** | Sabe-se apenas que autorizam via SVRS |
 | P15 | **`cIdToken` no QR: com ou sem zeros à esquerda** ("000001" × "1") — guardamos como digitado | Conferir no Manual do DANFE NFC-e e QR Code v6.0 antes de montar o QR real (etapa C) |
-| P18 | **Nota que fica `pendente`** (enviada, sem resposta): hoje ela fica parada e a venda não emite outra. Falta consultar o recibo/chave na SEFAZ e concluir sozinho | Implementar `NfeConsultaProtocolo4` antes de produção |
 | P19 | **Número queimado por rejeição** vira buraco na sequência, que a lei manda **inutilizar** até o 10º dia do mês seguinte (Ajuste SINIEF 19/16, cl. 11ª, §5º). Hoje não reaproveitamos nem inutilizamos | Decidir entre reaproveitar o número na mesma emissão ou implementar `NfeInutilizacao4`. **Obrigatório antes de produção** |
+| ~~P18~~ | ~~Nota que fica `pendente`~~ — **RESOLVIDO 22/09/2026** (mig 281): consulta pela chave, carência de 2 min para o 217, job nas duas pontas e a venda consultando antes de emitir. | — |
 | ~~P17~~ | ~~RJ → SVRS na NFC-e~~ — **RESOLVIDO 22/09/2026**: o "Testar conexão com a SEFAZ" com o certificado real trouxe **107 — Serviço em Operação** da SVRS para `cUF=33`. A SVRS só responde 107 para UF que atende. | — |
 | ~~P16~~ | ~~.pfx exportado pelo Windows~~ — **RESOLVIDO 22/09/2026**: o certificado real da loja-piloto, exportado do Windows, foi cadastrado em produção e abriu no `node-forge`. O botão "Testar certificado" (etapa B) prova também a assinatura com ele. | — |
 
@@ -289,6 +309,7 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 
 | Data | O que mudou |
 |---|---|
+| 22/09/2026 | P18 (mig 281): a nota `pendente` passa a se resolver pela consulta à chave — rota, botão, job nas duas pontas e a venda consultando antes de emitir. Colunas `cstat`/`consultada_em`/`tentativas_consulta`, e a unicidade do número passou a ignorar as rejeitadas (base do P19). |
 | 22/09/2026 | **PRIMEIRA NFC-e AUTORIZADA** (homologação, SVRS/RJ): nº 2 série 51, protocolo 333260002547395, "100 - Autorizado o uso da NF-e". Montagem, assinatura, QR v3, transmissão e leitura do protocolo provados de ponta a ponta com o certificado real. |
 | 22/09/2026 | **Primeira transmissão real**: rejeição 225 (CEP do emitente faltando). Corrigido CEP + `xCpl`, CEP no pré-voo, e o XML passou a ser validado contra o XSD oficial na suíte (ERR-086). |
 | 22/09/2026 | Etapa C2 do P2: **transmissão real** (`NFeAutorizacao4`, lote síncrono), leitura dos dois níveis de resposta, `nfeProc` guardado, QR v3 no RJ, frase de homologação, `infRespTec`, NFC-e de teste. P17 resolvido; P18 e P19 abertos. |

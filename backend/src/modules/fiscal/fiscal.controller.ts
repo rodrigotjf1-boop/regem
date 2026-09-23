@@ -119,6 +119,14 @@ export class FiscalController {
     return this.service.getNota(user.tenantId, id);
   }
 
+  // Pergunta à SEFAZ o que aconteceu com uma nota que ficou sem resposta. NÃO é só-nuvem:
+  // a loja emite as próprias notas e é a única que pode resolver as pendências dela.
+  @Post('notas/:id/consultar')
+  @Roles('presidente', 'gerente')
+  consultarNota(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.service.consultarNota(user.tenantId, id, user.colaboradorId);
+  }
+
   @Post('notas/:id/cancelar')
   @Roles('presidente', 'gerente')
   cancelar(
