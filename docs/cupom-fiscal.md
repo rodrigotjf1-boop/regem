@@ -415,6 +415,24 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   porque nota autorizada ninguém vai reconferir depois. ⚠️ O `cStat 120` **não consta** da
   tabela 4.1 do MOC consolidado (ela salta de 112 para 124); ele vem de nota técnica, e a data
   de produção de 05/10/2026 é da skill, não do MOC — `ehAutorizado()` já o aceita desde antes.
+- **CONTINGÊNCIA OFF-LINE — parte 1: o documento e o QR** (`chave.ts`, `nfce-xml.builder.ts`).
+  Ainda **sem efeito na emissão**: é a base para a parte 2 (entrar e sair da contingência) e a 3
+  (transmitir a fila). O que já está pronto e provado:
+  - `tpEmis=9` com **`dhCont` e `xJust`** como últimos elementos do `ide` — faltando qualquer um
+    é rejeição **557** (B28-20); informá-los numa nota normal é **556** (B28-10). Os campos
+    obrigatórios da contingência estão no **MOC 7.0, Anexo IV, §4**: `mod=65`, `dhCont`,
+    `xJust`, `idDest=1`, `tpEmis=9`, `finNFe=1`, `indFinal=1`, `indPres=1`.
+  - **O `tpEmis` é o 35º dígito da chave de acesso**: montar a chave como normal e declarar
+    contingência no `ide` (ou o contrário) é uma nota que não fecha consigo mesma. O builder
+    recusa antes de gastar o número.
+  - **QR Code v3 OFF-LINE**, oito parâmetros (Manual do DANFE NFC-e e QR Code **v6.0, §4.4.2,
+    Tabela 7**): `chave|3|tpAmb|DIA|vNF|tipoDest|dest|assinatura`. Sem destinatário, os campos 6
+    e 7 ficam **vazios** e os separadores permanecem. A **assinatura é RSA-SHA1 em Base64 sobre
+    os parâmetros 1 a 7 com os separadores**, feita com o mesmo A1 que assina a NFC-e — é ela
+    que substitui o CSC na v3. Assinatura errada é rejeição **583** (ZX02-338); assinatura numa
+    nota que **não** é de contingência é **445** (ZX02-330).
+  - O DIA sai do **texto** do `dhEmi` (que já está no fuso da UF): passar por `Date` traria o
+    fuso da máquina de volta e, perto da virada, o QR levaria o dia errado.
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -456,7 +474,7 @@ por inutilização — nunca reusado.
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Segue aberto. Indício novo: a tela de **SE** exibe "Data Início/Data Fim". ⚠️ O vocabulário nacional é *revogado* (463) / *não cadastrado* (462) / *hash difere* (464) — "CSC expirado" não aparece em fonte nacional |
 | ~~P14~~ | ~~Regras estaduais de AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO~~ — **RESOLVIDO**: as **27 UFs** têm ficha completa na skill (`referencias/estados/{UF}.md`), com autorizador, QR, CSC, credenciamento, prazos, contingência e exigências próprias | — |
 | ~~P15~~ | ~~`cIdToken` com ou sem zeros~~ — **RESOLVIDO: SEM zeros à esquerda** ("1", não "000001"). Manual do DANFE NFC-e e QR Code **v6.0**, §4.3.1 e §4.3.2, texto idêntico, com exemplo no §4.3.6.1. **O hash usa a mesma forma que vai na URL.** O "000001" é do **QR v1, desativado em 01/10/2018** — é por isso que o manual do RJ se contradizia | — |
-| ~~P21~~ | ~~Contingência off-line: o RJ permite?~~ — **RESOLVIDO: PERMITE.** Manual NFC-e da SEFAZ/RJ de **16/07/2026**, pergunta 1.28: *"emissão **offline**, com transmissão do arquivo para a SEFAZ até o **primeiro dia útil subsequente**… A decisão da emissão da NFC-e em contingência é **exclusiva do contribuinte** e não depende de autorização do Fisco."* ⚠️ **Não são 24 h** — o próprio manual registra a troca em 30/01/2017 (o título da pergunta 1.30 ficou velho). **A implementação está liberada** | **implementar** |
+| ~~P21~~ | ~~Contingência off-line: o RJ permite?~~ — **RESOLVIDO: PERMITE.** Manual NFC-e da SEFAZ/RJ de **16/07/2026**, pergunta 1.28: *"emissão **offline**, com transmissão do arquivo para a SEFAZ até o **primeiro dia útil subsequente**… A decisão da emissão da NFC-e em contingência é **exclusiva do contribuinte** e não depende de autorização do Fisco."* ⚠️ **Não são 24 h** — o próprio manual registra a troca em 30/01/2017 (o título da pergunta 1.30 ficou velho). **A implementação está liberada** | **em implementação**: parte 1 (XML `tpEmis=9` + QR off-line assinado) feita em 23/09/2026 — ver §6. Faltam a entrada/saída automática (parte 2, com migration) e a transmissão da fila dentro do prazo (parte 3) |
 | ~~P22~~ | ~~Denegação → rejeição 781~~ — **RESOLVIDO 23/09/2026, e a premissa era outra**: as duas formas estão **vigentes** no MOC consolidado (1C17-38 → 781 rejeição · 1C17-40 → 301 denegação), então não se trata de substituir uma pela outra. O defeito real era nosso: a **denegação vinda da autorização** era gravada como `rejeitada`, e o número denegado entraria no relatório de lacunas (ERR-094) | — |
 | ~~P23~~ | ~~Grupo `cMsg`/`xMsg` não é lido~~ — **RESOLVIDO 23/09/2026**: lido na autorização e na consulta, gravado no `motivo` e logado. Confirmado no **XSD oficial** (`TProtNFe`), já que o nome "PR13" e o `cStat 120` não aparecem no MOC consolidado on-line | — |
 | ~~P24~~ | ~~Limite de identificação por UF não é configuração~~ — **RESOLVIDO 23/09/2026** (mig 285): tabela por UF em `fiscal/destinatario.ts` + `fiscal_config.limite_identificacao` por loja; UF fora da tabela cai no piso mais restritivo conhecido | — |
@@ -475,6 +493,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 23/09/2026 | **Contingência off-line, parte 1** (sem migration): a NFC-e com `tpEmis=9`, `dhCont` e `xJust`, e o **QR Code v3 off-line assinado** (oito parâmetros; RSA-SHA1 dos parâmetros 1 a 7 com o A1 da loja). Sem efeito na emissão ainda — é a base das partes 2 e 3. Junto, uma trava que faltava: a chave de acesso e o `ide` têm de concordar no `tpEmis`, que é o 35º dígito da chave. |
 | 23/09/2026 | **Denegação separada da rejeição e o aviso da SEFAZ lido** (sem migration). A denegação vinda da autorização virava `rejeitada`, e o número denegado — que a SEFAZ **já tem na base** — entraria no relatório de lacunas para ser inutilizado (ERR-094). Agora `110/301/302` gravam `denegada`, com o protocolo do registro. Junto: o grupo **`cMsg`/`xMsg`** (aviso da SEFAZ ao emissor, confirmado no XSD oficial) passou a ser lido na autorização e na consulta, entrar no `motivo` e sair no log. **P22 e P23 resolvidos** — e a premissa do P22 estava errada: 781 (rejeição) e 301 (denegação) estão **as duas vigentes**, cada UF com a sua. |
 | 23/09/2026 | **Destinatário, entrega a domicílio e intermediador** (mig 285). A nota de delivery passa a sair como `indPres=4` com `dest`/`enderDest`/`transporta` quando há CPF e endereço, e como presencial com a taxa em `vOutro` quando não há — o que **corrige a rejeição 753**, que toda nota de delivery com taxa da loja receberia. `indIntermed` passou a sair **sempre** (434). Limite de identificação parametrizado por UF e por loja (**P24 resolvido**, P10 encaminhado). CPF opcional no cardápio do Regem, lido do payload nos canais externos e conferido pelo dígito verificador antes de entrar no XML. Abertas **P26** (CNPJ dos intermediadores) e **P27** (transportador na logística do canal). |
 | 23/09/2026 | **Revisão a partir da skill global `cupom-fiscal`** (27 UFs em fonte oficial). **Resolvidas P1, P2, P11, P12, P14, P15 e P21**; abertas **P22-P25**. Correções no corpo: escrituração (**inutilizada e denegada NÃO entram** na EFD — o código 05 caiu em jan/2023); **limites são parametrizáveis por UF por norma nacional** e nenhuma UF usa R$ 10.000; **a denegação acabou na NFC-e** (rejeição 781, que não consome número) e o nosso `consulta-protocolo.ts` está desatualizado; **XSD vigente é o PL_010f_v1.04**, não o PL_009_V4; **a rejeição 1115 perdeu a data** (v1.51 riscou); `cStat 120` entra em produção em **05/10/2026** e exige ler o grupo **PR13**; **série 890-989 é reservada no RN**; **PA também exige software credenciado**, não só SC; §3 ganhou pagamento vinculado (5 UFs), documento impresso extra (CE/RN) e FCP (4 decisões por UF). |

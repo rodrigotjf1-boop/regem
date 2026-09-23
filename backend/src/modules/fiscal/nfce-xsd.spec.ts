@@ -137,6 +137,23 @@ describe('o XML que emitimos passa no schema oficial da NF-e 4.00', () => {
     expect(xml).toContain('<vOutro>6.00</vOutro>');
   }, 120000);
 
+  // Contingência off-line: `dhCont`/`xJust` são os ÚLTIMOS elementos do `ide`, depois do
+  // `verProc`. Fora de ordem é a rejeição 225 — e aqui o schema pega antes da SEFAZ.
+  it('a nota emitida em contingência off-line (tpEmis=9) é válida', async () => {
+    // O 35º dígito da chave (índice 34) é o tpEmis: numa nota de contingência ele é 9, e o
+    // builder recusa chave e `ide` em desacordo.
+    const chaveCont = CHAVE.slice(0, 34) + '9' + CHAVE.slice(35);
+    const xml = assinada(
+      entrada({
+        chave: chaveCont,
+        contingencia: { dhCont: '2026-09-22T20:10:00-03:00', xJust: 'Sem resposta da SEFAZ no caixa' },
+      }),
+    );
+    expect(await validar(xml)).toEqual({ valido: true, erros: '' });
+    expect(xml).toContain('<tpEmis>9</tpEmis>');
+    expect(xml).toContain('<xJust>Sem resposta da SEFAZ no caixa</xJust></ide>');
+  }, 120000);
+
   it('a nota de HOMOLOGAÇÃO (com a frase obrigatória no 1º item) é válida', async () => {
     const xml = assinada(entrada({}, { ...CONFIG, ambiente: '2' }));
     expect(xml).toContain('NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL');
