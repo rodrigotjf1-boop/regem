@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { autorizarNfce } from './sefaz/autorizacao';
+import { MensagemSefaz, autorizarNfce } from './sefaz/autorizacao';
 import { urlServicoNfce } from './sefaz/webservices';
 // Transmissão da NFC-e à SEFAZ. Interface para trocar a implementação:
 // - SefazDiretoTransmitter: assina o XML (XML-DSig com o A1) e chama o webservice da UF.
@@ -16,12 +16,16 @@ import { urlServicoNfce } from './sefaz/webservices';
 
 export interface RetornoAutorizacao {
   // pendente = a SEFAZ recebeu mas ainda não decidiu (resposta assíncrona) — não é rejeição.
-  status: 'autorizada' | 'rejeitada' | 'contingencia' | 'pendente';
+  // denegada = a SEFAZ REGISTROU a nota como negada: o número está consumido para sempre, e é
+  //            por isso que ela não pode ser confundida com rejeitada (ver `autorizacao.ts`).
+  status: 'autorizada' | 'rejeitada' | 'denegada' | 'contingencia' | 'pendente';
   cStat?: string; // código de status da SEFAZ (100, 120, 150, 1115…)
   protocolo?: string;
   motivo: string; // xMotivo
   xmlAutorizado?: string;
   simulado?: boolean; // true = NÃO passou pela SEFAZ
+  // Aviso da SEFAZ ao emissor (grupo cMsg/xMsg do protocolo). Vem junto com a autorização.
+  mensagem?: MensagemSefaz;
 }
 
 export interface RetornoCancelamento {
@@ -95,9 +99,17 @@ export class SefazDiretoTransmitter implements FiscalTransmitter {
     });
     const motivo = `${r.cStat} - ${r.xMotivo}`;
     if (r.situacao === 'autorizada')
-      return { status: 'autorizada', cStat: r.cStat, protocolo: r.protocolo, motivo, xmlAutorizado: r.nfeProc };
+      return {
+        status: 'autorizada', cStat: r.cStat, protocolo: r.protocolo, motivo,
+        xmlAutorizado: r.nfeProc, mensagem: r.mensagem,
+      };
     if (r.situacao === 'pendente') return { status: 'pendente', cStat: r.cStat, motivo };
-    return { status: 'rejeitada', cStat: r.cStat, motivo };
+    if (r.situacao === 'denegada')
+      return { status: 'denegada', cStat: r.cStat, protocolo: r.protocolo ?? undefined, motivo, mensagem: r.mensagem };
+    // Rejeitada. Inclui a **781** ("Emissor não habilitado para emissão da NF-e/NFC-e"), que é
+    // irregularidade do emitente tratada como REJEIÇÃO por parte das UFs — e rejeição não
+    // consome número. A mesma irregularidade, em outra UF, vem como denegação (301) e consome.
+    return { status: 'rejeitada', cStat: r.cStat, motivo, mensagem: r.mensagem };
   }
   async cancelar(): Promise<RetornoCancelamento> {
     throw new Error(

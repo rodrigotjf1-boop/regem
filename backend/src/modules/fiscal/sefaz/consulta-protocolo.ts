@@ -1,4 +1,5 @@
 import { DOMParser, XMLSerializer } from '@xmldom/xmldom';
+import { lerMensagemSefaz } from './autorizacao';
 import { CertificadoCliente, campo, chamarSefaz } from './soap';
 import { urlServicoNfce } from './webservices';
 
@@ -16,7 +17,13 @@ import { urlServicoNfce } from './webservices';
 //   100/150 → AUTORIZADA lá. A venda tem documento fiscal; o número está consumido.
 //   101/135/151/155 → CANCELADA (existiu e foi cancelada). Número consumido.
 //   110/301/302 → DENEGADA. A nota existe na base como negada: o número também está
-//                 consumido e NUNCA pode ser reaproveitado.
+//                 consumido e NUNCA pode ser reaproveitado — nem inutilizado (a SEFAZ recusa
+//                 inutilização de numeração que ela já tem).
+//   781 → "Emissor não habilitado para emissão da NF-e/NFC-e" é REJEIÇÃO, não denegação: em
+//         parte das UFs a irregularidade do emitente sai assim (regra 1C17-38), e em parte sai
+//         como denegação 301 (1C17-40). Numa CONSULTA, porém, ela não diz nada sobre a nota —
+//         diz que a SEFAZ recusou a pergunta. Então segue INDEFINIDO, com o motivo à vista: a
+//         nota pode ter sido autorizada antes de a loja ficar irregular.
 //   217 → "NF-e não consta na base de dados da SEFAZ": ela nunca foi registrada. Só aqui o
 //         número volta a ser utilizável (é o que destrava o P19).
 //   qualquer outra → INDEFINIDO: não se decide nada. Manter pendente e tentar de novo é
@@ -45,6 +52,11 @@ function elemento(xml: string, nome: string): string | null {
 export function lerSituacao(retorno: string): SituacaoNaSefaz {
   const cStatRaiz = campo(retorno, 'cStat') ?? '';
   const xMotivoRaiz = campo(retorno, 'xMotivo') ?? '';
+  // O mesmo grupo cMsg/xMsg da autorização também pode vir aqui, dentro do protocolo.
+  const comAviso = (texto: string, prot: string | null) => {
+    const m = lerMensagemSefaz(prot);
+    return m ? `${texto} · Aviso da SEFAZ (${m.codigo}): ${m.texto}` : texto;
+  };
 
   // O protocolo manda: ele é o registro da nota. O cStat da raiz diz como foi a CONSULTA.
   const prot = elemento(retorno, 'protNFe');
@@ -65,14 +77,14 @@ export function lerSituacao(retorno: string): SituacaoNaSefaz {
     };
 
   if (prot && DENEGADA.has(cStatProt))
-    return { situacao: 'denegada', cStat: cStatProt, xMotivo: xMotivoProt, protocolo };
+    return { situacao: 'denegada', cStat: cStatProt, xMotivo: comAviso(xMotivoProt, prot), protocolo };
   if (DENEGADA.has(cStatRaiz)) return { situacao: 'denegada', cStat: cStatRaiz, xMotivo: xMotivoRaiz, protocolo };
 
   if (prot && AUTORIZADA.has(cStatProt) && protocolo)
     return {
       situacao: 'autorizada',
       cStat: cStatProt,
-      xMotivo: xMotivoProt,
+      xMotivo: comAviso(xMotivoProt, prot),
       protocolo,
       dhRecbto: campo(prot, 'dhRecbto'),
       protNFe: prot,

@@ -17,10 +17,13 @@ const retorno = (lote: string, prot?: string) =>
   `<retEnviNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe"><tpAmb>2</tpAmb>` +
   `<verAplic>SVRS</verAplic><cStat>${lote}</cStat><xMotivo>${lote === '104' ? 'Lote processado' : 'Rejeicao no lote'}</xMotivo>` +
   `<cUF>33</cUF><dhRecbto>2026-09-22T10:00:01-03:00</dhRecbto>${prot ?? ''}</retEnviNFe>`;
-const prot = (cStat: string, xMotivo: string) =>
+// `msg` é o grupo OPCIONAL cMsg/xMsg (o "aviso da SEFAZ ao emissor" do leiaute 4.00).
+const prot = (cStat: string, xMotivo: string, msg?: { codigo: string; texto: string }) =>
   `<protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><verAplic>SVRS</verAplic><chNFe>${CHAVE}</chNFe>` +
-  `<dhRecbto>2026-09-22T10:00:01-03:00</dhRecbto>${cStat === '100' || cStat === '120' ? '<nProt>333260000000001</nProt>' : ''}` +
-  `<digVal>abc=</digVal><cStat>${cStat}</cStat><xMotivo>${xMotivo}</xMotivo></infProt></protNFe>`;
+  `<dhRecbto>2026-09-22T10:00:01-03:00</dhRecbto>${['100', '120', '150', '301'].includes(cStat) ? '<nProt>333260000000001</nProt>' : ''}` +
+  `<digVal>abc=</digVal><cStat>${cStat}</cStat><xMotivo>${xMotivo}</xMotivo>` +
+  (msg ? `<cMsg>${msg.codigo}</cMsg><xMsg>${msg.texto}</xMsg>` : '') +
+  `</infProt></protNFe>`;
 const NFE = '<NFe xmlns="http://www.portalfiscal.inf.br/nfe"><infNFe Id="NFe' + CHAVE + '"></infNFe><Signature/></NFe>';
 
 describe('leitura do retorno da autorização', () => {
@@ -139,5 +142,67 @@ describe('autorização contra uma SEFAZ falsa', () => {
     await expect(
       autorizarNfce({ uf: 'RJ', ambiente: '2', xmlAssinado: semAssinatura, cert, ca: [acPem], url }),
     ).rejects.toThrow(/ASSINADA/);
+  });
+});
+
+// DENEGADA NÃO É REJEITADA — e o que separa as duas é o NÚMERO.
+//
+// A denegada É GRAVADA na base da SEFAZ (quem tentar de novo recebe 205, "NF-e está denegada na
+// base de dados"): aquele número está consumido para sempre. A rejeitada nunca entrou na base.
+// Gravar denegação como rejeição faz o número aparecer como lacuna, e o lojista pede à SEFAZ a
+// inutilização de uma numeração que ela já tem (ERR-094).
+//
+// A irregularidade do emitente chega das duas formas, e isso é da UF: **781** por rejeição
+// (regra 1C17-38) ou **301** por denegação (1C17-40). Os dois caminhos são reais.
+describe('denegação x rejeição', () => {
+  it('301: DENEGADA, com o protocolo do registro — não é rejeitada', () => {
+    const r: any = lerRetornoAutorizacao(
+      retorno('104', prot('301', 'Uso Denegado: Irregularidade fiscal do emitente')),
+      NFE,
+    );
+    expect(r.situacao).toBe('denegada');
+    expect(r.cStat).toBe('301');
+    expect(r.protocolo).toBe('333260000000001');
+  });
+
+  it('110 e 302 também são denegação', () => {
+    expect(lerRetornoAutorizacao(retorno('104', prot('110', 'Uso Denegado')), NFE).situacao).toBe('denegada');
+    expect(lerRetornoAutorizacao(retorno('104', prot('302', 'Irregularidade fiscal do destinatario')), NFE).situacao).toBe('denegada');
+  });
+
+  it('781 (emissor não habilitado) é REJEIÇÃO — o número continua livre', () => {
+    const r: any = lerRetornoAutorizacao(
+      retorno('104', prot('781', 'Rejeicao: Emissor nao habilitado para emissao da NF-e/NFC-e')),
+      NFE,
+    );
+    expect(r.situacao).toBe('rejeitada');
+    expect(r.nivel).toBe('nota');
+  });
+});
+
+// AVISO DA SEFAZ AO EMISSOR (grupo cMsg/xMsg de `infProt`, conferido no XSD oficial).
+// É como a SEFAZ fala sobre uma nota que ela AUTORIZOU — o caso do cStat 120. Quem não lê
+// perde o recado; quem trata o 120 como erro cai em contingência e emite a nota duas vezes.
+describe('mensagem da SEFAZ (cMsg/xMsg)', () => {
+  it('vem junto da autorização', () => {
+    const r: any = lerRetornoAutorizacao(
+      retorno('104', prot('120', 'Autorizado o uso da NF-e, com alerta', { codigo: '1', texto: 'Emitente em situacao a regularizar' })),
+      NFE,
+    );
+    expect(r.situacao).toBe('autorizada');
+    expect(r.mensagem).toEqual({ codigo: '1', texto: 'Emitente em situacao a regularizar' });
+  });
+
+  it('vem junto da rejeição também', () => {
+    const r: any = lerRetornoAutorizacao(
+      retorno('104', prot('539', 'Duplicidade de NF-e', { codigo: '12', texto: 'Confira a numeracao' })),
+      NFE,
+    );
+    expect(r.mensagem?.texto).toBe('Confira a numeracao');
+  });
+
+  it('grupo ausente é o normal, e não inventa mensagem', () => {
+    const r: any = lerRetornoAutorizacao(retorno('104', prot('100', 'Autorizado o uso da NF-e')), NFE);
+    expect(r.mensagem).toBeUndefined();
   });
 });

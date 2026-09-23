@@ -394,6 +394,27 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   - **No cardápio do Regem o CPF é opcional**: só quem marca "quero cupom fiscal" informa — e aí
     o campo passa a ser obrigatório e validado. Nos canais externos, lê-se o documento do próprio
     payload. O DANFE impresso passa a dizer `CONSUMIDOR: …` ou `CONSUMIDOR NAO IDENTIFICADO`.
+- **DENEGAÇÃO ≠ REJEIÇÃO, E O QUE SEPARA AS DUAS É O NÚMERO** — `sefaz/autorizacao.ts`. A nota
+  **denegada é gravada na base da SEFAZ** (quem tentar de novo recebe **205**, "NF-e está
+  denegada na base de dados"): o número está consumido para sempre, não se reaproveita **e não
+  se inutiliza** — a SEFAZ recusa inutilização de numeração que ela já tem. A **rejeitada**
+  nunca entrou na base: o número segue livre e, como a nossa numeração só anda para a frente
+  (§5.1), vira lacuna a inutilizar. Até agora a denegação vinda da AUTORIZAÇÃO era gravada como
+  `rejeitada` — o número apareceria no relatório de lacunas e o lojista pediria a inutilização
+  de um número que a SEFAZ já tem (ERR-094). A vinda da CONSULTA já estava certa (mig 281).
+  - **A irregularidade do emitente chega das duas formas, e isso é da UF:** a regra **1C17-38**
+    (55/65) devolve **781** "Emissor não habilitado para emissão da NF-e/NFC-e" como
+    **rejeição**; a **1C17-40** (55/65) devolve **301** "Uso Denegado: Irregularidade fiscal do
+    emitente" como **denegação**. As duas estão vigentes no MOC consolidado — não dá para
+    escolher uma e ignorar a outra, e é por isso que os dois caminhos existem no código.
+- **AVISO DA SEFAZ AO EMISSOR (`cMsg`/`xMsg`)** — grupo opcional dentro de `protNFe/infProt`,
+  conferido no **XSD oficial** (`leiauteNFe_v4.00.xsd`, tipo `TProtNFe`: `cMsg` com até 4
+  dígitos e `xMsg` com até 200 caracteres, logo depois de `cStat`/`xMotivo`). É como a SEFAZ
+  fala sobre uma nota que ela **autorizou** — o caso do `cStat 120`. Agora ele é lido na
+  autorização e na consulta, entra no `motivo` (que é o que a tela da nota mostra) e sai no log,
+  porque nota autorizada ninguém vai reconferir depois. ⚠️ O `cStat 120` **não consta** da
+  tabela 4.1 do MOC consolidado (ela salta de 112 para 124); ele vem de nota técnica, e a data
+  de produção de 05/10/2026 é da skill, não do MOC — `ehAutorizado()` já o aceita desde antes.
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -436,8 +457,8 @@ por inutilização — nunca reusado.
 | ~~P14~~ | ~~Regras estaduais de AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO~~ — **RESOLVIDO**: as **27 UFs** têm ficha completa na skill (`referencias/estados/{UF}.md`), com autorizador, QR, CSC, credenciamento, prazos, contingência e exigências próprias | — |
 | ~~P15~~ | ~~`cIdToken` com ou sem zeros~~ — **RESOLVIDO: SEM zeros à esquerda** ("1", não "000001"). Manual do DANFE NFC-e e QR Code **v6.0**, §4.3.1 e §4.3.2, texto idêntico, com exemplo no §4.3.6.1. **O hash usa a mesma forma que vai na URL.** O "000001" é do **QR v1, desativado em 01/10/2018** — é por isso que o manual do RJ se contradizia | — |
 | ~~P21~~ | ~~Contingência off-line: o RJ permite?~~ — **RESOLVIDO: PERMITE.** Manual NFC-e da SEFAZ/RJ de **16/07/2026**, pergunta 1.28: *"emissão **offline**, com transmissão do arquivo para a SEFAZ até o **primeiro dia útil subsequente**… A decisão da emissão da NFC-e em contingência é **exclusiva do contribuinte** e não depende de autorização do Fisco."* ⚠️ **Não são 24 h** — o próprio manual registra a troca em 30/01/2017 (o título da pergunta 1.30 ficou velho). **A implementação está liberada** | **implementar** |
-| P22 | **Denegação → rejeição 781** (novo) | Ajustar o ramo de `110/301/302` no `consulta-protocolo.ts` — ver §6. **781 não consome número** |
-| P23 | **Grupo PR13** (`cMsg`/`xMsg`) não é lido (novo) | Antes de **05/10/2026**, quando o `cStat 120` entra em produção |
+| ~~P22~~ | ~~Denegação → rejeição 781~~ — **RESOLVIDO 23/09/2026, e a premissa era outra**: as duas formas estão **vigentes** no MOC consolidado (1C17-38 → 781 rejeição · 1C17-40 → 301 denegação), então não se trata de substituir uma pela outra. O defeito real era nosso: a **denegação vinda da autorização** era gravada como `rejeitada`, e o número denegado entraria no relatório de lacunas (ERR-094) | — |
+| ~~P23~~ | ~~Grupo `cMsg`/`xMsg` não é lido~~ — **RESOLVIDO 23/09/2026**: lido na autorização e na consulta, gravado no `motivo` e logado. Confirmado no **XSD oficial** (`TProtNFe`), já que o nome "PR13" e o `cStat 120` não aparecem no MOC consolidado on-line | — |
 | ~~P24~~ | ~~Limite de identificação por UF não é configuração~~ — **RESOLVIDO 23/09/2026** (mig 285): tabela por UF em `fiscal/destinatario.ts` + `fiscal_config.limite_identificacao` por loja; UF fora da tabela cai no piso mais restritivo conhecido | — |
 | P26 | **CNPJ dos intermediadores (iFood, 99Food…)** não está cadastrado (novo) | O número vai dentro de documento fiscal: tem de vir da **nota de serviço que a plataforma emite contra a loja**. Até lá, `CNPJ_INTERMEDIADOR` fica vazio e o pedido de marketplace é **recusado com o motivo**, nunca emitido como venda direta |
 | P27 | **Transportador em pedido com logística do marketplace** (novo) | Hoje declaramos a própria loja em toda entrega com `indPres=4`. Quando quem leva é a logística do canal, o transportador correto seria o do canal — depende do P26 |
@@ -454,6 +475,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 23/09/2026 | **Denegação separada da rejeição e o aviso da SEFAZ lido** (sem migration). A denegação vinda da autorização virava `rejeitada`, e o número denegado — que a SEFAZ **já tem na base** — entraria no relatório de lacunas para ser inutilizado (ERR-094). Agora `110/301/302` gravam `denegada`, com o protocolo do registro. Junto: o grupo **`cMsg`/`xMsg`** (aviso da SEFAZ ao emissor, confirmado no XSD oficial) passou a ser lido na autorização e na consulta, entrar no `motivo` e sair no log. **P22 e P23 resolvidos** — e a premissa do P22 estava errada: 781 (rejeição) e 301 (denegação) estão **as duas vigentes**, cada UF com a sua. |
 | 23/09/2026 | **Destinatário, entrega a domicílio e intermediador** (mig 285). A nota de delivery passa a sair como `indPres=4` com `dest`/`enderDest`/`transporta` quando há CPF e endereço, e como presencial com a taxa em `vOutro` quando não há — o que **corrige a rejeição 753**, que toda nota de delivery com taxa da loja receberia. `indIntermed` passou a sair **sempre** (434). Limite de identificação parametrizado por UF e por loja (**P24 resolvido**, P10 encaminhado). CPF opcional no cardápio do Regem, lido do payload nos canais externos e conferido pelo dígito verificador antes de entrar no XML. Abertas **P26** (CNPJ dos intermediadores) e **P27** (transportador na logística do canal). |
 | 23/09/2026 | **Revisão a partir da skill global `cupom-fiscal`** (27 UFs em fonte oficial). **Resolvidas P1, P2, P11, P12, P14, P15 e P21**; abertas **P22-P25**. Correções no corpo: escrituração (**inutilizada e denegada NÃO entram** na EFD — o código 05 caiu em jan/2023); **limites são parametrizáveis por UF por norma nacional** e nenhuma UF usa R$ 10.000; **a denegação acabou na NFC-e** (rejeição 781, que não consome número) e o nosso `consulta-protocolo.ts` está desatualizado; **XSD vigente é o PL_010f_v1.04**, não o PL_009_V4; **a rejeição 1115 perdeu a data** (v1.51 riscou); `cStat 120` entra em produção em **05/10/2026** e exige ler o grupo **PR13**; **série 890-989 é reservada no RN**; **PA também exige software credenciado**, não só SC; §3 ganhou pagamento vinculado (5 UFs), documento impresso extra (CE/RN) e FCP (4 decisões por UF). |
 | 23/09/2026 | P20 (mig 284): cancelamento por substituição (evento 110112). A nota rejeitada por 217 passa a ser re-consultada durante as 168 h para flagrar autorização tardia; a tela mostra a duplicidade com o prazo restante. |
