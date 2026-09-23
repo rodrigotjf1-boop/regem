@@ -1252,15 +1252,36 @@ export class FiscalService {
     let atualizacao: Record<string, unknown>;
     try {
       const ret = await transmissor.autorizar(preparado.xml, preparado.nota.chave ?? '', preparado.config);
+      // Aviso da SEFAZ ao emissor (grupo cMsg/xMsg). Vem junto da AUTORIZAÇÃO — é o caso do
+      // `cStat 120` — e some se ninguém o ler. Entra no motivo (que é o campo que o lojista vê
+      // na tela da nota) e sai no log, porque nota autorizada ninguém vai conferir depois.
+      if (ret.mensagem)
+        this.log.warn(
+          `SEFAZ avisou na nota ${preparado.nota.numero}/${preparado.nota.serie} ` +
+            `(cMsg ${ret.mensagem.codigo}): ${ret.mensagem.texto}`,
+        );
+      const motivoComAviso = ret.mensagem
+        ? `${ret.motivo} · Aviso da SEFAZ (${ret.mensagem.codigo}): ${ret.mensagem.texto}`.slice(0, 400)
+        : ret.motivo;
       atualizacao = {
         status: ret.status,
         simulada: !!ret.simulado,
         protocolo: ret.protocolo ?? null,
-        motivo: ret.motivo,
+        motivo: motivoComAviso,
+        cstat: ret.cStat ?? null,
         xml: ret.xmlAutorizado ?? preparado.xml,
         emitidaEm: ret.status === 'autorizada' ? new Date() : null,
       };
       if (ret.status === 'rejeitada') falha = new BadRequestException(`NFC-e rejeitada pela SEFAZ: ${ret.motivo}`);
+      // DENEGADA: a SEFAZ registrou a nota como negada. A venda não tem documento fiscal E o
+      // número está consumido — não se reaproveita nem se inutiliza. Gravar isto como
+      // "rejeitada" faria o número aparecer como lacuna, e o lojista pediria à SEFAZ a
+      // inutilização de uma numeração que ela já tem (ver ERR-094).
+      if (ret.status === 'denegada')
+        falha = new BadRequestException(
+          `NFC-e DENEGADA pela SEFAZ: ${ret.motivo}. O número ${preparado.nota.numero} da série ` +
+            `${preparado.nota.serie} fica consumido — regularize a situação fiscal da loja antes de emitir de novo.`,
+        );
       if (ret.status === 'pendente')
         falha = new ServiceUnavailableException(`A SEFAZ recebeu a NFC-e e ainda não decidiu: ${ret.motivo}`);
     } catch (e: any) {
