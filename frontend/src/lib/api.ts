@@ -707,6 +707,13 @@ export const api = {
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),
   notaFiscal: (id: string) => req(`/fiscal/notas/${id}`),
+  // Vendas com duas notas autorizadas, e o cancelamento por substituição (prazo de 168 h).
+  duplicidadesFiscais: () => req('/fiscal/duplicidades'),
+  cancelarPorSubstituicao: (id: string, justificativa?: string) =>
+    req(`/fiscal/notas/${id}/cancelar-substituicao`, {
+      method: 'POST',
+      body: JSON.stringify({ justificativa }),
+    }),
   // Numeração sem nota (lacunas) e pedido de inutilização — exigência do Ajuste SINIEF 19/16.
   lacunasFiscais: (serie?: number) => req(`/fiscal/lacunas${serie ? `?serie=${serie}` : ''}`),
   inutilizacoesFiscais: () => req('/fiscal/inutilizacoes'),

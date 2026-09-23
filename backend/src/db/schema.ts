@@ -2122,6 +2122,31 @@ export const fiscalSerie = pgTable('fiscal_serie', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// EVENTOS da NFC-e (mig 284). Hoje só o 110112 — cancelamento por substituição, que desfaz a
+// duplicidade quando a nota dada como inexistente aparece autorizada depois de já termos
+// emitido outra pela mesma venda. `tp_evento` deixa a tabela servir aos próximos eventos.
+export const fiscalEvento = pgTable('fiscal_evento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  unidadeId: uuid('unidade_id'),
+  notaId: uuid('nota_id'),
+  chave: text('chave').notNull(),
+  tpEvento: text('tp_evento').notNull(),
+  nSeq: integer('n_seq').notNull().default(1),
+  justificativa: text('justificativa'),
+  chaveRef: text('chave_ref'),
+  status: text('status').notNull().default('pendente'), // pendente|registrado|rejeitado
+  cstat: text('cstat'),
+  motivo: text('motivo'),
+  protocolo: text('protocolo'),
+  ambiente: text('ambiente').notNull().default('2'),
+  xml: text('xml'),
+  solicitadoPorId: uuid('solicitado_por_id'),
+  registradoEm: timestamp('registrado_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Pedidos de INUTILIZAÇÃO de numeração (mig 282). Número que não virou nota deixa buraco na
 // sequência, e a lei manda pedir a inutilização até o 10º dia do mês seguinte (Ajuste SINIEF
 // 19/16, cl. 16ª). O `xml` guarda o procInutNFe — pedido + protocolo, que é o comprovante.

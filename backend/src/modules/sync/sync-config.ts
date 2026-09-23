@@ -269,6 +269,8 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // obrigatória e é o que prova que o buraco na sequência foi regularizado. Cada ponta
   // inutiliza a própria série, então 'ambos' aqui também é espelho, não disputa.
   { tabela: 'fiscal_inutilizacao', direcao: 'ambos', cursor: 'updated_at' },
+  // Eventos da nota (mig 284) — mesmo motivo: é comprovante, e quem cancela é quem emitiu.
+  { tabela: 'fiscal_evento', direcao: 'ambos', cursor: 'updated_at' },
   // Configuração do emitente (CNPJ, IE, endereço, CSC, série de cada origem). DESCE: é
   // configuração de distribuição, master na nuvem. Sem ela no servidor local a loja não
   // tinha como montar o cupom — a tabela simplesmente não existia lá, e ainda bloqueava a
@@ -468,7 +470,7 @@ export const LOJA_COLUNA = new Set<string>([
   'contagem_lista', 'compra_lista', 'titulo_financeiro',
   // PARIDADE (mig 272): documentos que CRESCEM com o movimento da loja. Cadastro e
   // configuração continuam de fora (valem para a rede inteira).
-  'nota_fiscal', 'fiscal_inutilizacao', 'ordem_producao', 'acerto_subpdv', 'vistoria', 'pagamento_tef', 'alerta_estoque',
+  'nota_fiscal', 'fiscal_inutilizacao', 'fiscal_evento', 'ordem_producao', 'acerto_subpdv', 'vistoria', 'pagamento_tef', 'alerta_estoque',
   'tarefa_instancia', 'escala_alocacao',
 ]);
 

@@ -34,7 +34,7 @@
 | Consulta da situação pela chave (`NFeConsultaProtocolo4`) + resolução da nota `pendente` | Existe — `sefaz/consulta-protocolo.ts`, rota, botão e job (P18) |
 | **Inutilização** de numeração (`NFeInutilizacao4`) + relatório de lacunas | Existe — `sefaz/inutilizacao.ts`, migs 282/283 (P19) |
 | Reaproveitamento de número | **NÃO EXISTE — e não vai existir**: o MOC veda (ver §5.1) |
-| Cancelamento por substituição (evento 110112, 168 h) | NÃO EXISTE (P20) |
+| Cancelamento por substituição (evento 110112, 168 h) | Existe — `sefaz/evento-cancelamento.ts`, mig 284 (P20) |
 | Contingência off-line `tpEmis=9` | NÃO EXISTE (P21 — e depende de o RJ permitir) |
 | Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
 | Inutilização de faixa | NÃO EXISTE |
@@ -290,6 +290,18 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   por até 1 hora para todas as requisições"* (CNPJ + IP). O intervalo fixo de 5 min dava 12/hora
   e derrubaria a consulta da empresa inteira; virou escada (10, 30 min, 2, 6, 12, 24 h) — no
   máximo 3 consultas na primeira hora. O botão da tela usa a MESMA conta. Ver ERR-088.
+- **DUAS NOTAS PARA A MESMA VENDA (P20)** — `sefaz/evento-cancelamento.ts`, mig 284. O MOC (§3.5)
+  descreve o caso que o nosso próprio fluxo cria: a nota ficou sem resposta, a consulta disse
+  "não consta", emitimos a segunda — e a primeira aparece autorizada depois. Por isso a nota
+  rejeitada **por 217** continua sendo consultada enquanto o prazo corre (168 h): é a única
+  forma de flagrar a autorização tardia a tempo. Rejeitada por outro motivo está encerrada e
+  nenhuma consulta a reabre.
+- **Evento 110112:** cancela a nota que NÃO acobertou a operação (a mais antiga) referenciando
+  em `chNFeRef` a que o cliente levou. Campos exclusivos dele — `cOrgaoAutor`, `tpAutor=1`,
+  `verAplic` — e assinatura no `<infEvento>`, dentro de `<evento>` (não na raiz do lote).
+  `135` (ou `155`, fora de prazo aceito pela UF) registra; qualquer outro código NÃO cancela, e
+  a nota continua valendo. Fora das 168 h a rota recusa antes de enviar — a SEFAZ devolveria
+  **501** e a explicação ao lojista seria pior.
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -331,8 +343,8 @@ por inutilização — nunca reusado.
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Só o mecanismo de expiração está documentado, não o prazo |
 | P14 | Regras estaduais de **AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO** | Sabe-se apenas que autorizam via SVRS |
 | P15 | **`cIdToken` no QR: com ou sem zeros à esquerda** ("000001" × "1") — guardamos como digitado | Conferir no Manual do DANFE NFC-e e QR Code v6.0 antes de montar o QR real (etapa C) |
-| P20 | **Cancelamento por substituição** (evento 110112, prazo de 168 h — Ajuste SINIEF 19/16, cl. 15ª-A): quando a nota pendente aparece autorizada DEPOIS de já termos emitido a substituta, ficam duas notas para a mesma venda, e essa é a única forma legal de desfazer | Implementar antes de produção |
 | P21 | **Contingência off-line (`tpEmis=9`)**: é o que impede o caixa de travar quando a SEFAZ demora — sem ela a nota nova também falha e, passados 5 min do `dhEmi`, vem a rejeição **704**. ⚠️ O uso é decisão de CADA UF e não achei fonte oficial dizendo que o RJ permite | Confirmar na legislação do RJ antes de implementar |
+| ~~P20~~ | ~~Cancelamento por substituição~~ — **RESOLVIDO 23/09/2026** (mig 284): evento 110112, re-consulta da nota "inexistente" dentro das 168 h, lista de duplicidades com o prazo restante e cancelamento pela tela. | — |
 | ~~P19~~ | ~~Número queimado~~ — **RESOLVIDO 22/09/2026** (migs 282/283): inutilização implementada; reaproveitamento descartado por vedação do MOC (ver §5.1). | — |
 | ~~P18~~ | ~~Nota que fica `pendente`~~ — **RESOLVIDO 22/09/2026** (mig 281): consulta pela chave, carência de 2 min para o 217, job nas duas pontas e a venda consultando antes de emitir. | — |
 | ~~P17~~ | ~~RJ → SVRS na NFC-e~~ — **RESOLVIDO 22/09/2026**: o "Testar conexão com a SEFAZ" com o certificado real trouxe **107 — Serviço em Operação** da SVRS para `cUF=33`. A SVRS só responde 107 para UF que atende. | — |
@@ -344,6 +356,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 23/09/2026 | P20 (mig 284): cancelamento por substituição (evento 110112). A nota rejeitada por 217 passa a ser re-consultada durante as 168 h para flagrar autorização tardia; a tela mostra a duplicidade com o prazo restante. |
 | 22/09/2026 | P19 (migs 282/283): inutilização de numeração, relatório de lacunas em faixas e recuo entre consultas (rejeição 656, ERR-088). Reaproveitamento de número DESCARTADO por vedação do MOC — ver §5.1. Abertas P20 (cancelamento por substituição) e P21 (contingência off-line). |
 | 22/09/2026 | P18 (mig 281): a nota `pendente` passa a se resolver pela consulta à chave — rota, botão, job nas duas pontas e a venda consultando antes de emitir. Colunas `cstat`/`consultada_em`/`tentativas_consulta`, e a unicidade do número passou a ignorar as rejeitadas (base do P19). |
 | 22/09/2026 | **PRIMEIRA NFC-e AUTORIZADA** (homologação, SVRS/RJ): nº 2 série 51, protocolo 333260002547395, "100 - Autorizado o uso da NF-e". Montagem, assinatura, QR v3, transmissão e leitura do protocolo provados de ponta a ponta com o certificado real. |

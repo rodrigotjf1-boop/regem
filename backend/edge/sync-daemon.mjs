@@ -273,6 +273,9 @@ const PUSH_TABLES = [
   // Inutilização de numeração (mig 282): é comprovante fiscal, guarda de 5 anos, e é o que
   // prova ao Fisco que o buraco na sequência foi regularizado. Sobe junto com a nota.
   { tabela: 'fiscal_inutilizacao', cursor: 'updated_at' },
+  // Eventos da NFC-e (mig 284): o cancelamento por substituição é comprovante fiscal e
+  // precisa subir junto com a nota que ele cancela.
+  { tabela: 'fiscal_evento', cursor: 'updated_at' },
   { tabela: 'ordem_producao', cursor: 'updated_at' },
   { tabela: 'producao_pedido', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', cursor: 'updated_at' },
@@ -1742,7 +1745,7 @@ const VOLTA_DA_NUVEM = new Set([
   'fiscal_config', 'nota_fiscal',
   // A inutilização também volta: sem ela, um banco novo não saberia que aquela faixa já foi
   // regularizada e a tela pediria o pedido de novo (a SEFAZ devolveria 563).
-  'fiscal_inutilizacao',
+  'fiscal_inutilizacao', 'fiscal_evento',
 ]);
 
 // DONA É A NUVEM (regra de distribuição): licença, telemetria, campanhas, credenciais de

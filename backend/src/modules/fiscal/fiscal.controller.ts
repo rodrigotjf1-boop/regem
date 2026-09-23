@@ -127,6 +127,24 @@ export class FiscalController {
     return this.service.consultarNota(user.tenantId, id, user.colaboradorId);
   }
 
+  // Vendas com DUAS notas autorizadas (a pendente que apareceu autorizada depois) e o
+  // cancelamento por substituição, que é a única forma legal de desfazer — em 168 h.
+  @Get('duplicidades')
+  @Roles('presidente', 'gerente')
+  duplicidades(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.service.duplicidades(user.tenantId, unidadeId);
+  }
+
+  @Post('notas/:id/cancelar-substituicao')
+  @Roles('presidente', 'gerente')
+  cancelarPorSubstituicao(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: any,
+  ) {
+    return this.service.cancelarPorSubstituicao(user.tenantId, user.colaboradorId, id, dto?.justificativa);
+  }
+
   // LACUNAS de numeração e INUTILIZAÇÃO. Não é só-nuvem: a loja emite as próprias notas,
   // deixa as próprias lacunas e pede a própria inutilização (a série dela é dela).
   @Get('lacunas')

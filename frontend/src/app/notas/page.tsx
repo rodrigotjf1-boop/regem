@@ -33,6 +33,8 @@ export default function NotasPage() {
   const [consultando, setConsultando] = useState<string | null>(null);
   const [lacunas, setLacunas] = useState<any[] | null>(null);
   const [inutilizando, setInutilizando] = useState(false);
+  const [duplicidades, setDuplicidades] = useState<any[] | null>(null);
+  const [cancelandoDup, setCancelandoDup] = useState<string | null>(null);
   const isPresidente = cat === 'presidente';
 
   const reload = useCallback(async () => {
@@ -46,6 +48,11 @@ export default function NotasPage() {
       setLacunas((await api.lacunasFiscais()) as any[]);
     } catch {
       setLacunas([]);
+    }
+    try {
+      setDuplicidades((await api.duplicidadesFiscais()) as any[]);
+    } catch {
+      setDuplicidades([]);
     }
   }, []);
 
@@ -71,6 +78,27 @@ export default function NotasPage() {
       toast.error(e instanceof Error ? e.message : 'Erro ao consultar');
     } finally {
       setConsultando(null);
+    }
+  }
+
+  // Duas notas para a mesma venda: cancela a ANTIGA referenciando a que o cliente levou.
+  async function cancelarDuplicada(d: any) {
+    if (
+      !window.confirm(
+        `Cancelar a NFC-e ${d.serie}/${d.numero}, que foi substituída pela ${d.substitutaSerie}/${d.substitutaNumero}? ` +
+          'A SEFAZ registra o cancelamento por substituição e a nota deixa de valer.',
+      )
+    )
+      return;
+    setCancelandoDup(d.id);
+    try {
+      const r: any = await api.cancelarPorSubstituicao(d.id);
+      toast.success(`Cancelamento registrado na SEFAZ — protocolo ${r?.protocolo ?? ''}.`);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao cancelar');
+    } finally {
+      setCancelandoDup(null);
     }
   }
 
@@ -123,6 +151,53 @@ export default function NotasPage() {
     <Shell eyebrow="Fiscal · NFC-e" title="Notas fiscais">
       <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
+        {!!duplicidades?.length && isGestor && (
+          <Card className="border-warn/40 p-4">
+            <p className="text-sm font-medium text-warn">Venda com duas notas</p>
+            <p className="mb-3 mt-1 text-xs text-muted-foreground">
+              A primeira nota não teve resposta da SEFAZ, outra foi emitida para o cliente — e depois a
+              primeira apareceu autorizada. As duas cobrem a mesma venda. A lei dá{' '}
+              <strong>168 horas da autorização</strong> para cancelar a que não acobertou a operação,
+              indicando a que a substituiu. Passado o prazo, a SEFAZ recusa.
+            </p>
+            <div className="space-y-2">
+              {duplicidades.map((d: any) => {
+                const horas = Number(d.horasRestantes);
+                const venceu = horas <= 0;
+                return (
+                  <div
+                    key={d.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm">
+                        <span className="font-medium">NFC-e {d.serie}/{d.numero}</span>{' '}
+                        <span className="text-muted-foreground">
+                          substituída pela {d.substitutaSerie}/{d.substitutaNumero}
+                        </span>
+                      </p>
+                      <p className={`text-[11px] ${venceu ? 'text-destructive' : 'text-muted-foreground'}`}>
+                        {venceu
+                          ? 'Prazo de 168 h vencido — fale com a contabilidade.'
+                          : `Restam ${horas.toFixed(0)} h para cancelar.`}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => cancelarDuplicada(d)}
+                      disabled={cancelandoDup === d.id || venceu}
+                    >
+                      {cancelandoDup === d.id ? 'Cancelando…' : 'Cancelar a duplicada'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
         {!!lacunas?.length && isGestor && (
           <Card className="p-4">
             <p className="text-sm font-medium text-muted-foreground">Numeração sem nota</p>
