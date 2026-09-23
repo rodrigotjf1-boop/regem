@@ -149,6 +149,8 @@ export class FiscalService {
             ? String(Number(dto.limiteIdentificacao))
             : undefined,
       deliverySemCpf: dto.deliverySemCpf != null ? String(dto.deliverySemCpf) : undefined,
+      contingenciaViaEstabelecimento:
+        dto.contingenciaViaEstabelecimento != null ? !!dto.contingenciaViaEstabelecimento : undefined,
       ambiente: dto.ambiente,
       regime: dto.regime,
       crt: dto.crt != null ? Number(dto.crt) : undefined,
@@ -1854,6 +1856,12 @@ export class FiscalService {
   // Antes: TODAS as impressoras com o `papel` antigo 'cupom' DA EMPRESA — numa rede com duas
   // lojas cada nota saía nas duas, e numa loja com dois caixas, nos dois. `faz_cupom` (mig 167)
   // é o campo que o cadastro mantém hoje.
+  /** A loja pediu a 2ª via de papel na contingência? Padrão: não (guarda eletrônica do XML). */
+  private async imprimeViaEstabelecimento(tenantId: string, unidadeId: string | null): Promise<boolean> {
+    const cfg: any = await this.configRaw(tenantId, unidadeId).catch(() => null);
+    return cfg?.contingenciaViaEstabelecimento === true || cfg?.contingencia_via_estabelecimento === true;
+  }
+
   /**
    * A DANFE é BEST-EFFORT, e isso não é descuido: quando se chega aqui o documento fiscal já
    * existe (autorizado ou emitido em contingência). Deixar a impressão derrubar a chamada faria
@@ -1953,12 +1961,20 @@ export class FiscalService {
       via: 'fiscal',
       conteudo,
     });
-    // SEGUNDA VIA na contingência (MOC 7.0, Anexo IV, §4): "deverá ser impressa uma segunda via
-    // do DANFE NFC-e que deverá permanecer à disposição do Fisco no estabelecimento até que
-    // tenha sido transmitida e autorizada". A alternativa — guarda eletrônica do XML — exige
-    // que a loja lavre termo no livro modelo 6; enquanto ela não fizer isso, o papel é o
-    // caminho seguro. A UF pode dispensar.
-    if (extras?.contingencia)
+    // SEGUNDA VIA na contingência — OPCIONAL, e desligada por padrão (mig 287).
+    //
+    // O MOC 7.0 (Anexo IV, §4) pede a "VIA DO ESTABELECIMENTO" guardada até a nota ser
+    // transmitida e autorizada, MAS dá a alternativa que nós já cumprimos por desenho:
+    // "poderá optar pela guarda eletrônica, em local seguro, do respectivo arquivo XML da
+    // NFC-e… possibilitar a impressão do respectivo DANFE NFC-e para apresentação ao fisco
+    // quando solicitado". O XML assinado fica em `nota_fiscal.xml` desde a emissão, sobe para a
+    // nuvem e volta — e a tela reimprime a DANFE de qualquer nota.
+    //
+    // Restaurante não arquiva cupom em papel: imprimir a segunda via em toda venda seria papel
+    // que ninguém guarda e fila dobrada justamente quando a loja está sem internet. Quem
+    // precisar do papel — UF que exija, ou termo do livro modelo 6 ainda não lavrado — liga o
+    // interruptor na configuração fiscal.
+    if (extras?.contingencia && (await this.imprimeViaEstabelecimento(tenantId, nota.unidadeId ?? null)))
       await this.db.insert(impressaoJob).values({
         tenantId,
         unidadeId: nota.unidadeId,
