@@ -469,19 +469,40 @@ export class DeliveryService {
       })
       .returning();
     } catch (e: any) {
-      // Corrida: duas requisições com o mesmo client_ref ao mesmo tempo. O índice
-      // único barra a 2ª (23505) — devolvemos o pedido que a 1ª já criou.
-      if (e?.code === '23505' && extra?.clientRef) {
-        const [ja] = await this.db
-          .select()
-          .from(pedidoExterno)
-          .where(
-            and(
-              eq(pedidoExterno.tenantId, tenantId),
-              eq(pedidoExterno.clientRef, extra.clientRef),
-            ),
-          );
-        if (ja) return ja;
+      // CORRIDA. A checagem "já existe?" lá em cima não protege nada sozinha: entre ela e este
+      // insert cabe outra requisição. Acontece de verdade — o webhook da 99Food reenvia depois
+      // de 6 s, e no iFood o poller e o webhook chegam juntos. O índice único do banco barra a
+      // segunda (23505), e aqui a gente devolve o pedido que a primeira criou, em vez de
+      // responder erro para uma entrega que, no fim, deu certo (o canal trataria como falha e
+      // reenviaria de novo).
+      if (e?.code === '23505') {
+        // Mesmo client_ref (pedido do cardápio próprio, retry do cliente).
+        if (extra?.clientRef) {
+          const [ja] = await this.db
+            .select()
+            .from(pedidoExterno)
+            .where(
+              and(
+                eq(pedidoExterno.tenantId, tenantId),
+                eq(pedidoExterno.clientRef, extra.clientRef),
+              ),
+            );
+          if (ja) return ja;
+        }
+        // Mesmo (canal, external_id) — o caso dos marketplaces, que era o que faltava.
+        if (norm.externalId) {
+          const [ja] = await this.db
+            .select()
+            .from(pedidoExterno)
+            .where(
+              and(
+                eq(pedidoExterno.tenantId, tenantId),
+                eq(pedidoExterno.canal, canal),
+                eq(pedidoExterno.externalId, norm.externalId),
+              ),
+            );
+          if (ja) return ja;
+        }
       }
       throw e;
     }

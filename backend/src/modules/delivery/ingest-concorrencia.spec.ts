@@ -50,6 +50,39 @@ descrever('ingest de pedido de marketplace — entregas simultâneas', () => {
     order_items: [{ app_item_id: 'X1', name: 'Lanche', amount: 1, sku_price: 3000 }],
   });
 
+  // A corrida acima depende de sorte: se o banco responder rápido, as 5 chamadas passam pela
+  // checagem "já existe?" em ordem e nada colide. Este teste NÃO depende de sorte — ele força
+  // a janela exata que existe entre a checagem e o insert, usando uma transação aberta: a
+  // linha já existe no índice, mas ainda não é visível para quem consulta. O ingest passa pela
+  // checagem, trava no insert e, quando a outra transação confirma, leva o 23505.
+  it('corrida REAL (linha invisível até o commit): o segundo não vira erro, devolve o que já existe', async () => {
+    const orderId = String(5764665043209000000n + BigInt(Math.floor(Math.random() * 100000)));
+    const cliente = await pool.connect();
+    await cliente.query('begin');
+    await cliente.query(
+      `insert into pedido_externo (tenant_id, unidade_id, canal, numero, external_id, display_id,
+         cliente_nome, tipo, total, status)
+       values ($1,$2,'99food',1,$3,'#1','Cliente','entrega','35.00','novo')`,
+      [T, LOJA, orderId],
+    );
+
+    const emCurso = svc.ingest(T, LOJA, '99food', pedido99(orderId));
+    // Tempo para o ingest passar pela checagem e ficar preso no insert.
+    await new Promise((r) => setTimeout(r, 400));
+    await cliente.query('commit');
+    cliente.release();
+
+    const pedido: any = await emCurso; // sem o tratamento da corrida, isto REJEITA com 23505
+    expect(pedido?.externalId).toBe(orderId);
+    const n = (
+      await pool.query(
+        `select count(*)::int n from pedido_externo where tenant_id=$1 and canal='99food' and external_id=$2`,
+        [T, orderId],
+      )
+    ).rows[0].n;
+    expect(n).toBe(1);
+  });
+
   it('duas entregas simultâneas do mesmo order_id da 99 geram UM pedido', async () => {
     const orderId = String(5764665043203457000n + BigInt(Math.floor(Math.random() * 1000)));
     const r = await Promise.allSettled(
