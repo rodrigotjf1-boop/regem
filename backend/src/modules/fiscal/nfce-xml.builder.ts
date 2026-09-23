@@ -134,6 +134,15 @@ export interface NfceInput {
    * aceita 1 e 4, ele é obrigatório SEMPRE. Sem intermediador vai `0`; com, vai `1` + o grupo.
    */
   intermediador?: NfceIntermediador | null;
+  /**
+   * CONTINGÊNCIA OFF-LINE (`tpEmis=9`): a nota é gerada, assinada e impressa **sem** autorização
+   * prévia da SEFAZ, e transmitida depois — até o fim do primeiro dia útil seguinte
+   * (MOC 7.0, Anexo IV). Quem entra em contingência tem de dizer QUANDO entrou (`dhCont`) e
+   * POR QUÊ (`xJust`): sem os dois é rejeição **557** (regra B28-20); com `tpEmis=1`, informá-los
+   * é rejeição **556** (B28-10). A UF pode não aceitar esta contingência (**712**, B22-20) e a
+   * NFC-e não aceita as outras modalidades (**714**, B22-34).
+   */
+  contingencia?: { dhCont: string; xJust: string } | null;
 }
 
 // PIS/COFINS: CST tributável (01/02) com alíquota → grupo Aliq; senão não-tributado.
@@ -286,6 +295,22 @@ export function montarNfceXml(inp: NfceInput): string {
   // QUEM ela vai. Verificamos aqui, antes de gastar número de nota, em vez de descobrir no
   // retorno — número queimado só se recupera por inutilização.
   const indPres = inp.indPres === 4 ? 4 : 1;
+  // Contingência: ou vêm os DOIS campos, ou a nota é normal. Meio grupo é rejeição 557.
+  const contingencia = inp.contingencia?.dhCont && String(inp.contingencia.xJust ?? '').trim()
+    ? { dhCont: inp.contingencia.dhCont, xJust: String(inp.contingencia.xJust).trim() }
+    : null;
+  if (inp.contingencia && !contingencia)
+    throw new Error('Contingencia exige data/hora de entrada e justificativa (rejeicao 557).');
+  if (contingencia && (contingencia.xJust.length < 15 || contingencia.xJust.length > 256))
+    throw new Error('A justificativa de entrada em contingencia precisa ter de 15 a 256 caracteres.');
+  const tpEmis = contingencia ? 9 : 1;
+  // O `tpEmis` é o 35º dígito da CHAVE (índice 34: cUF2 + AAMM4 + CNPJ14 + mod2 + série3 +
+  // número9 = 34 antes dele). Chave montada como normal e `ide` dizendo contingência — ou o
+  // contrário — é uma nota que não fecha consigo mesma, e a SEFAZ devolve chave divergente.
+  if (String(inp.chave ?? '').length === 44 && Number(String(inp.chave)[34]) !== tpEmis)
+    throw new Error(
+      `A chave de acesso foi montada com tpEmis=${String(inp.chave)[34]} e esta nota é ${contingencia ? 'de contingencia (9)' : 'normal (1)'}.`,
+    );
   if (indPres === 4) {
     if (!inp.dest?.documento) throw new Error('Entrega a domicilio exige o documento do destinatario (rejeicao 787).');
     if (!inp.dest?.endereco) throw new Error('Entrega a domicilio exige o endereco do destinatario (rejeicao 788).');
@@ -346,7 +371,9 @@ export function montarNfceXml(inp: NfceInput): string {
     `<idDest>1</idDest>` +
     `<cMunFG>${soDig(c.codigoMunicipio)}</cMunFG>` +
     `<tpImp>4</tpImp>` + // 4 = DANFE NFC-e
-    `<tpEmis>1</tpEmis>` +
+    // O tpEmis é o 35º dígito da CHAVE: quem monta a chave e quem monta o `ide` têm de
+    // concordar, senão a SEFAZ devolve "chave de acesso difere da informada".
+    `<tpEmis>${tpEmis}</tpEmis>` +
     `<cDV>${inp.chave.slice(-1)}</cDV>` +
     `<tpAmb>${c.ambiente ?? '2'}</tpAmb>` +
     `<finNFe>1</finNFe>` +
@@ -360,6 +387,8 @@ export function montarNfceXml(inp: NfceInput): string {
     `<indIntermed>${xmlIntermed ? '1' : '0'}</indIntermed>` +
     `<procEmi>0</procEmi>` +
     `<verProc>Regem-1.0</verProc>` +
+    // Últimos elementos do grupo, nesta ordem (leiaute 4.00).
+    (contingencia ? `<dhCont>${esc(contingencia.dhCont)}</dhCont><xJust>${esc(contingencia.xJust)}</xJust>` : '') +
     `</ide>`;
 
   const emit =

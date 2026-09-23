@@ -16,6 +16,11 @@ const config = {
   municipio: 'Sao Paulo', bairro: 'Centro', numero: '100', endereco: 'Rua A', cep: '01001000',
 };
 
+// A chave carrega o tpEmis no 35º dígito (índice 34): 1 = normal, 9 = contingência off-line.
+// Uma chave "3" repetido 44 vezes diria tpEmis=3, que não existe — e o builder recusa.
+const CHAVE = '3'.repeat(34) + '1' + '3'.repeat(9);
+const CHAVE_CONTINGENCIA = '3'.repeat(34) + '9' + '3'.repeat(9);
+
 const item = (o: Partial<NfceItem> = {}): NfceItem => ({
   codigo: 'X', descricao: 'Produto', ncm: '21069090',
   quantidade: 1, precoUnitario: 10, ...o,
@@ -43,7 +48,7 @@ function montar(itens: NfceItem[], desconto?: number, frete?: number, extra: Par
   // explicitamente está montando um caso de rejeição e não quer o preenchimento automático.
   const entrega = Number(frete) > 0 && extra.indPres === undefined;
   return montarNfceXml({
-    config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
+    config, serie: 1, numero: 1, chave: extra.contingencia ? CHAVE_CONTINGENCIA : CHAVE, cNF: '12345678',
     dhEmi: '2026-09-14T12:00:00-03:00', itens, forma: 'dinheiro',
     qrCode: 'http://q', urlChave: 'www.sefaz.uf.gov.br/nfce/consulta', desconto, frete,
     ...(entrega ? { indPres: 4 as const, dest: destino, transportador } : {}),
@@ -180,7 +185,7 @@ describe('NFC-e — grupo enderEmit', () => {
 
   it('a série do XML é a de quem reservou o número, não a da config', () => {
     const xml = montarNfceXml({
-      config, serie: 7, numero: 3, chave: '3'.repeat(44), cNF: '12345678',
+      config, serie: 7, numero: 3, chave: CHAVE, cNF: '12345678',
       dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro', qrCode: 'http://q', urlChave: 'www.sefaz.uf.gov.br/nfce/consulta',
     });
     expect(xml).toContain('<serie>7</serie>'); // config.serie é 1
@@ -195,7 +200,7 @@ describe('NFC-e — grupo infNFeSupl', () => {
 
   it('leva o QR Code (em CDATA, com & e |) e a URL de consulta pela chave', () => {
     const xml = montarNfceXml({
-      config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
+      config, serie: 1, numero: 1, chave: CHAVE, cNF: '12345678',
       dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro',
       qrCode: qr, urlChave: 'www.fazenda.rj.gov.br/nfce/consulta',
     });
@@ -287,7 +292,7 @@ describe('NFC-e — destinatário e entrega a domicílio', () => {
   it('753: frete numa venda presencial não vira XML (era o defeito de toda nota de delivery)', () => {
     expect(() =>
       montarNfceXml({
-        config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
+        config, serie: 1, numero: 1, chave: CHAVE, cNF: '12345678',
         dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro',
         qrCode: 'http://q', urlChave: 'u', frete: 7,
       }),
@@ -339,5 +344,50 @@ describe('NFC-e — taxa de entrega na nota declarada como presencial', () => {
   it('W15-10: o vOutro do total é EXATAMENTE a soma dos itens', () => {
     const xml = montar([item({ precoUnitario: 7.77 }), item({ precoUnitario: 3.33 })], 0, 0, { outras: 9.99 });
     expect(soma(dosItens(xml, 'vOutro'))).toBe(doTotal(xml, 'vOutro'));
+  });
+});
+
+// ===== CONTINGÊNCIA OFF-LINE (tpEmis=9) =====
+// A nota é gerada, assinada e impressa SEM autorização prévia, e transmitida depois — até o
+// fim do primeiro dia útil seguinte (MOC 7.0, Anexo IV). O anexo lista os campos obrigatórios:
+// dhCont, xJust, tpEmis=9, idDest=1, finNFe=1, indFinal=1.
+//   B28-20 → 557  dhCont e xJust são OBRIGATÓRIOS com tpEmis 2/4/5/9
+//   B28-10 → 556  e PROIBIDOS com tpEmis=1
+describe('NFC-e — contingência off-line', () => {
+  const cont = { dhCont: '2026-09-23T14:05:00-03:00', xJust: 'Sem resposta da SEFAZ no caixa' };
+
+  it('sem contingência: tpEmis 1 e nada de dhCont/xJust (556)', () => {
+    const xml = montar([item()]);
+    expect(xml).toContain('<tpEmis>1</tpEmis>');
+    expect(xml).not.toContain('<dhCont>');
+    expect(xml).not.toContain('<xJust>');
+  });
+
+  it('em contingência: tpEmis 9, com dhCont e xJust no fim do ide', () => {
+    const xml = montar([item()], 0, 0, { contingencia: cont });
+    expect(xml).toContain('<tpEmis>9</tpEmis>');
+    expect(xml).toContain('<verProc>Regem-1.0</verProc><dhCont>2026-09-23T14:05:00-03:00</dhCont>');
+    expect(xml).toContain('<xJust>Sem resposta da SEFAZ no caixa</xJust></ide>');
+  });
+
+  it('557: contingência pela metade não vira XML', () => {
+    expect(() => montar([item()], 0, 0, { contingencia: { dhCont: cont.dhCont, xJust: '' } })).toThrow(/557/);
+    expect(() => montar([item()], 0, 0, { contingencia: { dhCont: '', xJust: cont.xJust } })).toThrow(/557/);
+  });
+
+  it('a chave tem de concordar com o tpEmis do ide — o 35º dígito é ele', () => {
+    // A chave padrão dos testes tem tpEmis=1 (só 3). Pedir contingência com ela não pode passar.
+    expect(() => montar([item()], 0, 0, { contingencia: cont })).not.toThrow(); // usa a chave de contingência
+    expect(() =>
+      montarNfceXml({
+        config, serie: 1, numero: 1, chave: CHAVE, cNF: '12345678',
+        dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro',
+        qrCode: 'http://q', urlChave: 'u', contingencia: cont,
+      }),
+    ).toThrow(/tpEmis=1/);
+  });
+
+  it('justificativa curta demais é recusada antes de virar rejeição', () => {
+    expect(() => montar([item()], 0, 0, { contingencia: { dhCont: cont.dhCont, xJust: 'caiu' } })).toThrow(/15 a 256/);
   });
 });

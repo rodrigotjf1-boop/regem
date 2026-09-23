@@ -1,4 +1,4 @@
-import { createHash, randomInt } from 'crypto';
+import { createHash, createSign, randomInt } from 'crypto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Utilidades da chave de acesso NFC-e (44 dígitos) e do QR Code (NT NFC-e).
@@ -83,4 +83,47 @@ export function montarQrCodeV3(p: { chave: string; tpAmb: string; urlConsulta: s
   const tpAmb = String(p.tpAmb) === '1' ? '1' : '2';
   const sep = p.urlConsulta.includes('?') ? '&' : '?';
   return { qrCode: `${p.urlConsulta}${sep}p=${p.chave}|3|${tpAmb}` };
+}
+
+/**
+ * QR Code VERSÃO 3 — emissão em CONTINGÊNCIA OFF-LINE (`tpEmis=9`).
+ *
+ * Manual do DANFE NFC-e e QR Code **v6.0, §4.4.2, Tabela 7** — oito parâmetros:
+ *
+ *   1 chave (44) · 2 versão ("3") · 3 tpAmb · 4 DIA da emissão (2 dígitos) · 5 vNF
+ *   6 tipo de identificação do destinatário (1=CNPJ, 2=CPF, 3=idEstrangeiro)
+ *   7 identificação do destinatário · 8 ASSINATURA
+ *
+ * Sem destinatário, os parâmetros 6 e 7 ficam **vazios** — "informar apenas o separador".
+ * A assinatura é RSA **SHA-1** em Base64 sobre a concatenação dos parâmetros 1 a 7 **com os
+ * separadores**, feita com o MESMO certificado que assina a NFC-e. É ela que substitui o CSC:
+ * na v3 não existe hash com segredo combinado — a autenticidade do QR vem do certificado.
+ *
+ * Regras atendidas: ZX02-324/326 (parâmetros 6 e 7 na off-line), ZX02-330 (assinatura PROIBIDA
+ * fora da contingência), ZX02-334 (obrigatória nela) e ZX02-338 → **583** "Valor da assinatura
+ * do qrCode difere do valor calculado".
+ */
+export function montarQrCodeV3Offline(p: {
+  chave: string;
+  tpAmb: string; // 1|2
+  dhEmi: string; // ISO com fuso, como vai no XML — daqui sai só o DIA
+  vNF: number | string; // valor total da nota (W16)
+  destTipo?: '1' | '2' | '3' | null;
+  destDocumento?: string | null;
+  chavePrivadaPem: string; // o mesmo A1 que assina a NFC-e
+  urlConsulta: string;
+}): { qrCode: string; assinatura: string } {
+  if (!/^[0-9]{44}$/.test(p.chave)) throw new Error('QR Code v3 off-line: chave de acesso precisa ter 44 dígitos.');
+  const tpAmb = String(p.tpAmb) === '1' ? '1' : '2';
+  // O dia sai do TEXTO da data (que já está no fuso da UF). Converter para Date aqui traria o
+  // fuso da máquina de volta e, perto da virada, o dia sairia errado — ver `fuso-fiscal.ts`.
+  const dia = String(p.dhEmi ?? '').slice(8, 10);
+  if (!/^[0-9]{2}$/.test(dia)) throw new Error('QR Code v3 off-line: data de emissão inválida.');
+  const valor = Number(p.vNF || 0).toFixed(2);
+  const doc = String(p.destDocumento ?? '').replace(/[^0-9]/g, '');
+  const tipo = doc ? (p.destTipo ?? (doc.length === 14 ? '1' : '2')) : '';
+  const dados = [p.chave, '3', tpAmb, dia, valor, tipo, doc].join('|');
+  const assinatura = createSign('RSA-SHA1').update(dados, 'utf8').sign(p.chavePrivadaPem, 'base64');
+  const sep = p.urlConsulta.includes('?') ? '&' : '?';
+  return { qrCode: `${p.urlConsulta}${sep}p=${dados}|${assinatura}`, assinatura };
 }
