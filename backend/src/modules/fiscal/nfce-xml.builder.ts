@@ -211,11 +211,17 @@ export function montarNfceXml(inp: NfceInput): string {
     `<enderEmit>` +
     `<xLgr>${esc(c.endereco)}</xLgr>` +
     `<nro>${esc(c.numero)}</nro>` +
+    // xCpl ("LOJA 02") era recebido da configuração e nunca escrito — o endereço da nota
+    // saía diferente do cadastrado na SEFAZ.
+    (String(c.complemento ?? '').trim() ? `<xCpl>${esc(c.complemento)}</xCpl>` : '') +
     `<xBairro>${esc(c.bairro)}</xBairro>` +
     `<cMun>${soDig(c.codigoMunicipio)}</cMun>` +
     `<xMun>${esc(c.municipio)}</xMun>` +
     `<UF>${esc(c.uf)}</UF>` +
-    (soDig(c.cep) ? `<CEP>${soDig(c.cep).padStart(8, '0')}</CEP>` : '') +
+    // CEP é OBRIGATÓRIO no emitente (TEnderEmi, 1-1) e vem ANTES de cPais. Sai sempre: sem
+    // ele a SEFAZ rejeita com 225 apontando o `cPais` — o elemento que apareceu no lugar do
+    // que faltava (ERR-086). Quem garante que existe é o pré-voo.
+    `<CEP>${soDig(c.cep).padStart(8, '0')}</CEP>` +
     `<cPais>1058</cPais><xPais>BRASIL</xPais>` +
     `</enderEmit>` +
     `<IE>${soDig(c.ie) || 'ISENTO'}</IE>` +

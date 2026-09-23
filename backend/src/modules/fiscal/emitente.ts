@@ -28,6 +28,9 @@ const CAMPOS: Campo[] = [
   // O grupo `enderEmit` do leiaute 4.00 exige o bairro: sem ele o XML nem valida.
   { chave: 'bairro', rotulo: 'bairro', ok: (c) => !!String(c.bairro ?? '').trim() },
   { chave: 'numero', rotulo: 'número', ok: (c) => !!String(c.numero ?? '').trim() },
+  // Obrigatório no grupo `enderEmit` (1-1, 8 dígitos). Faltava na lista, e a nota só descobria
+  // na SEFAZ — depois de gastar um número (ERR-086).
+  { chave: 'cep', rotulo: 'CEP', ok: (c) => soDig(c.cep).length === 8 },
   // CSC: só o QR Code VERSÃO 2 usa (hash do CSC). Na v3 (NT 2025.001) ele não existe — por isso
   // só é exigido quando a UF ainda estiver na v2 (`qrVersao` vem de sefaz/webservices.ts).
   { chave: 'cscId', rotulo: 'ID do CSC', ok: (c) => c.qrVersao === 3 || !!String(c.cscId ?? '').trim() },

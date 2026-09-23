@@ -92,9 +92,10 @@ descrever('NFC-e de teste em homologação, do banco à SEFAZ', () => {
     await pool.query(
       `insert into fiscal_config (tenant_id, unidade_id, ativo, ambiente, serie, serie_nuvem,
          cnpj, razao_social, ie, uf, codigo_uf, codigo_municipio, municipio, endereco, bairro, numero,
+         cep, complemento,
          url_qrcode_homolog, url_chave_homolog, url_qrcode_prod, url_chave_prod)
        values ($1,null,true,'2',50,51,$2,'Bar de Teste LTDA','13047081','RJ',33,3304557,'Rio de Janeiro',
-               'Rua A','Centro','100',
+               'Rua A','Centro','100','21221240','LOJA 02',
                'https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode',
                'www.fazenda.rj.gov.br/nfce/consulta',
                'https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode',
@@ -142,6 +143,10 @@ descrever('NFC-e de teste em homologação, do banco à SEFAZ', () => {
     );
     expect(enviado).not.toContain('cHashQRCode');
     expect(enviado).toContain('<urlChave>www.fazenda.rj.gov.br/nfce/consulta</urlChave>');
+    // O endereço do emitente sai completo: sem CEP a SEFAZ rejeita com 225 (ERR-086), e o
+    // complemento ("LOJA 02") faz parte do endereço cadastrado nela.
+    expect(enviado).toContain('<nro>100</nro><xCpl>LOJA 02</xCpl><xBairro>Centro</xBairro>');
+    expect(enviado).toContain('<UF>RJ</UF><CEP>21221240</CEP><cPais>1058</cPais>');
 
     const nota = await notaNoBanco(r.chave);
     expect(nota.status).toBe('autorizada');
