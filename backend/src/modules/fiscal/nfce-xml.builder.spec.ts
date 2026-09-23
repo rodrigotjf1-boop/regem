@@ -1,4 +1,4 @@
-import { montarNfceXml, NfceItem } from './nfce-xml.builder';
+import { montarNfceXml, NfceInput, NfceItem } from './nfce-xml.builder';
 
 // A NFC-e é o único lugar do Regem onde um centavo errado vira REJEIÇÃO da SEFAZ.
 // Estes testes travam as regras de somatório do layout 4.00:
@@ -21,11 +21,33 @@ const item = (o: Partial<NfceItem> = {}): NfceItem => ({
   quantidade: 1, precoUnitario: 10, ...o,
 });
 
-function montar(itens: NfceItem[], desconto?: number, frete?: number) {
+// Destinatário e transportador de teste. O CPF tem dígito verificador válido de propósito:
+// a SEFAZ confere (regra E03-10 → rejeição 237) e o builder também.
+const destino: NfceInput['dest'] = {
+  documento: '11144477735',
+  nome: 'Consumidor Teste',
+  endereco: {
+    logradouro: 'Rua B', numero: '50', bairro: 'Centro',
+    codigoMunicipio: 3550308, municipio: 'Sao Paulo', uf: 'SP', cep: '01001000',
+  },
+};
+// Entrega da própria loja: o manual da SEFAZ manda pôr os dados da EMPRESA no transportador.
+const transportador: NfceInput['transportador'] = {
+  documento: config.cnpj, nome: config.razaoSocial, municipio: config.municipio, uf: config.uf,
+};
+
+// `frete` só existe em operação de entrega (rejeição 753), então quem passa frete neste
+// helper está pedindo uma nota de delivery — com destinatário e transportador junto.
+function montar(itens: NfceItem[], desconto?: number, frete?: number, extra: Partial<NfceInput> = {}) {
+  // Só completa sozinho quando o teste não disse nada sobre indPres: quem passa indPres
+  // explicitamente está montando um caso de rejeição e não quer o preenchimento automático.
+  const entrega = Number(frete) > 0 && extra.indPres === undefined;
   return montarNfceXml({
     config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
     dhEmi: '2026-09-14T12:00:00-03:00', itens, forma: 'dinheiro',
     qrCode: 'http://q', urlChave: 'www.sefaz.uf.gov.br/nfce/consulta', desconto, frete,
+    ...(entrega ? { indPres: 4 as const, dest: destino, transportador } : {}),
+    ...extra,
   });
 }
 
@@ -105,9 +127,11 @@ describe('NFC-e — desconto e frete', () => {
     expect(doTotal(xml, 'vNF')).toBe(10);
   });
 
-  it('a ordem das tags segue o layout 4.00 (vUnTrib → vFrete → vDesc → indTot)', () => {
-    const xml = montar([item({ precoUnitario: 10 })], 2, 3);
-    expect(xml).toMatch(/<vUnTrib>[\d.]+<\/vUnTrib><vFrete>[\d.]+<\/vFrete><vDesc>[\d.]+<\/vDesc><indTot>1<\/indTot>/);
+  it('a ordem das tags segue o layout 4.00 (vUnTrib → vFrete → vDesc → vOutro → indTot)', () => {
+    const xml = montar([item({ precoUnitario: 10 })], 2, 3, { outras: 4 });
+    expect(xml).toMatch(
+      /<vUnTrib>[\d.]+<\/vUnTrib><vFrete>[\d.]+<\/vFrete><vDesc>[\d.]+<\/vDesc><vOutro>[\d.]+<\/vOutro><indTot>1<\/indTot>/,
+    );
   });
 
   it('a soma dos itens fecha com o total em 200 combinações de desconto', () => {
@@ -190,5 +214,130 @@ describe('NFC-e — grupo infNFeSupl', () => {
 
   it('o XML inteiro sai numa linha só (quebra de linha entre tags é rejeição)', () => {
     expect(montar([item()])).not.toMatch(/[\r\n\t]/);
+  });
+});
+
+// ===== DESTINATÁRIO, ENTREGA A DOMICÍLIO E INTERMEDIADOR =====
+// Cada teste aqui corresponde a uma rejeição real da SEFAZ. O texto das regras foi conferido no
+// MOC consolidado on-line (moc.sped.fazenda.pr.gov.br/NFe_NFCe), não no PDF de 2020:
+//   B25b-20 → 717  indPres da NFC-e só pode ser 1, 4 ou 5
+//   B25c-10 → 434  indIntermed obrigatório quando indPres ∈ {1,2,3,4,9}
+//   E01-20  → 787  entrega sem identificação do destinatário
+//   E05-20  → 788  entrega sem endereço do destinatário
+//   X02-10  → 753  frete (modFrete<>9) fora da entrega a domicílio
+//   X03-10  → 754  transportador fora da entrega a domicílio
+//   X03-20  → 786  entrega sem transportador
+describe('NFC-e — destinatário e entrega a domicílio', () => {
+  it('venda de balcão: indPres 1, indIntermed 0, sem dest e sem transportador', () => {
+    const xml = montar([item()]);
+    expect(xml).toContain('<indPres>1</indPres>');
+    expect(xml).toContain('<indIntermed>0</indIntermed>');
+    expect(xml).not.toContain('<dest>');
+    expect(xml).toContain('<transp><modFrete>9</modFrete></transp>');
+  });
+
+  it('entrega: sai o grupo dest com documento, nome, endereço e indIEDest 9', () => {
+    const xml = montar([item()], 0, 5);
+    expect(xml).toContain('<indPres>4</indPres>');
+    expect(xml).toContain('<dest><CPF>11144477735</CPF>');
+    expect(xml).toContain('<xNome>Consumidor Teste</xNome>');
+    expect(xml).toContain('<xLgr>Rua B</xLgr><nro>50</nro><xBairro>Centro</xBairro>');
+    expect(xml).toContain('<cMun>3550308</cMun><xMun>Sao Paulo</xMun><UF>SP</UF><CEP>01001000</CEP>');
+    // NFC-e com IE do destinatário é rejeição: consumidor final é sempre não contribuinte.
+    expect(xml).toContain('<indIEDest>9</indIEDest>');
+    expect(xml).not.toContain('<dest><CPF>11144477735</CPF><IE>');
+  });
+
+  it('CNPJ no destinatário sai na tag CNPJ, escolhida pelo tamanho do documento', () => {
+    const xml = montar([item()], 0, 0, {
+      indPres: 4,
+      dest: { documento: '11.222.333/0001-81', nome: 'Empresa', endereco: destino!.endereco },
+      transportador,
+    });
+    expect(xml).toContain('<dest><CNPJ>11222333000181</CNPJ>');
+  });
+
+  it('o grupo dest fica entre emit e det, na ordem do leiaute', () => {
+    const xml = montar([item()], 0, 5);
+    expect(xml.indexOf('<emit>')).toBeLessThan(xml.indexOf('<dest>'));
+    expect(xml.indexOf('<dest>')).toBeLessThan(xml.indexOf('<det '));
+  });
+
+  it('entrega: o transportador sai dentro de transp, depois do modFrete', () => {
+    const xml = montar([item()], 0, 5);
+    expect(xml).toContain('<transp><modFrete>0</modFrete><transporta>');
+    expect(xml).toContain('<CNPJ>11222333000181</CNPJ><xNome>LOJA TESTE</xNome>');
+    expect(xml.indexOf('</transp>')).toBeLessThan(xml.indexOf('<pag>'));
+  });
+
+  it('787: entrega sem documento do destinatário não vira XML', () => {
+    expect(() => montar([item()], 0, 0, { indPres: 4, transportador })).toThrow(/787/);
+  });
+
+  it('788: entrega com documento mas sem endereço não vira XML', () => {
+    expect(() =>
+      montar([item()], 0, 0, { indPres: 4, dest: { documento: '11144477735' }, transportador }),
+    ).toThrow(/788/);
+  });
+
+  it('786: entrega sem transportador não vira XML', () => {
+    expect(() => montar([item()], 0, 0, { indPres: 4, dest: destino })).toThrow(/786/);
+  });
+
+  it('753: frete numa venda presencial não vira XML (era o defeito de toda nota de delivery)', () => {
+    expect(() =>
+      montarNfceXml({
+        config, serie: 1, numero: 1, chave: '3'.repeat(44), cNF: '12345678',
+        dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma: 'dinheiro',
+        qrCode: 'http://q', urlChave: 'u', frete: 7,
+      }),
+    ).toThrow(/753/);
+  });
+
+  it('754: transportador numa venda presencial não vira XML', () => {
+    expect(() => montar([item()], 0, 0, { transportador })).toThrow(/754/);
+  });
+
+  it('237: CPF com dígito verificador errado não vira XML', () => {
+    expect(() =>
+      montar([item()], 0, 0, { indPres: 4, dest: { ...destino!, documento: '11144477700' }, transportador }),
+    ).toThrow(/237/);
+  });
+});
+
+describe('NFC-e — intermediador (marketplace)', () => {
+  const intermediador = { cnpj: '11222333000181', idCadIntTran: 'LOJA-123' };
+
+  it('pedido de marketplace: indIntermed 1 e o grupo infIntermed entre pag e infAdic', () => {
+    const xml = montar([item()], 0, 0, { intermediador });
+    expect(xml).toContain('<indIntermed>1</indIntermed>');
+    expect(xml).toContain('<infIntermed><CNPJ>11222333000181</CNPJ><idCadIntTran>LOJA-123</idCadIntTran></infIntermed>');
+    expect(xml.indexOf('</pag>')).toBeLessThan(xml.indexOf('<infIntermed>'));
+    expect(xml.indexOf('<infIntermed>')).toBeLessThan(xml.indexOf('<infAdic>'));
+  });
+
+  it('intermediador pela metade é recusado — nunca vira indIntermed 0 em silêncio', () => {
+    expect(() => montar([item()], 0, 0, { intermediador: { cnpj: '', idCadIntTran: 'LOJA-123' } })).toThrow(/marketplace/i);
+    expect(() => montar([item()], 0, 0, { intermediador: { cnpj: '11222333000181', idCadIntTran: '' } })).toThrow(/marketplace/i);
+  });
+});
+
+describe('NFC-e — taxa de entrega na nota declarada como presencial', () => {
+  // Pedido sem CPF do cliente: a nota sai presencial (opção da loja), e a taxa NÃO pode ir como
+  // frete (753). Vai como "outras despesas acessórias" (vOutro), que compõe o vNF (W16-10) e
+  // dispensa NCM — item novo exigiria um, e NCM "00" fora de serviço é rejeição 471.
+  it('a taxa entra em vOutro, some do frete e o total fecha com o que o cliente pagou', () => {
+    const xml = montar([item({ precoUnitario: 30 })], 0, 0, { outras: 6 });
+    expect(xml).toContain('<indPres>1</indPres>');
+    expect(doTotal(xml, 'vFrete')).toBe(0);
+    expect(doTotal(xml, 'vOutro')).toBe(6);
+    expect(doTotal(xml, 'vNF')).toBe(36);
+    expect(Number(xml.match(/<vPag>([\d.]+)<\/vPag>/)![1])).toBe(36);
+    expect(xml).toContain('<transp><modFrete>9</modFrete></transp>');
+  });
+
+  it('W15-10: o vOutro do total é EXATAMENTE a soma dos itens', () => {
+    const xml = montar([item({ precoUnitario: 7.77 }), item({ precoUnitario: 3.33 })], 0, 0, { outras: 9.99 });
+    expect(soma(dosItens(xml, 'vOutro'))).toBe(doTotal(xml, 'vOutro'));
   });
 });

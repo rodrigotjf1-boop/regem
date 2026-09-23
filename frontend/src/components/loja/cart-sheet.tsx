@@ -450,6 +450,31 @@ export function CartSheet({
             </div>
           </div>
 
+          {/* CPF na nota — só aparece onde a loja realmente emite cupom fiscal. O CPF é
+              OPCIONAL: só quem quer a nota informa, e aí o campo passa a ser obrigatório. */}
+          {loja.emiteNota && (
+            <div className="mt-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={!!chk.cupomFiscal}
+                  onChange={(e) => set({ cupomFiscal: e.target.checked, cpf: e.target.checked ? chk.cpf : '' })}
+                />
+                <span>Quero cupom fiscal com CPF na nota</span>
+              </label>
+              {chk.cupomFiscal && (
+                <input
+                  value={chk.cpf ?? ''}
+                  onChange={(e) => set({ cpf: e.target.value })}
+                  inputMode="numeric"
+                  aria-label="CPF ou CNPJ para a nota"
+                  placeholder="CPF ou CNPJ (só números)"
+                  className="mt-2 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base"
+                />
+              )}
+            </div>
+          )}
+
           {/* quando / agendamento */}
           {!isIndustria && (
             <div className="mt-3">

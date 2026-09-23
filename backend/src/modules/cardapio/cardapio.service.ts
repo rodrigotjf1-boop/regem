@@ -8,6 +8,7 @@ import {
 import { and, desc, eq, gte, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { documentoUtilizavel } from '../fiscal/destinatario';
 import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { ratearCentavos } from '../../common/rateio';
@@ -53,6 +54,7 @@ import {
   mesa,
   comanda,
   cliente,
+  fiscalConfig,
   formaPagamento,
   integracao,
   entitlement,
@@ -1256,6 +1258,20 @@ export class CardapioService {
     const lista = ((prods as any).rows ?? prods) as any[];
     const ids = lista.map((p) => p.id);
 
+    // Esta loja emite cupom fiscal? É isso que decide se o checkout pode oferecer a nota com
+    // CPF — oferecer sem emitir seria prometer ao cliente um documento que nunca chega.
+    const emiteNota = this.db
+      .select({ ativo: fiscalConfig.ativo })
+      .from(fiscalConfig)
+      .where(
+        and(
+          eq(fiscalConfig.tenantId, cfg.tenantId),
+          cfg.unidadeId ? or(eq(fiscalConfig.unidadeId, cfg.unidadeId), isNull(fiscalConfig.unidadeId)) : isNull(fiscalConfig.unidadeId),
+        ),
+      )
+      .then((r) => r.some((x) => x.ativo === true))
+      .catch(() => false);
+
     // Loja do cardápio (a pausa por estoque é por loja — mig 260) e o que está pausado nela.
     const lojaCardapio = lojaDoCanal(this.db, cfg.tenantId, cfg.unidadeId);
     const pausadosAqui = lojaCardapio.then((loja) =>
@@ -1358,6 +1374,7 @@ export class CardapioService {
         logoEmoji: cfg.logoEmoji,
         subtitulo: cfg.subtitulo,
         aberto: cfg.aberto,
+        emiteNota: await emiteNota,
         tempoEntregaMin: cfg.tempoEntregaMin,
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
@@ -2627,6 +2644,10 @@ export class CardapioService {
       agendamento?: string; // serviços: data/hora
       profissional?: string; // serviços
       cnpj?: string; // indústria: faturamento
+      // CPF/CNPJ **para o cupom fiscal**. Opcional: quem não quer nota não informa nada. Quem
+      // quer, informa — e aí tem de estar certo, porque a SEFAZ confere o dígito verificador
+      // (rejeição 237) e o cliente perde a nota que pediu.
+      cpf?: string;
       // Recorrência leve da encomenda (mig 190): repete nos dias da semana.
       recorrencia?: { dias: number[]; hora?: string; ate?: string; antecedenciaDias?: number };
       _sistema?: boolean; // uso interno: ocorrência gerada pelo cron (pula validações)
@@ -2650,6 +2671,11 @@ export class CardapioService {
       if (ja) return this.respostaPedido(cfg, ja);
     }
     if (!dto.itens?.length) throw new BadRequestException('Pedido vazio.');
+    // CPF/CNPJ do cupom fiscal. Informar é opção do cliente; informar ERRADO não é — a SEFAZ
+    // confere os dígitos (rejeição 237) e ele ficaria sem a nota que pediu, depois de pago.
+    const documentoNota = String(dto.cpf ?? '').replace(/\D/g, '') || undefined;
+    if (documentoNota && !documentoUtilizavel(documentoNota))
+      throw new BadRequestException('CPF ou CNPJ inválido. Confira os números ou deixe em branco.');
     // Loja fechada (para o TIPO do pedido): bloqueia (pedidos agendados passam).
     if (!dto.agendamento && !this.estaAberta(cfg, dto.tipo))
       throw new BadRequestException('A loja está fechada no momento. Volte no horário de funcionamento.');
@@ -3035,6 +3061,7 @@ export class CardapioService {
         profissional: dto.profissional,
         cnpj: dto.cnpj,
         clienteTelefone2: tipo === 'entrega' ? dto.telefone2 : undefined,
+        documentoCliente: documentoNota,
         enderecoRua: tipo === 'entrega' ? dto.rua : undefined,
         enderecoNumero: tipo === 'entrega' ? dto.numero : undefined,
         enderecoReferencia: tipo === 'entrega' ? dto.referencia : undefined,
@@ -3073,6 +3100,13 @@ export class CardapioService {
         .update(pedidoExterno)
         .set({ clienteId })
         .where(eq(pedidoExterno.id, ped.id));
+      // Quem pediu cupom fiscal uma vez não digita o CPF de novo (mig 285). Só grava o que o
+      // próprio cliente informou, e só para ele — é dado dele, não da loja.
+      if (documentoNota)
+        await this.db
+          .update(cliente)
+          .set({ cpf: documentoNota })
+          .where(and(eq(cliente.id, clienteId), eq(cliente.tenantId, cfg.tenantId)));
     }
 
     // Sinal da encomenda (mig 188): grava % / valor / prazo de cancelamento. O

@@ -25,6 +25,8 @@ import { CartSheet } from '@/components/loja/cart-sheet';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
+const soNumeros = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+
 const CHK_INICIAL = {
   tipo: 'entrega',
   quando: 'agora',
@@ -41,6 +43,9 @@ const CHK_INICIAL = {
   cupom: '',
   profissional: '',
   cnpj: '',
+  // Cupom fiscal: o CPF é opcional no cardápio. Quem marca a caixa passa a ter de preencher.
+  cupomFiscal: false,
+  cpf: '',
 };
 
 export default function CardapioPublicoPage() {
@@ -644,6 +649,13 @@ export default function CardapioPublicoPage() {
     if (!mesa) {
       if (!chk.nome?.trim()) { setErro('Informe seu nome.'); setCheckout(true); return; }
       if ((chk.telefone ?? '').replace(/\D/g, '').length < 10) { setErro('Informe um telefone válido (com DDD).'); setCheckout(true); return; }
+      // Pediu a nota, então o documento tem de estar certo: o servidor confere os dígitos e
+      // recusaria o pedido inteiro — melhor avisar aqui, antes de tentar cobrar.
+      if (chk.cupomFiscal && ![11, 14].includes(soNumeros(chk.cpf).length)) {
+        setErro('Informe um CPF (11 dígitos) ou CNPJ (14) para o cupom fiscal, ou desmarque a opção.');
+        setCheckout(true);
+        return;
+      }
     }
     setEnviando(true);
     try {
@@ -682,6 +694,7 @@ export default function CardapioPublicoPage() {
             : undefined,
         profissional: chk.profissional || undefined,
         cnpj: chk.cnpj || undefined,
+        cpf: chk.cupomFiscal ? soNumeros(chk.cpf) : undefined,
         itens: cart.map((i) => ({
           produtoId: i.produtoId,
           variacaoId: i.variacaoId,

@@ -5,6 +5,7 @@
 // HOMOLOGAÇÃO com o certificado antes de produção.
 
 import { ratearReais } from '../../common/rateio';
+import { cnpjValido, cpfValido } from '../../common/validadores-br';
 
 const esc = (s: any) =>
   String(s ?? '')
@@ -32,6 +33,7 @@ export interface NfceItem {
   // calcula (ver `montarNfceXml`), porque a soma tem de fechar com o total.
   vDesc?: number;
   vFrete?: number;
+  vOutro?: number;
   ncm?: string;
   cfop?: string;
   cest?: string;
@@ -47,6 +49,43 @@ export interface NfceItem {
   aliqPis?: number;
   cstCofins?: string;
   aliqCofins?: number;
+}
+
+/**
+ * DESTINATÁRIO da NFC-e. Obrigatório em operação NÃO PRESENCIAL (Ajuste SINIEF 9/26, efeitos
+ * desde 03/08/2026: o gatilho deixou de ser "entrega em domicílio" e passou a ser "operações não
+ * presenciais") e acima do limite de valor da UF (W16-40: "R$ 10.000,00 OU OUTRO VALOR DEFINIDO
+ * PELA UF" — no RJ, R$ 2.000).
+ */
+export interface NfceDestinatario {
+  documento: string; // CPF ou CNPJ, só dígitos — o que define a tag é o tamanho
+  nome?: string | null;
+  endereco?: {
+    logradouro: string;
+    numero: string;
+    complemento?: string | null;
+    bairro: string;
+    codigoMunicipio: number | string; // IBGE
+    municipio: string;
+    uf: string;
+    cep?: string | null;
+  } | null;
+}
+
+/** Quem leva a mercadoria. A entrega a domicílio EXIGE este grupo (rejeição 786). */
+export interface NfceTransportador {
+  documento?: string | null; // CNPJ (ou CPF) de quem transporta
+  nome: string;
+  ie?: string | null;
+  endereco?: string | null;
+  municipio?: string | null;
+  uf?: string | null;
+}
+
+/** Marketplace/plataforma de terceiros (grupo infIntermed). iFood, 99Food… */
+export interface NfceIntermediador {
+  cnpj: string;
+  idCadIntTran: string; // identificação da LOJA no app do intermediador
 }
 
 export interface NfceInput {
@@ -70,6 +109,31 @@ export interface NfceInput {
   // sobre as regras W14/W16 em `montarNfceXml`.
   desconto?: number; // desconto bancado pela LOJA (o do marketplace não é desconto na nota)
   frete?: number; // taxa de entrega QUANDO é da loja (receita dela, compõe a operação)
+  /**
+   * Outras despesas acessórias (W15/I17a). É por aqui que a taxa de entrega entra quando a nota
+   * NÃO é de entrega a domicílio — o caso do pedido sem CPF, que sai declarado como presencial.
+   * Como frete ela seria rejeição 753; como item novo, precisaria de um NCM que ela não tem
+   * (NCM "00" fora de item de serviço é rejeição 471, e a NFC-e não tem item de serviço).
+   * "Despesa acessória cobrada do adquirente" é exatamente o que ela é, e compõe o vNF (W16-10).
+   */
+  outras?: number;
+  /**
+   * 1 = operação presencial (balcão) · 4 = entrega a domicílio.
+   * A NFC-e aceita 1, 4 e 5 ("presencial fora do estabelecimento") — qualquer outro é rejeição
+   * 717 (regra B25b-20). Nós usamos 1 e 4; o 5 é venda ambulante, que não é o nosso caso.
+   * O `4` puxa um bloco inteiro de obrigações: destinatário (E01-20 → 787), endereço
+   * (E05-20 → 788) e transportador (X03-20 → 786). E o transporte só existe com `4`: frete com
+   * `modFrete<>9` fora dele é rejeição **753** (X02-10), e transportador, **754** (X03-10).
+   */
+  indPres?: 1 | 4;
+  dest?: NfceDestinatario | null;
+  transportador?: NfceTransportador | null;
+  /**
+   * Pedido veio de plataforma de terceiro? O campo `indIntermed` é OBRIGATÓRIO sempre que
+   * `indPres` for 1, 2, 3, 4 ou 9 (regra B25c-10, produção desde 04/04/2022) — e como a NFC-e só
+   * aceita 1 e 4, ele é obrigatório SEMPRE. Sem intermediador vai `0`; com, vai `1` + o grupo.
+   */
+  intermediador?: NfceIntermediador | null;
 }
 
 // PIS/COFINS: CST tributável (01/02) com alíquota → grupo Aliq; senão não-tributado.
@@ -85,13 +149,74 @@ function grupoPisCofins(tag: string, cst?: string, aliq?: number, vBC?: number):
   return `<${tag}><${grp}><CST>${cst || '07'}</CST></${grp}></${tag}>`;
 }
 
+/**
+ * Grupo do destinatário. A tag do documento é escolhida pelo TAMANHO (14 = CNPJ, 11 = CPF) —
+ * o leiaute é uma escolha entre CNPJ, CPF e idEstrangeiro, nunca os três.
+ *
+ * `indIEDest` é obrigatório dentro do grupo e vai sempre `9` (não contribuinte): NFC-e COM
+ * inscrição estadual do destinatário é rejeição 729.
+ */
+function grupoDest(d?: NfceDestinatario | null): string {
+  if (!d?.documento) return '';
+  const doc = soDig(d.documento);
+  const tag = doc.length === 14 ? 'CNPJ' : 'CPF';
+  // A SEFAZ confere o dígito verificador (E02-10 → 238 para o CNPJ, E03-10 → 237 para o CPF).
+  // Um CPF digitado errado no caixa não pode chegar até lá: seria número de nota queimado.
+  // Quem chama trata o documento inválido ANTES, decidindo se pede de novo ou emite sem ele.
+  if (!(tag === 'CNPJ' ? cnpjValido(doc) : cpfValido(doc)))
+    throw new Error('Documento do destinatario invalido (rejeicao 237/238).');
+  const e = d.endereco;
+  const ender = e
+    ? `<enderDest>` +
+      `<xLgr>${esc(e.logradouro)}</xLgr><nro>${esc(e.numero)}</nro>` +
+      (String(e.complemento ?? '').trim() ? `<xCpl>${esc(e.complemento)}</xCpl>` : '') +
+      `<xBairro>${esc(e.bairro)}</xBairro>` +
+      `<cMun>${soDig(e.codigoMunicipio)}</cMun><xMun>${esc(e.municipio)}</xMun>` +
+      `<UF>${esc(e.uf)}</UF>` +
+      (soDig(e.cep).length === 8 ? `<CEP>${soDig(e.cep)}</CEP>` : '') +
+      `</enderDest>`
+    : '';
+  return (
+    `<dest><${tag}>${doc}</${tag}>` +
+    (String(d.nome ?? '').trim() ? `<xNome>${esc(d.nome)}</xNome>` : '') +
+    ender +
+    `<indIEDest>9</indIEDest>` +
+    `</dest>`
+  );
+}
+
+/**
+ * Transporte. Na entrega a domicílio o transportador é obrigatório — e o manual da SEFAZ-RJ é
+ * explícito: *"quando o transporte for feito pela própria empresa, os dados da empresa devem
+ * constar no campo dados do transportador, independentemente se quem realiza o transporte é um
+ * motoboy, ciclista etc."*
+ */
+function grupoTransp(vFrete: number, t?: NfceTransportador | null): string {
+  // modFrete 9 = sem ocorrência de transporte; 0 = por conta do remetente (a loja cobra e contrata).
+  const modFrete = vFrete > 0 ? '0' : '9';
+  if (!t?.nome) return `<transp><modFrete>${modFrete}</modFrete></transp>`;
+  const doc = soDig(t.documento);
+  const tag = doc.length === 14 ? 'CNPJ' : 'CPF';
+  return (
+    `<transp><modFrete>${modFrete}</modFrete><transporta>` +
+    (doc ? `<${tag}>${doc}</${tag}>` : '') +
+    `<xNome>${esc(t.nome)}</xNome>` +
+    (String(t.ie ?? '').trim() ? `<IE>${esc(t.ie)}</IE>` : '') +
+    (String(t.endereco ?? '').trim() ? `<xEnder>${esc(t.endereco)}</xEnder>` : '') +
+    (String(t.municipio ?? '').trim() ? `<xMun>${esc(t.municipio)}</xMun>` : '') +
+    (String(t.uf ?? '').trim() ? `<UF>${esc(t.uf)}</UF>` : '') +
+    `</transporta></transp>`
+  );
+}
+
 function detItem(it: NfceItem, i: number, crt: number): string {
   const vProd = Number(it.quantidade) * Number(it.precoUnitario);
   const vDesc = Number(it.vDesc) || 0;
   const vFrete = Number(it.vFrete) || 0;
+  const vOutro = Number(it.vOutro) || 0;
   // Base de PIS/COFINS é o valor LÍQUIDO da linha: desconto reduz, frete compõe.
   // Usar o vProd cheio inflaria o imposto de quem tributa (CST 01/02).
-  const vBC = Math.max(0, vProd - vDesc + vFrete);
+  const vBC = Math.max(0, vProd - vDesc + vFrete + vOutro);
   const origem = it.origem ?? '0';
   const gtin = soDig(it.gtin) || 'SEM GTIN';
   // ICMS: Simples (CRT=1) → CSOSN; Normal → CST básico.
@@ -120,6 +245,7 @@ function detItem(it: NfceItem, i: number, crt: number): string {
     // Só saem quando > 0 (campos opcionais; emitir "0.00" é ruído no XML).
     (vFrete > 0 ? `<vFrete>${n2(vFrete)}</vFrete>` : '') +
     (vDesc > 0 ? `<vDesc>${n2(vDesc)}</vDesc>` : '') +
+    (vOutro > 0 ? `<vOutro>${n2(vOutro)}</vOutro>` : '') +
     `<indTot>1</indTot>` +
     `</prod>` +
     `<imposto>` +
@@ -147,13 +273,44 @@ export function montarNfceXml(inp: NfceInput): string {
 
   // ===== Desconto e frete do PEDIDO → rateados nos itens =====
   // A SEFAZ valida que `total/ICMSTot/vDesc` é o SOMATÓRIO dos `det/prod/vDesc`
-  // (regra W16-10) e o mesmo para vFrete (W14-10). Declarar só no total rejeita a
+  // (regra W16-10) e o mesmo para vFrete (W14-10) e para vOutro (W15-10). Declarar só no total rejeita a
   // nota. Por isso o rateio é em CENTAVOS: em float a soma não fecha.
   // O desconto é limitado ao valor dos produtos — vNF negativo também é rejeitado.
   const vDescTotal = Math.min(Math.max(0, Number(inp.desconto) || 0), vProd);
   const vFreteTotal = Math.max(0, Number(inp.frete) || 0);
+  const vOutroTotal = Math.max(0, Number(inp.outras) || 0);
+
+  // ===== Coerência do bloco "entrega a domicílio" =====
+  // Cada uma destas quatro é uma rejeição da SEFAZ, e todas nascem do mesmo lugar: `indPres=4`
+  // não é um rótulo, é um contrato. Quem declara entrega tem de dizer PARA QUEM, ONDE e POR
+  // QUEM ela vai. Verificamos aqui, antes de gastar número de nota, em vez de descobrir no
+  // retorno — número queimado só se recupera por inutilização.
+  const indPres = inp.indPres === 4 ? 4 : 1;
+  if (indPres === 4) {
+    if (!inp.dest?.documento) throw new Error('Entrega a domicilio exige o documento do destinatario (rejeicao 787).');
+    if (!inp.dest?.endereco) throw new Error('Entrega a domicilio exige o endereco do destinatario (rejeicao 788).');
+    if (!inp.transportador?.nome) throw new Error('Entrega a domicilio exige os dados do transportador (rejeicao 786).');
+  } else if (inp.transportador?.nome) {
+    // X03-10: transportador em NFC-e que não é entrega a domicílio é rejeição 754. O simétrico
+    // da 786 — e tão fácil de cair nele quanto, porque o pedido tem entregador mesmo quando a
+    // nota sai como presencial (pedido sem CPF).
+    throw new Error('Transportador so pode ser declarado em operacao de entrega (indPres=4) — rejeicao 754.');
+  } else if (vFreteTotal > 0) {
+    // X02-10 → 753: "NFC-e com Frete" quando `modFrete<>9` e `indPres<>4`. Se a taxa de entrega
+    // precisa entrar numa nota presencial (pedido sem CPF do cliente), ela vai como ITEM da
+    // venda, nunca como frete — o total tem de bater com o que o cliente pagou.
+    throw new Error('Frete so pode ser declarado em operacao de entrega (indPres=4) — rejeicao 753.');
+  }
+
+  // Intermediador: ou o grupo sai INTEIRO e o `indIntermed` vai 1, ou o pedido não é de
+  // marketplace e vai 0. Dado pela metade não vira 0 em silêncio — seria declarar à SEFAZ que
+  // a venda foi direta quando não foi.
+  const xmlIntermed = grupoIntermed(inp.intermediador);
+  if (inp.intermediador && !xmlIntermed)
+    throw new Error('Pedido de marketplace sem CNPJ do intermediador ou sem a identificacao da loja no app.');
   const descPorItem = ratearReais(vProdItens, vDescTotal);
   const fretePorItem = ratearReais(vProdItens, vFreteTotal);
+  const outroPorItem = ratearReais(vProdItens, vOutroTotal);
 
   const dets = inp.itens
     .map((it, i) =>
@@ -163,6 +320,7 @@ export function montarNfceXml(inp: NfceInput): string {
           descricao: homologacao && i === 0 ? DESCRICAO_HOMOLOGACAO : it.descricao,
           vDesc: descPorItem[i],
           vFrete: fretePorItem[i],
+          vOutro: outroPorItem[i],
         },
         i,
         crt,
@@ -170,7 +328,7 @@ export function montarNfceXml(inp: NfceInput): string {
     )
     .join('');
   // vNF = produtos − desconto + frete (os demais componentes são 0 neste layout).
-  const vNF = vProd - vDescTotal + vFreteTotal;
+  const vNF = vProd - vDescTotal + vFreteTotal + vOutroTotal;
   const tPag = TPAG[String(inp.forma || 'dinheiro')] || '99';
 
   const ide =
@@ -193,7 +351,13 @@ export function montarNfceXml(inp: NfceInput): string {
     `<tpAmb>${c.ambiente ?? '2'}</tpAmb>` +
     `<finNFe>1</finNFe>` +
     `<indFinal>1</indFinal>` +
-    `<indPres>1</indPres>` +
+    `<indPres>${indPres}</indPres>` +
+    // B25c-10: `indIntermed` é OBRIGATÓRIO quando `indPres` é 1, 2, 3, 4 ou 9 (com tpNF=1 e
+    // finNFe=1, que é sempre o nosso caso) — e nós só emitimos 1 e 4, então SEMPRE sai. Faltando,
+    // é rejeição 434, em produção desde 04/04/2022. O espelho é a B25c-20: com `indPres` fora
+    // dessa lista o campo é PROIBIDO (rejeição 435) — o que só passaria a importar se um dia
+    // emitíssemos `indPres=5`.
+    `<indIntermed>${xmlIntermed ? '1' : '0'}</indIntermed>` +
     `<procEmi>0</procEmi>` +
     `<verProc>Regem-1.0</verProc>` +
     `</ide>`;
@@ -236,7 +400,7 @@ export function montarNfceXml(inp: NfceInput): string {
     `<vProd>${n2(vProd)}</vProd>` +
     `<vFrete>${n2(vFreteTotal)}</vFrete><vSeg>0.00</vSeg><vDesc>${n2(vDescTotal)}</vDesc>` +
     `<vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol>` +
-    `<vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro>` +
+    `<vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>${n2(vOutroTotal)}</vOutro>` +
     `<vNF>${n2(vNF)}</vNF>` +
     `</ICMSTot></total>`;
 
@@ -249,12 +413,13 @@ export function montarNfceXml(inp: NfceInput): string {
     `<infNFe versao="4.00" Id="NFe${inp.chave}">` +
     ide +
     emit +
+    // Ordem do leiaute: ide, emit, dest, det…, total, transp, pag, infIntermed, infAdic, infRespTec.
+    grupoDest(inp.dest) +
     dets +
     total +
-    // modFrete 9 = sem ocorrência de transporte; 0 = frete por conta do remetente
-    // (a loja cobra a entrega e a contrata) — declarar 9 com vFrete > 0 é rejeição.
-    `<transp><modFrete>${vFreteTotal > 0 ? '0' : '9'}</modFrete></transp>` +
+    grupoTransp(vFreteTotal, inp.transportador) +
     pag +
+    xmlIntermed +
     `<infAdic><infCpl>Documento emitido por Regem</infCpl></infAdic>` +
     grupoRespTec(inp.respTec) +
     `</infNFe>`;
@@ -267,6 +432,19 @@ export function montarNfceXml(inp: NfceInput): string {
     `<urlChave>${esc(inp.urlChave)}</urlChave></infNFeSupl>`;
 
   return `<?xml version="1.0" encoding="UTF-8"?><NFe xmlns="http://www.portalfiscal.inf.br/nfe">${infNFe}${infNFeSupl}</NFe>`;
+}
+
+/**
+ * Marketplace: CNPJ do intermediador + a identificação da LOJA no app dele (`idCadIntTran`),
+ * que é o que permite à fiscalização casar a nota com o repasse da plataforma. Ambos são
+ * obrigatórios dentro do grupo — por isso, sem os dois, o grupo não sai e o `indIntermed`
+ * do `ide` já terá saído como 0. Quem decide se o pedido é de marketplace é o serviço.
+ */
+function grupoIntermed(m?: NfceIntermediador | null): string {
+  const cnpj = soDig(m?.cnpj);
+  const id = String(m?.idCadIntTran ?? '').trim();
+  if (cnpj.length !== 14 || !id) return '';
+  return `<infIntermed><CNPJ>${cnpj}</CNPJ><idCadIntTran>${esc(id)}</idCadIntTran></infIntermed>`;
 }
 
 // <infRespTec>: vem DEPOIS de <infAdic> no leiaute. Só sai com os quatro campos preenchidos —

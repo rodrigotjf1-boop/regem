@@ -2070,6 +2070,13 @@ export const fiscalConfig = pgTable('fiscal_config', {
   // URL de "consulta pela chave de acesso" (<urlChave>) — OUTRA, diferente da do QR (mig 280).
   urlChaveProd: text('url_chave_prod'),
   urlChaveHomolog: text('url_chave_homolog'),
+  // Piso a partir do qual o consumidor tem de ser identificado (mig 285). NULO = usar o padrão
+  // da UF — a regra nacional W16-40 diz "R$ 10.000,00 ou outro valor definido pela UF", então
+  // isto é configuração, nunca literal no código (no RJ são R$ 2.000).
+  limiteIdentificacao: numeric('limite_identificacao'),
+  // Pedido não presencial SEM documento do cliente: 'presencial' (emite declarando operação
+  // presencial, com a taxa de entrega em outras despesas) | 'nao_emitir'.
+  deliverySemCpf: text('delivery_sem_cpf').notNull().default('presencial'),
   cscId: text('csc_id'),
   cscToken: text('csc_token'),
   certRef: text('cert_ref'),
@@ -2203,6 +2210,11 @@ export const notaFiscal = pgTable('nota_fiscal', {
   canceladaEm: timestamp('cancelada_em', { withTimezone: true }),
   canceladaPorId: uuid('cancelada_por_id'),
   justificativaCancelamento: text('justificativa_cancelamento'),
+  // Como a operação foi declarada (mig 285): 1 = presencial, 4 = entrega a domicílio. Sem isto
+  // ninguém consegue depois separar as notas que saíram pelo caminho conforme das que saíram
+  // declaradas como presenciais por falta do CPF do cliente.
+  indPres: text('ind_pres'),
+  semDocumentoCliente: boolean('sem_documento_cliente').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2271,6 +2283,14 @@ export const pedidoExterno = pgTable('pedido_externo', {
   enderecoNumero: text('endereco_numero'),
   enderecoReferencia: text('endereco_referencia'),
   enderecoBairro: text('endereco_bairro'),
+  // Endereço fiscal da entrega (mig 285): o grupo `enderDest` da NFC-e exige município e UF, que
+  // o endereço de delivery não guardava. Nulo = usa o município do emitente.
+  enderecoCidade: text('endereco_cidade'),
+  enderecoMunicipioIbge: integer('endereco_municipio_ibge'),
+  enderecoUf: text('endereco_uf'),
+  enderecoCep: text('endereco_cep'),
+  // CPF/CNPJ que o cliente informou PARA A NOTA (mig 285). Só dígitos.
+  documentoCliente: text('documento_cliente'),
   itens: jsonb('itens').notNull().default('[]'),
   total: numeric('total').notNull().default('0'),
   formaPagamento: text('forma_pagamento'),
@@ -2395,6 +2415,9 @@ export const cliente = pgTable('cliente', {
   // nullable (mig 204): cliente de canal-proxy (iFood) não tem nº real → identidade
   // por (origem, origemId), não por telefone.
   telefone: text('telefone'),
+  // CPF informado pelo próprio cliente quando pede a nota (mig 285). Serve para não perguntar
+  // de novo a cada pedido — quem decide se quer cupom fiscal é sempre ele.
+  cpf: text('cpf'),
   origem: text('origem'), // null = base própria (telefone); ex.: 'ifood'
   origemId: text('origem_id'), // id do cliente no canal de origem
   consentimentoLgpd: boolean('consentimento_lgpd').notNull().default(false),

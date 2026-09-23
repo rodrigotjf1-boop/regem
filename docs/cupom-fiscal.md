@@ -10,6 +10,12 @@
 > mova-o para a seção certa e registre no §8 (changelog).
 >
 > Pesquisa base: 20/09/2026 (CONFAZ, Portal Nacional da NF-e, CGIBS, Receita Federal, SEFAZ estaduais).
+>
+> **⚠️ Base ampliada em 23/09/2026 — skill global `cupom-fiscal`** (`~/.claude/skills/cupom-fiscal/`):
+> as **27 UFs** levantadas em fonte oficial, capítulo técnico nacional, reforma tributária, tributação
+> e obrigações, e o registro de **conflitos entre fontes**. Este doc passa a ser o recorte do *nosso*
+> emissor; **o que vale para qualquer projeto está lá**, e a skill é a fonte mais nova.
+> Leitura obrigatória antes de mexer em tributo: `referencias/06-conflitos-e-achados-transversais.md`.
 
 ---
 
@@ -29,21 +35,28 @@
 | Conexão com a SEFAZ: SOAP 1.2, certificado de cliente, raiz ICP-Brasil, consulta de status | Existe — `sefaz/` (etapa C1) |
 | **Transmissão real à SEFAZ** (`NFeAutorizacao4`, lote síncrono) | Existe — `sefaz/autorizacao.ts` (etapa C2) |
 | NFC-e de teste em homologação (1 item de R$ 1,00, sem venda) | Existe — rota só-nuvem + botão na tela (etapa C2) |
-| Validação do XML contra o **XSD oficial** (PL_009_V4) dentro da suíte | Existe — `nfce-xsd.spec.ts` |
+| Validação do XML contra o **XSD oficial** dentro da suíte | Existe — `nfce-xsd.spec.ts`. ⚠️ **Usamos o `PL_009_V4`; o vigente é o `PL_010f_v1.04` (31/08/2026)** — e ele traz só o leiaute: web services e eventos vêm em pacotes separados (não existe pacote "tudo em um") |
 | **NFC-e AUTORIZADA pela SEFAZ** (homologação, SVRS/RJ) | ✅ 22/09/2026 — nº 2, série 51, protocolo `333260002547395`, cStat 100 |
 | Consulta da situação pela chave (`NFeConsultaProtocolo4`) + resolução da nota `pendente` | Existe — `sefaz/consulta-protocolo.ts`, rota, botão e job (P18) |
 | **Inutilização** de numeração (`NFeInutilizacao4`) + relatório de lacunas | Existe — `sefaz/inutilizacao.ts`, migs 282/283 (P19) |
 | Reaproveitamento de número | **NÃO EXISTE — e não vai existir**: o MOC veda (ver §5.1) |
 | Cancelamento por substituição (evento 110112, 168 h) | Existe — `sefaz/evento-cancelamento.ts`, mig 284 (P20) |
-| Contingência off-line `tpEmis=9` | NÃO EXISTE (P21 — e depende de o RJ permitir) |
-| Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
-| Inutilização de faixa | NÃO EXISTE |
+| Contingência off-line `tpEmis=9` (fila + efetivação) | NÃO EXISTE — **mas o bloqueio caiu: o RJ PERMITE** (P21 resolvida, §7) |
 | Grupos IBS/CBS/IS (reforma) | NÃO EXISTE |
 
 **O emissor já fala com a SEFAZ de verdade**: monta, assina, transmite e só grava "autorizada" com
-protocolo na mão. Em produção ainda faltam duas coisas do §7: resolver a nota que fica `pendente`
-(P18, feito) e o número queimado (P19, feito). O que ainda falta para produção é o cancelamento por
-substituição (P20) e a contingência off-line (P21). O modo simulado continua recusado em produção (§5).
+protocolo na mão. P18 (nota pendente), P19 (número queimado) e P20 (cancelamento por substituição)
+estão **feitos**. O modo simulado continua recusado em produção (§5).
+
+**Falta para produção, em ordem de risco:**
+
+| # | O que | Por quê |
+|---|---|---|
+| 1 | **Contingência off-line (`tpEmis=9`)** | sem ela o caixa trava quando a SEFAZ demora, e passados 5 min do `dhEmi` a nota nova também é rejeitada. **O RJ permite** — o bloqueio era só de confirmação |
+| 2 | **Tratamento da denegação está errado** | não existe mais denegação por emitente irregular na NFC-e: virou **rejeição 781**, que **não consome número**. Hoje avançamos o contador à toa — ver §6 |
+| 3 | **Limite de identificação do consumidor** | usamos o default nacional; **no RJ é R$ 2.000** e nenhuma UF usa R$ 10.000 — ver §2 |
+| 4 | **Entrega do certificado ao servidor LOCAL** | recifrado com a chave dele |
+| 5 | **Grupos IBS/CBS** | ver §4 |
 
 ---
 
@@ -56,25 +69,52 @@ https://www.confaz.fazenda.gov.br/legislacao/ajustes/2016/AJ_019_16
 - **Série:** algarismos arábicos, ordem crescente; **série única = 0**; **subsérie vedada** (cl. 4ª, §1º).
   **Não existe faixa de série reservada para contingência** — o inciso que exigia 501-999 foi
   revogado pelo Ajuste 26/19, e a redação anterior (890-989) está "sem efeitos".
+  🔴 **MAS ISSO É SÓ O NACIONAL: o RN reserva 890-989 para contingência desde 01/03/2020.** Uma UF
+  pode manter exigência própria depois de o texto nacional cair ⇒ **nunca usar séries de 890 a 989**,
+  em UF nenhuma.
 - **Quantidade de séries:** sem teto nacional; "o Fisco **poderá** restringir" (cl. 4ª, §2º).
 - **Comunicar série à SEFAZ:** não é preciso. Nenhuma SEFAZ homologa software, impressora ou série —
   **salvo SC** (PAF-NFC-e credenciado).
 - **Cancelamento:** ≤ **30 minutos**, sem saída da mercadoria; **168 h** quando substitui nota emitida
   em contingência (cl. 15ª e 15ª-A). Cancelamento é **evento**, nunca *delete*.
+  A redação de **24 h** que ainda circula está **revogada desde 01/10/2018** (Ajuste 7/18).
 - **Inutilização:** números não usados, até o **10º dia do mês subsequente** (cl. 16ª).
   **A partir do 11º dia, quebra de sequência sem inutilização é presumida como "documento emitido em
   contingência e não transmitido"** (cl. 11ª, §5º). Número pulado e esquecido vira presunção de omissão.
 - **Contingência off-line:** transmitir até o **1º dia útil subsequente** (MOC 7.0 Anexo IV);
   **proibido** reaproveitar número já transmitido como "Normal" e **proibido** inutilizar número
   emitido em contingência (cl. 11ª, §2º). O DANFE off-line fica à disposição do Fisco até autorizar.
+- 🔴 **A DENEGAÇÃO ACABOU PARA A NFC-e.** Emitente em situação irregular não gera mais documento
+  denegado: virou **rejeição 781** (Ajuste SINIEF 10/2023 + NT 2023.002; produção até **04/09/2023**).
+  **Denegação consome o número; rejeição não.** A eliminação é **parcial**: o `301` (emitente) pode
+  sair do código; `302`/`303` (destinatário/transportador) não foram nominalmente eliminados e o
+  `110` fica como defesa. Ver §6 — **o nosso emissor ainda trata 110/301/302 como denegada.**
 - **Não existe CC-e para NFC-e.**
 - **Devolução ≠ cancelamento:** devolução pelo consumidor se resolve com **NF-e modelo 55 de entrada**.
 - **Guarda:** XML por **5 anos**, sob responsabilidade do emitente. O DANFE não precisa ser guardado.
 - **Escrituração (EFD):** modelo "65", **uma NFC-e por vez em C100 + C190**, pela **data de emissão**
-  (mesmo que a autorização venha depois). Canceladas e inutilizadas entram sem valores.
-- **Limites:** vedada NFC-e ≥ **R$ 200.000**; CPF/CNPJ obrigatório ≥ **R$ 10.000** e — **desde
-  03/08/2026 (Ajuste 9/26)** — em **toda operação não presencial, com o endereço**.
-  ⚠️ Isso alcança **nosso delivery e nosso pedido online**.
+  (mesmo que a autorização venha depois), **só nas saídas**.
+  🔴 **CORREÇÃO (23/09/2026) — "canceladas e inutilizadas entram sem valores" estava ERRADO:**
+  **cancelada** entra (C100 com `COD_SIT` 02/03, 8 campos + chave, o resto `||`, sem filhos);
+  **inutilizada e denegada NÃO entram** — o código 05 foi **descontinuado desde janeiro/2023**.
+  **`C170` não entra** (item de cupom não vai para a EFD) e **não existe escrituração consolidada
+  para o modelo 65** (consolidação por equipamento é do SAT e do ECF).
+  Fonte: **Guia Prático da EFD ICMS/IPI 3.2.4** (Ato COTEPE/ICMS 86, de 09/09/2026), leiaute **020**
+  — a 021 só vale a partir de 01/01/2027. ⚠️ `sped.rfb.gov.br` está parado na 3.2.2; a fonte viva é
+  `gov.br/sped`.
+- **Limites — 🔴 NÃO SÃO CONSTANTES, são configuração por UF, e isso agora é norma nacional:**
+  a regra de validação **W16-40** passou a dizer *"superior a R$ 10.000,00 **ou outro valor definido
+  pela UF**"*, **em produção desde 15/06/2026**, com tabela por UF anunciada. Vale para os dois
+  limites (teto de R$ 200.000 e piso de identificação). **Limite literal no código está em desacordo
+  com a norma vigente, não apenas desatualizado.**
+  **E nenhuma UF levantada usa o default de R$ 10.000:**
+  CE **R$ 200** · BA, AL, PB **R$ 500** · MT **R$ 1.000** · **RJ R$ 2.000** · TO **R$ 3.000** (com
+  nome e endereço) · PE **R$ 5.000**. O default do sistema tem de ser o **mais restritivo conhecido**.
+  Desde **03/08/2026 (Ajuste 9/26**, o último a alterar o 19/16), CPF/CNPJ **e endereço** em **toda
+  operação não presencial** — e isso alcança **delivery, app, marketplace e até pedido online com
+  retirada na loja**. ⚠️ Nosso delivery e nosso pedido online estão dentro.
+  ⚠️ A RV **W16-60** (endereço, rejeição **752**) aparece como `Obrig.` na NT enquanto a observação
+  herdada ainda diz "opcional a critério da UF" — tratar como **exigível** é a posição segura.
 - **Intermediador:** a nota deve conter o **CNPJ do intermediador/agenciador** (cl. 4ª, XII) —
   iFood, 99Food, marketplaces.
 - **NFC-e com destinatário CNPJ voltou a ser permitida:** o Ajuste 11/25 foi **revogado** pelo
@@ -86,20 +126,26 @@ https://www.confaz.fazenda.gov.br/legislacao/ajustes/2016/AJ_019_16
 
 | Parâmetro | Variação |
 |---|---|
-| **Autorizador** | 7 próprios (AM, GO, MS, MT, PR, RS, SP) + **SVRS** para as outras 20 — endpoints e janelas de indisponibilidade diferentes |
+| **Autorizador** | 7 próprios (AM, GO, MS, MT, PR, RS, SP) + **SVRS** para as demais. 🔴 **MG está em CONFLITO entre fontes** (própria × SVRS) — só o `NFeStatusServico4` com `cUF=31` esperando `107` decide; até lá, recusar. ⚠️ **RS tem dois domínios não intercambiáveis**: `nfce.sefazrs.rs.gov.br` (emitente gaúcho) × `nfce.svrs.rs.gov.br` (as outras UFs). **AM** não usa `.asmx` |
 | **URL do QR Code / consulta** | por UF e por ambiente. O IT 2025.003 mudou só a de **GO** |
-| **CSC** | quantidade (2 por ambiente em PR/DF/PE/RJ), escopo (CNPJ raiz × por estabelecimento × "todos no estado" em MG), **ID Token fixo `000001` no ES**, e **vigência com início/fim** — o padrão do QR prevê os erros "CSC expirado em DD/MM/AAAA" e "CSC ainda não está ativo" |
-| **Contingência** | **PR exige transmitir em 24 h** (não "1º dia útil"); **CE** aceita MF-e além do off-line; **SP** só liberou a off-line em jul/2024 (Portaria SRE 40/2024). A UF pode **bloquear** a off-line por regra de validação e **restringir individualmente** quem usa "em demasia e sem justificativa" |
-| **Cancelamento extemporâneo** | **AM: 90 dias** (duplicidade); **RJ:** sistema de reabertura de prazo; **MG e SP: não existe** (denúncia espontânea / SIPET, Portaria CAT 83/2020); **BA:** NF de regularização em 60 dias; **ES:** NF-e 55 de ajuste |
-| **Limites** | total (default R$ 200.000) e sem destinatário (default R$ 10.000) são **parametrizáveis por UF**; exigir nome/endereço acima de R$ 10.000 é RV **opcional a critério da UF**; `indPres=4` (entrega a domicílio) pode ser **bloqueado pela UF** |
-| **Credenciamento** | automático (RJ; PR em homologação) × por pedido (SP, MS, MG, PE); por **CNPJ** (RJ, BA) × por **estabelecimento** (SP, PR); com etapa formal de homologação (MS, PE) ou sem |
-| **Software credenciado** | **só SC** (PAF-NFC-e) |
+| **CSC** | quantidade (**2 por ambiente** em PR/DF/PE/RJ/SC/MS; **BA** 1 homologação + 2 produção), escopo (CNPJ raiz × por estabelecimento × **"todos no estado"** em MG; **CNPJ base de 8 dígitos** no PR), **ID Token fixo `000001` no ES**, e **vigência com início/fim** (a tela de **SE** exibe "Data Início/Data Fim" — indício de **CSC que expira**). 🔴 **Onde só cabem 2 e os dois estão ocupados, gerar um novo exige INUTILIZAR um existente — e inutilizar o CSC que outro emissor usa derruba a emissão dele na hora** |
+| **Contingência** | **NFC-e NÃO tem SVC** (rejeição **783**) — SVC-AN/SVC-RS é do modelo 55. A modalidade é a **off-line `tpEmis=9`**, e o uso é **decisão de cada UF** (rejeição **712** onde não vale). Prazo: **1º dia útil subsequente** no **RJ** e na maioria; **PR** e **PB** em **24 h**. **SP** só liberou em jul/2024 (Portaria SRE 40/2024). 🔴 **TO impõe teto de 10% das NFC-e do mês em contingência** — passar disso autoriza revogar o credenciamento, e o descredenciado **volta a ser obrigado a ECF**; exige ainda **DANFE em 2 vias** |
+| **Cancelamento extemporâneo** | quatro desenhos: **existe com sistema próprio** (RJ, reabertura de prazo) · **mediante requerimento** (SE, motivado; AL, a critério do fisco; MT, **com taxa**, até o 5º dia útil do mês seguinte) · **prazo estendido** (**AM: 90 dias**) · **não existe** (MG, SP, DF, PE "não adota") — sobra denúncia espontânea/SIPET, **BA** com NF de regularização em **60 dias** e **ES** com NF-e 55 de estorno |
+| **Limites** | ver §2 — **parametrizáveis por UF por norma nacional** (RV W16-40, em produção desde 15/06/2026). **Nenhuma UF usa o default de R$ 10.000**: CE R$ 200 · BA/AL/PB R$ 500 · MT R$ 1.000 · **RJ R$ 2.000** · TO R$ 3.000 · PE R$ 5.000. `indPres=4` pode ser **bloqueado pela UF** |
+| **Credenciamento** | automático (RJ, AM, PA, **AL** — virou de ofício por norma recente, embora o site ainda descreva o rito antigo) × por pedido (SP, MS, MG, PE, AP, RO, RR, TO); por **CNPJ** (RJ, BA) × por **estabelecimento** (SP, PR); com **homologação formal** em **PE** (produção só depois de **10 notas de teste** autorizadas) e MS. 🔴 **RR e TO são IRRETRATÁVEIS** — em RR a adesão se consuma **na 1ª nota autorizada em produção**: um teste por engano credencia a loja para sempre |
+| **Software credenciado** | 🔴 **SC e PA** — não é só SC. **SC (PAF-NFC-e):** sem ser **desenvolvedora credenciada** na SEF-SC, **nenhuma loja catarinense emite**; desde 31/01/2025 é a **própria desenvolvedora** que credencia o lojista, e **desvincular corta a emissão na hora**; exige laudo por órgão técnico; sanção até **cassação** (derruba toda a base do estado); impõe **requisitos funcionais de PDV** (mesa aberta, transferência entre mesas, vedação de excluir itens, acumulação por meio de pagamento e **por intermediador**) — e a v03.00.00 trocou o relatório impresso de conferência de mesa pelo **Arquivo V** (XML). **PA:** o software precisa ser credenciado na SEFA; ERP não cadastrado = **multa de 2% do faturamento** do período |
 | **Série "0"** | Nacional e BA: permitida **só** para série única. **ES e AL publicam que o zero é vedado.** → **nunca usar a série 0** |
-| **GO — exigência própria** | **IN 1.608/2025:** todo pagamento eletrônico (inclusive **PIX**) exige o **grupo YA** com CNPJ/CPF do beneficiário, **código de autorização**, data/hora, valor e **identificador do terminal**. Cronograma por faixa de faturamento até **01/02/2027**. **Delivery e venda por plataforma estão expressamente fora.** |
+| 🔴 **Vincular o PAGAMENTO ao documento** | **virou tendência, já são 5 UFs. GO** (IN 1.608/2025): grupo **YA** com CNPJ/CPF do beneficiário, **código de autorização**, data/hora, valor e **identificador do terminal**, inclusive **PIX**, "sem intervenção manual" — cronograma **prorrogado 3×**, redação vigente de 25/08/2026: 01/11/2025 (>R$ 4,8 mi, varejo) · 01/06/2026 (>R$ 4,8 mi, demais) · 01/11/2026 (R$ 360 mil–4,8 mi) · **01/02/2027** (até R$ 360 mil); **MEI fora**, **delivery e plataforma expressamente fora**. **PE:** art. 149-A vincula o TEF à NFC-e. **CE:** art. 77 §3º, interligação tecnológica. **PB:** `tpIntegra`=1 e **NFC-e impressa ANTES do comprovante do TEF**. **RS:** vinculação do comprovante + **NFC-e obrigatória / NF-e 55 vedada** desde 01/06/2026. ⚠️ **Consequência para nós:** o PDV tem de **receber de volta os dados da autorização do TEF/PIX antes de imprimir** — é arquitetura de integração, não campo de XML |
+| 🔴 **Documento impresso além do DANFE** | **CE** (art. 82) exige o não fiscal **"Detalhamento de Vendas"** antes do DANFE; **RN** exige DANFE **completo** com a seção **"Detalhe de Venda"**. Emissor que só imprime o DANFE padrão **reprova** nessas UFs |
+| 🔴 **FCP** | **não é um percentual, são 4 decisões por UF**: alcance por produto (em **MT** cerveja/chope TÊM e destilado/vinho NÃO) · momento (**AM não cobra no varejo** — tratar como FCP normal **cobra em duplicidade**; **TO** recolhe em guia separada) · **se já está embutido na alíquota publicada** (**PE** e **SE** sim, **CE** soma por fora ⇒ "alíquota + 2" cobra 2 p.p. a mais em PE e SE) · forma de declarar (**5 jeitos**; o **RS não usa os campos `vFCP`/`pFCP`**, e o **RJ** exige declarar **até quando não incide**). **Sem fundo: AC, AP, PA, RR, SC** |
 
-**Nenhuma UF usa outro documento hoje.** SP encerrou o SAT-CF-e em 31/12/2025 (Portaria SRE 79/2024)
-e CE vedou o CF-e/MF-e em 01/01/2026 (Decreto 36.417/2025). SAT e ECF sobrevivem apenas como
-alternativa de contingência (cl. 11ª, II).
+**Nenhuma UF usa outro documento hoje** — confirmado em 23/09/2026, **sem prorrogação em nenhum dos
+dois casos**. SP: a **Portaria SRE 79/2024** acrescentou o art. 34-D à Portaria CAT 147/2012 ("vedada
+a emissão do CF-e-SAT a partir de 1º/01/2026"); ⚠️ o que foi revogado (pela SRE-92/24) é o art.
+**34-C** (proibição de ativar novos SAT), não a vedação — e **o SAT NÃO virou contingência**: a de SP
+é off-line + EPEC em host próprio. CE: o **Decreto 36.417/2025** acrescentou o art. 76-A ao Decreto
+35.061/2022, e ali o **MF-e continua previsto como contingência da NFC-e** (art. 83, I), embora
+esvaziado. **ECF não tem prazo nacional** — a vedação é estadual.
 
 ---
 
@@ -110,7 +156,9 @@ Decreto 12.955/2026 (RCBS); Resolução CGIBS nº 6/2026 (RIBS).
 
 | Data | O que acontece | Alcança quem |
 |---|---|---|
-| **03/08/2026** ✅ vencido | Grupo `IBSCBS` obrigatório em **todo item** da NF-e 55 e da NFC-e 65 | emitente **CRT 3** (Lucro Real/Presumido) |
+| ~~03/08/2026~~ 🔴 **SEM DATA** | Grupo `IBSCBS` obrigatório em todo item — **a NT 2025.002 v1.51 RISCOU as datas** (03/08/2026 para CRT 3 e 04/01/2027 para Simples/MEI). Texto vigente da RV **UB12-10**: *"Implementação futura"*. A obrigação **legal** existe desde 01/01/2026; a **técnica**, não. Quase toda consultoria ainda publica as datas antigas | — |
+| **05/10/2026** ⚠️ **em 12 dias** | **`cStat 120`** ("autorizado com alerta", **só NFC-e**) entra em produção, com a RV `5E17-65`. Alertas no grupo **PR13** (`cMsg`/`xMsg`, até 5) — e **rejeição também devolve os alertas já coletados** | todos |
+| **31/12/2026** 🔴 | **Vence o benefício de bar e restaurante no país inteiro**: Convênios ICMS **91/2012** e **09/1993** prorrogados só até lá (Conv. ICMS 21/26). No **mesmo dia** vencem **SC** (carga 3,2% → volta a 12%) e **SP** (regime de 4%) | **o nosso ramo-âncora** |
 | **03/08/2026** | `xMun`, endereço e CPF/CNPJ obrigatórios em **operação não presencial** (Ajuste 9/26) | todos |
 | **01 a 30/09/2026** | Janela de opção do **Simples** pelo regime regular de IBS/CBS (efeitos 01/01/2027, cancelável até 30/11) | clientes do Simples |
 | **05/10/2026 HML · 03/11/2026 PROD** | NT 2026.006 — grupo **`YC gPgtoVinc`** + evento **110300** (split payment). **Não está no pacote de schemas atual** → nova troca de XSD | todos |
@@ -128,10 +176,16 @@ compensada com PIS/COFINS, **recolhimento dispensado** para quem cumprir as aces
 Senado até 30/10/2026; Senado fixa até 15/12/2026. → **`pCBS` é dado de tabela por ano, jamais constante.**
 
 ### 4.1 Três armadilhas técnicas
-1. **O XSD não protege.** `IBSCBS` é `minOccurs="0"` no schema — a validação local passa e a SEFAZ
-   rejeita com **1115**. O portão tem de ser teste de domínio, não de schema.
-2. **`cStat = 120` ("Autorizado o uso da NF-e, com alerta", NT 2026.002, inicialmente só para NFC-e)
-   é SUCESSO.** Quem tratar como erro cai em contingência e **duplica a venda**. Sucesso = `100 | 120 | 150`.
+1. **O XSD não protege.** `IBSCBS` é `minOccurs="0"` no schema — **provado**: linha 5186 do
+   `leiauteNFe_v4.00.xsd` no `PL_010f_v1.04`. A validação local passa e a SEFAZ rejeita com **1115**.
+   O portão tem de ser teste de domínio, não de schema. (A **data** da 1115 caiu — ver a tabela.)
+2. **`cStat = 120` ("Autorizado o uso da NF-e, com alerta") é SUCESSO** — NT 2026.002 **v1.10a**,
+   §2.1, **inicialmente só para NFC-e**, **produção em 05/10/2026**. Quem tratar como erro cai em
+   contingência e **duplica a venda**. Sucesso = `100 | 120 | 150`; `if (cStat != 100)` é o bug
+   clássico. ⚠️ **O `120` vence o `150`**: nota autorizada fora de prazo **que também tenha alerta**
+   volta como 120. E **quem não lê o grupo PR13 recebe o 120, trata como sucesso silencioso e perde
+   o aviso da SEFAZ** — a única RV de alerta hoje (`5E17-65`, msg 172) é "CNPJ do destinatário
+   irregular/bloqueado", ou seja, dispara justamente no cliente PJ que pede o CNPJ no cupom.
 3. **Homologação mente.** A NT tem exceções do tipo "esta regra não se aplica para a CBS em
    homologação", e a implantação em HML "pode variar por UF". Passar em HML não garante produção.
 
@@ -223,7 +277,11 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   sem SEFAZ e sem gravar nada: senha, chave de proteção e formato do .pfx aparecem antes da
   primeira transmissão.
 - **Autorização (etapa C2)** — `sefaz/autorizacao.ts`: `nfeAutorizacaoLote` com **um lote de uma nota**
-  e **`indSinc=1`** (assíncrono com nota única é rejeição **452**). A resposta tem dois níveis, e os dois
+  e **`indSinc=1`**. ⚠️ **A justificativa registrada aqui ("assíncrono com nota única é rejeição 452")
+  precisa ser reconferida**: o levantamento de 23/09/2026 indica que a **452 é do modelo 55** e que,
+  na NFC-e, lote com mais de uma nota rende **126/961** (NT 2023.002). O comportamento do nosso
+  código está **provado em campo** (nota autorizada), então **não mexer** — só corrigir o motivo
+  citado quando confirmado no MOC consolidado. A resposta tem dois níveis, e os dois
   são lidos: o do LOTE (`retEnviNFe`) e o da NOTA (`protNFe`) — `104` no lote só quer dizer "processei".
   Autorizada é **100, 120 ou 150**; o que fica guardado é o **`nfeProc`** (nota + protocolo), que é o
   documento que vale. `103` ("lote recebido") não é autorização: fica **pendente**.
@@ -245,7 +303,8 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   produção começaria no número seguinte ao último teste, e os números dos testes seriam, para o Fisco,
   buraco na sequência de produção. A reserva recusa e manda usar outra série (ERR-085).
 - **O XML é validado contra o SCHEMA OFICIAL nos testes** (`nfce-xsd.spec.ts`, XSDs do pacote
-  PL_009_V4 em `backend/src/modules/fiscal/xsd/`, sem edição): venda simples, nota com frete,
+  **PL_009_V4** em `backend/src/modules/fiscal/xsd/`, sem edição — 🔴 **o vigente é o `PL_010f_v1.04`,
+  de 31/08/2026; atualizar**): venda simples, nota com frete,
   desconto, complemento e responsável técnico, e a de homologação. Motivo: a primeira nota
   transmitida foi rejeitada com **225 — Falha no Schema XML** apontando `enderEmit/cPais`, e o
   elemento apontado não era o errado — era o que apareceu **no lugar** do que faltava. Cada
@@ -262,6 +321,14 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   cancelada, **110/301/302** denegada — número CONSUMIDO, nunca volta —, **217** "não consta na
   base" (nunca registrada: o número está livre), e qualquer outro código é **indefinido**: não se
   decide nada, a nota segue pendente e tenta de novo.
+  🔴 **A CORRIGIR (descoberto em 23/09/2026):** esse ramo está **desatualizado**. A denegação por
+  irregularidade do EMITENTE **foi eliminada na NFC-e** e virou **rejeição 781** (Ajuste SINIEF
+  10/2023 + NT 2023.002, produção até 04/09/2023). **Rejeição NÃO consome número** — então hoje,
+  nesse caso, **avançamos o contador à toa** e depois teremos de inutilizar numeração que nunca
+  precisou ser queimada. Mudança mínima: tratar **781** como rejeição que **libera o número**, e
+  manter `302`/`303`/`110` no ramo de denegação (não foram nominalmente eliminados). Indício forte
+  de que o destinatário também não denega mais: a NT 2026.002 trata "destinatário CNPJ irregular"
+  como **alerta 172 + cStat 120**, ou seja, **autorizando**.
 - **Carência de 2 minutos para acreditar no 217.** A autorização é síncrona, mas o NOSSO tempo
   pode estourar enquanto a SEFAZ ainda processa — perguntar no segundo seguinte pode ouvir "não
   existe" de uma nota que está nascendo. Os outros desfechos são definitivos a qualquer momento.
@@ -302,6 +369,31 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   `135` (ou `155`, fora de prazo aceito pela UF) registra; qualquer outro código NÃO cancela, e
   a nota continua valendo. Fora das 168 h a rota recusa antes de enviar — a SEFAZ devolveria
   **501** e a explicação ao lojista seria pior.
+- **DESTINATÁRIO, ENTREGA E INTERMEDIADOR** — `fiscal/destinatario.ts`, mig 285. Uma venda de
+  delivery sai de dois jeitos, e a escolha muda cinco campos do XML:
+  - **`indPres=4`** (entrega a domicílio) quando há documento do cliente **e** endereço com
+    bairro: sai `dest` + `enderDest` + `transporta`, e a taxa vai como **frete**. Faltando
+    qualquer peça, não se declara entrega — seria 787 (sem destinatário), 788 (sem endereço) ou
+    786 (sem transportador), e rejeição gasta número.
+  - **`indPres=1`** no resto. Aí frete e transportador são **proibidos** (753 e 754) e a taxa de
+    entrega entra como **`vOutro`** — despesa acessória, que compõe o `vNF` (W16-10) e não pede
+    NCM. Item novo pediria, e NCM `"00"` fora de item de serviço é rejeição **471**.
+  - **Pedido não presencial sem CPF**: escolha da loja (`fiscal_config.delivery_sem_cpf`),
+    padrão `presencial`. Venda sem nota é infração; nota sem o CPF que o cliente não deu, não.
+  - **Transportador = a própria loja**, conforme o manual da NFC-e da SEFAZ-RJ: *"quando o
+    transporte for feito pela própria empresa, os dados da empresa devem constar no campo dados
+    do transportador, independentemente se quem realiza o transporte é um motoboy, ciclista"*.
+  - **`indIntermed` sai SEMPRE** (B25c-10 → 434, produção desde 04/04/2022): `0` na venda
+    própria, `1` + `infIntermed` (CNPJ do canal + `idCadIntTran` = `integracao.merchant_id`) no
+    marketplace. **Sem o CNPJ do canal cadastrado, o pedido dele NÃO é emitido** — declarar `0`
+    seria informar à SEFAZ que a venda foi direta (ver P26).
+  - **Limite de identificação parametrizado** (`LIMITE_IDENTIFICACAO_UF` + `limite_identificacao`
+    por loja). UF fora da tabela usa o piso **mais restritivo** conhecido, não os R$ 10.000.
+  - **Documento do cliente sempre conferido** (dígito verificador) antes de entrar no XML: CPF
+    digitado errado vale como ausente, em vez de virar rejeição 237 com número gasto.
+  - **No cardápio do Regem o CPF é opcional**: só quem marca "quero cupom fiscal" informa — e aí
+    o campo passa a ser obrigatório e validado. Nos canais externos, lê-se o documento do próprio
+    payload. O DANFE impresso passa a dizer `CONSUMIDOR: …` ou `CONSUMIDOR NAO IDENTIFICADO`.
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -328,22 +420,28 @@ por inutilização — nunca reusado.
 
 | # | Pendência | O que fazer |
 |---|---|---|
-| P1 | **Rejeição 1115 (UB12-10): duas leituras.** O PDF da NT 2025.002 **v1.51** mantém 03/08/2026 em produção (CRT 3), e o CGIBS confirmou publicamente. Consultorias (TOTVS e escritórios) dizem que a v1.51 **adiou a rejeição sem nova data** | Baixar o PDF oficial da NT e conferir antes de decidir prazo |
-| P2 | **Tabela oficial `cClassTrib`** — os códigos 200047 / 410019 / 410020 batem em duas fontes independentes, mas o arquivo oficial não foi obtido | Baixar o Informe Técnico RT 2025.002 **v1.60** à mão |
-| P3 | **`pCBS` de 2027** — "aguarda legislação" | Campo parametrizável por ano; revisar após 15/12/2026 |
+| ~~P1~~ | ~~Rejeição 1115: duas leituras~~ — **RESOLVIDO 23/09/2026**: o PDF oficial da NT 2025.002 **v1.51** foi lido e as datas estão **TACHADAS** (p. 7 e 42, conferido na imagem). Texto vigente: `UB12-10 | Implementação futura | Implementação futura`. **As consultorias estavam certas; o CGIBS não.** | — |
+| ~~P2~~ | ~~Tabela oficial `cClassTrib`~~ — **RESOLVIDO**: planilha oficial obtida (`cClassTrib 2026-06-22.xlsx`, 165 códigos; Portal NF-e → Documentos → **Diversos**). Os três batem: **200047** bares e restaurantes (CST 200, `pRedIBS`=`pRedCBS`=**40**), **410019** gorjeta, **410020** intermediação — os três com `indNFCe`=1. ⚠️ A NT está em **v1.51**; quem está em **v1.60** é o **Informe Técnico**, não a NT | — |
+| P3 | **`pCBS` de 2027** — a planilha oficial de alíquotas diz literalmente "aguarda legislação" (2026 = 0,009). Fórmula da lei: **alíquota de referência do art. 14 menos 0,1 p.p.** (LC 214, art. 347) | Campo parametrizável **por ano**, jamais constante; revisar após 15/12/2026 |
 | P4 | **Taxa de entrega PRÓPRIA** (motoboy da casa) — a lei condiciona a exclusão a "por plataforma digital"; escritórios leem de forma mais ampla. E em qual alíquota seria tributada | Divergência não pacificada |
 | P5 | **Fórmula do rateio da gorjeta** (RIBS art. 399, §3º) em comanda mista | Redação ambígua, sem nota oficial |
 | P6 | Se a vedação de crédito do art. 276 prevalece sobre o crédito do Simples (LC 123, art. 23, §2º) | Sem manifestação oficial |
 | P7 | **Como imprimir IBS/CBS no DANFE** — a NT diz "em estudo" | Aguardar nova versão da NT |
 | P8 | **Anexos do Imposto Seletivo** (NCM e `cClassTribIS`) — "tabela a ser publicada" | O grupo IS não é preenchível ainda |
 | P9 | **Datas de obrigatoriedade do split payment** — nenhuma norma publicada; os manuais de 28/08/2026 são de habilitação de **PSPs**, não de PDV | Acompanhar `cgibs.gov.br/atos-tecnicos-conjuntos`; **não construir nada agora** |
-| P10 | **Tabela de limites de NFC-e por UF** (anunciada na NT 2026.002) — não localizada publicada | Usar defaults, manter parametrizável |
-| P11 | **Faixas de série reservadas para o modelo 65** | Não confirmado → evitar 890-999 |
-| P12 | **URLs de QR Code das 27 UFs** | Preencher a partir do **Manual do DANFE NFC-e e QR Code v6.0**; até lá é configuração por loja, e sem ela a emissão é recusada |
-| P13 | **Prazo de validade do CSC** na maioria das UFs | Só o mecanismo de expiração está documentado, não o prazo |
-| P14 | Regras estaduais de **AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO** | Sabe-se apenas que autorizam via SVRS |
-| P15 | **`cIdToken` no QR: com ou sem zeros à esquerda** ("000001" × "1") — guardamos como digitado | Conferir no Manual do DANFE NFC-e e QR Code v6.0 antes de montar o QR real (etapa C) |
-| P21 | **Contingência off-line (`tpEmis=9`)**: é o que impede o caixa de travar quando a SEFAZ demora — sem ela a nota nova também falha e, passados 5 min do `dhEmi`, vem a rejeição **704**. ⚠️ O uso é decisão de CADA UF e não achei fonte oficial dizendo que o RJ permite | Confirmar na legislação do RJ antes de implementar |
+| P10 | **Tabela de limites por UF** — a NT 2026.002 anunciou, mas a tabela não foi localizada publicada. **O que MUDOU:** a RV **W16-40** já está **em produção desde 15/06/2026** com o texto "ou outro valor definido pela UF", e 7 UFs já têm valor conhecido (§2) | **FEITO em 23/09/2026** (mig 285): parametrizado por UF + por loja, com default = o mais restritivo conhecido. Segue aberto só o rastreio da tabela oficial |
+| ~~P11~~ | ~~Faixas de série reservadas para o modelo 65~~ — **RESOLVIDO, e a cautela estava certa**: o nacional revogou, **mas o RN reserva 890-989 para contingência desde 01/03/2020**. ⇒ **nunca usar 890-989**, em UF nenhuma. A faixa também nunca foi "890-899": foram **890-989** e **501-999** | — |
+| ~~P12~~ | ~~URLs de QR Code das 27 UFs~~ — **RESOLVIDO**: as 27 levantadas (26 `OFICIAL`), em `assets/endpoints-nfce.json` da skill. ⚠️ **Publicada ≠ no ar**: em **MA, RN e PB** a URL oficial está **morta** — quem imprimir a do ENCAT gera DANFE com link quebrado. **Sondar o host antes de habilitar a UF** | — |
+| P13 | **Prazo de validade do CSC** na maioria das UFs | Segue aberto. Indício novo: a tela de **SE** exibe "Data Início/Data Fim". ⚠️ O vocabulário nacional é *revogado* (463) / *não cadastrado* (462) / *hash difere* (464) — "CSC expirado" não aparece em fonte nacional |
+| ~~P14~~ | ~~Regras estaduais de AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO~~ — **RESOLVIDO**: as **27 UFs** têm ficha completa na skill (`referencias/estados/{UF}.md`), com autorizador, QR, CSC, credenciamento, prazos, contingência e exigências próprias | — |
+| ~~P15~~ | ~~`cIdToken` com ou sem zeros~~ — **RESOLVIDO: SEM zeros à esquerda** ("1", não "000001"). Manual do DANFE NFC-e e QR Code **v6.0**, §4.3.1 e §4.3.2, texto idêntico, com exemplo no §4.3.6.1. **O hash usa a mesma forma que vai na URL.** O "000001" é do **QR v1, desativado em 01/10/2018** — é por isso que o manual do RJ se contradizia | — |
+| ~~P21~~ | ~~Contingência off-line: o RJ permite?~~ — **RESOLVIDO: PERMITE.** Manual NFC-e da SEFAZ/RJ de **16/07/2026**, pergunta 1.28: *"emissão **offline**, com transmissão do arquivo para a SEFAZ até o **primeiro dia útil subsequente**… A decisão da emissão da NFC-e em contingência é **exclusiva do contribuinte** e não depende de autorização do Fisco."* ⚠️ **Não são 24 h** — o próprio manual registra a troca em 30/01/2017 (o título da pergunta 1.30 ficou velho). **A implementação está liberada** | **implementar** |
+| P22 | **Denegação → rejeição 781** (novo) | Ajustar o ramo de `110/301/302` no `consulta-protocolo.ts` — ver §6. **781 não consome número** |
+| P23 | **Grupo PR13** (`cMsg`/`xMsg`) não é lido (novo) | Antes de **05/10/2026**, quando o `cStat 120` entra em produção |
+| ~~P24~~ | ~~Limite de identificação por UF não é configuração~~ — **RESOLVIDO 23/09/2026** (mig 285): tabela por UF em `fiscal/destinatario.ts` + `fiscal_config.limite_identificacao` por loja; UF fora da tabela cai no piso mais restritivo conhecido | — |
+| P26 | **CNPJ dos intermediadores (iFood, 99Food…)** não está cadastrado (novo) | O número vai dentro de documento fiscal: tem de vir da **nota de serviço que a plataforma emite contra a loja**. Até lá, `CNPJ_INTERMEDIADOR` fica vazio e o pedido de marketplace é **recusado com o motivo**, nunca emitido como venda direta |
+| P27 | **Transportador em pedido com logística do marketplace** (novo) | Hoje declaramos a própria loja em toda entrega com `indPres=4`. Quando quem leva é a logística do canal, o transportador correto seria o do canal — depende do P26 |
+| P25 | **Benefício de bar e restaurante vence em 31/12/2026** (novo) | Acompanhar CONFAZ e DOE em nov–dez/2026 — vence no país inteiro, **na mesma data da CBS cheia** |
 | ~~P20~~ | ~~Cancelamento por substituição~~ — **RESOLVIDO 23/09/2026** (mig 284): evento 110112, re-consulta da nota "inexistente" dentro das 168 h, lista de duplicidades com o prazo restante e cancelamento pela tela. | — |
 | ~~P19~~ | ~~Número queimado~~ — **RESOLVIDO 22/09/2026** (migs 282/283): inutilização implementada; reaproveitamento descartado por vedação do MOC (ver §5.1). | — |
 | ~~P18~~ | ~~Nota que fica `pendente`~~ — **RESOLVIDO 22/09/2026** (mig 281): consulta pela chave, carência de 2 min para o 217, job nas duas pontas e a venda consultando antes de emitir. | — |
@@ -356,6 +454,8 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 23/09/2026 | **Destinatário, entrega a domicílio e intermediador** (mig 285). A nota de delivery passa a sair como `indPres=4` com `dest`/`enderDest`/`transporta` quando há CPF e endereço, e como presencial com a taxa em `vOutro` quando não há — o que **corrige a rejeição 753**, que toda nota de delivery com taxa da loja receberia. `indIntermed` passou a sair **sempre** (434). Limite de identificação parametrizado por UF e por loja (**P24 resolvido**, P10 encaminhado). CPF opcional no cardápio do Regem, lido do payload nos canais externos e conferido pelo dígito verificador antes de entrar no XML. Abertas **P26** (CNPJ dos intermediadores) e **P27** (transportador na logística do canal). |
+| 23/09/2026 | **Revisão a partir da skill global `cupom-fiscal`** (27 UFs em fonte oficial). **Resolvidas P1, P2, P11, P12, P14, P15 e P21**; abertas **P22-P25**. Correções no corpo: escrituração (**inutilizada e denegada NÃO entram** na EFD — o código 05 caiu em jan/2023); **limites são parametrizáveis por UF por norma nacional** e nenhuma UF usa R$ 10.000; **a denegação acabou na NFC-e** (rejeição 781, que não consome número) e o nosso `consulta-protocolo.ts` está desatualizado; **XSD vigente é o PL_010f_v1.04**, não o PL_009_V4; **a rejeição 1115 perdeu a data** (v1.51 riscou); `cStat 120` entra em produção em **05/10/2026** e exige ler o grupo **PR13**; **série 890-989 é reservada no RN**; **PA também exige software credenciado**, não só SC; §3 ganhou pagamento vinculado (5 UFs), documento impresso extra (CE/RN) e FCP (4 decisões por UF). |
 | 23/09/2026 | P20 (mig 284): cancelamento por substituição (evento 110112). A nota rejeitada por 217 passa a ser re-consultada durante as 168 h para flagrar autorização tardia; a tela mostra a duplicidade com o prazo restante. |
 | 22/09/2026 | P19 (migs 282/283): inutilização de numeração, relatório de lacunas em faixas e recuo entre consultas (rejeição 656, ERR-088). Reaproveitamento de número DESCARTADO por vedação do MOC — ver §5.1. Abertas P20 (cancelamento por substituição) e P21 (contingência off-line). |
 | 22/09/2026 | P18 (mig 281): a nota `pendente` passa a se resolver pela consulta à chave — rota, botão, job nas duas pontas e a venda consultando antes de emitir. Colunas `cstat`/`consultada_em`/`tentativas_consulta`, e a unicidade do número passou a ignorar as rejeitadas (base do P19). |
