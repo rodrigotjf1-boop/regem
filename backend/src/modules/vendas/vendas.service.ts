@@ -1542,7 +1542,11 @@ export class VendasService {
     }
 
     this.producao.emitirNovos(res.producaoPayloads);
-    const nfce = await this.fiscal.emitirSeAtivo(tenantId, null, res.comandaId, unidadeId);
+    // K6 — `imprimirNaLoja: false`: quem imprime o DANFE desta venda é o TOTEM, na impressora
+    // ao lado do cliente. Deixar a loja imprimir também faria o mesmo documento sair duas vezes.
+    const nfce = await this.fiscal.emitirSeAtivo(tenantId, null, res.comandaId, unidadeId, {
+      imprimirNaLoja: false,
+    });
     await this.auditoria.registrar({
       tenantId,
       atorId: null,

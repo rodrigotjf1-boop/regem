@@ -32,13 +32,13 @@ import {
   silencioDaSefaz,
 } from './contingencia';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
+import { montarDanfeTexto } from './danfe-texto';
 import {
   DecisaoFiscal,
   EmissaoBloqueada,
   PedidoFiscal,
   decidirEmissao,
   documentoUtilizavel,
-  formatarDocumento,
   pedidoFiscalDeJson,
   valoresFiscaisDoPedido,
 } from './destinatario';
@@ -372,7 +372,17 @@ export class FiscalService {
   }
 
   // Emite a NFC-e de uma comanda fechada (idempotente por comanda).
-  async emitir(tenantId: string, atorId: string | null, comandaId: string) {
+  //
+  // `opts.imprimirNaLoja = false` (K6): quem chamou vai imprimir o DANFE por conta própria —
+  // hoje o TOTEM, que tem impressora térmica ao lado e entrega o cupom na mão do cliente sem
+  // ele passar pelo balcão. Sem esta chave o mesmo documento sairia duas vezes: uma no totem e
+  // outra na impressora do caixa. O texto do DANFE volta em `danfeTexto` para quem imprimir.
+  async emitir(
+    tenantId: string,
+    atorId: string | null,
+    comandaId: string,
+    opts: { imprimirNaLoja?: boolean } = {},
+  ) {
     const [c] = await this.db
       .select()
       .from(comanda)
@@ -526,11 +536,16 @@ export class FiscalService {
     if (r.nota.status === 'autorizada') {
       // No cupom impresso a taxa é a taxa — o caminho fiscal dela (frete ou despesa acessória)
       // é assunto do XML, não do cliente que está com o papel na mão.
-      await this.imprimirDanfe(tenantId, r.nota, itens, {
+      const extras = {
         frete: taxaEntrega,
         desconto,
         consumidor: r.decisao?.dest?.documento ?? null,
-      });
+      };
+      // O texto vai junto SEMPRE (quem imprime na loja também é servido por ele); a impressão
+      // na loja é que só acontece quando ninguém mais se ofereceu para imprimir.
+      (r.nota as any).danfeTexto = montarDanfeTexto(r.nota, itens, extras);
+      if (opts.imprimirNaLoja !== false)
+        await this.imprimirDanfe(tenantId, r.nota, itens, extras);
     }
     return r.nota;
   }
@@ -1741,11 +1756,17 @@ export class FiscalService {
 
   // Emite só se o fiscal estiver ativo na unidade (chamado automaticamente pela
   // venda). Nunca derruba a venda: erros viram nota rejeitada + log.
-  async emitirSeAtivo(tenantId: string, atorId: string | null, comandaId: string, unidadeId?: string | null) {
+  async emitirSeAtivo(
+    tenantId: string,
+    atorId: string | null,
+    comandaId: string,
+    unidadeId?: string | null,
+    opts: { imprimirNaLoja?: boolean } = {},
+  ) {
     const cfg = await this.configRaw(tenantId, unidadeId ?? null);
     if (!cfg?.ativo) return null;
     try {
-      return await this.emitir(tenantId, atorId, comandaId);
+      return await this.emitir(tenantId, atorId, comandaId, opts);
     } catch {
       return null; // já registra nota 'rejeitada' internamente quando aplicável
     }
@@ -1984,40 +2005,9 @@ export class FiscalService {
     itens: NfceItem[],
     extras?: { frete: number; desconto: number; consumidor?: string | null; contingencia?: boolean },
   ) {
-    const money = (n: number) =>
-      Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const l: string[] = ['DANFE NFC-e', `Serie ${nota.serie} No ${nota.numero}`];
-    // A tarja olhava SÓ o ambiente. Nota simulada em ambiente de produção saía com cara de
-    // cupom fiscal válido — é exatamente o caso que não pode existir.
-    if (nota.ambiente === '2' || nota.simulada)
-      l.push('*** SEM VALOR FISCAL ***');
-    l.push('--------------------------------');
-    for (const it of itens) {
-      l.push(`${it.quantidade}x ${it.descricao}`);
-      l.push(`   ${money(it.quantidade * it.precoUnitario)}`);
-    }
-    l.push('--------------------------------');
-    // Desconto e entrega aparecem no cupom porque agora estão na nota — sem isso o
-    // cliente vê um total que não bate com a soma dos itens impressos.
-    if (extras?.desconto) l.push(`DESCONTO: -${money(extras.desconto)}`);
-    if (extras?.frete) l.push(`ENTREGA: ${money(extras.frete)}`);
-    l.push(`TOTAL: ${money(Number(nota.valorTotal))}`);
-    // O DANFE NFC-e tem de dizer quem é o consumidor — identificado ou não. É também como o
-    // cliente confere, no papel, que o CPF que ele informou entrou mesmo na nota.
-    l.push(extras?.consumidor ? `CONSUMIDOR: ${formatarDocumento(extras.consumidor)}` : 'CONSUMIDOR NAO IDENTIFICADO');
-    l.push(`Chave: ${nota.chave}`);
-    l.push(`Protocolo: ${nota.protocolo ?? '-'}`);
-    // MOC 7.0, Anexo IV, §4: "deverá constar OBRIGATORIAMENTE no DANFE NFC-e a mensagem
-    // EMITIDA EM CONTINGÊNCIA". O `dhCont` e a justificativa, ao contrário, NÃO são impressos.
-    if (extras?.contingencia) {
-      l.push('*** EMITIDA EM CONTINGENCIA ***');
-      l.push('Aguardando autorizacao da SEFAZ.');
-    }
-    l.push('Consulte pela chave ou pelo QR Code:');
-    // O QR Code DESENHADO (o conversor transforma '@QR:' em QR). Antes saía o endereço como
-    // texto — o cliente não tinha como escanear para consultar a nota.
-    if (nota.qrcode) l.push(`@QR:${nota.qrcode}`);
-    const conteudo = l.join('\n');
+    // O texto mora em `danfe-texto.ts`: o totem imprime o MESMO documento (K6) e não pode
+    // haver duas versões do DANFE no projeto.
+    const conteudo = montarDanfeTexto(nota, itens, extras);
 
     // Loja com servidor local ATIVO: a impressora está na rede dela e a fila da nuvem não é lida
     // por ninguém ali. A DANFE vai por COMANDO para o servidor da loja (mig 269), que escolhe a

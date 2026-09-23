@@ -24,6 +24,14 @@ export type ResumoNfce = {
   simulada: boolean;
   contingencia: boolean;
   emitidaEm: string | null;
+  /**
+   * K6 — o DANFE já montado pelo EMITENTE, pronto para o papel (marcador `@QR:` na linha do
+   * QR Code). Vai montado daqui porque o aparelho que imprime não tem — nem deve ter — os
+   * dados do emitente, os tributos nem a URL de consulta; e porque um segundo montador de
+   * DANFE no app seria uma segunda versão do documento para corrigir a cada mudança de norma.
+   * `null` quando a nota não autorizou (não há documento a imprimir).
+   */
+  danfe: string | null;
 };
 
 export function resumoNfce(nota: any): ResumoNfce | null {
@@ -43,5 +51,6 @@ export function resumoNfce(nota: any): ResumoNfce | null {
       nota.emitidaEm instanceof Date
         ? nota.emitidaEm.toISOString()
         : (nota.emitidaEm ?? null),
+    danfe: nota.danfeTexto ?? null,
   };
 }

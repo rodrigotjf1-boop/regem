@@ -123,6 +123,7 @@ Há **três** caminhos de escrita de venda. Nenhum, hoje, modela exatamente "ven
   - `PagamentoDto`: `forma: string`; `valor: number`; `formaPagamentoId?: string`.
 - **Grava:** `comanda` (status `'fechada'` = o "cupom", `vendas.service.ts:347`), `comandaItem` por linha (`:404`, snapshot `descricao`/`precoUnitario` calculados no servidor), `comandaItemComplemento` (`:420`), `movimentoEstoque` saída (`:458`), `lancamentoCaixa` **um por forma** (`:500`), ordens de produção (`:461`), `auditLog` (`:558`).
 - **Retorno:** `{ comandaId, senha, subtotal, taxaServicoPct, total, producaoPayloads, viaClienteItens, unidadeId, nfce:{status,chave,numero}|null }` (`:530`). Replay idempotente ⇒ `{ comandaId, idempotente: true }` (`:331`).
+  - **Venda de totem** (`venderTotem`) devolve o `nfce` COMPLETO (`fiscal/resumo-nfce.ts`): `{status, chave, numero, serie, protocolo, qrcode, ambiente, simulada, contingencia, emitidaEm, danfe}`. `danfe` é o texto do DANFE já montado pelo emitente, para o totem imprimir (`@QR:<dados>` na linha do QR Code); nessa rota o Regem **não** imprime na loja, para a nota não sair duas vezes.
 - **Identificador do lançamento no Regem = `comandaId`** (comanda em `'fechada'`); id humano = `senha`.
 - ❌ **CPF não é capturado** — nem no DTO nem na tabela `comanda` (grep de `cpf` só acha regex de redação LGPD no edge). **CPF-na-nota é lacuna de todo o caminho de venda.**
 
