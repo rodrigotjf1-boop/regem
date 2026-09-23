@@ -171,6 +171,10 @@ descrever('a nota pendente se resolve pela consulta à SEFAZ', () => {
     const n = await pendente(15, 51, 10);
     chamarSefaz.mockResolvedValue(soap(retConsulta('999', 'Erro nao catalogado')));
     await servico.consultarNota(tenant, n.id, null);
+    // A segunda consulta seguida é BARRADA pelo recuo (a SEFAZ limita consultas da mesma nota —
+    // rejeição 656). Para exercitar a contagem, envelhecemos a última consulta.
+    await expect(servico.consultarNota(tenant, n.id, null)).rejects.toThrow(/656/);
+    await pool.query(`update nota_fiscal set consultada_em = now() - interval '2 hours' where id = $1`, [n.id]);
     await servico.consultarNota(tenant, n.id, null);
     const nota = await doBanco(n.id);
     expect(nota.status).toBe('pendente');

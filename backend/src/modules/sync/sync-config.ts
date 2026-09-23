@@ -265,6 +265,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // A loja e a nuvem emitem em SÉRIES DIFERENTES (fiscal_serie), então as duas pontas nunca
   // disputam a mesma linha — 'ambos' aqui é espelho, não concorrência.
   { tabela: 'nota_fiscal', direcao: 'ambos', cursor: 'updated_at' },
+  // Inutilização de numeração (mig 282), pela MESMA razão: é comprovante fiscal de guarda
+  // obrigatória e é o que prova que o buraco na sequência foi regularizado. Cada ponta
+  // inutiliza a própria série, então 'ambos' aqui também é espelho, não disputa.
+  { tabela: 'fiscal_inutilizacao', direcao: 'ambos', cursor: 'updated_at' },
   // Configuração do emitente (CNPJ, IE, endereço, CSC, série de cada origem). DESCE: é
   // configuração de distribuição, master na nuvem. Sem ela no servidor local a loja não
   // tinha como montar o cupom — a tabela simplesmente não existia lá, e ainda bloqueava a
@@ -464,7 +468,7 @@ export const LOJA_COLUNA = new Set<string>([
   'contagem_lista', 'compra_lista', 'titulo_financeiro',
   // PARIDADE (mig 272): documentos que CRESCEM com o movimento da loja. Cadastro e
   // configuração continuam de fora (valem para a rede inteira).
-  'nota_fiscal', 'ordem_producao', 'acerto_subpdv', 'vistoria', 'pagamento_tef', 'alerta_estoque',
+  'nota_fiscal', 'fiscal_inutilizacao', 'ordem_producao', 'acerto_subpdv', 'vistoria', 'pagamento_tef', 'alerta_estoque',
   'tarefa_instancia', 'escala_alocacao',
 ]);
 

@@ -127,6 +127,27 @@ export class FiscalController {
     return this.service.consultarNota(user.tenantId, id, user.colaboradorId);
   }
 
+  // LACUNAS de numeração e INUTILIZAÇÃO. Não é só-nuvem: a loja emite as próprias notas,
+  // deixa as próprias lacunas e pede a própria inutilização (a série dela é dela).
+  @Get('lacunas')
+  @Roles('presidente', 'gerente')
+  lacunas(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null, @Query('serie') serie?: string) {
+    return this.service.lacunas(user.tenantId, unidadeId, serie ? Number(serie) : undefined);
+  }
+
+  @Get('inutilizacoes')
+  @Roles('presidente', 'gerente')
+  inutilizacoes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.service.listarInutilizacoes(user.tenantId, unidadeId);
+  }
+
+  // Irreversível: a faixa homologada nunca mais pode virar nota. Só o presidente.
+  @Post('inutilizar')
+  @Roles('presidente')
+  inutilizar(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.service.inutilizarFaixa(user.tenantId, user.colaboradorId, dto);
+  }
+
   @Post('notas/:id/cancelar')
   @Roles('presidente', 'gerente')
   cancelar(

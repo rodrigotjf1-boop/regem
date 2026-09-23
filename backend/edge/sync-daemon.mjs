@@ -270,6 +270,9 @@ const PUSH_TABLES = [
   { tabela: 'comanda_pagamento', cursor: 'created_at' },
   { tabela: 'acerto_subpdv', cursor: 'updated_at' },
   { tabela: 'nota_fiscal', cursor: 'updated_at' }, // NFC-e emitida no PDV local
+  // Inutilização de numeração (mig 282): é comprovante fiscal, guarda de 5 anos, e é o que
+  // prova ao Fisco que o buraco na sequência foi regularizado. Sobe junto com a nota.
+  { tabela: 'fiscal_inutilizacao', cursor: 'updated_at' },
   { tabela: 'ordem_producao', cursor: 'updated_at' },
   { tabela: 'producao_pedido', cursor: 'updated_at' },
   { tabela: 'producao_pedido_item', cursor: 'updated_at' },
@@ -1737,6 +1740,9 @@ const VOLTA_DA_NUVEM = new Set([
   // recupera num banco novo (sem as notas de volta, o contador reiniciaria em 1 e
   // repetiria chave de acesso).
   'fiscal_config', 'nota_fiscal',
+  // A inutilização também volta: sem ela, um banco novo não saberia que aquela faixa já foi
+  // regularizada e a tela pediria o pedido de novo (a SEFAZ devolveria 563).
+  'fiscal_inutilizacao',
 ]);
 
 // DONA É A NUVEM (regra de distribuição): licença, telemetria, campanhas, credenciais de

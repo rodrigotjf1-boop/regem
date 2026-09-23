@@ -707,6 +707,15 @@ export const api = {
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),
   notaFiscal: (id: string) => req(`/fiscal/notas/${id}`),
+  // Numeração sem nota (lacunas) e pedido de inutilização — exigência do Ajuste SINIEF 19/16.
+  lacunasFiscais: (serie?: number) => req(`/fiscal/lacunas${serie ? `?serie=${serie}` : ''}`),
+  inutilizacoesFiscais: () => req('/fiscal/inutilizacoes'),
+  inutilizarFaixa: (dto: {
+    serie: number;
+    numeroInicial: number;
+    numeroFinal: number;
+    justificativa: string;
+  }) => req('/fiscal/inutilizar', { method: 'POST', body: JSON.stringify(dto) }),
   // Consulta a situação da nota na SEFAZ (resolve a que ficou "pendente").
   consultarNota: (id: string) => req(`/fiscal/notas/${id}/consultar`, { method: 'POST', body: '{}' }),
   cancelarNota: (id: string, justificativa: string) =>

@@ -32,14 +32,18 @@
 | Validação do XML contra o **XSD oficial** (PL_009_V4) dentro da suíte | Existe — `nfce-xsd.spec.ts` |
 | **NFC-e AUTORIZADA pela SEFAZ** (homologação, SVRS/RJ) | ✅ 22/09/2026 — nº 2, série 51, protocolo `333260002547395`, cStat 100 |
 | Consulta da situação pela chave (`NFeConsultaProtocolo4`) + resolução da nota `pendente` | Existe — `sefaz/consulta-protocolo.ts`, rota, botão e job (P18) |
-| Reaproveitamento ou **inutilização** do número de nota rejeitada | NÃO EXISTE (P19) |
+| **Inutilização** de numeração (`NFeInutilizacao4`) + relatório de lacunas | Existe — `sefaz/inutilizacao.ts`, migs 282/283 (P19) |
+| Reaproveitamento de número | **NÃO EXISTE — e não vai existir**: o MOC veda (ver §5.1) |
+| Cancelamento por substituição (evento 110112, 168 h) | NÃO EXISTE (P20) |
+| Contingência off-line `tpEmis=9` | NÃO EXISTE (P21 — e depende de o RJ permitir) |
 | Contingência `tpEmis=9` de verdade (fila + efetivação) | NÃO EXISTE |
 | Inutilização de faixa | NÃO EXISTE |
 | Grupos IBS/CBS/IS (reforma) | NÃO EXISTE |
 
 **O emissor já fala com a SEFAZ de verdade**: monta, assina, transmite e só grava "autorizada" com
 protocolo na mão. Em produção ainda faltam duas coisas do §7: resolver a nota que fica `pendente`
-(P18) e tratar o número queimado por rejeição (P19). O modo simulado continua recusado em produção (§5).
+(P18, feito) e o número queimado (P19, feito). O que ainda falta para produção é o cancelamento por
+substituição (P20) e a contingência off-line (P21). O modo simulado continua recusado em produção (§5).
 
 ---
 
@@ -271,8 +275,37 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   consultada primeiro — autorizada devolve aquela nota (nunca emite a segunda), "não consta"
   libera para emitir de novo, e indefinido continua recusando (duas notas para a mesma venda é
   o pior desfecho possível).
+- **INUTILIZAÇÃO (P19)** — `sefaz/inutilizacao.ts`, migs 282 (tabela) e 283 (gatilhos de sync):
+  pedido `inutNFe` **assinado** (Id de 41 dígitos: cUF+ano+CNPJ+mod+série+nNFIni+nNFFin),
+  `102` = homologada, e o que fica guardado é o **procInutNFe** (pedido + protocolo), que é o
+  comprovante. A tela mostra as **lacunas em faixas** e o aviso do prazo; só o presidente pede.
+- **O que conta como lacuna:** número sem documento válido. Nota `pendente` NÃO entra — enquanto
+  não se sabe o que a SEFAZ fez, aquele número não se inutiliza (nem se reaproveita). Antes de
+  enviar, a faixa é conferida contra o banco: se houver nota ocupando um número, recusa — a
+  inutilização é IRREVERSÍVEL.
+- **Sem resposta da SEFAZ no pedido:** fica `pendente` (ela pode ter homologado), e um pedido
+  novo para a mesma faixa continua barrado — repetir daria 563.
+- **Recuo entre consultas (rejeição 656).** O MOC (Anexo I) limita: *"NF-e consultada mais de 10
+  vezes em 1 hora: contribuinte ficará com o WS de Consulta Protocolo recebendo a rejeição 656
+  por até 1 hora para todas as requisições"* (CNPJ + IP). O intervalo fixo de 5 min dava 12/hora
+  e derrubaria a consulta da empresa inteira; virou escada (10, 30 min, 2, 6, 12, 24 h) — no
+  máximo 3 consultas na primeira hora. O botão da tela usa a MESMA conta. Ver ERR-088.
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
+
+---
+
+### 5.1 D9 — número não se reaproveita (decisão revista em 22/09/2026)
+
+O plano inicial do P19 era devolver à fila o número da nota rejeitada. **O MOC 7.0 veda**, no
+Anexo III, nota 2 (literal): *"a manutenção do número e série somente se aplica para os casos de
+rejeição da NF-e que foi emitida em contingência, e **nunca** para os casos em que a NF-e foi
+normalmente emitida mas o contribuinte não obteve êxito na consulta sobre o resultado da
+autorização (as NF-e pendentes de retorno)"*. E manda o que fazer no lugar: *"inutilizar a
+numeração das NF-e Pendentes de Retorno que não foram autorizadas ou denegadas"*. O Anexo IV
+repete para a NFC-e: *"é vedada a reutilização, em contingência, de número de NFC-e transmitida
+com tipo de emissão 'Normal'"*. Por isso a numeração **anda para a frente** e o buraco é fechado
+por inutilização — nunca reusado.
 
 ---
 
@@ -298,7 +331,9 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Só o mecanismo de expiração está documentado, não o prazo |
 | P14 | Regras estaduais de **AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO** | Sabe-se apenas que autorizam via SVRS |
 | P15 | **`cIdToken` no QR: com ou sem zeros à esquerda** ("000001" × "1") — guardamos como digitado | Conferir no Manual do DANFE NFC-e e QR Code v6.0 antes de montar o QR real (etapa C) |
-| P19 | **Número queimado por rejeição** vira buraco na sequência, que a lei manda **inutilizar** até o 10º dia do mês seguinte (Ajuste SINIEF 19/16, cl. 11ª, §5º). Hoje não reaproveitamos nem inutilizamos | Decidir entre reaproveitar o número na mesma emissão ou implementar `NfeInutilizacao4`. **Obrigatório antes de produção** |
+| P20 | **Cancelamento por substituição** (evento 110112, prazo de 168 h — Ajuste SINIEF 19/16, cl. 15ª-A): quando a nota pendente aparece autorizada DEPOIS de já termos emitido a substituta, ficam duas notas para a mesma venda, e essa é a única forma legal de desfazer | Implementar antes de produção |
+| P21 | **Contingência off-line (`tpEmis=9`)**: é o que impede o caixa de travar quando a SEFAZ demora — sem ela a nota nova também falha e, passados 5 min do `dhEmi`, vem a rejeição **704**. ⚠️ O uso é decisão de CADA UF e não achei fonte oficial dizendo que o RJ permite | Confirmar na legislação do RJ antes de implementar |
+| ~~P19~~ | ~~Número queimado~~ — **RESOLVIDO 22/09/2026** (migs 282/283): inutilização implementada; reaproveitamento descartado por vedação do MOC (ver §5.1). | — |
 | ~~P18~~ | ~~Nota que fica `pendente`~~ — **RESOLVIDO 22/09/2026** (mig 281): consulta pela chave, carência de 2 min para o 217, job nas duas pontas e a venda consultando antes de emitir. | — |
 | ~~P17~~ | ~~RJ → SVRS na NFC-e~~ — **RESOLVIDO 22/09/2026**: o "Testar conexão com a SEFAZ" com o certificado real trouxe **107 — Serviço em Operação** da SVRS para `cUF=33`. A SVRS só responde 107 para UF que atende. | — |
 | ~~P16~~ | ~~.pfx exportado pelo Windows~~ — **RESOLVIDO 22/09/2026**: o certificado real da loja-piloto, exportado do Windows, foi cadastrado em produção e abriu no `node-forge`. O botão "Testar certificado" (etapa B) prova também a assinatura com ele. | — |
@@ -309,6 +344,7 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
 
 | Data | O que mudou |
 |---|---|
+| 22/09/2026 | P19 (migs 282/283): inutilização de numeração, relatório de lacunas em faixas e recuo entre consultas (rejeição 656, ERR-088). Reaproveitamento de número DESCARTADO por vedação do MOC — ver §5.1. Abertas P20 (cancelamento por substituição) e P21 (contingência off-line). |
 | 22/09/2026 | P18 (mig 281): a nota `pendente` passa a se resolver pela consulta à chave — rota, botão, job nas duas pontas e a venda consultando antes de emitir. Colunas `cstat`/`consultada_em`/`tentativas_consulta`, e a unicidade do número passou a ignorar as rejeitadas (base do P19). |
 | 22/09/2026 | **PRIMEIRA NFC-e AUTORIZADA** (homologação, SVRS/RJ): nº 2 série 51, protocolo 333260002547395, "100 - Autorizado o uso da NF-e". Montagem, assinatura, QR v3, transmissão e leitura do protocolo provados de ponta a ponta com o certificado real. |
 | 22/09/2026 | **Primeira transmissão real**: rejeição 225 (CEP do emitente faltando). Corrigido CEP + `xCpl`, CEP no pré-voo, e o XML passou a ser validado contra o XSD oficial na suíte (ERR-086). |

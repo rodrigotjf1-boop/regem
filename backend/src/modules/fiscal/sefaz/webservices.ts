@@ -5,7 +5,11 @@
 
 export type Ambiente = '1' | '2'; // 1 produção, 2 homologação
 
-export type ServicoSefaz = 'NFeStatusServico4' | 'NFeAutorizacao4' | 'NFeConsultaProtocolo4';
+export type ServicoSefaz =
+  | 'NFeStatusServico4'
+  | 'NFeAutorizacao4'
+  | 'NFeConsultaProtocolo4'
+  | 'NFeInutilizacao4';
 
 // Método SOAP de cada serviço (vai no `action` do Content-Type). Confirmado no mapa de
 // webservices da biblioteca sped-nfe (storage/wsnfe_4.00_mod55.xml) e nos stubs gerados do
@@ -18,6 +22,9 @@ export const METODO_SOAP: Record<ServicoSefaz, string> = {
   // se provou certo no status e na autorização. Repare que o endereço NÃO repete o nome do
   // serviço: é `/ws/NfeConsulta/NfeConsulta4.asmx`.
   NFeConsultaProtocolo4: 'nfeConsultaNF',
+  // Inutilização de faixa de numeração. Mesmas duas fontes; repare que o endereço da NFC-e é
+  // todo minúsculo (`/ws/nfeinutilizacao/nfeinutilizacao4.asmx`), diferente dos outros.
+  NFeInutilizacao4: 'nfeInutilizacaoNF',
 };
 
 export const NS_WSDL = (s: ServicoSefaz) => `http://www.portalfiscal.inf.br/nfe/wsdl/${s}`;
@@ -29,11 +36,13 @@ const SVRS_NFCE: Record<Ambiente, Record<ServicoSefaz, string>> = {
     NFeStatusServico4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx',
     NFeAutorizacao4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
     NFeConsultaProtocolo4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
+    NFeInutilizacao4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
   },
   '1': {
     NFeStatusServico4: 'https://nfce.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx',
     NFeAutorizacao4: 'https://nfce.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
     NFeConsultaProtocolo4: 'https://nfce.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
+    NFeInutilizacao4: 'https://nfce.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
   },
 };
 

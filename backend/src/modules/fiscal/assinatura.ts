@@ -52,6 +52,31 @@ export function assinarNfe(xml: string, cert: ChaveDeAssinatura): string {
   return sig.getSignedXml();
 }
 
+/**
+ * Assina o PEDIDO DE INUTILIZAÇÃO. Mesmo padrão da nota (o MOC não abre exceção para este
+ * documento), mudando só o que é assinado: o `<infInut>`, referenciado pelo Id de 41 dígitos.
+ */
+export function assinarInutNFe(xml: string, cert: ChaveDeAssinatura): string {
+  if (/<Signature[\s>]/.test(xml)) throw new Error('O pedido já está assinado.');
+  if (!/<infInut\b[^>]*\bId="ID\d{41}"/.test(xml))
+    throw new Error('XML sem <infInut Id="ID…41 dígitos"> — nada a assinar.');
+  if (/[\r\n\t]/.test(xml)) throw new Error('O XML tem quebras de linha/tabulação — não assino.');
+
+  const sig = new SignedXml({
+    privateKey: cert.chavePrivadaPem,
+    publicCert: cert.certificadoPem,
+    signatureAlgorithm: ALG.RSA_SHA1,
+    canonicalizationAlgorithm: ALG.C14N,
+  });
+  sig.addReference({
+    xpath: "//*[local-name(.)='infInut']",
+    transforms: [ALG.ENVELOPED, ALG.C14N],
+    digestAlgorithm: ALG.SHA1,
+  });
+  sig.computeSignature(xml, { location: { reference: '/*', action: 'append' } });
+  return sig.getSignedXml();
+}
+
 /** Confere a assinatura com o certificado que está no próprio XML (KeyInfo). */
 export function assinaturaValida(xmlAssinado: string): boolean {
   const m = xmlAssinado.match(/<X509Certificate>([^<]+)<\/X509Certificate>/);
