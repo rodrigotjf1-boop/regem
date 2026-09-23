@@ -85,6 +85,9 @@ export default function FiscalConfigPage() {
         urlQrcodeHomolog: f.urlQrcodeHomolog,
         urlChaveProd: f.urlChaveProd,
         urlChaveHomolog: f.urlChaveHomolog,
+        // Vazio = volta ao padrão da UF (no RJ, R$ 2.000).
+        limiteIdentificacao: String(f.limiteIdentificacao ?? '').trim() === '' ? null : Number(f.limiteIdentificacao),
+        deliverySemCpf: f.deliverySemCpf || 'presencial',
       });
       toast.success('Configuração fiscal salva.');
       await reload();
@@ -150,6 +153,30 @@ export default function FiscalConfigPage() {
             {/* Séries distintas por ponto de emissão: o balcão numera na série da loja e o
                 delivery na da nuvem, então uma queda de internet não faz os dois emitirem
                 notas com o mesmo número. As duas têm de ser diferentes, e nunca 0. */}
+            {/* Pedido de entrega sem CPF: emitir declarando operação presencial (a taxa entra
+                como despesa acessória, e o total continua batendo com o que o cliente pagou) ou
+                não emitir. Venda sem nota nenhuma é infração; nota sem o CPF que o cliente não
+                quis dar, não. */}
+            <div className="space-y-1">
+              <Label className="text-xs">Pedido de entrega sem CPF do cliente</Label>
+              <select
+                aria-label="Pedido de entrega sem CPF do cliente"
+                className={selectCls}
+                value={f.deliverySemCpf ?? 'presencial'}
+                onChange={(e) => set({ deliverySemCpf: e.target.value })}
+              >
+                <option value="presencial">Emitir como operação presencial</option>
+                <option value="nao_emitir">Não emitir a nota</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Valor a partir do qual o CPF é obrigatório</Label>
+              <Input
+                value={f.limiteIdentificacao ?? ''}
+                onChange={(e) => set({ limiteIdentificacao: e.target.value })}
+                placeholder="vazio = padrão da UF"
+              />
+            </div>
             <div className="space-y-1">
               <Label className="text-xs">Série do balcão (servidor local)</Label>
               <Input value={f.serie ?? ''} onChange={(e) => set({ serie: e.target.value })} placeholder="1" />

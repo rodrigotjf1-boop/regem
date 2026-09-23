@@ -70,6 +70,21 @@ const entrada = (over: Partial<NfceInput> = {}, config: any = CONFIG): NfceInput
   ...over,
 });
 
+const DESTINO: NfceInput['dest'] = {
+  documento: '11144477735',
+  nome: 'CONSUMIDOR DE TESTE',
+  endereco: {
+    logradouro: 'Rua da Entrega', numero: '12', complemento: 'apto 301', bairro: 'Penha',
+    codigoMunicipio: 3304557, municipio: 'Rio de Janeiro', uf: 'RJ', cep: '21221-240',
+  },
+};
+// Entrega da própria loja: o manual da NFC-e da SEFAZ-RJ manda pôr os dados da EMPRESA no
+// grupo do transportador, mesmo quando quem leva é motoboy ou ciclista.
+const TRANSPORTADOR: NfceInput['transportador'] = {
+  documento: CONFIG.cnpj, nome: CONFIG.razaoSocial, ie: CONFIG.ie,
+  municipio: CONFIG.municipio, uf: CONFIG.uf,
+};
+
 describe('o XML que emitimos passa no schema oficial da NF-e 4.00', () => {
   const cert = certificadoDeTeste();
   const assinada = (i: NfceInput) => assinarNfe(montarNfceXml(i), cert);
@@ -81,6 +96,10 @@ describe('o XML que emitimos passa no schema oficial da NF-e 4.00', () => {
   it('com frete, desconto, complemento de endereço e responsável técnico — continua válida', async () => {
     const xml = assinada(
       entrada({
+        // Frete só existe em operação de entrega (753), que arrasta destinatário e transportador.
+        indPres: 4,
+        dest: DESTINO,
+        transportador: TRANSPORTADOR,
         frete: 7.5,
         desconto: 3,
         itens: [
@@ -92,6 +111,30 @@ describe('o XML que emitimos passa no schema oficial da NF-e 4.00', () => {
     );
     expect(await validar(xml)).toEqual({ valido: true, erros: '' });
     expect(xml).toContain('<xCpl>LOJA 02</xCpl>'); // recebido da config e escrito de verdade
+  }, 120000);
+
+  // O grupo `dest` e o `infIntermed` são novos no nosso XML, e é justamente aí que o schema
+  // paga por si: `dest` fica entre `emit` e `det`, `infIntermed` entre `pag` e `infAdic`, e
+  // elemento fora de ordem é a rejeição 225 — a mesma que já nos custou um número de nota.
+  it('nota de entrega a domicílio com destinatário, transportador e intermediador é válida', async () => {
+    const xml = assinada(
+      entrada({
+        indPres: 4,
+        dest: DESTINO,
+        transportador: TRANSPORTADOR,
+        intermediador: { cnpj: '12345678000195', idCadIntTran: 'MERCHANT-42' },
+        frete: 6,
+      }),
+    );
+    expect(await validar(xml)).toEqual({ valido: true, erros: '' });
+    expect(xml).toContain('<indPres>4</indPres>');
+    expect(xml).toContain('<indIntermed>1</indIntermed>');
+  }, 120000);
+
+  it('a taxa de entrega em vOutro (nota sem CPF, declarada presencial) é válida', async () => {
+    const xml = assinada(entrada({ outras: 6 }));
+    expect(await validar(xml)).toEqual({ valido: true, erros: '' });
+    expect(xml).toContain('<vOutro>6.00</vOutro>');
   }, 120000);
 
   it('a nota de HOMOLOGAÇÃO (com a frase obrigatória no 1º item) é válida', async () => {

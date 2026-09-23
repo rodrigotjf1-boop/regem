@@ -24,6 +24,16 @@ import { edgeAtivo } from '../../common/edge-ativo';
 import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { gerarCNF, montarChave, montarQrCode, montarQrCodeV3 } from './chave';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
+import {
+  DecisaoFiscal,
+  EmissaoBloqueada,
+  PedidoFiscal,
+  decidirEmissao,
+  documentoUtilizavel,
+  formatarDocumento,
+  pedidoFiscalDeJson,
+  valoresFiscaisDoPedido,
+} from './destinatario';
 import { FiscalTransmitter, escolherTransmissor } from './transmitter';
 import { camposFaltando, urlConsultaChave, urlConsultaQr } from './emitente';
 import { competenciaChave, dhEmiSefaz } from './fuso-fiscal';
@@ -115,8 +125,22 @@ export class FiscalService {
             : sql`unidade_id is null`,
         ),
       );
+    // O que fazer no pedido não presencial SEM o documento do cliente. Valor fora da lista
+    // não pode virar "presencial" em silêncio: a loja pensaria ter desligado a emissão.
+    if (dto.deliverySemCpf != null && !['presencial', 'nao_emitir'].includes(String(dto.deliverySemCpf)))
+      throw new BadRequestException('Opção inválida para pedido sem CPF (use "presencial" ou "nao_emitir").');
+
     const vals: any = {
       ativo: dto.ativo != null ? !!dto.ativo : undefined,
+      // Piso de identificação do consumidor. Vazio volta ao padrão da UF — a regra nacional é
+      // "R$ 10.000,00 ou outro valor definido pela UF", então isto nunca é literal no código.
+      limiteIdentificacao:
+        dto.limiteIdentificacao === null || dto.limiteIdentificacao === ''
+          ? null
+          : dto.limiteIdentificacao != null
+            ? String(Number(dto.limiteIdentificacao))
+            : undefined,
+      deliverySemCpf: dto.deliverySemCpf != null ? String(dto.deliverySemCpf) : undefined,
       ambiente: dto.ambiente,
       regime: dto.regime,
       crt: dto.crt != null ? Number(dto.crt) : undefined,
@@ -424,20 +448,28 @@ export class FiscalService {
       aliqCofins: it.aliqCofins != null ? Number(it.aliqCofins) : undefined,
     }));
 
-    // Frete e desconto da NOTA. Ficam no pedido de canal (a comanda só guarda itens),
-    // então busca pelo vínculo comanda → pedido_externo. Sem pedido (venda de balcão),
-    // os dois são 0 e o XML sai como antes.
-    const { frete, desconto } = await this.valoresFiscaisDoPedido(tenantId, comandaId);
+    // Frete, desconto e DESTINATÁRIO da nota. Ficam no pedido de canal (a comanda só guarda
+    // itens), então busca pelo vínculo comanda → pedido_externo. Sem pedido (venda de balcão),
+    // a nota sai presencial — mas o CPF da comanda, se o cliente pediu no caixa, vai junto.
+    const { taxaEntrega, desconto, pedido } = await this.dadosFiscaisDoPedido(tenantId, comandaId);
+    if (pedido && !pedido.documentoCliente) pedido.documentoCliente = c.cpf ?? null;
 
     const r = await this.emitirNucleo({
       tenantId, atorId, unidadeId: c.unidadeId ?? null, comandaId, itens, forma: c.forma,
-      frete, desconto, exigirAtivo: true,
+      taxaEntrega, desconto, exigirAtivo: true,
+      pedido: pedido ?? (c.cpf ? { tipo: 'balcao', documentoCliente: c.cpf, clienteNome: c.cliente } : null),
     });
     // Na venda, o que não autorizou é ERRO para quem chamou (a tela do delivery mostra; a venda
     // automática registra). A nota fica gravada com o motivo, do mesmo jeito.
     if (r.falha) throw r.falha;
     if (r.nota.status === 'autorizada') {
-      await this.imprimirDanfe(tenantId, r.nota, itens, { frete, desconto });
+      // No cupom impresso a taxa é a taxa — o caminho fiscal dela (frete ou despesa acessória)
+      // é assunto do XML, não do cliente que está com o papel na mão.
+      await this.imprimirDanfe(tenantId, r.nota, itens, {
+        frete: taxaEntrega,
+        desconto,
+        consumidor: r.decisao?.dest?.documento ?? null,
+      });
     }
     return r.nota;
   }
@@ -471,7 +503,7 @@ export class FiscalService {
     ];
     const r = await this.emitirNucleo({
       tenantId, atorId, unidadeId, comandaId: null, itens, forma: 'dinheiro',
-      frete: 0, desconto: 0, exigirAtivo: false,
+      taxaEntrega: 0, desconto: 0, exigirAtivo: false, pedido: null,
     });
     const n: any = r.nota;
     return {
@@ -1121,11 +1153,12 @@ export class FiscalService {
     comandaId: string | null;
     itens: NfceItem[];
     forma: string | null;
-    frete: number;
+    taxaEntrega: number;
     desconto: number;
     exigirAtivo: boolean;
-  }): Promise<{ nota: any; falha: Error | null }> {
-    const { tenantId, atorId, unidadeId, comandaId, itens, frete, desconto } = p;
+    pedido: PedidoFiscal | null;
+  }): Promise<{ nota: any; falha: Error | null; decisao?: DecisaoFiscal }> {
+    const { tenantId, atorId, unidadeId, comandaId, itens, desconto } = p;
 
     // PRÉ-VOO ANTES DE RESERVAR O NÚMERO.
     // Número reservado é número gasto: se a emissão falhar depois disso, fica um BURACO na
@@ -1146,6 +1179,19 @@ export class FiscalService {
     const faltandoPre = camposFaltando(cfgPre);
     if (faltandoPre.length)
       throw new BadRequestException(`Configuração fiscal incompleta — falta: ${faltandoPre.join(', ')}.`);
+    // Como esta operação se declara à SEFAZ: presencial ou entrega a domicílio, com ou sem
+    // destinatário, com ou sem intermediador. Fica no PRÉ-VOO porque cada decisão errada aqui é
+    // uma rejeição certa — e rejeição descoberta depois da reserva deixa buraco na numeração.
+    const vProdPre = itens.reduce((s, it) => s + it.quantidade * it.precoUnitario, 0);
+    const valorTotal = vProdPre - Math.min(desconto, vProdPre) + Math.max(0, p.taxaEntrega || 0);
+    let decisao: DecisaoFiscal;
+    try {
+      decisao = decidirEmissao({ pedido: p.pedido, config: cfgPre, taxaEntrega: p.taxaEntrega, valorTotal });
+    } catch (e) {
+      if (e instanceof EmissaoBloqueada) throw new BadRequestException(e.message);
+      throw e;
+    }
+
     // Sem transmissão possível (sem certificado, UF sem autorizador…): recusa aqui.
     const transmissor = this.transmitter(cfgPre);
     // Com certificado, ele é aberto AGORA — senha errada ou chave trocada param aqui, sem número.
@@ -1175,21 +1221,27 @@ export class FiscalService {
               chave, tpAmb, cscId: config.cscId, cscToken: config.cscToken, urlConsulta: urlConsultaQr(config)!,
             });
       const xmlSemAssinatura = montarNfceXml({
-        config, serie, numero, chave, cNF, dhEmi, itens, forma: p.forma, qrCode, frete, desconto,
+        config, serie, numero, chave, cNF, dhEmi, itens, forma: p.forma, qrCode, desconto,
+        frete: decisao.frete,
+        outras: decisao.outras,
+        indPres: decisao.indPres,
+        dest: decisao.dest,
+        transportador: decisao.transportador,
+        intermediador: decisao.intermediador,
         urlChave: urlConsultaChave(config)!,
         respTec: responsavelTecnico(),
       });
       // Assina ANTES de gravar: o que fica no banco é exatamente o que foi (ou vai ser) enviado.
       const xml = cert ? assinarNfe(xmlSemAssinatura, cert) : xmlSemAssinatura;
-      const vProd = itens.reduce((s, it) => s + it.quantidade * it.precoUnitario, 0);
-      const valorTotal = vProd - Math.min(desconto, vProd) + frete;
-
       const [nota] = await tx
         .insert(notaFiscal)
         .values({
           tenantId, unidadeId, comandaId, modelo: '65', serie, numero, chave,
           ambiente: tpAmb, status: 'pendente', qrcode: qrCode, xml,
           valorTotal: String(valorTotal.toFixed(2)), emitidaPorId: atorId,
+          // Como a nota saiu, para a auditoria e para o contador.
+          indPres: String(decisao.indPres),
+          semDocumentoCliente: decisao.semDocumentoCliente,
         })
         .returning();
       return { nota, config: { ...config, cert }, xml };
@@ -1242,46 +1294,46 @@ export class FiscalService {
       entidadeId: nota.id,
       detalhe: { chave: nota.chave, status: nota.status, numero: nota.numero, serie: nota.serie, motivo: nota.motivo },
     });
-    return { nota, falha };
+    return { nota, falha, decisao };
   }
 
-  // Frete e desconto que a NOTA deve declarar, lidos do pedido de canal da comanda.
-  //
-  //  • frete    → taxa de entrega SÓ quando a loja é dona do valor. Com a logística do
-  //               marketplace, a entrega é serviço DELE cobrado do cliente: não é
-  //               operação da loja e não vai na nota dela.
-  //  • desconto → só o bancado pela LOJA. O bancado pelo marketplace NÃO é desconto
-  //               fiscal: a loja recebe o valor cheio no repasse, então a base é cheia.
-  //               Desconto de FRETE também fica fora — a taxa já chega líquida dele
-  //               (o 99food grava a taxa após a promoção), e abater de novo criaria
-  //               uma nota com valor menor do que o cliente pagou.
-  private async valoresFiscaisDoPedido(tenantId: string, comandaId: string) {
-    const vazio = { frete: 0, desconto: 0 };
+  /**
+   * O pedido de canal da comanda, do jeito que a NFC-e precisa dele: taxa de entrega, desconto
+   * e quem é o destinatário. A linha vem como JSON (`to_jsonb`) porque numa loja com o edge
+   * desatualizado as colunas novas não existem — e é melhor ler o que existe do que a consulta
+   * inteira falhar e a nota sair sem valor nenhum.
+   *
+   * O `merchant_id` da integração do canal é a identificação da LOJA no app do intermediador
+   * (`idCadIntTran` do grupo infIntermed). Vem de `integracao`, não do pedido.
+   */
+  private async dadosFiscaisDoPedido(tenantId: string, comandaId: string) {
+    const vazio = { taxaEntrega: 0, desconto: 0, pedido: null as PedidoFiscal | null };
     try {
       const r: any = await this.db.execute(sql`
-        select coalesce(case when taxa_entrega_dono = 'loja'
-                             then taxa_entrega else 0 end, 0) as frete,
-               case when descontos is null then coalesce(desconto_loja, 0)
-                    else coalesce((select sum((d->>'valor')::numeric)
-                                     -- array malformado não pode impedir a emissão
-                                     from jsonb_array_elements(case when jsonb_typeof(descontos) = 'array'
-                                                                    then descontos else '[]'::jsonb end) d
-                                    where coalesce(d->>'quemBanca','indefinido') <> 'marketplace'
-                                      and coalesce(d->>'alvo','') <> 'DELIVERY_FEE'), 0)
-               end as desconto
-          from pedido_externo
-         where tenant_id = ${tenantId} and comanda_id = ${comandaId}
-           and status not in ('cancelado')
+        select to_jsonb(pe) as pedido,
+               (select i.merchant_id from integracao i
+                 where i.tenant_id = pe.tenant_id and i.canal = pe.canal
+                   and (i.unidade_id = pe.unidade_id or i.unidade_id is null)
+                 order by i.unidade_id nulls last limit 1) as merchant_id
+          from pedido_externo pe
+         where pe.tenant_id = ${tenantId}::uuid and pe.comanda_id = ${comandaId}::uuid
+           and pe.status not in ('cancelado')
          limit 1`);
       const row = (r.rows ?? r)[0];
-      if (!row) return vazio;
-      return {
-        frete: Math.max(0, Number(row.frete) || 0),
-        desconto: Math.max(0, Number(row.desconto) || 0),
-      };
-    } catch {
-      // Base sem as colunas da mig 241 (edge ainda não atualizado): emite como antes,
-      // sem frete nem desconto. Nunca deixar a nota parar de sair por causa disso.
+      if (!row?.pedido) return vazio;
+      const { taxaEntrega, desconto } = valoresFiscaisDoPedido(row.pedido);
+      const pedido = pedidoFiscalDeJson(row.pedido, row.merchant_id);
+      // CPF guardado no cadastro do cliente: quem já pediu nota uma vez não digita de novo.
+      if (pedido && !documentoUtilizavel(pedido.documentoCliente) && row.pedido.cliente_id) {
+        const c: any = await this.db.execute(sql`
+          select cpf from cliente where id = ${row.pedido.cliente_id}::uuid and tenant_id = ${tenantId}::uuid limit 1`);
+        pedido.documentoCliente = (c.rows ?? c)[0]?.cpf ?? null;
+      }
+      return { taxaEntrega, desconto, pedido };
+    } catch (e: any) {
+      // Nunca deixar a nota parar de sair por causa desta leitura — mas dizer por quê, senão a
+      // nota sai muda, sem taxa e sem destinatário, e ninguém descobre o motivo (ERR-072).
+      this.log.warn(`Pedido da comanda ${comandaId} não pôde ser lido para a NFC-e: ${e?.message ?? e}`);
       return vazio;
     }
   }
@@ -1414,7 +1466,7 @@ export class FiscalService {
     tenantId: string,
     nota: any,
     itens: NfceItem[],
-    extras?: { frete: number; desconto: number },
+    extras?: { frete: number; desconto: number; consumidor?: string | null },
   ) {
     const money = (n: number) =>
       Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -1434,6 +1486,9 @@ export class FiscalService {
     if (extras?.desconto) l.push(`DESCONTO: -${money(extras.desconto)}`);
     if (extras?.frete) l.push(`ENTREGA: ${money(extras.frete)}`);
     l.push(`TOTAL: ${money(Number(nota.valorTotal))}`);
+    // O DANFE NFC-e tem de dizer quem é o consumidor — identificado ou não. É também como o
+    // cliente confere, no papel, que o CPF que ele informou entrou mesmo na nota.
+    l.push(extras?.consumidor ? `CONSUMIDOR: ${formatarDocumento(extras.consumidor)}` : 'CONSUMIDOR NAO IDENTIFICADO');
     l.push(`Chave: ${nota.chave}`);
     l.push(`Protocolo: ${nota.protocolo ?? '-'}`);
     l.push('Consulte pela chave ou pelo QR Code:');

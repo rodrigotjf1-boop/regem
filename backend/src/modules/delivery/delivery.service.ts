@@ -15,6 +15,10 @@ import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from '
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { ehServidorLocal } from '../../common/modo';
+
+// Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
+// barrado aqui — quem emite confere os dígitos verificadores e trata como ausente se não fechar.
+const soDigitos = (v: unknown) => String(v ?? '').replace(/\D/g, '');
 import {
   caixaSessao,
   cardapioBairro,
@@ -379,6 +383,9 @@ export class DeliveryService {
       enderecoNumero?: string;
       enderecoReferencia?: string;
       enderecoBairro?: string;
+      // CPF/CNPJ que o cliente informou PARA A NOTA (mig 285). No cardápio do Regem é opcional:
+      // só quem quer o cupom fiscal preenche. O canal externo manda o dele no próprio payload.
+      documentoCliente?: string;
       bandeira?: string;
       clientRef?: string;
       retiradaTipo?: string; // 'encomenda' quando é pedido para data futura (mig 186)
@@ -455,10 +462,17 @@ export class DeliveryService {
         profissional: extra?.profissional ?? null,
         cnpj: extra?.cnpj ?? null,
         clienteTelefone2: extra?.clienteTelefone2 ?? null,
-        enderecoRua: extra?.enderecoRua ?? null,
-        enderecoNumero: extra?.enderecoNumero ?? null,
+        // O canal externo manda o endereço em campos separados; o nosso checkout também. O
+        // que vem do `extra` (nosso) vence, porque é o que o cliente digitou aqui.
+        enderecoRua: extra?.enderecoRua ?? norm.enderecoFiscal?.rua ?? null,
+        enderecoNumero: extra?.enderecoNumero ?? norm.enderecoFiscal?.numero ?? null,
         enderecoReferencia: extra?.enderecoReferencia ?? null,
-        enderecoBairro: extra?.enderecoBairro ?? null,
+        enderecoBairro: extra?.enderecoBairro ?? norm.enderecoFiscal?.bairro ?? null,
+        // Só a NFC-e usa estes três (grupo enderDest, que exige município e UF).
+        enderecoCidade: norm.enderecoFiscal?.cidade ?? null,
+        enderecoUf: norm.enderecoFiscal?.uf ?? null,
+        enderecoCep: norm.enderecoFiscal?.cep ?? null,
+        documentoCliente: soDigitos(extra?.documentoCliente ?? norm.documentoCliente) || null,
         bandeira: extra?.bandeira ?? null,
         // ===== Valores separados por origem (mig 241) =====
         // Aditivo: `total`, `desconto` e `taxa_entrega` acima seguem intocados. Estes campos

@@ -36,6 +36,22 @@ export interface PedidoNormalizado {
   taxaEntregaDono?: 'loja' | 'marketplace';
   valorPagoCliente?: number;
   taxasExtras?: TaxaExtraCanal[];
+  // ===== O que a NFC-e precisa (mig 285) =====
+  // CPF/CNPJ que o cliente informou AO CANAL para receber a nota, e o endereço em campos
+  // separados. O `endereco` acima é texto para o entregador ler; o grupo `enderDest` do XML
+  // precisa de bairro, município e UF cada um no seu lugar.
+  documentoCliente?: string;
+  enderecoFiscal?: EnderecoFiscalCanal;
+}
+
+export interface EnderecoFiscalCanal {
+  rua?: string;
+  numero?: string;
+  complemento?: string;
+  bairro?: string;
+  cidade?: string;
+  uf?: string;
+  cep?: string;
 }
 
 // Complemento/adicional escolhido no canal.
@@ -51,6 +67,46 @@ export interface ComplementoCanal {
 }
 
 // Texto para impressão/KDS, derivado da lista estruturada (fonte única).
+/**
+ * CPF/CNPJ do cliente no payload do canal.
+ *
+ * Cada canal escreve esse campo de um jeito, e a documentação de um deles muda sem avisar. Ler
+ * todas as grafias conhecidas é seguro porque o valor NÃO é usado às cegas: quem emite confere
+ * os dígitos verificadores (`documentoUtilizavel`), e documento que não fecha vale como
+ * ausente. O pior caso é a nota sair sem o CPF — nunca sair com o CPF errado.
+ */
+export function documentoDoCliente(raw: any): string | undefined {
+  const c = raw?.customer ?? raw?.client ?? {};
+  const bruto =
+    c.documentNumber ?? c.document?.value ?? c.document?.number ?? c.document ??
+    c.cpf ?? c.taxId ?? raw?.documentNumber ?? raw?.cpf;
+  const d = String(bruto ?? '').replace(/\D/g, '');
+  return d.length === 11 || d.length === 14 ? d : undefined;
+}
+
+/** Endereço da entrega em campos separados, nas grafias que os canais usam. */
+export function enderecoFiscalCanal(a: any): EnderecoFiscalCanal | undefined {
+  if (!a || typeof a !== 'object') return undefined;
+  const e: EnderecoFiscalCanal = {
+    // `poi_address`/`house_number` são a grafia da 99Food (DiDi), que não segue Open Delivery.
+    rua: a.streetName ?? a.street ?? a.poi_address ?? a.address ?? a.logradouro ?? undefined,
+    numero:
+      a.streetNumber != null
+        ? String(a.streetNumber)
+        : a.number != null
+          ? String(a.number)
+          : a.house_number != null
+            ? String(a.house_number)
+            : undefined,
+    complemento: a.complement ?? a.complemento ?? undefined,
+    bairro: a.neighborhood ?? a.district ?? a.bairro ?? undefined,
+    cidade: a.city ?? a.cidade ?? undefined,
+    uf: a.state ?? a.uf ?? undefined,
+    cep: a.postalCode ?? a.zipCode ?? a.zip_code ?? a.cep ?? undefined,
+  };
+  return Object.values(e).some(Boolean) ? e : undefined;
+}
+
 export function textoComplementos(l: ComplementoCanal[]): string | undefined {
   return (
     l.map((c) => (c.quantidade > 1 ? `${c.quantidade}x ${c.nome}` : c.nome)).join(' · ') ||
@@ -283,8 +339,10 @@ export function adaptarIfood(raw: any): PedidoNormalizado {
     displayId: raw?.displayId ? String(raw.displayId) : undefined,
     clienteNome: raw?.customer?.name,
     clienteTelefone: raw?.customer?.phone?.number ?? raw?.customer?.phone,
+    documentoCliente: documentoDoCliente(raw),
     tipo,
     endereco: raw?.delivery?.deliveryAddress?.formattedAddress,
+    enderecoFiscal: enderecoFiscalCanal(raw?.delivery?.deliveryAddress ?? raw?.delivery?.address),
     itens,
     total: pagoCliente,
     formaPagamento: formaPtBr(metodo?.method ?? (pago ? 'online' : 'money')),
@@ -464,8 +522,10 @@ export function adaptarOpenDelivery(raw: any): PedidoNormalizado {
     displayId: raw?.displayId ? String(raw.displayId) : raw?.orderExternalCode,
     clienteNome: raw?.customer?.name,
     clienteTelefone: raw?.customer?.phone?.number ?? raw?.customer?.phoneNumber ?? raw?.customer?.phone,
+    documentoCliente: documentoDoCliente(raw),
     tipo,
     endereco,
+    enderecoFiscal: enderecoFiscalCanal(addr),
     itens,
     total: pagoClienteOD,
     ...(() => {
@@ -594,8 +654,10 @@ export function adaptarCardapioWeb(raw: any): PedidoNormalizado {
     displayId: raw?.display_id != null ? String(raw.display_id) : undefined,
     clienteNome: raw?.customer?.name,
     clienteTelefone: raw?.customer?.phone,
+    documentoCliente: documentoDoCliente(raw),
     tipo,
     endereco,
+    enderecoFiscal: enderecoFiscalCanal(a),
     itens,
     total: Number(raw?.total) || 0,
     formaPagamento: formaPtBr(pgto.payment_method ?? (onlinePg(pgto) ? 'online' : 'money')),
@@ -728,8 +790,10 @@ export function adaptarDidiFood(raw: any): PedidoNormalizado {
     displayId: raw?.order_index != null ? String(raw.order_index) : undefined,
     clienteNome: addr.name ?? addr.first_name,
     clienteTelefone: tel,
+    documentoCliente: documentoDoCliente(raw),
     tipo: retirada ? 'retirada' : 'entrega',
     endereco,
+    enderecoFiscal: enderecoFiscalCanal(addr),
     itens,
     total: totalCents / 100,
     formaPagamento: formaPtBr(PAY[payType] ?? 'online'),
@@ -852,6 +916,8 @@ export function adaptarAnotaAi(raw: any): PedidoNormalizado {
     displayId: o.shortReference != null ? String(o.shortReference) : undefined,
     clienteNome: o.customer?.name,
     clienteTelefone: o.customer?.phone,
+    documentoCliente: documentoDoCliente(o),
+    enderecoFiscal: enderecoFiscalCanal(a),
     tipo,
     endereco,
     itens,
