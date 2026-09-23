@@ -44,6 +44,10 @@ import { UfSemAutorizador, qrVersaoNfce } from './sefaz/webservices';
 import { assinarNfe } from './assinatura';
 import { responsavelTecnico } from './responsavel-tecnico';
 import { SituacaoNaSefaz, consultarSituacaoNfce } from './sefaz/consulta-protocolo';
+import { inutilizarNfce, montarInutNFe } from './sefaz/inutilizacao';
+import { assinarInutNFe } from './assinatura';
+import { fiscalInutilizacao } from '../../db/schema';
+import { hojeISO } from '../../common/data';
 import { montarNfeProc } from './sefaz/autorizacao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -485,8 +489,33 @@ export class FiscalService {
   // ouvir "não existe" de uma nota que está nascendo. Os outros desfechos (autorizada,
   // cancelada, denegada) são definitivos a qualquer momento — só o 217 espera.
   private static readonly CARENCIA_INEXISTENTE_MS = 2 * 60_000;
-  private static readonly MAX_TENTATIVAS_CONSULTA = 20;
-  private static readonly INTERVALO_ENTRE_CONSULTAS_MS = 5 * 60_000;
+  private static readonly MAX_TENTATIVAS_CONSULTA = 12;
+
+  // RECUO ENTRE CONSULTAS — minutos de espera conforme o número de tentativas já feitas.
+  //
+  // Não é educação com o servidor dos outros: é limite publicado. MOC 7.0, Anexo I, rejeição
+  // 656 (Consumo Indevido): "NF-e consultada mais de 10 vezes em 1 hora: contribuinte ficará
+  // com o WS de Consulta Protocolo recebendo a rejeição 656 por até 1 hora PARA TODAS AS
+  // REQUISIÇÕES" (identificado por CNPJ + IP). Um intervalo fixo de 5 minutos dá 12 consultas
+  // por hora na mesma chave — passa do limite e derruba a consulta da empresa inteira, bem na
+  // hora em que ela mais precisa resolver pendências.
+  //
+  // Com esta escada, a mesma nota é consultada no máximo 3 vezes na primeira hora (aos 2, 12 e
+  // 42 minutos), e vai rareando. O botão da tela usa a MESMA conta — senão bastaria clicar.
+  private static readonly RECUO_MINUTOS = [10, 30, 120, 360, 720, 1440];
+
+  private static recuoMinutos(tentativas: number): number {
+    const i = Math.max(0, Math.min(FiscalService.RECUO_MINUTOS.length - 1, Number(tentativas ?? 0)));
+    return FiscalService.RECUO_MINUTOS[i];
+  }
+
+  /** Quando esta nota pode ser consultada de novo (null = pode agora). */
+  private esperaConsulta(nota: any): number {
+    if (!nota?.consultadaEm) return 0;
+    const desde = Date.now() - new Date(nota.consultadaEm).getTime();
+    const espera = FiscalService.recuoMinutos(Number(nota.tentativasConsulta ?? 0)) * 60_000;
+    return Math.max(0, espera - desde);
+  }
 
   /** Consulta UMA nota na SEFAZ e grava o desfecho. Idempotente: repetir não muda o resultado. */
   async consultarNota(tenantId: string, notaId: string, atorId: string | null) {
@@ -495,6 +524,16 @@ export class FiscalService {
       .from(notaFiscal)
       .where(and(eq(notaFiscal.id, notaId), eq(notaFiscal.tenantId, tenantId)));
     if (!nota) throw new NotFoundException('Nota não encontrada');
+    // O limite da SEFAZ é por NOTA (rejeição 656), e vale para o botão tanto quanto para o job:
+    // clicar sem parar bloquearia a consulta da empresa toda por uma hora.
+    const espera = this.esperaConsulta(nota);
+    if (espera > 0 && nota.status === 'pendente') {
+      const min = Math.ceil(espera / 60_000);
+      throw new BadRequestException(
+        `Esta nota foi consultada há pouco. A SEFAZ limita consultas da mesma nota (rejeição 656), ` +
+          `então a próxima pode ser feita em ${min} minuto(s).`,
+      );
+    }
     return this.resolverNaSefaz(nota, atorId);
   }
 
@@ -624,7 +663,13 @@ export class FiscalService {
          and n.created_at < now() - interval '2 minutes'
          and n.tentativas_consulta < ${FiscalService.MAX_TENTATIVAS_CONSULTA}
          and (n.consultada_em is null
-              or n.consultada_em < now() - interval '5 minutes')
+              or n.consultada_em < now() - (case
+                   when n.tentativas_consulta <= 1 then interval '10 minutes'
+                   when n.tentativas_consulta = 2 then interval '30 minutes'
+                   when n.tentativas_consulta = 3 then interval '2 hours'
+                   when n.tentativas_consulta = 4 then interval '6 hours'
+                   when n.tentativas_consulta = 5 then interval '12 hours'
+                   else interval '24 hours' end))
        order by n.created_at
        limit ${limite}`);
     const pendentes = (r.rows ?? r) as any[];
@@ -643,6 +688,209 @@ export class FiscalService {
     if (pendentes.length)
       this.log.log(`pendentes ${origem}: ${resolvidas.length} de ${pendentes.length} resolvida(s)`);
     return { consultadas: pendentes.length, resolvidas: resolvidas.length, detalhe: resolvidas };
+  }
+
+  // ===== P19 — O NÚMERO QUE NÃO VIROU NOTA =====
+  //
+  // Número reservado e não autorizado deixa BURACO na sequência, e buraco tem prazo: o Ajuste
+  // SINIEF 19/16, cl. 16ª, manda pedir a inutilização até o 10º dia do mês seguinte; a cl. 11ª,
+  // §5º diz o que acontece se não pedir — a partir do 11º dia, a numeração faltante é presumida
+  // como "documentos emitidos em contingência e não transmitidos", ou seja, venda sem nota.
+  //
+  // E não existe reaproveitar: o MOC 7.0 (Anexo III, nota 2) diz que manter número e série "NUNCA
+  // para os casos em que a NF-e foi normalmente emitida mas o contribuinte não obteve êxito na
+  // consulta sobre o resultado da autorização". Para essas, manda inutilizar.
+
+  /** Números sem documento válido numa série — o que precisa ser inutilizado, em faixas. */
+  async lacunas(tenantId: string, unidadeId: string | null, serie?: number) {
+    const r: any = await this.db.execute(sql`
+      with faixa as (
+        select serie, max(numero) as ate
+          from nota_fiscal
+         where tenant_id = ${tenantId}
+           and unidade_id is not distinct from ${unidadeId ?? null}
+           and modelo = '65' and numero is not null
+           ${serie ? sql`and serie = ${serie}` : sql``}
+         group by serie
+      ),
+      todos as (
+        select f.serie, generate_series(1, f.ate) as numero from faixa f
+      ),
+      validas as (
+        -- Qualquer coisa que NÃO seja rejeitada ocupa o número: autorizada, cancelada, denegada
+        -- e também a PENDENTE (enquanto não se sabe o que a SEFAZ fez, não se inutiliza).
+        select serie, numero from nota_fiscal
+         where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+           and modelo = '65' and status <> 'rejeitada'
+      ),
+      ja as (
+        select serie, numero_inicial, numero_final from fiscal_inutilizacao
+         where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+           and status <> 'rejeitada'
+      )
+      select t.serie, t.numero
+        from todos t
+       where not exists (select 1 from validas v where v.serie = t.serie and v.numero = t.numero)
+         and not exists (select 1 from ja j
+                          where j.serie = t.serie and t.numero between j.numero_inicial and j.numero_final)
+       order by t.serie, t.numero`);
+    const linhas = (r.rows ?? r) as { serie: number; numero: number }[];
+
+    // Números soltos viram FAIXAS: um pedido por faixa, não um por número.
+    const porSerie = new Map<number, { inicio: number; fim: number }[]>();
+    for (const l of linhas) {
+      const serieN = Number(l.serie);
+      const numero = Number(l.numero);
+      const lista = porSerie.get(serieN) ?? [];
+      const ultima = lista[lista.length - 1];
+      if (ultima && numero === ultima.fim + 1) ultima.fim = numero;
+      else lista.push({ inicio: numero, fim: numero });
+      porSerie.set(serieN, lista);
+    }
+    return [...porSerie.entries()].map(([s, faixas]) => ({
+      serie: s,
+      total: faixas.reduce((n, f) => n + (f.fim - f.inicio + 1), 0),
+      faixas: faixas.map((f) => ({ ...f, quantidade: f.fim - f.inicio + 1 })),
+    }));
+  }
+
+  /**
+   * Pede à SEFAZ a inutilização de uma faixa. IRREVERSÍVEL: homologada, aqueles números nunca
+   * mais podem virar nota. Por isso a faixa é conferida contra o banco antes de sair daqui.
+   */
+  async inutilizarFaixa(
+    tenantId: string,
+    atorId: string | null,
+    dto: { unidadeId?: string | null; serie: number; numeroInicial: number; numeroFinal: number; justificativa: string },
+  ) {
+    const unidadeId = await this.resolverUnidadeEmissao(tenantId, dto.unidadeId ?? null);
+    const serie = Number(dto.serie);
+    const ini = Number(dto.numeroInicial);
+    const fim = Number(dto.numeroFinal);
+    const justificativa = String(dto.justificativa ?? '').trim();
+    if (!Number.isInteger(serie) || serie < 0 || serie > 999)
+      throw new BadRequestException('Série inválida.');
+    if (!Number.isInteger(ini) || !Number.isInteger(fim) || ini < 1 || fim < ini)
+      throw new BadRequestException('Faixa inválida: informe número inicial e final, do menor para o maior.');
+    if (justificativa.length < 15)
+      throw new BadRequestException('A justificativa precisa de ao menos 15 caracteres (exigência da SEFAZ).');
+
+    const cfg: any = await this.configRaw(tenantId, unidadeId);
+    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
+
+    // 1) Nenhum número da faixa pode ter documento válido. Inutilizar por cima de nota
+    //    autorizada é perda de documento fiscal, e não há como desfazer.
+    const ocupados: any = await this.db.execute(sql`
+      select numero, status from nota_fiscal
+       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+         and modelo = '65' and serie = ${serie} and numero between ${ini} and ${fim}
+         and status <> 'rejeitada'
+       order by numero limit 5`);
+    const comNota = (ocupados.rows ?? ocupados) as { numero: number; status: string }[];
+    if (comNota.length)
+      throw new BadRequestException(
+        `A faixa tem nota que ocupa o número: ${comNota
+          .map((n) => `${n.numero} (${n.status})`)
+          .join(', ')}. Inutilização é definitiva — corrija a faixa.`,
+      );
+
+    // 2) Nem pode repetir pedido: a SEFAZ devolve 563 ("já existe pedido de inutilização").
+    const jaPedido: any = await this.db.execute(sql`
+      select numero_inicial, numero_final, status from fiscal_inutilizacao
+       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+         and serie = ${serie} and status <> 'rejeitada'
+         and numero_inicial <= ${fim} and numero_final >= ${ini}
+       limit 1`);
+    const conflito = (jaPedido.rows ?? jaPedido)[0];
+    if (conflito)
+      throw new BadRequestException(
+        `A faixa ${conflito.numero_inicial}–${conflito.numero_final} desta série já tem pedido (${conflito.status}).`,
+      );
+
+    // 3) O ANO do pedido é o da numeração — o das notas daquela faixa, não o de hoje (uma lacuna
+    //    de dezembro é inutilizada em janeiro, e o Id levaria o ano errado).
+    const anoNota: any = await this.db.execute(sql`
+      select to_char(max(created_at), 'YY') as ano from nota_fiscal
+       where tenant_id = ${tenantId} and unidade_id is not distinct from ${unidadeId ?? null}
+         and modelo = '65' and serie = ${serie} and numero between ${ini} and ${fim}`);
+    const ano2 = (anoNota.rows ?? anoNota)[0]?.ano ?? hojeISO().slice(2, 4);
+
+    const credencial = await obterCredencial(this.db, tenantId, unidadeId);
+    const cert = certificadoParaAssinar(credencial);
+    const ambiente = String(cfg.ambiente ?? '2');
+
+    const pedido = montarInutNFe({
+      ambiente,
+      codigoUf: cfg.codigoUf,
+      ano2,
+      cnpj: cfg.cnpj,
+      modelo: '65',
+      serie,
+      numeroInicial: ini,
+      numeroFinal: fim,
+      justificativa,
+    });
+    const assinado = assinarInutNFe(pedido, cert);
+
+    // Grava ANTES de enviar: se a resposta se perder no caminho, fica o registro de que o pedido
+    // saiu — e o próximo pedido igual é barrado aqui em vez de levar 563 da SEFAZ.
+    const [registro] = await this.db
+      .insert(fiscalInutilizacao)
+      .values({
+        tenantId, unidadeId, ano: Number(`20${ano2}`), modelo: '65', serie,
+        numeroInicial: ini, numeroFinal: fim, justificativa,
+        status: 'pendente', ambiente, xml: assinado, solicitadoPorId: atorId,
+      })
+      .returning();
+
+    let campos: Record<string, unknown>;
+    try {
+      const r = await inutilizarNfce({ uf: cfg.uf, ambiente, pedidoAssinado: assinado, cert });
+      campos =
+        r.situacao === 'homologada'
+          ? { status: 'homologada', cstat: r.cStat, motivo: r.xMotivo, protocolo: r.protocolo, xml: r.procInutNFe, homologadaEm: new Date() }
+          : { status: 'rejeitada', cstat: r.cStat, motivo: `${r.cStat} - ${r.xMotivo}`.slice(0, 400) };
+    } catch (e: any) {
+      // Sem resposta: NÃO se marca como rejeitada (a SEFAZ pode ter homologado). Fica pendente,
+      // e um pedido novo para a mesma faixa continua barrado.
+      if (e instanceof SefazInalcancavel) {
+        await this.db
+          .update(fiscalInutilizacao)
+          .set({ motivo: `Sem resposta da SEFAZ — situação desconhecida. ${e.message}`.slice(0, 400), updatedAt: new Date() })
+          .where(eq(fiscalInutilizacao.id, registro.id));
+        throw new ServiceUnavailableException(e.message);
+      }
+      campos = { status: 'rejeitada', motivo: String(e?.message ?? 'falha').slice(0, 400) };
+    }
+
+    const [final] = await this.db
+      .update(fiscalInutilizacao)
+      .set({ ...campos, updatedAt: new Date() })
+      .where(eq(fiscalInutilizacao.id, registro.id))
+      .returning();
+
+    await this.auditoria.registrar({
+      tenantId, atorId, atorPerfil: '', tipo: 'fiscal', acao: 'inutilizou_numeracao',
+      entidadeTipo: 'fiscal_inutilizacao', entidadeId: final.id,
+      detalhe: { serie, numeroInicial: ini, numeroFinal: fim, status: final.status, motivo: final.motivo, justificativa },
+    });
+    if (final.status === 'rejeitada') throw new BadRequestException(`Inutilização rejeitada pela SEFAZ: ${final.motivo}`);
+    return final;
+  }
+
+  /** Histórico dos pedidos de inutilização — é comprovante, fica à mão. */
+  async listarInutilizacoes(tenantId: string, unidadeId?: string | null) {
+    return this.db
+      .select()
+      .from(fiscalInutilizacao)
+      .where(
+        and(
+          eq(fiscalInutilizacao.tenantId, tenantId),
+          unidadeId ? sql`unidade_id is not distinct from ${unidadeId}` : sql`true`,
+        ),
+      )
+      .orderBy(sql`created_at desc`)
+      .limit(100);
   }
 
   // A nota de teste precisa cair na MESMA sequência das vendas. A série é por estabelecimento, e

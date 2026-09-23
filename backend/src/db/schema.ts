@@ -2122,6 +2122,31 @@ export const fiscalSerie = pgTable('fiscal_serie', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Pedidos de INUTILIZAÇÃO de numeração (mig 282). Número que não virou nota deixa buraco na
+// sequência, e a lei manda pedir a inutilização até o 10º dia do mês seguinte (Ajuste SINIEF
+// 19/16, cl. 16ª). O `xml` guarda o procInutNFe — pedido + protocolo, que é o comprovante.
+export const fiscalInutilizacao = pgTable('fiscal_inutilizacao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id').notNull(),
+  unidadeId: uuid('unidade_id'),
+  ano: integer('ano').notNull(),
+  modelo: text('modelo').notNull().default('65'),
+  serie: integer('serie').notNull(),
+  numeroInicial: integer('numero_inicial').notNull(),
+  numeroFinal: integer('numero_final').notNull(),
+  justificativa: text('justificativa').notNull(),
+  status: text('status').notNull().default('pendente'), // pendente|homologada|rejeitada
+  cstat: text('cstat'),
+  motivo: text('motivo'),
+  protocolo: text('protocolo'),
+  ambiente: text('ambiente').notNull().default('2'),
+  xml: text('xml'),
+  solicitadoPorId: uuid('solicitado_por_id'),
+  homologadaEm: timestamp('homologada_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const notaFiscal = pgTable('nota_fiscal', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id')

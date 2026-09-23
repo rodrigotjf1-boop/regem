@@ -31,12 +31,21 @@ export default function NotasPage() {
   const [notas, setNotas] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [consultando, setConsultando] = useState<string | null>(null);
+  const [lacunas, setLacunas] = useState<any[] | null>(null);
+  const [inutilizando, setInutilizando] = useState(false);
+  const isPresidente = cat === 'presidente';
 
   const reload = useCallback(async () => {
     try {
       setNotas((await api.notasFiscais()) as any[]);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao carregar');
+    }
+    // Lacunas são coisa de gestor, e a rota é restrita: falha aqui não derruba a tela.
+    try {
+      setLacunas((await api.lacunasFiscais()) as any[]);
+    } catch {
+      setLacunas([]);
     }
   }, []);
 
@@ -65,6 +74,35 @@ export default function NotasPage() {
     }
   }
 
+  // Inutilizar é DEFINITIVO: a faixa homologada nunca mais pode virar nota.
+  async function inutilizar(serie: number, faixa: any) {
+    const quantos = faixa.quantidade > 1 ? `os números ${faixa.inicio} a ${faixa.fim}` : `o número ${faixa.inicio}`;
+    if (!window.confirm(`Inutilizar ${quantos} da série ${serie}? Isso é definitivo: esses números nunca mais poderão virar nota.`))
+      return;
+    const justificativa =
+      window.prompt('Justificativa (mín. 15 caracteres):', 'Numeracao sem nota autorizada - quebra de sequencia') ?? '';
+    if (!justificativa) return;
+    if (justificativa.trim().length < 15) {
+      toast.error('A justificativa precisa de ao menos 15 caracteres.');
+      return;
+    }
+    setInutilizando(true);
+    try {
+      const r: any = await api.inutilizarFaixa({
+        serie,
+        numeroInicial: faixa.inicio,
+        numeroFinal: faixa.fim,
+        justificativa: justificativa.trim(),
+      });
+      toast.success(`Inutilização homologada — protocolo ${r?.protocolo ?? ''}.`);
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao inutilizar');
+    } finally {
+      setInutilizando(false);
+    }
+  }
+
   async function cancelar(n: any) {
     const justificativa = window.prompt('Justificativa do cancelamento (mín. 15 caracteres):') ?? '';
     if (!justificativa) return;
@@ -85,6 +123,49 @@ export default function NotasPage() {
     <Shell eyebrow="Fiscal · NFC-e" title="Notas fiscais">
       <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
+        {!!lacunas?.length && isGestor && (
+          <Card className="p-4">
+            <p className="text-sm font-medium text-muted-foreground">Numeração sem nota</p>
+            <p className="mb-3 mt-1 text-xs text-muted-foreground">
+              Número reservado que não virou nota autorizada deixa um buraco na sequência. A lei manda pedir a
+              inutilização desses números <strong>até o dia 10 do mês seguinte</strong> — depois disso, o Fisco
+              presume que foram vendas em contingência não transmitidas.
+            </p>
+            <div className="space-y-3">
+              {lacunas.map((l: any) => (
+                <div key={l.serie} className="rounded-lg border border-border p-3">
+                  <p className="text-sm font-medium">
+                    Série {l.serie} · {l.total} número(s)
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {l.faixas.map((f: any) => (
+                      <div
+                        key={`${l.serie}-${f.inicio}`}
+                        className="flex items-center gap-2 rounded border border-border px-2 py-1"
+                      >
+                        <span className="font-mono text-xs">
+                          {f.inicio === f.fim ? f.inicio : `${f.inicio}–${f.fim}`}
+                        </span>
+                        {isPresidente && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => inutilizar(l.serie, f)}
+                            disabled={inutilizando}
+                          >
+                            Inutilizar
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         <Card className="p-4">
           <p className="mb-3 text-sm font-medium text-muted-foreground">
             Últimas notas {notas ? `(${notas.length})` : ''}
