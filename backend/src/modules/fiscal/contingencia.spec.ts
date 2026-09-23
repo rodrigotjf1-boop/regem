@@ -185,6 +185,20 @@ descrever('a venda não trava quando a SEFAZ fica muda', () => {
                'https://consultadfe.fazenda.rj.gov.br/consultaNFCe/QRCode','www.fazenda.rj.gov.br/nfce/consulta')`,
       [tenant, CNPJ],
     );
+    // `edge_status`/`edge_heartbeat` são tabelas SÓ-NUVEM, e o banco de teste do CI simula uma
+    // instalação sem elas. A impressão pergunta a elas se a loja tem servidor local vivo (para
+    // mandar o comando para lá em vez de imprimir daqui) — sem as tabelas, a consulta falha, a
+    // impressão é abortada em silêncio (best-effort, de propósito) e os testes de via não teriam
+    // o que conferir. Criar as duas vazias aqui deixa `edgeAtivo` responder "não há edge", que é
+    // o cenário destes testes.
+    for (const t of ['edge_status', 'edge_heartbeat']) {
+      await pool.query(
+        `create table if not exists ${t} (
+           id uuid primary key default gen_random_uuid(),
+           tenant_id uuid, unidade_id uuid,
+           recebido_em timestamptz not null default now())`,
+      );
+    }
     // Uma impressora de cupom na loja: sem ela a DANFE não é enfileirada e os testes de via
     // passariam por engano (nenhuma via é "nenhuma via a mais").
     await pool.query(
