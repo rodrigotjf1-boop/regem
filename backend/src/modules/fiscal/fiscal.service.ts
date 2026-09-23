@@ -1854,7 +1854,28 @@ export class FiscalService {
   // Antes: TODAS as impressoras com o `papel` antigo 'cupom' DA EMPRESA — numa rede com duas
   // lojas cada nota saía nas duas, e numa loja com dois caixas, nos dois. `faz_cupom` (mig 167)
   // é o campo que o cadastro mantém hoje.
+  /**
+   * A DANFE é BEST-EFFORT, e isso não é descuido: quando se chega aqui o documento fiscal já
+   * existe (autorizado ou emitido em contingência). Deixar a impressão derrubar a chamada faria
+   * a venda devolver erro para uma nota que está de pé — e o caixa tentaria emitir de novo.
+   * O motivo real vai para o log; sem ele, o cupom simplesmente não sairia e ninguém saberia.
+   */
   private async imprimirDanfe(
+    tenantId: string,
+    nota: any,
+    itens: NfceItem[],
+    extras?: { frete: number; desconto: number; consumidor?: string | null; contingencia?: boolean },
+  ) {
+    try {
+      await this.montarEEnfileirarDanfe(tenantId, nota, itens, extras);
+    } catch (e: any) {
+      this.log.warn(
+        `DANFE da NFC-e ${nota?.numero}/${nota?.serie} não foi enfileirada: ${e?.message ?? e}`,
+      );
+    }
+  }
+
+  private async montarEEnfileirarDanfe(
     tenantId: string,
     nota: any,
     itens: NfceItem[],
