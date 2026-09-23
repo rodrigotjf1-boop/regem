@@ -34,6 +34,8 @@ export default function NotasPage() {
   const [lacunas, setLacunas] = useState<any[] | null>(null);
   const [inutilizando, setInutilizando] = useState(false);
   const [duplicidades, setDuplicidades] = useState<any[] | null>(null);
+  const [contingencia, setContingencia] = useState<any | null>(null);
+  const [transmitindo, setTransmitindo] = useState(false);
   const [cancelandoDup, setCancelandoDup] = useState<string | null>(null);
   const isPresidente = cat === 'presidente';
 
@@ -54,7 +56,27 @@ export default function NotasPage() {
     } catch {
       setDuplicidades([]);
     }
+    try {
+      setContingencia(await api.contingenciaFiscal());
+    } catch {
+      setContingencia(null);
+    }
   }, []);
+
+  async function transmitirAgora() {
+    setTransmitindo(true);
+    try {
+      const r: any = await api.transmitirContingencia();
+      toast.success(
+        r?.transmitidas ? `${r.transmitidas} nota(s) transmitida(s).` : 'Nada foi transmitido ainda.',
+      );
+      await reload();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Não foi possível transmitir agora.');
+    } finally {
+      setTransmitindo(false);
+    }
+  }
 
   useEffect(() => {
     if (!getToken()) {
@@ -151,6 +173,46 @@ export default function NotasPage() {
     <Shell eyebrow="Fiscal · NFC-e" title="Notas fiscais">
       <div className="space-y-4">
         {erro && <p className="text-destructive">{erro}</p>}
+        {/* CONTINGÊNCIA: o caixa continua vendendo, mas a nota ainda não foi autorizada. O
+            prazo é curto (fim do primeiro dia útil seguinte) e não transmitir é multa de 5%
+            do valor da operação — então isto fica no topo da tela, não escondido numa aba. */}
+        {isGestor && (contingencia?.ativa || !!contingencia?.fila?.length) && (
+          <Card className="border-warn/40 p-4">
+            <p className="text-sm font-medium text-warn">
+              {contingencia.ativa ? 'Emitindo em contingência' : 'Notas de contingência à espera de autorização'}
+            </p>
+            <p className="mb-3 mt-1 text-xs text-muted-foreground">
+              {contingencia.ativa
+                ? 'A SEFAZ não está respondendo. As vendas continuam saindo com cupom válido, e as notas são transmitidas assim que ela voltar.'
+                : 'A SEFAZ voltou. Estas notas ainda precisam ser autorizadas.'}{' '}
+              O prazo é <strong>até o fim do primeiro dia útil seguinte</strong> à emissão.
+              {contingencia.desde ? ` Em contingência desde ${hora(contingencia.desde)}.` : ''}
+            </p>
+            <div className="space-y-2">
+              {(contingencia.fila ?? []).slice(0, 10).map((n: any) => (
+                <div key={n.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">NFC-e {n.serie}/{n.numero}</p>
+                    <p className={`text-[11px] ${n.vencida ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {n.vencida
+                        ? 'Prazo vencido — transmita e fale com a contabilidade.'
+                        : `Restam ${Number(n.horasRestantes).toFixed(0)} h.`}
+                      {n.motivo ? ` · ${n.motivo}` : ''}
+                    </p>
+                  </div>
+                </div>
+              ))}
+              {(contingencia.fila?.length ?? 0) > 10 && (
+                <p className="text-[11px] text-muted-foreground">
+                  e mais {contingencia.fila.length - 10} nota(s).
+                </p>
+              )}
+            </div>
+            <Button type="button" size="sm" variant="outline" className="mt-3" onClick={transmitirAgora} disabled={transmitindo}>
+              {transmitindo ? 'Transmitindo…' : 'Tentar transmitir agora'}
+            </Button>
+          </Card>
+        )}
         {!!duplicidades?.length && isGestor && (
           <Card className="border-warn/40 p-4">
             <p className="text-sm font-medium text-warn">Venda com duas notas</p>

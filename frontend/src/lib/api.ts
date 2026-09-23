@@ -709,6 +709,8 @@ export const api = {
   notaFiscal: (id: string) => req(`/fiscal/notas/${id}`),
   // Vendas com duas notas autorizadas, e o cancelamento por substituição (prazo de 168 h).
   duplicidadesFiscais: () => req('/fiscal/duplicidades'),
+  contingenciaFiscal: () => req('/fiscal/contingencia'),
+  transmitirContingencia: () => req('/fiscal/contingencia/transmitir', { method: 'POST' }),
   cancelarPorSubstituicao: (id: string, justificativa?: string) =>
     req(`/fiscal/notas/${id}/cancelar-substituicao`, {
       method: 'POST',

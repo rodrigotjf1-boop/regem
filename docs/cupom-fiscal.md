@@ -415,9 +415,36 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
   porque nota autorizada ninguém vai reconferir depois. ⚠️ O `cStat 120` **não consta** da
   tabela 4.1 do MOC consolidado (ela salta de 112 para 124); ele vem de nota técnica, e a data
   de produção de 05/10/2026 é da skill, não do MOC — `ehAutorizado()` já o aceita desde antes.
-- **CONTINGÊNCIA OFF-LINE — parte 1: o documento e o QR** (`chave.ts`, `nfce-xml.builder.ts`).
-  Ainda **sem efeito na emissão**: é a base para a parte 2 (entrar e sair da contingência) e a 3
-  (transmitir a fila). O que já está pronto e provado:
+- **CONTINGÊNCIA OFF-LINE — o caixa não para quando a SEFAZ fica muda** (`contingencia.ts`,
+  `fiscal.service.ts`, mig 286). A venda sai com cupom válido, assinado, e a autorização vem
+  depois. Ponta a ponta:
+  - **Entra sozinha, e só pelo SILÊNCIO**: a nota enviada sem resposta fica `pendente`, o ponto
+    de emissão entra em contingência e a MESMA venda sai numa nota nova, `tpEmis=9`. Rejeição
+    **não** liga contingência — rejeição é a SEFAZ dizendo não, e no RJ um documento emitido com
+    IE irregular é inidôneo *inclusive em contingência*.
+  - **O número da nota pendente não volta** (Ajuste 19/16, cl. 11ª, §2º, I): a de contingência
+    usa o seguinte, que é o que o Anexo IV recomenda. A pendente segue o caminho do P18/P20 —
+    consulta, e então inutilização ou cancelamento por substituição.
+  - **Enquanto está em contingência, nenhuma venda tenta a SEFAZ.** Era justamente a espera pelo
+    *timeout* que travava o caixa; repetir a tentativa a cada venda devolveria o problema.
+  - **Sai sozinha**: a cada 5 minutos o job pergunta o status do serviço (consulta que não emite
+    nem gasta número). Voltando `107`, a contingência desliga.
+  - **A fila é transmitida** pelo mesmo job, com o XML que já está gravado — mesma chave, mesmo
+    `cNF` (Anexo IV, §3). Autorizada vira documento; **rejeitada CONTINUA na fila**, porque
+    número emitido em contingência **não pode ser inutilizado** (cl. 11ª, §2º, II): ele tem de
+    ser transmitido, corrigido e reenviado com a mesma numeração. Duplicidade (204) manda
+    consultar pela chave em vez de adivinhar.
+  - **Prazo: fim do primeiro dia útil subsequente** à emissão. A tela de notas mostra quanto
+    resta por nota, e o log registra quando alguma passa do prazo. No RJ, não transmitir é
+    **multa de 5% do valor da operação** (RICMS, art. 62-C, III) e transmitir fora do prazo,
+    100 UFIR-RJ por obrigação (XIII) — por isso a fila não é acessório.
+  - **DANFE**: sai com **"EMITIDA EM CONTINGENCIA"** e uma **segunda via** marcada como "VIA DO
+    ESTABELECIMENTO" (Anexo IV, §4). A alternativa à 2ª via — guarda eletrônica do XML — exige
+    que a loja lavre termo no livro modelo 6; enquanto não lavrar, o papel é o caminho seguro.
+  - **O estado é por PONTO DE EMISSÃO** (`tenant`, `unidade`, `origem`): a loja pode estar sem
+    internet enquanto a nuvem emite normalmente. A tabela **não sincroniza** — sincronizar faria
+    a nuvem, que está bem, desligar a contingência da loja que continua fora do ar.
+  - Base do documento e do QR (parte 1):
   - `tpEmis=9` com **`dhCont` e `xJust`** como últimos elementos do `ide` — faltando qualquer um
     é rejeição **557** (B28-20); informá-los numa nota normal é **556** (B28-10). Os campos
     obrigatórios da contingência estão no **MOC 7.0, Anexo IV, §4**: `mod=65`, `dhCont`,
@@ -474,7 +501,7 @@ por inutilização — nunca reusado.
 | P13 | **Prazo de validade do CSC** na maioria das UFs | Segue aberto. Indício novo: a tela de **SE** exibe "Data Início/Data Fim". ⚠️ O vocabulário nacional é *revogado* (463) / *não cadastrado* (462) / *hash difere* (464) — "CSC expirado" não aparece em fonte nacional |
 | ~~P14~~ | ~~Regras estaduais de AC, AP, MA, PA, PB, PI, RN, RO, RR, SE, TO~~ — **RESOLVIDO**: as **27 UFs** têm ficha completa na skill (`referencias/estados/{UF}.md`), com autorizador, QR, CSC, credenciamento, prazos, contingência e exigências próprias | — |
 | ~~P15~~ | ~~`cIdToken` com ou sem zeros~~ — **RESOLVIDO: SEM zeros à esquerda** ("1", não "000001"). Manual do DANFE NFC-e e QR Code **v6.0**, §4.3.1 e §4.3.2, texto idêntico, com exemplo no §4.3.6.1. **O hash usa a mesma forma que vai na URL.** O "000001" é do **QR v1, desativado em 01/10/2018** — é por isso que o manual do RJ se contradizia | — |
-| ~~P21~~ | ~~Contingência off-line: o RJ permite?~~ — **RESOLVIDO: PERMITE.** Manual NFC-e da SEFAZ/RJ de **16/07/2026**, pergunta 1.28: *"emissão **offline**, com transmissão do arquivo para a SEFAZ até o **primeiro dia útil subsequente**… A decisão da emissão da NFC-e em contingência é **exclusiva do contribuinte** e não depende de autorização do Fisco."* ⚠️ **Não são 24 h** — o próprio manual registra a troca em 30/01/2017 (o título da pergunta 1.30 ficou velho). **A implementação está liberada** | **em implementação**: parte 1 (XML `tpEmis=9` + QR off-line assinado) feita em 23/09/2026 — ver §6. Faltam a entrada/saída automática (parte 2, com migration) e a transmissão da fila dentro do prazo (parte 3) |
+| ~~P21~~ | ~~Contingência off-line: o RJ permite?~~ — **RESOLVIDO: PERMITE.** Manual NFC-e da SEFAZ/RJ de **16/07/2026**, pergunta 1.28: *"emissão **offline**, com transmissão do arquivo para a SEFAZ até o **primeiro dia útil subsequente**… A decisão da emissão da NFC-e em contingência é **exclusiva do contribuinte** e não depende de autorização do Fisco."* ⚠️ **Não são 24 h** — o próprio manual registra a troca em 30/01/2017 (o título da pergunta 1.30 ficou velho). **A implementação está liberada** | **RESOLVIDO em 23/09/2026** (mig 286): entrada automática pelo silêncio da SEFAZ, saída pelo status do serviço, fila transmitida dentro do prazo, DANFE com "EMITIDA EM CONTINGENCIA" + 2ª via. Ver §6 |
 | ~~P22~~ | ~~Denegação → rejeição 781~~ — **RESOLVIDO 23/09/2026, e a premissa era outra**: as duas formas estão **vigentes** no MOC consolidado (1C17-38 → 781 rejeição · 1C17-40 → 301 denegação), então não se trata de substituir uma pela outra. O defeito real era nosso: a **denegação vinda da autorização** era gravada como `rejeitada`, e o número denegado entraria no relatório de lacunas (ERR-094) | — |
 | ~~P23~~ | ~~Grupo `cMsg`/`xMsg` não é lido~~ — **RESOLVIDO 23/09/2026**: lido na autorização e na consulta, gravado no `motivo` e logado. Confirmado no **XSD oficial** (`TProtNFe`), já que o nome "PR13" e o `cStat 120` não aparecem no MOC consolidado on-line | — |
 | ~~P24~~ | ~~Limite de identificação por UF não é configuração~~ — **RESOLVIDO 23/09/2026** (mig 285): tabela por UF em `fiscal/destinatario.ts` + `fiscal_config.limite_identificacao` por loja; UF fora da tabela cai no piso mais restritivo conhecido | — |
@@ -493,6 +520,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 23/09/2026 | **Contingência off-line COMPLETA** (mig 286). Quando a SEFAZ fica muda, o ponto de emissão entra em contingência sozinho, a venda sai com `tpEmis=9` num número NOVO (o da nota pendente não se reaproveita), nenhuma venda seguinte tenta a SEFAZ (era a espera que travava o caixa), e um job de 5 minutos sai da contingência assim que o status do serviço volta `107` e transmite a fila com o XML original. **Rejeição na transmissão não tira a nota da fila** — número de contingência não pode ser inutilizado. DANFE com "EMITIDA EM CONTINGENCIA" e 2ª via; a tela de notas mostra o prazo de cada uma. **P21 resolvido.** |
 | 23/09/2026 | **Contingência off-line, parte 1** (sem migration): a NFC-e com `tpEmis=9`, `dhCont` e `xJust`, e o **QR Code v3 off-line assinado** (oito parâmetros; RSA-SHA1 dos parâmetros 1 a 7 com o A1 da loja). Sem efeito na emissão ainda — é a base das partes 2 e 3. Junto, uma trava que faltava: a chave de acesso e o `ide` têm de concordar no `tpEmis`, que é o 35º dígito da chave. |
 | 23/09/2026 | **Denegação separada da rejeição e o aviso da SEFAZ lido** (sem migration). A denegação vinda da autorização virava `rejeitada`, e o número denegado — que a SEFAZ **já tem na base** — entraria no relatório de lacunas para ser inutilizado (ERR-094). Agora `110/301/302` gravam `denegada`, com o protocolo do registro. Junto: o grupo **`cMsg`/`xMsg`** (aviso da SEFAZ ao emissor, confirmado no XSD oficial) passou a ser lido na autorização e na consulta, entrar no `motivo` e sair no log. **P22 e P23 resolvidos** — e a premissa do P22 estava errada: 781 (rejeição) e 301 (denegação) estão **as duas vigentes**, cada UF com a sua. |
 | 23/09/2026 | **Destinatário, entrega a domicílio e intermediador** (mig 285). A nota de delivery passa a sair como `indPres=4` com `dest`/`enderDest`/`transporta` quando há CPF e endereço, e como presencial com a taxa em `vOutro` quando não há — o que **corrige a rejeição 753**, que toda nota de delivery com taxa da loja receberia. `indIntermed` passou a sair **sempre** (434). Limite de identificação parametrizado por UF e por loja (**P24 resolvido**, P10 encaminhado). CPF opcional no cardápio do Regem, lido do payload nos canais externos e conferido pelo dígito verificador antes de entrar no XML. Abertas **P26** (CNPJ dos intermediadores) e **P27** (transportador na logística do canal). |

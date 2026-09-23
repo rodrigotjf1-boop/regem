@@ -153,6 +153,22 @@ export class FiscalController {
     return this.service.lacunas(user.tenantId, unidadeId, serie ? Number(serie) : undefined);
   }
 
+  // CONTINGÊNCIA OFF-LINE. Também não é só-nuvem: quem fica sem SEFAZ é o caixa da loja, e é
+  // lá que a fila precisa ser vista — inclusive quando a internet ainda não voltou.
+  @Get('contingencia')
+  @Roles('presidente', 'gerente')
+  contingencia(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.service.painelContingencia(user.tenantId, unidadeId);
+  }
+
+  // Força um ciclo agora (sair da contingência se a SEFAZ voltou + transmitir a fila), em vez
+  // de esperar os 5 minutos do job. É o botão de quem está olhando o prazo correr.
+  @Post('contingencia/transmitir')
+  @Roles('presidente', 'gerente')
+  transmitirContingencia() {
+    return this.service.rodarContingencia();
+  }
+
   @Get('inutilizacoes')
   @Roles('presidente', 'gerente')
   inutilizacoes(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
