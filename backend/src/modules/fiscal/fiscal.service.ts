@@ -45,7 +45,14 @@ import { assinarNfe } from './assinatura';
 import { responsavelTecnico } from './responsavel-tecnico';
 import { SituacaoNaSefaz, consultarSituacaoNfce } from './sefaz/consulta-protocolo';
 import { inutilizarNfce, montarInutNFe } from './sefaz/inutilizacao';
-import { assinarInutNFe } from './assinatura';
+import {
+  PRAZO_CANC_SUBST_HORAS,
+  TP_EVENTO_CANC_SUBST,
+  enviarEventoCancSubst,
+  montarEventoCancSubst,
+} from './sefaz/evento-cancelamento';
+import { fiscalEvento } from '../../db/schema';
+import { assinarInutNFe, assinarEvento } from './assinatura';
 import { fiscalInutilizacao } from '../../db/schema';
 import { hojeISO } from '../../common/data';
 import { montarNfeProc } from './sefaz/autorizacao';
@@ -590,6 +597,10 @@ export class FiscalService {
     } else if (sit.situacao === 'inexistente' && idadeMs >= FiscalService.CARENCIA_INEXISTENTE_MS) {
       // A SEFAZ nunca registrou esta nota: a venda ficou sem documento e o número está livre.
       campos = { status: 'rejeitada', cstat: sit.cStat, motivo };
+    } else if (nota.status === 'rejeitada') {
+      // Já encerrada: a re-consulta existe só para flagrar a autorização tardia. Qualquer outra
+      // resposta apenas conta a tentativa (e faz o recuo crescer).
+      campos = { tentativasConsulta: Number(nota.tentativasConsulta ?? 0) + 1 };
     } else {
       // Indefinido — ou 217 cedo demais para acreditar. Continua pendente, conta a tentativa.
       campos = {
@@ -602,10 +613,19 @@ export class FiscalService {
       };
     }
 
+    // A nota "rejeitada por 217" NÃO é caso encerrado: a SEFAZ pode ter registrado depois, e é
+    // isso que cria a duplicidade que o evento 110112 desfaz. Então ela também pode virar
+    // autorizada — mas só nesse sentido. Rejeitada por OUTRO motivo (schema, regra) está
+    // encerrada, e nenhuma consulta a reabre.
+    const podeMudar =
+      nota.status === 'pendente'
+        ? sql`status = 'pendente'`
+        : sql`status = 'rejeitada' and cstat = '217'`;
+    const mudaStatus = typeof campos.status === 'string';
     const [atualizada] = await this.db
       .update(notaFiscal)
       .set({ ...campos, consultadaEm: agora })
-      .where(and(eq(notaFiscal.id, nota.id), eq(notaFiscal.status, 'pendente')))
+      .where(and(eq(notaFiscal.id, nota.id), mudaStatus ? podeMudar : sql`true`))
       .returning();
 
     // Outro processo (ou outra aba) resolveu antes: o desfecho dele vale, não o nosso.
@@ -657,7 +677,12 @@ export class FiscalService {
          and s.unidade_id is not distinct from n.unidade_id
          and s.serie = n.serie
          and s.origem = ${origem}
-       where n.status = 'pendente'
+       where (n.status = 'pendente'
+              -- A nota dada como inexistente continua sendo vigiada enquanto o prazo do
+              -- cancelamento por substituição correr (168 h): se ela aparecer autorizada, a
+              -- venda tem DUAS notas e só dá para desfazer dentro dessa janela.
+              or (n.status = 'rejeitada' and n.cstat = '217'
+                  and n.created_at > now() - interval '168 hours'))
          and coalesce(n.simulada, false) = false
          and n.chave is not null
          and n.created_at < now() - interval '2 minutes'
@@ -688,6 +713,183 @@ export class FiscalService {
     if (pendentes.length)
       this.log.log(`pendentes ${origem}: ${resolvidas.length} de ${pendentes.length} resolvida(s)`);
     return { consultadas: pendentes.length, resolvidas: resolvidas.length, detalhe: resolvidas };
+  }
+
+  // ===== P20 — DUAS NOTAS PARA A MESMA VENDA =====
+  //
+  // Acontece assim (MOC 7.0, §3.5, que dá nome ao caso): a primeira nota foi enviada, a SEFAZ
+  // não respondeu, a consulta disse "não consta", emitimos a segunda para o cliente levar — e a
+  // primeira aparece autorizada depois. As duas acobertam a mesma venda, e a lei dá 168 horas
+  // para desfazer: cancelar a que NÃO acobertou, referenciando a que substituiu (evento 110112,
+  // Ajuste SINIEF 19/16, cl. 15ª-A). Passado o prazo, a SEFAZ recusa e a duplicidade fica.
+
+  /**
+   * Vendas com mais de uma NFC-e autorizada. A mais NOVA é a que o cliente levou (foi emitida
+   * porque a outra não tinha resposta), então a candidata a cancelamento é a mais ANTIGA.
+   */
+  async duplicidades(tenantId: string, unidadeId?: string | null) {
+    const r: any = await this.db.execute(sql`
+      with autorizadas as (
+        select id, comanda_id, serie, numero, chave, protocolo, emitida_em, created_at,
+               row_number() over (partition by comanda_id order by created_at, numero) as ordem,
+               count(*) over (partition by comanda_id) as quantas
+          from nota_fiscal
+         where tenant_id = ${tenantId}
+           and ${unidadeId ? sql`unidade_id is not distinct from ${unidadeId}` : sql`true`}
+           and comanda_id is not null
+           and status = 'autorizada'
+           and coalesce(simulada, false) = false
+      )
+      select a.id, a.comanda_id as "comandaId", a.serie, a.numero, a.chave, a.protocolo,
+             a.emitida_em as "emitidaEm",
+             s.id as "substitutaId", s.serie as "substitutaSerie", s.numero as "substitutaNumero",
+             s.chave as "substitutaChave",
+             -- Quanto ainda resta do prazo de 168 h, contado da AUTORIZAÇÃO da nota a cancelar.
+             round(extract(epoch from (
+               a.emitida_em + interval '168 hours' - now())) / 3600.0, 1) as "horasRestantes"
+        from autorizadas a
+        join autorizadas s on s.comanda_id = a.comanda_id and s.ordem = a.ordem + 1
+       where a.quantas > 1 and a.ordem = 1
+         and not exists (
+           select 1 from fiscal_evento e
+            where e.tenant_id = ${tenantId} and e.chave = a.chave
+              and e.tp_evento = ${TP_EVENTO_CANC_SUBST} and e.status <> 'rejeitado')
+       order by a.emitida_em`);
+    return (r.rows ?? r) as any[];
+  }
+
+  /**
+   * Cancela a nota duplicada REFERENCIANDO a que a substituiu (evento 110112). Irreversível —
+   * e com prazo: 168 horas contadas da autorização da nota cancelada.
+   */
+  async cancelarPorSubstituicao(
+    tenantId: string,
+    atorId: string | null,
+    notaId: string,
+    justificativa?: string,
+  ) {
+    const [nota] = await this.db
+      .select()
+      .from(notaFiscal)
+      .where(and(eq(notaFiscal.id, notaId), eq(notaFiscal.tenantId, tenantId)));
+    if (!nota) throw new NotFoundException('Nota não encontrada');
+    if (nota.status !== 'autorizada')
+      throw new BadRequestException('Só se cancela nota autorizada.');
+    if (!nota.chave || !nota.protocolo)
+      throw new BadRequestException('A nota não tem chave e protocolo — nada a cancelar na SEFAZ.');
+    if (!nota.comandaId)
+      throw new BadRequestException('Cancelamento por substituição exige a venda: esta nota não tem comanda.');
+
+    // A substituta é a nota que acobertou a venda: a MESMA comanda, autorizada, emitida depois.
+    const [substituta] = await this.db
+      .select()
+      .from(notaFiscal)
+      .where(
+        and(
+          eq(notaFiscal.tenantId, tenantId),
+          eq(notaFiscal.comandaId, nota.comandaId),
+          eq(notaFiscal.status, 'autorizada'),
+          sql`id <> ${nota.id}`,
+          sql`created_at >= ${nota.createdAt}`,
+        ),
+      )
+      .orderBy(sql`created_at`)
+      .limit(1);
+    if (!substituta?.chave)
+      throw new BadRequestException(
+        'Não achei a NFC-e substituta desta venda. O cancelamento por substituição exige informar ' +
+          'a nota que acobertou a operação — se não existe outra, o caso é de cancelamento comum.',
+      );
+
+    // Prazo: a SEFAZ rejeita fora das 168 h ("Prazo de cancelamento superior ao previsto").
+    const autorizadaEm = nota.emitidaEm ? new Date(nota.emitidaEm) : new Date(nota.createdAt);
+    const horas = (Date.now() - autorizadaEm.getTime()) / 3_600_000;
+    if (horas > PRAZO_CANC_SUBST_HORAS)
+      throw new BadRequestException(
+        `O prazo do cancelamento por substituição é de ${PRAZO_CANC_SUBST_HORAS} horas da autorização, ` +
+          `e já se passaram ${Math.floor(horas)}. A SEFAZ vai recusar — este caso é de conversa com a contabilidade.`,
+      );
+
+    const cfg: any = await this.configRaw(tenantId, nota.unidadeId);
+    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
+    const cert = certificadoParaAssinar(await obterCredencial(this.db, tenantId, nota.unidadeId));
+    const ambiente = String(nota.ambiente ?? cfg.ambiente ?? '2');
+    const just =
+      String(justificativa ?? '').trim() ||
+      `NFC-e emitida em duplicidade - operacao acobertada pela NFC-e ${substituta.serie}/${substituta.numero}`;
+
+    const evento = montarEventoCancSubst({
+      ambiente,
+      codigoUf: cfg.codigoUf,
+      cnpj: cfg.cnpj,
+      chave: nota.chave,
+      protocolo: nota.protocolo,
+      chaveSubstituta: substituta.chave,
+      justificativa: just,
+      // Mesma regra do dhEmi: hora do fuso da UF do emitente, nunca UTC.
+      dhEvento: dhEmiSefaz(new Date(), cfg.uf),
+    });
+    const assinado = assinarEvento(evento, cert);
+
+    // Grava antes de enviar: se a resposta se perder, fica o registro de que o evento saiu.
+    const [registro] = await this.db
+      .insert(fiscalEvento)
+      .values({
+        tenantId, unidadeId: nota.unidadeId, notaId: nota.id, chave: nota.chave,
+        tpEvento: TP_EVENTO_CANC_SUBST, nSeq: 1, justificativa: just,
+        chaveRef: substituta.chave, status: 'pendente', ambiente, xml: assinado,
+        solicitadoPorId: atorId,
+      })
+      .returning();
+
+    let campos: Record<string, unknown>;
+    try {
+      const r = await enviarEventoCancSubst({ uf: cfg.uf, ambiente, eventoAssinado: assinado, cert });
+      campos =
+        r.situacao === 'registrado'
+          ? { status: 'registrado', cstat: r.cStat, motivo: r.xMotivo, protocolo: r.protocolo, xml: r.procEventoNFe, registradoEm: new Date() }
+          : { status: 'rejeitado', cstat: r.cStat, motivo: `${r.cStat} - ${r.xMotivo}`.slice(0, 400) };
+    } catch (e: any) {
+      if (e instanceof SefazInalcancavel) {
+        await this.db
+          .update(fiscalEvento)
+          .set({ motivo: `Sem resposta da SEFAZ — situação desconhecida. ${e.message}`.slice(0, 400), updatedAt: new Date() })
+          .where(eq(fiscalEvento.id, registro.id));
+        throw new ServiceUnavailableException(e.message);
+      }
+      campos = { status: 'rejeitado', motivo: String(e?.message ?? 'falha').slice(0, 400) };
+    }
+
+    const [final] = await this.db
+      .update(fiscalEvento)
+      .set({ ...campos, updatedAt: new Date() })
+      .where(eq(fiscalEvento.id, registro.id))
+      .returning();
+
+    // A nota só vira 'cancelada' quando a SEFAZ registrou o evento — nunca por otimismo.
+    if (final.status === 'registrado')
+      await this.db
+        .update(notaFiscal)
+        .set({
+          status: 'cancelada',
+          canceladaEm: new Date(),
+          canceladaPorId: atorId,
+          justificativaCancelamento: just,
+          motivo: `${final.cstat} - ${final.motivo}`.slice(0, 400),
+        })
+        .where(and(eq(notaFiscal.id, nota.id), eq(notaFiscal.status, 'autorizada')));
+
+    await this.auditoria.registrar({
+      tenantId, atorId, atorPerfil: '', tipo: 'fiscal', acao: 'cancelou_por_substituicao',
+      entidadeTipo: 'nota_fiscal', entidadeId: nota.id,
+      detalhe: {
+        chave: nota.chave, numero: nota.numero, serie: nota.serie,
+        substituta: substituta.chave, status: final.status, motivo: final.motivo, justificativa: just,
+      },
+    });
+    if (final.status !== 'registrado')
+      throw new BadRequestException(`Cancelamento por substituição recusado pela SEFAZ: ${final.motivo}`);
+    return { status: final.status, protocolo: final.protocolo, motivo: final.motivo, substituta: substituta.chave };
   }
 
   // ===== P19 — O NÚMERO QUE NÃO VIROU NOTA =====

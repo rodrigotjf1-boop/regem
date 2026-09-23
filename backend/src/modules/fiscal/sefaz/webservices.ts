@@ -9,7 +9,8 @@ export type ServicoSefaz =
   | 'NFeStatusServico4'
   | 'NFeAutorizacao4'
   | 'NFeConsultaProtocolo4'
-  | 'NFeInutilizacao4';
+  | 'NFeInutilizacao4'
+  | 'RecepcaoEvento4';
 
 // Método SOAP de cada serviço (vai no `action` do Content-Type). Confirmado no mapa de
 // webservices da biblioteca sped-nfe (storage/wsnfe_4.00_mod55.xml) e nos stubs gerados do
@@ -25,6 +26,9 @@ export const METODO_SOAP: Record<ServicoSefaz, string> = {
   // Inutilização de faixa de numeração. Mesmas duas fontes; repare que o endereço da NFC-e é
   // todo minúsculo (`/ws/nfeinutilizacao/nfeinutilizacao4.asmx`), diferente dos outros.
   NFeInutilizacao4: 'nfeInutilizacaoNF',
+  // Eventos (cancelamento, cancelamento por substituição). Endereço todo minúsculo, como o
+  // da inutilização — copiado do portal da SVRS.
+  RecepcaoEvento4: 'nfeRecepcaoEvento',
 };
 
 export const NS_WSDL = (s: ServicoSefaz) => `http://www.portalfiscal.inf.br/nfe/wsdl/${s}`;
@@ -37,12 +41,14 @@ const SVRS_NFCE: Record<Ambiente, Record<ServicoSefaz, string>> = {
     NFeAutorizacao4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
     NFeConsultaProtocolo4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
     NFeInutilizacao4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+    RecepcaoEvento4: 'https://nfce-homologacao.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
   },
   '1': {
     NFeStatusServico4: 'https://nfce.svrs.rs.gov.br/ws/NfeStatusServico/NfeStatusServico4.asmx',
     NFeAutorizacao4: 'https://nfce.svrs.rs.gov.br/ws/NfeAutorizacao/NFeAutorizacao4.asmx',
     NFeConsultaProtocolo4: 'https://nfce.svrs.rs.gov.br/ws/NfeConsulta/NfeConsulta4.asmx',
     NFeInutilizacao4: 'https://nfce.svrs.rs.gov.br/ws/nfeinutilizacao/nfeinutilizacao4.asmx',
+    RecepcaoEvento4: 'https://nfce.svrs.rs.gov.br/ws/recepcaoevento/recepcaoevento4.asmx',
   },
 };
 
