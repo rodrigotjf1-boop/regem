@@ -109,6 +109,15 @@ export class TotemService {
     return this.delivery.cancelarPedidoTotem(ctx.tenantId, pedidoId, motivo ?? '');
   }
 
+  /** O DANFE não saiu no papel: a nota é cancelada, a venda desfeita, o pedido cancelado. */
+  async falhaImpressao(ctx: { tenantId: string }, pedidoId: string, motivo?: string) {
+    return this.delivery.falhaImpressaoTotem(
+      ctx.tenantId,
+      pedidoId,
+      typeof motivo === 'string' ? motivo.slice(0, 300) : null,
+    );
+  }
+
   /** Pagamento que NÃO passou — informativo, nunca vira venda nem caixa. */
   async registrarFalha(
     ctx: { tenantId: string; unidadeId: string | null; equipamentoId: string },

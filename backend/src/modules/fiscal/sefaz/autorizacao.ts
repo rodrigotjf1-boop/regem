@@ -117,6 +117,8 @@ export async function autorizarNfce(p: {
   idLote?: string;
   ca?: string[]; // só para teste
   url?: string; // só para teste
+  /** Prazo TOTAL da chamada (ver `ChamadaSefaz.prazoTotalMs`). Sem ele, valem os 30 s de sempre. */
+  prazoMs?: number;
 }): Promise<ResultadoAutorizacao> {
   const nfe = p.xmlAssinado.replace(/^\s*<\?xml[^>]*\?>/, '');
   if (!nfe.startsWith('<NFe') || !/<Signature[\s>]/.test(nfe))
@@ -127,6 +129,9 @@ export async function autorizarNfce(p: {
     `<enviNFe versao="4.00" xmlns="http://www.portalfiscal.inf.br/nfe">` +
     `<idLote>${idLote}</idLote><indSinc>1</indSinc>${nfe}</enviNFe>`;
   const url = p.url ?? urlServicoNfce(p.uf, p.ambiente, 'NFeAutorizacao4');
-  const retorno = await chamarSefaz({ url, servico: 'NFeAutorizacao4', corpoXml: corpo, cert: p.cert, ca: p.ca });
+  const retorno = await chamarSefaz({
+    url, servico: 'NFeAutorizacao4', corpoXml: corpo, cert: p.cert, ca: p.ca,
+    ...(p.prazoMs ? { timeoutMs: p.prazoMs, prazoTotalMs: p.prazoMs } : {}),
+  });
   return lerRetornoAutorizacao(retorno, nfe);
 }

@@ -25,6 +25,7 @@ import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { uuidDeChave } from '../../common/id-deterministico';
 import { gerarCNF, montarChave, montarQrCode, montarQrCodeV3, montarQrCodeV3Offline } from './chave';
 import {
+  ContingenciaIndisponivel,
   JUSTIFICATIVA_PADRAO,
   horasAteOPrazo,
   justificativaValida,
@@ -32,8 +33,21 @@ import {
   silencioDaSefaz,
 } from './contingencia';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
-import { montarDanfeTexto } from './danfe-texto';
+import { DanfeItem, montarDanfeTexto } from './danfe-texto';
 import { MODOS_TAXA_SERVICO, TaxaServicoBloqueada, linhaTaxaServico } from './taxa-servico';
+import { CadastroFiscalIncompativel } from './regras-uf';
+import { problemasDoCertificado } from './certificado';
+import {
+  ErroNfceTotem,
+  JUSTIFICATIVA_VENDA_DESFEITA,
+  NfceDoTotem,
+  NfceEmitidaTotem,
+  PRAZO_AUTORIZACAO_TOTEM_MS,
+  classificarFalhaNfce,
+  nfceEmitidaParaTotem,
+  nfceNaoEmitida,
+} from './nfce-totem';
+import { DOMParser } from '@xmldom/xmldom';
 import {
   DecisaoFiscal,
   EmissaoBloqueada,
@@ -81,6 +95,28 @@ import { hojeISO } from '../../common/data';
 import { montarNfeProc } from './sefaz/autorizacao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Pendura na falha o RESUMO da nota que ela deixou (status, cStat, número) — é o que diz se a
+ * SEFAZ rejeitou, denegou ou calou. Só o resumo: o XML leva o CPF do cliente, e o filtro global
+ * loga os 5xx. Não enumerável, para não parar em nenhuma serialização por acidente.
+ */
+function comNota(falha: Error, nota: any): Error {
+  if (nota && !(falha as any).nota)
+    Object.defineProperty(falha, 'nota', {
+      value: {
+        id: nota.id, status: nota.status, cstat: nota.cstat ?? null, numero: nota.numero, serie: nota.serie,
+      },
+      enumerable: false,
+    });
+  return falha;
+}
+
+/** Texto de um elemento (por nome local) dentro de `no` — para ler a nota gravada. */
+function textoXml(no: any, nome: string): string | null {
+  const achados = no?.getElementsByTagNameNS?.('*', nome);
+  return achados && achados.length ? String(achados[0].textContent ?? '').trim() : null;
+}
 
 @Injectable()
 export class FiscalService {
@@ -384,11 +420,24 @@ export class FiscalService {
   // hoje o TOTEM, que tem impressora térmica ao lado e entrega o cupom na mão do cliente sem
   // ele passar pelo balcão. Sem esta chave o mesmo documento sairia duas vezes: uma no totem e
   // outra na impressora do caixa. O texto do DANFE volta em `danfeTexto` para quem imprimir.
+  //
+  // As outras três opções são do caminho do TOTEM (`emitirParaTotem`), que tem o cliente
+  // esperando na frente e precisa de uma resposta em segundos — os demais caminhos não as usam:
+  //  • `prazoAutorizacaoMs`: prazo TOTAL da autorização; estourou, é silêncio → contingência;
+  //  • `pendenteViraContingencia`: nota anterior desta venda sem resposta não é consultada (a
+  //    consulta pode levar os mesmos 30 s): vai direto para a contingência, com número NOVO;
+  //  • `respostaIncertaEhSilencio`: HTTP 5xx sem SOAP Fault não prova que a SEFAZ não processou
+  //    a nota — no totem, dizer "não emitida" sem certeza desfaria uma venda que pode ter nota.
   async emitir(
     tenantId: string,
     atorId: string | null,
     comandaId: string,
-    opts: { imprimirNaLoja?: boolean } = {},
+    opts: {
+      imprimirNaLoja?: boolean;
+      prazoAutorizacaoMs?: number;
+      pendenteViraContingencia?: boolean;
+      respostaIncertaEhSilencio?: boolean;
+    } = {},
   ) {
     const [c] = await this.db
       .select()
@@ -396,6 +445,8 @@ export class FiscalService {
       .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
     if (!c) throw new NotFoundException('Comanda não encontrada');
 
+    // Com mais de uma nota na venda (a pendente e a de contingência que a substituiu), vale a
+    // que tem documento: a pendente só é olhada quando não há outra.
     const [ja] = await this.db
       .select()
       .from(notaFiscal)
@@ -404,8 +455,13 @@ export class FiscalService {
           eq(notaFiscal.comandaId, comandaId),
           inArray(notaFiscal.status, ['autorizada', 'contingencia', 'pendente']),
         ),
-      );
-    if (ja?.status === 'pendente') {
+      )
+      .orderBy(sql`(status = 'pendente')`, sql`created_at desc`)
+      .limit(1);
+    let pendenteSemResposta: any = null;
+    if (ja?.status === 'pendente' && opts.pendenteViraContingencia) {
+      pendenteSemResposta = ja;
+    } else if (ja?.status === 'pendente') {
       // Situação DESCONHECIDA: a nota foi enviada e a SEFAZ não confirmou (caiu a conexão,
       // estourou o tempo). Emitir de novo às cegas geraria DUAS notas para a mesma venda — se
       // a primeira tiver sido autorizada. Então PERGUNTA-SE à SEFAZ o que aconteceu, que é a
@@ -431,6 +487,97 @@ export class FiscalService {
       // r.status === 'rejeitada' (217 — a SEFAZ nunca a registrou): segue e emite de novo.
     } else if (ja) return ja; // já emitida
 
+    const itens = await this.itensFiscaisDaComanda(tenantId, c);
+
+    // Frete, desconto e DESTINATÁRIO da nota. Ficam no pedido de canal (a comanda só guarda
+    // itens), então busca pelo vínculo comanda → pedido_externo. Sem pedido (venda de balcão),
+    // a nota sai presencial — mas o CPF da comanda, se o cliente pediu no caixa, vai junto.
+    const { taxaEntrega, desconto, pedido } = await this.dadosFiscaisDoPedido(tenantId, comandaId);
+    if (pedido && !pedido.documentoCliente) pedido.documentoCliente = c.cpf ?? null;
+
+    // O DANFE sai por UM caminho só, qualquer que seja o jeito como a nota nasceu (autorizada
+    // ou em contingência): o texto vai SEMPRE junto da nota — é o que o totem imprime —, e a
+    // impressora da loja só entra quando ninguém mais se ofereceu para imprimir. Antes os dois
+    // caminhos de contingência chamavam a impressão direto: no totem, o cliente ficava sem o
+    // cupom e a nota saía no balcão.
+    const entregarDanfe = async (nota: any, uf: string | null | undefined, consumidor: string | null) => {
+      const extras = { frete: taxaEntrega, desconto, consumidor, uf: uf ?? null };
+      nota.danfeTexto = montarDanfeTexto(nota, itens, extras);
+      if (opts.imprimirNaLoja !== false) await this.imprimirDanfe(tenantId, nota, itens, extras);
+    };
+
+    const base = {
+      tenantId, atorId, unidadeId: c.unidadeId ?? null, comandaId, itens, forma: c.forma,
+      taxaEntrega, desconto, exigirAtivo: true,
+      pedido: pedido ?? (c.cpf ? { tipo: 'balcao', documentoCliente: c.cpf, clienteNome: c.cliente } : null),
+      prazoAutorizacaoMs: opts.prazoAutorizacaoMs,
+      respostaIncertaEhSilencio: opts.respostaIncertaEhSilencio,
+    };
+
+    // JÁ EM CONTINGÊNCIA: não se tenta a SEFAZ. Era justamente a espera por ela que travava o
+    // caixa — repetir a tentativa a cada venda devolveria o problema que a contingência resolve.
+    const modo = await this.modoContingencia(tenantId, c.unidadeId ?? null);
+    if (modo) {
+      const rc = await this.emitirNucleo({ ...base, contingencia: modo });
+      await entregarDanfe(rc.nota, rc.uf, rc.decisao?.dest?.documento ?? null);
+      return rc.nota;
+    }
+
+    // A nota anterior desta venda ficou sem resposta e quem chamou não pode esperar a consulta
+    // (o totem): para a venda, é o mesmo SILÊNCIO de uma SEFAZ que calou agora.
+    const r: { nota: any; falha: Error | null; decisao?: DecisaoFiscal; uf?: string | null } =
+      pendenteSemResposta
+        ? {
+            nota: pendenteSemResposta,
+            falha: new ServiceUnavailableException(
+              `A NFC-e nº ${pendenteSemResposta.numero} desta venda foi enviada e a SEFAZ não confirmou o resultado.`,
+            ),
+          }
+        : await this.emitirNucleo(base);
+
+    // SILÊNCIO da SEFAZ (nota `pendente`): não se sabe o que aconteceu com ela, e reaproveitar
+    // o número dela em contingência é VEDADO (Ajuste 19/16, cl. 11ª, §2º, I). Então a venda sai
+    // numa nota NOVA, em contingência, e a pendente segue o seu caminho: o job consulta e, se
+    // não constar, ela é inutilizada; se constar autorizada, vira cancelamento por substituição.
+    if (silencioDaSefaz(r.nota.status)) {
+      const estado = await this.entrarEmContingencia(
+        tenantId, c.unidadeId ?? null, r.nota.motivo ?? 'Sem resposta da SEFAZ', atorId,
+      ).catch((e) => { this.log.error(`não foi possível entrar em contingência: ${e?.message ?? e}`); return null; });
+      if (estado?.ativa && estado.dh_cont) {
+        try {
+          const rc = await this.emitirNucleo({
+            ...base,
+            contingencia: { dhCont: new Date(estado.dh_cont), xJust: justificativaValida(estado.justificativa) },
+          });
+          await entregarDanfe(rc.nota, rc.uf, rc.decisao?.dest?.documento ?? null);
+          return rc.nota;
+        } catch (e: any) {
+          // Contingência indisponível (sem certificado, UF em QR v2): não se inventa saída —
+          // o erro ORIGINAL é o que o caixa precisa ver, com este anexado.
+          this.log.error(`contingência indisponível: ${e?.message ?? e}`);
+        }
+      }
+    }
+
+    // Na venda, o que não autorizou é ERRO para quem chamou (a tela do delivery mostra; a venda
+    // automática registra). A nota fica gravada com o motivo, do mesmo jeito — e vai pendurada
+    // no erro, para quem precisa dizer COMO falhou (o totem: rejeitada, denegada, sem resposta).
+    if (r.falha) throw comNota(r.falha, r.nota);
+    if (r.nota.status === 'autorizada') {
+      // No cupom impresso a taxa é a taxa — o caminho fiscal dela (frete ou despesa acessória)
+      // é assunto do XML, não do cliente que está com o papel na mão.
+      await entregarDanfe(r.nota, r.uf, r.decisao?.dest?.documento ?? null);
+    }
+    return r.nota;
+  }
+
+  /**
+   * Os itens da NFC-e de uma comanda: os da venda (com o cadastro fiscal do produto) e a linha
+   * da taxa de serviço, quando a loja escolheu que ela vai na nota. UM lugar só — a emissão e o
+   * DANFE remontado para a repetição do totem usam exatamente os mesmos, senão o papel da
+   * segunda vez sairia diferente do da primeira.
+   */
+  private async itensFiscaisDaComanda(tenantId: string, c: any): Promise<NfceItem[]> {
     const itensDb = await this.db
       .select({
         codigo: produto.codigo,
@@ -453,7 +600,7 @@ export class FiscalService {
       })
       .from(comandaItem)
       .leftJoin(produto, eq(produto.id, comandaItem.produtoId))
-      .where(eq(comandaItem.comandaId, comandaId));
+      .where(eq(comandaItem.comandaId, c.id));
     if (!itensDb.length) throw new BadRequestException('Comanda sem itens.');
     // NCM é obrigatório para emitir. Barra a emissão com mensagem clara.
     const semNcm = itensDb.filter((it) => !it.ncm).map((it) => it.descricao);
@@ -503,74 +650,7 @@ export class FiscalService {
         throw e;
       }
     }
-
-    // Frete, desconto e DESTINATÁRIO da nota. Ficam no pedido de canal (a comanda só guarda
-    // itens), então busca pelo vínculo comanda → pedido_externo. Sem pedido (venda de balcão),
-    // a nota sai presencial — mas o CPF da comanda, se o cliente pediu no caixa, vai junto.
-    const { taxaEntrega, desconto, pedido } = await this.dadosFiscaisDoPedido(tenantId, comandaId);
-    if (pedido && !pedido.documentoCliente) pedido.documentoCliente = c.cpf ?? null;
-
-    // O DANFE sai por UM caminho só, qualquer que seja o jeito como a nota nasceu (autorizada
-    // ou em contingência): o texto vai SEMPRE junto da nota — é o que o totem imprime —, e a
-    // impressora da loja só entra quando ninguém mais se ofereceu para imprimir. Antes os dois
-    // caminhos de contingência chamavam a impressão direto: no totem, o cliente ficava sem o
-    // cupom e a nota saía no balcão.
-    const entregarDanfe = async (nota: any, uf: string | null | undefined, consumidor: string | null) => {
-      const extras = { frete: taxaEntrega, desconto, consumidor, uf: uf ?? null };
-      nota.danfeTexto = montarDanfeTexto(nota, itens, extras);
-      if (opts.imprimirNaLoja !== false) await this.imprimirDanfe(tenantId, nota, itens, extras);
-    };
-
-    const base = {
-      tenantId, atorId, unidadeId: c.unidadeId ?? null, comandaId, itens, forma: c.forma,
-      taxaEntrega, desconto, exigirAtivo: true,
-      pedido: pedido ?? (c.cpf ? { tipo: 'balcao', documentoCliente: c.cpf, clienteNome: c.cliente } : null),
-    };
-
-    // JÁ EM CONTINGÊNCIA: não se tenta a SEFAZ. Era justamente a espera por ela que travava o
-    // caixa — repetir a tentativa a cada venda devolveria o problema que a contingência resolve.
-    const modo = await this.modoContingencia(tenantId, c.unidadeId ?? null);
-    if (modo) {
-      const rc = await this.emitirNucleo({ ...base, contingencia: modo });
-      await entregarDanfe(rc.nota, rc.uf, rc.decisao?.dest?.documento ?? null);
-      return rc.nota;
-    }
-
-    const r = await this.emitirNucleo(base);
-
-    // SILÊNCIO da SEFAZ (nota `pendente`): não se sabe o que aconteceu com ela, e reaproveitar
-    // o número dela em contingência é VEDADO (Ajuste 19/16, cl. 11ª, §2º, I). Então a venda sai
-    // numa nota NOVA, em contingência, e a pendente segue o seu caminho: o job consulta e, se
-    // não constar, ela é inutilizada; se constar autorizada, vira cancelamento por substituição.
-    if (silencioDaSefaz(r.nota.status)) {
-      const estado = await this.entrarEmContingencia(
-        tenantId, c.unidadeId ?? null, r.nota.motivo ?? 'Sem resposta da SEFAZ', atorId,
-      ).catch((e) => { this.log.error(`não foi possível entrar em contingência: ${e?.message ?? e}`); return null; });
-      if (estado?.ativa && estado.dh_cont) {
-        try {
-          const rc = await this.emitirNucleo({
-            ...base,
-            contingencia: { dhCont: new Date(estado.dh_cont), xJust: justificativaValida(estado.justificativa) },
-          });
-          await entregarDanfe(rc.nota, rc.uf, rc.decisao?.dest?.documento ?? null);
-          return rc.nota;
-        } catch (e: any) {
-          // Contingência indisponível (sem certificado, UF em QR v2): não se inventa saída —
-          // o erro ORIGINAL é o que o caixa precisa ver, com este anexado.
-          this.log.error(`contingência indisponível: ${e?.message ?? e}`);
-        }
-      }
-    }
-
-    // Na venda, o que não autorizou é ERRO para quem chamou (a tela do delivery mostra; a venda
-    // automática registra). A nota fica gravada com o motivo, do mesmo jeito.
-    if (r.falha) throw r.falha;
-    if (r.nota.status === 'autorizada') {
-      // No cupom impresso a taxa é a taxa — o caminho fiscal dela (frete ou despesa acessória)
-      // é assunto do XML, não do cliente que está com o papel na mão.
-      await entregarDanfe(r.nota, r.uf, r.decisao?.dest?.documento ?? null);
-    }
-    return r.nota;
+    return itens;
   }
 
   /**
@@ -748,10 +828,16 @@ export class FiscalService {
     // isso que cria a duplicidade que o evento 110112 desfaz. Então ela também pode virar
     // autorizada — mas só nesse sentido. Rejeitada por OUTRO motivo (schema, regra) está
     // encerrada, e nenhuma consulta a reabre.
+    //
+    // Nota AUTORIZADA só muda num sentido: para CANCELADA, quando a SEFAZ diz que o evento foi
+    // registrado (o pedido de cancelamento saiu e a resposta se perdeu). Sem isto a consulta
+    // "via" o cancelamento e o nosso banco continuava dizendo que a nota vale.
     const podeMudar =
       nota.status === 'pendente'
         ? sql`status = 'pendente'`
-        : sql`status = 'rejeitada' and cstat = '217'`;
+        : nota.status === 'autorizada' && sit.situacao === 'cancelada'
+          ? sql`status = 'autorizada'`
+          : sql`status = 'rejeitada' and cstat = '217'`;
     const mudaStatus = typeof campos.status === 'string';
     const [atualizada] = await this.db
       .update(notaFiscal)
@@ -776,6 +862,12 @@ export class FiscalService {
         entidadeId: nota.id,
         detalhe: { chave: nota.chave, numero: nota.numero, serie: nota.serie, situacao: atualizada.status, cstat: sit.cStat },
       });
+    // A pendente de uma venda DESFEITA apareceu autorizada: é documento de venda que não existe
+    // mais — o cancelamento que ficou agendado sai agora, dentro dos 30 minutos.
+    if (atualizada.status === 'autorizada' && nota.status !== 'autorizada')
+      await this.executarCancelamentosAgendados({ notaId: nota.id }).catch((e: any) =>
+        this.log.error(`nota ${nota.id}: cancelamento agendado não saiu: ${e?.message ?? e}`),
+      );
     return this.resumoDaNota(atualizada, sit);
   }
 
@@ -1024,6 +1116,14 @@ export class FiscalService {
     // do lugar errado deixa o transmissor sem certificado e a fila parada em silêncio.
     const config: any = { ...cfgRaw, ...credencialParaEmissao(credencial, String(cfgRaw.ambiente ?? '2')) };
     config.cert = config.certRef ? certificadoParaAssinar(credencial) : null;
+    // Certificado vencido derruba o TLS, e o erro chegava aqui como "a SEFAZ não respondeu" —
+    // a loja ia esperar a SEFAZ voltar enquanto o prazo da fila corria (ERR-099).
+    const probsCert = config.cert ? problemasDoCertificado(config.cert, cfgRaw.cnpj) : [];
+    if (probsCert.length)
+      throw new Error(
+        `o certificado digital da loja não serve (${probsCert.join(' ')}) — a fila da contingência ` +
+          'só é transmitida depois de cadastrado o certificado válido',
+      );
     const ret = await this.transmitter(config).autorizar(linha.xml, linha.chave, config);
     const vencido = prazoVencido(new Date(linha.created_at), new Date());
 
@@ -1039,6 +1139,11 @@ export class FiscalService {
           `NFC-e ${linha.numero}/${linha.serie} autorizada FORA DO PRAZO da contingência ` +
             `(emitida em ${new Date(linha.created_at).toISOString()}).`,
         );
+      // Venda desfeita enquanto a nota esperava na fila (o totem não imprimiu o cupom): agora que
+      // ela é documento, o cancelamento agendado sai — os 30 minutos contam desta autorização.
+      await this.executarCancelamentosAgendados({ notaId: linha.id }).catch((e: any) =>
+        this.log.error(`NFC-e ${linha.numero}/${linha.serie}: cancelamento agendado não saiu: ${e?.message ?? e}`),
+      );
       return true;
     }
     if (ret.status === 'denegada') {
@@ -1532,6 +1637,10 @@ export class FiscalService {
      * do primeiro dia útil subsequente.
      */
     contingencia?: { dhCont: Date; xJust: string } | null;
+    /** Prazo TOTAL da autorização (só o totem passa — ver `emitir`). */
+    prazoAutorizacaoMs?: number;
+    /** HTTP 5xx sem SOAP Fault conta como silêncio (só o totem — ver `emitir`). */
+    respostaIncertaEhSilencio?: boolean;
   }): Promise<{ nota: any; falha: Error | null; decisao?: DecisaoFiscal; uf?: string | null }> {
     const { tenantId, atorId, unidadeId, comandaId, itens, desconto } = p;
 
@@ -1571,6 +1680,29 @@ export class FiscalService {
     const transmissor = this.transmitter(cfgPre);
     // Com certificado, ele é aberto AGORA — senha errada ou chave trocada param aqui, sem número.
     const cert = cfgPre.certRef ? certificadoParaAssinar(credencial) : null;
+    // E ele tem de SERVIR: dentro da validade e da mesma empresa. Vencido, a SEFAZ derruba a
+    // conexão no aperto de mão TLS e o Node vê isso como rede caída (ECONNRESET) — virava
+    // SILÊNCIO, e a venda saía em CONTINGÊNCIA com o QR assinado por um certificado vencido:
+    // cupom de uma nota que nunca vai autorizar, com número que não se inutiliza (ERR-099).
+    if (cert) {
+      const probs = problemasDoCertificado(cert, cfgPre.cnpj);
+      if (probs.length)
+        throw new BadRequestException(
+          `O certificado digital da loja não serve para emitir: ${probs.join(' ')} ` +
+            'Cadastre o certificado válido na Configuração fiscal. Nenhuma nota foi emitida.',
+        );
+    }
+    // Na contingência o QR leva uma ASSINATURA feita com o mesmo A1 que assina a nota (Manual do
+    // DANFE NFC-e v6.0, §4.4.2) — é ela que prova a autenticidade de um cupom que a SEFAZ ainda
+    // não viu. Sem certificado não há QR, e sem QR não há cupom: recusa aqui, antes de gastar
+    // número — com classe própria, porque "a SEFAZ calou e não há contingência" não é o mesmo
+    // que erro de configuração para quem precisa decidir o que fazer com a venda (o totem).
+    if (p.contingencia && (!cert || qrVersao !== 3))
+      throw new ContingenciaIndisponivel(
+        qrVersao !== 3
+          ? 'Contingência off-line exige QR Code versão 3 nesta UF — o QR v2 off-line não está implementado.'
+          : 'Contingência off-line exige o certificado A1 da loja para assinar o QR Code.',
+      );
 
     const preparado = await this.db.transaction(async (tx) => {
       const { numero, serie, config } = await this.reservarNumero(tx, tenantId, unidadeId, p.exigirAtivo);
@@ -1591,16 +1723,7 @@ export class FiscalService {
         serie, numero, tpEmis, cNF,
       });
       const tpAmb = config.ambiente || '2';
-      // Na contingência o QR leva dia, valor, destinatário e uma ASSINATURA feita com o mesmo
-      // A1 que assina a nota (Manual do DANFE NFC-e v6.0, §4.4.2) — é ela que prova a
-      // autenticidade de um cupom que a SEFAZ ainda não viu. Sem certificado não há QR, e sem
-      // QR não há cupom: recusa aqui, antes de gastar número.
-      if (p.contingencia && (!cert || qrVersao !== 3))
-        throw new BadRequestException(
-          qrVersao !== 3
-            ? 'Contingência off-line exige QR Code versão 3 nesta UF — o QR v2 off-line não está implementado.'
-            : 'Contingência off-line exige o certificado A1 da loja para assinar o QR Code.',
-        );
+      // Contingência: o QR leva dia, valor, destinatário e a assinatura (conferida no pré-voo).
       const { qrCode } = p.contingencia
         ? montarQrCodeV3Offline({
             chave, tpAmb, dhEmi, vNF: valorTotal,
@@ -1645,6 +1768,11 @@ export class FiscalService {
         })
         .returning();
       return { nota, config: { ...config, cert }, xml };
+    }).catch((e) => {
+      // Cadastro fiscal do produto fora das listas (regras-uf): a transação já desfez a reserva
+      // do número. Para quem chamou é erro de CADASTRO — 400 com o produto —, não 500 (LIC-023).
+      if (e instanceof CadastroFiscalIncompativel) throw new BadRequestException(e.message);
+      throw e;
     });
 
     // EM CONTINGÊNCIA NÃO SE TRANSMITE AGORA: o cupom é impresso e a nota entra na fila. Era
@@ -1669,7 +1797,11 @@ export class FiscalService {
     let falha: Error | null = null;
     let atualizacao: Record<string, unknown>;
     try {
-      const ret = await transmissor.autorizar(preparado.xml, preparado.nota.chave ?? '', preparado.config);
+      const ret = await transmissor.autorizar(
+        preparado.xml,
+        preparado.nota.chave ?? '',
+        p.prazoAutorizacaoMs ? { ...preparado.config, prazoAutorizacaoMs: p.prazoAutorizacaoMs } : preparado.config,
+      );
       // Aviso da SEFAZ ao emissor (grupo cMsg/xMsg). Vem junto da AUTORIZAÇÃO — é o caso do
       // `cStat 120` — e some se ninguém o ler. Entra no motivo (que é o campo que o lojista vê
       // na tela da nota) e sai no log, porque nota autorizada ninguém vai conferir depois.
@@ -1703,7 +1835,12 @@ export class FiscalService {
       if (ret.status === 'pendente')
         falha = new ServiceUnavailableException(`A SEFAZ recebeu a NFC-e e ainda não decidiu: ${ret.motivo}`);
     } catch (e: any) {
-      if (e instanceof SefazInalcancavel) {
+      // HTTP 5xx SEM SOAP Fault (gateway, balanceador): a SEFAZ pode ter processado a nota antes
+      // de a resposta se perder. Para o totem — que desfaz a venda quando ouve "não emitida" —
+      // isso é silêncio, não recusa. Os outros caminhos seguem como sempre (ver `emitir`).
+      const incerta =
+        p.respostaIncertaEhSilencio && e instanceof SefazRecusouChamada && Number(e.status ?? 0) >= 500;
+      if (e instanceof SefazInalcancavel || incerta) {
         // Enviada e sem resposta: pode ter sido autorizada ou não. Fica 'pendente' — e a venda
         // não pode emitir de novo às cegas (ver `emitir`).
         atualizacao = { status: 'pendente', motivo: `Sem resposta da SEFAZ — situação desconhecida. ${e.message}`.slice(0, 400) };
@@ -1799,6 +1936,152 @@ export class FiscalService {
     }
   }
 
+  // ===== A NOTA DA VENDA DO TOTEM =====
+  //
+  // O `emitirSeAtivo` acima é de quem NÃO pode travar a venda por causa do fiscal (PDV, balcão,
+  // delivery): falhou, devolve `null` e a venda segue. O totem é o contrário — a compra só termina
+  // com o cupom fiscal na mão do cliente — e precisa saber COMO falhou para estornar o pagamento.
+  // O contrato está em `nfce-totem.ts`.
+
+  /** Deste aparelho sai NFC-e? Fiscal ativo na loja E o terminal não foi desmarcado (mig 288). */
+  async totemEmiteNfce(tenantId: string, unidadeId: string | null, terminalId?: string | null): Promise<boolean> {
+    const cfg = await this.configRaw(tenantId, unidadeId ?? null);
+    if (!cfg?.ativo) return false;
+    return !(terminalId && (await this.terminalNaoEmite(tenantId, terminalId)));
+  }
+
+  /**
+   * Emite a NFC-e da venda do totem e diz, no contrato do totem, o que aconteceu. Nunca lança:
+   * a resposta é sempre um dos quatro casos (`null`, autorizada, contingência, não emitida).
+   *
+   * A autorização tem prazo TOTAL de `PRAZO_AUTORIZACAO_TOTEM_MS`: estourou, é silêncio e entra
+   * a contingência que já existe. Se nem ela sai, a nota que foi à SEFAZ sem resposta fica
+   * marcada para ser CANCELADA caso apareça autorizada — a venda vai ser desfeita, e documento
+   * válido de venda desfeita é o que não pode sobrar.
+   */
+  async emitirParaTotem(
+    tenantId: string,
+    comandaId: string,
+    unidadeId: string | null,
+    terminalId?: string | null,
+  ): Promise<{ nfce: NfceDoTotem; erro?: ErroNfceTotem }> {
+    let cfg: any;
+    try {
+      cfg = await this.configRaw(tenantId, unidadeId ?? null);
+      if (!cfg?.ativo) return { nfce: null };
+      if (terminalId && (await this.terminalNaoEmite(tenantId, terminalId))) return { nfce: null };
+    } catch (e: any) {
+      // Nem a configuração deu para ler: sem saber se a loja emite, não se promete cupom fiscal.
+      const erro = classificarFalhaNfce(e);
+      this.log.error(`NFC-e do totem (comanda ${comandaId}) — configuração ilegível: ${erro.motivo}`);
+      return { nfce: nfceNaoEmitida(erro), erro };
+    }
+    try {
+      const nota: any = await this.emitir(tenantId, null, comandaId, {
+        imprimirNaLoja: false, // quem imprime é o totem (K6)
+        prazoAutorizacaoMs: PRAZO_AUTORIZACAO_TOTEM_MS,
+        pendenteViraContingencia: true,
+        respostaIncertaEhSilencio: true,
+      });
+      if (nota?.status !== 'autorizada' && nota?.status !== 'contingencia')
+        throw new Error(`A emissão terminou sem documento (status ${nota?.status ?? 'desconhecido'}).`);
+      if (!nota.danfeTexto) nota.danfeTexto = await this.danfeDaNotaGravada(tenantId, nota, cfg?.uf ?? null);
+      return { nfce: nfceEmitidaParaTotem(nota, this.viaEstabelecimentoNaConfig(cfg)) };
+    } catch (e: any) {
+      const erro = classificarFalhaNfce(e);
+      // V11: o motivo real fica no log da loja — o totem leva a mesma frase para o relatório.
+      this.log.warn(
+        `NFC-e do totem não emitida (comanda ${comandaId}): ${erro.etapa}` +
+          `${erro.codigo ? ` ${erro.codigo}` : ''} — ${erro.motivo}`,
+      );
+      if (erro.etapa === 'sem_contingencia') {
+        const n = (e as any)?.nota;
+        if (n?.id)
+          await this.agendarCancelamentoDaNota(tenantId, n.id, JUSTIFICATIVA_VENDA_DESFEITA).catch((x) =>
+            this.log.error(`nota ${n.id} sem resposta e sem cancelamento agendado: ${x?.message ?? x}`),
+          );
+      }
+      return { nfce: nfceNaoEmitida(erro), erro };
+    }
+  }
+
+  /**
+   * A nota que vale da venda, remontada para o totem — é o que a REPETIÇÃO da liberação devolve
+   * quando a primeira resposta se perdeu na rede. O DANFE é remontado pela mesma montagem da
+   * emissão (ver `danfeDaNotaGravada`): é o mesmo papel que teria saído na primeira vez.
+   */
+  async nfceDaComandaParaTotem(tenantId: string, comandaId: string): Promise<NfceEmitidaTotem | null> {
+    const [nota] = await this.db
+      .select()
+      .from(notaFiscal)
+      .where(
+        and(
+          eq(notaFiscal.tenantId, tenantId),
+          eq(notaFiscal.comandaId, comandaId),
+          inArray(notaFiscal.status, ['autorizada', 'contingencia']),
+        ),
+      )
+      .orderBy(sql`created_at desc`)
+      .limit(1);
+    if (!nota) return null;
+    const cfg: any = await this.configRaw(tenantId, nota.unidadeId ?? null);
+    (nota as any).danfeTexto = await this.danfeDaNotaGravada(tenantId, nota, cfg?.uf ?? null);
+    return nfceEmitidaParaTotem(nota, this.viaEstabelecimentoNaConfig(cfg));
+  }
+
+  private viaEstabelecimentoNaConfig(cfg: any): boolean {
+    return cfg?.contingenciaViaEstabelecimento === true || cfg?.contingencia_via_estabelecimento === true;
+  }
+
+  /**
+   * O DANFE de uma nota JÁ GRAVADA, para a repetição do totem: tem de sair IGUAL ao da primeira
+   * vez, então é montado do mesmo jeito — itens da comanda pela mesma função da emissão, frete e
+   * desconto do pedido. (Do XML sairia diferente em homologação: lá o 1º item leva o texto
+   * obrigatório "NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO".) O consumidor vem do XML — é o
+   * que foi declarado à SEFAZ. Se a venda não der para remontar (comanda apagada, cadastro
+   * mudado), o XML é a reserva: o totem não pode ficar sem o cupom.
+   */
+  private async danfeDaNotaGravada(tenantId: string, nota: any, uf: string | null): Promise<string> {
+    const doc = new DOMParser().parseFromString(String(nota?.xml ?? ''), 'text/xml');
+    const dest = doc.getElementsByTagNameNS('*', 'dest')[0] ?? null;
+    const consumidor = dest ? (textoXml(dest, 'CPF') ?? textoXml(dest, 'CNPJ')) : null;
+    try {
+      const [c] = await this.db
+        .select()
+        .from(comanda)
+        .where(and(eq(comanda.id, nota.comandaId), eq(comanda.tenantId, tenantId)));
+      if (!c) throw new Error('comanda da nota não encontrada');
+      const itens = await this.itensFiscaisDaComanda(tenantId, c);
+      const { taxaEntrega, desconto } = await this.dadosFiscaisDoPedido(tenantId, c.id);
+      return montarDanfeTexto(nota, itens, { frete: taxaEntrega, desconto, consumidor, uf });
+    } catch (e: any) {
+      this.log.warn(`DANFE da NFC-e ${nota?.numero}/${nota?.serie} remontado pelo XML: ${e?.message ?? e}`);
+      return this.danfeDoXml(nota, uf);
+    }
+  }
+
+  /** O DANFE lido só do XML: itens, frete (ou a taxa em `vOutro`), desconto e destinatário. */
+  private danfeDoXml(nota: any, uf: string | null): string {
+    const doc = new DOMParser().parseFromString(String(nota?.xml ?? ''), 'text/xml');
+    const dets = doc.getElementsByTagNameNS('*', 'det');
+    const itens: DanfeItem[] = [];
+    for (let i = 0; i < dets.length; i++) {
+      itens.push({
+        descricao: textoXml(dets[i], 'xProd') ?? '',
+        quantidade: Number(textoXml(dets[i], 'qCom') ?? 0),
+        precoUnitario: Number(textoXml(dets[i], 'vUnCom') ?? 0),
+      });
+    }
+    const tot = doc.getElementsByTagNameNS('*', 'ICMSTot')[0] ?? null;
+    const dest = doc.getElementsByTagNameNS('*', 'dest')[0] ?? null;
+    return montarDanfeTexto(nota, itens, {
+      frete: Number(textoXml(tot, 'vFrete') ?? 0) + Number(textoXml(tot, 'vOutro') ?? 0),
+      desconto: Number(textoXml(tot, 'vDesc') ?? 0),
+      consumidor: dest ? (textoXml(dest, 'CPF') ?? textoXml(dest, 'CNPJ')) : null,
+      uf,
+    });
+  }
+
   /**
    * CANCELAMENTO COMUM da NFC-e (evento 110111) — venda errada, desistência, item trocado.
    *
@@ -1810,9 +2093,10 @@ export class FiscalService {
    */
   async cancelar(
     tenantId: string,
-    atorId: string,
+    atorId: string | null,
     notaId: string,
     justificativa: string,
+    opts: { prazoMs?: number } = {},
   ) {
     const just = String(justificativa ?? '').trim();
     if (just.length < 15 || just.length > 255)
@@ -1827,23 +2111,73 @@ export class FiscalService {
 
     // Nota SIMULADA nunca passou pela SEFAZ: não há o que cancelar lá. Segue o transmissor
     // simulado, que só existe em homologação com FISCAL_SIMULADO ligado.
-    if (nota.simulada) return this.cancelarSimulada(tenantId, atorId, nota, just);
+    if (nota.simulada) {
+      const row = await this.cancelarSimulada(tenantId, atorId, nota, just);
+      await this.fecharCancelamentoAgendado(nota, 'dispensado', 'Nota simulada: cancelada no transmissor simulado.');
+      return row;
+    }
 
     if (!nota.chave || !nota.protocolo)
       throw new BadRequestException('A nota não tem chave e protocolo — nada a cancelar na SEFAZ.');
 
     const autorizadaEm = nota.emitidaEm ? new Date(nota.emitidaEm) : new Date(nota.createdAt);
     const minutos = (Date.now() - autorizadaEm.getTime()) / 60_000;
-    if (minutos > PRAZO_CANCELAMENTO_MINUTOS)
-      throw new BadRequestException(
+    if (minutos > PRAZO_CANCELAMENTO_MINUTOS) {
+      const msg =
         `O cancelamento da NFC-e vale até ${PRAZO_CANCELAMENTO_MINUTOS} minutos da autorização, e já se ` +
-          `passaram ${Math.floor(minutos)}. A SEFAZ recusaria (501). Fora do prazo o caminho é da própria ` +
-          'SEFAZ — no RJ, o Sistema de Reabertura de Prazo para Cancelamento, e só se a mercadoria não saiu.',
+        `passaram ${Math.floor(minutos)}. A SEFAZ recusaria (501). Fora do prazo o caminho é da própria ` +
+        'SEFAZ — no RJ, o Sistema de Reabertura de Prazo para Cancelamento, e só se a mercadoria não saiu.';
+      // Pedido agendado que perdeu o prazo sai da fila com o motivo à vista — senão ficaria
+      // "aguardando" para sempre e ninguém saberia que a nota continua valendo.
+      await this.fecharCancelamentoAgendado(nota, 'rejeitado', msg);
+      throw new BadRequestException(msg);
+    }
+
+    // Os pedidos de cancelamento desta nota que já existem. O índice único (mig 284) só aceita
+    // um vivo por nota: o AGENDADO é aproveitado; o PENDENTE (enviado e sem resposta) não se
+    // repete às cegas — se o primeiro foi registrado, a SEFAZ responderia duplicidade. Quem
+    // resolve o pendente é a CONSULTA, e o job faz isso sozinho, no ritmo que a SEFAZ permite.
+    const eventos = await this.db
+      .select()
+      .from(fiscalEvento)
+      .where(
+        and(
+          eq(fiscalEvento.tenantId, tenantId),
+          eq(fiscalEvento.chave, nota.chave),
+          eq(fiscalEvento.tpEvento, TP_EVENTO_CANCELAMENTO),
+          sql`status <> 'rejeitado'`,
+        ),
+      );
+    const jaRegistrado = eventos.find((e) => e.status === 'registrado');
+    if (jaRegistrado) {
+      // A SEFAZ já registrou o cancelamento; só o nosso status ficou para trás.
+      const [row] = await this.db
+        .update(notaFiscal)
+        .set({
+          status: 'cancelada', canceladaEm: jaRegistrado.registradoEm ?? new Date(),
+          justificativaCancelamento: jaRegistrado.justificativa ?? just,
+          motivo: `${jaRegistrado.cstat ?? ''} - ${jaRegistrado.motivo ?? 'Cancelamento registrado'}`.slice(0, 400),
+        })
+        .where(and(eq(notaFiscal.id, nota.id), eq(notaFiscal.status, 'autorizada')))
+        .returning();
+      return row ?? nota;
+    }
+    if (eventos.some((e) => e.status === 'pendente'))
+      throw new ServiceUnavailableException(
+        'Já existe um pedido de cancelamento desta nota sem resposta da SEFAZ. O sistema confere a ' +
+          'situação sozinho em alguns minutos — não é preciso pedir de novo.',
       );
 
     const cfg: any = await this.configRaw(tenantId, nota.unidadeId);
     if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
     const cert = certificadoParaAssinar(await obterCredencial(this.db, tenantId, nota.unidadeId));
+    // Certificado vencido não conversa com a SEFAZ (o TLS cai e parece rede — ver ERR-099):
+    // dizer isso agora é melhor que um "a SEFAZ não respondeu" que não é verdade.
+    const probsCert = problemasDoCertificado(cert, cfg.cnpj);
+    if (probsCert.length)
+      throw new BadRequestException(
+        `O certificado digital da loja não serve para cancelar: ${probsCert.join(' ')} Cadastre o certificado válido.`,
+      );
     const ambiente = String(nota.ambiente ?? cfg.ambiente ?? '2');
 
     const evento = montarEventoCancelamento({
@@ -1858,32 +2192,54 @@ export class FiscalService {
     });
     const assinado = assinarEvento(evento, cert);
 
-    const [registro] = await this.db
-      .insert(fiscalEvento)
-      .values({
-        tenantId, unidadeId: nota.unidadeId, notaId: nota.id, chave: nota.chave,
-        tpEvento: TP_EVENTO_CANCELAMENTO, nSeq: 1, justificativa: just,
-        status: 'pendente', ambiente, xml: assinado, solicitadoPorId: atorId,
-      })
-      .returning();
+    // Grava ANTES de enviar: se a resposta se perder, fica o registro de que o pedido saiu.
+    const emAndamento = () =>
+      new ServiceUnavailableException('O cancelamento desta nota já está em andamento. Aguarde a resposta da SEFAZ.');
+    const agendado = eventos.find((e) => e.status === 'agendado' || e.status === 'dispensado');
+    let registro: any;
+    if (agendado) {
+      [registro] = await this.db
+        .update(fiscalEvento)
+        .set({
+          status: 'pendente', justificativa: just, ambiente, xml: assinado,
+          solicitadoPorId: atorId ?? agendado.solicitadoPorId ?? null, motivo: null, updatedAt: new Date(),
+        })
+        .where(and(eq(fiscalEvento.id, agendado.id), eq(fiscalEvento.status, agendado.status)))
+        .returning();
+      if (!registro) throw emAndamento(); // outro processo pegou o mesmo pedido agora
+    } else {
+      try {
+        [registro] = await this.db
+          .insert(fiscalEvento)
+          .values({
+            tenantId, unidadeId: nota.unidadeId, notaId: nota.id, chave: nota.chave,
+            tpEvento: TP_EVENTO_CANCELAMENTO, nSeq: 1, justificativa: just,
+            status: 'pendente', ambiente, xml: assinado, solicitadoPorId: atorId,
+          })
+          .returning();
+      } catch (e: any) {
+        if (e?.code === '23505') throw emAndamento();
+        throw e;
+      }
+    }
 
     let campos: Record<string, unknown>;
     try {
-      const r = await enviarEvento({ uf: cfg.uf, ambiente, eventoAssinado: assinado, cert });
+      const r = await enviarEvento({ uf: cfg.uf, ambiente, eventoAssinado: assinado, cert, prazoMs: opts.prazoMs });
       campos =
         r.situacao === 'registrado'
           ? { status: 'registrado', cstat: r.cStat, motivo: r.xMotivo, protocolo: r.protocolo, xml: r.procEventoNFe, registradoEm: new Date() }
           : { status: 'rejeitado', cstat: r.cStat, motivo: `${r.cStat} - ${r.xMotivo}`.slice(0, 400) };
     } catch (e: any) {
       if (e instanceof SefazInalcancavel) {
-        // Sem resposta: o cancelamento PODE ter sido registrado. A consulta da nota responde —
-        // ela devolve 101/135 quando cancelada, e o P18 já grava isso.
+        // Sem resposta: o cancelamento PODE ter sido registrado. Quem responde é a CONSULTA da
+        // nota (101/135/155 = cancelada) — o job `rodarCancelamentosAgendados` faz isso sozinho.
         await this.db
           .update(fiscalEvento)
           .set({ motivo: `Sem resposta da SEFAZ — situação desconhecida. ${e.message}`.slice(0, 400), updatedAt: new Date() })
           .where(eq(fiscalEvento.id, registro.id));
         throw new ServiceUnavailableException(
-          `A SEFAZ não respondeu ao cancelamento. Consulte a nota em instantes antes de tentar de novo. ${e.message}`,
+          `A SEFAZ não respondeu ao cancelamento. O sistema confere a nota sozinho em alguns minutos. ${e.message}`,
         );
       }
       campos = { status: 'rejeitado', motivo: String(e?.message ?? 'falha').slice(0, 400) };
@@ -1919,7 +2275,7 @@ export class FiscalService {
   }
 
   /** Nota simulada: cancela pelo transmissor simulado (só existe em homologação). */
-  private async cancelarSimulada(tenantId: string, atorId: string, nota: any, just: string) {
+  private async cancelarSimulada(tenantId: string, atorId: string | null, nota: any, just: string) {
     const config = await this.configRaw(tenantId, nota.unidadeId);
     let ret;
     try {
@@ -1942,6 +2298,259 @@ export class FiscalService {
       entidadeTipo: 'nota_fiscal', entidadeId: nota.id, detalhe: { chave: nota.chave, justificativa: just },
     });
     return row;
+  }
+
+  // ===== CANCELAMENTO AGENDADO — a venda foi desfeita, a nota não pode continuar valendo =====
+  //
+  // Caso do totem: o DANFE não saiu no papel (ou a nota ficou sem resposta e a venda foi
+  // desfeita), o cliente recebe o dinheiro de volta — e documento fiscal de venda desfeita não
+  // pode sobrar. Autorizada, cancela-se já (110111, 30 min). Mas duas não se cancelam AGORA:
+  //  • a de CONTINGÊNCIA ainda não foi autorizada e NÃO pode ser inutilizada (Ajuste SINIEF 19/16,
+  //    cl. 11ª, §2º, II) — cancela-se assim que a fila da contingência a autorizar;
+  //  • a PENDENTE (foi à SEFAZ sem resposta) — cancela-se se a consulta a achar autorizada.
+  //
+  // O pedido fica em `fiscal_evento` com status `agendado` (sem migration: o status é texto, e o
+  // índice único da mig 284 só aceita um pedido vivo por nota — o agendado é PROMOVIDO a
+  // pendente no envio, nunca duplicado). Estados do pedido: agendado → pendente → registrado |
+  // rejeitado; `dispensado` = não precisou sair (a nota nunca valeu, ou já estava cancelada).
+
+  /** Agenda o cancelamento de UMA nota. Idempotente: se já há pedido vivo, não cria outro. */
+  async agendarCancelamentoDaNota(tenantId: string, notaId: string, justificativa: string): Promise<string | null> {
+    const [n] = await this.db
+      .select()
+      .from(notaFiscal)
+      .where(and(eq(notaFiscal.id, notaId), eq(notaFiscal.tenantId, tenantId)));
+    if (!n?.chave) return null;
+    // Cancelada já está; denegada e rejeitada de verdade nunca valeram. Só a rejeitada por "não
+    // consta" (217) ainda pode aparecer autorizada — é vigiada por 168 h (ver `reconciliarPendentes`).
+    if (n.status === 'cancelada' || n.status === 'denegada') return null;
+    if (n.status === 'rejeitada' && n.cstat !== '217') return null;
+    const r: any = await this.db.execute(sql`
+      insert into fiscal_evento (tenant_id, unidade_id, nota_id, chave, tp_evento, n_seq, justificativa, status, ambiente)
+      select ${tenantId}::uuid, ${n.unidadeId ?? null}::uuid, ${n.id}::uuid, ${n.chave}, ${TP_EVENTO_CANCELAMENTO},
+             1, ${justificativa}, 'agendado', ${String(n.ambiente ?? '2')}
+       where not exists (
+         select 1 from fiscal_evento e
+          where e.tenant_id = ${tenantId}::uuid and e.chave = ${n.chave}
+            and e.tp_evento = ${TP_EVENTO_CANCELAMENTO} and e.status <> 'rejeitado')
+      on conflict do nothing
+      returning id`);
+    const id = ((r.rows ?? r)[0]?.id as string | undefined) ?? null;
+    if (id)
+      await this.auditoria.registrar({
+        tenantId, atorId: null, atorPerfil: 'servico', tipo: 'fiscal', acao: 'agendou_cancelamento_nfce',
+        entidadeTipo: 'nota_fiscal', entidadeId: n.id,
+        detalhe: { chave: n.chave, numero: n.numero, serie: n.serie, status: n.status, justificativa },
+      });
+    return id;
+  }
+
+  /**
+   * Agenda o cancelamento de TODAS as notas da venda que valem (ou podem vir a valer). Vem ANTES
+   * de desfazer a venda: se o processo cair no meio, o pedido já está gravado e o job o executa.
+   */
+  async agendarCancelamentosDaVenda(tenantId: string, comandaId: string, justificativa: string) {
+    const notas = await this.db
+      .select({ id: notaFiscal.id })
+      .from(notaFiscal)
+      .where(and(eq(notaFiscal.tenantId, tenantId), eq(notaFiscal.comandaId, comandaId)));
+    for (const n of notas) await this.agendarCancelamentoDaNota(tenantId, n.id, justificativa);
+    return notas.length;
+  }
+
+  /**
+   * Venda desfeita: agenda (de novo, sem duplicar) e cancela JÁ as notas autorizadas. As de
+   * contingência e as pendentes ficam agendadas para quando forem autorizadas. Devolve o que
+   * aconteceu, no contrato do totem.
+   */
+  async cancelarNotasDaVendaDesfeita(
+    tenantId: string,
+    comandaId: string,
+    justificativa: string,
+    opts: { prazoMs?: number } = {},
+  ): Promise<{ notaCancelada: boolean; cancelamentoPendente: boolean }> {
+    await this.agendarCancelamentosDaVenda(tenantId, comandaId, justificativa);
+    const autorizadas = await this.db
+      .select({ id: notaFiscal.id })
+      .from(notaFiscal)
+      .where(
+        and(
+          eq(notaFiscal.tenantId, tenantId),
+          eq(notaFiscal.comandaId, comandaId),
+          eq(notaFiscal.status, 'autorizada'),
+        ),
+      );
+    for (const n of autorizadas)
+      await this.executarCancelamentosAgendados({ notaId: n.id, prazoMs: opts.prazoMs });
+    return this.situacaoCancelamentoDaVenda(tenantId, comandaId);
+  }
+
+  /** Alguma nota da venda foi cancelada? Há cancelamento ainda por sair (agendado ou sem resposta)? */
+  async situacaoCancelamentoDaVenda(
+    tenantId: string,
+    comandaId: string,
+  ): Promise<{ notaCancelada: boolean; cancelamentoPendente: boolean }> {
+    const r: any = await this.db.execute(sql`
+      select
+        exists (select 1 from nota_fiscal n
+                 where n.tenant_id = ${tenantId}::uuid and n.comanda_id = ${comandaId}::uuid
+                   and n.status = 'cancelada') as cancelada,
+        exists (select 1 from fiscal_evento e
+                  join nota_fiscal n on n.id = e.nota_id and n.tenant_id = e.tenant_id
+                 where n.tenant_id = ${tenantId}::uuid and n.comanda_id = ${comandaId}::uuid
+                   and e.tp_evento = ${TP_EVENTO_CANCELAMENTO}
+                   and e.status in ('agendado', 'pendente')) as pendente`);
+    const l = (r.rows ?? r)[0] ?? {};
+    return { notaCancelada: l.cancelada === true, cancelamentoPendente: l.pendente === true };
+  }
+
+  /** Fecha o pedido AGENDADO de uma nota sem enviá-lo (não precisou, ou perdeu o prazo). */
+  private async fecharCancelamentoAgendado(nota: any, status: 'dispensado' | 'rejeitado', motivo: string) {
+    if (!nota?.chave) return;
+    await this.db
+      .update(fiscalEvento)
+      .set({ status, motivo: motivo.slice(0, 400), updatedAt: new Date() })
+      .where(
+        and(
+          eq(fiscalEvento.tenantId, nota.tenantId ?? nota.tenant_id),
+          eq(fiscalEvento.chave, nota.chave),
+          eq(fiscalEvento.tpEvento, TP_EVENTO_CANCELAMENTO),
+          eq(fiscalEvento.status, 'agendado'),
+        ),
+      )
+      .catch((e: any) => this.log.warn(`pedido agendado da nota ${nota.id} não foi fechado: ${e?.message ?? e}`));
+  }
+
+  /**
+   * Executa os cancelamentos AGENDADOS cujas notas já podem ser canceladas. Só os das notas
+   * DESTA instalação (a série diz a origem): a loja cancela as dela, a nuvem as dela.
+   */
+  async executarCancelamentosAgendados(opts: { notaId?: string; limite?: number; prazoMs?: number } = {}) {
+    const origem = this.origemEmissao();
+    const r: any = await this.db.execute(sql`
+      select e.id as evento_id, e.justificativa as evento_justificativa, n.*
+        from fiscal_evento e
+        join nota_fiscal n on n.id = e.nota_id and n.tenant_id = e.tenant_id
+        join fiscal_serie s
+          on s.tenant_id = n.tenant_id
+         and s.unidade_id is not distinct from n.unidade_id
+         and s.serie = n.serie
+         and s.origem = ${origem}
+       where e.tp_evento = ${TP_EVENTO_CANCELAMENTO} and e.status = 'agendado'
+         and ${opts.notaId ? sql`n.id = ${opts.notaId}::uuid` : sql`true`}
+       order by e.created_at
+       limit ${opts.limite ?? 20}`);
+    const linhas = (r.rows ?? r) as any[];
+    const resultado = { cancelados: 0, aguardando: 0, dispensados: 0, falhas: 0 };
+    for (const l of linhas) {
+      const nota = { ...l, tenantId: l.tenant_id, unidadeId: l.unidade_id };
+      const idadeH = (Date.now() - new Date(l.created_at).getTime()) / 3_600_000;
+      try {
+        if (l.status === 'cancelada') {
+          await this.fecharCancelamentoAgendado(nota, 'dispensado', 'A nota já estava cancelada.');
+          resultado.dispensados++;
+        } else if (
+          l.status === 'contingencia' ||
+          l.status === 'pendente' ||
+          (l.status === 'rejeitada' && l.cstat === '217' && idadeH < 168)
+        ) {
+          resultado.aguardando++; // ainda não é documento — o pedido espera a autorização
+        } else if (l.status !== 'autorizada') {
+          await this.fecharCancelamentoAgendado(
+            nota, 'dispensado', `A nota não foi autorizada (${l.status}) — não há documento a cancelar.`,
+          );
+          resultado.dispensados++;
+        } else {
+          await this.cancelar(l.tenant_id, null, l.id, l.evento_justificativa ?? JUSTIFICATIVA_VENDA_DESFEITA, {
+            prazoMs: opts.prazoMs,
+          });
+          resultado.cancelados++;
+        }
+      } catch (e: any) {
+        // Sem resposta, recusa ou prazo vencido: o motivo fica no pedido (e no log), e o laço
+        // segue — uma nota com problema não pode impedir o cancelamento das outras.
+        resultado.falhas++;
+        this.log.warn(`cancelamento agendado da NFC-e ${l.numero}/${l.serie} não saiu: ${e?.message ?? e}`);
+      }
+    }
+    return resultado;
+  }
+
+  /**
+   * Pedidos de cancelamento ENVIADOS e sem resposta: a consulta da nota diz se o evento foi
+   * registrado (a nota aparece cancelada) ou não (segue autorizada → o pedido volta a ser
+   * agendado e sai de novo, se ainda houver prazo). Uma consulta por pedido a cada 6 minutos, no
+   * máximo: a SEFAZ bloqueia quem consulta a mesma nota mais de 10 vezes por hora (rejeição 656).
+   */
+  private async resolverCancelamentosSemResposta(limite = 10) {
+    const origem = this.origemEmissao();
+    const r: any = await this.db.execute(sql`
+      select e.id as evento_id, e.justificativa as evento_justificativa, n.*
+        from fiscal_evento e
+        join nota_fiscal n on n.id = e.nota_id and n.tenant_id = e.tenant_id
+        join fiscal_serie s
+          on s.tenant_id = n.tenant_id
+         and s.unidade_id is not distinct from n.unidade_id
+         and s.serie = n.serie
+         and s.origem = ${origem}
+       where e.tp_evento = ${TP_EVENTO_CANCELAMENTO} and e.status = 'pendente'
+         and e.updated_at < now() - interval '6 minutes'
+         and e.created_at > now() - interval '3 hours'
+         and coalesce(n.simulada, false) = false
+       order by e.updated_at
+       limit ${limite}`);
+    for (const l of (r.rows ?? r) as any[]) {
+      try {
+        const nota = {
+          ...l, tenantId: l.tenant_id, unidadeId: l.unidade_id, createdAt: l.created_at,
+          tentativasConsulta: l.tentativas_consulta, emitidaEm: l.emitida_em,
+        };
+        const res: any = await this.resolverNaSefaz(nota, null);
+        if (res?.status === 'cancelada') {
+          await this.db
+            .update(fiscalEvento)
+            .set({ status: 'registrado', cstat: res.cstat ?? null, motivo: res.motivo ?? null, registradoEm: new Date(), updatedAt: new Date() })
+            .where(and(eq(fiscalEvento.id, l.evento_id), eq(fiscalEvento.status, 'pendente')));
+        } else if (res?.status === 'autorizada') {
+          // A SEFAZ não registrou o pedido: ele sai da frente (rejeitado não conta no índice
+          // único) e volta a ser AGENDADO — o executor manda de novo, se o prazo ainda deixar.
+          await this.db
+            .update(fiscalEvento)
+            .set({
+              status: 'rejeitado', updatedAt: new Date(),
+              motivo: 'Sem resposta da SEFAZ, e a consulta mostrou a nota ainda autorizada: o pedido não foi registrado.',
+            })
+            .where(and(eq(fiscalEvento.id, l.evento_id), eq(fiscalEvento.status, 'pendente')));
+          await this.agendarCancelamentoDaNota(l.tenant_id, l.id, l.evento_justificativa ?? JUSTIFICATIVA_VENDA_DESFEITA);
+        } else {
+          await this.db.update(fiscalEvento).set({ updatedAt: new Date() }).where(eq(fiscalEvento.id, l.evento_id));
+        }
+      } catch (e: any) {
+        await this.db
+          .update(fiscalEvento)
+          .set({ updatedAt: new Date() })
+          .where(eq(fiscalEvento.id, l.evento_id))
+          .catch(() => undefined);
+        this.log.warn(`cancelamento sem resposta da NFC-e ${l.numero}/${l.serie} segue indefinido: ${e?.message ?? e}`);
+      }
+    }
+  }
+
+  /**
+   * A cada 2 minutos: resolve os pedidos sem resposta e manda os agendados que já podem sair. O
+   * prazo do cancelamento comum é de 30 minutos da autorização — um job de 5 minutos gastaria um
+   * sexto dele esperando. Roda na loja e na nuvem, cada uma com as notas da própria série.
+   */
+  @Cron('*/2 * * * *')
+  async rodarCancelamentosAgendados() {
+    try {
+      await this.resolverCancelamentosSemResposta();
+      return await this.executarCancelamentosAgendados();
+    } catch (e: any) {
+      // Instalação sem a mig 284 (`fiscal_evento`), ou banco fora: o job não pode derrubar nada.
+      this.log.warn(`cancelamentos agendados não rodaram: ${e?.message ?? e}`);
+      return null;
+    }
   }
 
   // Configuração que vale para esta LOJA: a própria, ou — sem ela — a da EMPRESA (regra V4,

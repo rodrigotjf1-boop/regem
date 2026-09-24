@@ -2231,7 +2231,7 @@ export class ProducaoPedidoService {
   // marca 'cancelado' e avisa o KDS por cada destino.
   async cancelarPorComanda(
     tenantId: string,
-    atorId: string,
+    atorId: string | null,
     comandaId: string,
     motivo?: string,
   ) {

@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { BadRequestException } from '@nestjs/common';
 
 // CONTINGÊNCIA OFF-LINE DA NFC-e (`tpEmis=9`) — as regras que não dependem do banco.
 //
@@ -24,6 +25,13 @@
 // Prazo: **até o fim do primeiro dia útil subsequente** à emissão (Ajuste 19/16, cl. 11ª, §1º,
 // II, "a"; MOC 7.0 Anexo IV §2 e §4; e o manual da SEFAZ-RJ de 16/07/2026 repete). Não são 24
 // horas — o título de uma pergunta do manual do RJ ficou velho dizendo isso.
+
+/**
+ * A SEFAZ calou e a contingência também não tem como sair (UF só com QR v2, certificado
+ * ausente). Classe própria — e ainda um 400 para quem só olha o HTTP — porque o totem precisa
+ * distinguir isto de um erro de configuração: aqui a SEFAZ PODE ter recebido a nota.
+ */
+export class ContingenciaIndisponivel extends BadRequestException {}
 
 /** Justificativa padrão da entrada (xJust, B29): 15 a 256 caracteres, obrigatória (557). */
 export const JUSTIFICATIVA_PADRAO = 'Falha de comunicacao com a SEFAZ na autorizacao da NFC-e';
