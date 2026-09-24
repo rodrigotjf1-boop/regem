@@ -21,6 +21,10 @@
 
 ## 1. Estado do nosso emissor
 
+> **Procurando o que ainda falta?** Está no **§6.1** — o que bloqueia a virada para produção, o
+> que depende do lojista ou de terceiro, o que já está pronto e ainda não chegou às lojas, e as
+> melhorias sem prazo. O §7 é outra coisa: o que o *mundo* ainda não resolveu.
+
 | Área | Situação |
 |---|---|
 | Montagem do XML (infNFe 4.00) | Existe — `nfce-xml.builder.ts` |
@@ -486,6 +490,72 @@ por inutilização — nunca reusado.
 
 ---
 
+## 6.1 O QUE FALTA — pendências abertas do emissor
+
+> Atualizado em 23/09/2026. Aqui fica o que **nós** ainda temos de fazer ou pedir. O §7 é outra
+> coisa: o que o mundo ainda não resolveu. Ao concluir um item, riscar e registrar no §8.
+
+### A0. O EMISSOR AINDA NÃO ESTÁ PRONTO PARA A VENDA REAL — faltam código e dado
+
+> Conferido em 24/09/2026 no código, no **XSD oficial**, no **MOC consolidado** e na ficha do RJ
+> (manual da SEFAZ-RJ de 16/07/2026). Toda nota de homologação até aqui foi paga em **dinheiro**,
+> com **um item de teste** — e é por isso que nada disto apareceu. Cada linha é um caso que a
+> venda de restaurante produz no primeiro dia.
+
+| # | O que falta | O que acontece hoje | Fonte |
+|---|---|---|---|
+| ~~A0.1~~ | ~~**Grupo `<card>` no pagamento** em cartão (tPag 03/04) e **PIX** (17)~~ — **RESOLVIDO 24/09/2026** (#570: `tpIntegra=2`, ou 1 com credenciadora e autorização) | A nota é **rejeitada com 391**. É a forma de pagamento da maioria das vendas. Com a maquininha separada do PDV basta `tpIntegra=2`; o CNPJ da credenciadora e o `cAut` só são exigidos com `tpIntegra=1` | MOC, **YA04-10 → 391**: "implementação **por padrão**, opcional a critério da UF" — não há confirmação de que o RJ dispense. YA05-10 para o `tpIntegra` |
+| ~~A0.2~~ | ~~**Grupo `ICMSSN500`** (CSOSN **500**, ICMS já retido por substituição tributária)~~ — **RESOLVIDO 24/09/2026** (#570) | O builder só conhece `ICMSSN102`, que no XSD aceita **102, 103, 300 e 400**. Produto com CSOSN 500 — o caso típico de refrigerante, cerveja e água, que chegam com ST — vira **rejeição 225** (schema) | XSD oficial `leiauteNFe_v4.00.xsd` (lido); lista fechada do RJ: CSOSN **102, 300, 500** |
+| ~~A0.3~~ | ~~**`infAdFisco` com o FECP**~~ — **RESOLVIDO 24/09/2026** (#570: texto do contador na Configuração fiscal; em produção no RJ, sem ele, a emissão recusa) | O XML não tem o campo. No RJ ele **nunca fica vazio**: *"em caso de NÃO INCIDÊNCIA do FECP, deverá constar essa informação"* (Lei 8.405/19) | Manual SEFAZ-RJ, pergunta 1.49. Dado incorreto na NFC-e é multa de **3% do valor da operação** (RICMS, art. 62-C, XI) |
+| ~~A0.4~~ | ~~**Rodapé PROCON-RJ e CODECON** no campo de interesse do contribuinte~~ — **RESOLVIDO 24/09/2026** (#570 no XML e #572 impresso no DANFE) | Não sai. **Lei estadual 5.817/10**: PROCON-RJ **151**, Av. Rio Branco, 25, 5º andar, Centro · CODECON **0800 282 7060**, R. da Alfândega, 8, Centro | Manual SEFAZ-RJ §A2 |
+| ~~A0.5~~ | ~~**Cancelamento comum (evento 110111)**~~ — **RESOLVIDO 24/09/2026** (#571: evento 110111, 30 minutos, botão mostra quanto resta) | **Não existe** — `SefazDiretoTransmitter.cancelar()` recusa. Só existe o cancelamento por substituição (110112). No RJ o prazo é **30 minutos** da autorização, e só se a mercadoria não circulou: venda errada, desistência ou item trocado ficam **autorizados para sempre** | `transmitter.ts`; manual SEFAZ-RJ §A5 |
+| **A0.6** | **Cadastro fiscal dos produtos conferido pelo contador** — NCM, CFOP e CSOSN de cada item | Sem CFOP no produto, o emissor usa **5102** (revenda) — mas prato **produzido** na casa é **5101**, e item com ST é **5405** com CSOSN 500. O RJ tem **lista fechada**: CFOP 5101/5102/5103/5104/5115/5405 e CSOSN 102/300/500 | Ficha RJ, listas fechadas; o PDV não deveria oferecer código fora delas |
+| **A0.7** | **Gorjeta / taxa de serviço** na nota — decidir com o contador | No **Simples**, a gorjeta **integra a receita bruta** (Res. CGSN 140/18, art. 2º, §4º, II); a exclusão com CST 41 do manual do RJ **não vale** para o Simples. Hoje a nota sai só com os itens da comanda — se o cliente paga os 10%, o `vNF` não bate com o que ele pagou | Ficha RJ; ver também a GOTCHA de `comanda.total` embutir a taxa |
+
+### A. Bloqueia a virada para PRODUÇÃO (configuração)
+
+| # | O que é | Por que importa |
+|---|---|---|
+| **A1** | **Ambiente ainda é HOMOLOGAÇÃO** (`fiscal_config.ambiente = '2'`) | Nada do que foi emitido até aqui tem valor fiscal, e o DANFE sai com tarja. A virada é uma decisão consciente, não um esquecimento |
+| **A2** | **Séries de produção ainda não escolhidas** | Série usada em homologação **não vai** para produção (ERR-085): os números de teste viram buraco na sequência de produção, que a lei manda inutilizar. Hoje: 50 (loja) e 51 (nuvem) em homologação. As de produção precisam ser **livres no estabelecimento** — o totem da Eclética usa a **série 5**, e um "5" sugere que 1–4 estejam em outros caixas. Nunca **890-989** (reservadas no RN) nem **0** |
+| **A3** | **Certificado A1 vence em 18/11/2026** | Certificado vencido = nenhuma nota sai, nem em contingência (a contingência assina com ele). Renovar com folga |
+| **A4** | **Conferir a primeira nota de produção no portal da SEFAZ, pelo QR** | É o único teste que prova, de fora, que a nota existe para o Fisco com os dados certos |
+| **A5** | **`RESP_TEC_*` no EasyPanel** — conferir se está preenchido | Sem o grupo `infRespTec` a UF pode rejeitar com **972**. Em homologação passou; produção é outra política |
+
+> **CSC de produção NÃO é bloqueio no RJ.** Com o **QR v3** — que a própria SEFAZ-RJ recomenda e
+> que nós usamos — o CSC **não entra no QR Code**; a autenticidade vem da assinatura. Os dois
+> espaços de CSC de produção do RJ seguem ocupados (000001 desde 2023 e 000002 desde 03/2026,
+> provavelmente o da Eclética) e **não devem ser inutilizados**: derrubar o que a Eclética usa
+> para o totem interrompe a emissão dela na hora. ⚠️ Os valores dos dois foram expostos num
+> chat — a rotação é recomendação de segurança, não pré-requisito técnico nosso.
+
+### B. Depende de terceiro ou do lojista
+
+| # | O que é | De quem depende |
+|---|---|---|
+| **B1** | **CNPJ do iFood e do 99Food** (P26) — enquanto não vierem, **pedido de marketplace não emite**: declarar `indIntermed=0` seria informar à SEFAZ que a venda foi direta | Do lojista: o número está na **nota fiscal de serviço que a plataforma emite contra a loja** (ou no extrato de repasse) |
+| **B2** | **Termo no livro modelo 6** para a guarda eletrônica do XML, se quiser manter a 2ª via de papel desligada com respaldo formal (mig 287) | Do contador. É ato único |
+| **B3** | **Transportador na logística do marketplace** (P27) — hoje declaramos a própria loja em toda entrega com `indPres=4` | Depende do B1 |
+| **B4** | **Lista completa das séries já em uso** no estabelecimento | Da Eclética (ou do portal da SEFAZ). É o que destrava o A2 |
+| **B5** | **Quem documenta qual venda: Regem ou Eclética** | Da loja. Hoje a Eclética já emite NFC-e para este CNPJ. Se a mesma venda passar pelos dois sistemas, saem **duas notas para uma venda** — receita em dobro no Simples. Antes de ligar a emissão automática em produção, cada canal (balcão, totem, delivery próprio, marketplace) precisa ter **um** emissor definido |
+
+### C. Pronto, mas ainda não nas lojas
+
+| # | O que é |
+|---|---|
+| **C1** | **Cinco entregas fiscais acumuladas no `RELEASES.md`**, todas marcadas `.zip`: destinatário/delivery (mig 285), denegação + aviso da SEFAZ, contingência base, contingência automática (mig 286) e via única (mig 287). As lojas só recebem no próximo corte |
+| **C2** | **Migrations 285, 286 e 287 já aplicadas na nuvem.** No servidor local elas entram junto com o `.zip` |
+
+### D. Melhorias conhecidas, sem prazo
+
+| # | O que é |
+|---|---|
+| **D1** | **QR v2 off-line** não implementado — a contingência exige **QR v3**. UF que só aceite v2 é recusada com a mensagem, em vez de emitir cupom que o consumidor não consegue consultar |
+| **D2** | O cálculo do prazo da contingência considera só **sábado e domingo**; feriado não entra. Erra para menos de propósito (avisa antes), mas uma tabela de feriados deixaria o aviso exato |
+| **D3** | **Job mensal de inutilização** — a lei presume venda não transmitida **a partir do 11º dia do mês subsequente** (Ajuste 19/16, cl. 11ª, §5º, redação do Ajuste 26/19). Hoje as lacunas aparecem na tela, mas quem dispara a inutilização é uma pessoa |
+
+---
+
 ## 7. Dependências NÃO confirmadas
 
 > Nada daqui pode virar código como se fosse verdade. Ao confirmar, mover para a seção certa e
@@ -527,6 +597,9 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 24/09/2026 | **A0.1 a A0.5 resolvidos** no mesmo dia: grupo `<card>` e `ICMSSN500` com o cadastro conferido contra o MOC e as listas fechadas do RJ, FECP em `infAdFisco` e rodapé PROCON/ALERJ (#570, mig 288); cancelamento comum 110111 (#571); rodapé impresso no DANFE único do K6, que também corrigiu o totem ficando sem o cupom da contingência (#572). Seguem abertos o **A0.6** (cadastro fiscal dos produtos, com o contador) e o **A0.7** (taxa de serviço — a configuração entra na próxima parte). |
+| 24/09/2026 | **§6.1 ganhou o grupo A0 — o emissor ainda não está pronto para venda real.** Conferido no código, no XSD oficial, no MOC e no manual da SEFAZ-RJ: faltam o grupo `<card>` (cartão e PIX seriam **391**), o `ICMSSN500` (bebida com ST seria **225**), o `infAdFisco` com FECP e o rodapé PROCON/CODECON exigidos no RJ, e o **cancelamento comum** (110111), que não existe. Toda homologação foi em dinheiro com um item de teste — por isso nada disso apareceu. Também entrou o B5: definir **qual sistema documenta cada venda**, porque a Eclética já emite para o mesmo CNPJ. |
+| 23/09/2026 | **§6.1 criado**: as pendências do emissor passaram a ficar no documento, separadas em quatro grupos — o que bloqueia a produção (ambiente, séries novas, validade do A1), o que depende do lojista (CNPJ dos intermediadores, termo do livro modelo 6), o que está pronto e ainda não foi para as lojas (cinco entregas aguardando corte de `.zip`) e as melhorias sem prazo. Registrado também que **o CSC de produção não é bloqueio no RJ**: com o QR v3 ele não entra no QR Code. |
 | 23/09/2026 | **DANFE do totem (K6).** O texto do DANFE saiu de dentro de `imprimirDanfe` para `fiscal/danfe-texto.ts` e passou a ser UM só: a impressora do caixa e o totem GoGeM imprimem o mesmo documento. `resumoNfce` ganhou o campo `danfe` (o texto pronto, com o marcador `@QR:`), e `emitir`/`emitirSeAtivo` ganharam `opts.imprimirNaLoja` — a venda do totem pede `false`, senão a mesma nota sairia duas vezes (uma no totem, outra no balcão). O texto ganhou a mensagem **"EMITIDA EM CONTINGÊNCIA"** quando o status é `contingencia`, exigida pelo Manual do DANFE NFC-e; no totem, a contingência imprime também a **segunda via "Via do Estabelecimento"**. Do lado do totem: QR nativo no ESC/POS (`GS ( k`, modelo 2, módulo 6 = ~43 mm, correção M — a norma pede ≥ 25 mm), os **mesmos bytes** do `edge/escpos.mjs`. Nota emitida cujo DANFE não sai vai para a fila de reimpressão e a tela avisa o cliente a retirar no balcão; o **cancelamento + estorno** desse caso é o passo seguinte (F4), ainda não implementado. |
 | 23/09/2026 | **A 2ª via de papel da contingência virou opção, desligada por padrão** (mig 287). Restaurante entrega só a via do cliente; a guarda passa a ser o XML, que o MOC aceita expressamente (Anexo IV, §4) e que já fica arquivado e reimprimível. Quem precisar do papel liga na configuração fiscal. ⚠️ A guarda eletrônica exige termo lavrado no livro modelo 6 — isso é da loja, não do sistema. |
 | 23/09/2026 | **Contingência off-line COMPLETA** (mig 286). Quando a SEFAZ fica muda, o ponto de emissão entra em contingência sozinho, a venda sai com `tpEmis=9` num número NOVO (o da nota pendente não se reaproveita), nenhuma venda seguinte tenta a SEFAZ (era a espera que travava o caixa), e um job de 5 minutos sai da contingência assim que o status do serviço volta `107` e transmite a fila com o XML original. **Rejeição na transmissão não tira a nota da fila** — número de contingência não pode ser inutilizado. DANFE com "EMITIDA EM CONTINGENCIA" e 2ª via; a tela de notas mostra o prazo de cada uma. **P21 resolvido.** |
