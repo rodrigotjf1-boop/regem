@@ -64,10 +64,14 @@ import { responsavelTecnico } from './responsavel-tecnico';
 import { SituacaoNaSefaz, consultarSituacaoNfce } from './sefaz/consulta-protocolo';
 import { inutilizarNfce, montarInutNFe } from './sefaz/inutilizacao';
 import {
+  PRAZO_CANCELAMENTO_MINUTOS,
   PRAZO_CANC_SUBST_HORAS,
+  TP_EVENTO_CANCELAMENTO,
   TP_EVENTO_CANC_SUBST,
+  enviarEvento,
   enviarEventoCancSubst,
   montarEventoCancSubst,
+  montarEventoCancelamento,
 } from './sefaz/evento-cancelamento';
 import { fiscalEvento } from '../../db/schema';
 import { assinarInutNFe, assinarEvento } from './assinatura';
@@ -1747,38 +1751,110 @@ export class FiscalService {
     }
   }
 
+  /**
+   * CANCELAMENTO COMUM da NFC-e (evento 110111) — venda errada, desistência, item trocado.
+   *
+   * O prazo é de 30 minutos da autorização (Ajuste SINIEF 19/16, cl. 15ª — teto nacional, que a
+   * UF pode reduzir). Conferimos ANTES de enviar: fora dele a SEFAZ devolve 501 e a explicação ao
+   * lojista seria pior. O evento é gravado antes do envio (se a resposta se perder, fica o registro
+   * de que saiu), e a nota só vira `cancelada` quando a SEFAZ REGISTRA o evento — nunca por
+   * otimismo, senão o nosso banco diverge do que o Fisco tem.
+   */
   async cancelar(
     tenantId: string,
     atorId: string,
     notaId: string,
     justificativa: string,
   ) {
-    if (!justificativa || justificativa.trim().length < 15)
-      throw new BadRequestException('Justificativa deve ter ao menos 15 caracteres.');
+    const just = String(justificativa ?? '').trim();
+    if (just.length < 15 || just.length > 255)
+      throw new BadRequestException('A justificativa precisa ter de 15 a 255 caracteres.');
     const [nota] = await this.db
       .select()
       .from(notaFiscal)
       .where(and(eq(notaFiscal.id, notaId), eq(notaFiscal.tenantId, tenantId)));
     if (!nota) throw new NotFoundException('Nota não encontrada');
     if (nota.status !== 'autorizada')
-      throw new BadRequestException('Só cancela nota autorizada.');
+      throw new BadRequestException('Só se cancela nota autorizada.');
 
-    const config = await this.configRaw(tenantId, nota.unidadeId);
-    let ret;
-    try {
-      ret = await this.transmitter(config).cancelar(
-        nota.chave!,
-        nota.protocolo!,
-        justificativa,
-        config,
+    // Nota SIMULADA nunca passou pela SEFAZ: não há o que cancelar lá. Segue o transmissor
+    // simulado, que só existe em homologação com FISCAL_SIMULADO ligado.
+    if (nota.simulada) return this.cancelarSimulada(tenantId, atorId, nota, just);
+
+    if (!nota.chave || !nota.protocolo)
+      throw new BadRequestException('A nota não tem chave e protocolo — nada a cancelar na SEFAZ.');
+
+    const autorizadaEm = nota.emitidaEm ? new Date(nota.emitidaEm) : new Date(nota.createdAt);
+    const minutos = (Date.now() - autorizadaEm.getTime()) / 60_000;
+    if (minutos > PRAZO_CANCELAMENTO_MINUTOS)
+      throw new BadRequestException(
+        `O cancelamento da NFC-e vale até ${PRAZO_CANCELAMENTO_MINUTOS} minutos da autorização, e já se ` +
+          `passaram ${Math.floor(minutos)}. A SEFAZ recusaria (501). Fora do prazo o caminho é da própria ` +
+          'SEFAZ — no RJ, o Sistema de Reabertura de Prazo para Cancelamento, e só se a mercadoria não saiu.',
       );
+
+    const cfg: any = await this.configRaw(tenantId, nota.unidadeId);
+    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
+    const cert = certificadoParaAssinar(await obterCredencial(this.db, tenantId, nota.unidadeId));
+    const ambiente = String(nota.ambiente ?? cfg.ambiente ?? '2');
+
+    const evento = montarEventoCancelamento({
+      ambiente,
+      codigoUf: cfg.codigoUf,
+      cnpj: cfg.cnpj,
+      chave: nota.chave,
+      protocolo: nota.protocolo,
+      justificativa: just,
+      // Mesma regra do dhEmi: hora do fuso da UF do emitente, nunca UTC.
+      dhEvento: dhEmiSefaz(new Date(), cfg.uf),
+    });
+    const assinado = assinarEvento(evento, cert);
+
+    const [registro] = await this.db
+      .insert(fiscalEvento)
+      .values({
+        tenantId, unidadeId: nota.unidadeId, notaId: nota.id, chave: nota.chave,
+        tpEvento: TP_EVENTO_CANCELAMENTO, nSeq: 1, justificativa: just,
+        status: 'pendente', ambiente, xml: assinado, solicitadoPorId: atorId,
+      })
+      .returning();
+
+    let campos: Record<string, unknown>;
+    try {
+      const r = await enviarEvento({ uf: cfg.uf, ambiente, eventoAssinado: assinado, cert });
+      campos =
+        r.situacao === 'registrado'
+          ? { status: 'registrado', cstat: r.cStat, motivo: r.xMotivo, protocolo: r.protocolo, xml: r.procEventoNFe, registradoEm: new Date() }
+          : { status: 'rejeitado', cstat: r.cStat, motivo: `${r.cStat} - ${r.xMotivo}`.slice(0, 400) };
     } catch (e: any) {
-      // Sem transmissão real, o cancelamento não acontece — e a nota NÃO pode ser marcada
-      // como cancelada no nosso banco, senão diverge do que a SEFAZ tem.
-      throw new BadRequestException(e?.message ?? 'Falha ao cancelar na SEFAZ.');
+      if (e instanceof SefazInalcancavel) {
+        // Sem resposta: o cancelamento PODE ter sido registrado. A consulta da nota responde —
+        // ela devolve 101/135 quando cancelada, e o P18 já grava isso.
+        await this.db
+          .update(fiscalEvento)
+          .set({ motivo: `Sem resposta da SEFAZ — situação desconhecida. ${e.message}`.slice(0, 400), updatedAt: new Date() })
+          .where(eq(fiscalEvento.id, registro.id));
+        throw new ServiceUnavailableException(
+          `A SEFAZ não respondeu ao cancelamento. Consulte a nota em instantes antes de tentar de novo. ${e.message}`,
+        );
+      }
+      campos = { status: 'rejeitado', motivo: String(e?.message ?? 'falha').slice(0, 400) };
     }
-    if (ret.status !== 'cancelada')
-      throw new BadRequestException(ret.motivo || 'Cancelamento rejeitado.');
+
+    const [final] = await this.db
+      .update(fiscalEvento)
+      .set({ ...campos, updatedAt: new Date() })
+      .where(eq(fiscalEvento.id, registro.id))
+      .returning();
+
+    await this.auditoria.registrar({
+      tenantId, atorId, atorPerfil: '', tipo: 'fiscal', acao: 'cancelou_nfce',
+      entidadeTipo: 'nota_fiscal', entidadeId: nota.id,
+      detalhe: { chave: nota.chave, evento: final.status, cstat: final.cstat, justificativa: just },
+    });
+
+    if (final.status !== 'registrado')
+      throw new BadRequestException(`Cancelamento recusado pela SEFAZ: ${final.motivo}`);
 
     const [row] = await this.db
       .update(notaFiscal)
@@ -1786,20 +1862,36 @@ export class FiscalService {
         status: 'cancelada',
         canceladaEm: new Date(),
         canceladaPorId: atorId,
-        justificativaCancelamento: justificativa,
-        motivo: ret.motivo,
+        justificativaCancelamento: just,
+        motivo: `${final.cstat} - ${final.motivo}`.slice(0, 400),
       })
-      .where(eq(notaFiscal.id, notaId))
+      .where(and(eq(notaFiscal.id, nota.id), eq(notaFiscal.status, 'autorizada')))
+      .returning();
+    return row;
+  }
+
+  /** Nota simulada: cancela pelo transmissor simulado (só existe em homologação). */
+  private async cancelarSimulada(tenantId: string, atorId: string, nota: any, just: string) {
+    const config = await this.configRaw(tenantId, nota.unidadeId);
+    let ret;
+    try {
+      ret = await this.transmitter(config).cancelar(nota.chave!, nota.protocolo!, just, config);
+    } catch (e: any) {
+      throw new BadRequestException(e?.message ?? 'Falha ao cancelar.');
+    }
+    if (ret.status !== 'cancelada')
+      throw new BadRequestException(ret.motivo || 'Cancelamento rejeitado.');
+    const [row] = await this.db
+      .update(notaFiscal)
+      .set({
+        status: 'cancelada', canceladaEm: new Date(), canceladaPorId: atorId,
+        justificativaCancelamento: just, motivo: ret.motivo,
+      })
+      .where(eq(notaFiscal.id, nota.id))
       .returning();
     await this.auditoria.registrar({
-      tenantId,
-      atorId,
-      atorPerfil: '',
-      tipo: 'fiscal',
-      acao: 'cancelou_nfce',
-      entidadeTipo: 'nota_fiscal',
-      entidadeId: notaId,
-      detalhe: { chave: nota.chave, justificativa },
+      tenantId, atorId, atorPerfil: '', tipo: 'fiscal', acao: 'cancelou_nfce_simulada',
+      entidadeTipo: 'nota_fiscal', entidadeId: nota.id, detalhe: { chave: nota.chave, justificativa: just },
     });
     return row;
   }

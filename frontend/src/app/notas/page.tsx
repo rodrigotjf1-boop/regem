@@ -14,6 +14,15 @@ const brl = (n: number) =>
 const hora = (d?: string) =>
   d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
+// Cancelamento comum da NFC-e: 30 minutos da autorização (Ajuste SINIEF 19/16, cl. 15ª — teto
+// nacional). Depois disso a SEFAZ devolve 501, então o botão sai de cena em vez de deixar o
+// lojista descobrir pelo erro.
+const PRAZO_CANCELAMENTO_MIN = 30;
+const minutosParaCancelar = (n: any) => {
+  if (!n?.emitidaEm) return 0;
+  return Math.floor(PRAZO_CANCELAMENTO_MIN - (Date.now() - new Date(n.emitidaEm).getTime()) / 60_000);
+};
+
 const COR: Record<string, string> = {
   autorizada: 'bg-ok/10 text-ok',
   cancelada: 'bg-destructive/10 text-destructive',
@@ -340,9 +349,16 @@ export default function NotasPage() {
                     {consultando === n.id ? 'Consultando…' : 'Consultar na SEFAZ'}
                   </Button>
                 )}
-                {n.status === 'autorizada' && isGestor && (
-                  <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => cancelar(n)}>
-                    Cancelar
+                {n.status === 'autorizada' && isGestor && minutosParaCancelar(n) > 0 && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => cancelar(n)}
+                    title={`Restam ${minutosParaCancelar(n)} min para cancelar na SEFAZ`}
+                  >
+                    Cancelar ({minutosParaCancelar(n)} min)
                   </Button>
                 )}
               </div>

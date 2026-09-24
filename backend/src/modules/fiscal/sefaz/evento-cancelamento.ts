@@ -22,6 +22,20 @@ import { urlServicoNfce } from './webservices';
 // Campos exclusivos deste evento (e que faltando viram rejeição): `cOrgaoAutor` (UF da chave),
 // `tpAutor` = 1 (empresa emitente), `verAplic` e `chNFeRef` (a chave da nota SUBSTITUTA).
 
+// CANCELAMENTO COMUM (evento 110111). O caso do dia a dia: venda errada, desistência, item
+// trocado. Leiaute oficial (`e110111_v1.00.xsd`, pacote Evento_Canc_PL_v1.01 da NT 2018.004):
+// o `detEvento` leva SÓ `descEvento` ("Cancelamento"), `nProt` e `xJust` — os quatro campos
+// exclusivos do 110112 (`cOrgaoAutor`, `tpAutor`, `verAplic`, `chNFeRef`) não existem aqui.
+//
+// Prazo: o Ajuste SINIEF 19/16 (cl. 15ª) dá **30 minutos** da autorização para a NFC-e, "podendo
+// ser reduzido a critério de cada unidade federada" — 30 é o TETO nacional. Fora do prazo a
+// SEFAZ devolve **501** ("Prazo de cancelamento superior ao previsto na Legislação"). No RJ o
+// prazo é 30 minutos e só vale se a mercadoria não circulou; passado isso existe o "Sistema de
+// Reabertura de Prazo para Cancelamento" no portal da SEFAZ-RJ.
+export const TP_EVENTO_CANCELAMENTO = '110111';
+export const DESC_EVENTO_CANCELAMENTO = 'Cancelamento';
+export const PRAZO_CANCELAMENTO_MINUTOS = 30;
+
 export const TP_EVENTO_CANC_SUBST = '110112';
 // Sem acento: o valor é FIXO no schema, e "substituição" não passaria.
 export const DESC_EVENTO_CANC_SUBST = 'Cancelamento por substituicao';
@@ -90,6 +104,43 @@ export function montarEventoCancSubst(p: {
   );
 }
 
+export function montarEventoCancelamento(p: {
+  ambiente: string;
+  codigoUf: number | string;
+  cnpj: string;
+  chave: string; // a nota que será cancelada
+  protocolo: string; // o protocolo de autorização dela
+  justificativa: string;
+  dhEvento: string; // já no fuso da UF (mesma regra do dhEmi)
+  nSeqEvento?: number;
+}): string {
+  const just = String(p.justificativa ?? '').trim();
+  if (just.length < 15 || just.length > 255)
+    throw new Error('A justificativa do cancelamento precisa ter de 15 a 255 caracteres.');
+  const chave = soDig(p.chave);
+  const protocolo = soDig(p.protocolo);
+  if (protocolo.length < 15) throw new Error('Protocolo de autorização inválido para o cancelamento.');
+
+  const amb = String(p.ambiente) === '1' ? '1' : '2';
+  const cOrgao = soDig(p.codigoUf).padStart(2, '0');
+  const nSeq = p.nSeqEvento ?? 1;
+  const id = idEvento(TP_EVENTO_CANCELAMENTO, chave, nSeq);
+
+  return (
+    `<envEvento versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe">` +
+    `<idLote>${String(Date.now()).replace(/\D/g, '').slice(-15)}</idLote>` +
+    `<evento versao="1.00">` +
+    `<infEvento Id="${id}">` +
+    `<cOrgao>${cOrgao}</cOrgao><tpAmb>${amb}</tpAmb><CNPJ>${soDig(p.cnpj)}</CNPJ>` +
+    `<chNFe>${chave}</chNFe><dhEvento>${p.dhEvento}</dhEvento>` +
+    `<tpEvento>${TP_EVENTO_CANCELAMENTO}</tpEvento><nSeqEvento>${nSeq}</nSeqEvento><verEvento>1.00</verEvento>` +
+    `<detEvento versao="1.00">` +
+    `<descEvento>${DESC_EVENTO_CANCELAMENTO}</descEvento>` +
+    `<nProt>${protocolo}</nProt><xJust>${esc(just)}</xJust>` +
+    `</detEvento></infEvento></evento></envEvento>`
+  );
+}
+
 function elemento(xml: string, nome: string): string | null {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
   const lista = doc.getElementsByTagNameNS('*', nome);
@@ -123,6 +174,18 @@ export function lerRetornoEvento(retorno: string, eventoAssinado: string): Resul
     dhRegEvento: campo(retEvento, 'dhRegEvento'),
     procEventoNFe: montarProcEvento(eventoAssinado, retEvento),
   };
+}
+
+/** Envia QUALQUER evento já assinado ao RecepcaoEvento4 e lê os dois níveis da resposta. */
+export async function enviarEvento(p: {
+  uf: string;
+  ambiente: string;
+  eventoAssinado: string;
+  cert: CertificadoCliente;
+  ca?: string[]; // só para teste
+  url?: string; // só para teste
+}): Promise<ResultadoEvento> {
+  return enviarEventoCancSubst(p);
 }
 
 export async function enviarEventoCancSubst(p: {
