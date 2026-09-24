@@ -38,6 +38,9 @@ export const EDGE_CORE_MODULES = [
 // mas a escrita canônica é na nuvem (ou reconciliada).
 export const SYNC_MODULES = [
   'ProdutoModule', 'FichasModule', // catálogo (master nuvem → PULL)
+  // Totem GoGeM pela LAN (R3): serve o contrato do totem traduzindo o catálogo do
+  // Regem. Só responde no servidor local — o tipo 'totem' não vale na nuvem.
+  'TotemModule',
   'SetorModule', 'FuncaoModule', 'ColaboradorModule', 'PerfilModule', // cadastros/RBAC
   'EmpresaModule', 'UnidadeModule', // identidade/rede (master nuvem)
   'ModuloModule', // ativação de módulos (presidente edita; edge LÊ o estado)

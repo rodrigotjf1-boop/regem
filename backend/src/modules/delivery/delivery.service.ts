@@ -14,6 +14,9 @@ import { createHmac, randomBytes } from 'crypto';
 import { and, desc, eq, gte, ilike, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
+import { PREFIXO_BALCAO } from '../../common/senha-origem';
+import { serieDaSenha } from './serie-da-senha';
+import { retidosVencidos } from './totem-retido.query';
 import { ehServidorLocal } from '../../common/modo';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
@@ -947,6 +950,9 @@ export class DeliveryService {
       setorId: (cfg as any)?.setorId ?? null,
       plataforma: PLAT[ped.canal] ?? ped.canal,
       senhaPlataforma: ped.displayId ?? null,
+      // R6 — totem sai na série do BALCÃO e reaproveita a senha já impressa no cupom
+      // do cliente. Regra em `serie-da-senha.ts` (com teste).
+      ...serieDaSenha(ped.canal, ped.displayId),
       itens: itens.map((it) => {
         const varia = it.codigo ? porCodigoVariacao.get(String(it.codigo)) : undefined;
         return {
@@ -1330,7 +1336,9 @@ export class DeliveryService {
   // Modo de produção do Totem GoGeM (config por loja, nível rede): true = produz só
   // APÓS o pagamento no balcão (padrão); false = produz ao aceitar e cobra depois.
   // Leitura BLINDADA: pré-migration (coluna ausente) ou no edge cai no padrão (true).
-  private async totemAposPagamento(tenantId: string): Promise<boolean> {
+  // Público: o processador do edge precisa da MESMA regra para não materializar um
+  // pedido de totem ainda não pago (senão a cozinha começa antes do balcão cobrar).
+  async totemAposPagamento(tenantId: string): Promise<boolean> {
     try {
       const r: any = await this.db.execute(sql`
         select totem_producao_apos_pagamento as v
@@ -2786,11 +2794,13 @@ export class DeliveryService {
     );
   }
 
-  // Pedido de TOTEM pago em DINHEIRO (o cliente paga no BALCÃO). O GoGeM chama isto
-  // quando a forma escolhida no totem é dinheiro → entra no hub de Retirada, coluna
-  // "Totem GoGeM", como 'novo' e 'A pagar'. NÃO baixa estoque agora — o operador cobra
-  // no balcão ("Cobrar e entregar") e aí entra estoque + caixa pelo fluxo normal.
-  async criarPedidoTotemDinheiro(
+  // Pedido de TOTEM RETIDO — nasce sem pagamento confirmado e NÃO vai para a produção.
+  // Dois usos, mesma mecânica:
+  //  • DINHEIRO: "a pagar no balcão" — o cupom do cliente diz isso, e o operador cobra;
+  //  • CARTÃO/PIX (R4): fica aguardando a maquininha responder. Liberado pelo
+  //    `liberarPagamentoTotem`, cancelado pelo cliente, ou expirado pelo tempo.
+  // Em ambos o estoque e o caixa só entram quando a venda de fato fecha.
+  async criarPedidoTotemRetido(
     tenantId: string,
     ctx: { unidadeId: string | null },
     dto: {
@@ -2799,6 +2809,10 @@ export class DeliveryService {
       cliente?: string;
       senhaPlataforma?: string;
       totalCentavos?: number;
+      /** 'dinheiro' (padrão) | 'cartao' | 'pix' — só rotula o pedido; nada é cobrado aqui. */
+      formaPagamento?: string;
+      /** CPF/CNPJ que o cliente digitou no totem PARA A NOTA (só dígitos). */
+      cpf?: string;
     },
   ) {
     if (!dto.idempotencyKey?.trim())
@@ -2826,30 +2840,167 @@ export class DeliveryService {
       };
     });
     const total = itens.reduce((s, i) => s + i.precoUnitario * i.quantidade, 0);
-    const senhaTotem = (dto.senhaPlataforma ?? '').toString().trim() || undefined;
     // No modo "após pagamento", o pedido NÃO vai pra produção na chegada — fica
     // aguardando o "Receber pagamento" no balcão. Por isso pula o auto-aceitar
     // (senão o delivery com "aceitar automático" mandava pra cozinha antes de pagar).
-    const aposPagamento = await this.totemAposPagamento(tenantId);
+    const forma = (dto.formaPagamento ?? 'dinheiro').toLowerCase();
+    // Pagamento ELETRÔNICO nunca vai para a produção antes de aprovar — não existe
+    // "cobra depois" com maquininha. Já o dinheiro respeita a config da loja.
+    const eletronico = forma !== 'dinheiro';
+    const aposPagamento = eletronico || (await this.totemAposPagamento(tenantId));
+
+    // R6 — SENHA DO BALCÃO, tirada aqui. O balcão tem UMA série (B): PDV, mesa avulsa e
+    // totem bebem do mesmo contador, então nunca saem dois pedidos com o mesmo número.
+    // Antes o totem em dinheiro exibia o sequencial do `pedido_externo` (série do
+    // delivery) e, ao ser cobrado, ganhava uma senha D — dois números diferentes para o
+    // mesmo pedido, e ambos passíveis de repetir um do PDV.
+    // Sai numa transação própria porque o contador é ler-somar-gravar: fora dela, dois
+    // totens pedindo ao mesmo tempo levariam o mesmo número.
+    const senha = await this.db.transaction((tx) =>
+      this.producao.proximaSenha(tx, tenantId, ctx.unidadeId ?? null, PREFIXO_BALCAO),
+    );
+
     // canal 'totem' → grupoCanal 'totem'; pago=false → "A pagar" (cobra no balcão).
-    // externalId = idempotencyKey → dedup. displayId = SENHA do totem (a que o cliente
-    // leva) — o operador casa o pedido por ela, não pelo nº sequencial do Regem.
-    return this.ingest(
+    // externalId = idempotencyKey → dedup. displayId = a SENHA que o cliente leva
+    // impressa — agora a do Regem, que é a mesma que a cozinha vai chamar.
+    const pedido: any = await this.ingest(
       tenantId,
       ctx.unidadeId ?? null,
       'totem',
       {
         externalId: dto.idempotencyKey,
-        displayId: senhaTotem,
+        displayId: String(senha),
         clienteNome: dto.cliente ?? null,
         tipo: 'retirada',
         itens,
         total,
-        formaPagamento: 'dinheiro',
+        formaPagamento: forma,
         pago: false,
       },
-      { naoAutoAceitar: aposPagamento },
+      // O CPF fica no pedido (`documento_cliente`, mig 285): é de lá que a liberação o leva
+      // para a venda — e, no dinheiro, de lá que a nota do balcão o lê.
+      { naoAutoAceitar: aposPagamento, documentoCliente: dto.cpf },
     );
+    // `senha` explícita na resposta: o totem imprime ESTE número no cupom.
+    return { ...pedido, senha, senhaPrefixo: PREFIXO_BALCAO };
+  }
+
+  /**
+   * R4 — PAGAMENTO APROVADO: o pedido retido vira venda.
+   *
+   * Só aqui entram comanda, caixa, estoque e produção. A senha é a MESMA que o cliente
+   * levou impressa (reservada na criação), e a idempotência é a chave do totem: se o
+   * aviso de aprovação chegar duas vezes, a venda é uma só.
+   */
+  async liberarPagamentoTotem(
+    tenantId: string,
+    ctx: { unidadeId: string | null; equipamentoId: string },
+    pedidoId: string,
+    pagamentos: { forma?: string; valor?: number; nsu?: string; autorizacao?: string }[],
+  ) {
+    const [ped] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.canal !== 'totem')
+      throw new BadRequestException('Este pedido não é de totem.');
+    if (ped.status === 'cancelado')
+      throw new BadRequestException(
+        'Pedido cancelado — não dá para liberar. Refaça o pedido no totem.',
+      );
+    if (ped.comandaId) return { comandaId: ped.comandaId, senha: Number(ped.displayId), idempotente: true };
+    if (!pagamentos?.length)
+      throw new BadRequestException('Informe o pagamento aprovado.');
+
+    const itens = (ped.itens as any[]).map((i) => ({
+      codigoPdv: String(i.codigo ?? ''),
+      quantidade: Number(i.quantidade) || 1,
+    }));
+    const venda: any = await this.vendas.venderTotem(
+      tenantId,
+      { unidadeId: ped.unidadeId ?? ctx.unidadeId, equipamentoId: ctx.equipamentoId },
+      {
+        idempotencyKey: String(ped.externalId),
+        itens,
+        pagamentos: pagamentos as any,
+        cliente: ped.clienteNome ?? undefined,
+        // O CPF vai para a VENDA (vira `comanda.cpf`). Não basta estar no pedido: a nota é
+        // emitida dentro do `venderTotem`, ANTES de o pedido ser ligado à comanda logo
+        // abaixo — o fiscal ainda não acha o pedido e usa o CPF da comanda. Sem esta linha
+        // a nota saía sem o CPF que o cliente digitou, e acima do limite de identificação
+        // da UF a emissão era recusada.
+        cpf: ped.documentoCliente ?? undefined,
+        plataforma: 'GoGeM Totem',
+        senhaPlataforma: ped.displayId ?? undefined,
+        // Reaproveita a senha impressa: a cozinha chama o número que está na mão do cliente.
+        senhaReservada: Number(ped.displayId) || undefined,
+      } as any,
+    );
+    await this.db
+      .update(pedidoExterno)
+      .set({
+        pago: true,
+        status: 'confirmado',
+        comandaId: venda.comandaId,
+        confirmadoEm: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(pedidoExterno.id, ped.id));
+    void this.flash.flashPedidos([ped.id]);
+    return { ...venda, senha: Number(ped.displayId) || venda.senha, pedidoId: ped.id };
+  }
+
+  /**
+   * R4 — o pedido retido acabou sem venda: cliente desistiu, pagamento recusado e ele
+   * não quis tentar de novo, ou o tempo esgotou. Fica registrado com o MOTIVO — pedido
+   * abandonado não pode sumir sem rastro nem ficar de enfeite na tela da loja.
+   */
+  async cancelarPedidoTotem(tenantId: string, pedidoId: string, motivo: string) {
+    const [ped] = await this.db
+      .select({ id: pedidoExterno.id, canal: pedidoExterno.canal, comandaId: pedidoExterno.comandaId })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.canal !== 'totem') throw new BadRequestException('Este pedido não é de totem.');
+    if (ped.comandaId)
+      throw new BadRequestException(
+        'A venda já foi fechada — o cancelamento passa pelo caixa (e pela nota, se houver).',
+      );
+    return this.cancelarSistema(tenantId, pedidoId, motivo || 'cancelado no totem');
+  }
+
+  /**
+   * R4 — expira pedido retido de pagamento ELETRÔNICO parado há mais de 5 minutos.
+   * Cliente que sai do totem no meio do pagamento não cancela nada; sem isto, o pedido
+   * fica para sempre na tela da loja. O DINHEIRO fica de fora de propósito: ali o
+   * cliente está indo até o caixa, e a fila pode demorar mais que isso.
+   */
+  async expirarRetidosTotem(minutos = 5): Promise<number> {
+    const vencidos = await retidosVencidos(this.db, minutos);
+    let n = 0;
+    for (const v of vencidos) {
+      const r = await this.cancelarSistema(
+        v.tenantId,
+        v.id,
+        `Pagamento não confirmado em ${minutos} min — pedido encerrado automaticamente`,
+      ).catch(() => ({ ok: false }));
+      if ((r as any)?.ok !== false) n++;
+    }
+    if (n) this.logger.log(`${n} pedido(s) de totem expirado(s) por falta de pagamento`);
+    return n;
+  }
+
+  /** Compatibilidade: o caminho do dinheiro é o retido com forma 'dinheiro'. */
+  async criarPedidoTotemDinheiro(
+    tenantId: string,
+    ctx: { unidadeId: string | null },
+    dto: Parameters<DeliveryService['criarPedidoTotemRetido']>[2],
+  ) {
+    return this.criarPedidoTotemRetido(tenantId, ctx, {
+      ...dto,
+      formaPagamento: 'dinheiro',
+    });
   }
 
   async emitirNf(tenantId: string, atorId: string, id: string) {

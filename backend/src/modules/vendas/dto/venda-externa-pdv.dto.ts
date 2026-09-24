@@ -98,4 +98,10 @@ export class VendaExternaPdvDto {
   @IsOptional()
   @IsString()
   senhaPlataforma?: string; // nº do pedido no totem
+
+  // Senha do balcão já reservada quando o pedido ficou retido aguardando o pagamento
+  // (R4). Vem do servidor, nunca do aparelho — é o número impresso no cupom do cliente.
+  @IsOptional()
+  @IsNumber()
+  senhaReservada?: number;
 }

@@ -42,7 +42,10 @@ export const TABELAS_SYNC: TabelaSync[] = [
     // (produto/setor/complemento/opção → equipamento) apontam para o KDS. Sem o tipo aqui,
     // toda linha de destino que aponta para um KDS morreria por chave estrangeira do outro
     // lado — o mesmo sintoma do cliente em instalação nova.
-    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds')",
+    // `totem` (R2): o aparelho é cadastrado e pareado na NUVEM, mas quem valida o token
+    // dele é o EDGE (o totem só fala com a LAN). Sem descer a linha, o `SyncTokenGuard`
+    // do edge não acha o aparelho e devolve 401 em tudo.
+    filtroSql: "tipo in ('impressora','pdv','salao','ponto_baixa','kds','totem')",
   },
   { tabela: 'delivery_config', direcao: 'ambos', cursor: 'updated_at' },
   // Template da etiqueta de validade (mig 245): config espelhada como as de cima —

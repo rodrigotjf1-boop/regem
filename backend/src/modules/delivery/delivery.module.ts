@@ -4,6 +4,7 @@ import { DespachoPublicoController } from './despacho-publico.controller';
 import { DeliveryLojaController } from './delivery-loja.controller';
 import { DeliveryService } from './delivery.service';
 import { EdgePedidosProcessor } from './edge-pedidos.processor';
+import { TotemExpiracaoProcessor } from './totem-expiracao.processor';
 import { CloudFallbackProcessor } from './cloud-fallback.processor';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
@@ -23,7 +24,8 @@ import { IntegracoesModule } from '../integracoes/integracoes.module';
     forwardRef(() => IntegracoesModule),
   ],
   controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController],
-  providers: [DeliveryService, SyncTokenGuard, EdgePedidosProcessor, CloudFallbackProcessor],
+  providers: [DeliveryService, SyncTokenGuard, EdgePedidosProcessor,
+    TotemExpiracaoProcessor, CloudFallbackProcessor],
   exports: [DeliveryService],
 })
 export class DeliveryModule {}

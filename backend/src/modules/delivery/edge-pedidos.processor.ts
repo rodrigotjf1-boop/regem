@@ -4,6 +4,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { pedidoExterno } from '../../db/schema';
 import { DeliveryService } from './delivery.service';
+import { deveMaterializar } from './deve-materializar';
 
 /**
  * P1b — Processador de pedidos ONLINE no EDGE.
@@ -48,12 +49,28 @@ export class EdgePedidosProcessor {
       // F2: escopo por unidade quando o edge é de uma loja específica (nunca matriz→filial).
       if (this.unidadeId) conds.push(eq(pedidoExterno.unidadeId, this.unidadeId));
       const pendentes = await this.db
-        .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId })
+        .select({
+          id: pedidoExterno.id,
+          tenantId: pedidoExterno.tenantId,
+          canal: pedidoExterno.canal,
+          pago: pedidoExterno.pago,
+          // Retido de cartão/PIX nunca vai para a cozinha antes de aprovar (deveMaterializar).
+          formaPagamento: pedidoExterno.formaPagamento,
+        })
         .from(pedidoExterno)
         .where(and(...conds))
         .limit(50);
 
+      // "Produz só depois de pago" é config por loja; lê uma vez por tenant do lote.
+      const aposPagamento = new Map<string, boolean>();
+      for (const t of new Set(pendentes.map((p) => p.tenantId))) {
+        aposPagamento.set(t, await this.delivery.totemAposPagamento(t));
+      }
+
       for (const p of pendentes) {
+        // Totem em dinheiro é "a pagar no balcão": o cupom do cliente diz que só produz
+        // depois de pago. Sem isto, este ciclo mandava para a cozinha em 15s.
+        if (!deveMaterializar(p, aposPagamento.get(p.tenantId) ?? true)) continue;
         try {
           await this.delivery.aceitar(p.tenantId, null, p.id);
           this.logger.log(`pedido online ${p.id} materializado no edge (comanda + produção)`);
