@@ -10,6 +10,7 @@
 //   `@QR:<dados>` → QR Code DESENHADO, centralizado. Nunca o endereço como texto: sem o QR
 //   o cliente não tem como consultar a nota, e o Manual do DANFE NFC-e exige o código.
 import { formatarDocumento } from './destinatario';
+import { regrasDaUf } from './regras-uf';
 
 export type DanfeItem = {
   descricao: string;
@@ -21,6 +22,8 @@ export type DanfeExtras = {
   frete?: number;
   desconto?: number;
   consumidor?: string | null;
+  /** UF do emitente — decide o texto de defesa do consumidor que a lei estadual exige. */
+  uf?: string | null;
 };
 
 const money = (n: number) =>
@@ -77,5 +80,13 @@ export function montarDanfeTexto(
   l.push(`Protocolo: ${nota.protocolo ?? '-'}`);
   l.push('Consulte pela chave ou pelo QR Code:');
   if (nota.qrcode) l.push(`@QR:${nota.qrcode}`);
+  // "Mensagem de Interesse do Contribuinte": no RJ, a Lei estadual 5.817/10 exige telefone e
+  // endereço do PROCON-RJ e da Comissão de Defesa do Consumidor da ALERJ IMPRESSOS no DANFE —
+  // não basta estarem no XML. O texto vem de `regras-uf.ts`, o mesmo que vai no `infCpl`.
+  const rodape = regrasDaUf(extras?.uf).rodapeConsumidor;
+  if (rodape) {
+    l.push('--------------------------------');
+    l.push(rodape);
+  }
   return l.join('\n');
 }

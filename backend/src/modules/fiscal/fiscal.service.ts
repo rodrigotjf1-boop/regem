@@ -481,6 +481,17 @@ export class FiscalService {
     const { taxaEntrega, desconto, pedido } = await this.dadosFiscaisDoPedido(tenantId, comandaId);
     if (pedido && !pedido.documentoCliente) pedido.documentoCliente = c.cpf ?? null;
 
+    // O DANFE sai por UM caminho só, qualquer que seja o jeito como a nota nasceu (autorizada
+    // ou em contingência): o texto vai SEMPRE junto da nota — é o que o totem imprime —, e a
+    // impressora da loja só entra quando ninguém mais se ofereceu para imprimir. Antes os dois
+    // caminhos de contingência chamavam a impressão direto: no totem, o cliente ficava sem o
+    // cupom e a nota saía no balcão.
+    const entregarDanfe = async (nota: any, uf: string | null | undefined, consumidor: string | null) => {
+      const extras = { frete: taxaEntrega, desconto, consumidor, uf: uf ?? null };
+      nota.danfeTexto = montarDanfeTexto(nota, itens, extras);
+      if (opts.imprimirNaLoja !== false) await this.imprimirDanfe(tenantId, nota, itens, extras);
+    };
+
     const base = {
       tenantId, atorId, unidadeId: c.unidadeId ?? null, comandaId, itens, forma: c.forma,
       taxaEntrega, desconto, exigirAtivo: true,
@@ -492,11 +503,7 @@ export class FiscalService {
     const modo = await this.modoContingencia(tenantId, c.unidadeId ?? null);
     if (modo) {
       const rc = await this.emitirNucleo({ ...base, contingencia: modo });
-      await this.imprimirDanfe(tenantId, rc.nota, itens, {
-        frete: taxaEntrega, desconto,
-        consumidor: rc.decisao?.dest?.documento ?? null,
-        contingencia: true,
-      });
+      await entregarDanfe(rc.nota, rc.uf, rc.decisao?.dest?.documento ?? null);
       return rc.nota;
     }
 
@@ -516,11 +523,7 @@ export class FiscalService {
             ...base,
             contingencia: { dhCont: new Date(estado.dh_cont), xJust: justificativaValida(estado.justificativa) },
           });
-          await this.imprimirDanfe(tenantId, rc.nota, itens, {
-            frete: taxaEntrega, desconto,
-            consumidor: rc.decisao?.dest?.documento ?? null,
-            contingencia: true,
-          });
+          await entregarDanfe(rc.nota, rc.uf, rc.decisao?.dest?.documento ?? null);
           return rc.nota;
         } catch (e: any) {
           // Contingência indisponível (sem certificado, UF em QR v2): não se inventa saída —
@@ -536,16 +539,7 @@ export class FiscalService {
     if (r.nota.status === 'autorizada') {
       // No cupom impresso a taxa é a taxa — o caminho fiscal dela (frete ou despesa acessória)
       // é assunto do XML, não do cliente que está com o papel na mão.
-      const extras = {
-        frete: taxaEntrega,
-        desconto,
-        consumidor: r.decisao?.dest?.documento ?? null,
-      };
-      // O texto vai junto SEMPRE (quem imprime na loja também é servido por ele); a impressão
-      // na loja é que só acontece quando ninguém mais se ofereceu para imprimir.
-      (r.nota as any).danfeTexto = montarDanfeTexto(r.nota, itens, extras);
-      if (opts.imprimirNaLoja !== false)
-        await this.imprimirDanfe(tenantId, r.nota, itens, extras);
+      await entregarDanfe(r.nota, r.uf, r.decisao?.dest?.documento ?? null);
     }
     return r.nota;
   }
@@ -1509,7 +1503,7 @@ export class FiscalService {
      * do primeiro dia útil subsequente.
      */
     contingencia?: { dhCont: Date; xJust: string } | null;
-  }): Promise<{ nota: any; falha: Error | null; decisao?: DecisaoFiscal }> {
+  }): Promise<{ nota: any; falha: Error | null; decisao?: DecisaoFiscal; uf?: string | null }> {
     const { tenantId, atorId, unidadeId, comandaId, itens, desconto } = p;
 
     // PRÉ-VOO ANTES DE RESERVAR O NÚMERO.
@@ -1639,7 +1633,7 @@ export class FiscalService {
         .execute(sql`update fiscal_contingencia set notas_emitidas = notas_emitidas + 1
                       where id = ${this.idContingencia(tenantId, unidadeId)}::uuid`)
         .catch(() => { /* o contador é informativo; não pode derrubar a venda */ });
-      return { nota: preparado.nota, falha: null, decisao };
+      return { nota: preparado.nota, falha: null, decisao, uf: cfgRaw.uf ?? null };
     }
 
     // Transmite (fora da transação — a SEFAZ pode demorar e não se segura trava esperando rede).
@@ -1710,7 +1704,7 @@ export class FiscalService {
       entidadeId: nota.id,
       detalhe: { chave: nota.chave, status: nota.status, numero: nota.numero, serie: nota.serie, motivo: nota.motivo },
     });
-    return { nota, falha, decisao };
+    return { nota, falha, decisao, uf: cfgRaw.uf ?? null };
   }
 
   /**
@@ -1988,7 +1982,7 @@ export class FiscalService {
     tenantId: string,
     nota: any,
     itens: NfceItem[],
-    extras?: { frete: number; desconto: number; consumidor?: string | null; contingencia?: boolean },
+    extras?: { frete: number; desconto: number; consumidor?: string | null; contingencia?: boolean; uf?: string | null },
   ) {
     try {
       await this.montarEEnfileirarDanfe(tenantId, nota, itens, extras);
@@ -2003,11 +1997,13 @@ export class FiscalService {
     tenantId: string,
     nota: any,
     itens: NfceItem[],
-    extras?: { frete: number; desconto: number; consumidor?: string | null; contingencia?: boolean },
+    extras?: { frete: number; desconto: number; consumidor?: string | null; contingencia?: boolean; uf?: string | null },
   ) {
     // O texto mora em `danfe-texto.ts`: o totem imprime o MESMO documento (K6) e não pode
     // haver duas versões do DANFE no projeto.
-    const conteudo = montarDanfeTexto(nota, itens, extras);
+    const uf =
+      (extras as any)?.uf ?? (await this.configRaw(tenantId, nota.unidadeId ?? null).catch(() => null))?.uf ?? null;
+    const conteudo = montarDanfeTexto(nota, itens, { ...(extras ?? {}), uf });
 
     // Loja com servidor local ATIVO: a impressora está na rede dela e a fila da nuvem não é lida
     // por ninguém ali. A DANFE vai por COMANDO para o servidor da loja (mig 269), que escolhe a
@@ -2059,7 +2055,9 @@ export class FiscalService {
     // que ninguém guarda e fila dobrada justamente quando a loja está sem internet. Quem
     // precisar do papel — UF que exija, ou termo do livro modelo 6 ainda não lavrado — liga o
     // interruptor na configuração fiscal.
-    if (extras?.contingencia && (await this.imprimeViaEstabelecimento(tenantId, nota.unidadeId ?? null)))
+    // A contingência se lê pelo STATUS da nota — o mesmo critério do texto do DANFE (K6). Um
+    // sinal à parte nos `extras` já se perdeu uma vez no caminho, e a 2ª via sumia calada.
+    if (nota.status === 'contingencia' && (await this.imprimeViaEstabelecimento(tenantId, nota.unidadeId ?? null)))
       await this.db.insert(impressaoJob).values({
         tenantId,
         unidadeId: nota.unidadeId,

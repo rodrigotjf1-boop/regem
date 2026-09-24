@@ -335,6 +335,21 @@ descrever('a venda não trava quando a SEFAZ fica muda', () => {
     expect(vias.rows.filter((v: any) => v.conteudo.includes('VIA DO ESTABELECIMENTO'))).toHaveLength(0);
   }, 60000);
 
+  // O TOTEM imprime o próprio cupom (`imprimirNaLoja: false`). Os caminhos de contingência
+  // chamavam a impressora da loja direto: o cliente do totem ficava sem o cupom, e a nota saía
+  // no balcão. Agora os três caminhos entregam o DANFE do mesmo jeito.
+  it('venda do totem em contingência: o texto vai para o totem, e a loja NÃO imprime', async () => {
+    chamarSefaz.mockRejectedValue(new SefazInalcancavel('timeout'));
+    const comanda = await venda();
+    const nota: any = await servico.emitir(tenant, null, comanda, { imprimirNaLoja: false });
+
+    expect(nota.status).toBe('contingencia');
+    expect(nota.danfeTexto).toContain('EMITIDA EM CONTINGENCIA');
+    expect(nota.danfeTexto).toContain('PROCON-RJ'); // a loja de teste é do RJ
+    const vias = await pool.query(`select 1 from impressao_job where comanda_id = $1`, [comanda]);
+    expect(vias.rows).toHaveLength(0);
+  }, 60000);
+
   it('com o interruptor ligado, a 2ª via sai — para a UF que exigir papel', async () => {
     await pool.query(`update fiscal_config set contingencia_via_estabelecimento = true where tenant_id = $1`, [tenant]);
     chamarSefaz.mockRejectedValue(new SefazInalcancavel('timeout'));

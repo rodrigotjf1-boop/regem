@@ -79,4 +79,19 @@ describe('montarDanfeTexto (K6)', () => {
     // Sem valor, a linha não polui o cupom.
     expect(montarDanfeTexto(nota, itens)).not.toContain('ENTREGA');
   });
+
+  // Lei estadual 5.817/10 (RJ): telefone e endereço do PROCON-RJ e da Comissão de Defesa do
+  // Consumidor da ALERJ IMPRESSOS no campo de mensagem de interesse do contribuinte do DANFE.
+  // Estar só no XML não cumpre — a lei fala do documento que o consumidor leva.
+  it('no RJ, o rodapé do PROCON e da ALERJ sai impresso, no fim do documento', () => {
+    const t = montarDanfeTexto(nota, itens, { uf: 'RJ' });
+    expect(t).toContain('PROCON-RJ: 151');
+    expect(t).toContain('0800 282 7060');
+    expect(t.indexOf('PROCON-RJ')).toBeGreaterThan(t.indexOf('@QR:'));
+  });
+
+  it('fora do RJ (ou sem UF), nenhum rodapé estadual é inventado', () => {
+    expect(montarDanfeTexto(nota, itens, { uf: 'SP' })).not.toContain('PROCON');
+    expect(montarDanfeTexto(nota, itens)).not.toContain('PROCON');
+  });
 });
