@@ -151,6 +151,8 @@ export class FiscalService {
       deliverySemCpf: dto.deliverySemCpf != null ? String(dto.deliverySemCpf) : undefined,
       contingenciaViaEstabelecimento:
         dto.contingenciaViaEstabelecimento != null ? !!dto.contingenciaViaEstabelecimento : undefined,
+      // Informação ao Fisco (FECP no RJ). Vazio = apagar; ausente = manter (V16).
+      infoFisco: dto.infoFisco === '' ? null : dto.infoFisco != null ? String(dto.infoFisco).slice(0, 2000) : undefined,
       ambiente: dto.ambiente,
       regime: dto.regime,
       crt: dto.crt != null ? Number(dto.crt) : undefined,
@@ -360,6 +362,7 @@ export class FiscalService {
         urlQrcodeHomolog: cfg.url_qrcode_homolog,
         urlChaveProd: cfg.url_chave_prod,
         urlChaveHomolog: cfg.url_chave_homolog,
+        infoFisco: cfg.info_fisco,
       },
     };
   }

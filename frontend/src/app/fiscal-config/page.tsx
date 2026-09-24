@@ -89,6 +89,7 @@ export default function FiscalConfigPage() {
         limiteIdentificacao: String(f.limiteIdentificacao ?? '').trim() === '' ? null : Number(f.limiteIdentificacao),
         deliverySemCpf: f.deliverySemCpf || 'presencial',
         contingenciaViaEstabelecimento: !!f.contingenciaViaEstabelecimento,
+        infoFisco: String(f.infoFisco ?? '').trim(),
       });
       toast.success('Configuração fiscal salva.');
       await reload();
@@ -154,6 +155,21 @@ export default function FiscalConfigPage() {
             {/* Séries distintas por ponto de emissão: o balcão numera na série da loja e o
                 delivery na da nuvem, então uma queda de internet não faz os dois emitirem
                 notas com o mesmo número. As duas têm de ser diferentes, e nunca 0. */}
+            {/* Informação ao Fisco (`infAdFisco`). No RJ é o FECP (Lei 8.405/19), e o campo nunca
+                fica vazio: "em caso de NÃO INCIDÊNCIA do FECP, deverá constar essa informação".
+                Se incide ou não é fato tributário da loja — por isso o texto vem do contador, e a
+                emissão em produção no RJ recusa enquanto estiver em branco. */}
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Informação ao Fisco (FECP) — obrigatória no RJ</Label>
+              <Input
+                value={f.infoFisco ?? ''}
+                onChange={(e) => set({ infoFisco: e.target.value })}
+                placeholder="Texto definido pelo contador — ex.: FECP não incidente nesta operação (Lei 8.405/19)"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Sai no campo de informações ao Fisco de toda NFC-e. No RJ, sem ele a emissão em produção é recusada.
+              </p>
+            </div>
             {/* Contingência: o cupom do cliente sai sempre. A 2ª via de papel é a exceção —
                 ela fica com o estabelecimento até a nota ser autorizada. Restaurante não
                 arquiva cupom, e o MOC aceita no lugar a guarda eletrônica do XML, que é o que

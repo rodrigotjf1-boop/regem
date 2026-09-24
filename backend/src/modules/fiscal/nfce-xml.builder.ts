@@ -6,6 +6,7 @@
 
 import { ratearReais } from '../../common/rateio';
 import { cnpjValido, cpfValido } from '../../common/validadores-br';
+import { problemasDosItens, regrasDaUf } from './regras-uf';
 
 const esc = (s: any) =>
   String(s ?? '')
@@ -105,6 +106,13 @@ export interface NfceInput {
   // DISTRIBUIÇÃO (Regem), não a loja — vem da configuração do servidor. Sem ele o grupo não sai;
   // se a UF exigir, a SEFAZ rejeita com 972 e é aí que ele passa a ser obrigatório para nós.
   respTec?: { cnpj: string; contato: string; email: string; fone: string } | null;
+  /**
+   * Cartão e PIX exigem o grupo `<card>` (MOC, YA04-10 → 391, "implementação por padrão,
+   * opcional a critério da UF"). Sem TEF integrado ao PDV — a maquininha é separada —, basta
+   * `tpIntegra=2`. Com TEF integrado (`tpIntegra=1`), a SEFAZ passa a exigir o CNPJ da
+   * credenciadora e o código de autorização (YA05-10).
+   */
+  cartao?: { tpIntegra?: 1 | 2; cnpjCredenciadora?: string | null; bandeira?: string | null; autorizacao?: string | null } | null;
   // Valores do PEDIDO (não do item). O builder rateia entre os itens; ver a nota
   // sobre as regras W14/W16 em `montarNfceXml`.
   desconto?: number; // desconto bancado pela LOJA (o do marketplace não é desconto na nota)
@@ -229,9 +237,16 @@ function detItem(it: NfceItem, i: number, crt: number): string {
   const origem = it.origem ?? '0';
   const gtin = soDig(it.gtin) || 'SEM GTIN';
   // ICMS: Simples (CRT=1) → CSOSN; Normal → CST básico.
+  // Simples: o CSOSN escolhe o GRUPO. O ICMSSN102 aceita só 102/103/300/400 (XSD); o 500 —
+  // ICMS já retido por substituição tributária, o caso de refrigerante, cerveja e água que
+  // chegam com ST — tem o ICMSSN500. Os campos de ST retido dele são opcionais no schema e só
+  // são exigidos fora do consumidor final (N12a-50), que não é o caso da NFC-e.
+  const csosn = String(it.csosn || '102');
   const icms =
     crt === 1
-      ? `<ICMS><ICMSSN102><orig>${origem}</orig><CSOSN>${it.csosn || '102'}</CSOSN></ICMSSN102></ICMS>`
+      ? csosn === '500'
+        ? `<ICMS><ICMSSN500><orig>${origem}</orig><CSOSN>500</CSOSN></ICMSSN500></ICMS>`
+        : `<ICMS><ICMSSN102><orig>${origem}</orig><CSOSN>${csosn}</CSOSN></ICMSSN102></ICMS>`
       : `<ICMS><ICMS40><orig>${origem}</orig><CST>${it.cstIcms || '40'}</CST></ICMS40></ICMS>`;
   return (
     `<det nItem="${i + 1}">` +
@@ -294,6 +309,13 @@ export function montarNfceXml(inp: NfceInput): string {
   // não é um rótulo, é um contrato. Quem declara entrega tem de dizer PARA QUEM, ONDE e POR
   // QUEM ela vai. Verificamos aqui, antes de gastar número de nota, em vez de descobrir no
   // retorno — número queimado só se recupera por inutilização.
+  // CSOSN e CFOP de cada item, pelas regras nacionais e pelas listas fechadas da UF. Cadastro
+  // errado aqui é rejeição certa (383, 386) ou "dado incorreto" — no RJ, multa de 3% do valor
+  // da operação (RICMS, art. 62-C, XI). Melhor a venda saber agora qual produto está errado.
+  const probsItens = problemasDosItens(c.uf, crt, inp.itens);
+  if (probsItens.length)
+    throw new Error(`Cadastro fiscal do produto incompativel com a NFC-e: ${probsItens.join('; ')}.`);
+
   const indPres = inp.indPres === 4 ? 4 : 1;
   // Contingência: ou vêm os DOIS campos, ou a nota é normal. Meio grupo é rejeição 557.
   const contingencia = inp.contingencia?.dhCont && String(inp.contingencia.xJust ?? '').trim()
@@ -436,7 +458,9 @@ export function montarNfceXml(inp: NfceInput): string {
   // vPag TEM de fechar com o vNF (regra YA09) — com desconto/frete na nota, pagar o
   // valor dos produtos deixaria a nota inconsistente.
   const pag =
-    `<pag><detPag><indPag>0</indPag><tPag>${tPag}</tPag><vPag>${n2(vNF)}</vPag></detPag></pag>`;
+    `<pag><detPag><indPag>0</indPag><tPag>${tPag}</tPag><vPag>${n2(vNF)}</vPag>` +
+    grupoCard(tPag, inp.cartao) +
+    `</detPag></pag>`;
 
   const infNFe =
     `<infNFe versao="4.00" Id="NFe${inp.chave}">` +
@@ -449,7 +473,7 @@ export function montarNfceXml(inp: NfceInput): string {
     grupoTransp(vFreteTotal, inp.transportador) +
     pag +
     xmlIntermed +
-    `<infAdic><infCpl>Documento emitido por Regem</infCpl></infAdic>` +
+    grupoInfAdic(c) +
     grupoRespTec(inp.respTec) +
     `</infNFe>`;
 
@@ -474,6 +498,45 @@ function grupoIntermed(m?: NfceIntermediador | null): string {
   const id = String(m?.idCadIntTran ?? '').trim();
   if (cnpj.length !== 14 || !id) return '';
   return `<infIntermed><CNPJ>${cnpj}</CNPJ><idCadIntTran>${esc(id)}</idCadIntTran></infIntermed>`;
+}
+
+/**
+ * Grupo `<card>` do pagamento. Obrigatório com cartão de crédito (03), débito (04) e PIX (17)
+ * — YA04-10 → 391 — e PROIBIDO nos demais meios (YA04-20 → 963). A ordem dos campos é a do
+ * leiaute: tpIntegra, CNPJ, tBand, cAut.
+ */
+function grupoCard(tPag: string, c?: NfceInput['cartao']): string {
+  if (!['03', '04', '17'].includes(tPag)) return '';
+  const integrado = c?.tpIntegra === 1;
+  const cnpj = soDig(c?.cnpjCredenciadora);
+  const cAut = String(c?.autorizacao ?? '').trim();
+  // Integrado ao PDV sem os dados da transação seria rejeição (YA05-10): cai para "não integrado".
+  if (integrado && cnpj.length === 14 && cAut)
+    return (
+      `<card><tpIntegra>1</tpIntegra><CNPJ>${cnpj}</CNPJ>` +
+      (c?.bandeira ? `<tBand>${esc(c.bandeira)}</tBand>` : '') +
+      `<cAut>${esc(cAut)}</cAut></card>`
+    );
+  return `<card><tpIntegra>2</tpIntegra></card>`;
+}
+
+/**
+ * Informações adicionais: `infAdFisco` (antes, por ordem do leiaute) e `infCpl`.
+ *
+ * O `infAdFisco` leva o texto que a loja configurou — no RJ é o FECP (Lei 8.405/19), que tem
+ * de constar até quando não incide. O `infCpl` leva o rodapé de defesa do consumidor exigido
+ * pela UF (no RJ, PROCON e ALERJ — Lei 5.817/10) e a identificação do emissor.
+ */
+function grupoInfAdic(c: any): string {
+  const r = regrasDaUf(c?.uf);
+  const fisco = String(c?.infoFisco ?? c?.info_fisco ?? '').trim();
+  const cpl = [r.rodapeConsumidor, 'Documento emitido por Regem'].filter(Boolean).join(' | ');
+  return (
+    `<infAdic>` +
+    (fisco ? `<infAdFisco>${esc(fisco.slice(0, 2000))}</infAdFisco>` : '') +
+    `<infCpl>${esc(cpl.slice(0, 5000))}</infCpl>` +
+    `</infAdic>`
+  );
 }
 
 // <infRespTec>: vem DEPOIS de <infAdic> no leiaute. Só sai com os quatro campos preenchidos —

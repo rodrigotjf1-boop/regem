@@ -6,6 +6,8 @@
 //    assim mesmo e era gravada como emitida. Documento fiscal não tem padrão: ou o
 //    emitente está completo, ou não se emite.
 
+import { regrasDaUf } from './regras-uf';
+
 const soDig = (s: unknown) => String(s ?? '').replace(/\D/g, '');
 
 type Campo = { chave: string; rotulo: string; ok: (c: any) => boolean };
@@ -46,6 +48,17 @@ const CAMPOS: Campo[] = [
     // Vai no <urlChave> da NFC-e; é obrigatória no grupo <infNFeSupl>.
     rotulo: 'URL de consulta pela chave de acesso desta UF',
     ok: (c) => !!urlConsultaChave(c),
+  },
+  {
+    chave: 'infoFisco',
+    // RJ: o FECP vai no `infAdFisco` e "em caso de NÃO INCIDÊNCIA do FECP, deverá constar essa
+    // informação" (Lei 8.405/19). Se incide ou não é fato tributário da loja — o texto vem do
+    // contador, não de um padrão nosso. Exigido em PRODUÇÃO; a homologação não é documento.
+    rotulo: 'informação ao Fisco (FECP) — obrigatória nesta UF',
+    ok: (c) =>
+      String(c.ambiente ?? '2') !== '1' ||
+      !regrasDaUf(c.uf).exigeInfoFisco ||
+      !!String(c.infoFisco ?? c.info_fisco ?? '').trim(),
   },
 ];
 

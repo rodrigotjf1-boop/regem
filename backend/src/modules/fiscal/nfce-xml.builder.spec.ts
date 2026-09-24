@@ -391,3 +391,96 @@ describe('NFC-e — contingência off-line', () => {
     expect(() => montar([item()], 0, 0, { contingencia: { dhCont: cont.dhCont, xJust: 'caiu' } })).toThrow(/15 a 256/);
   });
 });
+
+// ===== A VENDA REAL (24/09/2026) =====
+// Toda a homologação foi uma nota de teste paga em dinheiro. Estes são os casos que a venda de
+// restaurante produz no primeiro dia — cada um conferido no XSD oficial ou no MOC consolidado.
+describe('NFC-e — pagamento em cartão e PIX (grupo card)', () => {
+  const pagarCom = (forma: string, extra: Partial<NfceInput> = {}) =>
+    montarNfceXml({
+      config, serie: 1, numero: 1, chave: CHAVE, cNF: '12345678',
+      dhEmi: '2026-09-14T12:00:00-03:00', itens: [item()], forma,
+      qrCode: 'http://q', urlChave: 'u', ...extra,
+    });
+
+  it('cartão e PIX levam o grupo card — sem ele é rejeição 391 (YA04-10)', () => {
+    for (const forma of ['credito', 'debito', 'pix'])
+      expect(pagarCom(forma)).toMatch(/<vPag>[\d.]+<\/vPag><card><tpIntegra>2<\/tpIntegra><\/card><\/detPag>/);
+  });
+
+  it('dinheiro NÃO leva o grupo card — seria rejeição 963 (YA04-20)', () => {
+    expect(pagarCom('dinheiro')).not.toContain('<card>');
+  });
+
+  it('TEF integrado leva a credenciadora e a autorização (YA05-10)', () => {
+    const xml = pagarCom('credito', {
+      cartao: { tpIntegra: 1, cnpjCredenciadora: '01.425.787/0001-04', bandeira: '01', autorizacao: 'A1B2C3' },
+    });
+    expect(xml).toContain('<card><tpIntegra>1</tpIntegra><CNPJ>01425787000104</CNPJ><tBand>01</tBand><cAut>A1B2C3</cAut></card>');
+  });
+
+  it('integrado sem os dados da transação cai para "não integrado", em vez de virar rejeição', () => {
+    expect(pagarCom('credito', { cartao: { tpIntegra: 1 } })).toContain('<card><tpIntegra>2</tpIntegra></card>');
+  });
+});
+
+describe('NFC-e — ICMS do Simples por CSOSN', () => {
+  it('CSOSN 500 (bebida com ST) sai no grupo ICMSSN500 — no ICMSSN102 seria rejeição 225', () => {
+    const xml = montar([item({ csosn: '500', cfop: '5405' })]);
+    expect(xml).toContain('<ICMSSN500><orig>0</orig><CSOSN>500</CSOSN></ICMSSN500>');
+    expect(xml).not.toContain('ICMSSN102');
+  });
+
+  it('CSOSN 102 continua no ICMSSN102', () => {
+    expect(montar([item({ csosn: '102' })])).toContain('<ICMSSN102><orig>0</orig><CSOSN>102</CSOSN></ICMSSN102>');
+  });
+
+  it('386: CSOSN 500 só anda com CFOP 5405 (ou 5656/5667/5910)', () => {
+    expect(() => montar([item({ csosn: '500', cfop: '5102', descricao: 'Refrigerante lata' })])).toThrow(/Refrigerante lata.*386/);
+  });
+
+  it('383: CSOSN que a NFC-e não aceita não vira XML', () => {
+    expect(() => montar([item({ csosn: '101' })])).toThrow(/383/);
+  });
+});
+
+describe('NFC-e — o que o RJ exige além do leiaute nacional', () => {
+  const RJ = {
+    ...config, uf: 'RJ', codigoUf: 33, codigoMunicipio: 3304557, municipio: 'Rio de Janeiro',
+    infoFisco: 'FECP: nao incidente nesta operacao (Lei 8.405/19).',
+  };
+  const noRio = (itens: NfceItem[], cfg: any = RJ) =>
+    montarNfceXml({
+      config: cfg, serie: 1, numero: 1, chave: CHAVE, cNF: '12345678',
+      dhEmi: '2026-09-14T12:00:00-03:00', itens, forma: 'dinheiro', qrCode: 'http://q', urlChave: 'u',
+    });
+
+  it('o FECP vai no infAdFisco, ANTES do infCpl (ordem do leiaute)', () => {
+    const xml = noRio([item()]);
+    expect(xml).toContain('<infAdic><infAdFisco>FECP: nao incidente nesta operacao (Lei 8.405/19).</infAdFisco><infCpl>');
+  });
+
+  it('o rodapé do PROCON-RJ e da ALERJ vai no campo do contribuinte (Lei 5.817/10)', () => {
+    const xml = noRio([item()]);
+    expect(xml).toMatch(/<infCpl>PROCON-RJ: 151 .*0800 282 7060.*Documento emitido por Regem<\/infCpl>/);
+  });
+
+  it('lista fechada de CSOSN do RJ: 103 e 400 existem no país, mas não no RJ', () => {
+    expect(() => noRio([item({ csosn: '400' })])).toThrow(/CSOSN 400 fora da lista da UF/);
+  });
+
+  it('lista fechada de CFOP do RJ: 5933 é letra morta, 5929 não existe na NFC-e', () => {
+    expect(() => noRio([item({ cfop: '5933' })])).toThrow(/CFOP 5933 fora da lista da UF/);
+    expect(() => noRio([item({ cfop: '5929' })])).toThrow(/CFOP 5929 fora da lista da UF/);
+  });
+
+  it('prato produzido na casa (5101) e revenda (5102) passam', () => {
+    expect(() => noRio([item({ cfop: '5101' }), item({ cfop: '5102' })])).not.toThrow();
+  });
+
+  it('fora do RJ, sem rodapé estadual e sem lista fechada da UF', () => {
+    const xml = montar([item({ csosn: '400' })]); // config de SP
+    expect(xml).toContain('<infCpl>Documento emitido por Regem</infCpl>');
+    expect(xml).not.toContain('PROCON-RJ');
+  });
+});

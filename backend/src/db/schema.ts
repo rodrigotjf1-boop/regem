@@ -860,6 +860,9 @@ export const equipamento = pgTable('equipamento', {
   escopo: text('escopo').notNull().default('producao'), // KDS: producao | avisos | entrega
   papel: text('papel'), // impressora: producao | cupom (compat; roteamento usa os flags abaixo — mig 167)
   fazCupom: boolean('faz_cupom').notNull().default(false), // imprime a via do cliente (cupom) — mig 167
+  // Este terminal (PDV ou totem) emite NFC-e? NULO = segue a loja; FALSE = não emite (mig 288).
+  // Só presidente/gerente altera, com auditoria.
+  emiteNfce: boolean('emite_nfce'),
   fazProducao: boolean('faz_producao').notNull().default(false), // imprime produção (cozinha/setores) — mig 167
   fazEtiqueta: boolean('faz_etiqueta').notNull().default(false), // imprime etiquetas de validade (RDC 216) — mig 179
   linguagemEtiqueta: text('linguagem_etiqueta').notNull().default('escpos'), // escpos | zpl | epl (etiquetadora) — mig 180
@@ -2081,6 +2084,12 @@ export const fiscalConfig = pgTable('fiscal_config', {
   // restaurante entrega só a via do cliente, e a guarda é o XML que já fica em `nota_fiscal`
   // (MOC 7.0, Anexo IV, §4, alternativa da guarda eletrônica; mig 287).
   contingenciaViaEstabelecimento: boolean('contingencia_via_estabelecimento').notNull().default(false),
+  // Texto do `infAdFisco` (mig 288). No RJ é o FECP (Lei 8.405/19), obrigatório inclusive para
+  // declarar a NÃO incidência — e quem sabe se incide é o contador da loja.
+  infoFisco: text('info_fisco'),
+  // Como a taxa de serviço entra na NFC-e (mig 288): item_nao_tributado | item_tributado |
+  // fora_da_nota. NULO = ainda não escolhido (o Simples depende do contador).
+  taxaServicoNfce: text('taxa_servico_nfce'),
   cscId: text('csc_id'),
   cscToken: text('csc_token'),
   certRef: text('cert_ref'),

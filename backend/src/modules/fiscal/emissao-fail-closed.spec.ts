@@ -125,6 +125,19 @@ describe('pré-voo do emitente', () => {
     expect(camposFaltando({ ...CONFIG_OK, [chave]: null })).toContain(rotulo);
   });
 
+  // RJ: o FECP vai no infAdFisco e "em caso de NÃO INCIDÊNCIA do FECP, deverá constar essa
+  // informação" (Lei 8.405/19). Se incide é fato da LOJA — sem o texto do contador, produção no
+  // RJ não emite. A homologação não é documento fiscal e segue sem ele.
+  it('RJ em PRODUÇÃO sem a informação do FECP não passa; em homologação, passa', () => {
+    const rj = { ...CONFIG_OK, uf: 'RJ', codigoUf: 33 };
+    const rotulo = 'informação ao Fisco (FECP) — obrigatória nesta UF';
+    expect(camposFaltando({ ...rj, ambiente: '1' })).toContain(rotulo);
+    expect(camposFaltando({ ...rj, ambiente: '1', infoFisco: 'FECP: nao incidente.' })).not.toContain(rotulo);
+    expect(camposFaltando({ ...rj, ambiente: '2' })).not.toContain(rotulo);
+    // UF sem essa exigência não é afetada.
+    expect(camposFaltando({ ...CONFIG_OK, ambiente: '1' })).not.toContain(rotulo);
+  });
+
   it('CNPJ com menos de 14 dígitos não passa', () => {
     expect(camposFaltando({ ...CONFIG_OK, cnpj: '1234' })).toContain('CNPJ');
   });

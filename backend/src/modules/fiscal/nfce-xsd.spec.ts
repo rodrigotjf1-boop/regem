@@ -154,6 +154,28 @@ describe('o XML que emitimos passa no schema oficial da NF-e 4.00', () => {
     expect(xml).toContain('<xJust>Sem resposta da SEFAZ no caixa</xJust></ide>');
   }, 120000);
 
+  // A VENDA REAL: cartão (grupo card), bebida com ST (ICMSSN500 + CFOP 5405), prato da casa
+  // (5101) e as informações adicionais do RJ (FECP em infAdFisco + rodapé do PROCON). É aqui que
+  // a ORDEM dos grupos novos é provada — elemento fora de ordem é a rejeição 225.
+  it('venda real no RJ — cartão, bebida com ST, prato da casa e FECP — é válida', async () => {
+    const xml = assinada(
+      entrada(
+        {
+          forma: 'credito',
+          itens: [
+            { codigo: 'P1', descricao: 'Hamburguer da casa', ncm: '00000000', cfop: '5101', origem: '0', csosn: '102', unidadeTrib: 'UN', quantidade: 1, precoUnitario: 32 },
+            { codigo: 'B1', descricao: 'Refrigerante lata', ncm: '22021000', cfop: '5405', origem: '0', csosn: '500', unidadeTrib: 'UN', quantidade: 2, precoUnitario: 7 },
+          ],
+        },
+        { ...CONFIG, infoFisco: 'FECP: nao incidente nesta operacao (Lei 8.405/19).' },
+      ),
+    );
+    expect(await validar(xml)).toEqual({ valido: true, erros: '' });
+    expect(xml).toContain('<card><tpIntegra>2</tpIntegra></card>');
+    expect(xml).toContain('<ICMSSN500>');
+    expect(xml).toContain('<infAdFisco>');
+  }, 120000);
+
   it('a nota de HOMOLOGAÇÃO (com a frase obrigatória no 1º item) é válida', async () => {
     const xml = assinada(entrada({}, { ...CONFIG, ambiente: '2' }));
     expect(xml).toContain('NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL');
