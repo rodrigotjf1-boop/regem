@@ -17,6 +17,7 @@ import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { PREFIXO_BALCAO } from '../../common/senha-origem';
 import { serieDaSenha } from './serie-da-senha';
 import { retidosVencidos } from './totem-retido.query';
+import { motivoVendaDesfeita } from '../fiscal/nfce-totem';
 import { ehServidorLocal } from '../../common/modo';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
@@ -2905,11 +2906,23 @@ export class DeliveryService {
     if (!ped) throw new NotFoundException('Pedido não encontrado.');
     if (ped.canal !== 'totem')
       throw new BadRequestException('Este pedido não é de totem.');
+    // REPETIÇÃO da liberação: a venda já existe (ou já foi desfeita porque a nota não saiu). O
+    // totem chama de novo quando a primeira resposta se perdeu — e tem de receber a MESMA
+    // `nfce`, com o DANFE, ou a mesma `nao_emitida`. Vem antes do "cancelado" de propósito: o
+    // pedido cancelado pelo fiscal tem comanda, e o totem precisa saber por quê.
+    if (ped.comandaId) {
+      const r = await this.vendas.retomarVendaTotem(
+        tenantId,
+        ped.comandaId,
+        { unidadeId: ped.unidadeId ?? ctx.unidadeId, equipamentoId: ctx.equipamentoId },
+        ped.unidadeId ?? ctx.unidadeId,
+      );
+      return { ...r, senha: Number(ped.displayId) || r.senha, pedidoId: ped.id };
+    }
     if (ped.status === 'cancelado')
       throw new BadRequestException(
         'Pedido cancelado — não dá para liberar. Refaça o pedido no totem.',
       );
-    if (ped.comandaId) return { comandaId: ped.comandaId, senha: Number(ped.displayId), idempotente: true };
     if (!pagamentos?.length)
       throw new BadRequestException('Informe o pagamento aprovado.');
 
@@ -2937,6 +2950,18 @@ export class DeliveryService {
         senhaReservada: Number(ped.displayId) || undefined,
       } as any,
     );
+    if (venda?.nfce?.status === 'nao_emitida') {
+      // A nota não saiu e a venda foi desfeita (no totem, sem cupom fiscal não há compra — o
+      // totem estorna o pagamento). O pedido fica CANCELADO com o motivo fiscal, ligado à
+      // comanda desfeita: é por ela que a repetição devolve o mesmo resultado.
+      await this.cancelarSistema(tenantId, ped.id, motivoVendaDesfeita(venda.nfce.erro));
+      await this.db
+        .update(pedidoExterno)
+        .set({ comandaId: venda.comandaId, updatedAt: new Date() })
+        .where(eq(pedidoExterno.id, ped.id));
+      void this.flash.flashPedidos([ped.id]);
+      return { ...venda, senha: Number(ped.displayId) || venda.senha, pedidoId: ped.id };
+    }
     await this.db
       .update(pedidoExterno)
       .set({
@@ -2949,6 +2974,31 @@ export class DeliveryService {
       .where(eq(pedidoExterno.id, ped.id));
     void this.flash.flashPedidos([ped.id]);
     return { ...venda, senha: Number(ped.displayId) || venda.senha, pedidoId: ped.id };
+  }
+
+  /**
+   * F — o DANFE não saiu no papel do totem. A compra só termina com o cupom fiscal na mão do
+   * cliente: a nota é cancelada (ou fica agendada, se ainda está na fila da contingência), a venda
+   * é desfeita e o pedido fica cancelado com o motivo. O ESTORNO do pagamento é o totem que pede
+   * à nuvem do GoGeM (pelo repasse `pagamentos/estorno`) — o Regem não tem as credenciais.
+   * Idempotente: repetir devolve a mesma situação.
+   */
+  async falhaImpressaoTotem(tenantId: string, pedidoId: string, motivo?: string | null) {
+    const [ped] = await this.db
+      .select({ id: pedidoExterno.id, canal: pedidoExterno.canal, comandaId: pedidoExterno.comandaId })
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.id, pedidoId)));
+    if (!ped) throw new NotFoundException('Pedido não encontrado.');
+    if (ped.canal !== 'totem') throw new BadRequestException('Este pedido não é de totem.');
+    if (!ped.comandaId)
+      throw new BadRequestException('Este pedido ainda não virou venda — não há cupom fiscal a desfazer.');
+    const r = await this.vendas.desfazerVendaTotemSemCupom(tenantId, ped.comandaId, motivo);
+    await this.cancelarSistema(
+      tenantId,
+      ped.id,
+      `Cupom fiscal não impresso no totem${motivo?.trim() ? `: ${motivo.trim()}` : ''}`.slice(0, 400),
+    );
+    return { ok: true, notaCancelada: r.notaCancelada, cancelamentoPendente: r.cancelamentoPendente };
   }
 
   /**

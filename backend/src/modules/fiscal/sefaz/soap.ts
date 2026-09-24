@@ -81,7 +81,15 @@ export interface ChamadaSefaz {
   corpoXml: string; // o elemento de dados (consStatServ, enviNFe…), sem envelope
   cert: CertificadoCliente;
   ca?: string[]; // só para teste: por padrão, raízes do Node + ICP-Brasil
+  /** Tempo de OCIOSIDADE do socket (padrão 30 s): dispara só quando nada chega nesse intervalo. */
   timeoutMs?: number;
+  /**
+   * Prazo TOTAL da chamada, do DNS ao último byte. O `timeoutMs` sozinho não limita nada: uma
+   * resposta que chega aos pingos o renova a cada pacote. Quem tem gente esperando na frente
+   * (o totem, com o cliente olhando a tela) passa este prazo; estourou, é SILÊNCIO — e silêncio
+   * leva à contingência, nunca a "rejeitada".
+   */
+  prazoTotalMs?: number;
 }
 
 /** Faz a chamada e devolve o XML do elemento de resposta. */
@@ -91,7 +99,20 @@ export function chamarSefaz(p: ChamadaSefaz): Promise<string> {
   const corpo = Buffer.from(envelope, 'utf8');
   const timeoutMs = p.timeoutMs ?? 30_000;
 
-  return new Promise((resolve, reject) => {
+  return new Promise((resolveChamada, rejectChamada) => {
+    let prazo: NodeJS.Timeout | undefined;
+    const encerrar = () => {
+      if (prazo) clearTimeout(prazo);
+      prazo = undefined;
+    };
+    const resolve = (v: string) => {
+      encerrar();
+      resolveChamada(v);
+    };
+    const reject = (e: unknown) => {
+      encerrar();
+      rejectChamada(e);
+    };
     const req = request(
       p.url,
       {
@@ -128,6 +149,16 @@ export function chamarSefaz(p: ChamadaSefaz): Promise<string> {
       },
     );
     req.on('timeout', () => req.destroy(Object.assign(new Error('tempo esgotado'), { code: 'ETIMEDOUT' })));
+    if (p.prazoTotalMs && p.prazoTotalMs > 0) {
+      const ms = p.prazoTotalMs;
+      prazo = setTimeout(() => {
+        // Decide AQUI, antes de derrubar a conexão: o que vier depois (um 'end' com a resposta
+        // pela metade, o 'error' da destruição) não pode transformar silêncio em "recusa".
+        reject(new SefazInalcancavel(`ETIMEDOUT — prazo de ${ms} ms esgotado`, 'ETIMEDOUT'));
+        req.destroy(Object.assign(new Error(`prazo de ${ms} ms esgotado`), { code: 'ETIMEDOUT' }));
+      }, ms);
+      prazo.unref?.();
+    }
     req.on('error', (e: any) => {
       const codigo = String(e?.code ?? '');
       // Certificado do SERVIDOR não confere: NÃO é "SEFAZ fora do ar" — é alguém no caminho

@@ -28,6 +28,9 @@ export class TotemNuvemController {
     'pagamentos/point/:id',
     'pagamentos/point/:id/cancelar',
     'pagamentos/status/:orderId',
+    // Estorno do pagamento APROVADO (nota que não saiu, cupom que não imprimiu). Só a nuvem do
+    // GoGeM tem as credenciais do Mercado Pago: o Regem repassa e não interpreta nada.
+    'pagamentos/estorno',
   ])
   async repassar(@Req() req: any, @Res({ passthrough: true }) res: Response) {
     const r = await this.proxy.encaminhar(req);

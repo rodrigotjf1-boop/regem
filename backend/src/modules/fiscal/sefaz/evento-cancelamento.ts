@@ -184,6 +184,8 @@ export async function enviarEvento(p: {
   cert: CertificadoCliente;
   ca?: string[]; // só para teste
   url?: string; // só para teste
+  /** Prazo TOTAL da chamada (ver `ChamadaSefaz.prazoTotalMs`). Sem ele, valem os 30 s de sempre. */
+  prazoMs?: number;
 }): Promise<ResultadoEvento> {
   return enviarEventoCancSubst(p);
 }
@@ -195,11 +197,15 @@ export async function enviarEventoCancSubst(p: {
   cert: CertificadoCliente;
   ca?: string[]; // só para teste
   url?: string; // só para teste
+  prazoMs?: number;
 }): Promise<ResultadoEvento> {
   const xml = p.eventoAssinado.replace(/^\s*<\?xml[^>]*\?>/, '');
   if (!/<Signature[\s>]/.test(xml)) throw new Error('O evento precisa estar ASSINADO.');
   const ambiente = String(p.ambiente) === '1' ? '1' : '2';
   const url = p.url ?? urlServicoNfce(p.uf, ambiente, 'RecepcaoEvento4');
-  const retorno = await chamarSefaz({ url, servico: 'RecepcaoEvento4', corpoXml: xml, cert: p.cert, ca: p.ca });
+  const retorno = await chamarSefaz({
+    url, servico: 'RecepcaoEvento4', corpoXml: xml, cert: p.cert, ca: p.ca,
+    ...(p.prazoMs ? { timeoutMs: p.prazoMs, prazoTotalMs: p.prazoMs } : {}),
+  });
   return lerRetornoEvento(retorno, xml);
 }

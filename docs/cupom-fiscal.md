@@ -485,6 +485,52 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
     §4º, II), então a linha vai **tributada** (CSOSN 102). A linha sai com exatamente o que a
     comanda cobrou a mais, para o `vNF` bater com o pagamento. **Sem escolha, a NFC-e de comanda
     com taxa é recusada** — a codificação é decisão do contador, não do sistema.
+- **A VENDA DO TOTEM — a compra só termina com o cupom fiscal na mão do cliente** (sem migration;
+  contrato em `fiscal/nfce-totem.ts`, pedido pelo lado do GoGeM em 24/09/2026):
+  - O `emitirSeAtivo` (PDV, balcão, delivery) segue **best-effort**: falhou, `null`, e a venda
+    anda. O totem tem caminho **próprio** (`emitirParaTotem`), porque o pagamento já foi aprovado
+    na maquininha e, sem nota, ele precisa estornar. O `nfce` da venda do totem é um de quatro:
+    `null` (loja sem fiscal, **ou este totem desmarcado** — mig 288); **autorizada** (resumo,
+    `danfe`, `viaEstabelecimento:false`); **contingência** (`protocolo:null`, `danfe`,
+    `viaEstabelecimento` = a 2ª via da mig 287); **`nao_emitida`** `{danfe:null, erro:{etapa,
+    codigo, motivo, repete}}`, com `etapa` em `configuracao` (pré-voo), `rejeitada`, `denegada`,
+    `sem_contingencia` (a SEFAZ calou e a contingência não saiu) ou `interno`. `repete` diz se a
+    PRÓXIMA venda falha igual — pré-voo, denegação, e rejeições do EMITENTE (781, certificado
+    280–285/290–295, 297/298, CNPJ-base 213, IE 230/231, 245, CSC 462–464; texto conferido no MOC
+    on-line). `nao_emitida` só se diz com certeza: nota que foi à SEFAZ sem resposta vai para a
+    contingência — e, se nem ela sai, fica com o cancelamento **agendado** caso apareça autorizada.
+  - **A cozinha só recebe depois da nota.** A via da cozinha e o cartão do KDS nascem DENTRO da
+    transação da venda (`criarPedidos`) — segurar só o aviso (`emitirNovos`) não seguraria nada.
+    Com NFC-e, a produção é criada depois da nota; sem nota, a venda é **desfeita** (estoque volta,
+    caixa estornado na mesma forma, comanda e pedido cancelados com o motivo fiscal) e a cozinha
+    nunca soube. O totem estorna o pagamento pela nuvem do GoGeM (repasse `pagamentos/estorno`).
+  - **Prazo**: a autorização no totem tem prazo **TOTAL de 10 s** (`PRAZO_AUTORIZACAO_TOTEM_MS`,
+    do DNS ao último byte — o `timeout` do Node é de ociosidade e uma resposta aos pingos o
+    renovaria para sempre). Estourou, é silêncio → contingência; a liberação responde em ~12 s no
+    pior caso (o totem espera até 45 s). HTTP 5xx **sem** SOAP Fault também é silêncio no totem (a
+    SEFAZ pode ter processado a nota). Os outros caminhos seguem com os 30 s de sempre.
+  - **Repetição da liberação** (a resposta se perdeu na rede): devolve a **MESMA** `nfce`, com o
+    DANFE remontado pela mesma montagem da emissão (itens da comanda — do XML sairia diferente em
+    homologação, onde o 1º item leva o texto obrigatório de homologação). Se a primeira ainda está
+    emitindo, a repetição **espera**; se ela morreu no meio, a repetição **assume** (trava otimista
+    em `comanda.updated_at`, 25 s) — nunca duas emissões em paralelo para a mesma venda.
+  - **Cupom que não imprimiu** (`POST /vendas/:pedidoId/falha-impressao`): o pedido de
+    cancelamento fica gravado ANTES de desfazer a venda; **autorizada** → evento 110111 na hora
+    (prazo de 10 s); **contingência** → ela **não pode ser inutilizada** (Ajuste SINIEF 19/16, cl.
+    11ª, §2º, II): o cancelamento fica `agendado` em `fiscal_evento` e sai assim que a fila da
+    contingência a autoriza (os 30 min contam dessa autorização). Resposta `{ok, notaCancelada,
+    cancelamentoPendente}`.
+  - **Cancelamento sem resposta** deixou de ser beco sem saída: o job de 2 min consulta a nota
+    (no máximo 1 vez a cada 6 min por nota — limite da rejeição 656) e, se a SEFAZ diz
+    "cancelada", a nota vira `cancelada` (a consulta de nota **autorizada** passou a aceitar essa
+    transição); se segue autorizada, o pedido volta a ser agendado e sai de novo dentro do prazo.
+    Pedir de novo pelo botão enquanto há um sem resposta não estoura mais o índice único (era 500).
+  - **Certificado vencido é barrado no PRÉ-VOO**, antes de gastar número — em TODOS os caminhos
+    (ERR-099). Reproduzido: com o certificado de cliente vencido a SEFAZ derruba o aperto de mão
+    TLS e o Node devolve `ECONNRESET`, indistinguível de rede caída — a venda entrava em
+    contingência com o QR assinado por um certificado vencido, uma nota que nunca autoriza e cujo
+    número não se inutiliza. O cancelamento e a fila da contingência também conferem, e dizem
+    "certificado vencido" em vez de "a SEFAZ não respondeu".
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -567,6 +613,8 @@ por inutilização — nunca reusado.
 | **D1** | **QR v2 off-line** não implementado — a contingência exige **QR v3**. UF que só aceite v2 é recusada com a mensagem, em vez de emitir cupom que o consumidor não consegue consultar |
 | **D2** | O cálculo do prazo da contingência considera só **sábado e domingo**; feriado não entra. Erra para menos de propósito (avisa antes), mas uma tabela de feriados deixaria o aviso exato |
 | **D3** | **Job mensal de inutilização** — a lei presume venda não transmitida **a partir do 11º dia do mês subsequente** (Ajuste 19/16, cl. 11ª, §5º, redação do Ajuste 26/19). Hoje as lacunas aparecem na tela, mas quem dispara a inutilização é uma pessoa |
+| **D4** | Nos caminhos que NÃO são o totem (PDV, delivery), HTTP 5xx **sem** SOAP Fault ainda é gravado como `rejeitada` (número vira lacuna a inutilizar). A SEFAZ pode ter processado a nota antes de a resposta se perder — o certo seria tratar como silêncio (pendente → consulta), como o totem já faz. Mudança de comportamento do caixa: decidir antes. |
+| **D5** | O **302** está no `DENEGADO` do `autorizacao.ts` e da consulta, mas no MOC on-line vigente ele é **rejeição** do destinatário ("Rej.", regra 5E17-43, só modelo 55, NT 2019.001). Sem efeito na NFC-e (a regra não é do modelo 65) — corrigir junto com a próxima mexida na classificação. |
 
 ---
 
@@ -611,6 +659,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 24/09/2026 | **Venda do totem: a compra só termina com o cupom fiscal na mão** (sem migration). Caminho próprio do totem (`emitirParaTotem`) com o contrato de quatro casos — `nao_emitida` com etapa, cStat, motivo e `repete`; a cozinha só recebe depois da nota e a venda sem nota é desfeita; autorização com prazo TOTAL de 10 s; a repetição devolve a mesma nota (esperando a primeira, ou assumindo se ela morreu); `falha-impressao` cancela a autorizada (110111) e **agenda** o cancelamento da de contingência, que não se inutiliza; job de 2 min resolve cancelamento sem resposta pela consulta. **Certificado vencido barrado no pré-voo** em todos os caminhos — reproduzido: o TLS cai como `ECONNRESET` e a venda entrava em contingência com QR assinado por certificado vencido (ERR-099). |
 | 24/09/2026 | **Parte 2 — cada estabelecimento escolhe** (mig 288, sem migration nova). **Terminal que emite ou não** (PDV e totem), só presidente e gerência, auditado com o antes e o depois; no fechamento de comanda vale o caixa que recebe. **Taxa de serviço** configurável — fora da nota, linha tributada no Simples (CGSN 140/18) ou linha CST 41 no regime normal até 10% (Conv. 125/11; SP 15%) —, com a linha no valor exato cobrado e a nota recusada enquanto a loja não escolher. |
 | 24/09/2026 | **A0.1 a A0.5 resolvidos** no mesmo dia: grupo `<card>` e `ICMSSN500` com o cadastro conferido contra o MOC e as listas fechadas do RJ, FECP em `infAdFisco` e rodapé PROCON/ALERJ (#570, mig 288); cancelamento comum 110111 (#571); rodapé impresso no DANFE único do K6, que também corrigiu o totem ficando sem o cupom da contingência (#572). Seguem abertos o **A0.6** (cadastro fiscal dos produtos, com o contador) e o **A0.7** (taxa de serviço — a configuração entra na próxima parte). |
 | 24/09/2026 | **§6.1 ganhou o grupo A0 — o emissor ainda não está pronto para venda real.** Conferido no código, no XSD oficial, no MOC e no manual da SEFAZ-RJ: faltam o grupo `<card>` (cartão e PIX seriam **391**), o `ICMSSN500` (bebida com ST seria **225**), o `infAdFisco` com FECP e o rodapé PROCON/CODECON exigidos no RJ, e o **cancelamento comum** (110111), que não existe. Toda homologação foi em dinheiro com um item de teste — por isso nada disso apareceu. Também entrou o B5: definir **qual sistema documenta cada venda**, porque a Eclética já emite para o mesmo CNPJ. |

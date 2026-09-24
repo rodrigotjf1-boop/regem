@@ -113,6 +113,7 @@ export async function consultarSituacaoNfce(p: {
   cert: CertificadoCliente;
   ca?: string[]; // só para teste
   url?: string; // só para teste
+  prazoMs?: number;
 }): Promise<SituacaoNaSefaz> {
   const ambiente = String(p.ambiente) === '1' ? '1' : '2';
   const url = p.url ?? urlServicoNfce(p.uf, ambiente, 'NFeConsultaProtocolo4');
@@ -122,6 +123,7 @@ export async function consultarSituacaoNfce(p: {
     corpoXml: montarConsSitNFe(p.chave, ambiente),
     cert: p.cert,
     ca: p.ca,
+    ...(p.prazoMs ? { timeoutMs: p.prazoMs, prazoTotalMs: p.prazoMs } : {}),
   });
   return lerSituacao(retorno);
 }

@@ -6,7 +6,7 @@
 
 import { ratearReais } from '../../common/rateio';
 import { cnpjValido, cpfValido } from '../../common/validadores-br';
-import { problemasDosItens, regrasDaUf } from './regras-uf';
+import { CadastroFiscalIncompativel, problemasDosItens, regrasDaUf } from './regras-uf';
 
 const esc = (s: any) =>
   String(s ?? '')
@@ -314,7 +314,9 @@ export function montarNfceXml(inp: NfceInput): string {
   // da operação (RICMS, art. 62-C, XI). Melhor a venda saber agora qual produto está errado.
   const probsItens = problemasDosItens(c.uf, crt, inp.itens);
   if (probsItens.length)
-    throw new Error(`Cadastro fiscal do produto incompativel com a NFC-e: ${probsItens.join('; ')}.`);
+    throw new CadastroFiscalIncompativel(
+      `Cadastro fiscal do produto incompativel com a NFC-e: ${probsItens.join('; ')}.`,
+    );
 
   const indPres = inp.indPres === 4 ? 4 : 1;
   // Contingência: ou vêm os DOIS campos, ou a nota é normal. Meio grupo é rejeição 557.

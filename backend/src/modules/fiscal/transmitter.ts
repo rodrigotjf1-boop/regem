@@ -96,6 +96,9 @@ export class SefazDiretoTransmitter implements FiscalTransmitter {
       ambiente: String(config.ambiente ?? '2'),
       xmlAssinado: xml,
       cert: config.cert,
+      // Só o caminho do TOTEM passa prazo (ver `PRAZO_AUTORIZACAO_TOTEM_MS`); os demais seguem
+      // com os 30 s de ociosidade de sempre.
+      prazoMs: config?.prazoAutorizacaoMs ?? undefined,
     });
     const motivo = `${r.cStat} - ${r.xMotivo}`;
     if (r.situacao === 'autorizada')

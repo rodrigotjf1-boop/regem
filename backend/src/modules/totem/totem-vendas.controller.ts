@@ -55,4 +55,18 @@ export class TotemVendasController {
   falha(@TotemCtx() ctx: TotemCtxData, @Body() dto: any) {
     return this.service.registrarFalha(ctx, dto ?? {});
   }
+
+  // O DANFE não saiu no papel do totem. A compra só termina com o cupom fiscal na mão do
+  // cliente: o Regem cancela a nota (ou a deixa agendada, se está na fila da contingência),
+  // desfaz a venda e cancela o pedido. O estorno do pagamento o totem pede à nuvem do GoGeM,
+  // pelo repasse `pagamentos/estorno`. Resposta: `{ok, notaCancelada, cancelamentoPendente}`.
+  @Post(':id/falha-impressao')
+  @UseGuards(TotemTokenGuard)
+  falhaImpressao(
+    @TotemCtx() ctx: TotemCtxData,
+    @Param('id') id: string,
+    @Body() dto: { motivo?: string },
+  ) {
+    return this.service.falhaImpressao(ctx, id, dto?.motivo);
+  }
 }

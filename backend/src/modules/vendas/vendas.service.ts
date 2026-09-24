@@ -1,5 +1,12 @@
 import { PREFIXO_BALCAO, PREFIXO_DELIVERY } from '../../common/senha-origem';
-import { resumoNfce } from '../fiscal/resumo-nfce';
+import {
+  JUSTIFICATIVA_CUPOM_NAO_IMPRESSO,
+  NfceDoTotem,
+  PRAZO_AUTORIZACAO_TOTEM_MS,
+  erroDaVendaDesfeita,
+  motivoVendaDesfeita,
+  nfceNaoEmitida,
+} from '../fiscal/nfce-totem';
 import {
   BadRequestException,
   ForbiddenException,
@@ -7,6 +14,7 @@ import {
   Injectable,
   NotFoundException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ehGestor } from '../../auth/niveis';
@@ -36,6 +44,7 @@ import {
   auditLog,
   deliveryConfig,
   produtoFaixaPreco,
+  producaoPedido,
 } from '../../db/schema';
 import { precoComAtacado } from '../../common/preco-atacado';
 import { AuditoriaService } from '../auditoria/auditoria.service';
@@ -293,7 +302,7 @@ export class VendasService {
     comandaId: string,
     sessaoId: string | null | undefined,
     descricao: string,
-    atorId: string,
+    atorId: string | null,
   ) {
     const entradas = await tx
       .select()
@@ -1352,7 +1361,8 @@ export class VendasService {
 
     const unidadeId = dto.unidadeId ?? ctx.unidadeId ?? null;
 
-    // Idempotência (chave do totem): mesma chave → devolve a venda já lançada.
+    // Idempotência (chave do totem): mesma chave → a MESMA venda, com a MESMA nota. É assim que
+    // o totem recupera o cupom quando a primeira resposta se perdeu na rede.
     const [existente] = await this.db
       .select({ id: comanda.id })
       .from(comanda)
@@ -1362,7 +1372,7 @@ export class VendasService {
           eq(comanda.idempotencyKey, dto.idempotencyKey),
         ),
       );
-    if (existente) return { comandaId: existente.id, idempotente: true };
+    if (existente) return this.retomarVendaTotem(tenantId, existente.id, ctx, unidadeId);
 
     // De-para: resolve produtos por codigo_pdv. Preço vem do banco (nunca do cliente).
     const codigos = [
@@ -1387,6 +1397,13 @@ export class VendasService {
       throw new BadRequestException(
         `Código(s) PDV não encontrado(s) neste tenant: ${faltando.join(', ')}`,
       );
+
+    // COM NFC-e, A COZINHA SÓ RECEBE DEPOIS DA NOTA. No totem a compra só termina com o cupom
+    // fiscal na mão do cliente: se a nota não sair, a venda é desfeita e o pagamento estornado —
+    // e aí a comida já estaria sendo feita para um pedido que não existe mais. A via da cozinha
+    // e o cartão do KDS nascem DENTRO da transação (`criarPedidos`), então é ela que espera, não
+    // só o aviso (`emitirNovos`). Sem NFC-e (loja sem fiscal, ou este totem desmarcado), nada muda.
+    const comNfce = await this.fiscal.totemEmiteNfce(tenantId, unidadeId, ctx.equipamentoId ?? null);
 
     let res: any;
     try {
@@ -1457,22 +1474,24 @@ export class VendasService {
         // Totem: venda concluída e paga → baixa estoque IMEDIATA (difere do delivery).
         await this.lancarSaidas(tx, tenantId, consumo, cmd.id);
 
-        const producaoPayloads = await this.producao.criarPedidos(
-          tx,
-          {
-            tenantId,
-            unidadeId,
-            comandaId: cmd.id,
-            origem: 'totem',
-            setorId: null,
-            mesa: null,
-            senha,
-            senhaPrefixo: PREFIXO_BALCAO,
-            plataforma: dto.plataforma ?? 'Totem',
-            senhaPlataforma: dto.senhaPlataforma ?? null,
-          },
-          itensProducao,
-        );
+        const producaoPayloads = comNfce
+          ? [] // a produção sai em `liberarProducaoTotem`, depois da nota
+          : await this.producao.criarPedidos(
+              tx,
+              {
+                tenantId,
+                unidadeId,
+                comandaId: cmd.id,
+                origem: 'totem',
+                setorId: null,
+                mesa: null,
+                senha,
+                senhaPrefixo: PREFIXO_BALCAO,
+                plataforma: dto.plataforma ?? 'Totem',
+                senhaPlataforma: dto.senhaPlataforma ?? null,
+              },
+              itensProducao,
+            );
 
         const totalComTaxa = total * (1 + taxa / 100);
         await tx
@@ -1524,10 +1543,12 @@ export class VendasService {
           taxaServicoPct: taxa,
           total: Number(totalComTaxa.toFixed(2)),
           producaoPayloads,
+          itensProducao,
         };
       });
     } catch (e: any) {
-      // Corrida: outra requisição com a mesma chave inseriu primeiro (unique).
+      // Corrida: outra requisição com a mesma chave inseriu primeiro (unique). Ela é a dona da
+      // venda; esta devolve o resultado dela (esperando, se ainda estiver emitindo a nota).
       if (e?.code === '23505') {
         const [ex] = await this.db
           .select({ id: comanda.id })
@@ -1538,18 +1559,12 @@ export class VendasService {
               eq(comanda.idempotencyKey, dto.idempotencyKey),
             ),
           );
-        if (ex) return { comandaId: ex.id, idempotente: true };
+        if (ex) return this.retomarVendaTotem(tenantId, ex.id, ctx, unidadeId);
       }
       throw e;
     }
 
-    this.producao.emitirNovos(res.producaoPayloads);
-    // K6 — `imprimirNaLoja: false`: quem imprime o DANFE desta venda é o TOTEM, na impressora
-    // ao lado do cliente. Deixar a loja imprimir também faria o mesmo documento sair duas vezes.
-    const nfce = await this.fiscal.emitirSeAtivo(tenantId, null, res.comandaId, unidadeId, {
-      imprimirNaLoja: false,
-      terminalId: ctx.equipamentoId ?? null,
-    });
+    const { itensProducao, ...venda } = res;
     await this.auditoria.registrar({
       tenantId,
       atorId: null,
@@ -1557,21 +1572,253 @@ export class VendasService {
       tipo: 'venda',
       acao: 'venda_totem',
       entidadeTipo: 'comanda',
-      entidadeId: res.comandaId,
+      entidadeId: venda.comandaId,
       detalhe: {
-        total: res.total,
+        total: venda.total,
         itens: dto.itens.length,
         origem: 'totem',
         equipamentoId: ctx.equipamentoId,
+        comNfce,
       },
     });
-    return {
-      ...res,
-      // F1 — resumo COMPLETO da nota: quem recebe isto vai IMPRIMIR o DANFE, e para
-      // isso precisa do QR pronto, do protocolo, de número E série, e dos avisos de
-      // simulada/contingência. Só `{status, chave, numero}` não imprime documento.
-      nfce: resumoNfce(nfce),
-    };
+
+    let nfce: NfceDoTotem = null;
+    if (!comNfce) {
+      this.producao.emitirNovos(venda.producaoPayloads);
+    } else {
+      // K6 — quem imprime o DANFE desta venda é o TOTEM, na impressora ao lado do cliente (a
+      // loja não imprime). A resposta segue o contrato de `fiscal/nfce-totem.ts`: o resumo
+      // COMPLETO da nota (QR, protocolo, número e série, avisos) e o `danfe` pronto — ou, se a
+      // nota não saiu, `nao_emitida` com a etapa e o motivo, e a venda desfeita.
+      nfce = await this.concluirFiscalTotem(tenantId, venda.comandaId, unidadeId, ctx.equipamentoId ?? null, {
+        itens: itensProducao,
+        plataforma: dto.plataforma ?? 'Totem',
+        senhaPlataforma: dto.senhaPlataforma ?? null,
+      });
+    }
+    return { ...venda, nfce };
+  }
+
+  // ===== O RESULTADO FISCAL DA VENDA DO TOTEM (contrato em `fiscal/nfce-totem.ts`) =====
+
+  /**
+   * Emite a nota da venda do totem e, pelo resultado: libera a cozinha (autorizada, contingência)
+   * ou DESFAZ a venda (não emitida — o totem estorna o pagamento). Nunca lança por causa do
+   * fiscal: a resposta ao totem é sempre um dos casos do contrato.
+   */
+  private async concluirFiscalTotem(
+    tenantId: string,
+    comandaId: string,
+    unidadeId: string | null,
+    terminalId: string | null,
+    producao?: { itens?: ItemProducao[]; plataforma?: string | null; senhaPlataforma?: string | null },
+  ): Promise<NfceDoTotem> {
+    const r = await this.fiscal.emitirParaTotem(tenantId, comandaId, unidadeId, terminalId);
+    if (r.erro) {
+      try {
+        await this.desfazerVendaTotem(tenantId, comandaId, motivoVendaDesfeita(r.erro), {
+          acao: 'venda_totem_desfeita_sem_nfce',
+          descricaoEstorno: 'Estorno · venda do totem sem NFC-e',
+        });
+      } catch (e: any) {
+        // A nota não saiu e a venda NÃO foi desfeita: o totem vai estornar mesmo assim (é o que
+        // o contrato manda), e o caixa da loja fica com uma venda que não aconteceu. Tem de ficar
+        // gritado no log — é conserto manual (V11).
+        this.logger.error(
+          `Venda do totem ${comandaId} ficou SEM NFC-e e NÃO foi desfeita — conferir estoque e caixa: ${e?.message ?? e}`,
+        );
+      }
+      return r.nfce;
+    }
+    // Autorizada ou em contingência — ou o fiscal foi desligado no meio (null): a venda vale.
+    await this.liberarProducaoTotem(tenantId, comandaId, producao);
+    return r.nfce;
+  }
+
+  /**
+   * Cria a produção (KDS + via da cozinha) da venda do totem UMA vez só: a comanda fica travada
+   * na transação e, se já houver pedido de produção, nada é criado. A repetição da liberação
+   * passa por aqui também — é o que conserta a venda cuja nota saiu e o processo caiu antes da
+   * cozinha. Venda desfeita não produz.
+   */
+  private async liberarProducaoTotem(
+    tenantId: string,
+    comandaId: string,
+    producao?: { itens?: ItemProducao[]; plataforma?: string | null; senhaPlataforma?: string | null },
+  ) {
+    const payloads = await this.db.transaction(async (tx) => {
+      const [c] = await tx
+        .select()
+        .from(comanda)
+        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)))
+        .for('update');
+      if (!c || c.status === 'cancelada') return [];
+      const [ja] = await tx
+        .select({ id: producaoPedido.id })
+        .from(producaoPedido)
+        .where(and(eq(producaoPedido.tenantId, tenantId), eq(producaoPedido.comandaId, comandaId)))
+        .limit(1);
+      if (ja) return [];
+      let itens = producao?.itens;
+      if (!itens) {
+        // Retomada (a lista da primeira requisição se perdeu): reconstrói dos itens da comanda.
+        const linhas = await tx
+          .select({ item: comandaItem, prod: produto })
+          .from(comandaItem)
+          .innerJoin(produto, eq(produto.id, comandaItem.produtoId))
+          .where(and(eq(comandaItem.tenantId, tenantId), eq(comandaItem.comandaId, comandaId)));
+        itens = linhas
+          .filter((l) => l.prod.vaiParaProducao)
+          .map((l) => ({
+            produto: l.prod,
+            descricao: l.item.descricao,
+            quantidade: Number(l.item.quantidade) || 1,
+            observacao: l.item.observacao ?? null,
+            comandaItemId: l.item.id,
+          }));
+      }
+      if (!itens.length) return [];
+      return this.producao.criarPedidos(
+        tx,
+        {
+          tenantId,
+          unidadeId: c.unidadeId ?? null,
+          comandaId,
+          origem: 'totem',
+          setorId: null,
+          mesa: null,
+          senha: c.senha ?? null,
+          senhaPrefixo: c.senhaPrefixo ?? PREFIXO_BALCAO,
+          plataforma: producao?.plataforma ?? 'Totem',
+          senhaPlataforma: producao?.senhaPlataforma ?? null,
+        },
+        itens,
+      );
+    });
+    this.producao.emitirNovos(payloads);
+  }
+
+  /** Quanto dura, no máximo, uma liberação viva: 10 s de SEFAZ + contingência + folga. */
+  private static readonly ESPERA_VENDA_TOTEM_MS = 25_000;
+
+  /**
+   * A REPETIÇÃO da venda do totem (mesma chave, ou a liberação chamada de novo): devolve o
+   * resultado que a primeira teve — a mesma nota, com o DANFE remontado do XML, ou a mesma
+   * `nao_emitida`. Se a primeira ainda está emitindo, ESPERA por ela (nunca dispara uma segunda
+   * emissão em paralelo — seriam duas notas para a mesma venda). Se a primeira morreu no meio
+   * (a venda está parada há mais que o tempo de uma liberação viva), ASSUME e conclui.
+   */
+  async retomarVendaTotem(
+    tenantId: string,
+    comandaId: string,
+    ctx: { unidadeId: string | null; equipamentoId?: string | null },
+    unidadeId: string | null,
+  ): Promise<any> {
+    const limite = Date.now() + VendasService.ESPERA_VENDA_TOTEM_MS;
+    for (;;) {
+      const [c] = await this.db
+        .select()
+        .from(comanda)
+        .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+      if (!c) throw new NotFoundException('Venda não encontrada.');
+      const base = {
+        comandaId: c.id,
+        senha: c.senha ?? null,
+        senhaPrefixo: c.senhaPrefixo ?? null,
+        total: Number(c.total) || 0,
+        idempotente: true,
+      };
+      if (c.status === 'cancelada')
+        return {
+          ...base,
+          nfce: nfceNaoEmitida(
+            erroDaVendaDesfeita(c.motivoCancelamento) ?? {
+              etapa: 'interno',
+              codigo: null,
+              motivo: `A venda foi desfeita${c.motivoCancelamento ? `: ${c.motivoCancelamento}` : '.'}`.slice(0, 400),
+              repete: false,
+            },
+          ),
+        };
+
+      const emitida = await this.fiscal.nfceDaComandaParaTotem(tenantId, comandaId);
+      if (emitida) {
+        await this.liberarProducaoTotem(tenantId, comandaId);
+        return { ...base, nfce: emitida };
+      }
+      const loja = c.unidadeId ?? unidadeId;
+      if (!(await this.fiscal.totemEmiteNfce(tenantId, loja, ctx.equipamentoId ?? null))) {
+        await this.liberarProducaoTotem(tenantId, comandaId);
+        return { ...base, nfce: null };
+      }
+      // NFC-e esperada e ainda sem desfecho: a primeira liberação está emitindo agora — ou morreu.
+      if (await this.assumirVendaTotemParada(tenantId, comandaId)) {
+        this.logger.warn(`Venda do totem ${comandaId} estava parada sem nota: retomada pela repetição.`);
+        const nfce = await this.concluirFiscalTotem(tenantId, comandaId, loja, ctx.equipamentoId ?? null);
+        return { ...base, nfce };
+      }
+      if (Date.now() > limite)
+        throw new ServiceUnavailableException(
+          'A venda ainda está sendo concluída (a nota fiscal está em emissão). Tente de novo em instantes.',
+        );
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+
+  /**
+   * Trava otimista para a retomada: só UMA repetição assume, e só quando a venda está parada há
+   * mais que o tempo de uma liberação viva — a primeira requisição, se viva, termina antes disso.
+   * O `update` é atômico: duas repetições ao mesmo tempo, uma leva e a outra volta a esperar.
+   */
+  private async assumirVendaTotemParada(tenantId: string, comandaId: string): Promise<boolean> {
+    const segundos = VendasService.ESPERA_VENDA_TOTEM_MS / 1000;
+    const r: any = await this.db.execute(sql`
+      update comanda set updated_at = now()
+       where id = ${comandaId}::uuid and tenant_id = ${tenantId}::uuid
+         and status = 'fechada'
+         and updated_at < now() - make_interval(secs => ${segundos})
+      returning id`);
+    return ((r.rows ?? r) as any[]).length > 0;
+  }
+
+  /**
+   * Desfaz a venda do totem: estoque volta, caixa estornado (cada lançamento na sua forma), a
+   * cozinha cancela o que recebeu, e a comanda fica cancelada com o motivo. É o `estornar` da
+   * venda externa, com o rótulo do totem.
+   */
+  private async desfazerVendaTotem(
+    tenantId: string,
+    comandaId: string,
+    motivo: string,
+    opts: { acao: string; descricaoEstorno: string },
+  ) {
+    return this.estornarVendaExterna(tenantId, null, 'servico', comandaId, motivo, true, opts);
+  }
+
+  /**
+   * F — o DANFE não saiu no papel do totem. A compra só termina com o cupom na mão do cliente,
+   * então: o pedido de cancelamento das notas fica GRAVADO primeiro (se o processo cair, o job
+   * o executa), a venda é desfeita, e a nota autorizada é cancelada já (110111). A de
+   * contingência não se inutiliza — fica agendada para quando a fila a autorizar.
+   * Idempotente: repetir devolve a mesma situação, sem desfazer duas vezes.
+   */
+  async desfazerVendaTotemSemCupom(tenantId: string, comandaId: string, motivo?: string | null) {
+    const [c] = await this.db
+      .select({ id: comanda.id, status: comanda.status })
+      .from(comanda)
+      .where(and(eq(comanda.id, comandaId), eq(comanda.tenantId, tenantId)));
+    if (!c) throw new NotFoundException('Venda não encontrada.');
+    await this.fiscal.agendarCancelamentosDaVenda(tenantId, comandaId, JUSTIFICATIVA_CUPOM_NAO_IMPRESSO);
+    if (c.status !== 'cancelada')
+      await this.desfazerVendaTotem(
+        tenantId,
+        comandaId,
+        `Cupom fiscal não impresso no totem${motivo?.trim() ? `: ${motivo.trim()}` : ''}`.slice(0, 400),
+        { acao: 'venda_totem_desfeita_sem_cupom', descricaoEstorno: 'Estorno · cupom fiscal não impresso no totem' },
+      );
+    return this.fiscal.cancelarNotasDaVendaDesfeita(tenantId, comandaId, JUSTIFICATIVA_CUPOM_NAO_IMPRESSO, {
+      prazoMs: PRAZO_AUTORIZACAO_TOTEM_MS,
+    });
   }
 
   // Estorna uma venda externa (delivery cancelado). Como não passa por caixa,
@@ -1581,11 +1828,14 @@ export class VendasService {
   // perdeu) e a decisão fica registrada na comanda para relatório.
   async estornarVendaExterna(
     tenantId: string,
-    atorId: string,
+    atorId: string | null,
     atorPerfil: string,
     comandaId: string,
     motivo?: string,
     reaproveitado = true,
+    // O totem desfaz a venda por outro motivo (nota que não saiu, cupom que não imprimiu) e o
+    // lançamento/auditoria têm de dizer isso — "delivery cancelado" ali confundiria o caixa.
+    rotulo: { acao?: string; descricaoEstorno?: string } = {},
   ) {
     await this.db.transaction(async (tx) => {
       const [c] = await tx
@@ -1638,7 +1888,9 @@ export class VendasService {
       }
       // Venda externa não passa pelo caixa: o estorno fica fora de sessão, como o lançamento
       // original. Todos os lançamentos de entrada, cada um na sua forma.
-      await this.estornarLancamentos(tx, tenantId, comandaId, undefined, 'Estorno · delivery cancelado', atorId);
+      await this.estornarLancamentos(
+        tx, tenantId, comandaId, undefined, rotulo.descricaoEstorno ?? 'Estorno · delivery cancelado', atorId,
+      );
       await tx
         .update(comanda)
         .set({
@@ -1658,7 +1910,7 @@ export class VendasService {
       atorId,
       atorPerfil,
       tipo: 'venda',
-      acao: 'cancelou_delivery',
+      acao: rotulo.acao ?? 'cancelou_delivery',
       entidadeTipo: 'comanda',
       entidadeId: comandaId,
       detalhe: { motivo },

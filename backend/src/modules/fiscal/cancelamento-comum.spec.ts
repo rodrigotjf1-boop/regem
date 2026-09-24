@@ -214,16 +214,35 @@ descrever('o cancelamento comum, contra o Postgres', () => {
     expect(ev.status).toBe('rejeitado');
   }, 60000);
 
-  it('SEFAZ muda: não se sabe se cancelou — a nota fica como está e o aviso manda consultar', async () => {
+  it('SEFAZ muda: não se sabe se cancelou — a nota fica como está e o sistema confere sozinho', async () => {
     const n = await notaAutorizada(5);
     chamarSefaz.mockRejectedValue(new SefazInalcancavel('timeout'));
 
     await expect(servico.cancelar(tenant, null as any, n.id, 'Cliente desistiu antes de retirar o pedido')).rejects.toThrow(
-      /Consulte a nota/,
+      /não respondeu ao cancelamento/,
     );
     expect((await doBanco(n.id)).status).toBe('autorizada');
     const [ev] = await eventosDa(n.id);
     expect(ev.status).toBe('pendente'); // o evento saiu; a resposta não voltou
+  }, 60000);
+
+  it('pedir de novo com um pedido SEM RESPOSTA: 503 com o motivo — não o 500 do índice único (ERR-100)', async () => {
+    const n = await notaAutorizada(5);
+    chamarSefaz.mockRejectedValue(new SefazInalcancavel('timeout'));
+    await expect(servico.cancelar(tenant, null as any, n.id, 'Cliente desistiu antes de retirar o pedido')).rejects.toThrow(
+      /não respondeu ao cancelamento/,
+    );
+
+    chamarSefaz.mockReset();
+    const erro: any = await servico
+      .cancelar(tenant, null as any, n.id, 'Cliente desistiu antes de retirar o pedido')
+      .catch((e: any) => e);
+    // Mandar outro às cegas bateria no índice único (um pedido vivo por nota) — e, se o primeiro
+    // foi registrado, a SEFAZ responderia duplicidade. Quem resolve é a consulta, pelo job.
+    expect(erro.getStatus?.()).toBe(503);
+    expect(erro.message).toMatch(/sem resposta da SEFAZ/);
+    expect(chamarSefaz).not.toHaveBeenCalled();
+    expect((await eventosDa(n.id)).map((e: any) => e.status)).toEqual(['pendente']);
   }, 60000);
 
   it('justificativa curta é recusada antes de qualquer coisa', async () => {

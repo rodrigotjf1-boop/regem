@@ -58,6 +58,19 @@ export function regrasDaUf(uf: string | null | undefined): RegrasUf {
 }
 
 /**
+ * Cadastro fiscal de produto fora do que a NFC-e (ou a UF) aceita. É erro de CADASTRO — a loja
+ * corrige o produto —, então tem classe própria: o serviço traduz para 400 com a mensagem, em
+ * vez de o `Error` genérico virar 500 "erro interno" (LIC-023), e o totem sabe que a próxima
+ * venda do mesmo produto vai falhar igual.
+ */
+export class CadastroFiscalIncompativel extends Error {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = 'CadastroFiscalIncompativel';
+  }
+}
+
+/**
  * Confere CSOSN e CFOP de cada item ANTES de gastar número. Devolve a lista de problemas em
  * português, para a mensagem da venda dizer exatamente qual produto está com o cadastro errado.
  * Só vale para o Simples (CRT 1); o regime normal usa CST e tem outra lista.
