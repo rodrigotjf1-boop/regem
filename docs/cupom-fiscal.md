@@ -495,7 +495,24 @@ por inutilização — nunca reusado.
 > Atualizado em 23/09/2026. Aqui fica o que **nós** ainda temos de fazer ou pedir. O §7 é outra
 > coisa: o que o mundo ainda não resolveu. Ao concluir um item, riscar e registrar no §8.
 
-### A. Bloqueia a virada para PRODUÇÃO
+### A0. O EMISSOR AINDA NÃO ESTÁ PRONTO PARA A VENDA REAL — faltam código e dado
+
+> Conferido em 24/09/2026 no código, no **XSD oficial**, no **MOC consolidado** e na ficha do RJ
+> (manual da SEFAZ-RJ de 16/07/2026). Toda nota de homologação até aqui foi paga em **dinheiro**,
+> com **um item de teste** — e é por isso que nada disto apareceu. Cada linha é um caso que a
+> venda de restaurante produz no primeiro dia.
+
+| # | O que falta | O que acontece hoje | Fonte |
+|---|---|---|---|
+| **A0.1** | **Grupo `<card>` no pagamento** em cartão (tPag 03/04) e **PIX** (17) | A nota é **rejeitada com 391**. É a forma de pagamento da maioria das vendas. Com a maquininha separada do PDV basta `tpIntegra=2`; o CNPJ da credenciadora e o `cAut` só são exigidos com `tpIntegra=1` | MOC, **YA04-10 → 391**: "implementação **por padrão**, opcional a critério da UF" — não há confirmação de que o RJ dispense. YA05-10 para o `tpIntegra` |
+| **A0.2** | **Grupo `ICMSSN500`** (CSOSN **500**, ICMS já retido por substituição tributária) | O builder só conhece `ICMSSN102`, que no XSD aceita **102, 103, 300 e 400**. Produto com CSOSN 500 — o caso típico de refrigerante, cerveja e água, que chegam com ST — vira **rejeição 225** (schema) | XSD oficial `leiauteNFe_v4.00.xsd` (lido); lista fechada do RJ: CSOSN **102, 300, 500** |
+| **A0.3** | **`infAdFisco` com o FECP** | O XML não tem o campo. No RJ ele **nunca fica vazio**: *"em caso de NÃO INCIDÊNCIA do FECP, deverá constar essa informação"* (Lei 8.405/19) | Manual SEFAZ-RJ, pergunta 1.49. Dado incorreto na NFC-e é multa de **3% do valor da operação** (RICMS, art. 62-C, XI) |
+| **A0.4** | **Rodapé PROCON-RJ e CODECON** no campo de interesse do contribuinte | Não sai. **Lei estadual 5.817/10**: PROCON-RJ **151**, Av. Rio Branco, 25, 5º andar, Centro · CODECON **0800 282 7060**, R. da Alfândega, 8, Centro | Manual SEFAZ-RJ §A2 |
+| **A0.5** | **Cancelamento comum (evento 110111)** | **Não existe** — `SefazDiretoTransmitter.cancelar()` recusa. Só existe o cancelamento por substituição (110112). No RJ o prazo é **30 minutos** da autorização, e só se a mercadoria não circulou: venda errada, desistência ou item trocado ficam **autorizados para sempre** | `transmitter.ts`; manual SEFAZ-RJ §A5 |
+| **A0.6** | **Cadastro fiscal dos produtos conferido pelo contador** — NCM, CFOP e CSOSN de cada item | Sem CFOP no produto, o emissor usa **5102** (revenda) — mas prato **produzido** na casa é **5101**, e item com ST é **5405** com CSOSN 500. O RJ tem **lista fechada**: CFOP 5101/5102/5103/5104/5115/5405 e CSOSN 102/300/500 | Ficha RJ, listas fechadas; o PDV não deveria oferecer código fora delas |
+| **A0.7** | **Gorjeta / taxa de serviço** na nota — decidir com o contador | No **Simples**, a gorjeta **integra a receita bruta** (Res. CGSN 140/18, art. 2º, §4º, II); a exclusão com CST 41 do manual do RJ **não vale** para o Simples. Hoje a nota sai só com os itens da comanda — se o cliente paga os 10%, o `vNF` não bate com o que ele pagou | Ficha RJ; ver também a GOTCHA de `comanda.total` embutir a taxa |
+
+### A. Bloqueia a virada para PRODUÇÃO (configuração)
 
 | # | O que é | Por que importa |
 |---|---|---|
@@ -520,6 +537,7 @@ por inutilização — nunca reusado.
 | **B2** | **Termo no livro modelo 6** para a guarda eletrônica do XML, se quiser manter a 2ª via de papel desligada com respaldo formal (mig 287) | Do contador. É ato único |
 | **B3** | **Transportador na logística do marketplace** (P27) — hoje declaramos a própria loja em toda entrega com `indPres=4` | Depende do B1 |
 | **B4** | **Lista completa das séries já em uso** no estabelecimento | Da Eclética (ou do portal da SEFAZ). É o que destrava o A2 |
+| **B5** | **Quem documenta qual venda: Regem ou Eclética** | Da loja. Hoje a Eclética já emite NFC-e para este CNPJ. Se a mesma venda passar pelos dois sistemas, saem **duas notas para uma venda** — receita em dobro no Simples. Antes de ligar a emissão automática em produção, cada canal (balcão, totem, delivery próprio, marketplace) precisa ter **um** emissor definido |
 
 ### C. Pronto, mas ainda não nas lojas
 
@@ -579,6 +597,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 24/09/2026 | **§6.1 ganhou o grupo A0 — o emissor ainda não está pronto para venda real.** Conferido no código, no XSD oficial, no MOC e no manual da SEFAZ-RJ: faltam o grupo `<card>` (cartão e PIX seriam **391**), o `ICMSSN500` (bebida com ST seria **225**), o `infAdFisco` com FECP e o rodapé PROCON/CODECON exigidos no RJ, e o **cancelamento comum** (110111), que não existe. Toda homologação foi em dinheiro com um item de teste — por isso nada disso apareceu. Também entrou o B5: definir **qual sistema documenta cada venda**, porque a Eclética já emite para o mesmo CNPJ. |
 | 23/09/2026 | **§6.1 criado**: as pendências do emissor passaram a ficar no documento, separadas em quatro grupos — o que bloqueia a produção (ambiente, séries novas, validade do A1), o que depende do lojista (CNPJ dos intermediadores, termo do livro modelo 6), o que está pronto e ainda não foi para as lojas (cinco entregas aguardando corte de `.zip`) e as melhorias sem prazo. Registrado também que **o CSC de produção não é bloqueio no RJ**: com o QR v3 ele não entra no QR Code. |
 | 23/09/2026 | **DANFE do totem (K6).** O texto do DANFE saiu de dentro de `imprimirDanfe` para `fiscal/danfe-texto.ts` e passou a ser UM só: a impressora do caixa e o totem GoGeM imprimem o mesmo documento. `resumoNfce` ganhou o campo `danfe` (o texto pronto, com o marcador `@QR:`), e `emitir`/`emitirSeAtivo` ganharam `opts.imprimirNaLoja` — a venda do totem pede `false`, senão a mesma nota sairia duas vezes (uma no totem, outra no balcão). O texto ganhou a mensagem **"EMITIDA EM CONTINGÊNCIA"** quando o status é `contingencia`, exigida pelo Manual do DANFE NFC-e; no totem, a contingência imprime também a **segunda via "Via do Estabelecimento"**. Do lado do totem: QR nativo no ESC/POS (`GS ( k`, modelo 2, módulo 6 = ~43 mm, correção M — a norma pede ≥ 25 mm), os **mesmos bytes** do `edge/escpos.mjs`. Nota emitida cujo DANFE não sai vai para a fila de reimpressão e a tela avisa o cliente a retirar no balcão; o **cancelamento + estorno** desse caso é o passo seguinte (F4), ainda não implementado. |
 | 23/09/2026 | **A 2ª via de papel da contingência virou opção, desligada por padrão** (mig 287). Restaurante entrega só a via do cliente; a guarda passa a ser o XML, que o MOC aceita expressamente (Anexo IV, §4) e que já fica arquivado e reimprimível. Quem precisar do papel liga na configuração fiscal. ⚠️ A guarda eletrônica exige termo lavrado no livro modelo 6 — isso é da loja, não do sistema. |
