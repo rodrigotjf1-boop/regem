@@ -471,6 +471,20 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
     nota que **não** é de contingência é **445** (ZX02-330).
   - O DIA sai do **texto** do `dhEmi` (que já está no fuso da UF): passar por `Date` traria o
     fuso da máquina de volta e, perto da virada, o QR levaria o dia errado.
+- **CADA ESTABELECIMENTO ESCOLHE** (mig 288, Parte 2 do bloco "Regem assume no lugar da Eclética"):
+  - **Terminal que emite ou não** (`equipamento.emite_nfce`, PDV e totem). Numa troca de sistema a
+    loja opera com os dois — um caixa emitindo pelo antigo, outro pelo Regem; o terminal desmarcado
+    vende com o comprovante "CUPOM NAO FISCAL" e a mesma venda nunca sai com duas notas. No
+    fechamento de comanda vale o terminal do **caixa que recebe** (no sub-PDV de salão, o PDV
+    principal). Só **presidente e gerência** alteram — as rotas exigem, não só a tela — e cada
+    mudança vai para a auditoria com o antes e o depois.
+  - **Taxa de serviço** (`fiscal_config.taxa_servico_nfce`), fundamentada em `taxa-servico.ts`:
+    CLT 457 §4º/§6º (não é receita da casa; vai "na respectiva nota de consumo"); no **regime
+    normal**, item **CST 41** até **10%** (SP 15% desde 19/02/2026 — Conv. ICMS 125/11 e 8/26), no RJ
+    com CFOP da lista 5101–5115; no **Simples**, a exclusão NÃO vale (Res. CGSN 140/18, art. 2º,
+    §4º, II), então a linha vai **tributada** (CSOSN 102). A linha sai com exatamente o que a
+    comanda cobrou a mais, para o `vNF` bater com o pagamento. **Sem escolha, a NFC-e de comanda
+    com taxa é recusada** — a codificação é decisão do contador, não do sistema.
 - **`csc_token` em texto puro foi esvaziado** na mig 279: desde a mig 278 a `fiscal_config` desce
   para as lojas, e o segredo seria copiado para cada uma.
 
@@ -510,7 +524,7 @@ por inutilização — nunca reusado.
 | ~~A0.4~~ | ~~**Rodapé PROCON-RJ e CODECON** no campo de interesse do contribuinte~~ — **RESOLVIDO 24/09/2026** (#570 no XML e #572 impresso no DANFE) | Não sai. **Lei estadual 5.817/10**: PROCON-RJ **151**, Av. Rio Branco, 25, 5º andar, Centro · CODECON **0800 282 7060**, R. da Alfândega, 8, Centro | Manual SEFAZ-RJ §A2 |
 | ~~A0.5~~ | ~~**Cancelamento comum (evento 110111)**~~ — **RESOLVIDO 24/09/2026** (#571: evento 110111, 30 minutos, botão mostra quanto resta) | **Não existe** — `SefazDiretoTransmitter.cancelar()` recusa. Só existe o cancelamento por substituição (110112). No RJ o prazo é **30 minutos** da autorização, e só se a mercadoria não circulou: venda errada, desistência ou item trocado ficam **autorizados para sempre** | `transmitter.ts`; manual SEFAZ-RJ §A5 |
 | **A0.6** | **Cadastro fiscal dos produtos conferido pelo contador** — NCM, CFOP e CSOSN de cada item | Sem CFOP no produto, o emissor usa **5102** (revenda) — mas prato **produzido** na casa é **5101**, e item com ST é **5405** com CSOSN 500. O RJ tem **lista fechada**: CFOP 5101/5102/5103/5104/5115/5405 e CSOSN 102/300/500 | Ficha RJ, listas fechadas; o PDV não deveria oferecer código fora delas |
-| **A0.7** | **Gorjeta / taxa de serviço** na nota — decidir com o contador | No **Simples**, a gorjeta **integra a receita bruta** (Res. CGSN 140/18, art. 2º, §4º, II); a exclusão com CST 41 do manual do RJ **não vale** para o Simples. Hoje a nota sai só com os itens da comanda — se o cliente paga os 10%, o `vNF` não bate com o que ele pagou | Ficha RJ; ver também a GOTCHA de `comanda.total` embutir a taxa |
+| ~~A0.7~~ | ~~**Gorjeta / taxa de serviço** na nota — decidir com o contador~~ — **CONFIGURAÇÃO PRONTA 24/09/2026** (Parte 2): fora da nota, linha tributada (Simples) ou linha CST 41 (regime normal, até 10%). Falta só o contador escolher; sem escolha, a nota de comanda com taxa é recusada | No **Simples**, a gorjeta **integra a receita bruta** (Res. CGSN 140/18, art. 2º, §4º, II); a exclusão com CST 41 do manual do RJ **não vale** para o Simples. Hoje a nota sai só com os itens da comanda — se o cliente paga os 10%, o `vNF` não bate com o que ele pagou | Ficha RJ; ver também a GOTCHA de `comanda.total` embutir a taxa |
 
 ### A. Bloqueia a virada para PRODUÇÃO (configuração)
 
@@ -537,7 +551,7 @@ por inutilização — nunca reusado.
 | **B2** | **Termo no livro modelo 6** para a guarda eletrônica do XML, se quiser manter a 2ª via de papel desligada com respaldo formal (mig 287) | Do contador. É ato único |
 | **B3** | **Transportador na logística do marketplace** (P27) — hoje declaramos a própria loja em toda entrega com `indPres=4` | Depende do B1 |
 | **B4** | **Lista completa das séries já em uso** no estabelecimento | Da Eclética (ou do portal da SEFAZ). É o que destrava o A2 |
-| **B5** | **Quem documenta qual venda: Regem ou Eclética** | Da loja. Hoje a Eclética já emite NFC-e para este CNPJ. Se a mesma venda passar pelos dois sistemas, saem **duas notas para uma venda** — receita em dobro no Simples. Antes de ligar a emissão automática em produção, cada canal (balcão, totem, delivery próprio, marketplace) precisa ter **um** emissor definido |
+| **B5** | **Quem documenta qual venda: Regem ou Eclética** | Da loja. Hoje a Eclética já emite NFC-e para este CNPJ. Se a mesma venda passar pelos dois sistemas, saem **duas notas para uma venda** — receita em dobro no Simples. Antes de ligar a emissão automática em produção, cada canal (balcão, totem, delivery próprio, marketplace) precisa ter **um** emissor definido. **O interruptor existe desde 24/09/2026**: Configuração fiscal → Terminais que emitem NFC-e |
 
 ### C. Pronto, mas ainda não nas lojas
 
@@ -597,6 +611,7 @@ por inutilização — nunca reusado.
 
 | Data | O que mudou |
 |---|---|
+| 24/09/2026 | **Parte 2 — cada estabelecimento escolhe** (mig 288, sem migration nova). **Terminal que emite ou não** (PDV e totem), só presidente e gerência, auditado com o antes e o depois; no fechamento de comanda vale o caixa que recebe. **Taxa de serviço** configurável — fora da nota, linha tributada no Simples (CGSN 140/18) ou linha CST 41 no regime normal até 10% (Conv. 125/11; SP 15%) —, com a linha no valor exato cobrado e a nota recusada enquanto a loja não escolher. |
 | 24/09/2026 | **A0.1 a A0.5 resolvidos** no mesmo dia: grupo `<card>` e `ICMSSN500` com o cadastro conferido contra o MOC e as listas fechadas do RJ, FECP em `infAdFisco` e rodapé PROCON/ALERJ (#570, mig 288); cancelamento comum 110111 (#571); rodapé impresso no DANFE único do K6, que também corrigiu o totem ficando sem o cupom da contingência (#572). Seguem abertos o **A0.6** (cadastro fiscal dos produtos, com o contador) e o **A0.7** (taxa de serviço — a configuração entra na próxima parte). |
 | 24/09/2026 | **§6.1 ganhou o grupo A0 — o emissor ainda não está pronto para venda real.** Conferido no código, no XSD oficial, no MOC e no manual da SEFAZ-RJ: faltam o grupo `<card>` (cartão e PIX seriam **391**), o `ICMSSN500` (bebida com ST seria **225**), o `infAdFisco` com FECP e o rodapé PROCON/CODECON exigidos no RJ, e o **cancelamento comum** (110111), que não existe. Toda homologação foi em dinheiro com um item de teste — por isso nada disso apareceu. Também entrou o B5: definir **qual sistema documenta cada venda**, porque a Eclética já emite para o mesmo CNPJ. |
 | 23/09/2026 | **§6.1 criado**: as pendências do emissor passaram a ficar no documento, separadas em quatro grupos — o que bloqueia a produção (ambiente, séries novas, validade do A1), o que depende do lojista (CNPJ dos intermediadores, termo do livro modelo 6), o que está pronto e ainda não foi para as lojas (cinco entregas aguardando corte de `.zip`) e as melhorias sem prazo. Registrado também que **o CSC de produção não é bloqueio no RJ**: com o QR v3 ele não entra no QR Code. |

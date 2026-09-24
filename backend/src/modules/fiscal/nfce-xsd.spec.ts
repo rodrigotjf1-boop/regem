@@ -5,6 +5,7 @@ import * as forge from 'node-forge';
 import { validateXML } from 'xmllint-wasm';
 import { assinarNfe } from './assinatura';
 import { montarNfceXml, NfceInput } from './nfce-xml.builder';
+import { linhaTaxaServico } from './taxa-servico';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -174,6 +175,23 @@ describe('o XML que emitimos passa no schema oficial da NF-e 4.00', () => {
     expect(xml).toContain('<card><tpIntegra>2</tpIntegra></card>');
     expect(xml).toContain('<ICMSSN500>');
     expect(xml).toContain('<infAdFisco>');
+  }, 120000);
+
+  // Taxa de serviço como LINHA da nota — no Simples tributada (CSOSN 102), no regime normal
+  // não tributada (CST 41, dentro do grupo ICMS40). As duas precisam passar no schema.
+  it('taxa de serviço como linha da nota — Simples (CSOSN 102) e regime normal (CST 41) — é válida', async () => {
+    const prato = { codigo: 'P1', descricao: 'Prato executivo', ncm: '00000000', cfop: '5101', origem: '0', csosn: '102', unidadeTrib: 'UN', quantidade: 2, precoUnitario: 30 };
+    const simples = linhaTaxaServico({ pct: 10, itens: [prato], modo: 'item_tributado', crt: 1 })!;
+    const xmlSimples = assinada(
+      entrada({ itens: [prato, simples] }, { ...CONFIG, infoFisco: 'FECP: nao incidente.' }),
+    );
+    expect(await validar(xmlSimples)).toEqual({ valido: true, erros: '' });
+    expect(xmlSimples).toContain('<xProd>Taxa de servico 10%</xProd>');
+
+    const normal = linhaTaxaServico({ pct: 10, itens: [prato], modo: 'item_nao_tributado', crt: 3, uf: 'RJ' })!;
+    const xmlNormal = assinada(entrada({ itens: [{ ...prato, cstIcms: '40' }, normal] }, { ...CONFIG, crt: 3 }));
+    expect(await validar(xmlNormal)).toEqual({ valido: true, erros: '' });
+    expect(xmlNormal).toContain('<ICMS40><orig>0</orig><CST>41</CST></ICMS40>');
   }, 120000);
 
   it('a nota de HOMOLOGAÇÃO (com a frase obrigatória no 1º item) é válida', async () => {

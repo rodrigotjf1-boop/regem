@@ -689,6 +689,10 @@ export const api = {
     req(`/fiscal/config${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),
   setFiscalConfig: (body: Record<string, unknown>) =>
     req('/fiscal/config', { method: 'PUT', body: JSON.stringify(body) }),
+  // Quais terminais (PDV/totem) emitem NFC-e — só presidente e gerência (mig 288).
+  terminaisFiscais: () => req('/fiscal/terminais'),
+  definirTerminalFiscal: (id: string, emiteNfce: boolean) =>
+    req(`/fiscal/terminais/${id}`, { method: 'PUT', body: JSON.stringify({ emiteNfce }) }),
   // Certificado A1 e CSC: a leitura traz só dados públicos; a escrita guarda cifrado (mig 279).
   fiscalCredencial: (unidadeId?: string) =>
     req(`/fiscal/credencial${unidadeId ? `?unidadeId=${unidadeId}` : ''}`),

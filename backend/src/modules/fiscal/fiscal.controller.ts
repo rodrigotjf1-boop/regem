@@ -1,3 +1,4 @@
+import { exigirBooleano } from '../../common/exigir';
 import {
   Body,
   Controller,
@@ -167,6 +168,22 @@ export class FiscalController {
   @Roles('presidente', 'gerente')
   transmitirContingencia() {
     return this.service.rodarContingencia();
+  }
+
+  // QUAIS TERMINAIS EMITEM NFC-e (mig 288). Decisão com peso fiscal: só PRESIDENTE e GERÊNCIA
+  // — no servidor, não na tela —, e cada mudança fica auditada com o antes e o depois.
+  @Get('terminais')
+  @Roles('presidente', 'gerente')
+  terminais(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.service.listarTerminaisFiscais(user.tenantId, unidadeId);
+  }
+
+  @Put('terminais/:id')
+  @Roles('presidente', 'gerente')
+  definirTerminal(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    // Liga/desliga EXPLÍCITO: corpo vazio não pode virar "não emite" em silêncio (V15).
+    const emite = exigirBooleano(dto?.emiteNfce, 'emiteNfce');
+    return this.service.definirTerminalFiscal(user.tenantId, user.colaboradorId ?? null, user.categoria ?? '', id, emite);
   }
 
   @Get('inutilizacoes')

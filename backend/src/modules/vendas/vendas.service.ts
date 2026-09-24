@@ -969,12 +969,14 @@ export class VendasService {
       terminalId,
     );
 
-    // NFC-e automática (se o fiscal estiver ativo na unidade). Não bloqueia a venda.
+    // NFC-e automática (se o fiscal estiver ativo na unidade E este terminal emitir — mig 288).
+    // Não bloqueia a venda.
     const nota = await this.fiscal.emitirSeAtivo(
       tenantId,
       atorId,
       res.comandaId,
       res.unidadeId,
+      { terminalId },
     );
     return {
       ...res,
@@ -1546,6 +1548,7 @@ export class VendasService {
     // ao lado do cliente. Deixar a loja imprimir também faria o mesmo documento sair duas vezes.
     const nfce = await this.fiscal.emitirSeAtivo(tenantId, null, res.comandaId, unidadeId, {
       imprimirNaLoja: false,
+      terminalId: ctx.equipamentoId ?? null,
     });
     await this.auditoria.registrar({
       tenantId,
@@ -2600,7 +2603,11 @@ export class VendasService {
       forma: dto.forma ?? null,
     });
     // NFC-e automática ao fechar a conta (se ativo na unidade).
-    await this.fiscal.emitirSeAtivo(tenantId, atorId, comandaId, res.unidadeId);
+    // O documento fiscal acompanha o CAIXA que recebe o dinheiro: no sub-PDV de salão, é o PDV
+    // principal (`terminalCaixa`), não a maquininha do garçom.
+    await this.fiscal.emitirSeAtivo(tenantId, atorId, comandaId, res.unidadeId, {
+      terminalId: await this.terminalCaixa(tenantId, terminalId),
+    });
     return res;
   }
 
