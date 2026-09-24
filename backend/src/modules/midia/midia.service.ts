@@ -40,7 +40,7 @@ const ARQUIVO_RE = /^[0-9a-fA-F-]{36}\.(jpg|png|webp|gif)$/;
 
 // Detecta o tipo REAL da imagem pelos magic bytes (não confia no mimetype do
 // cliente, que é forjável). Retorna o mime canônico ou null se não for imagem.
-function detectarImagem(buf: Buffer): string | null {
+export function detectarImagem(buf: Buffer): string | null {
   if (!buf || buf.length < 12) return null;
   // JPEG: FF D8 FF
   if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';

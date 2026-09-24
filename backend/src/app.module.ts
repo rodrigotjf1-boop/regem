@@ -46,6 +46,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { FinanceiroModule } from './modules/financeiro/financeiro.module';
 import { JobsModule } from './modules/jobs/jobs.module';
 import { ProdutoModule } from './modules/produto/produto.module';
+import { TotemModule } from './modules/totem/totem.module';
 import { VendasModule } from './modules/vendas/vendas.module';
 import { ProducaoModule } from './modules/producao/producao.module';
 import { KdsModule } from './modules/kds/kds.module';
@@ -147,6 +148,7 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     FinanceiroModule,
     JobsModule,
     ProdutoModule,
+    TotemModule,
     VendasModule,
     ProducaoModule,
     KdsModule,

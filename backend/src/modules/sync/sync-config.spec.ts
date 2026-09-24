@@ -346,3 +346,23 @@ describe('sync_marcador — cobertura dos gatilhos', () => {
     expect(faltando).toEqual([]);
   });
 });
+
+// R2 — o totem é cadastrado/pareado na nuvem e validado no EDGE. Se o tipo sair do
+// filtro, a linha do aparelho não desce e o `SyncTokenGuard` do edge devolve 401 em
+// tudo. `servidor_local` fica fora de propósito (anti auto-reativação por LWW).
+describe('sync — filtro de equipamento (R2)', () => {
+  const equip = TABELAS_SYNC.find((t) => t.tabela === 'equipamento');
+
+  it('a tabela equipamento está no sync, filtrada por tipo', () => {
+    expect(equip).toBeDefined();
+    expect(equip!.filtroSql).toContain('tipo in (');
+  });
+
+  it("'totem' está no filtro (senão o edge não valida o aparelho)", () => {
+    expect(equip!.filtroSql).toContain("'totem'");
+  });
+
+  it("'servidor_local' continua FORA do filtro", () => {
+    expect(equip!.filtroSql).not.toContain('servidor_local');
+  });
+});

@@ -1,4 +1,5 @@
 import { PREFIXO_BALCAO, PREFIXO_DELIVERY } from '../../common/senha-origem';
+import { resumoNfce } from '../fiscal/resumo-nfce';
 import {
   BadRequestException,
   ForbiddenException,
@@ -1169,6 +1170,13 @@ export class VendasService {
       setorId?: string | null; // setor de produção (ex.: delivery)
       plataforma?: string | null; // ex.: "Cardápio", "iFood"
       senhaPlataforma?: string | null; // senha/nº do pedido na plataforma
+      // Série da senha (R6). Padrão D (delivery) — o comportamento de sempre. O TOTEM
+      // manda B: é venda de BALCÃO, e balcão tem uma série só, sem número repetido.
+      senhaPrefixo?: string | null;
+      // Senha JÁ reservada na criação do pedido (totem em dinheiro): o cliente saiu do
+      // totem com esse número impresso; tirar outra aqui faria a cozinha chamar um
+      // número diferente do que está na mão dele.
+      senhaReservada?: number | null;
       itens: {
         produtoId?: string | null;
         descricao: string;
@@ -1190,8 +1198,10 @@ export class VendasService {
       // plataforma vai como metadado ao lado.
       // Delivery numera a PRÓPRIA sequência (mig 275): com um contador só, a nuvem e o
       // PDV local chegam ao mesmo número quando a internet da loja cai.
-      const senha = await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null, PREFIXO_DELIVERY);
-      const senhaPrefixo = PREFIXO_DELIVERY;
+      const senhaPrefixo = dto.senhaPrefixo ?? PREFIXO_DELIVERY;
+      const senha =
+        dto.senhaReservada ??
+        (await this.producao.proximaSenha(tx, tenantId, dto.unidadeId ?? null, senhaPrefixo));
       const [cmd] = await tx
         .insert(comanda)
         .values({
@@ -1380,7 +1390,11 @@ export class VendasService {
     try {
       res = await this.db.transaction(async (tx) => {
         const taxa = Number(dto.taxaServicoPct) || 0;
-        const senha = await this.producao.proximaSenha(tx, tenantId, unidadeId, PREFIXO_BALCAO);
+        // Senha do BALCÃO (série B). Quando o pedido já ficou retido aguardando o
+        // pagamento, ele JÁ tem senha impressa no cupom do cliente — reaproveita.
+        const senha =
+          (dto as any).senhaReservada ??
+          (await this.producao.proximaSenha(tx, tenantId, unidadeId, PREFIXO_BALCAO));
         const formaResumo =
           dto.pagamentos.length > 1 ? 'multiplo' : dto.pagamentos[0].forma;
         const [cmd] = await tx
@@ -1546,9 +1560,10 @@ export class VendasService {
     });
     return {
       ...res,
-      nfce: nfce
-        ? { status: (nfce as any).status, chave: (nfce as any).chave, numero: (nfce as any).numero }
-        : null,
+      // F1 — resumo COMPLETO da nota: quem recebe isto vai IMPRIMIR o DANFE, e para
+      // isso precisa do QR pronto, do protocolo, de número E série, e dos avisos de
+      // simulada/contingência. Só `{status, chave, numero}` não imprime documento.
+      nfce: resumoNfce(nfce),
     };
   }
 
