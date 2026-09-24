@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CredencialFiscal } from '@/components/fiscal/credencial-fiscal';
+import { TerminaisFiscais } from '@/components/fiscal/terminais-fiscais';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
@@ -90,6 +91,8 @@ export default function FiscalConfigPage() {
         deliverySemCpf: f.deliverySemCpf || 'presencial',
         contingenciaViaEstabelecimento: !!f.contingenciaViaEstabelecimento,
         infoFisco: String(f.infoFisco ?? '').trim(),
+        // Vazio = "ainda não escolhido": a nota de comanda com taxa fica recusada até escolher.
+        taxaServicoNfce: f.taxaServicoNfce || '',
       });
       toast.success('Configuração fiscal salva.');
       await reload();
@@ -155,6 +158,28 @@ export default function FiscalConfigPage() {
             {/* Séries distintas por ponto de emissão: o balcão numera na série da loja e o
                 delivery na da nuvem, então uma queda de internet não faz os dois emitirem
                 notas com o mesmo número. As duas têm de ser diferentes, e nunca 0. */}
+            {/* Taxa de serviço (garçom). Cada casa tem o seu protocolo e o contador decide: a CLT
+                manda lançá-la na nota de consumo e diz que ela não é receita da casa; no Simples
+                ela integra a receita bruta; no regime normal sai da base do ICMS até 10% (SP 15%).
+                Sem escolha, a NFC-e de comanda com taxa é recusada — em vez de o sistema decidir. */}
+            <div className="space-y-1 sm:col-span-2">
+              <Label className="text-xs">Taxa de serviço na NFC-e</Label>
+              <select
+                aria-label="Taxa de serviço na NFC-e"
+                className={selectCls}
+                value={f.taxaServicoNfce ?? ''}
+                onChange={(e) => set({ taxaServicoNfce: e.target.value })}
+              >
+                <option value="">Ainda não definido (a nota de comanda com taxa é recusada)</option>
+                <option value="fora_da_nota">Fora da nota fiscal — só nos itens da conta</option>
+                <option value="item_tributado">Linha tributada — Simples Nacional (integra a receita bruta)</option>
+                <option value="item_nao_tributado">Linha não tributada, CST 41 — regime normal, até 10% (SP 15%)</option>
+              </select>
+              <p className="text-[11px] text-muted-foreground">
+                Defina com o contador. A linha na nota sai com exatamente o valor cobrado a mais, para o total bater com o
+                pagamento.
+              </p>
+            </div>
             {/* Informação ao Fisco (`infAdFisco`). No RJ é o FECP (Lei 8.405/19), e o campo nunca
                 fica vazio: "em caso de NÃO INCIDÊNCIA do FECP, deverá constar essa informação".
                 Se incide ou não é fato tributário da loja — por isso o texto vem do contador, e a
@@ -318,6 +343,8 @@ export default function FiscalConfigPage() {
         </Card>
 
         <CredencialFiscal />
+
+        <TerminaisFiscais />
 
         <Card className="p-4">
           <h2 className="mb-1 font-display text-sm font-bold">Autorização de caixa</h2>

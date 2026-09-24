@@ -33,6 +33,7 @@ import {
 } from './contingencia';
 import { montarNfceXml, NfceItem } from './nfce-xml.builder';
 import { montarDanfeTexto } from './danfe-texto';
+import { MODOS_TAXA_SERVICO, TaxaServicoBloqueada, linhaTaxaServico } from './taxa-servico';
 import {
   DecisaoFiscal,
   EmissaoBloqueada,
@@ -142,8 +143,14 @@ export class FiscalService {
     if (dto.deliverySemCpf != null && !['presencial', 'nao_emitir'].includes(String(dto.deliverySemCpf)))
       throw new BadRequestException('Opção inválida para pedido sem CPF (use "presencial" ou "nao_emitir").');
 
+    // Taxa de serviço: um dos três modos, ou vazio para "ainda não escolhido". Valor fora da
+    // lista não vira escolha nenhuma em silêncio (V15/V16).
+    if (dto.taxaServicoNfce != null && dto.taxaServicoNfce !== '' && !MODOS_TAXA_SERVICO.includes(dto.taxaServicoNfce))
+      throw new BadRequestException(`Modo de taxa de serviço inválido (use ${MODOS_TAXA_SERVICO.join(', ')}).`);
+
     const vals: any = {
       ativo: dto.ativo != null ? !!dto.ativo : undefined,
+      taxaServicoNfce: dto.taxaServicoNfce === '' ? null : dto.taxaServicoNfce != null ? String(dto.taxaServicoNfce) : undefined,
       // Piso de identificação do consumidor. Vazio volta ao padrão da UF — a regra nacional é
       // "R$ 10.000,00 ou outro valor definido pela UF", então isto nunca é literal no código.
       limiteIdentificacao:
@@ -474,6 +481,28 @@ export class FiscalService {
       cstCofins: it.cstCofins ?? undefined,
       aliqCofins: it.aliqCofins != null ? Number(it.aliqCofins) : undefined,
     }));
+
+    // TAXA DE SERVIÇO (garçom). A comanda cobra `subtotal × (1 + %)`; se a loja escolheu que
+    // ela vai na nota, entra como LINHA própria com exatamente o que foi cobrado a mais — senão
+    // o total da nota não bate com o pagamento. Sem escolha feita, a nota é recusada: se ela
+    // vai tributada ou não é decisão do contador, não nossa (ver `taxa-servico.ts`).
+    const pctServico = Number(c.taxaServicoPct) || 0;
+    if (pctServico > 0) {
+      const cfgTaxa: any = await this.configRaw(tenantId, c.unidadeId ?? null);
+      try {
+        const linha = linhaTaxaServico({
+          pct: pctServico,
+          itens,
+          modo: cfgTaxa?.taxaServicoNfce,
+          crt: cfgTaxa?.crt,
+          uf: cfgTaxa?.uf,
+        });
+        if (linha) itens.push(linha);
+      } catch (e) {
+        if (e instanceof TaxaServicoBloqueada) throw new BadRequestException(e.message);
+        throw e;
+      }
+    }
 
     // Frete, desconto e DESTINATÁRIO da nota. Ficam no pedido de canal (a comanda só guarda
     // itens), então busca pelo vínculo comanda → pedido_externo. Sem pedido (venda de balcão),
@@ -1755,10 +1784,14 @@ export class FiscalService {
     atorId: string | null,
     comandaId: string,
     unidadeId?: string | null,
-    opts: { imprimirNaLoja?: boolean } = {},
+    opts: { imprimirNaLoja?: boolean; terminalId?: string | null } = {},
   ) {
     const cfg = await this.configRaw(tenantId, unidadeId ?? null);
     if (!cfg?.ativo) return null;
+    // Terminal marcado para NÃO emitir (presidente/gerência decide, mig 288): a venda segue
+    // com o comprovante "CUPOM NAO FISCAL". Numa troca de sistema é assim que a loja opera — um
+    // caixa emitindo pelo sistema antigo, outro pelo novo — sem a mesma venda sair duas vezes.
+    if (opts.terminalId && (await this.terminalNaoEmite(tenantId, opts.terminalId))) return null;
     try {
       return await this.emitir(tenantId, atorId, comandaId, opts);
     } catch {
@@ -1966,6 +1999,62 @@ export class FiscalService {
   // Antes: TODAS as impressoras com o `papel` antigo 'cupom' DA EMPRESA — numa rede com duas
   // lojas cada nota saía nas duas, e numa loja com dois caixas, nos dois. `faz_cupom` (mig 167)
   // é o campo que o cadastro mantém hoje.
+  // ===== QUAIS TERMINAIS EMITEM NFC-e (mig 288) =====
+  //
+  // `equipamento.emite_nfce`: NULO ou TRUE = segue a loja; FALSE = este terminal não emite. A
+  // decisão é de PRESIDENTE ou GERÊNCIA (as rotas exigem) e cada mudança fica na auditoria com
+  // o antes e o depois — é uma decisão com peso fiscal, e alguém vai perguntar quem a tomou.
+
+  private async terminalNaoEmite(tenantId: string, terminalId: string): Promise<boolean> {
+    try {
+      const r: any = await this.db.execute(sql`
+        select emite_nfce from equipamento
+         where id = ${terminalId}::uuid and tenant_id = ${tenantId}::uuid limit 1`);
+      return (r.rows ?? r)[0]?.emite_nfce === false;
+    } catch (e: any) {
+      // Loja com o edge anterior à mig 288: sem a coluna, vale a regra da loja (emite).
+      this.log.warn(`emite_nfce do terminal indisponível: ${e?.message ?? e}`);
+      return false;
+    }
+  }
+
+  /** PDVs e totens, com o que cada um faz hoje. */
+  async listarTerminaisFiscais(tenantId: string, unidadeId?: string | null) {
+    const r: any = await this.db.execute(sql`
+      select id, nome, tipo, unidade_id as "unidadeId", ativo,
+             coalesce(emite_nfce, true) as "emiteNfce"
+        from equipamento
+       where tenant_id = ${tenantId}::uuid
+         and tipo in ('pdv', 'totem')
+         and ${unidadeId ? sql`(unidade_id = ${unidadeId}::uuid or unidade_id is null)` : sql`true`}
+       order by tipo, nome`);
+    return (r.rows ?? r) as any[];
+  }
+
+  async definirTerminalFiscal(
+    tenantId: string,
+    atorId: string | null,
+    atorPerfil: string,
+    terminalId: string,
+    emiteNfce: boolean,
+  ) {
+    const [antes] = ((await this.db.execute(sql`
+      select id, nome, tipo, emite_nfce from equipamento
+       where id = ${terminalId}::uuid and tenant_id = ${tenantId}::uuid
+         and tipo in ('pdv', 'totem')`)) as any).rows ?? [];
+    if (!antes) throw new NotFoundException('Terminal não encontrado (só PDV e totem emitem NFC-e).');
+    await this.db.execute(sql`
+      update equipamento set emite_nfce = ${emiteNfce}
+       where id = ${terminalId}::uuid and tenant_id = ${tenantId}::uuid`);
+    await this.auditoria.registrar({
+      tenantId, atorId, atorPerfil, tipo: 'fiscal',
+      acao: emiteNfce ? 'terminal_passou_a_emitir_nfce' : 'terminal_deixou_de_emitir_nfce',
+      entidadeTipo: 'equipamento', entidadeId: terminalId,
+      detalhe: { nome: antes.nome, tipo: antes.tipo, antes: antes.emite_nfce ?? null, depois: emiteNfce },
+    });
+    return { id: terminalId, nome: antes.nome, emiteNfce };
+  }
+
   /** A loja pediu a 2ª via de papel na contingência? Padrão: não (guarda eletrônica do XML). */
   private async imprimeViaEstabelecimento(tenantId: string, unidadeId: string | null): Promise<boolean> {
     const cfg: any = await this.configRaw(tenantId, unidadeId).catch(() => null);
