@@ -64,3 +64,70 @@ export async function ligarServidorAMaquina(
            token = coalesce(${extra.token ?? null}::text, token)
      where id = ${equipamentoId}::uuid`);
 }
+
+// ===== SERVIDOR SUBSTITUÍDO (decisão do dono, 25/09/2026) =====
+//
+// A loja troca de máquina (ou reinstala com um `.exe` novo) e o `servidor_local` antigo fica com o
+// token ATIVO para sempre — o piloto chegou a 6. Token ativo sem uso é chave de sync da empresa
+// inteira esperando vazar, e a máquina velha religada voltaria a sincronizar dado de semanas atrás.
+
+/** Dias sem sinal de vida para um servidor SUBSTITUÍDO ser revogado. */
+export const DIAS_SEM_SINAL_PARA_REVOGAR = 10;
+
+export type ServidorRevogado = {
+  id: string;
+  tenant_id: string;
+  unidade_id: string | null;
+  nome: string;
+  ultimo_sinal: string;
+  substituto: string;
+};
+
+/**
+ * Revoga, numa consulta só, o `servidor_local` que:
+ *  • NÃO é credencial de integração (o do GoGeM nunca sincroniza — e nunca sai por aqui);
+ *  • está há `dias` sem SINAL DE VIDA — sync (`last_push_ts`) nem relatório de status
+ *    (`edge_status`); quem nunca deu sinal conta da criação;
+ *  • tem SUBSTITUTO: outro servidor ativo da mesma loja (ou da rede) com sinal de verdade nos
+ *    últimos `dias`, e mais recente que o dele.
+ * Sem substituto não revoga: é o único servidor de uma loja parada (férias, reforma), e revogá-lo
+ * deixaria a loja sem sync na volta. `soEmpresas`: só para o teste — o job passa por todas, e no CI
+ * as specs dividem o banco em paralelo (LIC-084).
+ */
+export async function revogarServidoresSubstituidos(
+  db: any,
+  dias = DIAS_SEM_SINAL_PARA_REVOGAR,
+  soEmpresas?: string[],
+): Promise<ServidorRevogado[]> {
+  const empresas = soEmpresas?.length
+    ? sql`e.tenant_id in (${sql.join(soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})`
+    : sql`true`;
+  const r: any = await db.execute(sql`
+    with sinal as (
+      select e.id, e.tenant_id, e.unidade_id, e.created_at,
+             greatest(e.last_push_ts, s.recebido_em) as sinal_real
+        from equipamento e
+        left join edge_status s on s.equipamento_id = e.id
+       where e.tipo = 'servidor_local' and e.ativo and e.integrador is null
+         and ${empresas}
+    ),
+    alvo as (
+      select a.id,
+             coalesce(a.sinal_real, a.created_at) as ultimo_sinal,
+             (select b.id from sinal b
+               where b.tenant_id = a.tenant_id and b.id <> a.id
+                 and (b.unidade_id is not distinct from a.unidade_id or b.unidade_id is null or a.unidade_id is null)
+                 and b.sinal_real >= now() - make_interval(days => ${dias})
+                 and b.sinal_real > coalesce(a.sinal_real, a.created_at)
+               order by b.sinal_real desc
+               limit 1) as substituto
+        from sinal a
+       where coalesce(a.sinal_real, a.created_at) < now() - make_interval(days => ${dias})
+    )
+    update equipamento e
+       set ativo = false, revogado_em = now(), segredo_hash = null, pareamento_codigo = null
+      from alvo
+     where e.id = alvo.id and alvo.substituto is not null and e.ativo
+    returning e.id, e.tenant_id, e.unidade_id, e.nome, alvo.ultimo_sinal, alvo.substituto`);
+  return (r.rows ?? r) as ServidorRevogado[];
+}

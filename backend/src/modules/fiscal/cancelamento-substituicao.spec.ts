@@ -213,12 +213,14 @@ descrever('a venda com duas notas, contra o Postgres', () => {
     ).rows[0];
   }, 60000);
 
+  // O `delete` da empresa desce em cascata por todas as tabelas: com as specs rodando juntas, os
+  // 5 s padrão do hook não bastam (a spec caía sem nenhum teste falhar).
   afterAll(async () => {
     if (chaveOriginal === undefined) delete process.env.SEGREDOS_CHAVE;
     else process.env.SEGREDOS_CHAVE = chaveOriginal;
     if (tenant) await pool.query('delete from empresa where id = $1', [tenant]);
     await pool.end();
-  });
+  }, 60000);
 
   beforeEach(() => chamarSefaz.mockReset());
 
