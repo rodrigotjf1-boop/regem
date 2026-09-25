@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, getToken, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { avisarEstornoGogem } from '@/lib/estorno-gogem';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -109,8 +110,9 @@ export default function CuponsPage() {
     if (!confirm(`Cancelar a venda ${sel.mesa ? `da mesa ${sel.mesa}` : ''}? Estorna estoque e caixa.`)) return;
     setCancelando(true);
     try {
-      await api.cancelarVenda(sel.id, { motivo: motivo || undefined });
+      const r = await api.cancelarVenda(sel.id, { motivo: motivo || undefined });
       toast.success('Venda cancelada. Estoque e caixa estornados.');
+      avisarEstornoGogem(r);
       setSel(null);
       await reload();
     } catch (e) {

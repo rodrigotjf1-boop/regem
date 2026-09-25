@@ -40,6 +40,8 @@ const VOLTA_DA_NUVEM = conjunto('VOLTA_DA_NUVEM');
 const DESCARTAVEL = conjunto('DESCARTAVEL');
 const SO_NUVEM = conjunto('SO_NUVEM');
 const LEGADO_SEM_USO = conjunto('LEGADO_SEM_USO');
+// Fila de saída (mig 289): classificada, mas o que ainda NÃO saiu trava o apagamento.
+const FILA_DE_SAIDA = conjunto('FILA_DE_SAIDA');
 // O que o daemon empurra (PUSH_TABLES). Lido da fonte dele, e não do sync-config, porque
 // é esta lista que a trava consulta em tempo de execução.
 const SOBE = new Set([...fonte.matchAll(/\{\s*tabela:\s*'([a-z_]{3,})'/g)].map((m) => m[1]));
@@ -49,6 +51,7 @@ describe('trava do apagamento — listas do daemon', () => {
     expect(VOLTA_DA_NUVEM.size).toBeGreaterThan(5);
     expect(DESCARTAVEL.size).toBeGreaterThan(3);
     expect(DESCARTAVEL.has('impressao_job')).toBe(true);
+    expect(FILA_DE_SAIDA.has('aviso_integracao')).toBe(true);
   });
 
   it('toda tabela que SÓ desce está marcada como "volta da nuvem"', () => {
@@ -77,7 +80,9 @@ describe('trava do apagamento — listas do daemon', () => {
   it('nenhuma tabela aparece em duas listas ao mesmo tempo', () => {
     const duplicadas = [...VOLTA_DA_NUVEM].filter((t) => DESCARTAVEL.has(t) || SO_NUVEM.has(t));
     const duplicadas2 = [...DESCARTAVEL].filter((t) => SO_NUVEM.has(t));
-    expect([...duplicadas, ...duplicadas2]).toEqual([]);
+    const outras = [...VOLTA_DA_NUVEM, ...DESCARTAVEL, ...SO_NUVEM, ...LEGADO_SEM_USO, ...SOBE];
+    const duplicadas3 = [...FILA_DE_SAIDA].filter((t) => outras.includes(t));
+    expect([...duplicadas, ...duplicadas2, ...duplicadas3]).toEqual([]);
   });
 
   it('nada que a loja PRODUZ está marcado como "dono é a nuvem"', () => {
@@ -180,10 +185,35 @@ descrever('trava do apagamento — contra o Postgres', () => {
       .filter(
         (t) =>
           !SOBE.has(t) && !VOLTA_DA_NUVEM.has(t) && !SO_NUVEM.has(t) &&
-          !DESCARTAVEL.has(t) && !LEGADO_SEM_USO.has(t),
+          !DESCARTAVEL.has(t) && !LEGADO_SEM_USO.has(t) && !FILA_DE_SAIDA.has(t),
       );
     expect(semClasse).toEqual([]);
   }, 60000);
+
+  it('FILA DE SAÍDA: aviso de estorno ainda não entregue TRAVA; entregue não (mig 289)', async () => {
+    // Pedido de estorno ao GoGeM que ainda não saiu só existe neste banco — apagá-lo seria o
+    // cliente sem o dinheiro. O que já foi entregue é histórico e não pode prender a loja.
+    const tenant = (await pool.query(`insert into empresa (nome) values ('Teste fila de saída') returning id`)).rows[0].id;
+    try {
+      await pool.query(
+        `insert into aviso_integracao (tenant_id, destino, tipo, chave, corpo, status)
+         values ($1, 'gogem', 'pedido_cancelado', 'chave-entregue', '{}'::jsonb, 'entregue')`,
+        [tenant],
+      );
+      expect(rodar().saida).not.toContain('aviso_integracao');
+
+      await pool.query(
+        `insert into aviso_integracao (tenant_id, destino, tipo, chave, corpo, status)
+         values ($1, 'gogem', 'pedido_cancelado', 'chave-pendente', '{}'::jsonb, 'pendente')`,
+        [tenant],
+      );
+      const r = rodar();
+      expect(r.codigo).toBe(3);
+      expect(r.saida).toContain('aviso_integracao: 1 registro');
+    } finally {
+      await pool.query('delete from empresa where id = $1', [tenant]);
+    }
+  }, 180000);
 
   it('a mesma tabela VAZIA sai da lista (a trava olha dado, não a existência da tabela)', async () => {
     await pool.query(`delete from ${TABELA}`);

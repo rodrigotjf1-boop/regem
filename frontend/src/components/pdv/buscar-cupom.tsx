@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { avisarEstornoGogem } from '@/lib/estorno-gogem';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -45,8 +46,9 @@ export function BuscarCupom() {
     if (!confirm(`Cancelar o cupom da senha ${cupom.senha ?? ''}? O estoque e o caixa são estornados.`)) return;
     setBusy(true);
     try {
-      await api.cancelarVenda(cupom.id, { motivo: motivo.trim() || undefined });
+      const r = await api.cancelarVenda(cupom.id, { motivo: motivo.trim() || undefined });
       toast.success('Cupom cancelado (estornado).');
+      avisarEstornoGogem(r);
       fechar();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Erro ao cancelar');

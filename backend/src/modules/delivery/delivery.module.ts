@@ -13,6 +13,7 @@ import { ProducaoPedidoModule } from '../producao-pedido/producao-pedido.module'
 import { CashbackModule } from '../cashback/cashback.module';
 import { FidelidadeModule } from '../fidelidade/fidelidade.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
+import { GogemModule } from '../gogem/gogem.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { IntegracoesModule } from '../integracoes/integracoes.module';
     CashbackModule,
     FidelidadeModule,
     forwardRef(() => IntegracoesModule),
+    GogemModule,
   ],
   controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController],
   providers: [DeliveryService, SyncTokenGuard, EdgePedidosProcessor,

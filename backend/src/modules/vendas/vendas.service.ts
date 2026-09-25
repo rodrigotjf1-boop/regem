@@ -14,8 +14,11 @@ import {
   Injectable,
   NotFoundException,
   Logger,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { ehVendaDoTotem, gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
+import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ehGestor } from '../../auth/niveis';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
@@ -73,6 +76,9 @@ export class VendasService {
     private readonly producao: ProducaoPedidoService,
     private readonly fiscal: FiscalService,
     private readonly ordemProducao: OrdemProducaoService,
+    // Aviso de venda do totem cancelada ao GoGeM (quem estorna o cartão/PIX). Opcional: sem ele
+    // o aviso é gravado do mesmo jeito e sai pelo job da fila.
+    @Optional() private readonly gogemAviso?: GogemAvisoService,
   ) {}
 
   // ===== Atacado: disponibilidade + encomenda (mig 184/185) =====
@@ -3119,6 +3125,7 @@ export class VendasService {
       );
     }
 
+    let aviso = null as { id: string | null; erro?: string } | null;
     await this.db.transaction(async (tx) => {
       const [c] = await tx
         .select()
@@ -3207,6 +3214,20 @@ export class VendasService {
           estoqueReaproveitado: saidas.length ? reaproveitado : null,
         })
         .where(eq(comanda.id, comandaId));
+
+      // VENDA DO TOTEM: o caixa foi estornado aqui, mas o dinheiro do cartão/PIX quem devolve é o
+      // GoGeM (só ele tem as credenciais do Mercado Pago). O aviso nasce NESTA transação: existe o
+      // cancelamento, existe o pedido de estorno — e ele sai mesmo que a rede caia agora.
+      if (ehVendaDoTotem(c))
+        aviso = await gravarAvisoCancelamentoTotem(tx, {
+          tenantId,
+          unidadeId: c.unidadeId ?? null,
+          idempotencyKey: String(c.idempotencyKey),
+          regemComandaId: c.id,
+          motivo: dto.motivo ?? null,
+          referenciaTipo: 'comanda',
+          referenciaId: c.id,
+        });
     });
 
     // Avisa a produção/KDS: os pedidos dessa comanda saem da fila (cancelados).
@@ -3222,8 +3243,13 @@ export class VendasService {
       acao: 'cancelou_venda',
       entidadeTipo: 'comanda',
       entidadeId: comandaId,
-      detalhe: { motivo: dto.motivo },
+      detalhe: { motivo: dto.motivo, ...(aviso ? { avisoGogem: aviso.id ?? 'nao_gravado' } : {}) },
     });
-    return { ok: true };
+    // O operador vê o resultado do estorno se o GoGeM responder a tempo; senão, que ele sai sozinho.
+    const estornoGogem = await resultadoDoAviso(
+      aviso,
+      this.gogemAviso ? (id) => this.gogemAviso!.enviarAgora(id) : undefined,
+    );
+    return { ok: true, ...(estornoGogem ? { estornoGogem } : {}) };
   }
 }

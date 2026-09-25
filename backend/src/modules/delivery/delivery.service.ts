@@ -18,6 +18,8 @@ import { PREFIXO_BALCAO } from '../../common/senha-origem';
 import { serieDaSenha } from './serie-da-senha';
 import { retidosVencidos } from './totem-retido.query';
 import { motivoVendaDesfeita } from '../fiscal/nfce-totem';
+import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
+import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
@@ -95,6 +97,8 @@ export class DeliveryService {
     @Optional()
     @Inject(forwardRef(() => AnotaAiService))
     private readonly anotaai?: AnotaAiService,
+    // Pedido do totem cancelado no hub → o GoGeM estorna o cartão/PIX (fila `aviso_integracao`).
+    @Optional() private readonly gogemAviso?: GogemAvisoService,
   ) {}
 
   // Status back para marketplaces (hoje: Open Delivery). Best-effort.
@@ -1756,20 +1760,37 @@ export class DeliveryService {
         reaproveitado,
       );
     }
-    const [row] = await this.db
-      .update(pedidoExterno)
-      .set({
-        status: 'cancelado',
-        canceladoEm: new Date(),
-        // Só faz sentido registrar quando houve produção (comanda) — senão nada baixou.
-        estoqueReaproveitado: ped.comandaId ? reaproveitado : null,
-        motivoCancelamento: motivo
-          ? `${motivo} (autorizado por ${autorizou.nome})`
-          : `autorizado por ${autorizou.nome}`,
-        updatedAt: new Date(), // bump explícito → cancelamento no edge sobe p/ a nuvem (LWW/cursor)
-      })
-      .where(eq(pedidoExterno.id, id))
-      .returning();
+    // Pedido do TOTEM: o dinheiro do cartão/PIX quem devolve é o GoGeM — o aviso nasce na MESMA
+    // transação do cancelamento do pedido. No dinheiro também vai: o GoGeM mantém o relatório
+    // coerente e responde que não há estorno eletrônico.
+    let aviso = null as { id: string | null; erro?: string } | null;
+    const [row] = await this.db.transaction(async (tx) => {
+      const linhas = await tx
+        .update(pedidoExterno)
+        .set({
+          status: 'cancelado',
+          canceladoEm: new Date(),
+          // Só faz sentido registrar quando houve produção (comanda) — senão nada baixou.
+          estoqueReaproveitado: ped.comandaId ? reaproveitado : null,
+          motivoCancelamento: motivo
+            ? `${motivo} (autorizado por ${autorizou.nome})`
+            : `autorizado por ${autorizou.nome}`,
+          updatedAt: new Date(), // bump explícito → cancelamento no edge sobe p/ a nuvem (LWW/cursor)
+        })
+        .where(eq(pedidoExterno.id, id))
+        .returning();
+      if (ped.canal === 'totem' && ped.externalId)
+        aviso = await gravarAvisoCancelamentoTotem(tx, {
+          tenantId,
+          unidadeId: ped.unidadeId ?? null,
+          idempotencyKey: String(ped.externalId),
+          regemComandaId: ped.comandaId ?? null,
+          motivo: motivo ?? null,
+          referenciaTipo: 'pedido_externo',
+          referenciaId: ped.id,
+        });
+      return linhas;
+    });
     void this.flash.flashPedidos([row.id]); // push IMEDIATO → a nuvem reflete o cancelamento em segundos
     void this.dispararWebhook(tenantId, row);
     void this.statusBackCw(tenantId, row, 'cancel');
@@ -1794,6 +1815,11 @@ export class DeliveryService {
     void this.fidelidade.estornarPedido(tenantId, id).catch(() => {});
     void this.estornarCupomUso(tenantId, id); // libera o uso do cupom (max_por_cliente/max_usos)
     void this.statusBack(tenantId, row, 'cancel'); // avisa o marketplace
+    // O operador vê o resultado do estorno se o GoGeM responder a tempo; senão, que ele sai sozinho.
+    const estornoGogem = await resultadoDoAviso(
+      aviso,
+      this.gogemAviso ? (avisoId) => this.gogemAviso!.enviarAgora(avisoId) : undefined,
+    );
     return {
       ...row,
       // Informa o destino do insumo já baixado (perda × reutilizado) — mig 128.
@@ -1802,6 +1828,7 @@ export class DeliveryService {
           ? 'Os insumos deste pedido foram devolvidos ao estoque (reutilizados).'
           : 'Os insumos deste pedido foram registrados como PERDA (não voltaram ao estoque).'
         : null,
+      ...(estornoGogem ? { estornoGogem } : {}),
     };
   }
 

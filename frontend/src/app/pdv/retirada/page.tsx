@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, getCategoria } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { avisarEstornoGogem } from '@/lib/estorno-gogem';
 import { Shell } from '@/components/app-shell/shell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -535,6 +536,7 @@ function CancelarModal({
     try {
       const r: any = await api.cancelarDelivery(pedido.id, motivo, senha, reaproveitado);
       toast.success(r?.estoqueAviso || 'Pedido cancelado.');
+      avisarEstornoGogem(r);
       onDone();
     } catch (e: any) {
       toast.error(e?.message || 'Falha ao cancelar.');
