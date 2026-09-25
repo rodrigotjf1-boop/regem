@@ -67,6 +67,14 @@ export class SyncTokenGuard implements CanActivate {
     if (rotaDaFilaDeImpressao(req.originalUrl ?? req.url) && !dentroDoLimite(dev.id)) {
       throw new HttpException('Muitas requisições deste dispositivo — aguarde um minuto.', HttpStatus.TOO_MANY_REQUESTS);
     }
+    // Quem chama se identifica (`X-Integrador`, GoGeM #137): na NUVEM, isso marca o equipamento
+    // como a credencial daquela integração — é por essa marca que o aviso de cancelamento e o
+    // "Publicar no GoGeM" escolhem o token (ERR-108). Só grava quando muda (ou de hora em hora) e
+    // nunca lança: não derruba a chamada. No servidor da loja o cabeçalho não significa nada.
+    const integrador = req.headers['x-integrador'];
+    if (integrador && !ehServidorLocal()) {
+      await this.equipamentos.notarIntegrador(dev, Array.isArray(integrador) ? integrador[0] : integrador);
+    }
     req.sync = {
       tenantId: dev.tenantId,
       unidadeId: dev.unidadeId ?? null,

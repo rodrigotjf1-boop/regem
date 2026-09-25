@@ -193,23 +193,40 @@ descrever('trava do apagamento — contra o Postgres', () => {
   it('FILA DE SAÍDA: aviso de estorno ainda não entregue TRAVA; entregue não (mig 289)', async () => {
     // Pedido de estorno ao GoGeM que ainda não saiu só existe neste banco — apagá-lo seria o
     // cliente sem o dinheiro. O que já foi entregue é histórico e não pode prender a loja.
+    //
+    // O "ainda não saiu" é o filtro do PRÓPRIO daemon (lido da fonte dele), conferido nas linhas
+    // DESTE teste: o daemon conta o banco inteiro, e no CI as specs dividem o banco em paralelo —
+    // o aviso esperando de outra spec entraria na conta daqui (LIC-084).
+    const PENDENTE = /const FILA_DE_SAIDA_PENDENTE = "([^"]+)"/.exec(fonte)?.[1] ?? '';
+    expect(PENDENTE).toContain('pendente');
+    expect(fonte).toMatch(/FILA_DE_SAIDA\.has\(t\) \? ` where \$\{FILA_DE_SAIDA_PENDENTE\}`/); // e o daemon o aplica
     const tenant = (await pool.query(`insert into empresa (nome) values ('Teste fila de saída') returning id`)).rows[0].id;
+    const pendentesDoTeste = async () =>
+      (await pool.query(`select count(*)::int n from aviso_integracao where tenant_id = $1 and (${PENDENTE})`, [tenant]))
+        .rows[0].n;
     try {
       await pool.query(
         `insert into aviso_integracao (tenant_id, destino, tipo, chave, corpo, status)
          values ($1, 'gogem', 'pedido_cancelado', 'chave-entregue', '{}'::jsonb, 'entregue')`,
         [tenant],
       );
-      expect(rodar().saida).not.toContain('aviso_integracao');
+      expect(await pendentesDoTeste()).toBe(0); // entregue não prende a loja
 
       await pool.query(
         `insert into aviso_integracao (tenant_id, destino, tipo, chave, corpo, status)
          values ($1, 'gogem', 'pedido_cancelado', 'chave-pendente', '{}'::jsonb, 'pendente')`,
         [tenant],
       );
+      expect(await pendentesDoTeste()).toBe(1);
       const r = rodar();
-      expect(r.codigo).toBe(3);
-      expect(r.saida).toContain('aviso_integracao: 1 registro');
+      expect(r.codigo).toBe(3); // e o daemon trava por ele
+      expect(r.saida).toMatch(/aviso_integracao: \d+ registro/);
+
+      // Esperando a integração também não saiu; recusado (estorno manual, com alerta) já saiu da fila.
+      await pool.query(`update aviso_integracao set status = 'aguardando_integracao' where tenant_id = $1 and chave = 'chave-pendente'`, [tenant]);
+      expect(await pendentesDoTeste()).toBe(1);
+      await pool.query(`update aviso_integracao set status = 'recusado' where tenant_id = $1 and chave = 'chave-pendente'`, [tenant]);
+      expect(await pendentesDoTeste()).toBe(0);
     } finally {
       await pool.query('delete from empresa where id = $1', [tenant]);
     }

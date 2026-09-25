@@ -31,6 +31,7 @@ import { EdgeService } from '../edge/edge.service';
 import { EquipamentoService } from '../equipamento/equipamento.service';
 import { assinarLease, licencaConfigurada } from './lease';
 import { precisaReautorizar, gerarCodigoReauth, hashCodigoReauth } from './reauth-instalacao';
+import { escolherServidorDaLoja, ligarServidorAMaquina } from './servidor-da-loja';
 import { verificarTotp, gerarSegredoBase32, otpauthUri } from '../distribuicao/totp';
 import { enviarCodigoVerificacao } from '../../common/mailer';
 import { PLANOS } from './planos';
@@ -484,29 +485,19 @@ export class LicencaService {
       }
     }
 
-    // 4) Equipamento servidor_local: reusa o existente ou cria (gera o sync token).
+    // 4) Equipamento servidor_local: o DESTA instalação (`escolherServidorDaLoja` — nunca a
+    // credencial do GoGeM, nunca "o primeiro" sem ordem: ERR-108), ou um novo.
     let syncToken: string;
-    const [eqExiste] = await this.db
-      .select({ token: equipamento.token })
-      .from(equipamento)
-      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'servidor_local')))
-      .limit(1);
-    if (eqExiste?.token) {
+    const eqExiste = await escolherServidorDaLoja(this.db, tenantId, { fingerprint, unidadeId });
+    if (eqExiste) {
       syncToken = eqExiste.token;
-      // Reativa o equipamento reusado. Se ele estiver inativo/revogado (ex.: revogado
-      // antes, ou sobra de uma instalação anterior), o SyncTokenGuard exige ativo=true e
-      // rejeita o token com 401 "Token de sync inválido" — o provisionamento "dava certo"
-      // e devolvia um token MORTO, então o edge nunca sincronizava e o login local (que
-      // depende do pull) ficava sem usuários. Reinstalar tem que curar isso.
-      await this.db
-        .update(equipamento)
-        .set({ ativo: true, revogadoEm: null })
-        .where(
-          and(
-            eq(equipamento.tenantId, tenantId),
-            eq(equipamento.tipo, 'servidor_local'),
-          ),
-        );
+      // Reativa o equipamento reusado — SÓ ele, pelo id. Se ele estiver inativo/revogado (ex.:
+      // revogado antes), o SyncTokenGuard exige ativo=true e rejeita o token com 401 "Token de
+      // sync inválido" — o provisionamento "dava certo" e devolvia um token MORTO, então o edge
+      // nunca sincronizava e o login local (que depende do pull) ficava sem usuários. Reinstalar
+      // tem que curar isso. E liga o equipamento a esta máquina (fingerprint), para a próxima
+      // instalação achá-lo sem adivinhar.
+      await ligarServidorAMaquina(this.db, eqExiste.id, fingerprint);
     } else {
       const novo: any = await this.equip.criar(tenantId, u.id, u.categoria ?? 'presidente', {
         tipo: 'servidor_local',
@@ -514,6 +505,7 @@ export class LicencaService {
         unidadeId,
       } as any);
       syncToken = novo.token;
+      await ligarServidorAMaquina(this.db, novo.id, fingerprint);
     }
 
     // 5) Ativação (1 por empresa): status ativado + fingerprint + validade do trial.
@@ -616,11 +608,9 @@ export class LicencaService {
       codigoHash = hashCodigoReauth(codigo);
       expiraEm = new Date(Date.now() + 10 * 60 * 1000); // 10 min
     }
-    const [eqSrv] = await this.db
-      .select({ unidadeId: equipamento.unidadeId })
-      .from(equipamento)
-      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'servidor_local')))
-      .limit(1);
+    // A loja do pedido vem do servidor que está sendo MOVIDO — o da máquina antiga (fingerprint da
+    // ativação), escolhido como na instalação; nunca a credencial do GoGeM (ERR-108).
+    const eqSrv = await escolherServidorDaLoja(this.db, tenantId, { fingerprint: a.deviceFingerprint ?? null });
     await this.db.insert(reautorizacaoEdge).values({
       tenantId,
       unidadeId: eqSrv?.unidadeId ?? null,
@@ -687,21 +677,30 @@ export class LicencaService {
     // ⚠️ Rotaciona UM ÚNICO servidor_local (por id). Um UPDATE em massa (por tenant+tipo)
     // poria o MESMO token novo em 2+ linhas se a loja tiver servidor_local DUPLICADO (de
     // instalações repetidas) → viola o UNIQUE de equipamento.token (23505 → 409 "Conflito"),
-    // que era o erro que travava o cliente ao mover com o código. Pega o mais recente.
-    const novoToken = randomBytes(24).toString('hex');
-    const [eqSel] = await this.db
-      .select({ id: equipamento.id, unidadeId: equipamento.unidadeId })
-      .from(equipamento)
-      .where(and(eq(equipamento.tenantId, tenantId), eq(equipamento.tipo, 'servidor_local')))
-      .orderBy(desc(equipamento.createdAt))
-      .limit(1);
+    // que era o erro que travava o cliente ao mover com o código. E é o servidor que está sendo
+    // MOVIDO — o da máquina antiga, escolhido como na instalação —, nunca "o mais recente": esse
+    // podia ser a credencial do GoGeM, e girá-la parava a venda do totem e o cardápio dele (ERR-108).
+    let syncToken = randomBytes(24).toString('hex');
+    const eqSel = await escolherServidorDaLoja(this.db, tenantId, {
+      fingerprint: a?.deviceFingerprint ?? null,
+      unidadeId: pend.unidadeId ?? null,
+    });
+    let unidadeDoServidor: string | null;
     if (eqSel) {
-      await this.db
-        .update(equipamento)
-        .set({ token: novoToken, ativo: true, revogadoEm: null })
-        .where(eq(equipamento.id, eqSel.id));
+      await ligarServidorAMaquina(this.db, eqSel.id, fingerprint, { token: syncToken });
+      unidadeDoServidor = eqSel.unidadeId;
+    } else {
+      // Nenhum servidor de loja para mover: cria um. Antes o token novo não ficava em equipamento
+      // nenhum, e a máquina nova recebia um token que a nuvem recusava.
+      const novo: any = await this.equip.criar(tenantId, u.id, u.categoria ?? 'presidente', {
+        tipo: 'servidor_local',
+        nome: 'Servidor local',
+        unidadeId: pend.unidadeId ?? null,
+      } as any);
+      await ligarServidorAMaquina(this.db, novo.id, fingerprint);
+      syncToken = novo.token;
+      unidadeDoServidor = novo.unidadeId ?? pend.unidadeId ?? null;
     }
-    const eqSrv = eqSel;
     const [row] = await this.db
       .update(ativacao)
       .set({ deviceFingerprint: fingerprint, status: 'ativado', atualizadoEm: new Date() })
@@ -712,7 +711,7 @@ export class LicencaService {
       .set({ status: 'aprovada', confirmadoEm: new Date() })
       .where(eq(reautorizacaoEdge.id, pend.id));
     this.logger.warn(`Re-auth APROVADA: loja ${tenantId} movida p/ ${fingerprint.slice(0, 12)}… — token rotacionado.`);
-    return { syncToken: novoToken, unidadeId: eqSrv?.unidadeId ?? null, lease: this.leaseDe(row), ativo: true };
+    return { syncToken, unidadeId: unidadeDoServidor, lease: this.leaseDe(row), ativo: true };
   }
 
   private mascararEmail(email: string): string {

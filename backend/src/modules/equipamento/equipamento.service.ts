@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { createHash, randomBytes, randomInt } from 'crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
@@ -8,10 +8,21 @@ import { CreateEquipamentoDto } from './dto/create-equipamento.dto';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { ForbiddenException } from '@nestjs/common';
+import { soltarAvisosParados } from '../gogem/aviso-gogem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+
+/** Quem se identifica pelo `X-Integrador` hoje. Valor fora da lista é ignorado. */
+const INTEGRADORES = new Set(['gogem']);
+/** O "visto" do integrador é regravado no máximo de hora em hora — o GoGeM chama a cada poucos minutos. */
+const INTEGRADOR_VISTO_MINUTOS = 60;
+
 @Injectable()
 export class EquipamentoService {
+  private readonly logger = new Logger('Equipamento');
+  /** Recusa de marca já logada (por equipamento): o GoGeM mal configurado não enche o log. */
+  private readonly recusaDeIntegradorLogada = new Map<string, number>();
+
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly auditoria: AuditoriaService,
@@ -346,6 +357,66 @@ export class EquipamentoService {
     return row ?? null;
   }
 
+  /**
+   * O integrador se identificou (`X-Integrador`, GoGeM #137) chamando com o token DESTE
+   * equipamento: ele é a credencial da integração (mig 290, ERR-108). O GoGeM aceita UM token por
+   * empresa — o dele —, e é por esta marca que o aviso de cancelamento e o "Publicar no GoGeM"
+   * escolhem o token, em vez de "um servidor_local qualquer" (5 de 6 davam 401).
+   *
+   * Só grava quando a marca muda, ou para renovar o "visto" de hora em hora: o GoGeM chama a cada
+   * poucos minutos, e a decisão sai da linha que a autenticação já carregou. Servidor de LOJA (já
+   * sincronizou) nunca vira credencial de integração pelo cabeçalho. Quem chama é o guard, na
+   * nuvem: este método NUNCA lança — uma falha aqui não pode derrubar a chamada do GoGeM (V3).
+   */
+  async notarIntegrador(dev: any, cabecalho: unknown): Promise<void> {
+    try {
+      const integrador = String(cabecalho ?? '').trim().toLowerCase();
+      if (!INTEGRADORES.has(integrador) || dev?.tipo !== 'servidor_local') return;
+      if (dev.lastPushSeq != null || dev.lastPushTs != null) {
+        const ultimo = this.recusaDeIntegradorLogada.get(dev.id) ?? 0;
+        if (Date.now() - ultimo > INTEGRADOR_VISTO_MINUTOS * 60_000) {
+          this.recusaDeIntegradorLogada.set(dev.id, Date.now());
+          this.logger.warn(
+            `X-Integrador: ${integrador} ignorado — o equipamento ${dev.id} (empresa ${dev.tenantId}) já ` +
+              'sincronizou como servidor de loja; credencial de loja não vira credencial de integração.',
+          );
+        }
+        return;
+      }
+      const vistoEm = dev.integradorVistoEm ? new Date(dev.integradorVistoEm).getTime() : 0;
+      if (dev.integrador === integrador) {
+        if (Date.now() - vistoEm < INTEGRADOR_VISTO_MINUTOS * 60_000) return;
+        await this.db.execute(sql`update equipamento set integrador_visto_em = now() where id = ${dev.id}::uuid`);
+        return;
+      }
+      // Marca. Com chamadas simultâneas, só a que de fato virou a marca audita e solta a fila.
+      const r: any = await this.db.execute(sql`
+        update equipamento set integrador = ${integrador}, integrador_visto_em = now()
+         where id = ${dev.id}::uuid and integrador is distinct from ${integrador}
+        returning id`);
+      if (!(r.rows ?? r).length) return;
+      const soltos = await soltarAvisosParados(this.db, dev.tenantId, integrador);
+      this.logger.log(
+        `equipamento ${dev.id} (empresa ${dev.tenantId}) marcado como credencial de ${integrador}` +
+          (soltos ? ` — ${soltos} aviso(s) parado(s) de volta à fila` : ''),
+      );
+      await this.auditoria
+        .registrar({
+          tenantId: dev.tenantId,
+          atorId: null,
+          atorPerfil: 'servico',
+          tipo: 'integracao',
+          acao: 'marcou_credencial_integracao',
+          entidadeTipo: 'equipamento',
+          entidadeId: dev.id,
+          detalhe: { integrador, nome: dev.nome, antes: dev.integrador ?? null, avisosSoltos: soltos },
+        })
+        .catch((e: any) => this.logger.warn(`auditoria da marca de ${integrador} falhou: ${e?.message ?? e}`));
+    } catch (e: any) {
+      this.logger.warn(`marca de integrador não gravada (equipamento ${dev?.id}): ${e?.message ?? e}`);
+    }
+  }
+
   async registrarPing(id: string) {
     await this.db
       .update(equipamento)
@@ -529,6 +600,10 @@ export class EquipamentoService {
       impressoraDestinoId: r.impressoraDestinoId ?? null,
       proximoKdsId: r.proximoKdsId ?? null, // KDS — próximo na cadeia (mig 159)
       pdvMainId: r.pdvMainId ?? null, // sub-PDV salão (mig 133)
+      // Credencial de integração (mig 290): a tela mostra "Integração GoGeM". O token dele não é
+      // de servidor de loja — apagar o equipamento, ou usar o token numa instalação, para a integração.
+      integrador: r.integrador ?? null,
+      integradorVistoEm: r.integradorVistoEm ?? null,
       ativo: r.ativo,
       ultimoPing: r.ultimoPing,
       createdAt: r.createdAt,

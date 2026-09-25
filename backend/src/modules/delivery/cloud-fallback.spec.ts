@@ -65,9 +65,12 @@ descrever('resgate da nuvem de pedido online preso', () => {
     await pool.end();
   });
 
-  const servidorLocal = (t: string, u: string | null) =>
-    q(`insert into equipamento (tenant_id, unidade_id, nome, token, tipo, ativo) values ($1,$2,'Servidor',$3,'servidor_local',true)`,
-      [t, u, 'tok-' + randomUUID()]);
+  // Servidor de LOJA = já sincronizou (last_push_*). A credencial do GoGeM e a sobra de instalação
+  // que nunca sincronizou também são `servidor_local`, mas não são servidor de loja (ERR-108).
+  const servidorLocal = (t: string, u: string | null, o: { integrador?: string; semPush?: boolean } = {}) =>
+    q(`insert into equipamento (tenant_id, unidade_id, nome, token, tipo, ativo, integrador, last_push_ts)
+       values ($1,$2,'Servidor',$3,'servidor_local',true,$4, case when $5 then null else now() - interval '1 day' end)`,
+      [t, u, 'tok-' + randomUUID(), o.integrador ?? null, !!o.semPush]);
 
   it('servidor local VIVO (edge_status agora; edge_heartbeat amostrado há 20 min) → NÃO resgata', async () => {
     const { t, u } = await empresa();
@@ -93,6 +96,22 @@ descrever('resgate da nuvem de pedido online preso', () => {
     const id = await pedidoNovo(t, u);
     await proc.processar();
     expect(aceitos).toContain(id);
+  });
+
+  it('loja que só usa o GoGeM na nuvem: a credencial dele NÃO é servidor de loja → NÃO aceita no lugar da loja', async () => {
+    const { t, u } = await empresa();
+    await servidorLocal(t, u, { integrador: 'gogem', semPush: true });
+    const id = await pedidoNovo(t, u);
+    await proc.processar();
+    expect(aceitos).not.toContain(id); // antes: "servidor morto" → a nuvem confirmava no iFood
+  });
+
+  it('sobra de instalação que nunca sincronizou NÃO é servidor de loja → NÃO aceita', async () => {
+    const { t, u } = await empresa();
+    await servidorLocal(t, u, { semPush: true });
+    const id = await pedidoNovo(t, u);
+    await proc.processar();
+    expect(aceitos).not.toContain(id);
   });
 
   it('servidor da MATRIZ vivo não cobre a FILIAL caída', async () => {

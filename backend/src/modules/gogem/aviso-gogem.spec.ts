@@ -1,9 +1,12 @@
 import {
+  MSG_LOJA_RECUSADA,
   MSG_NAO_GRAVADO,
   MSG_PENDENTE,
   RECUO_INTEGRACAO_MINUTOS,
   corpoCancelamento,
+  corpoRepasse,
   ehVendaDoTotem,
+  lerRespostaDaNuvem,
   lerRespostaGogem,
   lerRetryAfter,
   recuoMinutos,
@@ -169,5 +172,63 @@ describe('o que o operador vê depois de cancelar', () => {
   it('gravado e enviado agora: o resultado do envio', async () => {
     const r = await resultadoDoAviso({ id: 'a-1' }, async (id) => ({ situacao: 'solicitado', mensagem: `ok ${id}` }));
     expect(r).toEqual({ situacao: 'solicitado', mensagem: 'ok a-1' });
+  });
+});
+
+// O servidor da LOJA não fala com o GoGeM (ERR-108): repassa o aviso para a nuvem do Regem.
+describe('o repasse do servidor da loja para a nuvem', () => {
+  const linha = {
+    id: 'a-1',
+    chave: 'totem-1',
+    corpo: { idempotencyKey: 'totem-1', motivo: 'Cliente desistiu' },
+    referencia_tipo: 'comanda',
+    referencia_id: 'c-1',
+    tenant_id: 't-1', // não vai: a nuvem sabe a empresa pelo token de sync
+  };
+
+  it('leva o id do aviso (a nuvem grava com o mesmo), a chave e o corpo — a empresa, não', () => {
+    expect(corpoRepasse(linha)).toEqual({
+      avisoId: 'a-1',
+      chave: 'totem-1',
+      corpo: { idempotencyKey: 'totem-1', motivo: 'Cliente desistiu' },
+      referenciaTipo: 'comanda',
+      referenciaId: 'c-1',
+    });
+  });
+
+  it('aceito pela nuvem: ENTREGUE para a loja, e o operador vê o que a nuvem conseguiu com o GoGeM', () => {
+    const d = lerRespostaDaNuvem(200, {
+      aceito: true,
+      avisoId: 'a-1',
+      estorno: { situacao: 'solicitado', mensagem: 'Estorno de R$ 20,00' },
+    });
+    expect(d.status).toBe('entregue');
+    expect(d.paraOperador).toEqual({ situacao: 'solicitado', mensagem: 'Estorno de R$ 20,00' });
+  });
+
+  it('aceito sem desfecho legível: entregue, e o operador vê "pendente"', () => {
+    const d = lerRespostaDaNuvem(200, { aceito: true, estorno: { situacao: 'inventada', mensagem: 1 } });
+    expect(d.status).toBe('entregue');
+    expect(d.paraOperador).toEqual({ situacao: 'pendente', mensagem: MSG_PENDENTE });
+  });
+
+  it('200 sem "aceito" não é entregue — sai de novo', () => {
+    expect(lerRespostaDaNuvem(200, { ok: true }).status).toBe('pendente');
+  });
+
+  it('401/403: a nuvem recusou o servidor da loja — espera, com o aviso ao operador', () => {
+    expect(lerRespostaDaNuvem(401, null)).toMatchObject({ status: 'aguardando_integracao', paraOperador: MSG_LOJA_RECUSADA });
+    expect(lerRespostaDaNuvem(403, null).status).toBe('aguardando_integracao');
+  });
+
+  it('sem resposta, 404 (nuvem ainda sem a rota), 408, 429 e 5xx: passageiro', () => {
+    for (const http of [null, 404, 408, 429, 500, 503]) expect(lerRespostaDaNuvem(http, null).status).toBe('pendente');
+  });
+
+  it('outro 4xx: recusado — o operador faz o estorno à mão e avisa o suporte', () => {
+    const d = lerRespostaDaNuvem(400, { message: 'Aviso sem a chave da venda.' });
+    expect(d.status).toBe('recusado');
+    expect(d.paraOperador.mensagem).toContain('Aviso sem a chave da venda.');
+    expect(d.paraOperador.mensagem).toContain('manualmente');
   });
 });
