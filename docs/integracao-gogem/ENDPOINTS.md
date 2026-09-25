@@ -241,6 +241,19 @@ NFC-e (modelo 65) **totalmente modelada**, pipeline roda ponta a ponta, mas **a 
 - **LISTEN/NOTIFY no backend NestJS: AUSENTE** (o uso de LISTEN/NOTIFY é do worker de impressão do edge, não deste backend).
 - Saída per-integração: Regem **empurra status de pedido de volta** às plataformas via API delas (ex. 99food `refletirStatusExterno`), hardcoded por plataforma — não é webhook genérico.
 
+### 7.1 Saída Regem → GoGeM: venda do totem cancelada no Regem (mig 289, 25/09/2026) ✅
+
+Com a integração ativa, **o cancelamento de uma venda do totem é feito no Regem**; quem devolve o dinheiro do cartão/PIX é o GoGeM (só ele tem as credenciais do Mercado Pago).
+
+- **Quando sai:** o operador cancela no Regem (a) o **cupom** de uma venda do totem — `POST /api/v1/vendas/comandas/:id/cancelar`, comanda com a chave de idempotência do aparelho e sem operador (a assinatura do `venderTotem`) — ou (b) um **pedido `canal='totem'` no hub** — `POST /api/v1/delivery/pedidos/:id/cancelar`, inclusive em dinheiro (o GoGeM mantém o relatório e responde `feito:false`).
+- **Quando NÃO sai:** nota não emitida e cupom não impresso (#574 — quem estorna é o próprio totem, por `pagamentos/estorno`), retido que expirou e desistência no totem (não houve pagamento).
+- **Chamada:** `POST {GOGEM_CLOUD_URL}/sync/regem/pedido-cancelado` (padrão `https://api.gogem.com.br/api/v1`), `X-Sync-Token` = token da integração — no servidor da loja, o `SYNC_TOKEN` dele (o `equipamento` `servidor_local` não desce para o edge); na nuvem, o do `servidor_local` ativo do tenant (o mesmo do "Publicar no GoGeM").
+- **Corpo:** `{ "idempotencyKey": "<chave do totem>", "regemComandaId": "<comanda — só se houver>", "motivo": "<texto>" }` (limites do DTO do GoGeM: 120 / 120 / 500). No cupom, `idempotencyKey = comanda.idempotency_key`; no hub, `= pedido_externo.external_id` — a mesma chave, então a mesma venda cancelada pelos dois caminhos gera **um** aviso.
+- **Fila (outbox):** o aviso é gravado em `aviso_integracao` na MESMA transação do cancelamento, sai na hora (prazo de 8 s — o cancelamento não espera mais que isso) e, sem confirmação, um job de 1 min reenvia com recuo (1, 2, 5, 10, 30 min, 1, 2, 4, 8, 12 h). Reserva com `for update skip locked`: duas réplicas nunca mandam o mesmo aviso.
+- **Leitura da resposta:** `200` + `estorno.feito=true` → entregue ("estorno solicitado ao Mercado Pago"); `feito=false` com meio `dinheiro`/`desconhecido` → entregue ("devolva no balcão"); `feito=false` com meio **eletrônico** → o Mercado Pago falhou naquela hora: **reenviar** (o GoGeM tenta o estorno de novo no aviso repetido); `401/403` → aguarda a integração (alerta uma vez, nova tentativa a cada 6 h); `408/429/5xx`/sem resposta → reenviar; outros `4xx` → recusado com alerta (estorno manual); 7 dias sem confirmação → alerta de estorno manual.
+- **Operador:** a resposta do cancelamento traz `estornoGogem: { situacao, mensagem }` e as telas (Cupons, buscar cupom no PDV, hub de Retirada, detalhe do delivery) mostram a mensagem.
+- **Servidor da loja:** a fila não sincroniza (quem grava é quem envia); aviso ainda não entregue **trava a reinstalação** (`FILA_DE_SAIDA` no `sync-daemon.mjs`).
+
 **LACUNA/proposta mínima:** para o GoGeM ter atualizações ao vivo (ex. status de pedido, "sold out" de produto), o caminho barato é **conectar ao Socket.IO com o sync token do totem** e ouvir a sala `tenant:<id>`. Se for preciso push HTTP para o backend do GoGeM (SaaS), propor um **registro de webhook** (`order.registered`, `stock.low`, `cashclosing.done`) emitido a partir do bus interno — hoje inexistente. *(M/G)*
 
 ---

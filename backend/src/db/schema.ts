@@ -2265,6 +2265,36 @@ export const fiscalContingencia = pgTable('fiscal_contingencia', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// FILA DE SAÍDA dos avisos para sistemas integrados (mig 289) — o primeiro é o GoGeM: venda do
+// totem cancelada no Regem → o GoGeM estorna o cartão/PIX. Gravada na MESMA transação do
+// cancelamento; um job reenvia com recuo até o destino confirmar.
+//
+// ⚠️ NÃO sincroniza (é fila desta máquina: quem gravou é quem envia). No `sync-daemon.mjs` é
+// FILA_DE_SAIDA — o que ainda não foi entregue TRAVA a reinstalação.
+export const avisoIntegracao = pgTable('aviso_integracao', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  destino: text('destino').notNull(), // 'gogem'
+  tipo: text('tipo').notNull(), // 'pedido_cancelado'
+  chave: text('chave').notNull(), // idempotência do aviso — único por (tenant, destino, tipo, chave)
+  corpo: jsonb('corpo').notNull(), // exatamente o que vai no POST
+  referenciaTipo: text('referencia_tipo'), // 'comanda' | 'pedido_externo'
+  referenciaId: uuid('referencia_id'),
+  // pendente | enviando | aguardando_integracao | entregue | recusado
+  status: text('status').notNull().default('pendente'),
+  tentativas: integer('tentativas').notNull().default(0),
+  proximaTentativaEm: timestamp('proxima_tentativa_em', { withTimezone: true }).notNull().defaultNow(),
+  ultimoStatusHttp: integer('ultimo_status_http'),
+  ultimaResposta: jsonb('ultima_resposta'),
+  ultimoErro: text('ultimo_erro'),
+  entregueEm: timestamp('entregue_em', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // ===== Delivery / canais externos (Fase H) =====
 export const deliveryConfig = pgTable('delivery_config', {
   id: uuid('id').primaryKey().defaultRandom(),

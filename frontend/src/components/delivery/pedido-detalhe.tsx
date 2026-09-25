@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { toast } from '@/lib/toast';
+import { avisarEstornoGogem } from '@/lib/estorno-gogem';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -116,6 +117,7 @@ export function PedidoDetalhe({
     try {
       const r: any = await api.cancelarDelivery(p.id, motivo.trim() || undefined, senha, reaproveitado);
       toast.success(r?.estoqueAviso ? `Pedido cancelado. ${r.estoqueAviso}` : 'Pedido cancelado.');
+      avisarEstornoGogem(r);
       onChanged();
       onClose();
     } catch (e) {

@@ -1816,6 +1816,16 @@ const DESCARTAVEL = new Set([
   'fiscal_contingencia',
 ]);
 
+// FILA DE SAÍDA (mig 289): avisos DESTA máquina para sistemas integrados — hoje, o pedido de
+// estorno ao GoGeM quando uma venda do totem é cancelada no Regem. Não sincroniza (quem grava é
+// quem envia; sincronizar faria a outra ponta mandar de novo). Por isso o que AINDA NÃO SAIU é
+// dado que só existe aqui, e TRAVA o apagamento: pedido de estorno não pode sumir num banco
+// apagado. O que já foi entregue (ou recusado, com alerta) é histórico — não trava.
+const FILA_DE_SAIDA = new Set([
+  'aviso_integracao',
+]);
+const FILA_DE_SAIDA_PENDENTE = "status in ('pendente', 'enviando', 'aguardando_integracao')";
+
 // Tabelas com dado da loja que NÃO sobem nem voltam. Devolve [{ tabela, linhas }].
 // `contar=false` troca o count(*) por "existe alguma linha?" — é o modo usado no sinal de
 // saúde, que roda o tempo todo; o count completo fica para a hora de decidir apagar.
@@ -1834,10 +1844,12 @@ async function pendenciasLocais(contar = true) {
       sobe.has(t) || VOLTA_DA_NUVEM.has(t) || SO_NUVEM.has(t) ||
       DESCARTAVEL.has(t) || LEGADO_SEM_USO.has(t)
     ) continue;
+    // Fila de saída: só conta o que ainda não saiu (o histórico entregue não prende o banco).
+    const filtro = FILA_DE_SAIDA.has(t) ? ` where ${FILA_DE_SAIDA_PENDENTE}` : '';
     try {
       const c = contar
-        ? await pool.query(`select count(*)::int as n from "${t}"`)
-        : await pool.query(`select 1 as n from "${t}" limit 1`);
+        ? await pool.query(`select count(*)::int as n from "${t}"${filtro}`)
+        : await pool.query(`select 1 as n from "${t}"${filtro} limit 1`);
       const n = contar ? (c.rows[0]?.n ?? 0) : c.rowCount;
       if (n > 0) pendentes.push({ tabela: t, linhas: contar ? n : -2 }); // -2 = "tem dado", sem contar
     } catch (e) {
