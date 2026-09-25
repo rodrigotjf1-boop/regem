@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, HttpException } from '@nestjs/common';
+import { SefazInalcancavel, SefazRecusouChamada } from './sefaz/soap';
 
 // CONTINGÊNCIA OFF-LINE DA NFC-e (`tpEmis=9`) — as regras que não dependem do banco.
 //
@@ -82,4 +83,99 @@ export function prazoVencido(emissao: Date, agora: Date): boolean {
  */
 export function silencioDaSefaz(status: string | null | undefined): boolean {
   return String(status ?? '') === 'pendente';
+}
+
+// ===== A FILA DA NUVEM TEM NOTAS DE MUITAS LOJAS (ERR-105) =====
+//
+// No servidor da loja a fila é de UMA loja: "a SEFAZ não respondeu" quer dizer que não adianta
+// insistir nas outras notas. Na nuvem a mesma fila tem as notas de todas as lojas, e o erro de uma
+// delas — o certificado que não abre, o certificado vencido, a conexão DELA que caiu — não diz nada
+// sobre as outras. O ciclo parava no primeiro erro; e como a nota travada nunca sai da fila e era a
+// mais antiga, ela vinha SEMPRE primeiro: uma loja travava a transmissão de todas, para sempre.
+
+/** O que o botão "transmitir agora" limita: as empresas (e, havendo, a loja em uso). */
+export interface EscopoContingencia {
+  tenantIds: string[];
+  unidadeId?: string | null;
+}
+
+/** O ponto de emissão (empresa + loja). Na fila, cada um tem a sua vez. */
+export function pontoDeEmissao(tenantId: string, unidadeId?: string | null): string {
+  return `${tenantId}/${unidadeId ?? '-'}`;
+}
+
+/**
+ * Quem responde pela nota: a SEFAZ autorizadora da UF, num ambiente. Na chave de acesso, os dois
+ * primeiros dígitos são o código IBGE da UF do emitente.
+ */
+export function autorizador(codigoUf: unknown, ambiente: unknown): string {
+  const uf = String(codigoUf ?? '').replace(/\D/g, '').slice(0, 2).padStart(2, '0');
+  return `${uf}/${String(ambiente ?? '').trim() === '1' ? '1' : '2'}`;
+}
+
+/**
+ * Quem ficou sem resposta NESTE ciclo.
+ *
+ * O silêncio tira do ciclo só a LOJA que o recebeu: pode ser a conexão dela, ou o certificado dela
+ * derrubando o TLS — e isso não é motivo para as outras esperarem. A SEFAZ de uma UF só é dada
+ * como fora do ar quando DUAS lojas diferentes dela ficaram sem resposta; aí a terceira não precisa
+ * esperar os mesmos 30 segundos para descobrir. No servidor da loja (uma loja só), o primeiro
+ * silêncio encerra o ciclo — como sempre foi.
+ */
+export class SilencioDoCiclo {
+  static readonly LOJAS_PARA_CONCLUIR = 2;
+  private readonly lojas = new Set<string>();
+  private readonly porAutorizador = new Map<string, Set<string>>();
+
+  registrar(loja: string, autorizadorDaLoja: string): void {
+    this.lojas.add(loja);
+    const mudas = this.porAutorizador.get(autorizadorDaLoja) ?? new Set<string>();
+    mudas.add(loja);
+    this.porAutorizador.set(autorizadorDaLoja, mudas);
+  }
+
+  /** Esta loja fica para o próximo ciclo? */
+  pular(loja: string, autorizadorDaLoja: string): boolean {
+    if (this.lojas.has(loja)) return true;
+    return (this.porAutorizador.get(autorizadorDaLoja)?.size ?? 0) >= SilencioDoCiclo.LOJAS_PARA_CONCLUIR;
+  }
+
+  /** As SEFAZ dadas como fora do ar neste ciclo — para o log. */
+  foraDoAr(): string[] {
+    return [...this.porAutorizador]
+      .filter(([, mudas]) => mudas.size >= SilencioDoCiclo.LOJAS_PARA_CONCLUIR)
+      .map(([quem]) => quem);
+  }
+}
+
+/**
+ * O problema é da LOJA — configuração, credencial, certificado —, não da SEFAZ nem da nota: as
+ * outras notas dela falhariam do mesmo jeito neste ciclo, e as das outras lojas não têm nada com
+ * isso. A mensagem é a que a loja lê na fila; a `causa` é para o log.
+ */
+export class FalhaDaLoja extends Error {
+  constructor(
+    mensagem: string,
+    public readonly causa?: unknown,
+  ) {
+    super(mensagem);
+    this.name = 'FalhaDaLoja';
+  }
+}
+
+/**
+ * O que fica escrito na nota quando ela não saiu por um ERRO (a rejeição da SEFAZ tem o próprio
+ * texto). Erro que não foi escrito para a loja ler — um defeito nosso — não vai para a tela da
+ * loja: fica no log.
+ */
+export function motivoDaFalha(e: unknown): string {
+  const escritoParaALoja =
+    e instanceof FalhaDaLoja ||
+    e instanceof SefazInalcancavel ||
+    e instanceof SefazRecusouChamada ||
+    e instanceof HttpException;
+  const texto = escritoParaALoja
+    ? (e as Error).message
+    : 'falha interna ao transmitir (o detalhe ficou no log do servidor)';
+  return `Contingencia nao transmitida: ${texto}`.slice(0, 400);
 }

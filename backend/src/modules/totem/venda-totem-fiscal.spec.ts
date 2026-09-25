@@ -508,9 +508,10 @@ descrever('venda do totem com NFC-e (Postgres real)', () => {
     expect(lacunas.flatMap((s: any) => s.faixas.map((x: any) => x.inicio))).not.toContain(Number(nota.numero));
     expect((await comandaDe(r.comandaId)).status).toBe('cancelada'); // a venda já foi desfeita
 
-    // A SEFAZ volta: a fila autoriza a nota e o cancelamento agendado sai em seguida.
+    // A SEFAZ volta: a fila autoriza a nota e o cancelamento agendado sai em seguida. (O ciclo
+    // limitado à empresa do teste — no CI as specs dividem o banco; ver ERR-105.)
     sefazOk();
-    await fiscal.rodarContingencia();
+    await fiscal.transmitirContingencia({ tenantIds: [tenant] });
     const depois = (await notasDa(r.comandaId)).find((n: any) => n.id === nota.id);
     expect(depois.status).toBe('cancelada');
     expect((await eventosDa(nota.id)).map((e: any) => e.status)).toEqual(['registrado']);
