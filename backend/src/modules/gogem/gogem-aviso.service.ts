@@ -15,6 +15,7 @@ import {
   MSG_PENDENTE,
   RECUO_INTEGRACAO_MINUTOS,
   lerRespostaGogem,
+  lerRetryAfter,
   recuoMinutos,
 } from './aviso-gogem';
 
@@ -84,7 +85,7 @@ export class GogemAvisoService {
     try {
       const [linha] = await this.reservar({ avisoId, limite: 1 });
       if (!linha) return await this.situacaoAtual(avisoId);
-      return (await this.enviar(linha, prazoMs)).paraOperador;
+      return (await this.enviar(linha, prazoMs)).desfecho.paraOperador;
     } catch (e: any) {
       this.log.warn(`aviso ${avisoId}: envio imediato não aconteceu (${e?.message ?? e}) — segue na fila`);
       return { situacao: 'pendente', mensagem: MSG_PENDENTE };
@@ -106,16 +107,54 @@ export class GogemAvisoService {
       return { enviados: 0, entregues: 0 };
     }
     let entregues = 0;
-    for (const l of linhas) {
+    let enviados = 0;
+    for (let i = 0; i < linhas.length; i++) {
+      const l = linhas[i];
+      let limitado: { retryAfterS: number | null } | null = null;
       try {
-        const d = await this.enviar(l, PRAZO_ENVIO_FILA_MS);
-        if (d.status === 'entregue') entregues++;
+        const r = await this.enviar(l, PRAZO_ENVIO_FILA_MS);
+        enviados++;
+        if (r.desfecho.status === 'entregue') entregues++;
+        if (r.http === 429) limitado = { retryAfterS: r.retryAfterS };
       } catch (e: any) {
         this.log.warn(`aviso ${l.id} não foi processado: ${e?.message ?? e}`);
       }
+      // 429: o GoGeM limita 120 requisições por minuto POR IP, e na nuvem os avisos de todas as
+      // lojas saem do mesmo IP. Insistir no resto do lote só tomaria mais 429 — o lote PARA aqui
+      // (mesmo que a devolução abaixo falhe: aí a reserva de 2 min os devolve sozinha).
+      if (limitado) {
+        await this.devolverAFila(linhas.slice(i + 1), limitado.retryAfterS).catch((e: any) =>
+          this.log.warn(`avisos do lote não voltaram à fila agora (a reserva expira em ${RESERVA_MINUTOS} min): ${e?.message ?? e}`),
+        );
+        break;
+      }
     }
-    if (linhas.length) this.log.log(`avisos ao GoGeM: ${entregues} de ${linhas.length} entregue(s)`);
-    return { enviados: linhas.length, entregues };
+    if (linhas.length) this.log.log(`avisos ao GoGeM: ${entregues} de ${enviados} entregue(s)`);
+    return { enviados, entregues };
+  }
+
+  /**
+   * Devolve à fila, SEM contar tentativa, avisos reservados que não chegaram a sair (o lote
+   * parou num 429). Esperam o `Retry-After` — ou 1 minuto, se ele não veio.
+   */
+  private async devolverAFila(linhas: any[], retryAfterS: number | null) {
+    if (!linhas.length) return;
+    const segundos = Math.max(60, retryAfterS ?? 0);
+    // Lista de valores por `sql.join` — array JS direto no template do Drizzle vira "malformed
+    // array literal" (ver cliente.service.ts). Uma query só, para o lote inteiro.
+    const valores = sql.join(
+      linhas.map((l) => sql`(${l.id}::uuid, ${String(l.status_anterior ?? 'pendente')})`),
+      sql`, `,
+    );
+    await this.db.execute(sql`
+      update aviso_integracao a
+         set status = case when v.anterior = 'aguardando_integracao' then 'aguardando_integracao' else 'pendente' end,
+             tentativas = greatest(a.tentativas - 1, 0),
+             proxima_tentativa_em = now() + make_interval(secs => ${segundos}),
+             updated_at = now()
+        from (values ${valores}) as v(id, anterior)
+       where a.id = v.id and a.status = 'enviando'`);
+    this.log.warn(`GoGeM pediu para esperar (429): ${linhas.length} aviso(s) de volta à fila por ${segundos} s`);
   }
 
   /**
@@ -158,18 +197,22 @@ export class GogemAvisoService {
   }
 
   /** Um envio: chama o GoGeM, lê a resposta, grava o desfecho e o que o operador precisa saber. */
-  private async enviar(linha: any, prazoMs: number): Promise<DesfechoAviso> {
+  private async enviar(
+    linha: any,
+    prazoMs: number,
+  ): Promise<{ desfecho: DesfechoAviso; http: number | null; retryAfterS: number | null }> {
     const tenantId = linha.tenant_id as string;
     const token = await this.tokenDaIntegracao(tenantId);
     if (!token) {
       const d: DesfechoAviso = { status: 'aguardando_integracao', estorno: null, paraOperador: MSG_SEM_TOKEN };
-      await this.registrar(linha, d, null, null, 'sem token da integração neste servidor');
-      return d;
+      await this.registrar(linha, d, null, null, 'sem token da integração neste servidor', null);
+      return { desfecho: d, http: null, retryAfterS: null };
     }
 
     let http: number | null = null;
     let corpo: any = null;
     let erro: string | null = null;
+    let retryAfterS: number | null = null;
     try {
       const res = await fetchExterno(
         this.url(),
@@ -181,6 +224,7 @@ export class GogemAvisoService {
         prazoMs,
       );
       http = res.status;
+      retryAfterS = lerRetryAfter(res.headers.get('retry-after'));
       const texto = await res.text().catch(() => '');
       try {
         corpo = texto ? JSON.parse(texto) : null;
@@ -191,12 +235,19 @@ export class GogemAvisoService {
       erro = String(e?.message ?? e);
     }
     const d = lerRespostaGogem(http, corpo);
-    await this.registrar(linha, d, http, corpo, erro);
-    return d;
+    await this.registrar(linha, d, http, corpo, erro, retryAfterS);
+    return { desfecho: d, http, retryAfterS };
   }
 
   /** Grava o desfecho na fila e, quando é o fim da história (ou um alerta), na auditoria. */
-  private async registrar(linha: any, d: DesfechoAviso, http: number | null, corpo: any, erro: string | null) {
+  private async registrar(
+    linha: any,
+    d: DesfechoAviso,
+    http: number | null,
+    corpo: any,
+    erro: string | null,
+    retryAfterS: number | null,
+  ) {
     const idadeDias = (Date.now() - new Date(linha.created_at).getTime()) / 86_400_000;
     let status: string = d.status;
     let ultimoErro = erro ?? (d.status === 'entregue' ? null : d.paraOperador.mensagem);
@@ -206,11 +257,12 @@ export class GogemAvisoService {
       status = 'recusado';
       ultimoErro = `Sem confirmação do GoGeM em ${DESISTIR_DEPOIS_DE_DIAS} dias — estorno MANUAL. ${ultimoErro ?? ''}`.trim();
     }
-    const minutos =
+    // Passageiro (rede, 408, 429, 5xx): o recuo da fila — ou o `Retry-After`, se o GoGeM pediu mais.
+    const segundos =
       status === 'aguardando_integracao'
-        ? RECUO_INTEGRACAO_MINUTOS
+        ? RECUO_INTEGRACAO_MINUTOS * 60
         : status === 'pendente'
-          ? recuoMinutos(Number(linha.tentativas))
+          ? Math.max(recuoMinutos(Number(linha.tentativas)) * 60, retryAfterS ?? 0)
           : 0;
     await this.db.execute(sql`
       update aviso_integracao
@@ -218,7 +270,7 @@ export class GogemAvisoService {
              ultimo_status_http = ${http},
              ultima_resposta = ${corpo == null ? null : JSON.stringify(corpo)}::jsonb,
              ultimo_erro = ${ultimoErro ? String(ultimoErro).slice(0, 500) : null},
-             proxima_tentativa_em = now() + make_interval(mins => ${minutos}),
+             proxima_tentativa_em = now() + make_interval(secs => ${segundos}),
              entregue_em = case when ${status} = 'entregue' then now() else entregue_em end,
              updated_at = now()
        where id = ${linha.id}::uuid`);

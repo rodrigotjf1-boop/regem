@@ -330,6 +330,54 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     expect(a.status).toBe('aguardando_integracao');
   });
 
+  it('429 com Retry-After: passageiro — espera o que o GoGeM pediu, sem alerta de estorno manual', async () => {
+    responder = async () =>
+      new Response(JSON.stringify({ statusCode: 429, message: 'ThrottlerException: Too Many Requests' }), {
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '600' },
+      });
+    const v = await vendaDoTotem();
+    const r = await cancelarCupom(v.comandaId);
+
+    expect(r.estornoGogem.situacao).toBe('pendente');
+    const [a] = await avisosDa(v.chave);
+    expect(a.status).toBe('pendente');
+    // O recuo da 1ª tentativa seria 1 min; o GoGeM pediu 10 — vale o maior.
+    expect(new Date(a.proxima_tentativa_em).getTime()).toBeGreaterThan(Date.now() + 9 * 60_000);
+    const alertas = auditado.filter(
+      (x) => ['aviso_gogem_recusado', 'aviso_gogem_integracao_recusou'].includes(x.acao) && x.detalhe?.chave === v.chave,
+    );
+    expect(alertas).toHaveLength(0);
+  });
+
+  it('429 no meio do lote: o resto NÃO sai — volta à fila sem contar tentativa (na nuvem, um IP para todas as lojas)', async () => {
+    const chaves = [randomUUID(), randomUUID(), randomUUID()];
+    for (const [i, chave] of chaves.entries())
+      await pool.query(
+        `insert into aviso_integracao (tenant_id, destino, tipo, chave, corpo, tentativas, proxima_tentativa_em)
+         values ($1,'gogem','pedido_cancelado',$2,$3::jsonb, 3, now() - make_interval(mins => $4))`,
+        [tenant, chave, JSON.stringify({ idempotencyKey: chave, motivo: 'teste' }), 10 - i],
+      );
+    responder = async () =>
+      new Response('{"statusCode":429}', { status: 429, headers: { 'retry-after': '120' } });
+    try {
+      const r = await aviso.rodarFila(3);
+      expect(r.enviados).toBe(1);
+      expect(chamadas).toHaveLength(1); // o primeiro tomou 429; os outros dois nem saíram
+      const depois = await linhas(
+        `select chave, status, tentativas, proxima_tentativa_em from aviso_integracao
+          where tenant_id = $1 and chave = any($2) order by created_at`,
+        [tenant, chaves],
+      );
+      expect(depois.map((x: any) => x.status)).toEqual(['pendente', 'pendente', 'pendente']);
+      expect(depois.map((x: any) => x.tentativas)).toEqual([4, 3, 3]); // só o que saiu contou
+      for (const x of depois)
+        expect(new Date(x.proxima_tentativa_em).getTime()).toBeGreaterThan(Date.now() + 110_000);
+    } finally {
+      await pool.query(`delete from aviso_integracao where tenant_id = $1 and chave = any($2)`, [tenant, chaves]);
+    }
+  });
+
   it('o job reserva só o que pediu (LIMIT de verdade — LIC-069): 3 vencidos, limite 1 → sai 1', async () => {
     const chaves = [randomUUID(), randomUUID(), randomUUID()];
     for (const chave of chaves)

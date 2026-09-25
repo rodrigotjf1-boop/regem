@@ -42,6 +42,34 @@ export function recuoMinutos(tentativas: number): number {
   return RECUO_MINUTOS[i];
 }
 
+/** Teto do `Retry-After` que aceitamos — valor absurdo não pode parar a fila por semanas. */
+const RETRY_AFTER_MAX_S = 24 * 3600;
+
+/**
+ * `Retry-After` da resposta, em segundos: número (`120`) ou data HTTP. `null` = ausente ou
+ * ilegível. A API do GoGeM limita 120 requisições por minuto por IP, e na nuvem os avisos de
+ * todas as lojas saem do mesmo IP — o 429 diz quanto esperar, e é isso que se espera.
+ */
+export function lerRetryAfter(valor: string | null | undefined, agoraMs = Date.now()): number | null {
+  const v = String(valor ?? '').trim();
+  if (!v) return null;
+  let s: number;
+  if (/^\d+$/.test(v)) s = Number(v);
+  else {
+    const t = Date.parse(v);
+    if (!Number.isFinite(t)) return null;
+    s = Math.ceil((t - agoraMs) / 1000);
+  }
+  return Math.min(Math.max(0, s), RETRY_AFTER_MAX_S);
+}
+
+/** Corta no limite do DTO sem partir um caractere em dois (emoji é um par de UTF-16). */
+function cortar(texto: string, max: number): string {
+  if (texto.length <= max) return texto;
+  const alto = texto.charCodeAt(max - 1);
+  return texto.slice(0, alto >= 0xd800 && alto <= 0xdbff ? max - 1 : max);
+}
+
 export type CorpoCancelamentoGogem = {
   idempotencyKey: string;
   regemComandaId?: string;
@@ -56,9 +84,9 @@ export function corpoCancelamento(d: {
 }): CorpoCancelamentoGogem {
   const motivo = String(d.motivo ?? '').trim() || 'Cancelado no Regem';
   return {
-    idempotencyKey: String(d.idempotencyKey).slice(0, 120),
-    ...(d.regemComandaId ? { regemComandaId: String(d.regemComandaId).slice(0, 120) } : {}),
-    motivo: motivo.slice(0, 500),
+    idempotencyKey: cortar(String(d.idempotencyKey), 120),
+    ...(d.regemComandaId ? { regemComandaId: cortar(String(d.regemComandaId), 120) } : {}),
+    motivo: cortar(motivo, 500),
   };
 }
 

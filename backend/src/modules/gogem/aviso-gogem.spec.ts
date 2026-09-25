@@ -5,6 +5,7 @@ import {
   corpoCancelamento,
   ehVendaDoTotem,
   lerRespostaGogem,
+  lerRetryAfter,
   recuoMinutos,
   resultadoDoAviso,
 } from './aviso-gogem';
@@ -35,6 +36,35 @@ describe('o corpo do aviso cabe no DTO do GoGeM', () => {
     expect(c.idempotencyKey).toHaveLength(120);
     expect(c.regemComandaId).toHaveLength(120);
     expect(c.motivo).toHaveLength(500);
+  });
+
+  it('o corte não parte um emoji ao meio (um caractere desses são DOIS de UTF-16)', () => {
+    const motivo = 'a'.repeat(499) + '🍔' + 'b'.repeat(10); // o emoji cairia nas posições 500 e 501
+    const c = corpoCancelamento({ idempotencyKey: 'k', motivo });
+    expect(c.motivo).toHaveLength(499);
+    expect(c.motivo.endsWith('a')).toBe(true);
+    expect(() => encodeURIComponent(c.motivo)).not.toThrow(); // metade de par de UTF-16 lança aqui
+  });
+});
+
+describe('Retry-After (o GoGeM limita 120 requisições/min por IP)', () => {
+  const agora = Date.parse('2026-09-25T12:00:00Z');
+
+  it('em segundos', () => {
+    expect(lerRetryAfter('120', agora)).toBe(120);
+    expect(lerRetryAfter(' 0 ', agora)).toBe(0);
+  });
+
+  it('em data HTTP', () => {
+    expect(lerRetryAfter('Fri, 25 Sep 2026 12:01:30 GMT', agora)).toBe(90);
+    expect(lerRetryAfter('Fri, 25 Sep 2026 11:59:00 GMT', agora)).toBe(0); // já passou
+  });
+
+  it('ausente ou ilegível = nulo; absurdo = teto de 24 h', () => {
+    expect(lerRetryAfter(null, agora)).toBeNull();
+    expect(lerRetryAfter('', agora)).toBeNull();
+    expect(lerRetryAfter('amanhã', agora)).toBeNull();
+    expect(lerRetryAfter('99999999', agora)).toBe(24 * 3600);
   });
 });
 
