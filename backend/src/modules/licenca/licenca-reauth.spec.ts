@@ -1,7 +1,10 @@
 import * as bcrypt from 'bcryptjs';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { LicencaService } from './licenca.service';
 import { hashCodigoReauth } from './reauth-instalacao';
 import { ativacao, colaborador, equipamento, reautorizacaoEdge } from '../../db/schema';
+
+const dialeto = new PgDialect();
 
 // F3a-2 — o fluxo mais auth-crítico: confirmar a re-autorização MOVE o edge (rotaciona o
 // token = mata a máquina antiga). DB falso roteado por tabela.
@@ -31,6 +34,15 @@ function fakeDb(estado: any, caps: any[]) {
     return p;
   };
   return {
+    // SQL direto (a escolha do servidor que se move — `servidor-da-loja.ts`, ERR-108): a consulta
+    // devolve o servidor do estado; o resto (o update do token) fica registrado com os parâmetros.
+    execute: async (s: any) => {
+      const q = dialeto.sqlToQuery(s);
+      caps.push({ op: 'execute', sql: q.sql, params: q.params });
+      if (/^\s*select id, token, unidade_id from equipamento/.test(q.sql))
+        return { rows: estado.servidor ? [estado.servidor] : [] };
+      return { rows: [] };
+    },
     select: () => chain((st) => rowsFor(st.t, estado)),
     update: (t: any) =>
       chain((st) => {
@@ -53,6 +65,8 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
       colaborador: { id: 'u1', nome: 'Chefe', tenantId: 't1', senhaHash, categoria: 'presidente' },
       ativacao: { id: 'a1', tenantId: 't1', deviceFingerprint: 'fp-antiga', reauthTotpSecret: null },
       equipamento: { unidadeId: 'u-nova' },
+      // O servidor de loja que está sendo movido (o que a escolha devolve).
+      servidor: { id: 'e1', token: 'tok-da-maquina-antiga', unidade_id: 'u-nova' },
       pend: {
         id: 'r1',
         tenantId: 't1',
@@ -75,9 +89,13 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
     const r: any = await svc.reautorizarConfirmar({ email: 'a@b.com', senha: 'senha123', fingerprint: 'fp-nova', codigo: '123456' });
     expect(typeof r.syncToken).toBe('string');
     expect(r.syncToken.length).toBeGreaterThanOrEqual(32); // token novo (rotacionado)
-    // rotacionou o equipamento (token novo) e rebindou a ativação p/ a máquina nova.
-    const upEquip = caps.find((c) => c.op === 'update' && c.t === equipamento);
-    expect(upEquip?.v?.token).toBe(r.syncToken);
+    // rotacionou o equipamento ESCOLHIDO (token novo, pelo id) e rebindou a ativação p/ a máquina nova.
+    const upEquip = caps.find((c) => c.op === 'execute' && /^\s*update equipamento/.test(c.sql));
+    expect(upEquip?.params).toEqual(expect.arrayContaining(['fp-nova', r.syncToken, 'e1']));
+    expect(r.unidadeId).toBe('u-nova');
+    // A escolha partiu da máquina ANTIGA (o fingerprint da ativação), não de "o mais recente".
+    const escolha = caps.find((c) => c.op === 'execute' && /^\s*select id, token, unidade_id from equipamento/.test(c.sql));
+    expect(escolha?.params).toContain('fp-antiga');
     const upAtiv = caps.find((c) => c.op === 'update' && c.t === ativacao);
     expect(upAtiv?.v?.deviceFingerprint).toBe('fp-nova');
     const upPend = caps.find((c) => c.op === 'update' && c.t === reautorizacaoEdge && c.v?.status === 'aprovada');
@@ -93,6 +111,7 @@ describe('LicencaService.reautorizarConfirmar — F3a-2 (mover o edge)', () => {
     ).rejects.toThrow();
     // não trocou o token do equipamento (só incrementou tentativas).
     expect(caps.some((c) => c.op === 'update' && c.t === equipamento)).toBe(false);
+    expect(caps.some((c) => c.op === 'execute' && /^\s*update equipamento/.test(c.sql))).toBe(false);
   });
 
   it('senha ERRADA → 401 antes de qualquer coisa', async () => {

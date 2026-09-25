@@ -14,6 +14,8 @@ import { sql } from 'drizzle-orm';
 //  • sem `unidadeId`        → todos os servidores ativos da empresa.
 // Sem nenhum servidor cadastrado, grava a linha sem destino (comportamento antigo).
 // `dados` leva conteúdo (ex.: o texto da DANFE). Banco sem a mig 269 → linha antiga, sem dados.
+// A credencial do GoGeM (`integrador`, mig 290) também é um `servidor_local`, mas não é servidor
+// de loja: nunca busca comando, e a linha endereçada a ela ficaria pendente para sempre (ERR-108).
 export async function enfileirarComandoEdge(
   db: any,
   tenantId: string,
@@ -28,6 +30,7 @@ export async function enfileirarComandoEdge(
       select ${tenantId}, ${comando}, ${opts.solicitadoPor ?? null}, e.id, e.unidade_id, ${dados}::jsonb
         from equipamento e
        where e.tenant_id = ${tenantId} and e.tipo = 'servidor_local' and e.ativo
+         and e.integrador is null
          and (${uni}::uuid is null or e.unidade_id = ${uni}::uuid or e.unidade_id is null)
       returning id`);
     const n = (r.rows ?? r).length;

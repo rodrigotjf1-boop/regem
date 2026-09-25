@@ -19,6 +19,9 @@ import { MSG_NAO_GRAVADO } from './aviso-gogem';
 // de estorno EXISTE (gravado com o cancelamento) e SAI — agora, ou pelo job quando a rede voltar —
 // uma vez só. E nada sai para quem não pagou no totem, nem para os cancelamentos que o próprio
 // GoGeM originou.
+//
+// O job roda sempre limitado à empresa deste teste (`rodarFila(n, [tenant])`): no CI as specs
+// dividem o banco em paralelo, e a fila da nuvem inteira pegaria o aviso de outra spec (LIC-084).
 
 const URL_PG = process.env.TEST_PG_URL;
 const descrever = URL_PG ? describe : describe.skip;
@@ -141,10 +144,17 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
         [tenant, unidade, randomBytes(8).toString('hex')],
       )
     ).rows[0].id;
-    // O token que o GoGeM guarda da integração — o mesmo do "Publicar no GoGeM".
+    // Um servidor de LOJA cadastrado antes — "o primeiro servidor_local" que o `limit(1)` sem
+    // ordem pegava, e o GoGeM recusava com 401 (ERR-108) — e a credencial do GoGeM, MARCADA pela
+    // própria chamada dele (mig 290). O aviso tem de sair com a do GoGeM.
     await pool.query(
-      `insert into equipamento (tenant_id, unidade_id, nome, tipo, token, ativo)
-       values ($1,null,'Servidor da loja','servidor_local',$2,true)`,
+      `insert into equipamento (tenant_id, unidade_id, nome, tipo, token, ativo, last_push_ts, created_at)
+       values ($1,$2,'Servidor da loja','servidor_local',$3,true, now(), now() - interval '30 days')`,
+      [tenant, unidade, 'tok-servidor-da-loja-nao-e-do-gogem'],
+    );
+    await pool.query(
+      `insert into equipamento (tenant_id, unidade_id, nome, tipo, token, ativo, integrador, integrador_visto_em)
+       values ($1,null,'Integração GoGeM','servidor_local',$2,true,'gogem', now())`,
       [tenant, TOKEN_INTEGRACAO],
     );
     const funcao = (
@@ -273,13 +283,13 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     // Antes do recuo vencer, o job não manda de novo.
     responder = async () => estornoFeito();
     chamadas.length = 0;
-    await aviso.rodarFila();
+    await aviso.rodarFila(20, [tenant]);
     expect(chamadas.filter((c) => c.corpo?.idempotencyKey === v.chave)).toHaveLength(0);
 
     // O GoGeM voltou e o recuo venceu: sai, é entregue — e não sai de novo.
     await vencer(v.chave);
-    await aviso.rodarFila();
-    await aviso.rodarFila();
+    await aviso.rodarFila(20, [tenant]);
+    await aviso.rodarFila(20, [tenant]);
     expect(chamadas.filter((c) => c.corpo?.idempotencyKey === v.chave)).toHaveLength(1);
     [a] = await avisosDa(v.chave);
     expect(a).toMatchObject({ status: 'entregue', tentativas: 2 });
@@ -300,7 +310,7 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     // Na próxima, o GoGeM tenta o estorno de novo e consegue.
     responder = async () => estornoFeito();
     await vencer(v.chave);
-    await aviso.rodarFila();
+    await aviso.rodarFila(20, [tenant]);
     expect((await avisosDa(v.chave))[0].status).toBe('entregue');
   });
 
@@ -318,12 +328,12 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
 
     // O job não insiste enquanto o recuo de 6 h não vence.
     chamadas.length = 0;
-    await aviso.rodarFila();
+    await aviso.rodarFila(20, [tenant]);
     expect(chamadas.filter((c) => c.corpo?.idempotencyKey === v.chave)).toHaveLength(0);
 
     // Venceu e continua recusado: tenta, mas não alerta de novo.
     await vencer(v.chave);
-    await aviso.rodarFila();
+    await aviso.rodarFila(20, [tenant]);
     expect(chamadas.filter((c) => c.corpo?.idempotencyKey === v.chave)).toHaveLength(1);
     expect(alertas()).toHaveLength(1);
     [a] = await avisosDa(v.chave);
@@ -361,7 +371,7 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
     responder = async () =>
       new Response('{"statusCode":429}', { status: 429, headers: { 'retry-after': '120' } });
     try {
-      const r = await aviso.rodarFila(3);
+      const r = await aviso.rodarFila(3, [tenant]);
       expect(r.enviados).toBe(1);
       expect(chamadas).toHaveLength(1); // o primeiro tomou 429; os outros dois nem saíram
       const depois = await linhas(
@@ -387,7 +397,7 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
         [tenant, chave, JSON.stringify({ idempotencyKey: chave, motivo: 'teste' })],
       );
     try {
-      const r = await aviso.rodarFila(1);
+      const r = await aviso.rodarFila(1, [tenant]);
       expect(r.enviados).toBe(1);
       const estados = await linhas(
         `select status, count(*)::int n from aviso_integracao where tenant_id = $1 and chave = any($2) group by status`,
@@ -445,19 +455,66 @@ descrever('venda do totem cancelada no Regem → aviso ao GoGeM (Postgres real)'
 
   // ── 4. servidor da loja e instalação sem a migration ────────────────────────────────────
 
-  it('no SERVIDOR DA LOJA o token é o SYNC_TOKEN dele (o servidor_local não desce para o edge)', async () => {
+  it('no SERVIDOR DA LOJA o aviso vai para a NUVEM do Regem, com o token de sync dele — nunca direto ao GoGeM', async () => {
+    // O token da integração não mora na loja, e o GoGeM recusa qualquer outro (ERR-108): a nuvem
+    // recebe o aviso e envia por ela.
     const v = await vendaDoTotem();
+    const cloudOriginal = process.env.CLOUD_API;
     process.env.EDGE_MODE = 'true';
     process.env.SYNC_TOKEN = 'tok-do-servidor-da-loja';
+    process.env.CLOUD_API = 'https://api.regem.teste/api/v1/';
+    responder = async () =>
+      new Response(
+        JSON.stringify({
+          aceito: true,
+          avisoId: 'x',
+          estorno: { situacao: 'solicitado', mensagem: 'Estorno de R$ 20,00 solicitado ao Mercado Pago pelo GoGeM.' },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    let r: any;
     try {
-      await cancelarCupom(v.comandaId);
+      r = await cancelarCupom(v.comandaId);
     } finally {
       delete process.env.EDGE_MODE;
       if (syncOriginal === undefined) delete process.env.SYNC_TOKEN;
       else process.env.SYNC_TOKEN = syncOriginal;
+      if (cloudOriginal === undefined) delete process.env.CLOUD_API;
+      else process.env.CLOUD_API = cloudOriginal;
     }
     expect(chamadas).toHaveLength(1);
-    expect(chamadas[0].token).toBe('tok-do-servidor-da-loja');
+    const [a] = await avisosDa(v.chave);
+    expect(chamadas[0]).toMatchObject({
+      url: 'https://api.regem.teste/api/v1/gogem/avisos/pedido-cancelado',
+      token: 'tok-do-servidor-da-loja',
+      corpo: { avisoId: a.id, chave: v.chave, corpo: { idempotencyKey: v.chave, regemComandaId: v.comandaId } },
+    });
+    expect(chamadas.some((c) => c.url.includes('gogem.com.br'))).toBe(false);
+    // Para a loja, "entregue" é a nuvem ter aceitado — e o operador vê o que a nuvem conseguiu.
+    expect(a.status).toBe('entregue');
+    expect(r.estornoGogem.situacao).toBe('solicitado');
+    expect(auditoriasDe('aviso_gogem_repassado').some((x) => x.detalhe?.chave === v.chave)).toBe(true);
+  });
+
+  it('servidor da loja sem a ligação com a nuvem (sem CLOUD_API): o aviso espera, e o operador sabe', async () => {
+    const v = await vendaDoTotem();
+    const cloudOriginal = process.env.CLOUD_API;
+    process.env.EDGE_MODE = 'true';
+    process.env.SYNC_TOKEN = 'tok-do-servidor-da-loja';
+    delete process.env.CLOUD_API;
+    let r: any;
+    try {
+      r = await cancelarCupom(v.comandaId);
+    } finally {
+      delete process.env.EDGE_MODE;
+      if (syncOriginal === undefined) delete process.env.SYNC_TOKEN;
+      else process.env.SYNC_TOKEN = syncOriginal;
+      if (cloudOriginal !== undefined) process.env.CLOUD_API = cloudOriginal;
+    }
+    expect(chamadas).toHaveLength(0);
+    expect(r.estornoGogem.situacao).toBe('integracao_recusou');
+    expect(r.estornoGogem.mensagem).toContain('não está ligado à nuvem');
+    expect((await avisosDa(v.chave))[0].status).toBe('aguardando_integracao');
   });
 
   it('sem a tabela (mig 289 não aplicada): a venda CANCELA e o operador sabe que o estorno é manual', async () => {

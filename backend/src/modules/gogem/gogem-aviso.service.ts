@@ -1,47 +1,58 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { and, eq, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { equipamento } from '../../db/schema';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { fetchExterno } from '../../common/fetch-externo';
 import { ehServidorLocal } from '../../common/modo';
+import { SyncCtxData } from '../sync/sync-token.guard';
 import {
   CAMINHO_PEDIDO_CANCELADO,
+  CAMINHO_REPASSE_DA_LOJA,
   DESISTIR_DEPOIS_DE_DIAS,
+  DESTINO_GOGEM,
   DesfechoAviso,
   EstornoGogem,
   GOGEM_NUVEM_PADRAO,
+  MSG_GOGEM_NAO_IDENTIFICADO,
+  MSG_LOJA_SEM_NUVEM,
   MSG_PENDENTE,
   RECUO_INTEGRACAO_MINUTOS,
+  TIPO_PEDIDO_CANCELADO,
+  corpoCancelamento,
+  corpoRepasse,
+  lerRespostaDaNuvem,
   lerRespostaGogem,
   lerRetryAfter,
   recuoMinutos,
 } from './aviso-gogem';
+import { tokenDoGogem } from './credencial-gogem';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** O operador espera o cancelamento: a primeira tentativa tem prazo curto; passou, o job segue. */
 export const PRAZO_ENVIO_IMEDIATO_MS = 8_000;
+/**
+ * A nuvem, recebendo o repasse do servidor da loja, tenta o GoGeM com um prazo MENOR que o da loja
+ * (8 s): a resposta tem de voltar a tempo de o operador da loja vê-la.
+ */
+export const PRAZO_REPASSE_MS = 5_000;
 /** O job não tem ninguém esperando na frente. */
 const PRAZO_ENVIO_FILA_MS = 15_000;
 /** Reserva de um aviso em envio: se o processo morrer no meio, ele volta à fila sozinho. */
 const RESERVA_MINUTOS = 2;
 
-const MSG_SEM_TOKEN: EstornoGogem = {
-  situacao: 'integracao_recusou',
-  mensagem:
-    'A integração com o GoGeM não tem token neste servidor — o estorno NÃO foi pedido. Confira a ' +
-    'integração; o Regem tenta de novo a cada 6 h.',
-};
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Envia os avisos da fila `aviso_integracao` ao GoGeM. O aviso é GRAVADO por quem cancela (na
  * mesma transação do cancelamento — `gravarAvisoCancelamentoTotem`); aqui ele sai: na hora, com
- * prazo curto, e depois pelo job, com recuo, até o GoGeM confirmar.
+ * prazo curto, e depois pelo job, com recuo, até ser entregue.
  *
- * Roda na loja e na nuvem, cada uma com a SUA fila (a tabela não sincroniza): o aviso sai da
- * máquina que cancelou.
+ * Roda na loja e na nuvem, cada uma com a SUA fila (a tabela não sincroniza), mas só a NUVEM fala
+ * com o GoGeM — com o token do equipamento que o GoGeM marcou (ERR-108). O servidor da loja
+ * repassa o aviso para a nuvem com o token de sync dele; para a loja, "entregue" é a nuvem ter
+ * aceitado, e a nuvem segue com ele.
  */
 @Injectable()
 export class GogemAvisoService {
@@ -57,24 +68,45 @@ export class GogemAvisoService {
   }
 
   /**
-   * O token que o GoGeM reconhece — o da integração, o mesmo do "Publicar no GoGeM". No SERVIDOR
-   * DA LOJA o `equipamento` servidor_local não existe (o sync nunca o baixa): o token é o
-   * `SYNC_TOKEN` do próprio servidor. Na nuvem, o do `servidor_local` ativo do tenant.
+   * NUVEM: o aviso que o servidor da loja repassou (`POST /gogem/avisos/pedido-cancelado`, com o
+   * token de sync dele). Grava na fila DESTA nuvem com o MESMO id do aviso da loja — repetir o
+   * repasse devolve o mesmo aviso, e um cancelamento que já avisou por aqui não avisa duas vezes
+   * (índice único da venda) — e tenta o GoGeM na hora, com prazo curto, para a loja responder ao
+   * operador. Sem resposta no prazo, o job desta nuvem segue com ele.
    */
-  async tokenDaIntegracao(tenantId: string): Promise<string | null> {
-    if (ehServidorLocal()) return String(process.env.SYNC_TOKEN ?? '').trim() || null;
-    const [srv] = await this.db
-      .select({ token: equipamento.token })
-      .from(equipamento)
-      .where(
-        and(
-          eq(equipamento.tenantId, tenantId),
-          eq(equipamento.tipo, 'servidor_local'),
-          eq(equipamento.ativo, true),
-        ),
-      )
-      .limit(1);
-    return srv?.token ?? null;
+  async receberDaLoja(sync: SyncCtxData, repasse: any): Promise<{ aceito: true; avisoId: string; estorno: EstornoGogem }> {
+    const chave = String(repasse?.chave ?? repasse?.corpo?.idempotencyKey ?? '').trim();
+    if (!chave) throw new BadRequestException('Aviso sem a chave da venda.');
+    const corpo = corpoCancelamento({
+      idempotencyKey: chave,
+      regemComandaId: repasse?.corpo?.regemComandaId ?? null,
+      motivo: repasse?.corpo?.motivo ?? null,
+    });
+    const avisoId = UUID.test(String(repasse?.avisoId ?? '')) ? String(repasse.avisoId) : null;
+    const refTipo = ['comanda', 'pedido_externo'].includes(repasse?.referenciaTipo) ? repasse.referenciaTipo : null;
+    const refId = UUID.test(String(repasse?.referenciaId ?? '')) ? String(repasse.referenciaId) : null;
+
+    const ins: any = await this.db.execute(sql`
+      insert into aviso_integracao
+        (id, tenant_id, unidade_id, destino, tipo, chave, corpo, referencia_tipo, referencia_id)
+      values (coalesce(${avisoId}::uuid, gen_random_uuid()), ${sync.tenantId}::uuid, ${sync.unidadeId ?? null}::uuid,
+              ${DESTINO_GOGEM}, ${TIPO_PEDIDO_CANCELADO}, ${corpo.idempotencyKey}, ${JSON.stringify(corpo)}::jsonb,
+              ${refTipo}, ${refId}::uuid)
+      on conflict do nothing
+      returning id`);
+    let id = (ins.rows ?? ins)[0]?.id as string | undefined;
+    if (!id) {
+      const ja: any = await this.db.execute(sql`
+        select id from aviso_integracao
+         where tenant_id = ${sync.tenantId}::uuid and destino = ${DESTINO_GOGEM}
+           and tipo = ${TIPO_PEDIDO_CANCELADO} and chave = ${corpo.idempotencyKey}
+         limit 1`);
+      id = (ja.rows ?? ja)[0]?.id as string | undefined;
+    }
+    // O id do aviso já existia em OUTRA empresa (ou em outra venda): não se sobrescreve nada alheio.
+    if (!id) throw new BadRequestException('Aviso não aceito: o identificador já está em uso.');
+    const estorno = await this.enviarAgora(id, PRAZO_REPASSE_MS);
+    return { aceito: true, avisoId: id, estorno };
   }
 
   /**
@@ -97,10 +129,12 @@ export class GogemAvisoService {
    * fila dela.
    */
   @Cron('*/1 * * * *')
-  async rodarFila(limite = 20) {
+  async rodarFila(limite = 20, soEmpresas?: string[]) {
     let linhas: any[] = [];
     try {
-      linhas = await this.reservar({ limite });
+      // `soEmpresas`: o job passa pela fila de todas; o teste, só pela das empresas dele — no CI
+      // as specs dividem o banco em paralelo, e a fila de uma pegaria o aviso da outra (LIC-084).
+      linhas = await this.reservar({ limite, soEmpresas });
     } catch (e: any) {
       // Instalação sem a mig 289, ou banco fora: o job não pode derrubar nada.
       this.log.warn(`fila de avisos ao GoGeM não rodou: ${e?.message ?? e}`);
@@ -162,17 +196,21 @@ export class GogemAvisoService {
    * processo morrer no meio do envio, o aviso volta sozinho). `skip locked`: duas réplicas — ou o
    * envio imediato e o job — nunca pegam o mesmo aviso.
    */
-  private async reservar(p: { avisoId?: string; limite: number }): Promise<any[]> {
+  private async reservar(p: { avisoId?: string; limite: number; soEmpresas?: string[] }): Promise<any[]> {
     // `status_anterior`: a linha devolvida já está `enviando`, e é o estado de ANTES que diz se o
     // aviso acabou de entrar em "aguardando integração" (alerta uma vez) ou já estava nele.
     // `materialized` (LIC-069): embutida, a CTE com LIMIT pode ser reexecutada a cada linha do
     // UPDATE e reservar a fila inteira em vez de N — Postgres 12+ (a loja e a nuvem são 15+).
+    const empresas = p.soEmpresas?.length
+      ? sql`tenant_id in (${sql.join(p.soEmpresas.map((t) => sql`${t}::uuid`), sql`, `)})`
+      : sql`true`;
     const r: any = await this.db.execute(sql`
       with fila as materialized (
         select id, status as status_anterior from aviso_integracao
          where status in ('pendente', 'enviando', 'aguardando_integracao')
            and proxima_tentativa_em <= now()
            and ${p.avisoId ? sql`id = ${p.avisoId}::uuid` : sql`true`}
+           and ${empresas}
          order by proxima_tentativa_em
          limit ${p.limite}
          for update skip locked)
@@ -190,36 +228,77 @@ export class GogemAvisoService {
     const r: any = await this.db.execute(sql`
       select status, ultimo_status_http, ultima_resposta from aviso_integracao where id = ${avisoId}::uuid`);
     const l = (r.rows ?? r)[0];
+    const naLoja = ehServidorLocal();
+    const ler = naLoja ? lerRespostaDaNuvem : lerRespostaGogem;
     if (l?.status === 'entregue' || l?.status === 'recusado')
-      return lerRespostaGogem(l.ultimo_status_http ?? null, l.ultima_resposta).paraOperador;
-    if (l?.status === 'aguardando_integracao') return MSG_SEM_TOKEN;
+      return ler(l.ultimo_status_http ?? null, l.ultima_resposta).paraOperador;
+    if (l?.status === 'aguardando_integracao') {
+      // Sem código HTTP = não chegou a sair: na nuvem, o GoGeM ainda não se identificou; na loja,
+      // o servidor não tem a ligação com a nuvem.
+      if (l.ultimo_status_http == null) return naLoja ? MSG_LOJA_SEM_NUVEM : MSG_GOGEM_NAO_IDENTIFICADO;
+      return ler(l.ultimo_status_http, l.ultima_resposta).paraOperador;
+    }
     return { situacao: 'pendente', mensagem: MSG_PENDENTE };
   }
 
-  /** Um envio: chama o GoGeM, lê a resposta, grava o desfecho e o que o operador precisa saber. */
+  /**
+   * Um envio. Na NUVEM: ao GoGeM, com o token que ele marcou. No servidor da LOJA: à nuvem do
+   * Regem, que envia por ele. Grava o desfecho e devolve o que o operador precisa saber.
+   */
   private async enviar(
     linha: any,
     prazoMs: number,
   ): Promise<{ desfecho: DesfechoAviso; http: number | null; retryAfterS: number | null }> {
-    const tenantId = linha.tenant_id as string;
-    const token = await this.tokenDaIntegracao(tenantId);
+    if (ehServidorLocal()) return this.enviarPelaNuvem(linha, prazoMs);
+    const token = await tokenDoGogem(this.db, linha.tenant_id, linha.unidade_id ?? null);
     if (!token) {
-      const d: DesfechoAviso = { status: 'aguardando_integracao', estorno: null, paraOperador: MSG_SEM_TOKEN };
-      await this.registrar(linha, d, null, null, 'sem token da integração neste servidor', null);
+      // Não se chuta um servidor_local qualquer (5 de 6 davam 401): o aviso espera o GoGeM se
+      // identificar — a marca solta a fila na hora (`soltarAvisosParados`).
+      const d: DesfechoAviso = { status: 'aguardando_integracao', estorno: null, paraOperador: MSG_GOGEM_NAO_IDENTIFICADO };
+      await this.registrar(linha, d, null, null, 'o GoGeM ainda não se identificou para esta empresa', null);
       return { desfecho: d, http: null, retryAfterS: null };
     }
+    const r = await this.postar(this.url(), token, linha.corpo, prazoMs);
+    const d = lerRespostaGogem(r.http, r.corpo);
+    await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS);
+    return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
+  }
 
+  /**
+   * Servidor da LOJA: o aviso vai para a nuvem do Regem, nunca direto ao GoGeM — o token da
+   * integração não mora na loja (credencial de integração é da distribuição), e o GoGeM recusa
+   * qualquer outro (ERR-108). Autentica com o token de sync deste servidor.
+   */
+  private async enviarPelaNuvem(
+    linha: any,
+    prazoMs: number,
+  ): Promise<{ desfecho: DesfechoAviso; http: number | null; retryAfterS: number | null }> {
+    const nuvem = String(process.env.CLOUD_API ?? '').trim().replace(/\/$/, '');
+    const token = String(process.env.SYNC_TOKEN ?? '').trim();
+    if (!nuvem || !token) {
+      const d: DesfechoAviso = { status: 'aguardando_integracao', estorno: null, paraOperador: MSG_LOJA_SEM_NUVEM };
+      await this.registrar(linha, d, null, null, 'servidor da loja sem CLOUD_API/SYNC_TOKEN', null);
+      return { desfecho: d, http: null, retryAfterS: null };
+    }
+    const r = await this.postar(nuvem + CAMINHO_REPASSE_DA_LOJA, token, corpoRepasse(linha), prazoMs);
+    const d = lerRespostaDaNuvem(r.http, r.corpo);
+    await this.registrar(linha, d, r.http, r.corpo, r.erro, r.retryAfterS);
+    return { desfecho: d, http: r.http, retryAfterS: r.retryAfterS };
+  }
+
+  /** O POST com o `X-Sync-Token`: devolve o código, o corpo lido e o `Retry-After` (sem lançar). */
+  private async postar(url: string, token: string, corpo: unknown, prazoMs: number) {
     let http: number | null = null;
-    let corpo: any = null;
+    let lido: any = null;
     let erro: string | null = null;
     let retryAfterS: number | null = null;
     try {
       const res = await fetchExterno(
-        this.url(),
+        url,
         {
           method: 'POST',
           headers: { 'X-Sync-Token': token, 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(linha.corpo),
+          body: JSON.stringify(corpo),
         },
         prazoMs,
       );
@@ -227,16 +306,14 @@ export class GogemAvisoService {
       retryAfterS = lerRetryAfter(res.headers.get('retry-after'));
       const texto = await res.text().catch(() => '');
       try {
-        corpo = texto ? JSON.parse(texto) : null;
+        lido = texto ? JSON.parse(texto) : null;
       } catch {
-        corpo = { texto: texto.slice(0, 500) };
+        lido = { texto: texto.slice(0, 500) };
       }
     } catch (e: any) {
       erro = String(e?.message ?? e);
     }
-    const d = lerRespostaGogem(http, corpo);
-    await this.registrar(linha, d, http, corpo, erro, retryAfterS);
-    return { desfecho: d, http, retryAfterS };
+    return { http, corpo: lido, erro, retryAfterS };
   }
 
   /** Grava o desfecho na fila e, quando é o fim da história (ou um alerta), na auditoria. */
@@ -281,7 +358,11 @@ export class GogemAvisoService {
       tentativa: Number(linha.tentativas),
       http,
     };
-    if (status === 'entregue') {
+    if (status === 'entregue' && ehServidorLocal()) {
+      // Na loja, "entregue" é a nuvem ter aceitado: quem fala com o GoGeM (e audita o estorno) é ela.
+      this.log.log(`aviso ao GoGeM repassado à nuvem (${linha.chave}): ${d.paraOperador.situacao}`);
+      await this.auditar(linha, 'aviso_gogem_repassado', { ...base, situacao: d.paraOperador.situacao });
+    } else if (status === 'entregue') {
       this.log.log(
         `aviso ao GoGeM entregue (${linha.chave}): ${d.estorno ? `estorno ${d.estorno.feito ? 'feito' : 'não feito'} · ${d.estorno.meio}` : 'sem detalhe de estorno'}`,
       );
@@ -290,9 +371,17 @@ export class GogemAvisoService {
       this.log.error(`aviso ao GoGeM RECUSADO (${linha.chave}) — estorno manual: ${ultimoErro}`);
       await this.auditar(linha, 'aviso_gogem_recusado', { ...base, erro: ultimoErro, resposta: corpo });
     } else if (status === 'aguardando_integracao' && linha.status_anterior !== 'aguardando_integracao') {
-      // Alerta UMA vez, na entrada neste estado — não a cada tentativa de 6 h.
-      this.log.error(`integração GoGeM recusou/sem token (${linha.chave}) — estorno NÃO pedido: ${ultimoErro}`);
-      await this.auditar(linha, 'aviso_gogem_integracao_recusou', { ...base, erro: ultimoErro });
+      // Alerta UMA vez, na entrada neste estado — não a cada tentativa de 6 h. Sem código HTTP, o
+      // aviso nem saiu: falta a credencial (o GoGeM não se identificou; a loja sem a nuvem).
+      const semCredencial = http == null;
+      this.log.error(
+        `aviso ao GoGeM parado (${linha.chave}) — ${semCredencial ? 'sem credencial' : 'credencial recusada'}, ` +
+          `estorno NÃO pedido: ${ultimoErro}`,
+      );
+      await this.auditar(linha, semCredencial ? 'aviso_gogem_sem_integracao' : 'aviso_gogem_integracao_recusou', {
+        ...base,
+        erro: ultimoErro,
+      });
     } else {
       this.log.warn(`aviso ao GoGeM sem confirmação (${linha.chave}), tentativa ${linha.tentativas}: ${ultimoErro}`);
     }

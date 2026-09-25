@@ -15,6 +15,11 @@
 //  • `feito:false` com meio ELETRÔNICO = o Mercado Pago falhou naquela hora. O GoGeM responde 200,
 //    marca o pedido cancelado e, quando o aviso chega de novo, TENTA O ESTORNO DE NOVO (o
 //    `X-Idempotency-Key` do refund impede estorno em dobro) → para nós é "reenviar", não "entregue".
+//
+// O TOKEN (ERR-108): o GoGeM aceita UM por empresa — o do equipamento que ELE marcou ao chamar a
+// nuvem com `X-Integrador: gogem` (mig 290, `credencial-gogem.ts`). Só a NUVEM fala com o GoGeM:
+// o servidor da loja nunca tem esse token (credencial de integração é da distribuição) e repassa o
+// aviso para a nuvem (`POST /gogem/avisos/pedido-cancelado`, com o token de sync dele), que envia.
 import { Logger } from '@nestjs/common';
 import { sql } from 'drizzle-orm';
 
@@ -134,6 +139,116 @@ const reais = (centavos: number) =>
 
 export const MSG_PENDENTE =
   'O estorno do cartão/PIX será pedido ao GoGeM assim que a conexão voltar — o Regem tenta sozinho.';
+
+/**
+ * Nenhum equipamento marcado como a credencial do GoGeM nesta empresa (mig 290): não se chuta um
+ * `servidor_local` qualquer. O GoGeM se identifica sozinho na próxima chamada dele à nuvem (o
+ * cardápio sincroniza a cada poucos minutos) — e aí o aviso sai na hora.
+ */
+export const MSG_GOGEM_NAO_IDENTIFICADO: EstornoGogem = {
+  situacao: 'pendente',
+  mensagem:
+    'O estorno do cartão/PIX será pedido ao GoGeM assim que ele se identificar para esta empresa ' +
+    '(acontece sozinho na próxima sincronização do cardápio) — o Regem tenta sozinho.',
+};
+
+/** Servidor da loja sem a ligação com a nuvem (`CLOUD_API`/`SYNC_TOKEN`): o aviso não tem por onde sair. */
+export const MSG_LOJA_SEM_NUVEM: EstornoGogem = {
+  situacao: 'integracao_recusou',
+  mensagem:
+    'Este servidor da loja não está ligado à nuvem do Regem — o estorno do cartão/PIX NÃO foi pedido ' +
+    'ainda. Avise o suporte; o Regem tenta de novo sozinho.',
+};
+
+/** A nuvem do Regem recusou o token de sync do servidor da loja (401/403). */
+export const MSG_LOJA_RECUSADA: EstornoGogem = {
+  situacao: 'integracao_recusou',
+  mensagem:
+    'A nuvem do Regem recusou o servidor da loja — o estorno do cartão/PIX NÃO foi pedido ainda. ' +
+    'Avise o suporte; o Regem tenta de novo a cada 6 h.',
+};
+
+/** Rota da NUVEM do Regem que recebe o aviso do servidor da loja e o envia ao GoGeM. */
+export const CAMINHO_REPASSE_DA_LOJA = '/gogem/avisos/pedido-cancelado';
+
+/** O que o servidor da loja manda para a nuvem — a nuvem grava com o MESMO id (idempotência). */
+export type RepasseDaLoja = {
+  avisoId: string;
+  chave: string;
+  corpo: CorpoCancelamentoGogem;
+  referenciaTipo: string | null;
+  referenciaId: string | null;
+};
+
+export function corpoRepasse(linha: any): RepasseDaLoja {
+  return {
+    avisoId: String(linha.id),
+    chave: String(linha.chave),
+    corpo: linha.corpo as CorpoCancelamentoGogem,
+    referenciaTipo: linha.referencia_tipo ?? null,
+    referenciaId: linha.referencia_id ?? null,
+  };
+}
+
+const SITUACOES = new Set<SituacaoEstornoGogem>([
+  'solicitado',
+  'sem_estorno_eletronico',
+  'pendente',
+  'integracao_recusou',
+  'recusado',
+]);
+
+/**
+ * A resposta da NUVEM do Regem ao repasse do servidor da loja. Aceito = a nuvem gravou o aviso na
+ * fila DELA e segue com ele até o GoGeM confirmar: para a loja, o aviso está ENTREGUE. O que o
+ * operador vê é o que a nuvem conseguiu com o GoGeM naquela hora (ou "pendente").
+ */
+export function lerRespostaDaNuvem(http: number | null, corpo: any): DesfechoAviso {
+  const pendente: DesfechoAviso = {
+    status: 'pendente',
+    estorno: null,
+    paraOperador: { situacao: 'pendente', mensagem: MSG_PENDENTE },
+  };
+  if (http == null) return pendente;
+  if (http >= 200 && http < 300) {
+    if (corpo?.aceito !== true) return pendente;
+    const e = corpo?.estorno;
+    const paraOperador: EstornoGogem =
+      e && SITUACOES.has(e.situacao) && typeof e.mensagem === 'string'
+        ? { situacao: e.situacao, mensagem: e.mensagem.slice(0, 500) }
+        : { situacao: 'pendente', mensagem: MSG_PENDENTE };
+    return { status: 'entregue', estorno: null, paraOperador };
+  }
+  if (http === 401 || http === 403)
+    return { status: 'aguardando_integracao', estorno: null, paraOperador: MSG_LOJA_RECUSADA };
+  // 404: nuvem ainda sem a rota (servidor da loja atualizado antes dela) — passa sozinho.
+  if (http === 404 || http === 408 || http === 425 || http === 429 || http >= 500) return pendente;
+  const motivo = String(corpo?.message ?? corpo?.mensagem ?? '').slice(0, 200);
+  return {
+    status: 'recusado',
+    estorno: null,
+    paraOperador: {
+      situacao: 'recusado',
+      mensagem:
+        `A nuvem do Regem recusou o aviso de estorno (HTTP ${http}${motivo ? `: ${motivo}` : ''}) — ` +
+        'faça o estorno do cartão/PIX manualmente e avise o suporte.',
+    },
+  };
+}
+
+/**
+ * O GoGeM acabou de se identificar para a empresa (mig 290): os avisos que esperavam por ele — sem
+ * token marcado, ou recusados com 401 pelo token errado — voltam para a fila AGORA, sem esperar as
+ * 6 h. Devolve quantos voltaram.
+ */
+export async function soltarAvisosParados(db: any, tenantId: string, destino = DESTINO_GOGEM): Promise<number> {
+  const r: any = await db.execute(sql`
+    update aviso_integracao
+       set status = 'pendente', proxima_tentativa_em = now(), updated_at = now()
+     where tenant_id = ${tenantId}::uuid and destino = ${destino} and status = 'aguardando_integracao'
+    returning id`);
+  return (r.rows ?? r).length;
+}
 
 /**
  * O que a resposta do GoGeM quer dizer — para a fila e para o operador. `http` nulo = sem

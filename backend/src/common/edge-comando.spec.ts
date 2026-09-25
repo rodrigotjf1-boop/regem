@@ -29,6 +29,7 @@ descrever('edge_comando com destino (Postgres real)', () => {
   const B = randomUUID();
   const SRV_A = randomUUID();
   const SRV_B = randomUUID();
+  const SRV_GOGEM = randomUUID(); // a credencial do GoGeM: também é servidor_local (mig 290)
   const q = (s: string, p: any[] = []) => pool.query(s, p);
 
   beforeAll(async () => {
@@ -37,11 +38,19 @@ descrever('edge_comando com destino (Postgres real)', () => {
     await q(`create schema ${schema}`);
     await q(`create table equipamento (id uuid primary key, tenant_id uuid not null, unidade_id uuid,
              tipo text not null, ativo boolean not null default true)`);
+    // A marca da credencial de integração vem da migration de verdade (a mesma da nuvem): sem a
+    // coluna, a consulta cai na linha sem destino — e todo servidor pegaria todo comando.
+    await q(readFileSync(join(MIG, '290_equipamento_integrador.sql'), 'utf8'));
     // edge_comando é só-nuvem: a tabela vem da migration original + a 269 (as mesmas da nuvem).
     await q(readFileSync(join(MIG, '124_edge_release_comando.sql'), 'utf8'));
     await q(readFileSync(join(MIG, '269_impressora_status_codepage_comando_destino.sql'), 'utf8'));
     await q(`insert into equipamento (id, tenant_id, unidade_id, tipo) values
              ($1,$3,$4,'servidor_local'), ($2,$3,$5,'servidor_local')`, [SRV_A, SRV_B, T, A, B]);
+    await q(`insert into equipamento (id, tenant_id, unidade_id, tipo, integrador) values ($1,$2,$3,'servidor_local','gogem')`, [
+      SRV_GOGEM,
+      T,
+      A,
+    ]);
   });
   afterAll(async () => {
     if (!pool) return;
@@ -70,6 +79,14 @@ descrever('edge_comando com destino (Postgres real)', () => {
     await enfileirarComandoEdge(db, T, 'imprimir_danfe', { unidadeId: B, dados: { conteudo: 'DANFE', comandaId: null } });
     const [c] = await comandosDoServidor(db, T, SRV_B);
     expect(c.dados).toEqual({ conteudo: 'DANFE', comandaId: null });
+  });
+
+  it('a credencial do GoGeM (também servidor_local) nunca recebe comando — ficaria pendente para sempre', async () => {
+    await enfileirarComandoEdge(db, T, 'testar_impressora', { unidadeId: A }); // a loja dela
+    await enfileirarComandoEdge(db, T, 'rollback'); // a empresa inteira
+    const destinos = (await q(`select equipamento_id from edge_comando`)).rows.map((r: any) => r.equipamento_id);
+    expect(destinos).not.toContain(SRV_GOGEM);
+    expect(destinos.sort()).toEqual([SRV_A, SRV_A, SRV_B].sort());
   });
 
   it('linha antiga (sem destino) continua valendo para qualquer servidor', async () => {

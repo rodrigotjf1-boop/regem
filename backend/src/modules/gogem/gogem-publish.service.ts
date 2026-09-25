@@ -4,12 +4,11 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { equipamento } from '../../db/schema';
+import { tokenDoGogem } from './credencial-gogem';
 
 // A API do GoGeM é multi-tenant numa URL só; o tenant é identificado pelo
-// X-Sync-Token (o mesmo do servidor_local). Configurável por env se mudar.
+// X-Sync-Token (o da integração dele). Configurável por env se mudar.
 const GOGEM_URL_PADRAO =
   'https://api.gogem.com.br/api/v1/sync/regem/publicar';
 const TIMEOUT_MS = 15_000;
@@ -17,8 +16,9 @@ const TIMEOUT_MS = 15_000;
 /**
  * "Publicar no GoGeM": empurra na hora as pausas/edições deste tenant para o
  * GoGeM (que re-sincroniza os produtos linkados e republica o cardápio). Usa o
- * token do equipamento `servidor_local` (o mesmo par que já autentica a
- * integração) — o GoGeM acha a loja por ele. Best-effort com erro claro.
+ * token do equipamento que o GoGeM marcou como a credencial dele (mig 290) —
+ * nunca "um servidor_local qualquer", que o GoGeM recusa (ERR-108). Best-effort
+ * com erro claro.
  */
 @Injectable()
 export class GogemPublishService {
@@ -28,20 +28,13 @@ export class GogemPublishService {
   async publicar(
     tenantId: string,
   ): Promise<{ ok: true; alterados?: number }> {
-    const [srv] = await this.db
-      .select({ token: equipamento.token })
-      .from(equipamento)
-      .where(
-        and(
-          eq(equipamento.tenantId, tenantId),
-          eq(equipamento.tipo, 'servidor_local'),
-          eq(equipamento.ativo, true),
-        ),
-      )
-      .limit(1);
-    if (!srv?.token) {
+    const token = await tokenDoGogem(this.db, tenantId);
+    if (!token) {
+      this.logger.warn(`Publicar no GoGeM: o GoGeM ainda não se identificou para a empresa ${tenantId}`);
       throw new BadRequestException(
-        'Nenhum servidor GoGeM (servidor_local) ativo — configure a integração primeiro.',
+        'O GoGeM ainda não se identificou para esta empresa — ele faz isso sozinho na próxima ' +
+          'sincronização do cardápio. Tente de novo em alguns minutos; se continuar, confira a ' +
+          'integração no painel do GoGeM.',
       );
     }
 
@@ -52,7 +45,7 @@ export class GogemPublishService {
       const res = await fetch(url, {
         method: 'POST',
         headers: {
-          'X-Sync-Token': srv.token,
+          'X-Sync-Token': token,
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },

@@ -1463,19 +1463,17 @@ export class DeliveryService {
         .limit(1);
       return !!cc?.ativo;
     }, false);
+    // Totem em uso = a credencial do GoGeM ativa (marcada pelo próprio GoGeM, mig 290) OU um
+    // aparelho totem da rede da loja. "Qualquer servidor_local" contava servidor de loja e sobra
+    // de instalação como totem (ERR-108). No servidor da loja a credencial do GoGeM não existe (o
+    // servidor_local nunca desce), e quem diz é o aparelho totem, que desce.
     const totem = await safe(async () => {
-      const [srv] = await this.db
-        .select({ id: equipamento.id })
-        .from(equipamento)
-        .where(
-          and(
-            eq(equipamento.tenantId, tenantId),
-            eq(equipamento.tipo, 'servidor_local'),
-            eq(equipamento.ativo, true),
-          ),
-        )
-        .limit(1);
-      return !!srv;
+      const r: any = await this.db.execute(sql`
+        select 1 from equipamento
+         where tenant_id = ${tenantId}::uuid and ativo
+           and ((tipo = 'servidor_local' and integrador = 'gogem') or tipo = 'totem')
+         limit 1`);
+      return (r.rows ?? r).length > 0;
     }, false);
     return {
       regem,

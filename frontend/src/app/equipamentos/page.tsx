@@ -723,11 +723,28 @@ export default function EquipamentosPage() {
                 className="flex items-center gap-3 rounded-lg border border-border p-3"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{eq.nome}</span>
                     <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-secondary-foreground">
                       {TIPO_LABEL[eq.tipo] ?? eq.tipo}
                     </span>
+                    {/* A credencial do GoGeM (mig 290): o próprio GoGeM a marca ao chamar o Regem. O
+                        token dela não é de servidor de loja: revogá-la, ou instalar um servidor com
+                        ele, para a venda do totem. */}
+                    {eq.integrador === 'gogem' && (
+                      <span
+                        className="rounded bg-primary/10 px-1.5 py-0.5 text-xs text-primary"
+                        title={
+                          'Token usado pelo GoGeM (totem). Não use para instalar servidor da loja e não revogue — ' +
+                          'a venda do totem para.' +
+                          (eq.integradorVistoEm
+                            ? ` Visto pela última vez em ${new Date(eq.integradorVistoEm).toLocaleString('pt-BR')}.`
+                            : '')
+                        }
+                      >
+                        Integração GoGeM
+                      </span>
+                    )}
                     {eq.padrao && eq.tipo === 'terminal_ponto' && (
                       <span className="rounded bg-secondary px-1.5 py-0.5 text-xs text-muted-foreground">
                         REP-Software

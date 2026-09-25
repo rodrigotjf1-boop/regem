@@ -55,6 +55,10 @@ export class CloudFallbackProcessor {
       //    iFood/99) todo pedido não aceito em 5 min.
       // F2: o servidor da matriz NÃO "cobre" a filial (unidade do pedido ou servidor sem
       // unidade = da rede, na transição).
+      // "Tem servidor local" = um servidor de LOJA: não a credencial do GoGeM (também é um
+      // `servidor_local`, mig 290) nem sobra de instalação que nunca sincronizou. Com qualquer
+      // `servidor_local` contando, a loja que só usa o GoGeM na nuvem passava por "servidor morto"
+      // e a nuvem aceitava os pedidos do iFood/99 no lugar dela (ERR-108).
       const presos = await this.db
         .select({ id: pedidoExterno.id, tenantId: pedidoExterno.tenantId })
         .from(pedidoExterno)
@@ -67,6 +71,8 @@ export class CloudFallbackProcessor {
             sql`exists (select 1 from equipamento e
                          where e.tenant_id = ${pedidoExterno.tenantId} and e.tipo = 'servidor_local'
                            and e.ativo = true
+                           and e.integrador is null
+                           and (e.last_push_ts is not null or e.last_push_seq is not null)
                            and (e.unidade_id = ${pedidoExterno.unidadeId} or e.unidade_id is null))`,
             sql`not exists (select 1 from edge_status es
                              where es.tenant_id = ${pedidoExterno.tenantId} and es.recebido_em >= ${corteHb}

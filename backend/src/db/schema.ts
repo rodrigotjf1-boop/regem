@@ -900,6 +900,11 @@ export const equipamento = pgTable('equipamento', {
   revogadoEm: timestamp('revogado_em', { withTimezone: true }), // PC roubado/trocado
 
   ultimoPing: timestamp('ultimo_ping', { withTimezone: true }),
+  // Credencial de INTEGRAÇÃO (mig 290, ERR-108): o `servidor_local` cujo token é o do GoGeM.
+  // Marcado pela própria chamada do GoGeM à nuvem (`X-Integrador: gogem`); é por ele que o aviso
+  // de cancelamento e o "Publicar no GoGeM" escolhem o token — nunca "um servidor_local qualquer".
+  integrador: text('integrador'),
+  integradorVistoEm: timestamp('integrador_visto_em', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
