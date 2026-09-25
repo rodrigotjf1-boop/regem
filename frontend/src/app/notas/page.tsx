@@ -76,9 +76,12 @@ export default function NotasPage() {
     setTransmitindo(true);
     try {
       const r: any = await api.transmitirContingencia();
-      toast.success(
-        r?.transmitidas ? `${r.transmitidas} nota(s) transmitida(s).` : 'Nada foi transmitido ainda.',
-      );
+      // O ciclo automático já está passando pela fila (ou alguém da loja apertou antes).
+      if (r?.emAndamento) toast.info('A fila já está sendo transmitida agora — confira em instantes.');
+      else
+        toast.success(
+          r?.transmitidas ? `${r.transmitidas} nota(s) transmitida(s).` : 'Nada foi transmitido ainda.',
+        );
       await reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Não foi possível transmitir agora.');

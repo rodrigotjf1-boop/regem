@@ -438,6 +438,16 @@ Passa a existir multa **no fornecedor do PDV**, por caixa instalado.
     número emitido em contingência **não pode ser inutilizado** (cl. 11ª, §2º, II): ele tem de
     ser transmitido, corrigido e reenviado com a mesma numeração. Duplicidade (204) manda
     consultar pela chave em vez de adivinhar.
+  - **Na nuvem a fila tem notas de MUITAS lojas, e o erro de uma não para as outras** (ERR-105 —
+    o ciclo parava no primeiro erro, e a nota travada, sempre a mais antiga, bloqueava todas para
+    sempre). A fila anda **por vez**: a nota mais antiga de cada loja, depois a segunda de cada
+    uma. **Silêncio** tira do ciclo só a loja que o recebeu — pode ser a conexão dela ou o
+    certificado dela derrubando o TLS; a SEFAZ de uma UF só é dada como fora do ar quando **duas
+    lojas** dela ficam mudas no mesmo ciclo (vale também para a consulta de status). **Problema
+    da loja** (certificado que não abre, vencido, configuração faltando) é anotado na nota dela —
+    a loja lê o motivo na fila — e as outras notas dela esperam o conserto. **Erro de uma nota**
+    fica nela e a fila segue. O botão "transmitir agora" roda só a fila da **própria empresa**; o
+    job de 5 minutos é que passa por todas, e um ciclo não começa por cima do outro.
   - **Prazo: fim do primeiro dia útil subsequente** à emissão. A tela de notas mostra quanto
     resta por nota, e o log registra quando alguma passa do prazo. No RJ, não transmitir é
     **multa de 5% do valor da operação** (RICMS, art. 62-C, III) e transmitir fora do prazo,

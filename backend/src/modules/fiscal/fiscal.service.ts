@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   BadRequestException,
+  HttpException,
   ServiceUnavailableException,
   Inject,
   Injectable,
@@ -26,9 +27,15 @@ import { uuidDeChave } from '../../common/id-deterministico';
 import { gerarCNF, montarChave, montarQrCode, montarQrCodeV3, montarQrCodeV3Offline } from './chave';
 import {
   ContingenciaIndisponivel,
+  EscopoContingencia,
+  FalhaDaLoja,
   JUSTIFICATIVA_PADRAO,
+  SilencioDoCiclo,
+  autorizador,
   horasAteOPrazo,
   justificativaValida,
+  motivoDaFalha,
+  pontoDeEmissao,
   prazoVencido,
   silencioDaSefaz,
 } from './contingencia';
@@ -116,6 +123,12 @@ function comNota(falha: Error, nota: any): Error {
 function textoXml(no: any, nome: string): string | null {
   const achados = no?.getElementsByTagNameNS?.('*', nome);
   return achados && achados.length ? String(achados[0].textContent ?? '').trim() : null;
+}
+
+/** O que a transmissão das notas de UMA loja precisa — montado uma vez por ciclo da contingência. */
+interface PreparoDaTransmissao {
+  config: any;
+  transmissor: FiscalTransmitter;
 }
 
 @Injectable()
@@ -285,15 +298,8 @@ export class FiscalService {
   // Não emite, não gasta número, não grava nada. Prova o caminho inteiro até a autorização:
   // endereço da UF, certificado no TLS, verificação do servidor pela raiz ICP-Brasil, SOAP.
   async statusSefaz(tenantId: string, unidadeId: string | null) {
-    const cfg: any = await this.configRaw(tenantId, unidadeId);
-    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
-    if (!cfg.uf || !cfg.codigoUf)
-      throw new BadRequestException('Informe a UF e o código IBGE da UF na configuração fiscal.');
-    const cert = certificadoParaAssinar(await obterCredencial(this.db, tenantId, unidadeId));
     try {
-      return await consultarStatusServico({
-        uf: cfg.uf, codigoUf: cfg.codigoUf, ambiente: String(cfg.ambiente ?? '2'), cert,
-      });
+      return await this.statusSefazBruto(tenantId, unidadeId);
     } catch (e: any) {
       // Cada causa com o código certo: a tela e o log precisam distinguir.
       if (e instanceof UfSemAutorizador) throw new BadRequestException(e.message);
@@ -301,6 +307,18 @@ export class FiscalService {
       if (e instanceof SefazRecusouChamada) throw new BadGatewayException(e.message);
       throw e;
     }
+  }
+
+  /** A consulta de status com o erro da SEFAZ como veio: a fila da contingência precisa saber se foi SILÊNCIO. */
+  private async statusSefazBruto(tenantId: string, unidadeId: string | null, cfgPronta?: any) {
+    const cfg: any = cfgPronta ?? (await this.configRaw(tenantId, unidadeId));
+    if (!cfg) throw new BadRequestException('Configure o fiscal desta unidade.');
+    if (!cfg.uf || !cfg.codigoUf)
+      throw new BadRequestException('Informe a UF e o código IBGE da UF na configuração fiscal.');
+    const cert = certificadoParaAssinar(await obterCredencial(this.db, tenantId, unidadeId));
+    return consultarStatusServico({
+      uf: cfg.uf, codigoUf: cfg.codigoUf, ambiente: String(cfg.ambiente ?? '2'), cert,
+    });
   }
 
   async setCsc(tenantId: string, atorId: string, unidadeId: string | null, dto: any) {
@@ -1030,9 +1048,15 @@ export class FiscalService {
   }
 
 
+  // Um ciclo não começa por cima do outro: com muitas lojas e a SEFAZ muda, ele pode passar dos
+  // 5 minutos, e dois ciclos juntos transmitiriam as mesmas notas ao mesmo tempo. O botão
+  // "transmitir agora" trava por empresa — duas pessoas da mesma loja apertando ao mesmo tempo.
+  private contingenciaRodando = false;
+  private readonly contingenciaPorEmpresa = new Set<string>();
+
   /**
    * O ciclo da contingência, a cada 5 minutos: **sair** quando a SEFAZ voltar e **transmitir**
-   * o que foi emitido enquanto ela esteve fora.
+   * o que foi emitido enquanto ela esteve fora — de TODAS as lojas deste ponto de emissão.
    *
    * A transmissão não é acessório: não transmitir a NFC-e de contingência é multa de **5% do
    * valor da operação** no RJ (RICMS, art. 62-C, III), e transmitir fora do prazo, 100 UFIR-RJ
@@ -1040,25 +1064,80 @@ export class FiscalService {
    */
   @Cron('*/5 * * * *')
   async rodarContingencia(limite = 20) {
+    if (this.contingenciaRodando) return { verificados: 0, transmitidas: 0, emAndamento: true };
+    this.contingenciaRodando = true;
+    try {
+      return await this.cicloContingencia(limite, null);
+    } finally {
+      this.contingenciaRodando = false;
+    }
+  }
+
+  /**
+   * O botão "transmitir agora": o mesmo ciclo, só com a fila da PRÓPRIA empresa (e da loja em
+   * uso, havendo uma). Ele rodava a fila da nuvem inteira — as notas de todas as lojas — e
+   * devolvia a contagem de todas (ERR-105).
+   */
+  async transmitirContingencia(escopo: EscopoContingencia, limite = 20) {
+    const empresas = [...new Set((escopo?.tenantIds ?? []).filter(Boolean))];
+    if (!empresas.length) return { verificados: 0, transmitidas: 0 };
+    // O job já está passando pela fila (e chega a esta loja), ou alguém da empresa apertou antes.
+    if (this.contingenciaRodando || empresas.some((t) => this.contingenciaPorEmpresa.has(t)))
+      return { verificados: 0, transmitidas: 0, emAndamento: true };
+    empresas.forEach((t) => this.contingenciaPorEmpresa.add(t));
+    try {
+      return await this.cicloContingencia(limite, { tenantIds: empresas, unidadeId: escopo.unidadeId ?? null });
+    } finally {
+      empresas.forEach((t) => this.contingenciaPorEmpresa.delete(t));
+    }
+  }
+
+  /**
+   * Sem escopo, TODAS as lojas deste ponto de emissão (é o job). Com escopo, só as empresas dele —
+   * e, havendo loja em uso, as notas dela e as da rede (sem loja).
+   *
+   * Na nuvem a fila tem notas de muitas lojas, e o erro de uma não pode parar as outras (ERR-105):
+   * silêncio tira do ciclo a loja (e, com duas lojas mudas, a SEFAZ daquela UF — `SilencioDoCiclo`);
+   * problema da loja (certificado, credencial, configuração) tira só ela; erro de uma nota fica
+   * nela, e a fila segue.
+   */
+  private async cicloContingencia(limite: number, escopo: EscopoContingencia | null) {
     const origem = this.origemEmissao();
+    const empresas = escopo ? sql.join(escopo.tenantIds.map((t) => sql`${t}::uuid`), sql`, `) : null;
+    const unidade = escopo?.unidadeId ?? null;
     let ativos: any[] = [];
     try {
       const r: any = await this.db.execute(sql`
-        select * from fiscal_contingencia where origem = ${origem} and ativa = true`);
+        select * from fiscal_contingencia
+         where origem = ${origem} and ativa = true
+           and ${empresas ? sql`tenant_id in (${empresas})` : sql`true`}
+           and ${unidade ? sql`(unidade_id = ${unidade}::uuid or unidade_id is null)` : sql`true`}`);
       ativos = (r.rows ?? r) as any[];
     } catch {
       return { verificados: 0, transmitidas: 0 }; // loja com o edge anterior à mig 286
     }
 
     // ── 1) A SEFAZ voltou? ──────────────────────────────────────────────────────────────
-    // A pergunta é a consulta de STATUS: não emite, não gasta número, não grava nada.
+    // A pergunta é a consulta de STATUS: não emite, não gasta número, não grava nada. Com a SEFAZ
+    // de uma UF muda, cada loja esperaria os 30 s dela — duas lojas sem resposta bastam.
+    const mudasNoStatus = new SilencioDoCiclo();
     for (const e of ativos) {
+      const loja = pontoDeEmissao(e.tenant_id, e.unidade_id);
       try {
-        const st = await this.statusSefaz(e.tenant_id, e.unidade_id ?? null);
-        if (st.emOperacao)
-          await this.sairDaContingencia(e.tenant_id, e.unidade_id ?? null, `SEFAZ em operacao (${st.cStat})`);
+        const cfg: any = await this.configRaw(e.tenant_id, e.unidade_id ?? null);
+        const quem = autorizador(cfg?.codigoUf, cfg?.ambiente);
+        // Pulada, ela também conta como verificada (o `finally`): a SEFAZ dela é a que calou.
+        if (mudasNoStatus.pular(loja, quem)) continue;
+        try {
+          const st = await this.statusSefazBruto(e.tenant_id, e.unidade_id ?? null, cfg);
+          if (st.emOperacao)
+            await this.sairDaContingencia(e.tenant_id, e.unidade_id ?? null, `SEFAZ em operacao (${st.cStat})`);
+        } catch (err: any) {
+          if (err instanceof SefazInalcancavel) mudasNoStatus.registrar(loja, quem);
+          throw err;
+        }
       } catch (err: any) {
-        this.log.warn(`contingência segue ligada (${origem}): ${err?.message ?? err}`);
+        this.log.warn(`contingência segue ligada (${origem}, empresa ${e.tenant_id}): ${err?.message ?? err}`);
       } finally {
         await this.db
           .execute(sql`update fiscal_contingencia set ultima_verificacao = now() where id = ${e.id}::uuid`)
@@ -1069,32 +1148,152 @@ export class FiscalService {
     // ── 2) A fila ───────────────────────────────────────────────────────────────────────
     // Roda mesmo com a contingência ainda ligada: a SEFAZ pode ter voltado entre um ciclo e
     // outro, e cada nota transmitida a menos é uma multa a mais.
+    //
+    // A ordem é por VEZ: a nota mais antiga de cada loja, depois a segunda de cada uma… Na ordem
+    // de chegada pura, as notas travadas de uma loja (que nunca saem da fila) ocupavam o lote
+    // inteiro, e as das outras lojas não entravam nunca.
     const fila: any = await this.db.execute(sql`
-      select n.* from nota_fiscal n
-        join fiscal_serie s
-          on s.tenant_id = n.tenant_id
-         and s.unidade_id is not distinct from n.unidade_id
-         and s.serie = n.serie
-         and s.origem = ${origem}
-       where n.status = 'contingencia'
-         and n.chave is not null
-         and coalesce(n.simulada, false) = false
-       order by n.created_at
-       limit ${limite}`);
+      with fila as (
+        select n.id, n.created_at,
+               row_number() over (partition by n.tenant_id, n.unidade_id order by n.created_at, n.numero) as vez
+          from nota_fiscal n
+          join fiscal_serie s
+            on s.tenant_id = n.tenant_id
+           and s.unidade_id is not distinct from n.unidade_id
+           and s.serie = n.serie
+           and s.origem = ${origem}
+         where n.status = 'contingencia'
+           and n.chave is not null
+           and coalesce(n.simulada, false) = false
+           and ${empresas ? sql`n.tenant_id in (${empresas})` : sql`true`}
+           and ${unidade ? sql`(n.unidade_id = ${unidade}::uuid or n.unidade_id is null)` : sql`true`}
+      ),
+      escolhidas as (
+        select id, vez, created_at from fila order by vez, created_at limit ${limite}
+      )
+      select n.* from escolhidas e join nota_fiscal n on n.id = e.id
+       order by e.vez, e.created_at`);
     const notas = (fila.rows ?? fila) as any[];
+    const mudas = new SilencioDoCiclo();
+    // Configuração, credencial e certificado: uma vez por loja no ciclo — abrir o certificado
+    // custa, e o problema de uma loja vale para todas as notas dela.
+    const lojas = new Map<string, PreparoDaTransmissao | FalhaDaLoja>();
     let transmitidas = 0;
+    let adiadas = 0;
     for (const linha of notas) {
+      const loja = pontoDeEmissao(linha.tenant_id, linha.unidade_id);
+      const quem = autorizador(String(linha.chave ?? '').slice(0, 2), linha.ambiente);
+      if (mudas.pular(loja, quem)) {
+        adiadas++;
+        continue;
+      }
+      let preparo = lojas.get(loja);
+      if (!preparo) {
+        preparo = await this.prepararTransmissao(linha.tenant_id, linha.unidade_id ?? null).catch(
+          (e: FalhaDaLoja) => e,
+        );
+        lojas.set(loja, preparo);
+        if (preparo instanceof FalhaDaLoja) {
+          // Uma vez por loja: as outras notas dela esperam o conserto, sem repetir o mesmo erro.
+          const causa: any = preparo.causa;
+          this.log.error(
+            `contingência ${origem}: a fila da empresa ${linha.tenant_id} não sai — ${preparo.message}` +
+              (causa && causa.message !== preparo.message ? ` (${causa.message ?? causa})` : ''),
+          );
+          await this.anotarFalhaDaContingencia(linha, preparo);
+          continue;
+        }
+      }
+      if (preparo instanceof FalhaDaLoja) {
+        adiadas++;
+        continue;
+      }
       try {
-        if (await this.transmitirDaContingencia(linha)) transmitidas++;
+        if (await this.transmitirDaContingencia(linha, preparo)) transmitidas++;
       } catch (e: any) {
-        // SEFAZ fora do ar de novo: não adianta insistir nas outras neste ciclo.
-        this.log.warn(`fila de contingência interrompida: ${e?.message ?? e}`);
-        break;
+        if (e instanceof SefazInalcancavel) {
+          mudas.registrar(loja, quem);
+          this.log.warn(
+            `contingência ${origem}: a SEFAZ não respondeu à NFC-e ${linha.numero}/${linha.serie} ` +
+              `(empresa ${linha.tenant_id}) — a loja fica para o próximo ciclo: ${e.message}`,
+          );
+        } else {
+          // Erro desta nota: fica nela, e a fila segue para as outras — inclusive as da mesma loja.
+          this.log.error(
+            `contingência ${origem}: NFC-e ${linha.numero}/${linha.serie} (empresa ${linha.tenant_id}) ` +
+              `não transmitida: ${e?.message ?? e}`,
+          );
+        }
+        await this.anotarFalhaDaContingencia(linha, e);
       }
     }
-    if (notas.length)
-      this.log.log(`contingência ${origem}: ${transmitidas} de ${notas.length} transmitida(s)`);
+    if (notas.length) {
+      const foraDoAr = mudas.foraDoAr();
+      this.log.log(
+        `contingência ${origem}: ${transmitidas} de ${notas.length} transmitida(s)` +
+          (adiadas ? `, ${adiadas} para o próximo ciclo` : '') +
+          (foraDoAr.length ? ` — SEFAZ sem resposta: ${foraDoAr.join(', ')}` : ''),
+      );
+    }
     return { verificados: ativos.length, transmitidas };
+  }
+
+  /**
+   * O que é da LOJA na transmissão — configuração, credencial, certificado e transmissor. Tudo o
+   * que falha aqui vale para todas as notas dela e para nenhuma das outras lojas: sai como
+   * `FalhaDaLoja`, com o texto que a loja lê na fila.
+   */
+  private async prepararTransmissao(tenantId: string, unidadeId: string | null): Promise<PreparoDaTransmissao> {
+    let config: any;
+    try {
+      const cfgRaw: any = await this.configRaw(tenantId, unidadeId);
+      if (!cfgRaw) throw new FalhaDaLoja('a configuração fiscal da loja não foi encontrada');
+      const credencial = await obterCredencial(this.db, tenantId, unidadeId);
+      // O `certRef` vem da CREDENCIAL cifrada (mig 279), não da linha de `fiscal_config` — ler
+      // do lugar errado deixa o transmissor sem certificado e a fila parada em silêncio.
+      config = { ...cfgRaw, ...credencialParaEmissao(credencial, String(cfgRaw.ambiente ?? '2')) };
+      config.cert = config.certRef ? certificadoParaAssinar(credencial) : null;
+      // Certificado vencido derruba o TLS, e o erro chegava aqui como "a SEFAZ não respondeu" —
+      // a loja ia esperar a SEFAZ voltar enquanto o prazo da fila corria (ERR-099).
+      const probsCert = config.cert ? problemasDoCertificado(config.cert, cfgRaw.cnpj) : [];
+      if (probsCert.length)
+        throw new FalhaDaLoja(
+          `o certificado digital da loja não serve (${probsCert.join(' ')}) — a fila da contingência ` +
+            'só é transmitida depois de cadastrado o certificado válido',
+        );
+    } catch (e: any) {
+      if (e instanceof FalhaDaLoja) throw e;
+      // Texto escrito para o usuário (o certificado que não abre, o CSC) vai para a fila como
+      // está; defeito nosso (banco, código) fica no log, e a loja lê um aviso.
+      throw new FalhaDaLoja(
+        e instanceof HttpException ? e.message : 'não consegui preparar a transmissão (o detalhe ficou no log do servidor)',
+        e,
+      );
+    }
+    try {
+      return { config, transmissor: this.transmitter(config) };
+    } catch (e: any) {
+      // Sem certificado, ou a UF sem autorizador confirmado: textos escritos para a loja, mas o
+      // "nenhuma nota foi emitida" do fim é da emissão — a de contingência JÁ foi emitida.
+      const texto = String(e?.message ?? 'transmissor indisponível').replace(/\s*Nenhuma nota foi emitida\.?\s*$/i, '');
+      throw new FalhaDaLoja(texto, e);
+    }
+  }
+
+  /**
+   * A nota não saiu por um ERRO — não por rejeição da SEFAZ: o motivo fica nela, à vista na fila
+   * da loja, e a tentativa conta. Nunca lança: é o registro de uma falha, não pode virar outra.
+   */
+  private async anotarFalhaDaContingencia(linha: any, erro: unknown): Promise<void> {
+    await this.db
+      .execute(sql`
+        update nota_fiscal
+           set motivo = ${motivoDaFalha(erro)},
+               tentativas_transmissao = tentativas_transmissao + 1
+         where id = ${linha.id}::uuid and status = 'contingencia'`)
+      .catch((e: any) =>
+        this.log.warn(`NFC-e ${linha.numero}/${linha.serie}: o motivo da falha não foi gravado: ${e?.message ?? e}`),
+      );
   }
 
   /**
@@ -1106,25 +1305,11 @@ export class FiscalService {
    * inutilizado (Ajuste 19/16, cl. 11ª, §2º, II), então ele tem de ser transmitido de um jeito
    * ou de outro — corrigindo o que a SEFAZ apontou e reenviando com a MESMA numeração.
    */
-  private async transmitirDaContingencia(linha: any): Promise<boolean> {
+  private async transmitirDaContingencia(linha: any, preparo: PreparoDaTransmissao): Promise<boolean> {
     const tenantId = linha.tenant_id;
     const unidadeId = linha.unidade_id ?? null;
-    const cfgRaw: any = await this.configRaw(tenantId, unidadeId);
-    if (!cfgRaw) return false;
-    const credencial = await obterCredencial(this.db, tenantId, unidadeId);
-    // O `certRef` vem da CREDENCIAL cifrada (mig 279), não da linha de `fiscal_config` — ler
-    // do lugar errado deixa o transmissor sem certificado e a fila parada em silêncio.
-    const config: any = { ...cfgRaw, ...credencialParaEmissao(credencial, String(cfgRaw.ambiente ?? '2')) };
-    config.cert = config.certRef ? certificadoParaAssinar(credencial) : null;
-    // Certificado vencido derruba o TLS, e o erro chegava aqui como "a SEFAZ não respondeu" —
-    // a loja ia esperar a SEFAZ voltar enquanto o prazo da fila corria (ERR-099).
-    const probsCert = config.cert ? problemasDoCertificado(config.cert, cfgRaw.cnpj) : [];
-    if (probsCert.length)
-      throw new Error(
-        `o certificado digital da loja não serve (${probsCert.join(' ')}) — a fila da contingência ` +
-          'só é transmitida depois de cadastrado o certificado válido',
-      );
-    const ret = await this.transmitter(config).autorizar(linha.xml, linha.chave, config);
+    const { config, transmissor } = preparo;
+    const ret = await transmissor.autorizar(linha.xml, linha.chave, config);
     const vencido = prazoVencido(new Date(linha.created_at), new Date());
 
     if (ret.status === 'autorizada') {

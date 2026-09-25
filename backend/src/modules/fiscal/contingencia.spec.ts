@@ -280,7 +280,9 @@ descrever('a venda não trava quando a SEFAZ fica muda', () => {
         : retAutorizacao('100', 'Autorizado o uso da NF-e', p.corpoXml.match(/Id="NFe(\d{44})"/)![1]),
     );
 
-    const r: any = await servico.rodarContingencia();
+    // O ciclo limitado à empresa do teste: o job passa pela fila de TODAS as lojas, e no CI as
+    // specs rodam em paralelo no mesmo banco — a fila de uma pegava as notas das outras (ERR-105).
+    const r: any = await servico.transmitirContingencia({ tenantIds: [tenant] });
     expect(r.transmitidas).toBeGreaterThanOrEqual(1);
     expect((await estado()).ativa).toBe(false);
 
@@ -301,7 +303,7 @@ descrever('a venda não trava quando a SEFAZ fica muda', () => {
         ? RET_STATUS_OK
         : retAutorizacao('539', 'Rejeicao: Duplicidade de NF-e com diferenca na chave', p.corpoXml.match(/Id="NFe(\d{44})"/)![1]),
     );
-    await servico.rodarContingencia();
+    await servico.transmitirContingencia({ tenantIds: [tenant] });
 
     const nota = (await notasDa(comanda)).find((n: any) => n.id === emitida.id);
     expect(nota.status).toBe('contingencia'); // NÃO virou 'rejeitada'

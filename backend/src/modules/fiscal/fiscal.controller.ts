@@ -163,11 +163,12 @@ export class FiscalController {
   }
 
   // Força um ciclo agora (sair da contingência se a SEFAZ voltou + transmitir a fila), em vez
-  // de esperar os 5 minutos do job. É o botão de quem está olhando o prazo correr.
+  // de esperar os 5 minutos do job. É o botão de quem está olhando o prazo correr. Só a fila da
+  // PRÓPRIA empresa: o job é que passa pela fila de todas as lojas (ERR-105).
   @Post('contingencia/transmitir')
   @Roles('presidente', 'gerente')
-  transmitirContingencia() {
-    return this.service.rodarContingencia();
+  transmitirContingencia(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.service.transmitirContingencia({ tenantIds: [user.tenantId], unidadeId });
   }
 
   // QUAIS TERMINAIS EMITEM NFC-e (mig 288). Decisão com peso fiscal: só PRESIDENTE e GERÊNCIA
