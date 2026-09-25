@@ -65,12 +65,14 @@ descrever('credenciais fiscais cifradas, contra o Postgres', () => {
     );
   });
 
+  // O `delete` da empresa desce em cascata por todas as tabelas: com as specs rodando juntas, os
+  // 5 s padrão do hook não bastam (a spec caía sem nenhum teste falhar).
   afterAll(async () => {
     if (chaveOriginal === undefined) delete process.env.SEGREDOS_CHAVE;
     else process.env.SEGREDOS_CHAVE = chaveOriginal;
     if (tenant) await pool.query('delete from empresa where id = $1', [tenant]);
     await pool.end();
-  });
+  }, 60000);
 
   it('guarda o certificado e o banco NÃO contém o arquivo nem a senha', async () => {
     const r = await salvarCertificado(db, tenant, unidade, {

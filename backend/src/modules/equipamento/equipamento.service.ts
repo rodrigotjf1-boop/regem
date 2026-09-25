@@ -8,7 +8,10 @@ import { CreateEquipamentoDto } from './dto/create-equipamento.dto';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { ForbiddenException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
+import { ehServidorLocal } from '../../common/modo';
 import { soltarAvisosParados } from '../gogem/aviso-gogem';
+import { DIAS_SEM_SINAL_PARA_REVOGAR, revogarServidoresSubstituidos } from '../licenca/servidor-da-loja';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -345,6 +348,56 @@ export class EquipamentoService {
       detalhe: { nome: row.nome },
     });
     return this.publico(row);
+  }
+
+  /**
+   * Servidor da loja SUBSTITUÍDO sai sozinho (decisão do dono, 25/09/2026): a loja troca de máquina,
+   * ou reinstala com um `.exe` novo, e o `servidor_local` antigo ficava com o token ativo para sempre
+   * (o piloto chegou a 6). Todo dia, revoga o que está há 10 dias sem sinal de vida E tem substituto
+   * vivo na mesma loja (ou na rede) — nunca a credencial do GoGeM, nunca o único servidor de uma loja
+   * parada. As regras estão em `revogarServidoresSubstituidos`.
+   *
+   * Onde roda (ERR-075): só na NUVEM — é lá que moram as credenciais `servidor_local` e o relatório
+   * de status de cada servidor (`edge_status`); no servidor da loja o `servidor_local` nem existe.
+   * Nunca lança: o job não pode derrubar nada.
+   */
+  @Cron('0 4 * * *') // 04:00 todos os dias
+  async revogarServidoresSubstituidos(dias = DIAS_SEM_SINAL_PARA_REVOGAR, soEmpresas?: string[]) {
+    if (ehServidorLocal()) return { revogados: 0 };
+    let revogados: Awaited<ReturnType<typeof revogarServidoresSubstituidos>> = [];
+    try {
+      revogados = await revogarServidoresSubstituidos(this.db, dias, soEmpresas);
+    } catch (e: any) {
+      this.logger.error(`revogação de servidores substituídos não rodou: ${e?.message ?? e}`);
+      return { revogados: 0 };
+    }
+    for (const r of revogados) {
+      this.logger.warn(
+        `servidor da loja "${r.nome}" (${r.id}, empresa ${r.tenant_id}) revogado: ${dias}+ dias sem sinal de vida, ` +
+          `substituído por ${r.substituto}`,
+      );
+      await this.auditoria
+        .registrar({
+          tenantId: r.tenant_id,
+          unidadeId: r.unidade_id,
+          atorId: null,
+          atorPerfil: 'servico',
+          tipo: 'modulos',
+          acao: 'revogou_equipamento',
+          origem: 'automatico',
+          entidadeTipo: 'equipamento',
+          entidadeId: r.id,
+          detalhe: {
+            nome: r.nome,
+            motivo: `servidor da loja substituído: ${dias} dias sem sinal de vida`,
+            ultimoSinal: r.ultimo_sinal,
+            substituto: r.substituto,
+          },
+        })
+        .catch((e: any) => this.logger.warn(`auditoria da revogação de ${r.id} falhou: ${e?.message ?? e}`));
+    }
+    if (revogados.length) this.logger.log(`servidores substituídos revogados: ${revogados.length}`);
+    return { revogados: revogados.length };
   }
 
   // Handshake do WebSocket: valida o token do device (só se ativo).
