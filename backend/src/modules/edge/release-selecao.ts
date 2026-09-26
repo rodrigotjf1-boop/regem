@@ -40,6 +40,18 @@ export function compararVersao(a: string, b: string): number {
   return 0;
 }
 
+// Servidor abaixo desta versão NÃO se atualiza por pacote (.zip). Quem aplica o pacote é o
+// atualizar.ps1 JÁ INSTALADO na loja, e o da 1.29.x para a API antes do app, que depende dela:
+// o Windows recusa, o nssm escreve no stderr e o script aborta em "Parando serviços" sem trocar
+// nada (#457, ERR-110). A tela ficava parada em 45% e cada clique deixava uma pasta de backup.
+// Essas lojas sobem pelo instalador (.exe), que na mesma máquina mantém certificado e
+// configuração. A 1.30.0 é a primeira com o script novo (monta ao lado e troca o conjunto).
+export const VERSAO_MINIMA_PACOTE = '1.30.0';
+
+export function aceitaPacote(versao: string | null | undefined): boolean {
+  return !!versao && compararVersao(versao, VERSAO_MINIMA_PACOTE) >= 0;
+}
+
 // 0..99, estável para o par empresa+versão.
 export function sorteioDaLoja(tenantId: string, versao: string): number {
   const h = createHash('sha256').update(`${tenantId}|${versao}`).digest();

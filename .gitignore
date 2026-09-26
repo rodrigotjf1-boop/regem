@@ -29,6 +29,10 @@ regem-edge-*.zip
 # Saída do Inno Setup (instalador .exe gerado)
 backend/edge/Output/
 
+# Certificado HTTPS gerado por edge/gen-cert.mjs ao rodar no repositório: a chave privada do
+# servidor nunca vai para o git (cada loja gera o seu na instalação).
+backend/edge/certs/
+
 # Mídia gravada em disco no modo local/offline (não versionar uploads de teste)
 backend/uploads/
 uploads/

@@ -25,6 +25,7 @@ import { exigirBooleano } from '../../common/exigir';
 import { checarBanco } from '../../common/saude-banco';
 import {
   ReleaseLinha,
+  aceitaPacote,
   compararVersao,
   escolherRelease,
   versaoRecolhida,
@@ -50,6 +51,7 @@ function redigirPII(s: string | null): string | null {
 export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger('Edge');
   private bonjour?: InstanceType<typeof Bonjour>;
+  private ultimoAvisoMdns = 0;
 
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
@@ -579,23 +581,30 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
 
   // O edge pergunta "tem versão nova?". Sem segredo → público. Responde com o release que
   // ESTA loja deve receber (distribuição escalonada — release-selecao.ts): quem manda o token do
-  // servidor (x-sync-token) entra no piloto/percentual; sem token (servidores na 1.29.x) só vê
-  // release em 100%. A aplicação em si (baixar/trocar/reiniciar) é do atualizar.ps1 no PC.
+  // servidor (x-sync-token) entra no piloto/percentual; sem token só vê release em 100%; e
+  // servidor abaixo da VERSAO_MINIMA_PACOTE (1.29.x) não recebe pacote nenhum — o script dele
+  // não consegue aplicar (ERR-110). A aplicação em si (baixar/trocar/reiniciar) é do
+  // atualizar.ps1 no PC.
   async atualizacao(versaoCliente?: string, tenantId: string | null = null) {
     // Prioridade: os releases publicados pelo console (tabela edge_release); sem nenhum,
     // cai no env (EDGE_LATEST_VERSION/URL/SHA/NOTAS) — compat.
     const rels = await this.carregarReleases();
     const atual = versaoCliente || '0';
-    const rel = rels.length ? escolherRelease(rels, tenantId) : null;
+    // Loja numa versão que não consegue aplicar pacote (VERSAO_MINIMA_PACOTE): nenhuma oferta,
+    // nem pela tabela nem pelo env — só o instalador a atualiza. Sem url, até o atualizar.ps1
+    // rodado à mão com -Forcar para na preparação, sem tocar em nada.
+    const soInstalador = !aceitaPacote(atual);
+    const rel = rels.length && !soInstalador ? escolherRelease(rels, tenantId) : null;
     const expira = rel?.expira_em ? new Date(rel.expira_em as any).toISOString() : null;
+    const doEnv = !rels.length && !soInstalador;
     const ultima =
       rel?.versao ??
-      (rels.length ? atual : (process.env.EDGE_LATEST_VERSION ?? process.env.APP_VERSION ?? '1'));
-    const doEnv = !rels.length;
+      (doEnv ? (process.env.EDGE_LATEST_VERSION ?? process.env.APP_VERSION ?? '1') : atual);
     return {
       atual,
       ultima,
       atualizar: compararVersao(ultima, atual) > 0,
+      soInstalador,
       url: rel?.url ?? (doEnv ? process.env.EDGE_UPDATE_URL ?? null : null),
       sha256: rel?.sha256 ?? (doEnv ? process.env.EDGE_UPDATE_SHA256 ?? null : null),
       // v1 = Ed25519 de "versao|sha256|url" (servidores na versão anterior conferem esta);
@@ -622,7 +631,20 @@ export class EdgeService implements OnApplicationBootstrap, OnModuleDestroy {
     }
     try {
       const porta = Number(process.env.PORT) || 3001;
-      this.bonjour = new Bonjour();
+      // Erro de rede do mDNS NÃO pode derrubar a API. O padrão da biblioteca é LANÇAR a falha de
+      // envio (ex.: EHOSTUNREACH quando a placa de rede cai ou o Wi-Fi reconecta) dentro de um
+      // callback: virava exceção não tratada, a API saía e o NSSM a reiniciava — os caixas ficavam
+      // sem servidor a cada oscilação da rede (ERR-112). Agora só avisa, no máximo 1x por minuto.
+      const avisoMdns = (e: any) => {
+        const agora = Date.now();
+        if (agora - this.ultimoAvisoMdns < 60_000) return;
+        this.ultimoAvisoMdns = agora;
+        this.logger.warn(
+          `mDNS: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e} — a API segue no ar; o anúncio volta com a rede`,
+        );
+      };
+      this.bonjour = new Bonjour({}, avisoMdns);
+      (this.bonjour as any).server?.mdns?.on?.('error', avisoMdns);
       // Nome da INSTÂNCIA único por máquina: com o nome fixo 'Regem Edge', dois servidores na
       // mesma rede (ex.: Matriz e Filial no mesmo prédio, ou um reserva) colidem e o segundo
       // DESISTE de anunciar — a biblioteca só escreve no console. Os apps procuram pelo TIPO

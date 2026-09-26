@@ -84,6 +84,24 @@ descrever('atualização do servidor local (Postgres com todas as migrations)', 
     expect((await checar(T, `${V}.1.0`)).versaoAtualRecolhida).toBe(true);
   });
 
+  // ERR-110: o atualizar.ps1 da 1.29.x aborta em "Parando serviços" com qualquer pacote — a
+  // tela ficava em 45% e cada clique deixava uma pasta de backup. Essa loja vai pelo instalador.
+  it('update-check: servidor na 1.29.x não recebe pacote nem com release em 100%', async () => {
+    await publicar(`${V}.2.0`);
+    expect(await checar(T)).toMatchObject({ atualizar: true, ultima: `${V}.2.0`, soInstalador: false });
+    for (const tenant of [T, null]) {
+      expect(await checar(tenant, '1.29.0')).toMatchObject({
+        atualizar: false,
+        ultima: '1.29.0',
+        soInstalador: true,
+        url: null,
+        sha256: null,
+        assinatura: null,
+        assinaturaV2: null,
+      });
+    }
+  });
+
   it('trava de operação: API e daemon enxergam o mesmo caixa aberto e pedido em produção', async () => {
     process.env.EDGE_UNIDADE_ID = LOJA;
     const daemon = async (loja: string | null) => (await q(sqlDoDaemon(), [loja])).rows[0];
@@ -109,5 +127,38 @@ descrever('atualização do servidor local (Postgres com todas as migrations)', 
     const d = await daemon(LOJA);
     expect(d.caixas).toBe(api.caixasAbertos);
     expect(d.pedidos).toBe(api.pedidosEmProducao);
+  });
+});
+
+// Sem release na tabela, a oferta vem do env (compat) — a trava da versão mínima vale ali também.
+describe('update-check pelo env: servidor na 1.29.x não recebe pacote (ERR-110)', () => {
+  const CHAVES = ['EDGE_LATEST_VERSION', 'EDGE_UPDATE_URL', 'EDGE_UPDATE_SHA256', 'EDGE_UPDATE_SIG'] as const;
+  const antes: Record<string, string | undefined> = {};
+  beforeAll(() => {
+    for (const k of CHAVES) antes[k] = process.env[k];
+    process.env.EDGE_LATEST_VERSION = '1.31.0';
+    process.env.EDGE_UPDATE_URL = 'https://x/regem-edge-1.31.0.zip';
+    process.env.EDGE_UPDATE_SHA256 = 'f'.repeat(64);
+    process.env.EDGE_UPDATE_SIG = 's1';
+  });
+  afterAll(() => {
+    for (const k of CHAVES) {
+      if (antes[k] === undefined) delete process.env[k];
+      else process.env[k] = antes[k];
+    }
+    (EdgeService as any).cacheReleases = null;
+  });
+
+  it('1.29.x fica sem oferta; 1.30.0 recebe', async () => {
+    const svc = new EdgeService({ execute: async () => ({ rows: [] }) } as any);
+    (EdgeService as any).cacheReleases = null;
+    expect(await svc.atualizacao('1.29.0', null)).toMatchObject({ atualizar: false, soInstalador: true, url: null, sha256: null, assinatura: null });
+    (EdgeService as any).cacheReleases = null;
+    expect(await svc.atualizacao('1.30.0', null)).toMatchObject({
+      atualizar: true,
+      soInstalador: false,
+      ultima: '1.31.0',
+      url: 'https://x/regem-edge-1.31.0.zip',
+    });
   });
 });
