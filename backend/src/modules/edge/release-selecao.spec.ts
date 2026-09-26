@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { compararVersao, elegivel, escolherRelease, sorteioDaLoja, versaoRecolhida, ReleaseLinha } from './release-selecao';
+import {
+  VERSAO_MINIMA_PACOTE,
+  aceitaPacote,
+  compararVersao,
+  elegivel,
+  escolherRelease,
+  sorteioDaLoja,
+  versaoRecolhida,
+  ReleaseLinha,
+} from './release-selecao';
 
 // Distribuição ESCALONADA dos releases do servidor local (ERR-051): antes o último publicado ia
 // para todas as lojas de uma vez, sem piloto, pausa ou recolhimento.
@@ -82,5 +91,14 @@ describe('distribuição escalonada dos releases do servidor local', () => {
     expect(versaoRecolhida(lista, '1.30.0')).toBe(true);
     expect(versaoRecolhida(lista, '1.29.3')).toBe(false);
     expect(versaoRecolhida(lista, undefined)).toBe(false);
+  });
+
+  // ERR-110: o atualizar.ps1 da 1.29.x aborta em "Parando serviços" com qualquer pacote.
+  it('servidor abaixo da 1.30.0 não aceita pacote; da 1.30.0 em diante, sim', () => {
+    expect(VERSAO_MINIMA_PACOTE).toBe('1.30.0');
+    for (const v of ['1.29.0', '1.29.9', '1.6.0', '0', '']) expect(aceitaPacote(v)).toBe(false);
+    expect(aceitaPacote(undefined)).toBe(false);
+    expect(aceitaPacote(null)).toBe(false);
+    for (const v of ['1.30.0', '1.30.1', '1.31.0', '2.0.0']) expect(aceitaPacote(v)).toBe(true);
   });
 });

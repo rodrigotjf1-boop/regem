@@ -125,6 +125,28 @@ trap {
 }
 function Diga($m) { Write-Host ("[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $m) }
 
+# Le um .env.local (CHAVE=VALOR) e decifra os valores DPAPI (enc:). Valor que nao decifra
+# (arquivo trazido de outra maquina) fica de fora: usar o blob cifrado como segredo quebraria
+# o app. Usado na reinstalacao para herdar a configuracao ANTES que o -Limpar a apague.
+function Ler-EnvLocal($arquivo) {
+  $vals = @{}
+  if (-not $arquivo -or -not (Test-Path $arquivo)) { return $vals }
+  foreach ($l in (Get-Content $arquivo -ErrorAction SilentlyContinue)) {
+    if ($l -match '^\s*#') { continue }
+    if ($l -notmatch '^\s*([A-Za-z0-9_]+)\s*=\s*(.*)$') { continue }
+    $k = $Matches[1]; $v = $Matches[2].Trim()
+    if ($v.StartsWith('enc:')) {
+      try {
+        Add-Type -AssemblyName System.Security
+        $v = [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect(
+          [Convert]::FromBase64String($v.Substring(4)), $null, 'LocalMachine'))
+      } catch { continue }
+    }
+    $vals[$k] = $v
+  }
+  return $vals
+}
+
 # PORTA DA API: recusar cedo em vez de instalar quebrado.
 # Ela era decidida em TRES lugares que nao conversavam: aqui (vai para o PORT do
 # .env.local, onde a API escuta), no instalar-servicos.ps1 (que abria o firewall na
@@ -257,6 +279,10 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 $svcRegem = @('RegemEdgeApi', 'RegemEdgeSync', 'RegemEdgeImpressao', 'RegemEdgeWeb', 'RegemEdgePg')
 $reinstalacao = (Test-Path (Join-Path $base 'pgdata'))
 foreach ($s in $svcRegem) { if (Get-Service -Name $s -ErrorAction SilentlyContinue) { $reinstalacao = $true } }
+# Configuracao da instalacao anterior (vazia em maquina nova). Lida logo abaixo, ANTES do
+# -Limpar apagar o .env.local: a reinstalacao na MESMA maquina mantem a chave de sessao e o
+# webhook do WhatsApp (e o gen-cert mantem o certificado) - so maquina nova se reconfigura.
+$envHerdado = @{}
 if ($reinstalacao) {
   Diga "  Instalacao anterior detectada -> MODO REINSTALACAO."
   # Para os servicos para liberar os arquivos travados (dist/main.js, node_modules, edge-web.mjs...).
@@ -271,6 +297,8 @@ if ($reinstalacao) {
     try { & icacls $envAntigo /reset | Out-Null } catch {}
     try { & attrib -R $envAntigo 2>$null } catch {}
   }
+  $envHerdado = Ler-EnvLocal $envAntigo
+  if ($envHerdado.Count) { Diga ("  Configuracao anterior lida ({0} itens): o que identifica este servidor fica." -f $envHerdado.Count) }
 
   # -Limpar: REMOCAO TOTAL da instalacao anterior (nuke). Remove servicos+tarefas,
   # mata os processos presos (postgres/node) e APAGA o pgdata/backups/.env. Depois
@@ -725,7 +753,13 @@ Diga "Criando banco regem_local..."
 
 # ---- 2) .env.local automatico ----
 $jwt = Rand 40
-$ip = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -match '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' } | Select-Object -First 1).IPAddress
+# Reinstalacao na mesma maquina: mantem a chave de sessao. Antes toda reinstalacao gerava
+# outra, e quem estava logado nos caixas tinha de entrar de novo.
+if ($envHerdado.JWT_SECRET -and $envHerdado.JWT_SECRET.Length -ge 16) {
+  $jwt = $envHerdado.JWT_SECRET
+  Diga "Reinstalacao: mantendo a chave de sessao (quem estava logado continua logado)."
+}
+$ip =(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -match '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' } | Select-Object -First 1).IPAddress
 if (-not $ip) { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' } | Select-Object -First 1).IPAddress }
 Diga "IP da LAN detectado: $ip"
 
@@ -830,16 +864,13 @@ if (Test-Path $envLocal) {
 $verFile = Join-Path $root 'version.txt'
 $appVersion = if (Test-Path $verFile) { (Get-Content $verFile -Raw).Trim() } else { '0' }
 Diga "Versao do pacote: $appVersion"
-# Reinstalacao: se nao veio -OtpWebhookUrl, reusa o do .env.local atual (best-effort;
-# nao perde a config do WhatsApp em modo local). So le se o arquivo ainda estiver em texto.
-if (-not $OtpWebhookUrl -and (Test-Path $envLocal)) {
-  foreach ($linha in (Get-Content $envLocal -ErrorAction SilentlyContinue)) {
-    if ($linha -match '^\s*OTP_WEBHOOK_URL\s*=\s*(.+)$') {
-      $OtpWebhookUrl = $Matches[1].Trim()
-      Diga "Reinstalacao: reusando OTP_WEBHOOK_URL do .env.local."
-      break
-    }
-  }
+# Reinstalacao: se nao veio -OtpWebhookUrl, reusa o da instalacao anterior (nao perde a
+# config do WhatsApp em modo local). Vem de $envHerdado, lido ANTES do -Limpar: a leitura
+# antiga era feita aqui, depois que o -Limpar ja tinha apagado o .env.local - e o .exe passa
+# -Limpar sempre, entao nunca achava.
+if (-not $OtpWebhookUrl -and $envHerdado.OTP_WEBHOOK_URL) {
+  $OtpWebhookUrl = $envHerdado.OTP_WEBHOOK_URL
+  Diga "Reinstalacao: reusando OTP_WEBHOOK_URL da instalacao anterior."
 }
 @"
 # Gerado automaticamente pelo instalador do Regem Edge - nao editar a mao sem necessidade.
@@ -904,7 +935,15 @@ $env:EDGE_MODE = 'true'
 Diga "Aplicando migrations..."; & $node "scripts\apply-all-local.mjs"; $mig = $LASTEXITCODE
 Remove-Item Env:\DATABASE_URL -ErrorAction SilentlyContinue
 if ($mig -ne 0) { throw "migrations falharam." }
-Diga "Gerando certificado HTTPS local ($ip)..."; & $node "edge\gen-cert.mjs" $ip
+# Mesma maquina: o gen-cert MANTEM o certificado em que os aparelhos da loja ja confiam e so
+# gera outro quando ele nao serve mais (vencendo, IP que nao e mais desta maquina...), dizendo
+# por que. A saida vai para o log da instalacao; sem certificado a API nao sobe, entao a falha
+# para aqui em vez de terminar "instalado" com o HTTPS quebrado.
+Diga "Certificado HTTPS local (IP detectado: $ip)..."
+$saidaCert = & $node "edge\gen-cert.mjs" $ip
+$rcCert = $LASTEXITCODE
+foreach ($l in @($saidaCert)) { if ($l) { Diga "  $l" } }
+if ($rcCert -ne 0) { throw "nao consegui gerar nem manter o certificado HTTPS local (gen-cert rc=$rcCert)." }
 
 # ---- Extrai o app do TAR (evita MAX_PATH) ----
 # O web/ (Next standalone) vem no pacote como web.tar (1 arquivo) porque a copia
