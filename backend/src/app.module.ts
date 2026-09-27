@@ -57,6 +57,7 @@ import { EtiquetaValidadeModule } from './modules/etiqueta-validade/etiqueta-val
 import { ProducaoPedidoModule } from './modules/producao-pedido/producao-pedido.module';
 import { ImpressaoModule } from './modules/impressao/impressao.module';
 import { FiscalModule } from './modules/fiscal/fiscal.module';
+import { IbptModule } from './modules/fiscal/ibpt/ibpt.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { TefModule } from './modules/tef/tef.module';
 import { CardapioModule } from './modules/cardapio/cardapio.module';
@@ -159,6 +160,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
     ProducaoPedidoModule,
     ImpressaoModule,
     FiscalModule,
+    // Tabela do IBPT (Lei 12.741): nos dois lados — a nuvem recebe e verifica, a loja baixa.
+    IbptModule,
     DeliveryModule,
     TefModule,
     FidelidadeModule,

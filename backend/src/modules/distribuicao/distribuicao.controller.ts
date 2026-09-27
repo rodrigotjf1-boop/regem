@@ -1,8 +1,21 @@
-import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Param,
+  Post,
+  Req,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { DistribuicaoService } from './distribuicao.service';
 import { DistCtx, DistUser, DistribuicaoGuard, PerfilDist, PerfilDistGuard } from './distribuicao.guard';
 import { CloudOnly } from '../../common/cloud-only.decorator';
+import { IbptService } from '../fiscal/ibpt/ibpt.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -10,7 +23,10 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 @Controller('distribuicao')
 @CloudOnly()
 export class DistribuicaoController {
-  constructor(private readonly service: DistribuicaoService) {}
+  constructor(
+    private readonly service: DistribuicaoService,
+    private readonly ibpt: IbptService,
+  ) {}
 
   @Post('login')
   @Throttle({ default: { ttl: 60000, limit: 10 } })
@@ -158,6 +174,30 @@ export class DistribuicaoController {
   @PerfilDist('diretoria')
   publicarRelease(@DistUser() u: DistCtx, @Body() dto: any) {
     return this.service.publicarRelease(dto, u);
+  }
+
+  // Tabela do IBPT (Lei 12.741) — aba Atualizações. Situação por UF (vigente, próxima, dias para
+  // vencer) e o envio do arquivo baixado no site do IBPT: o ZIP como veio, ou os CSVs de UF.
+  @Get('ibpt')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  ibptStatus() {
+    return this.ibpt.status();
+  }
+
+  @Post('ibpt')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria', 'tecnico')
+  @UseInterceptors(FilesInterceptor('arquivos', 40, { limits: { fileSize: 40 * 1024 * 1024 } }))
+  async enviarIbpt(@DistUser() u: DistCtx, @UploadedFiles() arquivos: any[]) {
+    const r = await this.ibpt.importar(
+      (arquivos ?? []).map((a) => ({ nome: String(a.originalname ?? ''), dados: a.buffer as Buffer })),
+      u?.nome ?? u?.sub ?? null,
+    );
+    await this.service.auditar(u, 'importou_tabela_ibpt', null, {
+      tabelas: r.importadas.map((i: any) => `${i.uf} ${i.versao} (${i.vigenciaInicio} a ${i.vigenciaFim})`),
+    });
+    return r;
   }
 
   // Distribuição escalonada de um release: percentual, lojas piloto, pausar, recolher.

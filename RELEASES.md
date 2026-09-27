@@ -10,9 +10,16 @@
 - **Como cortar (OBRIGATÓRIO):** `powershell -File backend\edge\build-release.ps1 -Versao X.Y.Z` → só compilar no Inno / rodar `publicar.ps1` no **"TUDO OK"** do preflight. Nunca de árvore atrás do `origin/main`, nunca de `regem-edge-dist` reaproveitado.
 - **Publicar `.zip`:** `edge/publicar.ps1 -Versao X.Y.Z` → sobe no Supabase Storage (bucket `edge-updates`, nome exato `regem-edge-X.Y.Z.zip`) → `edge/publicar.ps1 -Versao X.Y.Z -SoAssinar -Url <url>` (assina o MESMO arquivo, v1 + v2 com validade) → cola versão, URL, SHA e as assinaturas no console de distribuição, **começando pelas lojas piloto / percentual baixo**. O console recusa release sem as duas assinaturas válidas.
 
-## Acumulado (NÃO empacotado) — próximo `.exe`/`.zip` do edge
+## Acumulado (NÃO empacotado) — próximo `.zip` do edge (1.30.1)
 
-Mudanças **do edge** já na `main` aguardando o próximo corte:
+- **NFC-e — valor aproximado dos tributos (Lei 12.741) pela tabela do IBPT (migration 291):** a nota passa a sair com `vTotTrib` por item e no total e com a frase no `infCpl`, impressa no cupom ("Trib aprox R$ X Federal e R$ Y Estadual (Lei 12.741/12). Fonte: IBPT/empresometro.com.br <chave>"); os valores ficam gravados na nota (`nota_fiscal.tributos_aprox`) e a reimpressão usa os gravados. Informativo: não muda total, imposto, relatório nem caixa; sem tabela vigente (ou antes da mig 291 no servidor da loja) a nota sai sem os valores e a venda segue. A tabela é da DISTRIBUIÇÃO (sem empresa, fora do sync): a Regem envia o ZIP baixado no site do IBPT na aba Atualizações do console; o servidor da loja baixa a da UF dele da nuvem (`GET /fiscal/ibpt/:uf`, token de sync) a cada 6 h e logo depois de subir. Verificador diário na nuvem avisa na telemetria a UF com loja sem tabela ou vencendo em até 7 dias sem a próxima. Toca a emissão e o módulo novo `IbptModule`, que rodam na loja → **`.zip`** (sem `.exe`: não tocou `edge/`).
+  ⚠️ **Ordem de deploy:** mig 291 na NUVEM **antes do merge** (coluna nova em `nota_fiscal`: sem ela, toda consulta de nota dá 42703). No servidor da loja, a mig vem no próprio `.zip`. **Depois do deploy:** enviar a primeira tabela no console (a vigente do IBPT) — até lá as notas saem sem os valores, como hoje.
+
+## Última release: `1.30.0` — gerada em 26/09/2026 da `origin/main` `67fcab6`, **.exe COMPILADO** e enviado ao Storage; instalação na loja piloto PENDENTE
+
+- **Loja na 1.29.x sobe SÓ pelo `.exe`**: o `atualizar.ps1` dela aborta com qualquer `.zip` (ERR-110), e a nuvem não oferece pacote abaixo da 1.30.0. Na mesma máquina, o `.exe` mantém certificado, sessão e webhook (ERR-111) — a loja não reconfigura nada. **Não há `.zip` da 1.30.0**: os pacotes voltam na 1.30.1, para as lojas já na 1.30.0.
+
+Mudanças **do edge** que entraram na 1.30.0:
 - 🔴 **Reinstalação na mesma máquina mantém certificado e configuração + loja na 1.29.x só pelo instalador + mDNS que derrubava a API (sem migration, ERR-110 a 112):** tocou `edge/gen-cert.mjs`, `edge/instalar-tudo.ps1` e a API (`edge.service`, `release-selecao`) → **`.exe` e `.zip`**; a trava da nuvem sobe no autodeploy.
   - **Loja na 1.29.x NÃO se atualiza por `.zip` (ERR-110):** quem aplica o pacote é o `atualizar.ps1` já instalado, e o da 1.29.0 para a API antes do app, que depende dela. O Windows recusa, e o script aborta em "Parando serviços" sem trocar nada; a tela fica em 45% e cada clique deixa uma pasta `backup-*` (código, banco e app) e ~166 MB na pasta temporária. Reproduzido na loja simulada com o gerenciador de serviços fiel ao Windows (o falso antigo não tinha a dependência, e por isso a anotação do #543 abaixo dizia o contrário). A nuvem deixa de oferecer pacote a servidor abaixo da **1.30.0** (`VERSAO_MINIMA_PACOTE`). **Essas lojas sobem pelo `.exe`.**
   - **O `.exe` na mesma máquina mantém o que os aparelhos já conhecem (ERR-111):** o **certificado HTTPS** (antes toda instalação gerava CA nova, e caixas, totem e KDS tinham de voltar a confiar; o totem, ser pareado de novo), a **chave de sessão** (ninguém precisa entrar de novo) e o **`OTP_WEBHOOK_URL`** (era lido depois de o `-Limpar` apagar o `.env.local` e se perdia). Certificado novo só quando o atual não serve (vence em menos de 60 dias, o IP dele não é mais da máquina, arquivos trocados ou ilegíveis), com o motivo no log e o anterior guardado em `edge\certs\anterior-*`. Máquina nova segue reconfigurando os aparelhos, como antes.
@@ -211,7 +218,7 @@ Programa **Gestão de Frota Edge** (`docs/plano-frota-edge.md`) — mesclado e *
 
 > Empacotado no **1.24.0** (abaixo). Migrations: **219 (F1)** e **220 (F3)** aplicadas na nuvem (31/08).
 
-## Última release: `1.29.0` — cortada (03/09/2026), **.exe COMPILADO** ✅
+## Release anterior: `1.29.0` — cortada (03/09/2026), **.exe COMPILADO** ✅
 
 `.exe` completo (**88 MB**) em `backend/edge/Output/RegemEdgeSetup.exe`, cortado de worktree off `origin/main` (`b0b2725`), preflight **"TUDO OK"**. Empacota tudo que estava acumulado + **2 fixes de incidente** (edge quebrava na instalação/operação):
 

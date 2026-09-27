@@ -7,6 +7,12 @@
 import { ratearReais } from '../../common/rateio';
 import { cnpjValido, cpfValido } from '../../common/validadores-br';
 import { CadastroFiscalIncompativel, problemasDosItens, regrasDaUf } from './regras-uf';
+import {
+  TabelaIbptDaNota,
+  TributosDaNota,
+  calcularTributosAprox,
+  fraseTributosAprox,
+} from './tributos-aproximados';
 
 const esc = (s: any) =>
   String(s ?? '')
@@ -35,6 +41,9 @@ export interface NfceItem {
   vDesc?: number;
   vFrete?: number;
   vOutro?: number;
+  // Valor aproximado dos tributos do item (Lei 12.741) — também calculado pelo builder, a partir
+  // da tabela do IBPT da nota (`NfceInput.ibpt`).
+  vTotTrib?: number;
   ncm?: string;
   cfop?: string;
   cest?: string;
@@ -151,6 +160,58 @@ export interface NfceInput {
    * NFC-e não aceita as outras modalidades (**714**, B22-34).
    */
   contingencia?: { dhCont: string; xJust: string } | null;
+  /**
+   * Tabela do IBPT VIGENTE da UF do emitente, com as linhas dos NCMs desta nota (Lei 12.741).
+   * Com ela, sai o `vTotTrib` por item e no total e a frase no `infCpl`. `null` = sem tabela
+   * vigente: a nota sai sem os valores — o termo do IBPT manda NÃO exibir com tabela vencida, e
+   * valor informativo nunca bloqueia venda.
+   */
+  ibpt?: TabelaIbptDaNota | null;
+}
+
+/**
+ * Desconto, frete e outras despesas do PEDIDO rateados nos itens, em centavos. UM lugar só: o
+ * XML e o valor aproximado dos tributos (base = item − desconto dele) usam o mesmo rateio — senão
+ * o cupom mostraria um valor calculado sobre uma base que não é a da nota.
+ */
+function rateioDoPedido(inp: NfceInput) {
+  const vProdItens = inp.itens.map((it) => Number(it.quantidade) * Number(it.precoUnitario));
+  const vProd = vProdItens.reduce((s, v) => s + v, 0);
+  // A SEFAZ valida que `total/ICMSTot/vDesc` é o SOMATÓRIO dos `det/prod/vDesc`
+  // (regra W16-10) e o mesmo para vFrete (W14-10) e para vOutro (W15-10). Declarar só no total rejeita a
+  // nota. Por isso o rateio é em CENTAVOS: em float a soma não fecha.
+  // O desconto é limitado ao valor dos produtos — vNF negativo também é rejeitado.
+  const vDescTotal = Math.min(Math.max(0, Number(inp.desconto) || 0), vProd);
+  const vFreteTotal = Math.max(0, Number(inp.frete) || 0);
+  const vOutroTotal = Math.max(0, Number(inp.outras) || 0);
+  return {
+    vProdItens,
+    vProd,
+    vDescTotal,
+    vFreteTotal,
+    vOutroTotal,
+    descPorItem: ratearReais(vProdItens, vDescTotal),
+    fretePorItem: ratearReais(vProdItens, vFreteTotal),
+    outroPorItem: ratearReais(vProdItens, vOutroTotal),
+  };
+}
+
+/**
+ * Valor aproximado dos tributos desta nota (Lei 12.741): por item e o resumo que vai para o banco
+ * e para o cupom. `null` quando a nota não tem tabela do IBPT vigente. O serviço grava o que ESTA
+ * função devolve, e o builder imprime o que ela devolve — são a mesma conta.
+ */
+export function tributosAproxDaNota(inp: NfceInput): TributosDaNota | null {
+  if (!inp.ibpt) return null;
+  const r = rateioDoPedido(inp);
+  return calcularTributosAprox(
+    inp.itens.map((it, i) => ({
+      ncm: it.ncm,
+      origem: it.origem,
+      base: Math.max(0, r.vProdItens[i] - (r.descPorItem[i] || 0)),
+    })),
+    inp.ibpt,
+  );
 }
 
 // PIS/COFINS: CST tributável (01/02) com alíquota → grupo Aliq; senão não-tributado.
@@ -273,6 +334,8 @@ function detItem(it: NfceItem, i: number, crt: number): string {
     `<indTot>1</indTot>` +
     `</prod>` +
     `<imposto>` +
+    // M02 — primeiro filho do <imposto> (leiaute 4.00). Só sai quando a nota tem tabela do IBPT.
+    (it.vTotTrib != null ? `<vTotTrib>${n2(it.vTotTrib)}</vTotTrib>` : '') +
     icms +
     grupoPisCofins('PIS', it.cstPis, it.aliqPis, vBC) +
     grupoPisCofins('COFINS', it.cstCofins, it.aliqCofins, vBC) +
@@ -290,19 +353,11 @@ export function montarNfceXml(inp: NfceInput): string {
   const c = inp.config;
   const homologacao = String(c.ambiente ?? '2') !== '1';
   const crt = Number(c.crt) || 1;
-  const vProdItens = inp.itens.map(
-    (it) => Number(it.quantidade) * Number(it.precoUnitario),
-  );
-  const vProd = vProdItens.reduce((s, v) => s + v, 0);
-
-  // ===== Desconto e frete do PEDIDO → rateados nos itens =====
-  // A SEFAZ valida que `total/ICMSTot/vDesc` é o SOMATÓRIO dos `det/prod/vDesc`
-  // (regra W16-10) e o mesmo para vFrete (W14-10) e para vOutro (W15-10). Declarar só no total rejeita a
-  // nota. Por isso o rateio é em CENTAVOS: em float a soma não fecha.
-  // O desconto é limitado ao valor dos produtos — vNF negativo também é rejeitado.
-  const vDescTotal = Math.min(Math.max(0, Number(inp.desconto) || 0), vProd);
-  const vFreteTotal = Math.max(0, Number(inp.frete) || 0);
-  const vOutroTotal = Math.max(0, Number(inp.outras) || 0);
+  // ===== Desconto e frete do PEDIDO → rateados nos itens (ver `rateioDoPedido`) =====
+  const rateio = rateioDoPedido(inp);
+  const { vProd, vDescTotal, vFreteTotal, vOutroTotal, descPorItem, fretePorItem, outroPorItem } = rateio;
+  // Valor aproximado dos tributos (Lei 12.741): por item (M02) e total (W16a) = soma dos itens.
+  const tributos = tributosAproxDaNota(inp);
 
   // ===== Coerência do bloco "entrega a domicílio" =====
   // Cada uma destas quatro é uma rejeição da SEFAZ, e todas nascem do mesmo lugar: `indPres=4`
@@ -357,9 +412,6 @@ export function montarNfceXml(inp: NfceInput): string {
   const xmlIntermed = grupoIntermed(inp.intermediador);
   if (inp.intermediador && !xmlIntermed)
     throw new Error('Pedido de marketplace sem CNPJ do intermediador ou sem a identificacao da loja no app.');
-  const descPorItem = ratearReais(vProdItens, vDescTotal);
-  const fretePorItem = ratearReais(vProdItens, vFreteTotal);
-  const outroPorItem = ratearReais(vProdItens, vOutroTotal);
 
   const dets = inp.itens
     .map((it, i) =>
@@ -370,6 +422,7 @@ export function montarNfceXml(inp: NfceInput): string {
           vDesc: descPorItem[i],
           vFrete: fretePorItem[i],
           vOutro: outroPorItem[i],
+          vTotTrib: tributos ? tributos.porItem[i] : undefined,
         },
         i,
         crt,
@@ -455,6 +508,8 @@ export function montarNfceXml(inp: NfceInput): string {
     `<vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol>` +
     `<vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>${n2(vOutroTotal)}</vOutro>` +
     `<vNF>${n2(vNF)}</vNF>` +
+    // W16a — último do ICMSTot. É a SOMA dos itens (rejeição 685 se não for), por construção.
+    (tributos ? `<vTotTrib>${n2(tributos.resumo.total)}</vTotTrib>` : '') +
     `</ICMSTot></total>`;
 
   // vPag TEM de fechar com o vNF (regra YA09) — com desconto/frete na nota, pagar o
@@ -475,7 +530,7 @@ export function montarNfceXml(inp: NfceInput): string {
     grupoTransp(vFreteTotal, inp.transportador) +
     pag +
     xmlIntermed +
-    grupoInfAdic(c) +
+    grupoInfAdic(c, fraseTributosAprox(tributos?.resumo)) +
     grupoRespTec(inp.respTec) +
     `</infNFe>`;
 
@@ -526,13 +581,15 @@ function grupoCard(tPag: string, c?: NfceInput['cartao']): string {
  * Informações adicionais: `infAdFisco` (antes, por ordem do leiaute) e `infCpl`.
  *
  * O `infAdFisco` leva o texto que a loja configurou — no RJ é o FECP (Lei 8.405/19), que tem
- * de constar até quando não incide. O `infCpl` leva o rodapé de defesa do consumidor exigido
- * pela UF (no RJ, PROCON e ALERJ — Lei 5.817/10) e a identificação do emissor.
+ * de constar até quando não incide. O `infCpl` leva o valor aproximado dos tributos (Lei 12.741,
+ * quando há tabela do IBPT vigente), o rodapé de defesa do consumidor exigido pela UF (no RJ,
+ * PROCON e ALERJ — Lei 5.817/10) e a identificação do emissor. É o que a Divisão IX do DANFE
+ * imprime.
  */
-function grupoInfAdic(c: any): string {
+function grupoInfAdic(c: any, fraseTributos?: string | null): string {
   const r = regrasDaUf(c?.uf);
   const fisco = String(c?.infoFisco ?? c?.info_fisco ?? '').trim();
-  const cpl = [r.rodapeConsumidor, 'Documento emitido por Regem'].filter(Boolean).join(' | ');
+  const cpl = [fraseTributos, r.rodapeConsumidor, 'Documento emitido por Regem'].filter(Boolean).join(' | ');
   return (
     `<infAdic>` +
     (fisco ? `<infAdFisco>${esc(fisco.slice(0, 2000))}</infAdFisco>` : '') +

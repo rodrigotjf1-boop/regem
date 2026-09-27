@@ -11,6 +11,7 @@
 //   o cliente não tem como consultar a nota, e o Manual do DANFE NFC-e exige o código.
 import { formatarDocumento } from './destinatario';
 import { regrasDaUf } from './regras-uf';
+import { fraseTributosAprox } from './tributos-aproximados';
 
 export type DanfeItem = {
   descricao: string;
@@ -51,6 +52,9 @@ export function montarDanfeTexto(
     chave?: string | null;
     protocolo?: string | null;
     qrcode?: string | null;
+    /** Lei 12.741 — gravado na emissão (`nota_fiscal.tributos_aprox`); linha crua ou Drizzle. */
+    tributosAprox?: any;
+    tributos_aprox?: any;
   },
   itens: DanfeItem[],
   extras?: DanfeExtras,
@@ -80,13 +84,18 @@ export function montarDanfeTexto(
   l.push(`Protocolo: ${nota.protocolo ?? '-'}`);
   l.push('Consulte pela chave ou pelo QR Code:');
   if (nota.qrcode) l.push(`@QR:${nota.qrcode}`);
-  // "Mensagem de Interesse do Contribuinte": no RJ, a Lei estadual 5.817/10 exige telefone e
-  // endereço do PROCON-RJ e da Comissão de Defesa do Consumidor da ALERJ IMPRESSOS no DANFE —
-  // não basta estarem no XML. O texto vem de `regras-uf.ts`, o mesmo que vai no `infCpl`.
+  // "Mensagem de Interesse do Contribuinte" (Divisão IX — imprime o `infCpl`):
+  //  • Lei 12.741, o valor aproximado dos tributos: a MESMA frase que foi no XML, com os valores
+  //    gravados na emissão — a reimpressão sai igual à primeira via, mesmo com tabela nova;
+  //  • no RJ, a Lei estadual 5.817/10 exige telefone e endereço do PROCON-RJ e da Comissão de
+  //    Defesa do Consumidor da ALERJ IMPRESSOS no DANFE — não basta estarem no XML. O texto vem de
+  //    `regras-uf.ts`, o mesmo que vai no `infCpl`.
+  const tributos = fraseTributosAprox(nota.tributosAprox ?? nota.tributos_aprox);
   const rodape = regrasDaUf(extras?.uf).rodapeConsumidor;
-  if (rodape) {
+  if (tributos || rodape) {
     l.push('--------------------------------');
-    l.push(rodape);
+    if (tributos) l.push(tributos);
+    if (rodape) l.push(rodape);
   }
   return l.join('\n');
 }
