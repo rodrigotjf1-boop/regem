@@ -441,6 +441,28 @@ async function distReq(path: string, options: RequestInit = {}) {
   }
   return res.status === 204 ? null : res.json();
 }
+// Envio de arquivos ao console da distribuição (multipart): sem Content-Type — o navegador põe o
+// boundary. Mesmo token e mesmo tratamento de erro do `distReq`.
+async function distUpload(path: string, arquivos: File[], campo = 'arquivos') {
+  const token = getDistToken();
+  const form = new FormData();
+  for (const f of arquivos) form.append(campo, f);
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase()}${path}`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+  } catch {
+    throw new Error('Sem conexão com o servidor. Verifique a internet.');
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as any);
+    throw new Error(body.message || `Erro ${res.status}`);
+  }
+  return res.json();
+}
 export const distApi = {
   login: (email: string, senha: string, codigo?: string) =>
     distReq('/distribuicao/login', { method: 'POST', body: JSON.stringify({ email, senha, codigo }) }),
@@ -478,6 +500,9 @@ export const distApi = {
   rollbackRemoto: (tenantId: string) =>
     distReq(`/distribuicao/licencas/${tenantId}/rollback`, { method: 'POST', body: '{}' }),
   releases: () => distReq('/distribuicao/releases'),
+  // Tabela do IBPT (Lei 12.741): situação por UF e envio do ZIP/CSV baixado no site do IBPT.
+  ibpt: () => distReq('/distribuicao/ibpt'),
+  enviarIbpt: (arquivos: File[]) => distUpload('/distribuicao/ibpt', arquivos),
   publicarRelease: (dto: any) =>
     distReq('/distribuicao/releases', { method: 'POST', body: JSON.stringify(dto) }),
   // Distribuição escalonada: { percentual?, lojasPiloto?, pausado?, recolhido? } (ausente mantém).

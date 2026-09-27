@@ -39,8 +39,10 @@ import {
   prazoVencido,
   silencioDaSefaz,
 } from './contingencia';
-import { montarNfceXml, NfceItem } from './nfce-xml.builder';
+import { montarNfceXml, NfceInput, NfceItem, tributosAproxDaNota } from './nfce-xml.builder';
 import { DanfeItem, montarDanfeTexto } from './danfe-texto';
+import { hojeNaUf, tabelaIbptDaNota } from './ibpt/ibpt-tabela';
+import type { TabelaIbptDaNota } from './tributos-aproximados';
 import { MODOS_TAXA_SERVICO, TaxaServicoBloqueada, linhaTaxaServico } from './taxa-servico';
 import { CadastroFiscalIncompativel } from './regras-uf';
 import { problemasDoCertificado } from './certificado';
@@ -1889,6 +1891,18 @@ export class FiscalService {
           : 'Contingência off-line exige o certificado A1 da loja para assinar o QR Code.',
       );
 
+    // Valor aproximado dos tributos (Lei 12.741): a tabela do IBPT VIGENTE da UF, só com os NCMs
+    // desta nota. É informativo — nunca derruba a venda: sem tabela vigente (ou com erro ao lê-la,
+    // como no servidor da loja antes da migration 291), a nota sai sem os valores.
+    let ibpt: TabelaIbptDaNota | null = null;
+    try {
+      ibpt = await tabelaIbptDaNota(this.db, cfgRaw.uf, itens.map((i) => i.ncm), hojeNaUf(cfgRaw.uf));
+      if (!ibpt && cfgRaw.uf)
+        this.avisarSemIbpt(String(cfgRaw.uf), 'não há tabela do IBPT vigente para a UF');
+    } catch (e: any) {
+      this.avisarSemIbpt(String(cfgRaw.uf ?? ''), `tabela do IBPT ilegível: ${e?.message ?? e}`);
+    }
+
     const preparado = await this.db.transaction(async (tx) => {
       const { numero, serie, config } = await this.reservarNumero(tx, tenantId, unidadeId, p.exigirAtivo);
       Object.assign(config, credencialParaEmissao(credencial, String(config.ambiente ?? '2')), { qrVersao });
@@ -1921,7 +1935,7 @@ export class FiscalService {
           : montarQrCode({
               chave, tpAmb, cscId: config.cscId, cscToken: config.cscToken, urlConsulta: urlConsultaQr(config)!,
             });
-      const xmlSemAssinatura = montarNfceXml({
+      const entrada: NfceInput = {
         config, serie, numero, chave, cNF, dhEmi, itens, forma: p.forma, qrCode, desconto,
         frete: decisao.frete,
         outras: decisao.outras,
@@ -1936,7 +1950,11 @@ export class FiscalService {
           : null,
         urlChave: urlConsultaChave(config)!,
         respTec: responsavelTecnico(),
-      });
+        ibpt,
+      };
+      const xmlSemAssinatura = montarNfceXml(entrada);
+      // A mesma conta que foi para o XML — é o que o cupom imprime, hoje e na reimpressão.
+      const tributosAprox = tributosAproxDaNota(entrada)?.resumo ?? null;
       // Assina ANTES de gravar: o que fica no banco é exatamente o que foi (ou vai ser) enviado.
       const xml = cert ? assinarNfe(xmlSemAssinatura, cert) : xmlSemAssinatura;
       const [nota] = await tx
@@ -1947,6 +1965,7 @@ export class FiscalService {
           // agora, a SEFAZ vem depois. Qualquer outro caso nasce `pendente` até a resposta.
           ambiente: tpAmb, status: p.contingencia ? 'contingencia' : 'pendente', qrcode: qrCode, xml,
           valorTotal: String(valorTotal.toFixed(2)), emitidaPorId: atorId,
+          tributosAprox,
           // Como a nota saiu, para a auditoria e para o contador.
           indPres: String(decisao.indPres),
           semDocumentoCliente: decisao.semDocumentoCliente,
@@ -2212,6 +2231,17 @@ export class FiscalService {
     const cfg: any = await this.configRaw(tenantId, nota.unidadeId ?? null);
     (nota as any).danfeTexto = await this.danfeDaNotaGravada(tenantId, nota, cfg?.uf ?? null);
     return nfceEmitidaParaTotem(nota, this.viaEstabelecimentoNaConfig(cfg));
+  }
+
+  // Nota sem o valor aproximado dos tributos: avisa no log UMA vez por hora e por UF — a venda
+  // segue (o valor é informativo), mas a distribuição precisa saber que falta a tabela do IBPT.
+  private static ultimoAvisoIbpt = new Map<string, number>();
+  private avisarSemIbpt(uf: string, motivo: string) {
+    const agora = Date.now();
+    const chave = uf || '?';
+    if (agora - (FiscalService.ultimoAvisoIbpt.get(chave) ?? 0) < 3_600_000) return;
+    FiscalService.ultimoAvisoIbpt.set(chave, agora);
+    this.log.warn(`NFC-e sem o valor aproximado dos tributos (Lei 12.741) em ${chave}: ${motivo}.`);
   }
 
   private viaEstabelecimentoNaConfig(cfg: any): boolean {

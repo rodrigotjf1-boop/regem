@@ -94,4 +94,27 @@ describe('montarDanfeTexto (K6)', () => {
     expect(montarDanfeTexto(nota, itens, { uf: 'SP' })).not.toContain('PROCON');
     expect(montarDanfeTexto(nota, itens)).not.toContain('PROCON');
   });
+
+  // Lei 12.741: a frase dos tributos é a do `infCpl`, com os valores GRAVADOS na emissão — a
+  // reimpressão sai igual à primeira via mesmo depois que a tabela do IBPT mudou.
+  const tributos = {
+    federal: 2.69, estadual: 4, municipal: 0, total: 6.69,
+    fonte: 'IBPT/empresometro.com.br', chave: 'C44399', versao: '26.2.B',
+  };
+  it('o valor aproximado dos tributos sai na mensagem do contribuinte, antes do rodapé do PROCON', () => {
+    const t = montarDanfeTexto({ ...nota, tributosAprox: tributos }, itens, { uf: 'RJ' });
+    const frase = 'Trib aprox R$ 2,69 Federal e R$ 4,00 Estadual (Lei 12.741/12). Fonte: IBPT/empresometro.com.br C44399';
+    expect(t).toContain(frase);
+    expect(t.indexOf(frase)).toBeGreaterThan(t.indexOf('@QR:'));
+    expect(t.indexOf(frase)).toBeLessThan(t.indexOf('PROCON-RJ'));
+    // Linha crua do banco (snake_case, jsonb em texto) imprime igual.
+    expect(montarDanfeTexto({ ...nota, tributos_aprox: JSON.stringify(tributos) }, itens, { uf: 'RJ' })).toContain(frase);
+  });
+
+  it('nota sem os valores (sem tabela vigente) não imprime a frase — nem fora do RJ', () => {
+    expect(montarDanfeTexto(nota, itens, { uf: 'RJ' })).not.toContain('Trib aprox');
+    const sp = montarDanfeTexto({ ...nota, tributosAprox: tributos }, itens, { uf: 'SP' });
+    expect(sp).toContain('Trib aprox'); // a lei é federal: a frase sai em qualquer UF
+    expect(sp).not.toContain('PROCON');
+  });
 });

@@ -2236,7 +2236,43 @@ export const notaFiscal = pgTable('nota_fiscal', {
   // declaradas como presenciais por falta do CPF do cliente.
   indPres: text('ind_pres'),
   semDocumentoCliente: boolean('sem_documento_cliente').notNull().default(false),
+  // Valor aproximado dos tributos (Lei 12.741, mig 291) calculado NA EMISSÃO pela tabela do IBPT:
+  // { federal, estadual, municipal, total, fonte, chave, versao }. A reimpressão usa isto — com a
+  // tabela do mês seguinte a mesma nota sairia com outro valor. null = saiu sem (sem tabela vigente).
+  tributosAprox: jsonb('tributos_aprox'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// TABELA DO IBPT (Lei 12.741/2012, mig 291) — dado da DISTRIBUIÇÃO, sem empresa: não passa pelo
+// sync. A Regem envia o arquivo no console da distribuição; o servidor da loja baixa da nuvem a do
+// estado dele (`ibpt.service.ts`). Uma versão por mês, com vigências sobrepostas.
+export const ibptVersao = pgTable(
+  'ibpt_versao',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    uf: text('uf').notNull(),
+    versao: text('versao').notNull(),
+    chave: text('chave').notNull(),
+    fonte: text('fonte').notNull(),
+    vigenciaInicio: date('vigencia_inicio').notNull(),
+    vigenciaFim: date('vigencia_fim').notNull(),
+    linhas: integer('linhas').notNull().default(0),
+    importadaEm: timestamp('importada_em', { withTimezone: true }).notNull().defaultNow(),
+    importadaPor: text('importada_por'),
+  },
+  (t) => ({ ufVersaoChave: unique().on(t.uf, t.versao, t.chave) }),
+);
+
+export const ibptAliquota = pgTable('ibpt_aliquota', {
+  versaoId: uuid('versao_id')
+    .notNull()
+    .references(() => ibptVersao.id, { onDelete: 'cascade' }),
+  ncm: text('ncm').notNull(),
+  ex: text('ex').notNull().default(''),
+  nacionalFederal: numeric('nacional_federal').notNull(),
+  importadosFederal: numeric('importados_federal').notNull(),
+  estadual: numeric('estadual').notNull(),
+  municipal: numeric('municipal').notNull(),
 });
 
 // CONTINGÊNCIA OFF-LINE (mig 286) — estado POR PONTO DE EMISSÃO.

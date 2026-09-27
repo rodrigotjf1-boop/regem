@@ -47,6 +47,9 @@ export const SYNC_MODULES = [
   'MidiaModule', // storage canônico nuvem; edge tem fallback em disco + serve local
   'FidelidadeModule', 'CashbackModule', // ⚠️ saldo = master nuvem + cache (decidir §8.4)
   'FinanceiroModule', 'FiscalModule', 'TefModule', 'RelatoriosModule', // financeiro/fiscal: leitura/emissão cloud-assisted
+  // Tabela do IBPT (Lei 12.741, mig 291): a distribuição envia na nuvem; o servidor da loja baixa a
+  // da UF dele (não é sync de tenant — é dado da distribuição, sem empresa).
+  'IbptModule',
 ] as const;
 
 // Infra sempre presente (auth, orm, agendador, sync, edge, realtime).

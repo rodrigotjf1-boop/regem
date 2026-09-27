@@ -194,6 +194,39 @@ describe('o XML que emitimos passa no schema oficial da NF-e 4.00', () => {
     expect(xmlNormal).toContain('<ICMS40><orig>0</orig><CST>41</CST></ICMS40>');
   }, 120000);
 
+  // Lei 12.741: `vTotTrib` é o PRIMEIRO filho do <imposto> (M02) e o ÚLTIMO do <ICMSTot> (W16a),
+  // e o total é a SOMA dos itens (rejeição 685). Fora de ordem é 225 — o schema pega antes.
+  it('com o valor aproximado dos tributos (Lei 12.741) — por item e no total — é válida', async () => {
+    const inp = entrada({
+      desconto: 3,
+      itens: [
+        { codigo: 'A', descricao: 'X-Salada', ncm: '21069090', cfop: '5102', origem: '0', csosn: '102', unidadeTrib: 'UN', quantidade: 2, precoUnitario: 25.9 },
+        { codigo: 'B', descricao: 'Refrigerante lata', ncm: '22021000', cfop: '5405', origem: '0', csosn: '500', unidadeTrib: 'UN', quantidade: 1, precoUnitario: 7 },
+      ],
+      ibpt: {
+        fonte: 'IBPT/empresometro.com.br', chave: 'C44399', versao: '26.2.B',
+        aliquotas: {
+          '21069090': { nacionalFederal: 13.45, importadosFederal: 36.08, estadual: 20, municipal: 0 },
+          '22021000': { nacionalFederal: 17.05, importadosFederal: 20.1, estadual: 18, municipal: 0 },
+        },
+      },
+    });
+    const xml = assinada(inp);
+    expect(await validar(xml)).toEqual({ valido: true, erros: '' });
+    const itens = [...xml.matchAll(/<imposto><vTotTrib>([\d.]+)<\/vTotTrib><ICMS>/g)].map((m) => Number(m[1]));
+    expect(itens).toHaveLength(2);
+    const total = Number(/<vNF>[\d.]+<\/vNF><vTotTrib>([\d.]+)<\/vTotTrib><\/ICMSTot>/.exec(xml)![1]);
+    expect(Math.round(total * 100)).toBe(itens.reduce((s, v) => s + Math.round(v * 100), 0));
+    expect(xml).toMatch(
+      /<infCpl>Trib aprox R\$ [\d,]+ Federal e R\$ [\d,]+ Estadual \(Lei 12\.741\/12\)\. Fonte: IBPT\/empresometro\.com\.br C44399 \| /,
+    );
+    // Sem tabela vigente, nada disso sai — e o resto da nota é o mesmo.
+    const semTabela = assinada({ ...inp, ibpt: null });
+    expect(semTabela).not.toContain('vTotTrib');
+    expect(semTabela).not.toContain('Trib aprox');
+    expect(await validar(semTabela)).toEqual({ valido: true, erros: '' });
+  }, 120000);
+
   it('a nota de HOMOLOGAÇÃO (com a frase obrigatória no 1º item) é válida', async () => {
     const xml = assinada(entrada({}, { ...CONFIG, ambiente: '2' }));
     expect(xml).toContain('NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL');

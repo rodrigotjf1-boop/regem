@@ -12,6 +12,19 @@ const PLANOS = ['basico', 'balcao', 'completo'];
 
 function online(ts?: string | null) { return ts ? Date.now() - new Date(ts).getTime() < 5 * 60 * 1000 : false; }
 function quando(ts?: string | null) { return ts ? new Date(ts).toLocaleString('pt-BR') : '—'; }
+// Data AAAA-MM-DD → DD/MM/AAAA sem passar por Date (que puxaria o fuso e podia voltar um dia).
+function dataBr(d?: string | null) { return d ? d.split('-').reverse().join('/') : '—'; }
+
+// Situação da tabela do IBPT de uma UF (Lei 12.741) — a mesma conta do verificador da API.
+function seloIbpt(s: any) {
+  const base = 'rounded px-1.5 py-0.5 text-[11px]';
+  if (s.situacao === 'ok')
+    return <span className={`${base} bg-emerald-500/15 text-emerald-400`}>em dia{s.diasParaVencer != null ? ` · vence em ${s.diasParaVencer} d` : ''}</span>;
+  if (!s.lojas) return <span className={`${base} bg-slate-500/15 text-slate-400`}>{s.situacao === 'vence_logo' ? 'vence logo' : 'sem tabela vigente'} · nenhuma loja</span>;
+  if (s.situacao === 'vence_logo')
+    return <span className={`${base} bg-amber-500/15 text-amber-300`}>vence em {s.diasParaVencer} d — envie a próxima</span>;
+  return <span className={`${base} bg-rose-500/15 text-rose-300`}>{s.situacao === 'vencida' ? 'vencida' : 'sem tabela'} — cupom sai sem os tributos</span>;
+}
 function ehTeste(l: any) { return !l.cnpj; } // sem CNPJ = tenant de teste/dev
 
 // Status de licença (espelha o licenca.service): valida | a_vencer | vencida.
@@ -146,6 +159,10 @@ export default function DistHome() {
   const [fStatus, setFStatus] = useState('todas');
   const [ocultarTestes, setOcultarTestes] = useState(true);
   const [releases, setReleases] = useState<any[] | null>(null);
+  // Tabela do IBPT (Lei 12.741) — situação por UF e o envio mensal do arquivo.
+  const [ibpt, setIbpt] = useState<any[] | null>(null);
+  const [enviandoIbpt, setEnviandoIbpt] = useState(false);
+  const [msgIbpt, setMsgIbpt] = useState<{ ok: boolean; texto: string } | null>(null);
   const [auditoria, setAuditoria] = useState<any[] | null>(null);
   const [erro, setErro] = useState('');
   const [novo, setNovo] = useState({ nome: '', email: '', senha: '', perfil: 'tecnico' });
@@ -175,6 +192,7 @@ export default function DistHome() {
     distApi.licencas().then(setLicencas).catch(() => {});
     if (perfil === 'diretoria' || perfil === 'tecnico') distApi.telemetria().then(setTelemetria).catch(() => {});
     if (perfil === 'diretoria' || perfil === 'tecnico') distApi.releases().then(setReleases).catch(() => {});
+    if (perfil === 'diretoria' || perfil === 'tecnico') distApi.ibpt().then(setIbpt).catch(() => {});
     if (perfil === 'diretoria' || perfil === 'tecnico') distApi.pedidosIntegracao().then(setPedidosInteg).catch(() => {});
     if (perfil === 'diretoria') distApi.usuarios().then(setUsuarios).catch(() => {});
     if (perfil === 'diretoria') distApi.auditoria().then(setAuditoria).catch(() => {});
@@ -188,6 +206,25 @@ export default function DistHome() {
       setReleases(await distApi.releases());
     }
     catch (err) { setErro(err instanceof Error ? err.message : 'Erro ao publicar.'); }
+  }
+  // Tabela do IBPT: o ZIP baixado no site do IBPT (ou os CSVs de UF). A API confere o arquivo e
+  // responde o que entrou; os servidores das lojas baixam a da UF deles sozinhos.
+  async function enviarIbpt(e: React.ChangeEvent<HTMLInputElement>) {
+    const arquivos = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (!arquivos.length) return;
+    setEnviandoIbpt(true);
+    setMsgIbpt(null);
+    try {
+      const r: any = await distApi.enviarIbpt(arquivos);
+      const lista = (r?.importadas ?? []).map((i: any) => `${i.uf} ${i.versao}`).join(', ');
+      setMsgIbpt({ ok: true, texto: `Tabela enviada: ${lista}.` });
+      setIbpt(await distApi.ibpt());
+    } catch (err) {
+      setMsgIbpt({ ok: false, texto: err instanceof Error ? err.message : 'Não foi possível enviar a tabela.' });
+    } finally {
+      setEnviandoIbpt(false);
+    }
   }
   // Distribuição escalonada de um release já publicado (percentual, pausar, recolher).
   async function ajustarRelease(r: any, dto: any, confirmacao?: string) {
@@ -589,6 +626,50 @@ export default function DistHome() {
                   {releases && releases.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">Nenhum release publicado (usa o env do EasyPanel).</td></tr>}
                 </tbody>
               </table>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="max-w-2xl">
+                  <h2 className="font-bold">Tabela IBPT</h2>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Valor aproximado dos tributos no cupom (Lei 12.741). Sai versão nova todo mês: baixe o ZIP no site
+                    De Olho no Imposto, do IBPT, e envie aqui como veio. Os servidores das lojas baixam a do estado
+                    deles sozinhos. Com a tabela vencida, o cupom sai sem os valores.
+                  </p>
+                </div>
+                <label className={`cursor-pointer rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-400 focus-within:ring-2 focus-within:ring-amber-300 ${enviandoIbpt ? 'pointer-events-none opacity-60' : ''}`}>
+                  {enviandoIbpt ? 'Enviando…' : 'Enviar tabela do IBPT'}
+                  <input type="file" accept=".zip,.csv" multiple className="sr-only" onChange={enviarIbpt} disabled={enviandoIbpt} />
+                </label>
+              </div>
+              {msgIbpt && (
+                <p role="status" className={`mt-3 text-sm ${msgIbpt.ok ? 'text-emerald-400' : 'text-rose-300'}`}>{msgIbpt.texto}</p>
+              )}
+              <div className="mt-3 overflow-x-auto rounded-lg border border-slate-800">
+                <table className="w-full text-sm">
+                  <caption className="sr-only">Tabela do IBPT por estado: versão vigente, validade, situação e próxima versão</caption>
+                  <thead className="bg-slate-900/60 text-left text-xs uppercase text-slate-400">
+                    <tr><th className="p-3">UF</th><th className="p-3">Lojas</th><th className="p-3">Vigente</th><th className="p-3">Vale até</th><th className="p-3">Situação</th><th className="p-3">Próxima</th><th className="p-3">Enviada</th></tr>
+                  </thead>
+                  <tbody>
+                    {(ibpt ?? []).map((s) => (
+                      <tr key={s.uf} className="border-t border-slate-800/70">
+                        <td className="p-3 font-mono">{s.uf}</td>
+                        <td className="p-3 font-mono text-xs text-slate-300">{s.lojas}</td>
+                        <td className="p-3 font-mono text-xs">{s.vigente ? `${s.vigente.versao} · ${s.vigente.chave}` : '—'}</td>
+                        <td className="p-3 font-mono text-xs text-slate-300">{s.vigente ? dataBr(s.vigente.vigenciaFim) : '—'}</td>
+                        <td className="p-3">{seloIbpt(s)}</td>
+                        <td className="p-3 font-mono text-xs text-slate-400">{s.proxima ? `${s.proxima.versao} a partir de ${dataBr(s.proxima.vigenciaInicio)}` : '—'}</td>
+                        <td className="p-3 text-xs text-slate-500">{s.vigente ? quando(s.vigente.importadaEm) : '—'}<div>{s.vigente?.importadaPor ?? ''}</div></td>
+                      </tr>
+                    ))}
+                    {ibpt && ibpt.length === 0 && (
+                      <tr><td colSpan={7} className="p-6 text-center text-slate-500">Nenhuma tabela enviada ainda e nenhuma loja com fiscal configurado.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
         )}
