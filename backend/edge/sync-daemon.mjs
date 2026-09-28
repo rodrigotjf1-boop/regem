@@ -1814,6 +1814,11 @@ const DESCARTAVEL = new Set([
   // bem, desligar a contingência da loja que continua fora do ar. As notas emitidas nela estão
   // em `nota_fiscal`, que sobe e volta — apagar este estado não perde nada.
   'fiscal_contingencia',
+  // Tabela do IBPT (Lei 12.741, mig 291/292): a da distribuição e a PRÓPRIA da empresa (token do
+  // lojista — por isso o `tenant_id`) são cópias da nuvem e voltam pelo canal próprio delas
+  // (`IbptService.sincronizarDaNuvem`, 90 s depois de a API subir), não pelo sync. A nota guarda
+  // os valores que usou (`nota_fiscal.tributos_aprox`) — apagar a tabela não perde nada.
+  'ibpt_versao',
 ]);
 
 // FILA DE SAÍDA (mig 289): avisos DESTA máquina para sistemas integrados — hoje, o pedido de

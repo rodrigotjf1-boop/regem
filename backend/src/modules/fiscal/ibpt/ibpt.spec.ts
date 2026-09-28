@@ -121,7 +121,7 @@ descrever('tabela do IBPT (Postgres com todas as migrations)', () => {
   });
 
   it('servidor da loja: baixa a tabela da UF dele da nuvem só quando muda', async () => {
-    const svc = new IbptService(db);
+    const svc = new IbptService(db, { registrar: jest.fn() } as any);
     // A NUVEM (o mesmo serviço, sem EDGE_MODE) monta o pacote da TO a partir do banco dela.
     delete process.env.EDGE_MODE;
     await gravarTabelaIbpt(db, {
@@ -150,15 +150,15 @@ descrever('tabela do IBPT (Postgres com todas as migrations)', () => {
       process.env.EDGE_MODE = 'true';
       process.env.CLOUD_API = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}/api/v1`;
       process.env.SYNC_TOKEN = 'token-da-loja';
-      const primeira = await svc.sincronizarDaNuvem();
+      const primeira = await svc.sincronizarDaNuvem(['TO']);
       expect(primeira.atualizadas).toEqual(['TO 26.2.B']);
       // Primeira vez: a loja não tem nada ("tenho" vazio) e se identifica com o token de sync.
       expect(pedidos.find((p) => p.includes('/fiscal/ibpt/TO'))).toBe('/api/v1/fiscal/ibpt/TO?tenho= token=token-da-loja');
       expect((await versaoVigente(db, 'TO', hojeNaUf('TO')))?.chave).toBe('TOK333');
       // Na segunda vez ela diz o que tem, e a nuvem responde "nada mudou".
-      const segunda = await svc.sincronizarDaNuvem();
+      const segunda = await svc.sincronizarDaNuvem(['TO']);
       expect(segunda.atualizadas).toEqual([]);
-      expect(pedidos.filter((p) => p.includes('/fiscal/ibpt/TO')).at(-1)).toContain(encodeURIComponent(`26.2.B|TOK333|${dia(hoje, 30)}`));
+      expect(pedidos.filter((p) => p.includes('/fiscal/ibpt/TO?')).at(-1)).toContain(encodeURIComponent(`26.2.B|TOK333|${dia(hoje, 30)}`));
     } finally {
       delete process.env.EDGE_MODE;
       await new Promise<void>((ok) => servidor.close(() => ok()));
@@ -166,7 +166,7 @@ descrever('tabela do IBPT (Postgres com todas as migrations)', () => {
   });
 
   it('pacote cortado pela rede não substitui a tabela boa da loja', async () => {
-    const svc = new IbptService(db);
+    const svc = new IbptService(db, { registrar: jest.fn() } as any);
     const cortado = { uf: 'TO', versao: '26.2.C', chave: 'TOK444', fonte: 'IBPT', vigenciaInicio: dia(hoje, -1), vigenciaFim: dia(hoje, 60), linhas: [['21069090', '', 1, 1, 1, 0]] };
     const servidor: Server = createServer((req, res) => {
       if (!String(req.url).startsWith('/api/v1/fiscal/ibpt/TO')) return void res.writeHead(404).end('{}');
@@ -177,7 +177,7 @@ descrever('tabela do IBPT (Postgres com todas as migrations)', () => {
       process.env.EDGE_MODE = 'true';
       process.env.CLOUD_API = `http://127.0.0.1:${(servidor.address() as AddressInfo).port}/api/v1`;
       process.env.SYNC_TOKEN = 'token-da-loja';
-      expect((await svc.sincronizarDaNuvem()).atualizadas).toEqual([]);
+      expect((await svc.sincronizarDaNuvem(['TO'])).atualizadas).toEqual([]);
       expect((await versaoVigente(db, 'TO', hojeNaUf('TO')))?.chave).toBe('TOK333');
     } finally {
       delete process.env.EDGE_MODE;
@@ -193,7 +193,7 @@ descrever('tabela do IBPT (Postgres com todas as migrations)', () => {
     }, 'teste');
     const avisos: any[] = [];
     TelemetriaBridge.registrar((tenantId, dto) => avisos.push({ tenantId, ...dto }));
-    const svc = new IbptService(db);
+    const svc = new IbptService(db, { registrar: jest.fn() } as any);
     const st = await svc.verificarVigencias(['AC', 'AP', 'TO']);
     const porUf = Object.fromEntries(st.map((s) => [s.uf, s]));
     expect(porUf.AC).toMatchObject({ situacao: 'vence_logo', lojas: 1, diasParaVencer: 3 });

@@ -732,6 +732,12 @@ export const api = {
   statusSefaz: () => req('/fiscal/sefaz/status', { method: 'POST', body: '{}' }),
   // NFC-e de teste — só em homologação. Devolve o que a SEFAZ respondeu (autorizada ou o motivo).
   emitirNfceTeste: () => req('/fiscal/sefaz/teste-homologacao', { method: 'POST', body: '{}' }),
+  // Tributos aproximados (Lei 12.741): que tabela do IBPT vale e o token OPCIONAL do lojista
+  // (mig 292). A leitura traz só os 4 últimos caracteres do token; a escrita guarda cifrado.
+  tributosAprox: () => req('/fiscal/tributos-aprox'),
+  salvarTokenIbpt: (token: string) =>
+    req('/fiscal/tributos-aprox/token', { method: 'PUT', body: JSON.stringify({ token }) }),
+  removerTokenIbpt: () => req('/fiscal/tributos-aprox/token', { method: 'DELETE' }),
   emitirNfce: (comandaId: string) =>
     req(`/fiscal/comandas/${comandaId}/emitir`, { method: 'POST', body: '{}' }),
   notasFiscais: () => req('/fiscal/notas'),

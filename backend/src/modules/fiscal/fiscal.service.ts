@@ -1892,11 +1892,12 @@ export class FiscalService {
       );
 
     // Valor aproximado dos tributos (Lei 12.741): a tabela do IBPT VIGENTE da UF, só com os NCMs
-    // desta nota. É informativo — nunca derruba a venda: sem tabela vigente (ou com erro ao lê-la,
-    // como no servidor da loja antes da migration 291), a nota sai sem os valores.
+    // desta nota — a PRÓPRIA da empresa (token do lojista, mig 292) quando cobre todos eles, senão
+    // a da distribuição. É informativo — nunca derruba a venda: sem tabela vigente (ou com erro ao
+    // lê-la, como no servidor da loja antes da migration 291), a nota sai sem os valores.
     let ibpt: TabelaIbptDaNota | null = null;
     try {
-      ibpt = await tabelaIbptDaNota(this.db, cfgRaw.uf, itens.map((i) => i.ncm), hojeNaUf(cfgRaw.uf));
+      ibpt = await tabelaIbptDaNota(this.db, cfgRaw.uf, itens.map((i) => i.ncm), hojeNaUf(cfgRaw.uf), tenantId);
       if (!ibpt && cfgRaw.uf)
         this.avisarSemIbpt(String(cfgRaw.uf), 'não há tabela do IBPT vigente para a UF');
     } catch (e: any) {

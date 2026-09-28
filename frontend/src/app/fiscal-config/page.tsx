@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CredencialFiscal } from '@/components/fiscal/credencial-fiscal';
 import { TerminaisFiscais } from '@/components/fiscal/terminais-fiscais';
+import { TributosAproximados } from '@/components/fiscal/tributos-aproximados';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const selectCls = 'flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm';
@@ -343,6 +344,8 @@ export default function FiscalConfigPage() {
         </Card>
 
         <CredencialFiscal />
+
+        <TributosAproximados />
 
         <TerminaisFiscais />
 

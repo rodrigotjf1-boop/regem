@@ -121,8 +121,11 @@ descrever('emissão com o valor aproximado dos tributos (Lei 12.741)', () => {
     tabelaIbptDaNota.mockResolvedValue(TABELA);
     const r: any = await servico.emitirTesteHomologacao(tenant, null, null);
     expect(r.status).toBe('autorizada');
-    // Pediu a tabela da UF do emitente, com os NCMs da nota, para o dia de hoje (AAAA-MM-DD).
-    expect(tabelaIbptDaNota).toHaveBeenCalledWith(expect.anything(), 'RJ', ['21069090'], expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/));
+    // Pediu a tabela da UF do emitente, com os NCMs da nota, para o dia de hoje (AAAA-MM-DD), em
+    // nome da empresa — é o que deixa a tabela PRÓPRIA dela (token do lojista, mig 292) valer.
+    expect(tabelaIbptDaNota).toHaveBeenCalledWith(
+      expect.anything(), 'RJ', ['21069090'], expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), tenant,
+    );
     // R$ 1,00 × 13,45% = 0,1345 → 0,13 federal; × 20% = 0,20 estadual.
     expect(enviado).toContain('<imposto><vTotTrib>0.33</vTotTrib><ICMS>');
     expect(enviado).toMatch(/<vNF>1\.00<\/vNF><vTotTrib>0\.33<\/vTotTrib><\/ICMSTot>/);

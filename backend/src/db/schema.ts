@@ -2124,6 +2124,13 @@ export const fiscalCredencial = pgTable('fiscal_credencial', {
   cscHomologCifrado: text('csc_homolog_cifrado'),
   cscIdProd: text('csc_id_prod'),
   cscProdCifrado: text('csc_prod_cifrado'),
+  // Token do webservice do IBPT (mig 292) — OPCIONAL, do lojista. Cifrado como o CSC; a tela vê
+  // só os 4 últimos e a situação da última verificação (ok | invalido | erro).
+  ibptTokenCifrado: text('ibpt_token_cifrado'),
+  ibptTokenFinal: text('ibpt_token_final'),
+  ibptStatus: text('ibpt_status'),
+  ibptMensagem: text('ibpt_mensagem'),
+  ibptVerificadoEm: timestamp('ibpt_verificado_em', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -2250,6 +2257,9 @@ export const ibptVersao = pgTable(
   'ibpt_versao',
   {
     id: uuid('id').primaryKey().defaultRandom(),
+    // Dono (mig 292): nulo = tabela da DISTRIBUIÇÃO (enviada no console); preenchido = tabela
+    // PRÓPRIA da empresa, trazida pelo token do IBPT do lojista.
+    tenantId: uuid('tenant_id').references(() => empresa.id, { onDelete: 'cascade' }),
     uf: text('uf').notNull(),
     versao: text('versao').notNull(),
     chave: text('chave').notNull(),
@@ -2260,7 +2270,8 @@ export const ibptVersao = pgTable(
     importadaEm: timestamp('importada_em', { withTimezone: true }).notNull().defaultNow(),
     importadaPor: text('importada_por'),
   },
-  (t) => ({ ufVersaoChave: unique().on(t.uf, t.versao, t.chave) }),
+  // Único por (dono, uf, versão, chave) — índice de expressão `uq_ibpt_versao_dono` (mig 292),
+  // com o dono nulo contado como um só.
 );
 
 export const ibptAliquota = pgTable('ibpt_aliquota', {
