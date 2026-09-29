@@ -14,6 +14,9 @@ import { CashbackModule } from '../cashback/cashback.module';
 import { FidelidadeModule } from '../fidelidade/fidelidade.module';
 import { IntegracoesModule } from '../integracoes/integracoes.module';
 import { GogemModule } from '../gogem/gogem.module';
+import { ModuloModule } from '../modulo/modulo.module';
+import { EntregadoresAoVivoController } from './entregadores-ao-vivo.controller';
+import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
 
 @Module({
   imports: [
@@ -24,10 +27,12 @@ import { GogemModule } from '../gogem/gogem.module';
     FidelidadeModule,
     forwardRef(() => IntegracoesModule),
     GogemModule,
+    ModuloModule, // ModuloGuard (@RequireModulo('kds')) do mapa no KDS precisa do ModuloService
   ],
-  controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController],
+  controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController,
+    EntregadoresAoVivoController],
   providers: [DeliveryService, SyncTokenGuard, EdgePedidosProcessor,
-    TotemExpiracaoProcessor, CloudFallbackProcessor],
+    TotemExpiracaoProcessor, CloudFallbackProcessor, EntregadoresAoVivoService],
   exports: [DeliveryService],
 })
 export class DeliveryModule {}

@@ -22,13 +22,17 @@ import { CloudOnly } from '../../common/cloud-only.decorator';
 import { TerminalAtual } from '../../auth/terminal-atual.decorator';
 import { DeliveryService } from './delivery.service';
 import { exigirBooleano } from '../../common/exigir';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const GESTOR = ['presidente', 'gerente', 'supervisao'];
 
 @Controller('delivery')
 export class DeliveryController {
-  constructor(private readonly service: DeliveryService) {}
+  constructor(
+    private readonly service: DeliveryService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   // Ingestão pelo EDGE (token servidor_local): { canal, pedido }.
   @Post('ingest')
@@ -406,8 +410,26 @@ export class DeliveryController {
   @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente')
   @RequirePerm('delivery')
-  setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.setConfig(user.tenantId, dto?.unidadeId ?? null, dto);
+  async setConfig(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    const unidadeId = dto?.unidadeId ?? null;
+    const antes: any = await this.service.getConfig(user.tenantId, unidadeId);
+    const depois: any = await this.service.setConfig(user.tenantId, unidadeId, dto);
+    // O mapa dos entregadores no KDS mostra onde estão PESSOAS (mig 293): quem liga ou desliga
+    // fica registrado. A tela manda a configuração inteira — só audita quando MUDA.
+    if (!!antes?.kdsMapaEntregadores !== !!depois?.kdsMapaEntregadores) {
+      await this.auditoria.registrar({
+        tenantId: user.tenantId,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria ?? '',
+        tipo: 'delivery',
+        acao: depois.kdsMapaEntregadores ? 'ligou_mapa_entregadores_kds' : 'desligou_mapa_entregadores_kds',
+        unidadeId,
+        entidadeTipo: 'delivery_config',
+        entidadeId: null,
+        detalhe: { unidadeId, kdsMapaEntregadores: !!depois.kdsMapaEntregadores },
+      });
+    }
+    return depois;
   }
 
   // Perfis de cupom efetivos (padrão + override) — Fase 1 do construtor de cupons.

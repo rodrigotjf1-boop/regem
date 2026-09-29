@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { api, getToken } from '@/lib/api';
 import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
+import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -142,12 +143,25 @@ export default function KdsPage() {
   // Fase D — config de exibição do card (por aparelho; guardada no localStorage).
   const [view, setView] = useState<ViewCfg>(VIEW_PADRAO);
   const [cfgAberta, setCfgAberta] = useState(false);
+  // O que ESTA tela mostra (por aparelho): os pedidos (padrão) ou o mapa dos entregadores —
+  // o mapa só se o gestor ligou a chave da loja (mig 293, Delivery → Configurações).
+  const [tela, setTela] = useState<'pedidos' | 'mapa'>('pedidos');
+  const [mapaHabilitado, setMapaHabilitado] = useState<boolean | null>(null);
   useEffect(() => {
     try {
       const s = localStorage.getItem('kds-view');
       if (s) setView({ ...VIEW_PADRAO, ...JSON.parse(s) });
+      if (localStorage.getItem('kds-tela') === 'mapa') setTela('mapa');
     } catch { /* ignora */ }
   }, []);
+  function escolherTela(t: 'pedidos' | 'mapa') {
+    setTela(t);
+    try { localStorage.setItem('kds-tela', t); } catch { /* ignora */ }
+  }
+  // O gestor desligou a chave com a tela no mapa: volta aos pedidos (sem apagar a escolha —
+  // se ligarem de novo, a tela volta sozinha ao mapa na próxima abertura).
+  const mapaDesligado = useCallback(() => setMapaHabilitado(false), []);
+  const mostrarMapa = tela === 'mapa' && mapaHabilitado === true;
   function setViewCfg(patch: Partial<ViewCfg>) {
     setView((v) => {
       const novo = { ...v, ...patch };
@@ -233,6 +247,9 @@ export default function KdsPage() {
   useEffect(() => {
     if (getToken()) {
       api.setores().then(setSetores).catch(() => {});
+      api.entregadoresAoVivoKds()
+        .then((r: any) => setMapaHabilitado(r?.habilitado === true))
+        .catch(() => setMapaHabilitado(false));
       // Fase E — KDS da loja (p/ o seletor de cadeia). Restaura a última escolha.
       api.equipamentos()
         .then((eqs: any) => setKdsList((eqs as any[]).filter((e) => e.tipo === 'kds' && e.ativo)))
@@ -256,7 +273,7 @@ export default function KdsPage() {
   function criarAtalho() {
     const cfg = {
       view, tema: claro ? 'claro' : 'escuro', canal, setor: setorSel,
-      kds: kdsSel, subDelivery, subBalcao, mudo,
+      kds: kdsSel, subDelivery, subBalcao, mudo, tela,
     };
     const enc = btoa(encodeURIComponent(JSON.stringify(cfg)));
     const url = `${window.location.origin}/kds?cfg=${enc}&full=1`;
@@ -283,6 +300,7 @@ export default function KdsPage() {
         if (c.subDelivery) setSubDelivery(c.subDelivery);
         if (c.subBalcao) setSubBalcao(c.subBalcao);
         if (c.mudo != null) setMudo(!!c.mudo);
+        if (c.tela === 'mapa' || c.tela === 'pedidos') setTela(c.tela);
       } catch { /* ignora cfg inválida */ }
     }
     if (params.get('full') === '1') setPedirTelaCheia(true);
@@ -424,7 +442,7 @@ export default function KdsPage() {
   // ou o foco está em outro input (aí o próprio campo trata).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (cfgAberta || pedirTelaCheia) return;
+      if (cfgAberta || pedirTelaCheia || mostrarMapa) return; // no mapa não há card a avançar
       const t = e.target as HTMLElement | null;
       const tag = t?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // campo trata
@@ -435,7 +453,7 @@ export default function KdsPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfgAberta, pedirTelaCheia]);
+  }, [cfgAberta, pedirTelaCheia, mostrarMapa]);
 
   // Limpa a tela: o SERVIDOR avança todos os cards num único request (vão para o próximo
   // KDS ou concluem). Assim não dispara um POST por card (o que estourava o 429).
@@ -485,10 +503,11 @@ export default function KdsPage() {
             className="text-[11px] uppercase tracking-[0.12em]"
             style={{ color: T.muted }}
           >
-            Produção & alertas
+            {mostrarMapa ? 'Entregadores ao vivo' : 'Produção & alertas'}
           </div>
         </div>
 
+        {!mostrarMapa && (<>
         {/* Canal: balcão/salão (local + retirada) x delivery (courier) */}
         <div className="ml-2 flex overflow-hidden rounded-lg border" style={{ borderColor: T.border }}>
           {([
@@ -582,6 +601,7 @@ export default function KdsPage() {
         >
           🧹
         </button>
+        </>)}
 
         <div
           className="ml-auto flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px] font-semibold"
@@ -651,6 +671,38 @@ export default function KdsPage() {
             <span className="text-[13px] font-bold uppercase tracking-wider" style={{ color: T.muted }}>Configuração</span>
             <button type="button" onClick={() => setCfgAberta(false)} style={{ color: T.muted }}>✕</button>
           </div>
+
+          {/* O que esta tela mostra (mig 293). */}
+          <div className="mb-3">
+            <span className="mb-1 block text-[12px] font-semibold" style={{ color: T.muted }}>Esta tela mostra</span>
+            {mapaHabilitado ? (
+              <div className="flex overflow-hidden rounded-lg border" style={{ borderColor: T.border }}>
+                {([
+                  ['pedidos', 'Pedidos'],
+                  ['mapa', 'Mapa dos entregadores'],
+                ] as const).map(([v, rotulo]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    aria-pressed={tela === v}
+                    onClick={() => escolherTela(v)}
+                    className="flex-1 px-2.5 py-1.5 text-[12px] font-semibold"
+                    style={{
+                      background: tela === v ? '#E2A340' : T.panel2,
+                      color: tela === v ? '#0B141B' : T.muted,
+                    }}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11.5px]" style={{ color: T.muted }}>
+                Pedidos. O mapa dos entregadores fica disponível quando o gestor liga em Delivery → Configurações.
+              </p>
+            )}
+          </div>
+          <div className="my-3 border-t" style={{ borderColor: T.border }} />
 
           {/* Filtros (Fase C) — um conjunto para delivery, outro para o balcão. */}
           {([
@@ -742,7 +794,9 @@ export default function KdsPage() {
 
       {/* Corpo full-width — os alertas foram para o RODAPÉ fixo (abaixo). */}
       <div className="mx-auto max-w-[1600px] px-6 py-6" style={{ paddingBottom: mostrado ? 96 : 24 }}>
-        {modoEntrega ? (
+        {mostrarMapa ? (
+          <KdsMapaEntregadores T={T} escuro={!claro} esc={esc} onDesligado={mapaDesligado} />
+        ) : modoEntrega ? (
           <EntregaBoard pedidos={pedidosFiltrados} onEntregar={avancar} T={T} esc={esc} />
         ) : (
         /* Cards de produção — coloridos por tempo. */

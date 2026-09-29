@@ -1455,6 +1455,14 @@ function ConfigModal({ cfg, onToggle, loja, onTipo, pode, onClose }: { cfg: any;
           </span>
         </label>
 
+        <label className="mb-3 flex items-start gap-2 border-b border-border pb-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4 accent-primary" disabled={!pode} checked={cfg.kdsMapaEntregadores === true} onChange={(e) => onToggle({ kdsMapaEntregadores: e.target.checked })} />
+          <span>
+            Mostrar o mapa dos entregadores no KDS
+            <span className="block text-xs text-muted-foreground">Ligado: cada tela de KDS pode escolher, no ⚙, mostrar o mapa com a posição dos entregadores em vez dos pedidos. É a localização de pessoas — fica registrado quem liga e desliga.</span>
+          </span>
+        </label>
+
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tempos de preparo</p>
         <PrepTempoCard cfg={cfg} podeEditar={pode} onSave={onToggle} />
 

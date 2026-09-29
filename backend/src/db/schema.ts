@@ -2380,6 +2380,9 @@ export const deliveryConfig = pgTable('delivery_config', {
   // ligado (padrão), a comanda do caixa sai com o QR — o entregador escaneia direto
   // dela, dispensando o cupom do entregador separado (mig 211, aditiva, edge lê).
   imprimirQrComanda: boolean('imprimir_qr_comanda').notNull().default(true),
+  // Mapa dos entregadores no KDS (mig 293): localização de pessoas — desligado por padrão, só o
+  // gestor liga; ligado, cada tela de KDS escolhe no ⚙ se mostra os pedidos ou o mapa.
+  kdsMapaEntregadores: boolean('kds_mapa_entregadores').notNull().default(false),
   // Pausa temporária (reativa sozinha ao passar de pausado_ate).
   pausadoAte: timestamp('pausado_ate', { withTimezone: true }),
   pausaMotivo: text('pausa_motivo'),
