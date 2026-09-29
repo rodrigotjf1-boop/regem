@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SeletorProduto, type SelecaoProduto } from '@/components/pdv/seletor-produto';
+import { DetalheEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -213,9 +214,13 @@ export function PedidoDetalhe({
                 {p.formaPagamento ? ` · ${p.formaPagamento}` : ''}
                 {p.trocoPara != null && Number(p.trocoPara) > 0 ? ` · troco p/ ${brl(Number(p.trocoPara))}` : ''}
               </p>
-              {p.entregadorNome && (
+              {p.entregadorNome && p.logistica?.modo !== 'logistica_canal' && (
                 <p className="text-xs font-medium">🛵 {p.entregadorNome}{p.entregadorTelefone ? ` · 📞 ${p.entregadorTelefone}` : ''}</p>
               )}
+              <DetalheEntregadorDoCanal
+                l={p.logistica}
+                codigoColeta={p.canal === '99food' && p.logistica?.modo === 'logistica_canal' ? p.raw?.handover_code ?? null : null}
+              />
               {p.agendamento && <p className="text-xs text-info">🗓 agendado p/ {dataHora(p.agendamento)}</p>}
               {p.cupom && <p className="text-xs text-muted-foreground">🎟 cupom {p.cupom}</p>}
             </div>

@@ -22,6 +22,7 @@ import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-g
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
 import { exigirBooleano } from '../../common/exigir';
+import { logisticaDosPedidos } from './logistica-canal';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
 // barrado aqui — quem emite confere os dígitos verificadores e trata como ausente se não fechar.
@@ -820,8 +821,19 @@ export class DeliveryService {
     // Painel de Delivery: retirada (imediata) tem hub próprio ("Balcão retirada /
     // encomendas") — não deve aparecer aqui. Encomenda de ENTREGA continua no painel.
     const base = opts?.excluirRetirada ? rows.filter((r) => r.tipo !== 'retirada') : rows;
+    // O entregador do pedido de marketplace como o canal vê (mig 294): o da 99 e onde ele está.
+    const logistica = await logisticaDosPedidos(
+      this.db,
+      tenantId,
+      base.filter((r) => r.canal === '99food').map((r) => r.id),
+    ).catch((e: any) => {
+      // Informação a mais: nunca derruba o painel — mas fica no log (V11).
+      this.logger.warn(`logística do canal no painel: ${e?.message ?? e}`);
+      return new Map();
+    });
     return base.map((r) => ({
       ...r,
+      logistica: logistica.get(r.id) ?? null,
       clientePedidosCount: r.clienteTelefone ? counts.get(r.clienteTelefone) ?? 1 : 1,
       // Forma de pagamento unificada (rótulo do Regem) — o campo cru fica em formaPagamento.
       formaPagamentoLabel: normalizarFormaPagamento(r.formaPagamento, r.raw).label,
@@ -835,6 +847,14 @@ export class DeliveryService {
       .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, tenantId)));
     if (!p) throw new NotFoundException('Pedido externo não encontrado');
     return p;
+  }
+
+  /**
+   * A posição que o app do entregador acabou de mandar (NUVEM) segue para os canais que acompanham
+   * a entrega da loja — hoje a 99 (mig 294). Nunca rejeita: é chamado em segundo plano (V3).
+   */
+  async posicaoDoEntregadorParaCanais(tenantId: string, colaboradorId: string, lat: number, lng: number) {
+    await this.food99?.rastrearPedidosDoEntregador(tenantId, colaboradorId, lat, lng).catch(() => undefined);
   }
 
   // Confirmação de entrega por CÓDIGO (entrega própria em marketplace): o cliente dá o

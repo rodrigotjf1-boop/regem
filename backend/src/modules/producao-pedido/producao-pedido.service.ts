@@ -39,6 +39,7 @@ import { enfileirarComandoEdge } from '../../common/edge-comando';
 import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { hojeISO } from '../../common/data';
+import { logisticaDasComandas } from '../delivery/logistica-canal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1930,7 +1931,23 @@ export class ProducaoPedidoService {
       .from(producaoPedido)
       .where(and(...conds))
       .orderBy(producaoPedido.criadoEm);
-    return { cores, pedidos: await this.comItens(tenantId, pedidos) };
+    const comItens = await this.comItens(tenantId, pedidos);
+    // Pedido da 99 com entregador da plataforma (mig 294): o KDS mostra quem vem buscar e se já
+    // chegou, e o código de coleta. Informação a mais — nunca derruba a fila.
+    const logistica = await logisticaDasComandas(
+      this.db,
+      tenantId,
+      pedidos.filter((p) => p.comandaId && /99/.test(String(p.plataforma ?? ''))).map((p) => p.comandaId as string),
+    ).catch((e: any) => {
+      new Logger('KDS').warn(`logística do canal no KDS: ${e?.message ?? e}`);
+      return new Map();
+    });
+    return {
+      cores,
+      pedidos: logistica.size
+        ? comItens.map((p: any) => ({ ...p, logistica: (p.comandaId && logistica.get(p.comandaId)) || null }))
+        : comItens,
+    };
   }
 
   // Fila do PDV (atendente): ativos + concluídos recentes (janela de ação).

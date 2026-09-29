@@ -1746,6 +1746,8 @@ const VOLTA_DA_NUVEM = new Set([
   // A inutilização também volta: sem ela, um banco novo não saberia que aquela faixa já foi
   // regularizada e a tela pediria o pedido de novo (a SEFAZ devolveria 563).
   'fiscal_inutilizacao', 'fiscal_evento',
+  // O entregador do pedido de marketplace como o canal vê (mig 294): só a nuvem escreve, só desce.
+  'pedido_logistica',
 ]);
 
 // DONA É A NUVEM (regra de distribuição): licença, telemetria, campanhas, credenciais de

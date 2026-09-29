@@ -291,6 +291,11 @@ export const TABELAS_SYNC: TabelaSync[] = [
   // Pagamento dividido do PDV (mig 230): gravado no edge, nunca sincronizava. Refeito com
   // delete + insert a cada alteração → cursor created_at + `sync_exclusao`. Depois do pedido (FK).
   { tabela: 'pedido_externo_pagamento', direcao: 'ambos', cursor: 'created_at' },
+  // O entregador do pedido de marketplace como o CANAL vê (mig 294): o da logística da 99 (webhook
+  // deliveryStatus) e o controle do nosso "saiu para entrega" na entrega da loja. Só a NUVEM escreve
+  // (webhook/verificador) → só DESCE; o painel e o KDS da loja leem. Separada de `pedido_externo`
+  // para a última-escrita da linha do pedido (a loja marca pronto) não apagar o "chegou na loja".
+  { tabela: 'pedido_logistica', direcao: 'desce', cursor: 'updated_at' },
   // Exclusões físicas (mig 262): o gatilho grava (tabela, id) aqui e quem recebe apaga a mesma
   // linha do seu lado. Sobe como anexo e desce pelo TABELAS_PULL_APPEND. Por ÚLTIMO no push,
   // para a exclusão chegar depois das linhas do mesmo ciclo.
