@@ -1411,8 +1411,18 @@ export const api = {
     req('/campanhas/excluir-telefone', { method: 'POST', body: JSON.stringify({ telefone }) }),
   crmOptoutLista: () => req('/campanhas/optout'),
   crmFunil: (dias = 30) => req(`/clientes/funil?dias=${dias}`),
-  // E2b — entregadores ao vivo (última posição/15min + nº em rota).
-  entregadoresAoVivo: () => req('/entregador/ao-vivo'),
+  // E2b — entregadores ao vivo da loja (última posição/15min + pedidos em rota). A rota nova é
+  // servida TAMBÉM pelo servidor da loja (que pede à nuvem); a antiga fica de reserva para
+  // nuvem que ainda não recebeu a atualização.
+  entregadoresAoVivo: async () => {
+    try {
+      return await req('/delivery/entregadores-ao-vivo');
+    } catch {
+      return req('/entregador/ao-vivo');
+    }
+  },
+  // Mapa dos entregadores no KDS (mig 293): `habilitado:false` = a loja não ligou a chave.
+  entregadoresAoVivoKds: () => req('/delivery/entregadores-ao-vivo/kds'),
   // E5 — pagamento do entregador.
   entregadorPagamentoConfig: () => req('/entregador/pagamento/config'),
   entregadorPagamentoConfigSalvar: (body: {

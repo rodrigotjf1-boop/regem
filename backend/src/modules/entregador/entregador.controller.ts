@@ -6,6 +6,7 @@ import { PermissoesGuard } from '../../auth/permissoes.guard';
 import { RequirePerm } from '../../auth/require-perm.decorator';
 import { CurrentUser } from '../../auth/current-user.decorator';
 import { AuthUser } from '../../auth/auth-user';
+import { UnidadeAtual } from '../../auth/unidade-atual.decorator';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { EntregadorService } from './entregador.service';
 
@@ -147,8 +148,8 @@ export class EntregadorController {
   @UseGuards(RolesGuard, PermissoesGuard)
   @Roles('presidente', 'gerente', 'supervisao')
   @RequirePerm('delivery')
-  aoVivo(@CurrentUser() user: AuthUser) {
-    return this.service.aoVivo(user.tenantId);
+  aoVivo(@CurrentUser() user: AuthUser, @UnidadeAtual() unidadeId: string | null) {
+    return this.service.aoVivo(user.tenantId, unidadeId ?? null);
   }
 
   // ===== E5 — pagamento =====

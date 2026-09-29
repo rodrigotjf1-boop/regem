@@ -21,6 +21,7 @@ import { motivoVendaDesfeita } from '../fiscal/nfce-totem';
 import { gravarAvisoCancelamentoTotem, resultadoDoAviso } from '../gogem/aviso-gogem';
 import { GogemAvisoService } from '../gogem/gogem-aviso.service';
 import { ehServidorLocal } from '../../common/modo';
+import { exigirBooleano } from '../../common/exigir';
 
 // Documento do cliente: guardamos só os dígitos, como a NFC-e exige. Formato inválido não é
 // barrado aqui — quem emite confere os dígitos verificadores e trata como ausente se não fechar.
@@ -2627,6 +2628,7 @@ export class DeliveryService {
         qrDespacho: false,
         adiarProducaoAteKds: false,
         imprimirQrComanda: true,
+        kdsMapaEntregadores: false,
         pausadoAte: null,
         pausaMotivo: null,
       };
@@ -3136,6 +3138,12 @@ export class DeliveryService {
       // QR na 1ª via do caixa dos pedidos externos (padrão ligado).
       imprimirQrComanda:
         dto.imprimirQrComanda != null ? !!dto.imprimirQrComanda : row?.imprimirQrComanda ?? true,
+      // Mapa dos entregadores no KDS (mig 293): ausente mantém (V16); presente tem de ser
+      // booleano de verdade (V15) — "false" em texto não pode virar true.
+      kdsMapaEntregadores:
+        dto.kdsMapaEntregadores !== undefined && dto.kdsMapaEntregadores !== null
+          ? exigirBooleano(dto.kdsMapaEntregadores, 'kdsMapaEntregadores')
+          : row?.kdsMapaEntregadores ?? false,
     };
     // Pausa: só sobrescreve quando explicitamente enviado (undefined = mantém).
     if (dto.pausadoAte !== undefined) vals.pausadoAte = dto.pausadoAte;
