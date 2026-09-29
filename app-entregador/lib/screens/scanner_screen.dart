@@ -67,10 +67,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
         SnackBar(
           content: Text(ja
               ? 'Pedido já estava em rota.'
-              : 'Pedido #${ped?['numero'] ?? ''} assumido!'),
+              : r['reservado'] == true
+                  ? 'Pedido #${ped?['numero'] ?? ''} no carrinho.'
+                  : 'Pedido #${ped?['numero'] ?? ''} assumido!'),
         ),
       );
-      Navigator.pop(context, true);
+      // Em rota comigo: volta já pedindo para abrir o pedido, com o campo do código pronto —
+      // na porta do cliente o entregador só digita o código. No carrinho (fila) ainda não saiu.
+      final emRota = ped != null && ped['status'] == 'despachado' && r['reservado'] != true;
+      Navigator.pop(context, emRota ? {'abrir': ped} : true);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
