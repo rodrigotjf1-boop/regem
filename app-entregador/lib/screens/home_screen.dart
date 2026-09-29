@@ -32,6 +32,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _carregando = true;
   bool _online = true; // indicador de conexão (offline-first)
   int _pendentes = 0; // entregas na fila local aguardando envio
+  Set<String> _pendentesIds = {}; // pedidos guardados sem sinal, aguardando confirmação
   StreamSubscription<List<ConnectivityResult>>? _connSub;
 
   @override
@@ -58,19 +59,55 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Esvazia a fila offline e atualiza o contador de pendentes. Se algo saiu,
-  // recarrega para refletir os status já atualizados no servidor.
+  // recarrega para refletir os status já atualizados no servidor. Recusa (código errado,
+  // pedido fora de rota) NUNCA some calada: avisa o entregador — o pedido segue em rota.
   Future<void> _sincronizarPendentes() async {
-    final enviados = await Outbox.flush();
-    final p = await Outbox.pendentes();
-    if (mounted) setState(() => _pendentes = p);
-    if (enviados > 0) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$enviados entrega(s) pendente(s) enviada(s) ✅')),
-        );
-      }
-      _carregar();
+    final r = await Outbox.flush();
+    final ids = await Outbox.pendentesIds();
+    if (mounted) {
+      setState(() {
+        _pendentes = ids.length;
+        _pendentesIds = ids;
+      });
     }
+    if (r.confirmadas > 0 && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${r.confirmadas} entrega(s) pendente(s) confirmada(s) ✅')),
+      );
+    }
+    if (r.recusadas.isNotEmpty) _avisarRecusadas(r.recusadas);
+    if (r.confirmadas > 0 || r.recusadas.isNotEmpty) _carregar();
+  }
+
+  void _avisarRecusadas(List<Map<String, dynamic>> recusadas) {
+    if (!mounted) return;
+    HapticFeedback.heavyImpact();
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.error_outline, color: Colors.red, size: 36),
+        title: Text(recusadas.length > 1
+            ? '${recusadas.length} entregas não foram confirmadas'
+            : 'Entrega não confirmada'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ...recusadas.map((e) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text('Pedido #${e['numero'] ?? '?'}: ${e['motivo'] ?? 'recusado'}'),
+                )),
+            const Text(
+              'O pedido continua em rota. Confira o código com o cliente e conclua de novo.',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        actions: [
+          FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('Entendi')),
+        ],
+      ),
+    );
   }
 
   String _brl(dynamic centavos) {
@@ -126,23 +163,38 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _escanear() async {
-    final ok = await Navigator.push<bool>(
+    final r = await Navigator.push<Object?>(
       context,
       MaterialPageRoute(builder: (_) => const ScannerScreen()),
     );
-    if (ok == true) {
-      _carregar();
-      _carregarFila(); // scan em modo carrinho muda o botão p/ "Iniciar entrega(s)"
+    if (r == null || r == false) return;
+    _carregar();
+    _carregarFila(); // scan em modo carrinho muda o botão p/ "Iniciar entrega(s)"
+    // Pedido em rota comigo: abre direto, com o campo do código pronto.
+    if (r is Map && r['abrir'] is Map) {
+      await _abrir(Map<String, dynamic>.from(r['abrir'] as Map), focarCodigo: true);
     }
   }
 
-  Future<void> _abrir(Map<String, dynamic> ped) async {
+  Future<void> _abrir(Map<String, dynamic> ped, {bool focarCodigo = false}) async {
     final ok = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => PedidoScreen(pedido: ped)),
+      MaterialPageRoute(builder: (_) => PedidoScreen(pedido: ped, focarCodigo: focarCodigo)),
     );
-    if (ok == true) _carregar();
+    if (ok == true) {
+      final ids = await Outbox.pendentesIds();
+      if (mounted) {
+        setState(() {
+          _pendentesIds = ids;
+          _pendentes = ids.length;
+        });
+      }
+      _carregar();
+    }
   }
+
+  // Guardado sem sinal (99 ou código da loja), ainda não confirmado pelo servidor.
+  bool _aguardando(Map m) => _pendentesIds.contains(m['id']);
 
   Future<void> _toggleContato(bool v) async {
     setState(() => _compartilhaContato = v);
@@ -367,10 +419,14 @@ class _HomeScreenState extends State<HomeScreen> {
               : Text('$ordem', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
         title: Text('#${m['numero'] ?? ''} · ${m['cliente'] ?? 'Cliente'}'),
-        subtitle: Text(m['endereco']?.toString() ?? ''),
+        subtitle: Text(_aguardando(m)
+            ? 'Aguardando confirmação · envia quando o sinal voltar'
+            : m['endereco']?.toString() ?? ''),
         trailing: entregue
             ? const Text('entregue', style: TextStyle(color: Colors.green, fontSize: 12))
-            : const Icon(Icons.chevron_right),
+            : _aguardando(m)
+                ? Icon(Icons.schedule, color: Colors.orange.shade800)
+                : const Icon(Icons.chevron_right),
         onTap: entregue ? null : () => _abrir(m),
       ),
     );
@@ -558,8 +614,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: ListTile(
                   leading: const Icon(Icons.motorcycle),
                   title: Text('#${m['numero'] ?? ''} · ${m['cliente'] ?? 'Cliente'}'),
-                  subtitle: Text(m['endereco']?.toString() ?? ''),
-                  trailing: const Icon(Icons.chevron_right),
+                  subtitle: Text(_aguardando(m)
+                      ? 'Aguardando confirmação · envia quando o sinal voltar'
+                      : m['endereco']?.toString() ?? ''),
+                  trailing: _aguardando(m)
+                      ? Icon(Icons.schedule, color: Colors.orange.shade800)
+                      : const Icon(Icons.chevron_right),
                   onTap: () => _abrir(m),
                 ),
               );

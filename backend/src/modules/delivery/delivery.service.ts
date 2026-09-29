@@ -844,10 +844,17 @@ export class DeliveryService {
     atorId: string,
     id: string,
     codigo: string,
-  ): Promise<{ ok: boolean; valid: boolean; precisaConferencia?: boolean; msg?: string }> {
+  ): Promise<{ ok: boolean; valid: boolean; jaFeito?: boolean; precisaConferencia?: boolean; msg?: string }> {
     const cod = String(codigo ?? '').replace(/\s/g, '');
     if (!cod) throw new BadRequestException('Informe o código de entrega.');
     const ped = await this.carregar(tenantId, id);
+    // O estado do Regem ANTES do canal: validar no canal primeiro fazia o iFood/99 dar o pedido
+    // por concluído mesmo quando o Regem depois recusava (pedido fora de rota). E o reenvio da
+    // fila offline do app, de um pedido que já foi confirmado, não pode voltar ao canal (a 99
+    // recusaria o código de um pedido já concluído e o app avisaria "recusado" à toa).
+    if (ped.status === 'entregue' || ped.status === 'concluido') return { ok: true, valid: true, jaFeito: true };
+    if (ped.status !== 'despachado')
+      throw new BadRequestException('O pedido precisa estar em rota para confirmar a entrega com o código.');
     if (!ped.externalId) throw new BadRequestException('Pedido sem identificador do canal.');
     const extId = String(ped.externalId);
 

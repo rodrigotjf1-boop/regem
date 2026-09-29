@@ -15,6 +15,13 @@ import { DeliveryService } from '../delivery/delivery.service';
 import { ClienteService } from '../cliente/cliente.service';
 import { geocode, montarEndereco } from '../../common/geocode';
 import { calcularCobranca } from './cobranca';
+import {
+  SEM_LOGISTICA_DO_CANAL,
+  ehCanalComCodigo,
+  entrega99,
+  modoEntrega,
+  nomeDoCanal,
+} from './modo-entrega';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -59,21 +66,33 @@ export class EntregadorService {
       // O que cobrar na porta (aReceber/troco/formas) — ver `calcularCobranca`.
       ...calcularCobranca(p),
       status: p.status,
-      // Entrega própria (cardápio/local, não marketplace) com código de 4 díg. do cliente:
-      // o app exige o código pra concluir. NÃO expõe o código em si (o cliente o informa).
-      precisaCodigo:
-        p.tipo !== 'retirada' &&
-        !['ifood', '99food'].includes(String(p.canal)) &&
-        !!p.codigoEntrega,
-      // HASH (SHA-256) do código de entrega própria — o app verifica OFFLINE comparando o
-      // hash do que o cliente digitar. NUNCA manda o código em texto (o entregador não vê).
-      codigoEntregaHash:
-        p.tipo !== 'retirada' &&
-        !['ifood', '99food'].includes(String(p.canal)) &&
-        p.codigoEntrega
-          ? createHash('sha256').update(String(p.codigoEntrega)).digest('hex')
-          : null,
-      raw: p.raw ?? null, // p/ o app detectar entrega própria de marketplace (código do canal)
+      ...this.regraDoCodigo(p),
+      raw: p.raw ?? null, // app antigo (<= 0.1.0+15) detecta a entrega própria de marketplace por aqui
+    };
+  }
+
+  /**
+   * Como o pedido se conclui na porta — decidido AQUI (`modoEntrega`), o app só obedece:
+   *  • `precisaCodigo` — o app exige o código antes de concluir;
+   *  • `codigoDoCanal` — 'ifood' | '99food' quando o código é o que o CLIENTE recebeu do canal
+   *    (conferido na API dele); null quando é o código de 4 dígitos do Regem;
+   *  • `conferencia` — onde o código é conferido: 'hash' (no aparelho, sem internet — código do
+   *    Regem), 'depois' (99: sem sinal, guarda e confere ao voltar — decisão do dono, 29/09),
+   *    'online' (iFood: só com internet, na hora), null (sem código);
+   *  • `codigoEntregaHash` — SHA-256 do código do Regem; NUNCA o código em texto;
+   *  • `entrega99` — localizador + página da 99 (plano B quando a conferência pelo Regem falha).
+   */
+  private regraDoCodigo(p: any) {
+    const modo = modoEntrega(p);
+    const doCanal = modo === 'propria_canal' && ehCanalComCodigo(p.canal) ? String(p.canal) : null;
+    const doRegem = modo === 'propria_loja' && !!p.codigoEntrega;
+    return {
+      modoEntrega: modo,
+      precisaCodigo: !!doCanal || doRegem,
+      codigoDoCanal: doCanal,
+      conferencia: doCanal ? (doCanal === '99food' ? 'depois' : 'online') : doRegem ? 'hash' : null,
+      codigoEntregaHash: doRegem ? createHash('sha256').update(String(p.codigoEntrega)).digest('hex') : null,
+      entrega99: doCanal === '99food' ? entrega99(p.raw) : null,
     };
   }
 
@@ -125,6 +144,11 @@ export class EntregadorService {
       .from(pedidoExterno)
       .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.despachoToken, token)));
     if (!ped) throw new NotFoundException('Pedido não encontrado nesta loja.');
+    // Quem entrega é o entregador do iFood/99: a loja não despacha, e o canal conclui sozinho.
+    if (modoEntrega(ped) === 'logistica_canal')
+      throw new BadRequestException(
+        `Este pedido é entregue pelo entregador do ${nomeDoCanal(ped.canal)} — ele não sai com você.`,
+      );
     if (['despachado', 'concluido'].includes(String(ped.status))) {
       return { ok: true, jaFeito: true, pedido: this.resumo(ped) };
     }
@@ -176,21 +200,34 @@ export class EntregadorService {
   async finalizar(user: AuthUser, id: string, codigo?: string) {
     if (!this.ehEntregador(user)) throw new ForbiddenException('Apenas entregadores.');
     const cod = String(codigo ?? '').trim();
-    // Carrega canal + código próprio do pedido (escopo tenant).
+    // Carrega o que decide a regra do código (escopo tenant).
     const [ped] = await this.db
-      .select({ canal: pedidoExterno.canal, codigoEntrega: pedidoExterno.codigoEntrega })
+      .select({
+        canal: pedidoExterno.canal,
+        tipo: pedidoExterno.tipo,
+        raw: pedidoExterno.raw,
+        codigoEntrega: pedidoExterno.codigoEntrega,
+      })
       .from(pedidoExterno)
       .where(and(eq(pedidoExterno.tenantId, user.tenantId), eq(pedidoExterno.id, id)));
     if (!ped) throw new NotFoundException('Pedido não encontrado.');
-    // Marketplace (iFood/99food) com código do cliente: valida pela API do canal.
-    if (['ifood', '99food'].includes(String(ped.canal)) && cod) {
+    const modo = modoEntrega(ped);
+    if (modo === 'logistica_canal')
+      throw new BadRequestException(
+        `Este pedido é entregue pelo entregador do ${nomeDoCanal(ped.canal)} — ele conclui sozinho quando entregar.`,
+      );
+    // Entrega própria de iFood/99: o código é o que o CLIENTE recebeu do canal, conferido na API
+    // dele. Nunca cai no código de 4 dígitos do Regem (que todo pedido tem por padrão, mig 209, e
+    // o cliente do marketplace nunca recebeu — era o que travava o entregador).
+    if (modo === 'propria_canal') {
+      if (!cod) throw new BadRequestException(`Digite o código de entrega do ${nomeDoCanal(ped.canal)} que o cliente recebeu.`);
       const r: any = await this.delivery.confirmarEntregaComCodigo(user.tenantId, user.colaboradorId, id, cod);
       if (r?.valid) await this.avancarSaida(user.tenantId, id).catch(() => {}); // dispara a próxima parada
       return r;
     }
     // Entrega própria (cardápio/local) com código de 4 díg.: exige e valida o código do
     // cliente (aleatório, gerado na criação) antes de marcar entregue.
-    if (ped.codigoEntrega) {
+    if (modo === 'propria_loja' && ped.codigoEntrega) {
       if (!cod) throw new BadRequestException('Digite o código de entrega do cliente.');
       if (cod !== String(ped.codigoEntrega))
         return { ok: false, valid: false, msg: 'Código inválido — confira com o cliente.' };
@@ -298,6 +335,7 @@ export class EntregadorService {
       select count(*)::int n from pedido_externo
       where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
         and entregador_id is null and reservado_em is null and saida_id is null
+        and ${SEM_LOGISTICA_DO_CANAL}
         ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}`);
     const prontosDisponiveis = Number((pr2.rows ?? pr2)[0]?.n ?? 0);
     let botao: string;
@@ -325,6 +363,7 @@ export class EntregadorService {
           select id from pedido_externo
           where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada'
             and entregador_id is null and reservado_em is null and saida_id is null
+            and ${SEM_LOGISTICA_DO_CANAL}
             ${unidadeId ? sql`and (unidade_id = ${unidadeId} or unidade_id is null)` : sql``}
           order by criado_em asc limit ${faltam}
           for update skip locked)`);
@@ -1346,6 +1385,7 @@ export class EntregadorService {
     const pr: any = await this.db.execute(sql`
       select * from pedido_externo
       where tenant_id = ${user.tenantId} and status = 'pronto' and tipo <> 'retirada' and saida_id is null
+        and ${SEM_LOGISTICA_DO_CANAL}
       order by criado_em asc limit ${max}`);
     const prontos = pr.rows ?? pr;
     if (!prontos.length) return { saida: null, paradas: [] as any[] };

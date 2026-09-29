@@ -2,6 +2,20 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Erro devolvido pela API, com o status HTTP — a fila offline precisa separar a RECUSA
+/// (4xx: não adianta reenviar, o entregador tem de saber) da falha passageira (5xx, 408, 429).
+class ApiErro implements Exception {
+  final int status;
+  final String mensagem;
+  const ApiErro(this.status, this.mensagem);
+
+  /// Recusa definitiva do pedido (código errado, pedido fora de rota…).
+  bool get recusa => status >= 400 && status < 500 && status != 408 && status != 429;
+
+  @override
+  String toString() => mensagem;
+}
+
 /// Cliente da API do Regem. O app reusa o login de colaborador (JWT) e manda
 /// `Authorization: Bearer <access_token>` — o guard do backend prioriza o Bearer.
 class Api {
@@ -94,16 +108,20 @@ class Api {
   }
 
   /// E1 — finaliza a entrega (código opcional p/ marketplace de entrega própria).
+  /// Resposta `{valid:false, msg}` = código recusado (200, mas NÃO é entrega feita).
+  /// Erro da API vem como [ApiErro] (com o status); falta de rede, como exceção do http.
   static Future<Map<String, dynamic>> finalizar(String id, {String? codigo}) async {
-    final r = await http.post(
-      Uri.parse('$base/entregador/pedido/$id/finalizar'),
-      headers: _headers,
-      body: jsonEncode({if (codigo != null) 'codigo': codigo}),
-    );
+    final r = await http
+        .post(
+          Uri.parse('$base/entregador/pedido/$id/finalizar'),
+          headers: _headers,
+          body: jsonEncode({if (codigo != null) 'codigo': codigo}),
+        )
+        .timeout(const Duration(seconds: 25));
     if (r.statusCode >= 200 && r.statusCode < 300) {
       return jsonDecode(r.body) as Map<String, dynamic>;
     }
-    throw Exception(_erro(r));
+    throw ApiErro(r.statusCode, _erro(r));
   }
 
   /// E4 — avisa o cliente que o entregador está chegando (WhatsApp via n8n).

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
@@ -8,7 +9,9 @@ import 'rota_screen.dart';
 
 class PedidoScreen extends StatefulWidget {
   final Map<String, dynamic> pedido;
-  const PedidoScreen({super.key, required this.pedido});
+  // Aberto logo depois de escanear o cupom: o campo do código já vem com o teclado aberto.
+  final bool focarCodigo;
+  const PedidoScreen({super.key, required this.pedido, this.focarCodigo = false});
 
   @override
   State<PedidoScreen> createState() => _PedidoScreenState();
@@ -84,25 +87,59 @@ class _PedidoScreenState extends State<PedidoScreen> {
     await _abrirUri(Uri.parse('https://wa.me/$d'), 'Não foi possível abrir o WhatsApp.');
   }
 
-  // Entrega própria em marketplace (99food delivery_type=2 / iFood MERCHANT) exige
-  // o código do cliente. Cardápio nativo conclui sem código.
-  bool get _entregaPropria {
+  // QUEM decide a regra do código é o servidor (`modoEntrega`, `codigoDoCanal`, `conferencia`).
+  // Servidor antigo (sem esses campos): o app deduz do pedido bruto, como fazia antes.
+  bool get _servidorDecide => widget.pedido.containsKey('modoEntrega');
+
+  // Entrega própria em marketplace (99food delivery_type=2 / iFood MERCHANT) — só a dedução
+  // antiga, para servidor sem `codigoDoCanal`.
+  String? get _canalDeduzido {
     final raw = widget.pedido['raw'];
-    if (raw is! Map) return false;
+    if (raw is! Map) return null;
     final canal = widget.pedido['canal'];
-    if (canal == '99food' && raw['delivery_type']?.toString() == '2') return true;
+    if (canal == '99food' && raw['delivery_type']?.toString() == '2') return '99food';
     final d = raw['delivery'];
-    if (canal == 'ifood' &&
-        d is Map &&
-        d['deliveredBy']?.toString().toUpperCase() == 'MERCHANT') {
-      return true;
+    if (canal == 'ifood' && d is Map && d['deliveredBy']?.toString().toUpperCase() == 'MERCHANT') {
+      return 'ifood';
     }
-    return false;
+    return null;
   }
 
-  // Exige código quando: entrega própria de marketplace (código do canal) OU entrega
-  // própria do cardápio/local com código de 4 díg. (backend manda precisaCodigo).
-  bool get _precisaCodigo => _entregaPropria || widget.pedido['precisaCodigo'] == true;
+  /// 'ifood' | '99food' quando o código é o que o cliente recebeu do CANAL; null = código do
+  /// Regem (ou nenhum).
+  String? get _codigoDoCanal =>
+      _servidorDecide ? widget.pedido['codigoDoCanal']?.toString() : _canalDeduzido;
+
+  bool get _precisaCodigo => _codigoDoCanal != null || widget.pedido['precisaCodigo'] == true;
+
+  /// Onde o código é conferido: 'hash' (no aparelho), 'depois' (99: sem sinal guarda e confere
+  /// ao voltar), 'online' (iFood: só com internet, na hora — decisão do dono, 29/09/2026).
+  String? get _conferencia {
+    final c = widget.pedido['conferencia']?.toString();
+    if (c != null && c.isNotEmpty) return c;
+    if (_codigoDoCanal == 'ifood') return 'online';
+    if (_codigoDoCanal == '99food') return 'depois';
+    return _precisaCodigo ? 'hash' : null;
+  }
+
+  String get _nomeCanal => _codigoDoCanal == 'ifood' ? 'iFood' : '99';
+
+  String get _rotuloCodigo => _codigoDoCanal == 'ifood'
+      ? 'Código de entrega do iFood'
+      : _codigoDoCanal == '99food'
+          ? 'Código de entrega da 99'
+          : 'Código de entrega do cliente';
+
+  String get _ajudaCodigo => _codigoDoCanal == 'ifood'
+      ? 'O cliente vê o código no app do iFood. A conferência é na hora e precisa de internet.'
+      : _codigoDoCanal == '99food'
+          ? 'O cliente vê o código no app da 99.'
+          : 'Peça ao cliente o código de 4 números do pedido.';
+
+  Map<String, dynamic>? get _entrega99 {
+    final e = widget.pedido['entrega99'];
+    return e is Map ? Map<String, dynamic>.from(e) : null;
+  }
 
   // Verifica o código OFFLINE pelo HASH (SHA-256) que o backend mandou — sem internet,
   // sem expor o código. Sem hash (marketplace) → deixa o servidor validar.
@@ -112,20 +149,16 @@ class _PedidoScreenState extends State<PedidoScreen> {
     return sha256.convert(utf8.encode(code)).toString() == hash;
   }
 
-  static bool _ehErroDeRede(String msg) =>
-      msg.contains('SocketException') ||
-      msg.contains('Failed host lookup') ||
-      msg.contains('Connection') ||
-      msg.contains('timed out') ||
-      msg.contains('Network is unreachable') ||
-      msg.contains('ClientException');
+  void _aviso(String msg, {bool erro = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: erro ? Colors.red : null),
+    );
+  }
 
   Future<void> _finalizar() async {
     final code = _codigo.text.trim();
     if (_precisaCodigo && code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Digite o código de entrega do cliente.')),
-      );
+      _aviso('Digite o ${_rotuloCodigo.toLowerCase()}.');
       return;
     }
     // Validação OFFLINE por hash (funciona sem conexão).
@@ -144,38 +177,105 @@ class _PedidoScreenState extends State<PedidoScreen> {
       final r = await Api.finalizar(id, codigo: _precisaCodigo ? code : null);
       if (!mounted) return;
       if (r['valid'] == false) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(r['msg']?.toString() ?? 'Código inválido.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        _aviso(r['msg']?.toString() ?? 'Código inválido.', erro: true);
         setState(() => _finalizando = false);
         return;
       }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Entrega concluída!')));
+      _aviso(r['jaFeito'] == true ? 'Esta entrega já estava confirmada.' : 'Entrega concluída!');
       Navigator.pop(context, true);
+    } on ApiErro catch (e) {
+      if (!mounted) return;
+      // Servidor/canal fora do ar (5xx, 408, 429) conta como falta de conexão; recusa (4xx) não.
+      if (!e.recusa) return _semConexao(id, code);
+      _aviso(e.mensagem, erro: true);
+      setState(() => _finalizando = false);
     } catch (e) {
       if (!mounted) return;
       final msg = e.toString();
-      // Sem conexão → enfileira (offline-first) e conclui localmente; envia ao reconectar.
-      if (_ehErroDeRede(msg)) {
-        await Outbox.enfileirar(id, _precisaCodigo ? code : null);
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sem conexão — entrega registrada ✅ Será enviada ao reconectar.'),
-          ),
-        );
-        Navigator.pop(context, true);
-        return;
-      }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg.replaceFirst('Exception: ', '')), backgroundColor: Colors.red),
-      );
+      if (Outbox.ehErroDeRede(msg)) return _semConexao(id, code);
+      _aviso(msg.replaceFirst('Exception: ', ''), erro: true);
       setState(() => _finalizando = false);
     }
+  }
+
+  /// Sem internet: o que pode esperar vai para a fila e conclui aqui; o do iFood, não.
+  Future<void> _semConexao(String id, String code) async {
+    if (_conferencia == 'online') {
+      _aviso(
+        'Sem internet — o código do iFood só é conferido online. Tente de novo quando o sinal voltar.',
+        erro: true,
+      );
+      setState(() => _finalizando = false);
+      return;
+    }
+    await Outbox.enfileirar(
+      id,
+      _precisaCodigo ? code : null,
+      numero: widget.pedido['numero'],
+      canal: _codigoDoCanal,
+    );
+    if (!mounted) return;
+    _aviso(_conferencia == 'depois'
+        ? 'Sem internet — entrega guardada. Confiro o código com a 99 quando o sinal voltar e aviso se ela recusar.'
+        : 'Sem conexão — entrega registrada ✅ Será enviada ao reconectar.');
+    Navigator.pop(context, true);
+  }
+
+  Future<void> _copiarLocalizador(String loc) async {
+    await Clipboard.setData(ClipboardData(text: loc));
+    if (mounted) _aviso('Localizador copiado.');
+  }
+
+  // Plano B da 99: a página da 99 onde o entregador digita o localizador + o código do cliente.
+  Widget _planoB99() {
+    final e = _entrega99;
+    final loc = e?['localizador']?.toString();
+    final pagina = e?['pagina']?.toString();
+    if ((loc == null || loc.isEmpty) && (pagina == null || pagina.isEmpty)) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      color: Colors.orange.withValues(alpha: 0.08),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Se o código não passar aqui',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Abra a página de entrega da 99 e digite o localizador deste pedido junto com o código do cliente.',
+              style: TextStyle(fontSize: 13),
+            ),
+            if (loc != null && loc.isNotEmpty)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Localizador', style: TextStyle(fontSize: 12)),
+                subtitle: Text(
+                  loc,
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: 2),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.copy),
+                  tooltip: 'Copiar localizador',
+                  onPressed: () => _copiarLocalizador(loc),
+                ),
+              ),
+            if (pagina != null && pagina.isNotEmpty)
+              OutlinedButton.icon(
+                onPressed: () =>
+                    _abrirUri(Uri.parse(pagina), 'Não foi possível abrir a página da 99.'),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Abrir página de entrega da 99'),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -195,7 +295,11 @@ class _PedidoScreenState extends State<PedidoScreen> {
     final trocoPara = p['trocoPara'] as num?;
     final formas = (p['formasNaEntrega'] as List?) ?? [];
     return Scaffold(
-      appBar: AppBar(title: Text('Pedido #${p['numero'] ?? ''}')),
+      appBar: AppBar(
+        title: Text(_codigoDoCanal != null
+            ? 'Pedido #${p['numero'] ?? ''} · $_nomeCanal'
+            : 'Pedido #${p['numero'] ?? ''}'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -296,13 +400,25 @@ class _PedidoScreenState extends State<PedidoScreen> {
               padding: const EdgeInsets.only(bottom: 12),
               child: TextField(
                 controller: _codigo,
+                autofocus: widget.focarCodigo,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Código de entrega do cliente',
-                  border: OutlineInputBorder(),
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(8),
+                ],
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: 6),
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _finalizando ? null : _finalizar(),
+                decoration: InputDecoration(
+                  labelText: _rotuloCodigo,
+                  helperText: _ajudaCodigo,
+                  helperMaxLines: 2,
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ),
+          if (_codigoDoCanal == '99food') _planoB99(),
           OutlinedButton.icon(
             onPressed: _avisando ? null : _chegando,
             icon: const Icon(Icons.notifications_active),
