@@ -567,6 +567,8 @@ export class EntregadorService {
         precisao = excluded.precisao, atualizado_em = now()`);
     // Geofence automático do alerta de chegada (best-effort, não bloqueia o ping).
     void this.checarChegada(user, la, ln);
+    // Entrega da loja pela 99: o cliente acompanha o entregador no app da 99 (mig 294). Nunca rejeita.
+    void this.delivery.posicaoDoEntregadorParaCanais(user.tenantId, user.colaboradorId, la, ln);
     return { ok: true };
   }
 

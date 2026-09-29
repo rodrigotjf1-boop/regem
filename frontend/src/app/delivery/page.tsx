@@ -15,6 +15,7 @@ import { NovoPedido } from '@/components/delivery/novo-pedido';
 import { UnidadeSeletor } from '@/components/app-shell/unidade-seletor';
 import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { Clock } from 'lucide-react';
+import { SeloEntregadorDoCanal, textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const brl = (n: number) =>
@@ -990,8 +991,16 @@ function ListaPedidos({
                   )}
                   <td className="whitespace-nowrap px-3 py-2">
                     {variante === 'andamento'
-                      ? (p.entregadorNome ? <span className="text-xs font-medium">🛵 {p.entregadorNome}</span> : <span className="text-xs text-muted-foreground">—</span>)
-                      : <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>}
+                      ? (textoEntregadorDoCanal(p.logistica)
+                          ? <SeloEntregadorDoCanal l={p.logistica} />
+                          : p.entregadorNome ? <span className="text-xs font-medium">🛵 {p.entregadorNome}</span> : <span className="text-xs text-muted-foreground">—</span>)
+                      : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${sv.cls}`}>{sv.label}</span>
+                          {/* Pedido que o entregador da 99 busca: quem vem e se já chegou (mig 294). */}
+                          <SeloEntregadorDoCanal l={p.logistica} />
+                        </span>
+                      )}
                   </td>
                   {variante === 'andamento' && (
                     <td className="whitespace-nowrap px-3 py-2">
@@ -1050,7 +1059,9 @@ function PreviewPedido({ pedido: p, onAbrirDetalhe, className }: { pedido: any; 
           <span className="text-muted-foreground">{dataCurta(p.criadoEm)} · {hora(p.criadoEm)}</span>
           {p.pago ? <span className="font-bold text-ok">Pago online</span> : <span className="font-bold text-warn">A pagar {p.formaPagamento ? `· ${formaLabel(p.formaPagamento)}` : ''}</span>}
           {p.trocoPara != null && Number(p.trocoPara) > 0 && <span className="text-muted-foreground">troco p/ {brl(Number(p.trocoPara))}</span>}
-          {p.entregadorNome && <span className="font-medium">🛵 {p.entregadorNome}</span>}
+          {textoEntregadorDoCanal(p.logistica)
+            ? <SeloEntregadorDoCanal l={p.logistica} />
+            : p.entregadorNome && <span className="font-medium">🛵 {p.entregadorNome}</span>}
           {p.agendamento && <span className="text-info">agendado {dataCurta(p.agendamento)} {hora(p.agendamento)}</span>}
           {p.cupom && <span className="text-muted-foreground">cupom {p.cupom}</span>}
         </div>

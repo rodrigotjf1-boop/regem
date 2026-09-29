@@ -2519,6 +2519,33 @@ export const pedidoNotificacao = pgTable('pedido_notificacao', {
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// O ENTREGADOR DO PEDIDO DE MARKETPLACE como o canal vê (mig 294) — uma linha por pedido, escrita só
+// pela NUVEM e que só DESCE para o servidor da loja (separada de `pedido_externo`, que sincroniza por
+// última-escrita da linha inteira). Logística da 99: o que o webhook `deliveryStatus` conta (status,
+// entregador, chegada prevista na loja). Entrega da loja pela 99: o controle do nosso "saiu para
+// entrega" (`selfdelivery/dispatch`) e os limites de tempo que o rastreio reenvia.
+export const pedidoLogistica = pgTable('pedido_logistica', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  pedidoId: uuid('pedido_id').notNull(),
+  canal: text('canal').notNull(),
+  modo: text('modo').notNull(), // 'logistica_canal' | 'propria_canal'
+  status: integer('status'),
+  entregadorNome: text('entregador_nome'),
+  entregadorTelefone: text('entregador_telefone'),
+  chegadaLojaPrevista: timestamp('chegada_loja_prevista', { withTimezone: true }),
+  eventoEm: timestamp('evento_em', { withTimezone: true }),
+  despachoEnviadoEm: timestamp('despacho_enviado_em', { withTimezone: true }),
+  despachoErro: text('despacho_erro'),
+  despachoTentativas: integer('despacho_tentativas').notNull().default(0),
+  limiteColeta: timestamp('limite_coleta', { withTimezone: true }),
+  limiteEntrega: timestamp('limite_entrega', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Split de pagamento do pedido de delivery/retirada/encomenda (mig 230). 1 linha por
 // forma — espelha comanda_pagamento, mas ligado ao pedido_externo. Quando o pedido é
 // pago em forma única, pode ter 0 linhas (usa pedido_externo.forma_pagamento) ou 1 linha.

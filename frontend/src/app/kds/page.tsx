@@ -6,6 +6,7 @@ import { api, getToken } from '@/lib/api';
 import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
+import { textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -312,6 +313,16 @@ export default function KdsPage() {
   useEffect(() => {
     carregarFila();
   }, [setorSel, canal, kdsSel, carregarFila]);
+
+  // A situação do entregador da 99 (mig 294) chega ao servidor da loja pelo sync, sem evento de
+  // tela: uma recarga leve a cada 30 s mantém o "chegou na loja" em dia.
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      void carregarFila();
+    }, 30000);
+    return () => clearInterval(t);
+  }, [carregarFila]);
 
   useEffect(() => {
     // Device real: ?token=… (um KDS físico abre app.dmsregem.com/kds?token=…).
@@ -877,6 +888,19 @@ export default function KdsPage() {
                       🛵 {p.plataforma}{p.senhaPlataforma ? ` · #${p.senhaPlataforma}` : ''}
                     </div>
                   )}
+                  {/* Entregador da 99 (mig 294): quem vem buscar, se já chegou e o código de coleta. */}
+                  {textoEntregadorDoCanal(p.logistica) && (
+                    <div
+                      className="mb-2 inline-flex w-max max-w-full flex-wrap items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold"
+                      style={{
+                        background: p.logistica.status === 130 ? 'rgba(25,192,143,.18)' : T.panel2,
+                        color: p.logistica.status === 130 ? '#19C08F' : T.text,
+                      }}
+                    >
+                      {textoEntregadorDoCanal(p.logistica)}
+                      {p.logistica.codigoColeta ? ` · código ${p.logistica.codigoColeta}` : ''}
+                    </div>
+                  )}
                   {(cancelado || alterado) && (
                     <div
                       className="mb-2 inline-flex w-max items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-bold"
@@ -1071,6 +1095,11 @@ function EntregaBoard({
             title={tocavel ? 'Entregar (concluir)' : undefined}
           >
             {rotulo(p)}
+            {p.logistica?.status === 130 && (
+              <span className="block text-center" style={{ fontSize: Math.round(13 * esc), fontFamily: 'Figtree, sans-serif' }}>
+                🛵 entregador da 99 chegou
+              </span>
+            )}
           </button>
         ))}
       </div>

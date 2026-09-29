@@ -5,6 +5,15 @@ import { DRIZZLE, DrizzleDB } from '../../../db/drizzle.module';
 import { integracao } from '../../../db/schema';
 import { DeliveryService } from '../../delivery/delivery.service';
 import { fetchExterno } from '../../../common/fetch-externo';
+import { ehServidorLocal } from '../../../common/modo';
+import {
+  Entregador99,
+  STATUS_ENTREGA_99,
+  dadosDoEntregador,
+  lerDeliveryStatus,
+  limitesDaEntrega,
+  unix,
+} from './entregador-99';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Cliente da API do 99Food / DiDi Food (openapi.didi-food.com). É a API
@@ -631,6 +640,201 @@ export class Food99Service {
     ig.config = config;
   }
 
+  // ===== O entregador na 99 (mig 294) =====
+
+  /**
+   * ENTREGA DA LOJA: avisa a 99 que o pedido saiu para entrega, com o entregador e a previsão
+   * (`POST /v1/order/selfdelivery/dispatch`). É o que faz o cliente ver no app da 99 quem está
+   * levando o pedido. `order_id` vai LITERAL (64 bits); os textos, por JSON.stringify.
+   */
+  async despacharEntrega(
+    ig: IntegFood99,
+    orderId: string,
+    entregador: Entregador99,
+    limites: { coleta: Date; entrega: Date },
+  ): Promise<{ ok: boolean; errno: number; errmsg?: string }> {
+    if (!this.soDigitos(orderId)) return { ok: false, errno: -1, errmsg: 'pedido sem id numérico da 99' };
+    const tk = await this.authToken(ig);
+    if (!tk) return { ok: false, errno: -1, errmsg: 'sem autorização da loja na 99' };
+    const j = await this.postJson('/v1/order/selfdelivery/dispatch', tk, [
+      `"order_id":${orderId}`,
+      `"courier_info":${JSON.stringify(entregador)}`,
+      `"limit_time":${JSON.stringify({ pickup_time: unix(limites.coleta), delivery_time: unix(limites.entrega) })}`,
+    ]);
+    const errno = Number(j?.errno ?? -1);
+    const errmsg = j?.errmsg ? String(j.errmsg).slice(0, 200) : undefined;
+    if (errno === 0) this.logger.log(`selfdelivery/dispatch ${orderId} OK`);
+    else this.logger.warn(`selfdelivery/dispatch ${orderId} errno=${errno} ${errmsg ?? ''}`);
+    return { ok: errno === 0, errno, errmsg };
+  }
+
+  /** ENTREGA DA LOJA: a posição do entregador para o cliente acompanhar (`updateCourierTrack`). */
+  async rastrearEntregador(
+    ig: IntegFood99,
+    orderId: string,
+    lat: number,
+    lng: number,
+    limites: { coleta: Date; entrega: Date },
+  ): Promise<boolean> {
+    if (!this.soDigitos(orderId)) return false;
+    if (!(Math.abs(lat) <= 90 && Math.abs(lng) <= 180)) return false;
+    const tk = await this.authToken(ig);
+    if (!tk) return false;
+    const j = await this.postJson('/v1/order/selfdelivery/updateCourierTrack', tk, [
+      `"order_id":${orderId}`,
+      `"limit_time":${JSON.stringify({ pickup_time: unix(limites.coleta), delivery_time: unix(limites.entrega) })}`,
+      `"coordinate":${JSON.stringify({ longitude: lng, latitude: lat, timestamp: unix(new Date()) })}`,
+    ]);
+    return Number(j?.errno) === 0;
+  }
+
+  /**
+   * Verificador (chamado pelo poller, SÓ na nuvem): todo pedido da 99 de ENTREGA DA LOJA que saiu
+   * para entrega e ainda não foi avisado à 99 é avisado agora. Serve do mesmo jeito para o despacho
+   * feito na nuvem e no servidor da loja (lá a integração não existe: o pedido sobe pelo sync e é
+   * daqui que o aviso sai). Idempotente pela linha de `pedido_logistica`; até 5 tentativas.
+   */
+  async reconciliarDespachos(ig: IntegFood99): Promise<number> {
+    if (ehServidorLocal()) return 0;
+    const r: any = await this.db.execute(sql`
+      select p.id, p.tenant_id, p.unidade_id, p.external_id, p.entregador_id, p.entregador_nome,
+             p.despachado_em, p.raw->>'expected_arrived_eta' as eta_99,
+             c.nome as colaborador_nome, c.telefone as colaborador_telefone,
+             coalesce(ep.compartilha_contato, false) as compartilha
+        from pedido_externo p
+        left join pedido_logistica l on l.pedido_id = p.id
+        left join colaborador c on c.id = p.entregador_id and c.tenant_id = p.tenant_id
+        left join entregador_preferencia ep on ep.colaborador_id = p.entregador_id
+       where p.tenant_id = ${ig.tenantId} and p.canal = ${CANAL} and p.status = 'despachado'
+         and p.despachado_em > now() - interval '3 hours'
+         and p.tipo <> 'retirada'
+         and coalesce(p.raw->>'delivery_type', '') <> '1'
+         and coalesce(p.raw->>'fulfillment_mode', '') <> '1'
+         ${ig.unidadeId ? sql`and (p.unidade_id = ${ig.unidadeId} or p.unidade_id is null)` : sql``}
+         and (l.id is null or (l.despacho_enviado_em is null and l.despacho_tentativas < 5))
+       order by p.despachado_em
+       limit 50`);
+    const pedidos = (r.rows ?? r) as any[];
+    if (!pedidos.length) return 0;
+    const lojaR: any = await this.db.execute(sql`
+      select contato_loja, whatsapp from cardapio_config
+       where tenant_id = ${ig.tenantId}
+         ${ig.unidadeId ? sql`and (unidade_id = ${ig.unidadeId} or unidade_id is null)` : sql``}
+       order by (unidade_id is null) asc limit 1`);
+    const loja = (lojaR.rows ?? lojaR)[0];
+    const telefoneLoja = loja?.contato_loja || loja?.whatsapp || null;
+
+    let avisados = 0;
+    for (const p of pedidos) {
+      const quem = dadosDoEntregador({
+        nome: p.entregador_nome || p.colaborador_nome,
+        telefoneEntregador: p.colaborador_telefone,
+        compartilhaContato: p.compartilha === true,
+        telefoneLoja,
+      });
+      const limites = limitesDaEntrega(new Date(p.despachado_em), p.eta_99);
+      const res = quem
+        ? await this.despacharEntrega(ig, String(p.external_id ?? ''), quem.dados, limites)
+        : { ok: false, errno: -1, errmsg: 'sem telefone para a 99: cadastre o telefone de contato da loja' };
+      await this.db.execute(sql`
+        insert into pedido_logistica (tenant_id, pedido_id, canal, modo, entregador_nome,
+                                      despacho_enviado_em, despacho_erro, despacho_tentativas,
+                                      limite_coleta, limite_entrega)
+        values (${p.tenant_id}, ${p.id}, ${CANAL}, 'propria_canal', ${quem?.dados.courier_name ?? null},
+                ${res.ok ? new Date().toISOString() : null}::timestamptz,
+                ${res.ok ? null : `errno ${res.errno}${res.errmsg ? `: ${res.errmsg}` : ''}`},
+                ${quem ? 1 : 5}, ${limites.coleta.toISOString()}::timestamptz, ${limites.entrega.toISOString()}::timestamptz)
+        on conflict (pedido_id) do update set
+          entregador_nome = excluded.entregador_nome,
+          despacho_enviado_em = excluded.despacho_enviado_em,
+          despacho_erro = excluded.despacho_erro,
+          -- sem telefone não adianta insistir: esgota as tentativas de uma vez
+          despacho_tentativas = case when ${quem ? 1 : 5} = 5 then 5
+                                     else pedido_logistica.despacho_tentativas + 1 end,
+          limite_coleta = excluded.limite_coleta,
+          limite_entrega = excluded.limite_entrega`);
+      if (res.ok) avisados++;
+    }
+    return avisados;
+  }
+
+  // Última posição mandada à 99 por pedido: o app manda a cada ~10 s, a 99 recebe a cada 30 s.
+  private readonly ultimaPosicao = new Map<string, number>();
+
+  /**
+   * ENTREGA DA LOJA: a posição que o app do entregador acabou de mandar (nuvem) vai para a 99 em
+   * todo pedido dele em rota que já foi avisado como "saiu para entrega". Nunca rejeita (é chamado
+   * em segundo plano a cada posição — V3).
+   */
+  async rastrearPedidosDoEntregador(tenantId: string, colaboradorId: string, lat: number, lng: number) {
+    try {
+      if (ehServidorLocal()) return;
+      const r: any = await this.db.execute(sql`
+        select p.id, p.external_id, l.limite_coleta, l.limite_entrega
+          from pedido_externo p
+          join pedido_logistica l on l.pedido_id = p.id
+         where p.tenant_id = ${tenantId} and p.entregador_id = ${colaboradorId}
+           and p.canal = ${CANAL} and p.status = 'despachado' and l.despacho_enviado_em is not null`);
+      const pedidos = (r.rows ?? r) as any[];
+      if (!pedidos.length) return;
+      const agora = Date.now();
+      const devidos = pedidos.filter((p) => agora - (this.ultimaPosicao.get(p.id) ?? 0) >= 30_000);
+      if (!devidos.length) return;
+      const ig = await this.integracaoDoTenant(tenantId);
+      if (!ig) return;
+      for (const p of devidos) {
+        this.ultimaPosicao.set(p.id, agora);
+        await this.rastrearEntregador(ig, String(p.external_id ?? ''), lat, lng, {
+          coleta: new Date(p.limite_coleta),
+          entrega: new Date(p.limite_entrega),
+        });
+      }
+      if (this.ultimaPosicao.size > 5000) {
+        for (const [k, v] of this.ultimaPosicao) if (agora - v > 3 * 3_600_000) this.ultimaPosicao.delete(k);
+      }
+    } catch (e: any) {
+      this.logger.warn(`rastreio 99 do entregador ${colaboradorId}: ${e?.message ?? e}`);
+    }
+  }
+
+  /**
+   * LOGÍSTICA DA 99: o webhook `deliveryStatus` (entregador designado, chegou na loja, saiu, …).
+   * Grava em `pedido_logistica` (desce para o servidor da loja: painel e KDS mostram). Evento mais
+   * velho que o já gravado é ignorado (webhooks chegam fora de ordem). Quando o entregador SAI com o
+   * pedido (140), o pedido anda para "em rota" no Regem. `false` = o pedido ainda não chegou ao
+   * Regem → o webhook pede reenvio (ERR-061).
+   */
+  async registrarLogistica(ig: IntegFood99, orderId: string, raw: string): Promise<boolean> {
+    const ev = lerDeliveryStatus(raw);
+    if (!ev) {
+      this.logger.warn(`deliveryStatus ${orderId}: corpo sem delivery_status — ignorado`);
+      return true;
+    }
+    const pr: any = await this.db.execute(sql`
+      select id from pedido_externo
+       where tenant_id = ${ig.tenantId} and canal = ${CANAL} and external_id = ${orderId} limit 1`);
+    const ped = (pr.rows ?? pr)[0];
+    if (!ped) return false;
+    await this.db.execute(sql`
+      insert into pedido_logistica (tenant_id, pedido_id, canal, modo, status, entregador_nome,
+                                    entregador_telefone, chegada_loja_prevista, evento_em)
+      values (${ig.tenantId}, ${ped.id}, ${CANAL}, 'logistica_canal', ${ev.status}, ${ev.entregadorNome},
+              ${ev.entregadorTelefone}, ${ev.chegadaLojaPrevista?.toISOString() ?? null}::timestamptz,
+              ${ev.eventoEm?.toISOString() ?? null}::timestamptz)
+      on conflict (pedido_id) do update set
+        modo = 'logistica_canal',
+        status = excluded.status,
+        entregador_nome = coalesce(excluded.entregador_nome, pedido_logistica.entregador_nome),
+        entregador_telefone = coalesce(excluded.entregador_telefone, pedido_logistica.entregador_telefone),
+        chegada_loja_prevista = coalesce(excluded.chegada_loja_prevista, pedido_logistica.chegada_loja_prevista),
+        evento_em = excluded.evento_em
+      where pedido_logistica.evento_em is null or excluded.evento_em is null
+         or excluded.evento_em >= pedido_logistica.evento_em`);
+    this.logger.log(`deliveryStatus ${orderId}: ${ev.status} (${STATUS_ENTREGA_99[ev.status] ?? '?'})`);
+    if (ev.status === 140) await this.delivery.refletirStatusExterno(ig.tenantId, CANAL, orderId, 'despachado');
+    return true;
+  }
+
   // Reenvia os cancelamentos pendentes de uma loja (chamado pelo poller). Desiste
   // após 20 tentativas (log), pra não reenviar eternamente.
   async reconciliarCancels(ig: IntegFood99): Promise<number> {
@@ -737,8 +941,14 @@ export class Food99Service {
         if (orderId && !(await this.ingerirNovo(ig, orderId, raw))) {
           return { errno: 1, errmsg: 'pedido ainda não gravado — reenviar' };
         }
-      } else if (ev === 'orderconfirm' || ev === 'orderready' || ev === 'deliverystatus') {
-        // Ecos do nosso próprio status / progresso de entrega — só reconhece.
+      } else if (ev === 'deliverystatus') {
+        // Logística da 99: quem é o entregador e onde ele está (mig 294). Pedido que ainda não
+        // chegou ao Regem → errno≠0: a 99 reenvia (ERR-061).
+        if (orderId && !(await this.registrarLogistica(ig, orderId, raw))) {
+          return { errno: 1, errmsg: 'pedido ainda não gravado — reenviar' };
+        }
+      } else if (ev === 'orderconfirm' || ev === 'orderready') {
+        // Ecos do nosso próprio status — só reconhece.
         this.logger.log(`webhook: ${type} order=${orderId} (ack)`);
       } else {
         // shopStatus, shopBindStatus, imageAuditStatus, uploadMenuTaskStatus,
