@@ -2932,21 +2932,10 @@ export const reautorizacaoEdge = pgTable('reautorizacao_edge', {
   confirmadoEm: timestamp('confirmado_em', { withTimezone: true }),
 });
 
-// Token de integração POR LOJA (auto-atendimento GoGeM/Orzuni/Farol) — desacoplado
-// do edge. Guarda só o HASH do token; escopos por token; sincroniza (edge+nuvem, LWW).
-export const integracaoToken = pgTable('integracao_token', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  tenantId: uuid('tenant_id').notNull(),
-  unidadeId: uuid('unidade_id'), // loja; null = todas as lojas do tenant
-  tokenHash: text('token_hash').notNull().unique(),
-  nome: text('nome'),
-  escopos: text('escopos').array().notNull().default(sql`'{}'::text[]`),
-  ativo: boolean('ativo').notNull().default(true),
-  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
-  revogadoEm: timestamp('revogado_em', { withTimezone: true }),
-  ultimoUsoEm: timestamp('ultimo_uso_em', { withTimezone: true }),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+// Token de integração POR LOJA: tabela `integracao_token_loja` (mig 295, SÓ NUVEM), lida por
+// SQL em `modules/integracao-api/integracao-token.service.ts`. A antiga `integracao_token`
+// declarada aqui (sem migration no git e sem uso no código) saiu na trilha C — não reaproveitar
+// o nome: ela pode existir na nuvem com as colunas velhas.
 
 // Cadastro pendente de verificação de e-mail (landing). A conta real só nasce após
 // confirmar o código de 6 dígitos → e-mail inválido não queima o CNPJ (mig 193).

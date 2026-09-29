@@ -65,6 +65,12 @@ Ver `backend/src/modules/sync/sync-config.ts`. Não repetidas aqui.
 `cliente_link`, `cardapio_evento`, `pedido_notificacao`, `bot_atendimento` e as onze
 `entregador_*` (o app do entregador fala com a nuvem pela internet, não com a LAN da loja).
 
+`integracao_token_loja` (mig 295, trilha C): token de integração POR LOJA (Liame), guardado só
+em hash. A migration é `-- @cloud-only` (o servidor da loja pula o arquivo), então a tabela nunca
+existe no banco da loja — não entra no `sync-config.ts` nem nas listas do `sync-daemon.mjs`, e o
+teste de cobertura (`pendencias-wipe.spec.ts`), que varre o schema do servidor da loja, não a vê.
+O módulo que a usa (`IntegracaoApiModule`) não sobe no servidor da loja.
+
 ### 2.4 Entraram no sincronismo (migrations 272/273)
 
 Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_fiscal` (sobe), `tarefa_def`, `checklist`, `checklist_item`, `pop`, `documento_controlado`, `ciencia`, `vistoria`, `ocorrencia`, `ponto_ajuste`, `guia`, `guia_passo`, `comunicado`, `comunicado_leitura`, as três de clima, `escala_regra`, `dia_especial`, `entitlement`, `janela_pico`, `contador`, `funcao_setor`, `colaborador_funcao`, `modulo_ativacao`, `categoria_item`, `item_fornecedor`, `item_conversao`, `forma_pagamento`, `comanda_pagamento`, `ordem_producao`, `mesa`, `alerta_estoque`, `produto_sugestao`, `produto_faixa_preco`, as quatro de destino de produção, `kds_cor_config`, `tef_config`, `pagamento_tef` (sobe), `cupom`, `cupom_uso`, `encomenda_regra_sinal`, `encomenda_recorrencia`, `banner`, `acerto_subpdv`, `pedido_manutencao` e `atendimento_chamado`.
@@ -206,7 +212,12 @@ sincroniza:
 
 - `cadastro_pendente` é só-nuvem, mas três rotas públicas de cadastro não são marcadas como
   tal: um POST contra o servidor local devolve erro 500 (tabela inexistente).
-- `integracao_token` está declarada no schema, mas **nenhuma migration a cria** e nenhum
-  código a usa.
+- `integracao_token` estava declarada no schema, mas **nenhuma migration a cria** e nenhum
+  código a usa. **Resolvido na trilha C (mig 295):** a declaração e as 3 chamadas mortas do front
+  saíram; o token por loja vive na tabela nova `integracao_token_loja` (§2.3). O nome antigo não
+  é reaproveitado — a tabela pode existir na nuvem com as colunas velhas. Conferir na nuvem
+  (`select to_regclass('public.integracao_token')`); se existir vazia, `drop` numa migration futura.
+  O `sync-daemon.mjs` ainda cita `integracao_token` em `SO_NUVEM` (inócuo; sai quando houver `.exe`
+  por outro motivo).
 - O botão "revogar acesso do suporte" não tem efeito quando acionado no servidor local: a
   tabela existe vazia lá.

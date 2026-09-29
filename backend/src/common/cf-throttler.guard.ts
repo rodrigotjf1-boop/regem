@@ -1,6 +1,7 @@
 import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { rotaDaFilaDeImpressao, tokenJaValidado } from './dispositivo-limite';
+import { bearerDe, rotaDaIntegracao, tokenIntegracaoJaValidado } from './integracao-limite';
 
 /**
  * Rate limit contando pelo IP REAL do cliente quando a nuvem está atrás da
@@ -26,6 +27,12 @@ export class CfThrottlerGuard extends ThrottlerGuard {
     if (rotaDaFilaDeImpressao(req?.originalUrl ?? req?.url)) {
       const raw = req?.headers?.['x-sync-token'];
       if (tokenJaValidado(Array.isArray(raw) ? raw[0] : raw)) return true;
+    }
+    // API de integração (trilha C) com token de integração JÁ validado pelo
+    // `IntegracaoTokenGuard`: o limite passa a ser o do token (60/min,
+    // common/integracao-limite.ts). Token desconhecido segue no limite por IP.
+    if (rotaDaIntegracao(req?.originalUrl ?? req?.url) && tokenIntegracaoJaValidado(bearerDe(req))) {
+      return true;
     }
     return super.shouldSkip(context);
   }

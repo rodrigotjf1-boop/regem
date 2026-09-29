@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearDistToken, distApi, getDistToken, setToken } from '@/lib/api';
+import { TokensIntegracao } from '@/components/distribuicao/tokens-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -753,6 +754,9 @@ export default function DistHome() {
                 </tbody>
               </table>
             </div>
+
+            {/* Tokens de integração por loja (trilha C) — só Diretoria. */}
+            {ehDiretoria && <TokensIntegracao empresas={frota ?? []} />}
 
             {modalIfood && (
               <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setModalIfood(null)}>

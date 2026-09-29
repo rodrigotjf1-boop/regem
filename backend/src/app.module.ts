@@ -82,6 +82,7 @@ import { RlsInterceptor } from './auth/rls.interceptor';
 import { TerminalSegredoInterceptor } from './auth/terminal-segredo.interceptor';
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { SuporteModule } from './modules/suporte/suporte.module';
+import { IntegracaoApiModule } from './modules/integracao-api/integracao-api.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
 
@@ -103,6 +104,8 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       BotModule,
       DistribuicaoModule,
       SuporteModule,
+      // API de integração por token de loja (trilha C) — a tabela é só da nuvem (mig 295).
+      IntegracaoApiModule,
     ];
 
 @Module({
