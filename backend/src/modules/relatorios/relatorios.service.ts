@@ -5,6 +5,7 @@ import { normalizarFormaPagamento } from '../../common/formas-pagamento-normaliz
 import { ProdutoService } from '../produto/produto.service';
 import {
   brutoPedido,
+  comandaDePedidoVale,
   comandaEhDeCanal,
   descontoLojaFrete,
   descontoLojaProduto,
@@ -345,7 +346,9 @@ export class RelatoriosService {
   }
 
   // Detalhe por canal: 'balcao' (local: balcão/salão) ou 'delivery'. Delivery =
-  // comanda com pedido externo aceito; balcão = sem pedido externo.
+  // comanda com pedido externo que vale (aceito, não cancelado); balcão = comanda SEM
+  // nenhum pedido externo. A comanda de pedido cancelado pelo canal (que continua fechada)
+  // não entra em nenhum dos dois — ver `comandaEhDeCanal`.
   async detalheCanal(
     tenantId: string,
     canal: 'balcao' | 'delivery',
@@ -356,7 +359,7 @@ export class RelatoriosService {
     const { ini, fim: f } = this.periodo(inicio, fim);
     const m = (v: any) => this.oc(v, verFin);
     const deliv = canal === 'delivery';
-    const cond = deliv ? sql`and ${comandaEhDeCanal('c')}` : sql`and not ${comandaEhDeCanal('c')}`;
+    const cond = deliv ? sql`and ${comandaDePedidoVale('c')}` : sql`and not ${comandaEhDeCanal('c')}`;
     const base = sql`from comanda c
       where c.tenant_id = ${tenantId} and c.status = 'fechada'
         and c.fechada_em between ${ini} and ${f} ${cond}`;
@@ -430,7 +433,9 @@ export class RelatoriosService {
                sum(ci.quantidade * ci.preco_unitario) over (partition by c.id) as bruto_comanda,
                least(coalesce(pd.desc_loja, 0),
                      sum(ci.quantidade * ci.preco_unitario) over (partition by c.id)) as desc_comanda,
-               (pd.comanda_id is not null) as is_deliv
+               -- Coluna de balcão × delivery pela regra única: comanda de QUALQUER pedido
+               -- (inclusive o cancelado pelo canal, cuja comanda segue fechada) não é balcão.
+               ${comandaEhDeCanal('c')} as is_deliv
           from comanda_item ci
           join comanda c on c.id = ci.comanda_id
           left join pedido_desc pd on pd.comanda_id = c.id
