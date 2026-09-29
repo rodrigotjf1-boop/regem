@@ -29,6 +29,8 @@ export type TabelaIbptDaNota = {
   chave: string;
   versao: string;
   aliquotas: Record<string, AliquotaIbpt>;
+  /** Tabela PRÓPRIA da empresa (token do lojista, mig 292) — senão, a da distribuição. */
+  propria?: boolean;
 };
 
 /** O que fica gravado na nota (`nota_fiscal.tributos_aprox`) e é impresso no cupom. */
@@ -40,6 +42,8 @@ export type TributosAprox = {
   fonte: string;
   chave: string;
   versao: string;
+  /** Presente (true) só quando a nota usou a tabela própria da empresa. */
+  propria?: true;
 };
 
 export type TributosDaNota = { porItem: number[]; resumo: TributosAprox };
@@ -88,6 +92,7 @@ export function calcularTributosAprox(
       fonte: tabela.fonte,
       chave: tabela.chave,
       versao: tabela.versao,
+      ...(tabela.propria ? { propria: true as const } : {}),
     },
   };
 }
