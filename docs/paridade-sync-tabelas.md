@@ -79,6 +79,16 @@ controle da carga inicial. Também `-- @cloud-only`: não existem no banco da lo
 inclusive quando o push da loja aplica a linha, sem mudar nada do que o sync grava. O índice
 `pedido_externo(comanda_id)` (mig 297) é só da nuvem.
 
+`integracao_cupom`, `integracao_idempotencia` e `integracao_carga_cupom` (mig 298, trilha C, C1c/PR3):
+a marca do cupom criado pela API de integração (o Liame só desativa o que ele criou), a
+`Idempotency-Key` das escritas (24 h) e o controle da carga inicial dos cupons. `-- @cloud-only`: não
+existem no banco da loja e não entram no `sync-config.ts` nem nas listas do `sync-daemon.mjs`. Os
+gatilhos novos em `cupom` e `cupom_uso` (versão e lápide da API) também só existem na nuvem —
+disparam inclusive quando o push da loja apaga um uso pelo `sync_exclusao`, sem mudar nada do que o
+sync grava. **O cupom criado pela API é um `cupom` como outro qualquer:** nasce na nuvem, sem coluna
+nova, e DESCE para os servidores das lojas da empresa pelo sync de sempre (`cupom` desce, sem filtro
+de loja; a desativação desce pelo carimbo `updated_at`).
+
 ### 2.4 Entraram no sincronismo (migrations 272/273)
 
 Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_fiscal` (sobe), `tarefa_def`, `checklist`, `checklist_item`, `pop`, `documento_controlado`, `ciencia`, `vistoria`, `ocorrencia`, `ponto_ajuste`, `guia`, `guia_passo`, `comunicado`, `comunicado_leitura`, as três de clima, `escala_regra`, `dia_especial`, `entitlement`, `janela_pico`, `contador`, `funcao_setor`, `colaborador_funcao`, `modulo_ativacao`, `categoria_item`, `item_fornecedor`, `item_conversao`, `forma_pagamento`, `comanda_pagamento`, `ordem_producao`, `mesa`, `alerta_estoque`, `produto_sugestao`, `produto_faixa_preco`, as quatro de destino de produção, `kds_cor_config`, `tef_config`, `pagamento_tef` (sobe), `cupom`, `cupom_uso`, `encomenda_regra_sinal`, `encomenda_recorrencia`, `banner`, `acerto_subpdv`, `pedido_manutencao` e `atendimento_chamado`.

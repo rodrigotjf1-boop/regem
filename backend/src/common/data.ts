@@ -9,7 +9,9 @@
 // Havia QUATRO cópias privadas de `hojeISO()` no projeto. Uma (ponto.controller) já
 // tinha sido corrigida para o fuso da operação; as outras três seguiram em UTC — o
 // conserto ficou preso num arquivo. Este é o único lugar onde a regra mora agora.
-const FUSO = 'America/Sao_Paulo';
+/** Fuso da operação: é nele que as datas de negócio (e a validade do cupom) valem. */
+export const FUSO_OPERACAO = 'America/Sao_Paulo';
+const FUSO = FUSO_OPERACAO;
 
 /** Data de hoje (YYYY-MM-DD) no fuso da operação. */
 export function hojeISO(): string {
