@@ -77,7 +77,7 @@ function sqlItensDaComanda(comanda: SQL, tenant: SQL): SQL {
 
 // Número dentro do JSON do pedido, à prova de valor estranho (texto, vazio): vira 0 em vez de
 // derrubar a montagem do lote inteiro. Sem barra invertida no SQL (V27): `[.]` no lugar de `\.`.
-function numeroJson(campo: SQL): SQL {
+export function numeroJson(campo: SQL): SQL {
   return sql`(case when (${campo}) ~ '^-?[0-9]+([.][0-9]+)?$' then (${campo})::numeric else 0 end)`;
 }
 

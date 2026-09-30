@@ -20,6 +20,7 @@ export const BASE_TIPO_PROBLEMA = 'https://api.dmsregem.com/problemas/';
 export type TipoProblema =
   | 'token-invalido'
   | 'escopo-insuficiente'
+  | 'conta-bloqueada'
   | 'limite-de-chamadas'
   | 'parametro-invalido'
   | 'cursor-invalido'
@@ -33,6 +34,7 @@ export type TipoProblema =
 const TITULO: Record<TipoProblema, string> = {
   'token-invalido': 'Token inválido',
   'escopo-insuficiente': 'Escopo insuficiente',
+  'conta-bloqueada': 'Conta bloqueada',
   'limite-de-chamadas': 'Limite de chamadas',
   'parametro-invalido': 'Parâmetro inválido',
   'cursor-invalido': 'Cursor inválido',
@@ -43,6 +45,18 @@ const TITULO: Record<TipoProblema, string> = {
   'chave-reutilizada': 'Chave de idempotência reutilizada',
   'erro-interno': 'Erro interno',
 };
+
+/** Corpo `problem+json` sem o `request_id` — o que a idempotência guarda e devolve no reenvio. */
+export function corpoProblema(status: number, tipo: TipoProblema, detalhe: string) {
+  return { type: BASE_TIPO_PROBLEMA + tipo, title: TITULO[tipo], status, detail: detalhe };
+}
+
+/** A exceção de um corpo guardado por `corpoProblema` (reenvio de uma resposta de erro). */
+export function problemaGuardado(corpo: any, statusGuardado: number): ProblemaException {
+  const tipo = String(corpo?.type ?? '').slice(BASE_TIPO_PROBLEMA.length) as TipoProblema;
+  const conhecido = Object.prototype.hasOwnProperty.call(TITULO, tipo);
+  return new ProblemaException(statusGuardado, conhecido ? tipo : tipoPeloStatus(statusGuardado), String(corpo?.detail ?? ''));
+}
 
 /** Erro com o `type` do contrato (e, no 429, o `Retry-After`). */
 export class ProblemaException extends HttpException {

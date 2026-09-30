@@ -51,7 +51,9 @@ precisam ser tratados na ativação com o helper `comTenant(db, tenantId, fn)`:
   O mesmo vale para as tabelas da mig 296 (`integracao_mudanca`, `integracao_versao`,
   `integracao_carga`): os gatilhos gravam a fila durante a venda e o push do sync (sem GUC; um
   `insert` recusado vira só aviso no log e a venda deixa de gerar versão) e o carimbador lê e
-  grava todas as empresas.
+  grava todas as empresas. E para as da mig 298 (`integracao_cupom`, `integracao_idempotencia`,
+  `integracao_carga_cupom`): os gatilhos de `cupom`/`cupom_uso` gravam a fila no pedido do
+  cardápio e no push; a escrita da integração grava a marca e a chave na transação dela.
 
 ## Runbook de ativação (encenado, reversível)
 

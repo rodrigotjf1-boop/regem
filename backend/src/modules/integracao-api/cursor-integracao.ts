@@ -5,17 +5,18 @@ import { ProblemaException } from './problema';
 
 // CURSOR OPACO da API de integração (contrato de cupons §2, que o de vendas segue): a ordem é
 // estável por (`atualizado_em`, `id`). Por dentro, base64url de um JSON curto:
-//   k — a rota ('venda' | 'cliente'): cursor de uma rota não vale na outra;
+//   k — a rota ('venda' | 'cliente' | 'cupom' | 'uso'): cursor de uma rota não vale na outra;
 //   l — o vínculo com a EMPRESA e a LOJA do token (hash curto): cursor de uma loja não vale em
 //       outra — nem de outra empresa. É ligado à loja, não ao token: o token novo da MESMA loja
 //       (trocar escopos = emitir outro e revogar o antigo) segue do mesmo ponto;
 //   t — o carimbo em texto com MICROSSEGUNDOS (o `Date` do JS perderia o µs e repetiria ou
 //       pularia linhas);
 //   i — o id do último item entregue;
-//   d — o `confirmados_desde` da carga inicial, que fica dentro do cursor.
+//   d — o `confirmados_desde` (pedidos) / `desde` (usos de cupom) da carga inicial, que fica
+//       dentro do cursor.
 // Nada disso é segredo: todo filtro de empresa e loja vem SEMPRE do token, nunca do cursor.
 
-export type RotaCursor = 'venda' | 'cliente';
+export type RotaCursor = 'venda' | 'cliente' | 'cupom' | 'uso';
 export type PosicaoCursor = { t: string; i: string } | null;
 export type Cursor = { posicao: PosicaoCursor; desde: string | null };
 

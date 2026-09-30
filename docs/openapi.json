@@ -15277,6 +15277,200 @@
         ]
       }
     },
+    "/api/v1/integracao/cupons": {
+      "get": {
+        "operationId": "IntegracaoApiController_cuponsDaLoja",
+        "summary": "Cupons da loja com regra, validade e usos, com cursor (só o carimbado há mais de 15 s).",
+        "description": "Os da loja do token e os cadastrados sem loja (empresa de uma loja: todos). Cupom apagado sai como lápide (mesmo id, versão nova, removido: true). todas_as_lojas é informativo: hoje o Regem aceita o cupom em qualquer loja da empresa, e só o cardápio online aplica cupom.",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "O `proximo_cursor` da página anterior.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limite",
+            "required": false,
+            "in": "query",
+            "description": "Itens por página: 1 a 500 (padrão 200).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaCuponsIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "IntegracaoApiController_criarCupom",
+        "summary": "Cria um cupom na loja do token (nunca atualiza cupom existente: código repetido → 409 codigo-em-uso).",
+        "description": "422 regra-invalida: código fora de [A-Z0-9]{3,30}, tipo fora de percentual/valor/frete_gratis, percentual fora de (0, 100], valor ≤ 0, data inválida, invertida ou com fim no passado, número negativo, campo desconhecido. 403 conta-bloqueada: a conta da empresa no Regem está bloqueada.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Obrigatório (1 a 255 caracteres visíveis, até 24 h). Mesma chave e mesmo corpo → a mesma resposta (cabeçalho Idempotent-Replayed: true); outro corpo → 422 chave-reutilizada; a mesma chave ainda em curso → 409 chave-em-uso.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CriarCupomIntegracao"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CupomIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/integracao/cupons/usos": {
+      "get": {
+        "operationId": "IntegracaoApiController_usosDeCupom",
+        "summary": "Usos de cupom nos pedidos da loja, com cursor — sem dado do cliente.",
+        "description": "A loja do uso é a do pedido (empresa de uma loja: todos). Uso apagado (pedido cancelado) sai como lápide (removido: true).",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limite",
+            "required": false,
+            "in": "query",
+            "description": "1 a 500 (padrão 200).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "desde",
+            "required": false,
+            "in": "query",
+            "description": "Instante ISO 8601 com fuso (usado_em) — só na primeira página da carga inicial; depois segue no cursor.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaUsosCupomIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/integracao/cupons/{id}/desativar": {
+      "post": {
+        "operationId": "IntegracaoApiController_desativarCupom",
+        "summary": "Desativa um cupom criado pela integração (ativo: false). Já inativo → 200 sem mudança; outro cupom → 404.",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Id do cupom (o da resposta do POST /cupons).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Obrigatório (1 a 255 caracteres visíveis, até 24 h). Mesma chave e mesmo corpo → a mesma resposta (cabeçalho Idempotent-Replayed: true); outro corpo → 422 chave-reutilizada; a mesma chave ainda em curso → 409 chave-em-uso.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CupomIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/suporte/estado": {
       "get": {
         "operationId": "SuporteController_estado",
@@ -18127,6 +18321,321 @@
           "itens",
           "proximo_cursor",
           "tem_mais"
+        ]
+      },
+      "CondicoesCupomIntegracao": {
+        "type": "object",
+        "properties": {
+          "somente_novos": {
+            "type": "boolean",
+            "description": "Só cliente sem pedido anterior (cliente novo)."
+          },
+          "max_por_cliente": {
+            "type": "number",
+            "nullable": true,
+            "description": "Usos por cliente (null = sem limite; 0 = bloqueado)."
+          },
+          "min_dias_sem_compra": {
+            "type": "number",
+            "nullable": true,
+            "description": "Cliente há mais de N dias sem comprar (null = sem condição)."
+          }
+        },
+        "required": [
+          "somente_novos",
+          "max_por_cliente",
+          "min_dias_sem_compra"
+        ]
+      },
+      "CupomIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id do cupom no Regem."
+          },
+          "versao": {
+            "type": "number",
+            "description": "Só cresce a cada mudança (inclusive a contagem de usos)."
+          },
+          "atualizado_em": {
+            "type": "string",
+            "description": "Carimbo do cursor (nuvem, microssegundos)."
+          },
+          "codigo": {
+            "type": "string",
+            "example": "COMBOSEXTA",
+            "description": "Sempre em maiúsculas."
+          },
+          "nome": {
+            "type": "string",
+            "nullable": true
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "percentual",
+              "valor",
+              "frete_gratis",
+              "outro"
+            ],
+            "description": "\"outro\" = regra que o contrato não modela (ex.: percentual fora de (0, 100] gravado na tela)."
+          },
+          "percentual": {
+            "type": "string",
+            "nullable": true,
+            "example": "10.00",
+            "description": "Só no percentual: texto com 2 casas, de 0,01 a 100."
+          },
+          "valor_centavos": {
+            "type": "number",
+            "nullable": true,
+            "description": "Só no tipo valor, em centavos."
+          },
+          "teto_desconto_centavos": {
+            "type": "number",
+            "nullable": true,
+            "description": "Teto do desconto percentual, em centavos."
+          },
+          "pedido_minimo_centavos": {
+            "type": "number",
+            "nullable": true,
+            "description": "Pedido mínimo, em centavos."
+          },
+          "valido_de": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-10-01",
+            "description": "Primeiro dia (AAAA-MM-DD, no `fuso`)."
+          },
+          "valido_ate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-10-31",
+            "description": "Último dia em que o cupom vale."
+          },
+          "fuso": {
+            "type": "string",
+            "example": "America/Sao_Paulo",
+            "description": "Fuso em que o Regem aplica as datas do cupom."
+          },
+          "ativo": {
+            "type": "boolean"
+          },
+          "max_usos": {
+            "type": "number",
+            "nullable": true,
+            "description": "Limite de usos somados (null = sem limite; 0 = bloqueado)."
+          },
+          "usos": {
+            "type": "number",
+            "description": "Usos do cupom em todas as lojas da empresa (é o que o max_usos confere)."
+          },
+          "condicoes": {
+            "$ref": "#/components/schemas/CondicoesCupomIntegracao"
+          },
+          "todas_as_lojas": {
+            "type": "boolean",
+            "description": "Informativo: cadastrado para a empresa inteira (sem loja). Hoje o Regem aceita o cupom em qualquer loja da empresa."
+          },
+          "removido": {
+            "type": "boolean",
+            "description": "Lápide: o cupom foi apagado no Regem (mesmo id, versão nova)."
+          }
+        },
+        "required": [
+          "id",
+          "versao",
+          "atualizado_em",
+          "codigo",
+          "nome",
+          "tipo",
+          "percentual",
+          "valor_centavos",
+          "teto_desconto_centavos",
+          "pedido_minimo_centavos",
+          "valido_de",
+          "valido_ate",
+          "fuso",
+          "ativo",
+          "max_usos",
+          "usos",
+          "condicoes",
+          "todas_as_lojas",
+          "removido"
+        ]
+      },
+      "PaginaCuponsIntegracao": {
+        "type": "object",
+        "properties": {
+          "itens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CupomIntegracao"
+            }
+          },
+          "proximo_cursor": {
+            "type": "string",
+            "nullable": true,
+            "description": "Cursor opaco da próxima leitura."
+          },
+          "tem_mais": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "itens",
+          "proximo_cursor",
+          "tem_mais"
+        ]
+      },
+      "UsoCupomIntegracao": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Id do uso no Regem."
+          },
+          "versao": {
+            "type": "number"
+          },
+          "atualizado_em": {
+            "type": "string"
+          },
+          "cupom_id": {
+            "type": "string"
+          },
+          "codigo": {
+            "type": "string"
+          },
+          "pedido_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Id da venda (pedido_externo) — o mesmo de GET /pedidos."
+          },
+          "usado_em": {
+            "type": "string"
+          },
+          "desconto_centavos": {
+            "type": "number",
+            "nullable": true,
+            "description": "Desconto do cupom no pedido, em centavos (frete grátis: o frete que ele zerou). null = não se sabe."
+          },
+          "removido": {
+            "type": "boolean",
+            "description": "Lápide: o uso foi apagado (ex.: o pedido foi cancelado)."
+          }
+        },
+        "required": [
+          "id",
+          "versao",
+          "atualizado_em",
+          "cupom_id",
+          "codigo",
+          "pedido_id",
+          "usado_em",
+          "desconto_centavos",
+          "removido"
+        ]
+      },
+      "PaginaUsosCupomIntegracao": {
+        "type": "object",
+        "properties": {
+          "itens": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UsoCupomIntegracao"
+            }
+          },
+          "proximo_cursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "tem_mais": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "itens",
+          "proximo_cursor",
+          "tem_mais"
+        ]
+      },
+      "CondicoesCriarCupomIntegracao": {
+        "type": "object",
+        "properties": {
+          "somente_novos": {
+            "type": "boolean",
+            "description": "Só cliente novo."
+          },
+          "max_por_cliente": {
+            "type": "number",
+            "description": "Inteiro maior que 0."
+          },
+          "min_dias_sem_compra": {
+            "type": "number",
+            "description": "Inteiro maior que 0."
+          }
+        }
+      },
+      "CriarCupomIntegracao": {
+        "type": "object",
+        "properties": {
+          "codigo": {
+            "type": "string",
+            "example": "LIAMEMETA10",
+            "description": "De 3 a 30 letras (A-Z) ou números; gravado em maiúsculas."
+          },
+          "nome": {
+            "type": "string",
+            "example": "Meta · Combo de sexta",
+            "description": "Até 300 caracteres."
+          },
+          "tipo": {
+            "type": "string",
+            "enum": [
+              "percentual",
+              "valor",
+              "frete_gratis"
+            ]
+          },
+          "percentual": {
+            "type": "string",
+            "example": "10.00",
+            "description": "Obrigatório no percentual: maior que 0 e até 100, até 2 casas."
+          },
+          "valor_centavos": {
+            "type": "number",
+            "description": "Obrigatório no tipo valor: centavos, maior que 0."
+          },
+          "teto_desconto_centavos": {
+            "type": "number",
+            "description": "Só no percentual: centavos, maior que 0."
+          },
+          "pedido_minimo_centavos": {
+            "type": "number",
+            "description": "Centavos (0 = sem mínimo)."
+          },
+          "valido_de": {
+            "type": "string",
+            "example": "2026-10-01"
+          },
+          "valido_ate": {
+            "type": "string",
+            "example": "2026-10-31",
+            "description": "Último dia; não pode estar no passado (fuso America/Sao_Paulo)."
+          },
+          "max_usos": {
+            "type": "number",
+            "description": "Inteiro maior que 0 (sem limite: não mande o campo)."
+          },
+          "condicoes": {
+            "$ref": "#/components/schemas/CondicoesCriarCupomIntegracao"
+          }
+        },
+        "required": [
+          "codigo",
+          "tipo"
         ]
       }
     }

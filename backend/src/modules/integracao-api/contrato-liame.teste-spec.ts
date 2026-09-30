@@ -2,7 +2,7 @@
 
 // CONTRATO DO LIAME (v1) — cópia, campo a campo, dos schemas zod que o conector do Liame usa para
 // aceitar a resposta do Regem (`C:\Liame\apps\server\src\connectors\regem\contrato-regem.ts`,
-// `PedidoRegem`, `ClienteAnonimizado` e `pagina`). O que foge do contrato vira erro DEFINITIVO do
+// `PedidoRegem`, `ClienteAnonimizado`, `CupomRegem`, `UsoCupomRegem` e `pagina`). O que foge do contrato vira erro DEFINITIVO do
 // conector e para a leitura da loja inteira — por isso toda resposta das specs passa por aqui.
 // O backend não tem zod: as regras estão escritas à mão, uma a uma (e conferidas contra as
 // fixtures do Liame em `contrato-liame.spec.ts`).
@@ -95,6 +95,75 @@ export function errosClienteAnonimizado(c: any): string[] {
   exigir(ehInstante(c.anonimizado_em), e, 'anonimizado_em');
   exigir(ehVersao(c.versao), e, 'versao');
   exigir(ehInstante(c.atualizado_em), e, 'atualizado_em');
+  return e;
+}
+
+/** `z.iso.date()`: AAAA-MM-DD de um dia que existe. */
+const ehData = (v: unknown) => {
+  if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+  const [a, m, d] = v.split('-').map(Number);
+  const t = new Date(Date.UTC(a, m - 1, d));
+  return t.getUTCFullYear() === a && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
+};
+const opcional = (v: unknown, ok: (x: unknown) => boolean) => v === undefined || v === null || ok(v);
+
+/** `CupomRegem` do Liame (contrato de cupons §3.1). */
+export function errosCupomRegem(c: any): string[] {
+  const e: Erros = [];
+  if (!c || typeof c !== 'object') return ['(item)'];
+  exigir(ehTexto(c.id, 1, 100), e, 'id');
+  exigir(ehVersao(c.versao), e, 'versao');
+  exigir(ehInstante(c.atualizado_em), e, 'atualizado_em');
+  exigir(ehTexto(c.codigo, 1, 60), e, 'codigo');
+  exigir(opcional(c.nome, (x) => ehTexto(x, 0, 300)), e, 'nome');
+  exigir(['percentual', 'valor', 'frete_gratis', 'outro'].includes(c.tipo), e, 'tipo');
+  exigir(opcional(c.percentual, (x) => typeof x === 'string' && /^\d{1,3}(\.\d{1,2})?$/.test(x)), e, 'percentual');
+  for (const k of ['valor_centavos', 'teto_desconto_centavos', 'pedido_minimo_centavos']) exigir(opcional(c[k], ehCentavos), e, k);
+  exigir(opcional(c.valido_de, ehData), e, 'valido_de');
+  exigir(opcional(c.valido_ate, ehData), e, 'valido_ate');
+  exigir(ehTexto(c.fuso, 1, 64), e, 'fuso');
+  exigir(typeof c.ativo === 'boolean', e, 'ativo');
+  exigir(opcional(c.max_usos, (x) => typeof x === 'number' && Number.isSafeInteger(x) && x >= 0), e, 'max_usos');
+  exigir(typeof c.usos === 'number' && Number.isSafeInteger(c.usos) && c.usos >= 0, e, 'usos');
+  exigir(c.condicoes === undefined || (!!c.condicoes && typeof c.condicoes === 'object' && !Array.isArray(c.condicoes)), e, 'condicoes');
+  exigir(c.todas_as_lojas === undefined || typeof c.todas_as_lojas === 'boolean', e, 'todas_as_lojas');
+  exigir(c.removido === undefined || typeof c.removido === 'boolean', e, 'removido');
+  return e;
+}
+
+/**
+ * O que o BANCO do Liame recusa depois do zod (`liame.coupon`, migrations 0022 e 0024 do Liame): o
+ * `gravarCupons` grava a página inteira num comando — um cupom recusado derruba a página. O zod
+ * aceita percentual 0 ou 999,99; o banco quer `percent > 0 and percent <= 100`.
+ */
+export function errosCupomBancoLiame(c: any): string[] {
+  const e: Erros = [];
+  const code = String(c?.codigo ?? '').trim().toUpperCase();
+  exigir(code.length >= 1 && code.length <= 60, e, 'code');
+  if (c?.percentual !== null && c?.percentual !== undefined) {
+    const p = Number(c.percentual);
+    exigir(p > 0 && p <= 100, e, 'percent');
+  }
+  for (const k of ['valor_centavos', 'teto_desconto_centavos', 'pedido_minimo_centavos', 'max_usos', 'usos']) {
+    exigir(c?.[k] === null || c?.[k] === undefined || Number(c[k]) >= 0, e, k);
+  }
+  exigir(String(c?.nome ?? '').length <= 500, e, 'description');
+  return e;
+}
+
+/** `UsoCupomRegem` do Liame (contrato de cupons §3.2). */
+export function errosUsoCupomRegem(u: any): string[] {
+  const e: Erros = [];
+  if (!u || typeof u !== 'object') return ['(item)'];
+  exigir(ehTexto(u.id, 1, 100), e, 'id');
+  exigir(ehVersao(u.versao), e, 'versao');
+  exigir(ehInstante(u.atualizado_em), e, 'atualizado_em');
+  exigir(ehTexto(u.cupom_id, 1, 100), e, 'cupom_id');
+  exigir(ehTexto(u.codigo, 1, 60), e, 'codigo');
+  exigir('pedido_id' in u && (u.pedido_id === null || ehTexto(u.pedido_id, 1, 100)), e, 'pedido_id');
+  exigir(ehInstante(u.usado_em), e, 'usado_em');
+  exigir(opcional(u.desconto_centavos, ehCentavos), e, 'desconto_centavos');
+  exigir(u.removido === undefined || typeof u.removido === 'boolean', e, 'removido');
   return e;
 }
 

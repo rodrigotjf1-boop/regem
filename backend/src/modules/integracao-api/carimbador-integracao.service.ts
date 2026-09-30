@@ -12,6 +12,7 @@ import {
   sqlVendasDePedidos,
   textoCanonico,
 } from './venda-integracao';
+import { decidirCupom, sqlCupons, sqlUsosCupom } from './cupom-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -36,6 +37,12 @@ import {
 // `for update skip locked` numa CTE materializada (LIC-069/LIC-120), então duas réplicas não
 // pegam o mesmo item; a venda cuja montagem falha é isolada (as outras seguem — LIC-076).
 // Os métodos aceitam `{ tenantIds }` para os testes rodarem o ciclo só nas empresas deles (V32).
+//
+// CUPONS (mig 298, PR3): pela MESMA fila e tabela de versões — recursos `cupom` e `cupom_uso`
+// (o gatilho do uso anota também o cupom, que publica `usos`). Cupom ou uso apagado depois de
+// publicado sai como LÁPIDE (`decidirCupom`). A carga dos cupons (todos) e dos usos (91 dias) tem
+// controle próprio (`integracao_carga_cupom`): a empresa carregada antes da 298 ganha a dela sem
+// repetir a das vendas. Sem a 298 aplicada, só a parte dos cupons para (aviso a cada 10 min).
 
 /** A comanda sem pedido só sai depois deste tempo sem mudança (segundos). */
 export const MATURIDADE_COMANDA_SEG = 600;
@@ -43,8 +50,10 @@ export const MATURIDADE_COMANDA_SEG = 600;
 export const CARGA_DIAS = 91;
 /** Janela da reconciliação diária (dias). */
 export const RECONCILIACAO_DIAS = 3;
-/** Lápide de cliente anonimizado é guardada por este tempo (dias). */
+/** Lápide de cliente anonimizado (e de cupom/uso apagado) é guardada por este tempo (dias). */
 export const RETENCAO_LAPIDE_DIAS = 400;
+/** Validade da `Idempotency-Key` das escritas (horas) — o contrato de cupons diz "até 24 h". */
+export const IDEMPOTENCIA_HORAS = 24;
 const LOTE_FILA = 1000;
 const LOTE_CARIMBO = 300;
 const ORCAMENTO_CICLO_MS = 4000;
@@ -52,10 +61,10 @@ const ORCAMENTO_CICLO_MS = 4000;
 export type EscopoCarimbo = { tenantIds?: string[] };
 
 type Alvo = {
-  recurso: 'venda' | 'cliente';
+  recurso: 'venda' | 'cliente' | 'cupom' | 'cupom_uso';
   recurso_id: string;
   tenant_id: string;
-  fonte: 'pedido_externo' | 'comanda' | 'cliente';
+  fonte: 'pedido_externo' | 'comanda' | 'cliente' | 'cupom' | 'cupom_uso';
   mudou_em: string;
   carga: boolean;
 };
@@ -82,12 +91,15 @@ function lista(ids: string[]): SQL {
 
 /** Sem as tabelas da mig 296 (ainda não aplicada), o job espera este tempo antes de tentar de novo. */
 const ESPERA_SEM_TABELA_MS = 10 * 60_000;
+/** Erros de "a mig 298 ainda não foi aplicada": tabela ausente, coluna ausente, `check` antigo. */
+const SEM_MIG_298 = new Set(['42P01', '42703', '23514']);
 
 @Injectable()
 export class CarimbadorIntegracaoService {
   private readonly log = new Logger('IntegracaoCarimbador');
   private rodando = false;
   private pausadoAte = 0;
+  private avisoSem298Ate = 0;
 
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
@@ -152,6 +164,8 @@ export class CarimbadorIntegracaoService {
       if (err?.code === '42P01') throw err;
       this.log.error(`carga inicial falhou: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`, err?.stack);
     }
+    // Carga dos cupons: à parte e SEM derrubar o ciclo (sem a mig 298 as vendas seguem).
+    cargas += await this.fazerCargasCupons(e);
     for (;;) {
       const [t] = this.rows(
         await this.db.execute(sql`
@@ -237,6 +251,81 @@ export class CarimbadorIntegracaoService {
     });
   }
 
+  /** Sem a mig 298 na nuvem: um aviso a cada 10 min (as vendas não dependem dos cupons). */
+  private avisarSem298(err: any): void {
+    if (Date.now() < this.avisoSem298Ate) return;
+    this.avisoSem298Ate = Date.now() + ESPERA_SEM_TABELA_MS;
+    this.log.warn(`cupons da integração parados: [${err?.code}] ${err?.message ?? err} — aplique a migration 298 na nuvem`);
+  }
+
+  /**
+   * Carga dos CUPONS por empresa (mig 298): todos os cupons e os usos dos últimos 91 dias, pela
+   * fila, com prioridade baixa — a cada token novo, como a das vendas, e uma vez para a empresa
+   * já conectada antes da 298 (sem linha em `integracao_carga_cupom`). Nunca lança.
+   */
+  async fazerCargasCupons(e?: EscopoCarimbo): Promise<number> {
+    let pendentes: any[];
+    try {
+      pendentes = this.rows(
+        await this.db.execute(sql`
+          select t.tenant_id::text as tenant_id
+            from integracao_token_loja t
+            left join integracao_carga_cupom c on c.tenant_id = t.tenant_id
+           where t.revogado_em is null and (c.feita_em is null or t.criado_em > c.feita_em)
+             ${this.escopo(sql`t.tenant_id`, e)}
+           group by t.tenant_id
+           limit 10`),
+      );
+    } catch (err: any) {
+      if (SEM_MIG_298.has(err?.code)) this.avisarSem298(err);
+      else this.log.error(`carga dos cupons falhou: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`, err?.stack);
+      return 0;
+    }
+    let total = 0;
+    for (const p of pendentes) {
+      try {
+        total += await this.carregarCuponsEmpresa(p.tenant_id);
+      } catch (err: any) {
+        if (SEM_MIG_298.has(err?.code)) this.avisarSem298(err);
+        // Uma empresa não segura as outras (LIC-076).
+        else this.log.error(`carga dos cupons da empresa ${p.tenant_id} falhou: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`);
+      }
+    }
+    return total;
+  }
+
+  async carregarCuponsEmpresa(tenantId: string, dias = CARGA_DIAS): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`
+        insert into integracao_carga_cupom (tenant_id, feita_em) values (${tenantId}::uuid, '-infinity')
+        on conflict (tenant_id) do nothing`);
+      const [c] = this.rows(
+        await tx.execute(sql`
+          select exists (select 1 from integracao_token_loja t
+                          where t.tenant_id = c.tenant_id and t.revogado_em is null
+                            and t.criado_em > c.feita_em) as falta
+            from integracao_carga_cupom c
+           where c.tenant_id = ${tenantId}::uuid
+           for update skip locked`),
+      );
+      if (!c?.falta) return 0; // outra réplica está carregando, ou já carregou
+      const r: any = await tx.execute(sql`
+        insert into integracao_mudanca (tenant_id, recurso, recurso_id, carga)
+        select c.tenant_id, 'cupom', c.id, true
+          from cupom c
+         where c.tenant_id = ${tenantId}::uuid
+        union all
+        select u.tenant_id, 'cupom_uso', u.id, true
+          from cupom_uso u
+         where u.tenant_id = ${tenantId}::uuid
+           and u.created_at >= now() - make_interval(days => ${dias})`);
+      await tx.execute(sql`update integracao_carga_cupom set feita_em = now() where tenant_id = ${tenantId}::uuid`);
+      const n = Number(r?.rowCount ?? 0);
+      this.log.log(`carga dos cupons da empresa ${tenantId}: ${n} cupom(ns)/uso(s) na fila`);
+      return n;
+    });
+  }
+
   // ───────────────────────────── fila → pendentes ─────────────────────────────
 
   /** Consome um lote da fila e marca as versões pendentes. Devolve quantos itens da fila saíram. */
@@ -296,6 +385,8 @@ export class CarimbadorIntegracaoService {
           }
         } else if (f.recurso === 'cliente') {
           juntar({ ...base, recurso: 'cliente', recurso_id: f.recurso_id, fonte: 'cliente' });
+        } else if (f.recurso === 'cupom' || f.recurso === 'cupom_uso') {
+          juntar({ ...base, recurso: f.recurso, recurso_id: f.recurso_id, fonte: f.recurso });
         }
       }
 
@@ -341,7 +432,8 @@ export class CarimbadorIntegracaoService {
           )
           select v.recurso, v.recurso_id::text as recurso_id, v.tenant_id::text as tenant_id, v.fonte,
                  v.situacao, v.foto, (v.atualizado_em is not null) as publicada,
-                 v.unidade_id::text as unidade_id, ${sqlIso(sql`v.mudou_em`)} as mudou_em
+                 v.unidade_id::text as unidade_id, ${sqlIso(sql`v.mudou_em`)} as mudou_em,
+                 ${sqlIso(sql`v.confirmado_em`)} as confirmado_em
             from integracao_versao v
             join alvo a on a.recurso = v.recurso and a.recurso_id = v.recurso_id`),
       );
@@ -361,6 +453,37 @@ export class CarimbadorIntegracaoService {
         const falha = erros.get(v.recurso_id);
         if (falha) {
           decisoes.push({ ...chave, publicar: false, erro_em: agoraIso, erro: falha.slice(0, 500) });
+          continue;
+        }
+        if (v.recurso === 'cupom' || v.recurso === 'cupom_uso') {
+          // Cupom e uso (mig 298): a mesma regra da escrita síncrona — `decidirCupom`.
+          const d = decidirCupom(
+            {
+              recurso: v.recurso,
+              publicada: !!v.publicada,
+              situacao: v.situacao ?? null,
+              unidade_id: v.unidade_id ?? null,
+              foto: v.foto,
+              confirmado_em: v.confirmado_em ?? null,
+              mudou_em: v.mudou_em ?? null,
+            },
+            reps.get(v.recurso_id),
+            (m) => this.log.warn(m),
+          );
+          if (d.acao === 'descartar') descartes.push(chave);
+          else if (d.acao === 'erro') decisoes.push({ ...chave, publicar: false, erro_em: agoraIso, erro: d.erro.slice(0, 500) });
+          else if (d.acao === 'manter') decisoes.push({ ...chave, publicar: false });
+          else {
+            decisoes.push({
+              ...chave,
+              publicar: true,
+              situacao: d.situacao,
+              unidade_id: d.unidade_id,
+              confirmado_em: d.confirmado_em,
+              removido_em: d.removido_em,
+              foto: d.foto as any,
+            });
+          }
           continue;
         }
         const rep = reps.get(v.recurso_id);
@@ -434,25 +557,30 @@ export class CarimbadorIntegracaoService {
   private async montar(tx: any, alvos: any[]): Promise<{ reps: Map<string, any>; erros: Map<string, string> }> {
     const reps = new Map<string, any>();
     const erros = new Map<string, string>();
-    const grupos: [string[], (ids: string[]) => SQL][] = [
-      [alvos.filter((a) => a.recurso === 'venda' && a.fonte === 'pedido_externo').map((a) => a.recurso_id), sqlVendasDePedidos],
-      [alvos.filter((a) => a.recurso === 'venda' && a.fonte === 'comanda').map((a) => a.recurso_id), sqlVendasDeComandas],
+    const ids = (recurso: string, fonte?: string) =>
+      alvos.filter((a) => a.recurso === recurso && (!fonte || a.fonte === fonte)).map((a) => a.recurso_id as string);
+    // Ids são uuid de tabelas diferentes: o mesmo mapa serve às quatro fontes.
+    const grupos: [string, string[], (ids: string[]) => SQL][] = [
+      ['venda', ids('venda', 'pedido_externo'), sqlVendasDePedidos],
+      ['venda', ids('venda', 'comanda'), sqlVendasDeComandas],
+      ['cupom', ids('cupom'), sqlCupons],
+      ['uso de cupom', ids('cupom_uso'), sqlUsosCupom],
     ];
-    for (const [ids, consulta] of grupos) {
-      if (!ids.length) continue;
+    for (const [nome, lote, consulta] of grupos) {
+      if (!lote.length) continue;
       try {
-        const r = this.rows(await tx.transaction((sp: any) => sp.execute(consulta(ids))));
+        const r = this.rows(await tx.transaction((sp: any) => sp.execute(consulta(lote))));
         for (const l of r) reps.set(l.id, l);
       } catch (err: any) {
-        this.log.warn(`montagem de ${ids.length} venda(s) falhou (${err?.code ?? '?'}: ${err?.message ?? err}) — uma a uma`);
-        for (const id of ids) {
+        this.log.warn(`montagem de ${lote.length} ${nome}(s) falhou (${err?.code ?? '?'}: ${err?.message ?? err}) — uma a uma`);
+        for (const id of lote) {
           try {
             const [l] = this.rows(await tx.transaction((sp: any) => sp.execute(consulta([id]))));
             if (l) reps.set(l.id, l);
           } catch (e2: any) {
             const motivo = `${e2?.code ? `[${e2.code}] ` : ''}${e2?.message ?? e2}`;
             erros.set(id, motivo);
-            this.log.error(`venda ${id}: montagem falhou — ${motivo}`);
+            this.log.error(`${nome} ${id}: montagem falhou — ${motivo}`);
           }
         }
       }
@@ -481,6 +609,45 @@ export class CarimbadorIntegracaoService {
       delete from integracao_versao
        where recurso = 'cliente' and removido_em < now() - make_interval(days => ${RETENCAO_LAPIDE_DIAS})
          ${this.escopo(sql`tenant_id`, e)}`);
-    return { enfileiradas: Number(r?.rowCount ?? 0), lapidesApagadas: Number(purga?.rowCount ?? 0) };
+    const c = await this.reconciliarCupons(e, dias);
+    return {
+      enfileiradas: Number(r?.rowCount ?? 0) + c.enfileirados,
+      lapidesApagadas: Number(purga?.rowCount ?? 0) + c.lapidesApagadas,
+    };
+  }
+
+  /**
+   * Cupons (mig 298): repassa TODOS os cupons das empresas conectadas (são poucos por empresa; a
+   * contagem de usos só muda com uso) e os usos dos últimos dias; apaga as lápides de cupom e de
+   * uso com mais de 400 dias e as chaves de idempotência vencidas (24 h). Sem a 298: nada, com aviso.
+   */
+  async reconciliarCupons(e?: EscopoCarimbo, dias = RECONCILIACAO_DIAS) {
+    try {
+      const conectadas = sql`(select distinct t.tenant_id from integracao_token_loja t
+                               where t.revogado_em is null ${this.escopo(sql`t.tenant_id`, e)})`;
+      const r: any = await this.db.execute(sql`
+        insert into integracao_mudanca (tenant_id, recurso, recurso_id, carga)
+        select c.tenant_id, 'cupom', c.id, true
+          from cupom c
+         where c.tenant_id in ${conectadas}
+        union all
+        select u.tenant_id, 'cupom_uso', u.id, true
+          from cupom_uso u
+         where u.tenant_id in ${conectadas} and u.created_at >= now() - make_interval(days => ${dias})`);
+      const purga: any = await this.db.execute(sql`
+        delete from integracao_versao
+         where recurso in ('cupom', 'cupom_uso') and situacao = 'removido'
+           and removido_em < now() - make_interval(days => ${RETENCAO_LAPIDE_DIAS})
+           ${this.escopo(sql`tenant_id`, e)}`);
+      await this.db.execute(sql`
+        delete from integracao_idempotencia
+         where criado_em < now() - make_interval(hours => ${IDEMPOTENCIA_HORAS})
+           ${this.escopo(sql`tenant_id`, e)}`);
+      return { enfileirados: Number(r?.rowCount ?? 0), lapidesApagadas: Number(purga?.rowCount ?? 0) };
+    } catch (err: any) {
+      if (SEM_MIG_298.has(err?.code)) this.avisarSem298(err);
+      else this.log.error(`reconciliação dos cupons falhou: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`, err?.stack);
+      return { enfileirados: 0, lapidesApagadas: 0 };
+    }
   }
 }
