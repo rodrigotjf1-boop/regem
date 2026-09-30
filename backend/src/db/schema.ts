@@ -2708,8 +2708,26 @@ export const marketingOptout = pgTable('marketing_optout', {
     .references(() => empresa.id, { onDelete: 'cascade' }),
   telefone: text('telefone').notNull(),
   clienteId: uuid('cliente_id'),
-  motivo: text('motivo'), // 'palavra_chave' | 'manual' | 'link'
+  motivo: text('motivo'), // 'palavra_chave' | 'manual' | 'link' | 'perfil'
   criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// HISTÓRICO do consentimento de marketing (mig 300): um evento por linha, só inserção — aceite,
+// recusa, saída e volta, com origem e o texto mostrado. O estado de um número é o último evento
+// dele. A lista que BLOQUEIA o envio continua sendo `marketing_optout`. @cloud-only.
+export const marketingConsentimento = pgTable('marketing_consentimento', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  clienteId: uuid('cliente_id'),
+  telefone: text('telefone').notNull(),
+  telefoneChave: text('telefone_chave').notNull(),
+  acao: text('acao').notNull(), // 'aceite' | 'recusa' | 'saida' | 'volta'
+  origem: text('origem').notNull(), // cardapio_checkout | cardapio_perfil | whatsapp | painel | integracao | lista_inicial
+  texto: text('texto'),
+  autorId: uuid('autor_id'),
+  em: timestamp('em', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // Templates da API oficial (mig 227) — gestão local + espelho do status da Meta.

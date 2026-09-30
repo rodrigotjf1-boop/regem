@@ -13,6 +13,7 @@ import { verificarCliente, assinarCliente } from '../cliente/cliente-token';
 import { paraCentavos, paraReais, somarCentavos } from '../../util/dinheiro';
 import { ratearCentavos } from '../../common/rateio';
 import { geocode, montarEndereco } from '../../common/geocode';
+import { formasNoCadastro, telefoneCadastro } from '../../common/telefone-chave';
 
 // Estamos rodando no servidor EDGE (appliance da loja) e não na nuvem?
 function ehEdge(): boolean {
@@ -3096,12 +3097,18 @@ export class CardapioService {
     const cli = verificarCliente(dto.clienteToken);
     let clienteId = cli && cli.tenant === cfg.tenantId ? cli.cli : null;
     if (!clienteId && ped?.id) {
-      const tel = (dto.telefone ?? '').replace(/\D/g, '');
+      // O telefone como o cadastro guarda (sem o 55) — a entrada de pedidos já ligou o pedido ao
+      // cadastro assim. Antes a busca usava o número como digitado: "+55 21 9…" não achava o
+      // cadastro, criava OUTRO e religava o pedido a ele (ERR-135). Acha também o cadastro que o
+      // cardápio gravou com o 55 antes da correção, para não criar um terceiro.
+      const tel = telefoneCadastro(dto.telefone);
       if (tel.length >= 10) {
         const [ex] = await this.db
           .select({ id: cliente.id })
           .from(cliente)
-          .where(and(eq(cliente.tenantId, cfg.tenantId), eq(cliente.telefone, tel)));
+          .where(and(eq(cliente.tenantId, cfg.tenantId), inArray(cliente.telefone, formasNoCadastro(tel))))
+          .orderBy(sql`(${cliente.telefone} = ${tel}) desc`, cliente.criadoEm)
+          .limit(1);
         if (ex) {
           clienteId = ex.id;
         } else {
