@@ -22,6 +22,9 @@ import { LojaBottomNav } from '@/components/loja/bottom-nav';
 import { PromosPanel } from '@/components/loja/promos-panel';
 import { ItemSheet } from '@/components/loja/item-sheet';
 import { CartSheet } from '@/components/loja/cart-sheet';
+import { AvisoOrigem } from '@/components/loja/aviso-origem';
+import { capturarOrigem, desfazerRecusa, origemParaPedido, origemRecusada, recusarOrigem } from '@/components/loja/origem-clique';
+import type { OrigemClique } from '@/components/loja/origem-clique-regras';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -211,6 +214,35 @@ export default function CardapioPublicoPage() {
     const c = carregarCliente(token);
     if (Object.keys(c).length) setChk((s: any) => ({ ...s, ...c }));
   }, [menu, token]);
+
+  // De onde o cliente veio (link de anúncio, trilha C): só na loja que mede anúncios e nunca no
+  // QR da mesa. Lido UMA vez por carregamento; guardado só nesta aba (`origem-clique.ts`).
+  const [origem, setOrigem] = useState<OrigemClique | null>(null);
+  const [origemDesfazer, setOrigemDesfazer] = useState<OrigemClique | null>(null); // para o "Desfazer"
+  const origemLida = useRef(false);
+  const medeAnuncios = !!menu?.loja?.medeAnuncios && !mesa;
+  useEffect(() => {
+    if (!menu || origemLida.current) return;
+    origemLida.current = true;
+    if (medeAnuncios) setOrigem(capturarOrigem(token, search));
+  }, [menu, medeAnuncios, token, search]);
+  function recusarOrigemPedido() {
+    setOrigemDesfazer(origem);
+    recusarOrigem(token);
+    setOrigem(null);
+  }
+  function desfazerRecusaOrigem() {
+    desfazerRecusa(token, origemDesfazer);
+    setOrigem(origemDesfazer);
+    setOrigemDesfazer(null);
+  }
+  const estadoOrigem: 'aviso' | 'recusado' | null = !medeAnuncios
+    ? null
+    : origem
+      ? 'aviso'
+      : origemDesfazer && origemRecusada(token)
+        ? 'recusado'
+        : null;
 
   // Identidade por link no ?u=. Aceita slug curto (resolve no servidor) ou o
   // token JWT assinado (legado). Não expõe nome/telefone na URL.
@@ -695,6 +727,8 @@ export default function CardapioPublicoPage() {
         profissional: chk.profissional || undefined,
         cnpj: chk.cnpj || undefined,
         cpf: chk.cupomFiscal ? soNumeros(chk.cpf) : undefined,
+        // Lido do aparelho na hora: o que foi recusado ou apagado não vai.
+        origem: medeAnuncios ? origemParaPedido(token) ?? undefined : undefined,
         itens: cart.map((i) => ({
           produtoId: i.produtoId,
           variacaoId: i.variacaoId,
@@ -1185,6 +1219,21 @@ export default function CardapioPublicoPage() {
           areaRaio={menu.loja?.areaModo === 'raio'}
           temCliente={temCliente}
           enviando={enviando}
+          avisoOrigem={
+            estadoOrigem && (
+              <AvisoOrigem
+                estado={estadoOrigem}
+                lojaNome={loja?.nome ?? 'Esta loja'}
+                documento={loja?.documento}
+                whatsapp={loja?.whatsapp}
+                contato={loja?.contatoLoja}
+                ferramenta={loja?.medeAnuncios?.ferramenta ?? null}
+                accent={accent}
+                onRecusar={recusarOrigemPedido}
+                onDesfazer={desfazerRecusaOrigem}
+              />
+            )
+          }
         />
       )}
 

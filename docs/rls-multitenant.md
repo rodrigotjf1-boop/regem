@@ -53,7 +53,9 @@ precisam ser tratados na ativação com o helper `comTenant(db, tenantId, fn)`:
   `insert` recusado vira só aviso no log e a venda deixa de gerar versão) e o carimbador lê e
   grava todas as empresas. E para as da mig 298 (`integracao_cupom`, `integracao_idempotencia`,
   `integracao_carga_cupom`): os gatilhos de `cupom`/`cupom_uso` gravam a fila no pedido do
-  cardápio e no push; a escrita da integração grava a marca e a chave na transação dela.
+  cardápio e no push; a escrita da integração grava a marca e a chave na transação dela. E para
+  a `pedido_origem` (mig 299): o cardápio público grava sem usuário logado (a empresa vem do
+  token do cardápio), a leitura da integração e o job diário atravessam as empresas.
 
 ## Runbook de ativação (encenado, reversível)
 

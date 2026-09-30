@@ -25,7 +25,10 @@ import { canalIntegracao, grupoCanalIntegracao, GrupoCanal } from './canal-integ
 // nunca uma por venda) e vira a FOTO guardada em `integracao_versao`: a leitura da API devolve a
 // foto, então quem lê a versão N vê exatamente o que foi publicado como N. Ficam FORA da foto o
 // custo (o vigente na leitura, decisão do dono) e o telefone (dado pessoal: lido na hora do
-// cadastro — cliente excluído não deixa telefone guardado aqui).
+// cadastro — cliente excluído não deixa telefone guardado aqui). A ORIGEM do pedido do cardápio
+// (mig 299) também é lida na hora — os códigos de clique somem aos 90 dias e não podem ficar
+// guardados na foto; a foto leva só `origem_em` (quando o cliente chegou pelo link), que muda a
+// foto quando a origem é gravada e dá versão nova à venda.
 
 export type Situacao = 'confirmado' | 'cancelado' | 'removido';
 export type FonteVenda = 'pedido_externo' | 'comanda';
@@ -45,6 +48,9 @@ export type FotoVenda = {
   faturado_em: string | null;
   cancelado_em: string | null;
   itens: ItemFoto[];
+  /** Pedido do cardápio com origem gravada (mig 299). Ausente — não `null` — sem origem: as fotos
+   *  publicadas antes da 299 continuam iguais e não geram versão nova. */
+  origem_em?: string;
 };
 
 /** Teto de itens por venda (o do contrato). */
@@ -127,9 +133,11 @@ export function sqlVendasDePedidos(ids: string[]): SQL {
            coalesce(case when pe.comanda_id is not null
                          then ${sqlItensDaComanda(sql`pe.comanda_id`, sql`pe.tenant_id`)} end,
                     ${sqlItensDoPedido()},
-                    '[]'::jsonb) as itens
+                    '[]'::jsonb) as itens,
+           ${sqlIso(sql`po.capturado_em`)} as origem_em
       from pedido_externo pe
       left join cliente cl on cl.id = pe.cliente_id and cl.tenant_id = pe.tenant_id
+      left join pedido_origem po on po.pedido_id = pe.id and po.tenant_id = pe.tenant_id
       cross join lateral (
         select count(*) <= 1 as unica from unidade u where u.tenant_id = pe.tenant_id and u.deleted_at is null
       ) lu
@@ -228,6 +236,7 @@ export function montarFoto(l: any, situacao: Situacao, aviso: (m: string) => voi
       quantidade: formatarQuantidade(it?.quantidade),
       receita: centavos(it?.receita, aviso, `item ${it?.id ?? i} da venda ${l.id}`),
     })),
+    ...(fonte === 'pedido_externo' && l.origem_em ? { origem_em: String(l.origem_em) } : {}),
   };
 }
 

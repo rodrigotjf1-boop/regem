@@ -22,6 +22,8 @@ import { VendasIntegracaoService } from './vendas-integracao.service';
 import { CarimbadorIntegracaoService } from './carimbador-integracao.service';
 import { BASE_TIPO_PROBLEMA } from './problema';
 import { errosClienteAnonimizado, errosPagina, errosPedidoRegem } from './contrato-liame.teste-spec';
+import { gravarOrigemPedido, medicaoDeAnuncios } from '../cardapio/origem-pedido';
+import { OrigemPedidoService } from '../cardapio/origem-pedido.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -315,6 +317,9 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
     await pool.query(semFkCompartilhada(mig('295_integracao_token_loja.sql')));
     await pool.query(mig('296_integracao_versao_vendas.sql'));
     await pool.query(mig('297_pedido_externo_comanda_idx.sql'));
+    const conf299 = (await pool.query(mig('299_pedido_origem.sql')) as any) as any[];
+    const linhas299 = conf299[conf299.length - 1].rows;
+    if (linhas299.some((l: any) => !l.ok)) throw new Error(`conferência da 299: ${JSON.stringify(linhas299)}`);
     const [fk] = await q(
       `select count(*)::int n from pg_constraint c join pg_namespace s on s.oid = c.connamespace
         where s.nspname = $1 and c.contype = 'f'`,
@@ -970,6 +975,117 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
   });
 
   // ───────────────────────────── robustez ─────────────────────────────
+
+  // ───────────────────────────── origem do pedido do cardápio (C3a, mig 299) ─────────────────────────────
+
+  describe('origem do pedido do cardápio (C3a, mig 299)', () => {
+    const umaHoraAtras = () => new Date(Date.now() - 3_600_000).toISOString();
+    const ORIGEM = {
+      lk: 'lk_combo01',
+      utm_source: 'meta',
+      utm_medium: 'paid',
+      utm_campaign: 'Combo sexta',
+      campaign_id: '120215566778899',
+      adset_id: '120215566770000',
+      fbclid: 'IwAR0ped001',
+    };
+    const origemSvc = () => new OrigemPedidoService(db);
+    const linhasOrigem = (tenant: string) => q(`select * from pedido_origem where tenant_id = $1`, [tenant]);
+
+    it('loja que mede: /pedidos devolve a origem como chegou, em versão nova; o reenvio não troca nada', async () => {
+      const ped = await pedido(A.tenant, { loja: A.lojas[0], canal: 'cardapio', criado: sp(DIA2, '13:45'), bruto: 40, total: 40 });
+      await carimbar([A.tenant]);
+      const v1 = ultimas((await lerTudo(tA1)).itens).get(ped);
+      expect(v1.origem).toBeNull();
+
+      const capturado = umaHoraAtras();
+      const bruto = { ...ORIGEM, ad_id: '{{ad.id}}', capturado_em: capturado };
+      expect(await gravarOrigemPedido(db, { tenantId: A.tenant, unidadeId: A.lojas[0], pedidoId: ped, bruto })).toBe(true);
+      await carimbar([A.tenant]);
+      const v2 = ultimas((await lerTudo(tA1)).itens).get(ped);
+      expect(v2.versao).toBeGreaterThan(v1.versao);
+      expect(new Date(v2.origem.capturado_em).getTime()).toBe(new Date(capturado).getTime());
+      expect(v2.origem).toEqual({
+        ...ORIGEM,
+        capturado_em: v2.origem.capturado_em,
+        utm_content: null,
+        utm_term: null,
+        adgroup_id: null,
+        ad_id: null, // a macro não expandida ficou de fora
+        gclid: null,
+        gbraid: null,
+        wbraid: null,
+      });
+
+      // Reenvio pelo clientRef: a primeira origem fica e a venda não muda de versão.
+      const outra = { utm_source: 'google', capturado_em: umaHoraAtras() };
+      expect(await gravarOrigemPedido(db, { tenantId: A.tenant, unidadeId: A.lojas[0], pedidoId: ped, bruto: outra })).toBe(false);
+      await carimbar([A.tenant]);
+      const v3 = ultimas((await lerTudo(tA1)).itens).get(ped);
+      expect(v3.versao).toBe(v2.versao);
+      expect(v3.origem.utm_source).toBe('meta');
+      // A outra loja da empresa não lê a venda (nem a origem dela).
+      expect(ultimas((await lerTudo(tA2)).itens).has(ped)).toBe(false);
+    });
+
+    it('loja que não mede não grava: sem token, token revogado, token sem pedidos.ler, cardápio da rede com 2 lojas', async () => {
+      const E = await empresa('Empresa E (sem token)', ['E1']);
+      const pE = await pedido(E.tenant, { loja: E.lojas[0], canal: 'cardapio', criado: sp(DIA2, '14:00'), bruto: 10, total: 10 });
+      expect(await gravarOrigemPedido(db, { tenantId: E.tenant, unidadeId: E.lojas[0], pedidoId: pE, bruto: ORIGEM })).toBe(false);
+      expect(await medicaoDeAnuncios(db, E.tenant, E.lojas[0])).toBeNull();
+
+      const F = await empresa('Empresa F', ['F1']);
+      await emitir(F, F.lojas[0], ['pedidos.ler']);
+      expect(await medicaoDeAnuncios(db, F.tenant, F.lojas[0])).toEqual({ ferramenta: 'o Liame, da DMS' });
+      await q(`update integracao_token_loja set escopos = '{cupons.ler}' where tenant_id = $1`, [F.tenant]);
+      expect(await medicaoDeAnuncios(db, F.tenant, F.lojas[0])).toBeNull();
+      await q(`update integracao_token_loja set escopos = '{pedidos.ler}', revogado_em = now() where tenant_id = $1`, [F.tenant]);
+      const pF = await pedido(F.tenant, { loja: F.lojas[0], canal: 'cardapio', criado: sp(DIA2, '14:05'), bruto: 10, total: 10 });
+      expect(await gravarOrigemPedido(db, { tenantId: F.tenant, unidadeId: F.lojas[0], pedidoId: pF, bruto: ORIGEM })).toBe(false);
+      expect(await medicaoDeAnuncios(db, F.tenant, F.lojas[0])).toBeNull();
+
+      // Cardápio da REDE (sem loja) numa empresa de 2 lojas: nenhum token lê essas vendas.
+      const pRedeA = await pedido(A.tenant, { loja: null, canal: 'cardapio', criado: sp(DIA2, '14:10'), bruto: 10, total: 10 });
+      expect(await gravarOrigemPedido(db, { tenantId: A.tenant, unidadeId: null, pedidoId: pRedeA, bruto: ORIGEM })).toBe(false);
+      expect(await medicaoDeAnuncios(db, A.tenant, null)).toBeNull();
+      // Na empresa de loja única, o cardápio da rede entra (a leitura pega a empresa toda).
+      expect(await medicaoDeAnuncios(db, D.tenant, null)).toEqual({ ferramenta: 'o Liame, da DMS' });
+      const pRedeD = await pedido(D.tenant, { loja: null, canal: 'cardapio', criado: sp(DIA2, '14:15'), bruto: 10, total: 10 });
+      expect(await gravarOrigemPedido(db, { tenantId: D.tenant, unidadeId: null, pedidoId: pRedeD, bruto: ORIGEM })).toBe(true);
+
+      expect(await linhasOrigem(E.tenant)).toHaveLength(0);
+      expect(await linhasOrigem(F.tenant)).toHaveLength(0);
+      expect((await linhasOrigem(A.tenant)).some((l: any) => l.pedido_id === pRedeA)).toBe(false);
+    });
+
+    it('90 dias: some o código do clique, ficam campanha e anúncio, sem versão nova; origem de pedido apagado sai', async () => {
+      const ped = await pedido(A.tenant, { loja: A.lojas[0], canal: 'cardapio', criado: sp(DIA2, '15:00'), bruto: 20, total: 20 });
+      const bruto = { utm_source: 'meta', campaign_id: '777', fbclid: 'IwAR-velho', gclid: 'Cj0-velho', capturado_em: umaHoraAtras() };
+      expect(await gravarOrigemPedido(db, { tenantId: A.tenant, unidadeId: A.lojas[0], pedidoId: ped, bruto })).toBe(true);
+      await carimbar([A.tenant]);
+      const antes = ultimas((await lerTudo(tA1)).itens).get(ped);
+      expect(antes.origem).toMatchObject({ fbclid: 'IwAR-velho', gclid: 'Cj0-velho' });
+
+      await q(`update pedido_origem set criado_em = now() - interval '91 days' where pedido_id = $1`, [ped]);
+      const orfa = randomUUID(); // origem de um pedido que não existe mais
+      await q(
+        `insert into pedido_origem (pedido_id, tenant_id, capturado_em, utm_source, criado_em)
+         values ($1, $2, now() - interval '2 days', 'meta', now() - interval '2 days')`,
+        [orfa, A.tenant],
+      );
+      expect(await origemSvc().expurgar({ tenantIds: [] })).toEqual({ cliques: 0, orfas: 0 }); // escopo vazio: nada
+      expect(await origemSvc().expurgar({ tenantIds: [A.tenant] })).toEqual({ cliques: 1, orfas: 1 });
+      expect(await origemSvc().expurgar({ tenantIds: [A.tenant] })).toEqual({ cliques: 0, orfas: 0 }); // já feito
+
+      await carimbar([A.tenant]);
+      const depois = ultimas((await lerTudo(tA1)).itens).get(ped);
+      expect(depois.versao).toBe(antes.versao);
+      expect(depois.origem).toMatchObject({ utm_source: 'meta', campaign_id: '777', fbclid: null, gclid: null });
+      const [linha] = await q(`select ids_expurgados_em from pedido_origem where pedido_id = $1`, [ped]);
+      expect(linha.ids_expurgados_em).toBeTruthy();
+      expect(await q(`select 1 from pedido_origem where pedido_id = $1`, [orfa])).toHaveLength(0);
+    });
+  });
 
   describe('robustez: o gatilho nunca derruba a venda', () => {
     it('sem a fila (tabela sumiu), a venda grava assim mesmo — só não ganha versão', async () => {

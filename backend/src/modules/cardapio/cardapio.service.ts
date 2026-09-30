@@ -79,6 +79,7 @@ import { CashbackService } from '../cashback/cashback.service';
 import { hojeISO } from '../../common/data';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
+import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Distância entre duas coordenadas (km) — frete por raio.
@@ -1260,6 +1261,10 @@ export class CardapioService {
     const lista = ((prods as any).rows ?? prods) as any[];
     const ids = lista.map((p) => p.id);
 
+    // Esta loja mede anúncios (ferramenta conectada, mig 299)? Decide se a tela guarda de onde o
+    // cliente veio e mostra o aviso no checkout. Nunca rejeita.
+    const medicao = medicaoDeAnuncios(this.db, cfg.tenantId, cfg.unidadeId ?? null);
+
     // Esta loja emite cupom fiscal? É isso que decide se o checkout pode oferecer a nota com
     // CPF — oferecer sem emitir seria prometer ao cliente um documento que nunca chega.
     const emiteNota = this.db
@@ -1377,6 +1382,8 @@ export class CardapioService {
         subtitulo: cfg.subtitulo,
         aberto: cfg.aberto,
         emiteNota: await emiteNota,
+        // `{ ferramenta }` quando a loja mede anúncios; `null` = a tela não guarda a origem.
+        medeAnuncios: await medicao,
         tempoEntregaMin: cfg.tempoEntregaMin,
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
@@ -2653,6 +2660,9 @@ export class CardapioService {
       // Recorrência leve da encomenda (mig 190): repete nos dias da semana.
       recorrencia?: { dias: number[]; hora?: string; ate?: string; antecedenciaDias?: number };
       _sistema?: boolean; // uso interno: ocorrência gerada pelo cron (pula validações)
+      // De onde o cliente veio (link marcado, mig 299): só na loja que mede anúncios; nunca derruba
+      // o pedido (`origem-pedido.ts`).
+      origem?: unknown;
       itens: {
         produtoId: string;
         variacaoId?: string;
@@ -2670,7 +2680,11 @@ export class CardapioService {
         .select()
         .from(pedidoExterno)
         .where(and(eq(pedidoExterno.tenantId, cfg.tenantId), eq(pedidoExterno.clientRef, dto.clientRef)));
-      if (ja) return this.respostaPedido(cfg, ja);
+      if (ja) {
+        // O primeiro envio pode ter criado o pedido e caído antes de gravar a origem.
+        await gravarOrigemPedido(this.db, { tenantId: cfg.tenantId, unidadeId: cfg.unidadeId ?? null, pedidoId: ja.id, bruto: dto.origem });
+        return this.respostaPedido(cfg, ja);
+      }
     }
     if (!dto.itens?.length) throw new BadRequestException('Pedido vazio.');
     // CPF/CNPJ do cupom fiscal. Informar é opção do cliente; informar ERRADO não é — a SEFAZ
@@ -3071,6 +3085,10 @@ export class CardapioService {
         bandeira: dto.bandeira,
       },
     );
+
+    // De onde o cliente veio (mig 299) — logo depois do pedido; nunca o derruba.
+    if (ped?.id)
+      await gravarOrigemPedido(this.db, { tenantId: cfg.tenantId, unidadeId: cfg.unidadeId ?? null, pedidoId: ped.id, bruto: dto.origem });
 
     // Cliente do cardápio: identidade por TELEFONE (obrigatório no pedido; um
     // cliente tem 1:N endereços). O token identifica sem expor os dados na URL.

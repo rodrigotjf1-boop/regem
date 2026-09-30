@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { brl, type CartItem } from '@/components/loja/tipos';
 import { buscarCep, localizacaoAtual } from '@/lib/geo';
 
@@ -60,6 +60,7 @@ export function CartSheet({
   abertaAgora,
   abertoPorTipo,
   areaRaio,
+  avisoOrigem,
 }: {
   accent: string;
   loja: any;
@@ -101,6 +102,8 @@ export function CartSheet({
   temCliente?: boolean;
   enviando: boolean;
   areaRaio?: boolean;
+  /** Aviso de origem (link de anúncio), logo acima do botão — `AvisoOrigem`. */
+  avisoOrigem?: ReactNode;
 }) {
   const set = (patch: any) => setChk((s: any) => ({ ...s, ...patch }));
   const listaEnd = enderecos ?? [];
@@ -445,8 +448,8 @@ export function CartSheet({
           <div className="mt-3 space-y-2">
             <input value={chk.nome ?? ''} onChange={(e) => set({ nome: e.target.value })} placeholder="Seu nome" className="w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
             <div className="flex gap-2">
-              <input value={chk.telefone ?? ''} onChange={(e) => set({ telefone: e.target.value })} inputMode="tel" placeholder="WhatsApp (principal)" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
-              <input value={chk.telefone2 ?? ''} onChange={(e) => set({ telefone2: e.target.value })} inputMode="tel" placeholder="Telefone 2 (opcional)" className="flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+              <input value={chk.telefone ?? ''} onChange={(e) => set({ telefone: e.target.value })} inputMode="tel" placeholder="WhatsApp (principal)" className="min-w-0 flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
+              <input value={chk.telefone2 ?? ''} onChange={(e) => set({ telefone2: e.target.value })} inputMode="tel" placeholder="Telefone 2 (opcional)" className="min-w-0 flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
             </div>
           </div>
 
@@ -622,6 +625,8 @@ export function CartSheet({
             {loja.fidelidadeAtiva && !isIndustria && <div className="flex justify-between text-emerald-600"><span>Fidelidade</span><span className="font-mono">+ {Math.round(totalFinal)} pts</span></div>}
             <div className="flex justify-between text-base font-bold"><span>{isIndustria ? 'Estimativa' : 'Total'}</span><span className="font-mono">{brl(totalFinal)}</span></div>
           </div>
+
+          {avisoOrigem}
 
           <button type="button" onClick={onSubmit} disabled={submitDesabilitado} className="mt-4 flex w-full items-center justify-between rounded-xl px-5 py-3.5 font-bold text-white disabled:opacity-50" style={{ background: accent }}>
             <span>{enviando ? 'Enviando…' : cta}</span>
