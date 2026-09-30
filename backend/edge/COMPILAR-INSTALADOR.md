@@ -78,6 +78,8 @@ abaixo são o detalhe manual do que esse comando faz.
 - **Ação:** transformar tudo isso num único `.exe`.
 - **Onde:** o programa **Inno Setup** (baixe em <https://jrsoftware.org/isdl.php> e instale).
 - **Como:** abra o `backend\edge\regem-edge.iss` no Inno Setup → menu **Build → Compile** (ou `Ctrl+F9`).
+  O `.iss` inclui o `assistente-nuvem.iss` (a conversa do assistente com a nuvem: login, loja e código de
+  segurança antes de copiar): os dois ficam na mesma pasta.
 - **Confirmação:** aparece `RegemEdgeSetup.exe` na pasta `Output\` (ao lado do `.iss`). Sem erros em vermelho.
 
 ## Passo 5 — Usar na loja (o "um clique")

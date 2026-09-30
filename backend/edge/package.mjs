@@ -31,7 +31,7 @@ const SEGREDO = /(^|[\\/])update-priv\.pem$|\.pfx$/i;
 // migrations de produção) não vão para o PC da loja (ERR-053 — plano USUÁRIO × DISTRIBUIÇÃO).
 export const FERRAMENTAS_DISTRIBUICAO = new Set([
   'publicar.ps1', 'sign-update.mjs', 'gerar-ca-assinatura.mjs', 'build-release.ps1', 'package.mjs',
-  'preflight-release.mjs', 'build-web.mjs', 'regem-edge.iss', 'update-priv.pem',
+  'preflight-release.mjs', 'build-web.mjs', 'regem-edge.iss', 'assistente-nuvem.iss', 'update-priv.pem',
   'gen-license-keys.mjs', 'apply-all-prod.mjs', 'stripe-seed-prices.mjs', 'gen-openapi.js',
   'backfill-clientes.mjs',
 ]);

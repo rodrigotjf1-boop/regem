@@ -184,6 +184,21 @@ export class LicencaController {
     return this.service.reautorizarConfirmar(dto ?? {});
   }
 
+  // Assistente do instalador (ERR-124): antes de copiar qualquer arquivo, pergunta o que esta
+  // máquina vai encontrar (pronto / escolher a loja / código de outra máquina) — sem efeito — e
+  // confere o código SEM mover. O move fica no fim da instalação (`confirmar` sem código).
+  @Post('provisionamento/verificar')
+  @Throttle({ default: { ttl: 60000, limit: 15 } })
+  verificarInstalacao(@Body() dto: any) {
+    return this.service.verificarInstalacao(dto ?? {});
+  }
+
+  @Post('provisionamento/reautorizar/verificar')
+  @Throttle({ default: { ttl: 60000, limit: 15 } })
+  reautorizarVerificar(@Body() dto: any) {
+    return this.service.reautorizarVerificar(dto ?? {});
+  }
+
   // ===== Edge (token de dispositivo servidor_local) =====
   @Get('edge/lease')
   @UseGuards(SyncTokenGuard)
