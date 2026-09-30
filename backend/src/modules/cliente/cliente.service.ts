@@ -31,6 +31,7 @@ import {
   whatsappMensagem,
 } from '../../db/schema';
 import { inArray } from 'drizzle-orm';
+import { formasNoCadastro, telefoneCadastro } from '../../common/telefone-chave';
 import { assinarCliente, verificarCliente } from './cliente-token';
 import { PedidoEmAndamentoError, esquecerCliente } from './esquecer-cliente';
 import { SegmentoImport, mapearTabela, nomeUtil, parseCsvClientes, segmentoPeloArquivo } from './importar-planilha';
@@ -255,8 +256,8 @@ export class ClienteService {
         configurado: false,
         msg: 'Nenhum webhook n8n configurado (integração da loja nem OTP_WEBHOOK_URL).',
       };
-    const tel = soDigitos(telefone) || '21999999999';
-    const whats = tel.startsWith('55') ? tel : `55${tel}`;
+    const tel = telefoneCadastro(telefone) || '21999999999';
+    const whats = tel.length <= 11 ? `55${tel}` : tel; // DDD 55 (RS) não é o código do país
     try {
       const body = JSON.stringify({
         evento: 'otp',
@@ -372,12 +373,9 @@ export class ClienteService {
   // Identifica pelo telefone: acha ou cria o cliente, devolve o token assinado.
   // Acha (ou cria) o cliente pelo telefone; atualiza o nome se veio um novo.
   private async acharOuCriarCliente(tenantId: string, telefone?: string, nome?: string) {
-    const tel = soDigitos(telefone);
+    const tel = telefoneCadastro(telefone); // sem o 55, como o cadastro guarda (ERR-135)
     if (tel.length < 10) throw new BadRequestException('Telefone inválido.');
-    let [c] = await this.db
-      .select()
-      .from(cliente)
-      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+    let c = await this.cadastroPorTelefone(tenantId, tel);
     if (!c) {
       [c] = await this.db
         .insert(cliente)
@@ -391,6 +389,21 @@ export class ClienteService {
         .returning();
     }
     return c;
+  }
+
+  /**
+   * O cadastro deste telefone (já como o cadastro guarda, sem o 55): o de hoje ou o que o cardápio
+   * gravou COM o 55 antes da correção (ERR-135) — o sem 55 primeiro, depois o mais antigo. Nunca
+   * casa por nono dígito: aqui é identidade, não bloqueio.
+   */
+  private async cadastroPorTelefone(tenantId: string, tel: string) {
+    const [c] = await this.db
+      .select()
+      .from(cliente)
+      .where(and(eq(cliente.tenantId, tenantId), inArray(cliente.telefone, formasNoCadastro(tel))))
+      .orderBy(sql`(${cliente.telefone} = ${tel}) desc`, cliente.criadoEm)
+      .limit(1);
+    return c ?? null;
   }
 
   // ===== Import de contatos (.vcf) → base própria =====
@@ -957,7 +970,9 @@ export class ClienteService {
   // do n8n (integração da loja ou OTP_WEBHOOK_URL) que envia pelo Evolution.
   async enviarOtp(cardapioToken: string, telefone?: string) {
     const tenantId = await this.tenantDoCardapio(cardapioToken);
-    const tel = soDigitos(telefone);
+    // Como o cadastro guarda (sem o 55): o mesmo número no envio, na confirmação e na busca do
+    // cadastro — com o 55 digitado, o login criava um SEGUNDO cliente (ERR-135).
+    const tel = telefoneCadastro(telefone);
     if (tel.length < 10) throw new BadRequestException('Telefone inválido.');
 
     // Código seguro (uniforme, imprevisível): randomInt em vez de Math.random.
@@ -979,7 +994,9 @@ export class ClienteService {
     const wh = await this.resolverWebhook(tenantId);
     let enviado = false;
     if (wh) {
-      const whats = tel.startsWith('55') ? tel : `55${tel}`;
+      // Sempre com o 55 do país (`tel` já vem sem ele). Antes, "começa com 55?" confundia o DDD
+      // 55 (RS) com o código do país e o código ia para um número errado.
+      const whats = tel.length <= 11 ? `55${tel}` : tel;
       enviado = await this.dispararWebhook(
         wh.url,
         {
@@ -1006,7 +1023,7 @@ export class ClienteService {
     dto: { telefone?: string; codigo?: string; nome?: string },
   ) {
     const tenantId = await this.tenantDoCardapio(cardapioToken);
-    const tel = soDigitos(dto.telefone);
+    const tel = telefoneCadastro(dto.telefone); // o mesmo do envio (ERR-135)
     const [otp] = await this.db
       .select()
       .from(clienteOtp)
@@ -1025,10 +1042,7 @@ export class ClienteService {
     }
 
     // Código ok: acha/cria o cliente. Nome é obrigatório ao criar.
-    let [c] = await this.db
-      .select()
-      .from(cliente)
-      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.telefone, tel)));
+    let c = await this.cadastroPorTelefone(tenantId, tel);
     if (!c) {
       const nome = dto.nome?.trim();
       if (!nome) throw new BadRequestException('Informe seu nome.');

@@ -4,7 +4,8 @@ import { ehServidorLocal } from '../../common/modo';
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { timingSafeEqual } from 'node:crypto';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { cardapioConfig, empresa, marketingOptout, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
+import { cardapioConfig, empresa, whatsappMensagem, whatsappNumero, whatsappTemplate } from '../../db/schema';
+import { registrarSaida, registrarVolta } from '../../common/consentimento-marketing';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // API OFICIAL do WhatsApp (Meta Cloud API) — via paralela ao Evolution.
@@ -401,32 +402,29 @@ export class WhatsappCloudService {
 
           // Opt-out por palavra-chave: cliente responde SAIR/PARAR → entra na lista de
           // exclusão de marketing (LGPD) + AVISO de confirmação. VOLTAR desfaz. Não
-          // encaminha ao robô (continue), pra não misturar com o atendimento.
+          // encaminha ao robô (continue), pra não misturar com o atendimento. A lista e o
+          // histórico comparam TODAS as formas do número: o `wa_id` chega com o 55 e, em muitos
+          // celulares, SEM o nono dígito — o cadastro tem com (ERR-134).
           const txt = this.textoDe(m).trim().toLowerCase();
           if (/^(sair|parar|cancelar|stop|descadastrar|sair das ofertas|parar ofertas|n[aã]o quero receber)\.?$/.test(txt)) {
             try {
-              await this.db
-                .insert(marketingOptout)
-                .values({ tenantId: cfg.tenantId, telefone: de, motivo: 'palavra_chave' })
-                .onConflictDoNothing();
+              await registrarSaida(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp', motivo: 'palavra_chave' });
               await this.enviarTexto(
                 cfg.tenantId,
                 de,
                 'Pronto ✅ Você não vai mais receber ofertas e campanhas nossas. Se foi engano e quiser voltar a receber, responda VOLTAR.',
               );
-            } catch {
-              /* opt-out best-effort */
+            } catch (e: any) {
+              this.logger.warn(`opt-out (SAIR) de ${mascarar(de)} não gravado: ${e?.message ?? e}`);
             }
             continue;
           }
           if (/^(voltar|voltei|receber)\.?$/.test(txt)) {
             try {
-              await this.db
-                .delete(marketingOptout)
-                .where(and(eq(marketingOptout.tenantId, cfg.tenantId), eq(marketingOptout.telefone, de)));
+              await registrarVolta(this.db, { tenantId: cfg.tenantId, telefone: de, origem: 'whatsapp' });
               await this.enviarTexto(cfg.tenantId, de, 'Feito! Você voltou a receber nossas ofertas e novidades 🎉');
-            } catch {
-              /* best-effort */
+            } catch (e: any) {
+              this.logger.warn(`volta (VOLTAR) de ${mascarar(de)} não gravada: ${e?.message ?? e}`);
             }
             continue;
           }

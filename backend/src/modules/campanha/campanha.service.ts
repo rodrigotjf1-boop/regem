@@ -2,7 +2,9 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import { Interval } from '@nestjs/schedule';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
-import { campanha, campanhaEnvio, cardapioConfig, cliente, cupom, marketingOptout } from '../../db/schema';
+import { campanha, campanhaEnvio, cardapioConfig, cliente, cupom } from '../../db/schema';
+import { registrarEvento, registrarSaida } from '../../common/consentimento-marketing';
+import { chaveTelefone, sqlChaveTelefone } from '../../common/telefone-chave';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { WhatsappNumeroService } from '../whatsapp/whatsapp-numero.service';
 import { WhatsappCloudService } from '../whatsapp/whatsapp-cloud.service';
@@ -46,20 +48,16 @@ export class CampanhaService {
     return m[String(segmento ?? '')] ?? sql``;
   }
 
-  // Dígitos do telefone SEM um eventual DDI 55 (12-13 dígitos) — normaliza p/ casar
-  // números vindos do WhatsApp (chegam com 55) com os do cadastro (sem 55) e formatações.
-  private telExpr(col: string): string {
-    const d = `regexp_replace(coalesce(${col},''),'\\D','','g')`;
-    return `(case when length(${d}) in (12,13) and left(${d},2)='55' then substr(${d},3) else ${d} end)`;
-  }
-
   // Filtro de exclusão: sem opt-out de cliente E fora da lista de exclusão por telefone.
-  // Compara telefones NORMALIZADOS (sem 55/formatação) — senão o opt-out por "SAIR"
-  // (que chega com 55) nunca casaria com o cadastro (sem 55).
+  // Compara pela CHAVE do telefone (sem 55, sem formatação e com o nono dígito): o "SAIR" do
+  // WhatsApp chega com o 55 e, em muitos celulares, SEM o 9 — comparando só sem o 55, quem pediu
+  // para sair continuava recebendo (ERR-134). O marcador `S/N-…` (cliente sem telefone da
+  // mig 073) não é número.
   private excluidos() {
     return sql`and c.opt_out_marketing = false and coalesce(c.telefone,'') <> ''
+      and c.telefone not like 'S/N-%'
       and not exists (select 1 from marketing_optout mo where mo.tenant_id = c.tenant_id
-        and ${sql.raw(this.telExpr('mo.telefone'))} = ${sql.raw(this.telExpr('c.telefone'))})`;
+        and ${sqlChaveTelefone(sql`mo.telefone`)} = ${sqlChaveTelefone(sql`c.telefone`)})`;
   }
 
   // Público estimado (quem receberia): do segmento, com telefone, exceto excluídos.
@@ -379,45 +377,69 @@ export class CampanhaService {
     return codigo;
   }
 
-  // Cliente opta por não receber campanhas (LGPD). Escopo por tenant.
-  async toggleOptOut(tenantId: string, clienteId: string, optOut: boolean) {
+  // Cliente opta por não receber campanhas (LGPD). Escopo por tenant. A mudança vai também para
+  // o histórico do consentimento (mig 300), com quem da loja registrou.
+  async toggleOptOut(tenantId: string, clienteId: string, optOut: boolean, autorId?: string | null) {
     if (!clienteId) throw new BadRequestException('Cliente inválido.');
-    await this.db
+    const [c] = await this.db
       .update(cliente)
       .set({ optOutMarketing: !!optOut, atualizadoEm: new Date() })
-      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.id, clienteId)));
+      .where(and(eq(cliente.tenantId, tenantId), eq(cliente.id, clienteId)))
+      .returning({ telefone: cliente.telefone });
+    if (c?.telefone) {
+      await registrarEvento(
+        this.db,
+        { tenantId, telefone: c.telefone, clienteId, origem: 'painel', autorId: autorId ?? null },
+        optOut ? 'saida' : 'volta',
+      ).catch((e: any) => this.logger.warn(`histórico do opt-out do cliente ${clienteId} não gravado: ${e?.message ?? e}`));
+    }
     return { ok: true, optOut: !!optOut };
   }
 
   // Adiciona um TELEFONE à lista de exclusão (opt-out). Cobre quem não é cliente
-  // cadastrado (ex.: veio de "SAIR" numa conversa, ou de um link de descadastro).
+  // cadastrado (ex.: veio de "SAIR" numa conversa, ou de um link de descadastro). O cadastro
+  // com o MESMO número (em qualquer forma: com/sem 55, com/sem o nono dígito) também é marcado.
   async optOutPorTelefone(tenantId: string, telefone: string, motivo = 'manual') {
-    const tel = String(telefone ?? '').replace(/\D/g, '');
-    if (!tel) throw new BadRequestException('Telefone inválido.');
-    await this.db
-      .insert(marketingOptout)
-      .values({ tenantId, telefone: tel, motivo })
-      .onConflictDoNothing();
-    // Reflete no cliente cadastrado, se houver.
+    const chave = chaveTelefone(telefone);
+    if (!chave) throw new BadRequestException('Telefone inválido.');
+    await registrarSaida(this.db, { tenantId, telefone, origem: 'whatsapp', motivo });
     await this.db.execute(sql`
       update cliente set opt_out_marketing = true, atualizado_em = now()
-      where tenant_id = ${tenantId} and regexp_replace(coalesce(telefone,''), '\\D', '', 'g') = ${tel}`);
+      where tenant_id = ${tenantId} and opt_out_marketing = false
+        and ${sqlChaveTelefone(sql`telefone`)} = ${chave}`);
     return { ok: true };
   }
 
   // Lista de exclusão (opt-out) para VISIBILIDADE do lojista — só leitura. A lista
   // cresce sozinha (cliente clica "sair"); o lojista não adiciona nem edita. Junta o
-  // nome do cliente cadastrado quando o telefone casa (normalizado).
+  // nome do cliente cadastrado quando o telefone casa (pela chave do telefone).
   async listarOptout(tenantId: string) {
     const r: any = await this.db.execute(sql`
       select mo.telefone, mo.motivo, mo.criado_em,
         (select c.nome from cliente c where c.tenant_id = mo.tenant_id
-          and ${sql.raw(this.telExpr('c.telefone'))} = ${sql.raw(this.telExpr('mo.telefone'))} limit 1) as nome
+          and ${sqlChaveTelefone(sql`c.telefone`)} = ${sqlChaveTelefone(sql`mo.telefone`)} limit 1) as nome
       from marketing_optout mo
       where mo.tenant_id = ${tenantId}
       order by mo.criado_em desc
       limit 500`);
     return (r.rows ?? r) as any[];
+  }
+
+  /**
+   * A pessoa saiu da campanha DEPOIS de ela ser montada? Confere a lista de exclusão pela CHAVE
+   * do telefone (com/sem 55, com/sem o nono dígito) E a marca do cadastro. Antes só a lista, e
+   * só sem o 55: quem saiu pelo painel, ou pelo WhatsApp sem o 9, recebia a campanha já montada
+   * (ERR-134).
+   */
+  private async saiuAntesDoEnvio(tenantId: string, telefone: string, clienteId: string | null): Promise<boolean> {
+    const r: any = await this.db.execute(sql`
+      select 1 where exists (
+        select 1 from marketing_optout mo where mo.tenant_id = ${tenantId}::uuid
+           and ${sqlChaveTelefone(sql`mo.telefone`)} = ${chaveTelefone(telefone)})
+      or exists (
+        select 1 from cliente c where c.id = ${clienteId}::uuid
+           and c.tenant_id = ${tenantId}::uuid and c.opt_out_marketing)`);
+    return (r.rows ?? r).length > 0;
   }
 
   // Agora em São Paulo (dia 0=dom..6=sáb, hh:mm) — p/ a janela de agendamento.
@@ -574,11 +596,7 @@ export class CampanhaService {
         const tel = String(envio.telefone).replace(/\D/g, '');
         // Reverifica o opt-out no MOMENTO do envio: o cliente pode ter saído DEPOIS da
         // criação da campanha. Sem isso, o envio pendente ainda seria disparado.
-        const telN = (tel.length === 12 || tel.length === 13) && tel.startsWith('55') ? tel.slice(2) : tel;
-        const optou: any = await this.db.execute(sql`
-          select 1 from marketing_optout mo where mo.tenant_id = ${camp.tenant_id}
-            and ${sql.raw(this.telExpr('mo.telefone'))} = ${telN} limit 1`);
-        if ((optou.rows ?? optou).length) {
+        if (await this.saiuAntesDoEnvio(camp.tenant_id, tel, envio.cliente_id ?? null)) {
           await this.db
             .update(campanhaEnvio)
             .set({ status: 'excluido' })

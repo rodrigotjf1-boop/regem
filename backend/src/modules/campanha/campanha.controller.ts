@@ -69,7 +69,12 @@ export class CampanhaController {
   // Opt-out de um CLIENTE cadastrado (toggle do flag).
   @Post('opt-out')
   optOut(@CurrentUser() user: AuthUser, @Body() dto: any) {
-    return this.service.toggleOptOut(user.tenantId, String(dto?.clienteId ?? ''), exigirBooleano(dto?.optOut, 'optOut'));
+    return this.service.toggleOptOut(
+      user.tenantId,
+      String(dto?.clienteId ?? ''),
+      exigirBooleano(dto?.optOut, 'optOut'),
+      user.colaboradorId,
+    );
   }
 
   // Lista de exclusão (opt-out) — só leitura, para o lojista visualizar quem saiu.

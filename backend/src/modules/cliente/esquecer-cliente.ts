@@ -99,6 +99,14 @@ export async function esquecerCliente(
       if (e?.code === '23503' || e?.cause?.code === '23503') throw new PedidoEmAndamentoError();
       throw e;
     }
+    // Os eventos de consentimento de marketing do cadastro (mig 300, só nuvem) guardam o telefone
+    // e o texto aceito: saem junto. A lista de exclusão fica (C3c) — é ela que garante que a
+    // pessoa não recebe mais. Sem a tabela (servidor da loja, ou antes da 300): nada a apagar.
+    const tem: any = await tx.execute(sql`select to_regclass('marketing_consentimento') is not null as tem`);
+    if ((tem.rows ?? tem)[0]?.tem) {
+      await tx.execute(sql`
+        delete from marketing_consentimento where tenant_id = ${tenantId} and cliente_id = ${clienteId}`);
+    }
     return { pedidosAnonimizados: Number(r?.rowCount ?? 0), clienteApagado: true };
   });
 }
