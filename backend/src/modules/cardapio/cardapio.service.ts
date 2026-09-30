@@ -651,7 +651,9 @@ export class CardapioService {
   // Usado nos condicionais de cupom (cliente novo / dias sem compra).
   private async historicoCliente(tenantId: string, tel: string) {
     if (!tel) return { total: 0, ultimoEm: null as Date | null };
-    const [r]: any = await this.db.execute(sql`
+    // O `execute` do node-postgres devolve o RESULTADO (objeto com `rows`), não uma lista: nunca
+    // desestruturar (`const [r] = …` lançava "is not iterable" — ERR-127).
+    const r: any = await this.db.execute(sql`
       select count(*)::int as total, max(criado_em) as ultimo
       from pedido_externo
       where tenant_id = ${tenantId} and cliente_telefone = ${tel}
@@ -680,7 +682,7 @@ export class CardapioService {
         return { ok: false, motivo: `Válido só para quem está há ${c.minDiasSemCompra}+ dias sem comprar.` };
     }
     if (c.maxPorCliente) {
-      const [u]: any = await this.db.execute(sql`
+      const u: any = await this.db.execute(sql`
         select count(*)::int as n from cupom_uso
         where cupom_id = ${c.id} and telefone = ${tel}
       `);
@@ -719,7 +721,7 @@ export class CardapioService {
       return { valido: false, desconto: 0, freteGratis: false, motivo: 'Cupom expirado.' };
     // Limite GLOBAL de usos (todos os clientes somados) — mig 232.
     if (c.maxUsos) {
-      const [u]: any = await this.db.execute(
+      const u: any = await this.db.execute(
         sql`select count(*)::int as n from cupom_uso where cupom_id = ${c.id}`,
       );
       const usos = Number(((u?.rows ?? u)[0] ?? {}).n ?? 0);
