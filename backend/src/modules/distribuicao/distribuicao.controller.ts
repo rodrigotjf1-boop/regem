@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Headers,
   Param,
   Post,
+  Query,
   Req,
   UploadedFiles,
   UseGuards,
@@ -16,6 +18,7 @@ import { DistribuicaoService } from './distribuicao.service';
 import { DistCtx, DistUser, DistribuicaoGuard, PerfilDist, PerfilDistGuard } from './distribuicao.guard';
 import { CloudOnly } from '../../common/cloud-only.decorator';
 import { IbptService } from '../fiscal/ibpt/ibpt.service';
+import { IntegracaoTokenService } from '../integracao-api/integracao-token.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -26,6 +29,7 @@ export class DistribuicaoController {
   constructor(
     private readonly service: DistribuicaoService,
     private readonly ibpt: IbptService,
+    private readonly integracao: IntegracaoTokenService,
   ) {}
 
   @Post('login')
@@ -239,5 +243,49 @@ export class DistribuicaoController {
     const acao =
       dto?.acao === 'recusado' ? 'recusado' : dto?.acao === 'removido' ? 'removido' : 'conectado';
     return this.service.resolverPedidoIntegracao(id, acao, u, { merchantId: dto?.merchantId });
+  }
+
+  // Tokens de integração POR LOJA (trilha C, C1a) — só Diretoria. No piloto a distribuição emite
+  // o token com a autorização do presidente e o grava direto no cofre do Liame: o token aparece
+  // UMA vez, nesta resposta (sem cache), e o banco guarda só o hash. Auditoria dupla: a da
+  // distribuição (aqui) e a da empresa (no serviço), para a loja ver no log dela.
+  @Get('integracoes/tokens')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  tokensIntegracao(@Query('tenantId') tenantId: string) {
+    return this.integracao.painelEmpresa(tenantId);
+  }
+
+  @Post('integracoes/tokens')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  @Header('Cache-Control', 'no-store')
+  async emitirTokenIntegracao(@DistUser() u: DistCtx, @Body() dto: any) {
+    const r = await this.integracao.emitir(dto, u);
+    await this.service.auditar(u, 'emitiu_token_integracao', r.id, {
+      tenantId: dto?.tenantId,
+      loja: r.loja.nome,
+      cliente: r.cliente,
+      prefixo: r.prefixo,
+      escopos: r.escopos,
+      autorizadoPor: r.autorizadoPor,
+    });
+    return r;
+  }
+
+  @Post('integracoes/tokens/:id/revogar')
+  @UseGuards(DistribuicaoGuard, PerfilDistGuard)
+  @PerfilDist('diretoria')
+  async revogarTokenIntegracao(@DistUser() u: DistCtx, @Param('id') id: string, @Body() dto: any) {
+    const r = await this.integracao.revogarPeloConsole(id, dto?.motivo, u);
+    if (!r.jaRevogado) {
+      await this.service.auditar(u, 'revogou_token_integracao', id, {
+        tenantId: r.tenantId,
+        prefixo: r.prefixo,
+        motivo: dto?.motivo,
+      });
+    }
+    return r;
   }
 }

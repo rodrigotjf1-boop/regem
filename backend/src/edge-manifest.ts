@@ -19,6 +19,7 @@ export const CLOUD_ONLY_MODULES = [
   'CardapioModule', // cardápio ONLINE (/c/:token) — cardapioBaseUrl é sempre nuvem
   'ClienteModule', // identidade do cliente do cardápio (link mágico/OTP)
   'OnboardingModule', // wizard/onboarding da empresa (nasce na nuvem)
+  'IntegracaoApiModule', // API de integração por token de loja (trilha C; tabela só-nuvem, mig 295)
 ] as const;
 
 // Operacional — roda LOCAL (fonte da verdade da loja). Entra no bundle do edge.

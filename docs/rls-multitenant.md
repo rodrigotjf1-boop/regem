@@ -44,6 +44,10 @@ precisam ser tratados na ativação com o helper `comTenant(db, tenantId, fn)`:
   para o processo de background.
 - **Linhas legadas com `tenant_id` nulo** (dados pré-multitenant): ficam invisíveis
   sob RLS — auditar e backfillar antes.
+- **API de integração por loja (trilha C, mig 295 em diante):** o `IntegracaoTokenGuard`
+  procura o token pelo hash ANTES de saber a empresa. A `integracao_token_loja` nasce com RLS
+  ligada e SEM política (só bloqueia a API REST anônima): sob o role sem bypass, precisa de
+  política própria para a busca pelo hash, ou a API de integração roda no role de serviço.
 
 ## Runbook de ativação (encenado, reversível)
 

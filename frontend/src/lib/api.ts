@@ -519,6 +519,18 @@ export const distApi = {
       method: 'POST',
       body: JSON.stringify({ acao, ...(dados ?? {}) }),
     }),
+  // Tokens de integração POR LOJA (trilha C) — só Diretoria. A emissão devolve o token UMA vez.
+  tokensIntegracao: (tenantId: string) =>
+    distReq(`/distribuicao/integracoes/tokens?tenantId=${encodeURIComponent(tenantId)}`),
+  emitirTokenIntegracao: (dto: {
+    tenantId: string;
+    unidadeId: string;
+    autorizadoPor: string;
+    escopos: string[];
+    evidencia: string;
+  }) => distReq('/distribuicao/integracoes/tokens', { method: 'POST', body: JSON.stringify(dto) }),
+  revogarTokenIntegracao: (id: string, motivo: string) =>
+    distReq(`/distribuicao/integracoes/tokens/${id}/revogar`, { method: 'POST', body: JSON.stringify({ motivo }) }),
 };
 
 // Upload multipart: NÃO define Content-Type (o browser injeta o boundary).
@@ -1801,12 +1813,6 @@ export const api = {
   atualizarUnidade: (id: string, body: { nome: string; tipo?: string; endereco?: string }) =>
     req(`/unidades/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   removerUnidade: (id: string) => req(`/unidades/${id}`, { method: 'DELETE' }),
-  // Tokens de integração por loja (auto-atendimento: GoGeM/Orzuni/Farol).
-  integracaoTokens: (lojaId: string) => req(`/integracao/lojas/${lojaId}/tokens`),
-  integracaoTokenCriar: (lojaId: string, body: { nome?: string; escopos: string[] }) =>
-    req(`/integracao/lojas/${lojaId}/tokens`, { method: 'POST', body: JSON.stringify(body) }),
-  integracaoTokenRevogar: (lojaId: string, id: string) =>
-    req(`/integracao/lojas/${lojaId}/tokens/${id}`, { method: 'DELETE' }),
   criarAlocacao: (body: Record<string, unknown>) =>
     req('/escala', { method: 'POST', body: JSON.stringify(body) }),
   alterarAlocacao: (id: string, body: Record<string, unknown>) =>
