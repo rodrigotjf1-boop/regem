@@ -268,6 +268,31 @@ describe('montagem da venda (foto) e situação', () => {
     );
   });
 
+  it('cupom da plataforma de pedidos da loja (Anota AI, CardápioWeb) vai para o Liame; o de marketplace não', () => {
+    const cupom = (canal: string, descontos: any[], proprio: string | null = null) =>
+      montarFoto(pedido({ canal, cupom: proprio, descontos_canal: descontos }), 'confirmado').cupom;
+    // Anota AI: a etiqueta do desconto é o próprio código
+    expect(cupom('anotaai', [{ origem: 'cupom', rotulo: 'SEXTA10', valor: 5, quemBanca: 'loja' }])).toBe('SEXTA10');
+    // CardápioWeb: o código vem em `campanha` (coupon_code); o rótulo é o nome do cupom
+    expect(cupom('cardapio_web', [{ origem: 'cupom', rotulo: 'Cupom de sexta', campanha: 'SEXTA10', valor: 5, quemBanca: 'loja' }])).toBe('SEXTA10');
+    // o primeiro desconto de cupom com cara de código; fidelidade e promoção não contam
+    expect(
+      cupom('anotaai', [
+        { origem: 'fidelidade', rotulo: 'FIDELIDADE10', valor: 3 },
+        { origem: 'cupom', rotulo: 'Cupom de desconto', valor: 2 },
+        { origem: 'cupom', rotulo: 'NATAL10', valor: 4 },
+      ]),
+    ).toBe('NATAL10');
+    // marketplace: a "campanha" é promoção da plataforma, não cupom da loja
+    expect(cupom('ifood', [{ origem: 'cupom', rotulo: 'FD_DESPIT_27D7135', valor: 10, quemBanca: 'marketplace' }])).toBeNull();
+    expect(cupom('99food', [{ origem: 'cupom', rotulo: 'NINE10', valor: 10 }])).toBeNull();
+    // o cupom do próprio pedido (cardápio do Regem) vem primeiro; sem nada, nulo
+    expect(cupom('cardapio', [{ origem: 'cupom', rotulo: 'OUTRO' }], 'COMBOSEXTA')).toBe('COMBOSEXTA');
+    expect(cupom('anotaai', [])).toBeNull();
+    expect(cupom('anotaai', null as any)).toBeNull();
+    expect(cupom('anotaai', [{ origem: 'cupom', rotulo: 'x'.repeat(61) }])).toBeNull();
+  });
+
   it('foto da comanda: mesa, totem (chave do aparelho sem operador) e balcão; negativo sai 0 com aviso', () => {
     const base = { fonte: 'comanda', id: 'c', status: 'fechada', receita: '1000', criado_em: 'a', confirmado_em: 'b', itens: [] };
     expect(montarFoto({ ...base, tem_mesa: true }, 'confirmado').canal).toBe('mesa');
