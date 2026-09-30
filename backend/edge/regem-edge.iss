@@ -87,6 +87,7 @@ var
   gCodigoPedido: Boolean;             // o codigo ja foi pedido nesta tela
   gCodigoConferido: Boolean;
   gFalhou: Boolean;                   // o script terminou SEM o flag de sucesso?
+  gAviso: string;                     // instalou, mas os dados da loja ainda nao chegaram (ERR-132)
 
 function EhCliente: Boolean;
 begin
@@ -385,6 +386,13 @@ begin
       err := LerUltimoErro(ExpandConstant('{app}\backend\logs\ULTIMO-ERRO.txt'));
       if err = '' then err := ExpandConstant('A instalacao nao foi concluida. Veja o log em {app}\backend\logs.');
       MsgBox('A instalacao NAO foi concluida:' + #13#10#13#10 + err + #13#10#13#10 + 'A instalacao parou antes de terminar. Corrija e rode o instalador de novo.', mbCriticalError, MB_OK);
+    end
+    else
+    begin
+      // Instalou, mas os dados da loja ainda nao chegaram ao banco local (ERR-132): diz o
+      // motivo em vez de "concluido" - antes a tela de entrada simplesmente nao achava a loja.
+      gAviso := LerUltimoErro(ExpandConstant('{app}\backend\logs\INSTALOU-AVISO.txt'));
+      if gAviso <> '' then MsgBox(gAviso, mbInformation, MB_OK);
     end;
   end;
 end;
@@ -406,5 +414,10 @@ begin
   begin
     WizardForm.FinishedHeadingLabel.Caption := 'Instalacao NAO concluida';
     WizardForm.FinishedLabel.Caption := 'A instalacao nao terminou (veja a mensagem que apareceu). Corrija os dados e rode o instalador de novo.';
+  end
+  else if (CurPageID = wpFinished) and (gAviso <> '') then
+  begin
+    WizardForm.FinishedHeadingLabel.Caption := 'Instalado - dados da loja a caminho';
+    WizardForm.FinishedLabel.Caption := gAviso;
   end;
 end;

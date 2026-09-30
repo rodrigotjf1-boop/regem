@@ -654,22 +654,68 @@ async function limparEscopoDeOutrasLojas() {
   if (total) console.log(`Sync: ${total} linha(s) de OUTRAS lojas removidas deste servidor (escopo por loja).`);
 }
 
-// Ponto de salvamento avulso (fora do laço de blocos, que tem o seu).
-async function tentarSp(cli, fn) {
-  await cli.query('savepoint sp_sync2');
-  try {
-    await fn();
-    await cli.query('release savepoint sp_sync2');
-  } catch (e) {
-    await cli.query('rollback to savepoint sp_sync2');
-    throw e;
-  }
+// ── CARGA GRANDE SEM ESGOTAR O POSTGRES (ERR-132) ───────────────────────────────────────
+// No Postgres, cada gravação que FALHA dentro de um ponto de salvamento e é desfeita deixa uma
+// entrada na tabela de travas até o fim da transação-mãe. A primeira carga do zero traz
+// milhares de filhos antes do pai (páginas de 1.000 por tabela), cada um tentado e desfeito — e
+// umas 13 mil na mesma transação esgotam a tabela ("53200 out of shared memory", reproduzido no
+// Postgres 17 da loja). Tudo passava a falhar, o ciclo inteiro voltava e o seguinte repetia a
+// mesma página: o servidor da loja piloto nunca recebeu a loja (30/09/2026). Passou deste teto
+// de tentativas desfeitas, o que já entrou é gravado (commit) e a aplicação segue numa transação
+// nova. O cursor é gravado na ÚLTIMA parte, junto com as linhas: um ciclo que cai no meio
+// reaplica a página, e o upsert pela regra da mais nova não duplica nada.
+const TETO_DESFEITAS = Math.max(1, Number(process.env.SYNC_TETO_DESFEITAS || 1000));
+
+// Falta de RECURSO do banco (53: memória, travas, disco), conexão caída (08), conflito de
+// transação (40), objeto ocupado (55), cancelamento/desligamento (57), E/S (58) ou erro interno
+// (XX) não é defeito DA LINHA. Tratado como "linha veneno", a linha era pulada e o cursor
+// avançava sem ela — perda. Derruba o ciclo: tudo volta e o próximo tenta de novo (ERR-132).
+function ehErroDeRecurso(e) {
+  return /^(08|40|53|55|57|58|XX)/.test(String(e?.code ?? ''));
+}
+
+// A transação da aplicação do pull: pontos de salvamento contados; passou do teto de
+// desfeitos, grava o que já entrou e abre outra.
+function transacaoDoPull(cli) {
+  const tx = {
+    desfeitas: 0,
+    partes: 1,
+    async tentar(fn) {
+      await cli.query('savepoint sp_sync');
+      try {
+        await fn();
+        await cli.query('release savepoint sp_sync');
+      } catch (e) {
+        await cli.query('rollback to savepoint sp_sync');
+        tx.desfeitas++;
+        throw e;
+      }
+    },
+    async aliviar() {
+      if (tx.desfeitas < TETO_DESFEITAS) return;
+      await cli.query('commit');
+      await cli.query('begin');
+      tx.desfeitas = 0;
+      tx.partes++;
+    },
+  };
+  return tx;
+}
+
+// Estado gravado DENTRO da transação da aplicação (o cursor anda junto com as linhas).
+async function gravarEstadoNa(cli, k, v) {
+  await cli.query(
+    `insert into sync_state(chave,valor) values($1,$2)
+     on conflict(chave) do update set valor=$2`,
+    [k, v],
+  );
 }
 
 async function aplicarPull(data, cursores, cli) {
   let aplicadas = 0;
   let pendentes = []; // linhas cujo pai (FK) ainda não chegou → retry
   const falhas = [];  // linhas com erro DURO (coluna/valor) → pular, NÃO travar o pull
+  const tx = transacaoDoPull(cli); // pontos de salvamento contados; grava em partes (ERR-132)
   let fila = {};
   try { fila = await recon.fila(); } catch { fila = {}; }
   // Upsert normal + as colunas em reconciliação (se a tabela está na fila).
@@ -700,26 +746,17 @@ async function aplicarPull(data, cursores, cli) {
     // linha), para poucas linhas com pai ausente não jogarem a página inteira no caminho lento.
     // Cada tentativa roda em PONTO DE SALVAMENTO: dentro de uma transação, um erro aborta
     // tudo até o ponto salvo — sem isso a primeira linha ruim derrubaria a resposta inteira.
-    const tentar = async (fn) => {
-      await cli.query('savepoint sp_sync');
-      try {
-        await fn();
-        await cli.query('release savepoint sp_sync');
-      } catch (e) {
-        await cli.query('rollback to savepoint sp_sync');
-        throw e;
-      }
-    };
     const aplicarBloco = async (bloco) => {
       if (bloco.length > 1) {
         try {
-          await tentar(async () => {
+          await tx.tentar(async () => {
             await upsertLote(tabela, bloco, cli);
             for (const row of bloco) await recon.aplicarLinha(fila, tabela, row, cli);
           });
           aplicadas += bloco.length;
           return;
-        } catch {
+        } catch (e) {
+          if (ehErroDeRecurso(e)) throw e; // o banco, não a linha: derruba o ciclo
           const meio = Math.ceil(bloco.length / 2);
           await aplicarBloco(bloco.slice(0, meio));
           await aplicarBloco(bloco.slice(meio));
@@ -728,14 +765,18 @@ async function aplicarPull(data, cursores, cli) {
       }
       const row = bloco[0];
       try {
-        await tentar(() => aplicar(tabela, row));
+        await tx.tentar(() => aplicar(tabela, row));
         aplicadas++;
       } catch (e) {
+        if (ehErroDeRecurso(e)) throw e;
         if (e.code === '23503') pendentes.push([tabela, row]);
         else falhas.push([tabela, row, e]);
       }
     };
-    for (let i = 0; i < rows.length; i += LOTE_PULL) await aplicarBloco(rows.slice(i, i + LOTE_PULL));
+    for (let i = 0; i < rows.length; i += LOTE_PULL) {
+      await aplicarBloco(rows.slice(i, i + LOTE_PULL));
+      await tx.aliviar();
+    }
   }
   // ÓRFÃOS DE CICLOS ANTERIORES: linha que chegou antes do pai (pedido de produção antes da
   // comanda que vem na página seguinte, numa carga grande). Antes as 3 tentativas eram só
@@ -750,22 +791,32 @@ async function aplicarPull(data, cursores, cli) {
     orfaosAntes = r.rows.map((x) => ({ tabela: x.tabela, row: x.conteudo, n: x.tentativas }));
   } catch { orfaosAntes = []; }
   const tentativas = new Map(); // row.id → nº de ciclos em que já falhou
+  const deCiclosAnteriores = new Set();
   for (const o of orfaosAntes) {
     if (!o?.tabela || !o?.row?.id) continue;
     pendentes.push([o.tabela, o.row]);
     tentativas.set(o.row.id, Number(o.n) || 0);
+    deCiclosAnteriores.add(o.row.id);
   }
-  // Reprocessa dependências fora de ordem (pais já aplicados neste ciclo).
+  // Reprocessa dependências fora de ordem (pais já aplicados neste ciclo). O órfão de ciclo
+  // anterior tenta UMA vez por ciclo: o pai dele só chega com uma página nova, que já foi
+  // aplicada acima — tentar de novo aqui só somava tentativas desfeitas (ERR-132).
   for (let passe = 0; passe < 3 && pendentes.length; passe++) {
     const resta = [];
     for (const [tabela, row] of pendentes) {
+      if (passe > 0 && deCiclosAnteriores.has(row.id)) {
+        resta.push([tabela, row]);
+        continue;
+      }
       try {
-        await tentarSp(cli, () => aplicar(tabela, row));
+        await tx.tentar(() => aplicar(tabela, row));
         aplicadas++;
       } catch (e) {
+        if (ehErroDeRecurso(e)) throw e;
         if (e.code === '23503') resta.push([tabela, row]);
         else falhas.push([tabela, row, e]);
       }
+      await tx.aliviar();
     }
     pendentes = resta;
   }
@@ -779,10 +830,12 @@ async function aplicarPull(data, cursores, cli) {
     for (const [tabela, row] of pendentes) {
       if (tabela === 'pedido_externo' && row.cliente_id) {
         try {
-          await tentarSp(cli, () => upsertLocal(tabela, { ...row, cliente_id: null }, cli));
+          await tx.tentar(() => upsertLocal(tabela, { ...row, cliente_id: null }, cli));
           aplicadas++;
           continue;
-        } catch { /* cai no resta2 abaixo */ }
+        } catch (e) {
+          if (ehErroDeRecurso(e)) throw e; // cai no resta2 abaixo se for da linha
+        }
       }
       resta2.push([tabela, row]);
     }
@@ -823,6 +876,7 @@ async function aplicarPull(data, cursores, cli) {
   try {
     await aplicarExclusoes(data.tabelas?.sync_exclusao ?? [], cli);
   } catch (e) {
+    if (ehErroDeRecurso(e)) throw e;
     console.warn(`  exclusões não aplicadas (tenta no próximo ciclo): ${e.message}`);
   }
   // RESILIÊNCIA: um registro "veneno" (coluna/tipo/valor que o edge não aceita — ex.:
@@ -836,13 +890,19 @@ async function aplicarPull(data, cursores, cli) {
     console.error(`  ⚠ ${falhas.length} linha(s) IGNORADA(s) no pull (erro duro): ${amostra}`);
     try { await reportarTelemetria('sync', 'pull_linha_ignorada', `${falhas.length} linha(s): ${amostra}`); } catch { /* best-effort */ }
   }
+  // Carga grande gravada em partes (ERR-132): só um aviso — nada muda para quem usa.
+  if (tx.partes > 1) {
+    console.log(`  pull: carga grande gravada em ${tx.partes} partes (${TETO_DESFEITAS} tentativas desfeitas por parte)`);
+  }
   // Keyset: mescla as posições por tabela devolvidas pela nuvem (nuvem nova). Preserva
-  // as entradas que já tínhamos (uma tabela sem novidade não vem no retorno).
+  // as entradas que já tínhamos (uma tabela sem novidade não vem no retorno). Gravado NA
+  // transação: o cursor só anda junto com as linhas (antes ia por outra conexão, antes do
+  // commit — se o commit falhasse, o cursor já tinha andado e as linhas se perdiam).
   if (data.cursores && typeof data.cursores === 'object') {
-    await setState('pull_cursores', JSON.stringify({ ...cursores, ...data.cursores }));
+    await gravarEstadoNa(cli, 'pull_cursores', JSON.stringify({ ...cursores, ...data.cursores }));
   }
   // Mantém o cursor legado (piso p/ tabelas novas + compat caso o daemon seja rebaixado).
-  if (data.proximoCursor) await setState('pull_cursor', data.proximoCursor);
+  if (data.proximoCursor) await gravarEstadoNa(cli, 'pull_cursor', data.proximoCursor);
   // A nuvem avisa que este servidor está mais atrasado que a janela de retenção das exclusões
   // (mig 265): dados apagados lá podem não ter mais registro, e seguir no delta deixaria linha
   // fantasma para sempre. O caminho é recomeçar pelo arquivo (restauração), que o próprio
@@ -851,19 +911,20 @@ async function aplicarPull(data, cursores, cli) {
     // Ressincronização completa: rebobina TODOS os cursores para o começo (é o que a nuvem
     // faria num reprovisionamento) e pede o arquivo do transacional. Sem rebobinar, os
     // cursores velhos continuariam velhos depois do arquivo e a nuvem pediria reinicialização
-    // a cada ciclo — laço de restauração.
-    await setState('reinicializando', '1');
-    await setState('pull_cursores', '{}');
-    await setState('pull_cursor', '1970-01-01T00:00:00Z');
-    await setState('restaurar_solicitado', '1');
-    await setState('reinicializado_em', new Date().toISOString());
+    // a cada ciclo — laço de restauração. Na MESMA transação dos cursores acima (a ordem das
+    // gravações vale; por outra conexão, o commit do cursor mesclado desfazia o rebobinar).
+    await gravarEstadoNa(cli, 'reinicializando', '1');
+    await gravarEstadoNa(cli, 'pull_cursores', '{}');
+    await gravarEstadoNa(cli, 'pull_cursor', '1970-01-01T00:00:00Z');
+    await gravarEstadoNa(cli, 'restaurar_solicitado', '1');
+    await gravarEstadoNa(cli, 'reinicializado_em', new Date().toISOString());
     const msg = 'servidor local atrasado além da janela de retenção — ressincronizando do começo + restauração por arquivo';
     console.warn(`  ⚠️ ${msg}`);
     try { await reportarTelemetria('sync', 'reinicializar', msg); } catch { /* best-effort */ }
     return aplicadas; // o ciclo seguinte já baixa tudo com os cursores zerados
   }
   if (!data.reinicializar && (await getState('reinicializando', '0')) === '1') {
-    await setState('reinicializando', '0'); // voltou à janela: volta ao delta normal
+    await gravarEstadoNa(cli, 'reinicializando', '0'); // voltou à janela: volta ao delta normal
   }
   try {
     await recon.registrarAusentes(ausentes);
@@ -1377,7 +1438,8 @@ async function heartbeat(pullN, pushN, erro, comSaude) {
       // Só no fim do ciclo (60s): fingerprint + status dos serviços + disco/ram/restore.
       corpo.fingerprint = fpEdge();
       const { saude, discoLivreMb } = await coletarSaude();
-      corpo.saude = saude;
+      // + desde quando o sync falha sem parar: a nuvem só conta como vivo quem sincroniza.
+      corpo.saude = { ...(saude ?? {}), syncFalhandoDesde: falhandoDesde ? falhandoDesde.toISOString() : null };
       if (discoLivreMb != null) corpo.discoLivreMb = discoLivreMb;
     }
     const res = await fetchT(`${CLOUD}/edge/heartbeat`, {
@@ -1635,6 +1697,33 @@ async function verificarComandos(jaRecebidos) {
 let cicloRodando = false;
 let cicloAnteriorMs = 0;
 let falhasSeguidas = 0;
+// Desde quando o sync está falhando sem parar (null = sincronizando). Vai na batida (saúde):
+// a nuvem deixa de contar como "vivo" o servidor que bate mas não sincroniza e resgata os
+// pedidos online dele (ERR-132 — o servidor em laço batia a cada ciclo e segurava os pedidos).
+// Guardado em sync_state para sobreviver ao reinício do serviço.
+let falhandoDesde = null;
+async function marcarSync(ok, causa) {
+  try {
+    if (ok) {
+      falhandoDesde = null;
+      await setState('sync_falhando_desde', '');
+      await setState('sync_ultimo_ok', new Date().toISOString());
+    } else {
+      if (!falhandoDesde) {
+        falhandoDesde = new Date();
+        await setState('sync_falhando_desde', falhandoDesde.toISOString());
+      }
+      await setState('sync_ultimo_erro', `${new Date().toISOString()} ${causa}`.slice(0, 500));
+    }
+  } catch { /* best-effort: a falta de recurso que derrubou o sync pode derrubar isto também */ }
+}
+async function lerFalhandoDesde() {
+  try {
+    const v = await getState('sync_falhando_desde', '');
+    const t = v ? new Date(v) : null;
+    falhandoDesde = t && !isNaN(t.getTime()) ? t : null;
+  } catch { /* segue sem */ }
+}
 async function ciclo() {
   if (cicloRodando) {
     console.warn(`ciclo anterior ainda em execução — pulando este tick`);
@@ -1665,10 +1754,12 @@ async function ciclo() {
       u = await push();
       falhasSeguidas = 0;
       console.log(`sync ok — pull ${p} linha(s), push ${u} linha(s)`);
+      await marcarSync(true);
     } catch (e) {
       erro = e.message;
       falhasSeguidas++;
       console.error(`sync FALHOU: ${causaErro(e)}`);
+      await marcarSync(false, causaErro(e));
       await reportarTelemetria('sync', 'sync_erro', causaErro(e));
     }
     // Restauração sob demanda (botão do app grava a flag em sync_state).
@@ -2022,6 +2113,17 @@ if (process.argv.includes('--pendencias')) {
   process.exit(codigo);
 }
 
+// --um-ciclo: roda UM ciclo completo (pull, push, restauração pedida, batida) e sai — para teste
+// e diagnóstico; o serviço segue no agendamento normal. 0 = sincronizou; 1 = o sync falhou.
+if (process.argv.includes('--um-ciclo')) {
+  try { await ensureState(); } catch (e) { console.error(`ensureState: ${causaErro(e)}`); }
+  await lerFalhandoDesde();
+  await ciclo();
+  const sincronizou = falhasSeguidas === 0;
+  try { await pool.end(); } catch { /* ignore */ }
+  process.exit(sincronizou ? 0 : 1);
+}
+
 // ensureState e o 1º ciclo NÃO podem crashar o boot (ex.: PG recuperando = 57P03).
 // Se falharem, loga e segue — o setInterval reexecuta o ciclo quando o PG estabilizar.
 // AGENDAMENTO com ESPALHAMENTO e RECUO, no lugar do setInterval fixo:
@@ -2044,6 +2146,7 @@ async function agendar() {
 }
 
 try { await ensureState(); } catch (e) { console.error(`ensureState falhou no boot (segue): ${e?.message ?? e}`); }
+await lerFalhandoDesde();
 // Primeiro ciclo com atraso aleatório curto: 5.000 lojas voltando juntas depois de uma queda
 // não podem bater no mesmo segundo.
 setTimeout(agendar, Math.round(Math.random() * Math.min(INTERVAL, 15000)));
