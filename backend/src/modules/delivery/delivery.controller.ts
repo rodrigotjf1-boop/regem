@@ -224,6 +224,30 @@ export class DeliveryController {
     return this.service.setTotemModo(user.tenantId, exigirBooleano(dto?.aposPagamento, 'aposPagamento'));
   }
 
+  // Totem (só GESTOR): o pedido JÁ PAGO sai de "Retirada / Encomendas" quando a cozinha marca
+  // pronto (true) ou fica até o "Entregar" (false, padrão). Mig 301. Audita quando MUDA.
+  @Post('totem-conclui-pronto')
+  @UseGuards(JwtAuthGuard, RolesGuard, PermissoesGuard)
+  @Roles('presidente', 'gerente', 'supervisao')
+  @RequirePerm('delivery')
+  async totemConcluiPronto(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    const ligado = exigirBooleano(dto?.concluiAoFicarPronto, 'concluiAoFicarPronto');
+    const r = await this.service.setTotemConcluiAoFicarPronto(user.tenantId, ligado);
+    if (r.mudou) {
+      await this.auditoria.registrar({
+        tenantId: user.tenantId,
+        atorId: user.colaboradorId,
+        atorPerfil: user.categoria ?? '',
+        tipo: 'delivery',
+        acao: ligado ? 'totem_pago_sai_ao_ficar_pronto' : 'totem_pago_fica_ate_entregar',
+        entidadeTipo: 'delivery_config',
+        entidadeId: null,
+        detalhe: { totemConcluiAoFicarPronto: ligado },
+      });
+    }
+    return { totemConcluiAoFicarPronto: r.totemConcluiAoFicarPronto };
+  }
+
   // Avisar pronto (robô / status-back do canal).
   @Post('pedidos/:id/avisar-pronto')
   @UseGuards(JwtAuthGuard, PermissoesGuard)

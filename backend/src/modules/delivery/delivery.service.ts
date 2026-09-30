@@ -918,6 +918,11 @@ export class DeliveryService {
     const ped = await this.carregar(tenantId, id);
     if (ped.status !== 'novo')
       throw new BadRequestException('Pedido já foi aceito.');
+    // Cartão/PIX ainda em aprovação no totem: aceitar mandaria para a cozinha sem pagamento.
+    if (DeliveryService.pagandoNoTotem(ped))
+      throw new BadRequestException(
+        'Este pedido está sendo pago no totem (cartão/PIX): ele vai para a produção sozinho quando o pagamento for aprovado.',
+      );
 
     const itens = (ped.itens as any[]) ?? [];
     const codigos = itens.map((i) => i.codigo).filter(Boolean);
@@ -1234,9 +1239,10 @@ export class DeliveryService {
     const tenantId = payload?.tenantId;
     const comandaId = payload?.comandaId;
     if (!tenantId || !comandaId) return;
+    let ped: { id: string; status: string; canal: string | null; pago: boolean | null } | undefined;
     try {
-      const [ped] = await this.db
-        .select({ id: pedidoExterno.id, status: pedidoExterno.status })
+      [ped] = await this.db
+        .select({ id: pedidoExterno.id, status: pedidoExterno.status, canal: pedidoExterno.canal, pago: pedidoExterno.pago })
         .from(pedidoExterno)
         .where(and(eq(pedidoExterno.tenantId, tenantId), eq(pedidoExterno.comandaId, comandaId)));
       if (ped && ped.status === 'confirmado') {
@@ -1244,6 +1250,21 @@ export class DeliveryService {
       }
     } catch {
       // silencioso
+      return;
+    }
+    // Totem com a opção "o pago sai da lista quando ficar pronto" (mig 301): o pronto da cozinha
+    // é o "Entregar" do balcão — conclui, baixa o estoque (idempotente) e sai de "Retirada /
+    // Encomendas". Só o JÁ PAGO: o que ainda deve (produz antes de cobrar) espera o "Cobrar e
+    // entregar". A senha segue no KDS / quadro de senhas, que lê a produção.
+    if (!ped || !ped.pago || DeliveryService.grupoCanal(ped.canal ?? '') !== 'totem') return;
+    try {
+      if (!(await this.totemConcluiAoFicarPronto(tenantId))) return;
+      const atual = await this.carregar(tenantId, ped.id);
+      if (atual.status !== 'pronto') return; // já concluído no balcão, cancelado etc.
+      await this.entregarBalcao(tenantId, null, ped.id, null);
+    } catch (e: any) {
+      // O pedido fica pronto na lista e o balcão conclui com "Entregar" — mas com o motivo no log.
+      this.logger.warn(`totem: pedido ${ped.id} pronto e pago não concluiu sozinho: ${e?.message ?? e}`);
     }
   }
 
@@ -1363,7 +1384,62 @@ export class DeliveryService {
       }));
     const origensEmUso = await this.origensEmUso(tenantId);
     const totemAposPagamento = await this.totemAposPagamento(tenantId);
-    return { pedidos, origensEmUso, totemAposPagamento };
+    const totemConcluiAoFicarPronto = await this.totemConcluiAoFicarPronto(tenantId);
+    return { pedidos, origensEmUso, totemAposPagamento, totemConcluiAoFicarPronto };
+  }
+
+  /**
+   * Pedido do totem em CARTÃO/PIX ainda em aprovação: o pagamento acontece NO TOTEM. Ele entra
+   * na produção sozinho quando o pagamento é aprovado (`liberarPagamentoTotem`) e expira em
+   * 5 min se não for. O balcão não pode "Aceitar" (iria para a cozinha sem pagamento aprovado)
+   * nem "Receber pagamento" (cobraria no caixa o que o cliente está pagando no totem).
+   */
+  static pagandoNoTotem(p: {
+    canal?: string | null;
+    pago?: boolean | null;
+    status?: string | null;
+    comandaId?: string | null;
+    formaPagamento?: string | null;
+  }): boolean {
+    return (
+      DeliveryService.grupoCanal(p.canal ?? '') === 'totem' &&
+      !p.pago &&
+      p.status === 'novo' &&
+      !p.comandaId &&
+      String(p.formaPagamento ?? 'dinheiro').trim().toLowerCase() !== 'dinheiro'
+    );
+  }
+
+  // Totem: o pedido JÁ PAGO sai da lista quando a cozinha marca pronto (mig 301; config da
+  // REDE). Desligado (padrão) = como antes: o pago fica até o "Entregar". Leitura BLINDADA:
+  // sem a coluna (servidor da loja antes do `.zip`) = desligado.
+  async totemConcluiAoFicarPronto(tenantId: string): Promise<boolean> {
+    try {
+      const r: any = await this.db.execute(sql`
+        select totem_conclui_ao_ficar_pronto as v
+        from delivery_config
+        where tenant_id = ${tenantId} and unidade_id is null
+        limit 1`);
+      return !!(r.rows ?? r)[0]?.v;
+    } catch {
+      return false;
+    }
+  }
+
+  // Gestor liga/desliga "o pago sai da lista quando ficar pronto". Upsert na config da REDE.
+  // Devolve se MUDOU, para o controller auditar só a mudança.
+  async setTotemConcluiAoFicarPronto(tenantId: string, ligado: boolean) {
+    const v = !!ligado;
+    const antes = await this.totemConcluiAoFicarPronto(tenantId);
+    const upd: any = await this.db.execute(sql`
+      update delivery_config set totem_conclui_ao_ficar_pronto = ${v}, updated_at = now()
+      where tenant_id = ${tenantId} and unidade_id is null`);
+    if ((upd.rowCount ?? 0) === 0) {
+      await this.db.execute(sql`
+        insert into delivery_config (tenant_id, unidade_id, totem_conclui_ao_ficar_pronto)
+        values (${tenantId}, null, ${v})`);
+    }
+    return { totemConcluiAoFicarPronto: v, mudou: antes !== v };
   }
 
   // Modo de produção do Totem GoGeM (config por loja, nível rede): true = produz só
@@ -1414,6 +1490,11 @@ export class DeliveryService {
     if (ped.status === 'cancelado' || ped.status === 'concluido')
       throw new BadRequestException('Pedido não está aberto.');
     if (ped.pago) throw new BadRequestException('Pedido já está pago.');
+    // Cartão/PIX em aprovação no totem: cobrar no caixa seria cobrar duas vezes.
+    if (DeliveryService.pagandoNoTotem(ped))
+      throw new BadRequestException(
+        'Este pedido está sendo pago no totem (cartão/PIX) — não cobre no caixa.',
+      );
     // 1) Aceita (cria comanda + lançamento de venda + produção). Idempotente se já aceito.
     if (ped.status === 'novo') await this.aceitar(tenantId, atorId, id);
     // 2) Cobra no caixa aberto do PDV e marca pago — sem concluir (não entrega ainda).
