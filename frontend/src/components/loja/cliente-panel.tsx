@@ -151,7 +151,9 @@ export function ClientePanel({
         codigo: codExc,
         nome: perfil?.cliente?.nome ?? 'Cliente',
       });
-      await api.clienteEsquecer(token, clienteToken).catch(() => {});
+      // Sem engolir o erro: se a exclusão não aconteceu (ex.: pedido em andamento), a pessoa
+      // vê o motivo aqui e a sessão continua — antes a tela fechava como se tivesse apagado.
+      await api.clienteEsquecer(token, clienteToken);
       limparCliente(token);
       setPerfil(null);
       setExcluir(null);

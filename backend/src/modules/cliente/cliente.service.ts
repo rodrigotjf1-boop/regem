@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   Logger,
@@ -31,6 +32,7 @@ import {
 } from '../../db/schema';
 import { inArray } from 'drizzle-orm';
 import { assinarCliente, verificarCliente } from './cliente-token';
+import { PedidoEmAndamentoError, esquecerCliente } from './esquecer-cliente';
 import { SegmentoImport, mapearTabela, nomeUtil, parseCsvClientes, segmentoPeloArquivo } from './importar-planilha';
 import { lerXlsx } from './ler-xlsx';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
@@ -1232,14 +1234,37 @@ export class ClienteService {
       .where(and(eq(clienteEndereco.id, enderecoId), eq(clienteEndereco.clienteId, clienteId)));
   }
 
-  // LGPD: apaga o cliente (endereços em cascata) e desvincula os pedidos.
+  // LGPD: apaga o cliente (endereços em cascata) e tira dos pedidos dele o nome, os telefones,
+  // o endereço e o payload do canal — a NFC-e e o CPF da nota ficam (ver `esquecer-cliente.ts`).
+  // Com pedido em andamento, recusa: a loja ainda precisa dos dados para entregar.
   async esquecer(cardapioToken: string, clienteToken?: string) {
     const c = await this.clienteDoToken(cardapioToken, clienteToken);
-    await this.db
-      .update(pedidoExterno)
-      .set({ clienteId: null })
-      .where(eq(pedidoExterno.clienteId, c.id));
-    await this.db.delete(cliente).where(eq(cliente.id, c.id));
+    let r: { pedidosAnonimizados: number; clienteApagado: boolean };
+    try {
+      r = await esquecerCliente(this.db, c.tenantId, c.id);
+    } catch (e) {
+      if (e instanceof PedidoEmAndamentoError) {
+        // Erro esperado: o motivo fica no log (sem dado pessoal), a tela mostra o que fazer.
+        new Logger('ClienteLgpd').warn(
+          `esquecer: cliente ${c.id.slice(0, 8)} com pedido em andamento — exclusão adiada`,
+        );
+        throw new ConflictException(
+          'Você tem um pedido em andamento nesta loja. Assim que ele for concluído, você pode excluir sua conta.',
+        );
+      }
+      throw e;
+    }
+    // Prestação de contas do pedido do titular (sem dado pessoal: só o id que deixou de existir).
+    await this.auditoria.registrar({
+      tenantId: c.tenantId,
+      atorTipo: 'cliente',
+      tipo: 'lgpd',
+      acao: 'cliente.esquecer',
+      origem: 'cardapio',
+      entidadeTipo: 'cliente',
+      entidadeId: c.id,
+      detalhe: { pedidosAnonimizados: r.pedidosAnonimizados },
+    });
     return { ok: true };
   }
 
