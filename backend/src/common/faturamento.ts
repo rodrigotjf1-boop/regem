@@ -154,8 +154,29 @@ export function gorjetaComanda(a = 'c'): SQL {
   return sql`round(coalesce(${t}.total, 0) - coalesce(${t}.total, 0) / ${divisorServico(a)}, 2)`;
 }
 
-/** A comanda veio de um pedido de canal? Evita contar o mesmo dinheiro nos dois lados. */
+/**
+ * A comanda veio de um pedido de canal — QUALQUER pedido, em qualquer status? Então ela NÃO é
+ * venda de balcão: o dinheiro dela é contado (ou não) pelo pedido, nunca pela comanda. Evita
+ * contar o mesmo dinheiro nos dois lados.
+ *
+ * Antes olhava só o pedido que VALE (`pedidoVale`). Mas o cancelamento que vem do canal
+ * (iFood, 99Food, Anota Aí, Cardápio Web — `refletirStatusExterno`) e o do cliente na
+ * encomenda (`cancelarSistema`) mudam o pedido para `cancelado` SEM estornar a comanda, que
+ * continua `fechada`: sem o vínculo "que vale", ela caía no balcão, e o pedido que o
+ * marketplace cancelou virava faturamento presencial no Painel, na Visão C&O e no detalhe de
+ * balcão (A18 da trilha C). O estorno de caixa/estoque desse caminho é outra decisão.
+ */
 export function comandaEhDeCanal(a = 'c'): SQL {
+  const t = alias(a);
+  return sql`exists (select 1 from pedido_externo pex where pex.comanda_id = ${t}.id)`;
+}
+
+/**
+ * A comanda é de um pedido de canal que CONTA como venda (`pedidoVale`)? É o recorte
+ * "delivery" dos relatórios lidos pela comanda: o pedido cancelado fica fora dele — e, pela
+ * `comandaEhDeCanal`, fora do balcão também.
+ */
+export function comandaDePedidoVale(a = 'c'): SQL {
   const t = alias(a);
   return sql`exists (select 1 from pedido_externo pex
                       where pex.comanda_id = ${t}.id and ${pedidoVale('pex')})`;

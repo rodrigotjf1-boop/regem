@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import {
-  brutoPedido, comandaEhDeCanal, descontoLojaFrete, descontoLojaProduto,
+  brutoPedido, comandaDePedidoVale, comandaEhDeCanal, descontoLojaFrete, descontoLojaProduto,
   faturamentoComanda, faturamentoPedido, gorjetaComanda, gorjetaPedido,
   pedidoDetalhado, pedidoVale, taxaEntregaLoja, taxaEntregaTerceiro, taxasServicoPedido,
 } from './faturamento';
@@ -65,6 +65,17 @@ describe('faturamento — fórmulas compartilhadas', () => {
     const c = render(comandaEhDeCanal('c'));
     expect(c).toContain('pedido_externo pex');
     expect(c).toContain('pex.comanda_id');
+  });
+
+  it('comanda ligada a QUALQUER pedido não é balcão — nem a do pedido cancelado pelo canal (A18)', () => {
+    // Filtrar pelo status aqui devolvia ao balcão a comanda do pedido que o iFood cancelou.
+    expect(render(comandaEhDeCanal('c'))).not.toContain('status');
+  });
+
+  it('o recorte "delivery" pela comanda segue sendo só o pedido que vale', () => {
+    const c = render(comandaDePedidoVale('c'));
+    expect(c).toContain('pex.comanda_id');
+    expect(c).toContain(`not in ('novo','cancelado')`);
   });
 
   it('alias inválido explode no boot, não vira SQL', () => {
