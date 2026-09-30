@@ -286,6 +286,10 @@ descrever('API de integração — cupons (GET /cupons, GET /cupons/usos, POST /
     const ultima = Array.isArray(conferencia) ? conferencia[conferencia.length - 1] : conferencia;
     const falhas = ultima.rows.filter((r: any) => r.ok !== true).map((r: any) => r.objeto);
     if (falhas.length) throw new Error(`conferência da 298 falhou: ${falhas.join(', ')}`);
+    // A 299 (origem do pedido do cardápio): o carimbador lê `pedido_origem` ao montar as vendas.
+    const conf299 = (await pool.query(mig('299_pedido_origem.sql')) as any) as any[];
+    const falhas299 = conf299[conf299.length - 1].rows.filter((r: any) => r.ok !== true).map((r: any) => r.objeto);
+    if (falhas299.length) throw new Error(`conferência da 299 falhou: ${falhas299.join(', ')}`);
     // Só a FK interna cupom_uso → cupom, as duas no schema do teste (o `regclass` omite o schema do
     // search_path: compara-se o namespace da tabela-alvo).
     const fks = await q(

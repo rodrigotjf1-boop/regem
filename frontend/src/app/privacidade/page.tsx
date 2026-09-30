@@ -13,7 +13,7 @@ const ENDERECO = 'R. Visconde de Pirajá, 414, sala 718 — Rio de Janeiro/RJ, C
 // simplesmente não renderiza — melhor omitir do que publicar número errado.
 const CNPJ = '67.748.508/0001-43';
 // Data da última revisão do texto. Atualize ao mexer no conteúdo.
-const ATUALIZADO_EM = '26 de agosto de 2026';
+const ATUALIZADO_EM = '30 de setembro de 2026';
 const CONTATO = 'suporte@dmsregem.com';
 
 // Política de Privacidade pública (LGPD). Mesmo padrão visual das outras páginas
@@ -178,6 +178,14 @@ const SECOES: Secao[] = [
                 <td>Informado pelo próprio cliente ao pedir</td>
               </tr>
               <tr>
+                <td>Origem do pedido</td>
+                <td>
+                  De onde a pessoa chegou ao cardápio (campanha, anúncio e código do clique), quando
+                  a loja mede os próprios anúncios
+                </td>
+                <td>Link do anúncio ou da campanha que a pessoa abriu</td>
+              </tr>
+              <tr>
                 <td>Atendimento</td>
                 <td>Mensagens trocadas nos canais de atendimento, incluindo WhatsApp</td>
                 <td>Conversa iniciada pelo cliente</td>
@@ -270,6 +278,15 @@ const SECOES: Secao[] = [
               <tr>
                 <td>Enviar avisos operacionais sobre um pedido em andamento</td>
                 <td>Execução de contrato / legítimo interesse (art. 7º, V e IX)</td>
+              </tr>
+              <tr>
+                <td>
+                  Registrar de onde o cliente chegou ao cardápio, para a loja medir os próprios
+                  anúncios
+                </td>
+                <td>
+                  Legítimo interesse da empresa (art. 7º, IX); o cliente pode recusar no checkout
+                </td>
               </tr>
               <tr>
                 <td>Enviar comunicação promocional (campanhas, cupons)</td>
@@ -371,6 +388,13 @@ const SECOES: Secao[] = [
             </tbody>
           </table>
         </div>
+        <h3>Integrações autorizadas pela empresa</h3>
+        <p>
+          Quando a empresa assinante autoriza, uma ferramenta contratada por ela, como a de
+          marketing, lê pela nossa API de integração os pedidos, os cupons e a origem dos pedidos da
+          loja autorizada. Cada autorização vale só para aquela loja e aqueles dados, e a empresa
+          pode cancelá-la quando quiser. Nessa leitura, a ferramenta trabalha para a empresa.
+        </p>
         <p>
           Também podemos compartilhar dados para <strong>cumprir ordem judicial</strong> ou
           requisição de autoridade competente, e para exercer ou defender direitos em processo.
@@ -401,6 +425,10 @@ const SECOES: Secao[] = [
           <li>
             <strong>Fotos:</strong> até a data de expurgo definida pela empresa, quando são
             eliminadas automaticamente.
+          </li>
+          <li>
+            <strong>Origem do pedido no cardápio:</strong> o código do clique é apagado em até 90
+            dias; a campanha e o anúncio ficam com o pedido.
           </li>
           <li>
             <strong>Trilha de auditoria:</strong> mantida de forma imutável pelo tempo necessário à
@@ -494,7 +522,7 @@ const SECOES: Secao[] = [
   },
   {
     id: 'cookies',
-    t: 'Cookies',
+    t: 'Cookies e armazenamento no navegador',
     corpo: (
       <>
         <p>
@@ -505,6 +533,10 @@ const SECOES: Secao[] = [
         <p>
           Bloquear esses cookies no navegador impede o login de funcionar, já que é neles que a
           sessão se apoia.
+        </p>
+        <p>
+          No cardápio digital, quando a loja mede os próprios anúncios, o navegador guarda de onde a
+          pessoa chegou só enquanto a aba estiver aberta. Ao fechar a aba, o dado some.
         </p>
       </>
     ),

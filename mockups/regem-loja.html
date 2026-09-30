@@ -211,6 +211,16 @@ main{padding:8px 18px 130px}
 .pg{border:1.5px solid var(--line);border-radius:11px;padding:11px;background:var(--card);text-align:center;font-size:12px;font-weight:700}
 .pg small{display:block;font-weight:500;font-size:10px;color:var(--ink2);margin-top:2px}
 .pg.on{border-color:var(--p);background:color-mix(in srgb,var(--p) 10%,var(--card))}
+/* aviso de origem (trilha C, C3a — aprovado em 30/09/2026): acima do botão, só se veio de anúncio */
+.aviso-origem{display:flex;gap:9px;margin-top:14px;background:color-mix(in srgb,var(--ink) 4%,var(--card));
+  border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:12px;color:var(--ink2)}
+.aviso-origem.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 30%,var(--card))}
+.aviso-origem .ic{flex:none}
+.aviso-origem .ac{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:4px}
+.aviso-origem .ac button{font-weight:800;color:var(--ink);text-decoration:underline;text-underline-offset:2px;font-size:12px}
+.origem-dl{display:grid;gap:10px}
+.origem-dl dt{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2)}
+.origem-dl dd{margin:2px 0 0;font-size:12.5px;color:var(--ink)}
 /* status do pedido */
 .status-hero{text-align:center;padding:22px 0 8px}
 .status-hero .em{font-size:48px}
@@ -243,6 +253,7 @@ footer .mono{letter-spacing:.2em;font-size:9px}
   <button data-ramo="varejo">🛍 Varejo</button>
   <button data-ramo="industria">🏭 Indústria leve</button>
   <button data-ramo="servicos">💈 Serviços</button>
+  <button id="demoOrigem" class="on" aria-pressed="true" title="O cliente abriu o cardápio por um link de anúncio">🔗 Veio de anúncio</button>
 </div>
 
 <div class="wrap">
@@ -282,6 +293,16 @@ footer .mono{letter-spacing:.2em;font-size:9px}
 <div class="sheet-bg" id="sgStatus"><div class="sheet">
   <div class="sheet-head"><div class="sheet-title">Acompanhe seu pedido</div><button class="x" data-close="sgStatus">✕</button></div>
   <div class="sheet-body" id="stBody"></div>
+</div></div>
+
+<!-- sheet: de onde você veio (Saiba mais do aviso de origem) -->
+<div class="sheet-bg" id="sgOrigem"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="origemTitulo">
+  <div class="sheet-head"><div class="sheet-title" id="origemTitulo">De onde você veio</div><button class="x" data-close="sgOrigem" aria-label="Fechar">✕</button></div>
+  <div class="sheet-body"><dl class="origem-dl" id="origemBody"></dl></div>
+  <div class="sheet-foot" style="display:flex;gap:10px">
+    <button class="btn-main" data-origem="recusar" style="flex:1;background:var(--card);color:var(--ink);border:1.5px solid var(--line)">Não registrar</button>
+    <button class="btn-main" data-close="sgOrigem" style="flex:1">Entendi</button>
+  </div>
 </div></div>
 
 <div class="toastw" id="toastw"></div>
@@ -606,6 +627,13 @@ function renderCart(){
     ${D.frete?`<div class="tot-row">Frete <span class="mono">${frete()===0?'Grátis 🎉':brl(frete())}</span></div>`:''}
     ${R==='food'?`<div class="tot-row desc-ok">Fidelidade <span class="mono">+ ${Math.round(total())} pts</span></div>`:''}
     <div class="tot-row big">${R==='industria'?'Estimativa':'Total'} <span class="mono">${brl(total())}</span></div></div>`;
+  /* aviso de origem: só quando o cliente veio por link de anúncio (loja que mede anúncios) */
+  if(veioDeAnuncio&&origem==='aviso')html+=`<div class="aviso-origem"><span class="ic" aria-hidden="true">🔗</span><div>
+    A loja registra por qual anúncio ou link você chegou.
+    <div class="ac"><button data-origem="saiba" aria-haspopup="dialog">Saiba mais</button><button data-origem="recusar">Não registrar</button></div></div></div>`;
+  if(veioDeAnuncio&&origem==='recusado')html+=`<div class="aviso-origem ok" role="status"><span class="ic" aria-hidden="true">✓</span><div>
+    Pronto: este pedido vai sem esse registro.
+    <div class="ac"><button data-origem="desfazer">Desfazer</button></div></div></div>`;
   $('#cartBody').innerHTML=html;
   const fin=$('#finish');
   fin.innerHTML=`${D.cartCta} <span class="mono">${brl(total())}</span>`;
@@ -653,6 +681,38 @@ $('#finish').onclick=()=>{
 };
 
 /* ============================================================
+   AVISO DE ORIGEM (link de anúncio) — trilha C, C3a
+   A loja é a controladora; o Regem guarda para ela. Dados de exemplo.
+   ============================================================ */
+let veioDeAnuncio=true, origem='aviso';
+function textosOrigem(){
+  const L=RAMOS[R].loja.nome;
+  return [
+    ['Quem cuida',`${L}, CNPJ 00.000.000/0001-00, a loja em que você está pedindo. O Regem é o sistema que ela usa e guarda o registro para ela.`],
+    ['O que fica registrado','O link por onde você entrou: a campanha, o anúncio e, quando o anúncio envia, o código do clique, um número que o Google ou a Meta criam a cada clique. Seu nome e seu telefone não entram nesse registro.'],
+    ['Para quê','Para a loja saber quais anúncios trazem pedidos de verdade e quanto eles rendem. O registro não é usado para mostrar anúncios para você e não é vendido.'],
+    ['Quem mais recebe','A ferramenta de marketing contratada pela loja, o Liame, da DMS, que usa o registro só nos relatórios da loja.'],
+    ['Por quanto tempo','No seu aparelho, só enquanto esta aba estiver aberta. No pedido, o código do clique é apagado em até 90 dias; a campanha e o anúncio ficam com o pedido enquanto a loja guardar os pedidos dela.'],
+    ['Se não quiser','Toque em “Não registrar” antes de fazer o pedido. Depois do pedido, peça à loja para apagar o registro pelo WhatsApp (21) 90000-0000.'],
+    ['Base legal','Legítimo interesse da loja em medir os próprios anúncios (LGPD, art. 7º, IX).'],
+  ].map(([t,d])=>`<div><dt>${t}</dt><dd>${d}</dd></div>`).join('');
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-origem]');if(!b)return;
+  const a=b.dataset.origem;
+  if(a==='saiba'){$('#origemBody').innerHTML=textosOrigem();open('sgOrigem');return}
+  if(a==='recusar'){origem='recusado';close('sgOrigem');renderCart();return}
+  if(a==='desfazer'){origem='aviso';renderCart()}
+});
+$('#demoOrigem').onclick=()=>{
+  veioDeAnuncio=!veioDeAnuncio;origem='aviso';
+  $('#demoOrigem').setAttribute('aria-pressed',String(veioDeAnuncio));
+  $('#demoOrigem').classList.toggle('on',veioDeAnuncio);
+  if($('#sgCart').classList.contains('open'))renderCart();
+  toast(veioDeAnuncio?'Cliente veio por um link de anúncio':'Cliente entrou direto (sem aviso)');
+};
+
+/* ============================================================
    SHEETS / BUSCA / SCROLL-SPY / TROCA DE RAMO
    ============================================================ */
 function open(id){$('#'+id).classList.add('open');document.body.style.overflow='hidden'}
@@ -673,7 +733,7 @@ document.addEventListener('click',e=>{
     cart.push({id:'f1',nome:'Smash Duplo (repetido)',qtd:2,unitTotal:32.35,det:'Fritas média · Bacon'});updateCartBar()}
 });
 document.querySelectorAll('.demo-bar [data-ramo]').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.demo-bar button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.demo-bar [data-ramo]').forEach(x=>x.classList.remove('on'));b.classList.add('on');
   R=b.dataset.ramo;chk={modo:0,pg:null,bairro:'Centro (R$ 6,90)',agendar:'agora'};render();scrollTo({top:0});
 });
 render();

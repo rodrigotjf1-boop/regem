@@ -1,5 +1,7 @@
 // Tipos + helpers do cardápio digital público (store /c/[token]).
 
+import { apagarOrigem } from './origem-clique';
+
 export const brl = (n: number) =>
   Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -99,4 +101,5 @@ export function limparCliente(token: string) {
   } catch {
     /* ignora */
   }
+  apagarOrigem(token); // de onde ele veio (link de anúncio), guardado só nesta aba
 }

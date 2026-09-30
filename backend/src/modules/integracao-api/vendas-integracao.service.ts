@@ -22,7 +22,8 @@ import { FotoVenda, sqlIso } from './venda-integracao';
 // O que depende do token é resolvido aqui, na hora: `cliente` (escopo `clientes.telefone.ler`;
 // telefone lido do cadastro, nunca guardado na foto; marketplace nunca manda) e `custo_centavos`
 // (escopo `custos.ler` E quem autorizou ainda vê valores em R$ — senão `null`: margem desconhecida
-// não é zero).
+// não é zero). A `origem` do pedido do cardápio (mig 299) também sai daqui, lida na hora: os
+// códigos de clique apagados aos 90 dias já saem sem eles, sem versão nova.
 
 /** Atraso de segurança sobre o carimbo, em segundos (o contrato pede pelo menos 5). */
 export const ATRASO_LEITURA_SEG = 15;
@@ -78,9 +79,18 @@ export class VendasIntegracaoService {
       await this.db.execute(sql`
         select v.recurso_id::text as id, v.versao::text as versao, ${sqlIso(sql`v.atualizado_em`)} as atualizado_em,
                v.situacao, v.foto, coalesce(u.timezone, 'America/Sao_Paulo') as fuso,
-               ${comTelefone ? sql`cl.telefone` : sql`null::text`} as telefone
+               ${comTelefone ? sql`cl.telefone` : sql`null::text`} as telefone,
+               case when po.pedido_id is not null then jsonb_build_object(
+                 'capturado_em', ${sqlIso(sql`po.capturado_em`)},
+                 'lk', po.lk, 'utm_source', po.utm_source, 'utm_medium', po.utm_medium,
+                 'utm_campaign', po.utm_campaign, 'utm_content', po.utm_content, 'utm_term', po.utm_term,
+                 'campaign_id', po.campaign_id, 'adset_id', po.adset_id, 'adgroup_id', po.adgroup_id,
+                 'ad_id', po.ad_id, 'gclid', po.gclid, 'gbraid', po.gbraid, 'wbraid', po.wbraid,
+                 'fbclid', po.fbclid) end as origem
           from integracao_versao v
           left join unidade u on u.id = ${ctx.unidadeId}::uuid
+          left join pedido_origem po
+                 on v.fonte = 'pedido_externo' and po.pedido_id = v.recurso_id and po.tenant_id = v.tenant_id
           ${
             comTelefone
               ? sql`left join cliente cl on cl.id = nullif(v.foto->'cliente'->>'id', '')::uuid and cl.tenant_id = v.tenant_id`
@@ -154,8 +164,8 @@ export class VendasIntegracaoService {
         receita_centavos: it.receita,
         custo_centavos: custoDoItem(mapa, it.produto_id, it.quantidade),
       })),
-      // Captura do clique no cardápio (C3a, `pedido_origem`) ainda não existe: sempre nulo.
-      origem: null,
+      // De onde o cliente do cardápio veio (C3a, mig 299); `null` sem origem gravada.
+      origem: l.origem ?? null,
     };
   }
 

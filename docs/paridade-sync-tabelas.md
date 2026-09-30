@@ -79,6 +79,12 @@ controle da carga inicial. Também `-- @cloud-only`: não existem no banco da lo
 inclusive quando o push da loja aplica a linha, sem mudar nada do que o sync grava. O índice
 `pedido_externo(comanda_id)` (mig 297) é só da nuvem.
 
+`pedido_origem` (mig 299, trilha C, C3a/PR4): de onde veio o pedido do cardápio (link de anúncio),
+gravada na nuvem logo depois do pedido online. `-- @cloud-only`: não existe no banco da loja e não
+entra no `sync-config.ts` nem nas listas do `sync-daemon.mjs` — o pedido online nasce na nuvem e o
+`CardapioModule` não sobe na loja. Sem FK para `pedido_externo`; o job diário da nuvem apaga os
+códigos de clique aos 90 dias e a origem de pedido que não existe mais.
+
 `integracao_cupom`, `integracao_idempotencia` e `integracao_carga_cupom` (mig 298, trilha C, C1c/PR3):
 a marca do cupom criado pela API de integração (o Liame só desativa o que ele criou), a
 `Idempotency-Key` das escritas (24 h) e o controle da carga inicial dos cupons. `-- @cloud-only`: não
