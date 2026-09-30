@@ -48,6 +48,10 @@ precisam ser tratados na ativação com o helper `comTenant(db, tenantId, fn)`:
   procura o token pelo hash ANTES de saber a empresa. A `integracao_token_loja` nasce com RLS
   ligada e SEM política (só bloqueia a API REST anônima): sob o role sem bypass, precisa de
   política própria para a busca pelo hash, ou a API de integração roda no role de serviço.
+  O mesmo vale para as tabelas da mig 296 (`integracao_mudanca`, `integracao_versao`,
+  `integracao_carga`): os gatilhos gravam a fila durante a venda e o push do sync (sem GUC; um
+  `insert` recusado vira só aviso no log e a venda deixa de gerar versão) e o carimbador lê e
+  grava todas as empresas.
 
 ## Runbook de ativação (encenado, reversível)
 

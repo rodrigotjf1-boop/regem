@@ -71,6 +71,14 @@ existe no banco da loja — não entra no `sync-config.ts` nem nas listas do `sy
 teste de cobertura (`pendencias-wipe.spec.ts`), que varre o schema do servidor da loja, não a vê.
 O módulo que a usa (`IntegracaoApiModule`) não sobe no servidor da loja.
 
+`integracao_versao`, `integracao_mudanca` e `integracao_carga` (mig 296, trilha C, C1c): versão e
+cursor das vendas lidas pela API de integração, a fila de mudanças que os gatilhos anotam e o
+controle da carga inicial. Também `-- @cloud-only`: não existem no banco da loja, não entram no
+`sync-config.ts` nem nas listas do `sync-daemon.mjs`. Os gatilhos que as alimentam (em
+`pedido_externo`, `comanda`, `comanda_item` e `cliente`) também só existem na nuvem — disparam
+inclusive quando o push da loja aplica a linha, sem mudar nada do que o sync grava. O índice
+`pedido_externo(comanda_id)` (mig 297) é só da nuvem.
+
 ### 2.4 Entraram no sincronismo (migrations 272/273)
 
 Passaram a sincronizar, com a coluna de data e os gatilhos que faltavam: `nota_fiscal` (sobe), `tarefa_def`, `checklist`, `checklist_item`, `pop`, `documento_controlado`, `ciencia`, `vistoria`, `ocorrencia`, `ponto_ajuste`, `guia`, `guia_passo`, `comunicado`, `comunicado_leitura`, as três de clima, `escala_regra`, `dia_especial`, `entitlement`, `janela_pico`, `contador`, `funcao_setor`, `colaborador_funcao`, `modulo_ativacao`, `categoria_item`, `item_fornecedor`, `item_conversao`, `forma_pagamento`, `comanda_pagamento`, `ordem_producao`, `mesa`, `alerta_estoque`, `produto_sugestao`, `produto_faixa_preco`, as quatro de destino de produção, `kds_cor_config`, `tef_config`, `pagamento_tef` (sobe), `cupom`, `cupom_uso`, `encomenda_regra_sinal`, `encomenda_recorrencia`, `banner`, `acerto_subpdv`, `pedido_manutencao` e `atendimento_chamado`.
