@@ -30,6 +30,8 @@ export class CloudFallbackProcessor {
   private readonly isEdge = String(process.env.EDGE_MODE ?? '').toLowerCase() === 'true';
   private static readonly HB_MIN = 3; // heartbeat recente = edge ativo
   private static readonly TETO_MIN = 5; // idade mínima do pedido preso
+  // Servidor que BATE mas não sincroniza há mais que isto não conta como vivo (ERR-132).
+  private static readonly FALHA_MIN = 10;
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
@@ -43,6 +45,7 @@ export class CloudFallbackProcessor {
     try {
       const corteIdade = new Date(Date.now() - CloudFallbackProcessor.TETO_MIN * 60 * 1000);
       const corteHb = new Date(Date.now() - CloudFallbackProcessor.HB_MIN * 60 * 1000);
+      const corteFalha = new Date(Date.now() - CloudFallbackProcessor.FALHA_MIN * 60 * 1000);
 
       // Pedidos online presos há mais de TETO_MIN, sem comanda, de loja que TEM servidor
       // local cadastrado e cujo servidor está SEM batida. Duas correções (ERR-062):
@@ -74,9 +77,17 @@ export class CloudFallbackProcessor {
                            and e.integrador is null
                            and (e.last_push_ts is not null or e.last_push_seq is not null)
                            and (e.unidade_id = ${pedidoExterno.unidadeId} or e.unidade_id is null))`,
+            // "Vivo" = bate E sincroniza (ERR-132): o servidor em laço na primeira carga batia a
+            // cada ciclo com o sync falhando, e a nuvem segurava os pedidos dele para sempre. O
+            // daemon manda na saúde desde quando falha sem parar (`syncFalhandoDesde`); ausente
+            // (servidor bom ou versão antiga) = vivo, como antes. Valor que não é data não quebra
+            // a consulta (o `case` só converte o que tem cara de data ISO).
             sql`not exists (select 1 from edge_status es
                              where es.tenant_id = ${pedidoExterno.tenantId} and es.recebido_em >= ${corteHb}
-                               and (es.unidade_id = ${pedidoExterno.unidadeId} or es.unidade_id is null))`,
+                               and (es.unidade_id = ${pedidoExterno.unidadeId} or es.unidade_id is null)
+                               and coalesce(case when es.saude->>'syncFalhandoDesde' ~ '^\\d{4}-\\d{2}-\\d{2}T'
+                                                 then (es.saude->>'syncFalhandoDesde')::timestamptz end,
+                                            'infinity'::timestamptz) > ${corteFalha})`,
             sql`not exists (select 1 from ${edgeHeartbeat} hb where hb.tenant_id = ${pedidoExterno.tenantId} and hb.recebido_em >= ${corteHb} and (hb.unidade_id = ${pedidoExterno.unidadeId} or hb.unidade_id is null))`,
           ),
         )

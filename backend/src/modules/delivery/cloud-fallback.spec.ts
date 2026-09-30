@@ -82,6 +82,39 @@ descrever('resgate da nuvem de pedido online preso', () => {
     expect(aceitos).not.toContain(id);
   });
 
+  // ERR-132: o servidor em laço na primeira carga batia a cada ciclo com o sync falhando — a
+  // nuvem o dava por vivo e segurava os pedidos online dele.
+  const statusComFalha = (t: string, u: string, saude: any) =>
+    q(`insert into edge_status (equipamento_id, tenant_id, unidade_id, versao, estado, saude, recebido_em)
+       values ($1,$2,$3,'1.30.2','erro',$4::jsonb, now())`, [randomUUID(), t, u, JSON.stringify(saude)]);
+
+  it('servidor que BATE mas não sincroniza há 20 min → resgata', async () => {
+    const { t, u } = await empresa();
+    await servidorLocal(t, u);
+    await statusComFalha(t, u, { syncFalhandoDesde: new Date(Date.now() - 20 * 60000).toISOString() });
+    const id = await pedidoNovo(t, u);
+    await proc.processar();
+    expect(aceitos).toContain(id);
+  });
+
+  it('falha de sync há 2 min (pode ser só um ciclo) → ainda NÃO resgata', async () => {
+    const { t, u } = await empresa();
+    await servidorLocal(t, u);
+    await statusComFalha(t, u, { syncFalhandoDesde: new Date(Date.now() - 2 * 60000).toISOString() });
+    const id = await pedidoNovo(t, u);
+    await proc.processar();
+    expect(aceitos).not.toContain(id);
+  });
+
+  it('valor estranho na saúde não quebra o resgate: conta como vivo, como antes', async () => {
+    const { t, u } = await empresa();
+    await servidorLocal(t, u);
+    await statusComFalha(t, u, { syncFalhandoDesde: 'ontem' });
+    const id = await pedidoNovo(t, u);
+    await proc.processar();
+    expect(aceitos).not.toContain(id);
+  });
+
   it('loja SEM servidor local, pedido do iFood aguardando aceite há 6 min → NÃO aceita pela loja', async () => {
     const { t, u } = await empresa();
     const id = await pedidoNovo(t, u);

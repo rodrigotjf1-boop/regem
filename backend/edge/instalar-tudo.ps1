@@ -98,6 +98,7 @@ $logDir = Join-Path $root "logs"; New-Item -ItemType Directory -Force $logDir | 
 # para o resultado refletir SÓ esta execução.
 Remove-Item (Join-Path $logDir 'ULTIMO-ERRO.txt') -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $logDir 'INSTALOU-OK.flag') -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $logDir 'INSTALOU-AVISO.txt') -Force -ErrorAction SilentlyContinue
 $log = Join-Path $logDir ("instalar-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
 # Grava TODA a saida (inclusive erros de npm/node/initdb/postgres) no log — o
 # arquivo fica em logs\instalar-*.log para enviar ao suporte quando algo falhar.
@@ -247,6 +248,73 @@ function Rodar-Descarregar($nodeExe, $daemon, $pasta, $saida, $erros, $prazoMs) 
   }
   $proc.WaitForExit()  # garante o fim das saidas redirecionadas antes de ler o codigo
   return $proc.ExitCode
+}
+
+# Vagas de trava do Postgres da loja (ERR-132). A primeira carga do sync mexe em muitas linhas
+# numa transacao so; com o padrao (64 por conexao) a tabela de travas esgotava ("out of shared
+# memory") e o servidor nunca recebia a loja. 256 custa poucos MB de memoria compartilhada.
+# Anexa ao postgresql.conf uma vez (marca); vale no proximo inicio do Postgres. $true = mudou.
+function Garantir-TravasPostgres($pgData) {
+  $conf = Join-Path $pgData 'postgresql.conf'
+  if (-not (Test-Path $conf)) { return $false }
+  $marca = '# === Regem: vagas de trava (ERR-132) ==='
+  $txt = [IO.File]::ReadAllText($conf)
+  if ($txt.Contains($marca)) { return $false }
+  Add-Content -Path $conf -Value @('', $marca, 'max_locks_per_transaction = 256') -Encoding ascii
+  return $true
+}
+
+# Script do node escrito pelo instalador: fica na RAIZ do backend (dali o node acha o pacote pg;
+# na pasta TEMP o require('pg') falha) e le os argumentos a partir de process.argv[2] (o [1] e o
+# proprio arquivo). Os dois erros juntos faziam o -Restaurar nunca marcar a restauracao.
+function Novo-ScriptNode($prefixo, $conteudo) {
+  $arq = Join-Path $root ("{0}-{1}.cjs" -f $prefixo, (Get-Random))
+  Set-Content -Path $arq -Value $conteudo -Encoding ascii
+  return $arq
+}
+
+# Os dados da loja chegaram ao banco local? A tela de entrada do servidor procura a loja pelo
+# e-mail de quem trabalha nela - sem a loja e os usuarios a instalacao "concluia" e ninguem
+# entrava (30/09/2026, ERR-132). Espera ate $minutos; devolve se a loja instalada chegou,
+# quantos usuarios ela tem e, se o sync esta falhando (ou a restauracao falhou), o motivo.
+function Conferir-DadosDaLoja($nodeExe, $dbUrl, $unidadeId, $minutos) {
+  $js = @'
+const { Client } = require('pg');
+(async () => {
+  const c = new Client({ connectionString: process.argv[2], connectionTimeoutMillis: 8000 });
+  await c.connect();
+  const q = await c.query(
+    `select exists(select 1 from unidade u join empresa e on e.id = u.tenant_id
+                    where u.id::text = $1 and u.deleted_at is null) as loja,
+            (select count(*)::int from colaborador c join unidade u on u.tenant_id = c.tenant_id
+              where u.id::text = $1 and c.deleted_at is null) as usuarios`,
+    [process.argv[3]]);
+  let erro = null;
+  const t = await c.query("select to_regclass('public.sync_state') is not null as tem");
+  if (t.rows[0].tem) {
+    const s = await c.query("select chave, valor from sync_state where chave in ('sync_falhando_desde', 'sync_ultimo_erro', 'restore_erro')");
+    const v = Object.fromEntries(s.rows.map((r) => [r.chave, r.valor]));
+    if (v.sync_falhando_desde) erro = v.sync_ultimo_erro || 'sincronizacao falhando';
+    else if (v.restore_erro) erro = 'restauracao: ' + v.restore_erro;
+  }
+  await c.end();
+  console.log(JSON.stringify({ loja: q.rows[0].loja, usuarios: q.rows[0].usuarios, erro }));
+})().catch((e) => console.log(JSON.stringify({ loja: false, usuarios: 0, erro: 'banco local: ' + e.message })));
+'@
+  $arq = Novo-ScriptNode 'regem-conferir' $js
+  $r = [pscustomobject]@{ loja = $false; usuarios = 0; erro = $null }
+  try {
+    $fim = (Get-Date).AddMinutes($minutos)
+    while ($true) {
+      $saida = $null
+      try { $saida = (& $nodeExe $arq $dbUrl $unidadeId | Select-Object -Last 1) } catch { }
+      if ($saida) { try { $r = $saida | ConvertFrom-Json } catch { } }
+      if ($r.loja -and ($r.usuarios -gt 0)) { break }
+      if ((Get-Date) -ge $fim) { break }
+      Start-Sleep -Seconds 10
+    }
+  } finally { Remove-Item $arq -Force -ErrorAction SilentlyContinue }
+  return $r
 }
 
 # F3a-2 — a loja JA tem servidor local em OUTRA maquina e a trava (reauth_ativo) esta
@@ -661,6 +729,9 @@ if (Test-Path (Join-Path $root "node_modules\pg")) {
 
 # ---- 1) Postgres local ----
 $pgData = Join-Path $base "pgdata"
+# Banco criado do ZERO nesta instalacao (maquina nova ou reinstalacao limpa): os dados da loja
+# vem pela restauracao por arquivo (ver 3.5), nao pagina a pagina pelo sync (ERR-132).
+$bancoNovo = $false
 # Reinstalacao/atualizacao: se o pgdata JA existe, o initdb e pulado e a senha
 # antiga continua valendo. Entao REUSA a senha do .env.local atual — senao a nova
 # senha aleatoria nao bateria com o banco existente e a conexao quebraria.
@@ -698,6 +769,8 @@ if ($embutido.pg) {
     # ~2% de I/O, aceitavel no edge. Nao afeta reinstalacao (initdb e pulado).
     & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -k -D $pgData | Out-Null
     Remove-Item $pwfile -Force
+    $null = Garantir-TravasPostgres $pgData
+    $bancoNovo = $true
     # O postgres.exe se RECUSA a rodar como conta admin (Sistema Local). O servico
     # roda como "Servico de rede" (NetworkService = SID S-1-5-20, nao-admin) — igual
     # ao instalador oficial do Postgres. Ele precisa ser DONO/ter acesso ao pgdata
@@ -736,6 +809,13 @@ if ($embutido.pg) {
     & $nssm set RegemEdgePg AppRotateFiles 1 | Out-Null
     & $nssm set RegemEdgePg AppRotateOnline 1 | Out-Null
     & $nssm set RegemEdgePg AppRotateBytes 10485760 | Out-Null
+    }
+    # Mais vagas de trava (ERR-132): so valem num Postgres (re)iniciado - para se estiver no ar.
+    if (Garantir-TravasPostgres $pgData) {
+      Diga "Postgres: mais vagas de trava para a sincronizacao (max_locks_per_transaction = 256)."
+      $eapTravas = $ErrorActionPreference
+      $ErrorActionPreference = 'Continue'
+      try { & $nssm stop RegemEdgePg 2>$null | Out-Null } catch { } finally { $ErrorActionPreference = $eapTravas }
     }
     & $nssm start RegemEdgePg 2>$null | Out-Null
     Start-Sleep -Seconds 2
@@ -818,6 +898,8 @@ if ((-not $okPg) -and $embutido.pg -and (Test-Path (Join-Path $pgData "PG_VERSIO
   # de pagina cedo. Este ramo ja recria o pgdata do zero (recuperacao), entao e seguro.
   & (Join-Path $pgDir "bin\initdb.exe") -U postgres --pwfile=$pwfile -A md5 -E UTF8 --locale=C -k -D $pgData | Out-Null
   Remove-Item $pwfile -Force
+  $null = Garantir-TravasPostgres $pgData
+  $bancoNovo = $true
   icacls $pgData /setowner "*S-1-5-20" /T /C /Q | Out-Null
   icacls $pgData /grant "*S-1-5-20:(OI)(CI)F" /T /C /Q | Out-Null
   icacls $pgDir  /grant "*S-1-5-20:(OI)(CI)RX" /T /C /Q | Out-Null
@@ -1061,12 +1143,22 @@ Diga "Registrando servicos do Windows..."; & "$root\edge\instalar-servicos.ps1" 
 # So grava a flag; quem faz o trabalho pesado (2 tempos: push pendente -> pull full
 # da nuvem via /sync/restore, upsert por id) e o sync-daemon no proximo ciclo. Aqui
 # tambem zeramos os cursores para forcar um pull COMPLETO (maquina nova = banco vazio).
-if ($Restaurar) {
-  Diga "Restore assistido: marcando pedido de restauracao (o servidor puxa a nuvem no proximo ciclo)..."
+# Banco criado do ZERO nesta instalacao pede a restauracao SOZINHO (ERR-132): o historico da
+# loja vem num arquivo so, gravado com os vinculos desligados - pagina a pagina pelo sync, os
+# itens chegavam antes dos pedidos e a primeira carga de uma loja grande entrava em laco. Loja
+# nova (sem nada na nuvem) recebe um arquivo vazio: nao custa nada. O mesmo vale para o banco
+# PRESERVADO que nao tem a loja instalada (primeira carga que nunca terminou - a maquina nova da
+# loja piloto em 30/09): reinstalar tem de deixar o servidor com os dados da loja.
+$semALoja = $false
+if (-not $Restaurar -and -not $bancoNovo) { $semALoja = -not (Conferir-DadosDaLoja $node $dbLocal $UnidadeId 0).loja }
+if ($Restaurar -or $bancoNovo -or $semALoja) {
+  if ($Restaurar) { Diga "Restore assistido: marcando pedido de restauracao (o servidor puxa a nuvem no proximo ciclo)..." }
+  elseif ($bancoNovo) { Diga "Banco novo: os dados da loja vem da nuvem pela restauracao por arquivo (primeira carga)..." }
+  else { Diga "Os dados desta loja nao estao no banco local: pedindo a restauracao por arquivo..." }
   $jsRestore = @'
 const { Client } = require('pg');
 (async () => {
-  const c = new Client({ connectionString: process.argv[1] });
+  const c = new Client({ connectionString: process.argv[2] });
   await c.connect();
   await c.query('create table if not exists sync_state (chave text primary key, valor text)');
   const up = (k, v) => c.query(
@@ -1080,8 +1172,7 @@ const { Client } = require('pg');
   await c.end();
 })().catch(e => { console.error(e.message); process.exit(1); });
 '@
-  $restoreFile = Join-Path $env:TEMP ("regem-restore-{0}.js" -f (Get-Random))
-  Set-Content -Path $restoreFile -Value $jsRestore -Encoding ascii
+  $restoreFile = Novo-ScriptNode 'regem-restore' $jsRestore
   try {
     & $node $restoreFile $dbLocal
     if ($LASTEXITCODE -eq 0) { Diga "OK - restauracao solicitada. Acompanhe em /servidor (status da restauracao)." }
@@ -1225,6 +1316,38 @@ try {
     Diga "Backup diario cifrado registrado (RegemEdgeBackup, 03:00, recupera execucao perdida)."
   }
 } catch { Diga "(aviso) nao registrei o backup agendado: $($_.Exception.Message)" }
+
+# Os dados da loja chegaram? So entao a instalacao esta pronta para uso: a tela de entrada do
+# servidor procura a loja e os usuarios no banco local (ERR-132 - em 30/09 o instalador disse
+# "concluida" com o banco vazio e ninguem entrava). Nao chegaram em 5 min: a instalacao fica
+# (servicos no ar, o sync segue tentando), mas o instalador AVISA o motivo e manda para a
+# Telemetria da distribuicao - ninguem precisa abrir log na maquina.
+Diga "Conferindo se os dados da loja chegaram ao servidor local (ate 5 min)..."
+$dados = Conferir-DadosDaLoja $node $dbLocal $UnidadeId 5
+if ($dados.loja -and ($dados.usuarios -gt 0)) {
+  Diga ("Dados da loja recebidos: {0} usuario(s)." -f $dados.usuarios)
+} else {
+  $motivo = if ($dados.erro) { "a sincronizacao com a nuvem esta falhando: $($dados.erro)" } else { 'a primeira sincronizacao ainda nao terminou' }
+  $aviso = "O Regem foi instalado, mas os dados da loja ainda nao chegaram a este servidor ($motivo). A distribuicao do Regem ja foi avisada; o servidor continua tentando sozinho."
+  Diga "AVISO: $aviso"
+  try { Set-Content -Path (Join-Path $logDir 'INSTALOU-AVISO.txt') -Value $aviso -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
+  # Telemetria COM o nome da loja: a rota autenticada pelo token do servidor tira a loja do
+  # token. Sem ela (token recusado, rede), vai pela rota publica da instalacao, sem a loja.
+  $cloudBase = $CloudApi.TrimEnd('/')
+  $fp = $null; try { $fp = FingerprintForte } catch { }
+  $foi = $false
+  try {
+    $corpoAviso = @{ origem = 'update'; nivel = 'error'; tipo = 'install_aviso'; mensagem = $aviso; versao = $appVersion; unidadeId = $UnidadeId; fingerprint = $fp; contexto = @{ modo = $Modo; usuarios = $dados.usuarios } } | ConvertTo-Json -Compress -Depth 4
+    Invoke-RestMethod -Method Post -Uri "$cloudBase/edge/telemetria" -Headers @{ 'x-sync-token' = $SyncToken } -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($corpoAviso)) -TimeoutSec 15 | Out-Null
+    $foi = $true
+  } catch { }
+  if (-not $foi) {
+    try {
+      $corpoPub = @{ tipo = 'install_aviso'; erro = ("Loja {0}: {1}" -f $UnidadeId, $aviso); fingerprint = $fp; modo = $Modo } | ConvertTo-Json -Compress
+      Invoke-RestMethod -Method Post -Uri "$cloudBase/edge/telemetria/erro" -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($corpoPub)) -TimeoutSec 15 | Out-Null
+    } catch { }
+  }
+}
 
 Diga ""
 Diga "==================== CONCLUIDO ===================="
