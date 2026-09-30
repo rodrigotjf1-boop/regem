@@ -1087,6 +1087,34 @@ descrever('API de integração — vendas (GET /pedidos e /clientes/anonimizados
     });
   });
 
+  // ───────────────────────────── cupom da plataforma de pedidos da loja ─────────────────────────────
+
+  it('cupom do Anota AI e do CardápioWeb chega em `cupom`; o "cupom" do marketplace não', async () => {
+    const d = (o: Record<string, unknown>) => [{ origem: 'cupom', valor: 5, quemBanca: 'loja', ...o }];
+    const anota = await pedido(A.tenant, { loja: A.lojas[0], canal: 'anotaai', criado: sp(DIA2, '16:00'), bruto: 45, total: 40, descontos: d({ rotulo: 'SEXTA10' }) });
+    const cw = await pedido(A.tenant, {
+      loja: A.lojas[0],
+      canal: 'cardapio_web',
+      criado: sp(DIA2, '16:05'),
+      bruto: 45,
+      total: 40,
+      descontos: d({ rotulo: 'Cupom de sexta', campanha: 'SEXTA10' }),
+    });
+    const ifood = await pedido(A.tenant, {
+      loja: A.lojas[0],
+      canal: 'ifood',
+      criado: sp(DIA2, '16:10'),
+      bruto: 45,
+      total: 35,
+      descontos: d({ rotulo: 'FD_DESPIT_27D7135', quemBanca: 'marketplace' }),
+    });
+    await carimbar([A.tenant]);
+    const m = ultimas((await lerTudo(tA1)).itens);
+    expect(m.get(anota)).toMatchObject({ canal: 'anotaai', grupo_canal: 'outro', cupom: 'SEXTA10' });
+    expect(m.get(cw)).toMatchObject({ canal: 'cardapio_web', grupo_canal: 'outro', cupom: 'SEXTA10' });
+    expect(m.get(ifood)).toMatchObject({ canal: 'ifood', grupo_canal: 'marketplace', cupom: null });
+  });
+
   describe('robustez: o gatilho nunca derruba a venda', () => {
     it('sem a fila (tabela sumiu), a venda grava assim mesmo — só não ganha versão', async () => {
       await pool.query(`alter table ${SCHEMA}.integracao_mudanca rename to integracao_mudanca_fora`);

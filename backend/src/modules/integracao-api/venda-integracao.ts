@@ -7,7 +7,7 @@ import {
   pedidoVale,
 } from '../../common/faturamento';
 import { ehVendaDoTotem } from '../gogem/aviso-gogem';
-import { canalIntegracao, grupoCanalIntegracao, GrupoCanal } from './canal-integracao';
+import { canalIntegracao, CANAIS_MARKETPLACE_INTEGRACAO, grupoCanalIntegracao, GrupoCanal } from './canal-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -112,6 +112,7 @@ export function sqlVendasDePedidos(ids: string[]): SQL {
            round((${faturamentoPedido('pe')}) * 100)::text as receita,
            round((${descontoLojaProduto('pe')}) * 100)::text as desconto,
            nullif(btrim(pe.cupom), '') as cupom,
+           pe.descontos as descontos_canal,
            pe.cliente_id::text as cliente_id,
            case
              when pe.cliente_id is null then null
@@ -188,6 +189,32 @@ export function formatarQuantidade(v: unknown): string {
   return Math.min(n, 9_999_999_999).toFixed(3).replace(/\.?0+$/, '');
 }
 
+/** Código de cupom como a loja o digita: sem espaço, de 3 a 60 caracteres. O resto não é código. */
+const CODIGO_CUPOM = /^[A-Za-z0-9][A-Za-z0-9._-]{2,59}$/;
+
+/**
+ * O cupom da venda. O do pedido (cardápio do Regem) ou, na PLATAFORMA DE PEDIDOS DA LOJA (Anota AI,
+ * CardápioWeb, delivery direto… — nunca marketplace), o código do desconto de cupom que o canal
+ * mandou (`adapters.ts`): `campanha` (CardápioWeb: `coupon_code`) ou o `rotulo` (Anota AI: a
+ * etiqueta do desconto é o próprio código). Decisão do dono (30/09/2026): o cardápio do Regem é
+ * opcional, e o cupom exclusivo da campanha tem de atribuir o pedido em qualquer plataforma. No
+ * marketplace o "cupom" é promoção da plataforma, não da loja — fica de fora.
+ */
+export function cupomDaVenda(l: { canal?: unknown; cupom?: unknown; descontos_canal?: unknown }): string | null {
+  const proprio = typeof l.cupom === 'string' ? l.cupom.trim().slice(0, 60) : '';
+  if (proprio) return proprio;
+  if (CANAIS_MARKETPLACE_INTEGRACAO.has(canalIntegracao(l.canal))) return null;
+  const descontos: any[] = Array.isArray(l.descontos_canal) ? l.descontos_canal : [];
+  for (const d of descontos) {
+    if (d?.origem !== 'cupom') continue;
+    for (const candidato of [d?.campanha, d?.rotulo]) {
+      const c = typeof candidato === 'string' ? candidato.trim() : '';
+      if (CODIGO_CUPOM.test(c)) return c;
+    }
+  }
+  return null;
+}
+
 /** Centavos inteiros e não negativos (o contrato não aceita negativo). */
 function centavos(v: unknown, aviso: (m: string) => void, onde: string): number {
   const n = Math.round(Number(v));
@@ -220,7 +247,7 @@ export function montarFoto(l: any, situacao: Situacao, aviso: (m: string) => voi
     grupo: grupoCanalIntegracao(canal, fonte),
     receita: centavos(l.receita, aviso, `venda ${l.id}`),
     desconto: fonte === 'comanda' ? 0 : centavos(l.desconto, aviso, `desconto da venda ${l.id}`),
-    cupom: fonte === 'comanda' || !l.cupom ? null : String(l.cupom).trim().slice(0, 60) || null,
+    cupom: fonte === 'comanda' ? null : cupomDaVenda(l),
     cliente:
       fonte === 'pedido_externo' && l.cliente_id
         ? { id: String(l.cliente_id), novo: l.cliente_novo === null || l.cliente_novo === undefined ? null : !!l.cliente_novo }
