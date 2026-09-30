@@ -921,9 +921,15 @@ async function aplicarExclusoes(novas, exec = pool) {
 // Envia UM request de push (assina + POST). Isolado p/ o push mandar em páginas
 // menores (evita 413 "request entity too large" quando há muita linha acumulada).
 async function enviarLote(lote) {
+  return enviarLotes([lote]);
+}
+
+// O mesmo request com a lista pronta — vazia, ele só prova que a nuvem aceita a credencial
+// (`conferirCredencial`).
+async function enviarLotes(lotes) {
   // Normaliza via JSON round-trip ANTES de assinar E enviar: assim a nuvem (que
   // recebe o JSON já parseado) assina exatamente a mesma representação (Date→ISO etc.).
-  const lotesN = JSON.parse(JSON.stringify([lote]));
+  const lotesN = JSON.parse(JSON.stringify(lotes));
   const seq = (Number(await getState('push_seq', '0')) || 0) + 1;
   const ts = new Date().toISOString();
   const sig = assinarSync(TOKEN, seq, ts, lotesN);
@@ -955,8 +961,30 @@ function parseCursorPush(s) {
   return { ts: str.slice(0, i), id: str.slice(i + 1) || '00000000-0000-0000-0000-000000000000' };
 }
 
-// Reenvia um lote REJEITADO (4xx definitivo) linha a linha, isolando a "veneno": as boas sobem;
-// a que ainda falhar 4xx é logada (DEAD-LETTER) e pulada; 5xx/rede no meio → para (o cursor já
+// A nuvem recusou por causa do CONTEÚDO do lote (4xx) — e só aí vale isolar linha a linha. Fora
+// disso o envio PARA: 5xx/rede/429/408 são passageiros (o lote volta no próximo ciclo), e o 401 é
+// recusa da REQUISIÇÃO inteira — credencial trocada ou revogada (o servidor da loja foi para outra
+// máquina), assinatura, relógio. Tratado como "linha veneno", o 401 voltava em cada linha, uma
+// requisição por linha do banco inteiro, e o cursor AVANÇAVA sem nada ter subido: o
+// --descarregar do instalador levou 14 min assim na loja, em 29/09 (ERR-123).
+function recusaDoConteudo(e) {
+  const st = e?.status;
+  return typeof st === 'number' && st >= 400 && st < 500 && st !== 401 && st !== 408 && st !== 429;
+}
+
+// A frase da nuvem ("Token de sync inválido.") no lugar do JSON cru do erro do push.
+function motivoDaNuvem(e) {
+  const bruto = String(e?.message ?? '').replace(/^push HTTP \d+:\s*/, '');
+  try {
+    const j = JSON.parse(bruto);
+    const m = Array.isArray(j?.message) ? j.message.join('; ') : j?.message;
+    if (m) return `HTTP ${e?.status}: ${m}`;
+  } catch { /* não era JSON */ }
+  return `HTTP ${e?.status}: ${bruto.slice(0, 160)}`;
+}
+
+// Reenvia um lote REJEITADO (4xx do conteúdo) linha a linha, isolando a "veneno": as boas sobem;
+// a que ainda falhar 4xx é logada (DEAD-LETTER) e pulada; 5xx/rede/401 no meio → para (o cursor já
 // persistido reflete o progresso, retoma no próximo ciclo). Persiste o cursor por linha PROCESSADA.
 let deadLetters = 0; // linhas puladas por 4xx (o --descarregar não pode apagar o banco com isso)
 async function enviarLinhaALinha(t, linhas, enviadas, chave, cursorDe) {
@@ -966,8 +994,7 @@ async function enviarLinhaALinha(t, linhas, enviadas, chave, cursorDe) {
       await enviarLote({ tabela: t.tabela, linhas: [enviadas[i]] });
     } catch (e) {
       const st = e?.status;
-      const definitivo = typeof st === 'number' && st >= 400 && st < 500 && st !== 429 && st !== 408;
-      if (!definitivo) throw e; // transitório → para; retoma no próximo ciclo sem perder posição
+      if (!recusaDoConteudo(e)) throw e; // para; retoma no próximo ciclo sem perder posição
       deadLetters++;
       console.error(
         `[push dead-letter] ${t.tabela} id=${linha.id} cursor=${cursorDe(linha)} — PULADA (HTTP ${st}): ${String(e?.message ?? '').slice(0, 160)}`,
@@ -1063,9 +1090,10 @@ async function push(limiteMs = null) {
         await setState(chave, cur);
       } catch (e) {
         const st = e?.status;
-        const definitivo = typeof st === 'number' && st >= 400 && st < 500 && st !== 429 && st !== 408;
-        if (!definitivo) throw e; // transitório (5xx/rede/429): re-tenta o LOTE no próximo ciclo (como hoje)
-        // DEFINITIVO (4xx): o lote tem uma linha "veneno" que travava a tabela + as posteriores.
+        // 5xx/rede/429 (passageiro) ou 401 (credencial/requisição recusada): para e re-tenta o LOTE
+        // no próximo ciclo, sem mexer no cursor (ERR-123).
+        if (!recusaDoConteudo(e)) throw e;
+        // DEFINITIVO (4xx do conteúdo): o lote tem uma linha "veneno" que travava a tabela + as posteriores.
         // Isola linha a linha (as boas sobem; a veneno vira dead-letter e é pulada) — não bloqueia
         // o resto do sync (vendas de outras tabelas continuam subindo).
         console.warn(`  push: lote de ${t.tabela} rejeitado (HTTP ${st}) — reenviando linha a linha p/ isolar a veneno`);
@@ -1913,8 +1941,10 @@ process.on('uncaughtException', (e) => console.error(`[uncaughtException] ${e?.m
 
 // --descarregar (usado pelo INSTALADOR antes de apagar o banco local numa reinstalação
 // limpa): sobe para a nuvem TUDO o que ainda não subiu e sai. Código de saída 0 = tudo na
-// nuvem; 1 = falha de rede/nuvem; 2 = alguma linha foi recusada (dead-letter). Qualquer
-// coisa diferente de 0 → o instalador NÃO apaga o banco.
+// nuvem; 1 = falha de rede/nuvem, ou envio suspenso pelo relógio; 2 = alguma linha foi
+// recusada (dead-letter); 3 = há dado que não vai para a nuvem; 4 = a nuvem recusou ESTE
+// servidor (401: credencial trocada/revogada, relógio). Qualquer coisa diferente de 0 → o
+// instalador NÃO apaga o banco.
 //
 // Por quê: o .exe reinstala limpo e os dados voltam da nuvem — premissa que só vale se tudo
 // que nasceu na loja já subiu. Tabelas que entraram na lista de push depois da versão
@@ -1923,6 +1953,15 @@ if (process.argv.includes('--descarregar')) {
   let codigo = 0;
   try {
     await ensureState();
+    // Relógio fora: o push fica SUSPENSO e devolve 0 linha — sair 0 daqui apagaria o banco com
+    // tudo ainda nele.
+    if (!(await relogioConfiavel())) {
+      throw new Error('envio suspenso pelo relógio deste computador — nada foi enviado');
+    }
+    // A credencial antes de tudo (ERR-123). Um banco sem nada novo a enviar não faz requisição
+    // nenhuma: sem esta conferência, o servidor com a credencial recusada (loja movida para
+    // outra máquina) saía 0 e o banco era apagado com o que nunca chegou à nuvem.
+    await enviarLotes([]);
     const n = await push(Number.POSITIVE_INFINITY);
     if (deadLetters) {
       console.error(`descarregar: ${n} linha(s) enviadas, mas ${deadLetters} recusada(s) pela nuvem — NÃO apagar o banco.`);
@@ -1944,8 +1983,16 @@ if (process.argv.includes('--descarregar')) {
       }
     }
   } catch (e) {
-    console.error(`descarregar FALHOU: ${causaErro(e)}`);
-    codigo = 1;
+    if (e?.status === 401) {
+      console.error(
+        `descarregar: a nuvem RECUSOU este servidor (${motivoDaNuvem(e)}) — a loja pode ter ido para outra máquina, ` +
+          'ou o relógio está errado. Nada foi enviado; NÃO apagar o banco.',
+      );
+      codigo = 4;
+    } else {
+      console.error(`descarregar FALHOU: ${causaErro(e)}`);
+      codigo = 1;
+    }
   }
   try { await pool.end(); } catch { /* ignore */ }
   process.exit(codigo);

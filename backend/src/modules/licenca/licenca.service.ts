@@ -42,6 +42,26 @@ const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 // Trial completo = todos os módulos ativáveis (o cadastro dá 3 meses do completo).
 const TRIAL_MODULOS = ['kds', 'ponto', 'app_colaborador', 'cashback', 'fidelidade', 'integracoes', 'bot'];
 
+// Código da trava conferido no assistente do instalador: vale este tempo para o fim da
+// instalação fazer o move sem pedir o código de novo. Cobre o envio dos dados antigos da
+// máquina (até 30 min), o banco e as migrations com folga (ERR-124).
+export const JANELA_CODIGO_CONFERIDO_MS = 2 * 60 * 60 * 1000;
+
+type DadosInstalacao = { email?: string; senha?: string; fingerprint?: string; unidadeId?: string };
+
+type AvaliacaoInstalacao = {
+  // Empresa com mais de uma loja e nenhuma escolhida: nada além do login foi avaliado.
+  escolherLoja: boolean;
+  u: { id: string; tenantId: string; categoria: string | null };
+  tenantId: string;
+  fingerprint: string;
+  unidades: { id: string; nome: string; tipo: string | null }[];
+  unidadeId: string | null;
+  aExiste: { id: string; ativadoEm: Date | null; deviceFingerprint: string | null } | null;
+  // A trava (F3) exige o 2º fator: a loja já tem servidor em OUTRA máquina.
+  reauth: { metodos: string[]; metodoPreferido: string } | null;
+};
+
 @Injectable()
 export class LicencaService {
   private readonly logger = new Logger(LicencaService.name);
@@ -346,10 +366,11 @@ export class LicencaService {
     return code === '42703' || /column .* does not exist/i.test(msg);
   }
 
-  // Auto-instalação SELF-SERVICE (G-4): o instalador manda a conta C&O + o
-  // fingerprint do aparelho; a nuvem confere trial + anti-clonagem e devolve o
-  // token de sync (cria/reusa o equipamento servidor_local) e o lease. Sem humano.
-  async instalarSelfService(dto: { email?: string; senha?: string; fingerprint?: string; unidadeId?: string }) {
+  // O que a instalação DESTA máquina vai encontrar na nuvem: login, loja, licença, conta ativa,
+  // anti-clone e a trava de outra máquina — SEM efeito nenhum. Uma avaliação só para as duas
+  // rotas: o assistente do instalador pergunta isto ANTES de copiar os arquivos (ERR-124), e a
+  // resposta dele não pode divergir do que o /provisionamento/instalar vai decidir no fim.
+  private async avaliarInstalacao(dto: DadosInstalacao): Promise<AvaliacaoInstalacao> {
     const email = String(dto.email ?? '').trim();
     const fingerprint = String(dto.fingerprint ?? '').trim();
     if (!email || !dto.senha || !fingerprint) {
@@ -385,20 +406,14 @@ export class LicencaService {
       .from(unidade)
       .where(and(eq(unidade.tenantId, tenantId), isNull(unidade.deletedAt)))
       .orderBy(sql`(tipo = 'matriz') desc`, unidade.createdAt);
-    let unidadeId = dto.unidadeId ?? null;
+    let unidadeId = String(dto.unidadeId ?? '').trim() || null;
     if (unidadeId && !unidades.some((x) => x.id === unidadeId)) {
       throw new BadRequestException('Esta unidade não pertence à sua empresa.');
     }
-    if (!unidadeId) {
-      if (unidades.length > 1) {
-        throw new BadRequestException({
-          message: 'Escolha em qual unidade este servidor está sendo instalado.',
-          escolhaUnidade: true,
-          unidades,
-        });
-      }
-      unidadeId = unidades[0]?.id ?? null; // uma só: nem pergunta
+    if (!unidadeId && unidades.length > 1) {
+      return { escolherLoja: true, u, tenantId, fingerprint, unidades, unidadeId: null, aExiste: null, reauth: null };
     }
+    if (!unidadeId) unidadeId = unidades[0]?.id ?? null; // uma só: nem pergunta
 
     // Falha CEDO (antes de criar equipamento/ativação) se a nuvem não tem as
     // chaves de licença — senão a assinatura do lease estoura um 500 opaco. A
@@ -452,6 +467,7 @@ export class LicencaService {
     // 220 (autodeploy imediato x migration manual), trata a trava como DESLIGADA (default
     // seguro — nenhuma loja pôde ligá-la ainda) em vez de 500 na instalação; loga p/ a
     // telemetria cobrar a 220. Aplicada a 220, a trava passa a valer sem tocar no código.
+    let reauth: AvaliacaoInstalacao['reauth'] = null;
     if (aExiste) {
       try {
         const [rah] = await this.db
@@ -465,18 +481,12 @@ export class LicencaService {
           .where(eq(ativacao.id, aExiste.id))
           .limit(1);
         if (precisaReautorizar(rah, fingerprint)) {
-          const metodos = ['email', ...(rah!.reauthTotpSecret ? ['totp'] : [])];
-          throw new ForbiddenException({
-            message:
-              'Esta loja já tem um servidor local em outra máquina. Confirme a mudança com ' +
-              'o código (e-mail ou app autenticador) para movê-lo para cá.',
-            reauthRequired: true,
-            metodos,
+          reauth = {
+            metodos: ['email', ...(rah!.reauthTotpSecret ? ['totp'] : [])],
             metodoPreferido: rah!.reauthMetodo ?? 'email',
-          });
+          };
         }
       } catch (e) {
-        if (e instanceof ForbiddenException) throw e; // a trava disparou de verdade
         if (!this.ehColunaAusente(e)) throw e;
         this.logger.error(
           'Trava de instalação indisponível: migration 220 ausente na nuvem (ativacao.reauth_* não existe). ' +
@@ -484,6 +494,34 @@ export class LicencaService {
         );
       }
     }
+    return { escolherLoja: false, u, tenantId, fingerprint, unidades, unidadeId, aExiste: aExiste ?? null, reauth };
+  }
+
+  // Auto-instalação SELF-SERVICE (G-4): o instalador manda a conta C&O + o
+  // fingerprint do aparelho; a nuvem confere trial + anti-clonagem e devolve o
+  // token de sync (cria/reusa o equipamento servidor_local) e o lease. Sem humano.
+  async instalarSelfService(dto: DadosInstalacao) {
+    const av = await this.avaliarInstalacao(dto);
+    if (av.escolherLoja) {
+      throw new BadRequestException({
+        message: 'Escolha em qual unidade este servidor está sendo instalado.',
+        escolhaUnidade: true,
+        unidades: av.unidades,
+      });
+    }
+    // A trava disparou: outra máquina é a autorizada, e ela NÃO é tocada aqui — o move
+    // legítimo se resolve em /reautorizar/* com o 2º fator.
+    if (av.reauth) {
+      throw new ForbiddenException({
+        message:
+          'Esta loja já tem um servidor local em outra máquina. Confirme a mudança com ' +
+          'o código (e-mail ou app autenticador) para movê-lo para cá.',
+        reauthRequired: true,
+        metodos: av.reauth.metodos,
+        metodoPreferido: av.reauth.metodoPreferido,
+      });
+    }
+    const { u, tenantId, fingerprint, unidadeId, aExiste } = av;
 
     // 4) Equipamento servidor_local: o DESTA instalação (`escolherServidorDaLoja` — nunca a
     // credencial do GoGeM, nunca "o primeiro" sem ordem: ERR-108), ou um novo.
@@ -627,18 +665,10 @@ export class LicencaService {
     return { metodo, destino: metodo === 'email' ? this.mascararEmail(email) : 'app autenticador' };
   }
 
-  // Etapa 2: valida o código (e-mail ou TOTP) e MOVE — rotaciona o token (a máquina antiga
-  // cai em 401 na hora, porque o SyncTokenGuard olha o TOKEN, não o fingerprint) + rebinda
-  // o fingerprint da nova + reativa. Devolve o novo syncToken (o instalador segue com ele).
-  async reautorizarConfirmar(dto: { email?: string; senha?: string; fingerprint?: string; codigo?: string }) {
-    const email = String(dto.email ?? '').trim();
-    const fingerprint = String(dto.fingerprint ?? '').trim();
-    const codigo = String(dto.codigo ?? '').trim();
-    if (!email || !dto.senha || !fingerprint || !codigo) {
-      throw new BadRequestException('E-mail, senha, device e código são obrigatórios.');
-    }
-    const u = await this.autenticarCO(email, dto.senha);
-    const tenantId = u.tenantId;
+  // Confere o código do pedido PENDENTE mais recente desta máquina — e-mail: hash + validade de
+  // 10 min; app autenticador: TOTP. Errar conta tentativa; a 5ª encerra o pedido. Devolve o
+  // pedido conferido (quem chama decide: marcar como conferido ou mover).
+  private async conferirCodigoDoPedido(tenantId: string, fingerprint: string, codigo: string) {
     const [pend] = await this.db
       .select()
       .from(reautorizacaoEdge)
@@ -651,10 +681,12 @@ export class LicencaService {
       )
       .orderBy(desc(reautorizacaoEdge.criadoEm))
       .limit(1);
-    if (!pend) throw new BadRequestException('Nenhum pedido de re-autorização pendente. Reinicie a instalação.');
+    if (!pend || pend.status !== 'pendente') {
+      throw new BadRequestException('Nenhum código pedido para este computador. Peça um novo código.');
+    }
     if (pend.tentativas >= 5) {
       await this.db.update(reautorizacaoEdge).set({ status: 'expirada' }).where(eq(reautorizacaoEdge.id, pend.id));
-      throw new ForbiddenException('Muitas tentativas. Solicite um novo código.');
+      throw new ForbiddenException('Muitas tentativas com código errado. Peça um novo código.');
     }
     const [a] = await this.db.select().from(ativacao).where(eq(ativacao.tenantId, tenantId)).limit(1);
     let ok = false;
@@ -662,7 +694,7 @@ export class LicencaService {
       ok = verificarTotp(a.reauthTotpSecret, codigo);
     } else {
       if (pend.expiraEm && new Date(pend.expiraEm) < new Date()) {
-        throw new BadRequestException('Código expirado. Solicite um novo.');
+        throw new BadRequestException('Código expirado (vale 10 minutos). Peça um novo código.');
       }
       ok = !!pend.codigoHash && pend.codigoHash === hashCodigoReauth(codigo);
     }
@@ -671,8 +703,109 @@ export class LicencaService {
         .update(reautorizacaoEdge)
         .set({ tentativas: pend.tentativas + 1 })
         .where(eq(reautorizacaoEdge.id, pend.id));
-      throw new UnauthorizedException('Código inválido.');
+      throw new UnauthorizedException('Código inválido. Use o código do e-mail mais recente.');
     }
+    return pend;
+  }
+
+  // O pedido desta máquina com o código já conferido e dentro da janela — ou nada. Status e
+  // validade conferidos também AQUI, não só no filtro da consulta.
+  private async pedidoConferido(tenantId: string, fingerprint: string) {
+    const [p] = await this.db
+      .select()
+      .from(reautorizacaoEdge)
+      .where(
+        and(
+          eq(reautorizacaoEdge.tenantId, tenantId),
+          eq(reautorizacaoEdge.fingerprintNovo, fingerprint),
+          eq(reautorizacaoEdge.status, 'verificada'),
+        ),
+      )
+      .orderBy(desc(reautorizacaoEdge.criadoEm))
+      .limit(1);
+    if (!p || p.status !== 'verificada' || !p.expiraEm || new Date(p.expiraEm) <= new Date()) return null;
+    return p;
+  }
+
+  // ===== ASSISTENTE DO INSTALADOR (ERR-124) =====
+  // O código da trava era pedido só no fim do script — depois de copiar os arquivos, subir os
+  // dados antigos da máquina e preparar o banco (14 min na loja, em 29/09) —, e o código de 10
+  // minutos vencia com o dono longe da tela. Agora o assistente resolve tudo ANTES de copiar:
+  //   /provisionamento/verificar             o que esta máquina vai encontrar, sem efeito;
+  //   /provisionamento/reautorizar/verificar confere o código SEM mover: o pedido fica conferido
+  //                                          por JANELA_CODIGO_CONFERIDO_MS e a máquina antiga
+  //                                          segue funcionando até a nova ficar pronta;
+  //   /provisionamento/reautorizar/confirmar sem código, no fim da instalação, faz o move com o
+  //                                          pedido conferido.
+
+  // Resposta curta e plana — quem lê é o Pascal do instalador (`edge/assistente-nuvem.iss`), que
+  // percorre cada loja com as chaves NESTA ordem: id, nome, matriz.
+  async verificarInstalacao(dto: DadosInstalacao) {
+    const av = await this.avaliarInstalacao(dto);
+    if (av.escolherLoja) {
+      return {
+        situacao: 'escolher_loja',
+        unidades: av.unidades.map((x) => ({ id: x.id, nome: x.nome, matriz: x.tipo === 'matriz' })),
+      };
+    }
+    if (av.reauth) {
+      return {
+        situacao: 'codigo',
+        metodoPreferido: av.reauth.metodoPreferido,
+        temTotp: av.reauth.metodos.includes('totp'),
+        jaConferido: !!(await this.pedidoConferido(av.tenantId, av.fingerprint)),
+      };
+    }
+    return { situacao: 'pronto' };
+  }
+
+  // Confere o código e NÃO move: marca o pedido como conferido pela janela. O move (que derruba
+  // a máquina antiga) fica para o fim da instalação, quando esta máquina já está pronta.
+  async reautorizarVerificar(dto: { email?: string; senha?: string; fingerprint?: string; codigo?: string }) {
+    const email = String(dto.email ?? '').trim();
+    const fingerprint = String(dto.fingerprint ?? '').trim();
+    const codigo = String(dto.codigo ?? '').trim();
+    if (!email || !dto.senha || !fingerprint || !codigo) {
+      throw new BadRequestException('E-mail, senha, device e código são obrigatórios.');
+    }
+    const u = await this.autenticarCO(email, dto.senha);
+    const pend = await this.conferirCodigoDoPedido(u.tenantId, fingerprint, codigo);
+    const validoAte = new Date(Date.now() + JANELA_CODIGO_CONFERIDO_MS);
+    await this.db
+      .update(reautorizacaoEdge)
+      .set({ status: 'verificada', expiraEm: validoAte })
+      .where(eq(reautorizacaoEdge.id, pend.id));
+    this.logger.warn(
+      `Re-auth CONFERIDA (sem mover): loja ${u.tenantId}, máquina nova ${fingerprint.slice(0, 12)}…, vale até ${validoAte.toISOString()}`,
+    );
+    return { ok: true, validoAte: validoAte.toISOString() };
+  }
+
+  // Etapa 2: valida o código (e-mail ou TOTP) — ou usa o pedido que o assistente já conferiu — e
+  // MOVE: rotaciona o token (a máquina antiga cai em 401 na hora, porque o SyncTokenGuard olha o
+  // TOKEN, não o fingerprint) + rebinda o fingerprint da nova + reativa. Devolve o novo syncToken
+  // (o instalador segue com ele). Com código é o fluxo dos instaladores antigos, que segue igual.
+  async reautorizarConfirmar(dto: { email?: string; senha?: string; fingerprint?: string; codigo?: string }) {
+    const email = String(dto.email ?? '').trim();
+    const fingerprint = String(dto.fingerprint ?? '').trim();
+    const codigo = String(dto.codigo ?? '').trim();
+    if (!email || !dto.senha || !fingerprint) {
+      throw new BadRequestException('E-mail, senha e device são obrigatórios.');
+    }
+    const u = await this.autenticarCO(email, dto.senha);
+    const tenantId = u.tenantId;
+    let pend: typeof reautorizacaoEdge.$inferSelect | null;
+    if (codigo) {
+      pend = await this.conferirCodigoDoPedido(tenantId, fingerprint, codigo);
+    } else {
+      pend = await this.pedidoConferido(tenantId, fingerprint);
+      if (!pend) {
+        throw new BadRequestException(
+          'Nenhum código conferido para este computador nas últimas 2 horas. Peça um novo código.',
+        );
+      }
+    }
+    const [a] = await this.db.select().from(ativacao).where(eq(ativacao.tenantId, tenantId)).limit(1);
     // APROVADO → MOVE. Rotaciona o token (mata a antiga em 401) ANTES de rebindar.
     // ⚠️ Rotaciona UM ÚNICO servidor_local (por id). Um UPDATE em massa (por tenant+tipo)
     // poria o MESMO token novo em 2+ linhas se a loja tiver servidor_local DUPLICADO (de

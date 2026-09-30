@@ -138,7 +138,8 @@ export function TravaModal({ ativacao, onClose, onChange }: { ativacao: any; onC
             <ul className="mt-1 space-y-1">
               {moves.map((m) => (
                 <li key={m.id} className="flex flex-wrap items-center gap-2 rounded border border-border/60 px-2 py-1 text-xs">
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${m.status === 'aprovada' ? 'bg-ok/15 text-ok' : m.status === 'pendente' ? 'bg-warn/15 text-warn' : 'bg-secondary text-muted-foreground'}`}>{m.status}</span>
+                  {/* verificada = código conferido no assistente do instalador; o move vem no fim da instalação */}
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${m.status === 'aprovada' ? 'bg-ok/15 text-ok' : m.status === 'pendente' || m.status === 'verificada' ? 'bg-warn/15 text-warn' : 'bg-secondary text-muted-foreground'}`}>{m.status === 'verificada' ? 'código conferido' : m.status}</span>
                   <span className="text-muted-foreground">{m.metodo}</span>
                   <span className="font-mono text-muted-foreground">{(m.fingerprintNovo ?? '').slice(0, 12)}…</span>
                   <span className="ml-auto text-muted-foreground">{dh(m.criadoEm)}</span>

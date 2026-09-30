@@ -113,7 +113,7 @@ trap {
   try { Set-Content -Path (Join-Path $logDir 'ULTIMO-ERRO.txt') -Value $errMsg -Encoding UTF8 -ErrorAction SilentlyContinue } catch { }
   try {
     $wsh = New-Object -ComObject WScript.Shell
-    $wsh.Popup(("Nao foi possivel concluir a instalacao do Regem Edge:`n`n{0}`n`nNada foi instalado. Corrija e rode o instalador de novo." -f $errMsg), 0, 'Regem Edge - instalacao', 0x10) | Out-Null
+    $wsh.Popup(("Nao foi possivel concluir a instalacao do Regem Edge:`n`n{0}`n`nA instalacao parou antes de terminar. Corrija e rode o instalador de novo." -f $errMsg), 0, 'Regem Edge - instalacao', 0x10) | Out-Null
   } catch { }
   try {
     $tail = ''
@@ -197,6 +197,58 @@ function FingerprintForte {
   return $env:COMPUTERNAME
 }
 
+# A frase da nuvem ("Codigo expirado...") no lugar de "(400) Solicitacao Incorreta". O corpo da
+# resposta de erro (JSON do Nest: message, error, statusCode) vem em ErrorDetails.Message; antes o
+# instalador mostrava so a mensagem da excecao e a causa se perdia (ERR-124). Recebe o
+# ErrorRecord ($_) de um Invoke-RestMethod que falhou.
+function Resposta-DaNuvem($erro) {
+  $status = $null
+  try { $status = [int]$erro.Exception.Response.StatusCode } catch { }
+  $corpo = $null
+  try { $corpo = $erro.ErrorDetails.Message } catch { }
+  if (-not $corpo) {
+    try {
+      $sr = New-Object System.IO.StreamReader($erro.Exception.Response.GetResponseStream())
+      $corpo = $sr.ReadToEnd()
+    } catch { }
+  }
+  $json = $null
+  if ($corpo) { try { $json = $corpo | ConvertFrom-Json } catch { } }
+  $msg = $null
+  if ($json -and $json.message) { $msg = (@($json.message) -join '; ') }
+  if (-not $msg) { $msg = "$($erro.Exception.Message)" }
+  return [pscustomobject]@{ Status = $status; Mensagem = $msg; Json = $json }
+}
+
+# As ultimas linhas nao vazias de um log, numa linha so (para a mensagem na tela).
+function Ultimas-Linhas($arquivo, $n) {
+  try {
+    $l = @(Get-Content $arquivo -ErrorAction Stop | Where-Object { $_.Trim() } | Select-Object -Last $n)
+    return ($l -join ' | ')
+  } catch { return '' }
+}
+
+# Roda o sync-daemon --descarregar e devolve o CODIGO DE SAIDA (0 tudo na nuvem, 1 falha, 2 linha
+# recusada, 3 dado que nao sobe, 4 a nuvem recusou este servidor). O `$null = $proc.Handle` logo
+# depois de iniciar e o que faz o ExitCode existir: no Windows PowerShell 5.1, sem ele o ExitCode
+# de um Start-Process -PassThru vem VAZIO depois do WaitForExit(ms) - o instalador nunca
+# reconheceu o resultado desta etapa e toda reinstalacao seguia "preservando o banco" sem saber
+# por que (ERR-122, LIC-142). Devolve $null se mesmo assim o codigo nao vier.
+function Rodar-Descarregar($nodeExe, $daemon, $pasta, $saida, $erros, $prazoMs) {
+  $proc = Start-Process -FilePath $nodeExe -ArgumentList @("`"$daemon`"", '--descarregar') `
+    -WorkingDirectory $pasta -PassThru -NoNewWindow `
+    -RedirectStandardOutput $saida -RedirectStandardError $erros
+  # Sem o Handle o codigo nao vem - e codigo que nao vem ja e tratado como "nao deu para saber"
+  # (preserva o banco); por isso uma falha aqui nao derruba a instalacao.
+  try { $null = $proc.Handle } catch { }
+  if (-not $proc.WaitForExit($prazoMs)) {
+    try { $proc.Kill() } catch {}
+    throw ("tempo esgotado ({0} min)" -f [int]($prazoMs / 60000))
+  }
+  $proc.WaitForExit()  # garante o fim das saidas redirecionadas antes de ler o codigo
+  return $proc.ExitCode
+}
+
 # F3a-2 — a loja JA tem servidor local em OUTRA maquina e a trava (reauth_ativo) esta
 # ligada: o /instalar respondeu 403 reauthRequired. Move o edge p/ ESTA maquina com 2o
 # fator (codigo por e-mail da conta OU app autenticador/TOTP). So o C&O, COM o codigo,
@@ -207,6 +259,24 @@ function Reautorizar-Edge {
   $api = $CloudApi.TrimEnd('/')
   Diga ""
   Diga "*** ESTA LOJA JA TEM UM SERVIDOR EDGE EM OUTRA MAQUINA ***"
+  # 1) O assistente do instalador (regem-edge.iss) ja conferiu o codigo ANTES de copiar os
+  #    arquivos: o move sai daqui sem pedir o codigo de novo (ERR-124). Sem codigo conferido
+  #    (nuvem ou assistente antigos, janela de 2 h vencida), a nuvem responde 400 e o codigo
+  #    e pedido aqui, como antes.
+  $semCodigo = @{ email = $Payload.email; senha = $Payload.senha; fingerprint = $Payload.fingerprint }
+  $resp = $null
+  try {
+    $resp = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/reautorizar/confirmar" -f $api) `
+      -ContentType "application/json" -Body ($semCodigo | ConvertTo-Json -Compress) -TimeoutSec 40
+  } catch {
+    $r = Resposta-DaNuvem $_
+    Diga ("Nenhum codigo conferido no assistente ({0})" -f $r.Mensagem)
+  }
+  if ($resp -and $resp.syncToken) {
+    Diga "Codigo de seguranca ja conferido no assistente: movendo a instalacao para este computador."
+    return $resp
+  }
+
   Diga "Para mover a instalacao para ESTE computador, confirme com um codigo de seguranca."
   $metodos = @($Info.metodos)
   $metodo = if ($Info.metodoPreferido) { $Info.metodoPreferido } else { 'email' }
@@ -214,35 +284,50 @@ function Reautorizar-Edge {
     $op = Read-Host "Receber o codigo por [1] e-mail da conta ou [2] app autenticador? (1/2)"
     if ($op -eq '2') { $metodo = 'totp' } else { $metodo = 'email' }
   }
-  $solBody = @{ email = $Payload.email; senha = $Payload.senha; fingerprint = $Payload.fingerprint; metodo = $metodo }
-  try {
-    $sol = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/reautorizar/solicitar" -f $api) `
-      -ContentType "application/json" -Body ($solBody | ConvertTo-Json -Compress) -TimeoutSec 40
-  } catch {
-    throw "Nao consegui iniciar a re-autorizacao: $($_.Exception.Message)"
-  }
-  if ($sol.metodo -eq 'totp') {
-    Diga "Abra o app autenticador (Google Authenticator/Authy) da conta e pegue o codigo de 6 digitos."
-  } else {
-    Diga ("Enviei um codigo de 6 digitos para o e-mail da conta ({0})." -f $sol.destino)
-    Diga "Se NAO foi voce que pediu isto, IGNORE — ninguem move o edge sem o codigo."
-  }
-  $resp = $null
-  for ($tent = 1; $tent -le 3; $tent++) {
+  $pedidos = 0
+  $pedir = $true
+  for ($volta = 1; $volta -le 20; $volta++) {
+    if ($pedir) {
+      $pedidos++
+      $solBody = @{ email = $Payload.email; senha = $Payload.senha; fingerprint = $Payload.fingerprint; metodo = $metodo }
+      try {
+        $sol = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/reautorizar/solicitar" -f $api) `
+          -ContentType "application/json" -Body ($solBody | ConvertTo-Json -Compress) -TimeoutSec 40
+      } catch {
+        $r = Resposta-DaNuvem $_
+        throw ("Nao consegui pedir o codigo de seguranca: {0}" -f $r.Mensagem)
+      }
+      if ($sol.metodo -eq 'totp') {
+        Diga "Abra o app autenticador (Google Authenticator/Authy) da conta e pegue o codigo de 6 digitos."
+      } else {
+        Diga ("Enviei um codigo de 6 digitos para o e-mail da conta ({0}). Ele vale 10 minutos." -f $sol.destino)
+        Diga "Se NAO foi voce que pediu isto, IGNORE - ninguem move o edge sem o codigo."
+      }
+      $pedir = $false
+    }
     $codigo = (Read-Host "Digite o codigo de 6 digitos").Trim()
     $confBody = @{ email = $Payload.email; senha = $Payload.senha; fingerprint = $Payload.fingerprint; codigo = $codigo }
+    $resp = $null
+    $r = $null
     try {
       $resp = Invoke-RestMethod -Method Post -Uri ("{0}/provisionamento/reautorizar/confirmar" -f $api) `
         -ContentType "application/json" -Body ($confBody | ConvertTo-Json -Compress) -TimeoutSec 40
-      break
     } catch {
-      $c = $null; try { $c = [int]$_.Exception.Response.StatusCode } catch {}
-      if ($c -eq 401 -and $tent -lt 3) { Diga "Codigo invalido. Tente de novo." ; continue }
-      throw "Re-autorizacao falhou: $($_.Exception.Message)"
+      $r = Resposta-DaNuvem $_
     }
+    if ($resp -and $resp.syncToken) { return $resp }
+    if (-not $r) { throw "Re-autorizacao nao concluida (a nuvem nao devolveu o token)." }
+    # Codigo errado: a nuvem conta as tentativas (5 por codigo) - digita de novo.
+    if ($r.Status -eq 401) { Diga ("{0} Tente de novo." -f $r.Mensagem); continue }
+    # Codigo vencido (400) ou tentativas demais (403): oferece um codigo novo em vez de abortar.
+    if (($r.Status -eq 400 -or $r.Status -eq 403) -and $pedidos -lt 4) {
+      Diga $r.Mensagem
+      $op = Read-Host "Enviar um codigo novo? (S/N)"
+      if ($op -match '^\s*[sS]') { $pedir = $true; continue }
+    }
+    throw ("Re-autorizacao falhou: {0}" -f $r.Mensagem)
   }
-  if (-not $resp -or -not $resp.syncToken) { throw "Re-autorizacao nao concluida (sem token)." }
-  return $resp
+  throw "Re-autorizacao nao concluida: tentativas demais. Rode o instalador de novo."
 }
 
 # Assinatura de codigo (rota interna): confia a CA de ASSINATURA do Regem em Root +
@@ -344,12 +429,12 @@ if ($reinstalacao) {
       $daemon = Join-Path $root 'edge\sync-daemon.mjs'
       $saida = Join-Path $logDir 'descarregar.out.log'
       $erros = Join-Path $logDir 'descarregar.err.log'
-      $proc = Start-Process -FilePath $nodeExe -ArgumentList @("`"$daemon`"", '--descarregar') `
-        -WorkingDirectory $root -PassThru -NoNewWindow `
-        -RedirectStandardOutput $saida -RedirectStandardError $erros
-      if (-not $proc.WaitForExit(1800000)) { try { $proc.Kill() } catch {}; throw "tempo esgotado (30 min)" }
-      if ($proc.ExitCode -eq 0) { $descarregou = $true }
-      elseif ($proc.ExitCode -eq 3) {
+      $codigoDescarga = Rodar-Descarregar $nodeExe $daemon $root $saida $erros 1800000
+      if ($null -eq $codigoDescarga) {
+        throw ("nao deu para saber o resultado do envio (veja {0})" -f $erros)
+      }
+      elseif ($codigoDescarga -eq 0) { $descarregou = $true }
+      elseif ($codigoDescarga -eq 3) {
         # Enviou o que sobe, mas sobrou dado de tabela que NINGUEM sincroniza (NFC-e,
         # tarefa, checklist, vistoria, escala...). Apagar o banco seria perda definitiva.
         $lista = ''
@@ -357,7 +442,13 @@ if ($reinstalacao) {
         if ($lista) { Diga $lista }
         throw "ha dado neste servidor que nao vai para a nuvem (veja a lista acima e $erros)"
       }
-      else { throw ("codigo de saida {0} - veja {1}" -f $proc.ExitCode, $erros) }
+      elseif ($codigoDescarga -eq 4) {
+        # A nuvem recusou a credencial ANTIGA desta maquina (o servidor da loja foi para outra
+        # maquina, ou foi desativado): nada sobe com ela. Para na hora - antes eram 14 min de
+        # tentativa linha a linha (ERR-123) - e o banco fica, para subir com a credencial nova.
+        throw ("a nuvem recusou a credencial antiga deste computador - o servidor da loja pode estar em outra maquina ({0})" -f (Ultimas-Linhas $erros 2))
+      }
+      else { throw ("codigo de saida {0}: {1} (veja {2})" -f $codigoDescarga, (Ultimas-Linhas $erros 2), $erros) }
     } catch {
       Diga ("  (aviso) nao consegui enviar os dados locais para a nuvem: {0}" -f $_.Exception.Message)
     } finally {
@@ -498,12 +589,16 @@ if ($Modo -eq 'cliente') {
 
 # ---- 0.0) Credenciais via arquivo temporario (o instalador as escreve fora da
 # linha de comando p/ NAO vazarem no log/transcript). Le e apaga imediatamente. ----
+$fingerprintAssistente = ''
 if ($CredFile -and (Test-Path $CredFile)) {
   try {
     $cred = @(Get-Content -Path $CredFile -Encoding Default)
     if ($cred.Count -ge 1 -and -not $Email)     { $Email = ([string]$cred[0]).Trim() }
     if ($cred.Count -ge 2 -and -not $Senha)     { $Senha = [string]$cred[1] }
     if ($cred.Count -ge 3 -and -not $UnidadeId) { $UnidadeId = ([string]$cred[2]).Trim() }
+    # Identificacao desta maquina calculada pelo ASSISTENTE: o codigo da trava conferido la vale
+    # so para ela. Conferida mais abaixo contra a deste script (ERR-124).
+    if ($cred.Count -ge 4) { $fingerprintAssistente = ([string]$cred[3]).Trim() }
   } finally {
     Remove-Item -Path $CredFile -Force -ErrorAction SilentlyContinue
   }
@@ -766,6 +861,9 @@ Diga "IP da LAN detectado: $ip"
 # Self-service (G-4b): com e-mail/senha do C&O, a nuvem cria/reusa o equipamento
 # servidor_local + ativa a licenca e devolve o SYNC_TOKEN. Sem token manual.
 $fingerprint = FingerprintForte
+if ($fingerprintAssistente -and $fingerprintAssistente -ne $fingerprint) {
+  Diga "AVISO: a identificacao desta maquina no assistente difere da deste script - se a loja pedir o codigo de seguranca, ele sera pedido de novo nesta janela."
+}
 if ($Email -and $Senha) {
   Diga "Provisionando pela conta C&O (self-service)..."
   $payload = @{ email = $Email; senha = $Senha; fingerprint = $fingerprint }
@@ -780,15 +878,8 @@ if ($Email -and $Senha) {
     # Rede com MAIS DE UMA loja: a nuvem devolve a lista para escolhermos aqui,
     # em vez de exigir que a pessoa saiba o UUID da unidade de cor. Cada loja tem
     # cardapio/setores proprios e o sincronismo e por unidade - por isso importa.
-    $escolha = $null
-    try {
-      $resp = $_.ErrorDetails.Message
-      if (-not $resp -and $_.Exception.Response) {
-        $sr = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-        $resp = $sr.ReadToEnd()
-      }
-      if ($resp) { $escolha = $resp | ConvertFrom-Json }
-    } catch { }
+    $falhaInstalar = Resposta-DaNuvem $_
+    $escolha = $falhaInstalar.Json
 
     if ($escolha -and $escolha.reauthRequired) {
       # Maquina nova + trava ligada: 2o fator (e-mail/TOTP) move o edge p/ ca.
@@ -821,26 +912,19 @@ if ($Email -and $Senha) {
         Diga "Provisionado: sync token recebido e licenca ativada na nuvem."
       } catch {
         # Com a unidade escolhida, a nuvem pode agora pedir a re-autorizacao (maquina nova).
-        $e2 = $null
-        try {
-          $resp2 = $_.ErrorDetails.Message
-          if (-not $resp2 -and $_.Exception.Response) {
-            $sr2 = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
-            $resp2 = $sr2.ReadToEnd()
-          }
-          if ($resp2) { $e2 = $resp2 | ConvertFrom-Json }
-        } catch { }
+        $falha2 = Resposta-DaNuvem $_
+        $e2 = $falha2.Json
         if ($e2 -and $e2.reauthRequired) {
           $r = Reautorizar-Edge -CloudApi $CloudApi -Payload $payload -Info $e2
           $SyncToken = $r.syncToken
           if ($r.unidadeId) { $UnidadeId = $r.unidadeId }
           Diga "Re-autorizado: instalacao movida para esta maquina (a antiga foi revogada)."
         } else {
-          throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+          throw ("Falha no provisionamento self-service: {0}" -f $falha2.Mensagem)
         }
       }
     } else {
-      throw "Falha no provisionamento self-service: $($_.Exception.Message)"
+      throw ("Falha no provisionamento self-service: {0}" -f $falhaInstalar.Mensagem)
     }
   }
 }
