@@ -985,6 +985,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ aposPagamento }),
     }),
+  // Gestor: o pedido JÁ PAGO do totem sai da lista quando a cozinha marca pronto (true) ou
+  // fica até o "Entregar" (false).
+  setTotemConcluiPronto: (concluiAoFicarPronto: boolean) =>
+    req('/delivery/totem-conclui-pronto', {
+      method: 'POST',
+      body: JSON.stringify({ concluiAoFicarPronto }),
+    }),
   avisarProntoDelivery: (id: string) =>
     req(`/delivery/pedidos/${id}/avisar-pronto`, { method: 'POST', body: '{}' }),
   alterarDelivery: (id: string, body: Record<string, unknown>) =>

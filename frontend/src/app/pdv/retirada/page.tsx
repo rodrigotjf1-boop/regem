@@ -68,6 +68,9 @@ export default function RetiradaPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [origensEmUso, setOrigensEmUso] = useState<Record<string, boolean>>({});
   const [totemAposPagamento, setTotemAposPagamento] = useState(true);
+  // Pedido do totem JÁ PAGO: sai da lista quando a cozinha marca pronto (true) ou fica até o
+  // "Entregar" (false, padrão). Mig 301.
+  const [totemConcluiPronto, setTotemConcluiPronto] = useState(false);
   const [cobrarModo, setCobrarModo] = useState<'entregar' | 'receber'>('entregar');
   const [cat, setCat] = useState<string | null>(null);
   const ehGestor = ['presidente', 'gerente', 'supervisao'].includes(cat ?? '');
@@ -85,6 +88,8 @@ export default function RetiradaPage() {
       setOrigensEmUso(Array.isArray(p) ? {} : ((p as any)?.origensEmUso ?? {}));
       if (!Array.isArray(p) && (p as any)?.totemAposPagamento != null)
         setTotemAposPagamento(!!(p as any).totemAposPagamento);
+      if (!Array.isArray(p) && (p as any)?.totemConcluiAoFicarPronto != null)
+        setTotemConcluiPronto(!!(p as any).totemConcluiAoFicarPronto);
       setCaixa(c);
       setFormas(Array.isArray(f) ? f : []);
     } catch {
@@ -180,6 +185,19 @@ export default function RetiradaPage() {
     }
   }
 
+  // Gestor escolhe quando o pedido PAGO do totem sai da lista (persiste na config da loja).
+  async function alternarTotemConcluiPronto() {
+    const novo = !totemConcluiPronto;
+    setTotemConcluiPronto(novo); // otimista
+    try {
+      await api.setTotemConcluiPronto(novo);
+      toast.success(novo ? 'Totem: o pago sai da lista quando ficar pronto.' : 'Totem: o pago fica na lista até entregar.');
+    } catch (e: any) {
+      setTotemConcluiPronto(!novo);
+      toast.error(e?.message || 'Falha ao salvar a opção.');
+    }
+  }
+
   return (
     <Shell eyebrow="PDV · balcão" title="Retirada / Encomendas">
       <div className="mb-4">
@@ -226,9 +244,26 @@ export default function RetiradaPage() {
                   </span>
                 </button>
               )}
+              {/* Quando o pedido PAGO do totem sai da lista (mig 301): no pronto da cozinha ou no
+                  "Entregar" do balcão. */}
+              {g.key === 'totem' && ehGestor && (
+                <button
+                  type="button"
+                  onClick={alternarTotemConcluiPronto}
+                  aria-pressed={totemConcluiPronto}
+                  title="Define quando o pedido do totem já pago sai desta lista"
+                  className="-mt-1 mb-3 flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-[11px] hover:border-primary/50"
+                >
+                  <span className="text-muted-foreground">Pago sai da lista</span>
+                  <span className={`rounded-full px-2 py-0.5 font-semibold ${totemConcluiPronto ? 'bg-ok/15 text-ok' : 'bg-muted text-muted-foreground'}`}>
+                    {totemConcluiPronto ? 'ao ficar pronto' : 'só ao entregar'}
+                  </span>
+                </button>
+              )}
               {g.key === 'totem' && !ehGestor && (
                 <p className="mb-3 text-[11px] text-muted-foreground">
-                  Produção: {totemAposPagamento ? 'só após pagamento' : 'antes de cobrar'}
+                  Produção: {totemAposPagamento ? 'só após pagamento' : 'antes de cobrar'} · Pago sai da lista:{' '}
+                  {totemConcluiPronto ? 'ao ficar pronto' : 'só ao entregar'}
                 </p>
               )}
               <div className="flex flex-col gap-3">
@@ -315,11 +350,17 @@ function PedidoCard({
 }) {
   const itens: any[] = Array.isArray(p.itens) ? p.itens : [];
   const st = STATUS_LABEL[p.status] ?? { txt: p.status, cls: 'bg-muted text-muted-foreground' };
-  // Totem no modo "após pagamento": o pedido novo é COBRADO antes de ir pra cozinha.
-  const totemReceberPrimeiro = p.grupoCanal === 'totem' && totemAposPagamento && !p.pago;
+  // Totem em CARTÃO/PIX ainda em aprovação: o pagamento é NO TOTEM. Entra na produção sozinho
+  // quando aprova (ou expira em 5 min) — o balcão não aceita nem cobra (o servidor também recusa).
+  const pagandoNoTotem =
+    p.grupoCanal === 'totem' && !p.pago && p.status === 'novo' && !p.comandaId &&
+    String(p.formaPagamento ?? 'dinheiro').trim().toLowerCase() !== 'dinheiro';
+  // Totem no modo "após pagamento": o pedido novo em DINHEIRO é cobrado antes de ir pra cozinha.
+  const totemReceberPrimeiro = p.grupoCanal === 'totem' && totemAposPagamento && !p.pago && !pagandoNoTotem;
   // Nesse caso o 'novo' NÃO está em produção — está aguardando o pagamento no balcão.
-  const stMostra =
-    totemReceberPrimeiro && p.status === 'novo'
+  const stMostra = pagandoNoTotem
+    ? { txt: 'Pagando no totem', cls: 'bg-warn/10 text-warn' }
+    : totemReceberPrimeiro && p.status === 'novo'
       ? { txt: 'Aguardando pagamento', cls: 'bg-warn/10 text-warn' }
       : st;
   return (
@@ -404,7 +445,9 @@ function PedidoCard({
       {p.status !== 'concluido' && p.status !== 'cancelado' && (
         <div className="mt-3 flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
           {p.status === 'novo' ? (
-            totemReceberPrimeiro ? (
+            pagandoNoTotem ? (
+              <span className="self-center text-[11px] text-muted-foreground">Aguardando a aprovação no totem</span>
+            ) : totemReceberPrimeiro ? (
               <Button size="sm" onClick={onReceber} disabled={busy}>Receber pagamento</Button>
             ) : (
               <Button size="sm" onClick={onAceitar} disabled={busy}>Aceitar</Button>
