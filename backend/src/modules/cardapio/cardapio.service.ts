@@ -82,6 +82,7 @@ import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
+import { TIPOS_EVENTO_FUNIL, menuThemeValido, proximaAberturaDe } from './menu-themes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Distância entre duas coordenadas (km) — frete por raio.
@@ -371,10 +372,8 @@ export class CardapioService {
       modo: dto.modo ?? row?.modo ?? 'mesa',
       nomePublico: dto.nomePublico ?? row?.nomePublico ?? null,
       tema: dto.tema ?? row?.tema ?? 'claro',
-      // Layout do cardápio (classic | fastfood). Fallback classic se inválido.
-      menuTheme: ['classic', 'fastfood', 'grid'].includes(dto.menuTheme)
-        ? dto.menuTheme
-        : row?.menuTheme ?? 'classic',
+      // Layout do cardápio (`menu-themes.ts`). Valor inválido não troca o que está gravado.
+      menuTheme: menuThemeValido(dto.menuTheme) ? dto.menuTheme : row?.menuTheme ?? 'classic',
       // Personalização do tema (cores + toggles + intervalo do banner). Merge com
       // o atual para permitir salvar só parte (ex.: só o intervalo pela tela de banners).
       temaConfig:
@@ -1017,6 +1016,11 @@ export class CardapioService {
     }
   }
 
+  private proximaAbertura(cfg: any, tipo: string): string | null {
+    if (cfg.aberto === false || this.estaAberta(cfg, tipo)) return null;
+    return proximaAberturaDe(this.horariosDoTipo(cfg, tipo), this.agoraSp());
+  }
+
   // Rótulo de horário para o cabeçalho: "Aberta até 23:00" ou "Abre às 18:00"
   // (com dia abreviado quando não for hoje). null quando não há horários.
   private horarioLabel(cfg: any): string | null {
@@ -1192,8 +1196,7 @@ export class CardapioService {
   // Registra um evento ANÔNIMO do funil do cardápio (F4). Sessão gerada no cliente,
   // sem PII. Best-effort: nunca quebra a experiência do cardápio. Escopo por tenant.
   async registrarEvento(token: string, sessao?: string, tipo?: string, meta?: any) {
-    const tipos = ['view_menu', 'add_carrinho', 'checkout', 'pagamento', 'pedido'];
-    if (!token || !sessao || !tipos.includes(String(tipo))) return { ok: false };
+    if (!token || !sessao || !(TIPOS_EVENTO_FUNIL as readonly string[]).includes(String(tipo))) return { ok: false };
     try {
       const [cfg] = await this.db
         .select({ tenantId: cardapioConfig.tenantId })
@@ -1367,7 +1370,7 @@ export class CardapioService {
         nome: cfg.nomePublico ?? 'Cardápio',
         ramo: cfg.ramo,
         tema: cfg.tema ?? 'claro',
-        menuTheme: ['classic', 'fastfood', 'grid'].includes(cfg.menuTheme) ? cfg.menuTheme : 'classic',
+        menuTheme: menuThemeValido(cfg.menuTheme) ? cfg.menuTheme : 'classic',
         // Personalização do tema (defaults quando ausente): cor primária + toggles
         // + intervalo do carrossel de banners (segundos, mínimo 1).
         temaConfig: (() => {
@@ -1461,6 +1464,12 @@ export class CardapioService {
         local: this.estaAberta(cfg, 'local'),
       },
       horarioLabel: this.horarioLabel(cfg), // "Aberta até 23:00" / "Abre às 18:00"
+      // Quando cada tipo volta a atender ("18:00" ou "sex 18:00"; null = aberto agora, sem horário
+      // ou fechado à mão). A tela usa em "entrega a partir das 18:00" sem refazer a conta.
+      proximaAbertura: {
+        entrega: this.proximaAbertura(cfg, 'entrega'),
+        retirada: this.proximaAbertura(cfg, 'retirada'),
+      },
       // Contexto para o robô/atendimento (o n8n lê tudo com o token):
       horarios: cfg.horarios ?? [],
       tipos: {
