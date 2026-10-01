@@ -13,7 +13,7 @@ const ENDERECO = 'R. Visconde de Pirajá, 414, sala 718 — Rio de Janeiro/RJ, C
 // simplesmente não renderiza — melhor omitir do que publicar número errado.
 const CNPJ = '67.748.508/0001-43';
 // Data da última revisão do texto. Atualize ao mexer no conteúdo.
-const ATUALIZADO_EM = '30 de setembro de 2026';
+const ATUALIZADO_EM = '1º de outubro de 2026';
 const CONTATO = 'suporte@dmsregem.com';
 
 // Política de Privacidade pública (LGPD). Mesmo padrão visual das outras páginas
@@ -289,9 +289,13 @@ const SECOES: Secao[] = [
                 </td>
               </tr>
               <tr>
-                <td>Enviar comunicação promocional (campanhas, cupons)</td>
                 <td>
-                  Consentimento do destinatário (art. 7º, I), revogável a qualquer momento
+                  Enviar promoções da própria empresa (campanhas, cupons) a quem já é cliente dela
+                </td>
+                <td>
+                  Legítimo interesse da empresa (art. 7º, IX, e art. 10, I), com aviso no pedido e
+                  saída a qualquer momento; ou consentimento do destinatário (art. 7º, I), quando
+                  ele liga a opção
                 </td>
               </tr>
               <tr>
@@ -301,6 +305,20 @@ const SECOES: Secao[] = [
             </tbody>
           </table>
         </div>
+        <h3>Promoções pelo WhatsApp</h3>
+        <p>
+          Quem compra pelo cardápio online pode receber promoções da própria loja pelo WhatsApp. No
+          primeiro pedido, a opção aparece marcada e você pode desmarcá-la antes de enviar. A loja
+          faz esse envio com base no legítimo interesse de divulgar os seus produtos a quem já é
+          cliente dela. Guardamos o número, a data e a hora, por onde a escolha foi feita e a frase
+          que foi mostrada.
+        </p>
+        <p>
+          Você pode sair quando quiser, e a saída vale na hora: responda SAIR a qualquer mensagem
+          ou desligue a opção no seu Perfil no cardápio. A empresa pode usar uma ferramenta de
+          campanhas contratada por ela para enviar essas mensagens; nesse caso a ferramenta recebe
+          o seu contato e a sua escolha, e trabalha para a empresa.
+        </p>
         <p>
           <strong>Não usamos seus dados para treinar modelos de inteligência artificial</strong> nem
           os disponibilizamos para esse fim por terceiros.

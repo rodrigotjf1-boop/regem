@@ -61,6 +61,7 @@ export function CartSheet({
   abertoPorTipo,
   areaRaio,
   avisoOrigem,
+  promocoes,
 }: {
   accent: string;
   loja: any;
@@ -104,6 +105,11 @@ export function CartSheet({
   areaRaio?: boolean;
   /** Aviso de origem (link de anúncio), logo acima do botão — `AvisoOrigem`. */
   avisoOrigem?: ReactNode;
+  /**
+   * A caixinha de promoções (mockup aprovado em 01/10/2026): vem MARCADA e aparece só no primeiro
+   * pedido, na loja que manda promoção. As frases vêm do servidor — são as que ficam gravadas.
+   */
+  promocoes?: { frase: string; apoio: string; marcada: boolean; onMudar: (marcada: boolean) => void } | null;
 }) {
   const set = (patch: any) => setChk((s: any) => ({ ...s, ...patch }));
   const listaEnd = enderecos ?? [];
@@ -452,6 +458,22 @@ export function CartSheet({
               <input value={chk.telefone2 ?? ''} onChange={(e) => set({ telefone2: e.target.value })} inputMode="tel" placeholder="Telefone 2 (opcional)" className="min-w-0 flex-1 rounded-xl border border-neutral-200 px-3 py-2.5 text-base" />
             </div>
           </div>
+
+          {/* Promoções pelo WhatsApp — logo abaixo do número, já marcada; só no primeiro pedido. */}
+          {promocoes && (
+            <label className="mt-3 flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 flex-none"
+                checked={promocoes.marcada}
+                onChange={(e) => promocoes.onMudar(e.target.checked)}
+              />
+              <span>
+                {promocoes.frase}
+                <span className="mt-0.5 block text-xs text-neutral-500">{promocoes.apoio}</span>
+              </span>
+            </label>
+          )}
 
           {/* CPF na nota — só aparece onde a loja realmente emite cupom fiscal. O CPF é
               OPCIONAL: só quem quer a nota informa, e aí o campo passa a ser obrigatório. */}

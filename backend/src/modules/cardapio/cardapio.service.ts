@@ -81,6 +81,7 @@ import { hojeISO } from '../../common/data';
 import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
+import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Distância entre duas coordenadas (km) — frete por raio.
@@ -1265,6 +1266,9 @@ export class CardapioService {
     // Esta loja mede anúncios (ferramenta conectada, mig 299)? Decide se a tela guarda de onde o
     // cliente veio e mostra o aviso no checkout. Nunca rejeita.
     const medicao = medicaoDeAnuncios(this.db, cfg.tenantId, cfg.unidadeId ?? null);
+    // Esta loja manda promoção (RegemCast ligado ou WhatsApp conectado)? Decide se o checkout
+    // mostra a caixinha de promoções — com as frases daqui, que são as que ficam gravadas. Nunca rejeita.
+    const promocoes = promocoesDaLoja(this.db, cfg.tenantId, cfg.nomePublico);
 
     // Esta loja emite cupom fiscal? É isso que decide se o checkout pode oferecer a nota com
     // CPF — oferecer sem emitir seria prometer ao cliente um documento que nunca chega.
@@ -1385,6 +1389,8 @@ export class CardapioService {
         emiteNota: await emiteNota,
         // `{ ferramenta }` quando a loja mede anúncios; `null` = a tela não guarda a origem.
         medeAnuncios: await medicao,
+        // `{ frase, apoio }` quando a loja manda promoção; `null` = o checkout não pergunta.
+        promocoes: await promocoes,
         tempoEntregaMin: cfg.tempoEntregaMin,
         tempoRetiradaMin: cfg.tempoRetiradaMin,
         pedidoMinimo: cfg.pedidoMinimo != null ? Number(cfg.pedidoMinimo) : null,
@@ -2664,6 +2670,9 @@ export class CardapioService {
       // De onde o cliente veio (link marcado, mig 299): só na loja que mede anúncios; nunca derruba
       // o pedido (`origem-pedido.ts`).
       origem?: unknown;
+      // A caixinha "Receber promoções…" do checkout: só vem quando ela apareceu (true = como ela
+      // vem, marcada; false = o cliente desmarcou). Ausente = a tela não perguntou: nada se grava.
+      promocoes?: unknown;
       itens: {
         produtoId: string;
         variacaoId?: string;
@@ -3134,6 +3143,21 @@ export class CardapioService {
           .update(cliente)
           .set({ cpf: documentoNota })
           .where(and(eq(cliente.id, clienteId), eq(cliente.tenantId, cfg.tenantId)));
+    }
+
+    // Promoções pelo WhatsApp (a caixinha do checkout — `promocoes-cardapio.ts`): só quando a tela
+    // mandou a escolha (a caixinha apareceu). O servidor confere de novo se a loja manda promoção e
+    // nunca tira da lista quem pediu para sair. Não derruba o pedido: a falha vira aviso no log.
+    if (ped?.id && typeof dto.promocoes === 'boolean') {
+      await escolhaNoCheckout(this.db, {
+        tenantId: cfg.tenantId,
+        lojaNome: cfg.nomePublico,
+        telefone: dto.telefone,
+        clienteId,
+        marcada: dto.promocoes,
+      }).catch((e: any) =>
+        this.logger.warn(`promoções do pedido ${ped.id} não registradas: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`),
+      );
     }
 
     // Sinal da encomenda (mig 188): grava % / valor / prazo de cancelamento. O

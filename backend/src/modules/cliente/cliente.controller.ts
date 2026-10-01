@@ -84,6 +84,13 @@ export class ClientePublicoController {
     return this.service.definirPrincipal(token, dto?.clienteToken, id);
   }
 
+  // A chave "Promoções pelo WhatsApp" do Perfil: desligar = sair de todas as campanhas da loja.
+  @Post(':token/cliente/promocoes')
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  promocoes(@Param('token') token: string, @Body() dto: any) {
+    return this.service.definirPromocoes(token, dto?.clienteToken, dto?.ativo);
+  }
+
   @Post(':token/cliente/esquecer')
   esquecer(@Param('token') token: string, @Body() dto: any) {
     return this.service.esquecer(token, dto?.clienteToken);
