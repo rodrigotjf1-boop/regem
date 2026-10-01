@@ -27,6 +27,8 @@ import { CartSheet } from '@/components/loja/cart-sheet';
 import { AvisoOrigem } from '@/components/loja/aviso-origem';
 import { capturarOrigem, desfazerRecusa, origemParaPedido, origemRecusada, recusarOrigem } from '@/components/loja/origem-clique';
 import type { OrigemClique } from '@/components/loja/origem-clique-regras';
+import { CardapioTemplates } from '@/components/loja/cardapio/cardapio-templates';
+import { ehTemplate } from '@/components/loja/cardapio/tipos-template';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -54,6 +56,17 @@ const CHK_INICIAL = {
 };
 
 export default function CardapioPublicoPage() {
+  const params = useParams();
+  const search = useSearchParams();
+  // Prévia dos templates novos (docs/templates-cardapio/): `?tema=galeria|balcao|oferta|fluxo` mostra
+  // o cardápio desta loja no template, sem mudar a escolha dela. Sem o parâmetro, o layout de hoje.
+  const tema = search?.get('tema');
+  if (ehTemplate(tema))
+    return <CardapioTemplates token={String(params?.token ?? '')} mesa={search?.get('mesa') ?? ''} search={search} temaForcado={tema} />;
+  return <CardapioLegado />;
+}
+
+function CardapioLegado() {
   const params = useParams();
   const search = useSearchParams();
   const token = String(params?.token ?? '');

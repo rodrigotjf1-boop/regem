@@ -10,6 +10,7 @@ Especificação para o **Claude Code** implementar 4 templates novos no cardápi
 | 3 | Oferta — promoções e combos na frente | `oferta` | Anota AI | [`03-oferta.md`](03-oferta.md) |
 | 4 | **Regem Fluxo** — clean, uma decisão por tela | `fluxo` | próprio do Regem | [`04-regem-fluxo.md`](04-regem-fluxo.md) |
 | — | Recursos do cardápio de hoje nos templates (ler junto com a base) | — | — | [`05-recursos-integrados.md`](05-recursos-integrados.md) |
+| — | Como foi implementado, o que ficou diferente do protótipo e como foi conferido | — | — | [`06-implementacao.md`](06-implementacao.md) |
 
 Todos os templates mantêm os recursos que o cardápio já tem hoje — conta do cliente (pedidos, benefícios, perfil), promoções pelo WhatsApp, aviso de origem do anúncio, sinal e recorrência da encomenda, QR de mesa e os ramos serviços e indústria —, conforme o `05-recursos-integrados.md` (conferido contra `origin/main` em 01/10/2026).
 
