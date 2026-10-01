@@ -13512,6 +13512,26 @@
         }
       }
     },
+    "/api/v1/publico/cardapio/{token}/cliente/promocoes": {
+      "post": {
+        "operationId": "ClientePublicoController_promocoes",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/publico/cardapio/{token}/cliente/esquecer": {
       "post": {
         "operationId": "ClientePublicoController_esquecer",
