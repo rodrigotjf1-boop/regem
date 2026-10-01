@@ -29,6 +29,9 @@ export type TipoProblema =
   | 'chave-em-uso'
   | 'regra-invalida'
   | 'chave-reutilizada'
+  // Troca do código da autorização pela loja (C1b).
+  | 'cliente-invalido'
+  | 'autorizacao-invalida'
   | 'erro-interno';
 
 const TITULO: Record<TipoProblema, string> = {
@@ -43,6 +46,8 @@ const TITULO: Record<TipoProblema, string> = {
   'chave-em-uso': 'Chave de idempotência em uso',
   'regra-invalida': 'Regra inválida',
   'chave-reutilizada': 'Chave de idempotência reutilizada',
+  'cliente-invalido': 'Cliente inválido',
+  'autorizacao-invalida': 'Autorização inválida',
   'erro-interno': 'Erro interno',
 };
 

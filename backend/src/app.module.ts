@@ -83,6 +83,7 @@ import { TerminalSegredoInterceptor } from './auth/terminal-segredo.interceptor'
 import { DistribuicaoModule } from './modules/distribuicao/distribuicao.module';
 import { SuporteModule } from './modules/suporte/suporte.module';
 import { IntegracaoApiModule } from './modules/integracao-api/integracao-api.module';
+import { AutorizacaoLojaModule } from './modules/integracao-api/autorizacao-loja.module';
 import { LicencaModule } from './modules/licenca/licenca.module';
 import { AuthModule } from './auth/auth.module';
 
@@ -106,6 +107,9 @@ const CLOUD_ONLY_IMPORTS = IS_EDGE
       SuporteModule,
       // API de integração por token de loja (trilha C) — a tabela é só da nuvem (mig 295).
       IntegracaoApiModule,
+      // Autorização pela loja (trilha C, C1b): página "Autorizar o Liame", troca do código e
+      // "Aplicativos conectados" — tabela só da nuvem (mig 303).
+      AutorizacaoLojaModule,
     ];
 
 @Module({

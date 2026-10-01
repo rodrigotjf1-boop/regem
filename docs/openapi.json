@@ -9154,6 +9154,17 @@
         }
       }
     },
+    "/api/v1/delivery/totem-conclui-pronto": {
+      "post": {
+        "operationId": "DeliveryController_totemConcluiPronto",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/delivery/pedidos/{id}/avisar-pronto": {
       "post": {
         "operationId": "DeliveryController_avisarPronto",
@@ -12211,6 +12222,35 @@
         }
       }
     },
+    "/api/v1/provisionamento/verificar": {
+      "post": {
+        "operationId": "LicencaController_verificarInstalacao",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/provisionamento/reautorizar/verificar": {
+      "post": {
+        "operationId": "LicencaController_reautorizarVerificar",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/v1/edge/lease": {
       "get": {
         "operationId": "LicencaController_lease",
@@ -15143,7 +15183,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -15265,6 +15312,46 @@
                 }
               }
             }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/integracao/clientes": {
+      "get": {
+        "operationId": "IntegracaoApiController_clientes",
+        "summary": "Clientes da empresa com cursor (ordem por atualizado_em, id; só o carimbado há mais de 15 s).",
+        "description": "Telefone em E.164 (+55…) ou null; canais = onde o cliente fez pedido; opt_out = marca do cadastro ou lista de exclusão (com/sem o nono dígito); aceite_marketing = o último aceite/recusa (null = nunca respondeu). Cliente só de marketplace não sai; só da 99, só com vendas.99food.ler. removido: true = esquecido a pedido (LGPD).",
+        "parameters": [
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "O `proximo_cursor` da página anterior.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limite",
+            "required": false,
+            "in": "query",
+            "description": "Itens por página: 1 a 500 (padrão 200).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
           }
         },
         "tags": [
@@ -15523,6 +15610,256 @@
             "description": ""
           }
         }
+      }
+    },
+    "/api/v1/integracao-autorizacao/pedido": {
+      "get": {
+        "operationId": "AutorizacaoLojaController_pedido",
+        "summary": "O que a página de autorização mostra para quem está logado.",
+        "parameters": [
+          {
+            "name": "code_challenge_method",
+            "required": true,
+            "in": "query",
+            "description": "Sempre S256.",
+            "schema": {}
+          },
+          {
+            "name": "code_challenge",
+            "required": true,
+            "in": "query",
+            "description": "Desafio do PKCE (S256).",
+            "schema": {}
+          },
+          {
+            "name": "state",
+            "required": true,
+            "in": "query",
+            "description": "Volta como veio.",
+            "schema": {}
+          },
+          {
+            "name": "redirect_uri",
+            "required": true,
+            "in": "query",
+            "description": "Endereço de volta — tem de ser um dos cadastrados para o cliente.",
+            "schema": {}
+          },
+          {
+            "name": "cliente",
+            "required": true,
+            "in": "query",
+            "description": "O aplicativo que pede a autorização (ex.: liame).",
+            "schema": {}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
+      }
+    },
+    "/api/v1/integracao-autorizacao": {
+      "post": {
+        "operationId": "AutorizacaoLojaController_autorizar",
+        "summary": "O presidente autoriza: devolve o endereço de volta com o código de uso único.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "cliente",
+                  "redirect_uri",
+                  "state",
+                  "code_challenge",
+                  "code_challenge_method",
+                  "lojas",
+                  "custo",
+                  "cupom"
+                ],
+                "properties": {
+                  "cliente": {
+                    "type": "string"
+                  },
+                  "redirect_uri": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "code_challenge": {
+                    "type": "string"
+                  },
+                  "code_challenge_method": {
+                    "type": "string",
+                    "enum": [
+                      "S256"
+                    ]
+                  },
+                  "lojas": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "custo": {
+                    "type": "boolean",
+                    "description": "Liberar o custo dos itens (exige \"Ver valores em R$\")."
+                  },
+                  "cupom": {
+                    "type": "boolean",
+                    "description": "Liberar a criação de cupom de campanha."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
+      }
+    },
+    "/api/v1/aplicativos-conectados": {
+      "get": {
+        "operationId": "AutorizacaoLojaController_aplicativos",
+        "summary": "Ferramentas que leem dados da empresa: acessos ativos e os últimos revogados.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
+      }
+    },
+    "/api/v1/aplicativos-conectados/revogar-todos": {
+      "post": {
+        "operationId": "AutorizacaoLojaController_revogarTodos",
+        "summary": "Revoga todos os acessos de um aplicativo nesta empresa.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "cliente"
+                ],
+                "properties": {
+                  "cliente": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
+      }
+    },
+    "/api/v1/aplicativos-conectados/{id}/revogar": {
+      "post": {
+        "operationId": "AutorizacaoLojaController_revogar",
+        "summary": "Revoga um acesso (o aplicativo passa a receber 401 na chamada seguinte).",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração — autorização pela loja"
+        ]
+      }
+    },
+    "/api/v1/integracao/autorizacao/token": {
+      "post": {
+        "operationId": "AutorizacaoTokenController_token",
+        "summary": "Troca o código da autorização pelos tokens das lojas (uma tentativa; o código vale 10 minutos).",
+        "description": "Corpo: `code`, `code_verifier` (PKCE S256), `redirect_uri` (o mesmo do pedido), `client_id` e `client_secret`. Resposta: `{ lojas: [{ loja_id, loja_nome, empresa_nome, fuso, moeda, escopos, cardapio_url, token }] }` — o token de cada loja aparece só aqui. A loja que já tinha um token deste cliente troca: o antigo passa a devolver 401.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "code",
+                  "code_verifier",
+                  "redirect_uri",
+                  "client_id",
+                  "client_secret"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "code_verifier": {
+                    "type": "string"
+                  },
+                  "redirect_uri": {
+                    "type": "string"
+                  },
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ]
       }
     }
   },
