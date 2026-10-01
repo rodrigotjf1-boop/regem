@@ -62,6 +62,7 @@ export function CartSheet({
   areaRaio,
   avisoOrigem,
   promocoes,
+  erro,
 }: {
   accent: string;
   loja: any;
@@ -110,6 +111,11 @@ export function CartSheet({
    * pedido, na loja que manda promoção. As frases vêm do servidor — são as que ficam gravadas.
    */
   promocoes?: { frase: string; apoio: string; marcada: boolean; onMudar: (marcada: boolean) => void } | null;
+  /**
+   * O motivo de o pedido não ter saído (recusa do servidor ou dado que falta). Antes ele era
+   * guardado e nunca mostrado: o cliente tocava em "Fazer pedido" e nada acontecia (ERR-140).
+   */
+  erro?: string | null;
 }) {
   const set = (patch: any) => setChk((s: any) => ({ ...s, ...patch }));
   const listaEnd = enderecos ?? [];
@@ -164,6 +170,8 @@ export function CartSheet({
       await onCadastrarEndereco(ne);
       setNovoEnd(false);
       setNe({ apelido: '', logradouro: '', numero: '', bairroId: '', referencia: '' });
+    } catch {
+      // Não salvou: o formulário continua aberto e o motivo aparece acima do botão (`erro`).
     } finally {
       setSalvandoEnd(false);
     }
@@ -649,6 +657,13 @@ export function CartSheet({
           </div>
 
           {avisoOrigem}
+
+          {/* Motivo da recusa, logo acima do botão — some na tentativa seguinte. */}
+          {erro && (
+            <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-700">
+              {erro}
+            </p>
+          )}
 
           <button type="button" onClick={onSubmit} disabled={submitDesabilitado} className="mt-4 flex w-full items-center justify-between rounded-xl px-5 py-3.5 font-bold text-white disabled:opacity-50" style={{ background: accent }}>
             <span>{enviando ? 'Enviando…' : cta}</span>
