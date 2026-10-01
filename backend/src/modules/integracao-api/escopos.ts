@@ -1,8 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 
 // Escopos do token de integração por loja (contrato Regem → Liame v1, `docs/integracoes/regem.md`
-// do Liame). Cada rota confere o seu; o que o token não tem volta 403. A lista é a MESMA do
-// `check` da tabela (mig 295): escopo fora dela nem chega a ser gravado.
+// do Liame; contrato Regem → RegemCast em `docs/integracao-regemcast.md`). Cada rota confere o
+// seu; o que o token não tem volta 403. A lista é a MESMA do `check` da tabela (migs 295 e 302):
+// escopo fora dela nem chega a ser gravado.
 export const ESCOPOS_INTEGRACAO = [
   'pedidos.ler',
   'clientes.telefone.ler',
@@ -11,6 +12,9 @@ export const ESCOPOS_INTEGRACAO = [
   'cupons.ler',
   'cupons.uso.ler',
   'cupons.criar',
+  // RegemCast (mig 302): a lista de clientes e a exceção da 99 (autorização do dono no RegemCast).
+  'clientes.ler',
+  'vendas.99food.ler',
 ] as const;
 
 export type EscopoIntegracao = (typeof ESCOPOS_INTEGRACAO)[number];
@@ -24,7 +28,38 @@ export const ROTULO_ESCOPO: Record<EscopoIntegracao, string> = {
   'cupons.ler': 'Cupons da loja, com regra e validade',
   'cupons.uso.ler': 'Usos de cupom (sem dado do cliente)',
   'cupons.criar': 'Criar e desativar cupom (só pelo Action Service do Liame)',
+  'clientes.ler': 'Clientes da empresa: nome, telefone, canais, bairro, opt-out e aceite (nunca só de marketplace)',
+  'vendas.99food.ler': 'Vendas e clientes da 99Food (só com a autorização do dono)',
 };
+
+/**
+ * Clientes de integração conhecidos (o console emite só para eles). `abrangencia`: `loja` = o
+ * token é de UMA loja (Liame); `empresa` = da empresa inteira, todas as lojas (RegemCast — a
+ * trava no banco, mig 302, só aceita token sem loja para ele). `escopos` = os que o console pode
+ * dar a esse cliente. `cargaDias` = a janela da carga inicial quando o cliente não manda
+ * `confirmados_desde` (o RegemCast lê 3 anos; o Liame segue com a carga de 91 dias da 296).
+ */
+export const CLIENTES_INTEGRACAO: Record<
+  string,
+  { rotulo: string; abrangencia: 'loja' | 'empresa'; escopos: readonly EscopoIntegracao[]; cargaDias: number | null }
+> = {
+  liame: {
+    rotulo: 'Liame',
+    abrangencia: 'loja',
+    escopos: ['pedidos.ler', 'clientes.telefone.ler', 'custos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler', 'cupons.criar'],
+    cargaDias: null,
+  },
+  regemcast: {
+    rotulo: 'RegemCast',
+    abrangencia: 'empresa',
+    escopos: ['pedidos.ler', 'clientes.telefone.ler', 'clientes.ler', 'vendas.99food.ler'],
+    cargaDias: 1096,
+  },
+};
+
+export function ehClienteIntegracao(v: unknown): v is string {
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(CLIENTES_INTEGRACAO, v);
+}
 
 export function ehEscopoIntegracao(v: unknown): v is EscopoIntegracao {
   return typeof v === 'string' && (ESCOPOS_INTEGRACAO as readonly string[]).includes(v);

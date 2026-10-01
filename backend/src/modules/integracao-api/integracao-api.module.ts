@@ -5,6 +5,7 @@ import { IntegracaoTokenService } from './integracao-token.service';
 import { VendasIntegracaoService } from './vendas-integracao.service';
 import { CarimbadorIntegracaoService } from './carimbador-integracao.service';
 import { CuponsIntegracaoService } from './cupons-integracao.service';
+import { ClientesIntegracaoService } from './clientes-integracao.service';
 
 // API de integração por token de loja (trilha C) — SÓ NUVEM: está em `CLOUD_ONLY_IMPORTS`
 // (app.module) e em `CLOUD_ONLY_MODULES` (edge-manifest), e o controller é `@CloudOnly()`.
@@ -23,6 +24,8 @@ import { CuponsIntegracaoService } from './cupons-integracao.service';
     VendasIntegracaoService,
     CarimbadorIntegracaoService,
     CuponsIntegracaoService,
+    // RegemCast (mig 302): a lista de clientes da empresa.
+    ClientesIntegracaoService,
   ],
   exports: [IntegracaoTokenService],
 })

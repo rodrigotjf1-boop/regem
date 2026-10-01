@@ -3,15 +3,20 @@ import { sql, SQL } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 import { perfilPadrao, podeAcessar, type Permissoes } from '../../auth/permissoes';
-import { EscopoIntegracao, ROTULO_ESCOPO, ESCOPOS_INTEGRACAO, validarEscopos } from './escopos';
+import {
+  CLIENTES_INTEGRACAO,
+  EscopoIntegracao,
+  ROTULO_ESCOPO,
+  ESCOPOS_INTEGRACAO,
+  ehClienteIntegracao,
+  validarEscopos,
+} from './escopos';
 import { gerarTokenIntegracao, hashTokenIntegracao } from './token-integracao';
 import type { IntegracaoCtxData } from './integracao-token.guard';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** Clientes de integração conhecidos. A C1b troca por um cadastro (`integracao_cliente`). */
-const CLIENTES = ['liame'] as const;
 /** Intervalo mínimo entre duas gravações do "último uso" do mesmo token. */
 const USO_INTERVALO_MS = 60_000;
 
@@ -46,16 +51,18 @@ export class IntegracaoTokenService {
    * quando o token existe — revogado, vencido, loja apagada —, nunca o token).
    */
   async validar(token: string): Promise<IntegracaoCtxData | null> {
+    // Token de LOJA: a loja tem de existir, ser da empresa e estar viva (senão, "loja apagada").
+    // Token da EMPRESA (sem loja — só o RegemCast, mig 302): vale a empresa inteira.
     const [t] = await this.rows(sql`
       select t.id, t.tenant_id, t.unidade_id, t.cliente, t.prefixo, t.escopos, t.autorizado_por,
              t.revogado_em is not null as revogado,
              (t.expira_em is not null and t.expira_em <= now()) as vencido,
-             u.deleted_at is not null as loja_apagada,
+             (t.unidade_id is not null and (u.id is null or u.deleted_at is not null)) as loja_apagada,
              e.deleted_at is not null as empresa_apagada,
              (select count(*)::int from unidade u2
                where u2.tenant_id = t.tenant_id and u2.deleted_at is null) as lojas
         from integracao_token_loja t
-        join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id
+        left join unidade u on u.id = t.unidade_id and u.tenant_id = t.tenant_id
         join empresa e on e.id = t.tenant_id
        where t.token_hash = ${hashTokenIntegracao(token)}
        limit 1`);
@@ -76,7 +83,8 @@ export class IntegracaoTokenService {
     return {
       tokenId: t.id,
       tenantId: t.tenant_id,
-      unidadeId: t.unidade_id,
+      unidadeId: t.unidade_id ?? null,
+      abrangencia: t.unidade_id ? 'loja' : 'empresa',
       lojaUnica: Number(t.lojas) === 1,
       escopos: (t.escopos ?? []) as EscopoIntegracao[],
       cliente: t.cliente,
@@ -105,6 +113,7 @@ export class IntegracaoTokenService {
    * mesma regra do `unidadePadrao` do delivery. Sem cardápio ativo, `null`.
    */
   async dadosDaLoja(ctx: IntegracaoCtxData) {
+    if (!ctx.unidadeId) return this.dadosDaEmpresa(ctx);
     const [l] = await this.rows(sql`
       select u.id, u.nome, u.timezone, e.nome as empresa
         from unidade u join empresa e on e.id = u.tenant_id
@@ -135,6 +144,30 @@ export class IntegracaoTokenService {
       moeda: 'BRL',
       escopos: ctx.escopos,
       cardapio_url: cfg?.token ? `${base}/c/${cfg.token}` : null,
+    };
+  }
+
+  /**
+   * `GET /integracao/loja` com token da EMPRESA (RegemCast): a empresa e as lojas vivas dela.
+   * `empresa_id` é a identidade ESTÁVEL da conexão do lado de lá (renomear a empresa não pode
+   * parecer "outra empresa"). O fuso é o da matriz (ou da loja mais antiga).
+   */
+  private async dadosDaEmpresa(ctx: IntegracaoCtxData) {
+    const [e] = await this.rows(sql`
+      select e.id, e.nome from empresa e where e.id = ${ctx.tenantId} and e.deleted_at is null`);
+    if (!e) throw new NotFoundException('Empresa não encontrada.');
+    const lojas = await this.rows(sql`
+      select u.id, u.nome, u.timezone
+        from unidade u
+       where u.tenant_id = ${ctx.tenantId} and u.deleted_at is null
+       order by (u.tipo = 'matriz') desc, u.created_at asc`);
+    return {
+      empresa_id: e.id as string,
+      empresa_nome: e.nome as string,
+      lojas: lojas.map((u) => ({ id: u.id as string, nome: u.nome as string })),
+      fuso: (lojas[0]?.timezone as string) || 'America/Sao_Paulo',
+      moeda: 'BRL',
+      escopos: ctx.escopos,
     };
   }
 
@@ -225,6 +258,14 @@ export class IntegracaoTokenService {
       presidentes,
       tokens,
       escopos: ESCOPOS_INTEGRACAO.map((e) => ({ chave: e, rotulo: ROTULO_ESCOPO[e] })),
+      // Para quem se emite: o console mostra só os escopos que valem para o cliente escolhido e,
+      // no de empresa (RegemCast), não pede loja.
+      clientes: Object.entries(CLIENTES_INTEGRACAO).map(([chave, c]) => ({
+        chave,
+        rotulo: c.rotulo,
+        abrangencia: c.abrangencia,
+        escopos: [...c.escopos],
+      })),
     };
   }
 
@@ -235,12 +276,21 @@ export class IntegracaoTokenService {
    */
   async emitir(dto: any, autor: { sub: string; nome?: string; perfil?: string }) {
     const tenantId = this.uuid(dto?.tenantId, 'tenantId');
-    const unidadeId = this.uuid(dto?.unidadeId, 'unidadeId');
+    const cliente = String(dto?.cliente ?? 'liame');
+    if (!ehClienteIntegracao(cliente)) {
+      throw new BadRequestException(`Cliente de integração desconhecido: ${cliente}.`);
+    }
+    const cfg = CLIENTES_INTEGRACAO[cliente];
+    // Liame: token de UMA loja. RegemCast: da empresa inteira (sem loja — trava da mig 302).
+    const unidadeId = cfg.abrangencia === 'loja' ? this.uuid(dto?.unidadeId, 'unidadeId') : null;
+    if (cfg.abrangencia === 'empresa' && dto?.unidadeId) {
+      throw new BadRequestException(`O token do ${cfg.rotulo} vale para a empresa inteira: não escolha loja.`);
+    }
     const autorizadoPor = this.uuid(dto?.autorizadoPor, 'autorizadoPor');
     const escopos = validarEscopos(dto?.escopos);
-    const cliente = String(dto?.cliente ?? 'liame');
-    if (!(CLIENTES as readonly string[]).includes(cliente)) {
-      throw new BadRequestException(`Cliente de integração desconhecido: ${cliente}.`);
+    const foraDoCliente = escopos.filter((e) => !cfg.escopos.includes(e));
+    if (foraDoCliente.length) {
+      throw new BadRequestException(`Escopo que não vale para o ${cfg.rotulo}: ${foraDoCliente.join(', ')}.`);
     }
     const evidencia = typeof dto?.evidencia === 'string' ? dto.evidencia.trim() : '';
     if (evidencia.length < 5 || evidencia.length > 500) {
@@ -249,11 +299,17 @@ export class IntegracaoTokenService {
       );
     }
 
-    const [loja] = await this.rows(sql`
-      select u.id, u.nome from unidade u join empresa e on e.id = u.tenant_id
-       where u.id = ${unidadeId} and u.tenant_id = ${tenantId}
-         and u.deleted_at is null and e.deleted_at is null`);
-    if (!loja) throw new BadRequestException('Loja não encontrada nesta empresa.');
+    let loja: { id: string; nome: string } | null = null;
+    if (unidadeId) {
+      [loja] = await this.rows(sql`
+        select u.id, u.nome from unidade u join empresa e on e.id = u.tenant_id
+         where u.id = ${unidadeId} and u.tenant_id = ${tenantId}
+           and u.deleted_at is null and e.deleted_at is null`);
+      if (!loja) throw new BadRequestException('Loja não encontrada nesta empresa.');
+    } else {
+      const [emp] = await this.rows(sql`select id from empresa where id = ${tenantId} and deleted_at is null`);
+      if (!emp) throw new BadRequestException('Empresa não encontrada.');
+    }
     const quem = await this.autorizador(tenantId, autorizadoPor);
     if (!quem?.presidente) {
       throw new BadRequestException('Quem autoriza tem de ser presidente ativo desta empresa.');
@@ -290,7 +346,7 @@ export class IntegracaoTokenService {
         cliente,
         prefixo: gerado.prefixo,
         escopos,
-        loja: loja.nome,
+        loja: loja?.nome ?? 'Empresa inteira',
         autorizadoPor: quem.nome,
         evidencia,
         emitidoPor: autor?.nome ?? null,
@@ -303,7 +359,7 @@ export class IntegracaoTokenService {
       prefixo: gerado.prefixo,
       cliente,
       escopos,
-      loja: { id: loja.id as string, nome: loja.nome as string },
+      loja: loja ? { id: loja.id, nome: loja.nome } : null,
       autorizadoPor: quem.nome,
       criadoEm: novo.criado_em,
     };

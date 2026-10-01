@@ -519,12 +519,14 @@ export const distApi = {
       method: 'POST',
       body: JSON.stringify({ acao, ...(dados ?? {}) }),
     }),
-  // Tokens de integração POR LOJA (trilha C) — só Diretoria. A emissão devolve o token UMA vez.
+  // Tokens de integração (trilha C; RegemCast — mig 302) — só Diretoria. A emissão devolve o token
+  // UMA vez. Liame: por loja; RegemCast: da empresa inteira (sem `unidadeId`).
   tokensIntegracao: (tenantId: string) =>
     distReq(`/distribuicao/integracoes/tokens?tenantId=${encodeURIComponent(tenantId)}`),
   emitirTokenIntegracao: (dto: {
     tenantId: string;
-    unidadeId: string;
+    cliente: string;
+    unidadeId?: string;
     autorizadoPor: string;
     escopos: string[];
     evidencia: string;

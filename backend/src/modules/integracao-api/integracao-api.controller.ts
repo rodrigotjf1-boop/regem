@@ -16,6 +16,7 @@ import { IntegracaoTokenService } from './integracao-token.service';
 import { problemaGuardado, ProblemaFilter } from './problema';
 import { VendasIntegracaoService } from './vendas-integracao.service';
 import { CuponsIntegracaoService, ResultadoEscrita } from './cupons-integracao.service';
+import { ClientesIntegracaoService } from './clientes-integracao.service';
 import { PaginaClientesAnonimizadosIntegracao, PaginaVendasIntegracao } from './dto/vendas-integracao.dto';
 import {
   CriarCupomIntegracao,
@@ -58,6 +59,7 @@ export class IntegracaoApiController {
     private readonly tokens: IntegracaoTokenService,
     private readonly vendas: VendasIntegracaoService,
     private readonly cupons: CuponsIntegracaoService,
+    private readonly clientesSvc: ClientesIntegracaoService,
   ) {}
 
   // Quem é a loja do token — qualquer escopo.
@@ -116,6 +118,27 @@ export class IntegracaoApiController {
     @Query('limite') limite?: string,
   ) {
     return this.vendas.clientesAnonimizados(ctx, { cursor, limite });
+  }
+
+  // Clientes da EMPRESA (RegemCast — mig 302), com cursor: ficha lida na hora; lápide de quem foi
+  // esquecido (LGPD); quem só comprou por marketplace não sai (pela 99, só com vendas.99food.ler).
+  @Get('clientes')
+  @Escopos('clientes.ler')
+  @ApiOperation({
+    summary: 'Clientes da empresa com cursor (ordem por atualizado_em, id; só o carimbado há mais de 15 s).',
+    description:
+      'Telefone em E.164 (+55…) ou null; canais = onde o cliente fez pedido; opt_out = marca do cadastro ou lista de ' +
+      'exclusão (com/sem o nono dígito); aceite_marketing = o último aceite/recusa (null = nunca respondeu). Cliente ' +
+      'só de marketplace não sai; só da 99, só com vendas.99food.ler. removido: true = esquecido a pedido (LGPD).',
+  })
+  @ApiQuery({ name: 'cursor', required: false, description: 'O `proximo_cursor` da página anterior.' })
+  @ApiQuery({ name: 'limite', required: false, description: 'Itens por página: 1 a 500 (padrão 200).' })
+  clientes(
+    @IntegracaoCtx() ctx: IntegracaoCtxData,
+    @Query('cursor') cursor?: string,
+    @Query('limite') limite?: string,
+  ) {
+    return this.clientesSvc.clientes(ctx, { cursor, limite });
   }
 
   // ───────────────────────────── cupons (contrato de cupons v1) ─────────────────────────────

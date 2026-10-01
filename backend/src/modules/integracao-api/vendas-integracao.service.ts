@@ -9,6 +9,7 @@ import type { IntegracaoCtxData } from './integracao-token.guard';
 import { IntegracaoTokenService } from './integracao-token.service';
 import { ProblemaException } from './problema';
 import { FotoVenda, sqlIso } from './venda-integracao';
+import { bairroOuNulo, MARKETPLACES_REGEMCAST } from './contato-integracao';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -74,11 +75,28 @@ export class VendasIntegracaoService {
       desde = d;
     }
     const comTelefone = ctx.escopos.includes('clientes.telefone.ler');
+    // Token da EMPRESA (RegemCast): todas as lojas, cada venda com o fuso da loja dela. Os campos a
+    // mais do contrato do RegemCast (loja, tipo, bairro, cidade, taxa) são lidos NA HORA — o
+    // endereço é dado pessoal e não entra na foto; a resposta do Liame não muda.
+    const empresa = !ctx.unidadeId;
+    const extras = ctx.cliente === 'regemcast';
+    const com99 = ctx.escopos.includes('vendas.99food.ler');
 
     const linhas = this.rows(
       await this.db.execute(sql`
         select v.recurso_id::text as id, v.versao::text as versao, ${sqlIso(sql`v.atualizado_em`)} as atualizado_em,
                v.situacao, v.foto, coalesce(u.timezone, 'America/Sao_Paulo') as fuso,
+               ${
+                 extras
+                   ? sql`v.unidade_id::text as x_unidade_id, uv.nome as x_unidade_nome, pe.tipo as x_tipo,
+                         pe.endereco_bairro as x_bairro, pe.endereco_cidade as x_cidade,
+                         round(coalesce(pe.taxa_entrega, 0) * 100)::text as x_taxa,
+                         (select cc.end_cidade from cardapio_config cc
+                           where cc.tenant_id = v.tenant_id and (cc.unidade_id = v.unidade_id or cc.unidade_id is null)
+                           order by (cc.unidade_id is null) asc, cc.created_at asc
+                           limit 1) as x_cidade_loja,`
+                   : sql``
+               }
                ${comTelefone ? sql`cl.telefone` : sql`null::text`} as telefone,
                case when po.pedido_id is not null then jsonb_build_object(
                  'capturado_em', ${sqlIso(sql`po.capturado_em`)},
@@ -88,7 +106,14 @@ export class VendasIntegracaoService {
                  'ad_id', po.ad_id, 'gclid', po.gclid, 'gbraid', po.gbraid, 'wbraid', po.wbraid,
                  'fbclid', po.fbclid) end as origem
           from integracao_versao v
-          left join unidade u on u.id = ${ctx.unidadeId}::uuid
+          left join unidade u on u.id = ${empresa ? sql`v.unidade_id` : sql`${ctx.unidadeId}::uuid`}
+          ${
+            extras
+              ? sql`left join unidade uv on uv.id = v.unidade_id
+                    left join pedido_externo pe
+                           on v.fonte = 'pedido_externo' and pe.id = v.recurso_id and pe.tenant_id = v.tenant_id`
+              : sql``
+          }
           left join pedido_origem po
                  on v.fonte = 'pedido_externo' and po.pedido_id = v.recurso_id and po.tenant_id = v.tenant_id
           ${
@@ -99,7 +124,7 @@ export class VendasIntegracaoService {
          where v.tenant_id = ${ctx.tenantId}::uuid and v.recurso = 'venda'
            and v.atualizado_em is not null
            and v.atualizado_em <= now() - make_interval(secs => ${this.atrasoSeg})
-           ${ctx.lojaUnica ? sql`` : sql`and v.unidade_id = ${ctx.unidadeId}::uuid`}
+           ${ctx.lojaUnica || empresa ? sql`` : sql`and v.unidade_id = ${ctx.unidadeId}::uuid`}
            ${
              cur.posicao
                ? sql`and (v.atualizado_em, v.recurso_id) > (${cur.posicao.t}::timestamptz, ${cur.posicao.i}::uuid)`
@@ -117,7 +142,10 @@ export class VendasIntegracaoService {
 
     const pagina = linhas.slice(0, limite);
     const mapa = pagina.some((l) => l.foto?.itens?.length) ? await this.custosDaLeitura(ctx) : null;
-    const itens = pagina.map((l) => this.vendaDoContrato(l, comTelefone, mapa));
+    const itens = pagina.map((l) => {
+      const venda = this.vendaDoContrato(l, comTelefone, mapa, { com99, extras });
+      return extras ? { ...venda, ...camposRegemcast(l) } : venda;
+    });
     const ultimo = pagina[pagina.length - 1];
     return {
       itens,
@@ -130,11 +158,21 @@ export class VendasIntegracaoService {
   }
 
   /** A foto publicada no formato do contrato, com o que depende do token resolvido agora. */
-  private vendaDoContrato(l: any, comTelefone: boolean, mapa: Record<string, number> | null) {
+  private vendaDoContrato(
+    l: any,
+    comTelefone: boolean,
+    mapa: Record<string, number> | null,
+    o: { com99: boolean; extras: boolean } = { com99: false, extras: false },
+  ) {
     const f = l.foto as FotoVenda;
     const situacao = l.situacao as 'confirmado' | 'cancelado' | 'removido';
+    // Marketplace nunca manda cliente (D-A2.5-11) — exceto a 99Food com o escopo próprio, que só o
+    // RegemCast recebe (a autorização do dono fica registrada lá). Para o RegemCast, a lista dele
+    // (com o aiqfome) também conta; a resposta do Liame não muda.
+    const marketplace = f.grupo === 'marketplace' || (o.extras && MARKETPLACES_REGEMCAST.has(f.canal));
+    const clienteLiberado = !marketplace || (o.com99 && f.canal === '99food');
     const cliente =
-      comTelefone && f.grupo !== 'marketplace' && f.cliente
+      comTelefone && clienteLiberado && f.cliente
         ? { id: f.cliente.id, telefone: telefoneE164(l.telefone), novo: f.cliente.novo ?? null }
         : null;
     return {
@@ -257,4 +295,35 @@ export function custoDoItem(
   if (!Number.isFinite(unitario) || unitario < 0 || !Number.isFinite(q) || q < 0) return null;
   const c = Math.round(unitario * q * 100);
   return Number.isSafeInteger(c) && c >= 0 ? c : null;
+}
+
+/**
+ * Campos a mais do contrato do RegemCast (docs/integracao-regemcast.md), lidos na hora:
+ *  • `tipo`: entrega | retirada (pedido) · mesa | balcao (comanda — o totem direto é balcão);
+ *  • `bairro` e `cidade` da ENTREGA (retirada/balcão/mesa: `null`); "bairro" que é distância
+ *    ("~3.2 km", frete por raio) sai `null`; sem cidade no pedido (o cardápio não grava), a cidade
+ *    do cardápio da loja — a mesma regra da nota fiscal;
+ *  • `taxa_entrega_centavos`: a taxa cobrada no pedido (comanda: 0).
+ */
+export function camposRegemcast(l: any) {
+  const f = l.foto as FotoVenda;
+  const doPedido = f.fonte === 'pedido_externo';
+  const tipoPedido = String(l.x_tipo ?? '').toLowerCase();
+  const tipo = doPedido
+    ? tipoPedido === 'entrega' || tipoPedido === 'retirada'
+      ? tipoPedido
+      : null
+    : f.canal === 'mesa'
+      ? 'mesa'
+      : 'balcao';
+  const entrega = tipo === 'entrega';
+  const taxa = Math.round(Number(l.x_taxa));
+  return {
+    unidade_id: (l.x_unidade_id as string | null) ?? null,
+    unidade_nome: (l.x_unidade_nome as string | null) ?? null,
+    tipo,
+    bairro: entrega ? bairroOuNulo(l.x_bairro) : null,
+    cidade: entrega ? (String(l.x_cidade ?? '').trim() || String(l.x_cidade_loja ?? '').trim() || null) : null,
+    taxa_entrega_centavos: doPedido && Number.isFinite(taxa) && taxa > 0 ? taxa : 0,
+  };
 }

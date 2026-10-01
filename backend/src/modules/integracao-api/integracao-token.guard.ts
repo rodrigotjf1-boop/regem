@@ -23,7 +23,10 @@ import { IntegracaoTokenService } from './integracao-token.service';
 export type IntegracaoCtxData = {
   tokenId: string;
   tenantId: string;
-  unidadeId: string;
+  /** A loja do token; `null` = token da EMPRESA inteira (só o RegemCast — mig 302). */
+  unidadeId: string | null;
+  /** `loja` = token de uma loja (Liame); `empresa` = todas as lojas da empresa. */
+  abrangencia: 'loja' | 'empresa';
   /** A empresa tem UMA loja só (venda sem loja conta nela — a regra do Painel). */
   lojaUnica: boolean;
   escopos: EscopoIntegracao[];
