@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Res, UseFilters, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, Param, Post, Put, Query, Res, UseFilters, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
   ApiCreatedResponse,
   ApiHeader,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
@@ -24,6 +25,8 @@ import {
   PaginaCuponsIntegracao,
   PaginaUsosCupomIntegracao,
 } from './dto/cupons-integracao.dto';
+import { WebhookIntegracaoService } from './webhook-integracao.service';
+import { RegistrarWebhookIntegracao, WebhookIntegracao } from './dto/webhook-integracao.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -60,6 +63,7 @@ export class IntegracaoApiController {
     private readonly vendas: VendasIntegracaoService,
     private readonly cupons: CuponsIntegracaoService,
     private readonly clientesSvc: ClientesIntegracaoService,
+    private readonly webhooks: WebhookIntegracaoService,
   ) {}
 
   // Quem é a loja do token — qualquer escopo.
@@ -76,6 +80,43 @@ export class IntegracaoApiController {
   @ApiOperation({ summary: 'Revoga o próprio token (a chamada seguinte já volta 401).' })
   revogar(@IntegracaoCtx() ctx: IntegracaoCtxData) {
     return this.tokens.revogarPelaIntegracao(ctx);
+  }
+
+  // ───────────────────────────── aviso (webhook) — mig 304 ─────────────────────────────
+
+  // A integração diz para onde o Regem avisa "algo mudou nesta loja" — qualquer escopo. O aviso é
+  // só gatilho: quem recebe lê pela rota com cursor. O endereço tem de estar na lista do cliente.
+  @Put('webhook')
+  @ApiOperation({
+    summary: 'Registra (ou troca) o endereço e o segredo do aviso deste token. Registrar de novo religa o que estava pausado.',
+    description:
+      'O Regem manda um POST assinado (Standard Webhooks: webhook-id, webhook-timestamp, webhook-signature) quando há ' +
+      'venda, cupom, uso de cupom ou cliente anonimizado novo para a loja do token — só do que o escopo libera, no máximo ' +
+      'um por minuto por loja, e um aviso pode valer por várias mudanças (o id é o da mais recente). Corpo: ' +
+      '{ "tipo": "pedido.alterado" | "cupom.alterado", "id", "versao" }, { "tipo": "cupom.usado", "id", "cupom_id", ' +
+      '"pedido_id" } ou { "tipo": "cliente.anonimizado", "id" } — todos com "loja_id" (a loja do token; o token da ' +
+      'empresa inteira não manda). É só gatilho: aviso perdido ou repetido não muda nada. ' +
+      '422 endereco-nao-permitido: endereço fora da lista da integração; 503 aviso-indisponivel: tente de novo mais tarde.',
+  })
+  @ApiBody({ type: RegistrarWebhookIntegracao })
+  @ApiOkResponse({ type: WebhookIntegracao })
+  registrarWebhook(@IntegracaoCtx() ctx: IntegracaoCtxData, @Body() corpo: unknown) {
+    return this.webhooks.registrar(ctx, corpo);
+  }
+
+  @Get('webhook')
+  @ApiOperation({ summary: 'Situação do aviso deste token (nunca o segredo). Sem registro → 404.' })
+  @ApiOkResponse({ type: WebhookIntegracao })
+  webhook(@IntegracaoCtx() ctx: IntegracaoCtxData) {
+    return this.webhooks.ler(ctx);
+  }
+
+  @Delete('webhook')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Para de avisar (apaga o endereço e o segredo). Sem registro, responde 204 do mesmo jeito.' })
+  @ApiNoContentResponse()
+  async removerWebhook(@IntegracaoCtx() ctx: IntegracaoCtxData): Promise<void> {
+    await this.webhooks.remover(ctx);
   }
 
   // Vendas da loja (confirmadas, canceladas depois de confirmadas e removidas), com cursor.

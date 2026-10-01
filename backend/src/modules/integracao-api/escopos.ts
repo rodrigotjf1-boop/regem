@@ -108,6 +108,21 @@ export const AUTORIZACAO_LOJA: Record<
   },
 };
 
+/**
+ * AVISOS (webhooks, mig 304): para ONDE cada cliente pode pedir que o Regem mande o aviso de
+ * "algo mudou". O endereço que a integração registra (`PUT /integracao/webhook`) tem de ficar
+ * DENTRO de um destes: mesma origem e o caminho começando por ele, com um trecho só depois (o id
+ * da conexão no cliente). Quem define a lista é a distribuição (o padrão é o endereço de produção
+ * do cliente; a variável troca a lista inteira — teste, dev). Cliente sem entrada aqui não
+ * registra aviso: o Regem nunca faz chamada para endereço escolhido por quem tem só o token.
+ */
+export const WEBHOOK_INTEGRACAO: Record<string, { envUrls: string; padrao: readonly string[] }> = {
+  liame: {
+    envUrls: 'INTEGRACAO_LIAME_WEBHOOK_URLS',
+    padrao: ['https://api.agencialiame.com/v1/inbox/regem/'],
+  },
+};
+
 /** O que cada aplicativo é, para a tela "Aplicativos conectados" (o do Liame vem de cima). */
 export const DESCRICAO_CLIENTE: Record<string, string> = {
   liame: AUTORIZACAO_LOJA.liame.descricao,
