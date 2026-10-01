@@ -61,6 +61,59 @@ export function ehClienteIntegracao(v: unknown): v is string {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(CLIENTES_INTEGRACAO, v);
 }
 
+/** Um escopo que o presidente liga ou desliga na página de autorização. */
+export type EscopoOpcional = {
+  escopo: EscopoIntegracao;
+  /** Nome do campo no corpo de `POST /integracao-autorizacao` (true ou false, obrigatório). */
+  campo: string;
+  /** Como a chave nasce na página. */
+  padrao: boolean;
+  /** Só para quem tem "Ver valores em R$" no perfil. */
+  financeiro: boolean;
+};
+
+/**
+ * Autorização PELA LOJA (C1b, mig 303): o que a página "Autorizar o <cliente>" oferece.
+ * `sempre` = o que toda autorização leva; `opcionais` = o que o presidente decide. Escopo do
+ * cliente que não está aqui (o telefone do cliente, no Liame) NÃO sai por esta página — só pelo
+ * console da distribuição. `site` é só o que a página mostra como "você veio de".
+ *
+ * O segredo do cliente e os endereços de volta vêm do ambiente (a distribuição configura):
+ * sem o segredo, a página responde "ainda não disponível" e a troca recusa todo mundo. O
+ * endereço padrão é o de produção do cliente; a variável troca a lista inteira (teste, dev).
+ */
+export const AUTORIZACAO_LOJA: Record<
+  string,
+  {
+    descricao: string;
+    site: string;
+    sempre: readonly EscopoIntegracao[];
+    opcionais: readonly EscopoOpcional[];
+    envSegredo: string;
+    envRedirect: string;
+    redirectPadrao: readonly string[];
+  }
+> = {
+  liame: {
+    descricao: 'Marketing e tráfego pago · lê as vendas para medir os anúncios',
+    site: 'app.agencialiame.com',
+    sempre: ['pedidos.ler', 'clientes.anonimizacao.ler', 'cupons.ler', 'cupons.uso.ler'],
+    opcionais: [
+      { escopo: 'custos.ler', campo: 'custo', padrao: true, financeiro: true },
+      { escopo: 'cupons.criar', campo: 'cupom', padrao: false, financeiro: false },
+    ],
+    envSegredo: 'INTEGRACAO_LIAME_CLIENT_SECRET',
+    envRedirect: 'INTEGRACAO_LIAME_REDIRECT_URIS',
+    redirectPadrao: ['https://api.agencialiame.com/v1/oauth/callback'],
+  },
+};
+
+/** O que cada aplicativo é, para a tela "Aplicativos conectados" (o do Liame vem de cima). */
+export const DESCRICAO_CLIENTE: Record<string, string> = {
+  liame: AUTORIZACAO_LOJA.liame.descricao,
+  regemcast: 'Campanhas de WhatsApp · lê os clientes e as vendas da empresa',
+};
+
 export function ehEscopoIntegracao(v: unknown): v is EscopoIntegracao {
   return typeof v === 'string' && (ESCOPOS_INTEGRACAO as readonly string[]).includes(v);
 }

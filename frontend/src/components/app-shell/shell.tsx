@@ -31,6 +31,7 @@ import {
   PackageCheck,
   PanelLeftClose,
   PanelLeftOpen,
+  Plug,
   Settings,
   ShieldCheck,
   ShoppingCart,
@@ -63,6 +64,8 @@ type NavSub = {
   perm: string;
   soPres?: boolean;
   modulo?: string;
+  // Tela que só existe na nuvem: no servidor da loja o item nem aparece.
+  soNuvem?: boolean;
 };
 // Nó de 1º nível: pode ser um link direto (href) e/ou um grupo com `children`.
 type NavNode = {
@@ -143,6 +146,8 @@ const NAV: NavNode[] = [
       { href: '/wizard', label: 'Config. por ramo', icon: Wand2, perm: 'config_ramo' },
       { href: '/planos', label: 'Planos & assinatura', icon: CreditCard, perm: 'planos' },
       { href: '/config/acessos', label: 'Acessos & perfis', icon: ShieldCheck, perm: 'acessos' },
+      // Quem lê os dados das lojas com a autorização do presidente (Liame…): ver e revogar.
+      { href: '/integracoes', label: 'Aplicativos conectados', icon: Plug, perm: 'loja', soPres: true, soNuvem: true },
       { href: '/servidor', label: 'Servidor local', icon: HardDrive, perm: 'servidor' },
     ],
   },
@@ -367,7 +372,10 @@ export function Shell({
               }
               // Grupo: acordeão (clica no pai → expande/recolhe a lista).
               const kids = (node.children ?? []).filter(
-                (c) => temPerm(c.perm, perms, isPres) && (!c.soPres || isPres),
+                (c) =>
+                  temPerm(c.perm, perms, isPres) &&
+                  (!c.soPres || isPres) &&
+                  (!c.soNuvem || process.env.NEXT_PUBLIC_EDGE !== '1'),
               );
               if (kids.length === 0) return null;
               const temAtivo = kids.some((c) => c.href === path);

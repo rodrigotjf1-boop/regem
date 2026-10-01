@@ -20,6 +20,7 @@ export const CLOUD_ONLY_MODULES = [
   'ClienteModule', // identidade do cliente do cardápio (link mágico/OTP)
   'OnboardingModule', // wizard/onboarding da empresa (nasce na nuvem)
   'IntegracaoApiModule', // API de integração por token de loja (trilha C; tabela só-nuvem, mig 295)
+  'AutorizacaoLojaModule', // autorização pela loja + aplicativos conectados (trilha C, C1b; mig 303)
 ] as const;
 
 // Operacional — roda LOCAL (fonte da verdade da loja). Entra no bundle do edge.

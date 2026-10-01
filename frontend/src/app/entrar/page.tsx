@@ -13,6 +13,24 @@ import {
   setWorkspace,
   type Workspace,
 } from '@/lib/api';
+import { voltaAutorizacao, quemEsperaAutorizacao } from '@/lib/volta-autorizacao';
+
+// Aviso do topo do login: a autorização de aplicativo que espera este login (trilha C, C1b —
+// tem prioridade: é o que a pessoa veio fazer) ou a sessão que expirou.
+function AvisoDeEntrada({ autorizando, expirada }: { autorizando: string | null; expirada: boolean }) {
+  if (!autorizando && !expirada) return null;
+  const cor = autorizando ? '232,168,69' : '224,106,60';
+  return (
+    <div
+      role="status"
+      style={{ background: `rgba(${cor},.12)`, border: `1px solid rgba(${cor},.4)`, color: autorizando ? '#F3DDB0' : '#E06A3C', borderRadius: 11, padding: '10px 14px', fontSize: 13, marginBottom: 18, textAlign: 'center' }}
+    >
+      {autorizando
+        ? `Entre para autorizar ${autorizando}. Depois de entrar, você volta para a autorização.`
+        : 'Sua sessão expirou. Entre novamente para continuar.'}
+    </div>
+  );
+}
 
 // Login (split-screen). Porte fiel do mockup Fable "regem-login" — CSS escopado em .lg.
 const CSS = `
@@ -192,6 +210,8 @@ export default function LoginPage() {
   const [pi, setPi] = useState(0);
   const [fade, setFade] = useState(false);
   const [expirada, setExpirada] = useState(false);
+  // Quem pediu a autorização que espera este login ("o Liame"); null = login comum.
+  const [autorizando, setAutorizando] = useState<string | null>(null);
   const [lembrar, setLembrar] = useState(true);
   // Workspace da loja (Fase 2): quando este PC já sabe qual empresa atende, a
   // tela vira "a entrada daquela loja" e o apelido passa a ser aceito no login.
@@ -204,12 +224,14 @@ export default function LoginPage() {
   const [passo, setPasso] = useState<'empresa' | 'entrar'>('empresa');
 
   useEffect(() => {
-    // Já autenticado? Vai direto pro app (não mostra o login de novo).
+    // Já autenticado? Vai direto pro app (não mostra o login de novo) — ou de volta à
+    // autorização de aplicativo que estava esperando o login.
     if (getToken()) {
-      router.replace(rotaInicial(getCategoria()));
+      router.replace(voltaAutorizacao() ?? rotaInicial(getCategoria()));
       return;
     }
     setExpirada(new URLSearchParams(window.location.search).get('expirada') === '1');
+    setAutorizando(quemEsperaAutorizacao());
     // No EDGE a empresa/unidade já são fixas (instalação): não pergunta e-mail —
     // abre direto no login com nome/logo da loja, resolvidos pela unidade local.
     if (process.env.NEXT_PUBLIC_EDGE === '1') {
@@ -313,7 +335,8 @@ export default function LoginPage() {
       const r = await api.login(email, senha, ws?.tenantId);
       await estabelecerSessao(r.access_token, lembrar);
       // Landing por perfil (só gestor tem dashboard). replace: não volta ao login.
-      router.replace(rotaInicial(getCategoria()));
+      // Quem veio autorizar um aplicativo (o Liame) volta para a autorização.
+      router.replace(voltaAutorizacao() ?? rotaInicial(getCategoria()));
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Usuário ou senha incorretos.');
     } finally {
@@ -399,14 +422,7 @@ export default function LoginPage() {
             {unidades.length <= 1 && ws?.unidadeNome && <span className="lock-uni">{ws.unidadeNome}</span>}
             <p className="lock-welcome">Seja bem-vindo 👋 entre com o seu acesso</p>
 
-            {expirada && (
-              <div
-                role="status"
-                style={{ background: 'rgba(224,106,60,.12)', border: '1px solid rgba(224,106,60,.4)', color: '#E06A3C', borderRadius: 11, padding: '10px 14px', fontSize: 13, marginBottom: 18, textAlign: 'center' }}
-              >
-                Sua sessão expirou. Entre novamente para continuar.
-              </div>
-            )}
+            <AvisoDeEntrada autorizando={autorizando} expirada={expirada} />
 
             {/* Escolha da unidade — listview que só aparece quando a rede tem mais de
                 uma. Fechado por padrão: clica pra abrir a lista das unidades. */}
@@ -574,14 +590,7 @@ export default function LoginPage() {
             <h2 className="form-title">Qual é a sua empresa?</h2>
             <p className="form-sub">Informe o e-mail da empresa para começar</p>
 
-            {expirada && (
-              <div
-                role="status"
-                style={{ background: 'rgba(224,106,60,.12)', border: '1px solid rgba(224,106,60,.4)', color: '#E06A3C', borderRadius: 11, padding: '10px 14px', fontSize: 13, marginBottom: 18, textAlign: 'center' }}
-              >
-                Sua sessão expirou. Entre novamente para continuar.
-              </div>
-            )}
+            <AvisoDeEntrada autorizando={autorizando} expirada={expirada} />
 
             <form onSubmit={abrirWorkspace} noValidate>
               <div className="field">

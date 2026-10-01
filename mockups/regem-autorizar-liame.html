@@ -1,0 +1,545 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Mockup aprovado pelo dono em 01/10/2026 (trilha C, C1b): a página "Autorizar o Liame" e a tela "Aplicativos conectados". -->
+<title>Autorizar o Liame</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+html{-webkit-text-size-adjust:100%}body{margin:0}[hidden]{display:none!important}
+/* Layout: coluna de leitura do Regem + uma "janela" que mostra a tela nova em cada situação.
+   Fora da janela, a página segue o tema de quem lê; dentro, a tela é sempre o tema claro do Regem (.app-light). */
+:root{
+  --bg:#EDF0F4; --surface:#FFFFFF; --ink:#0F2230; --ink-2:#4A5B6B; --line:#D5DCE4;
+  --gold:#E2A340; --gold-ink:#2A1D06; --gold-soft:#F6E7CB; --moldura:#0F2230;
+  /* a tela do Regem (fixa no claro) */
+  --t-bg:#EDF0F4; --t-surface:#FFFFFF; --t-surface-2:#F7F9FB; --t-ink:#0F2230; --t-ink-2:#4A5B6B; --t-ink-3:#66788A;
+  --t-line:#DEE5EC; --t-line-2:#C8D2DC; --t-navy:#0F2230; --t-gold:#E2A340; --t-gold-ink:#2A1D06; --t-gold-soft:#FCF5E6;
+  --t-ok:#0E7C66; --t-ok-soft:#E3F2EE; --t-warn:#A8501F; --t-warn-soft:#FBEADF; --t-danger:#B83232; --t-danger-soft:#FBE9E9;
+  --t-liame:#7B61FF; --t-liame-ink:#FFFFFF;
+  --f-d:'Archivo',system-ui,sans-serif; --f-b:'Figtree',system-ui,sans-serif; --f-m:'JetBrains Mono',ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0B1822; --surface:#12222F; --ink:#E6ECF2; --ink-2:#9FB2C8; --line:#22384A; --gold-soft:#3A2E17; --moldura:#050C12; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0B1822; --surface:#12222F; --ink:#E6ECF2; --ink-2:#9FB2C8; --line:#22384A; --gold-soft:#3A2E17; --moldura:#050C12; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-b);font-size:15px;line-height:1.55;padding-inline:16px;padding-block:28px 56px}
+.wrap{max-width:1120px;margin:0 auto;display:grid;gap:36px}
+.col{max-width:72ch;display:grid;gap:14px}
+h1,h2,h3,h4{font-family:var(--f-d);line-height:1.2;text-wrap:balance;margin:0}
+h1{font-size:clamp(26px,4vw,34px);font-weight:800;letter-spacing:-.01em}
+.wrap > section > h2, .col > h2{font-size:20px;font-weight:800}
+p{margin:0}
+a{color:inherit}
+.eyebrow{font-family:var(--f-m);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+.lead{color:var(--ink-2);font-size:16px}
+.mono{font-family:var(--f-m);font-variant-numeric:tabular-nums}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- escolha da situação ---------- */
+.palco{display:grid;gap:14px}
+.cenarios{display:flex;flex-wrap:wrap;gap:8px}
+.cen{font:600 13px var(--f-b);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:7px 13px;cursor:pointer}
+.cen[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--gold-ink)}
+.barra-palco{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
+.cen-desc{color:var(--ink-2);font-size:14px;max-width:70ch}
+.larguras{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:none}
+.larguras button{font:600 12.5px var(--f-b);padding:6px 12px;border:0;background:var(--surface);color:var(--ink-2);cursor:pointer}
+.larguras button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+
+/* ---------- a janela ---------- */
+.janela{position:relative;width:100%;margin-inline:auto;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--t-bg);
+  box-shadow:0 22px 44px -28px rgba(15,34,48,.6)}
+.janela[data-largura="celular"]{max-width:392px}
+.jan-topo{display:flex;align-items:center;gap:10px;background:var(--moldura);padding:9px 12px}
+.jan-topo i{width:9px;height:9px;border-radius:50%;background:#42586B;flex:none}
+.jan-url{flex:1;min-width:0;background:#1B3244;color:#C9D6E2;border-radius:7px;padding:4px 10px;font:500 11.5px var(--f-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tela{container-type:inline-size;color:var(--t-ink);font-family:var(--f-b);font-size:14.5px;line-height:1.5;background:var(--t-bg);min-height:420px;color-scheme:light}
+.tela h2{font-size:22px;font-weight:800}
+.tela h3{font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px}
+.tela h3 .n{font:700 11px var(--f-m);width:20px;height:20px;border-radius:50%;background:var(--t-navy);color:#fff;display:grid;place-items:center;flex:none}
+.tela h4{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--t-ink-3)}
+.ic{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ic-sm{width:15px;height:15px}
+
+.t-topo{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--t-navy);color:#fff;padding:11px 18px}
+.t-marca{display:flex;align-items:center;gap:9px;font:800 16px var(--f-d)}
+.t-mark{width:26px;height:26px;border-radius:50%;border:2px solid var(--t-gold);color:var(--t-gold);display:grid;place-items:center;font:800 12px var(--f-d)}
+.t-quem{display:grid;text-align:right;font-size:12px;line-height:1.3;color:#B9C8D6;min-width:0}
+.t-quem b{color:#fff;font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-corpo{padding:26px 16px 34px;display:grid;justify-items:center}
+.t-cartao{width:100%;max-width:640px;background:var(--t-surface);border:1px solid var(--t-line);border-radius:14px;padding:26px;display:grid;gap:22px}
+.t-cartao--curto{max-width:480px;text-align:center;justify-items:center;gap:14px}
+.t-par{display:flex;align-items:center;gap:12px;color:var(--t-ink-3)}
+.t-cartao--curto .t-par{justify-content:center}
+.selo{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font:800 20px var(--f-d);flex:none}
+.selo--liame{background:var(--t-liame);color:var(--t-liame-ink)}
+.selo--regem{background:var(--t-navy);color:var(--t-gold);border-radius:50%;box-shadow:inset 0 0 0 2px var(--t-gold)}
+.selo--p{width:30px;height:30px;font-size:14px;border-radius:9px}
+.t-cab{display:grid;gap:8px}
+.t-sub{color:var(--t-ink-2)}
+.t-sec{display:grid;gap:10px}
+.t-ajuda{font-size:13px;color:var(--t-ink-2)}
+
+.t-loja{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;align-items:start;border:1px solid var(--t-line);border-radius:11px;padding:12px 14px;cursor:pointer}
+.t-loja:has(input:checked){border-color:var(--t-gold);background:var(--t-gold-soft)}
+.t-loja input{width:18px;height:18px;margin:2px 0 0;accent-color:#B97D1E}
+.t-loja b{font-weight:700}
+.t-loja small{grid-column:2;font-size:12.5px;color:var(--t-ink-2)}
+.t-loja .linha{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.chip{display:inline-flex;align-items:center;gap:5px;font:600 11.5px var(--f-b);border-radius:999px;padding:2px 9px;white-space:nowrap}
+.chip--ok{background:var(--t-ok-soft);color:var(--t-ok)}
+.chip--neutro{background:var(--t-surface-2);color:var(--t-ink-2);border:1px solid var(--t-line)}
+.chip--atencao{background:var(--t-warn-soft);color:var(--t-warn)}
+.chip--perigo{background:var(--t-danger-soft);color:var(--t-danger)}
+.erro{color:var(--t-danger);font-size:13px;font-weight:600}
+
+.itens{list-style:none;margin:0;padding:0;display:grid;gap:0;border:1px solid var(--t-line);border-radius:11px;overflow:hidden}
+.itens li{display:grid;grid-template-columns:auto 1fr auto;gap:2px 12px;align-items:start;padding:11px 14px;border-top:1px solid var(--t-line)}
+.itens li:first-child{border-top:0}
+.itens .ic{margin-top:2px}
+.itens .ok{color:var(--t-ok)}
+.itens .cad{color:var(--t-ink-3)}
+.itens b{font-weight:700}
+.itens .txt{grid-column:2;font-size:13px;color:var(--t-ink-2)}
+.itens code{grid-column:2;font:500 11px var(--f-m);color:var(--t-ink-3)}
+.itens .lado{grid-row:1 / span 3;grid-column:3;align-self:center}
+.itens li.desligado b{color:var(--t-ink-2)}
+.sw{width:44px;height:26px;border-radius:999px;border:0;background:var(--t-line-2);position:relative;cursor:pointer;flex:none;padding:0}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(15,34,48,.3);transition:transform .15s}
+.sw[aria-checked="true"]{background:var(--t-ok)}
+.sw[aria-checked="true"]::after{transform:translateX(18px)}
+.sw:disabled{opacity:.55;cursor:not-allowed}
+@media (prefers-reduced-motion:reduce){.sw::after{transition:none}.gira{animation:none!important}}
+
+.t-nota{display:flex;gap:10px;background:var(--t-surface-2);border:1px solid var(--t-line);border-radius:11px;padding:12px 14px;font-size:13px;color:var(--t-ink-2);text-align:left}
+.t-nota .ic{color:var(--t-ink-3);margin-top:1px}
+.t-nota--atencao{background:var(--t-warn-soft);border-color:#F1CDB6;color:#6B3413}
+.t-nota--atencao .ic{color:var(--t-warn)}
+.t-acoes{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
+.t-cartao--curto .t-acoes{justify-content:center}
+.btn{font:700 14px var(--f-b);border-radius:10px;padding:11px 18px;cursor:pointer;border:1px solid transparent;display:inline-flex;align-items:center;gap:7px;text-decoration:none}
+.btn--pri{background:var(--t-gold);color:var(--t-gold-ink)}
+.btn--sec{background:var(--t-surface);border-color:var(--t-line-2);color:var(--t-ink)}
+.btn--perigo{background:var(--t-surface);border-color:#E3B1B1;color:var(--t-danger)}
+.btn--cheio-perigo{background:var(--t-danger);color:#fff}
+.btn--p{padding:6px 11px;font-size:12.5px;border-radius:8px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn{white-space:nowrap}
+.t-rodape{font-size:12.5px;color:var(--t-ink-3)}
+.disco{width:56px;height:56px;border-radius:50%;display:grid;place-items:center}
+.disco .ic{width:26px;height:26px}
+.disco--ok{background:var(--t-ok-soft);color:var(--t-ok)}
+.disco--atencao{background:var(--t-warn-soft);color:var(--t-warn)}
+.disco--perigo{background:var(--t-danger-soft);color:var(--t-danger)}
+.gira{width:16px;height:16px;border-radius:50%;border:2px solid var(--t-line-2);border-top-color:var(--t-ink);animation:gira .8s linear infinite;flex:none}
+@keyframes gira{to{transform:rotate(360deg)}}
+.indo{display:inline-flex;align-items:center;gap:9px;color:var(--t-ink-2);font-weight:600}
+.lk{background:none;border:0;padding:0;font:inherit;font-weight:700;color:var(--t-ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+
+/* entrar (a tela de login do Regem já existe e é escura; aqui só o que muda) */
+.t-login{background:#0D1A2B;color:#F2F5F9;padding:30px 16px 38px;display:grid;justify-items:center;gap:16px;min-height:420px}
+.t-login .aviso{width:100%;max-width:400px;background:rgba(226,163,64,.12);border:1px solid rgba(226,163,64,.4);border-radius:11px;padding:11px 14px;font-size:13px;color:#F3DDB0;display:flex;gap:10px}
+.t-login .aviso .ic{color:var(--t-gold);margin-top:1px}
+.t-login .cartao{width:100%;max-width:400px;display:grid;gap:14px}
+.t-login h2{text-align:center}
+.t-login .campo{display:grid;gap:6px;font-size:13px;font-weight:700}
+.t-login .campo span{background:#12233A;border:1.5px solid #1A3050;border-radius:11px;padding:12px 14px;color:#5F7590;font-weight:400;font-size:14px}
+.t-login .btn{justify-content:center}
+
+/* aplicativos conectados (dentro do app, com o menu) */
+.t-shell{display:grid;grid-template-columns:200px 1fr;min-height:520px}
+.t-menu{background:var(--t-navy);color:#B9C8D6;padding:16px 10px;display:grid;gap:3px;align-content:start;font-size:13px}
+.t-menu > .t-marca{color:#fff;padding:0 8px 14px}
+.t-menu > span{padding:7px 10px;border-radius:8px}
+.t-menu .grupo{font:700 10px var(--f-d);letter-spacing:.12em;text-transform:uppercase;color:#6F859A;padding:12px 10px 4px}
+.t-menu .on{background:rgba(226,163,64,.16);color:var(--t-gold);font-weight:700}
+.t-pagina{padding:24px 22px 32px;display:grid;gap:18px;align-content:start;min-width:0}
+.t-pagina > header{display:grid;gap:4px}
+.t-app{background:var(--t-surface);border:1px solid var(--t-line);border-radius:14px;display:grid}
+.t-app-cab{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:16px 18px}
+.t-app-cab .nome{display:grid;line-height:1.3;margin-right:auto}
+.t-app-cab .nome b{font:800 16px var(--f-d)}
+.t-app-cab .nome span{font-size:12.5px;color:var(--t-ink-2)}
+.rolagem{overflow-x:auto;border-top:1px solid var(--t-line)}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:13.5px}
+th{font:700 11px var(--f-d);letter-spacing:.08em;text-transform:uppercase;color:var(--t-ink-3);text-align:left;padding:9px 18px;background:var(--t-surface-2)}
+td{padding:11px 18px;border-top:1px solid var(--t-line);vertical-align:middle}
+td small{display:block;color:var(--t-ink-2);font-size:12.5px}
+td b{white-space:nowrap}
+td:last-child,th:last-child{text-align:right}
+tr.fora td{color:var(--t-ink-3)}
+.t-app-pe{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--t-line);font-size:13px;color:var(--t-ink-2)}
+.t-app-pe p{max-width:56ch}
+.vazio{background:var(--t-surface);border:1px dashed var(--t-line-2);border-radius:14px;padding:34px 20px;display:grid;justify-items:center;gap:8px;text-align:center}
+.vazio .ic{width:28px;height:28px;color:var(--t-ink-3)}
+.vazio p{color:var(--t-ink-2);max-width:46ch}
+.t-barra{display:none}
+
+/* diálogo e aviso, por cima da janela */
+.fundo{position:absolute;inset:0;background:rgba(15,34,48,.5);display:grid;place-items:center;padding:16px;z-index:5}
+.dlg{background:var(--t-surface);color:var(--t-ink);border-radius:14px;padding:22px;max-width:420px;width:100%;display:grid;gap:12px;font-size:14.5px;color-scheme:light}
+.dlg h3{font-size:17px;font-weight:800}
+.dlg p{color:var(--t-ink-2)}
+.toast{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);background:var(--t-navy);color:#fff;border-radius:10px;padding:10px 16px;font-size:13.5px;font-weight:600;z-index:6;max-width:calc(100% - 32px);text-align:center}
+
+@container (max-width:620px){
+  .t-cartao{padding:18px}
+  .tela h2{font-size:19px}
+  .t-acoes .btn{flex:1;justify-content:center}
+  .itens li{grid-template-columns:auto 1fr}
+  .itens .lado{grid-row:auto;grid-column:2;justify-self:start;margin-top:6px}
+  .t-quem span{display:none}
+  .t-shell{grid-template-columns:1fr}
+  .t-menu{display:none}
+  .t-barra{display:flex}
+  .t-pagina{padding:18px 14px 26px}
+}
+
+/* ---------- textos e decisões ---------- */
+.painel{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px 20px;display:grid;gap:12px}
+.painel h3{font-size:15px;font-weight:700}
+.passos{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}
+.passos li{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:grid;gap:6px;align-content:start}
+.passos .onde{font:700 10.5px var(--f-m);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2)}
+.passos b{font-family:var(--f-d);font-size:15px}
+.passos span{font-size:14px;color:var(--ink-2)}
+ul.regras,ol.aprovar{margin:0;padding-left:20px;display:grid;gap:9px}
+ol.aprovar li::marker{font-family:var(--f-m);font-weight:700}
+ol.aprovar small{display:block;color:var(--ink-2);font-size:13.5px}
+.refs{overflow-x:auto}
+.refs table{min-width:640px;font-size:14px}
+.refs th{background:transparent;color:var(--ink-2);padding:8px 12px 8px 0;border-bottom:1px solid var(--line)}
+.refs td{padding:10px 12px 10px 0;border-top:0;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+.refs td:last-child,.refs th:last-child{text-align:left}
+.nota{font-size:13px;color:var(--ink-2)}
+code{font-family:var(--f-m);font-size:.86em}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.500-7-4.500-7-9V6z"/><path d="M9.500 12l2 2 3.500-4"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17.500v.01"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-troca" viewBox="0 0 24 24"><path d="M4 9h15l-3.500-3.500M20 15H5l3.500 3.500"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.500v.01"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="col">
+    <span class="eyebrow">Regem · integrações · Trilha C, C1b · aprovado em 01/10/2026</span>
+    <h1>Autorizar o Liame</h1>
+    <p class="lead">A página do Regem onde o presidente escolhe as lojas e o que o Liame recebe, e a tela onde ele confere e revoga depois. Hoje o token do piloto nasce pela distribuição; com esta página, o próprio cliente autoriza, sem ninguém copiar segredo.</p>
+  </header>
+
+  <section class="palco" aria-labelledby="t-palco">
+    <h2 id="t-palco" class="sr">A tela em cada situação</h2>
+    <div class="cenarios" id="cenarios" role="group" aria-label="Situação mostrada"></div>
+    <div class="barra-palco">
+      <p class="cen-desc" id="cen-desc" aria-live="polite"></p>
+      <div class="larguras" role="group" aria-label="Largura da janela">
+        <button type="button" data-largura="computador" aria-pressed="true">Computador</button>
+        <button type="button" data-largura="celular" aria-pressed="false">Celular</button>
+      </div>
+    </div>
+    <div class="janela" id="janela" data-largura="computador">
+      <div class="jan-topo" aria-hidden="true"><i></i><i></i><i></i><span class="jan-url" id="jan-url"></span></div>
+      <div class="tela" id="tela"></div>
+    </div>
+    <p class="nota">Exemplo com a empresa e as lojas do protótipo do Liame (Mister Burgers, Centro e Barra). Os botões da janela respondem ao clique.</p>
+  </section>
+
+  <section class="col" style="max-width:none" aria-labelledby="t-fluxo">
+    <h2 id="t-fluxo">O caminho inteiro</h2>
+    <ol class="passos">
+      <li><span class="onde">1 · no Liame</span><b>Conectar o Regem</b><span>Em Contas conectadas, a pessoa lê o que vai acontecer e toca em “Ir para o Regem”.</span></li>
+      <li><span class="onde">2 · no Regem</span><b>Entrar e autorizar</b><span>Entra com a conta do Regem (se já não estiver), escolhe as lojas, confere o que vai e toca em “Autorizar”.</span></li>
+      <li><span class="onde">3 · entre servidores</span><b>O acesso vai direto</b><span>O Regem devolve um código de uso único (10 minutos). O Liame troca o código por um token de cada loja, sem passar pelo navegador.</span></li>
+      <li><span class="onde">4 · no Liame</span><b>Ligar as lojas</b><span>De volta, a pessoa liga cada loja do Regem a uma loja do Liame. A primeira leitura traz 90 dias.</span></li>
+    </ol>
+  </section>
+
+  <section class="col" aria-labelledby="t-regras">
+    <h2 id="t-regras">Regras</h2>
+    <ul class="regras">
+      <li><b>Só o presidente autoriza.</b> O servidor confere o nível no momento do clique; gerente, supervisão e execução veem a recusa e nada é compartilhado.</li>
+      <li><b>O custo dos itens só sai com “Ver valores em R$”</b> no perfil de quem autoriza, a mesma regra do token emitido pela distribuição.</li>
+      <li><b>Um token por loja.</b> O Regem guarda só o hash; o Liame guarda cifrado. O token nunca aparece em tela, link ou e-mail.</li>
+      <li><b>Nada nasce no clique.</b> O token só é criado quando o Liame troca o código. Se a troca não acontecer em 10 minutos, o código vence e nada foi liberado.</li>
+      <li><b>Loja que já estava conectada</b> (o piloto, pela distribuição) ganha um token novo, e o antigo para de valer na mesma hora.</li>
+      <li><b>O Regem só devolve a pessoa a um endereço cadastrado</b> por nós para o Liame. Pedido com endereço desconhecido, sem o código de conferência ou vencido para na página de erro e não redireciona.</li>
+      <li><b>Tudo vai para a auditoria:</b> quem autorizou, quando, quais lojas, o que foi liberado, e cada revogação.</li>
+      <li><b>Só na nuvem.</b> O servidor da loja não tem estas telas nem estas rotas.</li>
+    </ul>
+  </section>
+
+  <section class="col" aria-labelledby="t-aprovar">
+    <h2 id="t-aprovar">Aprovado em 01/10/2026</h2>
+    <div class="painel">
+      <ol class="aprovar">
+        <li><b>A página de autorização fica fora do menu</b>, só com a barra do Regem no topo.<small>A pessoa vem de outro produto para uma decisão só; o menu inteiro distrai e convida a sair no meio.</small></li>
+        <li><b>O que vai sempre e o que o presidente decide.</b><small>Sempre: pedidos, aviso de cliente anonimizado, cupons e usos dos cupons. Com chave: custo dos itens (ligado) e criar cupom de campanha (desligado).</small></li>
+        <li><b>Telefone do cliente fica de fora desta versão.</b><small>O Liame não pede. Ele só serve para ligar conversa de WhatsApp a pedido, que depende do RegemCast; quando chegar, é uma autorização nova, com o texto próprio.</small></li>
+        <li><b>A autorização vale até ser revogada</b>, sem prazo.<small>Alternativa: vencer em 12 meses e pedir de novo, como no Open Finance. Sem prazo dá menos trabalho e a revogação fica a um clique.</small></li>
+        <li><b>Tela nova “Aplicativos conectados”</b> em Configurações, só para o presidente, com revogar por loja.<small>Mostra também o token emitido pela distribuição (como o do piloto), sem nenhum segredo: é o cliente vendo quem lê os dados dele.</small></li>
+        <li><b>Os textos</b> da janela acima.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="col" style="max-width:none" aria-labelledby="t-refs">
+    <h2 id="t-refs">De onde veio o desenho</h2>
+    <div class="refs">
+      <table>
+        <caption class="sr">Referências de mercado, por trilha</caption>
+        <thead><tr><th>Trilha</th><th>Produto</th><th>O que aproveitei</th><th>Fonte</th></tr></thead>
+        <tbody>
+          <tr><td>Tradicional</td><td>GitHub · autorizar aplicativo</td><td>Uma página só, com o efeito da autorização em cada organização. Aqui: em cada loja.</td><td><a href="https://docs.github.com/en/apps/oauth-apps/using-oauth-apps/authorizing-oauth-apps">docs.github.com</a> · verificado em 01/10/2026</td></tr>
+          <tr><td>Moderno</td><td>Google · permissões granulares</td><td>Cada permissão opcional com a própria chave; o aplicativo não pode supor que recebeu tudo.</td><td><a href="https://developers.google.com/identity/protocols/oauth2/resources/granular-permissions">developers.google.com</a> · verificado em 01/10/2026</td></tr>
+          <tr><td>Inovador</td><td>Open Finance Brasil · jornada de consentimento</td><td>Ir, confirmar e voltar; escolher quais contas entram; finalidade e prazo ditos na tela; revogar pelo mesmo canal.</td><td><a href="https://openfinancebrasil.org.br/perguntas-frequentes/">openfinancebrasil.org.br</a> · verificado em 01/10/2026</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="nota">Recomendo a página única (tradicional) com as chaves do moderno e a clareza de “o que vai e o que não vai” do Open Finance. Um passo a passo em várias telas não se paga com uma ou duas lojas.</p>
+  </section>
+</div>
+
+<script>
+const ic = (id, cls = 'ic') => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
+const LOJAS = [
+  { id: 'centro', nome: 'Loja Centro', tipo: 'Matriz' },
+  { id: 'barra', nome: 'Loja Barra', tipo: 'Filial' },
+];
+const SEMPRE = [
+  { cod: 'pedidos.ler', rot: 'Pedidos', txt: 'Pedidos confirmados e cancelados, com itens, canal, cupom usado e de qual anúncio ou link o cliente veio.' },
+  { cod: 'clientes.anonimizacao.ler', rot: 'Aviso de cliente anonimizado', txt: 'Quando um cliente pede para ser esquecido no Regem, o Liame é avisado para apagar o que tiver dele.' },
+  { cod: 'cupons.ler', rot: 'Cupons', txt: 'Os cupons da loja, com regra e validade.' },
+  { cod: 'cupons.uso.ler', rot: 'Usos dos cupons', txt: 'Em qual pedido cada cupom foi usado, quando e com que valor.' },
+];
+const CENARIOS = {
+  presidente: { rot: 'Presidente, duas lojas', url: 'app.dmsregem.com/integracoes/autorizar?cliente=liame&state=…', desc: 'O caso comum: o presidente chega do Liame já logado no Regem, marca as lojas, decide o custo e o cupom, e autoriza.' },
+  conectada: { rot: 'Uma loja, já conectada', url: 'app.dmsregem.com/integracoes/autorizar?cliente=liame&state=…', desc: 'O piloto de hoje: uma loja só, com o token emitido pela distribuição. Autorizar de novo troca o token.' },
+  semfinanceiro: { rot: 'Sem permissão financeira', url: 'app.dmsregem.com/integracoes/autorizar?cliente=liame&state=…', desc: 'Presidente cujo perfil não tem “Ver valores em R$”: autoriza os pedidos, mas a chave do custo fica travada.' },
+  gerente: { rot: 'Não é presidente', url: 'app.dmsregem.com/integracoes/autorizar?cliente=liame&state=…', desc: 'Quem chegou está logado como gerente. A página explica e oferece trocar de conta; nada é compartilhado.' },
+  entrar: { rot: 'Precisa entrar', url: 'app.dmsregem.com/entrar?voltar=/integracoes/autorizar…', desc: 'Sem sessão no Regem, a pessoa cai no login de sempre, com um aviso no topo, e volta para a autorização depois de entrar.' },
+  invalido: { rot: 'Link inválido', url: 'app.dmsregem.com/integracoes/autorizar?cliente=liame', desc: 'O pedido chegou incompleto, vencido ou com um endereço de volta que o Regem não conhece. A página para aqui e não redireciona.' },
+  conectados: { rot: 'Aplicativos conectados', url: 'app.dmsregem.com/integracoes', desc: 'Dentro do Regem, em Configurações: quem lê os dados das lojas, desde quando, o último acesso e o botão de revogar.' },
+  vazio: { rot: 'Aplicativos conectados, vazio', url: 'app.dmsregem.com/integracoes', desc: 'Empresa que nunca autorizou nenhuma ferramenta.' },
+};
+const novo = () => ({ lojas: { centro: true, barra: true }, custo: true, cupom: false, fase: 'escolha', erro: false, revogadas: {}, dlg: null, toast: null });
+let cen = 'presidente';
+let est = novo();
+const tela = document.getElementById('tela');
+const janela = document.getElementById('janela');
+
+const topo = (quem, papel) => `
+  <header class="t-topo"><span class="t-marca"><span class="t-mark">R</span>Regem</span>
+  <span class="t-quem"><b>Mister Burgers</b><span>${quem} · ${papel}</span></span></header>`;
+const par = (p = '') => `<div class="t-par"><span class="selo selo--liame ${p}" role="img" aria-label="Liame">L</span>${ic('i-troca')}<span class="selo selo--regem ${p}" role="img" aria-label="Regem">R</span></div>`;
+const lojasDoCenario = () => (cen === 'conectada' ? [LOJAS[0]] : LOJAS);
+const marcadas = () => lojasDoCenario().filter((l) => est.lojas[l.id]);
+const plural = (n, um, varios) => `${n} ${n === 1 ? um : varios}`;
+
+function telaAutorizar() {
+  const lojas = lojasDoCenario();
+  const uma = lojas.length === 1;
+  const semFin = cen === 'semfinanceiro';
+  const custoOn = est.custo && !semFin;
+  const n = marcadas().length;
+  return `${topo('Rodrigo', 'presidente')}
+  <main class="t-corpo"><form class="t-cartao" id="form-autorizar" novalidate>
+    <div class="t-cab">${par()}
+      <h2>O Liame quer ler as vendas ${uma ? 'da sua loja' : 'das suas lojas'}</h2>
+      <p class="t-sub">O Liame mede quais anúncios viraram pedido no caixa. Ele só lê o que estiver marcado aqui; não muda pedido, preço nem cardápio. Você veio de <span class="mono">app.agencialiame.com</span> e volta para lá ao terminar.</p>
+    </div>
+    <section class="t-sec" aria-labelledby="s-lojas">
+      <h3 id="s-lojas"><span class="n">1</span>${uma ? 'A loja' : 'Quais lojas'}</h3>
+      ${lojas.map((l) => `
+        <label class="t-loja"><input type="checkbox" data-loja="${l.id}" ${est.lojas[l.id] ? 'checked' : ''}>
+          <span class="linha"><b>${l.nome}</b><span class="chip chip--neutro">${l.tipo}</span>${cen === 'conectada' ? '<span class="chip chip--ok">Conectada desde 30/09/2026</span>' : ''}</span>
+          ${cen === 'conectada' ? '<small>Autorizar de novo troca o token desta loja: o antigo para de valer na hora, e a leitura continua de onde parou.</small>' : ''}
+        </label>`).join('')}
+      ${est.erro ? `<p class="erro" role="alert">Marque ao menos uma loja.</p>` : ''}
+    </section>
+    <section class="t-sec" aria-labelledby="s-recebe">
+      <h3 id="s-recebe"><span class="n">2</span>O que o Liame recebe de cada loja marcada</h3>
+      <h4>Sempre</h4>
+      <ul class="itens">${SEMPRE.map((e) => `<li>${ic('i-check', 'ic ok')}<b>${e.rot}</b><span class="txt">${e.txt}</span><code>${e.cod}</code></li>`).join('')}</ul>
+      <h4>Você decide</h4>
+      <ul class="itens">
+        <li class="${custoOn ? '' : 'desligado'}">${ic(custoOn ? 'i-check' : 'i-lock', custoOn ? 'ic ok' : 'ic cad')}<b id="r-custo">Custo dos itens</b>
+          <span class="txt">${semFin ? 'Seu perfil não tem “Ver valores em R$”. Para liberar o custo, um presidente com essa permissão autoriza. Sem o custo, o Liame mostra a receita, mas a margem fica desconhecida.' : 'O custo de cada item, para o Liame calcular a margem. Sem ele, a margem fica desconhecida, nunca zero.'}</span><code>custos.ler</code>
+          <span class="lado"><button class="sw" type="button" role="switch" data-sw="custo" aria-checked="${custoOn}" aria-labelledby="r-custo" ${semFin ? 'disabled' : ''}></button></span></li>
+        <li class="${est.cupom ? '' : 'desligado'}">${ic(est.cupom ? 'i-check' : 'i-lock', est.cupom ? 'ic ok' : 'ic cad')}<b id="r-cupom">Criar cupom de campanha</b>
+          <span class="txt">O Liame cria e desativa cupons de campanha na loja. Cada cupom passa pela aprovação de alguém da sua empresa antes de existir.</span><code>cupons.criar</code>
+          <span class="lado"><button class="sw" type="button" role="switch" data-sw="cupom" aria-checked="${est.cupom}" aria-labelledby="r-cupom"></button></span></li>
+      </ul>
+    </section>
+    <section class="t-sec" aria-labelledby="s-nao">
+      <h3 id="s-nao"><span class="n">3</span>O que não vai</h3>
+      <ul class="itens">
+        <li>${ic('i-lock', 'ic cad')}<b>Quem é o cliente</b><span class="txt">Nome, telefone, e-mail e endereço ficam no Regem.</span></li>
+        <li>${ic('i-lock', 'ic cad')}<b>O resto da operação</b><span class="txt">Equipe, escala, ponto, estoque e caixa não fazem parte.</span></li>
+        <li>${ic('i-lock', 'ic cad')}<b>A sua conta</b><span class="txt">O Liame não recebe senha nem entra no seu Regem.</span></li>
+      </ul>
+    </section>
+    <p class="t-nota">${ic('i-shield')}<span>Cada loja ganha um acesso próprio, que vai direto do Regem para o Liame: ninguém vê nem copia. Vale até você revogar, em <b>Configurações → Aplicativos conectados</b> ou no Liame.</span></p>
+    <div class="t-acoes"><button class="btn btn--sec" type="button" data-acao="cancelar">Cancelar</button><button class="btn btn--pri" type="submit">${n ? `Autorizar ${plural(n, 'loja', 'lojas')}` : 'Autorizar'}</button></div>
+    <p class="t-rodape">Fica registrado na auditoria: quem autorizou, quando, quais lojas e o que foi liberado.</p>
+  </form></main>`;
+}
+const telaVoltando = (ok) => `${topo('Rodrigo', 'presidente')}
+  <main class="t-corpo"><div class="t-cartao t-cartao--curto" role="status">
+    <span class="disco ${ok ? 'disco--ok' : 'disco--atencao'}">${ic(ok ? 'i-check' : 'i-x')}</span>
+    <h2>${ok ? `Pronto: ${plural(marcadas().length, 'loja autorizada', 'lojas autorizadas')}` : 'Nada foi compartilhado'}</h2>
+    <p class="t-sub">${ok ? 'Falta ligar cada loja do Regem a uma loja do Liame. É o próximo passo, lá.' : 'Você cancelou a autorização. O Liame não recebeu nenhum dado.'}</p>
+    <span class="indo"><span class="gira"></span>Voltando ao Liame…</span>
+    <p class="t-rodape">Se não voltar sozinho, <button class="lk" type="button" data-acao="reiniciar">continue por aqui</button>.</p>
+  </div></main>`;
+const telaGerente = () => `${topo('Camila', 'gerente')}
+  <main class="t-corpo"><div class="t-cartao t-cartao--curto">
+    ${par('selo--p')}
+    <span class="disco disco--atencao">${ic('i-lock')}</span>
+    <h2>Só o presidente autoriza o Liame</h2>
+    <p class="t-sub">Você entrou como Camila, gerente. Deixar outra ferramenta ler as vendas é decisão do presidente da empresa. Nada foi compartilhado.</p>
+    <div class="t-acoes"><button class="btn btn--sec" type="button" data-acao="cancelar-direto">Voltar ao Liame</button><button class="btn btn--pri" type="button" data-ir="entrar">Entrar com outra conta</button></div>
+  </div></main>`;
+const telaEntrar = () => `<div class="t-login">
+    <span class="t-marca"><span class="t-mark">R</span>Regem</span>
+    <p class="aviso">${ic('i-info')}<span>Entre para autorizar o Liame. Depois de entrar, você volta para a autorização.</span></p>
+    <form class="cartao" id="form-entrar">
+      <h2>Entrar</h2>
+      <div class="campo">E-mail<span>voce@empresa.com.br</span></div>
+      <div class="campo">Senha<span>••••••••</span></div>
+      <button class="btn btn--pri" type="submit">Entrar</button>
+    </form>
+  </div>`;
+const telaInvalido = () => `${topo('Rodrigo', 'presidente')}
+  <main class="t-corpo"><div class="t-cartao t-cartao--curto">
+    <span class="disco disco--perigo">${ic('i-alert')}</span>
+    <h2>Este pedido de autorização não vale</h2>
+    <p class="t-sub">O link chegou incompleto ou venceu. Por segurança, o Regem não devolve você a um endereço que não reconhece. Nada foi compartilhado.</p>
+    <p class="t-nota">${ic('i-info')}<span>Para tentar de novo, volte ao Liame e comece em <b>Contas conectadas → Conectar o Regem</b>.</span></p>
+    <div class="t-acoes"><button class="btn btn--sec" type="button" data-ir="conectados">Ir para o Regem</button></div>
+  </div></main>`;
+
+const menu = `<nav class="t-menu" aria-label="Menu do Regem (ilustração)">
+    <span class="t-marca"><span class="t-mark">R</span>Regem</span>
+    <span>Dashboard</span><span>PDV · Balcão</span><span>Delivery</span><span>Financeiro</span>
+    <span class="grupo">Configurações</span><span>Loja</span><span>Unidades</span><span>Acessos & perfis</span><span class="on">Aplicativos conectados</span><span>Servidor local</span>
+  </nav>`;
+const LINHAS = [
+  { id: 'centro', loja: 'Loja Centro', recebe: 'Pedidos, cupons e usos, custo', por: 'Rodrigo, em 01/10/2026 às 10:12', uso: 'há 4 minutos' },
+  { id: 'barra', loja: 'Loja Barra', recebe: 'Pedidos, cupons e usos, custo', por: 'Rodrigo, em 01/10/2026 às 10:12', uso: 'há 4 minutos' },
+];
+function telaConectados(vazio) {
+  const ativas = LINHAS.filter((l) => !est.revogadas[l.id]);
+  const corpo = vazio
+    ? `<div class="vazio">${ic('i-plug')}<h3>Nenhum aplicativo conectado</h3><p>Quando você autorizar uma ferramenta a ler dados das lojas, ela aparece aqui, com o que recebe e o botão de revogar.</p></div>`
+    : `<article class="t-app" aria-labelledby="app-liame">
+        <div class="t-app-cab"><span class="selo selo--liame selo--p" aria-hidden="true">L</span>
+          <span class="nome"><b id="app-liame">Liame</b><span>Marketing e tráfego pago · lê as vendas para medir os anúncios</span></span>
+          ${ativas.length ? `<span class="chip chip--ok">Ativo · ${plural(ativas.length, 'loja', 'lojas')}</span>` : '<span class="chip chip--neutro">Sem acesso</span>'}
+        </div>
+        <div class="rolagem"><table>
+          <caption class="sr">Lojas que o Liame lê, o que recebe, quem autorizou e o último acesso</caption>
+          <thead><tr><th scope="col">Loja</th><th scope="col">Recebe</th><th scope="col">Autorizado por</th><th scope="col">Último acesso</th><th scope="col"><span class="sr">Ação</span></th></tr></thead>
+          <tbody>
+            ${LINHAS.map((l) => est.revogadas[l.id]
+              ? `<tr class="fora"><td><b>${l.loja}</b></td><td>—</td><td>${l.por}</td><td>Revogado por você, agora</td><td><span class="chip chip--neutro">Revogado</span></td></tr>`
+              : `<tr><td><b>${l.loja}</b></td><td>${l.recebe}<small>Sem criar cupom</small></td><td>${l.por}</td><td>${l.uso}</td><td><button class="btn btn--perigo btn--p" type="button" data-revogar="${l.id}" aria-label="Revogar o Liame na ${l.loja}">Revogar</button></td></tr>`).join('')}
+            <tr class="fora"><td><b>Loja Centro</b></td><td>—</td><td>Distribuição DMS, em 30/09/2026</td><td>Trocado pela autorização de 01/10/2026</td><td><span class="chip chip--neutro">Revogado</span></td></tr>
+          </tbody></table></div>
+        <div class="t-app-pe"><p>Para incluir outra loja ou mudar o que o Liame recebe, comece pelo Liame, em Contas conectadas.</p>
+          ${ativas.length > 1 ? '<button class="btn btn--perigo btn--p" type="button" data-revogar="todas">Revogar todas as lojas</button>' : ''}</div>
+      </article>`;
+  return `<div class="t-shell">${menu}<div>
+    <header class="t-topo t-barra"><span class="t-marca"><span class="t-mark">R</span>Regem</span><span class="t-quem"><b>Mister Burgers</b></span></header>
+    <main class="t-pagina"><header><h2>Aplicativos conectados</h2><p class="t-sub">Ferramentas que leem dados das suas lojas com a sua autorização. Você revoga quando quiser.</p></header>${corpo}</main>
+  </div></div>`;
+}
+function dialogo() {
+  if (!est.dlg) return '';
+  const todas = est.dlg === 'todas';
+  const loja = todas ? null : LINHAS.find((l) => l.id === est.dlg).loja;
+  return `<div class="fundo"><div class="dlg" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t" aria-describedby="dlg-d">
+    <h3 id="dlg-t">${todas ? 'Revogar o Liame em todas as lojas?' : `Revogar o Liame na ${loja}?`}</h3>
+    <p id="dlg-d">O Liame para de ler ${todas ? 'os pedidos de todas as lojas' : 'os pedidos desta loja'} agora. O que ele já leu segue o prazo de guarda de lá. Para voltar, é preciso autorizar de novo pelo Liame.</p>
+    <div class="t-acoes"><button class="btn btn--sec" type="button" data-dlg="manter">Manter</button><button class="btn btn--cheio-perigo" type="button" data-dlg="revogar">Revogar</button></div>
+  </div></div>`;
+}
+
+function desenhar(foco) {
+  const c = CENARIOS[cen];
+  document.getElementById('jan-url').textContent = c.url;
+  document.getElementById('cen-desc').textContent = c.desc;
+  let html;
+  if (cen === 'gerente') html = est.fase === 'cancelado' ? telaVoltando(false) : telaGerente();
+  else if (cen === 'entrar') html = telaEntrar();
+  else if (cen === 'invalido') html = telaInvalido();
+  else if (cen === 'conectados' || cen === 'vazio') html = telaConectados(cen === 'vazio');
+  else html = est.fase === 'feito' ? telaVoltando(true) : est.fase === 'cancelado' ? telaVoltando(false) : telaAutorizar();
+  tela.innerHTML = html;
+  janela.querySelectorAll('.fundo, .toast').forEach((e) => e.remove());
+  janela.insertAdjacentHTML('beforeend', dialogo() + (est.toast ? `<div class="toast" role="status">${est.toast}</div>` : ''));
+  for (const b of document.querySelectorAll('#cenarios .cen')) b.setAttribute('aria-pressed', String(b.dataset.cen === cen));
+  if (foco) janela.querySelector(foco)?.focus();
+}
+function ir(c) { cen = c; est = novo(); if (c === 'conectada') est.lojas = { centro: true }; desenhar(); }
+
+document.getElementById('cenarios').innerHTML = Object.entries(CENARIOS).map(([k, c]) => `<button class="cen" type="button" data-cen="${k}" aria-pressed="false">${c.rot}</button>`).join('');
+document.getElementById('cenarios').addEventListener('click', (e) => { const b = e.target.closest('[data-cen]'); if (b) ir(b.dataset.cen); });
+document.querySelector('.larguras').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-largura]'); if (!b) return;
+  janela.dataset.largura = b.dataset.largura;
+  for (const o of document.querySelectorAll('.larguras button')) o.setAttribute('aria-pressed', String(o === b));
+});
+let relogio;
+janela.addEventListener('change', (e) => {
+  const l = e.target.dataset?.loja; if (!l) return;
+  est.lojas[l] = e.target.checked; est.erro = false; desenhar(`[data-loja="${l}"]`);
+});
+janela.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (e.target.id === 'form-entrar') return ir('presidente');
+  if (!marcadas().length) { est.erro = true; return desenhar('[data-loja]'); }
+  est.fase = 'feito'; desenhar();
+});
+janela.addEventListener('click', (e) => {
+  const sw = e.target.closest('[data-sw]');
+  if (sw) { est[sw.dataset.sw] = !est[sw.dataset.sw]; return desenhar(`[data-sw="${sw.dataset.sw}"]`); }
+  const a = e.target.closest('[data-acao]')?.dataset.acao;
+  if (a === 'cancelar' || a === 'cancelar-direto') { est.fase = 'cancelado'; return desenhar(); }
+  if (a === 'reiniciar') return ir(cen);
+  const para = e.target.closest('[data-ir]')?.dataset.ir;
+  if (para) return ir(para);
+  const r = e.target.closest('[data-revogar]')?.dataset.revogar;
+  if (r) { est.dlg = r; est.voltar = `[data-revogar="${r}"]`; est.toast = null; return desenhar('[data-dlg="manter"]'); }
+  const d = e.target.closest('[data-dlg]')?.dataset.dlg;
+  if (d === 'manter') { const v = est.voltar; est.dlg = null; return desenhar(v); }
+  if (d === 'revogar') {
+    const alvo = est.dlg; est.dlg = null;
+    if (alvo === 'todas') { for (const l of LINHAS) est.revogadas[l.id] = true; est.toast = 'Revogado. O Liame não lê mais nenhuma loja.'; }
+    else { est.revogadas[alvo] = true; est.toast = `Revogado. O Liame não lê mais a ${LINHAS.find((l) => l.id === alvo).loja}.`; }
+    desenhar('.t-pagina h2');
+    clearTimeout(relogio); relogio = setTimeout(() => { est.toast = null; janela.querySelector('.toast')?.remove(); }, 4500);
+  }
+});
+janela.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && est.dlg) { const v = est.voltar; est.dlg = null; desenhar(v); }
+});
+const daHash = location.hash.slice(1);
+ir(CENARIOS[daHash] ? daHash : 'presidente');
+</script>
+</body>
+</html>
