@@ -154,24 +154,33 @@ export default function CardapioPublicoPage() {
   // Cadastra um novo endereço a partir do checkout (mesmo processo de "Meus dados").
   async function cadastrarEndereco(dados: any) {
     const ct = getClienteToken(token);
+    // Falhou: o motivo aparece acima do botão do checkout e o formulário continua aberto (quem
+    // chama só fecha quando esta função termina sem erro — ERR-140).
     if (!ct) {
-      setErro('Confirme seu telefone em "Meus dados" para salvar endereços.');
-      return;
+      const msg = 'Confirme seu telefone no Perfil para salvar endereços.';
+      setErro(msg);
+      throw new Error(msg);
     }
+    setErro('');
     const b = bairros.find((x: any) => x.id === dados.bairroId);
-    await api.clienteAddEndereco(token, {
-      clienteToken: ct,
-      apelido: dados.apelido || undefined,
-      cep: dados.cep || undefined,
-      logradouro: dados.logradouro,
-      numero: dados.numero,
-      referencia: dados.referencia,
-      bairroId: dados.bairroId || undefined,
-      bairro: b?.nome ?? undefined,
-      cidade: dados.cidade || undefined,
-      lat: dados.lat || undefined,
-      lng: dados.lng || undefined,
-    });
+    try {
+      await api.clienteAddEndereco(token, {
+        clienteToken: ct,
+        apelido: dados.apelido || undefined,
+        cep: dados.cep || undefined,
+        logradouro: dados.logradouro,
+        numero: dados.numero,
+        referencia: dados.referencia,
+        bairroId: dados.bairroId || undefined,
+        bairro: b?.nome ?? undefined,
+        cidade: dados.cidade || undefined,
+        lat: dados.lat || undefined,
+        lng: dados.lng || undefined,
+      });
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível salvar o endereço. Tente de novo.');
+      throw e;
+    }
     await recarregarEnderecos();
     usarEndereco({
       logradouro: dados.logradouro,
@@ -691,6 +700,7 @@ export default function CardapioPublicoPage() {
     // Envio direto SÓ quando é um QR de mesa de verdade (link com ?mesa=).
     // O link de delivery (sem mesa) sempre abre o checkout (tipo/pagamento/endereço).
     if (menu.modo === 'mesa' && mesa) return void submitPedido();
+    setErro(''); // recomeça sem o aviso de uma tentativa anterior
     setCheckout(true);
   }
 
@@ -707,6 +717,7 @@ export default function CardapioPublicoPage() {
         return;
       }
     }
+    setErro(''); // some o aviso da tentativa anterior; se esta falhar, o motivo novo aparece
     setEnviando(true);
     try {
       const entrega = !isServico && chk.tipo === 'entrega';
@@ -1170,6 +1181,12 @@ export default function CardapioPublicoPage() {
       {/* barra do carrinho */}
       {qtdItens > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-20 mx-auto max-w-2xl p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+          {/* Envio direto (QR de mesa): não há checkout aberto para mostrar o motivo da recusa (ERR-140). */}
+          {erro && !checkout && (
+            <p role="alert" className="mb-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 shadow-lg">
+              {erro}
+            </p>
+          )}
           <button type="button" onClick={enviar} disabled={enviando} className="flex w-full items-center gap-3 rounded-2xl px-5 py-3.5 font-bold text-white shadow-lg disabled:opacity-60" style={{ background: accent }}>
             <span className="rounded-lg bg-black/20 px-2 py-0.5 font-mono text-xs">{qtdItens}</span>
             <span>{enviando ? 'Enviando…' : menu.modo === 'mesa' && mesa ? 'Enviar pedido' : 'Ver pedido'}</span>
@@ -1236,8 +1253,9 @@ export default function CardapioPublicoPage() {
           onQtd={mudarQtd}
           onRemove={removeItem}
           onAddUpsell={addUpsell}
-          onClose={() => setCheckout(false)}
+          onClose={() => { setCheckout(false); setErro(''); }}
           onSubmit={submitPedido}
+          erro={erro}
           enderecos={enderecosSalvos}
           onUsarEndereco={usarEndereco}
           onCadastrarEndereco={cadastrarEndereco}
