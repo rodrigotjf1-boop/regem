@@ -1,7 +1,7 @@
 <title>Templates do Cardápio Regem</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Rubik:wght@400;500;600;700&family=Lexend:wght@400;500;600;700;800&family=Mountains+of+Christmas:wght@700&family=Creepster&family=Bungee&family=Rye&family=Dancing+Script:wght@700&family=Sniglet:wght@800&family=Playfair+Display:ital,wght@1,700&family=Alfa+Slab+One&family=Fredoka:wght@600;700&family=Anton&family=Cinzel:wght@700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Rubik:wght@400;500;600;700&family=Lexend:wght@400;500;600;700;800&family=Mountains+of+Christmas:wght@700&family=Creepster&family=Bungee&family=Rye&family=Dancing+Script:wght@700&family=Sniglet:wght@800&family=Playfair+Display:ital,wght@1,700&family=Alfa+Slab+One&family=Fredoka:wght@600;700&family=Anton&family=Cinzel:wght@700&family=Titan+One&display=swap">
 <style>
 /* Layout: bancada de comparação. Seletor de template à esquerda, celular no centro, notas à direita; diagnóstico e quadro comparativo embaixo. Moldura usa a identidade Regem; cada template dentro do celular tem seus próprios tokens. */
 :root{
@@ -694,6 +694,19 @@ select.c-in{appearance:auto}
 .ev-halloween{--ev-bg:radial-gradient(circle at 84% 24%,#FDE68A 0 17px,rgba(253,230,138,.22) 18px 30px,transparent 31px),linear-gradient(160deg,#2E1065,#1B0F2E);--ev-ink:#FDF4FF;--ev-chip:#F97316;--ev-chip-ink:#1B0F2E;--ev-pat:radial-gradient(circle,rgba(255,255,255,.5) .8px,transparent 1.2px) 0 0/16px 16px;--ev-font:'Creepster',cursive;--ev-fs:26px;--ev-stripe:repeating-linear-gradient(-45deg,#EA580C 0 7px,#2E1065 7px 14px)}
 .ev-blackfriday{--ev-bg:#0A0A0A;--ev-ink:#fff;--ev-chip:#FACC15;--ev-chip-ink:#0A0A0A;--ev-pat:linear-gradient(transparent calc(100% - 8px),transparent 0),repeating-linear-gradient(-45deg,rgba(250,204,21,.16) 0 10px,transparent 10px 20px);--ev-font:'Anton',sans-serif;--ev-fs:27px;--ev-up:uppercase;--ev-stripe:repeating-linear-gradient(-45deg,#FACC15 0 7px,#0A0A0A 7px 14px)}
 
+.ev-gar .gramado{position:absolute;left:0;right:0;top:0;height:14px;background:repeating-linear-gradient(90deg,#16A34A 0 22px,#15803D 22px 44px);box-shadow:0 2px 4px rgba(0,0,0,.18)}
+.ev-gar .gramado .linha{position:absolute;left:0;right:0;top:6px;height:2px;background:rgba(255,255,255,.85)}
+.ev-gar .gramado .bolinha{position:absolute;top:1px;left:0;width:13px;height:13px;animation:rola 7s linear infinite}
+.ev-gar .gramado .bolinha svg{width:100%;height:100%;display:block;animation:gira 1s linear infinite}
+@keyframes rola{from{transform:translateX(-14px)}to{transform:translateX(420px)}}
+@keyframes gira{to{transform:rotate(360deg)}}
+.ev-trail .r .gira{transform-box:fill-box;transform-origin:center;animation:gira .8s linear infinite}
+.ev-trail .r .pernas{transform-box:fill-box;transform-origin:50% 0;animation:passo .25s ease-in-out infinite alternate}
+@keyframes passo{to{transform:scaleX(-1)}}
+.ev-hamburguer{--ev-bg:linear-gradient(135deg,#FDB913,#F59E0B);--ev-ink:#3B1D0A;--ev-chip:#C1121F;--ev-chip-ink:#fff;--ev-pat:radial-gradient(ellipse 3px 1.6px,#FFF3D6 90%,transparent) 0 0/22px 18px,radial-gradient(ellipse 3px 1.6px,#FFF3D6 90%,transparent) 11px 9px/22px 18px;--ev-font:'Titan One',sans-serif;--ev-fs:24px;--ev-stripe:repeating-linear-gradient(-45deg,#C1121F 0 7px,#FDB913 7px 14px)}
+.ev-jogo{--ev-bg:repeating-linear-gradient(90deg,#16A34A 0 26px,#15803D 26px 52px);--ev-ink:#fff;--ev-chip:#fff;--ev-chip-ink:#15803D;--ev-pat:linear-gradient(90deg,transparent calc(50% - 1px),rgba(255,255,255,.55) calc(50% - 1px),rgba(255,255,255,.55) calc(50% + 1px),transparent calc(50% + 1px)),radial-gradient(circle at 50% 50%,transparent 26px,rgba(255,255,255,.55) 27px,rgba(255,255,255,.55) 29px,transparent 30px);--ev-font:'Anton',sans-serif;--ev-fs:27px;--ev-up:uppercase;--ev-stripe:repeating-linear-gradient(90deg,#16A34A 0 10px,#15803D 10px 20px)}
+.ev-on.ev-jogo .ev-strip p,.ev-on.ev-jogo .ev-strip small{text-shadow:0 1px 2px rgba(0,0,0,.35)}
+
 /* ======================= CLUBE DE RECOMPRA ======================= */
 .seg.seg4{grid-template-columns:repeat(4,1fr)}
 .rc-wrap{display:grid;gap:10px;margin:14px 16px 0}
@@ -757,6 +770,21 @@ select.c-in{appearance:auto}
 @keyframes carimbo{0%{transform:scale(2.2) rotate(-25deg);opacity:0}60%{transform:scale(.92) rotate(4deg);opacity:1}}
 .blk ol.legal{margin:0;padding-left:20px;display:grid;gap:8px;max-width:78ch}
 .blk ol.legal li span{color:var(--muted)}
+.rc-meta{display:flex;align-items:center;gap:4px}
+.rc-meta i{flex:1;height:22px;border-radius:6px;background:var(--p-surf);display:grid;place-items:center;color:transparent;max-width:34px}
+.rc-meta i.on{background:var(--p-acc);color:var(--p-on)}
+.rc-meta i.marco{flex:0 0 30px;max-width:30px;height:30px;border-radius:50%;background:var(--p-surf);box-shadow:inset 0 0 0 2px var(--p-line);filter:grayscale(1);opacity:.7}
+.rc-meta i.marco.on{background:#FBF1DF;box-shadow:inset 0 0 0 2px #E2A340;filter:none;opacity:1}
+.rc-meta i.marco svg{width:20px;height:20px}
+.rc-esc{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px}
+.rc-opt{display:grid;gap:6px;justify-items:center;text-align:center;padding:8px;border-radius:14px;box-shadow:inset 0 0 0 1.5px var(--p-line);background:var(--p-card)}
+.rc-opt .a{width:64px;height:64px;border-radius:12px;background:var(--p-art);overflow:hidden;display:block}
+.rc-opt .a .kit{display:grid;place-items:center;width:100%;height:100%}
+.rc-opt .a .kit svg{width:46px;height:46px}
+.rc-opt b{font-size:12.5px;font-weight:600;line-height:1.25}
+.rc-opt:disabled{opacity:.55;cursor:default}
+.rc-opt[aria-pressed="true"]{box-shadow:inset 0 0 0 2px var(--p-acc);background:var(--p-acc-soft);opacity:1}
+.rc-ticket b.txt{font:800 18px var(--p-disp);letter-spacing:0;text-align:center}
 
 @media (prefers-reduced-motion: reduce){.p-root *,.p-root *::before,.p-root *::after{animation:none!important;transition:none!important}}
 /* ---- recursos que o cardápio já tem, integrados aos templates: conta, promoções, origem, sinal ---- */
@@ -818,8 +846,8 @@ select.c-in{appearance:auto}
       <div class="togs" id="ev-togs"></div>
       <div class="lab">Clube de recompra</div>
       <div class="togs" id="rc-togs"></div>
-      <div class="lab">Pedidos no mês para concorrer</div>
-      <div class="seg seg4" id="rc-min" role="group" aria-label="Pedidos no mês para concorrer ao sorteio"></div>
+      <div class="lab">Pedidos no mês para a meta</div>
+      <div class="seg seg4" id="rc-min" role="group" aria-label="Pedidos no mês para bater a meta"></div>
       <div class="lab">Situação da loja</div>
       <div class="seg" id="seg-loja" role="group" aria-label="Situação da loja"></div>
       <div class="lab">Recursos e cliente</div>
@@ -839,15 +867,15 @@ select.c-in{appearance:auto}
   </section>
 
   <section class="blk">
-    <h2>Sorteio do mês: o que a lei pede e como o Regem garante</h2>
-    <p>Sorteio ligado a compra é promoção comercial e precisa de autorização prévia da Secretaria de Prêmios e Apostas (SPA/MF). O sistema só deixa publicar o sorteio quando cada item abaixo está atendido. Raspadinha, selos e aniversário dão prêmio garantido, sem sorte, e por isso ficam fora dessa regra.</p>
+    <h2>Clube de recompra: dentro da lei, sem burocracia</h2>
+    <p>Sorteio ligado a compra exige autorização da Secretaria de Prêmios e Apostas, Loteria Federal e prestação de contas. Por isso o clube não tem sorteio: tudo é “compre e ganhe” garantido, que dispensa autorização enquanto seguir estas regras. O Regem trava cada uma no cadastro.</p>
     <ol class="legal">
-      <li><b>Autorização antes de divulgar.</b> <span>O lojista pede no sistema do governo com 40 a 120 dias de antecedência e informa o número do certificado. Sem ele, o sorteio fica em rascunho.</span></li>
-      <li><b>Apuração pela Loteria Federal.</b> <span>O lojista escolhe a data da extração; o Regem calcula o número ganhador a partir do resultado, do jeito descrito no regulamento.</span></li>
-      <li><b>Prêmio nunca em dinheiro.</b> <span>O cadastro de prêmio aceita produto, serviço ou vale de consumo na loja, nunca valor em dinheiro.</span></li>
-      <li><b>Regulamento público.</b> <span>Texto publicado na página do sorteio e aceito pelo cliente antes de receber o número da sorte.</span></li>
-      <li><b>Ganhador identificado.</b> <span>CPF pedido só na hora de participar, com finalidade explicada (LGPD).</span></li>
-      <li><b>Prestação de contas.</b> <span>Exportação de participantes, números, apuração e entrega dos prêmios, com trilha de auditoria.</span></li>
+      <li><b>Todo mundo que cumpre a regra ganha.</b> <span>Nada de “os 100 primeiros” nem “enquanto durar o estoque”.</span></li>
+      <li><b>Sem sorte.</b> <span>O valor do prêmio é definido por regra (meta, selo, aniversário), nunca sorteado. A raspadinha só revela um prêmio que já estava definido.</span></li>
+      <li><b>Sem quantidade fixa de prêmios.</b> <span>O cadastro não aceita “limite total”; a loja escolhe itens que consegue entregar a todos.</span></li>
+      <li><b>O único critério é comprar.</b> <span>Sem curtir, compartilhar, marcar amigos ou responder pergunta.</span></li>
+      <li><b>Uma loja só, sem promoção autorizada no mesmo período.</b> <span>O admin avisa se houver campanha conflitante.</span></li>
+      <li><b>Regras claras para o cliente.</b> <span>“Como funciona” na tela de prêmios, com prazo de uso e o que não conta (pedido cancelado).</span></li>
     </ol>
   </section>
 
@@ -945,7 +973,7 @@ const CORES = [['#D62828','Vermelho Mister'],['#E2A340','Dourado Regem'],['#0E8E
 
 /* ---------------- estado ---------------- */
 const CHK0 = {tipo:'entrega',bairro:'',rua:'',num:'',ref:'',quando:'agora',agenda:'',nome:'',whats:'',forma:'',troco:'',cupom:'',cpfNota:false,cpf:''};
-const S = {rc:{rasp:true,selos:true,aniv:false,sort:true,min:3,feitos:0,algum:false,aceitou:false,cpf:'',li:false,raspado:{},voltaPend:false,sheet:null},ev:{sel:'auto',festa:true,cores:true,ovos:[],abobora:null},promo:true,promoMarcada:true,promoResp:false,promoPerfil:true,promoDesligou:false,anuncio:false,origemNao:false,saiba:false,sinal:false,info:false,contaAba:'pedidos',contaExc:false,loja:'aberta',cupons:true,cashback:true,fid:true,usarCb:true,bairroSheet:false,expressoOff:false,trioNao:[],trioBeb:{},tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
+const S = {rc:{rasp:true,selos:true,aniv:false,meta:true,min:3,feitos:0,algum:false,raspado:{},voltaPend:false,sheet:null,escolhido:null,premioNoPedido:false},ev:{sel:'auto',festa:true,cores:true,ovos:[],abobora:null},promo:true,promoMarcada:true,promoResp:false,promoPerfil:true,promoDesligou:false,anuncio:false,origemNao:false,saiba:false,sinal:false,info:false,contaAba:'pedidos',contaExc:false,loja:'aberta',cupons:true,cashback:true,fid:true,usarCb:true,bairroSheet:false,expressoOff:false,trioNao:[],trioBeb:{},tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
 
 /* ---------------- utilidades ---------------- */
 const $ = s => document.querySelector(s);
@@ -1523,9 +1551,7 @@ document.addEventListener('click',e=>{
     bairroSheet:()=>{S.bairroSheet=true;render();}, bairroFechar:()=>{S.bairroSheet=false;render();},
     bairroSel:()=>{ if(v==='retirada') S.chk.tipo='retirada'; else { S.chk.tipo='entrega'; S.chk.bairro=v; } S.bairroSheet=false; toast(v==='retirada'?'Retirada na loja':'Entrega em '+BAIRROS.find(b=>b.id===v).nome); render(); },
     trioNao:()=>{S.trioNao.push(v);render();},
-    rcPremios:()=>{S.rc.sheet='premios';render();}, rcAceitar:()=>{S.rc.sheet='aceitar';render();}, rcFechar:()=>{S.rc.sheet=null;render();},
-    rcLi:()=>{S.rc.li=!S.rc.li;render();}, rcRegul:()=>toastNow('No cardápio real abre o regulamento publicado pela loja'),
-    rcParticipar:()=>{ if(!(cpfOk(S.rc.cpf)&&S.rc.li)) return; S.rc.aceitou=true; S.rc.sheet=null; render(); const t=document.querySelector('#phone .rc-ticket,#phone .rc-num'); if(t) confete(ptDe(t),50); toast('Pronto! Você está concorrendo'); },
+    rcPremios:()=>{S.rc.sheet='premios';render();}, rcFechar:()=>{S.rc.sheet=null;render();}, rcEscolher:()=>escolherPremio(v),
     raspRevelar:()=>{ const c=document.querySelector('#rasp canvas'); if(c&&c._revelar) c._revelar(); },
     evCol:()=>{ const c=$('#ev-col'), sc=$('#p-scroll'); if(c&&sc) sc.scrollTo({top:c.offsetTop-8,behavior:'smooth'}); },
     ovo:()=>{ if(S.ev.ovos.includes(v)) return; S.ev.ovos.push(v); if(S._pt) evBurst(['egg','petal'],S._pt,26);
@@ -1538,7 +1564,7 @@ document.addEventListener('click',e=>{
     comboBeb:()=>{S.combo.beb=v;render();}, comboNao:()=>{S.combo=null;render();},
     comboSim:()=>{ virarTrio(S.combo.key,S.combo.beb); toast('Virou trio'); S.combo=null; render(); },
     tab:()=>{ const s=document.getElementById('sec-'+v), sc=$('#p-scroll'), tabs=$('#tabs'); if(!s||!sc) return; const off=tabs?tabs.offsetHeight:0; sc.scrollTo({top:s.offsetTop-off+2,behavior:'smooth'}); },
-    reordenar, novo:()=>{reset(); if(S.rc.voltaPend){ S.rc.voltaPend=false; S.cupomOk='VOLTA10'; S.chk.cupom='VOLTA10'; S.cupomMsg={ok:true,t:'Cupom VOLTA10 da raspadinha aplicado: 10% de desconto.'}; toast('Cupom da raspadinha aplicado neste pedido'); } else if(S.rc.aniv&&S.ret){ S.cupomOk='NIVER'; } render();}, pixPago:()=>{S.pixPago=true;render();},
+    reordenar, novo:()=>{reset(); premioNoCarrinho(); if(S.rc.voltaPend){ S.rc.voltaPend=false; S.cupomOk='VOLTA10'; S.chk.cupom='VOLTA10'; S.cupomMsg={ok:true,t:'Cupom VOLTA10 da raspadinha aplicado: 10% de desconto.'}; toast('Cupom da raspadinha aplicado neste pedido'); } else if(S.rc.aniv&&S.ret){ S.cupomOk='NIVER'; } if(S.rc.premioNoPedido) toast('Seu prêmio da meta já está na sacola'); render();}, pixPago:()=>{S.pixPago=true;render();},
     conta:()=>{S.screen='conta';S.buscaAberta=false;S.contaExc=false;render(true);}, contaFechar:()=>{S.screen='home';render();}, contaAba:()=>{S.contaAba=v;render(true);},
     contaEntrar:()=>{S.ret=true;S.promoResp=true;preencherRet(true);moldura();render(true);},
     contaSair:()=>{S.ret=false;S.editDados=false;S.editEnd=false;S.expressoOff=false;preencherRet(false);S.screen='home';moldura();render();},
@@ -1559,7 +1585,6 @@ document.addEventListener('click',e=>{
 function toastNow(m){ toast(m); render(); }
 document.addEventListener('pointerdown',e=>{ const ph=$('#phone'); if(!ph.contains(e.target)) return; const r=ph.getBoundingClientRect(); S._pt={x:e.clientX-r.left,y:e.clientY-r.top}; },true);
 document.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ') && e.target.classList && e.target.classList.contains('ev-egg')){ e.preventDefault(); e.target.click(); } });
-document.addEventListener('input',e=>{ const rc=e.target.dataset&&e.target.dataset.rc; if(rc==='cpf'){ S.rc.cpf=e.target.value; const b=document.getElementById('rc-part'); if(b) b.disabled=!(cpfOk(S.rc.cpf)&&S.rc.li); return; } });
 document.addEventListener('input',e=>{
   const el=e.target; if(!el.dataset || !el.dataset.f || !el.closest('#phone')) return;
   const f=el.dataset.f;
@@ -1586,7 +1611,7 @@ function moldura(){
   $('#ev-sel').innerHTML=`<option value="auto">Automático pela data${auto?` (hoje: ${EV[auto].nome})`:' (nenhum hoje)'}</option><option value="none">Sem evento</option>`+ORDEM_EV.map(k=>`<option value="${k}">${EV[k].nome}</option>`).join('');
   $('#ev-sel').value=S.ev.sel;
   $('#ev-togs').innerHTML=[['festa','Animações do evento','Neve, confete, corações caindo'],['cores','Cores do evento','Botões na cor do evento']].map(([k,n,d])=>`<button class="tog" data-evtog="${k}" aria-pressed="${!!S.ev[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
-  $('#rc-togs').innerHTML=[['rasp','Raspadinha','Prêmio garantido na confirmação'],['selos','Álbum de selos','1 selo por mês, junte 4'],['aniv','Aniversário do cliente','Liga “Parabéns” para quem já comprou'],['sort','Sorteio do mês','Lista de prêmios da loja']].map(([k,n,d])=>`<button class="tog" data-rctog="${k}" aria-pressed="${!!S.rc[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
+  $('#rc-togs').innerHTML=[['rasp','Raspadinha','Prêmio garantido na confirmação'],['selos','Álbum de selos','1 selo por mês, junte 4'],['aniv','Aniversário do cliente','Liga “Parabéns” para quem já comprou'],['meta','Meta do mês','Todo mundo que chega à meta ganha']].map(([k,n,d])=>`<button class="tog" data-rctog="${k}" aria-pressed="${!!S.rc[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
   $('#rc-min').innerHTML=[2,3,4,5].map(n=>`<button data-rcmin="${n}" aria-pressed="${S.rc.min===n}">${n} pedidos</button>`).join('');
   $('#togs').innerHTML=[['cupons','Cupons ativos','Sugestão no pagamento'],['cashback','Cashback','5% de volta, saldo para usar'],['fid','Plano de fidelidade','Clube Mister: 100 pts = batata'],['ret','Cliente que já comprou','“Peça de novo” e pedido expresso'],['promo','Loja manda promoção','Caixinha no 1º pedido e chave no Perfil'],['anuncio','Chegou por anúncio','Aviso de origem acima do botão final'],['sinal','Encomenda com sinal','30% ao agendar o pedido']].map(([k,n,d])=>`<button class="tog" data-tog="${k}" aria-pressed="${!!S[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
 }
@@ -1594,11 +1619,11 @@ document.addEventListener('click',e=>{
   const t=e.target.closest('[data-tpl]'); if(t){ S.tpl=t.dataset.tpl; if(S.screen==='checkout'){ S.step=Math.min(S.step,steps().length-1); } S.combo=null; S.cat='mais'; moldura(); render(true); try{localStorage.setItem('regem_tpl_demo',S.tpl)}catch(_){}; return; }
   const c=e.target.closest('[data-cor]'); if(c){ S.accent=c.dataset.cor; moldura(); render(); return; }
   const rt=e.target.closest('[data-rctog]'); if(rt){ const k=rt.dataset.rctog; S.rc[k]=!S.rc[k]; if(k==='aniv'){ S.rc.festou=false; if(S.rc.aniv&&S.ret&&!S.cupomOk) S.cupomOk='NIVER'; if(!S.rc.aniv&&S.cupomOk==='NIVER') S.cupomOk=null; } moldura(); render(); return; }
-  const rm=e.target.closest('[data-rcmin]'); if(rm){ S.rc.min=+rm.dataset.rcmin; moldura(); render(); return; }
+  const rm=e.target.closest('[data-rcmin]'); if(rm){ S.rc.min=+rm.dataset.rcmin; S.rc.escolhido=null; moldura(); render(); return; }
   const et=e.target.closest('[data-evtog]'); if(et){ const k=et.dataset.evtog; S.ev[k]=!S.ev[k]; moldura(); render(); return; }
   const ag=e.target.closest('[data-ver-ev]'); if(ag){ S.ev.sel=ag.dataset.verEv; moldura(); render(true); $('#phone').scrollIntoView({behavior:'smooth',block:'center'}); return; }
   const lj=e.target.closest('[data-loja]'); if(lj){ S.loja=lj.dataset.loja; if(S.loja==='retirada') S.chk.tipo='retirada'; else S.chk.tipo='entrega'; if(S.loja==='fechada') S.chk.quando='agendar'; else if(S.chk.quando==='agendar' && !S.chk.agenda) S.chk.quando='agora'; if(S.chk.agenda && S.chk.agenda<minAgenda()) S.chk.agenda=''; moldura(); render(); return; }
-  const tg=e.target.closest('[data-tog]'); if(tg){ const k=tg.dataset.tog; if(k==='ret'){ S.ret=!S.ret; S.rc.festou=false; if(S.rc.aniv){ S.cupomOk=S.ret?'NIVER':null; } S.editDados=false; S.editEnd=false; S.expressoOff=false; preencherRet(S.ret); } else { S[k]=!S[k]; if(k==='cupons'&&!S.cupons){ S.cupomOk=null; S.cupomMsg=null; } } if(S.screen==='checkout') S.step=Math.min(S.step,steps().length-1); moldura(); render(); return; }
+  const tg=e.target.closest('[data-tog]'); if(tg){ const k=tg.dataset.tog; if(k==='ret'){ S.ret=!S.ret; S.rc.festou=false; S.rc.escolhido=null; if(S.rc.aniv){ S.cupomOk=S.ret?'NIVER':null; } S.editDados=false; S.editEnd=false; S.expressoOff=false; preencherRet(S.ret); } else { S[k]=!S[k]; if(k==='cupons'&&!S.cupons){ S.cupomOk=null; S.cupomMsg=null; } } if(S.screen==='checkout') S.step=Math.min(S.step,steps().length-1); moldura(); render(); return; }
   if(e.target.closest('#reset')){ reset(true); render(true); }
 });
 
@@ -1653,16 +1678,27 @@ const JANELA = {
   halloween:y=>({ini:DT(y,10,20),fim:DT(y,10,31),dia:DT(y,10,31)}),
   blackfriday:y=>{const d=blackFriday(y);return {ini:addD(d,-4),fim:addD(d,2),dia:d};},
   natal:y=>({ini:DT(y,12,1),fim:DT(y,12,25),dia:DT(y,12,25)}),
+  hamburguer:y=>({ini:DT(y,5,21),fim:DT(y,5,28),dia:DT(y,5,28)}),
+  jogo:()=>{ const j=proximoJogo(); const d=DT(j.ini.getFullYear(),j.ini.getMonth()+1,j.ini.getDate()); return {ini:d,fim:d,dia:d}; },
 };
-const PRIO = {namorados:3,junina:1};
-const ORDEM_EV = ['reveillon','carnaval','pascoa','maes','namorados','junina','pais','criancas','halloween','blackfriday','natal'];
+/* Dia de jogo: o lojista cadastra data e hora do jogo (sem time). O tema fica no ar de 3 h antes até 2h30 depois. */
+const JOGOS = (()=>{ const n=new Date(); return [{ini:new Date(n.getFullYear(),n.getMonth(),n.getDate(),21,30),titulo:'Jogo das 21h30'}]; })();
+const JOGO_ANTES=3*36e5, JOGO_DEPOIS=2.5*36e5;
+function proximoJogo(){ const t=Date.now(); return JOGOS.filter(g=>g.ini.getTime()+JOGO_DEPOIS>t).sort((a,b)=>a.ini-b.ini)[0]||JOGOS[0]; }
+function jogoNoAr(){ const t=Date.now(); return JOGOS.some(g=>t>=g.ini.getTime()-JOGO_ANTES && t<=g.ini.getTime()+JOGO_DEPOIS); }
+function cdJogo(){ const g=proximoJogo(), t=Date.now(), dt=g.ini.getTime()-t, hh=String(g.ini.getHours()).padStart(2,'0')+':'+String(g.ini.getMinutes()).padStart(2,'0');
+  if(dt>0){ const m=Math.ceil(dt/6e4); return `Bola rola às ${hh} · faltam ${m>=60?Math.floor(m/60)+'h'+String(m%60).padStart(2,'0'):m+' min'}`; }
+  if(-dt<2*36e5) return 'Bola rolando: peça sem sair do sofá'; return 'Fim de jogo: pede a saideira'; }
+const PRIO = {namorados:3,junina:1,hamburguer:3};
+const ORDEM_EV = ['reveillon','carnaval','pascoa','maes','hamburguer','namorados','junina','pais','criancas','halloween','blackfriday','natal','jogo'];
 const hojeD = ()=>{const n=new Date();return DT(n.getFullYear(),n.getMonth()+1,n.getDate());};
 function janelaDe(k){ const h=hojeD(), y=h.getFullYear(); for(const yy of [y-1,y,y+1]){ const w=JANELA[k](yy); if(w.fim>=h) return w; } return JANELA[k](y+1); }
-const ativoHoje = k=>{ const w=janelaDe(k), h=hojeD(); return h>=w.ini && h<=w.fim; };
-function eventoAuto(){ let best=null; for(const k of ORDEM_EV) if(ativoHoje(k) && (!best || (PRIO[k]||2)>(PRIO[best]||2))) best=k; return best; }
+const ativoHoje = k=>{ if(k==='jogo') return jogoNoAr(); const w=janelaDe(k), h=hojeD(); return h>=w.ini && h<=w.fim; };
+function eventoAuto(){ if(jogoNoAr()) return 'jogo'; let best=null; for(const k of ORDEM_EV) if(k!=='jogo') if(ativoHoje(k) && (!best || (PRIO[k]||2)>(PRIO[best]||2))) best=k; return best; }
 function evAtual(){ return S.ev.sel==='auto' ? eventoAuto() : S.ev.sel==='none' ? null : S.ev.sel; }
 const diasAte = d=>Math.round((d-hojeD())/864e5);
 function cdTexto(k){
+  if(k==='jogo') return cdJogo();
   const w=janelaDe(k), n=diasAte(w.dia), E=EV[k];
   if(k==='blackfriday'){ const now=new Date(); if(hojeD()>=w.ini){ const fim=new Date(w.fim.getFullYear(),w.fim.getMonth(),w.fim.getDate(),23,59,59); let s=Math.max(0,Math.floor((fim-now)/1000)); const d=Math.floor(s/86400); s%=86400; const p=v=>String(v).padStart(2,'0'); return `Termina em ${d?d+'d ':''}${p(Math.floor(s/3600))}:${p(Math.floor(s%3600/60))}:${p(s%60)}`; } return `Começa ${ddmm(w.ini)}`; }
   if(E.cd) return E.cd(n,w);
@@ -1685,6 +1721,8 @@ const BIGODE=`<path d="M32 12 C28 5 19 5 13 10 C9 13 5 14 1 10 C1 19 9 25 18 23 
 const GRAVATA=`<path d="M20 16 L5 7 Q1 16 5 25Z" fill="#1E3A5F"/><path d="M20 16 L35 7 Q39 16 35 25Z" fill="#1E3A5F"/><g fill="#D4A373"><circle cx="9" cy="12" r="1.4"/><circle cx="8" cy="19.5" r="1.4"/><circle cx="12.5" cy="16" r="1.4"/><circle cx="31" cy="12" r="1.4"/><circle cx="32" cy="19.5" r="1.4"/><circle cx="27.5" cy="16" r="1.4"/></g><rect x="16.5" y="12" width="7" height="8" rx="2" fill="#2B4C7E"/>`;
 const BALAO=(cx,cy,r,c)=>`<path d="M${cx} ${cy+r*1.15} q${-r*.3} ${r*.6} ${r*.1} ${r*1.2}" stroke="#94A3B8" stroke-width="1.2" fill="none"/><ellipse cx="${cx}" cy="${cy}" rx="${r*.86}" ry="${r}" fill="${c}"/><path d="M${cx-2} ${cy+r} h4 l-2 ${r*.18}z" fill="${c}"/><ellipse cx="${cx-r*.32}" cy="${cy-r*.38}" rx="${r*.18}" ry="${r*.3}" fill="#fff" opacity=".45" transform="rotate(-20 ${cx-r*.32} ${cy-r*.38})"/>`;
 
+const BOLA=(cx,cy,r)=>`<g transform="translate(${cx} ${cy}) scale(${r/20})"><circle r="20" fill="#fff" stroke="#111827" stroke-width="1.6"/><path d="M0 -7 L6.7 -2.2 L4.1 5.7 L-4.1 5.7 L-6.7 -2.2Z" fill="#111827"/><path d="M0 -7 L0 -14 M6.7 -2.2 L13.3 -4.3 M4.1 5.7 L8.2 11.4 M-4.1 5.7 L-8.2 11.4 M-6.7 -2.2 L-13.3 -4.3" stroke="#111827" stroke-width="1.4"/><path d="M-5 -19.3 L5 -19.3 L0 -14Z M17.5 -9.5 L19.8 0 L13.3 -4.3Z M14.5 13.8 L6 18.9 L8.2 11.4Z M-14.5 13.8 L-6 18.9 L-8.2 11.4Z M-17.5 -9.5 L-19.8 0 L-13.3 -4.3Z" fill="#111827"/></g>`;
+const BURGER=(s=1)=>`<g transform="scale(${s})"><path d="M6 26 Q6 8 32 8 Q58 8 58 26Z" fill="#F4A340"/><g fill="#FFF3D6"><ellipse cx="22" cy="15" rx="2" ry="1.1"/><ellipse cx="32" cy="12" rx="2" ry="1.1"/><ellipse cx="42" cy="15" rx="2" ry="1.1"/><ellipse cx="27" cy="20" rx="2" ry="1.1"/><ellipse cx="38" cy="20" rx="2" ry="1.1"/></g><path d="M4 28 Q10 24 16 28 Q22 24 28 28 Q34 24 40 28 Q46 24 52 28 Q58 24 60 28 L60 31 L4 31Z" fill="#4CAF50"/><path d="M8 31 L56 31 L52 37 L12 37Z" fill="#FACC15"/><rect x="5" y="34" width="54" height="9" rx="4.5" fill="#6B3A1E"/><path d="M6 45 L58 45 Q58 54 32 54 Q6 54 6 45Z" fill="#E8902F"/></g>`;
 const ART = {
   hat:{
     natal:sv('0 0 64 60',`<path d="M7 47 Q12 18 36 10 Q55 4 57 26 L51 29 Q49 17 41 19 Q35 30 45 47 Z" fill="#D62828"/><path d="M36 10 Q55 4 57 26 L51 29 Q50 15 36 10Z" fill="#8F1416" opacity=".45"/><rect x="3" y="41" width="46" height="13" rx="6.5" fill="#fff" stroke="#DCE3EA" stroke-width="1.5"/><g fill="#E6EBF1"><circle cx="12" cy="47.5" r="1.7"/><circle cx="22" cy="46" r="1.7"/><circle cx="32" cy="48.5" r="1.7"/><circle cx="41" cy="46.5" r="1.7"/></g><circle cx="54" cy="31" r="7.5" fill="#fff" stroke="#DCE3EA" stroke-width="1.5"/>`),
@@ -1697,6 +1735,8 @@ const ART = {
     pais:sv('0 0 64 30',BIGODE),
     criancas:sv('0 0 64 60',`<path d="M32 19 Q10 22 8 48 L20 48 Q22 28 32 19Z" fill="#EF4444"/><path d="M32 19 Q22 28 20 48 L32 48Z" fill="#FACC15"/><path d="M32 19 L32 48 L44 48 Q42 28 32 19Z" fill="#3B82F6"/><path d="M32 19 Q42 28 44 48 L56 48 Q54 22 32 19Z" fill="#22C55E"/><rect x="5" y="46" width="54" height="7" rx="3.5" fill="#1E3A8A"/><rect x="30.5" y="9" width="3" height="11" fill="#475569"/><g class="prop"><ellipse cx="32" cy="9" rx="17" ry="3.6" fill="#F43F5E"/></g><circle cx="32" cy="9" r="2.8" fill="#FACC15"/>`),
     halloween:sv('0 0 64 60',`<ellipse cx="32" cy="49" rx="30" ry="7.5" fill="#2B1C40"/><path d="M14 48 L28 13 Q31 3 40 5 Q46 7 51 2 Q47 12 42 14 L50 48 Z" fill="#3B2757"/><path d="M16.5 41 L47.5 41 L49.5 47 L14.5 47 Z" fill="#F97316"/><rect x="28" y="40" width="8" height="8" rx="1.5" fill="none" stroke="#FCD34D" stroke-width="2"/>`),
+    hamburguer:sv('0 0 64 60',`<path d="M14 40 Q4 38 6 26 Q8 16 18 20 Q20 8 32 8 Q44 8 46 20 Q56 16 58 26 Q60 38 50 40Z" fill="#fff" stroke="#CBD5E1" stroke-width="1.8"/><path d="M22 22 Q24 30 22 38 M32 18 Q34 28 32 38 M42 22 Q40 30 42 38" stroke="#E2E8F0" stroke-width="1.6" fill="none"/><rect x="13" y="38" width="38" height="12" rx="3" fill="#fff" stroke="#CBD5E1" stroke-width="1.8"/><path d="M13 44 H51" stroke="#C1121F" stroke-width="2.4"/>`),
+    jogo:sv('0 0 64 60',BOLA(32,30,22)),
     blackfriday:sv('0 0 64 60',`<path d="M3 2 Q12 9 17 16" stroke="#0A0A0A" stroke-width="1.6" fill="none"/><g transform="rotate(18 34 32)"><path d="M18 16 L54 16 Q58 16 58 20 L58 44 Q58 48 54 48 L18 48 L7 32 Z" fill="#0A0A0A"/><circle cx="15" cy="32" r="3" fill="#FACC15"/><text x="37" y="31" font-family="Anton,Impact,sans-serif" font-size="11" fill="#FACC15" text-anchor="middle">BLACK</text><text x="37" y="43" font-family="Anton,Impact,sans-serif" font-size="9" fill="#fff" text-anchor="middle">FRIDAY</text></g>`),
   },
   run:{
@@ -1710,6 +1750,8 @@ const ART = {
     fogueira:sv('0 0 40 32',`<path d="M7 29 L33 23 M7 23 L33 29" stroke="#7C4A2D" stroke-width="4" stroke-linecap="round"/><path class="fl" d="M20 25 C12 22 13 14 17 10 C17 14 19 15 20 13 C21 9 24 6 23 2 C29 7 30 14 27 19 C26 22 23 25 20 25Z" fill="#F97316"/><path d="M20 24 C16 22 16.5 17 19 14 C19.5 17 21 17 22 15 C24 18 24 22 20 24Z" fill="#FACC15"/>`),
     gravata:sv('0 0 40 32',GRAVATA),
     aviao:sv('0 0 40 32',`<path d="M2 15 L38 3 L26 29 L19 19Z" fill="#fff" stroke="#2563EB" stroke-width="1.6" stroke-linejoin="round"/><path d="M19 19 L38 3 L15 22 L14 29Z" fill="#BFDBFE" stroke="#2563EB" stroke-width="1.6" stroke-linejoin="round"/>`),
+    burguer:sv('0 0 40 32',`<g class="pernas"><path d="M14 22 L11 30 H6" stroke="#6B3A1E" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M26 22 L29 30 H34" stroke="#6B3A1E" stroke-width="2.4" fill="none" stroke-linecap="round"/></g><g transform="translate(4 0) scale(.5)">${BURGER()}</g><circle cx="16" cy="10" r="1.6" fill="#111"/><circle cx="24" cy="10" r="1.6" fill="#111"/>`),
+    bola:sv('0 0 40 32',`<g class="gira">${BOLA(20,16,14)}</g>`),
     carrinho:sv('0 0 40 32',`<path d="M11 11 H34 L31 20 H13Z" fill="#FACC15"/><path d="M2 4 H8 L12 22 H32 L36 9 H10" fill="none" stroke="#0A0A0A" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="15" cy="27" r="2.6" fill="#0A0A0A"/><circle cx="29" cy="27" r="2.6" fill="#0A0A0A"/>`),
   },
   ico:{
@@ -1723,6 +1765,8 @@ const ART = {
     pais:sv('0 0 40 32',GRAVATA),
     criancas:sv('0 0 24 26',BALAO(12,10,8,'#EF4444')),
     halloween:sv('0 0 64 60',ABOBORA),
+    hamburguer:sv('0 0 64 60',BURGER()),
+    jogo:sv('0 0 40 40',BOLA(20,20,18)),
     blackfriday:sv('0 0 24 24',`<g transform="rotate(20 12 12)"><path d="M7 5 L20 5 Q22 5 22 7 L22 17 Q22 19 20 19 L7 19 L2 12Z" fill="#0A0A0A"/><circle cx="6" cy="12" r="1.6" fill="#FACC15"/><text x="14" y="15.5" font-family="Anton,Impact,sans-serif" font-size="9" fill="#FACC15" text-anchor="middle">%</text></g>`),
   },
   hero:{
@@ -1736,6 +1780,8 @@ const ART = {
     pais:sv('0 0 96 96',`<path d="M10 22 Q48 0 86 22" stroke="#D4A373" stroke-width="3" fill="none" stroke-linecap="round" opacity=".6"/><circle cx="33" cy="38" r="13" fill="rgba(255,255,255,.14)" stroke="#F5EBDD" stroke-width="3.4"/><circle cx="63" cy="38" r="13" fill="rgba(255,255,255,.14)" stroke="#F5EBDD" stroke-width="3.4"/><path d="M46 37 Q48 34 50 37" stroke="#F5EBDD" stroke-width="3" fill="none"/><path d="M20 36 L10 33 M76 36 L86 33" stroke="#F5EBDD" stroke-width="3" stroke-linecap="round"/><g transform="translate(17 52) scale(.97)">${BIGODE.replace('#3B2416','#D4A373')}</g><g transform="translate(28 72) scale(1)">${GRAVATA.replace(/#1E3A5F/g,'#F5EBDD').replace('#2B4C7E','#D4A373').replace(/fill="#D4A373"><circle/,'fill="#1E3A5F"><circle')}</g>`),
     criancas:sv('0 0 96 96',`<path d="M30 46 Q40 70 48 92 M66 36 Q56 66 48 92 M48 56 L48 92" stroke="#E0F2FE" stroke-width="1.5" fill="none"/>${BALAO(30,28,17,'#EF4444')}${BALAO(66,22,17,'#FACC15')}${BALAO(48,44,15,'#22C55E')}${estrela(84,52,6,'#fff')}${estrela(12,58,4,'#FDE68A')}`),
     halloween:sv('0 0 64 60',ABOBORA),
+    hamburguer:sv('0 0 96 96',`<path d="M60 4 V30" stroke="#C9A06E" stroke-width="2.4"/><path d="M60 5 L84 10 L60 16Z" fill="#C1121F"/><text x="70" y="13.5" font-family="Titan One,Anton,sans-serif" font-size="6" fill="#fff" text-anchor="middle">28/05</text><g transform="translate(8 26) scale(1.25)">${BURGER()}</g><g fill="#fff" opacity=".9"><ellipse cx="12" cy="20" rx="2.4" ry="1.3" transform="rotate(30 12 20)"/><ellipse cx="86" cy="40" rx="2.4" ry="1.3" transform="rotate(-20 86 40)"/><ellipse cx="20" cy="88" rx="2.4" ry="1.3"/></g>`),
+    jogo:sv('0 0 96 96',`<rect x="6" y="14" width="84" height="56" rx="6" fill="#0F172A"/><rect x="10" y="18" width="76" height="48" rx="2" fill="#16A34A"/><g fill="#15803D">${[0,1,2,3,4,5].map(i=>`<rect x="${10+i*13}" y="18" width="6.5" height="48"/>`).join('')}</g><g stroke="#fff" stroke-width="1.4" fill="none" opacity=".9"><rect x="13" y="21" width="70" height="42"/><path d="M48 21 V63"/><circle cx="48" cy="42" r="8"/><rect x="13" y="33" width="9" height="18"/><rect x="74" y="33" width="9" height="18"/></g>${BOLA(60,48,5)}<rect x="12" y="20" width="26" height="9" rx="2" fill="#DC2626"/><circle cx="16.5" cy="24.5" r="1.8" fill="#fff"/><text x="28" y="27.3" font-family="Anton,Impact,sans-serif" font-size="6.5" fill="#fff" text-anchor="middle">AO VIVO</text><path d="M40 72 L36 82 H60 L56 72Z" fill="#334155"/>`),
     blackfriday:sv('0 0 96 96',`<path d="M6 4 Q22 16 30 28" stroke="#FACC15" stroke-width="2" fill="none"/><g transform="rotate(16 52 50)"><path d="M28 26 L86 26 Q91 26 91 31 L91 69 Q91 74 86 74 L28 74 L12 50 Z" fill="#FACC15"/><circle cx="24" cy="50" r="4.5" fill="#0A0A0A"/><text x="58" y="48" font-family="Anton,Impact,sans-serif" font-size="19" fill="#0A0A0A" text-anchor="middle">BLACK</text><text x="58" y="67" font-family="Anton,Impact,sans-serif" font-size="15" fill="#0A0A0A" text-anchor="middle" letter-spacing="1">FRIDAY</text></g>`),
   },
 };
@@ -1806,6 +1852,17 @@ const EV = {
     parts:[['tag',12]], burst:['tag','star'], pal:['#FACC15','#0A0A0A'], hat:'blackfriday', pos:'canto', run:'carrinho', gar:'fita',
     stripe:'repeating-linear-gradient(-45deg,#FACC15 0 7px,#0A0A0A 7px 14px)', anim:'corre',
     feats:['Fita “Black Friday” correndo no topo','Etiquetas caindo','Etiqueta Black nas fotos','Carrinho nas etapas','Contagem regressiva até o fim da Black']},
+  hamburguer:{nome:'Dia do Hambúrguer',acc:'#C1121F',
+    faixa:{k:'Dia do Hambúrguer',t:'O dia mais gostoso do ano',s:'28/05 é o nosso feriado: monte o seu e comemore com a gente.'},
+    cd:n=>n>0?`Faltam ${n} ${n===1?'dia':'dias'} pro Dia do Hambúrguer`:'Hoje é Dia do Hambúrguer!',
+    col:{t:'Os campeões da casa',ids:['t08','bcos','bcla','tmu']}, toast:n=>`${n} foi pra chapa`, ok:['Na chapa!','Seu burguer já está fritando.'],
+    parts:[['seed',26],['burger',6]], burst:['burger','seed'], pal:['#FFF3D6'], hat:'hamburguer', pos:'canto', run:'burguer', gar:'burgers',
+    anim:'corre', feats:['Gergelim e minis burguers caindo','Varal de hambúrgueres no topo','Chapéu de chef nas fotos','Burguer de pernas correndo nas etapas','Coleção “Os campeões da casa”']},
+  jogo:{nome:'Dia de jogo',acc:'#15803D',
+    faixa:{k:'Dia de jogo',t:'Hoje tem jogo na TV',s:'Monte o combo da torcida e receba antes da bola rolar.'},
+    col:{t:'Combo da torcida',ids:['cdup','cfam','pnac','pbat']}, toast:n=>`${n} escalado pro jogo`, ok:['Golaço!','Seu pedido já entrou em campo.'],
+    parts:[['confete',18]], burst:['confete'], pal:['#FFFFFF','#16A34A','#111827','#E5E7EB'], hat:'jogo', pos:'canto', run:'bola', gar:'gramado',
+    anim:'corre', feats:['Faixa de gramado no topo com a bola rolando','Bola de futebol nas fotos','Bola rolando pelas etapas do checkout','Contagem até o início do jogo, sem citar times','Liga sozinho 3 h antes e desliga 2h30 depois de cada jogo cadastrado']},
   natal:{nome:'Natal',acc:'#C8102E',font:"'Mountains of Christmas',cursive",fs:28,
     faixa:{k:'Natal',t:'Natal do Mister',s:'Ceia sem trabalho: encomende até 23/12 e receba na véspera.'},
     cd:n=>n>0?`Faltam ${n} ${n===1?'dia':'dias'} para o Natal`:'Feliz Natal!',
@@ -1841,6 +1898,8 @@ function spawn(k,ini){
   else if(k==='egg'){p.s=4+r()*3;p.vy=.5+r()*.5;}
   else if(k==='candy'){p.s=4+r()*3;p.vy=.6;p.c=['#F97316','#A855F7','#22C55E','#FACC15'][Math.floor(r()*4)];}
   else if(k==='spark'){p.s=1.8;}
+  else if(k==='seed'){p.s=2+r()*1.2;p.vy=.6+r()*.7;p.vx=(r()-.5)*.3;p.sw=.5;}
+  else if(k==='burger'){p.s=10+r()*5;p.vy=.5+r()*.5;p.vx=(r()-.5)*.3;p.vr=(r()-.5)*.03;}
   return p;
 }
 function fxDraw(p){
@@ -1862,6 +1921,8 @@ function fxDraw(p){
     case 'egg': x.rotate(p.rot); x.beginPath(); x.ellipse(0,0,s*.75,s,0,0,7); x.fillStyle=p.c; x.fill(); x.beginPath(); x.moveTo(-s*.72,0); for(let i=1;i<=4;i++) x.lineTo(-s*.72+i*s*.36,(i%2?-1:1)*s*.18); x.strokeStyle='#fff'; x.lineWidth=1.2; x.stroke(); break;
     case 'candy': x.rotate(p.rot); x.fillStyle=p.c; x.beginPath(); x.moveTo(-s,0); x.lineTo(-s*1.8,-s*.6); x.lineTo(-s*1.8,s*.6); x.closePath(); x.moveTo(s,0); x.lineTo(s*1.8,-s*.6); x.lineTo(s*1.8,s*.6); x.closePath(); x.fill(); x.beginPath(); x.arc(0,0,s,0,7); x.fill(); x.strokeStyle='rgba(255,255,255,.7)'; x.lineWidth=1.2; x.beginPath(); x.arc(0,0,s*.55,0,4); x.stroke(); break;
     case 'spark': x.beginPath(); x.arc(0,0,s,0,7); x.fillStyle=p.c; x.fill(); break;
+    case 'seed': x.rotate(p.rot); x.beginPath(); x.ellipse(0,0,s*1.6,s*.8,0,0,7); x.fillStyle='#FFF3D6'; x.fill(); x.strokeStyle='rgba(150,100,40,.6)'; x.lineWidth=.7; x.stroke(); break;
+    case 'burger': x.rotate(Math.sin(p.ph)*.3+p.rot*.2); x.fillStyle='#F4A340'; x.beginPath(); x.ellipse(0,-s*.25,s,s*.55,0,Math.PI,0); x.fill(); x.fillStyle='#4CAF50'; x.fillRect(-s,-s*.22,s*2,s*.16); x.fillStyle='#FACC15'; x.fillRect(-s*.9,-s*.08,s*1.8,s*.14); x.fillStyle='#6B3A1E'; x.fillRect(-s*.95,s*.04,s*1.9,s*.3); x.fillStyle='#E8902F'; x.beginPath(); x.ellipse(0,s*.36,s,s*.26,0,0,Math.PI); x.fill(); break;
   }
   x.restore();
 }
@@ -1921,6 +1982,8 @@ function guirlanda(k,W){
       let dots=''; for(let i=0;i<22;i++) dots+=`<rect x="${(r()*W).toFixed(0)}" y="${(r()*40).toFixed(0)}" width="5" height="3" fill="${C(i)}" transform="rotate(${(r()*180).toFixed(0)} ${(r()*W).toFixed(0)} 20)"/>`;
       inner=`<svg class="w" width="${W}" height="44" viewBox="0 0 ${W} 44">${paths}${dots}</svg>`; break; }
     case 'teia': inner=`${teia()}<span class="aranha"><i class="fio"></i>${sv('0 0 24 24',`<g stroke="#1B1028" stroke-width="1.4" fill="none"><path d="M8 10 L2 6 M8 12 L1 12 M8 14 L2 18 M16 10 L22 6 M16 12 L23 12 M16 14 L22 18"/></g><ellipse cx="12" cy="12" rx="5" ry="6" fill="#1B1028"/><circle cx="10.3" cy="10" r="1.1" fill="#F97316"/><circle cx="13.7" cy="10" r="1.1" fill="#F97316"/>`)}</span>`; break;
+    case 'burgers': inner=varal(W,{sag:9,gap:26,fio:'#6B3A1E',item:i=>({w:18,cls:'sw',html:sv('0 0 64 60',BURGER())})}); break;
+    case 'gramado': inner=`<div class="gramado"><i class="linha"></i><span class="bolinha">${sv('0 0 40 40',BOLA(20,20,18))}</span></div>`; break;
     case 'xadrez': inner=`<i class="xadrez"></i><span class="bow">${sv('0 0 40 32',GRAVATA)}</span>`; break;
     case 'fita': inner=`<div class="fita"><span>${'BLACK FRIDAY · PREÇO BLACK · '.repeat(8)}</span></div>`; break;
   }
@@ -1956,7 +2019,7 @@ function evDecorar(){
       [...sc.querySelectorAll('.g-big .g-art,.g-card .g-art,.b-th,.o-pc .a,.o-card .a,.f-hc .a,.f-row .a,.ev-ci .a')].forEach((a,i)=>{ if(i%3===0) chapeu(a,k); });
       sc.querySelectorAll('[data-sec] > h2').forEach(h=>h.insertAdjacentHTML('afterbegin',`<span class="ev-ico">${ART.ico[k]}</span>`));
       if(E.jogo==='ovos') for(const id of OVOS_ESC){ if(S.ev.ovos.includes(id)) continue; const el=sc.querySelector(`[data-sec] [data-v="${id}"]`); if(!el) continue; const a=el.matches('.a')?el:el.querySelector('.g-art,.b-th,.a'); if(a) a.insertAdjacentHTML('beforeend',`<span class="ev-egg" role="button" tabindex="0" data-a="ovo" data-v="${id}" aria-label="Ovo de Páscoa escondido">${ovo(['#F9A8D4','#6EE7B7','#FDE68A'][OVOS_ESC.indexOf(id)])}</span>`); }
-      if(k==='blackfriday') cdT=setInterval(()=>{ const c=$('#ev-cd'); if(c) c.textContent=cdTexto(k); else clearInterval(cdT); },1000);
+      if(k==='blackfriday'||k==='jogo') cdT=setInterval(()=>{ const c=$('#ev-cd'); if(c) c.textContent=cdTexto(k); else clearInterval(cdT); },1000);
     }
     if(S.screen==='produto') chapeu(ph.querySelector('.g-pimg,.b-pimg,.o-pimg,.f-sh .a'),k,!ph.querySelector('.f-sh'));
   }
@@ -1978,34 +2041,27 @@ const evMsg = n=>{ const k=evAtual(); return k?EV[k].toast(n):`${n} está na sac
 function evAcc(){ const k=evAtual(); return k && S.ev.cores ? EV[k].acc : S.accent; }
 
 /* ======================= CLUBE DE RECOMPRA ======================= */
-/* Raspadinha, selos e aniversário dão benefício GARANTIDO (sem sorte). O sorteio é a
-   única peça com sorte: só publica com certificado de autorização SPA/MF e apura pela
-   Loteria Federal. */
-const SORT = {
-  nome:'Sorteio de outubro', mes:'outubro', fim:DT(2026,10,31), apur:'Loteria Federal de 31/10/2026 (sábado)',
-  ca:'Certificado de Autorização SPA/MF nº 04.012345/2026 (exemplo)', valorMin:30,
-  premios:[
-    {n:'Smart TV 43"',q:1,a:'tv'},
-    {n:'Air fryer 4 L',q:1,a:'fryer'},
-    {n:'Combo Família toda semana por 1 mês',q:3,a:'combo'},
-    {n:'Kit Mister: camiseta e copo',q:5,a:'kit'},
+/* Tudo aqui dá benefício GARANTIDO: quem cumpre a regra ganha, sem sorte, sem estoque
+   limitado, sem "primeiros a chegar" e sem quantidade fixa de prêmios. Assim fica fora da
+   exigência de autorização de promoção comercial (Lei 5.768/71). */
+const METAM = {
+  nome:'Meta de outubro', mes:'outubro', fim:DT(2026,10,31), valorMin:30,
+  niveis:[
+    {x:1, titulo:'Escolha 1 prêmio', itens:[{id:'pbat',n:'Batata frita grande'},{id:'dshk',n:'Milkshake de morango'},{id:'svul',n:'Petit gâteau vulcão'}]},
+    {x:2, titulo:'Escolha 1 prêmio maior', itens:[{id:'cdup',n:'Combo Duplo'},{id:'kit',n:'Kit Mister: camiseta e copo'}]},
   ],
 };
 const VOLTA = {cod:'VOLTA10', txt:'10% off no próximo pedido', dias:7};
 const NIVER = {cod:'NIVER', txt:'15% off (até R$ 20,00) na semana do seu aniversário'};
 const ALBUM = {meta:4, premio:'Batata frita grande grátis'};
-
-const ARTE_P = {
-  tv:sv('0 0 48 48',`<rect x="4" y="9" width="40" height="25" rx="2.5" fill="#0F172A"/><rect x="7" y="12" width="34" height="19" rx="1" fill="#38BDF8"/><path d="M7 31 L19 20 L26 26 L31 22 L41 31Z" fill="#0EA5E9"/><circle cx="34" cy="17" r="2.6" fill="#FDE68A"/><path d="M18 38 H30 M24 34 V38" stroke="#0F172A" stroke-width="2.6" stroke-linecap="round"/>`),
-  fryer:sv('0 0 48 48',`<path d="M12 14 Q12 7 19 7 H29 Q36 7 36 14 V38 Q36 42 32 42 H16 Q12 42 12 38Z" fill="#1F2937"/><rect x="15" y="25" width="18" height="13" rx="3" fill="#374151"/><rect x="21" y="29" width="6" height="2.6" rx="1.3" fill="#9CA3AF"/><circle cx="24" cy="16" r="5" fill="#111827" stroke="#F97316" stroke-width="1.6"/><path d="M24 13 V16 L26 17.5" stroke="#F97316" stroke-width="1.3" fill="none"/>`),
-  combo:sv('0 0 48 48',`<path d="M6 24 L42 24 L38 42 L10 42Z" fill="#D62828"/><path d="M6 24 L42 24" stroke="#9B1B1B" stroke-width="2"/><path d="M11 22 Q11 10 24 10 Q37 10 37 22Z" fill="#F4A340"/><g fill="#FFF3D6"><ellipse cx="18" cy="15" rx="1.3" ry=".8"/><ellipse cx="24" cy="13" rx="1.3" ry=".8"/><ellipse cx="30" cy="15.5" rx="1.3" ry=".8"/></g><text x="24" y="37" text-anchor="middle" font-family="Archivo,system-ui,sans-serif" font-weight="800" font-size="8" fill="#fff">MISTER</text>`),
-  kit:sv('0 0 48 48',`<path d="M6 13 L14 8 Q18 12 22 8 L30 13 L27 19 L25 18 V40 H11 V18 L9 19Z" fill="#111827"/><text x="18" y="27" text-anchor="middle" font-family="Archivo,system-ui,sans-serif" font-weight="800" font-size="5" fill="#FACC15">MB</text><path d="M31 20 H43 L41 42 H33Z" fill="#D62828"/><rect x="30" y="17" width="14" height="4" rx="1.5" fill="#9B1B1B"/><path d="M36 17 L38 9" stroke="#111827" stroke-width="1.6"/>`),
-};
+const KIT_ART = sv('0 0 48 48',`<path d="M6 13 L14 8 Q18 12 22 8 L30 13 L27 19 L25 18 V40 H11 V18 L9 19Z" fill="#111827"/><text x="18" y="27" text-anchor="middle" font-family="Archivo,system-ui,sans-serif" font-weight="800" font-size="5" fill="#FACC15">MB</text><path d="M31 20 H43 L41 42 H33Z" fill="#D62828"/><rect x="30" y="17" width="14" height="4" rx="1.5" fill="#9B1B1B"/><path d="M36 17 L38 9" stroke="#111827" stroke-width="1.6"/>`);
+const TROFEU = sv('0 0 48 48',`<path d="M14 6 H34 V18 Q34 30 24 30 Q14 30 14 18Z" fill="#E2A340"/><path d="M14 10 H7 Q6 20 15 22 M34 10 H41 Q42 20 33 22" fill="none" stroke="#E2A340" stroke-width="3"/><rect x="21" y="30" width="6" height="7" fill="#C98A2B"/><rect x="15" y="37" width="18" height="5" rx="1.5" fill="#0F2230"/><path d="M24 11 l2 4 4.4.6 -3.2 3 .8 4.4 -4-2.1 -4 2.1 .8-4.4 -3.2-3 4.4-.6Z" fill="#FFF3D6"/>`);
+const premioArte = it => it.id==='kit' ? `<span class="kit">${KIT_ART}</span>` : art(prod(it.id));
 const BOLO = sv('0 0 96 96',`<ellipse cx="48" cy="86" rx="38" ry="5" fill="#000" opacity=".12"/><rect x="18" y="50" width="60" height="34" rx="6" fill="#F9A8D4"/><path d="M18 58 Q24 66 30 58 Q36 66 42 58 Q48 66 54 58 Q60 66 66 58 Q72 66 78 58 V56 Q78 50 72 50 H24 Q18 50 18 56Z" fill="#fff"/><rect x="18" y="72" width="60" height="5" fill="#F472B6"/><g fill="#FACC15"><circle cx="28" cy="67" r="1.6"/><circle cx="44" cy="69" r="1.6"/><circle cx="60" cy="67" r="1.6"/><circle cx="72" cy="69" r="1.6"/></g>
 ${[34,48,62].map((x,i)=>`<rect x="${x-2.2}" y="30" width="4.4" height="20" rx="1.5" fill="${['#60A5FA','#34D399','#FBBF24'][i]}"/><path d="M${x-2.2} 34 l4.4 -3 M${x-2.2} 41 l4.4 -3 M${x-2.2} 48 l4.4 -3" stroke="#fff" stroke-width="1.2"/><path class="vela" d="M${x} 20 C${x+5} 25 ${x+3} 30 ${x} 30 C${x-3} 30 ${x-5} 25 ${x} 20Z" fill="#F97316"/><path class="vela" d="M${x} 24 C${x+2.5} 27 ${x+1.5} 29 ${x} 29 C${x-1.5} 29 ${x-2.5} 27 ${x} 24Z" fill="#FDE047"/>`).join('')}`);
 const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const MESES_L = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-function eventoDoMes(m){ const y=hojeD().getFullYear(); for(const k of ORDEM_EV){ const w=JANELA[k](y); if(w.dia.getMonth()===m) return k; } return null; }
+function eventoDoMes(m){ const y=hojeD().getFullYear(); for(const k of ORDEM_EV){ if(!JANELA[k]) continue; const w=JANELA[k](y); if(w.dia.getMonth()===m) return k; } return null; }
 function selo(m, on){
   const k=eventoDoMes(m), cores=k?[EV[k].acc,'#fff']:['#0F2230','#fff'];
   const ico = k ? ART.ico[k].replace('<svg ','<svg x="17" y="13" width="22" height="22" ') : `<g transform="translate(28 24)">${estrela(0,0,10,'#E2A340')}</g>`;
@@ -2016,48 +2072,46 @@ function selo(m, on){
 /* ---------- estado derivado ---------- */
 const mesAtual = ()=>hojeD().getMonth();
 const pedMes = ()=>(S.ret?2:0)+S.rc.feitos;
-const numerosDevidos = ()=>Math.floor(pedMes()/S.rc.min);
-function selosTenho(){ const m=mesAtual(), base=S.ret?[ (m+10)%12, (m+11)%12 ]:[]; if(S.rc.algum) base.push(m); return [...new Set(base)]; }
-function numeroSorte(i){ let x=(57+i*7919+(S.ret?131:17))*2654435761%100000; return String(Math.abs(x)).padStart(5,'0'); }
-function cpfOk(v){ const d=dig(v); return d.length===11 && !/^(\d)\1+$/.test(d); }
+const nivelAtual = ()=>Math.min(METAM.niveis.length, Math.floor(pedMes()/S.rc.min));
+function selosTenho(){ const m=mesAtual(), base=S.ret?[(m+10)%12,(m+11)%12]:[]; if(S.rc.algum) base.push(m); return [...new Set(base)]; }
 function confete(pt,n,pal=['#FACC15','#EC4899','#3B82F6','#22C55E','#F97316','#A855F7']){
   if(RM.matches||!FX.w) return;
   for(let i=0;i<n;i++){ const p=spawn('confete',false), a=Math.random()*Math.PI*2, v=1.8+Math.random()*3.4; Object.assign(p,{c:pal[i%pal.length],x:pt.x,y:pt.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-2.6,g:.13,life:55+Math.random()*30,vr:(Math.random()-.5)*.2}); p.max=p.life; FX.bs.push(p); }
   fxKick();
 }
 function ptDe(el){ const ph=$('#phone').getBoundingClientRect(), r=el.getBoundingClientRect(); return {x:r.left-ph.left+r.width/2,y:r.top-ph.top+r.height/2}; }
+function trilhaMeta(){
+  const n=pedMes(), min=S.rc.min, tot=min*METAM.niveis.length;
+  return `<div class="rc-meta" aria-label="${n} pedidos de ${tot}">${Array.from({length:tot},(_,i)=>{ const marco=(i+1)%min===0; return `<i class="${i<n?'on':''} ${marco?'marco':''}">${marco?TROFEU:ic('check',11)}</i>`; }).join('')}</div>`;
+}
 
 /* ---------- vitrine ---------- */
 function clubeVitrine(){
   let h='';
   if(S.rc.aniv && S.ret) h+=`<section class="rc-niver" aria-label="Aniversário"><div><small>Feliz aniversário</small><h3>Parabéns, ${esc(RET.nome)}!</h3><p>Seu presente: ${NIVER.txt}. Já está aplicado.</p></div><span class="rc-bolo">${BOLO}</span></section>`;
-  if(S.rc.sort){
-    const n=pedMes(), min=S.rc.min, nums=numerosDevidos(), falta=min-(n%min), dentro=nums>0, dias=diasAte(SORT.fim);
-    h+=`<section class="rc-sort" aria-label="${SORT.nome}"><div class="rc-tk"><span class="rc-tkh"><small>${SORT.nome}</small><b>${dentro?`Você está concorrendo${nums>1?` com ${nums} números`:''}!`:`Faça ${min} pedidos e concorra`}</b></span><span class="rc-dias">${dias>0?`${dias} ${dias===1?'dia':'dias'}`:'hoje'}</span></div>
-      <p>${dentro?(S.rc.aceitou?`Seu número da sorte: <b class="rc-num">${numeroSorte(0)}</b>${nums>1?` e mais ${nums-1}`:''}. ${falta<min?`Faltam ${falta} ${falta===1?'pedido':'pedidos'} para ganhar outro número.`:''}`:'Aceite o regulamento para receber seu número da sorte.'):`A uma Smart TV 43", uma air fryer e mais ${SORT.premios.reduce((a,p)=>a+p.q,0)-2} prêmios. Pedidos a partir de ${BRL(SORT.valorMin)} contam.`}</p>
-      <div class="rc-prog" aria-label="${n%min||(dentro?min:0)} de ${min} pedidos">${Array.from({length:min},(_,i)=>`<i class="${i<(dentro&&n%min===0?min:n%min)?'on':''}">${ic('check',12)}</i>`).join('')}<span>${dentro&&n%min===0?`${min} de ${min}`:`${n%min} de ${min} pedidos`}</span></div>
-      <div class="rc-acts"><button class="ev-go" data-a="rcPremios">Ver prêmios</button>${dentro&&!S.rc.aceitou?`<button class="rc-cta" data-a="rcAceitar">Pegar meu número</button>`:''}</div></section>`;
+  if(S.rc.meta){
+    const n=pedMes(), min=S.rc.min, nv=nivelAtual(), prox=nv<METAM.niveis.length?(nv+1)*min-n:0, dias=diasAte(METAM.fim);
+    const tit = S.rc.escolhido ? `Prêmio garantido: ${S.rc.escolhido.n}` : nv>0 ? 'Meta batida! Escolha seu prêmio' : `Faça ${min} pedidos e ganhe um prêmio`;
+    h+=`<section class="rc-sort" aria-label="${METAM.nome}"><div class="rc-tk"><span class="rc-tkh"><small>${METAM.nome}</small><b>${tit}</b></span><span class="rc-dias">${dias>0?`${dias} ${dias===1?'dia':'dias'}`:'hoje'}</span></div>
+      ${trilhaMeta()}
+      <p>${prox?`Faltam <b>${prox}</b> ${prox===1?'pedido':'pedidos'} ${nv?'para o prêmio maior':'para o seu prêmio'}. `:''}Todo mundo que chega à meta ganha: sem sorteio e sem limite de prêmios. Pedidos a partir de ${BRL(METAM.valorMin)} contam.</p>
+      <div class="rc-acts"><button class="ev-go" data-a="rcPremios">Ver prêmios</button>${nv>0&&!S.rc.escolhido?`<button class="rc-cta" data-a="rcPremios">Escolher agora</button>`:''}</div></section>`;
   }
   return h?`<div class="rc-wrap">${h}</div>`:'';
 }
 function viewPremios(){
-  return `<div class="p-dim" data-a="rcFechar"></div><div class="p-sheet rc-sheet" role="dialog" aria-label="Prêmios do sorteio"><div class="p-pbody">
-    <header class="rc-sh"><div><small>${SORT.nome}</small><h3>Prêmios</h3></div><button class="ch-b" data-a="rcFechar" aria-label="Fechar">${ic('close',18)}</button></header>
-    <ul class="rc-pr">${SORT.premios.map((p,i)=>`<li><span class="a">${ARTE_P[p.a]}</span><span><b>${p.n}</b><small>${p.q} ${p.q===1?'ganhador':'ganhadores'} · ${i+1}º prêmio</small></span></li>`).join('')}</ul>
-    <div class="c-sec"><h3 class="c-h">Como participar</h3><ol class="rc-ol">
-      <li>Faça <b>${S.rc.min} pedidos</b> de ${BRL(SORT.valorMin)} ou mais em ${SORT.mes} pelo cardápio da loja.</li>
-      <li>Aceite o regulamento e informe seu CPF. Você recebe <b>1 número da sorte a cada ${S.rc.min} pedidos</b>.</li>
-      <li>A apuração usa a ${SORT.apur}. Avisamos os ganhadores pelo WhatsApp.</li></ol>
-      <p class="c-note">${SORT.ca}. Prêmios não podem ser trocados por dinheiro. Pedidos cancelados não contam.</p>
-      <button class="c-link" data-a="rcRegul">${ic('chev',16)} Ler o regulamento completo</button></div>
+  const nv=nivelAtual();
+  return `<div class="p-dim" data-a="rcFechar"></div><div class="p-sheet rc-sheet" role="dialog" aria-label="Prêmios da meta"><div class="p-pbody">
+    <header class="rc-sh"><div><small>${METAM.nome}</small><h3>Prêmios da meta</h3></div><button class="ch-b" data-a="rcFechar" aria-label="Fechar">${ic('close',18)}</button></header>
+    ${METAM.niveis.map((l,i)=>{ const pode=nv>i&&!S.rc.escolhido; return `<div class="c-sec"><h3 class="c-h">${l.x*S.rc.min} pedidos · ${l.titulo.toLowerCase()}</h3>
+      <div class="rc-esc">${l.itens.map(it=>`<button class="rc-opt" data-a="rcEscolher" data-v="${i}:${it.id}" ${pode?'':'disabled'} aria-pressed="${S.rc.escolhido&&S.rc.escolhido.id===it.id}"><span class="a">${premioArte(it)}</span><b>${it.n}</b></button>`).join('')}</div>
+      ${pode?'<p class="c-note">Toque para escolher. O prêmio entra grátis no seu próximo pedido.</p>':nv>i?'':`<p class="c-note">Libera com ${l.x*S.rc.min} pedidos em ${METAM.mes}.</p>`}</div>`; }).join('')}
+    <div class="c-sec"><h3 class="c-h">Como funciona</h3><ol class="rc-ol">
+      <li>Faça <b>${S.rc.min} pedidos</b> de ${BRL(METAM.valorMin)} ou mais em ${METAM.mes} pelo cardápio da loja.</li>
+      <li>Escolha 1 prêmio da lista. Com <b>${S.rc.min*2} pedidos</b>, escolha mais 1 do nível maior.</li>
+      <li>O prêmio entra grátis no seu próximo pedido, até 30 dias depois do fim do mês.</li></ol>
+      <p class="c-note">Todos que chegam à meta ganham. Não é sorteio, não tem número limitado de prêmios. Pedidos cancelados não contam.</p></div>
   </div></div>`;
-}
-function viewAceitar(){
-  const ok=cpfOk(S.rc.cpf)&&S.rc.li;
-  return `<div class="p-dim" data-a="rcFechar"></div><div class="p-modal" role="dialog" aria-label="Participar do sorteio"><h3>Pegar meu número da sorte</h3><p>Para entregar o prêmio, a lei exige identificar o ganhador. Usamos seu CPF só para este sorteio.</p>
-    <div class="c-f"><label for="f-rccpf">CPF</label><input class="c-in" id="f-rccpf" data-rc="cpf" inputmode="numeric" placeholder="000.000.000-00" value="${esc(S.rc.cpf)}"></div>
-    <button class="c-chk" data-a="rcLi" aria-pressed="${!!S.rc.li}"><i>${S.rc.li?ic('check',14):''}</i><span>Li e aceito o <u>regulamento</u> do ${SORT.nome.toLowerCase()}</span></button>
-    <div class="m-act"><button class="p-btn2" data-a="rcFechar">Agora não</button><button class="p-btn c" data-a="rcParticipar" id="rc-part" ${ok?'':'disabled'}>Participar</button></div></div>`;
 }
 
 /* ---------- confirmação ---------- */
@@ -2070,13 +2124,14 @@ function clubeOk(){
       <div class="rasp ${r?'aberta':''}" id="rasp"><div class="rasp-pr"><span>${VOLTA.txt}</span><b>${VOLTA.cod}</b><small>Válido até ${ate} · entra sozinho no próximo pedido</small></div>${r?'':'<canvas aria-hidden="true"></canvas>'}</div>
       ${r?'':`<button class="lk-sim" data-a="raspRevelar">Revelar sem raspar</button>`}</div>`;
   }
-  if(S.rc.sort){
-    const n=pedMes(), min=S.rc.min, nums=numerosDevidos(), novo=p.rcNovoNumero, contou=p.total>=SORT.valorMin;
-    h+=`<div class="rc-box rc-sorte"><div class="rc-bh"><b>${SORT.nome}</b><small>Apuração pela ${SORT.apur}</small></div>
-      ${!contou?`<p class="c-note">Pedidos a partir de ${BRL(SORT.valorMin)} contam para o sorteio. Este ficou abaixo.</p>`:
-       novo? (S.rc.aceitou?`<div class="rc-ticket"><small>Seu número da sorte</small><b>${numeroSorte(nums-1)}</b><span>${nums>1?`Você tem ${nums} números neste mês`:'Boa sorte!'}</span></div>`:`<p><b>Este pedido completou ${min} de ${min}!</b> Você já pode concorrer.</p><button class="p-btn c" data-a="rcAceitar">Pegar meu número da sorte</button>`)
-       :`<div class="rc-prog">${Array.from({length:min},(_,i)=>`<i class="${i<n%min?'on':''}">${ic('check',12)}</i>`).join('')}<span>Este pedido contou: ${n%min} de ${min}</span></div><p class="c-note">Faltam ${min-n%min} ${min-n%min===1?'pedido':'pedidos'} até ${ddmm(SORT.fim)} para ${nums?'ganhar mais um número':'concorrer'}.</p>`}
-      <button class="c-link" data-a="rcPremios">${ic('gift',16)} Ver prêmios</button></div>`;
+  if(S.rc.meta){
+    const contou=p.total>=METAM.valorMin, nv=nivelAtual();
+    h+=`<div class="rc-box"><div class="rc-bh"><b>${p.rcNivelNovo?'Meta batida!':METAM.nome}</b><small>${contou?`Este pedido contou: ${pedMes()} ${pedMes()===1?'pedido':'pedidos'} em ${METAM.mes}`:`Pedidos a partir de ${BRL(METAM.valorMin)} contam. Este ficou abaixo.`}</small></div>
+      ${trilhaMeta()}
+      ${S.rc.escolhido?`<div class="rc-ticket"><small>Seu prêmio</small><b class="txt">${S.rc.escolhido.n}</b><span>Entra grátis no próximo pedido</span></div>`
+        : nv>0 ? `<p><b>Escolha seu prêmio:</b></p><div class="rc-esc">${METAM.niveis[Math.min(nv,METAM.niveis.length)-1].itens.map(it=>`<button class="rc-opt" data-a="rcEscolher" data-v="${Math.min(nv,METAM.niveis.length)-1}:${it.id}"><span class="a">${premioArte(it)}</span><b>${it.n}</b></button>`).join('')}</div>`
+        : `<p class="c-note">Faltam ${S.rc.min-pedMes()} ${S.rc.min-pedMes()===1?'pedido':'pedidos'} até ${ddmm(METAM.fim)} para escolher seu prêmio.</p>`}
+      <button class="c-link" data-a="rcPremios">${ic('gift',16)} Ver todos os prêmios</button></div>`;
   }
   if(S.rc.selos){
     const tem=selosTenho(), m=mesAtual(), slots=Array.from({length:ALBUM.meta},(_,i)=>(m-ALBUM.meta+1+i+12)%12), n=tem.length;
@@ -2087,18 +2142,30 @@ function clubeOk(){
   return h?`<div class="rc-ok">${h}</div>`:'';
 }
 function clubeNoPedido(){
-  const t=tot(), seloAntes=selosTenho().includes(mesAtual()), antes=numerosDevidos(), conta=t.total>=SORT.valorMin;
+  const t=tot(), seloAntes=selosTenho().includes(mesAtual()), antes=nivelAtual(), conta=t.total>=METAM.valorMin;
+  if(S.rc.premioNoPedido){ S.rc.escolhido=null; S.rc.premioNoPedido=false; }
   if(conta) S.rc.feitos++;
   S.rc.algum=true;
-  S.pedido.rcNovoNumero = S.rc.sort && conta && numerosDevidos()>antes;
+  S.pedido.rcNivelNovo = S.rc.meta && conta && nivelAtual()>antes;
   S.pedido.rcSeloNovo = S.rc.selos && !seloAntes;
 }
 function clubeConta(){
   let h='';
-  if(S.rc.sort){ const nums=numerosDevidos(); h+=`<div class="c-card">${ARTE_P.tv.replace('<svg ','<svg width="32" height="32" ')}<div><b>${SORT.nome}</b><small>${nums&&S.rc.aceitou?`Números: ${Array.from({length:nums},(_,i)=>numeroSorte(i)).join(', ')}`:`${pedMes()%S.rc.min} de ${S.rc.min} pedidos para concorrer`}</small></div><button class="lk" data-a="rcPremios">Prêmios</button></div>`; }
+  if(S.rc.meta) h+=`<div class="c-card"><span style="width:30px;height:30px;display:block">${TROFEU}</span><div><b>${METAM.nome}</b><small>${S.rc.escolhido?`Prêmio: ${S.rc.escolhido.n}`:`${pedMes()} de ${S.rc.min} pedidos`}</small></div><button class="lk" data-a="rcPremios">Prêmios</button></div>`;
   if(S.rc.selos){ const tem=selosTenho(), m=mesAtual(); h+=`<div class="rc-album mini">${Array.from({length:ALBUM.meta},(_,i)=>(m-ALBUM.meta+1+i+12)%12).map(s=>selo(s,tem.includes(s))).join('')}</div>`; }
   if(S.rc.voltaPend) h+=`<div class="c-card cup">${ic('tag')}<div><b>${VOLTA.cod}</b><small>${VOLTA.txt} · da raspadinha</small></div></div>`;
   return h;
+}
+function escolherPremio(v){
+  const [i,id]=v.split(':'), it=METAM.niveis[+i].itens.find(x=>x.id===id); if(!it) return;
+  S.rc.escolhido={...it,nivel:+i}; S.rc.sheet=null;
+  render(); const t=document.querySelector('#phone .rc-ticket,#phone .rc-sort'); if(t) confete(ptDe(t),60);
+  toast(`${it.n} garantido no próximo pedido`);
+}
+function premioNoCarrinho(){
+  const e=S.rc.escolhido; if(!e||S.rc.premioNoPedido) return;
+  S.cart.push({key:'premio|'+e.id,pid:e.id==='kit'?'dcoc':e.id,nome:e.n+' (prêmio da meta)',img:e.id==='kit'?null:prod(e.id).img,cor:'#111827',sub:'Grátis · '+METAM.nome,preco:0,qtd:1,premio:true});
+  S.rc.premioNoPedido=true;
 }
 
 /* ---------- aplica depois de cada render ---------- */
@@ -2113,7 +2180,6 @@ function clubeDecorar(){
     } }
   }
   if(S.rc.sheet==='premios') ph.insertAdjacentHTML('beforeend',viewPremios());
-  if(S.rc.sheet==='aceitar') ph.insertAdjacentHTML('beforeend',viewAceitar());
   if(S.screen==='ok'){ const c=ph.querySelector('#rasp canvas'); if(c) raspadinha(c); }
 }
 function raspadinha(c){
@@ -2137,8 +2203,8 @@ function raspadinha(c){
 }
 
 /* ---------- painel do protótipo ---------- */
-function clubeNota(){ const on=[S.rc.rasp&&'Raspadinha com prêmio garantido',S.rc.selos&&'Álbum de selos mensais',S.rc.aniv&&'Aniversário do cliente',S.rc.sort&&`Sorteio do mês: ${S.rc.min} pedidos para concorrer`].filter(Boolean); if(!on.length) return '';
-  return `<div class="evbox"><div class="lab">Clube de recompra</div><ul>${on.map(f=>`<li>${f}</li>`).join('')}</ul><p class="hint">Faça um pedido até a confirmação para ver a raspadinha, o selo e o número da sorte.</p></div>`; }
+function clubeNota(){ const on=[S.rc.rasp&&'Raspadinha com prêmio garantido',S.rc.selos&&'Álbum de selos mensais',S.rc.aniv&&'Aniversário do cliente',S.rc.meta&&`Meta do mês: ${S.rc.min} pedidos para escolher um prêmio`].filter(Boolean); if(!on.length) return '';
+  return `<div class="evbox"><div class="lab">Clube de recompra</div><ul>${on.map(f=>`<li>${f}</li>`).join('')}</ul><p class="hint">Faça um pedido até a confirmação para ver a raspadinha, o selo e a meta.</p></div>`; }
 
 function evNota(){ const k=evAtual(); if(!k) return ''; const E=EV[k], w=janelaDe(k);
   return `<div class="evbox"><div class="lab">Evento ${S.ev.sel==='auto'?'ativo hoje':'em prévia'}</div><b>${E.nome}</b><span class="per">${ddmm(w.ini)} a ${ddmm(w.fim)}/${w.fim.getFullYear()}</span><ul>${E.feats.map(f=>`<li>${f}</li>`).join('')}</ul></div>`; }

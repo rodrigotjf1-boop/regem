@@ -18,7 +18,7 @@ Uma **camada de evento** que se aplica por cima de qualquer template (`galeria`,
 
 **Regra de ouro: festa na vitrine, foco no checkout, festa de novo na confirmação.** No checkout não caem partículas; só a trilha das etapas e as cores lembram o evento.
 
-## 2. Os 11 eventos
+## 2. Os 13 eventos
 
 | Chave | Evento | No ar (automático) | Cor | Partículas | Topo | Acessório na foto | Trilha | Extra |
 |---|---|---|---|---|---|---|---|---|
@@ -33,6 +33,10 @@ Uma **camada de evento** que se aplica por cima de qualquer template (`galeria`,
 | `halloween` | Halloween | 20/10 a 31/10 | abóbora `#EA580C` | morcegos + folhas | teia com aranha descendo | chapéu de bruxa | fantasminha | **gostosuras ou travessuras** |
 | `blackfriday` | Black Friday | segunda a domingo da semana da Black (sexta após a 4ª quinta de novembro) | preto `#0A0A0A` | etiquetas caindo | fita "Black Friday" correndo | etiqueta Black | carrinho | contagem até o fim, ao vivo |
 | `natal` | Natal | 01/12 a 25/12 | vermelho `#C8102E` | neve | pisca-pisca | touca de Papai Noel | trenó | neve acumulada nos botões |
+| `hamburguer` | Dia do Hambúrguer | 21/05 a 28/05 (vence Dia das Mães se cruzar) | ketchup `#C1121F` | gergelim + mini burguers | varal de hambúrgueres | chapéu de chef | burguer de pernas correndo | faixa mostarda com gergelim |
+| `jogo` | Dia de jogo | **por jogo cadastrado**: 3 h antes até 2h30 depois do horário | gramado `#15803D` | papel picado branco e verde | faixa de gramado com a bola rolando | bola de futebol | bola rolando | contagem até a bola rolar, **sem times** |
+
+Prioridade extra: Dia de jogo > Namorados e Dia do Hambúrguer > os demais > Junina.
 
 Datas móveis, calculadas no servidor (fuso `America/Sao_Paulo`):
 - **Páscoa:** algoritmo de Gauss/Meeus (computus gregoriano).
@@ -40,8 +44,8 @@ Datas móveis, calculadas no servidor (fuso `America/Sao_Paulo`):
 - **Dia das Mães:** 2º domingo de maio.
 - **Dia dos Pais:** 2º domingo de agosto.
 - **Black Friday:** sexta seguinte à 4ª quinta de novembro.
+- **Dia do Hambúrguer:** fixo em 28/05.
 
-Prioridade quando duas janelas se cruzam: Namorados > os demais > Junina.
 
 ### Textos de cada evento (padrão, editáveis pelo lojista)
 
@@ -58,6 +62,16 @@ Prioridade quando duas janelas se cruzam: Namorados > os demais > Junina.
 | Halloween | Gostosuras ou travessuras? · Toque na abóbora e descubra o que te espera. | Gostosuras | "{item} caiu no caldeirão" | Gostosura garantida! · Seu pedido vai voando… de vassoura. |
 | Black Friday | Preço Black no Mister · Combos com até X% off. Só até domingo. | Ofertas Black | "{item} garantido no preço Black" | Oferta garantida! · Você pegou o preço Black. |
 | Natal | Natal do Mister · Ceia sem trabalho: encomende até 23/12 e receba na véspera. | Ceia do Mister | "{item} foi pro saco do Papai Noel" | Ho ho ho! · Seu pedido já está no trenó. |
+| Dia do Hambúrguer | O dia mais gostoso do ano · 28/05 é o nosso feriado: monte o seu e comemore com a gente. | Os campeões da casa | "{item} foi pra chapa" | Na chapa! · Seu burguer já está fritando. |
+| Dia de jogo | Hoje tem jogo na TV · Monte o combo da torcida e receba antes da bola rolar. | Combo da torcida | "{item} escalado pro jogo" | Golaço! · Seu pedido já entrou em campo. |
+
+### Dia de jogo: regras próprias
+
+- **Não é por data fixa.** O lojista cadastra os jogos em "Eventos → Dias de jogo": data, hora e uma chamada opcional de até 40 caracteres (ex.: "Final do campeonato", "Jogo das 21h30").
+- **Sem times, escudos ou marcas de campeonato.** O campo de chamada mostra o aviso "Não use nome de time nem de campeonato" e o servidor recusa uma lista básica de termos (nomes dos clubes da Série A e B, "Brasileirão", "Libertadores", "Copa do Brasil" e similares, configurável no console de distribuição). A arte é neutra: gramado, bola, "AO VIVO".
+- **Liga e desliga sozinho:** do início da janela (3 h antes) até 2h30 depois do horário. Nesse período **vence qualquer outro evento** e depois devolve o evento do dia.
+- **A contagem acompanha o jogo:** "Bola rola às 21:30 · faltam 2h05" → "Bola rolando: peça sem sair do sofá" → "Fim de jogo: pede a saideira".
+- O mesmo cadastro alimenta o RegemBoard (seção 8).
 
 O "X%" da Black Friday é o maior desconto real entre os produtos com `precoDe`. Textos com data (Natal, Réveillon) só aparecem se o lojista confirmar a data no admin; sem confirmação, usa a versão sem data.
 
@@ -70,6 +84,7 @@ No `cardapio_config.tema_config` (jsonb que já existe), chave `eventos`:
   "modo": "auto",            // "auto" (pela data) | "desligado" | uma chave fixa, ex. "natal"
   "animacoes": true,          // partículas e explosões
   "coresDoEvento": true,      // botões na cor do evento; false mantém a cor da loja
+  "jogos": [{ "inicio": "2026-10-01T21:30:00-03:00", "chamada": "Jogo das 21h30" }],  // Dia de jogo
   "porEvento": {
     "natal": {
       "ativo": true,           // false tira o evento do modo automático
@@ -99,7 +114,7 @@ No `cardapio_config.tema_config` (jsonb que já existe), chave `eventos`:
 
 ```
 frontend/src/components/loja/eventos/
-├── eventos.ts            ← catálogo dos 11 eventos (cores, textos padrão, tipo de partícula, peças) — só apresentação
+├── eventos.ts            ← catálogo dos 13 eventos (cores, textos padrão, tipo de partícula, peças) — só apresentação
 ├── CamadaParticulas.tsx  ← 1 <canvas> fixo sobre o cardápio, pointer-events: none
 ├── Guirlanda.tsx         ← enfeite do topo (varal genérico + teia, fita, xadrez, serpentinas)
 ├── FaixaEvento.tsx       ← faixa com contagem, botão para a coleção e o mini-jogo
@@ -127,9 +142,9 @@ app/c/[token]/eventos.css ← tokens --ev-* e animações, sempre sob .ev-on.ev-
 7. Sem som e sem vibração.
 8. Peso: as artes são SVG inline (poucos KB). Nada de GIF ou vídeo.
 
-## 6. Mini-jogos (opcionais, exigem cupom da loja)
+## 6. Mini-jogos (opcionais, liberam só desconto)
 
-- **Caça aos ovos (Páscoa).** 3 ovinhos escondidos em fotos de produtos de seções diferentes (sorteio estável por sessão). Cada ovo tocado some com uma chuva de ovinhos e o contador "N de 3" na faixa avança. No terceiro, o código do cupom configurado é aplicado e aparece "Cupom aplicado".
+- **Caça aos ovos (Páscoa).** 3 ovinhos escondidos em fotos de produtos de seções diferentes (escolha fixa por sessão). Cada ovo tocado some com uma chuva de ovinhos e o contador "N de 3" na faixa avança. No terceiro, o código do cupom configurado é aplicado e aparece "Cupom aplicado".
 - **Gostosuras ou travessuras (Halloween).** A abóbora da faixa balança. Ao tocar, 50% "Gostosura!" (chuva de doces) e 50% "Travessura!" (a tela treme e uma revoada de morcegos atravessa). Nos dois casos o cupom é aplicado. Uma vez por sessão.
 - Sem cupom configurado, o jogo não aparece e a faixa usa o texto normal. Limite de uso do cupom é regra do próprio cupom (por telefone, como hoje).
 
@@ -138,7 +153,7 @@ app/c/[token]/eventos.css ← tokens --ev-* e animações, sempre sob .ev-on.ev-
 - [ ] `temaConfig.eventos` validado; leitura pública devolve `evento` resolvido pela data de São Paulo, com cache que vira à meia-noite.
 - [ ] Datas móveis corretas: Páscoa 2026 = 05/04, Carnaval 2026 = 17/02, Mães 2026 = 10/05, Pais 2026 = 09/08, Black Friday 2026 = 27/11, Páscoa 2027 = 28/03.
 - [ ] Namorados vence Junina entre 05/06 e 12/06.
-- [ ] Os 11 eventos renderizam nos 4 templates: topo, faixa com contagem, coleção, acessório em 1 a cada 3 fotos, ícone nas seções.
+- [ ] Os 13 eventos renderizam nos 4 templates: topo, faixa com contagem, coleção, acessório em 1 a cada 3 fotos, ícone nas seções.
 - [ ] Partículas na vitrine e na confirmação; nenhuma no checkout; pausa com a aba oculta.
 - [ ] Trilha das etapas com o corredor do evento andando a cada etapa (some a barra de progresso padrão do template).
 - [ ] Toast e confirmação com os textos do evento; explosão ao adicionar e na confirmação.
@@ -147,3 +162,7 @@ app/c/[token]/eventos.css ← tokens --ev-* e animações, sempre sob .ev-on.ev-
 - [ ] "Cores do evento" desligado mantém a cor da loja; "Animações" desligado e movimento reduzido deixam tudo estático.
 - [ ] Sem evento ativo: cardápio idêntico ao template puro.
 - [ ] 375 px sem rolagem horizontal; nada decorativo intercepta toque.
+
+## 8. RegemBoard (menu board nas TVs)
+
+O mesmo evento aparece nas TVs. A especificação do lado do RegemBoard está em `docs/eventos-sazonais-tv.md` do repositório `regemboard` (cópia em `08-eventos-no-regemboard.md` aqui). Enquanto não existir integração entre os dois sistemas, cada um tem o próprio cadastro de eventos com as **mesmas regras de calendário**; a integração (o Regem publica a config e o RegemBoard lê) fica para a Fase B.

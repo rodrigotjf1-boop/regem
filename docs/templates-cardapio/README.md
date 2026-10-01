@@ -10,8 +10,11 @@ Especificação para o **Claude Code** implementar 4 templates novos no cardápi
 | 3 | Oferta — promoções e combos na frente | `oferta` | Anota AI | [`03-oferta.md`](03-oferta.md) |
 | 4 | **Regem Fluxo** — clean, uma decisão por tela | `fluxo` | próprio do Regem | [`04-regem-fluxo.md`](04-regem-fluxo.md) |
 | — | Recursos do cardápio de hoje nos templates (ler junto com a base) | — | — | [`05-recursos-integrados.md`](05-recursos-integrados.md) |
-| + | **Eventos sazonais** — camada por cima de qualquer template (Natal, Carnaval, Páscoa, Halloween e mais 7) | `temaConfig.eventos` | — | [`06-eventos-sazonais.md`](06-eventos-sazonais.md) |
-| + | **Clube de recompra** — raspadinha, álbum de selos, aniversário e sorteio do mês (com as travas legais) | módulo `clube` | — | [`07-clube-de-recompra.md`](07-clube-de-recompra.md) |
+| + | **Eventos sazonais** — camada por cima de qualquer template (Natal, Carnaval, Halloween, Dia do Hambúrguer, Dia de jogo e mais 8) | `temaConfig.eventos` | — | [`06-eventos-sazonais.md`](06-eventos-sazonais.md) |
+| + | **Clube de recompra** — raspadinha, álbum de selos, aniversário e meta do mês (sem sorteio, dispensa autorização) | módulo `clube` | — | [`07-clube-de-recompra.md`](07-clube-de-recompra.md) |
+| + | **Eventos nas TVs (RegemBoard)** — a mesma camada de eventos no menu board | `contas.aparencia.eventos` | — | [`08-eventos-no-regemboard.md`](08-eventos-no-regemboard.md) |
+
+**Prompts prontos para colar:** [`PROMPTS.md`](PROMPTS.md) (Regem e RegemBoard).
 
 Todos os templates mantêm os recursos que o cardápio já tem hoje — conta do cliente (pedidos, benefícios, perfil), promoções pelo WhatsApp, aviso de origem do anúncio, sinal e recorrência da encomenda, QR de mesa e os ramos serviços e indústria —, conforme o `05-recursos-integrados.md` (conferido contra `origin/main` em 01/10/2026).
 
@@ -47,7 +50,7 @@ O `CLAUDE.md` do Regem pede **plano antes de código** em tarefa grande. Por iss
 
 3. **Eventos sazonais (depois de pelo menos um template):** cole
 
-   > Leia `docs/templates-cardapio/00-base-cardapio.md` e `docs/templates-cardapio/06-eventos-sazonais.md`. No protótipo, use o painel **Evento sazonal** e a tabela **Agenda de eventos** para ver os 11 eventos nos 4 templates, incluindo checkout e confirmação. Apresente o plano (backend do `evento` resolvido pela data, admin de eventos, camada no front) e aguarde aprovação. Implemente em PRs separados: (1) backend + admin, (2) camada de eventos com Natal e Halloween, (3) os demais eventos, (4) mini-jogos.
+   > Leia `docs/templates-cardapio/00-base-cardapio.md` e `docs/templates-cardapio/06-eventos-sazonais.md`. No protótipo, use o painel **Evento sazonal** e a tabela **Agenda de eventos** para ver os 13 eventos nos 4 templates, incluindo checkout e confirmação. Apresente o plano (backend do `evento` resolvido pela data, admin de eventos, camada no front) e aguarde aprovação. Implemente em PRs separados: (1) backend + admin, (2) camada de eventos com Natal e Halloween, (3) os demais eventos, (4) mini-jogos.
 
 4. **Clube de recompra:** o `07-clube-de-recompra.md` traz um resumo para apresentar, o modelo de dados, as regras e os prompts de 4 PRs na seção 5. Comece pelo PR 1.
 
