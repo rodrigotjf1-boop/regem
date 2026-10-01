@@ -10,6 +10,7 @@ Especificação para o **Claude Code** implementar 4 templates novos no cardápi
 | 3 | Oferta — promoções e combos na frente | `oferta` | Anota AI | [`03-oferta.md`](03-oferta.md) |
 | 4 | **Regem Fluxo** — clean, uma decisão por tela | `fluxo` | próprio do Regem | [`04-regem-fluxo.md`](04-regem-fluxo.md) |
 | — | Recursos do cardápio de hoje nos templates (ler junto com a base) | — | — | [`05-recursos-integrados.md`](05-recursos-integrados.md) |
+| + | **Eventos sazonais** — camada por cima de qualquer template (Natal, Carnaval, Páscoa, Halloween e mais 7) | `temaConfig.eventos` | — | [`06-eventos-sazonais.md`](06-eventos-sazonais.md) |
 
 Todos os templates mantêm os recursos que o cardápio já tem hoje — conta do cliente (pedidos, benefícios, perfil), promoções pelo WhatsApp, aviso de origem do anúncio, sinal e recorrência da encomenda, QR de mesa e os ramos serviços e indústria —, conforme o `05-recursos-integrados.md` (conferido contra `origin/main` em 01/10/2026).
 
@@ -43,7 +44,11 @@ O `CLAUDE.md` do Regem pede **plano antes de código** em tarefa grande. Por iss
 
    > Leia `docs/templates-cardapio/00-base-cardapio.md` e `docs/templates-cardapio/04-regem-fluxo.md`. No protótipo, selecione **Regem Fluxo** e percorra o pedido completo (com e sem "Cliente que já comprou"). Apresente o plano e aguarde aprovação. Implemente o template seguindo o contrato da base, sem mudar regra de negócio do pedido. Compare com o protótipo tela a tela, liste as divergências na descrição do PR e entregue com o checklist de aceite do arquivo.
 
-3. **Fase B (opcional, depois):** itens marcados como Fase B na seção 9 do `00-base-cardapio.md` (vira trio cadastrado, upsell por histórico, recuperação de carrinho etc.). Cada um é um PR próprio porque mexe em backend e migration.
+3. **Eventos sazonais (depois de pelo menos um template):** cole
+
+   > Leia `docs/templates-cardapio/00-base-cardapio.md` e `docs/templates-cardapio/06-eventos-sazonais.md`. No protótipo, use o painel **Evento sazonal** e a tabela **Agenda de eventos** para ver os 11 eventos nos 4 templates, incluindo checkout e confirmação. Apresente o plano (backend do `evento` resolvido pela data, admin de eventos, camada no front) e aguarde aprovação. Implemente em PRs separados: (1) backend + admin, (2) camada de eventos com Natal e Halloween, (3) os demais eventos, (4) mini-jogos.
+
+4. **Fase B (opcional, depois):** itens marcados como Fase B na seção 9 do `00-base-cardapio.md` (vira trio cadastrado, upsell por histórico, recuperação de carrinho etc.). Cada um é um PR próprio porque mexe em backend e migration.
 
 ## Como conferir o resultado
 
