@@ -265,7 +265,7 @@ export class DistribuicaoController {
     const r = await this.integracao.emitir(dto, u);
     await this.service.auditar(u, 'emitiu_token_integracao', r.id, {
       tenantId: dto?.tenantId,
-      loja: r.loja.nome,
+      loja: r.loja?.nome ?? 'Empresa inteira',
       cliente: r.cliente,
       prefixo: r.prefixo,
       escopos: r.escopos,

@@ -68,7 +68,7 @@ describe('escopos', () => {
     expect(validarEscopos(['cupons.ler', 'pedidos.ler', 'cupons.ler'])).toEqual(['pedidos.ler', 'cupons.ler']);
   });
 
-  it('são os 7 do contrato — a mesma lista do check da mig 295', () => {
+  it('são os 7 do contrato do Liame + os 2 do RegemCast — a mesma lista do check da mig 302', () => {
     expect([...ESCOPOS_INTEGRACAO]).toEqual([
       'pedidos.ler',
       'clientes.telefone.ler',
@@ -77,6 +77,8 @@ describe('escopos', () => {
       'cupons.ler',
       'cupons.uso.ler',
       'cupons.criar',
+      'clientes.ler',
+      'vendas.99food.ler',
     ]);
   });
 });

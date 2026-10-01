@@ -5,7 +5,8 @@ import { ProblemaException } from './problema';
 
 // CURSOR OPACO da API de integração (contrato de cupons §2, que o de vendas segue): a ordem é
 // estável por (`atualizado_em`, `id`). Por dentro, base64url de um JSON curto:
-//   k — a rota ('venda' | 'cliente' | 'cupom' | 'uso'): cursor de uma rota não vale na outra;
+//   k — a rota ('venda' | 'cliente' | 'cupom' | 'uso' | 'contato'): cursor de uma rota não vale na
+//       outra ('cliente' = os anonimizados do Liame; 'contato' = a lista de clientes do RegemCast);
 //   l — o vínculo com a EMPRESA e a LOJA do token (hash curto): cursor de uma loja não vale em
 //       outra — nem de outra empresa. É ligado à loja, não ao token: o token novo da MESMA loja
 //       (trocar escopos = emitir outro e revogar o antigo) segue do mesmo ponto;
@@ -16,7 +17,7 @@ import { ProblemaException } from './problema';
 //       dentro do cursor.
 // Nada disso é segredo: todo filtro de empresa e loja vem SEMPRE do token, nunca do cursor.
 
-export type RotaCursor = 'venda' | 'cliente' | 'cupom' | 'uso';
+export type RotaCursor = 'venda' | 'cliente' | 'cupom' | 'uso' | 'contato';
 export type PosicaoCursor = { t: string; i: string } | null;
 export type Cursor = { posicao: PosicaoCursor; desde: string | null };
 
@@ -25,9 +26,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INSTANTE_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const TAMANHO_MAX = 1000;
 
-/** Vínculo do cursor com a empresa e a loja do token (não revela os ids). */
-export function vinculoCursor(tenantId: string, unidadeId: string): string {
-  return createHash('sha256').update(`${tenantId}:${unidadeId}`, 'utf8').digest('base64url').slice(0, 16);
+/**
+ * Vínculo do cursor com a empresa e a loja do token (não revela os ids). Token da EMPRESA
+ * (RegemCast, sem loja): o vínculo é da empresa — o token novo da mesma empresa segue do mesmo
+ * cursor. O de loja continua o de sempre (os cursores já entregues seguem valendo).
+ */
+export function vinculoCursor(tenantId: string, unidadeId: string | null): string {
+  return createHash('sha256')
+    .update(`${tenantId}:${unidadeId ?? 'empresa'}`, 'utf8')
+    .digest('base64url')
+    .slice(0, 16);
 }
 
 export function codificarCursor(rota: RotaCursor, vinculo: string, c: Cursor): string {

@@ -13,6 +13,8 @@ import {
   textoCanonico,
 } from './venda-integracao';
 import { decidirCupom, sqlCupons, sqlUsosCupom } from './cupom-integracao';
+import { fichaDoContrato, fotoDoContato, sqlFichasContato } from './contato-integracao';
+import { CLIENTES_INTEGRACAO } from './escopos';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -61,7 +63,7 @@ const ORCAMENTO_CICLO_MS = 4000;
 export type EscopoCarimbo = { tenantIds?: string[] };
 
 type Alvo = {
-  recurso: 'venda' | 'cliente' | 'cupom' | 'cupom_uso';
+  recurso: 'venda' | 'cliente' | 'cupom' | 'cupom_uso' | 'contato';
   recurso_id: string;
   tenant_id: string;
   fonte: 'pedido_externo' | 'comanda' | 'cliente' | 'cupom' | 'cupom_uso';
@@ -93,6 +95,12 @@ function lista(ids: string[]): SQL {
 const ESPERA_SEM_TABELA_MS = 10 * 60_000;
 /** Erros de "a mig 298 ainda não foi aplicada": tabela ausente, coluna ausente, `check` antigo. */
 const SEM_MIG_298 = new Set(['42P01', '42703', '23514']);
+/** Erros de "a mig 302 ainda não foi aplicada" (RegemCast): tabela ausente, `check` antigo. */
+const SEM_MIG_302 = new Set(['42P01', '42703', '23514']);
+/** Contrapressão da carga do RegemCast: só entra fatia nova com a fila e os pendentes abaixo disto. */
+export const LIMIAR_CONTRAPRESSAO = 2000;
+/** Clientes por fatia da carga do RegemCast. */
+export const FATIA_CLIENTES = 2000;
 
 @Injectable()
 export class CarimbadorIntegracaoService {
@@ -100,6 +108,7 @@ export class CarimbadorIntegracaoService {
   private rodando = false;
   private pausadoAte = 0;
   private avisoSem298Ate = 0;
+  private avisoSem302Ate = 0;
 
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDB) {}
 
@@ -166,6 +175,8 @@ export class CarimbadorIntegracaoService {
     }
     // Carga dos cupons: à parte e SEM derrubar o ciclo (sem a mig 298 as vendas seguem).
     cargas += await this.fazerCargasCupons(e);
+    // Carga do RegemCast (3 anos + clientes, mig 302): em fatias, só com a fila folgada; nunca lança.
+    cargas += await this.fazerCargasJanela(e);
     for (;;) {
       const [t] = this.rows(
         await this.db.execute(sql`
@@ -326,6 +337,178 @@ export class CarimbadorIntegracaoService {
     });
   }
 
+  // ───────────────────────────── carga do RegemCast (janela longa) ─────────────────────────────
+
+  /**
+   * Carga inicial dos clientes com janela LONGA (RegemCast: 3 anos de vendas + a base de clientes —
+   * mig 302), em FATIAS e com CONTRAPRESSÃO: cada fatia só entra quando a fila e os pendentes estão
+   * quase vazios, então a mudança do dia a dia (a do Liame, inclusive) nunca espera atrás dela.
+   * Primeiro os clientes (2.000 por fatia, por id), depois as vendas (uma semana por fatia, do mais
+   * novo para o mais velho). Recomeça quando um token novo do mesmo cliente chega depois de ela ter
+   * terminado (como a carga da 296). Nunca lança: sem a mig 302, avisa a cada 10 min.
+   */
+  async fazerCargasJanela(e?: EscopoCarimbo, fatiasMax = 4): Promise<number> {
+    const clientes = Object.entries(CLIENTES_INTEGRACAO)
+      .filter(([, c]) => c.cargaDias)
+      .map(([k]) => k);
+    if (!clientes.length) return 0;
+    let total = 0;
+    try {
+      const pendentes = this.rows(
+        await this.db.execute(sql`
+          select t.tenant_id::text as tenant_id, t.cliente
+            from integracao_token_loja t
+            left join integracao_carga_janela j on j.tenant_id = t.tenant_id and j.cliente = t.cliente
+           where t.revogado_em is null and t.cliente in (${sql.join(clientes.map((c) => sql`${c}`), sql`, `)})
+             and (j.tenant_id is null or j.feita_em is null or t.criado_em > j.feita_em)
+             ${this.escopo(sql`t.tenant_id`, e)}
+           group by t.tenant_id, t.cliente
+           limit 5`),
+      );
+      for (const p of pendentes) {
+        for (let i = 0; i < fatiasMax; i++) {
+          if (!(await this.filaFolgada(e))) return total; // contrapressão: espera a fila esvaziar
+          const n = await this.fatiaDaCarga(p.tenant_id, p.cliente, CLIENTES_INTEGRACAO[p.cliente].cargaDias as number);
+          if (n < 0) break; // terminou (ou outra réplica pegou)
+          total += n;
+        }
+      }
+    } catch (err: any) {
+      if (SEM_MIG_302.has(err?.code)) this.avisarSem302(err);
+      else this.log.error(`carga da janela falhou: ${err?.code ? `[${err.code}] ` : ''}${err?.message ?? err}`, err?.stack);
+    }
+    return total;
+  }
+
+  /** A fila e os pendentes estão abaixo do limiar? (conta até o limiar, nunca a tabela toda) */
+  private async filaFolgada(e?: EscopoCarimbo): Promise<boolean> {
+    const [c] = this.rows(
+      await this.db.execute(sql`
+        select (select count(*) from (select 1 from integracao_mudanca m where true ${this.escopo(sql`m.tenant_id`, e)}
+                                       limit ${LIMIAR_CONTRAPRESSAO}) a)::int
+             + (select count(*) from (select 1 from integracao_versao v where v.pendente ${this.escopo(sql`v.tenant_id`, e)}
+                                       limit ${LIMIAR_CONTRAPRESSAO}) b)::int as n`),
+    );
+    return Number(c?.n ?? 0) < LIMIAR_CONTRAPRESSAO;
+  }
+
+  /**
+   * UMA fatia da carga da empresa: clientes primeiro, depois uma semana de vendas. Devolve quantos
+   * itens entraram na fila, ou -1 quando a carga terminou (ou outra réplica está com ela).
+   */
+  async fatiaDaCarga(tenantId: string, cliente: string, dias: number): Promise<number> {
+    return this.db.transaction(async (tx) => {
+      await tx.execute(sql`
+        insert into integracao_carga_janela (tenant_id, cliente, desde, vendas_ate)
+        values (${tenantId}::uuid, ${cliente}, now() - make_interval(days => ${dias}), now())
+        on conflict (tenant_id, cliente) do nothing`);
+      const [j] = this.rows(
+        await tx.execute(sql`
+          select j.feita_em is not null as feita,
+                 exists (select 1 from integracao_token_loja t
+                          where t.tenant_id = j.tenant_id and t.cliente = j.cliente and t.revogado_em is null
+                            and t.criado_em > j.feita_em) as token_novo,
+                 j.clientes_ok, j.clientes_apos::text as clientes_apos,
+                 ${sqlIso(sql`j.vendas_ate`)} as vendas_ate, ${sqlIso(sql`j.desde`)} as desde
+            from integracao_carga_janela j
+           where j.tenant_id = ${tenantId}::uuid and j.cliente = ${cliente}
+           for update skip locked`),
+      );
+      if (!j) return -1; // outra réplica está com esta carga
+      if (j.feita && !j.token_novo) return -1;
+      if (j.feita && j.token_novo) {
+        // Token novo depois de terminada: recomeça (as versões iguais não viram versão nova).
+        await tx.execute(sql`
+          update integracao_carga_janela
+             set desde = now() - make_interval(days => ${dias}), vendas_ate = now(), clientes_apos = null,
+                 clientes_ok = false, iniciada_em = now(), feita_em = null
+           where tenant_id = ${tenantId}::uuid and cliente = ${cliente}`);
+        return 0;
+      }
+      if (!j.clientes_ok) {
+        const r = this.rows(
+          await tx.execute(sql`
+            insert into integracao_mudanca (tenant_id, recurso, recurso_id, carga)
+            select c.tenant_id, 'contato', c.id, true
+              from cliente c
+             where c.tenant_id = ${tenantId}::uuid
+               ${j.clientes_apos ? sql`and c.id > ${j.clientes_apos}::uuid` : sql``}
+             order by c.id
+             limit ${FATIA_CLIENTES}
+            returning recurso_id::text as id`),
+        );
+        const ultimo = r.reduce((m: string | null, x: any) => (m === null || x.id > m ? x.id : m), null);
+        await tx.execute(sql`
+          update integracao_carga_janela
+             set clientes_apos = coalesce(${ultimo}::uuid, clientes_apos),
+                 clientes_ok = ${r.length < FATIA_CLIENTES}
+           where tenant_id = ${tenantId}::uuid and cliente = ${cliente}`);
+        return r.length;
+      }
+      if (!j.vendas_ate || j.vendas_ate <= j.desde) {
+        await tx.execute(sql`
+          update integracao_carga_janela set feita_em = now()
+           where tenant_id = ${tenantId}::uuid and cliente = ${cliente}`);
+        this.log.log(`carga do ${cliente} da empresa ${tenantId}: concluída`);
+        return -1;
+      }
+      // Uma semana de vendas, do mais novo para o mais velho: pedidos pela criação ou confirmação,
+      // comandas pelo fechamento (a mesma régua da carga da 296). A semana TERMINA na venda mais
+      // nova antes do ponto atual — semana sem venda não custa uma ida ao banco (o banco fica longe:
+      // 3 anos semana a semana seriam ~157 voltas à toa). Tudo num comando só, com o ponto lido da
+      // própria linha (sem arredondar o instante): sem venda antes dele, a carga terminou.
+      const regua = sql`coalesce(pe.confirmado_em, pe.criado_em)`;
+      const [r] = this.rows(
+        await tx.execute(sql`
+          with j as (
+            select desde, vendas_ate from integracao_carga_janela
+             where tenant_id = ${tenantId}::uuid and cliente = ${cliente}
+          ), ultimo as (
+            select greatest(
+                     (select max(${regua}) from pedido_externo pe, j
+                       where pe.tenant_id = ${tenantId}::uuid and ${regua} >= j.desde and ${regua} < j.vendas_ate),
+                     (select max(c.fechada_em) from comanda c, j
+                       where c.tenant_id = ${tenantId}::uuid and c.status in ('fechada', 'cancelada')
+                         and c.fechada_em >= j.desde and c.fechada_em < j.vendas_ate)) as em
+          ), fatia as (
+            select greatest(j.desde, u.em - interval '7 days') as ini, u.em + interval '1 microsecond' as fim
+              from ultimo u, j
+             where u.em is not null
+          ), ins as (
+            insert into integracao_mudanca (tenant_id, recurso, recurso_id, carga)
+            select pe.tenant_id, 'pedido', pe.id, true
+              from pedido_externo pe, fatia
+             where pe.tenant_id = ${tenantId}::uuid and ${regua} >= fatia.ini and ${regua} < fatia.fim
+            union all
+            select c.tenant_id, 'comanda', c.id, true
+              from comanda c, fatia
+             where c.tenant_id = ${tenantId}::uuid and c.status in ('fechada', 'cancelada')
+               and c.fechada_em >= fatia.ini and c.fechada_em < fatia.fim
+            returning 1
+          ), upd as (
+            update integracao_carga_janela
+               set vendas_ate = coalesce((select ini from fatia), vendas_ate),
+                   feita_em = case when exists (select 1 from fatia) then null else now() end
+             where tenant_id = ${tenantId}::uuid and cliente = ${cliente}
+            returning feita_em is not null as feita
+          )
+          select (select count(*) from ins)::int as n, coalesce((select feita from upd), true) as feita`),
+      );
+      if (r?.feita) {
+        this.log.log(`carga do ${cliente} da empresa ${tenantId}: concluída`);
+        return -1;
+      }
+      return Number(r?.n ?? 0);
+    });
+  }
+
+  /** Sem a mig 302 na nuvem: um aviso a cada 10 min (o resto do carimbador segue). */
+  private avisarSem302(err: any): void {
+    if (Date.now() < this.avisoSem302Ate) return;
+    this.avisoSem302Ate = Date.now() + ESPERA_SEM_TABELA_MS;
+    this.log.warn(`carga do RegemCast parada: [${err?.code}] ${err?.message ?? err} — aplique a migration 302 na nuvem`);
+  }
+
   // ───────────────────────────── fila → pendentes ─────────────────────────────
 
   /** Consome um lote da fila e marca as versões pendentes. Devolve quantos itens da fila saíram. */
@@ -387,6 +570,45 @@ export class CarimbadorIntegracaoService {
           juntar({ ...base, recurso: 'cliente', recurso_id: f.recurso_id, fonte: 'cliente' });
         } else if (f.recurso === 'cupom' || f.recurso === 'cupom_uso') {
           juntar({ ...base, recurso: f.recurso, recurso_id: f.recurso_id, fonte: f.recurso });
+        } else if (f.recurso === 'contato') {
+          // RegemCast (mig 302): a ficha do cliente (`GET /clientes`).
+          juntar({ ...base, recurso: 'contato', recurso_id: f.recurso_id, fonte: 'cliente' });
+        }
+      }
+
+      // RegemCast (mig 302): a venda muda os CANAIS da ficha do cliente dela — só nas empresas com
+      // token `clientes.ler`. Num ponto de salvamento: se esta parte falhar, a fila das vendas (a do
+      // Liame, inclusive) segue igual; o cliente fica para a próxima mudança ou a reconciliação.
+      const itensPedido = fila.filter((f) => f.recurso === 'pedido');
+      if (itensPedido.length) {
+        try {
+          const donos = this.rows(
+            await tx.transaction((sp: any) =>
+              sp.execute(sql`
+                select pe.id::text as id, pe.tenant_id::text as tenant_id, pe.cliente_id::text as cliente_id
+                  from pedido_externo pe
+                 where pe.id in (${lista([...new Set(itensPedido.map((f) => f.recurso_id as string))])})
+                   and pe.cliente_id is not null
+                   and pe.tenant_id in (select t.tenant_id from integracao_token_loja t
+                                         where t.revogado_em is null and 'clientes.ler' = any(t.escopos))`),
+            ),
+          );
+          const porPedido = new Map(donos.map((d) => [d.id as string, d]));
+          for (const f of itensPedido) {
+            const d = porPedido.get(f.recurso_id);
+            if (d && d.tenant_id === f.tenant_id) {
+              juntar({
+                tenant_id: f.tenant_id,
+                mudou_em: f.criado_em,
+                carga: !!f.carga,
+                recurso: 'contato',
+                recurso_id: d.cliente_id,
+                fonte: 'cliente',
+              });
+            }
+          }
+        } catch (err: any) {
+          this.log.warn(`clientes das vendas não anotados (a fila das vendas segue): ${err?.code ?? ''} ${err?.message ?? err}`);
         }
       }
 
@@ -453,6 +675,36 @@ export class CarimbadorIntegracaoService {
         const falha = erros.get(v.recurso_id);
         if (falha) {
           decisoes.push({ ...chave, publicar: false, erro_em: agoraIso, erro: falha.slice(0, 500) });
+          continue;
+        }
+        if (v.recurso === 'contato') {
+          // RegemCast (mig 302): a ficha do cliente. Mudou (ou nunca saiu) → versão nova. O cadastro
+          // sumiu depois de publicado (o "Excluir conta" da LGPD — hoje o único jeito de um cliente
+          // sumir) → lápide. Nunca publicado e já sumiu → nada a dizer.
+          const rep = reps.get(v.recurso_id);
+          if (rep && rep.tenant_id === v.tenant_id) {
+            const foto = fotoDoContato(fichaDoContrato(rep));
+            const mudou = !v.publicada || v.situacao === 'removido' || textoCanonico(v.foto) !== textoCanonico(foto);
+            decisoes.push(
+              mudou
+                ? { ...chave, publicar: true, situacao: null, unidade_id: null, confirmado_em: null, removido_em: null, foto: foto as any }
+                : { ...chave, publicar: false },
+            );
+          } else if (v.publicada && v.situacao !== 'removido') {
+            decisoes.push({
+              ...chave,
+              publicar: true,
+              situacao: 'removido',
+              unidade_id: null,
+              confirmado_em: null,
+              removido_em: v.mudou_em,
+              foto: null,
+            });
+          } else if (v.publicada) {
+            decisoes.push({ ...chave, publicar: false });
+          } else {
+            descartes.push(chave);
+          }
           continue;
         }
         if (v.recurso === 'cupom' || v.recurso === 'cupom_uso') {
@@ -565,6 +817,8 @@ export class CarimbadorIntegracaoService {
       ['venda', ids('venda', 'comanda'), sqlVendasDeComandas],
       ['cupom', ids('cupom'), sqlCupons],
       ['uso de cupom', ids('cupom_uso'), sqlUsosCupom],
+      // RegemCast (mig 302): a ficha do cliente (a mesma consulta da leitura de `/clientes`).
+      ['ficha de cliente', ids('contato'), sqlFichasContato],
     ];
     for (const [nome, lote, consulta] of grupos) {
       if (!lote.length) continue;
@@ -609,10 +863,16 @@ export class CarimbadorIntegracaoService {
       delete from integracao_versao
        where recurso = 'cliente' and removido_em < now() - make_interval(days => ${RETENCAO_LAPIDE_DIAS})
          ${this.escopo(sql`tenant_id`, e)}`);
+    // Lápide da ficha do cliente (RegemCast, mig 302): o mesmo prazo das outras (400 dias).
+    const purgaContato: any = await this.db.execute(sql`
+      delete from integracao_versao
+       where recurso = 'contato' and situacao = 'removido'
+         and removido_em < now() - make_interval(days => ${RETENCAO_LAPIDE_DIAS})
+         ${this.escopo(sql`tenant_id`, e)}`);
     const c = await this.reconciliarCupons(e, dias);
     return {
       enfileiradas: Number(r?.rowCount ?? 0) + c.enfileirados,
-      lapidesApagadas: Number(purga?.rowCount ?? 0) + c.lapidesApagadas,
+      lapidesApagadas: Number(purga?.rowCount ?? 0) + Number(purgaContato?.rowCount ?? 0) + c.lapidesApagadas,
     };
   }
 

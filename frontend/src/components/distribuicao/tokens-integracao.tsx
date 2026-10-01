@@ -6,21 +6,24 @@ import { distApi } from '@/lib/api';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // Console da distribuição → aba Integrações → "Tokens de integração" (trilha C, só Diretoria).
-// Tela INTERNA da distribuição (sem mockup, decisão do dono): emite o token POR LOJA com a
-// autorização do presidente da empresa e revoga. O token em claro aparece UMA vez, aqui, e vai
-// direto para o cofre do Liame — nunca por e-mail, chat ou print. O banco guarda só o hash.
+// Tela INTERNA da distribuição (sem mockup, decisão do dono): emite o token com a autorização do
+// presidente da empresa e revoga. Liame: token POR LOJA; RegemCast: da EMPRESA inteira (mig 302).
+// O token em claro aparece UMA vez, aqui, e vai direto para o cofre do cliente de integração —
+// nunca por e-mail, chat ou print. O banco guarda só o hash.
 
 type Empresa = { id: string; nome: string; cnpj?: string | null };
+type ClienteIntegracao = { chave: string; rotulo: string; abrangencia: 'loja' | 'empresa'; escopos: string[] };
 type Painel = {
   empresa: { id: string; nome: string };
   lojas: { id: string; nome: string; tipo?: string }[];
   presidentes: { id: string; nome: string; presidente: boolean; verFinanceiro: boolean }[];
   tokens: any[];
   escopos: { chave: string; rotulo: string }[];
+  clientes?: ClienteIntegracao[];
 };
 
 const quando = (ts?: string | null) => (ts ? new Date(ts).toLocaleString('pt-BR') : '—');
-const FORM_VAZIO = { unidadeId: '', autorizadoPor: '', escopos: [] as string[], evidencia: '' };
+const FORM_VAZIO = { cliente: 'liame', unidadeId: '', autorizadoPor: '', escopos: [] as string[], evidencia: '' };
 
 export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
   const [tenantId, setTenantId] = useState('');
@@ -29,7 +32,7 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
   const [erro, setErro] = useState('');
   const [form, setForm] = useState(FORM_VAZIO);
   const [emitindo, setEmitindo] = useState(false);
-  const [emitido, setEmitido] = useState<{ token: string; prefixo: string; loja: string } | null>(null);
+  const [emitido, setEmitido] = useState<{ token: string; prefixo: string; loja: string; cliente: string } | null>(null);
   const [copiado, setCopiado] = useState(false);
 
   const carregar = useCallback(async (id: string) => {
@@ -53,8 +56,25 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
   }, [tenantId, carregar]);
 
   const presidente = painel?.presidentes.find((p) => p.id === form.autorizadoPor);
+  // Para quem se emite (o servidor antigo não manda a lista: vale o Liame, por loja).
+  const clientes: ClienteIntegracao[] = painel?.clientes?.length
+    ? painel.clientes
+    : [{ chave: 'liame', rotulo: 'Liame', abrangencia: 'loja', escopos: (painel?.escopos ?? []).map((e) => e.chave) }];
+  const clienteAtual = clientes.find((c) => c.chave === form.cliente) ?? clientes[0];
+  const daEmpresa = clienteAtual?.abrangencia === 'empresa';
+  const escoposDoCliente = (painel?.escopos ?? []).filter((e) => clienteAtual?.escopos.includes(e.chave));
   // `custos.ler` só com "Ver valores em R$" no perfil de quem autoriza (o servidor confere de novo).
   const escopoBloqueado = (chave: string) => chave === 'custos.ler' && !!presidente && !presidente.verFinanceiro;
+
+  function escolherCliente(chave: string) {
+    const c = clientes.find((x) => x.chave === chave);
+    setForm((f) => ({
+      ...f,
+      cliente: chave,
+      unidadeId: c?.abrangencia === 'empresa' ? '' : f.unidadeId,
+      escopos: f.escopos.filter((e) => c?.escopos.includes(e)),
+    }));
+  }
 
   function alternarEscopo(chave: string) {
     setForm((f) => ({
@@ -73,7 +93,11 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
   }
 
   const podeEmitir =
-    !!tenantId && !!form.unidadeId && !!form.autorizadoPor && form.escopos.length > 0 && form.evidencia.trim().length >= 5;
+    !!tenantId &&
+    (daEmpresa || !!form.unidadeId) &&
+    !!form.autorizadoPor &&
+    form.escopos.length > 0 &&
+    form.evidencia.trim().length >= 5;
 
   async function emitir(e: React.FormEvent) {
     e.preventDefault();
@@ -84,12 +108,18 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
     try {
       const r: any = await distApi.emitirTokenIntegracao({
         tenantId,
-        unidadeId: form.unidadeId,
+        cliente: clienteAtual?.chave ?? 'liame',
+        ...(daEmpresa ? {} : { unidadeId: form.unidadeId }),
         autorizadoPor: form.autorizadoPor,
         escopos: form.escopos,
         evidencia: form.evidencia.trim(),
       });
-      setEmitido({ token: r.token, prefixo: r.prefixo, loja: r.loja?.nome ?? '' });
+      setEmitido({
+        token: r.token,
+        prefixo: r.prefixo,
+        loja: r.loja?.nome ?? 'a empresa inteira',
+        cliente: clienteAtual?.rotulo ?? 'Liame',
+      });
       setForm(FORM_VAZIO);
       await carregar(tenantId);
     } catch (err) {
@@ -127,8 +157,9 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
       <div>
         <h2 className="text-sm font-semibold text-slate-100">Tokens de integração</h2>
         <p className="mt-1 max-w-3xl text-xs text-slate-400">
-          Token por loja para o Liame ler as vendas. Emita só com a autorização do presidente da empresa e
-          grave o token direto no cofre do Liame — ele aparece uma vez só.
+          Liame: token por loja para ler as vendas. RegemCast: token da empresa inteira para ler clientes e vendas.
+          Emita só com a autorização do presidente da empresa e grave o token direto no cofre do cliente de
+          integração — ele aparece uma vez só.
         </p>
       </div>
 
@@ -153,9 +184,11 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
 
       {emitido && (
         <div className="max-w-3xl rounded-xl border border-amber-600/60 bg-amber-500/10 p-4" role="status">
-          <p className="text-sm font-semibold text-amber-300">Token emitido para {emitido.loja}</p>
+          <p className="text-sm font-semibold text-amber-300">
+            Token do {emitido.cliente} emitido para {emitido.loja}
+          </p>
           <p className="mt-1 text-xs text-amber-100/80">
-            Ele aparece só agora. Grave direto no cofre do Liame; não mande por e-mail, chat ou print.
+            Ele aparece só agora. Grave direto no cofre do {emitido.cliente}; não mande por e-mail, chat ou print.
           </p>
           <code className="mt-3 block break-all rounded-lg bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100">
             {emitido.token}
@@ -187,20 +220,40 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Emitir token</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label className="text-xs text-slate-400">
-                Loja
+                Para quem
                 <select
-                  value={form.unidadeId}
-                  onChange={(e) => setForm((f) => ({ ...f, unidadeId: e.target.value }))}
+                  value={clienteAtual?.chave ?? 'liame'}
+                  onChange={(e) => escolherCliente(e.target.value)}
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200"
                 >
-                  <option value="">{painel.lojas.length ? 'Escolha a loja' : 'Empresa sem loja ativa'}</option>
-                  {painel.lojas.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.nome}
+                  {clientes.map((c) => (
+                    <option key={c.chave} value={c.chave}>
+                      {c.rotulo} {c.abrangencia === 'empresa' ? '· empresa inteira' : '· por loja'}
                     </option>
                   ))}
                 </select>
               </label>
+              {daEmpresa ? (
+                <p className="self-end rounded-lg border border-slate-800 px-2.5 py-1.5 text-xs text-slate-300">
+                  Vale para a empresa inteira (todas as lojas).
+                </p>
+              ) : (
+                <label className="text-xs text-slate-400">
+                  Loja
+                  <select
+                    value={form.unidadeId}
+                    onChange={(e) => setForm((f) => ({ ...f, unidadeId: e.target.value }))}
+                    className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200"
+                  >
+                    <option value="">{painel.lojas.length ? 'Escolha a loja' : 'Empresa sem loja ativa'}</option>
+                    {painel.lojas.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.nome}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="text-xs text-slate-400">
                 Presidente que autorizou
                 <select
@@ -221,8 +274,13 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
 
             <fieldset>
               <legend className="text-xs text-slate-400">Escopos</legend>
+              {form.escopos.includes('vendas.99food.ler') && (
+                <p className="mt-1 text-[11px] text-amber-300">
+                  99Food: só com a autorização do dono registrada no RegemCast — descreva-a na evidência.
+                </p>
+              )}
               <div className="mt-1 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                {painel.escopos.map((e) => {
+                {escoposDoCliente.map((e) => {
                   const bloqueado = escopoBloqueado(e.chave);
                   return (
                     <label
@@ -288,7 +346,7 @@ export function TokensIntegracao({ empresas }: { empresas: Empresa[] }) {
                         {t.cliente} · {quando(t.criadoEm)}
                       </div>
                     </td>
-                    <td className="p-3 text-slate-300">{t.lojaNome ?? '—'}</td>
+                    <td className="p-3 text-slate-300">{t.lojaNome ?? (t.lojaId ? '—' : 'Empresa inteira')}</td>
                     <td className="p-3">
                       <div className="flex max-w-xs flex-wrap gap-1">
                         {(t.escopos ?? []).map((e: string) => (
