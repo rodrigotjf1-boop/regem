@@ -46,6 +46,26 @@ export function ClientePanel({
   }
   const clienteToken = getClienteToken(token);
   const [cashback, setCashback] = useState<any>(null);
+  // Promoções pelo WhatsApp (mockup aprovado em 01/10/2026): a chave aparece LIGADA para quem não
+  // pediu para sair; desligar vale na hora. `acabouDeDesligar` troca o texto pela confirmação.
+  const [busyPromo, setBusyPromo] = useState(false);
+  const [acabouDeDesligar, setAcabouDeDesligar] = useState(false);
+  async function alternarPromocoes() {
+    const ct = getClienteToken(token);
+    if (!ct || !perfil?.promocoes || busyPromo) return;
+    const ligar = !perfil.promocoes.ativo;
+    setBusyPromo(true);
+    setErro('');
+    try {
+      const r: any = await api.clientePromocoes(token, ct, ligar);
+      setPerfil((p: any) => (p ? { ...p, promocoes: r?.promocoes ?? { ...p.promocoes, ativo: ligar } } : p));
+      setAcabouDeDesligar(!ligar);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Não foi possível salvar a sua escolha. Tente de novo.');
+    } finally {
+      setBusyPromo(false);
+    }
+  }
 
   const carregar = useCallback(async () => {
     const ct = getClienteToken(token);
@@ -206,6 +226,36 @@ export function ClientePanel({
               Olá, {perfil.cliente.nome || 'cliente'}! 👋
               <span className="block text-xs text-black/50">{perfil.cliente.telefone}</span>
             </p>
+
+            {/* Promoções pelo WhatsApp — só na loja que manda promoção */}
+            {perfil.promocoes && (
+              <div className="rounded-xl border border-black/10 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-bold">Promoções pelo WhatsApp</p>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={!!perfil.promocoes.ativo}
+                    aria-label="Receber promoções pelo WhatsApp"
+                    disabled={busyPromo}
+                    onClick={alternarPromocoes}
+                    className={`relative h-6 w-11 flex-none rounded-full transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1a1a1a] disabled:opacity-60 motion-reduce:transition-none ${perfil.promocoes.ativo ? 'bg-emerald-600' : 'bg-black/20'}`}
+                  >
+                    <span
+                      aria-hidden
+                      className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform motion-reduce:transition-none ${perfil.promocoes.ativo ? 'translate-x-5' : ''}`}
+                    />
+                  </button>
+                </div>
+                <p role="status" className="mt-1 text-xs text-black/50">
+                  {perfil.promocoes.ativo
+                    ? perfil.promocoes.ligado
+                    : acabouDeDesligar
+                      ? perfil.promocoes.desligado
+                      : perfil.promocoes.fora}
+                </p>
+              </div>
+            )}
 
             {/* Saldo de cashback */}
             {cashback && ((cashback.valor ?? 0) > 0 || (cashback.pontos ?? 0) > 0 || (cashback.vales ?? []).length > 0) && (

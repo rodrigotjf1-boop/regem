@@ -102,11 +102,18 @@ export function fichaDoContrato(l: any): FichaContato {
   const ativo = !!l.opt_out_marketing || naLista;
   // A data e a origem da última saída (ou da volta, quando voltou); sem histórico, a da lista.
   const op = l.op_acao ? { acao: l.op_acao as string, em: l.op_em as string | null, origem: l.op_origem as string | null } : null;
+  // Quem saiu pelo cardápio (desmarcou no pedido, desligou no Perfil) deixa um evento de RECUSA:
+  // vale o mais recente entre ele e a saída (SAIR no WhatsApp, painel da loja).
+  const saidas = [
+    op?.acao === 'saida' ? { em: op.em, origem: op.origem } : null,
+    l.ac_acao === 'recusa' ? { em: l.ac_em as string | null, origem: l.ac_origem as string | null } : null,
+  ].filter((s): s is { em: string | null; origem: string | null } => !!s);
+  const saiu = saidas.sort((a, b) => String(b.em ?? '').localeCompare(String(a.em ?? '')))[0] ?? null;
   const opt_out = ativo
     ? {
         ativo: true,
-        em: (op?.acao === 'saida' ? op.em : null) ?? l.lista_em ?? null,
-        origem: (op?.acao === 'saida' ? op.origem : null) ?? (naLista ? 'lista_de_exclusao' : 'painel'),
+        em: saiu?.em ?? l.lista_em ?? null,
+        origem: saiu?.origem ?? (naLista ? 'lista_de_exclusao' : 'painel'),
       }
     : { ativo: false, em: op?.acao === 'volta' ? op.em : null, origem: op?.acao === 'volta' ? op.origem : null };
   return {

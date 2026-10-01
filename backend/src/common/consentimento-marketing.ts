@@ -15,6 +15,7 @@ import { chaveTelefone, sqlChaveTelefone, telefoneCadastro } from './telefone-ch
 
 export type OrigemConsentimento =
   | 'cardapio_checkout'
+  | 'cardapio_checkout_marcada' // a caixinha que já vinha marcada (não é um 'sim' clicado)
   | 'cardapio_perfil'
   | 'whatsapp'
   | 'painel'

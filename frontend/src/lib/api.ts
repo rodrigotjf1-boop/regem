@@ -1498,6 +1498,9 @@ export const api = {
     pub(`/publico/cardapio/${token}/cliente/endereco/${id}?clienteToken=${encodeURIComponent(clienteToken)}`, { method: 'DELETE' }),
   clientePrincipalEndereco: (token: string, id: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente/endereco/${id}/principal`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
+  // A chave "Promoções pelo WhatsApp" do Perfil (desligar = sair das campanhas da loja).
+  clientePromocoes: (token: string, clienteToken: string, ativo: boolean) =>
+    pub(`/publico/cardapio/${token}/cliente/promocoes`, { method: 'POST', body: JSON.stringify({ clienteToken, ativo }) }),
   clienteEsquecer: (token: string, clienteToken: string) =>
     pub(`/publico/cardapio/${token}/cliente/esquecer`, { method: 'POST', body: JSON.stringify({ clienteToken }) }),
   clientePedirDeNovo: (token: string, pedidoId: string, clienteToken: string) =>

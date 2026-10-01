@@ -68,7 +68,7 @@ Cliente vivo:
   "bairro": "Tijuca",
   "cidade": "Rio de Janeiro",
   "opt_out": { "ativo": false, "em": null, "origem": null },
-  "aceite_marketing": { "aceito": true, "em": "2026-09-30T18:01:00.000000Z", "origem": "cardapio_checkout", "texto": "Quero receber promoções da Pizzaria Centro pelo WhatsApp" },
+  "aceite_marketing": { "aceito": true, "em": "2026-10-01T18:01:00.000000Z", "origem": "cardapio_checkout_marcada", "texto": "Receber promoções de Pizzaria Centro pelo WhatsApp" },
   "criado_em": "2025-11-02T14:00:00.000000Z",
   "removido": false
 }
@@ -87,11 +87,24 @@ Lápide: `{ "id": "c1…", "versao": 4, "atualizado_em": "…", "removido": true
 - `bairro` / `cidade`: do endereço salvo do cliente (o principal); `null` quando não há — distância
   ("~3.2 km") nunca sai como bairro.
 - `opt_out.ativo`: `true` = o cliente pediu para sair (SAIR no WhatsApp, painel da loja, lista de
-  exclusão) — em qualquer forma do número (com/sem 55, com/sem o nono dígito). `em`/`origem`: da saída;
-  quem saiu e voltou vem com `ativo: false` e `em` = a data da volta.
-- `aceite_marketing`: o último aceite/recusa do cliente; `null` = **nunca respondeu** (a caixinha do
-  cardápio é desmarcada: não marcar NÃO é recusa). `aceito: false` = recusa explícita (desmarcou no
-  perfil).
+  exclusão, desmarcou a caixinha no pedido, desligou a chave no Perfil do cardápio) — em qualquer forma
+  do número (com/sem 55, com/sem o nono dígito). `em`/`origem`: da saída mais recente (`whatsapp`,
+  `painel`, `cardapio_checkout`, `cardapio_perfil`, ou `lista_de_exclusao` quando não há histórico); quem
+  saiu e voltou vem com `ativo: false` e `em` = a data da volta. **É o que manda: `ativo: true` = não
+  enviar.** A saída é publicada no instante em que acontece — leia as mudanças antes de cada disparo.
+- `aceite_marketing`: a última resposta do cliente à pergunta das promoções; `null` = **nunca
+  respondeu** (cliente da base, pedido de mesa, loja que não pergunta). Desde 01/10/2026 (decisão do
+  dono) a caixinha do checkout **já vem marcada** e aparece só no primeiro pedido; a `origem` diz como foi:
+
+  | `aceito` | `origem` | O que aconteceu | Como tratar |
+  |---|---|---|---|
+  | `true` | `cardapio_checkout_marcada` | Enviou o pedido com a caixinha que **já vinha marcada** | **Não é um "sim" clicado**: é aviso com opção de sair (legítimo interesse da loja, LGPD art. 7º IX e art. 10 I). Tratar como a base que a loja já tem — nunca como consentimento provado. |
+  | `true` | `cardapio_perfil` | Ligou a chave no Perfil (entrou com o código do WhatsApp) | O "sim" do próprio cliente — a prova mais forte. |
+  | `false` | `cardapio_checkout` | Desmarcou a caixinha e enviou o pedido | Recusa: não enviar (vem junto com `opt_out.ativo: true`). |
+  | `false` | `cardapio_perfil` | Desligou a chave no Perfil | Recusa: não enviar (vem junto com `opt_out.ativo: true`). |
+
+  `texto` = a frase exata que o cliente viu. A caixinha marcada **nunca** tira da lista quem já tinha
+  pedido para sair (o checkout não confirma o telefone): esse cliente segue com `opt_out.ativo: true`.
 - `removido: true`: o cliente pediu para ser esquecido (LGPD — "Excluir conta" do cardápio). É o único
   jeito de um cliente sumir do Regem. Cadastro que a loja apaga ou mescla **não** existe hoje.
 
@@ -126,3 +139,23 @@ As vendas **de todas as lojas** da empresa, carga inicial de **3 anos** (o Regem
 
 Nada de marketplace além da 99 (e só com o escopo). Nenhuma escrita nesta versão (devolver o opt-out
 ao Regem é a fase 2 — pede mudança no conector). Nada de outras empresas: todo filtro vem do token.
+
+## 7. O que o RegemCast precisa ajustar (pedido do Regem, 01/10/2026)
+
+O dono decidiu que a opção de promoções do cardápio **já vem marcada** no primeiro pedido e aparece
+ligada no Perfil; quem desliga tem de parar de receber **na hora**. Dois ajustes do lado do conector:
+
+1. **Ler as mudanças do Regem logo antes de cada disparo.** O Regem publica a saída em `/clientes` no
+   instante em que ela acontece (desmarcou no pedido, desligou no Perfil, SAIR no WhatsApp, painel da
+   loja), mas o conector só consulta a cada 30 minutos quando está em dia. Antes de montar ou enviar uma
+   campanha de uma conta ligada ao Regem, consultar `/integracao/clientes` a partir do cursor guardado
+   até `tem_mais: false` e aplicar os bloqueios. Só entra o que foi carimbado há mais de 15 s: se o
+   disparo for imediato, esperar esse intervalo. Custa uma chamada quando não há mudança.
+2. **Não tratar `cardapio_checkout_marcada` como consentimento provado.** Hoje todo
+   `aceite_marketing.aceito: true` vira "o aceite que o próprio cliente deu no Regem — prova mais forte
+   que a declaração do dono". Com a caixinha já marcada isso deixa de valer para a origem
+   `cardapio_checkout_marcada`: guardar a data, a origem e a frase, mas dar a esse contato o mesmo
+   tratamento da base que a loja declara (não o da prova forte). A prova forte continua sendo a origem
+   `cardapio_perfil`. A tabela da seção 4 traz as quatro combinações.
+
+Nada muda no contrato (mesmos campos, mesmos tipos): só o significado da origem nova.

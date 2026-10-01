@@ -12,6 +12,8 @@ import {
   salvarCliente,
   getClienteToken,
   setClienteToken,
+  promocoesRespondida,
+  marcarPromocoesRespondida,
   type CartItem,
 } from '@/components/loja/tipos';
 import { distanciaKm, taxaPorRaio, geocodificar } from '@/lib/geo';
@@ -244,6 +246,17 @@ export default function CardapioPublicoPage() {
         ? 'recusado'
         : null;
 
+  // Promoções pelo WhatsApp (mockup aprovado em 01/10/2026): na loja que manda promoção, a caixinha
+  // aparece no PRIMEIRO pedido deste aparelho, já marcada; respondida, não volta (o cliente
+  // identificado que já respondeu em outro aparelho também não é perguntado). Nunca no QR da mesa.
+  const promoLoja = (menu?.loja?.promocoes ?? null) as { frase: string; apoio: string } | null;
+  const [promoRespondida, setPromoRespondida] = useState(true); // até ler o aparelho, não pergunta
+  const [promoMarcada, setPromoMarcada] = useState(true);
+  useEffect(() => {
+    setPromoRespondida(promocoesRespondida(token));
+  }, [token]);
+  const perguntaPromocoes = !!promoLoja && !mesa && !promoRespondida;
+
   // Identidade por link no ?u=. Aceita slug curto (resolve no servidor) ou o
   // token JWT assinado (legado). Não expõe nome/telefone na URL.
   const [ident, setIdent] = useState(0);
@@ -279,6 +292,11 @@ export default function CardapioPublicoPage() {
     if (!menu || !ct) return;
     api.clientePerfil(token, ct).then((p: any) => {
       setEnderecosSalvos(p.enderecos ?? []);
+      // Já respondeu sobre as promoções (aqui ou em outro aparelho): o checkout não pergunta de novo.
+      if (p.promocoes?.respondeu) {
+        marcarPromocoesRespondida(token);
+        setPromoRespondida(true);
+      }
       const pr = (p.enderecos ?? []).find((e: any) => e.principal) ?? (p.enderecos ?? [])[0];
       setChk((s: any) => ({
         ...s,
@@ -729,6 +747,8 @@ export default function CardapioPublicoPage() {
         cpf: chk.cupomFiscal ? soNumeros(chk.cpf) : undefined,
         // Lido do aparelho na hora: o que foi recusado ou apagado não vai.
         origem: medeAnuncios ? origemParaPedido(token) ?? undefined : undefined,
+        // A caixinha de promoções só vai quando apareceu (true = como vem; false = desmarcou).
+        promocoes: perguntaPromocoes ? promoMarcada : undefined,
         itens: cart.map((i) => ({
           produtoId: i.produtoId,
           variacaoId: i.variacaoId,
@@ -757,6 +777,11 @@ export default function CardapioPublicoPage() {
       }
       // Identidade do cliente (token aleatório) criada/confirmada no 1º pedido.
       if (r.clienteToken) setClienteToken(token, r.clienteToken);
+      // A pergunta das promoções foi respondida neste pedido: não volta neste aparelho.
+      if (perguntaPromocoes) {
+        marcarPromocoesRespondida(token);
+        setPromoRespondida(true);
+      }
       // Lembra o cliente neste aparelho para o próximo pedido.
       salvarCliente(token, {
         nome: chk.nome,
@@ -1219,6 +1244,11 @@ export default function CardapioPublicoPage() {
           areaRaio={menu.loja?.areaModo === 'raio'}
           temCliente={temCliente}
           enviando={enviando}
+          promocoes={
+            perguntaPromocoes && promoLoja
+              ? { frase: promoLoja.frase, apoio: promoLoja.apoio, marcada: promoMarcada, onMudar: setPromoMarcada }
+              : null
+          }
           avisoOrigem={
             estadoOrigem && (
               <AvisoOrigem

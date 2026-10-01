@@ -34,6 +34,8 @@ import { inArray } from 'drizzle-orm';
 import { formasNoCadastro, telefoneCadastro } from '../../common/telefone-chave';
 import { assinarCliente, verificarCliente } from './cliente-token';
 import { PedidoEmAndamentoError, esquecerCliente } from './esquecer-cliente';
+import { definirNoPerfil, promocoesDoPerfil } from '../cardapio/promocoes-cardapio';
+import { exigirBooleano } from '../../common/exigir';
 import { SegmentoImport, mapearTabela, nomeUtil, parseCsvClientes, segmentoPeloArquivo } from './importar-planilha';
 import { lerXlsx } from './ler-xlsx';
 import { urlPublicaSegura } from '../../common/ssrf-guard';
@@ -1121,9 +1123,14 @@ export class ClienteService {
       resgates = new Set(rows.map((r) => r.pedidoId).filter(Boolean) as string[]);
     }
 
+    // Endereços e promoções juntos (o banco fica longe: cada ida custa). `promocoesDe` nunca rejeita.
+    const [enderecos, promocoes] = await Promise.all([this.enderecosDe(c.id), this.promocoesDe(cardapioToken, c)]);
     return {
       cliente: { id: c.id, nome: c.nome, telefone: c.telefone },
-      enderecos: await this.enderecosDe(c.id),
+      enderecos,
+      // A chave "Promoções pelo WhatsApp" (`null` = a loja não manda promoção: o bloco não aparece).
+      // Nunca derruba o Perfil: sem a tabela do histórico, o motivo vai para o log.
+      promocoes,
       historico: historico.map((p) => {
         // Expõe o código só p/ entrega própria não-marketplace; não vaza o canal cru.
         const { canal, codigoEntrega, ...rest } = p;
@@ -1136,6 +1143,39 @@ export class ClienteService {
         return { ...rest, codigoEntrega: codigo, resgate: resgates.has(p.id) };
       }),
     };
+  }
+
+  /** O nome público da loja do cardápio (o que entra na frase das promoções). */
+  private async nomeDaLoja(cardapioToken: string): Promise<string | null> {
+    const [cfg] = await this.db
+      .select({ nome: cardapioConfig.nomePublico })
+      .from(cardapioConfig)
+      .where(eq(cardapioConfig.token, cardapioToken));
+    return cfg?.nome ?? null;
+  }
+
+  private async promocoesDe(cardapioToken: string, c: { tenantId: string; id: string; telefone: string | null }) {
+    try {
+      return await promocoesDoPerfil(this.db, c, await this.nomeDaLoja(cardapioToken));
+    } catch (e: any) {
+      new Logger('ClientePromocoes').warn(
+        `promoções do cliente ${c.id.slice(0, 8)} não lidas: ${e?.code ? `[${e.code}] ` : ''}${e?.message ?? e}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * A chave "Promoções pelo WhatsApp" do Perfil (mockup aprovado em 01/10/2026). Quem chega aqui
+   * entrou com o código do WhatsApp ou pelo link enviado ao próprio número: é o dono dele.
+   * Desligar = sair (vale na hora, em todas as campanhas da loja); ligar = volta a receber.
+   */
+  async definirPromocoes(cardapioToken: string, clienteToken: string | undefined, ativo: unknown) {
+    const liga = exigirBooleano(ativo, 'ativo');
+    const c = await this.clienteDoToken(cardapioToken, clienteToken);
+    const lojaNome = await this.nomeDaLoja(cardapioToken);
+    await definirNoPerfil(this.db, { tenantId: c.tenantId, clienteId: c.id, telefone: c.telefone, lojaNome, ativo: liga });
+    return { promocoes: await promocoesDoPerfil(this.db, c, lojaNome) };
   }
 
   // Backfill progressivo: geocodifica endereços salvos SEM coords (o form antigo não mandava e o

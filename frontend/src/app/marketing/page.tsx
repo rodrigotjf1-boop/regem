@@ -981,7 +981,15 @@ export default function MarketingPage() {
                       {o.nome || 'Cliente'} · <span className="font-mono text-foreground/70">{o.telefone}</span>
                     </span>
                     <span className="text-[11px] text-foreground/50">
-                      {o.motivo === 'palavra_chave' ? 'saiu por "SAIR"' : o.motivo === 'link' ? 'saiu por link' : 'manual'}
+                      {o.motivo === 'palavra_chave'
+                        ? 'saiu por "SAIR"'
+                        : o.motivo === 'link'
+                          ? 'saiu por link'
+                          : o.motivo === 'cardapio_perfil'
+                            ? 'desligou no Perfil do cardápio'
+                            : o.motivo === 'cardapio_checkout'
+                              ? 'desmarcou no pedido do cardápio'
+                              : 'manual'}
                       {o.criado_em ? ` · ${new Date(o.criado_em).toLocaleDateString('pt-BR')}` : ''}
                     </span>
                   </div>

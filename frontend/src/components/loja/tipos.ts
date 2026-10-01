@@ -81,6 +81,27 @@ export function setClienteToken(token: string, clienteToken: string | null) {
   }
 }
 
+// A caixinha "Receber promoções…" do checkout aparece UMA vez por aparelho: respondida (marcada ou
+// não), não volta. Não é dado pessoal — só lembra que a pergunta já foi feita aqui; a resposta em si
+// fica no servidor. Para o cliente identificado, o servidor também diz se ele já respondeu.
+const chavePromo = (token: string) => `regem_loja_promocoes_${token}`;
+export function promocoesRespondida(token: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem(chavePromo(token)) === '1';
+  } catch {
+    return false;
+  }
+}
+export function marcarPromocoesRespondida(token: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(chavePromo(token), '1');
+  } catch {
+    /* privado/quota — a pergunta volta no próximo pedido; o servidor não duplica */
+  }
+}
+
 export function salvarCliente(token: string, dados: ClientePrefill) {
   if (typeof window === 'undefined') return;
   try {
