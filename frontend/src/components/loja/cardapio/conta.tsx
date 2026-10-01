@@ -10,8 +10,8 @@ import { brl, Ic } from './partes';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // "SUA CONTA" (05 §2.1): o que antes ficava em três painéis (Perfil, Pedidos e Promos) e só
-// aparecia com o carrinho vazio. As chamadas ao servidor são as MESMAS de `cliente-panel`,
-// `pedidos-panel` e `promos-panel`: entrar por código no WhatsApp, pedidos (avisos, encomendas
+// aparecia com o carrinho vazio. As chamadas ao servidor são as MESMAS daqueles painéis (que
+// saíram com os layouts antigos): entrar por código no WhatsApp, pedidos (avisos, encomendas
 // recorrentes, alteração, cancelamento, pedir de novo), benefícios (cashback, troca de pontos,
 // fidelidade, cupons, ofertas) e perfil (endereços, promoções pelo WhatsApp, sair, excluir conta).
 

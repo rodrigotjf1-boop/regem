@@ -7,7 +7,7 @@ import { brl, extrasDe, Foto, Ic, irAoCampo, pctDesconto, Preco, Qtd, selosDe } 
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-// TELA DO PRODUTO dos quatro templates. A regra é a do `item-sheet` de sempre (variação obrigatória,
+// TELA DO PRODUTO dos quatro templates. A regra é a de sempre (variação obrigatória,
 // grupos com mínimo e máximo, repetição, opção informativa, pré-marcadas, observação, quantidade) e
 // o item sai para a sacola com a MESMA chave e os mesmos campos. Muda a apresentação: obrigatórios
 // primeiro (base §3.2), pílula `n/máx`, e — no Regem Fluxo — grupos numerados, adicionais

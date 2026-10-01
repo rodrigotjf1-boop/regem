@@ -3,14 +3,20 @@
 
 /** Templates do cardápio digital (docs/templates-cardapio/). */
 export const TEMPLATES_CARDAPIO = ['galeria', 'balcao', 'oferta', 'fluxo'] as const;
-/** Layouts de antes dos templates. */
-export const LAYOUTS_ANTIGOS = ['classic', 'fastfood', 'grid'] as const;
-/** Tudo o que a coluna `menu_theme` aceita. */
-export const MENU_THEMES = [...LAYOUTS_ANTIGOS, ...TEMPLATES_CARDAPIO] as const;
-export type MenuTheme = (typeof MENU_THEMES)[number];
+export type TemplateCardapio = (typeof TEMPLATES_CARDAPIO)[number];
+/** O template de loja nova e de loja que ainda tem um layout antigo gravado (`classic`, `fastfood`, `grid`). */
+export const TEMPLATE_PADRAO: TemplateCardapio = 'fluxo';
 
-export function menuThemeValido(v: unknown): v is MenuTheme {
-  return typeof v === 'string' && (MENU_THEMES as readonly string[]).includes(v);
+export function ehTemplateCardapio(v: unknown): v is TemplateCardapio {
+  return typeof v === 'string' && (TEMPLATES_CARDAPIO as readonly string[]).includes(v);
+}
+
+/**
+ * O template que o cardápio público mostra: o que a loja escolheu, ou o padrão. A coluna guarda o
+ * que foi gravado (inclusive um layout antigo); a troca acontece na leitura, sem migration.
+ */
+export function templateDoCardapio(v: unknown): TemplateCardapio {
+  return ehTemplateCardapio(v) ? v : TEMPLATE_PADRAO;
 }
 
 /**

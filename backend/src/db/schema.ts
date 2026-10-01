@@ -3034,7 +3034,7 @@ export const cardapioConfig = pgTable('cardapio_config', {
   modo: text('modo').notNull().default('mesa'), // mesa | retirada | totem
   nomePublico: text('nome_publico'),
   tema: text('tema').notNull().default('claro'), // claro | escuro | auto (Etapa 5)
-  menuTheme: text('menu_theme').notNull().default('classic'), // layout: ver `cardapio/menu-themes.ts`
+  menuTheme: text('menu_theme').notNull().default('classic'), // template (galeria|balcao|oferta|fluxo); valor antigo = padrão, ver `cardapio/menu-themes.ts`
   // Personalização do tema (botão "Editar tema"): { corPrimaria, mostrarDestaques,
   // mostrarBanner, mostrarUltimos, bannerIntervalo }. Vazio = defaults no código.
   temaConfig: jsonb('tema_config').notNull().default('{}'),

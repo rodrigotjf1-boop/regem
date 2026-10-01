@@ -82,7 +82,7 @@ import { edgeAtivo } from '../../common/edge-ativo';
 import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loja';
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
-import { TIPOS_EVENTO_FUNIL, menuThemeValido, proximaAberturaDe } from './menu-themes';
+import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Distância entre duas coordenadas (km) — frete por raio.
@@ -372,8 +372,9 @@ export class CardapioService {
       modo: dto.modo ?? row?.modo ?? 'mesa',
       nomePublico: dto.nomePublico ?? row?.nomePublico ?? null,
       tema: dto.tema ?? row?.tema ?? 'claro',
-      // Layout do cardápio (`menu-themes.ts`). Valor inválido não troca o que está gravado.
-      menuTheme: menuThemeValido(dto.menuTheme) ? dto.menuTheme : row?.menuTheme ?? 'classic',
+      // Template do cardápio (`menu-themes.ts`). Valor que não é template (inclusive um layout
+      // antigo vindo de tela desatualizada) não troca o que está gravado.
+      menuTheme: ehTemplateCardapio(dto.menuTheme) ? dto.menuTheme : row?.menuTheme ?? 'classic',
       // Personalização do tema (cores + toggles + intervalo do banner). Merge com
       // o atual para permitir salvar só parte (ex.: só o intervalo pela tela de banners).
       temaConfig:
@@ -1370,7 +1371,8 @@ export class CardapioService {
         nome: cfg.nomePublico ?? 'Cardápio',
         ramo: cfg.ramo,
         tema: cfg.tema ?? 'claro',
-        menuTheme: menuThemeValido(cfg.menuTheme) ? cfg.menuTheme : 'classic',
+        // Loja com layout antigo gravado (`classic`, `fastfood`, `grid`) abre no template padrão.
+        menuTheme: templateDoCardapio(cfg.menuTheme),
         // Personalização do tema (defaults quando ausente): cor primária + toggles
         // + intervalo do carrossel de banners (segundos, mínimo 1).
         temaConfig: (() => {
