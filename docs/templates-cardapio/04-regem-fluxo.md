@@ -37,7 +37,7 @@ Regras de cor: a **cor da loja aparece só na ação principal** (botões, sele�
 
 ## 3. Vitrine
 
-1. **Topo:** nome da loja em Archivo 800, 23 px; linha de status com bolinha (verde aberta, laranja só retirada, vermelha fechada) + texto da base §5.5 + "~N min · mínimo R$ X"; busca redonda com contorno.
+1. **Topo:** ícone de conta e busca à direita (05 §2.1); nome da loja em Archivo 800, 23 px; linha de status com bolinha (verde aberta, laranja só retirada, vermelha fechada) + texto da base §5.5 + "~N min · mínimo R$ X"; busca redonda com contorno.
 2. **Aviso da loja** (`AvisoLoja`, base §5.5) logo abaixo do topo quando a loja está só retirada ou fechada.
 3. **Faixa de chips** (rolagem horizontal, nesta ordem):
    - **"Entregar em: escolha o bairro ▾"** (pílula com contorno navy). Abre uma folha "Onde você está?" com cada bairro e a taxa ("Entrega R$ 5,00 · grátis acima de R$ 80,00") e a opção "Vou retirar na loja". Escolher grava `chk.bairroId`/`chk.tipo` e a taxa passa a aparecer na barra da sacola desde o primeiro item. No modo raio, a folha oferece "Usar minha localização" e endereço. Rodapé da folha: "Não achou seu bairro? A loja ainda não entrega aí, mas você pode retirar." Com a loja só em retirada, o chip vira texto fixo "Retirada na loja".
@@ -101,4 +101,6 @@ Base §5.7, com Archivo no título e horário em mono 24. Pedido agendado: "Agen
 - [ ] "Seus benefícios": cupom sugerido (sem cupom de 1ª compra para cliente reconhecido), usar cashback, progresso do plano, cashback a ganhar; resumo com "Cashback usado".
 - [ ] Sem cupom ativo, nenhum campo de cupom; sem fidelidade, nenhum ponto em lugar nenhum.
 - [ ] Confirmação: agendado, Pix pendente, pontos e cashback a caminho conforme os recursos.
+- [ ] Recursos comuns do `05-recursos-integrados.md` §4: conta do cliente, promoções pelo WhatsApp, origem do anúncio, sinal da encomenda, pós-pedido completo, erro visível, mesa e ramos.
+- [ ] Pedido expresso: sem caixinha de promoções (o cliente já respondeu) e com o aviso de origem no fim da revisão.
 - [ ] Modo escuro; 375 px sem rolagem horizontal; temas antigos intactos.

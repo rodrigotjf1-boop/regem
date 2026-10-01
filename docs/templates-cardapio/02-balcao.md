@@ -24,7 +24,7 @@ Escuro: `--m-bg:#0E1013; --m-surf:#16191D; --m-card:#1B1F24; --m-ink:#ECEEF1; --
 ## 3. Vitrine
 
 1. **Capa** 136 px: hoje não existe campo de capa, então usar a imagem do 1º banner ativo; sem banner, faixa na cor da loja. Um campo próprio de capa entra na Fase B (item 6 do 00).
-2. **Cabeçalho branco:** logo quadrado 76 px (raio 14, borda branca 3 px) subindo 38 px sobre a capa; "Ver informações" à direita (endereço, horários e formas de pagamento; reaproveitar o painel de informações da loja se existir, senão um sheet simples). Nome 20 px 600, status verde "● Aberto agora · fecha às HH:MM" e linha de dados com ícones: tempo, mínimo, frete grátis acima de.
+2. **Cabeçalho branco:** logo quadrado 76 px (raio 14, borda branca 3 px) subindo 38 px sobre a capa; "Ver informações" à direita abre o componente comum `InfoLoja` (endereço, horários, formas de pagamento e contatos; o painel não existe hoje — ver `05-recursos-integrados.md` §2.6). O botão redondo da conta fica sobre a capa, no canto superior esquerdo. Nome 20 px 600, status verde "● Aberto agora · fecha às HH:MM" e linha de dados com ícones: tempo, mínimo, frete grátis acima de.
 3. **Busca** fixa abaixo do cabeçalho: campo cinza com lupa. Ao digitar, a lista vira "N resultados" (filtra nome e descrição); vazio volta às seções.
 4. **Abas** (`position: sticky`): texto 14 px, ativa na cor da loja com sublinhado de 2,5 px. Scroll-spy: a aba acompanha a seção visível e a faixa de abas rola para mantê-la à vista.
 5. **Seções:** título 16 px 600 e lista em fundo branco. Linha: selo pequeno na cor da loja, nome 15 px 500, descrição em 2 linhas, preço (com "de" riscado e etiqueta verde "-X%"), foto 92 px à direita (raio 8).
@@ -50,7 +50,7 @@ Escuro: `--m-bg:#0E1013; --m-surf:#16191D; --m-card:#1B1F24; --m-ink:#ECEEF1; --
 
 ## 6. Checklist de aceite
 
-- [ ] Capa + logo sobreposto + dados da loja; "Ver informações" abre o painel existente.
+- [ ] Capa + logo sobreposto + dados da loja; "Ver informações" abre `InfoLoja`; botão da conta sobre a capa.
 - [ ] Busca filtra em tempo real e volta às seções ao limpar.
 - [ ] Abas fixas com scroll-spy e rolagem horizontal até a aba ativa.
 - [ ] Linhas com foto à direita, "-X%" quando há `precoDe`, esgotado sem toque.
@@ -59,4 +59,5 @@ Escuro: `--m-bg:#0E1013; --m-surf:#16191D; --m-card:#1B1F24; --m-ink:#ECEEF1; --
 - [ ] Frete "a calcular" sem bairro; pontos "a caminho" na confirmação.
 - [ ] Situação da loja conforme a base §5.5 (aviso no topo; só retirada bloqueia a entrega com o horário; fechada só agenda e o botão final vira "Agendar pedido").
 - [ ] Benefícios conforme a base §5.6: cupom, cashback e fidelidade só aparecem quando ativos, no bloco "Seus benefícios" do pagamento.
+- [ ] Recursos comuns do `05-recursos-integrados.md` §4: conta do cliente, promoções pelo WhatsApp, origem do anúncio, sinal da encomenda, pós-pedido completo, erro visível, mesa e ramos.
 - [ ] Modo escuro; 375 px sem rolagem horizontal; temas antigos intactos.

@@ -1,6 +1,8 @@
 # 00 · Base comum dos templates do cardápio digital
 
 > Documento de engenharia para o Claude Code. Leia inteiro antes de mexer no código. Os 4 arquivos de template (`01` a `04`) dependem deste.
+>
+> **Leia junto o `05-recursos-integrados.md`:** ele diz onde ficam, nos templates novos, os recursos que o cardápio já tem e que este arquivo não detalha (conta do cliente, promoções pelo WhatsApp, origem do anúncio, sinal, mesa, ramos), e lista o que o código faz diferente do que está escrito aqui. Onde os dois divergirem, vale o `05`.
 
 ## 1. Objetivo
 
@@ -15,7 +17,7 @@ Adicionar 4 templates ao cardápio público (`/c/[token]`), selecionáveis por l
 
 Cada template muda **layout e comportamento de navegação**, não só cores. Todos compartilham uma mudança grande: **o checkout deixa de ser uma tela única e passa a ser em etapas**.
 
-**Não muda:** regras do pedido (idempotência por `clientRef`, validação de complementos no servidor, cupom, fidelidade, cashback, prêmios, cupom fiscal, agendamento/recorrência, raio/bairro, Pix via Mercado Pago, origem do clique, beacons do funil, QR de mesa, ramos `servicos`/`industria`).
+**Não muda:** regras do pedido (idempotência por `clientRef`, validação de complementos no servidor, cupom, fidelidade, cashback, prêmios, cupom fiscal, agendamento/recorrência, sinal da encomenda, raio/bairro, Pix via Mercado Pago ou PagBank, origem do clique, promoções pelo WhatsApp, conta do cliente por código, beacons do funil, QR de mesa, ramos `servicos`/`industria`). O lugar de cada um nos templates está no `05-recursos-integrados.md`.
 
 Os temas `classic`, `fastfood` e `grid` **continuam funcionando exatamente como hoje** (são o fallback). Nenhum seletor novo pode vazar para eles.
 
@@ -126,15 +128,18 @@ O **conteúdo** de cada etapa (itens, endereço, pagamento…) é um componente 
 2. `schema.ts`: atualize o comentário da coluna `menuTheme`.
 3. **Sem migration** (coluna `text` sem `check`). Se o Claude Code achar um `check` em `origin/main`, criar a próxima migration na sequência, idempotente.
 4. `docs/openapi.json`: regenerar (`npm run build && npm run openapi`) se o DTO tiver enum.
-5. Admin (`config-panel.tsx`): acrescentar as 4 opções com os rótulos da seção 1, com **Regem Fluxo** marcado "(recomendado)". Abaixo do select, uma linha de ajuda que muda com a opção escolhida (o "Indicado para" de cada arquivo de template).
-6. Registrar a decisão em `docs/decisoes-design.md` §6 (changelog).
+5. `registrarEvento` (beacons): acrescentar `etapa_entrega` e `etapa_dados` à lista de tipos aceitos; a etapa Pagamento usa o tipo `pagamento`, que o servidor já aceita e a tela nunca enviou (05 §3, item 2).
+6. Payload do cardápio: `proximaAbertura { entrega, retirada }` calculada no servidor, para os avisos "a partir das HH:MM" (05 §3, item 5).
+7. Admin (`config-panel.tsx`): acrescentar as 4 opções com os rótulos da seção 1, com **Regem Fluxo** marcado "(recomendado)". Abaixo do select, uma linha de ajuda que muda com a opção escolhida (o "Indicado para" de cada arquivo de template).
+8. Registrar a decisão em `docs/decisoes-design.md` §6 (changelog).
 
 ### 4.5 Aceite da Fase 0
 
 - [ ] `useCardapio` criado; `page.tsx` só escolhe entre template novo e `CardapioLegado`.
 - [ ] `classic`, `fastfood` e `grid` idênticos ao `origin/main` (screenshots antes/depois anexados ao PR).
 - [ ] `etapas.ts` com `etapasAtivas()` e `falta()` (seção 5) + correções 3.2 a 3.5 disponíveis para os templates.
-- [ ] Componentes comuns do checkout (seção 6) criados, ainda sem uso visível.
+- [ ] Componentes comuns do checkout (seção 6) criados, ainda sem uso visível, mais `Conta` e `InfoLoja` (05 §2.1 e §2.6).
+- [ ] Erro do envio do pedido visível (`role="alert"`) no checkout — também no cardápio atual (05 §3, item 7).
 - [ ] Backend aceita as 4 chaves; admin lista as 4 (enquanto um template não existir, `templateDe` devolve `null` e cai no legado).
 - [ ] `npm run build` verde em `backend/` e `frontend/`; CI verde.
 
@@ -144,10 +149,10 @@ O **conteúdo** de cada etapa (itens, endereço, pagamento…) é um componente 
 
 | Etapa | Conteúdo | Sai quando |
 |---|---|---|
-| **Sacola** | itens (foto, nome, complementos em linha pequena, total da linha, quantidade/lixeira), "Adicionar mais itens", barra de frete grátis (se o template usa), peça também, cupom (se o template põe aqui), subtotal | há itens e subtotal ≥ `pedidoMinimo` |
+| **Sacola** | itens (foto, nome, complementos em linha pequena, total da linha, quantidade/lixeira), "Adicionar mais itens", barra de frete grátis (se o template usa), peça também, cupom (se o template põe aqui), subtotal | há itens (e subtotal ≥ `pedidoMinimo`, **se o dono aprovar barrar**: hoje o mínimo é só informativo — 05 §3, item 1) |
 | **Entrega** | Entrega/Retirada/Consumir no local (conforme `tipos` e `abertoPorTipo`), endereço (salvo ou novo), quando (agora/agendar, encomenda, recorrência) | endereço completo para entrega; horário escolhido se agendar |
-| **Dados** | nome, WhatsApp, telefone 2 (opcional), CNPJ (indústria), profissional (serviços) | nome e telefone com DDD válidos |
-| **Pagamento** | forma (online primeiro: Pix, cartão online; depois na entrega: dinheiro, maquininha + bandeira, VR), troco, CPF/CNPJ na nota (só se `emiteNota`), prêmio, cashback, cupom (se o template põe aqui), resumo completo, pontos previstos | forma escolhida; documento válido se marcou nota; sem `taxaPendente` |
+| **Dados** | nome, WhatsApp, telefone 2 (opcional), **caixinha de promoções pelo WhatsApp** (05 §2.2), CNPJ (indústria), profissional (serviços) | nome e telefone com DDD válidos (a caixinha nunca bloqueia) |
+| **Pagamento** | forma (online primeiro: Pix, cartão online; depois na entrega: dinheiro, maquininha + bandeira, VR), "em até Nx" (`parcelasMax`), troco, CPF/CNPJ na nota (só se `emiteNota`), prêmio, cashback, cupom (se o template põe aqui), resumo completo, pontos previstos, **aviso de origem do anúncio** logo acima do botão (05 §2.3) | forma escolhida; documento válido se marcou nota; sem `taxaPendente` |
 
 ### 5.2 Etapas ativas
 
@@ -179,7 +184,8 @@ O rodapé de cada template usa `falta` (veja cada arquivo). `campo` é o `id` do
 - O botão "voltar" do navegador/Android volta uma etapa: cada etapa empurra um estado no `history` (`?etapa=entrega`), sem recarregar.
 - A rolagem do corpo da etapa vai ao topo ao trocar de etapa.
 - O rodapé é fixo, com o **valor** no botão: na Sacola, subtotal menos desconto; nas demais, total (sem frete enquanto `taxaPendente`).
-- Os beacons do funil continuam: `checkout` ao abrir a Sacola; acrescentar `etapa_entrega`, `etapa_dados`, `etapa_pagamento` (uma vez por sessão). Isso alimenta o funil por etapa no painel.
+- Os beacons do funil continuam: `checkout` ao abrir a Sacola; acrescentar `etapa_entrega`, `etapa_dados` e, na etapa Pagamento, o tipo `pagamento` que o servidor já aceita (uma vez por sessão). Os dois tipos novos precisam entrar na lista do servidor (seção 4.4). Isso alimenta o funil por etapa no painel.
+- Erro do envio: `submitPedido()` devolve a mensagem e o rodapé da etapa a mostra acima do botão, com `role="alert"` (hoje ela não aparece em lugar nenhum — 05 §3, item 7).
 
 ### 5.5 Situação da loja (vale para todos os templates)
 
@@ -227,14 +233,19 @@ Na tela de pedido enviado (e em `/c/[token]/pedido/[id]`):
 | `ProgressoFidelidade` | barra com saldo atual + pontos deste pedido e o texto do prêmio |
 | `TipoRecebimento` | segmentado Entrega/Retirada/Local com o tempo de cada um |
 | `Endereco` | salvo (cartão com Trocar) ou novo: bairro (com taxa na opção) ou localização (raio) → rua → número → complemento |
-| `Quando` | agora/agendar, encomenda (min/max), recorrência; sempre `datetime-local` nativo |
+| `Quando` | agora/agendar, encomenda (min/max), **aviso do sinal** (valor, percentual e prazo de cancelamento), recorrência; sempre `datetime-local` nativo |
+| `Promocoes` | caixinha "Receber promoções de {loja} pelo WhatsApp", já marcada, com as frases de `loja.promocoes` (05 §2.2) |
+| `AvisoOrigem` | o componente de hoje (`aviso-origem.tsx` + `saiba-mais-origem.tsx`), estilizado pelos tokens do template (05 §2.3) |
+| `Conta` | tela "Sua conta": Entrar, Pedidos, Benefícios e Perfil (05 §2.1) |
+| `InfoLoja` | endereço, horários, formas de pagamento e contatos da loja (05 §2.6) |
+| `ErroEnvio` | mensagem de erro do envio acima do botão final, `role="alert"` |
 | `DadosCliente` | nome, WhatsApp, telefone 2, CNPJ/profissional conforme ramo |
 | `FormasPagamento` | grupos "Pague agora" / "Pague na entrega"; selo "Mais rápido" no Pix quando o template pede; bandeiras; troco |
 | `NotaFiscal` | caixa "CPF/CNPJ na nota" só com `emiteNota` |
 | `Resgates` | prêmio de fidelidade e cashback (como hoje) |
 | `Resumo` | subtotal, entrega ("a calcular" / "Grátis" / valor), descontos, total |
 | `PontosPrevistos` | substituído por `ProgressoFidelidade` |
-| `Grupos` | grupos do produto: obrigatórios primeiro; radio (`max==1`) ou contador; pílula `n/max` que fica verde ao completar; opção indisponível desabilitada; foto da opção quando existir |
+| `Grupos` | variações primeiro (seleção única obrigatória); depois os grupos, obrigatórios na frente; radio (`max==1`), caixa ou contador (`varias_com_repeticao`); opção informativa e pré-marcada como hoje; pílula `n/max` que fica verde ao completar; opção indisponível desabilitada; foto da opção quando existir (05 §2.5) |
 
 Todos recebem `variante`/tokens do template; nenhuma regra fica no template.
 

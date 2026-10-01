@@ -9,6 +9,9 @@ Especificação para o **Claude Code** implementar 4 templates novos no cardápi
 | 2 | Balcão — lista objetiva com abas fixas | `balcao` | Cardápio Web | [`02-balcao.md`](02-balcao.md) |
 | 3 | Oferta — promoções e combos na frente | `oferta` | Anota AI | [`03-oferta.md`](03-oferta.md) |
 | 4 | **Regem Fluxo** — clean, uma decisão por tela | `fluxo` | próprio do Regem | [`04-regem-fluxo.md`](04-regem-fluxo.md) |
+| — | Recursos do cardápio de hoje nos templates (ler junto com a base) | — | — | [`05-recursos-integrados.md`](05-recursos-integrados.md) |
+
+Todos os templates mantêm os recursos que o cardápio já tem hoje — conta do cliente (pedidos, benefícios, perfil), promoções pelo WhatsApp, aviso de origem do anúncio, sinal e recorrência da encomenda, QR de mesa e os ramos serviços e indústria —, conforme o `05-recursos-integrados.md` (conferido contra `origin/main` em 01/10/2026).
 
 Todos os templates seguem as mesmas regras de **situação da loja** (aberta, só retirada, fechada com agendamento) e de **benefícios** (cupons, cashback, plano de fidelidade, só quando ativos), descritas nas seções 5.5 e 5.6 do `00-base-cardapio.md`.
 
@@ -21,6 +24,7 @@ docs/templates-cardapio/
 ├── README.md                 ← este arquivo
 ├── 00-base-cardapio.md       ← arquitetura comum, contrato, regras do checkout em etapas, correções, API/admin
 ├── 01-galeria.md … 04-regem-fluxo.md
+├── 05-recursos-integrados.md ← onde ficam os recursos de hoje em cada template + o que o código faz diferente da base
 └── prototipo/
     └── prototipo-interativo.html   ← protótipo navegável dos 4 templates (abra no navegador)
 ```
@@ -33,7 +37,7 @@ O `CLAUDE.md` do Regem pede **plano antes de código** em tarefa grande. Por iss
 
 1. **PR 1 — base.** Cole:
 
-   > Leia `CLAUDE.md`, `docs/templates-cardapio/README.md` e `docs/templates-cardapio/00-base-cardapio.md` por inteiro e abra `docs/templates-cardapio/prototipo/prototipo-interativo.html`. Apresente o plano da **Fase 0 (base comum)** e aguarde minha aprovação. Depois implemente só a Fase 0, sem template novo. Os temas `classic`, `fastfood` e `grid` precisam continuar idênticos. Rode `npm run build` em `backend/` e `frontend/`, abra o PR em PT-BR com o checklist de aceite do 00.
+   > Leia `CLAUDE.md`, `docs/templates-cardapio/README.md`, `docs/templates-cardapio/00-base-cardapio.md` e `docs/templates-cardapio/05-recursos-integrados.md` por inteiro e abra `docs/templates-cardapio/prototipo/prototipo-interativo.html`. Apresente o plano da **Fase 0 (base comum)** e aguarde minha aprovação. Depois implemente só a Fase 0, sem template novo. Os temas `classic`, `fastfood` e `grid` precisam continuar idênticos. Rode `npm run build` em `backend/` e `frontend/`, abra o PR em PT-BR com o checklist de aceite do 00.
 
 2. **PR 2 a 5 — um template por PR.** Recomendo começar pelo **Regem Fluxo** (é o padrão novo). Para cada um, cole trocando o arquivo:
 
@@ -45,4 +49,5 @@ O `CLAUDE.md` do Regem pede **plano antes de código** em tarefa grande. Por iss
 
 - Abra o protótipo e o cardápio real lado a lado, em 375 px de largura, com o mesmo template.
 - Faça o pedido completo nos dois: produto com escolha obrigatória, produto simples, sacola, entrega, dados, pagamento Pix e confirmação.
+- No protótipo, ligue em "Recursos e cliente" **Loja manda promoção**, **Chegou por anúncio** e **Encomenda com sinal**, e abra o ícone de conta: os quatro templates têm de mostrar os mesmos recursos.
 - Use o checklist de aceite no fim de cada arquivo na revisão do PR.

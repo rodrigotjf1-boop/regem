@@ -554,6 +554,42 @@ select.c-in{appearance:auto}
 .tpl-fluxo .p-btn.falta .n{display:none}
 
 @media (prefers-reduced-motion: reduce){.p-root *,.p-root *::before,.p-root *::after{animation:none!important;transition:none!important}}
+/* ---- recursos que o cardápio já tem, integrados aos templates: conta, promoções, origem, sinal ---- */
+.c-chk.promo{align-items:flex-start}
+.c-chk small{display:block;font-size:12px;color:var(--p-mut);margin-top:2px;font-weight:400}
+.c-or{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:var(--p-rs);background:var(--p-surf);font-size:13px;color:var(--p-mut)}
+.c-or svg{flex:none;margin-top:1px}
+.c-or > div{display:grid;gap:6px;min-width:0}
+.c-or .ls{display:flex;gap:16px;flex-wrap:wrap}
+.c-or .lk{color:var(--p-ink);font-weight:600;text-decoration:underline;text-underline-offset:2px;font-size:13px}
+.c-or.ok{background:#E7F5EF;color:#0E7C66}
+.c-sinal{display:grid;gap:4px;padding:12px 14px;border-radius:var(--p-rs);background:#FFF6DB;color:#5C4300;font-size:13px;box-shadow:inset 0 0 0 1.5px #F0C24A}
+.c-sinal b{font-size:14px}
+.ac-fab{position:absolute;top:12px;left:12px;width:40px;height:40px;border-radius:50%;background:var(--p-card);color:var(--p-ink);display:grid;place-items:center;box-shadow:0 2px 8px rgba(10,14,20,.2);z-index:2}
+.ac-tit{font:700 17px var(--p-disp)}
+.ac-tabs{display:flex;gap:4px;padding:0 12px;border-bottom:1px solid var(--p-line);flex:none}
+.ac-tabs button{flex:1;padding:12px 6px;font-weight:600;font-size:14px;color:var(--p-mut);border-bottom:2px solid transparent;margin-bottom:-1px}
+.ac-tabs button[aria-pressed="true"]{color:var(--p-ink);border-bottom-color:var(--p-acc)}
+.ac-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.ac-row b{font-size:14px}
+.ac-sw{position:relative;width:44px;height:26px;border-radius:13px;background:var(--p-line);flex:none;transition:background .15s}
+.ac-sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .15s}
+.ac-sw[aria-checked="true"]{background:#0E7C66}
+.ac-sw[aria-checked="true"]::after{transform:translateX(18px)}
+.ac-ped{display:grid;gap:8px;padding:12px 14px;border-radius:var(--p-rs);box-shadow:inset 0 0 0 1.5px var(--p-line);background:var(--p-card);font-size:13px}
+.ac-ped .st{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--p-acc-soft);color:var(--p-acc);white-space:nowrap}
+.ac-ped .st.fim{background:var(--p-surf);color:var(--p-mut)}
+.ac-ped small{color:var(--p-mut)}
+.ac-cod{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--p-surf)}
+.ac-cod b{font:700 18px var(--p-num);letter-spacing:.2em}
+.ac-acts{display:flex;gap:14px;flex-wrap:wrap}
+.ac-acts button{color:var(--p-acc);font-weight:600;font-size:13px}
+.ac-del{color:#C0362C;font-weight:600;font-size:13px}
+.ac-sair{font-weight:600;font-size:14px;text-decoration:underline;text-underline-offset:2px}
+.p-modal dl{margin:0;display:grid;gap:10px}
+.p-modal dt{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--p-mut)}
+.p-modal dd{margin:2px 0 0;font-size:13px;color:var(--p-ink)}
+@media (prefers-reduced-motion: reduce){.ac-sw,.ac-sw::after{transition:none}}
 </style>
 
 <div class="wrap">
@@ -561,7 +597,7 @@ select.c-in{appearance:auto}
     <div>
       <div class="brand"><span class="mark">R</span> Regem · cardápio digital</div>
       <h1>Templates do cardápio, lado a lado</h1>
-      <p>Quatro estilos para o cardápio da loja, com o mesmo cardápio de exemplo. Monte um pedido do começo ao fim em cada um: a sacola, a entrega e o pagamento ficam em etapas separadas.</p>
+      <p>Quatro estilos para o cardápio da loja, com o mesmo cardápio de exemplo. Monte um pedido do começo ao fim em cada um: a sacola, a entrega e o pagamento ficam em etapas separadas. Os recursos que o cardápio já tem hoje (conta do cliente, pedidos, benefícios, promoções pelo WhatsApp, aviso de origem do anúncio e sinal da encomenda) estão nos quatro; ligue e desligue cada um em "Recursos e cliente".</p>
     </div>
     <div class="keys">valor de <code>loja.menuTheme</code>: <code id="k-key">fluxo</code></div>
   </header>
@@ -678,7 +714,7 @@ const CORES = [['#D62828','Vermelho Mister'],['#E2A340','Dourado Regem'],['#0E8E
 
 /* ---------------- estado ---------------- */
 const CHK0 = {tipo:'entrega',bairro:'',rua:'',num:'',ref:'',quando:'agora',agenda:'',nome:'',whats:'',forma:'',troco:'',cupom:'',cpfNota:false,cpf:''};
-const S = {loja:'aberta',cupons:true,cashback:true,fid:true,usarCb:true,bairroSheet:false,expressoOff:false,trioNao:[],trioBeb:{},tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
+const S = {promo:true,promoMarcada:true,promoResp:false,promoPerfil:true,promoDesligou:false,anuncio:false,origemNao:false,saiba:false,sinal:false,info:false,contaAba:'pedidos',contaExc:false,loja:'aberta',cupons:true,cashback:true,fid:true,usarCb:true,bairroSheet:false,expressoOff:false,trioNao:[],trioBeb:{},tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
 
 /* ---------------- utilidades ---------------- */
 const $ = s => document.querySelector(s);
@@ -790,6 +826,7 @@ function avancar(){
   else fazerPedido();
 }
 function fazerPedido(){
+  if(S.promo && !S.ret && !S.promoResp){ S.promoResp=true; S.promoPerfil=S.promoMarcada; S.promoDesligou=false; }
   const t=tot(); const d=new Date(Date.now()+ (S.chk.tipo==='entrega'?L.tempo:L.tempoRet)*60000);
   const ag = S.chk.quando==='agendar' && S.chk.agenda;
   S.pedido={senha:57+S.cart.length,total:t.total,pts:t.pts,cb:t.cbGanho,forma:S.chk.forma,tipo:S.chk.tipo,agendado:!!ag,hora:ag?S.chk.agenda.slice(11,16):d.toTimeString().slice(0,5)};
@@ -797,7 +834,7 @@ function fazerPedido(){
 }
 function preencherRet(on){ if(on) Object.assign(S.chk,{nome:RET.nome,whats:RET.whats,bairro:RET.bairro,rua:RET.rua,num:RET.num,ref:RET.ref,forma:RET.forma}); else Object.assign(S.chk,{nome:'',whats:'',bairro:'',rua:'',num:'',ref:'',forma:''}); }
 function virarTrio(key,bebId){ const it=S.cart.find(i=>i.key===key), b=BEB.find(b=>b.id===bebId); if(!it||!b) return; const sub='Trio: batata média + '+b.nome+(it.sub?' · '+it.sub:''); if(it.qtd>1){ it.qtd--; S.cart.push({...it,qtd:1,key:it.key+'|trio',preco:it.preco+TRIO_EXTRA,sub}); } else { it.preco+=TRIO_EXTRA; it.sub=sub; it.key+='|trio'; } }
-function reset(){ S.cart=[]; S.screen='home'; S.step=0; S.expressoOff=false; S.trioNao=[]; S.trioBeb={}; S.usarCb=true; S.cupomOk=null; S.cupomMsg=null; S.cupomAberto=false; S.combo=null; S.pedido=null; S.editEnd=false; S.editDados=false; const keep={nome:S.chk.nome,whats:S.chk.whats,bairro:S.chk.bairro,rua:S.chk.rua,num:S.chk.num,ref:S.chk.ref,forma:S.chk.forma}; S.chk={...CHK0,...(S.ret?keep:{}),tipo:S.loja==='retirada'?'retirada':'entrega',quando:S.loja==='fechada'?'agendar':'agora'}; }
+function reset(tudo){ if(tudo){ S.promoResp=false; S.promoMarcada=true; S.promoPerfil=true; S.promoDesligou=false; S.origemNao=false; } S.saiba=false; S.info=false; S.cart=[]; S.screen='home'; S.step=0; S.expressoOff=false; S.trioNao=[]; S.trioBeb={}; S.usarCb=true; S.cupomOk=null; S.cupomMsg=null; S.cupomAberto=false; S.combo=null; S.pedido=null; S.editEnd=false; S.editDados=false; const keep={nome:S.chk.nome,whats:S.chk.whats,bairro:S.chk.bairro,rua:S.chk.rua,num:S.chk.num,ref:S.chk.ref,forma:S.chk.forma}; S.chk={...CHK0,...(S.ret?keep:{}),tipo:S.loja==='retirada'?'retirada':'entrega',quando:S.loja==='fechada'?'agendar':'agora'}; }
 function aplicarCupom(code){
   code=(code||'').trim().toUpperCase(); S.chk.cupom=code;
   if(code==='MISTER10'){S.cupomOk=code;S.cupomMsg={ok:true,t:'Cupom aplicado: 10% de desconto (até R$ 15,00).'};}
@@ -807,6 +844,69 @@ function aplicarCupom(code){
   render();
 }
 function reordenar(){ const p=prod('t07'); S.sel={batata:{bm:1},bebida:{coca:1}}; S.trio=false; S.obs=''; addCarrinho(p,1); render(); }
+
+/* ---------------- recursos que o cardápio já tem (integrados aos 4 templates) ---------------- */
+const FRASE_PROMO = `Receber promoções de ${L.nome} pelo WhatsApp`;
+// Caixinha de promoções: já marcada, só no 1º pedido, só na loja que manda promoção. Cliente que já comprou já respondeu.
+function promoHTML(){
+  if(!S.promo || S.ret || S.promoResp) return '';
+  return `<button class="c-chk promo" data-a="promoChk" aria-pressed="${S.promoMarcada}"><i>${S.promoMarcada?ic('check',14):''}</i><span>${FRASE_PROMO}<small>Desmarque se não quiser. Para sair depois, responda SAIR ou desligue no seu Perfil.</small></span></button>`;
+}
+// Aviso de origem do anúncio: logo acima do botão final, só para quem chegou por link marcado.
+function origemHTML(){
+  if(!S.anuncio) return '';
+  return S.origemNao
+    ? `<div class="c-sec"><div class="c-or ok" role="status">${ic('check',16)}<div><span>Pronto: este pedido vai sem esse registro.</span><div class="ls"><button class="lk" data-a="origemDesfazer">Desfazer</button></div></div></div></div>`
+    : `<div class="c-sec"><div class="c-or">${ic('tag',16)}<div><span>A loja registra por qual anúncio ou link você chegou.</span><div class="ls"><button class="lk" data-a="saiba">Saiba mais</button><button class="lk" data-a="origemNao">Não registrar</button></div></div></div></div>`;
+}
+function sinalHTML(t){ const v=Math.round(t.sub*30)/100; return `<div class="c-sinal" role="note"><b>Esta encomenda pede sinal</b><span>Você paga agora ${BRL(v)} de sinal (30% do pedido). O restante fica para a ${S.chk.tipo==='entrega'?'entrega':'retirada'}. Dá para cancelar com reembolso até 24 h antes do horário marcado.</span></div>`; }
+function viewSaiba(){
+  const it=[['O que fica registrado','O link por onde você entrou: a campanha, o anúncio e, quando o anúncio envia, o código do clique. Seu nome e seu telefone não entram nesse registro.'],['Para quê','Para a loja saber quais anúncios trazem pedidos. O registro não é usado para mostrar anúncios para você e não é vendido.'],['Por quanto tempo','O código do clique é apagado em até 90 dias.'],['Base legal','Legítimo interesse da loja em medir os próprios anúncios (LGPD, art. 7º, IX).']];
+  return `<div class="p-dim" data-a="saibaFechar"></div><div class="p-modal" role="dialog" aria-label="De onde você veio"><h3>De onde você veio</h3><dl>${it.map(([a,b])=>`<div><dt>${a}</dt><dd>${b}</dd></div>`).join('')}</dl><div class="m-act"><button class="p-btn2" data-a="origemNao">Não registrar</button><button class="p-btn c" data-a="saibaFechar">Entendi</button></div></div>`;
+}
+function viewInfo(){
+  return `<div class="p-dim" data-a="infoFechar"></div><div class="p-modal" role="dialog" aria-label="Informações da loja"><h3>${L.nome}</h3>
+  <div class="c-card">${ic('pin')}<div><b>Endereço</b><small>${L.endereco}</small></div></div>
+  <div class="c-card">${ic('clock')}<div><b>Horário</b><small>Todos os dias, das ${ABRE} às ${L.ate}</small></div></div>
+  <div class="c-card">${ic('card')}<div><b>Formas de pagamento</b><small>Pix, cartão de crédito, dinheiro, maquininha e vale-refeição</small></div></div>
+  <p class="ok-wa">WhatsApp da loja: <b>${L.whats}</b></p>
+  <button class="p-btn2" data-a="infoFechar">Fechar</button></div>`;
+}
+// Conta do cliente: o que hoje fica espalhado em Perfil, Pedidos e Promos (e só aparece com o carrinho vazio).
+function viewConta(){
+  const cab=`<header class="ch"><button class="ch-b" data-a="contaFechar" aria-label="Voltar ao cardápio">${ic('back')}</button><b class="ac-tit">Sua conta</b></header>`;
+  if(!S.ret) return `<div class="p-panel">${cab}<div class="p-pbody" id="p-pscroll"><div class="c-sec"><h3 class="c-h">Entre com o seu WhatsApp</h3><p class="c-sub">Enviamos um código pelo WhatsApp. Com ele você vê seus pedidos, endereços e benefícios.</p>
+    <div class="c-f"><label for="f-otp">WhatsApp com DDD</label><input class="c-in" id="f-otp" inputmode="tel" autocomplete="tel" placeholder="(21) 9 0000-0000"></div>
+    <button class="p-btn c" data-a="contaEntrar">Enviar código</button>
+    <button class="lk-sim" data-a="contaEntrar">Entrar como cliente que já comprou (protótipo)</button>
+    <p class="c-note">Seus dados ficam salvos e você pode apagá-los quando quiser.</p></div></div></div>`;
+  const tabs=`<nav class="ac-tabs" aria-label="Sua conta">${[['pedidos','Pedidos'],['beneficios','Benefícios'],['perfil','Perfil']].map(([k,n])=>`<button data-a="contaAba" data-v="${k}" aria-pressed="${S.contaAba===k}">${n}</button>`).join('')}</nav>`;
+  let b='';
+  if(S.contaAba==='pedidos'){
+    const p=S.pedido;
+    b+=`<div class="c-sec"><h3 class="c-h">Em andamento</h3>${p?`<div class="ac-ped"><div class="ac-row"><b>Pedido ${p.senha} · ${BRL(p.total)}</b><span class="st">${p.agendado?'Agendado':'Em preparo'}</span></div>
+      <small>${p.agendado?'Agendado para':'Previsão'} ${p.hora} · ${p.tipo==='entrega'?'entrega':'retirada na loja'}</small>
+      ${p.tipo==='entrega'?`<div class="ac-cod"><span>Código de entrega<br><small>Informe ao entregador para confirmar o recebimento.</small></span><b>4827</b></div>`:''}
+      <div class="ac-acts">${p.tipo==='entrega'?`<button data-a="rastreio">Acompanhar entrega</button>`:''}<button data-a="pedirAlt">Pedir alteração</button><button data-a="pedirCanc">Pedir cancelamento</button></div></div>`:`<p class="c-empty">Nenhum pedido em andamento.</p>`}</div>`;
+    b+=`<div class="c-sec"><h3 class="c-h">Pedidos anteriores</h3>
+      <div class="ac-ped"><div class="ac-row"><b>Pedido 41 · ${BRL(29)}</b><span class="st fim">Concluído</span></div><small>24/09 · Trio 07 · batata média · Coca-Cola</small><div class="ac-acts"><button data-a="reordenarConta">Pedir de novo</button></div></div>
+      <div class="ac-ped"><div class="ac-row"><b>Pedido 33 · ${BRL(89.9)}</b><span class="st fim">Concluído</span></div><small>12/09 · Combo Família · Guaraná 1,5 L</small></div></div>`;
+  } else if(S.contaAba==='beneficios'){
+    let h='';
+    if(S.cashback) h+=`<div class="c-cb">${ic('repeat',16)}<span>Saldo de cashback: <b>${BRL(CB.saldoRet)}</b>. Abate no próximo pedido.</span></div>`;
+    if(S.fid){ const a=Math.min(100,FID.saldoRet/FID.meta*100); h+=`<div class="c-fid"><div class="r"><b>${ic('gift',14)} ${FID.plano}</b><span>${FID.saldoRet}/${FID.meta} pts</span></div><div class="bar" aria-hidden="true"><i class="a" style="width:${a}%"></i></div><span>Faltam ${FID.meta-FID.saldoRet} pontos para ${FID.premio.toLowerCase()}.</span></div>`; }
+    if(S.cupons) h+=CUP.filter(([c])=>c!=='PRIMEIRA').map(([c,d])=>`<div class="c-card cup">${ic('tag')}<div><b>${c}</b><small>${d} · disponível para você</small></div><button class="lk" data-a="cupomConta" data-v="${c}">Usar</button></div>`).join('');
+    b+=`<div class="c-sec"><h3 class="c-h">Seus benefícios</h3>${h||'<p class="c-empty">Esta loja não tem benefícios ativos no momento.</p>'}</div>`;
+  } else {
+    b+=`<div class="c-sec"><div class="c-card">${ic('user')}<div><b>${esc(RET.nome)}</b><small>${esc(RET.whats)}</small></div></div>
+      <div class="c-card">${ic('pin')}<div><b>Casa · principal</b><small>${RET.rua}, ${RET.num} · ${BAIRROS.find(x=>x.id===RET.bairro).nome}</small></div></div></div>`;
+    if(S.promo) b+=`<div class="c-sec"><div class="ac-row"><b>Promoções pelo WhatsApp</b><button class="ac-sw" role="switch" aria-checked="${S.promoPerfil}" aria-label="Receber promoções pelo WhatsApp" data-a="promoPerfil"></button></div>
+      <p class="c-note" role="status">${S.promoPerfil?`Você recebe as promoções de ${L.nome} neste número. Para sair, desligue aqui ou responda SAIR.`:S.promoDesligou?'Pronto: você não recebe mais promoções desta loja. Já avisamos quem envia as mensagens.':'Você não recebe promoções desta loja. Ligue aqui para voltar a receber.'}</p></div>`;
+    b+=`<div class="c-sec"><div class="ac-row"><button class="ac-sair" data-a="contaSair">Sair</button><button class="ac-del" data-a="contaExcluir">Excluir conta</button></div>
+      ${S.contaExc?'<p class="c-note" role="status">Excluir apaga o histórico de pedidos, os endereços e os pontos desta loja. Para confirmar, enviamos um código pelo WhatsApp.</p>':''}</div>`;
+  }
+  return `<div class="p-panel">${cab}${tabs}<div class="p-pbody" id="p-pscroll">${b}</div></div>`;
+}
 
 /* ---------------- peças comuns ---------------- */
 function precoHTML(p){ return `${p.de?`<s>${BRL(p.de)}</s>`:''}<span>${BRL(p.preco)}</span>`; }
@@ -901,18 +1001,19 @@ function stepRevisar(){
   ${S.loja==='retirada'&&c.tipo==='retirada'?`<p class="c-note">Agora só retirada: a entrega volta às ${ABRE}.</p>`:''}
   <div class="c-card">${ic(c.tipo==='retirada'?'store':'pin')}<div>${ent}</div><button class="lk" data-a="trocar" data-v="entrega">Trocar</button></div>
   <div class="c-card">${ic('clock')}<div><b>${c.quando==='agendar'?(c.agenda?'Agendado para '+fmtAgenda(c.agenda):'Agendar horário'):`O quanto antes · ~${c.tipo==='entrega'?L.tempo:L.tempoRet} min`}</b><small>${S.loja==='fechada'?`Abrimos às ${ABRE}`:'Previsão confirmada após o pedido'}</small></div>${S.loja==='fechada'?'':`<button class="lk" data-a="trocar" data-v="entrega">Trocar</button>`}</div>
-  ${S.loja==='fechada'?`<div class="c-f"><label for="f-agenda">Agendar para <em>(a partir das ${ABRE})</em></label><input class="c-in" type="datetime-local" id="f-agenda" data-f="agenda" min="${minAgenda()}" value="${esc(c.agenda)}"></div>`:''}
+  ${S.loja==='fechada'?`<div class="c-f"><label for="f-agenda">Agendar para <em>(a partir das ${ABRE})</em></label><input class="c-in" type="datetime-local" id="f-agenda" data-f="agenda" min="${minAgenda()}" value="${esc(c.agenda)}"></div>${S.sinal&&c.quando==='agendar'?sinalHTML(t):''}`:''}
   <div class="c-card" data-anchor="forma">${c.forma==='pix'?'<span class="ico-t">PIX</span>':ic('card')}<div><b>${forma||'Escolha como pagar'}</b><small>${forma?'Último usado':''}</small></div><button class="lk" data-a="trocar" data-v="pagamento">Trocar</button></div>
   <div class="c-card">${ic('user')}<div><b>${esc(c.nome)}</b><small>${esc(c.whats)}</small></div><button class="lk" data-a="trocar" data-v="entrega">Trocar</button></div></div>`;
   h+=beneficiosHTML(t);
   h+=`<div class="c-sec">${resumoHTML(t,true)}</div>`;
+  h+=origemHTML();
   return h;
 }
 function dadosHTML(){
   const c=S.chk;
   return `<div class="c-f"><label for="f-nome">Seu nome</label><input class="c-in" id="f-nome" data-f="nome" value="${esc(c.nome)}" autocomplete="name" placeholder="Como chamamos você"></div>
   <div class="c-f"><label for="f-whats">WhatsApp</label><input class="c-in" id="f-whats" data-f="whats" value="${esc(c.whats)}" inputmode="tel" autocomplete="tel" placeholder="(21) 9 0000-0000"></div>
-  <p class="c-note">Usamos o WhatsApp para avisar sobre este pedido.</p>`;
+  <p class="c-note">Usamos o WhatsApp para avisar sobre este pedido.</p>${promoHTML()}`;
 }
 function stepEntrega(o){
   const c=S.chk, t=tot();
@@ -932,7 +1033,7 @@ function stepEntrega(o){
     h+=`<div class="c-sec"><div class="c-card">${ic('store')}<div><b>${L.nome}</b><small>${L.endereco} · pronto em ~${L.tempoRet} min</small></div></div></div>`;
   }
   h+=`<div class="c-sec"><h3 class="c-h">Quando?</h3><div class="c-seg">${[['agora',`O quanto antes`],['agendar','Agendar']].map(([v,l])=>`<button data-a="quando" data-v="${v}" aria-pressed="${c.quando===v}" ${v==='agora'&&S.loja==='fechada'?'disabled':''}><span>${ic('clock',16)} ${l}</span><small>${v==='agora'?(S.loja==='fechada'?'fechado agora':`~${c.tipo==='entrega'?L.tempo:L.tempoRet} min`):'escolha o horário'}</small></button>`).join('')}</div>
-  ${c.quando==='agendar'?`<div class="c-f"><label for="f-agenda">Data e horário ${S.loja==='fechada'?`<em>(a partir das ${ABRE})</em>`:''}</label><input class="c-in" type="datetime-local" id="f-agenda" data-f="agenda" min="${minAgenda()}" value="${esc(c.agenda)}"></div>`:''}</div>`;
+  ${c.quando==='agendar'?`<div class="c-f"><label for="f-agenda">Data e horário ${S.loja==='fechada'?`<em>(a partir das ${ABRE})</em>`:''}</label><input class="c-in" type="datetime-local" id="f-agenda" data-f="agenda" min="${minAgenda()}" value="${esc(c.agenda)}"></div>${S.sinal&&c.quando==='agendar'?sinalHTML(t):''}`:''}</div>`;
   if(o.dados) h+= (S.tpl==='fluxo'&&S.ret&&!S.editDados&&!faltaDados()) ? `<div class="c-sec"><div class="c-card">${ic('user')}<div><b>Pedido de ${esc(c.nome)}</b><small>${esc(c.whats)}</small></div><button class="lk" data-a="editDados">Trocar</button></div></div>` : `<div class="c-sec"><h3 class="c-h">Seus dados</h3>${dadosHTML()}</div>`;
   return h;
 }
@@ -956,6 +1057,7 @@ function stepPagamento(o){
   </div>`;
   h+=beneficiosHTML(t,{semCupom:!!o.cupom});
   h+=`<div class="c-sec">${resumoHTML(t,true)}</div>`;
+  h+=origemHTML();
   return h;
 }
 function chkFoot(){
@@ -981,11 +1083,12 @@ function viewOk(){
   return `<div class="p-panel"><div class="p-pbody" id="p-pscroll">
     <div class="ok-top"><div class="ok-badge ${pix?'wait':''}">${ic(pix?'clock':'check',30)}</div><h2>${pix?'Falta só o Pix':'Pedido enviado!'}</h2><p>Senha <b>${p.senha}</b> · total ${BRL(p.total)}</p></div>
     <div class="ok-body">
-      ${pix?`<div class="ok-pix"><b>Pix copia e cola</b><code id="pixcode">00020126580014BR.GOV.BCB.PIX0136mister-burguer-exemplo-0000-0000520400005303986540${p.total.toFixed(2)}5802BR5925MISTER BURGUER</code><div class="row"><span>Expira em 15:00</span><span>${BRL(p.total)}</span></div><button class="p-btn c" data-a="copiar">${ic('copy',18)} Copiar código</button><button class="lk-sim" data-a="pixPago">Simular pagamento aprovado (protótipo)</button></div>`:''}
+      ${pix?`<div class="ok-pix"><b>Pix copia e cola</b><code id="pixcode">00020126580014BR.GOV.BCB.PIX0136mister-burguer-exemplo-0000-0000520400005303986540${p.total.toFixed(2)}5802BR5925MISTER BURGUER</code><div class="row"><span>Expira em 10:00</span><span>${BRL(p.total)}</span></div><button class="p-btn c" data-a="copiar">${ic('copy',18)} Copiar código</button><button class="p-btn2" data-a="pixPago">Já paguei, verificar pagamento</button><button class="lk-sim" data-a="pixPago">Simular pagamento aprovado (protótipo)</button></div>`:''}
       <div class="ok-eta"><small>${p.agendado?'Agendado para':`Previsão de ${p.tipo==='entrega'?'entrega':'retirada'}`}</small><b>${p.hora}</b></div>
       <ol class="ok-tl">${tl}</ol>
       ${S.fid?`<div class="c-pts">${ic('gift',16)} <span><b>${p.pts} pontos a caminho.</b> Entram no seu saldo quando o pedido for concluído.</span></div>`:''}
       ${S.cashback&&p.cb?`<div class="c-cb">${ic('repeat',16)}<span><b>${BRL(p.cb)} de cashback a caminho.</b> Fica disponível quando o pedido for concluído.</span></div>`:''}
+      <button class="c-link" data-a="linkPedido" style="justify-self:center">${ic('copy',16)} Guardar o link para acompanhar depois</button>
       <p class="ok-wa">Dúvidas pelo WhatsApp da loja: <b>${L.whats}</b></p>
       <button class="p-btn2" data-a="novo">Fazer outro pedido</button>
     </div></div></div>`;
@@ -1009,7 +1112,7 @@ const galeria = {
       if(c.id==='mais') return `<section class="g-sec" id="sec-mais" data-sec="mais"><h2>${c.nome}</h2><div class="hs g-car">${it.map(p=>`<button class="g-big" data-a="abrir" data-v="${p.id}"><div class="g-art">${art(p)}${p.selo?`<span class="g-tag">${p.selo}</span>`:''}<span class="g-plus" data-a="mais" data-v="${p.id}">${ic('plus',18)}</span></div><b>${p.nome}</b><p>${p.desc}</p><span class="g-pr">${precoHTML(p)}</span></button>`).join('')}</div></section>`;
       return `<section class="g-sec" id="sec-${c.id}" data-sec="${c.id}"><h2>${c.nome}</h2><div class="g-grid">${it.map(p=>`<button class="g-card" data-a="abrir" data-v="${p.id}" ${p.esgotado?'disabled':''}><div class="g-art">${art(p)}${p.de?`<span class="g-tag">-${pct(p)}%</span>`:p.selo?`<span class="g-tag">${p.selo}</span>`:''}${p.esgotado?'':`<span class="g-plus" data-a="mais" data-v="${p.id}">${ic('plus',18)}</span>`}</div><b>${p.nome}</b><span class="g-pr">${precoHTML(p)}</span></button>`).join('')}</div></section>`; };
     return `<div class="p-scroll" id="p-scroll">
-      <header class="g-top"><div class="g-logo">${L.sigla}</div><div class="g-id"><b>${L.nome}</b><span><i class="dot ${S.loja}"></i>${statusLoja()}</span></div><button class="g-ic" data-a="busca" aria-label="Buscar">${ic('search')}</button></header>
+      <header class="g-top"><div class="g-logo">${L.sigla}</div><div class="g-id"><b>${L.nome}</b><span><i class="dot ${S.loja}"></i>${statusLoja()}</span></div><button class="g-ic" data-a="conta" aria-label="Sua conta">${ic('user')}</button><button class="g-ic" data-a="busca" aria-label="Buscar">${ic('search')}</button></header>
       ${avisoLoja()}
       <div class="hs g-hero" id="g-hero" style="${S.loja==='aberta'?'':'margin-top:12px'}">${HERO.map(h=>`<button class="g-slide" data-a="abrir" data-v="${h.pid}"><img src="${IMG[h.img]}" alt=""><div class="g-cap"><small>${h.k}</small><b>${h.t}</b><span>${h.s}</span></div></button>`).join('')}</div>
       <div class="g-dots" id="g-dots">${HERO.map((_,i)=>`<i class="${i===0?'on':''}"></i>`).join('')}</div>
@@ -1029,8 +1132,8 @@ const galeria = {
 const balcao = {
   home(){
     return `<div class="p-scroll" id="p-scroll">
-      <div class="b-cover"><img src="${IMG.classic}" alt=""></div>
-      <div class="b-head"><div class="b-logo">${L.sigla}</div><button class="b-mais">Ver informações</button><h1>${L.nome}</h1>
+      <div class="b-cover"><img src="${IMG.classic}" alt=""><button class="ac-fab" data-a="conta" aria-label="Sua conta">${ic('user',19)}</button></div>
+      <div class="b-head"><div class="b-logo">${L.sigla}</div><button class="b-mais" data-a="info">Ver informações</button><h1>${L.nome}</h1>
         <span class="b-st ${S.loja}"><i class="dot ${S.loja}"></i>${statusLoja()}</span>
         <div class="b-inf"><span>${ic('clock',14)} ${L.tempo}–${L.tempo+10} min</span><span>${ic('bag',14)} Mínimo ${BRL(L.minimo)}</span><span>${ic('moto',14)} Grátis acima de ${BRL(L.frete)}</span></div></div>
       ${avisoLoja()}
@@ -1055,7 +1158,7 @@ const oferta = {
     const t=tot(), promos=PRODS.filter(p=>p.de);
     const card=p=>`<button class="o-card" data-a="abrir" data-v="${p.id}" ${p.esgotado?'disabled':''}><div>${p.cat==='combos'?'<span class="o-rib">COMBO</span>':p.cat==='trios'?'<span class="o-rib">TRIO</span>':p.selo?`<span class="o-rib hot">${p.selo.toUpperCase()}</span>`:''}<b>${p.nome}</b><p>${p.desc}</p><span class="o-dp">${p.esgotado?'<s>Esgotado</s>':`${p.de?`<s>${BRL(p.de)}</s>`:''}<b>${BRL(p.preco)}</b>`}</span></div><div class="a">${art(p)}${p.de?`<span class="o-off">-${pct(p)}%</span>`:''}</div></button>`;
     return `<div class="p-scroll" id="p-scroll">
-      <div class="o-band"><img src="${IMG.hero2}" alt=""></div>
+      <div class="o-band"><img src="${IMG.hero2}" alt=""><button class="ac-fab" data-a="conta" aria-label="Sua conta">${ic('user',19)}</button></div>
       <div class="o-head"><div class="o-logo">${L.sigla}</div><h1>${L.nome}</h1><div class="o-chips"><span class="ab ${S.loja}"><i class="dot ${S.loja}"></i>${S.loja==='aberta'?'Aberto até '+L.ate:S.loja==='retirada'?'Só retirada agora':'Abre às '+ABRE}</span><span>${ic('clock',13)} ${L.tempo} min</span><span>Mínimo ${BRL(L.minimo)}</span></div></div>
       ${avisoLoja()}
       ${S.loja==='retirada'?'':`<div class="o-frete">${t.faltaFrete>0?`<span>${ic('moto',14)} <b>Frete grátis</b> acima de ${BRL(L.frete)}${t.n?` · faltam <b>${BRL(t.faltaFrete)}</b>`:''}</span>`:`<span><b>Você ganhou frete grátis!</b></span>`}<div class="bar"><i style="width:${Math.min(100,t.sub/L.frete*100)}%"></i></div></div>`}
@@ -1077,7 +1180,7 @@ const fluxo = {
   home(){
     const row=p=>{ const req=temObrig(p); return `<div class="f-row" ${p.esgotado?'disabled':''}><button class="a" data-a="abrir" data-v="${p.id}" aria-label="${esc(p.nome)}" tabindex="-1">${art(p)}</button><button class="t" data-a="abrir" data-v="${p.id}" style="text-align:left" ${p.esgotado?'disabled':''}>${p.selo?`<span class="f-sel ${p.selo==='Mais pedido'?'hot':''}">${p.selo}</span>`:''}<b>${p.nome}</b><p>${p.desc}</p><span class="f-pr">${p.esgotado?'Esgotado':precoHTML(p)}</span></button>${p.esgotado?'<span></span>':req?`<button class="f-mon" data-a="abrir" data-v="${p.id}">Montar ${ic('chev',14)}</button>`:`<button class="f-add" data-a="mais" data-v="${p.id}" aria-label="Pôr ${esc(p.nome)} na sacola">${ic('plus',18)}</button>`}</div>`; };
     return `<div class="p-scroll" id="p-scroll">
-      <header class="f-top"><div><h1>${L.nome}</h1><p><i class="dot ${S.loja}"></i>${statusLoja()}${S.loja==='aberta'?` · ~${L.tempo} min`:''} · mínimo ${BRL(L.minimo)}</p></div><button class="f-ic" data-a="busca" aria-label="Buscar">${ic('search',19)}</button></header>
+      <header class="f-top"><div><h1>${L.nome}</h1><p><i class="dot ${S.loja}"></i>${statusLoja()}${S.loja==='aberta'?` · ~${L.tempo} min`:''} · mínimo ${BRL(L.minimo)}</p></div><button class="f-ic" data-a="conta" aria-label="Sua conta">${ic('user',19)}</button><button class="f-ic" data-a="busca" aria-label="Buscar">${ic('search',19)}</button></header>
       ${avisoLoja()}
       <div class="hs f-strip">${fluxoChips()}</div>
       ${S.ret?`<div class="f-re"><div class="a">${art(prod('t07'))}</div><div><small>Peça de novo</small><b>Trio 07</b><span class="s">Batata média · Coca-Cola · ${BRL(29)}</span></div><button data-a="reordenar">Adicionar</button></div>`:''}
@@ -1131,10 +1234,13 @@ function render(topo){
   let h='';
   if(S.screen==='checkout'){ const st=steps(); if(S.step>=st.length) S.step=st.length-1; h=`<div class="p-panel">${t.head(st[S.step],S.step,st.length)}<div class="p-pbody" id="p-pscroll">${stepBody(st[S.step])}</div>${chkFoot()}</div>`; }
   else if(S.screen==='ok') h=viewOk();
+  else if(S.screen==='conta') h=viewConta();
   else { h=t.home()+(tt.n?t.bar(tt):''); if(S.screen==='produto') h+=t.produto(prod(S.pid)); if(S.buscaAberta) h+=viewBusca(); }
   if(S.combo && S.screen==='home') h+=viewCombo();
   if(S.bairroSheet && S.screen==='home') h+=viewBairro();
-  if(S.toast && (S.screen==='home'||S.screen==='produto')) h+=`<div class="p-toast" id="p-toast" role="status">${ic('check',16)} ${esc(S.toast)}</div>`;
+  if(S.info && S.screen==='home') h+=viewInfo();
+  if(S.saiba && S.screen==='checkout') h+=viewSaiba();
+  if(S.toast && S.screen!=='checkout') h+=`<div class="p-toast" id="p-toast" role="status">${ic('check',16)} ${esc(S.toast)}</div>`;
   ph.innerHTML=h;
   S.bump=false;
   const base=S.screen==='home'||S.screen==='produto'?'home':S.screen; S._base=base;
@@ -1183,6 +1289,19 @@ document.addEventListener('click',e=>{
     comboSim:()=>{ virarTrio(S.combo.key,S.combo.beb); toast('Virou trio'); S.combo=null; render(); },
     tab:()=>{ const s=document.getElementById('sec-'+v), sc=$('#p-scroll'), tabs=$('#tabs'); if(!s||!sc) return; const off=tabs?tabs.offsetHeight:0; sc.scrollTo({top:s.offsetTop-off+2,behavior:'smooth'}); },
     reordenar, novo:()=>{reset();render();}, pixPago:()=>{S.pixPago=true;render();},
+    conta:()=>{S.screen='conta';S.buscaAberta=false;S.contaExc=false;render(true);}, contaFechar:()=>{S.screen='home';render();}, contaAba:()=>{S.contaAba=v;render(true);},
+    contaEntrar:()=>{S.ret=true;S.promoResp=true;preencherRet(true);moldura();render(true);},
+    contaSair:()=>{S.ret=false;S.editDados=false;S.editEnd=false;S.expressoOff=false;preencherRet(false);S.screen='home';moldura();render();},
+    contaExcluir:()=>{S.contaExc=!S.contaExc;render();},
+    reordenarConta:()=>{S.screen='home';reordenar();},
+    cupomConta:()=>{aplicarCupom(v);toastNow('Cupom '+v+' aplicado na sacola');},
+    rastreio:()=>toastNow('No cardápio real abre o mapa do entregador'), pedirAlt:()=>toastNow('Pedido de alteração enviado à loja'), pedirCanc:()=>toastNow('Pedido de cancelamento enviado à loja'),
+    linkPedido:()=>toastNow('Link do pedido copiado'),
+    promoChk:()=>{S.promoMarcada=!S.promoMarcada;render();},
+    promoPerfil:()=>{S.promoPerfil=!S.promoPerfil;S.promoDesligou=!S.promoPerfil;render();},
+    saiba:()=>{S.saiba=true;render();}, saibaFechar:()=>{S.saiba=false;render();},
+    origemNao:()=>{S.origemNao=true;S.saiba=false;render();}, origemDesfazer:()=>{S.origemNao=false;render();},
+    info:()=>{S.info=true;render();}, infoFechar:()=>{S.info=false;render();},
     copiar:()=>{ const code=$('#pixcode').textContent; const ok=()=>toastNow('Código Pix copiado'); try{ navigator.clipboard.writeText(code).then(ok,()=>selec()); }catch(_){ selec(); } function selec(){ const r=document.createRange(); r.selectNodeContents($('#pixcode')); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toastNow('Código selecionado. Copie com o menu do aparelho.'); } },
   };
   if(H[a]) H[a]();
@@ -1206,20 +1325,23 @@ function moldura(){
   const m=META[S.tpl], st=m.steps.map(s=>s==='entrega'&&m.dadosNaEntrega?'Entrega e contato':tit(s)==='Sua sacola'?'Sacola':s==='entrega'?'Entrega':tit(s));
   $('#notes').innerHTML=`<div><div class="ref">${m.ref.toUpperCase()}</div><h2>${m.nome}</h2></div><p>${m.prio}</p>
     <div><div class="lab" style="margin-bottom:8px">Etapas do checkout</div><div class="chips">${st.map((s,i)=>`${i?'<i>→</i>':''}<span>${s}</span>`).join('')}</div>${S.tpl==='fluxo'?'<p class="hint" style="margin-top:8px">Quem já comprou vai da sacola direto para “Revisar e pedir”.</p>':''}</div>
-    <div><div class="lab" style="margin-bottom:8px">Recursos</div><ul>${m.rec.map(r=>`<li>${r}</li>`).join('')}</ul></div>`;
+    <div><div class="lab" style="margin-bottom:8px">Recursos</div><ul>${m.rec.map(r=>`<li>${r}</li>`).join('')}</ul></div>
+    <div><div class="lab" style="margin-bottom:8px">Em todos os modelos</div><ul>${COMUNS.map(r=>`<li>${r}</li>`).join('')}</ul></div>`;
   $('#k-key').textContent=S.tpl;
   $('#seg-loja').innerHTML=[['aberta','Aberta'],['retirada','Só retirada'],['fechada','Fechada']].map(([k,n])=>`<button data-loja="${k}" aria-pressed="${S.loja===k}">${n}</button>`).join('');
-  $('#togs').innerHTML=[['cupons','Cupons ativos','Sugestão no pagamento'],['cashback','Cashback','5% de volta, saldo para usar'],['fid','Plano de fidelidade','Clube Mister: 100 pts = batata'],['ret','Cliente que já comprou','“Peça de novo” e pedido expresso']].map(([k,n,d])=>`<button class="tog" data-tog="${k}" aria-pressed="${!!S[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
+  $('#togs').innerHTML=[['cupons','Cupons ativos','Sugestão no pagamento'],['cashback','Cashback','5% de volta, saldo para usar'],['fid','Plano de fidelidade','Clube Mister: 100 pts = batata'],['ret','Cliente que já comprou','“Peça de novo” e pedido expresso'],['promo','Loja manda promoção','Caixinha no 1º pedido e chave no Perfil'],['anuncio','Chegou por anúncio','Aviso de origem acima do botão final'],['sinal','Encomenda com sinal','30% ao agendar o pedido']].map(([k,n,d])=>`<button class="tog" data-tog="${k}" aria-pressed="${!!S[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
 }
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-tpl]'); if(t){ S.tpl=t.dataset.tpl; if(S.screen==='checkout'){ S.step=Math.min(S.step,steps().length-1); } S.combo=null; S.cat='mais'; moldura(); render(true); try{localStorage.setItem('regem_tpl_demo',S.tpl)}catch(_){}; return; }
   const c=e.target.closest('[data-cor]'); if(c){ S.accent=c.dataset.cor; moldura(); render(); return; }
   const lj=e.target.closest('[data-loja]'); if(lj){ S.loja=lj.dataset.loja; if(S.loja==='retirada') S.chk.tipo='retirada'; else S.chk.tipo='entrega'; if(S.loja==='fechada') S.chk.quando='agendar'; else if(S.chk.quando==='agendar' && !S.chk.agenda) S.chk.quando='agora'; if(S.chk.agenda && S.chk.agenda<minAgenda()) S.chk.agenda=''; moldura(); render(); return; }
   const tg=e.target.closest('[data-tog]'); if(tg){ const k=tg.dataset.tog; if(k==='ret'){ S.ret=!S.ret; S.editDados=false; S.editEnd=false; S.expressoOff=false; preencherRet(S.ret); } else { S[k]=!S[k]; if(k==='cupons'&&!S.cupons){ S.cupomOk=null; S.cupomMsg=null; } } if(S.screen==='checkout') S.step=Math.min(S.step,steps().length-1); moldura(); render(); return; }
-  if(e.target.closest('#reset')){ reset(); render(true); }
+  if(e.target.closest('#reset')){ reset(true); render(true); }
 });
 
+const COMUNS = ['Conta do cliente no topo: pedidos (código de entrega, acompanhar, pedir de novo, pedir alteração ou cancelamento), benefícios e perfil','Caixinha “Receber promoções pelo WhatsApp” no 1º pedido, já marcada; chave no Perfil para sair','Aviso de origem do anúncio acima do botão final, com “Saiba mais” e “Não registrar”','Sinal da encomenda avisado antes de agendar','Pix com “Já paguei, verificar” e link para acompanhar o pedido depois'];
 const DIAG = [
+  ['Pedidos, promoções e busca só aparecem para quem já está identificado e com o carrinho vazio.','Ícone de conta sempre no topo: pedidos, benefícios e perfil a um toque, com ou sem itens na sacola.'],
   ['Sacola, cupom, entrega, endereço, dados e pagamento numa tela só, com rolagem longa.','Checkout em etapas, com um botão principal por etapa e o total sempre no botão.'],
   ['No Trio 08, os 10 adicionais aparecem antes de Batata e Bebida, que são obrigatórios.','Obrigatórios primeiro, numerados. No Regem Fluxo os adicionais ficam recolhidos.'],
   ['O botão “Fazer pedido” fica desbotado sem dizer o que falta.','O botão mostra o que falta (“Escolha o bairro”) e leva até o campo.'],
@@ -1239,6 +1361,9 @@ const CMP = [
   ['Cupom','Campo no pagamento','Campo na sacola','Campo na sacola, com sugestões','Cupom disponível sugerido no pagamento; outro código sob demanda'],
   ['Cashback e fidelidade','Faixas no topo da vitrine; benefícios no pagamento','Benefícios no pagamento','Benefícios no pagamento','Chips no topo, progresso do plano e cashback a ganhar no pagamento'],
   ['Loja fechada ou só retirada','Aviso no topo; entrega bloqueada com o horário de volta; fechada só agenda','Igual','Igual; faixa de frete grátis some sem entrega','Igual, e o chip do topo vira “Retirada na loja”'],
+  ['Conta do cliente','Ícone no topo, ao lado da busca','Botão sobre a capa; “Ver informações” abre endereço, horário e pagamento','Botão sobre a faixa da loja','Ícone no topo, ao lado da busca'],
+  ['Promoções pelo WhatsApp','Caixinha já marcada abaixo do WhatsApp, só no 1º pedido','Igual, na etapa Dados','Igual','Igual; no pedido expresso não pergunta (o cliente já respondeu)'],
+  ['Origem do anúncio','Aviso acima do botão final, no Pagamento','Igual','Igual','Igual; no pedido expresso fica na revisão'],
   ['Indicado para','Loja com boas fotos e tráfego pago','Cardápio grande','Loja de promoção e combos','Padrão do Regem'],
 ];
 $('#cmp').insertAdjacentHTML('beforeend',`<thead><tr><th scope="col"></th>${ORDEM.map(k=>`<th scope="col">${META[k].nome}</th>`).join('')}</tr></thead><tbody>${CMP.map(r=>`<tr><th scope="row">${r[0]}</th>${r.slice(1).map((c,i)=>`<td class="${i===3?'us':''}">${c}</td>`).join('')}</tr>`).join('')}</tbody>`);

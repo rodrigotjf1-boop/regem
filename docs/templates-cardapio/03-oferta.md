@@ -59,4 +59,5 @@ O amarelo é só para promoção (selo de %, faixa de frete grátis, pílula do 
 - [ ] Frete "a calcular" sem bairro; confirmação com Pix pendente e pontos a caminho.
 - [ ] Situação da loja conforme a base §5.5 (aviso no topo; só retirada bloqueia a entrega com o horário; fechada só agenda e o botão final vira "Agendar pedido").
 - [ ] Benefícios conforme a base §5.6: cupom, cashback e fidelidade só aparecem quando ativos, no bloco "Seus benefícios" do pagamento.
+- [ ] Recursos comuns do `05-recursos-integrados.md` §4: conta do cliente, promoções pelo WhatsApp, origem do anúncio, sinal da encomenda, pós-pedido completo, erro visível, mesa e ramos.
 - [ ] Modo escuro; 375 px sem rolagem horizontal; temas antigos intactos.
