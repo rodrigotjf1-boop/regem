@@ -554,6 +554,8 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .g-fid.cb{background:var(--p-ok-bg);color:var(--p-ok)}
 .p-root .g-slide:disabled{opacity:1;cursor:default}
 .p-root .g-hero{margin-top:4px}
+.p-root .f-top .f-logo{width:46px;height:46px;border-radius:12px;overflow:hidden;background:var(--p-art);display:grid;place-items:center;flex:none;align-self:flex-start}
+.p-root.tem-cab .o-frete,.p-root.tem-cab .p-aviso{margin-top:12px}
 .p-root .f-tit{flex:1;min-width:0;text-align:left}
 .p-root .f-tit h1{margin:0;font:800 23px/1.1 var(--p-disp);letter-spacing:-.015em}
 .p-root .f-tit p{margin:6px 0 0;font-size:13px;color:var(--p-mut)}
@@ -569,6 +571,24 @@ body.tema-escuro .p-root.tpl-fluxo{--p-bg:#0B1620;--p-surf:#12212E;--p-card:#0F1
 .p-root .g-re .s{font-size:12px;opacity:.75}
 .p-root .p-spacer-g{height:140px}
 .p-root .p-spacer-m{height:130px}
+
+/* logo em emoji (cadastro antigo, sem imagem) */
+.p-root .p-emoji{font-family:system-ui,sans-serif;font-size:1.35em;line-height:1}
+
+/* Cor do cabeçalho escolhida pela loja ("Editar tema" → Cabeçalho): pinta o bloco com o nome da loja.
+   Sem cor escolhida (`tem-cab` ausente), vale o cabeçalho do template. */
+.p-root.tem-cab .g-top,.p-root.tem-cab .f-top,.p-root.tem-cab .b-head,.p-root.tem-cab .o-head{background:var(--p-cab);color:var(--p-cab-ink)}
+.p-root.tem-cab .g-top{padding-bottom:16px}
+.p-root.tem-cab .f-top{padding-bottom:18px}
+.p-root.tem-cab .o-head{padding-top:0;padding-bottom:16px}
+.p-root.tem-cab .g-id span,.p-root.tem-cab .f-tit p,.p-root.tem-cab .b-inf,.p-root.tem-cab .b-st,.p-root.tem-cab .b-mais{color:inherit}
+.p-root.tem-cab .g-id span,.p-root.tem-cab .f-tit p,.p-root.tem-cab .b-inf{opacity:.85}
+.p-root.tem-cab .b-mais{text-decoration:underline;text-underline-offset:2px}
+.p-root.tem-cab .g-ic,.p-root.tem-cab .f-ic{color:inherit;background:rgba(127,127,127,.22);background:color-mix(in srgb,currentColor 14%,transparent);box-shadow:inset 0 0 0 1px rgba(127,127,127,.35);box-shadow:inset 0 0 0 1px color-mix(in srgb,currentColor 28%,transparent)}
+.p-root.tem-cab .o-chips span:not(.ab){color:inherit;background:rgba(127,127,127,.22);background:color-mix(in srgb,currentColor 14%,transparent)}
+.p-root.tem-cab .b-cover.lisa,.p-root.tem-cab .o-band.lisa{background:var(--p-cab)}
+.p-root.tem-cab .b-logo{border-color:var(--p-cab)}
+.p-root.tem-cab .o-logo{border-color:var(--p-cab)}
 
 /* banners da loja (com link): capa do Balcão, faixa da Oferta, faixa solta do Fluxo */
 .p-root .p-ban{position:relative;overflow:hidden}

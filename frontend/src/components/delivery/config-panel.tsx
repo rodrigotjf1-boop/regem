@@ -16,6 +16,7 @@ import { FidelidadePanel } from '@/components/delivery/fidelidade-panel';
 import { CashbackPanel } from '@/components/delivery/cashback-panel';
 import { NumerosWhatsapp } from '@/components/delivery/numeros-whatsapp';
 import { localizacaoAtual, geocodificar, mapaEmbedUrl } from '@/lib/geo';
+import { INDICADO_PARA, ROTULO_TEMPLATE, TEMPLATES, templateDe } from '@/components/loja/cardapio/tipos-template';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -355,12 +356,24 @@ export function ConfigPanel({
                           <option value="auto">🌗 Automático (segue o aparelho do cliente)</option>
                         </select>
                       </Campo>
-                      <Campo label="Estilo do cardápio (layout)">
-                        <select aria-label="Estilo do cardápio" disabled={somenteGestor} value={loja.menuTheme ?? 'classic'} onChange={(e) => up({ menuTheme: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
-                          <option value="classic">📋 Clássico (padrão)</option>
-                          <option value="fastfood">🍔 Fast-food (destaques + carrossel)</option>
-                          <option value="grid">🔲 Grade (cabeçalho curvo + grade 2 colunas)</option>
+                      <Campo label="Modelo do cardápio">
+                        {/* Loja com layout antigo gravado aparece no padrão (Regem Fluxo): é o que o cardápio mostra. */}
+                        <select aria-label="Modelo do cardápio" disabled={somenteGestor} value={templateDe(loja.menuTheme)} onChange={(e) => up({ menuTheme: e.target.value })} className="flex h-11 w-full rounded-md border border-input bg-card px-3 text-sm">
+                          {TEMPLATES.map((t) => (
+                            <option key={t} value={t}>{ROTULO_TEMPLATE[t]}</option>
+                          ))}
                         </select>
+                        <p className="text-xs text-muted-foreground">
+                          {INDICADO_PARA[templateDe(loja.menuTheme)]}
+                          {linkDelivery && (
+                            <>
+                              {' '}
+                              <a href={`${linkDelivery}?tema=${templateDe(loja.menuTheme)}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-foreground underline underline-offset-2">
+                                Ver prévia
+                              </a>
+                            </>
+                          )}
+                        </p>
                       </Campo>
                       <Campo label="Logo (emoji)"><Input value={loja.logoEmoji ?? ''} onChange={(e) => up({ logoEmoji: e.target.value })} placeholder="🍔" /></Campo>
                       <Campo label="Tempo de entrega (min)"><Input type="number" value={loja.tempoEntregaMin ?? ''} onChange={(e) => up({ tempoEntregaMin: e.target.value })} placeholder="40" /></Campo>

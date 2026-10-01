@@ -1,10 +1,17 @@
-import { MENU_THEMES, TIPOS_EVENTO_FUNIL, menuThemeValido, proximaAberturaDe } from './menu-themes';
+import { TEMPLATES_CARDAPIO, TEMPLATE_PADRAO, TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
 
-describe('layouts do cardápio', () => {
-  it('aceita os templates novos e os layouts antigos; recusa o resto', () => {
-    for (const t of ['galeria', 'balcao', 'oferta', 'fluxo', 'classic', 'fastfood', 'grid']) expect(menuThemeValido(t)).toBe(true);
-    for (const t of ['', 'Fluxo', 'outro', null, undefined, 3, {}]) expect(menuThemeValido(t)).toBe(false);
-    expect(MENU_THEMES).toHaveLength(7);
+describe('templates do cardápio', () => {
+  it('só os quatro templates são aceitos na gravação', () => {
+    for (const t of ['galeria', 'balcao', 'oferta', 'fluxo']) expect(ehTemplateCardapio(t)).toBe(true);
+    // Layout antigo (tela desatualizada) e lixo não trocam o que está gravado.
+    for (const t of ['classic', 'fastfood', 'grid', '', 'Fluxo', 'outro', null, undefined, 3, {}]) expect(ehTemplateCardapio(t)).toBe(false);
+    expect(TEMPLATES_CARDAPIO).toHaveLength(4);
+  });
+
+  it('loja com layout antigo gravado abre no template padrão (Regem Fluxo)', () => {
+    expect(TEMPLATE_PADRAO).toBe('fluxo');
+    for (const t of ['classic', 'fastfood', 'grid', '', null, undefined]) expect(templateDoCardapio(t)).toBe('fluxo');
+    for (const t of ['galeria', 'balcao', 'oferta', 'fluxo']) expect(templateDoCardapio(t)).toBe(t);
   });
 
   it('o funil aceita as etapas novas sem perder as antigas', () => {

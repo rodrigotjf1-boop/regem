@@ -733,6 +733,12 @@ export function VitrineFluxo({ c }: { c: Cardapio }) {
   return (
     <div className="p-scroll" ref={rolagem} onScroll={aoRolar}>
       <header className="f-top">
+        {/* O protótipo não tinha logo no Fluxo; a loja que cadastrou o seu continua vendo-o. */}
+        {(c.loja?.logoRef || String(c.loja?.logoEmoji ?? '').trim()) && (
+          <div className="f-logo">
+            <Logo loja={c.loja} />
+          </div>
+        )}
         <button type="button" className="f-tit" onClick={() => c.abrir('info')} aria-label="Informações da loja">
           <h1>{c.loja?.nome}</h1>
           <p>

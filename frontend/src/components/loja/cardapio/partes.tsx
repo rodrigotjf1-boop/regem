@@ -58,9 +58,10 @@ export function Foto({ src, alt = '' }: { src?: string | null; alt?: string }) {
   );
 }
 
-/** Logo da loja: a imagem, ou as iniciais do nome. */
+/** Logo da loja: a imagem; sem imagem, o emoji do cadastro; sem os dois, as iniciais do nome. */
 export function Logo({ loja }: { loja: any }) {
   if (loja?.logoRef) return <img src={loja.logoRef} alt={loja?.nome ?? ''} />;
+  if (String(loja?.logoEmoji ?? '').trim()) return <span className="p-emoji">{loja.logoEmoji}</span>;
   return <>{siglaDe(loja?.nome)}</>;
 }
 

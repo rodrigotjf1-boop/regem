@@ -38,8 +38,9 @@ export function CardapioTemplates({
     '--p-acc': c.accent,
     '--p-on': corSobre(c.accent),
     '--p-acc-soft': corSuave(c.accent, c.dark ? 0.18 : 0.1),
+    ...(c.corCabecalho ? { '--p-cab': c.corCabecalho, '--p-cab-ink': c.corTextoCabecalho } : {}),
   } as CSSProperties;
-  const raiz = `p-root tpl-${c.template} ${FONTES_TEMPLATES}`;
+  const raiz = `p-root tpl-${c.template} ${c.corCabecalho ? 'tem-cab' : ''} ${FONTES_TEMPLATES}`;
 
   if (c.erro && !c.menu)
     return (

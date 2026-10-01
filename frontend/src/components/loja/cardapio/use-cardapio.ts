@@ -197,6 +197,10 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
   // Personalização do tema (botão "Editar tema"): cor primária + chaves de exibição.
   const tc = loja?.temaConfig ?? {};
   const accent: string = tc.corPrimaria || TEMA[loja?.ramo] || '#E2A340';
+  // Cor do cabeçalho escolhida pela loja ("Editar tema"): pinta o bloco com o nome da loja.
+  // Sem cor de fundo escolhida, vale o cabeçalho do template (a cor do texto sozinha não se aplica).
+  const corCabecalho: string | null = tc.corCabecalho || null;
+  const corTextoCabecalho: string = tc.corTextoCabecalho || '#ffffff';
   const showDestaques = tc.mostrarDestaques !== false;
   const showBanner = tc.mostrarBanner !== false;
   const showUltimos = tc.mostrarUltimos !== false;
@@ -1072,7 +1076,7 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
     // identidade da página
     token, mesa, template, menu, loja, erro, carregar,
     isServico, isIndustria, mesaDireta, areaRaio,
-    accent, dark, alternarTema, showDestaques, showBanner, showUltimos, bannerIntervalo,
+    accent, corCabecalho, corTextoCabecalho, dark, alternarTema, showDestaques, showBanner, showUltimos, bannerIntervalo,
     // vitrine
     produtos, bairros, secoes, destaques, produtosPromo, cat, setCat, busca, setBusca, resultadosBusca,
     situacao, fechada, fechadaSemAgenda, soAgendado, habEntrega, habRetirada, dispEntrega, dispRetirada,

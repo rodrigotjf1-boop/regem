@@ -14,6 +14,22 @@ export const NOME_TEMPLATE: Record<TemplateChave, string> = {
   fluxo: 'Regem Fluxo',
 };
 
+/** Rótulo de cada template no painel (Delivery → Configurações → Modelo do cardápio). */
+export const ROTULO_TEMPLATE: Record<TemplateChave, string> = {
+  galeria: 'Galeria (foto grande e vitrines)',
+  balcao: 'Balcão (lista com abas fixas)',
+  oferta: 'Oferta (promoções e combos)',
+  fluxo: 'Regem Fluxo (clean, recomendado)',
+};
+
+/** A linha de ajuda que acompanha a escolha no painel. */
+export const INDICADO_PARA: Record<TemplateChave, string> = {
+  galeria: 'Indicado para loja com boas fotos e que recebe clientes por anúncio.',
+  balcao: 'Indicado para cardápio grande e cliente que já sabe o que quer.',
+  oferta: 'Indicado para loja de promoções e combos.',
+  fluxo: 'O modelo padrão do Regem: serve para qualquer loja.',
+};
+
 export function ehTemplate(v: unknown): v is TemplateChave {
   return typeof v === 'string' && (TEMPLATES as readonly string[]).includes(v);
 }
