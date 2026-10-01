@@ -694,6 +694,70 @@ select.c-in{appearance:auto}
 .ev-halloween{--ev-bg:radial-gradient(circle at 84% 24%,#FDE68A 0 17px,rgba(253,230,138,.22) 18px 30px,transparent 31px),linear-gradient(160deg,#2E1065,#1B0F2E);--ev-ink:#FDF4FF;--ev-chip:#F97316;--ev-chip-ink:#1B0F2E;--ev-pat:radial-gradient(circle,rgba(255,255,255,.5) .8px,transparent 1.2px) 0 0/16px 16px;--ev-font:'Creepster',cursive;--ev-fs:26px;--ev-stripe:repeating-linear-gradient(-45deg,#EA580C 0 7px,#2E1065 7px 14px)}
 .ev-blackfriday{--ev-bg:#0A0A0A;--ev-ink:#fff;--ev-chip:#FACC15;--ev-chip-ink:#0A0A0A;--ev-pat:linear-gradient(transparent calc(100% - 8px),transparent 0),repeating-linear-gradient(-45deg,rgba(250,204,21,.16) 0 10px,transparent 10px 20px);--ev-font:'Anton',sans-serif;--ev-fs:27px;--ev-up:uppercase;--ev-stripe:repeating-linear-gradient(-45deg,#FACC15 0 7px,#0A0A0A 7px 14px)}
 
+/* ======================= CLUBE DE RECOMPRA ======================= */
+.seg.seg4{grid-template-columns:repeat(4,1fr)}
+.rc-wrap{display:grid;gap:10px;margin:14px 16px 0}
+.rc-niver{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 84px;gap:8px;align-items:center;padding:14px 10px 14px 16px;border-radius:18px;background:linear-gradient(135deg,#FDF2F8,#FCE7F3 50%,#EDE9FE);color:#6B1D4B;overflow:hidden}
+.rc-niver small{font:700 10.5px var(--p-font);letter-spacing:.12em;text-transform:uppercase;opacity:.8}
+.rc-niver h3{margin:2px 0 4px;font:800 21px/1.1 var(--p-disp)}
+.rc-niver p{margin:0;font-size:12.5px;line-height:1.35}
+.rc-bolo svg{width:84px;height:84px;display:block}
+.rc-bolo .vela{transform-box:fill-box;transform-origin:50% 100%;animation:vela .5s ease-in-out infinite alternate}
+@keyframes vela{to{transform:scale(.85,1.12) rotate(4deg)}}
+.rc-sort{border-radius:18px;padding:14px 16px;background:var(--p-card);box-shadow:inset 0 0 0 1.5px var(--p-line);display:grid;gap:8px;position:relative}
+.rc-sort::before,.rc-sort::after{content:"";position:absolute;top:44px;width:14px;height:14px;border-radius:50%;background:var(--p-bg);box-shadow:inset 0 0 0 1.5px var(--p-line)}
+.rc-sort::before{left:-7px;clip-path:inset(0 0 0 50%)}.rc-sort::after{right:-7px;clip-path:inset(0 50% 0 0)}
+.rc-tk{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-bottom:8px;border-bottom:1.5px dashed var(--p-line)}
+.rc-tkh{display:grid}
+.rc-tkh small{font:700 10.5px var(--p-font);letter-spacing:.1em;text-transform:uppercase;color:var(--p-acc)}
+.rc-tkh b{font:800 16px/1.2 var(--p-disp)}
+.rc-dias{font:700 11px var(--p-num);padding:4px 8px;border-radius:999px;background:var(--p-surf);white-space:nowrap}
+.rc-sort p{margin:0;font-size:13px;color:var(--p-mut);line-height:1.4}
+.rc-num{font-family:var(--p-num);color:var(--p-ink);letter-spacing:.06em}
+.rc-prog{display:flex;align-items:center;gap:6px}
+.rc-prog i{width:22px;height:22px;border-radius:50%;box-shadow:inset 0 0 0 2px var(--p-line);display:grid;place-items:center;color:transparent}
+.rc-prog i.on{background:var(--p-acc);box-shadow:none;color:var(--p-on)}
+.rc-prog span{font:600 12px var(--p-num);color:var(--p-mut);margin-left:4px}
+.rc-acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.rc-acts .ev-go{color:var(--p-ink)}
+.rc-cta{font:700 12.5px var(--p-font);padding:7px 12px;border-radius:999px;background:var(--p-acc);color:var(--p-on)}
+.rc-sheet{height:86%}
+.rc-sh{display:flex;justify-content:space-between;align-items:flex-start;padding:18px 16px 6px}
+.rc-sh small{font:700 10.5px var(--p-font);letter-spacing:.1em;text-transform:uppercase;color:var(--p-acc)}
+.rc-sh h3{margin:2px 0 0;font:800 22px var(--p-disp)}
+.rc-pr{list-style:none;margin:0;padding:6px 16px 10px;display:grid;gap:8px}
+.rc-pr li{display:grid;grid-template-columns:56px 1fr;gap:12px;align-items:center;padding:10px;border-radius:14px;background:var(--p-surf)}
+.rc-pr .a{width:56px;height:56px;border-radius:12px;background:var(--p-card);display:grid;place-items:center}
+.rc-pr .a svg{width:44px;height:44px}
+.rc-pr b{display:block;font-size:14px}
+.rc-pr small{font-size:12px;color:var(--p-mut)}
+.rc-ol{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13.5px}
+.rc-ok{display:grid;gap:12px}
+.rc-box{border-radius:var(--p-r);box-shadow:inset 0 0 0 1.5px var(--p-line);padding:14px;display:grid;gap:10px}
+.rc-bh{display:grid;gap:1px}
+.rc-bh b{font:800 15px var(--p-disp)}
+.rc-bh small{font-size:12px;color:var(--p-mut)}
+.rasp{position:relative;height:112px;border-radius:12px;overflow:hidden;background:repeating-linear-gradient(-45deg,#FFF7E0 0 10px,#FFF1C7 10px 20px)}
+.rasp-pr{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:2px;text-align:center;padding:8px;color:#5B3A00}
+.rasp-pr span{font-size:13px;font-weight:600}
+.rasp-pr b{font:800 26px var(--p-num);letter-spacing:.08em;color:var(--p-acc)}
+.rasp-pr small{font-size:11.5px;opacity:.85}
+.rasp canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab;transition:opacity .5s}
+.rasp canvas.some{opacity:0;pointer-events:none}
+.rasp.aberta .rasp-pr b{animation:pop .5s cubic-bezier(.3,1.6,.5,1)}
+.rc-ticket{display:grid;justify-items:center;gap:2px;padding:12px;border-radius:12px;background:var(--p-acc-soft);box-shadow:inset 0 0 0 1.5px var(--p-acc);position:relative}
+.rc-ticket small{font-size:12px;color:var(--p-mut)}
+.rc-ticket b{font:800 30px var(--p-num);letter-spacing:.14em;color:var(--p-acc);animation:pop .5s cubic-bezier(.3,1.6,.5,1)}
+.rc-ticket span{font-size:12.5px;font-weight:600}
+.rc-album{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;justify-items:center}
+.rc-album .selo{display:block;width:58px;height:58px}
+.rc-album.mini .selo{width:48px;height:48px}
+.rc-album .selo svg{width:100%;height:100%;display:block}
+.rc-album .novo .selo{animation:carimbo .7s cubic-bezier(.3,1.5,.5,1)}
+@keyframes carimbo{0%{transform:scale(2.2) rotate(-25deg);opacity:0}60%{transform:scale(.92) rotate(4deg);opacity:1}}
+.blk ol.legal{margin:0;padding-left:20px;display:grid;gap:8px;max-width:78ch}
+.blk ol.legal li span{color:var(--muted)}
+
 @media (prefers-reduced-motion: reduce){.p-root *,.p-root *::before,.p-root *::after{animation:none!important;transition:none!important}}
 /* ---- recursos que o cardápio já tem, integrados aos templates: conta, promoções, origem, sinal ---- */
 .c-chk.promo{align-items:flex-start}
@@ -752,6 +816,10 @@ select.c-in{appearance:auto}
       <div class="lab">Evento sazonal</div>
       <select id="ev-sel" class="evsel" aria-label="Evento sazonal"></select>
       <div class="togs" id="ev-togs"></div>
+      <div class="lab">Clube de recompra</div>
+      <div class="togs" id="rc-togs"></div>
+      <div class="lab">Pedidos no mês para concorrer</div>
+      <div class="seg seg4" id="rc-min" role="group" aria-label="Pedidos no mês para concorrer ao sorteio"></div>
       <div class="lab">Situação da loja</div>
       <div class="seg" id="seg-loja" role="group" aria-label="Situação da loja"></div>
       <div class="lab">Recursos e cliente</div>
@@ -768,6 +836,19 @@ select.c-in{appearance:auto}
     <h2>O que muda em relação ao cardápio atual</h2>
     <p>Pontos tirados das telas do cardápio da Mister Burguer em app.dmsregem.com. Os quatro templates já resolvem todos eles; o Regem Fluxo vai um pouco além em cada um.</p>
     <div class="diag" id="diag"></div>
+  </section>
+
+  <section class="blk">
+    <h2>Sorteio do mês: o que a lei pede e como o Regem garante</h2>
+    <p>Sorteio ligado a compra é promoção comercial e precisa de autorização prévia da Secretaria de Prêmios e Apostas (SPA/MF). O sistema só deixa publicar o sorteio quando cada item abaixo está atendido. Raspadinha, selos e aniversário dão prêmio garantido, sem sorte, e por isso ficam fora dessa regra.</p>
+    <ol class="legal">
+      <li><b>Autorização antes de divulgar.</b> <span>O lojista pede no sistema do governo com 40 a 120 dias de antecedência e informa o número do certificado. Sem ele, o sorteio fica em rascunho.</span></li>
+      <li><b>Apuração pela Loteria Federal.</b> <span>O lojista escolhe a data da extração; o Regem calcula o número ganhador a partir do resultado, do jeito descrito no regulamento.</span></li>
+      <li><b>Prêmio nunca em dinheiro.</b> <span>O cadastro de prêmio aceita produto, serviço ou vale de consumo na loja, nunca valor em dinheiro.</span></li>
+      <li><b>Regulamento público.</b> <span>Texto publicado na página do sorteio e aceito pelo cliente antes de receber o número da sorte.</span></li>
+      <li><b>Ganhador identificado.</b> <span>CPF pedido só na hora de participar, com finalidade explicada (LGPD).</span></li>
+      <li><b>Prestação de contas.</b> <span>Exportação de participantes, números, apuração e entrega dos prêmios, com trilha de auditoria.</span></li>
+    </ol>
   </section>
 
   <section class="blk">
@@ -864,7 +945,7 @@ const CORES = [['#D62828','Vermelho Mister'],['#E2A340','Dourado Regem'],['#0E8E
 
 /* ---------------- estado ---------------- */
 const CHK0 = {tipo:'entrega',bairro:'',rua:'',num:'',ref:'',quando:'agora',agenda:'',nome:'',whats:'',forma:'',troco:'',cupom:'',cpfNota:false,cpf:''};
-const S = {ev:{sel:'auto',festa:true,cores:true,ovos:[],abobora:null},promo:true,promoMarcada:true,promoResp:false,promoPerfil:true,promoDesligou:false,anuncio:false,origemNao:false,saiba:false,sinal:false,info:false,contaAba:'pedidos',contaExc:false,loja:'aberta',cupons:true,cashback:true,fid:true,usarCb:true,bairroSheet:false,expressoOff:false,trioNao:[],trioBeb:{},tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
+const S = {rc:{rasp:true,selos:true,aniv:false,sort:true,min:3,feitos:0,algum:false,aceitou:false,cpf:'',li:false,raspado:{},voltaPend:false,sheet:null},ev:{sel:'auto',festa:true,cores:true,ovos:[],abobora:null},promo:true,promoMarcada:true,promoResp:false,promoPerfil:true,promoDesligou:false,anuncio:false,origemNao:false,saiba:false,sinal:false,info:false,contaAba:'pedidos',contaExc:false,loja:'aberta',cupons:true,cashback:true,fid:true,usarCb:true,bairroSheet:false,expressoOff:false,trioNao:[],trioBeb:{},tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
 
 /* ---------------- utilidades ---------------- */
 const $ = s => document.querySelector(s);
@@ -914,7 +995,8 @@ function tot(){
   let taxa=0, taxaPend=false;
   if(S.chk.tipo==='entrega'){const b=BAIRROS.find(b=>b.id===S.chk.bairro); if(!b) taxaPend=true; else taxa = sub>=L.frete ? 0 : b.taxa;}
   let desc=0; if(S.cupons){ if(S.cupomOk==='MISTER10') desc=Math.min(sub*.1,15); if(S.cupomOk==='PRIMEIRA') desc = sub>=30 ? 8 : 0; }
-  if(S.cupomOk==='PASCOA10'||S.cupomOk==='DOCES10') desc=Math.min(sub*.1,15);
+  if(S.cupomOk==='PASCOA10'||S.cupomOk==='DOCES10'||S.cupomOk==='VOLTA10') desc=Math.min(sub*.1,15);
+  if(S.cupomOk==='NIVER') desc=Math.min(sub*.15,20);
   const cbUso = S.cashback && S.ret && S.usarCb ? Math.min(CB.saldoRet, Math.max(0,sub-desc)) : 0;
   const total=Math.max(0,sub+taxa-desc-cbUso);
   const cbGanho = S.cashback ? Math.round(Math.max(0,sub-desc-cbUso)*CB.pct)/100 : 0;
@@ -981,6 +1063,7 @@ function fazerPedido(){
   const t=tot(); const d=new Date(Date.now()+ (S.chk.tipo==='entrega'?L.tempo:L.tempoRet)*60000);
   const ag = S.chk.quando==='agendar' && S.chk.agenda;
   S.pedido={senha:57+S.cart.length,total:t.total,pts:t.pts,cb:t.cbGanho,forma:S.chk.forma,tipo:S.chk.tipo,agendado:!!ag,hora:ag?S.chk.agenda.slice(11,16):d.toTimeString().slice(0,5)};
+  clubeNoPedido();
   S.pixPago=false; S.screen='ok'; render(true);
 }
 function preencherRet(on){ if(on) Object.assign(S.chk,{nome:RET.nome,whats:RET.whats,bairro:RET.bairro,rua:RET.rua,num:RET.num,ref:RET.ref,forma:RET.forma}); else Object.assign(S.chk,{nome:'',whats:'',bairro:'',rua:'',num:'',ref:'',forma:''}); }
@@ -1047,6 +1130,7 @@ function viewConta(){
     if(S.cashback) h+=`<div class="c-cb">${ic('repeat',16)}<span>Saldo de cashback: <b>${BRL(CB.saldoRet)}</b>. Abate no próximo pedido.</span></div>`;
     if(S.fid){ const a=Math.min(100,FID.saldoRet/FID.meta*100); h+=`<div class="c-fid"><div class="r"><b>${ic('gift',14)} ${FID.plano}</b><span>${FID.saldoRet}/${FID.meta} pts</span></div><div class="bar" aria-hidden="true"><i class="a" style="width:${a}%"></i></div><span>Faltam ${FID.meta-FID.saldoRet} pontos para ${FID.premio.toLowerCase()}.</span></div>`; }
     if(S.cupons) h+=CUP.filter(([c])=>c!=='PRIMEIRA').map(([c,d])=>`<div class="c-card cup">${ic('tag')}<div><b>${c}</b><small>${d} · disponível para você</small></div><button class="lk" data-a="cupomConta" data-v="${c}">Usar</button></div>`).join('');
+    h+=clubeConta();
     b+=`<div class="c-sec"><h3 class="c-h">Seus benefícios</h3>${h||'<p class="c-empty">Esta loja não tem benefícios ativos no momento.</p>'}</div>`;
   } else {
     b+=`<div class="c-sec"><div class="c-card">${ic('user')}<div><b>${esc(RET.nome)}</b><small>${esc(RET.whats)}</small></div></div>
@@ -1239,6 +1323,7 @@ function viewOk(){
       <ol class="ok-tl">${tl}</ol>
       ${S.fid?`<div class="c-pts">${ic('gift',16)} <span><b>${p.pts} pontos a caminho.</b> Entram no seu saldo quando o pedido for concluído.</span></div>`:''}
       ${S.cashback&&p.cb?`<div class="c-cb">${ic('repeat',16)}<span><b>${BRL(p.cb)} de cashback a caminho.</b> Fica disponível quando o pedido for concluído.</span></div>`:''}
+      ${clubeOk()}
       <button class="c-link" data-a="linkPedido" style="justify-self:center">${ic('copy',16)} Guardar o link para acompanhar depois</button>
       <p class="ok-wa">Dúvidas pelo WhatsApp da loja: <b>${L.whats}</b></p>
       <button class="p-btn2" data-a="novo">Fazer outro pedido</button>
@@ -1395,6 +1480,7 @@ function render(topo){
   if(S.toast && S.screen!=='checkout') h+=`<div class="p-toast" id="p-toast" role="status">${ic('check',16)} ${esc(S.toast)}</div>`;
   ph.innerHTML=h;
   evDecorar();
+  clubeDecorar();
   S.bump=false;
   const base=S.screen==='home'||S.screen==='produto'?'home':S.screen; S._base=base;
   const sc2=$('#p-scroll'); if(sc2 && keep.base===base) sc2.scrollTop=keep.a;
@@ -1437,6 +1523,10 @@ document.addEventListener('click',e=>{
     bairroSheet:()=>{S.bairroSheet=true;render();}, bairroFechar:()=>{S.bairroSheet=false;render();},
     bairroSel:()=>{ if(v==='retirada') S.chk.tipo='retirada'; else { S.chk.tipo='entrega'; S.chk.bairro=v; } S.bairroSheet=false; toast(v==='retirada'?'Retirada na loja':'Entrega em '+BAIRROS.find(b=>b.id===v).nome); render(); },
     trioNao:()=>{S.trioNao.push(v);render();},
+    rcPremios:()=>{S.rc.sheet='premios';render();}, rcAceitar:()=>{S.rc.sheet='aceitar';render();}, rcFechar:()=>{S.rc.sheet=null;render();},
+    rcLi:()=>{S.rc.li=!S.rc.li;render();}, rcRegul:()=>toastNow('No cardápio real abre o regulamento publicado pela loja'),
+    rcParticipar:()=>{ if(!(cpfOk(S.rc.cpf)&&S.rc.li)) return; S.rc.aceitou=true; S.rc.sheet=null; render(); const t=document.querySelector('#phone .rc-ticket,#phone .rc-num'); if(t) confete(ptDe(t),50); toast('Pronto! Você está concorrendo'); },
+    raspRevelar:()=>{ const c=document.querySelector('#rasp canvas'); if(c&&c._revelar) c._revelar(); },
     evCol:()=>{ const c=$('#ev-col'), sc=$('#p-scroll'); if(c&&sc) sc.scrollTo({top:c.offsetTop-8,behavior:'smooth'}); },
     ovo:()=>{ if(S.ev.ovos.includes(v)) return; S.ev.ovos.push(v); if(S._pt) evBurst(['egg','petal'],S._pt,26);
       if(S.ev.ovos.length>=3){ S.cupomOk='PASCOA10'; S.chk.cupom='PASCOA10'; S.cupomMsg={ok:true,t:'Cupom PASCOA10 aplicado: 10% de desconto.'}; toast('Você achou os 3 ovos! Cupom PASCOA10 aplicado'); }
@@ -1448,7 +1538,7 @@ document.addEventListener('click',e=>{
     comboBeb:()=>{S.combo.beb=v;render();}, comboNao:()=>{S.combo=null;render();},
     comboSim:()=>{ virarTrio(S.combo.key,S.combo.beb); toast('Virou trio'); S.combo=null; render(); },
     tab:()=>{ const s=document.getElementById('sec-'+v), sc=$('#p-scroll'), tabs=$('#tabs'); if(!s||!sc) return; const off=tabs?tabs.offsetHeight:0; sc.scrollTo({top:s.offsetTop-off+2,behavior:'smooth'}); },
-    reordenar, novo:()=>{reset();render();}, pixPago:()=>{S.pixPago=true;render();},
+    reordenar, novo:()=>{reset(); if(S.rc.voltaPend){ S.rc.voltaPend=false; S.cupomOk='VOLTA10'; S.chk.cupom='VOLTA10'; S.cupomMsg={ok:true,t:'Cupom VOLTA10 da raspadinha aplicado: 10% de desconto.'}; toast('Cupom da raspadinha aplicado neste pedido'); } else if(S.rc.aniv&&S.ret){ S.cupomOk='NIVER'; } render();}, pixPago:()=>{S.pixPago=true;render();},
     conta:()=>{S.screen='conta';S.buscaAberta=false;S.contaExc=false;render(true);}, contaFechar:()=>{S.screen='home';render();}, contaAba:()=>{S.contaAba=v;render(true);},
     contaEntrar:()=>{S.ret=true;S.promoResp=true;preencherRet(true);moldura();render(true);},
     contaSair:()=>{S.ret=false;S.editDados=false;S.editEnd=false;S.expressoOff=false;preencherRet(false);S.screen='home';moldura();render();},
@@ -1469,6 +1559,7 @@ document.addEventListener('click',e=>{
 function toastNow(m){ toast(m); render(); }
 document.addEventListener('pointerdown',e=>{ const ph=$('#phone'); if(!ph.contains(e.target)) return; const r=ph.getBoundingClientRect(); S._pt={x:e.clientX-r.left,y:e.clientY-r.top}; },true);
 document.addEventListener('keydown',e=>{ if((e.key==='Enter'||e.key===' ') && e.target.classList && e.target.classList.contains('ev-egg')){ e.preventDefault(); e.target.click(); } });
+document.addEventListener('input',e=>{ const rc=e.target.dataset&&e.target.dataset.rc; if(rc==='cpf'){ S.rc.cpf=e.target.value; const b=document.getElementById('rc-part'); if(b) b.disabled=!(cpfOk(S.rc.cpf)&&S.rc.li); return; } });
 document.addEventListener('input',e=>{
   const el=e.target; if(!el.dataset || !el.dataset.f || !el.closest('#phone')) return;
   const f=el.dataset.f;
@@ -1488,22 +1579,26 @@ function moldura(){
   $('#notes').innerHTML=`<div><div class="ref">${m.ref.toUpperCase()}</div><h2>${m.nome}</h2></div><p>${m.prio}</p>
     <div><div class="lab" style="margin-bottom:8px">Etapas do checkout</div><div class="chips">${st.map((s,i)=>`${i?'<i>→</i>':''}<span>${s}</span>`).join('')}</div>${S.tpl==='fluxo'?'<p class="hint" style="margin-top:8px">Quem já comprou vai da sacola direto para “Revisar e pedir”.</p>':''}</div>
     <div><div class="lab" style="margin-bottom:8px">Recursos</div><ul>${m.rec.map(r=>`<li>${r}</li>`).join('')}</ul></div>
-    <div><div class="lab" style="margin-bottom:8px">Em todos os modelos</div><ul>${COMUNS.map(r=>`<li>${r}</li>`).join('')}</ul></div>${evNota()}`;
+    <div><div class="lab" style="margin-bottom:8px">Em todos os modelos</div><ul>${COMUNS.map(r=>`<li>${r}</li>`).join('')}</ul></div>${evNota()}${clubeNota()}`;
   $('#k-key').textContent=S.tpl;
   $('#seg-loja').innerHTML=[['aberta','Aberta'],['retirada','Só retirada'],['fechada','Fechada']].map(([k,n])=>`<button data-loja="${k}" aria-pressed="${S.loja===k}">${n}</button>`).join('');
   const auto=eventoAuto();
   $('#ev-sel').innerHTML=`<option value="auto">Automático pela data${auto?` (hoje: ${EV[auto].nome})`:' (nenhum hoje)'}</option><option value="none">Sem evento</option>`+ORDEM_EV.map(k=>`<option value="${k}">${EV[k].nome}</option>`).join('');
   $('#ev-sel').value=S.ev.sel;
   $('#ev-togs').innerHTML=[['festa','Animações do evento','Neve, confete, corações caindo'],['cores','Cores do evento','Botões na cor do evento']].map(([k,n,d])=>`<button class="tog" data-evtog="${k}" aria-pressed="${!!S.ev[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
+  $('#rc-togs').innerHTML=[['rasp','Raspadinha','Prêmio garantido na confirmação'],['selos','Álbum de selos','1 selo por mês, junte 4'],['aniv','Aniversário do cliente','Liga “Parabéns” para quem já comprou'],['sort','Sorteio do mês','Lista de prêmios da loja']].map(([k,n,d])=>`<button class="tog" data-rctog="${k}" aria-pressed="${!!S.rc[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
+  $('#rc-min').innerHTML=[2,3,4,5].map(n=>`<button data-rcmin="${n}" aria-pressed="${S.rc.min===n}">${n} pedidos</button>`).join('');
   $('#togs').innerHTML=[['cupons','Cupons ativos','Sugestão no pagamento'],['cashback','Cashback','5% de volta, saldo para usar'],['fid','Plano de fidelidade','Clube Mister: 100 pts = batata'],['ret','Cliente que já comprou','“Peça de novo” e pedido expresso'],['promo','Loja manda promoção','Caixinha no 1º pedido e chave no Perfil'],['anuncio','Chegou por anúncio','Aviso de origem acima do botão final'],['sinal','Encomenda com sinal','30% ao agendar o pedido']].map(([k,n,d])=>`<button class="tog" data-tog="${k}" aria-pressed="${!!S[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
 }
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-tpl]'); if(t){ S.tpl=t.dataset.tpl; if(S.screen==='checkout'){ S.step=Math.min(S.step,steps().length-1); } S.combo=null; S.cat='mais'; moldura(); render(true); try{localStorage.setItem('regem_tpl_demo',S.tpl)}catch(_){}; return; }
   const c=e.target.closest('[data-cor]'); if(c){ S.accent=c.dataset.cor; moldura(); render(); return; }
+  const rt=e.target.closest('[data-rctog]'); if(rt){ const k=rt.dataset.rctog; S.rc[k]=!S.rc[k]; if(k==='aniv'){ S.rc.festou=false; if(S.rc.aniv&&S.ret&&!S.cupomOk) S.cupomOk='NIVER'; if(!S.rc.aniv&&S.cupomOk==='NIVER') S.cupomOk=null; } moldura(); render(); return; }
+  const rm=e.target.closest('[data-rcmin]'); if(rm){ S.rc.min=+rm.dataset.rcmin; moldura(); render(); return; }
   const et=e.target.closest('[data-evtog]'); if(et){ const k=et.dataset.evtog; S.ev[k]=!S.ev[k]; moldura(); render(); return; }
   const ag=e.target.closest('[data-ver-ev]'); if(ag){ S.ev.sel=ag.dataset.verEv; moldura(); render(true); $('#phone').scrollIntoView({behavior:'smooth',block:'center'}); return; }
   const lj=e.target.closest('[data-loja]'); if(lj){ S.loja=lj.dataset.loja; if(S.loja==='retirada') S.chk.tipo='retirada'; else S.chk.tipo='entrega'; if(S.loja==='fechada') S.chk.quando='agendar'; else if(S.chk.quando==='agendar' && !S.chk.agenda) S.chk.quando='agora'; if(S.chk.agenda && S.chk.agenda<minAgenda()) S.chk.agenda=''; moldura(); render(); return; }
-  const tg=e.target.closest('[data-tog]'); if(tg){ const k=tg.dataset.tog; if(k==='ret'){ S.ret=!S.ret; S.editDados=false; S.editEnd=false; S.expressoOff=false; preencherRet(S.ret); } else { S[k]=!S[k]; if(k==='cupons'&&!S.cupons){ S.cupomOk=null; S.cupomMsg=null; } } if(S.screen==='checkout') S.step=Math.min(S.step,steps().length-1); moldura(); render(); return; }
+  const tg=e.target.closest('[data-tog]'); if(tg){ const k=tg.dataset.tog; if(k==='ret'){ S.ret=!S.ret; S.rc.festou=false; if(S.rc.aniv){ S.cupomOk=S.ret?'NIVER':null; } S.editDados=false; S.editEnd=false; S.expressoOff=false; preencherRet(S.ret); } else { S[k]=!S[k]; if(k==='cupons'&&!S.cupons){ S.cupomOk=null; S.cupomMsg=null; } } if(S.screen==='checkout') S.step=Math.min(S.step,steps().length-1); moldura(); render(); return; }
   if(e.target.closest('#reset')){ reset(true); render(true); }
 });
 
@@ -1881,6 +1976,169 @@ function evDecorar(){
 }
 const evMsg = n=>{ const k=evAtual(); return k?EV[k].toast(n):`${n} está na sacola`; };
 function evAcc(){ const k=evAtual(); return k && S.ev.cores ? EV[k].acc : S.accent; }
+
+/* ======================= CLUBE DE RECOMPRA ======================= */
+/* Raspadinha, selos e aniversário dão benefício GARANTIDO (sem sorte). O sorteio é a
+   única peça com sorte: só publica com certificado de autorização SPA/MF e apura pela
+   Loteria Federal. */
+const SORT = {
+  nome:'Sorteio de outubro', mes:'outubro', fim:DT(2026,10,31), apur:'Loteria Federal de 31/10/2026 (sábado)',
+  ca:'Certificado de Autorização SPA/MF nº 04.012345/2026 (exemplo)', valorMin:30,
+  premios:[
+    {n:'Smart TV 43"',q:1,a:'tv'},
+    {n:'Air fryer 4 L',q:1,a:'fryer'},
+    {n:'Combo Família toda semana por 1 mês',q:3,a:'combo'},
+    {n:'Kit Mister: camiseta e copo',q:5,a:'kit'},
+  ],
+};
+const VOLTA = {cod:'VOLTA10', txt:'10% off no próximo pedido', dias:7};
+const NIVER = {cod:'NIVER', txt:'15% off (até R$ 20,00) na semana do seu aniversário'};
+const ALBUM = {meta:4, premio:'Batata frita grande grátis'};
+
+const ARTE_P = {
+  tv:sv('0 0 48 48',`<rect x="4" y="9" width="40" height="25" rx="2.5" fill="#0F172A"/><rect x="7" y="12" width="34" height="19" rx="1" fill="#38BDF8"/><path d="M7 31 L19 20 L26 26 L31 22 L41 31Z" fill="#0EA5E9"/><circle cx="34" cy="17" r="2.6" fill="#FDE68A"/><path d="M18 38 H30 M24 34 V38" stroke="#0F172A" stroke-width="2.6" stroke-linecap="round"/>`),
+  fryer:sv('0 0 48 48',`<path d="M12 14 Q12 7 19 7 H29 Q36 7 36 14 V38 Q36 42 32 42 H16 Q12 42 12 38Z" fill="#1F2937"/><rect x="15" y="25" width="18" height="13" rx="3" fill="#374151"/><rect x="21" y="29" width="6" height="2.6" rx="1.3" fill="#9CA3AF"/><circle cx="24" cy="16" r="5" fill="#111827" stroke="#F97316" stroke-width="1.6"/><path d="M24 13 V16 L26 17.5" stroke="#F97316" stroke-width="1.3" fill="none"/>`),
+  combo:sv('0 0 48 48',`<path d="M6 24 L42 24 L38 42 L10 42Z" fill="#D62828"/><path d="M6 24 L42 24" stroke="#9B1B1B" stroke-width="2"/><path d="M11 22 Q11 10 24 10 Q37 10 37 22Z" fill="#F4A340"/><g fill="#FFF3D6"><ellipse cx="18" cy="15" rx="1.3" ry=".8"/><ellipse cx="24" cy="13" rx="1.3" ry=".8"/><ellipse cx="30" cy="15.5" rx="1.3" ry=".8"/></g><text x="24" y="37" text-anchor="middle" font-family="Archivo,system-ui,sans-serif" font-weight="800" font-size="8" fill="#fff">MISTER</text>`),
+  kit:sv('0 0 48 48',`<path d="M6 13 L14 8 Q18 12 22 8 L30 13 L27 19 L25 18 V40 H11 V18 L9 19Z" fill="#111827"/><text x="18" y="27" text-anchor="middle" font-family="Archivo,system-ui,sans-serif" font-weight="800" font-size="5" fill="#FACC15">MB</text><path d="M31 20 H43 L41 42 H33Z" fill="#D62828"/><rect x="30" y="17" width="14" height="4" rx="1.5" fill="#9B1B1B"/><path d="M36 17 L38 9" stroke="#111827" stroke-width="1.6"/>`),
+};
+const BOLO = sv('0 0 96 96',`<ellipse cx="48" cy="86" rx="38" ry="5" fill="#000" opacity=".12"/><rect x="18" y="50" width="60" height="34" rx="6" fill="#F9A8D4"/><path d="M18 58 Q24 66 30 58 Q36 66 42 58 Q48 66 54 58 Q60 66 66 58 Q72 66 78 58 V56 Q78 50 72 50 H24 Q18 50 18 56Z" fill="#fff"/><rect x="18" y="72" width="60" height="5" fill="#F472B6"/><g fill="#FACC15"><circle cx="28" cy="67" r="1.6"/><circle cx="44" cy="69" r="1.6"/><circle cx="60" cy="67" r="1.6"/><circle cx="72" cy="69" r="1.6"/></g>
+${[34,48,62].map((x,i)=>`<rect x="${x-2.2}" y="30" width="4.4" height="20" rx="1.5" fill="${['#60A5FA','#34D399','#FBBF24'][i]}"/><path d="M${x-2.2} 34 l4.4 -3 M${x-2.2} 41 l4.4 -3 M${x-2.2} 48 l4.4 -3" stroke="#fff" stroke-width="1.2"/><path class="vela" d="M${x} 20 C${x+5} 25 ${x+3} 30 ${x} 30 C${x-3} 30 ${x-5} 25 ${x} 20Z" fill="#F97316"/><path class="vela" d="M${x} 24 C${x+2.5} 27 ${x+1.5} 29 ${x} 29 C${x-1.5} 29 ${x-2.5} 27 ${x} 24Z" fill="#FDE047"/>`).join('')}`);
+const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const MESES_L = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
+function eventoDoMes(m){ const y=hojeD().getFullYear(); for(const k of ORDEM_EV){ const w=JANELA[k](y); if(w.dia.getMonth()===m) return k; } return null; }
+function selo(m, on){
+  const k=eventoDoMes(m), cores=k?[EV[k].acc,'#fff']:['#0F2230','#fff'];
+  const ico = k ? ART.ico[k].replace('<svg ','<svg x="17" y="13" width="22" height="22" ') : `<g transform="translate(28 24)">${estrela(0,0,10,'#E2A340')}</g>`;
+  const dentes = Array.from({length:20},(_,i)=>{ const a=i/20*Math.PI*2, r=i%2?26:28; return `${(28+Math.cos(a)*r).toFixed(1)},${(28+Math.sin(a)*r).toFixed(1)}`; }).join(' ');
+  return `<span class="selo ${on?'on':''}">${sv('0 0 56 56',on?`<polygon points="${dentes}" fill="${cores[0]}"/><circle cx="28" cy="28" r="21" fill="${cores[1]}"/><circle cx="28" cy="28" r="18.5" fill="none" stroke="${cores[0]}" stroke-width="1" stroke-dasharray="2 2"/>${ico}<text x="28" y="45" text-anchor="middle" font-family="Archivo,system-ui,sans-serif" font-weight="800" font-size="7.5" fill="${cores[0]}">${MESES[m].toUpperCase()}</text>`:`<circle cx="28" cy="28" r="25" fill="none" stroke="#CBD5E1" stroke-width="2" stroke-dasharray="4 3"/><text x="28" y="32" text-anchor="middle" font-family="Archivo,system-ui,sans-serif" font-weight="700" font-size="9" fill="#94A3B8">${MESES[m].toUpperCase()}</text>`)}</span>`;
+}
+
+/* ---------- estado derivado ---------- */
+const mesAtual = ()=>hojeD().getMonth();
+const pedMes = ()=>(S.ret?2:0)+S.rc.feitos;
+const numerosDevidos = ()=>Math.floor(pedMes()/S.rc.min);
+function selosTenho(){ const m=mesAtual(), base=S.ret?[ (m+10)%12, (m+11)%12 ]:[]; if(S.rc.algum) base.push(m); return [...new Set(base)]; }
+function numeroSorte(i){ let x=(57+i*7919+(S.ret?131:17))*2654435761%100000; return String(Math.abs(x)).padStart(5,'0'); }
+function cpfOk(v){ const d=dig(v); return d.length===11 && !/^(\d)\1+$/.test(d); }
+function confete(pt,n,pal=['#FACC15','#EC4899','#3B82F6','#22C55E','#F97316','#A855F7']){
+  if(RM.matches||!FX.w) return;
+  for(let i=0;i<n;i++){ const p=spawn('confete',false), a=Math.random()*Math.PI*2, v=1.8+Math.random()*3.4; Object.assign(p,{c:pal[i%pal.length],x:pt.x,y:pt.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v-2.6,g:.13,life:55+Math.random()*30,vr:(Math.random()-.5)*.2}); p.max=p.life; FX.bs.push(p); }
+  fxKick();
+}
+function ptDe(el){ const ph=$('#phone').getBoundingClientRect(), r=el.getBoundingClientRect(); return {x:r.left-ph.left+r.width/2,y:r.top-ph.top+r.height/2}; }
+
+/* ---------- vitrine ---------- */
+function clubeVitrine(){
+  let h='';
+  if(S.rc.aniv && S.ret) h+=`<section class="rc-niver" aria-label="Aniversário"><div><small>Feliz aniversário</small><h3>Parabéns, ${esc(RET.nome)}!</h3><p>Seu presente: ${NIVER.txt}. Já está aplicado.</p></div><span class="rc-bolo">${BOLO}</span></section>`;
+  if(S.rc.sort){
+    const n=pedMes(), min=S.rc.min, nums=numerosDevidos(), falta=min-(n%min), dentro=nums>0, dias=diasAte(SORT.fim);
+    h+=`<section class="rc-sort" aria-label="${SORT.nome}"><div class="rc-tk"><span class="rc-tkh"><small>${SORT.nome}</small><b>${dentro?`Você está concorrendo${nums>1?` com ${nums} números`:''}!`:`Faça ${min} pedidos e concorra`}</b></span><span class="rc-dias">${dias>0?`${dias} ${dias===1?'dia':'dias'}`:'hoje'}</span></div>
+      <p>${dentro?(S.rc.aceitou?`Seu número da sorte: <b class="rc-num">${numeroSorte(0)}</b>${nums>1?` e mais ${nums-1}`:''}. ${falta<min?`Faltam ${falta} ${falta===1?'pedido':'pedidos'} para ganhar outro número.`:''}`:'Aceite o regulamento para receber seu número da sorte.'):`A uma Smart TV 43", uma air fryer e mais ${SORT.premios.reduce((a,p)=>a+p.q,0)-2} prêmios. Pedidos a partir de ${BRL(SORT.valorMin)} contam.`}</p>
+      <div class="rc-prog" aria-label="${n%min||(dentro?min:0)} de ${min} pedidos">${Array.from({length:min},(_,i)=>`<i class="${i<(dentro&&n%min===0?min:n%min)?'on':''}">${ic('check',12)}</i>`).join('')}<span>${dentro&&n%min===0?`${min} de ${min}`:`${n%min} de ${min} pedidos`}</span></div>
+      <div class="rc-acts"><button class="ev-go" data-a="rcPremios">Ver prêmios</button>${dentro&&!S.rc.aceitou?`<button class="rc-cta" data-a="rcAceitar">Pegar meu número</button>`:''}</div></section>`;
+  }
+  return h?`<div class="rc-wrap">${h}</div>`:'';
+}
+function viewPremios(){
+  return `<div class="p-dim" data-a="rcFechar"></div><div class="p-sheet rc-sheet" role="dialog" aria-label="Prêmios do sorteio"><div class="p-pbody">
+    <header class="rc-sh"><div><small>${SORT.nome}</small><h3>Prêmios</h3></div><button class="ch-b" data-a="rcFechar" aria-label="Fechar">${ic('close',18)}</button></header>
+    <ul class="rc-pr">${SORT.premios.map((p,i)=>`<li><span class="a">${ARTE_P[p.a]}</span><span><b>${p.n}</b><small>${p.q} ${p.q===1?'ganhador':'ganhadores'} · ${i+1}º prêmio</small></span></li>`).join('')}</ul>
+    <div class="c-sec"><h3 class="c-h">Como participar</h3><ol class="rc-ol">
+      <li>Faça <b>${S.rc.min} pedidos</b> de ${BRL(SORT.valorMin)} ou mais em ${SORT.mes} pelo cardápio da loja.</li>
+      <li>Aceite o regulamento e informe seu CPF. Você recebe <b>1 número da sorte a cada ${S.rc.min} pedidos</b>.</li>
+      <li>A apuração usa a ${SORT.apur}. Avisamos os ganhadores pelo WhatsApp.</li></ol>
+      <p class="c-note">${SORT.ca}. Prêmios não podem ser trocados por dinheiro. Pedidos cancelados não contam.</p>
+      <button class="c-link" data-a="rcRegul">${ic('chev',16)} Ler o regulamento completo</button></div>
+  </div></div>`;
+}
+function viewAceitar(){
+  const ok=cpfOk(S.rc.cpf)&&S.rc.li;
+  return `<div class="p-dim" data-a="rcFechar"></div><div class="p-modal" role="dialog" aria-label="Participar do sorteio"><h3>Pegar meu número da sorte</h3><p>Para entregar o prêmio, a lei exige identificar o ganhador. Usamos seu CPF só para este sorteio.</p>
+    <div class="c-f"><label for="f-rccpf">CPF</label><input class="c-in" id="f-rccpf" data-rc="cpf" inputmode="numeric" placeholder="000.000.000-00" value="${esc(S.rc.cpf)}"></div>
+    <button class="c-chk" data-a="rcLi" aria-pressed="${!!S.rc.li}"><i>${S.rc.li?ic('check',14):''}</i><span>Li e aceito o <u>regulamento</u> do ${SORT.nome.toLowerCase()}</span></button>
+    <div class="m-act"><button class="p-btn2" data-a="rcFechar">Agora não</button><button class="p-btn c" data-a="rcParticipar" id="rc-part" ${ok?'':'disabled'}>Participar</button></div></div>`;
+}
+
+/* ---------- confirmação ---------- */
+function clubeOk(){
+  const p=S.pedido; if(!p) return '';
+  let h='';
+  if(S.rc.rasp){
+    const r=S.rc.raspado[p.senha], ate=ddmm(addD(hojeD(),VOLTA.dias));
+    h+=`<div class="rc-box"><div class="rc-bh"><b>Raspe e ganhe</b><small>Prêmio garantido para o próximo pedido</small></div>
+      <div class="rasp ${r?'aberta':''}" id="rasp"><div class="rasp-pr"><span>${VOLTA.txt}</span><b>${VOLTA.cod}</b><small>Válido até ${ate} · entra sozinho no próximo pedido</small></div>${r?'':'<canvas aria-hidden="true"></canvas>'}</div>
+      ${r?'':`<button class="lk-sim" data-a="raspRevelar">Revelar sem raspar</button>`}</div>`;
+  }
+  if(S.rc.sort){
+    const n=pedMes(), min=S.rc.min, nums=numerosDevidos(), novo=p.rcNovoNumero, contou=p.total>=SORT.valorMin;
+    h+=`<div class="rc-box rc-sorte"><div class="rc-bh"><b>${SORT.nome}</b><small>Apuração pela ${SORT.apur}</small></div>
+      ${!contou?`<p class="c-note">Pedidos a partir de ${BRL(SORT.valorMin)} contam para o sorteio. Este ficou abaixo.</p>`:
+       novo? (S.rc.aceitou?`<div class="rc-ticket"><small>Seu número da sorte</small><b>${numeroSorte(nums-1)}</b><span>${nums>1?`Você tem ${nums} números neste mês`:'Boa sorte!'}</span></div>`:`<p><b>Este pedido completou ${min} de ${min}!</b> Você já pode concorrer.</p><button class="p-btn c" data-a="rcAceitar">Pegar meu número da sorte</button>`)
+       :`<div class="rc-prog">${Array.from({length:min},(_,i)=>`<i class="${i<n%min?'on':''}">${ic('check',12)}</i>`).join('')}<span>Este pedido contou: ${n%min} de ${min}</span></div><p class="c-note">Faltam ${min-n%min} ${min-n%min===1?'pedido':'pedidos'} até ${ddmm(SORT.fim)} para ${nums?'ganhar mais um número':'concorrer'}.</p>`}
+      <button class="c-link" data-a="rcPremios">${ic('gift',16)} Ver prêmios</button></div>`;
+  }
+  if(S.rc.selos){
+    const tem=selosTenho(), m=mesAtual(), slots=Array.from({length:ALBUM.meta},(_,i)=>(m-ALBUM.meta+1+i+12)%12), n=tem.length;
+    h+=`<div class="rc-box"><div class="rc-bh"><b>${p.rcSeloNovo?`Selo de ${MESES_L[m]} no álbum!`:`Álbum de selos`}</b><small>1 selo por mês com pedido · junte ${ALBUM.meta} e ganhe ${ALBUM.premio.toLowerCase()}</small></div>
+      <div class="rc-album">${slots.map(s=>`<span class="${p.rcSeloNovo&&s===m?'novo':''}">${selo(s,tem.includes(s))}</span>`).join('')}</div>
+      <p class="c-note">${n>=ALBUM.meta?`Álbum completo! ${ALBUM.premio} no seu próximo pedido.`:`Faltam ${ALBUM.meta-n} ${ALBUM.meta-n===1?'selo':'selos'} para ${ALBUM.premio.toLowerCase()}.`}</p></div>`;
+  }
+  return h?`<div class="rc-ok">${h}</div>`:'';
+}
+function clubeNoPedido(){
+  const t=tot(), seloAntes=selosTenho().includes(mesAtual()), antes=numerosDevidos(), conta=t.total>=SORT.valorMin;
+  if(conta) S.rc.feitos++;
+  S.rc.algum=true;
+  S.pedido.rcNovoNumero = S.rc.sort && conta && numerosDevidos()>antes;
+  S.pedido.rcSeloNovo = S.rc.selos && !seloAntes;
+}
+function clubeConta(){
+  let h='';
+  if(S.rc.sort){ const nums=numerosDevidos(); h+=`<div class="c-card">${ARTE_P.tv.replace('<svg ','<svg width="32" height="32" ')}<div><b>${SORT.nome}</b><small>${nums&&S.rc.aceitou?`Números: ${Array.from({length:nums},(_,i)=>numeroSorte(i)).join(', ')}`:`${pedMes()%S.rc.min} de ${S.rc.min} pedidos para concorrer`}</small></div><button class="lk" data-a="rcPremios">Prêmios</button></div>`; }
+  if(S.rc.selos){ const tem=selosTenho(), m=mesAtual(); h+=`<div class="rc-album mini">${Array.from({length:ALBUM.meta},(_,i)=>(m-ALBUM.meta+1+i+12)%12).map(s=>selo(s,tem.includes(s))).join('')}</div>`; }
+  if(S.rc.voltaPend) h+=`<div class="c-card cup">${ic('tag')}<div><b>${VOLTA.cod}</b><small>${VOLTA.txt} · da raspadinha</small></div></div>`;
+  return h;
+}
+
+/* ---------- aplica depois de cada render ---------- */
+function clubeDecorar(){
+  const ph=$('#phone');
+  if(S.screen==='home'||S.screen==='produto'){
+    const sc=$('#p-scroll'); if(sc){ const html=clubeVitrine(); if(html){
+      let ap=sc.querySelector('#ev-col')||sc.querySelector('.f-strip,.g-top,.b-head,.o-head');
+      if(ap && !ap.id && ap.nextElementSibling && ap.nextElementSibling.classList.contains('p-aviso')) ap=ap.nextElementSibling;
+      ap && ap.insertAdjacentHTML('afterend',html);
+      if(S.rc.aniv && S.ret && !S.rc.festou){ S.rc.festou=true; const b=sc.querySelector('.rc-bolo'); if(b) setTimeout(()=>confete(ptDe(b),70),250); }
+    } }
+  }
+  if(S.rc.sheet==='premios') ph.insertAdjacentHTML('beforeend',viewPremios());
+  if(S.rc.sheet==='aceitar') ph.insertAdjacentHTML('beforeend',viewAceitar());
+  if(S.screen==='ok'){ const c=ph.querySelector('#rasp canvas'); if(c) raspadinha(c); }
+}
+function raspadinha(c){
+  const box=c.parentElement, r=box.getBoundingClientRect(), d=Math.min(2,devicePixelRatio||1), x=c.getContext('2d');
+  c.width=Math.round(r.width*d); c.height=Math.round(r.height*d); x.scale(d,d);
+  const k=evAtual(), g=x.createLinearGradient(0,0,r.width,r.height);
+  if(k&&S.ev.cores){ g.addColorStop(0,EV[k].acc); g.addColorStop(.5,'#ffffff'); g.addColorStop(1,EV[k].acc); } else { g.addColorStop(0,'#AEB6C1'); g.addColorStop(.45,'#EEF1F4'); g.addColorStop(.55,'#DCE1E7'); g.addColorStop(1,'#9EA7B3'); }
+  x.fillStyle=g; x.fillRect(0,0,r.width,r.height);
+  x.globalAlpha=.18; x.strokeStyle='#fff'; x.lineWidth=6; for(let i=-r.height;i<r.width;i+=18){ x.beginPath(); x.moveTo(i,r.height); x.lineTo(i+r.height,0); x.stroke(); } x.globalAlpha=1;
+  x.fillStyle='rgba(15,34,48,.75)'; x.font='800 18px Archivo, system-ui, sans-serif'; x.textAlign='center'; x.textBaseline='middle'; x.fillText('Raspe aqui com o dedo',r.width/2,r.height/2-6);
+  x.font='600 12px Figtree, system-ui, sans-serif'; x.fillText('seu prêmio está embaixo',r.width/2,r.height/2+15);
+  let on=false, last=null, n=0;
+  const pos=e=>{ const b=c.getBoundingClientRect(); return {x:e.clientX-b.left,y:e.clientY-b.top}; };
+  const apaga=p=>{ x.globalCompositeOperation='destination-out'; x.lineCap='round'; x.lineWidth=34; x.beginPath(); x.moveTo((last||p).x,(last||p).y); x.lineTo(p.x,p.y); x.stroke(); last=p; };
+  const conf=()=>{ const im=x.getImageData(0,0,c.width,c.height).data; let z=0,t=0; for(let i=3;i<im.length;i+=4*24){ t++; if(im[i]<128) z++; } return z/t; };
+  c.addEventListener('pointerdown',e=>{ on=true; last=null; c.setPointerCapture(e.pointerId); apaga(pos(e)); });
+  c.addEventListener('pointermove',e=>{ if(!on) return; apaga(pos(e)); if(++n%6===0 && conf()>.5) revelar(); });
+  c.addEventListener('pointerup',()=>{ on=false; if(conf()>.5) revelar(); });
+  function revelar(){ if(S.rc.raspado[S.pedido.senha]) return; S.rc.raspado[S.pedido.senha]=true; S.rc.voltaPend=true; c.classList.add('some'); box.classList.add('aberta'); confete(ptDe(box),60); const bt=box.parentElement.querySelector('[data-a=raspRevelar]'); bt&&bt.remove(); }
+  c._revelar=revelar;
+}
+
+/* ---------- painel do protótipo ---------- */
+function clubeNota(){ const on=[S.rc.rasp&&'Raspadinha com prêmio garantido',S.rc.selos&&'Álbum de selos mensais',S.rc.aniv&&'Aniversário do cliente',S.rc.sort&&`Sorteio do mês: ${S.rc.min} pedidos para concorrer`].filter(Boolean); if(!on.length) return '';
+  return `<div class="evbox"><div class="lab">Clube de recompra</div><ul>${on.map(f=>`<li>${f}</li>`).join('')}</ul><p class="hint">Faça um pedido até a confirmação para ver a raspadinha, o selo e o número da sorte.</p></div>`; }
 
 function evNota(){ const k=evAtual(); if(!k) return ''; const E=EV[k], w=janelaDe(k);
   return `<div class="evbox"><div class="lab">Evento ${S.ev.sel==='auto'?'ativo hoje':'em prévia'}</div><b>${E.nome}</b><span class="per">${ddmm(w.ini)} a ${ddmm(w.fim)}/${w.fim.getFullYear()}</span><ul>${E.feats.map(f=>`<li>${f}</li>`).join('')}</ul></div>`; }
