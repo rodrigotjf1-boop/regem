@@ -32,6 +32,9 @@ export type TipoProblema =
   // Troca do código da autorização pela loja (C1b).
   | 'cliente-invalido'
   | 'autorizacao-invalida'
+  // Avisos (webhooks, mig 304).
+  | 'endereco-nao-permitido'
+  | 'aviso-indisponivel'
   | 'erro-interno';
 
 const TITULO: Record<TipoProblema, string> = {
@@ -48,6 +51,8 @@ const TITULO: Record<TipoProblema, string> = {
   'chave-reutilizada': 'Chave de idempotência reutilizada',
   'cliente-invalido': 'Cliente inválido',
   'autorizacao-invalida': 'Autorização inválida',
+  'endereco-nao-permitido': 'Endereço não permitido',
+  'aviso-indisponivel': 'Avisos indisponíveis',
   'erro-interno': 'Erro interno',
 };
 

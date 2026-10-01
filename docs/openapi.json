@@ -15243,6 +15243,87 @@
         ]
       }
     },
+    "/api/v1/integracao/webhook": {
+      "put": {
+        "operationId": "IntegracaoApiController_registrarWebhook",
+        "summary": "Registra (ou troca) o endereço e o segredo do aviso deste token. Registrar de novo religa o que estava pausado.",
+        "description": "O Regem manda um POST assinado (Standard Webhooks: webhook-id, webhook-timestamp, webhook-signature) quando há venda, cupom, uso de cupom ou cliente anonimizado novo para a loja do token — só do que o escopo libera, no máximo um por minuto por loja, e um aviso pode valer por várias mudanças (o id é o da mais recente). Corpo: { \"tipo\": \"pedido.alterado\" | \"cupom.alterado\", \"id\", \"versao\" }, { \"tipo\": \"cupom.usado\", \"id\", \"cupom_id\", \"pedido_id\" } ou { \"tipo\": \"cliente.anonimizado\", \"id\" } — todos com \"loja_id\" (a loja do token; o token da empresa inteira não manda). É só gatilho: aviso perdido ou repetido não muda nada. 422 endereco-nao-permitido: endereço fora da lista da integração; 503 aviso-indisponivel: tente de novo mais tarde.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrarWebhookIntegracao"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "IntegracaoApiController_webhook",
+        "summary": "Situação do aviso deste token (nunca o segredo). Sem registro → 404.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookIntegracao"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "operationId": "IntegracaoApiController_removerWebhook",
+        "summary": "Para de avisar (apaga o endereço e o segredo). Sem registro, responde 204 do mesmo jeito.",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Integração (token por loja)"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
     "/api/v1/integracao/pedidos": {
       "get": {
         "operationId": "IntegracaoApiController_pedidos",
@@ -18425,6 +18506,75 @@
         },
         "required": [
           "pergunta"
+        ]
+      },
+      "RegistrarWebhookIntegracao": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "example": "https://api.agencialiame.com/v1/inbox/regem/0199c0de-7a11-7c3a-9f2e-5b1d2c3e4f50",
+            "description": "Endereço da própria integração (até 500 caracteres), dentro da lista que a distribuição do Regem liberou para ela."
+          },
+          "segredo": {
+            "type": "string",
+            "example": "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw",
+            "description": "Segredo da assinatura no formato Standard Webhooks: \"whsec_\" + base64 de 24 a 64 bytes. Fica cifrado no Regem e nunca é devolvido."
+          }
+        },
+        "required": [
+          "url",
+          "segredo"
+        ]
+      },
+      "WebhookIntegracao": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "registrado_em": {
+            "type": "string",
+            "description": "O último registro (PUT)."
+          },
+          "pausado": {
+            "type": "boolean",
+            "description": "Pausado: o destino falhou por dias, ou respondeu que a conexão não existe. Um PUT novo religa."
+          },
+          "pausado_em": {
+            "type": "string",
+            "nullable": true
+          },
+          "motivo_pausa": {
+            "type": "string",
+            "nullable": true
+          },
+          "ultimo_envio_em": {
+            "type": "string",
+            "nullable": true
+          },
+          "ultimo_status_http": {
+            "type": "number",
+            "nullable": true
+          },
+          "falhas_seguidas": {
+            "type": "number"
+          },
+          "entregues": {
+            "type": "number",
+            "description": "Avisos entregues (2xx) desde o primeiro registro."
+          }
+        },
+        "required": [
+          "url",
+          "registrado_em",
+          "pausado",
+          "pausado_em",
+          "motivo_pausa",
+          "ultimo_envio_em",
+          "ultimo_status_http",
+          "falhas_seguidas",
+          "entregues"
         ]
       },
       "ClienteVendaIntegracao": {
