@@ -50,6 +50,11 @@ button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-vis
 .tog[aria-pressed="true"] i::after{transform:translateX(16px)}
 .ghost{justify-self:start;font-weight:600;font-size:14px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
 .hint{font-size:13px;color:var(--muted);margin:0}
+.seg{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.seg button{padding:9px 4px;font-size:12.5px;font-weight:600;line-height:1.2}
+.seg button + button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.togs{display:grid;gap:10px}
 
 .device{width:390px;height:820px;border-radius:44px;background:var(--device);padding:12px;box-shadow:0 30px 60px -30px rgba(15,34,48,.45)}
 #phone{width:100%;height:100%;border-radius:33px;overflow:hidden;position:relative;isolation:isolate}
@@ -117,6 +122,28 @@ td.us{background:var(--gold-soft)}
 .p-btn2{min-height:48px;border-radius:var(--p-rbtn);box-shadow:inset 0 0 0 1.5px var(--p-line);font:600 15px var(--p-font);display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;width:100%;background:var(--p-card)}
 .p-hint{font-size:12px;color:var(--p-mut);text-align:center}
 .p-toast{position:absolute;left:16px;right:16px;bottom:96px;z-index:40;background:var(--p-ink);color:var(--p-bg);border-radius:12px;padding:12px 14px;font-weight:600;font-size:13px;display:flex;align-items:center;gap:8px;animation:pup .25s}
+.p-aviso{margin:12px 16px 0;display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:var(--p-rs);background:#FFF4E5;color:#7A3E00}
+.p-aviso.fechada{background:#FDECEC;color:#8A1C1C}
+.p-aviso b{display:block;font-size:14px}
+.p-aviso span{font-size:12.5px;line-height:1.35}
+.dot.retirada{background:#E08A00}.dot.fechada{background:#D23B3B}
+.c-seg button:disabled{opacity:.45;cursor:not-allowed}
+.c-fid{padding:12px 14px;border-radius:var(--p-rs);background:#FBF1DF;color:#7A4E0E;display:grid;gap:8px;font-size:13px}
+.c-fid .r{display:flex;justify-content:space-between;gap:8px}
+.c-fid .r span{font-family:var(--p-num);font-weight:700}
+.c-fid .bar{height:8px;border-radius:4px;background:rgba(122,78,14,.15);position:relative;overflow:hidden}
+.c-fid .bar i{position:absolute;top:0;bottom:0}
+.c-fid .bar .a{left:0;background:#B87A1E}
+.c-fid .bar .b{background:repeating-linear-gradient(45deg,#E2A340 0 5px,#EDBE6E 5px 10px)}
+.c-cb{display:flex;gap:8px;align-items:center;font-size:13px;color:#0E7C66;background:#E7F5EF;padding:10px 12px;border-radius:var(--p-rs)}
+.c-trio{padding:12px;border-radius:var(--p-rs);background:var(--p-surf);display:grid;gap:8px;margin-left:68px}
+.c-trio .h{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
+.c-trio .x{width:28px;height:28px;display:grid;place-items:center;border-radius:50%;color:var(--p-mut)}
+.c-trio small{color:var(--p-mut);font-size:12px;margin-top:-4px}
+.c-trio .m-chips{gap:6px}
+.c-trio .m-chips button{padding:6px 10px;font-size:12px;background:var(--p-card)}
+.c-card.cup{box-shadow:inset 0 0 0 1.5px var(--p-acc);background:var(--p-acc-soft)}
+.ico-t{font:700 11px var(--p-num);width:24px;text-align:center}
 .bump{animation:bump .5s}
 @keyframes bump{30%{transform:scale(1.04)}60%{transform:scale(.98)}}
 .flash{animation:flash 1s}
@@ -342,6 +369,7 @@ select.c-in{appearance:auto}
 .b-logo{width:76px;height:76px;border-radius:14px;background:var(--p-ink);color:#fff;display:grid;place-items:center;font:700 22px var(--p-disp);margin-top:-38px;border:3px solid #fff;position:relative}
 .b-head h1{margin:4px 0 0;font:600 20px var(--p-disp)}
 .b-st{display:flex;align-items:center;gap:6px;font-size:13px;color:#13804F;font-weight:500}
+.b-st.retirada{color:#A35F00}.b-st.fechada{color:#C0362C}
 .b-inf{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--p-mut)}
 .b-inf span{display:flex;align-items:center;gap:4px}
 .b-mais{position:absolute;right:16px;top:12px;font-size:13px;color:var(--p-acc);font-weight:500}
@@ -392,6 +420,7 @@ select.c-in{appearance:auto}
 .o-chips{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
 .o-chips span{font-size:12px;padding:5px 10px;border-radius:999px;background:var(--p-surf);display:flex;gap:5px;align-items:center}
 .o-chips .ab{background:#E5F7EE;color:#13804F;font-weight:600}
+.o-chips .ab.retirada{background:#FFF4E5;color:#A35F00}.o-chips .ab.fechada{background:#FDECEC;color:#C0362C}
 .o-frete{margin:4px 16px 0;padding:12px 14px;border-radius:14px;background:#FFF6DB;color:var(--hot-ink);display:grid;gap:8px;font-size:13px}
 .o-frete b{font-weight:700}
 .o-frete .bar{height:8px;border-radius:4px;background:rgba(58,43,0,.12);overflow:hidden}
@@ -454,9 +483,14 @@ select.c-in{appearance:auto}
 .f-top{display:flex;align-items:flex-start;gap:10px;padding:22px 20px 6px}
 .f-top div{flex:1;min-width:0}
 .f-top h1{margin:0;font:800 23px/1.1 var(--p-disp);letter-spacing:-.015em}
-.f-top p{margin:6px 0 0;font-size:13px;color:var(--p-mut);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.f-top p{margin:6px 0 0;font-size:13px;color:var(--p-mut)}
+.f-top p .dot{margin-right:6px;vertical-align:1px}
 .f-ic{width:40px;height:40px;border-radius:50%;box-shadow:inset 0 0 0 1px var(--p-line);display:grid;place-items:center;flex:none}
-.f-strip{display:flex;gap:6px;flex-wrap:wrap;padding:10px 20px 4px}
+.f-strip{gap:6px;padding:12px 20px 4px}
+.f-strip span{white-space:nowrap}
+.f-strip .cup{background:var(--p-acc-soft);color:var(--p-acc);font-weight:600}
+.f-strip .cb{background:#E7F5EF;color:#0E7C66}
+.f-loc{display:flex;align-items:center;gap:5px;white-space:nowrap;font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;box-shadow:inset 0 0 0 1.5px var(--p-ink);color:var(--p-ink);background:var(--p-card)}
 .f-strip span{font-size:12px;padding:5px 10px;border-radius:999px;background:var(--p-surf);color:var(--p-mut);display:flex;gap:5px;align-items:center}
 .f-strip span.g{background:#FBF1DF;color:#7A4E0E}
 .f-re{margin:14px 20px 0;padding:12px;border-radius:16px;box-shadow:inset 0 0 0 1px var(--p-line);display:flex;gap:12px;align-items:center}
@@ -538,8 +572,10 @@ select.c-in{appearance:auto}
       <div class="tpls" id="tpls"></div>
       <div class="lab">Cor da loja</div>
       <div class="sw" id="sw"></div>
-      <div class="lab">Simular</div>
-      <button class="tog" id="tog-ret" aria-pressed="false"><i></i><span>Cliente que já comprou<br><small class="hint">Preenche dados e mostra “Peça de novo”</small></span></button>
+      <div class="lab">Situação da loja</div>
+      <div class="seg" id="seg-loja" role="group" aria-label="Situação da loja"></div>
+      <div class="lab">Recursos e cliente</div>
+      <div class="togs" id="togs"></div>
       <button class="ghost" id="reset">Recomeçar pedido</button>
     </aside>
 
@@ -616,7 +652,11 @@ const HERO = [
   {img:'hero2',pid:'t08',k:'Mais pedido',t:'Trio 08 na brasa',s:'Picanha, bacon e ovo · R$ 32,50'},
   {img:'rustic',pid:'cdup',k:'Leve 2',t:'Combo Duplo',s:'De R$ 62,00 por R$ 54,90'},
 ];
-const RET = {nome:'Rodrigo', whats:'(21) 99876-5432', bairro:'centro', rua:'Rua das Acácias', num:'120', ref:'Portão verde'};
+const RET = {nome:'Rodrigo', whats:'(21) 99876-5432', bairro:'centro', rua:'Rua das Acácias', num:'120', ref:'Portão verde', forma:'pix'};
+const ABRE = '18:00';
+const CB = {pct:5, saldoRet:7.4};
+const FID = {plano:'Clube Mister', meta:100, saldoRet:80, premio:'Batata frita grande grátis'};
+const CUP = [['MISTER10','10% off'],['PRIMEIRA','R$ 8 off na 1ª compra acima de R$ 30']];
 
 /* ---------------- metadados dos templates ---------------- */
 const META = {
@@ -629,16 +669,16 @@ const META = {
   oferta:{nome:'Oferta',ref:'inspirado no Anota AI',linha:'Promoções e combos na frente',steps:['sacola','entrega','pagamento'],dadosNaEntrega:true,
     prio:'Para lojas que vendem pela oferta do dia. Promoções, combos e o frete grátis aparecem antes do cardápio comum.',
     rec:['Barra de progresso até o frete grátis, na vitrine e na sacola','Promoções com preço de/por e % de desconto','Selos COMBO e PROMO nos cards','“Transforme em trio” dentro do lanche','Cupons sugeridos na sacola','Checkout em 3 etapas com passos numerados']},
-  fluxo:{nome:'Regem Fluxo',ref:'próprio do Regem',linha:'Clean, uma decisão por tela',steps:['sacola','entrega','dados','pagamento'],
+  fluxo:{nome:'Regem Fluxo',ref:'próprio do Regem',linha:'Clean, uma decisão por tela',steps:['sacola','entrega','pagamento'],dadosNaEntrega:true,
     prio:'Junta o melhor dos três com o mínimo de ruído. Uma decisão por tela, e o botão principal sempre diz o que falta para seguir.',
-    rec:['Botão diz o que falta (“Escolha a bebida”) e leva até o campo','Obrigatórios antes dos adicionais; adicionais recolhidos','Botão + adiciona direto o que não tem escolha obrigatória','“Vira trio por + R$ 9,00?” logo depois de um lanche avulso','Frete “a calcular” até escolher o bairro','“Seus dados” é pulada para quem já comprou','Cupom recolhido no pagamento, sem distrair','Pontos “a caminho”, previsão de horário e status ao vivo']},
+    rec:['“Entregar em” no topo: a taxa aparece antes do 1º item','Quem já comprou vai da sacola direto para “Revisar e pedir”','Cliente novo: 3 etapas, com nome e WhatsApp na entrega','Botão diz o que falta (“Escolha a bebida”) e leva até o campo','Obrigatórios antes dos adicionais; adicionais recolhidos','“Vira trio?” dentro da sacola, sem pop-up','Cupom disponível sugerido; sem cupom ativo, nenhum campo de cupom','Progresso do plano de fidelidade e cashback a ganhar no pagamento','Loja fechada aceita agendamento; só retirada bloqueia a entrega com o horário de volta']},
 };
 const ORDEM = ['galeria','balcao','oferta','fluxo'];
 const CORES = [['#D62828','Vermelho Mister'],['#E2A340','Dourado Regem'],['#0E8E5A','Verde'],['#2563EB','Azul'],['#6D28D9','Roxo']];
 
 /* ---------------- estado ---------------- */
 const CHK0 = {tipo:'entrega',bairro:'',rua:'',num:'',ref:'',quando:'agora',agenda:'',nome:'',whats:'',forma:'',troco:'',cupom:'',cpfNota:false,cpf:''};
-const S = {tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
+const S = {loja:'aberta',cupons:true,cashback:true,fid:true,usarCb:true,bairroSheet:false,expressoOff:false,trioNao:[],trioBeb:{},tpl:'fluxo',accent:'#D62828',ret:false,screen:'home',pid:null,sel:{},qtd:1,obs:'',obsAberta:false,trio:false,colOpc:false,cart:[],step:0,chk:{...CHK0},cupomOk:null,cupomMsg:null,cupomAberto:false,combo:null,busca:'',buscaAberta:false,toast:'',pedido:null,pixPago:false,editEnd:false,editDados:false,cat:'mais'};
 
 /* ---------------- utilidades ---------------- */
 const $ = s => document.querySelector(s);
@@ -664,6 +704,17 @@ const pct = p => p.de ? Math.round((1 - p.preco/p.de)*100) : 0;
 function lum(hex){const n=parseInt(hex.slice(1),16);const c=[n>>16,(n>>8)&255,n&255].map(v=>{v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)});return .2126*c[0]+.7152*c[1]+.0722*c[2]}
 function soft(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`}
 
+/* ---------------- loja e benefícios ---------------- */
+const abertoTipo = t => S.loja==='aberta' || (S.loja==='retirada' && t==='retirada');
+function statusLoja(){ return S.loja==='aberta' ? `Aberto até ${L.ate}` : S.loja==='retirada' ? `Só retirada · entrega a partir das ${ABRE}` : `Fechado agora · abre às ${ABRE}`; }
+function avisoLoja(){
+  if(S.loja==='aberta') return '';
+  return `<div class="p-aviso ${S.loja}" role="status">${ic(S.loja==='retirada'?'store':'clock',18)}<div><b>${S.loja==='retirada'?'Agora só retirada na loja':'Estamos fechados agora'}</b><span>${S.loja==='retirada'?`A entrega volta às ${ABRE}. Retire em ${L.endereco}.`:`Abrimos hoje às ${ABRE}. Monte seu pedido e agende o horário.`}</span></div></div>`;
+}
+function hojeISO(){ const d=new Date(),p=n=>String(n).padStart(2,'0'); return {dia:`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`, hora:`${p(d.getHours())}:${p(d.getMinutes())}`}; }
+function minAgenda(){ const h=hojeISO(); return `${h.dia}T${S.loja==='fechada'?ABRE:h.hora}`; }
+const fmtAgenda = a => `${a.slice(8,10)}/${a.slice(5,7)} às ${a.slice(11,16)}`;
+
 /* ---------------- regras ---------------- */
 function grupos(p, ordenar){ let ids=[...(p.grupos||[])]; if(S.trio && p.cat==='burgers') ids=['batataTrio','bebida',...ids]; let gs=ids.map(id=>id==='batataTrio'?null:G[id]).filter(Boolean); if(ordenar) gs=[...gs.filter(g=>g.min>0),...gs.filter(g=>!g.min)]; return gs; }
 const temObrig = p => (p.grupos||[]).some(id => G[id].min > 0);
@@ -676,24 +727,30 @@ function tot(){
   const sub=S.cart.reduce((a,i)=>a+i.preco*i.qtd,0), n=S.cart.reduce((a,i)=>a+i.qtd,0);
   let taxa=0, taxaPend=false;
   if(S.chk.tipo==='entrega'){const b=BAIRROS.find(b=>b.id===S.chk.bairro); if(!b) taxaPend=true; else taxa = sub>=L.frete ? 0 : b.taxa;}
-  let desc=0; if(S.cupomOk==='MISTER10') desc=Math.min(sub*.1,15); if(S.cupomOk==='PRIMEIRA') desc = sub>=30 ? 8 : 0;
-  const total=Math.max(0,sub+taxa-desc);
-  return {sub,n,taxa,taxaPend,desc,total,pts:Math.floor(total),faltaFrete:Math.max(0,L.frete-sub)};
+  let desc=0; if(S.cupons){ if(S.cupomOk==='MISTER10') desc=Math.min(sub*.1,15); if(S.cupomOk==='PRIMEIRA') desc = sub>=30 ? 8 : 0; }
+  const cbUso = S.cashback && S.ret && S.usarCb ? Math.min(CB.saldoRet, Math.max(0,sub-desc)) : 0;
+  const total=Math.max(0,sub+taxa-desc-cbUso);
+  const cbGanho = S.cashback ? Math.round(Math.max(0,sub-desc-cbUso)*CB.pct)/100 : 0;
+  return {sub,n,taxa,taxaPend,desc,cbUso,cbGanho,total,pts:S.fid?Math.floor(total):0,faltaFrete:Math.max(0,L.frete-sub)};
 }
-function steps(){ let s=META[S.tpl].steps; if(S.tpl==='fluxo' && S.ret && !S.editDados) s=s.filter(x=>x!=='dados'); return s; }
-const TIT = {sacola:'Sua sacola',entrega:()=>S.chk.tipo==='retirada'?'Retirada':'Entrega',dados:'Seus dados',pagamento:'Pagamento'};
+function steps(){ if(S.tpl==='fluxo' && S.ret && !S.expressoOff) return ['sacola','revisar']; return META[S.tpl].steps; }
+const TIT = {revisar:'Revisar e pedir',sacola:'Sua sacola',entrega:()=>S.chk.tipo==='retirada'?'Retirada':'Entrega',dados:'Seus dados',pagamento:'Pagamento'};
 const tit = st => typeof TIT[st]==='function' ? TIT[st]() : TIT[st];
 function faltaDados(){ const c=S.chk; if(!c.nome.trim()) return {f:'nome',msg:'Informe seu nome'}; if(dig(c.whats).length<10) return {f:'whats',msg:'Informe seu WhatsApp'}; return null; }
 function falta(st){
   const c=S.chk, t=tot();
   if(st==='sacola'){ if(!t.n) return {f:'',msg:'Sua sacola está vazia'}; if(t.sub<L.minimo) return {f:'',msg:`Faltam ${BRL(L.minimo-t.sub)} para o pedido mínimo`}; return null; }
   if(st==='entrega'){
+    if(!abertoTipo(c.tipo) && S.loja!=='fechada') return {f:'',msg:c.tipo==='entrega'?`Entrega só a partir das ${ABRE}`:'Retirada indisponível agora'};
+    if(S.loja==='fechada' && c.quando!=='agendar') return {f:'agenda',msg:'Agende o horário do pedido'};
     if(c.tipo==='entrega'){ if(!c.bairro) return {f:'bairro',msg:'Escolha o bairro'}; if(!c.rua.trim()) return {f:'rua',msg:'Informe a rua'}; if(!c.num.trim()) return {f:'num',msg:'Informe o número'}; }
     if(c.quando==='agendar' && !c.agenda) return {f:'agenda',msg:'Escolha o horário'};
+    if(c.quando==='agendar' && c.agenda < minAgenda()) return {f:'agenda',msg:S.loja==='fechada'?`Escolha a partir das ${ABRE}`:'Escolha um horário futuro'};
     if(META[S.tpl].dadosNaEntrega) return faltaDados();
     return null;
   }
   if(st==='dados') return faltaDados();
+  if(st==='revisar') return falta('entrega') || falta('pagamento');
   if(st==='pagamento'){ if(!c.forma) return {f:'forma',msg:'Escolha como vai pagar'}; if(c.cpfNota && dig(c.cpf).length!==11) return {f:'cpf',msg:'Confira o CPF'}; return null; }
   return null;
 }
@@ -706,7 +763,6 @@ function addCarrinho(p,qtd){
   const ex=S.cart.find(i=>i.key===key);
   if(ex) ex.qtd+=qtd; else S.cart.push({key,pid:p.id,nome:p.nome,img:p.img,cor:p.cor,sub,preco,qtd});
   S.bump=true; toast(`${p.nome} está na sacola`);
-  if(S.tpl==='fluxo' && p.cat==='burgers' && !S.trio) S.combo={key,beb:''};
 }
 let toastT;
 function toast(m){ S.toast=m; clearTimeout(toastT); toastT=setTimeout(()=>{S.toast='';const el=$('#p-toast'); if(el) el.remove();},2200); }
@@ -735,14 +791,17 @@ function avancar(){
 }
 function fazerPedido(){
   const t=tot(); const d=new Date(Date.now()+ (S.chk.tipo==='entrega'?L.tempo:L.tempoRet)*60000);
-  S.pedido={senha:57+S.cart.length,total:t.total,pts:t.pts,forma:S.chk.forma,tipo:S.chk.tipo,hora:d.toTimeString().slice(0,5)};
+  const ag = S.chk.quando==='agendar' && S.chk.agenda;
+  S.pedido={senha:57+S.cart.length,total:t.total,pts:t.pts,cb:t.cbGanho,forma:S.chk.forma,tipo:S.chk.tipo,agendado:!!ag,hora:ag?S.chk.agenda.slice(11,16):d.toTimeString().slice(0,5)};
   S.pixPago=false; S.screen='ok'; render(true);
 }
-function preencherRet(on){ if(on) Object.assign(S.chk,{nome:RET.nome,whats:RET.whats,bairro:RET.bairro,rua:RET.rua,num:RET.num,ref:RET.ref}); else Object.assign(S.chk,{nome:'',whats:'',bairro:'',rua:'',num:'',ref:''}); }
-function reset(){ S.cart=[]; S.screen='home'; S.step=0; S.cupomOk=null; S.cupomMsg=null; S.cupomAberto=false; S.combo=null; S.pedido=null; S.editEnd=false; S.editDados=false; const keep={nome:S.chk.nome,whats:S.chk.whats,bairro:S.chk.bairro,rua:S.chk.rua,num:S.chk.num,ref:S.chk.ref}; S.chk={...CHK0,...(S.ret?keep:{})}; }
+function preencherRet(on){ if(on) Object.assign(S.chk,{nome:RET.nome,whats:RET.whats,bairro:RET.bairro,rua:RET.rua,num:RET.num,ref:RET.ref,forma:RET.forma}); else Object.assign(S.chk,{nome:'',whats:'',bairro:'',rua:'',num:'',ref:'',forma:''}); }
+function virarTrio(key,bebId){ const it=S.cart.find(i=>i.key===key), b=BEB.find(b=>b.id===bebId); if(!it||!b) return; const sub='Trio: batata média + '+b.nome+(it.sub?' · '+it.sub:''); if(it.qtd>1){ it.qtd--; S.cart.push({...it,qtd:1,key:it.key+'|trio',preco:it.preco+TRIO_EXTRA,sub}); } else { it.preco+=TRIO_EXTRA; it.sub=sub; it.key+='|trio'; } }
+function reset(){ S.cart=[]; S.screen='home'; S.step=0; S.expressoOff=false; S.trioNao=[]; S.trioBeb={}; S.usarCb=true; S.cupomOk=null; S.cupomMsg=null; S.cupomAberto=false; S.combo=null; S.pedido=null; S.editEnd=false; S.editDados=false; const keep={nome:S.chk.nome,whats:S.chk.whats,bairro:S.chk.bairro,rua:S.chk.rua,num:S.chk.num,ref:S.chk.ref,forma:S.chk.forma}; S.chk={...CHK0,...(S.ret?keep:{}),tipo:S.loja==='retirada'?'retirada':'entrega',quando:S.loja==='fechada'?'agendar':'agora'}; }
 function aplicarCupom(code){
   code=(code||'').trim().toUpperCase(); S.chk.cupom=code;
   if(code==='MISTER10'){S.cupomOk=code;S.cupomMsg={ok:true,t:'Cupom aplicado: 10% de desconto (até R$ 15,00).'};}
+  else if(code==='PRIMEIRA' && S.ret){S.cupomOk=null;S.cupomMsg={ok:false,t:'Este cupom vale só para a primeira compra.'};}
   else if(code==='PRIMEIRA'){ if(tot().sub>=30){S.cupomOk=code;S.cupomMsg={ok:true,t:'Cupom aplicado: R$ 8,00 de desconto.'};} else {S.cupomOk=null;S.cupomMsg={ok:false,t:'Este cupom vale para pedidos a partir de R$ 30,00.'};} }
   else {S.cupomOk=null;S.cupomMsg={ok:false,t:code?'Cupom não encontrado. Confira as letras e tente de novo.':'Digite o código do cupom.'};}
   render();
@@ -780,17 +839,18 @@ function prodFoot(p){
   return `<div class="p-foot pf" id="p-foot"><div class="qty"><button data-a="qtdMenos" aria-label="Diminuir">${ic('minus',16)}</button><b>${S.qtd}</b><button data-a="qtdMais" aria-label="Aumentar">${ic('plus',16)}</button></div>${btn}</div>`;
 }
 function stepperItem(i){ return `<div class="qty"><button data-a="ciMenos" data-v="${esc(i.key)}" aria-label="${i.qtd>1?'Diminuir':'Remover'}">${ic(i.qtd>1?'minus':'trash',15)}</button><b>${i.qtd}</b><button data-a="ciMais" data-v="${esc(i.key)}" aria-label="Aumentar">${ic('plus',15)}</button></div>`; }
-function freteHTML(t){ if(S.chk.tipo==='retirada') return ''; const p=Math.min(100,t.sub/L.frete*100); return `<div class="c-frete">${t.faltaFrete>0?`<span>Faltam <b>${BRL(t.faltaFrete)}</b> para o frete grátis</span>`:`<span><b>Frete grátis</b> garantido neste pedido</span>`}<div class="bar"><i style="width:${p}%"></i></div></div>`; }
+function freteHTML(t){ if(S.chk.tipo==='retirada' || S.loja==='retirada') return ''; const p=Math.min(100,t.sub/L.frete*100); return `<div class="c-frete">${t.faltaFrete>0?`<span>Faltam <b>${BRL(t.faltaFrete)}</b> para o frete grátis</span>`:`<span><b>Frete grátis</b> garantido neste pedido</span>`}<div class="bar"><i style="width:${p}%"></i></div></div>`; }
 function resumoHTML(t,completo){
   return `<div class="c-sum"><div><span>Subtotal</span><span>${BRL(t.sub)}</span></div>
   ${completo && S.chk.tipo==='entrega' ? `<div><span>Entrega</span><span class="${!t.taxaPend&&t.taxa===0?'gr':''}">${t.taxaPend?'a calcular':t.taxa===0?'Grátis':BRL(t.taxa)}</span></div>`:''}
   ${completo && S.chk.tipo==='retirada' ? `<div><span>Retirada na loja</span><span>${BRL(0)}</span></div>`:''}
   ${t.desc?`<div class="gr"><span>Cupom ${S.cupomOk}</span><span>${BRL(-t.desc)}</span></div>`:''}
+  ${completo&&t.cbUso?`<div class="gr"><span>Cashback usado</span><span>${BRL(-t.cbUso)}</span></div>`:''}
   <div class="tt"><span>Total</span><span>${BRL(completo?t.total:t.sub-t.desc)}</span></div></div>`;
 }
 function cupomHTML(){
   return `<div class="c-f" data-anchor="cupom"><label for="f-cupom">Cupom de desconto</label><div class="c-cup"><input class="c-in" id="f-cupom" data-f="cupom" value="${esc(S.chk.cupom)}" placeholder="Digite o código" autocapitalize="characters"><button data-a="cupom">Aplicar</button></div></div>
-  <div class="c-sug">${[['MISTER10','10% off'],['PRIMEIRA','R$ 8 off acima de R$ 30']].map(([c,d])=>`<button data-a="cupomSug" data-v="${c}">${ic('tag',14)}<b>${c}</b> ${d}</button>`).join('')}</div>
+  <div class="c-sug">${CUP.filter(([c])=>c!=='PRIMEIRA'||!S.ret).map(([c,d])=>`<button data-a="cupomSug" data-v="${c}">${ic('tag',14)}<b>${c}</b> ${d}</button>`).join('')}</div>
   ${S.cupomMsg?`<p class="c-msg ${S.cupomMsg.ok?'ok':'err'}" role="status">${S.cupomMsg.t}</p>`:''}`;
 }
 function upsellHTML(cards,titulo){
@@ -801,11 +861,51 @@ function upsellHTML(cards,titulo){
 }
 function stepSacola(o){
   const t=tot();
-  let h=`<div class="c-sec">${S.cart.length?S.cart.map(i=>`<div class="c-item"><div class="c-th">${art(i)}</div><div class="c-info"><b>${i.nome}</b>${i.sub?`<small>${esc(i.sub)}</small>`:''}<span class="c-pr">${BRL(i.preco*i.qtd)}</span></div>${stepperItem(i)}</div>`).join(''):'<p class="c-empty">Sua sacola está vazia.</p>'}
+  let h=`<div class="c-sec">${S.cart.length?S.cart.map(i=>`<div class="c-item"><div class="c-th">${art(i)}</div><div class="c-info"><b>${i.nome}</b>${i.sub?`<small>${esc(i.sub)}</small>`:''}<span class="c-pr">${BRL(i.preco*i.qtd)}</span></div>${stepperItem(i)}</div>${S.tpl==='fluxo'&&prod(i.pid).cat==='burgers'&&!i.key.endsWith('|trio')&&!S.trioNao.includes(i.key)?trioInline(i):''}`).join(''):'<p class="c-empty">Sua sacola está vazia.</p>'}
   <button class="c-link" data-a="fechar">${ic('plus',16)} Adicionar mais itens</button>${o.frete?freteHTML(t):''}</div>`;
   h+=upsellHTML(o.upCards,o.upTitulo);
-  if(o.cupom) h+=`<div class="c-sec">${cupomHTML()}</div>`;
+  if(o.cupom && S.cupons) h+=`<div class="c-sec">${cupomHTML()}</div>`;
   h+=`<div class="c-sec">${resumoHTML(t,false)}${S.tpl!=='fluxo'?'':`<p class="c-note">Entrega e pagamento nas próximas etapas.</p>`}</div>`;
+  return h;
+}
+function trioInline(i){
+  const beb=S.trioBeb[i.key]||'';
+  return `<div class="c-trio"><div class="h"><b>Vira trio por + ${BRL(TRIO_EXTRA)}?</b><button class="x" data-a="trioNao" data-v="${esc(i.key)}" aria-label="Agora não">${ic('close',14)}</button></div><small>${i.nome} + batata frita média + refrigerante lata</small>
+  <div class="m-chips">${BEB.map(b=>`<button data-a="trioBeb" data-v="${esc(i.key)}::${b.id}" aria-pressed="${beb===b.id}"><i style="--c:${b.cor}"></i>${b.nome.replace(' lata','')}</button>`).join('')}</div>
+  <button class="p-btn c" data-a="trioSim" data-v="${esc(i.key)}" ${beb?'':'disabled'} style="min-height:42px">${beb?'Quero o trio':'Escolha a bebida do trio'}</button></div>`;
+}
+function cupomBloco(){
+  if(S.tpl!=='fluxo' || S.cupomAberto) return cupomHTML();
+  if(S.cupomOk) return `<p class="c-msg ok">${ic('check',14)} Cupom ${S.cupomOk} aplicado: ${BRL(-tot().desc)}</p>`;
+  const sug = CUP.find(([c])=>c!=='PRIMEIRA'||!S.ret);
+  return `${sug?`<div class="c-card cup">${ic('tag')}<div><b>${sug[0]}</b><small>${sug[1]} · disponível para você</small></div><button class="lk" data-a="cupomSug" data-v="${sug[0]}">Aplicar</button></div>`:''}${S.cupomMsg&&!S.cupomMsg.ok?`<p class="c-msg err">${S.cupomMsg.t}</p>`:''}<button class="c-link" data-a="cupomAbrir">${ic('plus',16)} Tenho outro código</button>`;
+}
+function fidHTML(t){
+  const saldo=S.ret?FID.saldoRet:0, novo=saldo+t.pts, a=Math.min(100,saldo/FID.meta*100), b=Math.min(100,novo/FID.meta*100);
+  return `<div class="c-fid"><div class="r"><b>${ic('gift',14)} ${FID.plano}</b><span>${Math.min(novo,FID.meta)}/${FID.meta} pts</span></div><div class="bar" aria-hidden="true"><i class="a" style="width:${a}%"></i><i class="b" style="left:${a}%;width:${b-a}%"></i></div>
+  <span>${novo>=FID.meta?`Com este pedido você completa o plano e ganha <b>${FID.premio}</b>.`:`Este pedido soma <b>${t.pts} pontos</b>. Faltam ${FID.meta-novo} para ${FID.premio.toLowerCase()}.`}</span></div>`;
+}
+function beneficiosHTML(t,o={}){
+  let h='';
+  if(S.cupons && !o.semCupom) h+=cupomBloco();
+  if(S.cashback && S.ret) h+=`<button class="c-chk" data-a="usarCb" aria-pressed="${S.usarCb}"><i>${S.usarCb?ic('check',14):''}</i><span>Usar meu cashback · <b style="font-family:var(--p-num)">${BRL(CB.saldoRet)}</b> disponível</span></button>`;
+  if(S.fid) h+=fidHTML(t);
+  if(S.cashback && t.cbGanho) h+=`<div class="c-cb">${ic('repeat',16)}<span>Você recebe <b>${BRL(t.cbGanho)}</b> de cashback (${CB.pct}%) para o próximo pedido</span></div>`;
+  return h ? `<div class="c-sec"><h3 class="c-h">Seus benefícios</h3>${h}</div>` : '';
+}
+function stepRevisar(){
+  const c=S.chk, t=tot(), b=BAIRROS.find(b=>b.id===c.bairro);
+  const forma={pix:'Pix',cartao:'Cartão de crédito',dinheiro:'Dinheiro',maquina:'Cartão na maquininha',vr:'Vale-refeição'}[c.forma];
+  const ent = c.tipo==='retirada' ? `<b>Retirar na loja</b><small>${L.endereco}</small>` : `<b>${esc(c.rua)}, ${esc(c.num)}</b><small>${b?b.nome:''} · ${t.taxa===0?'entrega grátis':'entrega '+BRL(t.taxa)}</small>`;
+  let h=`<div class="c-sec"><p class="c-sub" style="margin:0">Usamos os dados do seu último pedido. Confira e peça.</p>
+  ${S.loja==='retirada'&&c.tipo==='retirada'?`<p class="c-note">Agora só retirada: a entrega volta às ${ABRE}.</p>`:''}
+  <div class="c-card">${ic(c.tipo==='retirada'?'store':'pin')}<div>${ent}</div><button class="lk" data-a="trocar" data-v="entrega">Trocar</button></div>
+  <div class="c-card">${ic('clock')}<div><b>${c.quando==='agendar'?(c.agenda?'Agendado para '+fmtAgenda(c.agenda):'Agendar horário'):`O quanto antes · ~${c.tipo==='entrega'?L.tempo:L.tempoRet} min`}</b><small>${S.loja==='fechada'?`Abrimos às ${ABRE}`:'Previsão confirmada após o pedido'}</small></div>${S.loja==='fechada'?'':`<button class="lk" data-a="trocar" data-v="entrega">Trocar</button>`}</div>
+  ${S.loja==='fechada'?`<div class="c-f"><label for="f-agenda">Agendar para <em>(a partir das ${ABRE})</em></label><input class="c-in" type="datetime-local" id="f-agenda" data-f="agenda" min="${minAgenda()}" value="${esc(c.agenda)}"></div>`:''}
+  <div class="c-card" data-anchor="forma">${c.forma==='pix'?'<span class="ico-t">PIX</span>':ic('card')}<div><b>${forma||'Escolha como pagar'}</b><small>${forma?'Último usado':''}</small></div><button class="lk" data-a="trocar" data-v="pagamento">Trocar</button></div>
+  <div class="c-card">${ic('user')}<div><b>${esc(c.nome)}</b><small>${esc(c.whats)}</small></div><button class="lk" data-a="trocar" data-v="entrega">Trocar</button></div></div>`;
+  h+=beneficiosHTML(t);
+  h+=`<div class="c-sec">${resumoHTML(t,true)}</div>`;
   return h;
 }
 function dadosHTML(){
@@ -816,7 +916,7 @@ function dadosHTML(){
 }
 function stepEntrega(o){
   const c=S.chk, t=tot();
-  let h=`<div class="c-sec"><h3 class="c-h">Como você quer receber?</h3><div class="c-seg">${['entrega','retirada'].map(x=>`<button data-a="tipo" data-v="${x}" aria-pressed="${c.tipo===x}"><span>${ic(x==='entrega'?'moto':'store',18)} ${x==='entrega'?'Entrega':'Retirada'}</span><small>${x==='entrega'?`~${L.tempo} min`:`~${L.tempoRet} min · grátis`}</small></button>`).join('')}</div></div>`;
+  let h=`<div class="c-sec"><h3 class="c-h">Como você quer receber?</h3><div class="c-seg">${['entrega','retirada'].map(x=>`<button data-a="tipo" data-v="${x}" aria-pressed="${c.tipo===x}" ${!abertoTipo(x)&&S.loja!=='fechada'?'disabled':''}><span>${ic(x==='entrega'?'moto':'store',18)} ${x==='entrega'?'Entrega':'Retirada'}</span><small>${!abertoTipo(x)&&S.loja!=='fechada'?`a partir das ${ABRE}`:x==='entrega'?`~${L.tempo} min`:`~${L.tempoRet} min · grátis`}</small></button>`).join('')}</div></div>`;
   if(c.tipo==='entrega'){
     const salvo = S.ret && S.tpl==='fluxo' && !S.editEnd && c.bairro===RET.bairro;
     if(salvo){
@@ -831,9 +931,9 @@ function stepEntrega(o){
   } else {
     h+=`<div class="c-sec"><div class="c-card">${ic('store')}<div><b>${L.nome}</b><small>${L.endereco} · pronto em ~${L.tempoRet} min</small></div></div></div>`;
   }
-  h+=`<div class="c-sec"><h3 class="c-h">Quando?</h3><div class="c-seg">${[['agora',`O quanto antes`],['agendar','Agendar']].map(([v,l])=>`<button data-a="quando" data-v="${v}" aria-pressed="${c.quando===v}"><span>${ic(v==='agora'?'clock':'clock',16)} ${l}</span><small>${v==='agora'?`~${c.tipo==='entrega'?L.tempo:L.tempoRet} min`:'escolha o horário'}</small></button>`).join('')}</div>
-  ${c.quando==='agendar'?`<div class="c-f"><label for="f-agenda">Data e horário</label><input class="c-in" type="datetime-local" id="f-agenda" data-f="agenda" value="${esc(c.agenda)}"></div>`:''}</div>`;
-  if(o.dados) h+=`<div class="c-sec"><h3 class="c-h">Seus dados</h3>${dadosHTML()}</div>`;
+  h+=`<div class="c-sec"><h3 class="c-h">Quando?</h3><div class="c-seg">${[['agora',`O quanto antes`],['agendar','Agendar']].map(([v,l])=>`<button data-a="quando" data-v="${v}" aria-pressed="${c.quando===v}" ${v==='agora'&&S.loja==='fechada'?'disabled':''}><span>${ic('clock',16)} ${l}</span><small>${v==='agora'?(S.loja==='fechada'?'fechado agora':`~${c.tipo==='entrega'?L.tempo:L.tempoRet} min`):'escolha o horário'}</small></button>`).join('')}</div>
+  ${c.quando==='agendar'?`<div class="c-f"><label for="f-agenda">Data e horário ${S.loja==='fechada'?`<em>(a partir das ${ABRE})</em>`:''}</label><input class="c-in" type="datetime-local" id="f-agenda" data-f="agenda" min="${minAgenda()}" value="${esc(c.agenda)}"></div>`:''}</div>`;
+  if(o.dados) h+= (S.tpl==='fluxo'&&S.ret&&!S.editDados&&!faltaDados()) ? `<div class="c-sec"><div class="c-card">${ic('user')}<div><b>Pedido de ${esc(c.nome)}</b><small>${esc(c.whats)}</small></div><button class="lk" data-a="editDados">Trocar</button></div></div>` : `<div class="c-sec"><h3 class="c-h">Seus dados</h3>${dadosHTML()}</div>`;
   return h;
 }
 function stepDados(){ return `<div class="c-sec"><h3 class="c-h">Quem vai receber?</h3><p class="c-sub">Na próxima vez a gente já preenche.</p>${dadosHTML()}</div>`; }
@@ -841,7 +941,6 @@ function stepPagamento(o){
   const c=S.chk, t=tot(), ent=c.tipo==='entrega'?'na entrega':'na retirada';
   const op=(v,ico,nome,desc,tag)=>`<button class="c-opt" data-a="forma" data-v="${v}" aria-pressed="${c.forma===v}"><span class="ico">${ico}</span><span><b>${nome} ${tag?`<em>${tag}</em>`:''}</b><small>${desc}</small></span><span class="po-r"></span></button>`;
   let h='';
-  if(S.tpl==='fluxo' && S.ret && !S.editDados) h+=`<div class="c-sec"><div class="c-card">${ic('user')}<div><b>Pedido de ${esc(c.nome)}</b><small>${esc(c.whats)}</small></div><button class="lk" data-a="editDados">Trocar</button></div></div>`;
   h+=`<div class="c-sec"><h3 class="c-h">Como você vai pagar?</h3><div class="c-pay" data-anchor="forma">
     <h4>Pague agora</h4>
     ${op('pix','PIX','Pix','Aprovação na hora, sem digitar cartão',o.pixTag?'Mais rápido':'')}
@@ -855,17 +954,14 @@ function stepPagamento(o){
   <button class="c-chk" data-a="cpfNota" aria-pressed="${c.cpfNota}"><i>${c.cpfNota?ic('check',14):''}</i>CPF na nota</button>
   ${c.cpfNota?`<div class="c-f"><label for="f-cpf">CPF</label><input class="c-in" id="f-cpf" data-f="cpf" value="${esc(c.cpf)}" inputmode="numeric" placeholder="000.000.000-00"></div>`:''}
   </div>`;
-  if(!o.cupom){
-    if(o.cupomRecolhido && !S.cupomAberto && !S.cupomOk) h+=`<div class="c-sec"><button class="c-link" data-a="cupomAbrir">${ic('tag',16)} Tenho um cupom</button></div>`;
-    else h+=`<div class="c-sec">${cupomHTML()}</div>`;
-  }
-  h+=`<div class="c-sec">${resumoHTML(t,true)}${o.pts?`<div class="c-pts">${ic('gift',16)} <span>Você ganha <b>${t.pts} pontos</b> neste pedido</span></div>`:''}</div>`;
+  h+=beneficiosHTML(t,{semCupom:!!o.cupom});
+  h+=`<div class="c-sec">${resumoHTML(t,true)}</div>`;
   return h;
 }
 function chkFoot(){
   const st=steps(), atual=st[S.step], f=falta(atual), ult=S.step===st.length-1, t=tot(), fl=S.tpl==='fluxo';
   const val = atual==='sacola' ? t.sub-t.desc : t.total;
-  const lbl = ult ? 'Fazer pedido' : atual==='sacola' ? 'Continuar' : `Ir para ${tit(st[S.step+1]).toLowerCase()}`;
+  const lbl = ult ? (S.chk.quando==='agendar'||S.loja==='fechada'?'Agendar pedido':'Fazer pedido') : atual==='sacola' ? 'Continuar' : `Ir para ${tit(st[S.step+1]).toLowerCase()}`;
   if(f && fl) return `<div class="p-foot" id="p-foot"><button class="p-btn falta c" data-a="avancar">${f.msg} ${f.f?ic('down',16):''}</button></div>`;
   return `<div class="p-foot" id="p-foot">${f?`<p class="p-hint" style="margin:0">${f.msg}</p>`:''}<button class="p-btn" data-a="avancar" ${f?'disabled':''}><span>${lbl}</span><span class="n">${BRL(val)}</span></button></div>`;
 }
@@ -873,21 +969,23 @@ const STEP_OPTS = {
   galeria:{sacola:{upCards:true,upTitulo:'Peça também'},entrega:{dados:true},pagamento:{pixTag:true,pts:true}},
   balcao:{sacola:{cupom:true,upCards:false,upTitulo:'Aproveite e leve'},entrega:{},dados:{},pagamento:{cupom:true}},
   oferta:{sacola:{frete:true,cupom:true,upCards:true,upTitulo:'Combina com seu pedido'},entrega:{dados:true},pagamento:{cupom:true,pts:true,pixTag:true}},
-  fluxo:{sacola:{frete:true,upCards:false,upTitulo:'Combina com seu pedido'},entrega:{},dados:{},pagamento:{cupomRecolhido:true,pts:true,pixTag:true}},
+  fluxo:{sacola:{frete:true,upCards:false,upTitulo:'Combina com seu pedido'},entrega:{dados:true},pagamento:{pixTag:true}},
 };
-function stepBody(st){ const o=STEP_OPTS[S.tpl][st]||{}; return st==='sacola'?stepSacola(o):st==='entrega'?stepEntrega(o):st==='dados'?stepDados():stepPagamento(o); }
+function stepBody(st){ const o=STEP_OPTS[S.tpl][st]||{}; if(st==='revisar') return stepRevisar(); return st==='sacola'?stepSacola(o):st==='entrega'?stepEntrega(o):st==='dados'?stepDados():stepPagamento(o); }
 
 function viewOk(){
   const p=S.pedido, pix=p.forma==='pix'&&!S.pixPago;
-  const passos = p.tipo==='entrega' ? ['Pedido recebido','Em preparo','Saiu para entrega','Entregue'] : ['Pedido recebido','Em preparo','Pronto para retirar','Retirado'];
+  const r0 = p.agendado ? 'Pedido agendado' : 'Pedido recebido';
+  const passos = p.tipo==='entrega' ? [r0,'Em preparo','Saiu para entrega','Entregue'] : [r0,'Em preparo','Pronto para retirar','Retirado'];
   const tl = (pix?['Aguardando o Pix',...passos]:passos).map((s,i)=>`<li class="${i===0?'on':''}"><span>${s}${i===0?`<small>${pix?'Pague o Pix para a loja começar o preparo':'A loja já recebeu seu pedido'}</small>`:''}</span></li>`).join('');
   return `<div class="p-panel"><div class="p-pbody" id="p-pscroll">
     <div class="ok-top"><div class="ok-badge ${pix?'wait':''}">${ic(pix?'clock':'check',30)}</div><h2>${pix?'Falta só o Pix':'Pedido enviado!'}</h2><p>Senha <b>${p.senha}</b> · total ${BRL(p.total)}</p></div>
     <div class="ok-body">
       ${pix?`<div class="ok-pix"><b>Pix copia e cola</b><code id="pixcode">00020126580014BR.GOV.BCB.PIX0136mister-burguer-exemplo-0000-0000520400005303986540${p.total.toFixed(2)}5802BR5925MISTER BURGUER</code><div class="row"><span>Expira em 15:00</span><span>${BRL(p.total)}</span></div><button class="p-btn c" data-a="copiar">${ic('copy',18)} Copiar código</button><button class="lk-sim" data-a="pixPago">Simular pagamento aprovado (protótipo)</button></div>`:''}
-      <div class="ok-eta"><small>Previsão de ${p.tipo==='entrega'?'entrega':'retirada'}</small><b>${p.hora}</b></div>
+      <div class="ok-eta"><small>${p.agendado?'Agendado para':`Previsão de ${p.tipo==='entrega'?'entrega':'retirada'}`}</small><b>${p.hora}</b></div>
       <ol class="ok-tl">${tl}</ol>
-      <div class="c-pts">${ic('gift',16)} <span><b>${p.pts} pontos a caminho.</b> Entram no seu saldo quando o pedido for concluído.</span></div>
+      ${S.fid?`<div class="c-pts">${ic('gift',16)} <span><b>${p.pts} pontos a caminho.</b> Entram no seu saldo quando o pedido for concluído.</span></div>`:''}
+      ${S.cashback&&p.cb?`<div class="c-cb">${ic('repeat',16)}<span><b>${BRL(p.cb)} de cashback a caminho.</b> Fica disponível quando o pedido for concluído.</span></div>`:''}
       <p class="ok-wa">Dúvidas pelo WhatsApp da loja: <b>${L.whats}</b></p>
       <button class="p-btn2" data-a="novo">Fazer outro pedido</button>
     </div></div></div>`;
@@ -911,10 +1009,12 @@ const galeria = {
       if(c.id==='mais') return `<section class="g-sec" id="sec-mais" data-sec="mais"><h2>${c.nome}</h2><div class="hs g-car">${it.map(p=>`<button class="g-big" data-a="abrir" data-v="${p.id}"><div class="g-art">${art(p)}${p.selo?`<span class="g-tag">${p.selo}</span>`:''}<span class="g-plus" data-a="mais" data-v="${p.id}">${ic('plus',18)}</span></div><b>${p.nome}</b><p>${p.desc}</p><span class="g-pr">${precoHTML(p)}</span></button>`).join('')}</div></section>`;
       return `<section class="g-sec" id="sec-${c.id}" data-sec="${c.id}"><h2>${c.nome}</h2><div class="g-grid">${it.map(p=>`<button class="g-card" data-a="abrir" data-v="${p.id}" ${p.esgotado?'disabled':''}><div class="g-art">${art(p)}${p.de?`<span class="g-tag">-${pct(p)}%</span>`:p.selo?`<span class="g-tag">${p.selo}</span>`:''}${p.esgotado?'':`<span class="g-plus" data-a="mais" data-v="${p.id}">${ic('plus',18)}</span>`}</div><b>${p.nome}</b><span class="g-pr">${precoHTML(p)}</span></button>`).join('')}</div></section>`; };
     return `<div class="p-scroll" id="p-scroll">
-      <header class="g-top"><div class="g-logo">${L.sigla}</div><div class="g-id"><b>${L.nome}</b><span><i class="dot"></i>Aberta até ${L.ate} · ${L.tempo} min</span></div><button class="g-ic" data-a="busca" aria-label="Buscar">${ic('search')}</button></header>
-      <div class="hs g-hero" id="g-hero">${HERO.map(h=>`<button class="g-slide" data-a="abrir" data-v="${h.pid}"><img src="${IMG[h.img]}" alt=""><div class="g-cap"><small>${h.k}</small><b>${h.t}</b><span>${h.s}</span></div></button>`).join('')}</div>
+      <header class="g-top"><div class="g-logo">${L.sigla}</div><div class="g-id"><b>${L.nome}</b><span><i class="dot ${S.loja}"></i>${statusLoja()}</span></div><button class="g-ic" data-a="busca" aria-label="Buscar">${ic('search')}</button></header>
+      ${avisoLoja()}
+      <div class="hs g-hero" id="g-hero" style="${S.loja==='aberta'?'':'margin-top:12px'}">${HERO.map(h=>`<button class="g-slide" data-a="abrir" data-v="${h.pid}"><img src="${IMG[h.img]}" alt=""><div class="g-cap"><small>${h.k}</small><b>${h.t}</b><span>${h.s}</span></div></button>`).join('')}</div>
       <div class="g-dots" id="g-dots">${HERO.map((_,i)=>`<i class="${i===0?'on':''}"></i>`).join('')}</div>
-      <div class="g-fid">${ic('gift',18)}<span>Fidelidade: cada R$ 1 vira 1 ponto</span>${S.ret?'<b>120 pts</b>':''}</div>
+      ${S.fid?`<div class="g-fid">${ic('gift',18)}<span>${FID.plano}: ${FID.meta} pontos viram ${FID.premio.toLowerCase()}</span>${S.ret?`<b>${FID.saldoRet} pts</b>`:''}</div>`:''}
+      ${S.cashback?`<div class="g-fid" style="background:#E7F5EF;color:#0E7C66">${ic('repeat',18)}<span>${CB.pct}% de volta em cashback em todo pedido</span>${S.ret?`<b>${BRL(CB.saldoRet)}</b>`:''}</div>`:''}
       ${S.ret?`<div class="g-re"><div class="a">${art(prod('t07'))}</div><div><small>Peça de novo</small><b>Trio 07 · batata média · Coca-Cola</b></div><button data-a="reordenar">${BRL(29)}</button></div>`:''}
       <div class="hs g-cats">${CATS.map(c=>`<button class="g-cat" data-a="tab" data-v="${c.id}"><span class="${CUT.has(c.img)?'cut':''}"><img src="${IMG[c.img]}" alt=""></span>${c.curto}</button>`).join('')}</div>
       ${CATS.map(sec).join('')}
@@ -931,9 +1031,10 @@ const balcao = {
     return `<div class="p-scroll" id="p-scroll">
       <div class="b-cover"><img src="${IMG.classic}" alt=""></div>
       <div class="b-head"><div class="b-logo">${L.sigla}</div><button class="b-mais">Ver informações</button><h1>${L.nome}</h1>
-        <span class="b-st"><i class="dot"></i>Aberto agora · fecha às ${L.ate}</span>
+        <span class="b-st ${S.loja}"><i class="dot ${S.loja}"></i>${statusLoja()}</span>
         <div class="b-inf"><span>${ic('clock',14)} ${L.tempo}–${L.tempo+10} min</span><span>${ic('bag',14)} Mínimo ${BRL(L.minimo)}</span><span>${ic('moto',14)} Grátis acima de ${BRL(L.frete)}</span></div></div>
-      <div class="b-search"><label>${ic('search',18)}<input id="f-bbusca" data-f="busca" value="${esc(S.busca)}" placeholder="Buscar no cardápio"></label></div>
+      ${avisoLoja()}
+      <div class="b-search" style="${S.loja==='aberta'?'':'margin-top:12px'}"><label>${ic('search',18)}<input id="f-bbusca" data-f="busca" value="${esc(S.busca)}" placeholder="Buscar no cardápio"></label></div>
       <div id="b-res">${this.lista()}</div>
       <div class="p-spacer"></div></div>`;
   },
@@ -955,14 +1056,15 @@ const oferta = {
     const card=p=>`<button class="o-card" data-a="abrir" data-v="${p.id}" ${p.esgotado?'disabled':''}><div>${p.cat==='combos'?'<span class="o-rib">COMBO</span>':p.cat==='trios'?'<span class="o-rib">TRIO</span>':p.selo?`<span class="o-rib hot">${p.selo.toUpperCase()}</span>`:''}<b>${p.nome}</b><p>${p.desc}</p><span class="o-dp">${p.esgotado?'<s>Esgotado</s>':`${p.de?`<s>${BRL(p.de)}</s>`:''}<b>${BRL(p.preco)}</b>`}</span></div><div class="a">${art(p)}${p.de?`<span class="o-off">-${pct(p)}%</span>`:''}</div></button>`;
     return `<div class="p-scroll" id="p-scroll">
       <div class="o-band"><img src="${IMG.hero2}" alt=""></div>
-      <div class="o-head"><div class="o-logo">${L.sigla}</div><h1>${L.nome}</h1><div class="o-chips"><span class="ab"><i class="dot"></i>Aberto até ${L.ate}</span><span>${ic('clock',13)} ${L.tempo} min</span><span>Mínimo ${BRL(L.minimo)}</span></div></div>
-      <div class="o-frete">${t.faltaFrete>0?`<span>${ic('moto',14)} <b>Frete grátis</b> acima de ${BRL(L.frete)}${t.n?` · faltam <b>${BRL(t.faltaFrete)}</b>`:''}</span>`:`<span><b>Você ganhou frete grátis!</b></span>`}<div class="bar"><i style="width:${Math.min(100,t.sub/L.frete*100)}%"></i></div></div>
+      <div class="o-head"><div class="o-logo">${L.sigla}</div><h1>${L.nome}</h1><div class="o-chips"><span class="ab ${S.loja}"><i class="dot ${S.loja}"></i>${S.loja==='aberta'?'Aberto até '+L.ate:S.loja==='retirada'?'Só retirada agora':'Abre às '+ABRE}</span><span>${ic('clock',13)} ${L.tempo} min</span><span>Mínimo ${BRL(L.minimo)}</span></div></div>
+      ${avisoLoja()}
+      ${S.loja==='retirada'?'':`<div class="o-frete">${t.faltaFrete>0?`<span>${ic('moto',14)} <b>Frete grátis</b> acima de ${BRL(L.frete)}${t.n?` · faltam <b>${BRL(t.faltaFrete)}</b>`:''}</span>`:`<span><b>Você ganhou frete grátis!</b></span>`}<div class="bar"><i style="width:${Math.min(100,t.sub/L.frete*100)}%"></i></div></div>`}
       <section class="o-sec"><h2>Promoções de hoje <em>-${Math.max(...promos.map(pct))}%</em></h2><small>Válidas até 23:59 de hoje</small><div class="hs o-pro">${promos.map(p=>`<button class="o-pc" data-a="abrir" data-v="${p.id}"><div class="a">${art(p)}${p.de?`<span class="o-off">-${pct(p)}%</span>`:''}</div><div class="t"><b>${p.nome}</b><span class="o-dp">${p.de?`<s>${BRL(p.de)}</s>`:''}<b>${BRL(p.preco)}</b></span></div></button>`).join('')}</div></section>
       <nav class="hs o-pills" id="tabs" style="margin-top:14px">${CATS.map(c=>`<button data-a="tab" data-v="${c.id}" data-tab="${c.id}" class="${S.cat===c.id?'on':''}">${c.curto}</button>`).join('')}</nav>
       ${CATS.map(c=>`<section class="o-sec" id="sec-${c.id}" data-sec="${c.id}" style="padding-top:12px"><h2>${c.nome}</h2><small></small><div class="o-list">${itensCat(c.id).map(card).join('')}</div></section>`).join('')}
       <div class="p-spacer" style="height:140px"></div></div>`;
   },
-  bar(t){ return `<div class="o-bar"><small>${t.faltaFrete>0?`Faltam <b>${BRL(t.faltaFrete)}</b> para o frete grátis`:'<b>Frete grátis</b> garantido'}</small><button class="${S.bump?'bump':''}" data-a="sacola"><span class="c">${t.n}</span><span>Ver sacola</span><span>${BRL(t.sub)}</span></button></div>`; },
+  bar(t){ return `<div class="o-bar"><small>${S.chk.tipo==='retirada'||S.loja==='retirada'?'Retirada na loja · grátis':t.faltaFrete>0?`Faltam <b>${BRL(t.faltaFrete)}</b> para o frete grátis`:'<b>Frete grátis</b> garantido'}</small><button class="${S.bump?'bump':''}" data-a="sacola"><span class="c">${t.n}</span><span>Ver sacola</span><span>${BRL(t.sub)}</span></button></div>`; },
   produto(p){
     const trio = p.cat==='burgers' ? `<button class="o-trio" data-a="trio" aria-pressed="${S.trio}"><div><b>Transforme em trio</b><small>Batata média + refri lata por + ${BRL(TRIO_EXTRA)}</small></div><i></i></button>` : '';
     return `<div class="p-dim" data-a="fechar"></div><div class="p-sheet"><div class="p-pbody" id="p-pscroll"><div class="o-pimg ${p.img&&CUT.has(p.img)?'cut':''}"><span class="o-grab"></span>${art(p)}${p.de?`<span class="o-off" style="font-size:15px">-${pct(p)}%</span>`:''}<button class="o-x" data-a="fechar" aria-label="Fechar">${ic('close',18)}</button></div><div class="o-pinfo"><h2>${p.nome}</h2><p>${p.desc}</p><span class="o-dp">${p.de?`<s>${BRL(p.de)}</s>`:''}<b style="font-size:20px">${BRL(p.preco)}</b></span></div>${trio}${gruposHTML(p,{optImg:true})}${obsHTML()}</div>${prodFoot(p)}</div>`;
@@ -975,15 +1077,18 @@ const fluxo = {
   home(){
     const row=p=>{ const req=temObrig(p); return `<div class="f-row" ${p.esgotado?'disabled':''}><button class="a" data-a="abrir" data-v="${p.id}" aria-label="${esc(p.nome)}" tabindex="-1">${art(p)}</button><button class="t" data-a="abrir" data-v="${p.id}" style="text-align:left" ${p.esgotado?'disabled':''}>${p.selo?`<span class="f-sel ${p.selo==='Mais pedido'?'hot':''}">${p.selo}</span>`:''}<b>${p.nome}</b><p>${p.desc}</p><span class="f-pr">${p.esgotado?'Esgotado':precoHTML(p)}</span></button>${p.esgotado?'<span></span>':req?`<button class="f-mon" data-a="abrir" data-v="${p.id}">Montar ${ic('chev',14)}</button>`:`<button class="f-add" data-a="mais" data-v="${p.id}" aria-label="Pôr ${esc(p.nome)} na sacola">${ic('plus',18)}</button>`}</div>`; };
     return `<div class="p-scroll" id="p-scroll">
-      <header class="f-top"><div><h1>${L.nome}</h1><p><i class="dot"></i>Aberto até ${L.ate} · entrega ~${L.tempo} min · mínimo ${BRL(L.minimo)}</p></div><button class="f-ic" data-a="busca" aria-label="Buscar">${ic('search',19)}</button></header>
-      <div class="f-strip"><span>${ic('moto',13)} Frete grátis acima de ${BRL(L.frete)}</span><span class="g">${ic('gift',13)} ${S.ret?'120 pontos':'1 ponto por real'}</span></div>
+      <header class="f-top"><div><h1>${L.nome}</h1><p><i class="dot ${S.loja}"></i>${statusLoja()}${S.loja==='aberta'?` · ~${L.tempo} min`:''} · mínimo ${BRL(L.minimo)}</p></div><button class="f-ic" data-a="busca" aria-label="Buscar">${ic('search',19)}</button></header>
+      ${avisoLoja()}
+      <div class="hs f-strip">${fluxoChips()}</div>
       ${S.ret?`<div class="f-re"><div class="a">${art(prod('t07'))}</div><div><small>Peça de novo</small><b>Trio 07</b><span class="s">Batata média · Coca-Cola · ${BRL(29)}</span></div><button data-a="reordenar">Adicionar</button></div>`:''}
       <section class="f-sec"><h2>Mais pedidos</h2><div class="hs f-hi">${MAIS.map(prod).map(p=>`<button class="f-hc" data-a="abrir" data-v="${p.id}"><div class="a">${art(p)}</div><b>${p.nome}</b><span class="pr">${BRL(p.preco)}</span></button>`).join('')}</div></section>
       <nav class="hs f-tabs" id="tabs" style="margin-top:12px">${CATS.filter(c=>c.id!=='mais').map(c=>`<button data-a="tab" data-v="${c.id}" data-tab="${c.id}" class="${S.cat===c.id?'on':''}">${c.curto}</button>`).join('')}</nav>
       ${CATS.filter(c=>c.id!=='mais').map(c=>{const it=itensCat(c.id);return `<section class="f-sec" id="sec-${c.id}" data-sec="${c.id}"><h2>${c.nome} <small>${it.length}</small></h2>${it.map(row).join('')}</section>`}).join('')}
       <div class="p-spacer" style="height:130px"></div></div>`;
   },
-  bar(t){ const p=Math.min(100,t.sub/L.frete*100); return `<div class="f-bar ${S.bump?'bump':''}"><div class="pg"><i style="width:${p}%"></i></div><div class="r"><div><b>${BRL(t.sub)}</b><small>${t.n} ${t.n===1?'item':'itens'} · ${t.faltaFrete>0?`faltam ${BRL(t.faltaFrete)} p/ frete grátis`:'frete grátis garantido'}</small></div><button data-a="sacola">Ver sacola ${ic('chev',16)}</button></div></div>`; },
+  bar(t){ const ent=S.chk.tipo==='entrega'&&S.loja!=='retirada', b=BAIRROS.find(b=>b.id===S.chk.bairro), p=Math.min(100,t.sub/L.frete*100);
+    const info = !ent ? 'retirada na loja · grátis' : t.faltaFrete<=0 ? 'frete grátis garantido' : b ? `entrega ${BRL(b.taxa)} · faltam ${BRL(t.faltaFrete)} p/ grátis` : `faltam ${BRL(t.faltaFrete)} p/ frete grátis`;
+    return `<div class="f-bar ${S.bump?'bump':''}">${ent?`<div class="pg"><i style="width:${p}%"></i></div>`:''}<div class="r"><div><b>${BRL(t.sub)}</b><small>${t.n} ${t.n===1?'item':'itens'} · ${info}</small></div><button data-a="sacola">Ver sacola ${ic('chev',16)}</button></div></div>`; },
   produto(p){
     return `<div class="p-dim" data-a="fechar"></div><div class="p-sheet"><div class="p-pbody" id="p-pscroll">
       <div class="f-sh"><div class="a">${art(p)}</div><div><h2>${p.nome}</h2><p>${p.desc}</p><span class="pr">${precoHTML(p)}</span></div><button class="x" data-a="fechar" aria-label="Fechar">${ic('close',18)}</button></div>
@@ -993,6 +1098,23 @@ const fluxo = {
   },
   head(st,i,n){ return `<header class="ch f-ch"><button class="ch-b" data-a="voltar" aria-label="Voltar">${ic('back')}</button><div class="f-chm"><small>${i+1} DE ${n}</small><b>${tit(st)}</b></div><button class="ch-b" data-a="fecharChk" aria-label="Voltar ao cardápio">${ic('close',18)}</button></header><div class="f-prog"><i style="width:${(i+1)/n*100}%"></i></div>`; },
 };
+function fluxoChips(){
+  const c=S.chk, b=BAIRROS.find(b=>b.id===c.bairro), t=tot(); let h='';
+  if(S.loja==='retirada') h+=`<span>${ic('store',13)} Retirada na loja</span>`;
+  else h+=`<button class="f-loc" data-a="bairroSheet" aria-haspopup="dialog">${ic(c.tipo==='retirada'?'store':'pin',13)} ${c.tipo==='retirada'?'Retirar na loja':b?`Entregar em ${b.nome}`:'Entregar em: escolha o bairro'} ${ic('down',13)}</button>`;
+  if(S.loja!=='retirada' && c.tipo==='entrega') h+=`<span>${ic('moto',13)} ${b&&t.sub<L.frete?`Entrega ${BRL(b.taxa)} · `:''}grátis acima de ${BRL(L.frete)}</span>`;
+  if(S.cupons) h+=`<span class="cup">${ic('tag',13)} ${S.ret?'MISTER10 · 10% off':'PRIMEIRA · R$ 8 off'}</span>`;
+  if(S.cashback) h+=`<span class="cb">${ic('repeat',13)} ${S.ret?`${BRL(CB.saldoRet)} de cashback`:`${CB.pct}% de volta`}</span>`;
+  if(S.fid) h+=`<span class="g">${ic('gift',13)} ${S.ret?`${FID.saldoRet}/${FID.meta} pts`:`${FID.meta} pts = batata grátis`}</span>`;
+  return h;
+}
+function viewBairro(){
+  const t=tot(), op=(v,ico,nome,desc,on,dis)=>`<button class="c-opt" data-a="bairroSel" data-v="${v}" aria-pressed="${on}" ${dis?'disabled':''}><span class="ico">${ic(ico,18)}</span><span><b>${nome}</b><small>${desc}</small></span><span class="po-r"></span></button>`;
+  return `<div class="p-dim" data-a="bairroFechar"></div><div class="p-modal" role="dialog" aria-label="Onde você está"><h3>Onde você está?</h3><p>A taxa de entrega já aparece no cardápio e na sacola.</p><div class="c-pay">
+  ${BAIRROS.map(b=>op(b.id,'pin',b.nome,t.sub>=L.frete?'Entrega grátis':`Entrega ${BRL(b.taxa)} · grátis acima de ${BRL(L.frete)}`,S.chk.tipo==='entrega'&&S.chk.bairro===b.id,false)).join('')}
+  ${op('retirada','store','Vou retirar na loja',`${L.endereco} · grátis`,S.chk.tipo==='retirada',false)}
+  </div><p class="c-note">Não achou seu bairro? A loja ainda não entrega aí, mas você pode retirar.</p></div>`;
+}
 const T = {galeria,balcao,oferta,fluxo};
 
 /* ---------------- render ---------------- */
@@ -1011,6 +1133,7 @@ function render(topo){
   else if(S.screen==='ok') h=viewOk();
   else { h=t.home()+(tt.n?t.bar(tt):''); if(S.screen==='produto') h+=t.produto(prod(S.pid)); if(S.buscaAberta) h+=viewBusca(); }
   if(S.combo && S.screen==='home') h+=viewCombo();
+  if(S.bairroSheet && S.screen==='home') h+=viewBairro();
   if(S.toast && (S.screen==='home'||S.screen==='produto')) h+=`<div class="p-toast" id="p-toast" role="status">${ic('check',16)} ${esc(S.toast)}</div>`;
   ph.innerHTML=h;
   S.bump=false;
@@ -1049,9 +1172,15 @@ document.addEventListener('click',e=>{
     ups:()=>{const p=prod(v); S.sel={}; S.trio=false; S.obs=''; addCarrinho(p,1); render();},
     tipo:()=>{S.chk.tipo=v;render();}, quando:()=>{S.chk.quando=v;render();}, forma:()=>{S.chk.forma=v;render();},
     cpfNota:()=>{S.chk.cpfNota=!S.chk.cpfNota;render();}, cupom:()=>aplicarCupom(S.chk.cupom), cupomSug:()=>aplicarCupom(v), cupomAbrir:()=>{S.cupomAberto=true;render();},
-    editEnd:()=>{S.editEnd=true;render();}, editDados:()=>{S.editDados=true; S.step=steps().indexOf('dados'); render(true);},
+    editEnd:()=>{S.editEnd=true;render();}, editDados:()=>{S.editDados=true; render();},
+    trocar:()=>{ S.expressoOff=true; S.editEnd = v==='entrega'; S.step=Math.max(0,steps().indexOf(v)); render(true); },
+    usarCb:()=>{S.usarCb=!S.usarCb;render();},
+    bairroSheet:()=>{S.bairroSheet=true;render();}, bairroFechar:()=>{S.bairroSheet=false;render();},
+    bairroSel:()=>{ if(v==='retirada') S.chk.tipo='retirada'; else { S.chk.tipo='entrega'; S.chk.bairro=v; } S.bairroSheet=false; toast(v==='retirada'?'Retirada na loja':'Entrega em '+BAIRROS.find(b=>b.id===v).nome); render(); },
+    trioNao:()=>{S.trioNao.push(v);render();}, trioBeb:()=>{const [k,b]=v.split('::'); S.trioBeb[k]=b; render();},
+    trioSim:()=>{ virarTrio(v,S.trioBeb[v]); render(); },
     comboBeb:()=>{S.combo.beb=v;render();}, comboNao:()=>{S.combo=null;render();},
-    comboSim:()=>{ const it=S.cart.find(i=>i.key===S.combo.key), b=BEB.find(b=>b.id===S.combo.beb); if(it&&b){ if(it.qtd>1){it.qtd--; S.cart.push({...it,qtd:1,key:it.key+'|trio',preco:it.preco+TRIO_EXTRA,sub:'Trio: batata média + '+b.nome+(it.sub?' · '+it.sub:'')});} else {it.preco+=TRIO_EXTRA; it.sub='Trio: batata média + '+b.nome+(it.sub?' · '+it.sub:''); it.key+='|trio';} toast('Virou trio'); } S.combo=null; render(); },
+    comboSim:()=>{ virarTrio(S.combo.key,S.combo.beb); toast('Virou trio'); S.combo=null; render(); },
     tab:()=>{ const s=document.getElementById('sec-'+v), sc=$('#p-scroll'), tabs=$('#tabs'); if(!s||!sc) return; const off=tabs?tabs.offsetHeight:0; sc.scrollTo({top:s.offsetTop-off+2,behavior:'smooth'}); },
     reordenar, novo:()=>{reset();render();}, pixPago:()=>{S.pixPago=true;render();},
     copiar:()=>{ const code=$('#pixcode').textContent; const ok=()=>toastNow('Código Pix copiado'); try{ navigator.clipboard.writeText(code).then(ok,()=>selec()); }catch(_){ selec(); } function selec(){ const r=document.createRange(); r.selectNodeContents($('#pixcode')); const s=getSelection(); s.removeAllRanges(); s.addRange(r); toastNow('Código selecionado. Copie com o menu do aparelho.'); } },
@@ -1076,15 +1205,17 @@ function moldura(){
   $('#sw').innerHTML=CORES.map(([c,n])=>`<button data-cor="${c}" style="--c:${c}" aria-pressed="${S.accent===c}" aria-label="${n}" title="${n}"></button>`).join('');
   const m=META[S.tpl], st=m.steps.map(s=>s==='entrega'&&m.dadosNaEntrega?'Entrega e contato':tit(s)==='Sua sacola'?'Sacola':s==='entrega'?'Entrega':tit(s));
   $('#notes').innerHTML=`<div><div class="ref">${m.ref.toUpperCase()}</div><h2>${m.nome}</h2></div><p>${m.prio}</p>
-    <div><div class="lab" style="margin-bottom:8px">Etapas do checkout</div><div class="chips">${st.map((s,i)=>`${i?'<i>→</i>':''}<span>${s}</span>`).join('')}</div>${S.tpl==='fluxo'?'<p class="hint" style="margin-top:8px">“Seus dados” some para quem já comprou.</p>':''}</div>
+    <div><div class="lab" style="margin-bottom:8px">Etapas do checkout</div><div class="chips">${st.map((s,i)=>`${i?'<i>→</i>':''}<span>${s}</span>`).join('')}</div>${S.tpl==='fluxo'?'<p class="hint" style="margin-top:8px">Quem já comprou vai da sacola direto para “Revisar e pedir”.</p>':''}</div>
     <div><div class="lab" style="margin-bottom:8px">Recursos</div><ul>${m.rec.map(r=>`<li>${r}</li>`).join('')}</ul></div>`;
   $('#k-key').textContent=S.tpl;
-  $('#tog-ret').setAttribute('aria-pressed',S.ret);
+  $('#seg-loja').innerHTML=[['aberta','Aberta'],['retirada','Só retirada'],['fechada','Fechada']].map(([k,n])=>`<button data-loja="${k}" aria-pressed="${S.loja===k}">${n}</button>`).join('');
+  $('#togs').innerHTML=[['cupons','Cupons ativos','Sugestão no pagamento'],['cashback','Cashback','5% de volta, saldo para usar'],['fid','Plano de fidelidade','Clube Mister: 100 pts = batata'],['ret','Cliente que já comprou','“Peça de novo” e pedido expresso']].map(([k,n,d])=>`<button class="tog" data-tog="${k}" aria-pressed="${!!S[k]}"><i></i><span>${n}<br><small class="hint">${d}</small></span></button>`).join('');
 }
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-tpl]'); if(t){ S.tpl=t.dataset.tpl; if(S.screen==='checkout'){ S.step=Math.min(S.step,steps().length-1); } S.combo=null; S.cat='mais'; moldura(); render(true); try{localStorage.setItem('regem_tpl_demo',S.tpl)}catch(_){}; return; }
   const c=e.target.closest('[data-cor]'); if(c){ S.accent=c.dataset.cor; moldura(); render(); return; }
-  if(e.target.closest('#tog-ret')){ S.ret=!S.ret; S.editDados=false; S.editEnd=false; preencherRet(S.ret); if(S.screen==='checkout') S.step=Math.min(S.step,steps().length-1); moldura(); render(); return; }
+  const lj=e.target.closest('[data-loja]'); if(lj){ S.loja=lj.dataset.loja; if(S.loja==='retirada') S.chk.tipo='retirada'; else S.chk.tipo='entrega'; if(S.loja==='fechada') S.chk.quando='agendar'; else if(S.chk.quando==='agendar' && !S.chk.agenda) S.chk.quando='agora'; if(S.chk.agenda && S.chk.agenda<minAgenda()) S.chk.agenda=''; moldura(); render(); return; }
+  const tg=e.target.closest('[data-tog]'); if(tg){ const k=tg.dataset.tog; if(k==='ret'){ S.ret=!S.ret; S.editDados=false; S.editEnd=false; S.expressoOff=false; preencherRet(S.ret); } else { S[k]=!S[k]; if(k==='cupons'&&!S.cupons){ S.cupomOk=null; S.cupomMsg=null; } } if(S.screen==='checkout') S.step=Math.min(S.step,steps().length-1); moldura(); render(); return; }
   if(e.target.closest('#reset')){ reset(); render(true); }
 });
 
@@ -1100,13 +1231,14 @@ const DIAG = [
 ];
 $('#diag').innerHTML=DIAG.map(([h,n])=>`<div class="dg"><div class="h"><b>HOJE</b><span>${h}</span></div><div class="n"><b>NOVO</b><span>${n}</span></div></div>`).join('');
 const CMP = [
-  ['Vitrine','Banners, categorias com foto, carrosséis e grade 2 colunas','Capa, busca, abas fixas e lista com foto à direita','Frete grátis, promoções de/por, selos COMBO/TRIO','Lista enxuta, “Mais pedidos” compacto, abas de texto'],
+  ['Vitrine','Banners, categorias com foto, carrosséis e grade 2 colunas','Capa, busca, abas fixas e lista com foto à direita','Frete grátis, promoções de/por, selos COMBO/TRIO','Lista enxuta, “Entregar em” no topo, chips de cupom, cashback e pontos'],
   ['Produto','Tela cheia, foto primeiro','Página com faixas por grupo','Folha com “Transforme em trio”','Folha com obrigatórios numerados e adicionais recolhidos'],
   ['Adicionar rápido','Botão + no card','Abre o produto','Abre o produto','+ direto no que não tem escolha; “Montar” no resto'],
-  ['Etapas','Sacola → Entrega e contato → Pagamento','Sacola → Entrega → Dados → Pagamento','Sacola → Entrega e contato → Pagamento','Sacola → Entrega → Dados → Pagamento (dados pulados para quem já comprou)'],
-  ['Mais vendas','“Peça também” em cards','“Aproveite e leve” em lista','Cupons sugeridos e frete grátis na sacola','“Vira trio?” após lanche avulso e “Combina com seu pedido”'],
-  ['Cupom','No pagamento','Na sacola','Na sacola, com sugestões','Recolhido no pagamento'],
-  ['Cliente que voltou','“Peça de novo” em destaque','Dados preenchidos','Dados preenchidos','“Peça de novo”, endereço salvo e etapa de dados pulada'],
+  ['Etapas','Sacola → Entrega e contato → Pagamento','Sacola → Entrega → Dados → Pagamento','Sacola → Entrega e contato → Pagamento','Sacola → Entrega e contato → Pagamento; quem já comprou: Sacola → Revisar e pedir'],
+  ['Mais vendas','“Peça também” em cards','“Aproveite e leve” em lista','Cupons sugeridos e frete grátis na sacola','“Vira trio?” dentro da sacola e “Combina com seu pedido”'],
+  ['Cupom','Campo no pagamento','Campo na sacola','Campo na sacola, com sugestões','Cupom disponível sugerido no pagamento; outro código sob demanda'],
+  ['Cashback e fidelidade','Faixas no topo da vitrine; benefícios no pagamento','Benefícios no pagamento','Benefícios no pagamento','Chips no topo, progresso do plano e cashback a ganhar no pagamento'],
+  ['Loja fechada ou só retirada','Aviso no topo; entrega bloqueada com o horário de volta; fechada só agenda','Igual','Igual; faixa de frete grátis some sem entrega','Igual, e o chip do topo vira “Retirada na loja”'],
   ['Indicado para','Loja com boas fotos e tráfego pago','Cardápio grande','Loja de promoção e combos','Padrão do Regem'],
 ];
 $('#cmp').insertAdjacentHTML('beforeend',`<thead><tr><th scope="col"></th>${ORDEM.map(k=>`<th scope="col">${META[k].nome}</th>`).join('')}</tr></thead><tbody>${CMP.map(r=>`<tr><th scope="row">${r[0]}</th>${r.slice(1).map((c,i)=>`<td class="${i===3?'us':''}">${c}</td>`).join('')}</tr>`).join('')}</tbody>`);

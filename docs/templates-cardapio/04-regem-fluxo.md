@@ -1,6 +1,6 @@
 # 04 · Template **Regem Fluxo** (`menuTheme: 'fluxo'`)
 
-> Pré-requisito: Fase 0 do `00-base-cardapio.md`. Referência visual: protótipo, opção **Regem Fluxo** (ligue também "Cliente que já comprou").
+> Pré-requisito: Fase 0 do `00-base-cardapio.md`. Referência visual: protótipo, opção **Regem Fluxo**. Teste no painel do protótipo as combinações de **Situação da loja** (aberta, só retirada, fechada) e **Recursos e cliente** (cupons, cashback, fidelidade, cliente que já comprou).
 
 ## 1. Conceito
 
@@ -12,11 +12,13 @@ Pega o melhor dos outros três:
 |---|---|
 | Galeria (Brendi) | "Peça de novo" para quem já comprou, peça também no checkout, Pix em destaque |
 | Balcão (Cardápio Web) | lista fácil de escanear, abas fixas com scroll-spy, busca |
-| Oferta (Anota AI) | meta de frete grátis visível o tempo todo, oferta de trio logo depois do lanche avulso |
-| Próprio | botão que diz o que falta e leva até o campo; obrigatórios numerados e adicionais recolhidos; + direto no que não tem escolha; etapa de dados pulada para cliente conhecido; cupom recolhido; frete só com bairro; pontos "a caminho"; previsão de horário |
+| Oferta (Anota AI) | meta de frete grátis visível o tempo todo, oferta de trio para o lanche avulso |
+| Próprio | "Entregar em" no topo; pedido expresso para quem já comprou; botão que diz o que falta; obrigatórios numerados e adicionais recolhidos; + direto no que não tem escolha; "Vira trio?" dentro da sacola; benefícios (cupom, cashback, fidelidade) num bloco só; previsão de horário |
 
 - **Indicado para:** padrão do Regem, qualquer loja.
-- **Etapas:** Sacola → Entrega → Seus dados → Pagamento ("Seus dados" some para cliente reconhecido).
+- **Etapas:**
+  - cliente novo: **Sacola → Entrega e contato → Pagamento** (`dadosNaEntrega: true`);
+  - cliente que já comprou: **Sacola → Revisar e pedir** (pedido expresso, §5.1).
 
 ## 2. Tokens (claro)
 
@@ -26,65 +28,77 @@ Pega o melhor dos outros três:
   --m-line:#E6EAEF; --m-art:#F3F5F7; --m-r:16px; --m-rs:12px; --m-rbtn:12px;
   --m-font:'Figtree'; --m-disp:'Archivo'; --m-num:'JetBrains Mono';
   --m-pts-bg:#FBF1DF; --m-pts-ink:#7A4E0E;   /* dourado Regem só para fidelidade */
+  --m-cb-bg:#E7F5EF;  --m-cb-ink:#0E7C66;    /* verde ok só para cashback */
 }
 ```
-Escuro: `--m-bg:#0B1620; --m-surf:#12212E; --m-card:#0F1C27; --m-ink:#E8EEF3; --m-mut:#93A4B3; --m-line:#22384A; --m-art:#16283A; --m-pts-bg:#2A2416; --m-pts-ink:#F0C77A`.
+Escuro: `--m-bg:#0B1620; --m-surf:#12212E; --m-card:#0F1C27; --m-ink:#E8EEF3; --m-mut:#93A4B3; --m-line:#22384A; --m-art:#16283A; --m-pts-bg:#2A2416; --m-pts-ink:#F0C77A; --m-cb-bg:#10291F; --m-cb-ink:#3FB79A`.
 
-Regras de cor: a **cor da loja aparece só na ação principal** (botões, seleção, barra de frete). Abas ativas e numeração usam a tinta navy. Preços e números em JetBrains Mono (identidade Regem). Separadores são hairlines de 1 px, sem caixas em volta das linhas.
+Regras de cor: a **cor da loja aparece só na ação principal** (botões, seleção, barra de frete, cupom sugerido). Abas ativas e numeração usam a tinta navy. Dourado = fidelidade; verde = cashback e "ok". Preços e números em JetBrains Mono. Separadores são hairlines de 1 px, sem caixas em volta das linhas.
 
 ## 3. Vitrine
 
-1. **Topo:** nome da loja em Archivo 800, 23 px; linha "● Aberto até HH:MM · entrega ~N min · mínimo R$ X"; botão de busca redondo com contorno.
-2. **Linha de chips:** "Frete grátis acima de R$ X" e, em dourado, "1 ponto por real" (ou o saldo, para cliente conhecido).
-3. **Peça de novo** (com `ultimoPedido`): cartão com contorno, foto 52, "PEÇA DE NOVO", nome e complementos do último pedido e botão escuro "Adicionar" → `reordenarUltimo()` (entra direto na sacola, sem modal).
-4. **Mais pedidos:** carrossel compacto de cards 152 px (foto 116, nome, preço). Toque abre o produto.
-5. **Abas de texto** fixas: 14 px 600, ativa em navy com sublinhado de 2 px. Sem a aba "Mais pedidos" (já está acima). Scroll-spy.
-6. **Seções:** título Archivo 17 com a contagem de itens em mono ao lado. Linhas sem card: foto 76 (raio 14) à esquerda, selo pequeno ("Mais pedido" na cor da loja, outros em cinza), nome 15/600, descrição em 2 linhas, preço mono. Separador hairline começando depois da foto.
-7. **Ação à direita da linha:**
-   - produto **sem** escolha obrigatória: botão redondo **+** com contorno → entra direto (toast "X está na sacola" + bump na barra);
-   - produto **com** escolha obrigatória: pílula **"Montar ›"** → abre o produto.
-8. **Barra da sacola:** branca, hairline no topo, barra fina de 3 px (cor da loja) com o progresso até o frete grátis; à esquerda total em mono e "N itens · faltam R$ X p/ frete grátis"; à direita botão "Ver sacola ›".
+1. **Topo:** nome da loja em Archivo 800, 23 px; linha de status com bolinha (verde aberta, laranja só retirada, vermelha fechada) + texto da base §5.5 + "~N min · mínimo R$ X"; busca redonda com contorno.
+2. **Aviso da loja** (`AvisoLoja`, base §5.5) logo abaixo do topo quando a loja está só retirada ou fechada.
+3. **Faixa de chips** (rolagem horizontal, nesta ordem):
+   - **"Entregar em: escolha o bairro ▾"** (pílula com contorno navy). Abre uma folha "Onde você está?" com cada bairro e a taxa ("Entrega R$ 5,00 · grátis acima de R$ 80,00") e a opção "Vou retirar na loja". Escolher grava `chk.bairroId`/`chk.tipo` e a taxa passa a aparecer na barra da sacola desde o primeiro item. No modo raio, a folha oferece "Usar minha localização" e endereço. Rodapé da folha: "Não achou seu bairro? A loja ainda não entrega aí, mas você pode retirar." Com a loja só em retirada, o chip vira texto fixo "Retirada na loja".
+   - Frete: "Entrega R$ X · grátis acima de R$ Y" (só com entrega).
+   - **Cupom** (só se houver cupom ativo): código e benefício do 1º cupom disponível, na cor suave da loja.
+   - **Cashback** (só se ativo): "X% de volta" ou o saldo do cliente.
+   - **Fidelidade** (só se ativa): "saldo/meta pts" ou "meta pts = {prêmio}".
+4. **Peça de novo** (com `ultimoPedido`): cartão com contorno, foto 52, "PEÇA DE NOVO", nome e complementos, botão escuro "Adicionar" → `reordenarUltimo()`, sem modal.
+5. **Mais pedidos:** carrossel compacto de cards 152 px (foto 116, nome, preço).
+6. **Abas de texto** fixas, ativa em navy com sublinhado de 2 px, scroll-spy.
+7. **Seções:** título Archivo 17 + contagem em mono. Linhas sem card: foto 76 à esquerda, selo, nome 15/600, descrição em 2 linhas, preço mono, hairline depois da foto.
+8. **Ação da linha:** **+** com contorno para produto sem escolha obrigatória (entra direto, toast + bump); **"Montar ›"** para produto com escolha obrigatória.
+9. **Barra da sacola:** total mono à esquerda e uma linha de contexto: "N itens · entrega R$ 5,00 · faltam R$ X p/ grátis" (bairro escolhido), "faltam R$ X p/ frete grátis" (sem bairro), "frete grátis garantido" ou "retirada na loja · grátis". Barra fina de 3 px com o progresso do frete grátis (some na retirada). Botão "Ver sacola ›".
 
 ## 4. Produto (folha de baixo, 92% da altura)
 
-- Cabeçalho compacto: foto 88 à esquerda, nome Archivo 20, descrição, preço mono; fechar redondo à direita.
-- **Obrigatórios primeiro e numerados** (círculo navy com 1, 2…). Regra "Obrigatório · escolha 1" fica na cor da loja enquanto incompleto; a pílula `n/max` fica verde com ✓ ao completar.
-- **Opcionais recolhidos:** cabeçalho "Adicionais · Opcional · até 10" com "Ver opções ▾". Abre/fecha sem perder o que já foi marcado.
+- Cabeçalho compacto: foto 88, nome Archivo 20, descrição, preço mono, fechar.
+- **Obrigatórios primeiro e numerados**; regra na cor da loja enquanto incompleto; pílula `n/max` verde com ✓ ao completar.
+- **Opcionais recolhidos** ("Adicionais · Opcional · até 10 · Ver opções ▾").
 - "＋ Adicionar observação" abre o campo só quando tocado.
-- **Rodapé:** quantidade + botão.
-  - incompleto: botão neutro (fundo `--m-surf`, contorno) com **"Escolha a batata ▾"** (rótulo do primeiro grupo que falta); tocar rola até o grupo, destaca por 1 s e não adiciona;
-  - completo: botão na cor da loja "Adicionar · R$ total".
-
-### 4.1 "Vira trio?" depois do lanche avulso
-
-Quando um lanche de categoria com combo vinculado entra na sacola **sem** ser trio, abre um cartão de baixo (não bloqueante): "Vira trio por + R$ X?", texto do que vem junto, chips das bebidas, **Agora não** e **Quero o trio** (habilita ao escolher a bebida). Aceitar troca aquela linha da sacola (se a linha tinha quantidade > 1, separa uma unidade). Aparece no máximo uma vez por produto por sessão. Sem combo vinculado no cadastro, não aparece (ver Fase B no 00).
+- **Rodapé:** incompleto = botão neutro "Escolha a batata ▾" (rola até o grupo e destaca); completo = "Adicionar · R$ total".
 
 ## 5. Checkout
 
-- **Cabeçalho:** voltar, no centro "2 DE 4" (mono 11) sobre o título da etapa (Archivo 17), fechar à direita (volta à vitrine). Embaixo, barra de progresso de 3 px em navy.
-- **Rodapé — a regra principal do template:**
-  - falta algo: botão neutro com o **motivo** ("Escolha o bairro ▾", "Informe seu WhatsApp ▾", "Escolha como vai pagar ▾"). Tocar rola até o campo, destaca e foca o input;
-  - nada falta: botão na cor da loja "Continuar · R$" / "Fazer pedido · R$".
-- **Sacola:** itens, "Adicionar mais itens", barra de frete grátis, "Combina com seu pedido" em linhas (foto 48, nome, "+ R$", +), subtotal e a nota "Entrega e pagamento nas próximas etapas". **Sem cupom aqui.**
-- **Entrega:** tipo; para cliente conhecido, endereço salvo em cartão com **Trocar** (e a taxa do bairro escrita embaixo); para novo, bairro (com a taxa na opção) → rua → complemento + número; quando.
-- **Seus dados:** "Quem vai receber?", nome e WhatsApp. **Pulada** para cliente reconhecido.
-- **Pagamento:** cliente reconhecido vê "Pedido de {nome} · {telefone} · Trocar" no topo. Formas em dois grupos ("Pague agora", "Pague na entrega"), Pix com "Mais rápido"; troco; nota; resgates; **"Tenho um cupom"** recolhido (abre o `CupomBox`); resumo; "Você ganha N pontos neste pedido" em dourado.
+- **Cabeçalho:** voltar, "N DE M" (mono 11) sobre o título, fechar (volta à vitrine). Barra de progresso de 3 px em navy.
+- **Rodapé (regra principal):** falta algo → botão neutro com o motivo de `falta()` ("Escolha o bairro ▾", "Agende o horário do pedido ▾", "Escolha como vai pagar ▾"), que rola até o campo e foca. Nada falta → botão na cor da loja com o valor: "Continuar", "Ir para pagamento", "Fazer pedido" ou **"Agendar pedido"** (loja fechada ou horário agendado).
+- **Sacola:** itens; **"Vira trio?" dentro da sacola** (§5.2); "Adicionar mais itens"; barra de frete grátis; "Combina com seu pedido" em linhas; subtotal e a nota "Entrega e pagamento nas próximas etapas". Sem cupom aqui.
+- **Entrega e contato (cliente novo):** tipo (com indisponível bloqueado e o horário de volta, base §5.5); endereço (bairro já vem do chip do topo, se escolhido) → rua → complemento + número; quando (agora / agendar, com `min` na próxima abertura quando fechada); nome e WhatsApp.
+- **Pagamento:** formas em dois grupos, Pix com "Mais rápido"; troco; nota; **"Seus benefícios"** (base §5.6) com o cupom sugerido em cartão + "Tenho outro código", "Usar meu cashback", progresso do plano de fidelidade e cashback a ganhar; resumo com "Cashback usado" quando houver.
+
+### 5.1 Pedido expresso (cliente que já comprou)
+
+Quando o cliente é reconhecido e tem endereço e forma de pagamento do último pedido, o checkout tem **2 etapas: Sacola → Revisar e pedir**. A tela de revisão traz:
+
+1. "Usamos os dados do seu último pedido. Confira e peça."
+2. Cartões com **Trocar**: endereço (com bairro e taxa), quando (com campo de agendamento direto se a loja estiver fechada), forma de pagamento ("Pix · último usado"), nome e WhatsApp.
+3. "Seus benefícios" (igual ao pagamento).
+4. Resumo e o botão final.
+
+"Trocar" sai do expresso e abre o fluxo normal na etapa do item (endereço → Entrega e contato com o formulário aberto; pagamento → Pagamento). Se a loja estiver só em retirada, a revisão já vem com "Retirar na loja" e uma nota com o horário de volta da entrega.
+
+### 5.2 "Vira trio?" na sacola
+
+Para cada linha de lanche (categoria com combo vinculado) que ainda não é trio, aparece logo abaixo da linha um bloco cinza: "Vira trio por + R$ X?", o que vem junto, chips das bebidas e o botão "Quero o trio" (habilita ao escolher a bebida) e um × para dispensar. Aceitar troca a linha (separa uma unidade se a quantidade for maior que 1). Dispensado, não volta naquela sessão. Sem combo vinculado no cadastro, não aparece (Fase B no 00).
 
 ## 6. Confirmação
 
-Igual à base (5.5), com Archivo no título, horário previsto em mono 24 e pontos em dourado.
+Base §5.7, com Archivo no título e horário em mono 24. Pedido agendado: "Agendado para HH:MM" e linha do tempo começando em "Pedido agendado". Pix pendente: "Falta só o Pix". Fidelidade: "N pontos a caminho" (dourado), só se ativa. Cashback: "R$ X de cashback a caminho" (verde), só se ativo.
 
 ## 7. Checklist de aceite
 
-- [ ] Vitrine com topo enxuto, chips, "Mais pedidos" compacto, abas de texto com scroll-spy.
-- [ ] + direto em produto simples; "Montar ›" em produto com obrigatório.
-- [ ] "Peça de novo" sem modal, só com `ultimoPedido`.
-- [ ] Barra da sacola com progresso de frete grátis.
-- [ ] Produto: obrigatórios numerados primeiro, adicionais recolhidos, observação sob demanda.
-- [ ] Botão do produto mostra "Escolha {grupo}" e rola até ele; só adiciona completo.
-- [ ] "Vira trio?" só com combo vinculado, uma vez por produto por sessão.
-- [ ] Checkout em 4 etapas; "Seus dados" pulada para cliente reconhecido e reinserida pelo Trocar.
-- [ ] Rodapé do checkout com o motivo e foco no campo; valor no botão quando completo.
-- [ ] Cupom recolhido no pagamento; frete "a calcular" sem bairro.
-- [ ] Confirmação com Pix pendente, previsão, linha do tempo e pontos a caminho.
+- [ ] Status e aviso do topo corretos nas 3 situações (aberta, só retirada, fechada) e com `loja.aberto=false`.
+- [ ] Chip "Entregar em" abre a folha de bairros (ou localização no modo raio) e a taxa aparece na barra da sacola.
+- [ ] Chips de cupom, cashback e fidelidade só aparecem quando o recurso está ativo.
+- [ ] + direto em produto simples; "Montar ›" no que tem obrigatório; "Peça de novo" sem modal.
+- [ ] Produto: obrigatórios numerados primeiro, adicionais recolhidos, botão "Escolha {grupo}" que rola até ele.
+- [ ] "Vira trio?" dentro da sacola, só com combo vinculado, dispensável.
+- [ ] Cliente novo em 3 etapas; cliente reconhecido em 2 (Sacola → Revisar e pedir); "Trocar" volta ao fluxo normal.
+- [ ] Loja só retirada: Entrega desabilitada com o horário; tipo começa em retirada; frete grátis some.
+- [ ] Loja fechada: "O quanto antes" desabilitado, agendamento com `min` na abertura, botão "Agendar pedido".
+- [ ] "Seus benefícios": cupom sugerido (sem cupom de 1ª compra para cliente reconhecido), usar cashback, progresso do plano, cashback a ganhar; resumo com "Cashback usado".
+- [ ] Sem cupom ativo, nenhum campo de cupom; sem fidelidade, nenhum ponto em lugar nenhum.
+- [ ] Confirmação: agendado, Pix pendente, pontos e cashback a caminho conforme os recursos.
 - [ ] Modo escuro; 375 px sem rolagem horizontal; temas antigos intactos.

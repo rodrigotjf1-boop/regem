@@ -57,4 +57,6 @@ Escuro: `--m-bg:#0E1013; --m-surf:#16191D; --m-card:#1B1F24; --m-ink:#ECEEF1; --
 - [ ] Produto em página com faixas por grupo, obrigatórios primeiro.
 - [ ] Checkout em 4 etapas com "Etapa N de 4"; cupom na sacola.
 - [ ] Frete "a calcular" sem bairro; pontos "a caminho" na confirmação.
+- [ ] Situação da loja conforme a base §5.5 (aviso no topo; só retirada bloqueia a entrega com o horário; fechada só agenda e o botão final vira "Agendar pedido").
+- [ ] Benefícios conforme a base §5.6: cupom, cashback e fidelidade só aparecem quando ativos, no bloco "Seus benefícios" do pagamento.
 - [ ] Modo escuro; 375 px sem rolagem horizontal; temas antigos intactos.

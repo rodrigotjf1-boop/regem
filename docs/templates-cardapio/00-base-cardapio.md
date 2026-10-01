@@ -156,7 +156,7 @@ O **conteúdo** de cada etapa (itens, endereço, pagamento…) é um componente 
 - Começa de `template.etapas`.
 - **QR de mesa** (`menu.modo === 'mesa' && mesa`): só `sacola` → envio direto, como hoje.
 - `dadosNaEntrega`: `dados` não existe; os campos entram no fim da etapa `entrega`.
-- **Regem Fluxo:** remove `dados` quando o cliente é reconhecido (`temCliente` com nome e telefone válidos), mostrando no Pagamento o cartão "Pedido de {nome} · {telefone} · Trocar" (Trocar reinsere a etapa).
+- **Regem Fluxo:** usa `dadosNaEntrega` (3 etapas para cliente novo). Cliente reconhecido (`temCliente` com nome, telefone, endereço do `ultimoPedido` e última forma de pagamento) vai em **pedido expresso**: `sacola → revisar` (ver `04-regem-fluxo.md` §5.1). Qualquer "Trocar" na revisão volta ao fluxo normal na etapa certa.
 - Ramo `servicos`: a etapa `entrega` vira **"Atendimento"** (profissional + horário).
 
 ### 5.3 `falta(etapa)`
@@ -181,7 +181,34 @@ O rodapé de cada template usa `falta` (veja cada arquivo). `campo` é o `id` do
 - O rodapé é fixo, com o **valor** no botão: na Sacola, subtotal menos desconto; nas demais, total (sem frete enquanto `taxaPendente`).
 - Os beacons do funil continuam: `checkout` ao abrir a Sacola; acrescentar `etapa_entrega`, `etapa_dados`, `etapa_pagamento` (uma vez por sessão). Isso alimenta o funil por etapa no painel.
 
-### 5.5 Confirmação
+### 5.5 Situação da loja (vale para todos os templates)
+
+Fonte: `menu.abertaAgora`, `menu.abertoPorTipo { entrega, retirada, local }`, `menu.horarioLabel` ("Aberta até 23:00" / "Abre às 18:00" / "Abre sex 18:00"), `menu.tipos`, `loja.encomenda` e as regras de agendamento que o `cart-sheet` já aplica. O servidor continua sendo quem libera ou recusa.
+
+| Situação | Vitrine | Checkout |
+|---|---|---|
+| **Aberta** | status verde com `horarioLabel` | normal |
+| **Só retirada agora** (`abertoPorTipo.entrega=false`, `retirada=true`) | status laranja "Só retirada · entrega a partir das HH:MM" + aviso no topo com o endereço da loja; faixa/barra de frete grátis somem | `tipo` começa em `retirada`; o botão Entrega fica desabilitado com "a partir das HH:MM" |
+| **Só entrega agora** (o inverso) | status com "retirada a partir das HH:MM" | Retirada desabilitada com o horário |
+| **Fechada** (`abertaAgora=false`) | status vermelho "Fechado agora · abre às HH:MM" + aviso "Monte seu pedido e agende o horário"; o cardápio continua navegável e o carrinho funciona | "O quanto antes" desabilitado ("fechado agora"); `quando='agendar'` com `datetime-local` `min` = próxima abertura; botão final "Agendar pedido" |
+| **Fechada sem agendamento** | aviso "Abrimos às HH:MM" | botão da sacola desabilitado com "Loja fechada · abre às HH:MM" (comportamento de hoje) |
+| `loja.aberto=false` (toggle manual) | "Fechada" sem horário | como fechada sem agendamento |
+
+Regras: o aviso fica **no topo da vitrine** (não só no checkout) para o cliente saber antes de montar o pedido; o horário de volta sai do `horarioLabel`/`horarios` por tipo (`horariosRetirada` quando o horário não é único); a confirmação de pedido agendado mostra "Agendado para HH:MM" e a linha do tempo começa em "Pedido agendado".
+
+### 5.6 Benefícios: cupons, cashback e fidelidade
+
+Os três são **opcionais por loja**. Quando a loja não usa um deles, nada dele aparece (nem campo vazio, nem "0 pontos").
+
+| Recurso | Quando aparece | De onde vem | Onde aparece |
+|---|---|---|---|
+| **Cupom** | a loja tem cupom ativo (`cardapioCupons`/`cuponsDisponiveis` não vazio) | `cardapioCuponsDisponiveis(telefone, subtotal)`; validação em `cardapioCupomValidar` | campo/sugestões no lugar que cada template define; o primeiro cupom disponível para o cliente aparece pronto para aplicar; cupom de primeira compra não aparece para cliente reconhecido; sem cupom ativo, **sem campo de cupom** |
+| **Cashback** | a loja tem plano de cashback ativo | `cardapioCashback` (`valor`, `pontos`, `vales`, `planos` com `percentual`) | vitrine: "X% de volta" (ou o saldo do cliente); pagamento: "Usar meu cashback · R$ X disponível" (marcado por padrão, como hoje) e "Você recebe R$ Y de cashback"; resumo: linha "Cashback usado"; confirmação: "R$ Y de cashback a caminho" |
+| **Fidelidade** | `loja.fidelidadeAtiva` | `cardapioPontos` (`planos` com `nome`, `pontosMeta`, saldo do cliente) e `cardapioFidelidadePremios` (prêmios prontos, abate automático como hoje) | vitrine: nome do plano e saldo/meta; pagamento: barra de progresso do saldo atual + os pontos deste pedido, com "Faltam N para {prêmio}" ou "Com este pedido você completa e ganha {prêmio}"; prêmio pronto aparece aplicado com opção de não usar; confirmação: "N pontos a caminho" |
+
+Cálculo de exibição (o servidor recalcula tudo no pedido): `total = subtotal + frete − cupom − prêmio − cashbackUsado`; pontos previstos sobre o total; cashback a ganhar sobre `subtotal − descontos` × `percentual`. Os templates agrupam esses itens num bloco **"Seus benefícios"** no pagamento (componente `Beneficios`).
+
+### 5.7 Confirmação
 
 Na tela de pedido enviado (e em `/c/[token]/pedido/[id]`):
 - Pix pendente: título **"Falta só o Pix"**, ícone de relógio na cor da loja (não o check verde), copia e cola com botão Copiar e contador de expiração; a linha do tempo começa em "Aguardando o Pix".
@@ -194,7 +221,10 @@ Na tela de pedido enviado (e em `/c/[token]/pedido/[id]`):
 | `ItensSacola` | lista com quantidade/lixeira; linha some com animação de 250 ms ao remover |
 | `BarraFreteGratis` | "Faltam R$ X para o frete grátis" + barra; some se `freteGratisAcima` vazio/0 ou retirada |
 | `PecaTambem` | variantes `cards` (carrossel 132 px) e `linhas`; usa `addUpsell` (abre o produto quando há escolha obrigatória, como hoje) |
-| `CupomBox` | input + Aplicar + chips de `cuponsSugeridos` + mensagem; variante `recolhido` ("Tenho um cupom") |
+| `CupomBox` | input + Aplicar + chips de `cuponsSugeridos` + mensagem; variante `sugerido` (cartão com o 1º cupom disponível + "Tenho outro código"); não renderiza sem cupom ativo |
+| `AvisoLoja` | aviso do topo da vitrine conforme 5.5 (só retirada / fechada) |
+| `Beneficios` | bloco "Seus benefícios": `CupomBox`, usar cashback, `ProgressoFidelidade`, cashback a ganhar (5.6) |
+| `ProgressoFidelidade` | barra com saldo atual + pontos deste pedido e o texto do prêmio |
 | `TipoRecebimento` | segmentado Entrega/Retirada/Local com o tempo de cada um |
 | `Endereco` | salvo (cartão com Trocar) ou novo: bairro (com taxa na opção) ou localização (raio) → rua → número → complemento |
 | `Quando` | agora/agendar, encomenda (min/max), recorrência; sempre `datetime-local` nativo |
@@ -203,7 +233,7 @@ Na tela de pedido enviado (e em `/c/[token]/pedido/[id]`):
 | `NotaFiscal` | caixa "CPF/CNPJ na nota" só com `emiteNota` |
 | `Resgates` | prêmio de fidelidade e cashback (como hoje) |
 | `Resumo` | subtotal, entrega ("a calcular" / "Grátis" / valor), descontos, total |
-| `PontosPrevistos` | "Você ganha N pontos neste pedido" (só com `fidelidadeAtiva`) |
+| `PontosPrevistos` | substituído por `ProgressoFidelidade` |
 | `Grupos` | grupos do produto: obrigatórios primeiro; radio (`max==1`) ou contador; pílula `n/max` que fica verde ao completar; opção indisponível desabilitada; foto da opção quando existir |
 
 Todos recebem `variante`/tokens do template; nenhuma regra fica no template.

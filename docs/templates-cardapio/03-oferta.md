@@ -57,4 +57,6 @@ O amarelo é só para promoção (selo de %, faixa de frete grátis, pílula do 
 - [ ] "Transforme em trio" só com combo vinculado; ligar exige a bebida e soma o extra.
 - [ ] Passos numerados no checkout; cupom e frete grátis na sacola.
 - [ ] Frete "a calcular" sem bairro; confirmação com Pix pendente e pontos a caminho.
+- [ ] Situação da loja conforme a base §5.5 (aviso no topo; só retirada bloqueia a entrega com o horário; fechada só agenda e o botão final vira "Agendar pedido").
+- [ ] Benefícios conforme a base §5.6: cupom, cashback e fidelidade só aparecem quando ativos, no bloco "Seus benefícios" do pagamento.
 - [ ] Modo escuro; 375 px sem rolagem horizontal; temas antigos intactos.

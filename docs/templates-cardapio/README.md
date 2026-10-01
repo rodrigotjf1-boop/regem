@@ -10,6 +10,8 @@ Especificação para o **Claude Code** implementar 4 templates novos no cardápi
 | 3 | Oferta — promoções e combos na frente | `oferta` | Anota AI | [`03-oferta.md`](03-oferta.md) |
 | 4 | **Regem Fluxo** — clean, uma decisão por tela | `fluxo` | próprio do Regem | [`04-regem-fluxo.md`](04-regem-fluxo.md) |
 
+Todos os templates seguem as mesmas regras de **situação da loja** (aberta, só retirada, fechada com agendamento) e de **benefícios** (cupons, cashback, plano de fidelidade, só quando ativos), descritas nas seções 5.5 e 5.6 do `00-base-cardapio.md`.
+
 > "Referência de mercado" indica o **padrão de navegação** que inspirou o template. Não copiar marca, logo, textos, ícones ou cores desses produtos. Os nomes dos templates são do Regem.
 
 ## Conteúdo do pacote

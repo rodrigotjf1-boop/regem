@@ -61,5 +61,7 @@ Botões sempre em pílula. A cor da loja aparece no botão + dos cards, no botã
 - [ ] Produto em tela cheia com obrigatórios primeiro; Adicionar desabilitado até completar.
 - [ ] Checkout em 3 etapas com as 3 barrinhas; frete "a calcular" sem bairro.
 - [ ] Pix com selo "Mais rápido"; confirmação "Falta só o Pix" quando pendente.
+- [ ] Situação da loja conforme a base §5.5 (aviso no topo; só retirada bloqueia a entrega com o horário; fechada só agenda e o botão final vira "Agendar pedido").
+- [ ] Benefícios conforme a base §5.6: cupom, cashback e fidelidade só aparecem quando ativos, no bloco "Seus benefícios" do pagamento.
 - [ ] Modo escuro com os tokens escuros; 375 px sem rolagem horizontal.
 - [ ] `classic`, `fastfood`, `grid` intactos.
