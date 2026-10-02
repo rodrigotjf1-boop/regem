@@ -70,7 +70,17 @@ import { Food99Service } from '../integracoes/food99/food99.service';
 import { AnotaAiService } from '../integracoes/anotaai/anotaai.service';
 import { adaptar, DescontoCanal, PedidoNormalizado } from './adapters';
 import { observarChamadasExternas } from '../../common/chamadas-externas';
-import { enviosDoPedido, falhasDeEnvio, gravarEnvio, NaoEnviado, resumirEnvio, SEM_CREDENCIAL } from './pedido-envio';
+import {
+  ACOES_DO_CANAL,
+  enviadoHaPouco,
+  enviosDoPedido,
+  falhasDeEnvio,
+  gravarEnvio,
+  NaoEnviado,
+  resumirEnvio,
+  SEM_CREDENCIAL,
+  type ResumoEnvio,
+} from './pedido-envio';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -111,21 +121,155 @@ export class DeliveryService {
   // (02/10/2026): registrar e mostrar, SEM mudar o envio — nada é reenviado, nada é barrado.
   // É chamado com `void` e por isso NUNCA rejeita (V3): o erro do envio é engolido como sempre
   // foi, e uma falha ao registrar só vira aviso no log.
-  private async enviarAoCanal(tenantId: string, row: any, acao: string, enviar: () => Promise<unknown>): Promise<void> {
+  //
+  // SERVIDOR DA LOJA (decisão do dono, 02/10/2026 — "pode corrigir o servidor da loja que não
+  // avisa o canal"): a credencial dos canais fica só na NUVEM (a tabela `integracao` não desce
+  // para a loja, e não deve: segredo de integração é da distribuição). Quando o envio não sai
+  // por falta dela, a loja PEDE À NUVEM que envie (`pedirEnvioANuvem`), como já faz com o aviso
+  // ao cliente. Loja que tiver a credencial local continua enviando direto, como sempre.
+  private async enviarAoCanal(tenantId: string, row: any, acao: string, enviar: () => Promise<unknown>): Promise<ResumoEnvio | null> {
     try {
       const obs = await observarChamadasExternas(enviar);
       const r = resumirEnvio(obs);
-      if (r && row?.id) await gravarEnvio(this.db, { tenantId, pedidoId: row.id, destino: String(row.canal), acao, ...r });
+      if (!r || !row?.id) return r;
+      if (r.semCredencial && ehServidorLocal()) {
+        void this.pedirEnvioANuvem(tenantId, row, acao); // o registro sai quando a nuvem responder
+        return r;
+      }
+      await gravarEnvio(this.db, { tenantId, pedidoId: row.id, destino: String(row.canal), acao, ...r });
+      return r;
     } catch (e: any) {
       this.logger.warn(`registro do envio ${row?.canal}/${acao} falhou: ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  // ===== SERVIDOR DA LOJA → NUVEM: "envie este status ao canal por mim" =====
+  // Um pedido por vez, NA ORDEM: o canal recusa "pronto" que chega antes do "aceito". A fila é
+  // por pedido e só existe enquanto há envio em curso (não é estado de negócio).
+  private readonly filaDoCanal = new Map<string, Promise<void>>();
+  /** Esperas entre as tentativas de falar com a nuvem (≈ 8 min no total). */
+  private esperasDoRepasse = [0, 5_000, 20_000, 60_000, 120_000, 300_000];
+
+  /** Nunca rejeita (V3). */
+  private pedirEnvioANuvem(tenantId: string, row: any, acao: string): Promise<void> {
+    const anterior = this.filaDoCanal.get(row.id) ?? Promise.resolve();
+    const atual = anterior
+      .then(() => this.encaminharStatusParaNuvem(tenantId, row, acao))
+      .catch((e: any) => this.logger.warn(`[status-canal] pedido ${row?.id} ${acao}: ${e?.message ?? e}`));
+    this.filaDoCanal.set(row.id, atual);
+    void atual.then(() => {
+      if (this.filaDoCanal.get(row.id) === atual) this.filaDoCanal.delete(row.id);
+    });
+    return atual;
+  }
+
+  // A nuvem só aceita pedido que ela CONHECE (409 até o sync levar — a loja tenta de novo) e
+  // responde o resultado do envio, que a loja grava na linha do tempo DELA. Sem ligação com a
+  // nuvem configurada, fica registrado que nada saiu. Tentativas esgotadas = "falhou", com o
+  // motivo — e a faixa de falhas do painel avisa o operador.
+  private async encaminharStatusParaNuvem(tenantId: string, row: any, acao: string): Promise<void> {
+    const registrar = (resultado: 'enviado' | 'falhou' | 'nao_enviado', motivo: string | null, httpStatus?: number | null) =>
+      gravarEnvio(this.db, { tenantId, pedidoId: row.id, destino: String(row.canal), acao, resultado, motivo, httpStatus: httpStatus ?? null });
+    const nuvem = String(process.env.CLOUD_API ?? '').replace(/\/$/, '');
+    const token = process.env.SYNC_TOKEN ?? '';
+    if (!nuvem || !token) {
+      await registrar('nao_enviado', 'este servidor (loja) não tem a credencial do canal e não está ligado à nuvem');
+      return;
+    }
+    const corpo = JSON.stringify({
+      pedidoId: row.id,
+      acao,
+      // O que MUDOU na loja e talvez ainda não tenha subido pelo sync.
+      status: row.status ?? null,
+      motivoCancelamento: row.motivoCancelamento ?? null,
+    });
+    let ultimo = 'sem resposta';
+    for (const ms of this.esperasDoRepasse) {
+      if (ms) await new Promise((r) => setTimeout(r, ms));
+      try {
+        const res = await fetch(`${nuvem}/delivery/status-da-loja`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-sync-token': token },
+          body: corpo,
+          signal: AbortSignal.timeout(45_000), // a nuvem fala com o canal antes de responder
+        });
+        if (res.ok) {
+          const j: any = await res.json().catch(() => null);
+          const resultado = ['enviado', 'falhou', 'nao_enviado'].includes(j?.resultado) ? j.resultado : 'enviado';
+          await registrar(resultado, j?.motivo ? String(j.motivo) : null, Number.isFinite(j?.httpStatus) ? j.httpStatus : null);
+          return;
+        }
+        ultimo = `HTTP ${res.status}`;
+        if (res.status !== 409 && res.status < 500) break; // recusa definitiva: não insiste
+      } catch (e: any) {
+        ultimo = e?.cause?.code ?? e?.name ?? e?.message ?? String(e);
+      }
+    }
+    this.logger.warn(`[status-canal] a nuvem não enviou ${acao} do pedido ${row.id} ao ${row.canal} (${ultimo})`);
+    await registrar('falhou', `a nuvem não atendeu o pedido de envio (${ultimo})`);
+  }
+
+  // NUVEM ← SERVIDOR DA LOJA: a loja pede que a nuvem envie um status ao canal. A empresa (e a
+  // loja) vêm do token do servidor, nunca do corpo. Roda o MESMO envio que a nuvem faria se o
+  // operador estivesse no painel dela, e devolve o resultado.
+  async statusVindoDaLoja(
+    ctx: { tenantId: string; unidadeId?: string | null; equipamentoId?: string | null },
+    dto: any,
+  ): Promise<{ ok: true; repetido?: true } & Pick<ResumoEnvio, 'resultado' | 'motivo' | 'httpStatus'>> {
+    const id = String(dto?.pedidoId ?? '');
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new BadRequestException('pedidoId inválido');
+    const acao = String(dto?.acao ?? '');
+    // Só SERVIDOR DE LOJA pede envio: a credencial de um integrador (GoGeM) também é um
+    // `servidor_local` (mig 290), mas não é loja — não fala com os canais em nome dela (V33).
+    if (ctx.equipamentoId) {
+      const r: any = await this.db.execute(sql`
+        select integrador from equipamento where id = ${ctx.equipamentoId}::uuid and tenant_id = ${ctx.tenantId}`);
+      if ((r.rows ?? r)[0]?.integrador) throw new ForbiddenException('Credencial de integração não envia status de pedido.');
+    }
+    const [row] = await this.db
+      .select()
+      .from(pedidoExterno)
+      .where(and(eq(pedidoExterno.id, id), eq(pedidoExterno.tenantId, ctx.tenantId)));
+    if (!row) throw new ConflictException('Pedido ainda não chegou à nuvem — tente de novo.');
+    // O servidor de uma loja não mexe no pedido de outra.
+    if (ctx.unidadeId && row.unidadeId && row.unidadeId !== ctx.unidadeId)
+      throw new ForbiddenException('Este pedido é de outra loja.');
+    if (!ACOES_DO_CANAL[row.canal]?.includes(acao)) throw new BadRequestException(`Ação "${acao}" não existe para o canal ${row.canal}.`);
+    // Resposta perdida → a loja repete; o canal não pode receber duas vezes.
+    if (await enviadoHaPouco(this.db, ctx.tenantId, id, row.canal, acao))
+      return { ok: true, repetido: true, resultado: 'enviado', motivo: null, httpStatus: null };
+    // O canal já cancelou e a loja ainda não sabe: não se manda "pronto" de pedido cancelado.
+    if (row.status === 'cancelado' && acao !== 'cancel') {
+      const motivo = 'o pedido já está cancelado na nuvem';
+      await gravarEnvio(this.db, { tenantId: ctx.tenantId, pedidoId: id, destino: row.canal, acao, resultado: 'nao_enviado', motivo });
+      return { ok: true, resultado: 'nao_enviado', motivo, httpStatus: null };
+    }
+    const ped: any = {
+      ...row,
+      // o que mudou na loja e talvez ainda não tenha subido pelo sync
+      motivoCancelamento: typeof dto?.motivoCancelamento === 'string' ? dto.motivoCancelamento.slice(0, 300) : row.motivoCancelamento ?? null,
+    };
+    const r = await this.statusBackPorAcao(ctx.tenantId, ped, acao);
+    return { ok: true, resultado: r?.resultado ?? 'nao_enviado', motivo: r?.motivo ?? null, httpStatus: r?.httpStatus ?? null };
+  }
+
+  /** O envio do canal do pedido para uma ação já conferida (`ACOES_DO_CANAL`). */
+  private statusBackPorAcao(tenantId: string, row: any, acao: string): Promise<ResumoEnvio | null> {
+    switch (row.canal) {
+      case 'ifood': return this.statusBackIfood(tenantId, row, acao as any);
+      case '99food': return this.statusBackFood99(tenantId, row, acao as any);
+      case 'anotaai': return this.statusBackAnotaAi(tenantId, row, acao as any);
+      case 'cardapio_web': return this.statusBackCw(tenantId, row, acao as any);
+      default: return this.statusBack(tenantId, row, acao as any);
     }
   }
 
   // Status back para marketplaces (hoje: Open Delivery). Best-effort.
-  private async statusBack(tenantId: string, row: any, acao: 'dispatch' | 'cancel') {
-    if (!['open_delivery', 'delivery_direto'].includes(row?.canal) || !row?.externalId) return;
+  private async statusBack(tenantId: string, row: any, acao: 'dispatch' | 'cancel'): Promise<ResumoEnvio | null> {
+    if (!['open_delivery', 'delivery_direto'].includes(row?.canal) || !row?.externalId) return null;
     const od = this.openDelivery;
-    await this.enviarAoCanal(tenantId, row, acao, async () => {
+    return this.enviarAoCanal(tenantId, row, acao, async () => {
       if (!od) return SEM_CREDENCIAL();
       const ig = await od.integracaoDoTenant(tenantId, row.canal);
       if (!ig) return SEM_CREDENCIAL();
@@ -141,10 +285,10 @@ export class DeliveryService {
     tenantId: string,
     row: any,
     acao: 'confirm' | 'ready' | 'delivered' | 'finalize' | 'cancel',
-  ) {
-    if (row?.canal !== 'cardapio_web' || !row?.externalId) return;
+  ): Promise<ResumoEnvio | null> {
+    if (row?.canal !== 'cardapio_web' || !row?.externalId) return null;
     const cw = this.cardapioWeb;
-    await this.enviarAoCanal(tenantId, row, acao, async () => {
+    return this.enviarAoCanal(tenantId, row, acao, async () => {
       if (!cw) return SEM_CREDENCIAL();
       return cw.statusBack(tenantId, String(row.externalId), acao, row.motivoCancelamento ?? undefined);
     });
@@ -155,10 +299,10 @@ export class DeliveryService {
     tenantId: string,
     row: any,
     acao: 'confirm' | 'ready' | 'dispatch' | 'cancel',
-  ) {
-    if (row?.canal !== 'ifood' || !row?.externalId) return;
+  ): Promise<ResumoEnvio | null> {
+    if (row?.canal !== 'ifood' || !row?.externalId) return null;
     const ifood = this.ifood;
-    await this.enviarAoCanal(tenantId, row, acao, async () => {
+    return this.enviarAoCanal(tenantId, row, acao, async () => {
       if (!ifood) return SEM_CREDENCIAL();
       const ig = await ifood.integracaoDoTenant(tenantId);
       if (!ig) return SEM_CREDENCIAL();
@@ -192,10 +336,10 @@ export class DeliveryService {
     tenantId: string,
     row: any,
     acao: 'confirm' | 'ready' | 'delivered' | 'cancel',
-  ) {
-    if (row?.canal !== '99food' || !row?.externalId) return;
+  ): Promise<ResumoEnvio | null> {
+    if (row?.canal !== '99food' || !row?.externalId) return null;
     const food99 = this.food99;
-    await this.enviarAoCanal(tenantId, row, acao, async () => {
+    return this.enviarAoCanal(tenantId, row, acao, async () => {
       if (!food99) return SEM_CREDENCIAL();
       const id = String(row.externalId);
       if (acao === 'cancel') {
@@ -220,10 +364,10 @@ export class DeliveryService {
 
   // Status back para a Anota Aí — pronto / finalizar / cancelar. (O aceite acontece
   // no poller ao ingerir, então o "confirm" do kanban não reenvia.) Best-effort.
-  private async statusBackAnotaAi(tenantId: string, row: any, acao: 'ready' | 'finalizar' | 'cancel') {
-    if (row?.canal !== 'anotaai' || !row?.externalId) return;
+  private async statusBackAnotaAi(tenantId: string, row: any, acao: 'ready' | 'finalizar' | 'cancel'): Promise<ResumoEnvio | null> {
+    if (row?.canal !== 'anotaai' || !row?.externalId) return null;
     const anotaai = this.anotaai;
-    await this.enviarAoCanal(tenantId, row, acao, async () => {
+    return this.enviarAoCanal(tenantId, row, acao, async () => {
       if (!anotaai) return SEM_CREDENCIAL();
       const ig = await anotaai.integracaoDoTenant(tenantId);
       if (!ig) return SEM_CREDENCIAL();

@@ -287,11 +287,21 @@ descrever('registro dos envios do pedido (Postgres real)', () => {
       const urls = rede(() => ok());
       const svc = servico({ anotaai: { integracaoDoTenant: async () => null } }); // 99 nem existe neste servidor
       await svc.statusBackAnotaAi(t, p, 'ready');
+      // Na loja, sem credencial E sem ligação com a nuvem (o repasse à nuvem tem spec própria:
+      // status-canal-pela-nuvem.spec.ts). O registro sai em segundo plano.
+      const [nuvem, token] = [process.env.CLOUD_API, process.env.SYNC_TOKEN];
+      delete process.env.CLOUD_API;
+      delete process.env.SYNC_TOKEN;
       process.env.EDGE_MODE = 'true';
-      await svc.statusBackFood99(t, q99, 'confirm');
+      try {
+        await svc.statusBackFood99(t, q99, 'confirm');
+        expect(await ate(t, q99.id, 1)).toMatchObject([{ resultado: 'nao_enviado', servidor: 'loja', motivo: expect.stringContaining('este servidor (loja) não tem a credencial') }]);
+      } finally {
+        if (nuvem !== undefined) process.env.CLOUD_API = nuvem;
+        if (token !== undefined) process.env.SYNC_TOKEN = token;
+      }
       expect(urls).toEqual([]);
       expect(await registros(t, p.id)).toMatchObject([{ resultado: 'nao_enviado', servidor: 'nuvem', motivo: 'integração do canal inativa ou sem credencial' }]);
-      expect(await registros(t, q99.id)).toMatchObject([{ resultado: 'nao_enviado', servidor: 'loja', motivo: expect.stringContaining('este servidor (loja) não tem a credencial') }]);
     });
 
     it('o envio que LANÇA não derruba nada (é chamado em segundo plano) e fica como "falhou"', async () => {
@@ -304,7 +314,7 @@ descrever('registro dos envios do pedido (Postgres real)', () => {
         },
       };
       rede(() => ok());
-      await expect(servico({ od }).statusBack(t, p, 'dispatch')).resolves.toBeUndefined();
+      await expect(servico({ od }).statusBack(t, p, 'dispatch')).resolves.toMatchObject({ resultado: 'falhou' }); // resolve, nunca rejeita
       expect(await registros(t, p.id)).toMatchObject([{ destino: 'open_delivery', acao: 'dispatch', resultado: 'falhou', motivo: 'sem token' }]);
     });
 

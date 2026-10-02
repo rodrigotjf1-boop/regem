@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import { api } from '@/lib/api';
-import { fraseEnvio, type EnvioDoPedido } from '@/lib/envios-pedido';
+import { ehCliente, fraseEnvio, type EnvioDoPedido } from '@/lib/envios-pedido';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -43,7 +43,8 @@ function montar(dados: any): Linha[] {
       quando: e.criadoEm,
       tipo: e.resultado,
       texto: fraseEnvio(e),
-      detalhe: [e.motivo, e.servidor === 'loja' ? 'tentado pelo servidor da loja' : null].filter(Boolean).join(' · ') || null,
+      // No servidor da loja quem fala com o canal é a nuvem, a pedido da loja.
+      detalhe: [e.motivo, e.servidor === 'loja' && !ehCliente(e.destino) ? 'a pedido do servidor da loja, pela nuvem' : null].filter(Boolean).join(' · ') || null,
     });
   }
   // marco primeiro quando a hora empata (o envio é consequência dele)

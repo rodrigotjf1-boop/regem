@@ -9688,6 +9688,24 @@
         }
       }
     },
+    "/api/v1/delivery/status-da-loja": {
+      "post": {
+        "operationId": "DeliveryLojaController_statusDaLoja",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/delivery/entregadores-ao-vivo": {
       "get": {
         "operationId": "EntregadoresAoVivoController_painel",
