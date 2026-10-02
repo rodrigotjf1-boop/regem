@@ -48,7 +48,7 @@ export function HistoricoKds({ T, onFechar }: { T: Tema; onFechar: () => void })
     <div
       role="dialog"
       aria-label="Histórico do KDS"
-      className="fixed right-4 top-[74px] z-30 max-h-[calc(100dvh-90px)] w-[380px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-[14px] border p-4 shadow-2xl"
+      className="fixed right-4 top-[124px] z-30 max-h-[calc(100dvh-140px)] w-[380px] max-w-[calc(100vw-2rem)] overflow-y-auto border p-4 shadow-2xl"
       style={{ background: T.panel, borderColor: T.border, color: T.text }}
     >
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -73,7 +73,7 @@ export function HistoricoKds({ T, onFechar }: { T: Tema; onFechar: () => void })
           {rows.map((r) => {
             const resumo = resumoKds(r.acao, r.detalhe);
             return (
-              <li key={r.id} className="rounded-[10px] border px-3 py-2" style={{ background: T.panel2, borderColor: T.border }}>
+              <li key={r.id} className="border px-3 py-2" style={{ background: T.panel2, borderColor: T.border }}>
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="text-[13px] font-semibold">{ACOES_KDS[r.acao] ?? String(r.acao).replace(/_/g, ' ')}</span>
                   <span className="flex-none text-[12px] tabular-nums" style={{ color: T.muted, fontFamily: 'JetBrains Mono, monospace' }}>{hora(r.criadoEm)}</span>

@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-tema="claro" data-cor="cabecalho">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regem KDS — proposta v2: cor só de status (protótipo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Figtree:wght@500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* PROTÓTIPO v2 — caminho B com a tela NEUTRA: a única cor é a do status do tempo
+   (verde, amarelo, vermelho). Sem borda colorida. Duas formas, trocadas na faixa do topo:
+   data-cor="cabecalho" (só o cabeçalho do cartão) e data-cor="inteiro" (o cartão todo). */
+:root{
+  --s-ok:#08853A;   --on-ok:#FFFFFF;      /* verde  — texto branco */
+  --s-warn:#FFD60A; --on-warn:#111111;    /* amarelo — texto preto */
+  --s-late:#E60000; --on-late:#FFFFFF;    /* vermelho puro — texto branco */
+  --s-off:#5F6B76;  --on-off:#FFFFFF;     /* cancelado: cinza, não é cor de status */
+  --font-display:'Archivo',sans-serif; --font-body:'Figtree',sans-serif; --font-mono:'JetBrains Mono',monospace;
+  --esc:1;
+}
+[data-tema="claro"]{ --bg:#E9EDF1; --panel:#FFFFFF; --panel-2:#F2F4F7; --line:#CBD3DC; --ink:#0F1B24; --muted:#55636F }
+[data-tema="escuro"]{ --bg:#0B1117; --panel:#151E27; --panel-2:#1D2833; --line:#2C3A47; --ink:#F1F5F8; --muted:#A3B1BD }
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{font-family:var(--font-body);background:var(--bg);color:var(--ink);overflow-x:hidden}
+button,select,input{font-family:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+:focus-visible{outline:3px solid #2F7FD8;outline-offset:2px;border-radius:6px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ── faixa do protótipo (NÃO vai para a tela real) ── */
+.proto{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 16px;font-size:12px;border-bottom:1px dashed var(--muted);color:var(--muted);background:var(--panel-2)}
+.proto b{color:var(--ink)}
+.proto button{border:1px solid var(--line);border-radius:6px;padding:4px 9px;background:var(--panel);font-weight:700;font-size:12px}
+.proto button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.proto .sepa{width:1px;align-self:stretch;background:var(--line);margin:0 4px}
+
+/* ── cabeçalho da tela: neutro ── */
+.top{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:1px solid var(--line)}
+.top-a{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 20px}
+.logo{width:40px;height:40px;flex:none;border-radius:10px;display:grid;place-items:center;background:#0F2230;color:#E2A340;font-family:var(--font-display);font-weight:800;font-size:18px}
+.marca b{display:block;font-family:var(--font-display);font-weight:800;font-size:17px;letter-spacing:.02em}
+.marca span{display:block;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex:none}
+.seg button{padding:0 14px;min-height:44px;font-size:13.5px;font-weight:700;background:var(--panel-2);color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+.senha{display:flex;align-items:center;gap:8px;position:relative}
+.senha label{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.senha input{width:92px;min-height:44px;border:2px solid var(--line);border-radius:10px;background:var(--panel-2);text-align:center;font-family:var(--font-mono);font-size:24px;font-weight:700}
+.senha input.erro{border-color:var(--s-late)}
+.senha-msg{position:absolute;left:0;top:calc(100% + 4px);z-index:12;white-space:nowrap;font-size:13px;font-weight:700;padding:5px 10px;border-radius:8px;background:var(--ink);color:var(--panel);box-shadow:0 6px 18px rgba(0,0,0,.2)}
+.senha-msg:empty{display:none}
+.senha-msg.erro{background:var(--s-late);color:var(--on-late)}
+.dica{display:none;position:absolute;left:0;top:calc(100% + 4px);z-index:11;white-space:nowrap;font-size:12.5px;font-weight:700;padding:4px 9px;background:var(--panel);color:var(--ink);border:1.5px dashed var(--ink)}
+[data-uso="teclado"] .senha input{width:124px;border-color:var(--ink)}
+[data-uso="teclado"] .senha input:focus{outline:3px solid #2F7FD8;outline-offset:2px}
+[data-uso="teclado"] .senha input:not(:focus){border-style:dashed}
+[data-uso="teclado"] .senha input:not(:focus) ~ .senha-msg:empty ~ .dica{display:block}
+[hidden]{display:none!important}
+.esp{flex:1 1 0;min-width:0}
+.conn{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);font-size:12.5px;font-weight:700;color:var(--muted)}
+.conn i{width:10px;height:10px;border-radius:50%;background:var(--s-ok)}
+.conn.off{background:var(--s-late);border-color:var(--s-late);color:var(--on-late)} .conn.off i{background:var(--on-late)}
+.relogio{font-family:var(--font-mono);font-size:26px;font-weight:700;font-variant-numeric:tabular-nums}
+.ib{width:44px;height:44px;flex:none;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);display:grid;place-items:center;font-size:17px}
+.ib[aria-pressed="true"],.ib[aria-expanded="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.util{display:flex;gap:8px;flex:none}
+.top-b{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:8px 20px 10px;border-top:1px solid var(--line)}
+.etapas{display:flex;gap:8px;overflow-x:auto;max-width:100%;padding-bottom:2px}
+.etapa{flex:none;display:flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:999px;background:var(--panel-2);font-size:13.5px;font-weight:700;color:var(--muted)}
+.etapa b{font-family:var(--font-mono);font-size:15px;color:var(--ink)}
+.etapa[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.etapa[aria-pressed="true"] b{color:var(--panel)}
+.etapa.tem-atraso{background:var(--s-late);border-color:var(--s-late);color:var(--on-late)}
+.etapa.tem-atraso b{color:var(--on-late)}
+.etapa.tem-atraso[aria-pressed="true"]{box-shadow:0 0 0 3px var(--ink)}
+.sel{min-height:44px;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);font-size:13px;font-weight:600;max-width:100%}
+.bt{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);font-size:13px;font-weight:700}
+.bt[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.bt.fim{color:var(--muted)}
+.faixa-off{display:none;align-items:center;gap:10px;padding:10px 20px;background:var(--s-late);color:var(--on-late);font-weight:700;font-size:14px}
+.offline .faixa-off{display:flex}
+
+/* ── corpo ── */
+.corpo{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;padding:18px 20px 110px;max-width:1800px;margin:0 auto}
+.corpo.com-resumo{grid-template-columns:minmax(0,1fr) 300px}
+.grade{display:grid;gap:4px;grid-template-columns:repeat(auto-fill,minmax(min(100%,calc(260px*var(--esc))),1fr))}
+
+/* ── cartão: neutro, sem borda colorida ── */
+.card{--inv-bg:var(--ink);--inv-fg:var(--panel);display:flex;flex-direction:column;overflow:hidden;background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;transition:opacity .15s}
+.card.t-ok{--c:var(--s-ok);--on:var(--on-ok)} .card.t-warn{--c:var(--s-warn);--on:var(--on-warn)} .card.t-late{--c:var(--s-late);--on:var(--on-late)}
+.card.cancelado{--c:var(--s-off);--on:var(--on-off)}
+.cab{--inv-bg:var(--on);--inv-fg:var(--c);display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 10px;padding:calc(11px*var(--esc)) calc(14px*var(--esc));background:var(--c);color:var(--on)}
+.ident{font-family:var(--font-display);font-weight:800;font-size:calc(27px*var(--esc));line-height:1.05;white-space:nowrap}
+.tempo{font-family:var(--font-mono);font-weight:700;font-size:calc(24px*var(--esc));font-variant-numeric:tabular-nums;white-space:nowrap}
+.tempo small{font-family:var(--font-body);font-size:calc(13.5px*var(--esc));font-weight:700;margin-left:3px}
+.sub{flex-basis:100%;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:calc(13.5px*var(--esc));font-weight:700}
+.tag{display:inline-block;border:1.5px solid currentColor;border-radius:5px;padding:0 6px;font-size:calc(11.5px*var(--esc));font-weight:800;letter-spacing:.06em;text-transform:uppercase;line-height:1.5}
+.tag.cheia{background:var(--inv-bg);color:var(--inv-fg);border-color:var(--inv-bg)}
+.cc{display:flex;flex-direction:column;flex:1;padding:calc(12px*var(--esc)) calc(14px*var(--esc)) calc(14px*var(--esc))}
+.aviso{margin-bottom:10px;font-size:calc(13.5px*var(--esc));font-weight:700}
+.itens{list-style:none;flex:1;margin-bottom:12px;display:grid;gap:8px;align-content:start}
+.itens li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;font-size:calc(16px*var(--esc));line-height:1.3}
+.q{font-family:var(--font-mono);font-weight:700;min-width:2.2ch;text-align:right}
+.d{font-weight:700}
+.comp{margin-top:2px;font-size:calc(13.5px*var(--esc));font-weight:600;color:var(--muted)}
+.obs{margin-top:4px;font-size:calc(13.5px*var(--esc));font-weight:800}
+.cancelado .ident,.cancelado .itens li{text-decoration:line-through}
+.itens li.alvo .d{background:var(--inv-bg);color:var(--inv-fg);border-radius:4px;padding:0 5px}
+.avancar{width:100%;min-height:calc(48px*var(--esc));border-radius:9px;background:var(--c);color:var(--on);font-family:var(--font-display);font-weight:800;font-size:calc(14.5px*var(--esc));letter-spacing:.08em;text-transform:uppercase}
+.avancar:active{opacity:.85}
+.card.apagado{opacity:.32}
+.card.destaque{outline:5px solid var(--ink);outline-offset:-5px}
+
+/* visão POR ITEM: um cartão por item, com a soma e os pedidos que o levam */
+.por-item .ident{flex:1 1 0;min-width:0;white-space:normal;font-size:calc(22px*var(--esc));line-height:1.12}
+.por-item .qt{font-family:var(--font-mono)}
+.por-item .itens{margin-bottom:0}
+.lm{font-size:calc(13px*var(--esc));font-weight:600;color:var(--muted);white-space:nowrap}
+
+/* forma 2 — o cartão INTEIRO na cor do status */
+[data-cor="inteiro"] .card{--inv-bg:var(--on);--inv-fg:var(--c);background:var(--c);color:var(--on);border-color:transparent}
+[data-cor="inteiro"] .cab{background:transparent;border-bottom:1.5px solid color-mix(in srgb,currentColor 35%,transparent)}
+[data-cor="inteiro"] .comp,[data-cor="inteiro"] .lm{color:inherit}
+[data-cor="inteiro"] .avancar{background:var(--on);color:var(--c)}
+
+.vazio{border:1px dashed var(--line);border-radius:16px;padding:56px 24px;text-align:center;color:var(--muted)}
+.vazio b{display:block;font-family:var(--font-display);font-size:18px;color:var(--ink);margin-bottom:6px}
+.esq{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--panel);height:calc(190px*var(--esc))}
+.esq i{display:block;height:14px;border-radius:5px;background:var(--panel-2);margin-bottom:12px;animation:pulsa 1.2s ease-in-out infinite}
+@keyframes pulsa{50%{opacity:.45}}
+
+/* ── resumo de itens: neutro ── */
+.resumo{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;align-self:start;position:sticky;top:150px;max-height:calc(100dvh - 170px);overflow-y:auto}
+.resumo h2{display:flex;align-items:center;justify-content:space-between;gap:8px;font-family:var(--font-display);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+.resumo p{font-size:12px;color:var(--muted);margin-bottom:10px}
+.resumo ul{list-style:none;display:grid;gap:6px}
+.res-it{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;min-height:48px;padding:6px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);text-align:left}
+.res-it .n{font-family:var(--font-mono);font-weight:700;font-size:20px;min-width:2.4ch;text-align:right}
+.res-it .t{font-weight:700;font-size:14px;line-height:1.2}
+.res-it .s{display:block;font-weight:600;font-size:11.5px;color:var(--muted)}
+.res-it[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--panel)}
+.res-it[aria-pressed="true"] .s{color:var(--panel)}
+.fechar-res{display:none}
+
+/* ── rodapé de alertas (o de hoje) ── */
+.alerta{position:fixed;inset:auto 0 0 0;z-index:20;display:none;align-items:stretch;height:64px;color:#fff;background:#B7791F}
+.alerta.on{display:flex}
+.alerta.danger{background:#B4231C} .alerta.info{background:#1E6FA8} .alerta.ok{background:#0E7C66}
+.alerta .lado{display:grid;place-items:center;padding:0 16px;background:rgba(0,0,0,.22);font-weight:800;font-size:13px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+.alerta .txt{flex:1;min-width:0;overflow:hidden;display:flex;align-items:center}
+.alerta .txt span{white-space:nowrap;font-family:var(--font-display);font-weight:800;font-size:26px;animation:corre 16s linear infinite}
+@keyframes corre{0%{transform:translateX(60%)}100%{transform:translateX(-100%)}}
+@media (prefers-reduced-motion:reduce){.alerta .txt span{white-space:normal;font-size:18px;line-height:1.15;padding:0 14px}}
+.toast{position:fixed;left:50%;bottom:84px;transform:translateX(-50%);z-index:30;background:var(--ink);color:var(--panel);font-weight:700;font-size:15px;padding:12px 18px;border-radius:12px;opacity:0;pointer-events:none;transition:opacity .2s;max-width:calc(100vw - 32px)}
+.toast.on{opacity:1}
+.painel{position:fixed;right:16px;top:150px;z-index:30;width:340px;max-width:calc(100vw - 32px);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 20px 50px rgba(0,0,0,.3);display:none}
+.painel.on{display:block}
+.painel h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.painel p,.painel .pd{font-size:13px;line-height:1.5;color:var(--muted)}
+.painel .pl{display:block;margin:12px 0 6px;font-size:12px;font-weight:700;color:var(--ink)}
+.painel .pl:first-child{margin-top:0}
+.painel .seg{display:inline-flex;margin-bottom:6px}
+.painel .pd{display:block}
+
+/* cantos retos: pedido do dono */
+*,*::before,*::after{border-radius:0!important}
+.conn i{border-radius:50%!important}
+
+@media (max-width:1560px){ .bt.fim .rot{display:none} }
+@media (max-width:1180px){
+  .marca{display:none}
+  .corpo.com-resumo{grid-template-columns:minmax(0,1fr)}
+  .resumo{position:fixed;inset:auto 0 0 0;top:auto;z-index:25;max-height:62dvh;border-radius:16px 16px 0 0;box-shadow:0 -16px 40px rgba(0,0,0,.3)}
+  .fechar-res{display:grid}
+}
+@media (max-width:760px){
+  .top{position:static}
+  .top-a,.top-b{padding-left:16px;padding-right:16px;gap:8px}
+  .relogio{font-size:20px;order:2}
+  .esp{display:none}
+  .seg{max-width:100%;overflow-x:auto}
+  .corpo{padding:14px 16px 110px}
+  .bt span.rot{display:none}
+  .painel{top:auto;bottom:16px}
+}
+</style>
+</head>
+<body>
+<div class="proto" role="region" aria-label="Controles do protótipo">
+  <b>Protótipo v2</b> · esta faixa não vai para a tela real ·
+  <span>Cor do status:</span>
+  <button type="button" data-cor="cabecalho" aria-pressed="true">Só no cabeçalho</button>
+  <button type="button" data-cor="inteiro" aria-pressed="false">No cartão inteiro</button>
+  <span class="sepa" aria-hidden="true"></span>
+  <button type="button" data-estado="normal" aria-pressed="true">Com pedidos</button>
+  <button type="button" data-estado="vazio" aria-pressed="false">Vazio</button>
+  <button type="button" data-estado="carregando" aria-pressed="false">Carregando</button>
+  <button type="button" id="pOff" aria-pressed="false">Sem conexão</button>
+  <button type="button" id="pNovo">＋ pedido novo</button>
+  <button type="button" id="pAlerta">＋ alerta</button>
+</div>
+
+<header class="top">
+  <div class="top-a">
+    <div class="logo" aria-hidden="true">R</div>
+    <div class="marca"><b>Regem KDS</b><span>Produção &amp; alertas</span></div>
+    <div class="seg" role="group" aria-label="Canal">
+      <button type="button" data-canal="balcao" aria-pressed="false">Balcão / Salão</button>
+      <button type="button" data-canal="delivery" aria-pressed="false">Delivery</button>
+      <button type="button" data-canal="todos" aria-pressed="true">Tudo</button>
+    </div>
+    <div class="senha">
+      <label for="senha">Senha</label>
+      <input id="senha" inputmode="numeric" autocomplete="off" placeholder="—" aria-describedby="senhaMsg">
+      <span id="senhaMsg" class="senha-msg" role="status" aria-live="polite"></span>
+      <span class="dica" aria-hidden="true">Enter para digitar a senha</span>
+    </div>
+    <div class="esp"></div>
+    <div class="conn" id="conn"><i aria-hidden="true"></i><span id="connTxt">online</span></div>
+    <div class="relogio" id="relogio" aria-label="Hora">--:--:--</div>
+    <div class="util">
+      <button type="button" class="ib" id="bSom" aria-pressed="false" aria-label="Som dos avisos: ligado" title="Som ligado">🔊</button>
+      <button type="button" class="ib" id="bHist" aria-expanded="false" aria-label="Histórico: quem finalizou, cancelou ou mudou a configuração" title="Histórico">🕘</button>
+      <button type="button" class="ib" id="bCfg" aria-expanded="false" aria-label="Configuração da tela" title="Configuração">⚙️</button>
+      <button type="button" class="ib" id="bTema" aria-label="Tema claro ligado" title="Tema">☀️</button>
+    </div>
+  </div>
+  <div class="top-b">
+    <div class="seg" role="group" aria-label="Ver a fila">
+      <button type="button" data-ver="pedido" aria-pressed="true">Por pedido</button>
+      <button type="button" data-ver="item" aria-pressed="false">Por item</button>
+    </div>
+    <div class="etapas" role="group" aria-label="Filtrar por etapa" id="etapas"></div>
+    <select class="sel" aria-label="Filtrar por setor"><option>Todos os setores</option><option>Cozinha</option><option>Bar</option></select>
+    <select class="sel" aria-label="Este KDS"><option>KDS: todos (por setor)</option><option>KDS: Chapa</option><option>KDS: Expedição (entrega)</option></select>
+    <div class="esp"></div>
+    <button type="button" class="bt" id="bResumo" aria-pressed="false" aria-expanded="false" aria-controls="resumo">📋 <span class="rot">Resumo de itens</span></button>
+    <button type="button" class="bt fim" id="bFim" aria-label="Finalizar todos os pedidos da tela" title="Finalizar todos os pedidos da tela">🧹 <span class="rot">Finalizar todos</span></button>
+  </div>
+  <div class="faixa-off" role="alert">⚠ Sem conexão com o servidor. A fila pode estar desatualizada — reconectando…</div>
+</header>
+
+<div class="corpo" id="corpo">
+  <main id="conteudo" aria-label="Pedidos em produção">
+    <div class="grade" id="grade"></div>
+  </main>
+  <aside class="resumo" id="resumo" aria-label="Resumo de itens a produzir" hidden>
+    <h2>Resumo de itens <button type="button" class="ib fechar-res" id="bFecharRes" aria-label="Fechar o resumo">✕</button></h2>
+    <p>O que falta produzir, somado de todos os pedidos. Toque num item para destacar os pedidos que o levam.</p>
+    <ul id="resLista"></ul>
+  </aside>
+</div>
+
+<div class="painel" id="painel" role="dialog" aria-label="Painel"><h2 id="painelT"></h2><div id="painelP"></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<footer class="alerta" id="alerta" role="status" aria-live="assertive">
+  <div class="lado" id="alLado"></div><div class="txt"><span id="alTxt"></span></div><div class="lado" id="alFila"></div>
+</footer>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const CORES = { verdeAteMin: 5, amareloAteMin: 10 };
+const agora = Date.now();
+const ha = (min) => agora - min * 60000;
+let seq = 60;
+let pedidos = [
+  { id:'p1', senha:41, origem:'balcao', status:'preparo', em:ha(12), itens:[{q:2,d:'X-Burger',c:'Ponto: mal passado · sem cebola'},{q:1,d:'Batata frita grande'},{q:2,d:'Refrigerante lata'}] },
+  { id:'p2', mesa:'7', origem:'mesa', status:'preparo', em:ha(9), itens:[{q:1,d:'Filé à parmegiana',o:'Sem queijo — alergia a lactose'},{q:1,d:'Arroz branco'},{q:1,d:'Batata frita grande'}] },
+  { id:'p3', senha:12, prefixo:'D', origem:'delivery', plataforma:'iFood', senhaPlat:'4821', status:'preparo', em:ha(7), itens:[{q:3,d:'X-Burger'},{q:1,d:'X-Salada',c:'Adicional: bacon'},{q:2,d:'Batata frita grande'}] },
+  { id:'p4', senha:13, prefixo:'D', origem:'delivery', plataforma:'99Food', senhaPlat:'77102', status:'pronto', em:ha(14), chegou:true, cod:'5519', itens:[{q:1,d:'Combo família'},{q:1,d:'Refrigerante 2 L'}] },
+  { id:'p5', senha:42, origem:'totem', plataforma:'Totem', status:'recebido', em:ha(3), itens:[{q:1,d:'X-Salada'},{q:1,d:'Suco de laranja 400 ml',o:'Sem açúcar'}] },
+  { id:'p6', senha:43, origem:'balcao', status:'recebido', em:ha(2), alterado:true, itens:[{q:1,d:'X-Burger'},{q:1,d:'Milk-shake de chocolate'}] },
+  { id:'p7', senha:14, prefixo:'D', origem:'delivery', plataforma:'Anota AI', status:'recebido', em:ha(1), itens:[{q:2,d:'Pizza calabresa grande',c:'Borda recheada com catupiry'},{q:1,d:'Refrigerante 2 L'}] },
+  { id:'p8', mesa:'3', origem:'mesa', status:'preparo', em:ha(5), cancelado:true, itens:[{q:2,d:'Porção de fritas com cheddar e bacon'}] },
+  { id:'p9', senha:44, origem:'balcao', status:'recebido', em:ha(0), itens:[{q:1,d:'Filé à parmegiana'},{q:1,d:'Salada da casa'},{q:1,d:'Suco de laranja 400 ml'},{q:1,d:'Pudim'}] },
+];
+let estado = 'normal', canal = 'todos', etapaSel = 'todos', itemSel = '', mudo = false, ver = 'pedido';
+let alertas = [];
+
+const ident = (p) => p.senha ? `Senha ${p.prefixo ? p.prefixo + '-' : ''}${p.senha}` : p.mesa ? `Mesa ${p.mesa}` : 'Balcão';
+const minDe = (p) => Math.max(0, Math.floor((Date.now() - p.em) / 60000));
+const faixa = (m) => m <= CORES.verdeAteMin ? 't-ok' : m <= CORES.amareloAteMin ? 't-warn' : 't-late';
+const ETAPA = { recebido:'A iniciar', preparo:'Em preparo', pronto:'Pronto' };
+const PROX = { recebido:'Iniciar', preparo:'Pronto', pronto:'Entregar' };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const doCanal = (p) => canal === 'todos' || (canal === 'delivery' ? p.origem === 'delivery' : p.origem !== 'delivery');
+const atrasado = (p) => !p.cancelado && minDe(p) > CORES.amareloAteMin;
+const noFiltro = (p) => doCanal(p);
+
+function visiveis() {
+  return pedidos.filter(noFiltro).filter((p) =>
+    etapaSel === 'todos' ? true : etapaSel === 'atrasados' ? atrasado(p) : (!p.cancelado && p.status === etapaSel));
+}
+function desenharEtapas() {
+  const base = estado === 'normal' ? pedidos.filter(noFiltro) : [];
+  const n = (f) => base.filter(f).length;
+  const lista = [
+    ['todos', 'Todos', base.length, ''],
+    ['recebido', 'A iniciar', n((p) => !p.cancelado && p.status === 'recebido'), ''],
+    ['preparo', 'Em preparo', n((p) => !p.cancelado && p.status === 'preparo'), ''],
+    ['pronto', 'Pronto', n((p) => !p.cancelado && p.status === 'pronto'), ''],
+    ['atrasados', 'Atrasados', n(atrasado), n(atrasado) > 0 ? 'tem-atraso' : ''],
+  ];
+  $('#etapas').innerHTML = lista.map(([k, r, q, cls]) =>
+    `<button type="button" class="etapa ${cls}" data-etapa="${k}" aria-pressed="${etapaSel === k}">${r} <b>${q}</b></button>`).join('');
+}
+function desenharGrade() {
+  const g = $('#grade');
+  if (estado === 'carregando') { g.className = 'grade'; g.innerHTML = Array.from({ length: 4 }, () => '<div class="esq" aria-hidden="true"><i style="width:50%"></i><i style="width:70%"></i><i style="width:35%"></i></div>').join('') + '<span class="sr" role="status">Carregando os pedidos…</span>'; return; }
+  const lista = estado === 'vazio' ? [] : visiveis();
+  if (!lista.length) {
+    g.className = '';
+    g.innerHTML = etapaSel !== 'todos' && estado !== 'vazio'
+      ? '<div class="vazio"><b>Nenhum pedido nesta etapa</b>Escolha “Todos” para ver a fila inteira.</div>'
+      : '<div class="vazio"><b>Nenhum pedido em produção</b>Novos pedidos aparecem aqui em tempo real, com som.</div>';
+    return;
+  }
+  if (ver === 'item') return desenharItens(g, lista);
+  g.className = 'grade';
+  g.innerHTML = lista.map((p) => {
+    const m = minDe(p);
+    const tem = itemSel && !p.cancelado && p.status !== 'pronto' && p.itens.some((i) => i.d === itemSel);
+    const cls = ['card', faixa(m), p.cancelado ? 'cancelado' : '', itemSel ? (tem ? 'destaque' : 'apagado') : ''].join(' ');
+    const linha = [p.cancelado ? '' : ETAPA[p.status], p.plataforma ? esc(p.plataforma) + (p.senhaPlat ? ' #' + esc(p.senhaPlat) : '') : ''].filter(Boolean).join(' · ');
+    const tags = [
+      p.cancelado ? '<span class="tag cheia">Cancelado</span>' : '',
+      atrasado(p) ? '<span class="tag cheia">Atrasado</span>' : '',
+      p.alterado ? '<span class="tag">Alterado</span>' : '',
+    ].join('');
+    const itens = p.itens.map((i) => `<li class="${tem && i.d === itemSel ? 'alvo' : ''}"><span class="q">${i.q}×</span><div><span class="d">${esc(i.d)}</span>${i.c ? `<div class="comp">+ ${esc(i.c)}</div>` : ''}${i.o ? `<div class="obs"><span class="tag cheia">Obs</span> ${esc(i.o)}</div>` : ''}</div></li>`).join('');
+    return `<article class="${cls}" aria-label="${ident(p)}, ${m} minutos, ${p.cancelado ? 'cancelado' : ETAPA[p.status]}">
+      <div class="cab"><span class="ident">${ident(p)}</span><span class="tempo">${m}<small>min</small></span><span class="sub"><span class="etp">${linha}</span>${tags}</span></div>
+      <div class="cc">
+        ${p.chegou ? `<p class="aviso"><span class="tag">Entregador chegou</span> código ${esc(p.cod)}</p>` : ''}
+        <ul class="itens">${itens}</ul>
+        ${p.cancelado ? '' : `<button type="button" class="avancar" data-id="${p.id}">${PROX[p.status]}</button>`}
+      </div>
+    </article>`;
+  }).join('');
+}
+// POR ITEM: soma cada item dos pedidos que os filtros deixam passar (fora cancelado e pronto) e
+// lista, dentro do cartão, os pedidos que o levam. A cor é a do pedido mais antigo com o item.
+function desenharItens(g, lista) {
+  const mapa = new Map();
+  for (const p of lista) {
+    if (p.cancelado || p.status === 'pronto') continue;
+    for (const i of p.itens) { const e = mapa.get(i.d) || { q: 0, linhas: [], max: 0 }; e.q += i.q; e.linhas.push({ p, i }); e.max = Math.max(e.max, minDe(p)); mapa.set(i.d, e); }
+  }
+  const itens = [...mapa.entries()].sort((a, b) => b[1].max - a[1].max || b[1].q - a[1].q || a[0].localeCompare(b[0]));
+  if (!itens.length) { g.className = ''; g.innerHTML = '<div class="vazio"><b>Nada a produzir com este filtro</b>Os itens dos pedidos em aberto aparecem aqui, somados.</div>'; return; }
+  g.className = 'grade';
+  g.innerHTML = itens.map(([d, e]) => {
+    const linhas = e.linhas.sort((a, b) => minDe(b.p) - minDe(a.p)).map(({ p, i }) =>
+      `<li><span class="q">${i.q}×</span><div><span class="d">${ident(p)}</span> <span class="lm">${minDe(p)} min · ${ETAPA[p.status]}</span>${i.c ? `<div class="comp">+ ${esc(i.c)}</div>` : ''}${i.o ? `<div class="obs"><span class="tag cheia">Obs</span> ${esc(i.o)}</div>` : ''}</div></li>`).join('');
+    return `<article class="card por-item ${faixa(e.max)}" aria-label="${esc(d)}, ${e.q} no total, pedido mais antigo há ${e.max} minutos">
+      <div class="cab"><span class="ident"><span class="qt">${e.q}×</span> ${esc(d)}</span><span class="tempo">${e.max}<small>min</small></span><span class="sub"><span class="etp">em ${e.linhas.length} pedido${e.linhas.length === 1 ? '' : 's'}</span></span></div>
+      <div class="cc"><ul class="itens">${linhas}</ul></div>
+    </article>`;
+  }).join('');
+}
+function desenharResumo() {
+  const mapa = new Map();
+  if (estado === 'normal') for (const p of pedidos.filter(noFiltro)) {
+    if (p.cancelado || p.status === 'pronto') continue;
+    for (const i of p.itens) { const e = mapa.get(i.d) || { q: 0, n: 0 }; e.q += i.q; e.n += 1; mapa.set(i.d, e); }
+  }
+  const lista = [...mapa.entries()].sort((a, b) => b[1].q - a[1].q || a[0].localeCompare(b[0]));
+  if (itemSel && !mapa.has(itemSel)) itemSel = '';
+  $('#resLista').innerHTML = lista.length
+    ? lista.map(([d, e]) => `<li><button type="button" class="res-it" data-item="${esc(d)}" aria-pressed="${itemSel === d}"><span class="n">${e.q}</span><span class="t">${esc(d)}<span class="s">em ${e.n} pedido${e.n === 1 ? '' : 's'}</span></span></button></li>`).join('')
+    : '<li style="color:var(--muted);font-size:13px">Nada a produzir agora.</li>';
+}
+function tudo() { desenharEtapas(); desenharResumo(); desenharGrade(); }
+
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.remove('on'), 3500); }
+function avancar(id) {
+  const p = pedidos.find((x) => x.id === id); if (!p || p.cancelado) return;
+  if (p.status === 'pronto') { pedidos = pedidos.filter((x) => x.id !== id); toast(`${ident(p)} entregue`); }
+  else { p.status = p.status === 'recebido' ? 'preparo' : 'pronto'; toast(`${ident(p)} → ${ETAPA[p.status]}`); }
+  tudo();
+}
+function porSenha() {
+  const inp = $('#senha'), msg = $('#senhaMsg'), s = inp.value.trim(); if (!s) return;
+  const p = pedidos.find((x) => String(x.senha) === s && !x.cancelado);
+  if (!p) { inp.classList.add('erro'); msg.className = 'senha-msg erro'; msg.textContent = `Senha ${s} não está na fila`; return; }
+  inp.value = ''; msg.className = 'senha-msg'; msg.textContent = `${ident(p)} avançou`; avancar(p.id);
+  clearTimeout(porSenha.t); porSenha.t = setTimeout(() => { msg.textContent = ''; }, 3500);
+}
+function limparErro() { $('#senha').classList.remove('erro'); const m = $('#senhaMsg'); if (m.classList.contains('erro')) m.textContent = ''; }
+$('#senha').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); limparErro(); });
+$('#senha').addEventListener('keydown', (e) => { if (e.key === 'Enter') porSenha(); });
+// FORMA DE USO (por aparelho, guardada no aparelho como as outras preferências de tela):
+//  · teclado — o campo da senha é o dono do foco;
+//  · toque   — nada puxa o foco (não abre o teclado da tela no tablet).
+// Primeiro uso: adivinha pelo aparelho (tela de toque = toque; senão teclado).
+const inpSenha = $('#senha');
+let uso = 'teclado';
+try { uso = localStorage.getItem('kds-uso') || (matchMedia('(pointer: coarse)').matches ? 'toque' : 'teclado'); } catch { /* fica teclado */ }
+const painelAberto = () => $('#painel').classList.contains('on');
+function focarSenha() { if (uso === 'teclado' && !painelAberto()) inpSenha.focus({ preventScroll: true }); }
+function definirUso(novo) {
+  uso = novo === 'toque' ? 'toque' : 'teclado';
+  try { localStorage.setItem('kds-uso', uso); } catch { /* sem armazenamento: vale só nesta sessão */ }
+  document.documentElement.dataset.uso = uso;
+  document.querySelectorAll('button[data-uso]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.uso === uso)));
+  if (uso === 'toque') inpSenha.blur();
+}
+// Fase de captura: no modo teclado o Enter é da senha ANTES de chegar a qualquer botão focado.
+window.addEventListener('keydown', (e) => {
+  const alvo = e.target, tag = alvo && alvo.tagName;
+  if (e.key === 'Escape') { fecharPainel(); return; }
+  if (alvo && alvo.closest && alvo.closest('#painel')) return;   // dentro da configuração o teclado é do painel
+  if (alvo === inpSenha) return;                                  // o próprio campo trata
+  const digito = /^[0-9]$/.test(e.key);
+  if (uso === 'teclado') {
+    if (digito) { e.preventDefault(); limparErro(); if (inpSenha.value.length < 6) inpSenha.value += e.key; inpSenha.focus({ preventScroll: true }); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (inpSenha.value.trim()) porSenha(); inpSenha.focus({ preventScroll: true }); }
+    else if (e.key === 'Backspace') { e.preventDefault(); inpSenha.value = inpSenha.value.slice(0, -1); inpSenha.focus({ preventScroll: true }); }
+    return;
+  }
+  // toque: como é hoje — número digitado fora de um campo vai para a senha; Enter num botão é do botão
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (tag === 'BUTTON' && e.key === 'Enter') return;
+  if (digito) { limparErro(); if (inpSenha.value.length < 6) inpSenha.value += e.key; }
+  else if (e.key === 'Enter') porSenha();
+  else if (e.key === 'Backspace') inpSenha.value = inpSenha.value.slice(0, -1);
+}, true);
+// No modo teclado, qualquer clique (botão, filtro, cartão, fundo) devolve o foco ao campo da senha.
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (uso !== 'teclado' || t.tagName === 'SELECT' || t.tagName === 'INPUT' || (t.closest && t.closest('#painel'))) return;
+  setTimeout(focarSenha, 0);
+});
+document.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT') focarSenha(); });
+window.addEventListener('focus', focarSenha);
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.id) return avancar(b.dataset.id);
+  if (b.dataset.etapa) { etapaSel = b.dataset.etapa; return tudo(); }
+  if (b.dataset.item !== undefined) { itemSel = itemSel === b.dataset.item ? '' : b.dataset.item; return tudo(); }
+  if (b.dataset.canal) { canal = b.dataset.canal; document.querySelectorAll('[data-canal]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); return tudo(); }
+  if (b.dataset.estado) { estado = b.dataset.estado; document.querySelectorAll('[data-estado]').forEach((x) => x.setAttribute('aria-pressed', String(x === b))); return tudo(); }
+  if (b.dataset.uso) return definirUso(b.dataset.uso);
+  if (b.dataset.ver) {
+    ver = b.dataset.ver; document.querySelectorAll('[data-ver]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    // na visão por item o resumo lateral seria a mesma informação duas vezes
+    if (ver === 'item') abrirResumo(false);
+    $('#bResumo').hidden = ver === 'item';
+    return tudo();
+  }
+  if (b.dataset.cor) { document.documentElement.dataset.cor = b.dataset.cor; document.querySelectorAll('button[data-cor]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.cor === b.dataset.cor))); }
+});
+function abrirResumo(v) {
+  $('#resumo').hidden = !v; $('#corpo').classList.toggle('com-resumo', v);
+  $('#bResumo').setAttribute('aria-pressed', String(v)); $('#bResumo').setAttribute('aria-expanded', String(v));
+  if (!v && itemSel) { itemSel = ''; tudo(); }
+}
+$('#bResumo').onclick = () => abrirResumo($('#resumo').hidden);
+$('#bFecharRes').onclick = () => { abrirResumo(false); $('#bResumo').focus(); };
+$('#bFim').onclick = () => {
+  const n = pedidos.filter((p) => !p.cancelado).length; if (!n) return;
+  if (confirm(`Finalizar todos os ${n} pedido(s) da tela? Eles vão avançar (próximo KDS ou concluir). Fica registrado no histórico, com o seu nome.`)) { pedidos = pedidos.filter((p) => p.cancelado); tudo(); toast(`${n} pedidos finalizados`); }
+};
+$('#bSom').onclick = (e) => { mudo = !mudo; const b = e.currentTarget; b.textContent = mudo ? '🔇' : '🔊'; b.setAttribute('aria-pressed', String(mudo)); b.setAttribute('aria-label', `Som dos avisos: ${mudo ? 'desligado' : 'ligado'}`); };
+$('#bTema').onclick = (e) => { const claro = document.documentElement.dataset.tema !== 'claro'; document.documentElement.dataset.tema = claro ? 'claro' : 'escuro'; const b = e.currentTarget; b.textContent = claro ? '☀️' : '🌙'; b.setAttribute('aria-label', `Tema ${claro ? 'claro' : 'escuro'} ligado`); };
+let painelDe = null;
+function fecharPainel() { $('#painel').classList.remove('on'); if (painelDe) { painelDe.setAttribute('aria-expanded', 'false'); painelDe.focus(); painelDe = null; } focarSenha(); }
+function painel(b, t, p) { if (painelDe === b) return fecharPainel(); fecharPainel(); painelDe = b; b.setAttribute('aria-expanded', 'true'); $('#painelT').textContent = t; $('#painelP').textContent = p; $('#painel').classList.add('on'); }
+$('#bHist').onclick = (e) => painel(e.currentTarget, 'Histórico', 'O painel de histórico continua como está hoje: quem finalizou a tela, cancelou um pedido ou mudou a configuração.');
+$('#bCfg').onclick = (e) => {
+  painel(e.currentTarget, 'Configuração', '');
+  if (!painelAberto()) return;
+  const cor = document.documentElement.dataset.cor;
+  $('#painelP').innerHTML = `
+    <span class="pl">Forma de uso</span>
+    <div class="seg" role="group" aria-label="Forma de uso">
+      <button type="button" data-uso="toque" aria-pressed="${uso === 'toque'}">Toque</button>
+      <button type="button" data-uso="teclado" aria-pressed="${uso === 'teclado'}">Teclado</button>
+    </div>
+    <span class="pd">Teclado: o campo da senha fica sempre pronto para digitar. Enter com número avança o pedido; Enter sem número leva o cursor para o campo. Toque: nada puxa o cursor.</span>
+    <span class="pl">Cor do status</span>
+    <div class="seg" role="group" aria-label="Cor do status">
+      <button type="button" data-cor="cabecalho" aria-pressed="${cor === 'cabecalho'}">Cabeçalho</button>
+      <button type="button" data-cor="inteiro" aria-pressed="${cor === 'inteiro'}">Cartão inteiro</button>
+    </div>
+    <span class="pd">O resto da configuração continua como está hoje: o que a tela mostra, filtros por origem, tamanho, agregar itens iguais e o atalho.</span>`;
+};
+$('#pOff').onclick = (e) => { const off = !document.body.classList.contains('offline'); document.body.classList.toggle('offline', off); e.currentTarget.setAttribute('aria-pressed', String(off)); $('#conn').classList.toggle('off', off); $('#connTxt').textContent = off ? 'offline' : 'online'; };
+$('#pNovo').onclick = () => { seq += 1; pedidos.push({ id: 'n' + seq, senha: seq, origem: 'balcao', status: 'recebido', em: Date.now(), itens: [{ q: 1, d: 'X-Burger' }, { q: 1, d: 'Batata frita grande' }] }); tudo(); toast(`Pedido novo: Senha ${seq}`); };
+const DEMO = [['danger', '❌ CANCELADO — Mesa 3', 'Não preparar / descartar o que já saiu.', 25], ['alta', 'Câmara fria 02 sem registro de temperatura', 'Responsável: Felipe', 40], ['info', 'Limpeza pós-pico abre às 14:30', '', 30]];
+let di = 0;
+$('#pAlerta').onclick = () => { const [p, t, d, s] = DEMO[di++ % DEMO.length]; alertas.unshift({ id: ++seq, p, t, d, s }); desenharAlerta(); };
+const RANK = { danger: 3, alta: 2, info: 1, ok: 0 };
+function desenharAlerta() {
+  const el = $('#alerta'); const a = [...alertas].sort((x, y) => RANK[y.p] - RANK[x.p] || y.id - x.id)[0];
+  if (!a) { el.className = 'alerta'; return; }
+  el.className = 'alerta on ' + (a.p === 'alta' ? '' : a.p);
+  $('#alLado').textContent = a.p === 'danger' ? '⚠ Urgente' : '● Aviso';
+  const txt = a.t + (a.d ? ' — ' + a.d : ''); if ($('#alTxt').textContent !== txt) $('#alTxt').textContent = txt;
+  $('#alFila').textContent = (alertas.length > 1 ? `+${alertas.length - 1} na fila · ` : '') + a.s + 's';
+}
+setInterval(() => {
+  $('#relogio').textContent = new Date().toLocaleTimeString('pt-BR');
+  const a = [...alertas].sort((x, y) => RANK[y.p] - RANK[x.p] || y.id - x.id)[0];
+  if (a) { a.s -= 1; alertas = alertas.filter((x) => x.s > 0); desenharAlerta(); }
+}, 1000);
+$('#relogio').textContent = new Date().toLocaleTimeString('pt-BR');
+setInterval(tudo, 30000);
+// ?cor=inteiro abre direto na segunda forma (para mandar o link de cada uma)
+const corIni = new URLSearchParams(location.search).get('cor');
+if (corIni === 'inteiro') document.querySelector('.proto [data-cor="inteiro"]').click();
+abrirResumo(window.innerWidth >= 1280);
+tudo();
+definirUso(uso);
+focarSenha();
+</script>
+</body>
+</html>

@@ -9,7 +9,8 @@
     "lint": "next lint",
     "check:etapas": "node scripts/check-etapas.mjs",
     "check:eventos": "node scripts/check-eventos.mjs",
-    "test": "npm run check:etapas && npm run check:eventos"
+    "check:kds": "node scripts/check-kds.mjs",
+    "test": "npm run check:etapas && npm run check:eventos && npm run check:kds"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.0",

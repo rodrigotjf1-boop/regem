@@ -28,6 +28,7 @@ SaaS de gestão operacional com hierarquia completa do proprietário à ponta. R
 | `mockups/regem-ui.html` | App principal (14+ telas): login RBAC, dashboard, escalas, tarefas/checklists, estoque/PVPS, fichas técnicas, vistorias, POP, desempenho, ponto gerencial, fornecedores, mural/clima, visão C&O, bot, wizard por ramo, auditoria |
 | `mockups/regem-colaborador.html` | App mobile do colaborador (perfil execução) — 4 abas |
 | `mockups/regem-kds.html` | KDS de alertas (app **independente**, rede local, tema escuro) |
+| `mockups/regem-kds-producao.html` | KDS de **produção** (a tela `/kds`): tela neutra com cor só no status do tempo, por pedido \| por item, resumo de itens, forma de uso toque \| teclado |
 | `mockups/regem-ponto.html` | Terminal de ponto (PIN → marcação → comprovante NSR) |
 
 ## Identidade Regem (⚠️ difere do mockup Omera)
