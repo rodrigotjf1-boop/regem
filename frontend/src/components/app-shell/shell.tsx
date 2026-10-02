@@ -49,6 +49,7 @@ import { LicencaAviso } from '@/components/licenca/licenca-aviso';
 import { ModoOperacao } from '@/components/ui/modo-operacao';
 import { ServidorOfflineAviso } from '@/components/ui/servidor-offline-aviso';
 import { AtualizacaoAviso } from '@/components/ui/atualizacao-aviso';
+import { TotemAPagarAviso } from '@/components/pdv/totem-a-pagar-aviso';
 import { useUiPrefs } from '@/hooks/use-ui-prefs';
 import { AccountMenu } from './account-menu';
 import { UnidadeSeletor } from './unidade-seletor';
@@ -441,6 +442,8 @@ export function Shell({
         <LicencaAviso />
         <ServidorOfflineAviso />
         <AtualizacaoAviso />
+        {/* Só nas telas do PDV e só para quem pode cobrar o pedido na Retirada. */}
+        <TotemAPagarAviso habilitado={temPerm('delivery', perms, cat === 'presidente')} />
         {!fill && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-5 py-2">
             {prefs.side === 'left' && burger}
