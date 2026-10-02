@@ -6,6 +6,7 @@ import { DeliveryService } from './delivery.service';
 import { EdgePedidosProcessor } from './edge-pedidos.processor';
 import { TotemExpiracaoProcessor } from './totem-expiracao.processor';
 import { CloudFallbackProcessor } from './cloud-fallback.processor';
+import { PedidoEnvioProcessor } from './pedido-envio.processor';
 import { SyncTokenGuard } from '../sync/sync-token.guard';
 import { EquipamentoModule } from '../equipamento/equipamento.module';
 import { VendasModule } from '../vendas/vendas.module';
@@ -32,7 +33,7 @@ import { EntregadoresAoVivoService } from './entregadores-ao-vivo.service';
   controllers: [DeliveryController, DespachoPublicoController, DeliveryLojaController,
     EntregadoresAoVivoController],
   providers: [DeliveryService, SyncTokenGuard, EdgePedidosProcessor,
-    TotemExpiracaoProcessor, CloudFallbackProcessor, EntregadoresAoVivoService],
+    TotemExpiracaoProcessor, CloudFallbackProcessor, PedidoEnvioProcessor, EntregadoresAoVivoService],
   exports: [DeliveryService],
 })
 export class DeliveryModule {}

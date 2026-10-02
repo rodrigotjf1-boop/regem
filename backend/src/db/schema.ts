@@ -2546,6 +2546,26 @@ export const pedidoLogistica = pgTable('pedido_logistica', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+// Registro dos envios do pedido (mig 305): o que o Regem mandou ao canal e ao cliente a cada
+// mudança de status, se deu certo e o motivo quando não deu. NÃO sincroniza: cada servidor
+// (nuvem / loja) guarda o que ele mesmo tentou. Não guarda corpo, token nem telefone.
+export const pedidoEnvio = pgTable('pedido_envio', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => empresa.id, { onDelete: 'cascade' }),
+  unidadeId: uuid('unidade_id'),
+  pedidoId: uuid('pedido_id').notNull(), // pedido_externo.id (FK com cascade no banco)
+  destino: text('destino').notNull(), // canal | cliente_whatsapp | cliente_cardapio | nuvem
+  acao: text('acao').notNull(),
+  resultado: text('resultado').notNull(), // enviado | falhou | nao_enviado
+  motivo: text('motivo'),
+  httpStatus: integer('http_status'),
+  duracaoMs: integer('duracao_ms'),
+  servidor: text('servidor').notNull().default('nuvem'), // nuvem | loja
+  criadoEm: timestamp('criado_em', { withTimezone: true }).notNull().defaultNow(),
+});
+
 // Split de pagamento do pedido de delivery/retirada/encomenda (mig 230). 1 linha por
 // forma — espelha comanda_pagamento, mas ligado ao pedido_externo. Quando o pedido é
 // pago em forma única, pode ter 0 linhas (usa pedido_externo.forma_pagamento) ou 1 linha.

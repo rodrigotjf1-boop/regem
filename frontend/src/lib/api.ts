@@ -968,6 +968,10 @@ export const api = {
   manutencaoExcluir: (id: string, motivo: string) =>
     req(`/manutencao/${id}/excluir`, { method: 'POST', body: JSON.stringify({ motivo }) }),
   // Hub Retirada / Encomendas (Fase 1, mig 132)
+  // Linha do tempo do pedido (marcos + o que foi enviado ao canal e ao cliente) e as falhas de
+  // envio das últimas 24 h, para o aviso do painel.
+  pedidoLinhaDoTempo: (id: string) => req(`/delivery/pedidos/${id}/linha-do-tempo`),
+  falhasDeEnvio: () => req('/delivery/envios/falhas'),
   retiradaPedidos: () => req('/delivery/retirada'),
   // Aviso do PDV: pedidos do totem em dinheiro sem pagar há mais de 8 min.
   totemAguardandoPagamento: () => req('/delivery/totem/aguardando-pagamento'),
