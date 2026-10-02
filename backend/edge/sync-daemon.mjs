@@ -1940,6 +1940,11 @@ const DESCARTAVEL = new Set([
   // (`IbptService.sincronizarDaNuvem`, 90 s depois de a API subir), não pelo sync. A nota guarda
   // os valores que usou (`nota_fiscal.tributos_aprox`) — apagar a tabela não perde nada.
   'ibpt_versao',
+  // Registro dos envios do pedido (mig 305): o diário do que ESTA máquina tentou mandar ao canal
+  // e ao cliente, com o resultado. Só mostra — ninguém reenvia a partir dele —, tem guarda de
+  // 90 dias e não sincroniza (cada servidor registra o que ele mesmo tentou). Apagar numa
+  // reinstalação perde só o histórico de diagnóstico; o pedido e o status dele sobem e voltam.
+  'pedido_envio',
 ]);
 
 // FILA DE SAÍDA (mig 289): avisos DESTA máquina para sistemas integrados — hoje, o pedido de
