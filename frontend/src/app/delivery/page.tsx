@@ -109,6 +109,10 @@ export default function DeliveryPage() {
   const [pausarOpen, setPausarOpen] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [agora, setAgora] = useState(() => Date.now());
+  // O relógio do topo só aparece depois de montar: a página é pré-renderizada no build, e a
+  // hora do build nunca é a do navegador — o React desistia da hidratação e refazia a tela.
+  const [montado, setMontado] = useState(false);
+  useEffect(() => setMontado(true), []);
   const [somAtivo, setSomAtivo] = useState(false);
   const audioRef = useRef<AudioContext | null>(null);
   const prevNovosRef = useRef<number | null>(null);
@@ -514,7 +518,7 @@ export default function DeliveryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [novosPendentes, somAtivo]);
 
-  const rel = new Date(agora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const rel = montado ? new Date(agora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '--:--';
 
   return (
     <Shell fill>
