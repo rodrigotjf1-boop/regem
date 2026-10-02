@@ -40,6 +40,7 @@ import { garantirImpressoraDaLoja } from '../../common/impressora-da-loja';
 import { gravarOuEncaminharImpressao } from '../../common/impressao-destino';
 import { hojeISO } from '../../common/data';
 import { logisticaDasComandas } from '../delivery/logistica-canal';
+import { ACOES_KDS, type AtorKds } from './kds-auditoria';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -1781,10 +1782,11 @@ export class ProducaoPedidoService {
     tenantId: string,
     unidadeId: string | null,
     periodo: string,
+    ator?: AtorKds,
   ) {
     const p = ['diario', 'semanal', 'nunca'].includes(periodo) ? periodo : 'diario';
     const [row] = await this.db
-      .select({ id: senhaContador.id })
+      .select({ id: senhaContador.id, periodo: senhaContador.periodo })
       .from(senhaContador)
       .where(
         and(
@@ -1803,6 +1805,19 @@ export class ProducaoPedidoService {
       await this.db
         .insert(senhaContador)
         .values({ tenantId, unidadeId, periodo: p });
+    }
+    const antes = row?.periodo ?? 'diario';
+    if (antes !== p) {
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId,
+        atorId: ator?.id ?? null,
+        atorPerfil: ator?.perfil ?? null,
+        tipo: 'config',
+        acao: 'alterou_periodo_senha',
+        entidadeTipo: 'kds',
+        detalhe: { antes, depois: p },
+      });
     }
     return { periodo: p };
   }
@@ -2078,6 +2093,7 @@ export class ProducaoPedidoService {
     tenantId: string,
     atorId: string,
     opts: { setorId?: string; unidadeId?: string; canal?: string; equipamentoId?: string } = {},
+    atorPerfil?: string,
   ) {
     const { pedidos } = await this.filaKds(tenantId, opts);
     const ativos = (pedidos as any[]).filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
@@ -2109,7 +2125,52 @@ export class ProducaoPedidoService {
     for (let i = 0; i < ativos.length; i += CONC) {
       await Promise.all(ativos.slice(i, i + CONC).map(finalizarUm));
     }
+    // Limpar a tela inteira é a ação de maior consequência do KDS: UM registro, com quem fez,
+    // em qual KDS e quais senhas saíram (até 60) — não um registro por card.
+    if (ativos.length) {
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId: opts.unidadeId ?? null,
+        atorId,
+        atorPerfil: atorPerfil ?? null,
+        tipo: 'producao',
+        acao: 'limpou_fila_kds',
+        origem: 'kds',
+        entidadeTipo: 'kds',
+        entidadeId: opts.equipamentoId ?? null,
+        detalhe: {
+          cards: ativos.length,
+          avancos: avancados,
+          canal: opts.canal ?? 'todos',
+          kds: (await this.nomesDeEquipamentos(tenantId, opts.equipamentoId ? [opts.equipamentoId] : []))[0] ?? null,
+          setor: await this.nomeDoSetor(tenantId, opts.setorId),
+          senhas: ativos.slice(0, 60).map((p) => rotuloSenha(p.senha, p.senhaPrefixo) || (p.mesa ? `mesa ${p.mesa}` : `nº ${p.numero ?? '?'}`)),
+        },
+      });
+    }
     return { ok: true, avancados };
+  }
+
+  // ===== Histórico do KDS (auditoria) =====
+  /** O que a tela do KDS mostra em "Histórico": as ações de consequência, da loja ou da rede. */
+  historicoKds(tenantId: string, unidadeId?: string | null, limite = 60) {
+    return this.auditoria.listarPorAcoes(tenantId, ACOES_KDS, { unidadeId: unidadeId ?? null, limite });
+  }
+
+  /** Nomes dos equipamentos da empresa, na ordem dos ids (o que não existe fica de fora). */
+  private async nomesDeEquipamentos(tenantId: string, ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const rows = await this.db
+      .select({ id: equipamento.id, nome: equipamento.nome })
+      .from(equipamento)
+      .where(and(eq(equipamento.tenantId, tenantId), inArray(equipamento.id, ids)));
+    return ids.map((id) => rows.find((r) => r.id === id)?.nome).filter((n): n is string => !!n);
+  }
+
+  private async nomeDoSetor(tenantId: string, setorId?: string | null): Promise<string | null> {
+    if (!setorId) return null;
+    const [r] = await this.db.select({ nome: setor.nome }).from(setor).where(and(eq(setor.tenantId, tenantId), eq(setor.id, setorId)));
+    return r?.nome ?? null;
   }
 
   // Enfileira o ticket quando o pedido AVANÇA para a etapa configurada no KDS.
@@ -2231,7 +2292,9 @@ export class ProducaoPedidoService {
       acao: 'cancelou_pedido_producao',
       entidadeTipo: 'producao_pedido',
       entidadeId: pedidoId,
-      detalhe: { motivo, mesa: p.mesa },
+      unidadeId: p.unidadeId ?? null,
+      // a senha entra para o histórico do KDS dizer QUAL pedido foi cancelado
+      detalhe: { motivo, mesa: p.mesa, senha: rotuloSenha(p.senha, p.senhaPrefixo) || null },
     });
     this.events?.emit('producao.evento', {
       tenantId,
@@ -2382,7 +2445,9 @@ export class ProducaoPedidoService {
     tenantId: string,
     produtoId: string,
     equipamentoIds: string[],
+    ator?: AtorKds,
   ) {
+    const antes = (await this.destinosDoProduto(tenantId, produtoId)).map((d) => d.equipamentoId);
     await this.db
       .delete(produtoDestinoProducao)
       .where(
@@ -2401,7 +2466,38 @@ export class ProducaoPedidoService {
         })),
       );
     }
+    const [prod] = await this.db.select({ nome: produto.nome }).from(produto).where(and(eq(produto.tenantId, tenantId), eq(produto.id, produtoId)));
+    await this.auditarDestinos(tenantId, ator, 'produto', produtoId, prod?.nome ?? null, antes, equipamentoIds ?? []);
     return this.destinosDoProduto(tenantId, produtoId);
+  }
+
+  /** Registro único de "mudou para onde este produto/setor manda a produção" — só se mudou. */
+  private async auditarDestinos(
+    tenantId: string,
+    ator: AtorKds | undefined,
+    alvo: 'produto' | 'setor',
+    alvoId: string,
+    nome: string | null,
+    antes: string[],
+    depois: string[],
+  ) {
+    const mesma = antes.length === depois.length && [...antes].sort().join() === [...depois].sort().join();
+    if (mesma) return;
+    await this.auditoria.registrar({
+      tenantId,
+      atorId: ator?.id ?? null,
+      atorPerfil: ator?.perfil ?? null,
+      tipo: 'config',
+      acao: 'alterou_destinos_producao',
+      entidadeTipo: alvo,
+      entidadeId: alvoId,
+      detalhe: {
+        alvo,
+        nome,
+        antes: await this.nomesDeEquipamentos(tenantId, antes),
+        depois: await this.nomesDeEquipamentos(tenantId, depois),
+      },
+    });
   }
 
   destinosDoSetor(tenantId: string, setorId: string) {
@@ -2420,7 +2516,9 @@ export class ProducaoPedidoService {
     tenantId: string,
     setorId: string,
     equipamentoIds: string[],
+    ator?: AtorKds,
   ) {
+    const antes = (await this.destinosDoSetor(tenantId, setorId)).map((d) => d.equipamentoId);
     await this.db
       .delete(setorDestinoProducao)
       .where(
@@ -2439,6 +2537,7 @@ export class ProducaoPedidoService {
         })),
       );
     }
+    await this.auditarDestinos(tenantId, ator, 'setor', setorId, await this.nomeDoSetor(tenantId, setorId), antes, equipamentoIds ?? []);
     return this.destinosDoSetor(tenantId, setorId);
   }
 
@@ -2483,6 +2582,7 @@ export class ProducaoPedidoService {
       usaPreparo?: boolean;
       usaEntregue?: boolean;
     },
+    ator?: AtorKds,
   ) {
     const atual = await this.getCores(tenantId, unidadeId);
     const [row] = await this.db
@@ -2512,6 +2612,20 @@ export class ProducaoPedidoService {
       await this.db
         .insert(kdsCorConfig)
         .values({ tenantId, unidadeId, ...vals });
+    }
+    // Etapas e cores mudam o que a cozinha vê e por onde o pedido passa: fica na auditoria.
+    const mudou = (Object.keys(vals) as (keyof typeof vals)[]).filter((k) => vals[k] !== atual[k]);
+    if (mudou.length) {
+      await this.auditoria.registrar({
+        tenantId,
+        unidadeId,
+        atorId: ator?.id ?? null,
+        atorPerfil: ator?.perfil ?? null,
+        tipo: 'config',
+        acao: 'alterou_etapas_kds',
+        entidadeTipo: 'kds',
+        detalhe: { antes: atual, depois: vals, mudou },
+      });
     }
     return vals;
   }

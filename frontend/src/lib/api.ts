@@ -807,6 +807,8 @@ export const api = {
   // Limpa a fila do KDS num só request (o servidor avança todos) — evita o 429.
   producaoLimparFila: (body: { canal?: string; setorId?: string; equipamentoId?: string }) =>
     req('/producao/fila/limpar', { method: 'POST', body: JSON.stringify(body) }),
+  // Histórico do KDS (auditoria): quem limpou a fila, cancelou, mudou etapas/destinos/alertas.
+  producaoHistorico: () => req('/producao/historico'),
   // Fase E — roteamento: define o próximo KDS da cadeia (ao avançar o card migra).
   setProximoKds: (id: string, proximoKdsId: string | null) =>
     req(`/equipamento/${id}/proximo-kds`, { method: 'PATCH', body: JSON.stringify({ proximoKdsId }) }),

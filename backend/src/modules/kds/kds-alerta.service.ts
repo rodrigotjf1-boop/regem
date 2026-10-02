@@ -4,6 +4,8 @@ import { Interval } from '@nestjs/schedule';
 import { and, eq, sql } from 'drizzle-orm';
 import { DRIZZLE, DrizzleDB } from '../../db/drizzle.module';
 import { kdsAlertaConfig } from '../../db/schema';
+import { AuditoriaService } from '../auditoria/auditoria.service';
+import type { AtorKds } from '../producao-pedido/kds-auditoria';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -20,7 +22,23 @@ export class KdsAlertaService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDB,
     private readonly events: EventEmitter2,
+    private readonly auditoria: AuditoriaService,
   ) {}
+
+  // Quem criou, editou, excluiu ou disparou um alerta fica na auditoria (e no histórico do KDS).
+  private auditar(tenantId: string, ator: AtorKds | undefined, acao: string, alerta: any, detalhe: Record<string, unknown> = {}) {
+    return this.auditoria.registrar({
+      tenantId,
+      unidadeId: alerta?.unidadeId ?? null,
+      atorId: ator?.id ?? null,
+      atorPerfil: ator?.perfil ?? null,
+      tipo: 'config',
+      acao,
+      entidadeTipo: 'kds_alerta',
+      entidadeId: alerta?.id ?? null,
+      detalhe: { titulo: alerta?.titulo ?? null, ...detalhe },
+    });
+  }
 
   // ===== CRUD (presidente/C&O/gerente) =====
   async listar(tenantId: string) {
@@ -31,7 +49,7 @@ export class KdsAlertaService {
       .orderBy(kdsAlertaConfig.createdAt);
   }
 
-  async criar(tenantId: string, criadoPor: string | null, dto: any) {
+  async criar(tenantId: string, criadoPor: string | null, dto: any, ator?: AtorKds) {
     this.valida(dto);
     const [row] = await this.db
       .insert(kdsAlertaConfig)
@@ -50,10 +68,11 @@ export class KdsAlertaService {
         criadoPor,
       })
       .returning();
+    await this.auditar(tenantId, ator, 'criou_alerta_kds', row, { tipo: row.tipo, prioridade: row.prioridade, ativo: row.ativo });
     return row;
   }
 
-  async atualizar(tenantId: string, id: string, dto: any) {
+  async atualizar(tenantId: string, id: string, dto: any, ator?: AtorKds) {
     const patch: any = { updatedAt: new Date() };
     if (dto.titulo != null) patch.titulo = String(dto.titulo).slice(0, 200);
     if (dto.detalhe !== undefined) patch.detalhe = dto.detalhe ? String(dto.detalhe).slice(0, 500) : null;
@@ -70,24 +89,32 @@ export class KdsAlertaService {
       .where(and(eq(kdsAlertaConfig.id, id), eq(kdsAlertaConfig.tenantId, tenantId)))
       .returning();
     if (!row) throw new BadRequestException('Alerta não encontrado.');
+    // o que veio para mudar (sem o carimbo de data), para o registro dizer o que foi mexido
+    const campos = Object.keys(patch).filter((k) => k !== 'updatedAt');
+    await this.auditar(tenantId, ator, 'editou_alerta_kds', row, { campos, ativo: row.ativo });
     return row;
   }
 
-  async remover(tenantId: string, id: string) {
-    await this.db
+  async remover(tenantId: string, id: string, ator?: AtorKds) {
+    const [row] = await this.db
       .delete(kdsAlertaConfig)
-      .where(and(eq(kdsAlertaConfig.id, id), eq(kdsAlertaConfig.tenantId, tenantId)));
+      .where(and(eq(kdsAlertaConfig.id, id), eq(kdsAlertaConfig.tenantId, tenantId)))
+      .returning();
+    if (row) await this.auditar(tenantId, ator, 'excluiu_alerta_kds', row, { tipo: row.tipo });
     return { ok: true };
   }
 
   // Dispara um alerta AGORA (teste / disparo manual pela tela do KDS).
-  async dispararManual(tenantId: string, dto: any) {
-    this.emitir(tenantId, {
+  async dispararManual(tenantId: string, dto: any, ator?: AtorKds) {
+    const alerta = {
       titulo: String(dto?.titulo ?? 'Alerta').slice(0, 200),
       detalhe: dto?.detalhe ? String(dto.detalhe).slice(0, 500) : '',
       prioridade: this.prio(dto?.prioridade),
       duracaoSeg: Math.max(3, Math.min(3600, Number(dto?.duracaoSeg) || 60)),
-    });
+    };
+    this.emitir(tenantId, alerta);
+    // O alerta aparece na tela de todos os KDS da empresa: quem mandou fica registrado.
+    await this.auditar(tenantId, ator, 'disparou_alerta_kds', alerta, { prioridade: alerta.prioridade, duracaoSeg: alerta.duracaoSeg });
     return { ok: true };
   }
 

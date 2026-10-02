@@ -6,6 +6,7 @@ import { api, getToken } from '@/lib/api';
 import { rotuloSenha, senhaCasa } from '@/lib/senha';
 import { connectAsGestor, connectAsDevice, type Socket } from '@/lib/rt';
 import { KdsMapaEntregadores } from '@/components/kds/kds-mapa-entregadores';
+import { HistoricoKds } from '@/components/kds/historico-kds';
 import { textoEntregadorDoCanal } from '@/components/delivery/logistica-canal';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -144,6 +145,8 @@ export default function KdsPage() {
   // Fase D — config de exibição do card (por aparelho; guardada no localStorage).
   const [view, setView] = useState<ViewCfg>(VIEW_PADRAO);
   const [cfgAberta, setCfgAberta] = useState(false);
+  // Histórico (auditoria): quem finalizou a tela, cancelou pedido ou mudou a configuração.
+  const [histAberto, setHistAberto] = useState(false);
   // O que ESTA tela mostra (por aparelho): os pedidos (padrão) ou o mapa dos entregadores —
   // o mapa só se o gestor ligou a chave da loja (mig 293, Delivery → Configurações).
   const [tela, setTela] = useState<'pedidos' | 'mapa'>('pedidos');
@@ -453,7 +456,7 @@ export default function KdsPage() {
   // ou o foco está em outro input (aí o próprio campo trata).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (cfgAberta || pedirTelaCheia || mostrarMapa) return; // no mapa não há card a avançar
+      if (cfgAberta || histAberto || pedirTelaCheia || mostrarMapa) return; // no mapa não há card a avançar
       const t = e.target as HTMLElement | null;
       const tag = t?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // campo trata
@@ -464,14 +467,14 @@ export default function KdsPage() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cfgAberta, pedirTelaCheia, mostrarMapa]);
+  }, [cfgAberta, histAberto, pedirTelaCheia, mostrarMapa]);
 
   // Limpa a tela: o SERVIDOR avança todos os cards num único request (vão para o próximo
   // KDS ou concluem). Assim não dispara um POST por card (o que estourava o 429).
   async function limparCards() {
     const ativos = pedidos.filter((p) => p.status !== 'cancelado' && p.status !== 'entregue');
     if (!ativos.length) return;
-    if (!confirm(`Finalizar todos os ${ativos.length} pedido(s) da tela? Eles vão avançar (próximo KDS ou concluir).`)) return;
+    if (!confirm(`Finalizar todos os ${ativos.length} pedido(s) da tela? Eles vão avançar (próximo KDS ou concluir). Fica registrado no histórico, com o seu nome.`)) return;
     try {
       await api.producaoLimparFila({
         canal,
@@ -651,7 +654,19 @@ export default function KdsPage() {
 
         <button
           type="button"
-          onClick={() => setCfgAberta((v) => !v)}
+          onClick={() => { setCfgAberta(false); setHistAberto((v) => !v); }}
+          aria-pressed={histAberto}
+          aria-expanded={histAberto}
+          className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
+          style={{ background: T.panel2, borderColor: T.border }}
+          title="Histórico: quem finalizou, cancelou ou mudou a configuração"
+        >
+          🕘
+        </button>
+
+        <button
+          type="button"
+          onClick={() => { setHistAberto(false); setCfgAberta((v) => !v); }}
           aria-pressed={cfgAberta}
           className="grid h-[42px] w-[42px] place-items-center rounded-[10px] border text-[17px]"
           style={{ background: T.panel2, borderColor: T.border }}
@@ -671,6 +686,8 @@ export default function KdsPage() {
           {claro ? '☀️' : '🌙'}
         </button>
       </header>
+
+      {histAberto && <HistoricoKds T={T} onFechar={() => setHistAberto(false)} />}
 
       {/* Modal de configuração (exibição + filtros + atalho). */}
       {cfgAberta && (
