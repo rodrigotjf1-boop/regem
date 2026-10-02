@@ -22,4 +22,17 @@ export class DeliveryLojaController {
   avisoDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: any) {
     return this.service.avisoVindoDaLoja(ctx.tenantId, dto);
   }
+
+  // A loja pede que a NUVEM envie ao canal (iFood, 99Food, Anota AI, Cardápio Web, Open Delivery)
+  // o status de um pedido dela — aceito, pronto, saiu, concluído, cancelado. A credencial dos
+  // canais fica só na nuvem; sem isto, mudança de status feita no servidor da loja não chegava
+  // ao canal. Responde o resultado do envio (a loja grava na linha do tempo dela). 409 = pedido
+  // ainda não sincronizado (a loja tenta de novo). Só na nuvem.
+  @Post('status-da-loja')
+  @HttpCode(200)
+  @CloudOnly()
+  @UseGuards(SyncTokenGuard)
+  statusDaLoja(@SyncCtx() ctx: SyncCtxData, @Body() dto: any) {
+    return this.service.statusVindoDaLoja({ tenantId: ctx.tenantId, unidadeId: ctx.unidadeId, equipamentoId: ctx.equipamentoId }, dto);
+  }
 }

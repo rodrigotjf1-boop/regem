@@ -26,6 +26,8 @@ export class NaoEnviado {
     readonly motivo: string,
     /** false = nem vale registro (ex.: a entrega é do canal, não há o que mandar). */
     readonly registrar = true,
+    /** true = não saiu porque ESTA máquina não tem a credencial do canal. */
+    readonly semCredencial = false,
   ) {}
 }
 export const SEM_CREDENCIAL = () =>
@@ -33,6 +35,8 @@ export const SEM_CREDENCIAL = () =>
     ehServidorLocal()
       ? 'este servidor (loja) não tem a credencial do canal — a integração fica na nuvem'
       : 'integração do canal inativa ou sem credencial',
+    true,
+    true,
   );
 
 export interface EnvioDoPedido {
@@ -46,8 +50,11 @@ export interface EnvioDoPedido {
   duracaoMs?: number | null;
 }
 
+/** O resultado de uma tentativa. `semCredencial`: nada saiu por falta da credencial NESTA máquina. */
+export type ResumoEnvio = Pick<EnvioDoPedido, 'resultado' | 'motivo' | 'httpStatus' | 'duracaoMs'> & { semCredencial?: boolean };
+
 /** Transforma o que foi observado numa tentativa de envio em resultado + motivo legível. */
-export function resumirEnvio(obs: Observacao<unknown>): Pick<EnvioDoPedido, 'resultado' | 'motivo' | 'httpStatus' | 'duracaoMs'> | null {
+export function resumirEnvio(obs: Observacao<unknown>): ResumoEnvio | null {
   const duracaoMs = obs.chamadas.reduce((s, c) => s + c.ms, 0) || null;
   const ultima = obs.chamadas[obs.chamadas.length - 1];
   const httpStatus = ultima?.status ?? null;
@@ -59,7 +66,9 @@ export function resumirEnvio(obs: Observacao<unknown>): Pick<EnvioDoPedido, 'res
     return ultima.ok ? `o canal recusou${trecho}` : `HTTP ${ultima.status}${trecho}`;
   };
   if (obs.valor instanceof NaoEnviado) {
-    return obs.valor.registrar ? { resultado: 'nao_enviado', motivo: obs.valor.motivo, httpStatus: null, duracaoMs } : null;
+    return obs.valor.registrar
+      ? { resultado: 'nao_enviado', motivo: obs.valor.motivo, httpStatus: null, duracaoMs, ...(obs.valor.semCredencial ? { semCredencial: true } : {}) }
+      : null;
   }
   if (obs.lancou) {
     const e = obs.erro as { message?: string } | null;
@@ -67,12 +76,37 @@ export function resumirEnvio(obs: Observacao<unknown>): Pick<EnvioDoPedido, 'res
   }
   if (!obs.chamadas.length) {
     // Nada saiu desta máquina. `true` sem chamada não existe; `false`/vazio = sem credencial.
-    return { resultado: 'nao_enviado', motivo: SEM_CREDENCIAL().motivo, httpStatus: null, duracaoMs: null };
+    return { resultado: 'nao_enviado', motivo: SEM_CREDENCIAL().motivo, httpStatus: null, duracaoMs: null, semCredencial: true };
   }
   // Quem envia e devolve verdadeiro/falso manda no resultado (a 99Food responde HTTP 200 com
   // o erro dentro do corpo); quem não devolve nada é julgado pela última chamada.
   const ok = typeof obs.valor === 'boolean' ? obs.valor : ultima.ok;
   return ok ? { resultado: 'enviado', motivo: null, httpStatus, duracaoMs } : { resultado: 'falhou', motivo: doCanal(), httpStatus, duracaoMs };
+}
+
+/** O que cada canal aceita ouvir — a lista que a nuvem confere quando a LOJA pede um envio. */
+export const ACOES_DO_CANAL: Record<string, readonly string[]> = {
+  ifood: ['confirm', 'ready', 'dispatch', 'cancel'],
+  '99food': ['confirm', 'ready', 'delivered', 'cancel'],
+  anotaai: ['ready', 'finalizar', 'cancel'],
+  cardapio_web: ['confirm', 'ready', 'delivered', 'finalize', 'cancel'],
+  open_delivery: ['dispatch', 'cancel'],
+  delivery_direto: ['dispatch', 'cancel'],
+};
+
+/** Já saiu, há pouco, este mesmo aviso deste pedido? (repetição da loja depois de resposta perdida) */
+export async function enviadoHaPouco(db: DrizzleDB, tenantId: string, pedidoId: string, destino: string, acao: string, minutos = 10): Promise<boolean> {
+  const desde = new Date(Date.now() - minutos * 60_000);
+  try {
+    const r: any = await db.execute(sql`
+      select 1 from pedido_envio
+       where tenant_id = ${tenantId} and pedido_id = ${pedidoId} and destino = ${destino} and acao = ${acao}
+         and resultado = 'enviado' and criado_em >= ${desde}
+       limit 1`);
+    return (r.rows ?? r).length > 0;
+  } catch {
+    return false; // sem a tabela não há como saber: segue e envia
+  }
 }
 
 let avisouSemTabela = false;
