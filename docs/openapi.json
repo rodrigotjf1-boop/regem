@@ -12599,6 +12599,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "evento",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -13239,6 +13247,26 @@
         ],
         "responses": {
           "201": {
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/v1/cardapio/eventos": {
+      "get": {
+        "operationId": "EventosCardapioController_obter",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        }
+      },
+      "put": {
+        "operationId": "EventosCardapioController_salvar",
+        "parameters": [],
+        "responses": {
+          "200": {
             "description": ""
           }
         }

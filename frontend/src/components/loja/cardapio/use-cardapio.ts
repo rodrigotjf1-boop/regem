@@ -167,13 +167,15 @@ export function useCardapio(token: string, mesa: string, search: { get(nome: str
   const temCliente = typeof window !== 'undefined' && !!getClienteToken(token);
 
   // ───────────────────────── carga do cardápio ─────────────────────────
+  // `?evento=natal` no link = prévia de um evento sazonal (o "Ver prévia" do painel).
+  const previaEvento = search?.get('evento') ?? '';
   const carregar = useCallback(async () => {
     try {
-      setMenu(await api.cardapioMenu(token));
+      setMenu(await api.cardapioMenu(token, previaEvento));
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Cardápio indisponível');
     }
-  }, [token]);
+  }, [token, previaEvento]);
   useEffect(() => {
     carregar();
   }, [carregar]);

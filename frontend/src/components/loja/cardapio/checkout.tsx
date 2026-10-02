@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { buscarCep, localizacaoAtual } from '@/lib/geo';
 import { AvisoOrigem } from '@/components/loja/aviso-origem';
 import type { Cardapio } from './use-cardapio';
+import { EvTrilha } from '../eventos/contexto';
 import { rotuloAvancar, tituloEtapa, type Etapa } from './etapas';
 import { OPCOES_TEMPLATE } from './tipos-template';
 import { brl, Caixa, Foto, Ic, irAoCampo, Qtd, type NomeIcone } from './partes';
@@ -155,6 +156,7 @@ export function Checkout({ c }: { c: Cardapio }) {
   return (
     <div className="p-panel" role="dialog" aria-label={titulo}>
       {cabecalho}
+      <EvTrilha c={c} />
       <div className="p-pbody" ref={corpo} key={etapa}>
         {etapa === 'sacola' && <EtapaSacola c={c} />}
         {etapa === 'entrega' && <EtapaEntrega c={c} />}

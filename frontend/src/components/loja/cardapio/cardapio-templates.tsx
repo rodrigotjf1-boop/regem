@@ -12,6 +12,7 @@ import { Checkout } from './checkout';
 import { Confirmacao } from './confirmacao';
 import { Conta } from './conta';
 import { Busca, InfoLoja, OndeVoceEsta } from './folhas';
+import { ProvedorEvento, useCamadaDoEvento } from '../eventos/contexto';
 
 // CARDÁPIO PÚBLICO NOS TEMPLATES NOVOS (Galeria, Balcão, Oferta, Regem Fluxo). A regra inteira
 // mora em `useCardapio`; este componente só escolhe o que desenhar: a vitrine do template, a barra
@@ -34,13 +35,18 @@ export function CardapioTemplates({
   temaForcado?: TemplateChave | null;
 }) {
   const c = useCardapio(token, mesa, search, temaForcado);
+  // Evento sazonal no ar (Natal, Black Friday, Dia de jogo…): `null` na imensa maioria dos dias.
+  // É só enfeite por cima do template — a cor de ação pode virar a do evento; o resto é da loja.
+  const ev = useCamadaDoEvento(c);
+  const acento = (ev && ev.pecas.acentoDoEvento(ev.evento, c.dark)) || c.accent;
   const vars = {
-    '--p-acc': c.accent,
-    '--p-on': corSobre(c.accent),
-    '--p-acc-soft': corSuave(c.accent, c.dark ? 0.18 : 0.1),
+    '--p-acc': acento,
+    '--p-on': corSobre(acento),
+    '--p-acc-soft': corSuave(acento, c.dark ? 0.18 : 0.1),
     ...(c.corCabecalho ? { '--p-cab': c.corCabecalho, '--p-cab-ink': c.corTextoCabecalho } : {}),
   } as CSSProperties;
-  const raiz = `p-root tpl-${c.template} ${c.corCabecalho ? 'tem-cab' : ''} ${FONTES_TEMPLATES}`;
+  const raiz = `p-root tpl-${c.template} ${c.corCabecalho ? 'tem-cab' : ''} ${ev ? ev.pecas.classesDoEvento(ev.evento) : ''} ${FONTES_TEMPLATES}`;
+  const aviso = c.toast ? (ev ? ev.pecas.fraseDoAviso(ev.evento, c.toast) : c.toast) : '';
 
   if (c.erro && !c.menu)
     return (
@@ -82,8 +88,11 @@ export function CardapioTemplates({
     return (
       <div className="p-palco">
         <main className={raiz} style={vars}>
-          <Confirmacao c={c} />
-          {c.toast && <Aviso texto={c.toast} />}
+          <ProvedorEvento valor={ev}>
+            {ev && <ev.pecas.Camada c={c} e={ev} />}
+            <Confirmacao c={c} />
+            {aviso && <Aviso texto={aviso} />}
+          </ProvedorEvento>
         </main>
       </div>
     );
@@ -97,18 +106,21 @@ export function CardapioTemplates({
   return (
     <div className="p-palco">
       <main className={raiz} style={vars}>
-        <Vitrine c={c} />
-        {c.qtdItens > 0 && <Barra c={c} />}
-        {camadas.map((camada, i) => {
-          if (camada === 'produto')
-            return c.sel ? <ProdutoTela key={`produto-${c.sel.id}-${i}`} sel={c.sel} template={c.template} loja={c.loja} onFechar={c.voltar} onAdd={c.adicionarDoProduto} /> : null;
-          if (camada === 'busca') return <Busca key="busca" c={c} />;
-          if (camada === 'info') return <InfoLoja key="info" c={c} />;
-          if (camada === 'conta') return <Conta key="conta" c={c} />;
-          if (camada === 'local') return <OndeVoceEsta key="local" c={c} />;
-          return <Checkout key="checkout" c={c} />;
-        })}
-        {c.toast && <Aviso texto={c.toast} />}
+        <ProvedorEvento valor={ev}>
+          {ev && <ev.pecas.Camada c={c} e={ev} />}
+          <Vitrine c={c} />
+          {c.qtdItens > 0 && <Barra c={c} />}
+          {camadas.map((camada, i) => {
+            if (camada === 'produto')
+              return c.sel ? <ProdutoTela key={`produto-${c.sel.id}-${i}`} sel={c.sel} template={c.template} loja={c.loja} onFechar={c.voltar} onAdd={c.adicionarDoProduto} /> : null;
+            if (camada === 'busca') return <Busca key="busca" c={c} />;
+            if (camada === 'info') return <InfoLoja key="info" c={c} />;
+            if (camada === 'conta') return <Conta key="conta" c={c} />;
+            if (camada === 'local') return <OndeVoceEsta key="local" c={c} />;
+            return <Checkout key="checkout" c={c} />;
+          })}
+          {aviso && <Aviso texto={aviso} />}
+        </ProvedorEvento>
       </main>
     </div>
   );

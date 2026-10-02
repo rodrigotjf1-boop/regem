@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import type { Cardapio } from './use-cardapio';
 import { brl, extrasDe, Foto, Ic, Logo, pctDesconto, Preco, seloDe } from './partes';
+import { EvFaixa, EvIcone, EvTopo } from '../eventos/contexto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -281,6 +282,7 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
 
   return (
     <div className="p-scroll" ref={rolagem}>
+      <EvTopo />
       <header className="g-top">
         <div className="g-logo">
           <Logo loja={c.loja} />
@@ -301,6 +303,7 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
       </header>
       <Mesa c={c} />
       <AvisoLoja c={c} />
+      <EvFaixa c={c} />
       {slides.length > 0 && (
         <>
           <div
@@ -370,12 +373,15 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
       {secoes.map((s) =>
         s.id === '_mais' ? (
           <section key={s.id} className="g-sec" data-sec={s.id}>
-            <h2>{s.nome}</h2>
+            <h2>
+              <EvIcone />
+              {s.nome}
+            </h2>
             <div className="hs g-car">
-              {s.itens.map((p) => (
+              {s.itens.map((p, i) => (
                 <button key={p.id} type="button" className="g-big" onClick={() => c.abrirProduto(p)}>
                   <div className="g-art">
-                    <Foto src={p.imagemRef} alt={p.nome} />
+                    <Foto src={p.imagemRef} alt={p.nome} enfeite={i % 3 === 0} produtoId={p.id} />
                     {seloDe(p) && <span className="g-tag">{seloDe(p)}</span>}
                     {mais(p)}
                   </div>
@@ -390,13 +396,16 @@ export function VitrineGaleria({ c }: { c: Cardapio }) {
           </section>
         ) : (
           <section key={s.id} className="g-sec" data-sec={s.id}>
-            <h2>{s.nome}</h2>
+            <h2>
+              <EvIcone />
+              {s.nome}
+            </h2>
             {s.descricao && <p className="p-sec-d">{s.descricao}</p>}
             <div className="g-grid">
-              {s.itens.map((p) => (
+              {s.itens.map((p, i) => (
                 <button key={p.id} type="button" className="g-card" disabled={p.esgotado} onClick={() => c.abrirProduto(p)}>
                   <div className="g-art">
-                    <Foto src={p.imagemRef} alt={p.nome} />
+                    <Foto src={p.imagemRef} alt={p.nome} enfeite={i % 3 === 0} produtoId={p.id} />
                     {pctDesconto(p) > 0 ? <span className="g-tag">-{pctDesconto(p)}%</span> : seloDe(p) && <span className="g-tag">{seloDe(p)}</span>}
                     {mais(p)}
                   </div>
@@ -435,7 +444,7 @@ export function VitrineBalcao({ c }: { c: Cardapio }) {
   const { ativa, aoRolar, ir } = useAbas(rolagem, abas, secoes);
   const abrirBanner = useBanner(c, ir);
   const q = c.busca.trim();
-  const linha = (p: any) => (
+  const linha = (p: any, i: number) => (
     <button key={p.id} type="button" className="b-row" disabled={p.esgotado} onClick={() => c.abrirProduto(p)}>
       <div>
         {seloDe(p) && <span className="b-sel">{seloDe(p)}</span>}
@@ -455,13 +464,14 @@ export function VitrineBalcao({ c }: { c: Cardapio }) {
         {extrasDe(p, c.loja) && <small className="p-ext">{extrasDe(p, c.loja)}</small>}
       </div>
       <div className="b-th">
-        <Foto src={p.imagemRef} alt={p.nome} />
+        <Foto src={p.imagemRef} alt={p.nome} enfeite={i % 3 === 0} produtoId={p.id} />
       </div>
     </button>
   );
   const temBanner = c.showBanner && (c.menu?.banners ?? []).length > 0;
   return (
     <div className="p-scroll" ref={rolagem} onScroll={aoRolar}>
+      <EvTopo />
       <div className={`b-cover ${temBanner ? '' : 'lisa'}`}>
         <Banners c={c} classe="na-capa" onAbrir={abrirBanner} />
         <button type="button" className="ac-fab" onClick={() => c.abrir('conta')} aria-label="Sua conta">
@@ -505,6 +515,7 @@ export function VitrineBalcao({ c }: { c: Cardapio }) {
       </div>
       <Mesa c={c} />
       <AvisoLoja c={c} />
+      <EvFaixa c={c} />
       <div className="b-search">
         <label>
           <Ic n="search" s={18} />
@@ -532,7 +543,10 @@ export function VitrineBalcao({ c }: { c: Cardapio }) {
           )}
           {secoes.map((s) => (
             <section key={s.id} className="b-sec" data-sec={s.id}>
-              <h2>{s.nome}</h2>
+              <h2>
+                <EvIcone />
+                {s.nome}
+              </h2>
               {s.descricao && <p className="p-sec-d">{s.descricao}</p>}
               <div className="b-list">{s.itens.map(linha)}</div>
             </section>
@@ -569,7 +583,7 @@ export function VitrineOferta({ c }: { c: Cardapio }) {
   const promos: any[] = c.produtosPromo;
   const maior = promos.reduce((m, p) => Math.max(m, pctDesconto(p)), 0);
   const temBanner = c.showBanner && (c.menu?.banners ?? []).length > 0;
-  const cartao = (p: any) => (
+  const cartao = (p: any, i: number) => (
     <button key={p.id} type="button" className="o-card" disabled={p.esgotado} onClick={() => c.abrirProduto(p)}>
       <div>
         {seloDe(p) && <span className={`o-rib ${p.destaque && !(p.selos ?? []).length ? '' : 'hot'}`}>{String(seloDe(p)).toUpperCase()}</span>}
@@ -588,13 +602,14 @@ export function VitrineOferta({ c }: { c: Cardapio }) {
         {extrasDe(p, c.loja) && <small className="p-ext">{extrasDe(p, c.loja)}</small>}
       </div>
       <div className="a">
-        <Foto src={p.imagemRef} alt={p.nome} />
+        <Foto src={p.imagemRef} alt={p.nome} enfeite={i % 3 === 0} produtoId={p.id} />
         {pctDesconto(p) > 0 && <span className="o-off">-{pctDesconto(p)}%</span>}
       </div>
     </button>
   );
   return (
     <div className="p-scroll" ref={rolagem} onScroll={aoRolar}>
+      <EvTopo />
       <div className={`o-band ${temBanner ? '' : 'lisa'}`}>
         <Banners c={c} classe="na-capa" onAbrir={abrirBanner} />
         <button type="button" className="ac-fab" onClick={() => c.abrir('conta')} aria-label="Sua conta">
@@ -633,6 +648,7 @@ export function VitrineOferta({ c }: { c: Cardapio }) {
       </div>
       <Mesa c={c} />
       <AvisoLoja c={c} />
+      <EvFaixa c={c} />
       <BarraFreteVitrine c={c} />
       <PecaDeNovo c={c} classe="f-re o-re" botao={() => 'Adicionar'} />
       {promos.length > 0 && (
@@ -642,10 +658,10 @@ export function VitrineOferta({ c }: { c: Cardapio }) {
           </h2>
           <small>Preço especial enquanto a oferta estiver no ar</small>
           <div className="hs o-pro">
-            {promos.map((p) => (
+            {promos.map((p, i) => (
               <button key={p.id} type="button" className="o-pc" onClick={() => c.abrirProduto(p)}>
                 <div className="a">
-                  <Foto src={p.imagemRef} alt={p.nome} />
+                  <Foto src={p.imagemRef} alt={p.nome} enfeite={i % 3 === 0} />
                   {pctDesconto(p) > 0 && <span className="o-off">-{pctDesconto(p)}%</span>}
                 </div>
                 <div className="t">
@@ -671,7 +687,10 @@ export function VitrineOferta({ c }: { c: Cardapio }) {
       )}
       {secoes.map((s) => (
         <section key={s.id} className="o-sec o-sec-l" data-sec={s.id}>
-          <h2>{s.nome}</h2>
+          <h2>
+            <EvIcone />
+            {s.nome}
+          </h2>
           <small>{s.descricao ?? ''}</small>
           <div className="o-list">{s.itens.map(cartao)}</div>
         </section>
@@ -732,6 +751,7 @@ export function VitrineFluxo({ c }: { c: Cardapio }) {
     .join(' · ');
   return (
     <div className="p-scroll" ref={rolagem} onScroll={aoRolar}>
+      <EvTopo />
       <header className="f-top">
         {/* O protótipo não tinha logo no Fluxo; a loja que cadastrou o seu continua vendo-o. */}
         {(c.loja?.logoRef || String(c.loja?.logoEmoji ?? '').trim()) && (
@@ -807,16 +827,17 @@ export function VitrineFluxo({ c }: { c: Cardapio }) {
           )}
         </div>
       )}
+      <EvFaixa c={c} />
       <Banners c={c} classe="solta" onAbrir={abrirBanner} />
       <PecaDeNovo c={c} classe="f-re" botao={() => 'Adicionar'} />
       {destaques.length > 0 && (
         <section className="f-sec">
           <h2>Mais pedidos</h2>
           <div className="hs f-hi">
-            {destaques.map((p) => (
+            {destaques.map((p, i) => (
               <button key={p.id} type="button" className="f-hc" onClick={() => c.abrirProduto(p)}>
                 <div className="a">
-                  <Foto src={p.imagemRef} alt={p.nome} />
+                  <Foto src={p.imagemRef} alt={p.nome} enfeite={i % 3 === 0} />
                 </div>
                 <b>{p.nome}</b>
                 <span className="pr">{brl(p.precoVenda)}</span>
@@ -837,13 +858,14 @@ export function VitrineFluxo({ c }: { c: Cardapio }) {
       {secoes.map((s) => (
         <section key={s.id} className="f-sec" data-sec={s.id}>
           <h2>
+            <EvIcone />
             {s.nome} <small>{s.itens.length}</small>
           </h2>
           {s.descricao && <p className="p-sec-d">{s.descricao}</p>}
-          {s.itens.map((p) => (
+          {s.itens.map((p, i) => (
             <div key={p.id} className={`f-row ${p.esgotado ? 'off' : ''}`}>
               <button type="button" className="a" onClick={() => c.abrirProduto(p)} aria-label={p.nome} tabIndex={-1} disabled={p.esgotado}>
-                <Foto src={p.imagemRef} />
+                <Foto src={p.imagemRef} enfeite={i % 3 === 0} produtoId={p.id} />
               </button>
               <button type="button" className="t" onClick={() => c.abrirProduto(p)} disabled={p.esgotado}>
                 {seloDe(p) && <span className={`f-sel ${seloDe(p) === 'Mais pedido' ? 'hot' : ''}`}>{seloDe(p)}</span>}

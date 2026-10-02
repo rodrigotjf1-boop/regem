@@ -32,9 +32,11 @@ import { exigirBooleano } from '../../common/exigir';
 export class CardapioPublicoController {
   constructor(private readonly service: CardapioService) {}
 
+  // `?evento=natal` mostra o cardápio como fica naquele evento (a prévia do painel), sem mudar a
+  // escolha da loja.
   @Get(':token')
-  menu(@Param('token') token: string) {
-    return this.service.menu(token);
+  menu(@Param('token') token: string, @Query('evento') evento?: string) {
+    return this.service.menu(token, evento);
   }
 
   // Beacon anônimo do funil (F4) — best-effort, rate-limitado (sem PII).

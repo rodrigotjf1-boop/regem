@@ -83,8 +83,16 @@ import { lojaDoCanal, lojasAtivas, pausadosNaLoja } from '../../common/pausa-loj
 import { gravarOrigemPedido, medicaoDeAnuncios } from './origem-pedido';
 import { escolhaNoCheckout, promocoesDaLoja } from './promocoes-cardapio';
 import { TIPOS_EVENTO_FUNIL, ehTemplateCardapio, proximaAberturaDe, templateDoCardapio } from './menu-themes';
+import { ehEventoCardapio, eventoEmPrevia, eventoNoAr, lerEventos } from './eventos-cardapio';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// O tema que a tela mandou, sem a chave dos eventos sazonais (ela não se grava pela rota geral).
+function semEventos(temaConfig: Record<string, unknown>): Record<string, unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { eventos, ...resto } = temaConfig;
+  return resto;
+}
+
 // Distância entre duas coordenadas (km) — frete por raio.
 function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
@@ -377,9 +385,12 @@ export class CardapioService {
       menuTheme: ehTemplateCardapio(dto.menuTheme) ? dto.menuTheme : row?.menuTheme ?? 'classic',
       // Personalização do tema (cores + toggles + intervalo do banner). Merge com
       // o atual para permitir salvar só parte (ex.: só o intervalo pela tela de banners).
+      // A chave `eventos` NÃO se grava por aqui: é do presidente e tem rota própria
+      // (`eventos-cardapio.service.ts`). Esta tela manda o tema inteiro que carregou — sem tirar a
+      // chave, um "Editar tema" aberto antes regravaria os eventos antigos por cima dos novos.
       temaConfig:
         dto.temaConfig && typeof dto.temaConfig === 'object'
-          ? { ...(row?.temaConfig as any), ...dto.temaConfig }
+          ? { ...(row?.temaConfig as any), ...semEventos(dto.temaConfig) }
           : row?.temaConfig ?? {},
       ramo: dto.ramo ?? row?.ramo ?? 'food',
       logoEmoji: dto.logoEmoji ?? row?.logoEmoji ?? null,
@@ -1214,7 +1225,37 @@ export class CardapioService {
     }
   }
 
-  async menu(token: string) {
+  /**
+   * O evento sazonal que está no ar (ou o da prévia `?evento=`), já decidido pelo dia de Brasília:
+   * todo cliente vê o mesmo, sem depender do relógio do aparelho. `null` = cardápio normal. Só
+   * existe evento que o presidente ligou (`eventos-cardapio.ts`). Uma falha aqui nunca derruba o
+   * cardápio — vira "sem evento", com o motivo no log.
+   */
+  private async eventoDoCardapio(cfg: any, previa?: string) {
+    try {
+      const config = lerEventos((cfg.temaConfig as any)?.eventos);
+      const agora = new Date();
+      const ev = ehEventoCardapio(previa) ? eventoEmPrevia(config, previa, agora) : eventoNoAr(config, agora);
+      if (!ev) return null;
+      const { cupomJogoId, ...resto } = ev;
+      let cupomJogo: string | null = null;
+      if (cupomJogoId) {
+        // O mini-jogo só entrega o CÓDIGO de um cupom ativo da própria loja; o desconto continua
+        // sendo conferido no servidor quando o cliente usa o cupom.
+        const [c] = await this.db
+          .select({ codigo: cupom.codigo })
+          .from(cupom)
+          .where(and(eq(cupom.id, cupomJogoId), eq(cupom.tenantId, cfg.tenantId), eq(cupom.ativo, true)));
+        cupomJogo = c?.codigo ?? null;
+      }
+      return { ...resto, cupomJogo };
+    } catch (e: any) {
+      this.logger.warn(`evento sazonal do cardápio ignorado (tenant ${cfg?.tenantId}): ${e?.message ?? e}`);
+      return null;
+    }
+  }
+
+  async menu(token: string, previaEvento?: string) {
     const cfg = await this.resolver(token);
     // ===== Consultas agrupadas por NIVEL DE DEPENDENCIA =====
     // Este e o cardapio que o cliente abre para pedir, e fazia ~14 idas e voltas ao
@@ -1472,6 +1513,8 @@ export class CardapioService {
         entrega: this.proximaAbertura(cfg, 'entrega'),
         retirada: this.proximaAbertura(cfg, 'retirada'),
       },
+      // Evento sazonal no ar (Natal, Black Friday, Dia de jogo…) ou `null`. A tela só enfeita.
+      evento: await this.eventoDoCardapio(cfg, previaEvento),
       // Contexto para o robô/atendimento (o n8n lê tudo com o token):
       horarios: cfg.horarios ?? [],
       tipos: {

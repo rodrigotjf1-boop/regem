@@ -2,6 +2,7 @@
 
 import type { Cardapio } from './use-cardapio';
 import { brl, Ic } from './partes';
+import { EvApoioOk, EvChamadaOk, EvSeloOk, EvTopo, useEventoNoAr } from '../eventos/contexto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @next/next/no-img-element */
 
@@ -59,6 +60,10 @@ export function Confirmacao({ c }: { c: Cardapio }) {
       ? new Date(resumo.enviadoEm + Number(resumo.tempoMin) * 60000).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       : null;
   const temPontos = !!loja?.fidelidadeAtiva && !mesa && !ped.orcamento && !cancelado && !expirado;
+  // Evento sazonal: a comemoração (chamada, selo, partículas) só vale com o pedido garantido — com
+  // o Pix pendente, vencido ou o pedido cancelado, a tela fica limpa para o cliente resolver.
+  const evento = useEventoNoAr();
+  const festa = !aguardandoPag && !cancelado && !expirado;
 
   function copiarPix() {
     const fim = () => c.avisar('Código Pix copiado');
@@ -72,10 +77,12 @@ export function Confirmacao({ c }: { c: Cardapio }) {
   return (
     <div className="p-panel p-conf">
       <div className="p-pbody">
+        <EvTopo />
         <div className="ok-top">
-          <div className={`ok-badge ${pixNaTela ? 'wait' : ''} ${expirado || cancelado ? 'err' : ''}`}>
-            <Ic n={pixNaTela || expirado ? 'clock' : cancelado ? 'close' : 'check'} s={30} />
+          <div className={`ok-badge ${pixNaTela ? 'wait' : ''} ${expirado || cancelado ? 'err' : ''} ${evento && festa ? 'ev' : ''}`}>
+            <EvSeloOk festa={festa} padrao={<Ic n={pixNaTela || expirado ? 'clock' : cancelado ? 'close' : 'check'} s={30} />} />
           </div>
+          <EvChamadaOk festa={festa} />
           <h2>{titulo}</h2>
           {mesa ? (
             <p>Foi para a cozinha (mesa {ped.mesa}).</p>
@@ -84,6 +91,7 @@ export function Confirmacao({ c }: { c: Cardapio }) {
               Senha <b>{ped.displayId}</b> · total {brl(ped.total ?? resumo.totalPrevisto)}
             </p>
           )}
+          <EvApoioOk festa={festa} />
         </div>
         <div className="ok-body">
           {/* Pagamento confirmado (online) — some o QR e libera o acompanhamento. */}

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "check:etapas": "node scripts/check-etapas.mjs",
-    "test": "npm run check:etapas"
+    "check:eventos": "node scripts/check-eventos.mjs",
+    "test": "npm run check:etapas && npm run check:eventos"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.0",

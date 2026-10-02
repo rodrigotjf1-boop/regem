@@ -1,13 +1,14 @@
-# 06 · Como os templates foram implementados
+# Como os templates e os eventos foram implementados
 
-> Estado em 01/10/2026. Os arquivos `00` a `05` são a especificação; este diz o que entrou no código, onde está e o que ficou diferente do protótipo.
+> Estado em 01/10/2026. Os arquivos `00` a `08` são a especificação; este diz o que entrou no código, onde está e o que ficou diferente do protótipo. Seções 1 a 4: os quatro templates. Seção 5: os eventos sazonais. O clube de recompra (`07`) não está implementado.
 
 ## 1. Estado
 
 | Entrega | O que faz | Situação |
 |---|---|---|
 | **A** | Os quatro templates completos, em **prévia** pelo link `?tema=galeria|balcao|oferta|fluxo` (o cardápio da loja no template, sem mudar a escolha dela). O layout de antes continuava valendo para todo mundo. | no ar (PR #601) |
-| **B** | Os layouts `classic`, `fastfood` e `grid` saem; loja que estava num deles passa ao **Regem Fluxo**; o painel (Delivery → Configurações → "Modelo do cardápio") lista os quatro templates, com a linha "Indicado para…" e o link **Ver prévia**. `?tema=` continua valendo como prévia. | PR seguinte ao #601 |
+| **B** | Os layouts `classic`, `fastfood` e `grid` saem; loja que estava num deles passa ao **Regem Fluxo**; o painel (Delivery → Configurações → "Modelo do cardápio") lista os quatro templates, com a linha "Indicado para…" e o link **Ver prévia**. `?tema=` continua valendo como prévia. | no ar (PR #602) |
+| **Eventos** | Os 13 eventos sazonais como camada por cima dos templates; o presidente liga os que quiser em Delivery → Configurações → Eventos. Nenhum liga sozinho. | seção 5 |
 
 ## 2. Onde está cada coisa
 
@@ -67,3 +68,54 @@ Ainda por fazer: a página de acompanhamento `/c/[token]/pedido/[id]` continua c
 - **Entrega B:** os mesmos pedidos refeitos com o template vindo da loja (sem `?tema=`): corpo idêntico ao do layout antigo; loja com `fastfood` gravado abre no Regem Fluxo; cor de cabeçalho e logo em emoji conferidos nos quatro.
 - **Produção (entrega A):** os quatro templates abertos em `app.dmsregem.com` com o cardápio real da loja piloto, só leitura.
 - **Regras das etapas:** `npm test` em `frontend/` (13 grupos de casos).
+
+## 5. Eventos sazonais (`06-eventos-sazonais.md`)
+
+**Como funciona.** O servidor decide o evento (só entre os que o presidente ligou, pelo dia de Brasília) e manda no cardápio público o campo `evento`, ou `null`. A tela só enfeita: sem `evento`, nada do evento é baixado nem executado.
+
+```
+backend/src/modules/cardapio/
+├── eventos-cardapio.ts              calendário, configuração e "qual evento está no ar" — puro, com 29 testes
+├── eventos-cardapio.service.ts      GET/PUT da configuração (PUT só presidente, auditado, troca só a chave `eventos`)
+├── eventos-cardapio.controller.ts   /cardapio/eventos
+└── cardapio.service.ts              menu(): campo `evento` e a prévia `?evento=`; setConfig(): ignora `temaConfig.eventos`
+frontend/src/components/loja/eventos/    contexto (encaixes) · catalogo · arte · guirlanda · particulas · pecas
+frontend/src/app/c/[token]/temas/eventos.css   tudo sob `.p-root.ev-on`
+frontend/src/fonts/eventos/                    12 fontes dos títulos de evento (embutidas)
+frontend/src/components/delivery/eventos-panel.tsx   a tela do presidente
+frontend/scripts/check-eventos.mjs              asserts dos textos e contagens (npm test)
+```
+
+**O que mudou no código que já existia** (de propósito, o mínimo):
+
+| Arquivo | Mudança |
+|---|---|
+| `cardapio.service.ts` | `menu(token, previaEvento?)` devolve `evento`; `setConfig` tira `eventos` do tema que a tela manda |
+| `cardapio.controller.ts` / `cardapio.module.ts` | `?evento=` na rota pública; controller e serviço novos registrados |
+| `partes.tsx` | `Foto` aceita `enfeite` e `produtoId` (sem evento, não desenham nada) |
+| `vitrines.tsx` | encaixes: enfeite no topo, faixa abaixo do cabeçalho, ícone nos títulos, `enfeite` em 1 a cada 3 fotos |
+| `checkout.tsx` | encaixe da trilha entre o cabeçalho e o corpo |
+| `confirmacao.tsx` | encaixes do topo, da chamada, da frase e do selo — só com o pedido garantido |
+| `cardapio-templates.tsx` | classes `ev-on ev-<chave>` na raiz, cor de ação do evento, canvas das partículas, frase do aviso |
+| `use-cardapio.ts` / `lib/api.ts` | repassam `?evento=` do link para a leitura do cardápio; rotas do painel |
+| `config-panel.tsx` | item "Eventos" no menu das Configurações |
+
+Nada disso mexe na regra do pedido: o corpo do `POST /pedido` é o mesmo com e sem evento.
+
+**Diferente do protótipo e da primeira versão da especificação:** ver `06-eventos-sazonais.md` §9 (nenhum evento liga sozinho; período em dias antes/depois; prévia por link; rota própria só do presidente; fontes embutidas; textos neutros; confirmação só comemora com o pedido garantido; modo escuro). Além disso:
+
+| # | No protótipo | No cardápio real | Por quê |
+|---|---|---|---|
+| 1 | Acessório em 1 a cada 3 fotos da tela inteira | 1 a cada 3 de **cada lista** (seção, destaques, coleção) | a conta fica estável quando o cliente filtra ou busca |
+| 2 | Regem Fluxo: faixa do evento antes da tira "Entregar em" quando há aviso da loja | sempre depois da tira "Entregar em" | o endereço é a primeira decisão do Fluxo |
+| 3 | Sem coleção escolhida, produtos de exemplo | os destaques da loja (na Black Friday, os produtos com preço "de/por"); sem nenhum, a coleção não aparece | não há produto de exemplo no cardápio real |
+| 4 | Cupons `PASCOA10` e `DOCES10` fixos | o cupom que o presidente escolheu entre os cupons ativos da loja | o desconto é regra do cupom da loja |
+| 5 | Navegador antigo (sem `:has()`) | o acessório fica dentro da foto, sem sair pela borda | degrada sem quebrar |
+
+**Como foi conferido**
+
+- **Servidor:** 29 testes do calendário e da configuração; 7 testes contra o Postgres real (gravação que troca só `eventos`, rota geral que não apaga os eventos, produto e cupom da própria empresa, prévia, código do cupom).
+- **API real** (servidor da worktree, banco de teste local): sem login 401; gerente vê e recebe 403 ao gravar; presidente grava; valor torto, campeonato na chamada e produto de outra empresa são recusados com o motivo; a configuração crua não aparece no cardápio público; jogo cadastrado para daqui a 30 minutos põe o Dia de jogo no ar; auditoria registrada.
+- **Navegador, build de produção:** os 13 eventos nos 4 templates (52 vitrines: classe, cor, enfeite, faixa, coleção, ícones, acessórios ≤ 1/3, partículas, sem rolagem lateral, nenhum botão coberto, sem erro de console) e os percursos: pedido completo com evento (corpo sem nada do evento), Pix pendente (tela limpa) e Pix pago (comemora), "Animações" e "Cores do evento" desligados, movimento reduzido, título/texto/coleção do presidente, prévia pelo link, modo escuro, Dia de jogo antes e durante, Black Friday, abóbora e caça aos ovos, QR de mesa, serviços, cor de cabeçalho da loja e computador.
+- **Painel** (com o servidor real): presidente liga, personaliza, cadastra jogo e abre a prévia do cardápio real; gerente vê tudo travado; 375 px sem rolagem lateral.
+- **Sem regressão:** o mesmo pedido nos 4 templates continua com o corpo idêntico ao do layout antigo; os cenários dos templates passam.
